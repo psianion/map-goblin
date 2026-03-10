@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand';
 import type { Polygon } from '../../types/geometry.ts';
-import type { BackgroundLayer, DungeonLayer, DungeonStyle, Layer, MapBuilderStore, PlacedObject, ShapeRecord, SublayerVisibility, WallSegment } from '../types.ts';
+import type { DungeonStyle, Layer, MapBuilderStore, PlacedObject, ShapeRecord, SublayerVisibility, WallSegment } from '../types.ts';
 import { BUILT_IN_PRESETS, loadCustomPresets, saveCustomPresetsToStorage, deleteCustomPresetFromStorage } from '../presets.ts';
 import type { StylePreset } from '../presets.ts';
 import { ApplyPresetCommand } from '../commands.ts';
@@ -103,21 +103,21 @@ export const createLayersSlice: StateCreator<
     set((state) => {
       const layer = state.layers.find((l) => l.id === layerId);
       if (layer && layer.type === 'dungeon') {
-        (layer as DungeonLayer).sublayerVisibility[sublayer] = visible;
+        layer.sublayerVisibility[sublayer] = visible;
       }
     }),
   setBackgroundTexture: (layerId, url) =>
     set((state) => {
       const layer = state.layers.find((l) => l.id === layerId);
       if (layer && layer.type === 'background') {
-        (layer as BackgroundLayer).backgroundTexture = url;
+        layer.backgroundTexture = url;
       }
     }),
   setBackgroundLocked: (layerId, locked) =>
     set((state) => {
       const layer = state.layers.find((l) => l.id === layerId);
       if (layer && layer.type === 'background') {
-        (layer as BackgroundLayer).presetLock = locked;
+        layer.presetLock = locked;
       }
     }),
   applyPreset: (layerId, presetName) => {
@@ -136,7 +136,7 @@ export const createLayersSlice: StateCreator<
     }
     if (!presetStyle) return;
 
-    const previousStyle = structuredClone(layer.style) as DungeonStyle;
+    const previousStyle = structuredClone(layer.style);
     const cmd = new ApplyPresetCommand(
       `Apply preset "${presetName}"`,
       layerId,
@@ -145,39 +145,35 @@ export const createLayersSlice: StateCreator<
     );
     undoManager.execute(cmd);
   },
-  saveCustomPreset: (name, style) =>
+  saveCustomPreset: (name, style) => {
+    const presetStyle: StylePreset = {
+      floorColor: style.floorColor ?? '#FFFFFF',
+      wallColor: style.wallColor ?? '#000000',
+      wallWidth: style.wallWidth ?? 0.12,
+      shadowEnabled: style.shadowEnabled ?? false,
+      shadowColor: style.shadowColor ?? '#000000',
+      shadowOffset: style.shadowOffset ?? { x: 0, y: 0 },
+      shadowIntensity: style.shadowIntensity ?? 0,
+      hatchingStyle: style.hatchingStyle ?? 'none',
+      hatchingBandWidth: style.hatchingBandWidth ?? 1.0,
+      hatchingLineSpacing: style.hatchingLineSpacing ?? 0.3,
+      hatchingLineThickness: style.hatchingLineThickness ?? 0.02,
+      hatchingAngle: style.hatchingAngle ?? 45,
+      hatchingInverted: style.hatchingInverted ?? false,
+    };
     set((state) => {
-      const presetStyle: StylePreset = {
-        floorColor: style.floorColor ?? '#FFFFFF',
-        wallColor: style.wallColor ?? '#000000',
-        wallWidth: style.wallWidth ?? 0.12,
-        shadowEnabled: style.shadowEnabled ?? false,
-        shadowColor: style.shadowColor ?? '#000000',
-        shadowOffset: style.shadowOffset ?? { x: 0, y: 0 },
-        shadowIntensity: style.shadowIntensity ?? 0,
-        hatchingStyle: style.hatchingStyle ?? 'none',
-        hatchingBandWidth: style.hatchingBandWidth ?? 1.0,
-        hatchingLineSpacing: style.hatchingLineSpacing ?? 0.3,
-        hatchingLineThickness: style.hatchingLineThickness ?? 0.02,
-        hatchingAngle: style.hatchingAngle ?? 45,
-        hatchingInverted: style.hatchingInverted ?? false,
-      };
-      if (!state.ui.customPresets) {
-        state.ui.customPresets = {};
-      }
       state.ui.customPresets[name] = presetStyle;
-      // Persist outside immer (localStorage is a side effect)
-      const allCustom = loadCustomPresets();
-      allCustom[name] = presetStyle;
-      saveCustomPresetsToStorage(allCustom);
-    }),
-  deleteCustomPreset: (name) =>
+    });
+    const allCustom = loadCustomPresets();
+    allCustom[name] = presetStyle;
+    saveCustomPresetsToStorage(allCustom);
+  },
+  deleteCustomPreset: (name) => {
     set((state) => {
-      if (state.ui.customPresets) {
-        delete state.ui.customPresets[name];
-      }
-      deleteCustomPresetFromStorage(name);
-    }),
+      delete state.ui.customPresets[name];
+    });
+    deleteCustomPresetFromStorage(name);
+  },
   addPlacedObject: (layerId, obj) =>
     set((state) => {
       const layer = state.layers.find((l) => l.id === layerId);

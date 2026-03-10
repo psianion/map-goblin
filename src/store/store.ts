@@ -47,16 +47,6 @@ export const useStore = create<MapBuilderStore>()(
           state.layers = data.layers;
           state.lights = data.lights;
 
-          // Restore placed objects into their respective image layers
-          if (data.placedObjects) {
-            for (const obj of data.placedObjects) {
-              const layer = state.layers.find((l) => l.id === obj.layerId && l.type === 'images');
-              if (layer && layer.type === 'images') {
-                layer.objects.push(obj);
-              }
-            }
-          }
-
           state.ui.activeLayerId =
             data.layers.find((l) => l.type === 'dungeon')?.id ?? '';
           state.ui.selectedObjectIds = [];
