@@ -1,0 +1,9 @@
+{
+  "categories": [
+    { "id": "furniture", "label": "Furniture", "assets": [] },
+    { "id": "structures", "label": "Structures", "assets": [] },
+    { "id": "nature", "label": "Nature", "assets": [] },
+    { "id": "doors", "label": "Doors", "assets": [] },
+    { "id": "miscellaneous", "label": "Miscellaneous", "assets": [] }
+  ]
+}
