@@ -14,7 +14,11 @@ dist-ssr
 
 .claude
 .claude/*
-research/*
+CLAUDE.md
+docs/*
+.playwright-mcp
+.superpowers
+test-results
 
 # Editor directories and files
 .vscode/*
