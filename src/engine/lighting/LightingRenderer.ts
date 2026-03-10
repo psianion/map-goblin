@@ -20,6 +20,8 @@ export class LightingRenderer {
   private compositingSprite: Sprite
   private width: number
   private height: number
+  /** Pre-allocated Graphics objects keyed by light ID — reused each frame to avoid GC pressure */
+  private lightGraphicsCache = new Map<string, Graphics>()
 
   constructor(engine: RenderEngine, width: number, height: number) {
     this.engine = engine
@@ -71,32 +73,50 @@ export class LightingRenderer {
     const ambientG = (ambientHex >> 8) & 0xff
     const ambientB = ambientHex & 0xff
 
-    // Clear and redraw all lights into the FBO
-    this.lightContainer.removeChildren()
+    // Evict Graphics for removed lights
+    const activeIds = new Set(visibleLights.map((l) => l.id))
+    for (const [id, g] of this.lightGraphicsCache) {
+      if (!activeIds.has(id)) {
+        g.destroy()
+        this.lightGraphicsCache.delete(id)
+      }
+    }
 
-    // Draw ambient fill first (base darkness layer)
-    const ambient = new Graphics()
-    ambient.rect(0, 0, this.width, this.height)
-    ambient.fill({
+    // Detach all children; re-add below in order (avoids removeChildren destroying objects)
+    while (this.lightContainer.children.length > 0) {
+      this.lightContainer.removeChildAt(0)
+    }
+
+    // Draw ambient fill first (base darkness layer) — reuse cached ambient Graphics
+    let ambientGraphics = this.lightGraphicsCache.get('__ambient__')
+    if (!ambientGraphics) {
+      ambientGraphics = new Graphics()
+      this.lightGraphicsCache.set('__ambient__', ambientGraphics)
+    }
+    ambientGraphics.clear()
+    ambientGraphics.rect(0, 0, this.width, this.height)
+    ambientGraphics.fill({
       color: (ambientR << 16) | (ambientG << 8) | ambientB,
       alpha: 1,
     })
-    this.lightContainer.addChild(ambient)
+    this.lightContainer.addChild(ambientGraphics)
 
-    // Draw each visible light
+    // Draw each visible light — reuse cached Graphics per light ID
     for (const light of visibleLights) {
       const polygon = lightManager.getCachedPolygon(light.id)
       if (!polygon || polygon.length < 3) continue
 
       const lightHex = parseInt(light.color.replace('#', ''), 16)
-      const lightGraphics = new Graphics()
+
+      let lightGraphics = this.lightGraphicsCache.get(light.id)
+      if (!lightGraphics) {
+        lightGraphics = new Graphics()
+        lightGraphics.blendMode = 'add'
+        this.lightGraphicsCache.set(light.id, lightGraphics)
+      }
+      lightGraphics.clear()
 
       // Convert world-space polygon to screen space
-      // The FBO is screen-sized, so we need to transform: screen = world * zoom + camOffset
-      // camX and camY are world-space origin in screen coords: screenPos = (world - cam) * zoom
-      // But the FBO maps 1:1 to screen pixels, so we need world→screen transform.
-      // The overlay is NOT camera-transformed, so we use screenToWorld in reverse.
-      // We directly use the engine's worldToScreen transform for each point.
       const screenPoints: number[] = []
       for (const [wx, wy] of polygon) {
         const sp = this.engine.worldToScreen(wx, wy)
@@ -104,21 +124,15 @@ export class LightingRenderer {
       }
 
       if (screenPoints.length >= 6) {
-        // Build path from screen-space points
         lightGraphics.moveTo(screenPoints[0], screenPoints[1])
         for (let i = 2; i < screenPoints.length; i += 2) {
           lightGraphics.lineTo(screenPoints[i], screenPoints[i + 1])
         }
         lightGraphics.closePath()
-
-        // Light intensity controls alpha; color comes from light.color
         lightGraphics.fill({
           color: lightHex,
           alpha: Math.min(1, light.intensity),
         })
-
-        // Additive blend for light accumulation
-        lightGraphics.blendMode = 'add'
       }
 
       this.lightContainer.addChild(lightGraphics)
@@ -161,9 +175,13 @@ export class LightingRenderer {
    * Clean up GPU resources.
    */
   destroy(): void {
+    for (const g of this.lightGraphicsCache.values()) {
+      g.destroy()
+    }
+    this.lightGraphicsCache.clear()
     this.engine.overlay().removeChild(this.compositingSprite)
     this.compositingSprite.destroy()
     this.lightFBO.destroy(true)
-    this.lightContainer.destroy({ children: true })
+    this.lightContainer.destroy({ children: false })
   }
 }
