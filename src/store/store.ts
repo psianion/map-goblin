@@ -12,6 +12,7 @@ import { createUISlice } from './slices/ui.ts';
 import { createAssetsSlice } from './slices/assets.ts';
 import { createSelectionSlice } from './slices/selection.ts';
 import { undoManager } from './undoManager.ts';
+import { migrateToLatest, CURRENT_VERSION } from './migration.ts';
 
 export const useStore = create<MapBuilderStore>()(
   subscribeWithSelector(
@@ -35,20 +36,29 @@ export const useStore = create<MapBuilderStore>()(
           console.warn('loadFromFile: missing version field, aborting load');
           return;
         }
+
+        let migrated: SerializedMapData;
+        try {
+          migrated = migrateToLatest(structuredClone(data));
+        } catch (err) {
+          console.error('loadFromFile: migration failed —', err);
+          return;
+        }
+
         set((state) => {
-          state.mapSettings = data.mapSettings;
+          state.mapSettings = migrated.mapSettings;
           state.grid = {
             ...state.grid,
-            visible: data.grid.visible,
-            snapDivision: data.grid.snapDivision,
-            style: data.grid.style,
+            visible: migrated.grid.visible,
+            snapDivision: migrated.grid.snapDivision,
+            style: migrated.grid.style,
             snapEnabled: true,
           };
-          state.layers = data.layers;
-          state.lights = data.lights;
+          state.layers = migrated.layers;
+          state.lights = migrated.lights;
 
           state.ui.activeLayerId =
-            data.layers.find((l) => l.type === 'dungeon')?.id ?? '';
+            migrated.layers.find((l) => l.type === 'dungeon')?.id ?? '';
           state.ui.selectedObjectIds = [];
           state.ui.expandedLayerIds = [];
           state.ui.canUndo = false;
@@ -66,7 +76,7 @@ export const useStore = create<MapBuilderStore>()(
       getSerializableState: (): SerializedMapData => {
         const s = get();
         return {
-          version: '1.0',
+          version: CURRENT_VERSION,
           mapSettings: s.mapSettings,
           grid: {
             visible: s.grid.visible,

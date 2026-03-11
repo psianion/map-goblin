@@ -244,7 +244,7 @@ export interface UndoSnapshot {
 
 // ─── Serialization ────────────────────────────────────────
 export interface SerializedMapData {
-  version: string;
+  version: '1.0' | '1.1';
   mapSettings: MapSettings;
   grid: Pick<GridConfig, 'visible' | 'snapDivision' | 'style'>;
   layers: Layer[];

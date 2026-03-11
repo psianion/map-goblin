@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from './store.ts';
 import { createDungeonLayer, createImagesLayer } from './factories.ts';
+import type { SerializedMapData } from './types.ts';
 
 describe('MapBuilderStore', () => {
   beforeEach(() => {
@@ -69,7 +70,7 @@ describe('MapBuilderStore', () => {
 
   it('getSerializableState returns correct shape', () => {
     const data = useStore.getState().getSerializableState();
-    expect(data.version).toBe('1.0');
+    expect(data.version).toBe('1.1');
     expect(data.mapSettings.name).toBe('Untitled Map');
     expect(data.layers).toHaveLength(2);
     expect(data.lights).toEqual([]);
@@ -85,8 +86,34 @@ describe('MapBuilderStore', () => {
 
     // Missing version should be a no-op
     const badData = { ...data, version: '' };
-    useStore.getState().loadFromFile(badData);
+    useStore.getState().loadFromFile(badData as unknown as SerializedMapData);
     expect(useStore.getState().mapSettings.name).toBe('Loaded Map');
+  });
+
+  it('loadFromFile v1.1 round-trips all data correctly', () => {
+    const original = structuredClone(useStore.getState().getSerializableState());
+    original.mapSettings.name = 'Round-Trip Map';
+    useStore.getState().loadFromFile(original);
+    expect(useStore.getState().mapSettings.name).toBe('Round-Trip Map');
+  });
+
+  it('loadFromFile migrates v1.0 data to v1.1', () => {
+    // v1.0 format: no placedObjects or customImages
+    const v10 = {
+      version: '1.0' as const,
+      mapSettings: {
+        name: 'Old Map',
+        gridType: 'square' as const,
+        cellScale: { value: 5, unit: 'ft' },
+        ambientLight: '#000000',
+      },
+      grid: { visible: true, snapDivision: 2 as const, style: 'clean' as const },
+      layers: useStore.getState().layers,
+      lights: [],
+      // NOTE: no placedObjects or customImages — simulates actual v1.0 format
+    };
+    useStore.getState().loadFromFile(v10 as unknown as SerializedMapData);
+    expect(useStore.getState().mapSettings.name).toBe('Old Map');
   });
 
   it('resetToDefault restores initial state', () => {
