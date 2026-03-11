@@ -1,8 +1,7 @@
-import type { Command, DungeonStyle, Light } from './types';
+import type { Command, DungeonStyle, Light, PlacedObject } from './types';
 import { useStore } from './store';
-import type { Polygon } from '@/geometry/GeometryEngine';
+import type { Polygon } from '@/types/geometry';
 import { clipper2Engine } from '@/geometry/Clipper2Engine';
-import { tuplesToPoints, pointsToTuples } from '@/geometry/convert';
 import type { StylePreset } from './presets';
 
 /**
@@ -243,14 +242,14 @@ export class SelectionMoveCommand implements Command {
 export class PasteCommand implements Command {
   readonly label = 'Paste';
   private layerId: string;
-  private previousMergedFloor: [number, number][][] | null;
-  private newMergedFloor: [number, number][][] | null = null;
-  private pastedRegion: [number, number][][];
+  private previousMergedFloor: Polygon[] | null;
+  private newMergedFloor: Polygon[] | null = null;
+  private pastedRegion: Polygon[];
 
   constructor(
     layerId: string,
-    previousMergedFloor: [number, number][][] | null,
-    pastedRegion: [number, number][][],
+    previousMergedFloor: Polygon[] | null,
+    pastedRegion: Polygon[],
   ) {
     this.layerId = layerId;
     this.previousMergedFloor = previousMergedFloor;
@@ -259,12 +258,9 @@ export class PasteCommand implements Command {
 
   execute(): void {
     if (!this.newMergedFloor) {
-      const existing: Polygon[] = this.previousMergedFloor
-        ? this.previousMergedFloor.map((p) => tuplesToPoints(p))
-        : [];
-      const clip: Polygon[] = this.pastedRegion.map((p) => tuplesToPoints(p));
-      const result = clipper2Engine.union(existing, clip);
-      this.newMergedFloor = result.map(pointsToTuples);
+      const existing: Polygon[] = this.previousMergedFloor ?? [];
+      const result = clipper2Engine.union(existing, this.pastedRegion);
+      this.newMergedFloor = result;
     }
     useStore.getState().updateMergedFloor(this.layerId, this.newMergedFloor);
   }
@@ -280,14 +276,14 @@ export class PasteCommand implements Command {
 export class CutCommand implements Command {
   readonly label = 'Cut selection';
   private layerId: string;
-  private previousMergedFloor: [number, number][][] | null;
-  private newMergedFloor: [number, number][][] | null = null;
-  private cutRegion: [number, number][][];
+  private previousMergedFloor: Polygon[] | null;
+  private newMergedFloor: Polygon[] | null = null;
+  private cutRegion: Polygon[];
 
   constructor(
     layerId: string,
-    previousMergedFloor: [number, number][][] | null,
-    cutRegion: [number, number][][],
+    previousMergedFloor: Polygon[] | null,
+    cutRegion: Polygon[],
   ) {
     this.layerId = layerId;
     this.previousMergedFloor = previousMergedFloor;
@@ -296,18 +292,43 @@ export class CutCommand implements Command {
 
   execute(): void {
     if (!this.newMergedFloor) {
-      const existing: Polygon[] = this.previousMergedFloor
-        ? this.previousMergedFloor.map((p) => tuplesToPoints(p))
-        : [];
-      const clip: Polygon[] = this.cutRegion.map((p) => tuplesToPoints(p));
-      const result = clipper2Engine.difference(existing, clip);
-      this.newMergedFloor = result.map(pointsToTuples);
+      const existing: Polygon[] = this.previousMergedFloor ?? [];
+      const result = clipper2Engine.difference(existing, this.cutRegion);
+      this.newMergedFloor = result;
     }
     useStore.getState().updateMergedFloor(this.layerId, this.newMergedFloor);
   }
 
   undo(): void {
     useStore.getState().updateMergedFloor(this.layerId, this.previousMergedFloor);
+  }
+}
+
+/**
+ * Command for placing a new object (asset or imported image) on an images layer.
+ */
+export class PlaceObjectCommand implements Command {
+  readonly label: string;
+  private layerId: string;
+  private obj: PlacedObject;
+
+  constructor(label: string, layerId: string, obj: PlacedObject) {
+    this.label = label;
+    this.layerId = layerId;
+    this.obj = obj;
+  }
+
+  execute(): void {
+    const store = useStore.getState();
+    store.addPlacedObject(this.layerId, { ...this.obj, layerId: this.layerId });
+    if (this.obj.assetId) {
+      store.trackRecentUse(this.obj.assetId);
+      store.addRecentAsset(this.obj.assetId);
+    }
+  }
+
+  undo(): void {
+    useStore.getState().removePlacedObject(this.layerId, this.obj.id);
   }
 }
 

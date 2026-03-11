@@ -101,14 +101,14 @@ type MapBuilderState = Omit<
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
   | 'addShape' | 'removeShape' | 'updateMergedFloor' | 'addWall' | 'removeWall'
   | 'addLight' | 'removeLight' | 'updateLight'
-  | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'updateToolSettings'
+  | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'updateToolSettings' | 'addRecentAsset'
   | 'setActiveLayerId' | 'setSelectedObjectIds' | 'setActivePanel' | 'togglePanel'
   | 'pushToast' | 'dismissToast' | 'showModal' | 'setClipperReady'
   | 'applyPreset' | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
   | 'setSelectedRegion' | 'setClipboard'
   | 'toggleFavorite' | 'trackRecentUse' | 'addCustomUpload' | 'removeCustomUpload'
-  | 'setManifest' | 'markCategoryLoaded'
+  | 'setManifest' | 'markCategoryLoaded' | 'addCustomImage'
   | 'addPlacedObject' | 'removePlacedObject' | 'updatePlacedObject'
   | 'loadFromFile' | 'getSerializableState' | 'resetToDefault'
 >;
@@ -142,6 +142,7 @@ export function createDefaultState(): MapBuilderState {
         wallWidth: 0.08,
         continuousPlacement: false,
       },
+      recentAssets: [],
     },
     ui: {
       leftPanelOpen: true,
@@ -163,6 +164,7 @@ export function createDefaultState(): MapBuilderState {
       favorites: [],
       recentlyUsed: [],
       customUploads: [],
+      customImages: {},
     },
     selection: {
       selectedRegion: null,
