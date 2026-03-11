@@ -3,7 +3,6 @@ import { CanvasHost } from '@/canvas/CanvasHost';
 import { RightPanel } from '@/components/layout/RightPanel';
 import { ExportDialog } from '@/components/shared/ExportDialog';
 import { RecoveryDialog } from '@/components/shared/RecoveryDialog';
-import { handleShortcut } from '@/shortcuts/defaultShortcuts';
 import { startAutosave, isDirtyFlagSet } from '@/io/autosave';
 import { useStore } from '@/store/store';
 import './index.css';
@@ -28,8 +27,6 @@ export default function App() {
         setExportOpen(true);
         return;
       }
-
-      handleShortcut(key);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);

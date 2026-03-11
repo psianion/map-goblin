@@ -4,8 +4,9 @@
 import { saveMap } from '@/io/saveLoad';
 import { useStore } from '@/store/store';
 
+// Keyed by key-combo string (e.g. 'ctrl+s') to match what onKeyDown builds.
 const toolKeyMap: Record<string, () => void> = {
-  'file.save': () => {
+  'ctrl+s': () => {
     saveMap().catch((err: unknown) => {
       console.error('[save] failed:', err);
       useStore.getState().pushToast({
@@ -17,11 +18,18 @@ const toolKeyMap: Record<string, () => void> = {
       });
     });
   },
-  'file.load': () => {
+  'ctrl+o': () => {
     import('@/io/saveLoad')
       .then(({ loadMap }) => {
         loadMap().catch((err: unknown) => {
           console.error('[load] failed:', err);
+          useStore.getState().pushToast({
+            id: `load-error-${Date.now()}`,
+            message: 'Open failed — see console for details.',
+            type: 'error',
+            duration: 4000,
+            createdAt: Date.now(),
+          });
         });
       })
       .catch(() => {
@@ -45,8 +53,9 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
   ];
 }
 
-export function handleShortcut(id: string): boolean {
-  const handler = toolKeyMap[id];
+/** Pass a key-combo string (e.g. 'ctrl+s'). Returns true if handled. */
+export function handleShortcut(keyCombo: string): boolean {
+  const handler = toolKeyMap[keyCombo];
   if (handler) {
     handler();
     return true;
