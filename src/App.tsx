@@ -1,35 +1,71 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { useState, useEffect } from 'react';
+import { CanvasHost } from '@/canvas/CanvasHost';
+import { RightPanel } from '@/components/layout/RightPanel';
+import { ExportDialog } from '@/components/shared/ExportDialog';
+import { RecoveryDialog } from '@/components/shared/RecoveryDialog';
+import { handleShortcut } from '@/shortcuts/defaultShortcuts';
+import { startAutosave, isDirtyFlagSet } from '@/io/autosave';
+import { useStore } from '@/store/store';
+import './index.css';
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function App() {
+  const [exportOpen, setExportOpen] = useState(false);
+  const [showRecovery, setShowRecovery] = useState(() => isDirtyFlagSet());
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const key = [
+        e.ctrlKey || e.metaKey ? 'ctrl' : '',
+        e.shiftKey ? 'shift' : '',
+        e.altKey ? 'alt' : '',
+        e.key.toLowerCase(),
+      ]
+        .filter(Boolean)
+        .join('+');
+
+      if (key === 'ctrl+e') {
+        e.preventDefault();
+        setExportOpen(true);
+        return;
+      }
+
+      handleShortcut(key);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    const cleanup = startAutosave(
+      () => useStore.getState().getSerializableState(),
+      (listener) => useStore.subscribe(listener),
+    );
+    return cleanup;
+  }, []);
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
-}
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 300px',
+        height: '100vh',
+        width: '100vw',
+        overflow: 'hidden',
+        background: '#1a1a1a',
+      }}
+    >
+      {showRecovery && <RecoveryDialog onDismiss={() => setShowRecovery(false)} />}
 
-export default App
+      {/* Canvas area */}
+      <div style={{ minWidth: 0, minHeight: 0, position: 'relative' }}>
+        <CanvasHost />
+      </div>
+
+      {/* Right panel: Layers | Assets tabs + Properties */}
+      <RightPanel />
+
+      {/* Export dialog */}
+      <ExportDialog open={exportOpen} onOpenChange={setExportOpen} />
+    </div>
+  );
+}
