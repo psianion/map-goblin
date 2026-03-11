@@ -5,7 +5,6 @@ import { getLayerEntries } from './sceneGraph';
 import { useStore } from '@/store/store';
 import type { DungeonLayer } from '@/store/types';
 import { LightManager, computeVisibilityPolygon, extractWallSegments } from './lighting';
-import { simplifyPath } from '@/geometry/simplify';
 
 /**
  * Set up the per-frame render loop via PixiJS Ticker.
@@ -100,12 +99,7 @@ export function setupRenderLoop(
           light.radius,
           wallSegments,
         );
-        // Simplify to ≤48 vertices using Douglas-Peucker (BLOCK 2 fix)
-        const simplified = simplifyPath(
-          polygon.map(([x, y]) => ({ x, y })),
-          2, // world-space epsilon — 2px tolerance keeps shape accurate
-        ).map(({ x, y }) => [x, y] as [number, number]);
-        lightManager.setCachedPolygon(light.id, simplified);
+        lightManager.setCachedPolygon(light.id, polygon);
         lightManager.clearDirty(light.id);
       }
     }

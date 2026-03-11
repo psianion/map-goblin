@@ -1,4 +1,4 @@
-import { Application, Container, RenderTexture } from 'pixi.js';
+import { Application, Container, RenderTexture, type Renderer } from 'pixi.js';
 import type { RenderEngine, CameraState } from './RenderEngine';
 import type { Point, Viewport } from '@/types/geometry';
 import { registerManifestBundles, getManifest } from './assetManifest.ts';
@@ -142,5 +142,10 @@ export class PixiRenderEngine implements RenderEngine {
   addTickerCallback(fn: () => void): void {
     if (!this.app) throw new Error('Engine not initialized');
     this.app.ticker.add(fn);
+  }
+
+  renderer(): Renderer {
+    if (!this.app) throw new Error('Engine not initialized');
+    return this.app.renderer as unknown as Renderer;
   }
 }

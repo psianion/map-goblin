@@ -1,0 +1,90 @@
+import { Container, Graphics } from 'pixi.js';
+import type { Point } from '@/types/geometry';
+import type { DrawingTool, PreviewShape } from './DrawingTool';
+import { useStore } from '@/store/store';
+
+/**
+ * Manages drawing tools — registration, activation, and input forwarding.
+ * Renders a preview shape overlay during active drawing.
+ */
+export class ToolManager {
+  private tools = new Map<string, DrawingTool>();
+  private activeTool: DrawingTool | null = null;
+  private previewGraphics: Graphics;
+  private worldContainer: Container;
+
+  constructor(worldContainer: Container) {
+    this.worldContainer = worldContainer;
+    this.previewGraphics = new Graphics();
+    this.previewGraphics.label = 'toolPreview';
+    this.worldContainer.addChild(this.previewGraphics);
+  }
+
+  registerTool(tool: DrawingTool): void {
+    this.tools.set(tool.type, tool);
+  }
+
+  switchTool(type: string): void {
+    this.activeTool?.cancel();
+    this.activeTool = this.tools.get(type) ?? null;
+  }
+
+  onPointerDown(point: Point, event: PointerEvent): void {
+    const type = useStore.getState().tools.activeTool;
+    if (this.activeTool?.type !== type) this.switchTool(type);
+    this.activeTool?.onPointerDown(point, event);
+  }
+
+  onPointerMove(point: Point, event: PointerEvent): void {
+    const type = useStore.getState().tools.activeTool;
+    if (this.activeTool?.type !== type) this.switchTool(type);
+    this.activeTool?.onPointerMove(point, event);
+  }
+
+  onPointerUp(point: Point, event: PointerEvent): void {
+    this.activeTool?.onPointerUp(point, event);
+  }
+
+  onKeyDown(event: KeyboardEvent): void {
+    this.activeTool?.onKeyDown(event);
+  }
+
+  updatePreview(): void {
+    const preview = this.activeTool?.getPreview() ?? null;
+    this.renderPreview(preview);
+  }
+
+  getTool(type: string): DrawingTool | undefined {
+    return this.tools.get(type);
+  }
+
+  private renderPreview(preview: PreviewShape | null): void {
+    this.previewGraphics.clear();
+    if (!preview || preview.points.length === 0) return;
+
+    const pts = preview.points;
+
+    this.previewGraphics.setStrokeStyle({ color: 0x4488ff, width: 2 / useStore.getState().tools.settings.brushRadius });
+
+    if (preview.type === 'circle' && pts.length >= 1) {
+      this.previewGraphics.circle(pts[0].x, pts[0].y, 0.3);
+      this.previewGraphics.fill({ color: 0x4488ff, alpha: 0.5 });
+    } else if (pts.length >= 2) {
+      this.previewGraphics.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) {
+        this.previewGraphics.lineTo(pts[i].x, pts[i].y);
+      }
+      if (preview.type === 'polygon') {
+        this.previewGraphics.closePath();
+        this.previewGraphics.fill({ color: 0x4488ff, alpha: 0.15 });
+      }
+      this.previewGraphics.stroke();
+    }
+  }
+
+  destroy(): void {
+    this.previewGraphics.destroy();
+    this.tools.clear();
+    this.activeTool = null;
+  }
+}

@@ -8,6 +8,7 @@ export interface AssetActions {
   removeCustomUpload: (id: string) => void;
   setManifest: (manifest: AssetManifest) => void;
   markCategoryLoaded: (categoryId: string) => void;
+  addCustomImage: (id: string, base64: string) => void;
 }
 
 export const createAssetsSlice: StateCreator<
@@ -36,7 +37,7 @@ export const createAssetsSlice: StateCreator<
   removeCustomUpload: (id) =>
     set((state) => {
       state.assets.customUploads = state.assets.customUploads.filter(
-        (u) => u.id !== id
+        (u) => u.id !== id,
       );
     }),
   setManifest: (manifest) =>
@@ -48,5 +49,9 @@ export const createAssetsSlice: StateCreator<
       if (!state.assets.loadedCategories.includes(categoryId)) {
         state.assets.loadedCategories.push(categoryId);
       }
+    }),
+  addCustomImage: (id, base64) =>
+    set((state) => {
+      state.assets.customImages[id] = base64;
     }),
 });

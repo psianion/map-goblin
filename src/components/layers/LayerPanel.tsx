@@ -15,10 +15,11 @@ import { LayerHeader } from './LayerHeader'
 import { LayerRow } from './LayerRow'
 import { LightRow } from './LightRow'
 import { LightingIndicator } from './LightingIndicator'
+import type { Layer } from '@/store/types'
 import { ReorderLayerCommand } from '@/store/commands'
 import { undoManager } from '@/store/undoManager'
 
-const selectLayers = (s: { layers: { id: string }[] }) => s.layers
+const selectLayers = (s: { layers: Layer[] }) => s.layers
 const selectActiveLayerId = (s: { ui: { activeLayerId: string } }) => s.ui.activeLayerId
 const selectLights = (s: { lights: Light[] }) => s.lights
 

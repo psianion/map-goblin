@@ -132,7 +132,8 @@ export type ToolType =
   | 'path'
   | 'wall'
   | 'light'
-  | 'ruler';
+  | 'ruler'
+  | 'assetPlacement';
 
 export interface ToolSettings {
   brushRadius: number;
@@ -147,6 +148,7 @@ export interface ToolsSlice {
   eraseMode: boolean;
   roughMode: boolean;
   settings: ToolSettings;
+  recentAssets: string[];   // asset IDs, max 8
 }
 
 // ─── Selection ───────────────────────────────────────────
@@ -225,8 +227,7 @@ export interface AssetsSlice {
   recentlyUsed: string[];    // asset IDs, max 10
   favorites: string[];       // asset IDs
   customUploads: AssetRef[];
-  setManifest: (manifest: AssetManifest) => void;
-  markCategoryLoaded: (categoryId: string) => void;
+  customImages: Record<string, string>;  // id → base64 data URL (for imported images)
 }
 
 // ─── Command Pattern Types ────────────────────────────────
@@ -298,6 +299,7 @@ export interface MapBuilderStore {
   setEraseMode: (enabled: boolean) => void;
   setRoughMode: (enabled: boolean) => void;
   updateToolSettings: (patch: Partial<ToolSettings>) => void;
+  addRecentAsset: (assetId: string) => void;
 
   // ui actions
   setActiveLayerId: (id: string) => void;
@@ -316,6 +318,7 @@ export interface MapBuilderStore {
   removeCustomUpload: (id: string) => void;
   setManifest: (manifest: AssetManifest) => void;
   markCategoryLoaded: (categoryId: string) => void;
+  addCustomImage: (id: string, base64: string) => void;
   addPlacedObject: (layerId: string, obj: PlacedObject) => void;
   removePlacedObject: (layerId: string, objId: string) => void;
   updatePlacedObject: (layerId: string, objId: string, patch: Partial<PlacedObject>) => void;

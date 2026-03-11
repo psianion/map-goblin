@@ -55,6 +55,7 @@ export const useStore = create<MapBuilderStore>()(
             snapEnabled: true,
           };
           state.layers = migrated.layers;
+          state.assets.customImages = migrated.customImages ?? {};
           state.lights = migrated.lights;
 
           state.ui.activeLayerId =
@@ -88,7 +89,7 @@ export const useStore = create<MapBuilderStore>()(
           placedObjects: s.layers
             .filter((l) => l.type === 'images')
             .flatMap((l) => (l.type === 'images' ? l.objects : [])),
-          customImages: {},
+          customImages: s.assets.customImages,
         };
       },
 

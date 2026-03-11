@@ -100,7 +100,7 @@ export function buildSceneGraph(engine: RenderEngine): SceneGraph {
  * Dungeon layers get RenderTexture wrapping for blend-mode isolation.
  */
 export function addLayerToScene(
-  engine: RenderEngine,
+  _engine: RenderEngine,
   sceneGraph: SceneGraph,
   layerId: string,
   layerType: 'dungeon' | 'images' | 'background',
