@@ -3,6 +3,7 @@ import type {
   DungeonLayer,
   DungeonStyle,
   ImagesLayer,
+  Light,
   MapBuilderStore,
 } from './types.ts';
 
@@ -57,6 +58,23 @@ export function createImagesLayer(name: string): ImagesLayer {
     locked: false,
     opacity: 1,
     objects: [],
+  };
+}
+
+export function createLight(
+  position: { x: number; y: number },
+  overrides?: Partial<Light>,
+): Light {
+  return {
+    id: crypto.randomUUID(),
+    position,
+    color: '#ffdd88',
+    radius: 150,
+    intensity: 0.9,
+    falloff: 'quadratic',
+    name: 'Light',
+    visible: true,
+    ...overrides,
   };
 }
 
