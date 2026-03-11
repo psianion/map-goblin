@@ -131,24 +131,23 @@ test.describe('Lighting Engine', () => {
   test('ambient light updates store', async ({ page }) => {
     await gotoApp(page)
 
+    // __store must be exposed — fail fast if the app didn't wire it
+    const storeExposed = await page.evaluate(() => !!(window as { __store?: unknown }).__store)
+    expect(storeExposed).toBe(true)
+
     // Check initial ambient light from store
     const initial = await getStoreState(page)
     expect(initial?.mapSettings?.ambientLight).toBeTruthy()
 
     // Direct store mutation test (since UI for ambient may not be wired yet)
     await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = (window as any).__store
-      if (store) {
-        store.getState().setAmbientLight('#ff0000')
-      }
+      const store = (window as { __store?: { getState: () => { setAmbientLight: (c: string) => void } } }).__store
+      store!.getState().setAmbientLight('#ff0000')
     })
     await waitFrame(page, 2)
 
     const updated = await getStoreState(page)
-    if (updated?.mapSettings?.ambientLight !== undefined) {
-      expect(updated.mapSettings.ambientLight).toBe('#ff0000')
-    }
+    expect(updated?.mapSettings?.ambientLight).toBe('#ff0000')
   })
 
   test('light visibility toggle works', async ({ page }) => {
@@ -161,23 +160,23 @@ test.describe('Lighting Engine', () => {
     await firePointer(page, 'pointerup', center.x, center.y)
     await waitFrame(page, 3)
 
+    // __store must be exposed — fail fast if the app didn't wire it
+    const storeExposed = await page.evaluate(() => !!(window as { __store?: unknown }).__store)
+    expect(storeExposed).toBe(true)
+
     const lights = await getLights(page)
-    if (lights.length === 0) return // store not exposed — skip
+    expect(lights.length).toBeGreaterThan(0)
 
     const lightId = lights[0].id
     await page.evaluate((id: string) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = (window as any).__store
-      if (store) {
-        store.getState().updateLight(id, { visible: false })
-      }
+      const store = (window as { __store?: { getState: () => { updateLight: (id: string, patch: Record<string, unknown>) => void } } }).__store
+      store!.getState().updateLight(id, { visible: false })
     }, lightId)
     await waitFrame(page, 2)
 
     const updated = await getLights(page)
     const updatedLight = updated.find((l) => l.id === lightId)
-    if (updatedLight) {
-      expect(updatedLight.visible).toBe(false)
-    }
+    expect(updatedLight).toBeDefined()
+    expect(updatedLight!.visible).toBe(false)
   })
 })

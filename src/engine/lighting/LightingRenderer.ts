@@ -7,11 +7,17 @@ import type { LightManager } from './LightManager'
  *
  * Each frame:
  *  1. Clears the offscreen lightFBO RenderTexture.
- *  2. Draws each visible light's visibility polygon (filled, colored, alpha-blended).
+ *  2. Draws each visible light's visibility polygon with a radial FillGradient
+ *     for linear/quadratic falloff, then composites into the FBO.
  *  3. Composites the FBO over the scene via a full-screen Sprite in the overlay.
  *
  * The compositingSprite uses 'multiply' blend mode so it darkens areas with no light
  * while leaving lit areas bright. The ambient light sets the base brightness.
+ *
+ * Note on FillGradient lifetime: FillGradients with textureSpace:'global' embed
+ * screen-space coordinates and must be rebuilt every frame (camera movement
+ * invalidates them). They are created per-frame and destroyed immediately after
+ * renderToTexture() completes, keeping GPU texture memory bounded.
  */
 export class LightingRenderer {
   private engine: RenderEngine
@@ -22,8 +28,6 @@ export class LightingRenderer {
   private height: number
   /** Pre-allocated Graphics objects keyed by light ID — reused each frame to avoid GC pressure */
   private lightGraphicsCache = new Map<string, Graphics>()
-  /** Cached FillGradient per light ID — recreated only when gradient params change */
-  private lightGradientCache = new Map<string, { gradient: FillGradient; hash: string }>()
 
   constructor(engine: RenderEngine, width: number, height: number) {
     this.engine = engine
@@ -51,7 +55,7 @@ export class LightingRenderer {
 
   /**
    * Called each frame from renderLoop.
-   * Redraws only dirty lights; composites the result.
+   * Redraws all visible lights and composites the result.
    */
   updateAndRender(
     lightManager: LightManager,
@@ -75,18 +79,14 @@ export class LightingRenderer {
     const ambientG = (ambientHex >> 8) & 0xff
     const ambientB = ambientHex & 0xff
 
-    // Evict Graphics and gradients for removed lights
+    // Evict Graphics for removed lights.
+    // '__ambient__' sentinel is excluded — it lives for the renderer's lifetime.
     const activeIds = new Set(visibleLights.map((l) => l.id))
     for (const [id, g] of this.lightGraphicsCache) {
+      if (id === '__ambient__') continue
       if (!activeIds.has(id)) {
         g.destroy()
         this.lightGraphicsCache.delete(id)
-      }
-    }
-    for (const [id, entry] of this.lightGradientCache) {
-      if (!activeIds.has(id)) {
-        entry.gradient.destroy()
-        this.lightGradientCache.delete(id)
       }
     }
 
@@ -108,6 +108,11 @@ export class LightingRenderer {
       alpha: 1,
     })
     this.lightContainer.addChild(ambientGraphics)
+
+    // Collect per-frame FillGradients so they can be destroyed after renderToTexture.
+    // FillGradients with textureSpace:'global' embed screen coords and cannot be cached
+    // across frames — camera movement invalidates them every frame.
+    const frameGradients: FillGradient[] = []
 
     // Draw each visible light — reuse cached Graphics per light ID
     for (const light of visibleLights) {
@@ -138,7 +143,8 @@ export class LightingRenderer {
         }
         lightGraphics.closePath()
 
-        // Build radial gradient centered at the light's screen position
+        // Build radial gradient centered at the light's screen position.
+        // Rebuilt every frame because screen coords change on any camera move.
         const screenCenter = this.engine.worldToScreen(light.position.x, light.position.y)
         const screenRadius = Math.max(1, light.radius * zoom)
         const alpha = Math.min(1, light.intensity)
@@ -147,55 +153,46 @@ export class LightingRenderer {
         const lb = lightHex & 0xff
         const toRgba = (a: number): string => `rgba(${lr},${lg},${lb},${a.toFixed(4)})`
 
-        const gradHash = `${light.color},${light.falloff},${alpha.toFixed(3)},${screenRadius.toFixed(1)},${screenCenter.x.toFixed(1)},${screenCenter.y.toFixed(1)}`
-        let cached = this.lightGradientCache.get(light.id)
-        if (!cached || cached.hash !== gradHash) {
-          cached?.gradient.destroy()
-          const colorStops =
-            light.falloff === 'linear'
-              ? [
-                  { offset: 0, color: toRgba(alpha) },
-                  { offset: 1, color: toRgba(0) },
-                ]
-              : [
-                  { offset: 0, color: toRgba(alpha) },
-                  { offset: 0.75, color: toRgba(alpha * 0.25) },
-                  { offset: 1, color: toRgba(0) },
-                ]
-          const gradient = new FillGradient({
-            type: 'radial',
-            center: { x: screenCenter.x, y: screenCenter.y },
-            innerRadius: 0,
-            outerCenter: { x: screenCenter.x, y: screenCenter.y },
-            outerRadius: screenRadius,
-            textureSpace: 'global',
-            colorStops,
-          })
-          cached = { gradient, hash: gradHash }
-          this.lightGradientCache.set(light.id, cached)
-        }
+        const colorStops =
+          light.falloff === 'linear'
+            ? [
+                { offset: 0, color: toRgba(alpha) },
+                { offset: 1, color: toRgba(0) },
+              ]
+            : [
+                { offset: 0, color: toRgba(alpha) },
+                { offset: 0.75, color: toRgba(alpha * 0.25) },
+                { offset: 1, color: toRgba(0) },
+              ]
 
-        lightGraphics.fill(cached.gradient)
+        const gradient = new FillGradient({
+          type: 'radial',
+          center: { x: screenCenter.x, y: screenCenter.y },
+          innerRadius: 0,
+          outerCenter: { x: screenCenter.x, y: screenCenter.y },
+          outerRadius: screenRadius,
+          textureSpace: 'global',
+          colorStops,
+        })
+        frameGradients.push(gradient)
+        lightGraphics.fill(gradient)
       }
 
       this.lightContainer.addChild(lightGraphics)
     }
 
-    // Render the light container into the FBO
+    // Render the light container into the FBO, then release frame gradients
     this.engine.renderToTexture(this.lightContainer, this.lightFBO)
+    for (const g of frameGradients) g.destroy()
 
     // Update compositing sprite size in case of resize
     this.compositingSprite.width = this.width
     this.compositingSprite.height = this.height
 
-    // Scale the FBO sprite back to 1:1 in overlay pixels
     const vp = this.engine.viewport()
     if (vp.width !== this.width || vp.height !== this.height) {
       this.resize(vp.width, vp.height)
     }
-
-    // Adjust blend based on zoom so the effect stays consistent
-    void zoom
   }
 
   /**
@@ -222,10 +219,6 @@ export class LightingRenderer {
       g.destroy()
     }
     this.lightGraphicsCache.clear()
-    for (const entry of this.lightGradientCache.values()) {
-      entry.gradient.destroy()
-    }
-    this.lightGradientCache.clear()
     this.engine.overlay().removeChild(this.compositingSprite)
     this.compositingSprite.destroy()
     this.lightFBO.destroy(true)
