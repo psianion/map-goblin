@@ -1,6 +1,11 @@
 /**
  * GLSL shader sources for the lighting compositing pass.
  *
+ * UNUSED — reserved for GPU falloff pass (future Month 3+ work).
+ * Falloff is currently implemented via PixiJS FillGradient (radial) in LightingRenderer.ts.
+ * This shader would replace the FBO compositing sprite approach with a custom MeshMaterial
+ * if per-light GPU computation becomes necessary for perf (>20 lights target).
+ *
  * The fragment shader samples the lighting FBO texture and blends it
  * over the scene using multiply + additive light accumulation.
  *
