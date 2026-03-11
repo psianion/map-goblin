@@ -1,4 +1,4 @@
-import { Container, Graphics, RenderTexture, Sprite } from 'pixi.js'
+import { Container, FillGradient, Graphics, RenderTexture, Sprite } from 'pixi.js'
 import type { RenderEngine } from '../RenderEngine'
 import type { LightManager } from './LightManager'
 
@@ -22,6 +22,8 @@ export class LightingRenderer {
   private height: number
   /** Pre-allocated Graphics objects keyed by light ID — reused each frame to avoid GC pressure */
   private lightGraphicsCache = new Map<string, Graphics>()
+  /** Cached FillGradient per light ID — recreated only when gradient params change */
+  private lightGradientCache = new Map<string, { gradient: FillGradient; hash: string }>()
 
   constructor(engine: RenderEngine, width: number, height: number) {
     this.engine = engine
@@ -73,12 +75,18 @@ export class LightingRenderer {
     const ambientG = (ambientHex >> 8) & 0xff
     const ambientB = ambientHex & 0xff
 
-    // Evict Graphics for removed lights
+    // Evict Graphics and gradients for removed lights
     const activeIds = new Set(visibleLights.map((l) => l.id))
     for (const [id, g] of this.lightGraphicsCache) {
       if (!activeIds.has(id)) {
         g.destroy()
         this.lightGraphicsCache.delete(id)
+      }
+    }
+    for (const [id, entry] of this.lightGradientCache) {
+      if (!activeIds.has(id)) {
+        entry.gradient.destroy()
+        this.lightGradientCache.delete(id)
       }
     }
 
@@ -129,10 +137,45 @@ export class LightingRenderer {
           lightGraphics.lineTo(screenPoints[i], screenPoints[i + 1])
         }
         lightGraphics.closePath()
-        lightGraphics.fill({
-          color: lightHex,
-          alpha: Math.min(1, light.intensity),
-        })
+
+        // Build radial gradient centered at the light's screen position
+        const screenCenter = this.engine.worldToScreen(light.position.x, light.position.y)
+        const screenRadius = Math.max(1, light.radius * zoom)
+        const alpha = Math.min(1, light.intensity)
+        const lr = (lightHex >> 16) & 0xff
+        const lg = (lightHex >> 8) & 0xff
+        const lb = lightHex & 0xff
+        const toRgba = (a: number): string => `rgba(${lr},${lg},${lb},${a.toFixed(4)})`
+
+        const gradHash = `${light.color},${light.falloff},${alpha.toFixed(3)},${screenRadius.toFixed(1)},${screenCenter.x.toFixed(1)},${screenCenter.y.toFixed(1)}`
+        let cached = this.lightGradientCache.get(light.id)
+        if (!cached || cached.hash !== gradHash) {
+          cached?.gradient.destroy()
+          const colorStops =
+            light.falloff === 'linear'
+              ? [
+                  { offset: 0, color: toRgba(alpha) },
+                  { offset: 1, color: toRgba(0) },
+                ]
+              : [
+                  { offset: 0, color: toRgba(alpha) },
+                  { offset: 0.75, color: toRgba(alpha * 0.25) },
+                  { offset: 1, color: toRgba(0) },
+                ]
+          const gradient = new FillGradient({
+            type: 'radial',
+            center: { x: screenCenter.x, y: screenCenter.y },
+            innerRadius: 0,
+            outerCenter: { x: screenCenter.x, y: screenCenter.y },
+            outerRadius: screenRadius,
+            textureSpace: 'global',
+            colorStops,
+          })
+          cached = { gradient, hash: gradHash }
+          this.lightGradientCache.set(light.id, cached)
+        }
+
+        lightGraphics.fill(cached.gradient)
       }
 
       this.lightContainer.addChild(lightGraphics)
@@ -179,6 +222,10 @@ export class LightingRenderer {
       g.destroy()
     }
     this.lightGraphicsCache.clear()
+    for (const entry of this.lightGradientCache.values()) {
+      entry.gradient.destroy()
+    }
+    this.lightGradientCache.clear()
     this.engine.overlay().removeChild(this.compositingSprite)
     this.compositingSprite.destroy()
     this.lightFBO.destroy(true)

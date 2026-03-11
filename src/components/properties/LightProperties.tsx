@@ -4,6 +4,8 @@ import { PropertyField } from './PropertyField'
 import { SliderInput } from '@/components/inputs/SliderInput'
 import { ColorField } from '@/components/inputs/ColorField'
 import { cn } from '@/lib/utils'
+import { ChangePropertyCommand } from '@/store/commands'
+import { undoManager } from '@/store/undoManager'
 
 interface LightPropertiesProps {
   light: Light
@@ -30,6 +32,13 @@ export function LightProperties({ light }: LightPropertiesProps) {
         <ColorField
           value={light.color}
           onChange={(c) => updateLight(light.id, { color: c })}
+          onChangeCommit={(newColor, startColor) =>
+            undoManager.execute(
+              new ChangePropertyCommand('Light color', startColor, newColor, (v) =>
+                updateLight(light.id, { color: v }),
+              ),
+            )
+          }
         />
       </PropertyField>
 
@@ -38,6 +47,13 @@ export function LightProperties({ light }: LightPropertiesProps) {
           <SliderInput
             value={light.radius}
             onChange={(v) => updateLight(light.id, { radius: v })}
+            onChangeCommit={(newVal, startVal) =>
+              undoManager.execute(
+                new ChangePropertyCommand('Light radius', startVal, newVal, (v) =>
+                  updateLight(light.id, { radius: v }),
+                ),
+              )
+            }
             min={20}
             max={800}
             step={1}
@@ -50,6 +66,13 @@ export function LightProperties({ light }: LightPropertiesProps) {
           <SliderInput
             value={light.intensity}
             onChange={(v) => updateLight(light.id, { intensity: v })}
+            onChangeCommit={(newVal, startVal) =>
+              undoManager.execute(
+                new ChangePropertyCommand('Light intensity', startVal, newVal, (v) =>
+                  updateLight(light.id, { intensity: v }),
+                ),
+              )
+            }
             min={0}
             max={1}
             step={0.01}
@@ -66,7 +89,16 @@ export function LightProperties({ light }: LightPropertiesProps) {
                 ? 'bg-surface-3 border-border-focus text-text-primary'
                 : 'bg-surface-2 border-border-default text-text-secondary hover:bg-surface-3',
             )}
-            onClick={() => updateLight(light.id, { falloff: 'linear' })}
+            onClick={() =>
+              undoManager.execute(
+                new ChangePropertyCommand<'linear' | 'quadratic'>(
+                  'Light falloff',
+                  light.falloff,
+                  'linear',
+                  (v) => updateLight(light.id, { falloff: v }),
+                ),
+              )
+            }
           >
             Linear
           </button>
@@ -77,7 +109,16 @@ export function LightProperties({ light }: LightPropertiesProps) {
                 ? 'bg-surface-3 border-border-focus text-text-primary'
                 : 'bg-surface-2 border-border-default text-text-secondary hover:bg-surface-3',
             )}
-            onClick={() => updateLight(light.id, { falloff: 'quadratic' })}
+            onClick={() =>
+              undoManager.execute(
+                new ChangePropertyCommand<'linear' | 'quadratic'>(
+                  'Light falloff',
+                  light.falloff,
+                  'quadratic',
+                  (v) => updateLight(light.id, { falloff: v }),
+                ),
+              )
+            }
           >
             Quadratic
           </button>
