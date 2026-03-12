@@ -4,6 +4,8 @@ import type { RenderEngine } from '@/engine/RenderEngine';
 import { buildSceneGraph } from '@/engine/sceneGraph';
 import { setupRenderLoop } from '@/engine/renderLoop';
 import { subscribeToStore } from '@/engine/subscribeToStore';
+import { subscribeToAssets } from '@/engine/subscribeToAssets';
+import { setEngineSingleton, clearEngineSingleton } from '@/engine/engineSingleton';
 import { LightManager } from '@/engine/lighting';
 import { useCanvasResize } from './useCanvasResize';
 import { useCanvasInput, registerInputMiddleware, setToolManager, setSnapIndicator } from './useCanvasInput';
@@ -65,6 +67,12 @@ export function CanvasHost() {
       // Subscribe to Zustand store for state → scene graph sync
       const unsubStore = subscribeToStore(pixiEngine, sceneGraph, lightManager);
 
+      // Wire engine singleton (used by tools and E2E helpers)
+      setEngineSingleton(pixiEngine, sceneGraph);
+
+      // Subscribe to asset/image layer changes → PixiJS sprite sync
+      const unsubAssets = subscribeToAssets();
+
       pixiEngine.startRenderLoop();
 
       // Register input middleware (order matters: gridSnap first, then wallEndpointSnap)
@@ -98,6 +106,7 @@ export function CanvasHost() {
         sceneGraph.toolManager.destroy();
         sceneGraph.lightingRenderer.destroy();
         unsubStore();
+        unsubAssets();
         unregSnap();
         unregWallSnap();
         cleanupDpr();
@@ -113,6 +122,7 @@ export function CanvasHost() {
       useStore.getState().setClipperReady(false);
       // Clear the global E2E test flag when cleaning up
       (window as Window & { __clipperReady?: boolean }).__clipperReady = false;
+      clearEngineSingleton();
       pixiEngine.destroy();
       setEngine(null);
     };
