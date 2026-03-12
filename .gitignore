@@ -16,6 +16,8 @@ dist-ssr
 .claude/*
 CLAUDE.md
 docs/*
+!docs/superpowers/
+!docs/superpowers/**
 .playwright-mcp
 .superpowers
 test-results
