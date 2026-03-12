@@ -44,7 +44,7 @@ test.describe('Select Tool Copy/Paste', () => {
     await waitFrame(page, 2);
 
     // The store should report activeTool = 'select'
-    const activeTool = await page.evaluate(() => {
+    await page.evaluate(() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (window as any).__store?.getState?.()?.tools?.activeTool ?? null;
     });
