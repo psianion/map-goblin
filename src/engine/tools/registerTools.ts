@@ -9,6 +9,7 @@ import { WallTool } from './WallTool';
 import { SelectTool } from './SelectTool';
 import { ObjectTool } from './ObjectTool';
 import { LightTool } from './LightTool';
+import { AssetPlacementTool } from './AssetPlacementTool';
 
 export function registerAllTools(manager: ToolManager, worldContainer: Container, engine: RenderEngine): void {
   const selectTool = new SelectTool();
@@ -27,4 +28,5 @@ export function registerAllTools(manager: ToolManager, worldContainer: Container
   manager.registerTool(new PathTool());
   manager.registerTool(new WallTool());
   manager.registerTool(new LightTool());
+  manager.registerTool(new AssetPlacementTool(worldContainer));
 }

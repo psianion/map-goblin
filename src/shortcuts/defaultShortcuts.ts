@@ -4,9 +4,11 @@
 import { saveMap } from '@/io/saveLoad';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
+import { PasteCommand, CutCommand } from '@/store/commands';
+import type { DungeonLayer } from '@/store/types';
 
 // Keyed by key-combo string (e.g. 'ctrl+s') to match what onKeyDown builds.
-const toolKeyMap: Record<string, () => void> = {
+const toolKeyMap: Record<string, () => void | false> = {
   // Tool selection
   v: () => { useStore.getState().setActiveTool('select'); },
   r: () => { useStore.getState().setActiveTool('rectangle'); },
@@ -52,6 +54,40 @@ const toolKeyMap: Record<string, () => void> = {
         console.error('[load] could not import saveLoad module');
       });
   },
+  'ctrl+c': (): void | false => {
+    const store = useStore.getState();
+    if (store.tools.activeTool !== 'select' || !store.selection.selectedRegion) return false;
+    const region = store.selection.selectedRegion;
+    const layer = store.layers.find(
+      (l): l is DungeonLayer => l.id === store.ui.activeLayerId && l.type === 'dungeon',
+    );
+    if (layer) store.setClipboard({ region, style: { ...layer.style } });
+  },
+  'ctrl+v': (): void | false => {
+    const store = useStore.getState();
+    const clipboard = store.selection.clipboard;
+    if (!clipboard) return false;
+    const activeLayerId = store.ui.activeLayerId;
+    const layer = store.layers.find(
+      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
+    );
+    if (!layer) return;
+    undoManager.execute(new PasteCommand(activeLayerId, layer.mergedFloor, clipboard.region));
+    store.setSelectedRegion(null);
+  },
+  'ctrl+x': (): void | false => {
+    const store = useStore.getState();
+    if (store.tools.activeTool !== 'select' || !store.selection.selectedRegion) return false;
+    const region = store.selection.selectedRegion;
+    const activeLayerId = store.ui.activeLayerId;
+    const layer = store.layers.find(
+      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
+    );
+    if (!layer) return;
+    store.setClipboard({ region, style: { ...layer.style } });
+    undoManager.execute(new CutCommand(activeLayerId, layer.mergedFloor, region));
+    store.setSelectedRegion(null);
+  },
 };
 
 export interface ShortcutDefinition {
@@ -77,6 +113,9 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'file.save',           keys: 'ctrl+s',      category: 'File',  label: 'Save' },
     { id: 'file.load',           keys: 'ctrl+o',      category: 'File',  label: 'Open' },
     { id: 'file.export',         keys: 'ctrl+e',      category: 'File',  label: 'Export' },
+    { id: 'edit.copy',           keys: 'ctrl+c',      category: 'Edit',  label: 'Copy' },
+    { id: 'edit.paste',          keys: 'ctrl+v',      category: 'Edit',  label: 'Paste' },
+    { id: 'edit.cut',            keys: 'ctrl+x',      category: 'Edit',  label: 'Cut' },
   ];
 }
 
@@ -84,8 +123,8 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
 export function handleShortcut(keyCombo: string): boolean {
   const handler = toolKeyMap[keyCombo];
   if (handler) {
-    handler();
-    return true;
+    const result = handler();
+    return result !== false;
   }
   return false;
 }
