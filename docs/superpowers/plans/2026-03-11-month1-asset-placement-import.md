@@ -1052,8 +1052,8 @@ test.describe('Image Import', () => {
 
 **Note:** The `createDataTransfer` helper must simulate a DataTransfer with files — Playwright supports this via `page.evaluate` + `DataTransfer` API. Use a 1×1 transparent PNG fixture stored in `tests/e2e/fixtures/test-1x1.png`.
 
-- [ ] Create `tests/e2e/fixtures/test-1x1.png` — a minimal 1×1 transparent PNG (67 bytes, standard format)
-- [ ] Create `tests/e2e/17-image-import.spec.ts`
+- [x] Create `tests/e2e/fixtures/test-1x1.png` — a minimal 1×1 transparent PNG (67 bytes, standard format)
+- [x] Create `tests/e2e/20-image-import.spec.ts` (and `21-asset-placement.spec.ts`)
 
 ### 9.2 — Create `tests/e2e/18-asset-placement.spec.ts`
 
@@ -1142,9 +1142,9 @@ test.describe('Asset Placement Tool', () => {
 
 ### 9.3 — Run the E2E tests
 
-- [ ] Start dev server: `pnpm dev`
-- [ ] Run: `pnpm exec playwright test tests/e2e/17-image-import.spec.ts tests/e2e/18-asset-placement.spec.ts --reporter=list`
-- [ ] Fix failures until all tests pass
+- [x] Start dev server: `pnpm dev`
+- [x] Run: `pnpm exec playwright test tests/e2e/20-image-import.spec.ts tests/e2e/21-asset-placement.spec.ts --reporter=list`
+- [x] Fix failures until all tests pass
 
 **Commit:** `test(e2e): add image import and asset placement E2E tests`
 
@@ -1156,27 +1156,27 @@ test.describe('Asset Placement Tool', () => {
 
 ### 10.1 — Full check run
 
-- [ ] `pnpm typecheck` — zero TypeScript errors
-- [ ] `pnpm lint` — zero ESLint warnings (using `--max-warnings 0`)
-- [ ] `pnpm test` — all unit tests pass
+- [x] `pnpm typecheck` — zero TypeScript errors
+- [x] `pnpm lint` — zero ESLint warnings (using `--max-warnings 0`)
+- [x] `pnpm test` — all unit tests pass
 - [ ] `pnpm exec playwright test --reporter=list` — E2E suite 90+ pass (regressions would be a blocker)
 
 ### 10.2 — Manual integration checklist
 
-- [ ] File picker: PNG import places object, Ctrl+Z undoes
-- [ ] File picker: JPEG import works
+- [x] File picker: PNG import places object, Ctrl+Z undoes
+- [x] File picker: JPEG import works
 - [ ] File picker: SVG import works
-- [ ] File picker: GIF rejected with toast error
-- [ ] Drag-and-drop: PNG onto canvas places object at drop position (mapped to viewport center)
-- [ ] Clipboard paste: Ctrl+V with image in clipboard works
-- [ ] Clipboard paste: Ctrl+V in a text input does NOT trigger import
+- [x] File picker: GIF rejected with toast error
+- [x] Drag-and-drop: PNG onto canvas places object at drop position (mapped to viewport center)
+- [x] Clipboard paste: Ctrl+V with image in clipboard works
+- [x] Clipboard paste: Ctrl+V in a text input does NOT trigger import
 - [ ] Asset placement: click asset in browser, sprite previews at cursor, snaps to grid
 - [ ] Asset placement: click to place, verify PixiJS sprite appears in scene
 - [ ] Asset placement: Escape exits, returns to select tool
 - [ ] Continuous placement: toggle on, place multiple assets, verify tool stays active
 - [ ] Continuous placement: toggle off, place one asset, verify return to select
-- [ ] Wrong layer: all three import paths show correct toast and do NOT place
-- [ ] RecentlyUsed: after 3 placements, `assets.recentlyUsed` has those assetIds in reverse order
+- [x] Wrong layer: all three import paths show correct toast and do NOT place
+- [x] RecentlyUsed: after 3 placements, `assets.recentlyUsed` has those assetIds in reverse order
 - [ ] "Place at view center": button in asset browser places at correct world position
 
 ### 10.3 — Coordinate with UI Dev
