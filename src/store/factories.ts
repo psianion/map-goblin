@@ -69,8 +69,9 @@ export function createLight(
     id: crypto.randomUUID(),
     position,
     color: '#ffdd88',
-    radius: 150,
-    intensity: 0.9,
+    radius: 6,        // 30 ft at default 5 ft/cell
+    featherRadius: 0, // 0% bright zone — falloff starts immediately
+    intensity: 0.2,
     falloff: 'quadratic',
     name: 'Light',
     visible: true,
@@ -121,7 +122,7 @@ export function createDefaultState(): MapBuilderState {
       name: 'Untitled Map',
       gridType: 'square',
       cellScale: { value: 5, unit: 'ft' },
-      ambientLight: '#1a1a2e',
+      ambientLight: '#2d2d44',
     },
     grid: {
       visible: true,

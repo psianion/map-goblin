@@ -139,7 +139,8 @@ export class LightingRenderer {
       const alpha = Math.min(1, light.intensity)
       const toRgba = (a: number): string => `rgba(${lr},${lg},${lb},${a.toFixed(4)})`
 
-      const feather = Math.min(light.featherRadius ?? 0, screenRadius * 0.99)
+      const screenFeather = (light.featherRadius ?? 0) * zoom
+      const feather = Math.min(screenFeather, screenRadius * 0.99)
       const featherOffset = screenRadius > 0 ? feather / screenRadius : 0
 
       const colorStops: { offset: number; color: string }[] = [

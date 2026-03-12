@@ -9,16 +9,45 @@ import { undoManager } from '@/store/undoManager'
 
 interface LightPropertiesProps {
   light: Light
+  onDeselect?: () => void
 }
 
-export function LightProperties({ light }: LightPropertiesProps) {
+/** Convert a world-unit radius to a rounded feet string using the map's cell scale. */
+function toFt(worldUnits: number, ftPerCell: number): string {
+  return `${Math.round(worldUnits * ftPerCell)} ft`
+}
+
+// Slider bounds in feet — world-unit equivalents are derived at render time.
+const MIN_RADIUS_FT = 5
+const MAX_RADIUS_FT = 300
+
+export function LightProperties({ light, onDeselect }: LightPropertiesProps) {
   const updateLight = useStore((s) => s.updateLight)
+  const cellScale = useStore((s) => s.mapSettings.cellScale)
+  const ftPerCell = cellScale.value
+
+  // Convert ft bounds to world units for the slider
+  const minRadius = MIN_RADIUS_FT / ftPerCell
+  const maxRadius = MAX_RADIUS_FT / ftPerCell
+
+  const featherRadius = light.featherRadius ?? 0
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      <span className="text-panel-heading uppercase text-text-secondary tracking-wider">
-        Light
-      </span>
+      <div className="flex items-center justify-between">
+        <span className="text-panel-heading uppercase text-text-secondary tracking-wider">
+          Light
+        </span>
+        {onDeselect && (
+          <button
+            className="text-text-muted hover:text-text-primary text-xs leading-none"
+            onClick={onDeselect}
+            title="Deselect light"
+          >
+            ✕
+          </button>
+        )}
+      </div>
 
       <PropertyField label="Name">
         <input
@@ -42,11 +71,24 @@ export function LightProperties({ light }: LightPropertiesProps) {
         />
       </PropertyField>
 
-      <PropertyField label="Radius">
+      {/* Radius — maximum reach of the light */}
+      <PropertyField
+        label={
+          <span className="flex items-center justify-between w-full">
+            <span>Radius</span>
+            <span className="text-text-muted text-[10px] font-normal">{toFt(light.radius, ftPerCell)}</span>
+          </span>
+        }
+      >
         <div data-testid="light-radius-slider">
           <SliderInput
             value={light.radius}
-            onChange={(v) => updateLight(light.id, { radius: v })}
+            onChange={(v) => {
+              // Keep featherRadius ≤ new radius
+              const updates: Partial<Light> = { radius: v }
+              if (featherRadius > v) updates.featherRadius = v
+              updateLight(light.id, updates)
+            }}
             onChangeCommit={(newVal, startVal) =>
               undoManager.execute(
                 new ChangePropertyCommand('Light radius', startVal, newVal, (v) =>
@@ -54,9 +96,38 @@ export function LightProperties({ light }: LightPropertiesProps) {
                 ),
               )
             }
-            min={20}
-            max={800}
-            step={1}
+            min={minRadius}
+            max={maxRadius}
+            step={minRadius}
+          />
+        </div>
+      </PropertyField>
+
+      {/* Bright zone — percentage of radius at full brightness */}
+      <PropertyField
+        label={
+          <span className="flex items-center justify-between w-full">
+            <span>Bright Zone</span>
+            <span className="text-text-muted text-[10px] font-normal">
+              {light.radius > 0 ? Math.round((featherRadius / light.radius) * 100) : 0}%
+            </span>
+          </span>
+        }
+      >
+        <div data-testid="light-feather-slider">
+          <SliderInput
+            value={light.radius > 0 ? Math.round((featherRadius / light.radius) * 100) : 0}
+            onChange={(pct) => updateLight(light.id, { featherRadius: (pct / 100) * light.radius })}
+            onChangeCommit={(newPct, startPct) =>
+              undoManager.execute(
+                new ChangePropertyCommand('Light bright zone', startPct, newPct, (pct) =>
+                  updateLight(light.id, { featherRadius: (pct / 100) * light.radius }),
+                ),
+              )
+            }
+            min={0}
+            max={100}
+            step={5}
           />
         </div>
       </PropertyField>
