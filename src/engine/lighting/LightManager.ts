@@ -1,11 +1,17 @@
-import type { Light } from '@/store/types'
-
-type WorldPoint = [number, number]
+import type { Light, DungeonLayer } from '@/store/types'
+import type { VisibilityVertex } from './ClockwiseSweep'
+import { clockwiseSweep } from './ClockwiseSweep'
+import { SegmentQuadtree } from './SegmentQuadtree'
+import { extractWallSegments } from './raycaster'
+import type { Segment } from './raycaster'
 
 export class LightManager {
   private lights: Light[] = []
-  private shadowCache = new Map<string, WorldPoint[]>()
+  private shadowCache = new Map<string, VisibilityVertex[]>()
   private dirtySet = new Set<string>()
+  private wallSegments: Segment[] = []
+  private quadtree = new SegmentQuadtree()
+  private wallsDirty = true
 
   getLights(): Light[] {
     return this.lights
@@ -15,16 +21,10 @@ export class LightManager {
     return this.lights.filter((l) => l.visible !== false)
   }
 
-  /**
-   * Called from subscribeToStore whenever state.lights changes.
-   * Detects which lights changed position/radius/falloff and marks them dirty.
-   * New lights are marked dirty. Removed lights are evicted from cache.
-   */
   syncFromStore(newLights: Light[]): void {
     const prevMap = new Map(this.lights.map((l) => [l.id, l]))
     const newIds = new Set(newLights.map((l) => l.id))
 
-    // Evict removed lights
     for (const [id] of prevMap) {
       if (!newIds.has(id)) {
         this.shadowCache.delete(id)
@@ -32,14 +32,11 @@ export class LightManager {
       }
     }
 
-    // Check for new or changed lights
     for (const light of newLights) {
       const prev = prevMap.get(light.id)
       if (!prev) {
-        // New light — mark dirty
         this.dirtySet.add(light.id)
       } else {
-        // Changed position, radius, or falloff invalidates visibility polygon
         const posChanged =
           prev.position.x !== light.position.x ||
           prev.position.y !== light.position.y
@@ -62,25 +59,46 @@ export class LightManager {
     for (const light of this.lights) {
       this.dirtySet.add(light.id)
     }
+    this.wallsDirty = true
   }
 
   isDirty(lightId: string): boolean {
     return this.dirtySet.has(lightId)
   }
 
-  clearDirty(lightId: string): void {
-    this.dirtySet.delete(lightId)
+  isWallsDirty(): boolean {
+    return this.wallsDirty
   }
 
   getDirtyCount(): number {
     return this.dirtySet.size
   }
 
-  getCachedPolygon(lightId: string): WorldPoint[] | null {
-    return this.shadowCache.get(lightId) ?? null
+  rebuildIfDirty(dungeonLayers: DungeonLayer[]): void {
+    if (!this.wallsDirty) return
+    this.wallSegments = extractWallSegments(dungeonLayers)
+    this.quadtree.build(this.wallSegments)
+    this.wallsDirty = false
   }
 
-  setCachedPolygon(lightId: string, polygon: WorldPoint[]): void {
-    this.shadowCache.set(lightId, polygon)
+  getOrComputePolygon(light: Light): VisibilityVertex[] {
+    const cached = this.shadowCache.get(light.id)
+    if (cached && !this.dirtySet.has(light.id)) {
+      return cached
+    }
+    const nearSegments = this.quadtree.query(
+      light.position.x - light.radius,
+      light.position.y - light.radius,
+      light.position.x + light.radius,
+      light.position.y + light.radius,
+    )
+    const polygon = clockwiseSweep(
+      [light.position.x, light.position.y],
+      light.radius,
+      nearSegments,
+    )
+    this.shadowCache.set(light.id, polygon)
+    this.dirtySet.delete(light.id)
+    return polygon
   }
 }
