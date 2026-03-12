@@ -127,6 +127,7 @@ export interface Light {
 export type ToolType =
   | 'select'
   | 'object'
+  | 'pan'
   | 'rectangle'
   | 'polygon'
   | 'regularPolygon'

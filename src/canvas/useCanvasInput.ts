@@ -5,6 +5,7 @@ import type { SnapIndicator } from './snapIndicator';
 import type { Point } from '@/types/geometry';
 import { handleImageImport } from './importImage';
 import { handleShortcut } from '@/shortcuts/defaultShortcuts';
+import { useStore } from '@/store/store';
 
 type InputMiddleware = (point: Point) => Point;
 
@@ -51,14 +52,37 @@ export function useCanvasInput(
     if (!canvasEl || !engine) return;
 
     // ─── Pointer events ───────────────────────────────────────
+    let isPanToolDragging = false;
+    let panToolLastX = 0;
+    let panToolLastY = 0;
+
     const onPointerDown = (e: PointerEvent) => {
       canvasEl.setPointerCapture(e.pointerId);
+      // Pan tool: left-click starts panning
+      if (e.button === 0 && useStore.getState().tools.activeTool === 'pan') {
+        isPanToolDragging = true;
+        panToolLastX = e.clientX;
+        panToolLastY = e.clientY;
+        canvasEl.style.cursor = 'grabbing';
+        return;
+      }
       const world = engine.screenToWorld(e.clientX - canvasEl.getBoundingClientRect().left, e.clientY - canvasEl.getBoundingClientRect().top);
       const snapped = applyMiddleware(world);
       _toolManager?.onPointerDown(snapped, e);
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      // Pan tool drag
+      if (isPanToolDragging) {
+        const dx = e.clientX - panToolLastX;
+        const dy = e.clientY - panToolLastY;
+        panToolLastX = e.clientX;
+        panToolLastY = e.clientY;
+        const stage = engine.stage();
+        stage.position.x += dx;
+        stage.position.y += dy;
+        return;
+      }
       const rect = canvasEl.getBoundingClientRect();
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
       const snapped = applyMiddleware(world);
@@ -67,6 +91,11 @@ export function useCanvasInput(
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      if (isPanToolDragging) {
+        isPanToolDragging = false;
+        canvasEl.style.cursor = 'grab';
+        return;
+      }
       const rect = canvasEl.getBoundingClientRect();
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
       const snapped = applyMiddleware(world);
@@ -158,6 +187,20 @@ export function useCanvasInput(
       if (file) await handleImageImport(file, engine);
     };
 
+    // ─── Pan tool cursor ────────────────────────────────────
+    const updateCursor = (): void => {
+      if (useStore.getState().tools.activeTool === 'pan') {
+        canvasEl.style.cursor = 'grab';
+      } else {
+        canvasEl.style.cursor = '';
+      }
+    };
+    updateCursor();
+    const unsubCursor = useStore.subscribe(
+      (s) => s.tools.activeTool,
+      updateCursor,
+    );
+
     canvasEl.addEventListener('pointerdown', onPointerDown);
     canvasEl.addEventListener('pointermove', onPointerMove);
     canvasEl.addEventListener('pointerup', onPointerUp);
@@ -171,6 +214,8 @@ export function useCanvasInput(
     document.addEventListener('paste', onPaste as unknown as EventListener);
 
     return () => {
+      unsubCursor();
+      canvasEl.style.cursor = '';
       canvasEl.removeEventListener('pointerdown', onPointerDown);
       canvasEl.removeEventListener('pointermove', onPointerMove);
       canvasEl.removeEventListener('pointerup', onPointerUp);

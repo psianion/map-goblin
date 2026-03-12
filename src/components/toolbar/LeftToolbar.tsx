@@ -1,5 +1,6 @@
 import {
   MousePointer2,
+  Hand,
   Square,
   Pentagon,
   Hexagon,
@@ -22,6 +23,7 @@ interface ToolButton {
 
 const TOOLS: ToolButton[] = [
   { tool: 'select', icon: MousePointer2, label: 'Select', shortcut: 'V' },
+  { tool: 'pan', icon: Hand, label: 'Pan', shortcut: 'G' },
   { tool: 'rectangle', icon: Square, label: 'Rectangle', shortcut: 'R' },
   { tool: 'polygon', icon: Pentagon, label: 'Polygon', shortcut: 'P' },
   { tool: 'regularPolygon', icon: Hexagon, label: 'Regular Polygon', shortcut: 'H' },

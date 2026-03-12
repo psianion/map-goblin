@@ -11,6 +11,7 @@ import type { DungeonLayer } from '@/store/types';
 const toolKeyMap: Record<string, () => void | false> = {
   // Tool selection
   v: () => { useStore.getState().setActiveTool('select'); },
+  g: () => { useStore.getState().setActiveTool('pan'); },
   r: () => { useStore.getState().setActiveTool('rectangle'); },
   p: () => { useStore.getState().setActiveTool('polygon'); },
   h: () => { useStore.getState().setActiveTool('regularPolygon'); },
@@ -100,6 +101,7 @@ export interface ShortcutDefinition {
 export function createDefaultShortcuts(): ShortcutDefinition[] {
   return [
     { id: 'tool.select',         keys: 'v',           category: 'Tools', label: 'Select' },
+    { id: 'tool.pan',            keys: 'g',           category: 'Tools', label: 'Pan' },
     { id: 'tool.rectangle',      keys: 'r',           category: 'Tools', label: 'Rectangle' },
     { id: 'tool.polygon',        keys: 'p',           category: 'Tools', label: 'Polygon' },
     { id: 'tool.regularPolygon', keys: 'h',           category: 'Tools', label: 'Regular Polygon' },
