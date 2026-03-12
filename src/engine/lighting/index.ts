@@ -1,4 +1,7 @@
 export { LightManager } from './LightManager'
 export { LightingRenderer } from './LightingRenderer'
-export { computeVisibilityPolygon, extractWallSegments } from './raycaster'
+export { extractWallSegments } from './raycaster'
 export type { Segment } from './raycaster'
+export { clockwiseSweep } from './ClockwiseSweep'
+export type { VisibilityVertex } from './ClockwiseSweep'
+export { SegmentQuadtree } from './SegmentQuadtree'

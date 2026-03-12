@@ -4,7 +4,7 @@ import type { SceneGraph } from './sceneGraph';
 import { getLayerEntries } from './sceneGraph';
 import { useStore } from '@/store/store';
 import type { DungeonLayer } from '@/store/types';
-import { LightManager, computeVisibilityPolygon, extractWallSegments } from './lighting';
+import { LightManager } from './lighting';
 
 /**
  * Set up the per-frame render loop via PixiJS Ticker.
@@ -84,25 +84,12 @@ export function setupRenderLoop(
     // (5) Tool preview update
     sceneGraph.toolManager.updatePreview();
 
-    // (6) Lighting — recompute dirty visibility polygons, update FBO
+    // (6) Lighting — rebuild wall segments if dirty, update FBO
     const storeState = useStore.getState();
-    const visibleLights = lightManager.getVisibleLights();
     const dungeonLayers = storeState.layers.filter(
       (l): l is DungeonLayer => l.type === 'dungeon' && l.visible,
     );
-    const wallSegments = extractWallSegments(dungeonLayers);
-
-    for (const light of visibleLights) {
-      if (lightManager.isDirty(light.id)) {
-        const polygon = computeVisibilityPolygon(
-          [light.position.x, light.position.y],
-          light.radius,
-          wallSegments,
-        );
-        lightManager.setCachedPolygon(light.id, polygon);
-        lightManager.clearDirty(light.id);
-      }
-    }
+    lightManager.rebuildIfDirty(dungeonLayers);
 
     // Get camera state for UV → world transform in shader
     const zoom = stage.scale.x;
