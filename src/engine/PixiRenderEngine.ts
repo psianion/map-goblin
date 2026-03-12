@@ -20,7 +20,7 @@ export class PixiRenderEngine implements RenderEngine {
       resolution: dpr,
       autoDensity: true,
       antialias: true,
-      backgroundColor: 0xF0ECE0,
+      backgroundColor: 0x2d2d2d,
       // Required for E2E pixel-sampling tests (ctx.drawImage on WebGL canvas)
       preserveDrawingBuffer: true,
     });
@@ -39,8 +39,8 @@ export class PixiRenderEngine implements RenderEngine {
     const rect = container.getBoundingClientRect();
     this.resize(rect.width, rect.height);
 
-    // Set initial camera: zoom=50 (1 world unit = 50px), centered on origin
-    const initialZoom = 50;
+    // Set initial camera: zoom=20 (1 world unit = 20px), centered on origin
+    const initialZoom = 20;
     this.worldContainer.scale.set(initialZoom);
     this.worldContainer.position.set(rect.width / 2, rect.height / 2);
 

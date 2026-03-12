@@ -40,8 +40,8 @@ export function setupRenderLoop(
     // (1) Camera sync — camera state lives on worldContainer directly,
     // mutated by useCanvasInput. Nothing to sync here.
 
-    // (2) Update background
-    if (bgDirty) {
+    // (2) Update background — always redraw so it covers viewport after zoom/pan
+    {
       const vp = engine.viewport();
       // Draw a large background rectangle in world space
       // Positioned so it covers the visible area regardless of camera

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { CanvasHost } from '@/canvas/CanvasHost';
 import { LeftToolbar } from '@/components/toolbar/LeftToolbar';
 import { RightPanel } from '@/components/layout/RightPanel';
+import { ZoomSlider } from '@/components/toolbar/ZoomSlider';
 import { ExportDialog } from '@/components/shared/ExportDialog';
 import { RecoveryDialog } from '@/components/shared/RecoveryDialog';
 import { startAutosave, isDirtyFlagSet } from '@/io/autosave';
@@ -60,6 +61,9 @@ export default function App() {
       {/* Canvas area */}
       <div style={{ minWidth: 0, minHeight: 0, position: 'relative' }}>
         <CanvasHost />
+        <div className="absolute bottom-3 right-3 z-10">
+          <ZoomSlider />
+        </div>
       </div>
 
       {/* Right panel: Layers | Assets tabs + Properties */}

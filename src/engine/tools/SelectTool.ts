@@ -23,17 +23,50 @@ class ToolOverlay {
   drawSelection(region: Polygon[]): void {
     this.selectionGraphics.clear();
     if (region.length === 0) return;
-    this.selectionGraphics.setStrokeStyle({ color: 0x4488ff, width: 0.04 });
+
+    // Classify polygons by winding: positive signed area = outer, negative = hole
+    const outers: Polygon[] = [];
+    const holes: Polygon[] = [];
     for (const poly of region) {
       if (poly.length < 3) continue;
-      this.selectionGraphics.moveTo(poly[0][0], poly[0][1]);
-      for (let i = 1; i < poly.length; i++) {
-        this.selectionGraphics.lineTo(poly[i][0], poly[i][1]);
+      let area = 0;
+      for (let i = 0; i < poly.length; i++) {
+        const j = (i + 1) % poly.length;
+        area += poly[i][0] * poly[j][1];
+        area -= poly[j][0] * poly[i][1];
       }
-      this.selectionGraphics.closePath();
-      this.selectionGraphics.fill({ color: 0x4488ff, alpha: 0.15 });
-      this.selectionGraphics.stroke();
+      if (area >= 0) outers.push(poly);
+      else holes.push(poly);
     }
+
+    const g = this.selectionGraphics;
+
+    // Fill outers
+    for (const poly of outers) {
+      g.moveTo(poly[0][0], poly[0][1]);
+      for (let i = 1; i < poly.length; i++) g.lineTo(poly[i][0], poly[i][1]);
+      g.closePath();
+    }
+    g.fill({ color: 0x4488ff, alpha: 0.15 });
+
+    // Cut holes
+    if (holes.length > 0) {
+      for (const poly of holes) {
+        g.moveTo(poly[0][0], poly[0][1]);
+        for (let i = 1; i < poly.length; i++) g.lineTo(poly[i][0], poly[i][1]);
+        g.closePath();
+      }
+      g.cut();
+    }
+
+    // Stroke all contours (outers + holes)
+    g.setStrokeStyle({ color: 0x4488ff, width: 0.04 });
+    for (const poly of [...outers, ...holes]) {
+      g.moveTo(poly[0][0], poly[0][1]);
+      for (let i = 1; i < poly.length; i++) g.lineTo(poly[i][0], poly[i][1]);
+      g.closePath();
+    }
+    g.stroke();
   }
 
   clear(): void {

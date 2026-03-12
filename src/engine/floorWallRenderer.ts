@@ -9,15 +9,68 @@ function parseColor(hex: string): number {
   return parseInt(hex.replace('#', ''), 16);
 }
 
+/** Signed area of a polygon. Positive = CW in screen-space (outer), negative = CCW (hole). */
+function signedArea(poly: Polygon): number {
+  let area = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const j = (i + 1) % poly.length;
+    area += poly[i][0] * poly[j][1];
+    area -= poly[j][0] * poly[i][1];
+  }
+  return area / 2;
+}
+
+function traceSinglePolygon(g: Graphics, polygon: Polygon): void {
+  if (polygon.length < 3) return;
+  g.moveTo(polygon[0][0], polygon[0][1]);
+  for (let i = 1; i < polygon.length; i++) {
+    g.lineTo(polygon[i][0], polygon[i][1]);
+  }
+  g.closePath();
+}
+
 function tracePolygons(g: Graphics, polygons: Polygon[]): void {
   for (const polygon of polygons) {
-    if (polygon.length < 3) continue;
-    g.moveTo(polygon[0][0], polygon[0][1]);
-    for (let i = 1; i < polygon.length; i++) {
-      g.lineTo(polygon[i][0], polygon[i][1]);
-    }
-    g.closePath();
+    traceSinglePolygon(g, polygon);
   }
+}
+
+/**
+ * Fill polygons with proper hole support for PixiJS v8.
+ * Clipper2 returns outer contours (CW in screen-space, positive signed area)
+ * and hole contours (CCW, negative signed area). PixiJS v8 needs explicit
+ * fill() for outers and cut() for holes.
+ */
+function fillPolygonsWithHoles(g: Graphics, polygons: Polygon[], fillStyle: { color: number }): void {
+  const outers: Polygon[] = [];
+  const holes: Polygon[] = [];
+  for (const poly of polygons) {
+    if (poly.length < 3) continue;
+    if (signedArea(poly) >= 0) {
+      outers.push(poly);
+    } else {
+      holes.push(poly);
+    }
+  }
+
+  // If no holes, simple fill
+  if (holes.length === 0) {
+    tracePolygons(g, outers);
+    g.fill(fillStyle);
+    return;
+  }
+
+  // Draw outers and fill
+  for (const outer of outers) {
+    traceSinglePolygon(g, outer);
+  }
+  g.fill(fillStyle);
+
+  // Draw holes and cut them out
+  for (const hole of holes) {
+    traceSinglePolygon(g, hole);
+  }
+  g.cut();
 }
 
 /**
@@ -80,22 +133,17 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     shadowG.alpha = s.shadowIntensity;
     const ox = s.shadowOffset.x;
     const oy = s.shadowOffset.y;
-    for (const polygon of polygons) {
-      if (polygon.length < 3) continue;
-      shadowG.moveTo(polygon[0][0] + ox, polygon[0][1] + oy);
-      for (let i = 1; i < polygon.length; i++) {
-        shadowG.lineTo(polygon[i][0] + ox, polygon[i][1] + oy);
-      }
-      shadowG.closePath();
-    }
-    shadowG.fill({ color: parseColor(s.shadowColor) });
+    // Offset polygons for shadow, preserving winding for hole detection
+    const offsetPolygons: Polygon[] = polygons.map(poly =>
+      poly.map(([x, y]) => [x + ox, y + oy] as [number, number])
+    );
+    fillPolygonsWithHoles(shadowG, offsetPolygons, { color: parseColor(s.shadowColor) });
     shadow.addChild(shadowG);
   }
 
   // ── Floor fill ───────────────────────────────────────────────
   const floorG = new Graphics();
-  tracePolygons(floorG, polygons);
-  floorG.fill({ color: floorColorNum });
+  fillPolygonsWithHoles(floorG, polygons, { color: floorColorNum });
   floor.addChild(floorG);
 
   // ── Grid sublayer (lines inside shapes) ─────────────────
@@ -122,8 +170,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
 
       // Mask to clip grid lines within floor shape
       const maskG = new Graphics();
-      tracePolygons(maskG, polygons);
-      maskG.fill({ color: 0xffffff });
+      fillPolygonsWithHoles(maskG, polygons, { color: 0xffffff });
 
       // Grid lines
       const gridG = new Graphics();
@@ -167,8 +214,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
 
     // Mask Graphics — defines the hatch region
     const maskG = new Graphics();
-    tracePolygons(maskG, hatchRegion);
-    maskG.fill({ color: 0xffffff });
+    fillPolygonsWithHoles(maskG, hatchRegion, { color: 0xffffff });
 
     // Hatch lines Graphics
     const hatchG = new Graphics();

@@ -127,7 +127,7 @@ export function useCanvasInput(
 
       const zoomFactor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
       const oldZoom = stage.scale.x;
-      const newZoom = Math.max(0.05, Math.min(20, oldZoom * zoomFactor));
+      const newZoom = Math.max(10, Math.min(100, oldZoom * zoomFactor));
 
       stage.position.x = mx - (mx - stage.position.x) * (newZoom / oldZoom);
       stage.position.y = my - (my - stage.position.y) * (newZoom / oldZoom);
