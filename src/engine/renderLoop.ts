@@ -5,6 +5,7 @@ import { getLayerEntries } from './sceneGraph';
 import { useStore } from '@/store/store';
 import type { DungeonLayer } from '@/store/types';
 import { LightManager } from './lighting';
+import { renderToolPreview } from './toolPreview';
 
 /**
  * Set up the per-frame render loop via PixiJS Ticker.
@@ -83,6 +84,15 @@ export function setupRenderLoop(
 
     // (5) Tool preview update
     sceneGraph.toolManager.updatePreview();
+
+    // (5b) Tool settings preview — ghost shape from popover edits
+    {
+      const vp = engine.viewport();
+      const previewZoom = stage.scale.x;
+      const previewCx = (-stage.position.x + vp.width / 2) / previewZoom;
+      const previewCy = (-stage.position.y + vp.height / 2) / previewZoom;
+      renderToolPreview(previewCx, previewCy, previewZoom);
+    }
 
     // (6) Lighting — rebuild wall segments if dirty, update FBO
     const storeState = useStore.getState();

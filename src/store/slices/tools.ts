@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { MapBuilderStore, ToolSettings, ToolType } from '../types.ts';
+import type { MapBuilderStore, ToolSettings, ToolType, LightDefaults } from '../types.ts';
 
 export interface ToolActions {
   setActiveTool: (tool: ToolType) => void;
@@ -7,6 +7,7 @@ export interface ToolActions {
   setRoughMode: (enabled: boolean) => void;
   updateToolSettings: (patch: Partial<ToolSettings>) => void;
   addRecentAsset: (assetId: string) => void;
+  updateLightDefaults: (patch: Partial<LightDefaults>) => void;
 }
 
 export const createToolsSlice: StateCreator<
@@ -37,5 +38,9 @@ export const createToolsSlice: StateCreator<
         assetId,
         ...state.tools.recentAssets.filter((id: string) => id !== assetId),
       ].slice(0, 8);
+    }),
+  updateLightDefaults: (patch) =>
+    set((state) => {
+      Object.assign(state.tools.settings.lightDefaults, patch);
     }),
 });

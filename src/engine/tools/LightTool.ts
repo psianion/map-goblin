@@ -3,13 +3,15 @@ import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { createLight } from '@/store/factories';
 import { PlaceLightCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
+import { useStore } from '@/store/store';
 
 export class LightTool implements DrawingTool {
   readonly type = 'light' as const;
   private cursorPoint: Point | null = null;
 
   onPointerDown(point: Point): void {
-    const light = createLight({ x: point.x, y: point.y });
+    const defaults = useStore.getState().tools.settings.lightDefaults;
+    const light = createLight({ x: point.x, y: point.y }, defaults);
     undoManager.execute(new PlaceLightCommand(light));
   }
 

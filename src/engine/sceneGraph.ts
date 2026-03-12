@@ -1,8 +1,9 @@
-import { Container, RenderTexture, Sprite } from 'pixi.js';
+import { Container, Graphics, RenderTexture, Sprite } from 'pixi.js';
 import type { RenderEngine } from './RenderEngine';
 import { GridRenderer } from './grid/GridRenderer';
 import { ToolManager } from './tools/ToolManager';
 import { LightingRenderer } from './lighting';
+import { initToolPreview } from './toolPreview';
 
 export interface SceneGraph {
   worldContainer: Container;
@@ -78,6 +79,11 @@ export function buildSceneGraph(engine: RenderEngine): SceneGraph {
 
   // Tool manager — handles drawing tools and preview rendering
   const toolManager = new ToolManager(worldContainer);
+
+  // Tool settings preview — ghost shape shown while editing tool popover
+  const settingsPreview = new Graphics();
+  worldContainer.addChild(settingsPreview);
+  initToolPreview(settingsPreview);
 
   // Lighting renderer — FBO-based compositing pass
   const vp = engine.viewport();

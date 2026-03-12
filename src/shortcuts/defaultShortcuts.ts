@@ -6,18 +6,61 @@ import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { PasteCommand, CutCommand } from '@/store/commands';
 import type { DungeonLayer } from '@/store/types';
+import { togglePopoverRef } from '@/components/toolbar/toolConstants';
 
 // Keyed by key-combo string (e.g. 'ctrl+s') to match what onKeyDown builds.
 const toolKeyMap: Record<string, () => void | false> = {
   // Tool selection
   v: () => { useStore.getState().setActiveTool('select'); },
   g: () => { useStore.getState().setActiveTool('pan'); },
-  r: () => { useStore.getState().setActiveTool('rectangle'); },
-  p: () => { useStore.getState().setActiveTool('polygon'); },
-  h: () => { useStore.getState().setActiveTool('regularPolygon'); },
-  d: () => { useStore.getState().setActiveTool('path'); },
-  w: () => { useStore.getState().setActiveTool('wall'); },
-  l: () => { useStore.getState().setActiveTool('light'); },
+  r: () => {
+    const s = useStore.getState();
+    if (s.tools.activeTool === 'rectangle') {
+      togglePopoverRef.current?.();
+    } else {
+      s.setActiveTool('rectangle');
+    }
+  },
+  p: () => {
+    const s = useStore.getState();
+    if (s.tools.activeTool === 'polygon') {
+      togglePopoverRef.current?.();
+    } else {
+      s.setActiveTool('polygon');
+    }
+  },
+  h: () => {
+    const s = useStore.getState();
+    if (s.tools.activeTool === 'regularPolygon') {
+      togglePopoverRef.current?.();
+    } else {
+      s.setActiveTool('regularPolygon');
+    }
+  },
+  d: () => {
+    const s = useStore.getState();
+    if (s.tools.activeTool === 'path') {
+      togglePopoverRef.current?.();
+    } else {
+      s.setActiveTool('path');
+    }
+  },
+  w: () => {
+    const s = useStore.getState();
+    if (s.tools.activeTool === 'wall') {
+      togglePopoverRef.current?.();
+    } else {
+      s.setActiveTool('wall');
+    }
+  },
+  l: () => {
+    const s = useStore.getState();
+    if (s.tools.activeTool === 'light') {
+      togglePopoverRef.current?.();
+    } else {
+      s.setActiveTool('light');
+    }
+  },
   // Mode toggles
   e: () => { const s = useStore.getState(); s.setEraseMode(!s.tools.eraseMode); },
   x: () => { const s = useStore.getState(); s.setRoughMode(!s.tools.roughMode); },

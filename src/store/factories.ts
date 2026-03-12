@@ -102,7 +102,7 @@ type MapBuilderState = Omit<
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
   | 'addShape' | 'removeShape' | 'updateMergedFloor' | 'addWall' | 'removeWall'
   | 'addLight' | 'removeLight' | 'updateLight'
-  | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'updateToolSettings' | 'addRecentAsset'
+  | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'updateToolSettings' | 'addRecentAsset' | 'updateLightDefaults'
   | 'setActiveLayerId' | 'setSelectedObjectIds' | 'setActivePanel' | 'togglePanel'
   | 'pushToast' | 'dismissToast' | 'showModal' | 'setClipperReady'
   | 'applyPreset' | 'saveCustomPreset' | 'deleteCustomPreset'
@@ -142,6 +142,13 @@ export function createDefaultState(): MapBuilderState {
         wallBlocksLight: true,
         wallWidth: 0.08,
         continuousPlacement: false,
+        lightDefaults: {
+          color: '#ffdd88',
+          radius: 6,
+          featherRadius: 0,
+          intensity: 0.2,
+          falloff: 'quadratic' as const,
+        },
       },
       recentAssets: [],
     },

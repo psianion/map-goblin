@@ -124,6 +124,14 @@ export interface Light {
 }
 
 // ─── Tools ────────────────────────────────────────────────
+export interface LightDefaults {
+  color: string;
+  radius: number;
+  featherRadius: number;
+  intensity: number;
+  falloff: 'linear' | 'quadratic';
+}
+
 export type ToolType =
   | 'select'
   | 'object'
@@ -143,6 +151,7 @@ export interface ToolSettings {
   wallBlocksLight: boolean;
   wallWidth: number;
   continuousPlacement: boolean;
+  lightDefaults: LightDefaults;
 }
 
 export interface ToolsSlice {
@@ -302,6 +311,7 @@ export interface MapBuilderStore {
   setRoughMode: (enabled: boolean) => void;
   updateToolSettings: (patch: Partial<ToolSettings>) => void;
   addRecentAsset: (assetId: string) => void;
+  updateLightDefaults: (patch: Partial<LightDefaults>) => void;
 
   // ui actions
   setActiveLayerId: (id: string) => void;
