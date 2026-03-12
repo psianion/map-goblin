@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 
 interface PropertyFieldProps {
-  label: string
+  label: ReactNode
   children: ReactNode
 }
 

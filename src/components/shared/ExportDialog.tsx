@@ -151,11 +151,14 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
 
             {/* Actions */}
             <div className="flex gap-2 pt-1">
-              <DialogClose className="flex-1">
-                <Button variant="outline" className="w-full" disabled={exporting}>
-                  Cancel
-                </Button>
-              </DialogClose>
+              <Button
+                variant="outline"
+                className="flex-1"
+                disabled={exporting}
+                onClick={() => onOpenChange(false)}
+              >
+                Cancel
+              </Button>
               <Button
                 className="flex-1"
                 onClick={handleExport}

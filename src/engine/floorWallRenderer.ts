@@ -1,10 +1,210 @@
+import { Container, Graphics } from 'pixi.js';
 import type { DungeonLayer } from '@/store/types';
 import type { LayerEntry } from './sceneGraph';
+import type { Polygon } from '@/types/geometry';
+import { clipper2Engine } from '@/geometry/Clipper2Engine';
+import { useStore } from '@/store/store';
+
+function parseColor(hex: string): number {
+  return parseInt(hex.replace('#', ''), 16);
+}
+
+function tracePolygons(g: Graphics, polygons: Polygon[]): void {
+  for (const polygon of polygons) {
+    if (polygon.length < 3) continue;
+    g.moveTo(polygon[0][0], polygon[0][1]);
+    for (let i = 1; i < polygon.length; i++) {
+      g.lineTo(polygon[i][0], polygon[i][1]);
+    }
+    g.closePath();
+  }
+}
 
 /**
- * Rebuild a dungeon layer's floor and wall graphics from the store state.
- * Stub — full implementation in geometry-ops / layer-render track.
+ * Draw parallel hatch lines across the bounding box of `polygons`.
+ * Direction is determined by `angle` (radians), spaced `spacing` apart.
  */
-export function rebuildDungeonLayer(_layer: DungeonLayer, _entry: LayerEntry): void {
-  // No-op stub — full renderer not yet wired
+function addHatchLines(g: Graphics, polygons: Polygon[], angle: number, spacing: number): void {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const polygon of polygons) {
+    for (const [x, y] of polygon) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  const r = Math.hypot(maxX - minX, maxY - minY) / 2 + 2;
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  // Perpendicular direction for stepping between lines
+  const steps = Math.ceil((r * 2) / spacing) + 2;
+  for (let i = -steps; i <= steps; i++) {
+    const px = cx + (-sin) * i * spacing;
+    const py = cy + cos * i * spacing;
+    g.moveTo(px - cos * r, py - sin * r);
+    g.lineTo(px + cos * r, py + sin * r);
+  }
+}
+
+/**
+ * Rebuild a dungeon layer's sublayers from store state.
+ * Called by subscribeToStore whenever shapes or walls change.
+ *
+ * Sublayer order (shadow → floor → grid → hatching → walls) is
+ * established in sceneGraph.addLayerToScene — we only populate content.
+ */
+export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): void {
+  if (!entry.sublayers) return;
+
+  const { shadow, floor, hatching, walls } = entry.sublayers;
+
+  // Clear all sublayers
+  for (const child of shadow.removeChildren()) child.destroy();
+  for (const child of floor.removeChildren()) child.destroy();
+  for (const child of hatching.removeChildren()) child.destroy();
+  for (const child of walls.removeChildren()) child.destroy();
+
+  const polygons = layer.mergedFloor;
+  if (!polygons || polygons.length === 0) return;
+
+  const s = layer.style;
+  const floorColorNum = parseColor(s.floorColor);
+  const wallColorNum  = parseColor(s.wallColor);
+
+  // ── Shadow sublayer ──────────────────────────────────────────
+  if (s.shadowEnabled && s.shadowIntensity > 0) {
+    const shadowG = new Graphics();
+    shadowG.alpha = s.shadowIntensity;
+    const ox = s.shadowOffset.x;
+    const oy = s.shadowOffset.y;
+    for (const polygon of polygons) {
+      if (polygon.length < 3) continue;
+      shadowG.moveTo(polygon[0][0] + ox, polygon[0][1] + oy);
+      for (let i = 1; i < polygon.length; i++) {
+        shadowG.lineTo(polygon[i][0] + ox, polygon[i][1] + oy);
+      }
+      shadowG.closePath();
+    }
+    shadowG.fill({ color: parseColor(s.shadowColor) });
+    shadow.addChild(shadowG);
+  }
+
+  // ── Floor fill ───────────────────────────────────────────────
+  const floorG = new Graphics();
+  tracePolygons(floorG, polygons);
+  floorG.fill({ color: floorColorNum });
+  floor.addChild(floorG);
+
+  // ── Grid sublayer (lines inside shapes) ─────────────────
+  {
+    const gridSub = entry.sublayers.grid;
+    for (const child of gridSub.removeChildren()) child.destroy();
+
+    const gridState = useStore.getState().grid;
+    if (gridState.visible) {
+      // Compute bounding box of all floor polygons
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const polygon of polygons) {
+        for (const [x, y] of polygon) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+      const gridMinX = Math.floor(minX);
+      const gridMaxX = Math.ceil(maxX);
+      const gridMinY = Math.floor(minY);
+      const gridMaxY = Math.ceil(maxY);
+
+      // Mask to clip grid lines within floor shape
+      const maskG = new Graphics();
+      tracePolygons(maskG, polygons);
+      maskG.fill({ color: 0xffffff });
+
+      // Grid lines
+      const gridG = new Graphics();
+      const gridColor = parseColor(s.wallColor);
+      gridG.setStrokeStyle({ color: gridColor, width: 0.02, alpha: 0.25 });
+
+      for (let x = gridMinX; x <= gridMaxX; x++) {
+        gridG.moveTo(x, gridMinY);
+        gridG.lineTo(x, gridMaxY);
+      }
+      for (let y = gridMinY; y <= gridMaxY; y++) {
+        gridG.moveTo(gridMinX, y);
+        gridG.lineTo(gridMaxX, y);
+      }
+      gridG.stroke();
+
+      const gridContainer = new Container();
+      gridContainer.addChild(maskG);
+      gridContainer.addChild(gridG);
+      gridContainer.mask = maskG;
+      gridSub.addChild(gridContainer);
+    }
+  }
+
+  // ── Hatching sublayer ────────────────────────────────────────
+  if (s.hatchingStyle !== 'none') {
+    const lineAngle = s.hatchingStyle === 'horizontal' ? 0 : s.hatchingAngle;
+
+    // Determine hatch region: band = floor minus inflated-inward floor
+    let hatchRegion: Polygon[];
+    if (s.hatchingInverted) {
+      // Fill entire floor interior
+      hatchRegion = polygons;
+    } else {
+      // Fill border band: diff(floor, inward-inflate(floor, bandWidth))
+      const inner = clipper2Engine.inflate(polygons, -s.hatchingBandWidth);
+      hatchRegion = inner.length > 0
+        ? clipper2Engine.difference(polygons, inner)
+        : polygons;
+    }
+
+    // Mask Graphics — defines the hatch region
+    const maskG = new Graphics();
+    tracePolygons(maskG, hatchRegion);
+    maskG.fill({ color: 0xffffff });
+
+    // Hatch lines Graphics
+    const hatchG = new Graphics();
+    hatchG.setStrokeStyle({ color: wallColorNum, width: s.hatchingLineThickness });
+    addHatchLines(hatchG, polygons, lineAngle, s.hatchingLineSpacing);
+    if (s.hatchingStyle === 'crosshatch') {
+      addHatchLines(hatchG, polygons, lineAngle + Math.PI / 2, s.hatchingLineSpacing);
+    }
+    hatchG.stroke();
+
+    // Wrap in a Container so mask applies to the lines only
+    const hatchContainer = new Container();
+    hatchContainer.addChild(maskG);
+    hatchContainer.addChild(hatchG);
+    hatchContainer.mask = maskG;
+    hatching.addChild(hatchContainer);
+  }
+
+  // ── Wall outlines (stroke on floor boundary) ─────────────────
+  const wallG = new Graphics();
+  wallG.setStrokeStyle({ color: wallColorNum, width: s.wallWidth, join: 'round', cap: 'round' });
+  tracePolygons(wallG, polygons);
+  wallG.stroke();
+  walls.addChild(wallG);
+
+  // ── Standalone walls ──────────────────────────────────────────
+  for (const wall of layer.standaloneWalls) {
+    if (wall.points.length < 2) continue;
+    const wg = new Graphics();
+    const wColor = parseColor(wall.color);
+    wg.setStrokeStyle({ color: wColor, width: wall.width, join: 'round', cap: 'round' });
+    wg.moveTo(wall.points[0][0], wall.points[0][1]);
+    for (let i = 1; i < wall.points.length; i++) {
+      wg.lineTo(wall.points[i][0], wall.points[i][1]);
+    }
+    wg.stroke();
+    walls.addChild(wg);
+  }
 }

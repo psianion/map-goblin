@@ -22,7 +22,10 @@ export function PropertiesPanel() {
   if (selectedLight) {
     return (
       <div className="flex flex-col">
-        <LightProperties light={selectedLight} />
+        <LightProperties
+          light={selectedLight}
+          onDeselect={() => useStore.getState().setSelectedObjectIds([])}
+        />
         <hr className="border-border-subtle mx-2" />
         <div className="flex flex-col gap-3 p-3">
           <span className="text-panel-heading uppercase text-text-secondary tracking-wider">

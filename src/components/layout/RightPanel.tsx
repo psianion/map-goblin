@@ -35,7 +35,7 @@ export function RightPanel() {
       </div>
 
       {/* Properties panel */}
-      <div className="flex-shrink-0 border-t border-border">
+      <div className="border-t border-border max-h-[45vh] overflow-y-auto">
         <PropertiesPanel />
       </div>
     </div>

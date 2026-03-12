@@ -64,7 +64,9 @@ export class ToolManager {
 
     const pts = preview.points;
 
-    this.previewGraphics.setStrokeStyle({ color: 0x4488ff, width: 2 / useStore.getState().tools.settings.brushRadius });
+    const zoom = this.worldContainer.scale.x;
+    const eraseMode = useStore.getState().tools.eraseMode;
+    this.previewGraphics.setStrokeStyle({ color: eraseMode ? 0xff4444 : 0x4488ff, width: 1 / zoom });
 
     if (preview.type === 'circle' && pts.length >= 1) {
       this.previewGraphics.circle(pts[0].x, pts[0].y, 0.3);

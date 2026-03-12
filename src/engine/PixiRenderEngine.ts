@@ -134,9 +134,9 @@ export class PixiRenderEngine implements RenderEngine {
     });
   }
 
-  renderToTexture(container: Container, texture: RenderTexture): void {
+  renderToTexture(container: Container, texture: RenderTexture, clear = true): void {
     if (!this.app) throw new Error('Engine not initialized');
-    this.app.renderer.render({ container, target: texture });
+    this.app.renderer.render({ container, target: texture, clear });
   }
 
   addTickerCallback(fn: () => void): void {

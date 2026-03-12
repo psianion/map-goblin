@@ -65,10 +65,10 @@ export function setupRenderLoop(
       const bgLayer = useStore.getState().layers.find((l) => l.type === 'background');
       const bgColorHex = bgLayer && bgLayer.type === 'background'
         ? parseInt(bgLayer.backgroundColor.replace('#', ''), 16)
-        : 0xF0ECE0;
+        : 0x2d2d2d;
       bgFill.fill(bgColorHex);
       bgDirty = false;
-      lastBgColor = bgLayer && bgLayer.type === 'background' ? bgLayer.backgroundColor : '#F0ECE0';
+      lastBgColor = bgLayer && bgLayer.type === 'background' ? bgLayer.backgroundColor : '#2d2d2d';
     }
 
     // (3) Clear dirty flags on layer entries

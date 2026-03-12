@@ -70,7 +70,7 @@ describe('MapBuilderStore', () => {
 
   it('getSerializableState returns correct shape', () => {
     const data = useStore.getState().getSerializableState();
-    expect(data.version).toBe('1.1');
+    expect(data.version).toBe('1.2');
     expect(data.mapSettings.name).toBe('Untitled Map');
     expect(data.layers).toHaveLength(2);
     expect(data.lights).toEqual([]);

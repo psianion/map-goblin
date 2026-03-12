@@ -1,15 +1,21 @@
 // src/store/migration.ts
 import type { SerializedMapData, Light, PlacedObject } from './types.ts'
 
-export const CURRENT_VERSION = '1.1' as const
+export const CURRENT_VERSION = '1.2' as const
 
 export function migrateToLatest(data: SerializedMapData): SerializedMapData {
-  if (data.version === CURRENT_VERSION) {
-    return data
+  let current = data
+
+  if (current.version === '1.0') {
+    current = migrateV10ToV11(current)
   }
 
-  if (data.version === '1.0') {
-    return migrateV10ToV11(data)
+  if (current.version === '1.1') {
+    current = migrateV11ToV12(current)
+  }
+
+  if (current.version === CURRENT_VERSION) {
+    return current
   }
 
   throw new Error(`Unsupported version: "${data.version}" — cannot migrate to ${CURRENT_VERSION}`)
@@ -19,6 +25,19 @@ export function migrateToLatest(data: SerializedMapData): SerializedMapData {
 type V10Data = Omit<SerializedMapData, 'placedObjects' | 'customImages'> & {
   placedObjects?: PlacedObject[]
   customImages?: Record<string, string>
+}
+
+// v1.1 → v1.2: lights gain featherRadius (defaults to half of radius for a soft look)
+function migrateV11ToV12(data: SerializedMapData): SerializedMapData {
+  const lights: Light[] = data.lights.map((light) => {
+    const l = light as Light & { featherRadius?: number }
+    return {
+      ...light,
+      featherRadius: l.featherRadius ?? light.radius * 0.5,
+    }
+  })
+
+  return { ...data, version: '1.2', lights }
 }
 
 function migrateV10ToV11(raw: SerializedMapData): SerializedMapData {

@@ -115,7 +115,8 @@ export interface Light {
   id: string;
   position: { x: number; y: number };
   color: string;        // hex
-  radius: number;       // world units
+  radius: number;       // world units — maximum reach of the light
+  featherRadius: number; // world units — distance from center where falloff begins (0 = sharp edge)
   intensity: number;    // 0–1
   falloff: 'linear' | 'quadratic';
   name: string;         // display name in layer panel
@@ -245,7 +246,7 @@ export interface UndoSnapshot {
 
 // ─── Serialization ────────────────────────────────────────
 export interface SerializedMapData {
-  version: '1.0' | '1.1';
+  version: '1.0' | '1.1' | '1.2';
   mapSettings: MapSettings;
   grid: Pick<GridConfig, 'visible' | 'snapDivision' | 'style'>;
   layers: Layer[];

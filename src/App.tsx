@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { CanvasHost } from '@/canvas/CanvasHost';
+import { LeftToolbar } from '@/components/toolbar/LeftToolbar';
 import { RightPanel } from '@/components/layout/RightPanel';
 import { ExportDialog } from '@/components/shared/ExportDialog';
 import { RecoveryDialog } from '@/components/shared/RecoveryDialog';
@@ -44,7 +45,7 @@ export default function App() {
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: '1fr 300px',
+        gridTemplateColumns: '48px 1fr 300px',
         height: '100vh',
         width: '100vw',
         overflow: 'hidden',
@@ -52,6 +53,9 @@ export default function App() {
       }}
     >
       {showRecovery && <RecoveryDialog onDismiss={() => setShowRecovery(false)} />}
+
+      {/* Left toolbar */}
+      <LeftToolbar />
 
       {/* Canvas area */}
       <div style={{ minWidth: 0, minHeight: 0, position: 'relative' }}>

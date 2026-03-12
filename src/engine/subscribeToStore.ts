@@ -240,6 +240,24 @@ export function subscribeToStore(
   );
   unsubscribers.push(unsubBgTexture);
 
+  // ─── Grid config changes → rebuild dungeon grid sublayers ─
+  const unsubGridVis = useStore.subscribe(
+    (state) => state.grid.visible,
+    () => {
+      const dungeonLayers = useStore.getState().layers.filter(
+        (l): l is DungeonLayer => l.type === 'dungeon',
+      );
+      for (const layer of dungeonLayers) {
+        const entry = getLayerEntry(layer.id);
+        if (entry) {
+          rebuildDungeonLayer(layer, entry);
+          markRenderCacheDirty(layer.id);
+        }
+      }
+    },
+  );
+  unsubscribers.push(unsubGridVis);
+
   // ─── Style changes → mark render cache dirty + rebuild ─
   const unsubStyle = useStore.subscribe(
     (state) =>

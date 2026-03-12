@@ -23,7 +23,7 @@ export interface RenderEngine {
   screenToWorld(sx: number, sy: number): Point;
   worldToScreen(wx: number, wy: number): Point;
   createRenderTexture(width: number, height: number): RenderTexture;
-  renderToTexture(container: Container, texture: RenderTexture): void;
+  renderToTexture(container: Container, texture: RenderTexture, clear?: boolean): void;
   addTickerCallback(fn: () => void): void;
   renderer(): Renderer;
 }
