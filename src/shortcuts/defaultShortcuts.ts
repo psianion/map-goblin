@@ -8,6 +8,9 @@ import { PasteCommand, CutCommand } from '@/store/commands';
 import type { DungeonLayer } from '@/store/types';
 import { togglePopoverRef } from '@/components/toolbar/toolConstants';
 
+/** Set by App.tsx so the shortcut system can trigger the file picker */
+export const importImageRef: { current: (() => void) | null } = { current: null };
+
 // Keyed by key-combo string (e.g. 'ctrl+s') to match what onKeyDown builds.
 const toolKeyMap: Record<string, () => void | false> = {
   // Tool selection
@@ -119,6 +122,9 @@ const toolKeyMap: Record<string, () => void | false> = {
     undoManager.execute(new PasteCommand(activeLayerId, layer.mergedFloor, clipboard.region));
     store.setSelectedRegion(null);
   },
+  'ctrl+i': () => {
+    importImageRef.current?.();
+  },
   'ctrl+x': (): void | false => {
     const store = useStore.getState();
     if (store.tools.activeTool !== 'select' || !store.selection.selectedRegion) return false;
@@ -158,6 +164,7 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'file.save',           keys: 'ctrl+s',      category: 'File',  label: 'Save' },
     { id: 'file.load',           keys: 'ctrl+o',      category: 'File',  label: 'Open' },
     { id: 'file.export',         keys: 'ctrl+e',      category: 'File',  label: 'Export' },
+    { id: 'file.import',         keys: 'ctrl+i',      category: 'File',  label: 'Import Image' },
     { id: 'edit.copy',           keys: 'ctrl+c',      category: 'Edit',  label: 'Copy' },
     { id: 'edit.paste',          keys: 'ctrl+v',      category: 'Edit',  label: 'Paste' },
     { id: 'edit.cut',            keys: 'ctrl+x',      category: 'Edit',  label: 'Cut' },
