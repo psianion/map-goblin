@@ -10,11 +10,13 @@ import { Palette, Minus, Sun, Grid3x3, Waves } from 'lucide-react'
 
 interface LayerPropertiesProps {
   layer: DungeonLayer
+  openSections?: Set<string>
+  onToggleSection?: (id: string) => void
 }
 
 const HATCHING_STYLES_ACTIVE = ['crosshatch', 'lines', 'horizontal'] as const
 
-export function LayerProperties({ layer }: LayerPropertiesProps) {
+export function LayerProperties({ layer, openSections, onToggleSection }: LayerPropertiesProps) {
   const updateLayer = useStore((s) => s.updateLayer)
 
   function patch(partial: Partial<DungeonStyle>) {
@@ -32,6 +34,8 @@ export function LayerProperties({ layer }: LayerPropertiesProps) {
         title="Colors"
         icon={Palette}
         defaultOpen={true}
+        isOpen={openSections?.has('colors')}
+        onToggle={onToggleSection}
         preview={
           <div className="flex gap-1">
             <span
@@ -56,7 +60,7 @@ export function LayerProperties({ layer }: LayerPropertiesProps) {
       </CollapsibleSection>
 
       {/* ── Walls ── */}
-      <CollapsibleSection id="walls" title="Walls" icon={Minus} defaultOpen={false}>
+      <CollapsibleSection id="walls" title="Walls" icon={Minus} defaultOpen={false} isOpen={openSections?.has('walls')} onToggle={onToggleSection}>
         <div className="flex flex-col gap-2 pt-2">
           <PropertyField label="Wall Width">
             <SliderInput
@@ -76,6 +80,8 @@ export function LayerProperties({ layer }: LayerPropertiesProps) {
         title="Shadow"
         icon={Sun}
         defaultOpen={false}
+        isOpen={openSections?.has('shadow')}
+        onToggle={onToggleSection}
         headerExtra={
           <ToggleSwitch
             checked={s.shadowEnabled}
@@ -126,6 +132,8 @@ export function LayerProperties({ layer }: LayerPropertiesProps) {
         title="Hatching"
         icon={Grid3x3}
         defaultOpen={false}
+        isOpen={openSections?.has('hatch')}
+        onToggle={onToggleSection}
         headerExtra={
           <ToggleSwitch
             checked={hatchingEnabled}
@@ -201,7 +209,7 @@ export function LayerProperties({ layer }: LayerPropertiesProps) {
       </CollapsibleSection>
 
       {/* ── Roughness ── */}
-      <CollapsibleSection id="roughness" title="Roughness" icon={Waves} defaultOpen={false}>
+      <CollapsibleSection id="rough" title="Roughness" icon={Waves} defaultOpen={false} isOpen={openSections?.has('rough')} onToggle={onToggleSection}>
         <div className="flex flex-col gap-2 pt-2">
           <PropertyField label="Amplitude">
             <SliderInput

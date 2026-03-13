@@ -28,7 +28,7 @@ const LIGHT_ITEMS: StripItem[] = [
 ]
 
 interface CollapsedRightPanelProps {
-  onExpand: () => void
+  onExpand: (sectionId?: string) => void
 }
 
 export function CollapsedRightPanel({ onExpand }: CollapsedRightPanelProps) {
@@ -51,7 +51,7 @@ export function CollapsedRightPanel({ onExpand }: CollapsedRightPanelProps) {
         <button
           key={label}
           type="button"
-          onClick={onExpand}
+          onClick={() => onExpand(label.toLowerCase())}
           title={label}
           className="flex flex-col items-center gap-0.5 py-2 cursor-pointer hover:bg-surface-3 w-full transition-colors"
         >
@@ -66,7 +66,7 @@ export function CollapsedRightPanel({ onExpand }: CollapsedRightPanelProps) {
       {/* Assets shortcut */}
       <button
         type="button"
-        onClick={onExpand}
+        onClick={() => onExpand()}
         title="Assets"
         className="flex flex-col items-center gap-0.5 py-2 cursor-pointer hover:bg-surface-3 w-full transition-colors"
       >

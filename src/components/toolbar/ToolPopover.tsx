@@ -323,7 +323,7 @@ function LightToolContent({ onValueChange }: { onValueChange?: () => void }) {
             <button
               key={f}
               className={cn(
-                'flex-1 h-7 rounded-sm border font-body text-panel-body transition-colors capitalize',
+                'flex-1 h-7 rounded-sm border font-body text-[11px] transition-colors capitalize',
                 defaults.falloff === f
                   ? 'bg-surface-3 border-accent-active text-text-primary'
                   : 'bg-transparent border-border-default text-text-muted hover:text-text-primary',

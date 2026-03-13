@@ -12,6 +12,8 @@ import { undoManager } from '@/store/undoManager'
 interface LightPropertiesProps {
   light: Light
   onDeselect?: () => void
+  openSections?: Set<string>
+  onToggleSection?: (id: string) => void
 }
 
 /** Convert a world-unit radius to a rounded feet string using the map's cell scale. */
@@ -23,7 +25,7 @@ function toFt(worldUnits: number, ftPerCell: number): string {
 const MIN_RADIUS_FT = 5
 const MAX_RADIUS_FT = 300
 
-export function LightProperties({ light, onDeselect }: LightPropertiesProps) {
+export function LightProperties({ light, onDeselect, openSections, onToggleSection }: LightPropertiesProps) {
   const updateLight = useStore((s) => s.updateLight)
   const cellScale = useStore((s) => s.mapSettings.cellScale)
   const ftPerCell = cellScale.value
@@ -40,6 +42,8 @@ export function LightProperties({ light, onDeselect }: LightPropertiesProps) {
       title="Light"
       icon={Sun}
       defaultOpen={true}
+      isOpen={openSections?.has('light')}
+      onToggle={onToggleSection}
       preview={
         <span
           className="w-[14px] h-[14px] rounded-full border border-border-default"

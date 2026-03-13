@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Layers, Package, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/store';
@@ -13,9 +13,35 @@ const TABS: { id: RightTab; label: string; icon: typeof Layers }[] = [
   { id: 'assets', label: 'Assets', icon: Package },
 ];
 
+const LS_KEY = 'rp-sections';
+
+function loadSections(): Set<string> {
+  try {
+    const saved = localStorage.getItem(LS_KEY);
+    return saved ? new Set(JSON.parse(saved) as string[]) : new Set(['colors']);
+  } catch {
+    return new Set(['colors']);
+  }
+}
+
+function persistSections(sections: Set<string>) {
+  localStorage.setItem(LS_KEY, JSON.stringify([...sections]));
+}
+
 export function RightPanel() {
   const [tab, setTab] = useState<RightTab>('layers');
   const togglePanel = useStore((s) => s.togglePanel);
+  const [openSections, setOpenSections] = useState<Set<string>>(loadSections);
+
+  const toggleSection = useCallback((id: string) => {
+    setOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      persistSections(next);
+      return next;
+    });
+  }, []);
 
   return (
     <div className="flex flex-col h-full bg-surface-1 border-l border-border-default overflow-hidden">
@@ -54,7 +80,7 @@ export function RightPanel() {
         {tab === 'layers' && (
           <>
             <LayerPanel />
-            <PropertiesPanel />
+            <PropertiesPanel openSections={openSections} onToggleSection={toggleSection} />
           </>
         )}
         {tab === 'assets' && <AssetBrowserPanel />}

@@ -9,10 +9,22 @@ import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { Lightbulb } from 'lucide-react'
 import type { DungeonLayer, BackgroundLayer } from '@/store/types'
 
-function AmbientSection() {
+interface SectionControl {
+  openSections?: Set<string>
+  onToggleSection?: (id: string) => void
+}
+
+function AmbientSection({ openSections, onToggleSection }: SectionControl) {
   const ambientLight = useStore((s) => s.mapSettings.ambientLight)
   return (
-    <CollapsibleSection id="ambient" title="Ambient" icon={Lightbulb} defaultOpen={false}>
+    <CollapsibleSection
+      id="ambient"
+      title="Ambient"
+      icon={Lightbulb}
+      defaultOpen={false}
+      isOpen={openSections?.has('ambient')}
+      onToggle={onToggleSection}
+    >
       <div className="flex flex-col gap-2 pt-2">
         <PropertyField label="Ambient Color">
           <div data-testid="ambient-color-swatch">
@@ -27,7 +39,7 @@ function AmbientSection() {
   )
 }
 
-export function PropertiesPanel() {
+export function PropertiesPanel({ openSections, onToggleSection }: SectionControl) {
   const activeLayer = useStore(selectActiveLayer)
   const lights = useStore((s) => s.lights)
   const selectedObjectIds = useStore((s) => s.ui.selectedObjectIds)
@@ -42,8 +54,10 @@ export function PropertiesPanel() {
         <LightProperties
           light={selectedLight}
           onDeselect={() => useStore.getState().setSelectedObjectIds([])}
+          openSections={openSections}
+          onToggleSection={onToggleSection}
         />
-        <AmbientSection />
+        <AmbientSection openSections={openSections} onToggleSection={onToggleSection} />
       </div>
     )
   }
@@ -52,7 +66,7 @@ export function PropertiesPanel() {
     return (
       <div className="flex flex-col pt-2">
         <p className="px-3 py-2 text-panel-body text-text-muted">No layer selected.</p>
-        <AmbientSection />
+        <AmbientSection openSections={openSections} onToggleSection={onToggleSection} />
       </div>
     )
   }
@@ -60,8 +74,8 @@ export function PropertiesPanel() {
   if (activeLayer.type === 'dungeon') {
     return (
       <div className="flex flex-col">
-        <LayerProperties layer={activeLayer as DungeonLayer} />
-        <AmbientSection />
+        <LayerProperties layer={activeLayer as DungeonLayer} openSections={openSections} onToggleSection={onToggleSection} />
+        <AmbientSection openSections={openSections} onToggleSection={onToggleSection} />
       </div>
     )
   }
@@ -69,8 +83,8 @@ export function PropertiesPanel() {
   if (activeLayer.type === 'background') {
     return (
       <div className="flex flex-col pt-2">
-        <BackgroundProperties layer={activeLayer as BackgroundLayer} />
-        <AmbientSection />
+        <BackgroundProperties layer={activeLayer as BackgroundLayer} openSections={openSections} onToggleSection={onToggleSection} />
+        <AmbientSection openSections={openSections} onToggleSection={onToggleSection} />
       </div>
     )
   }
@@ -78,7 +92,7 @@ export function PropertiesPanel() {
   return (
     <div className="flex flex-col pt-2">
       <p className="px-3 py-2 text-panel-body text-text-muted">No properties for this layer type.</p>
-      <AmbientSection />
+      <AmbientSection openSections={openSections} onToggleSection={onToggleSection} />
     </div>
   )
 }

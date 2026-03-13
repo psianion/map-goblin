@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { CanvasHost } from '@/canvas/CanvasHost';
 import { LeftToolbar } from '@/components/toolbar/LeftToolbar';
 import { RightPanel } from '@/components/layout/RightPanel';
@@ -15,6 +15,19 @@ export default function App() {
   const [showRecovery, setShowRecovery] = useState(() => isDirtyFlagSet());
   const rightPanelOpen = useStore((s) => s.ui.rightPanelOpen);
   const togglePanel = useStore((s) => s.togglePanel);
+  const handleExpandToSection = useCallback((sectionId?: string) => {
+    if (sectionId) {
+      try {
+        const saved = localStorage.getItem('rp-sections');
+        const set: string[] = saved ? JSON.parse(saved) : ['colors'];
+        if (!set.includes(sectionId)) {
+          set.push(sectionId);
+          localStorage.setItem('rp-sections', JSON.stringify(set));
+        }
+      } catch { /* ignore */ }
+    }
+    if (!rightPanelOpen) togglePanel('right');
+  }, [rightPanelOpen, togglePanel]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -69,7 +82,7 @@ export default function App() {
       {/* Right panel: expanded or collapsed strip */}
       {rightPanelOpen
         ? <RightPanel />
-        : <CollapsedRightPanel onExpand={() => togglePanel('right')} />
+        : <CollapsedRightPanel onExpand={handleExpandToSection} />
       }
 
       {/* Export dialog */}

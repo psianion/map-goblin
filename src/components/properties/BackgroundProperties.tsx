@@ -7,17 +7,21 @@ import { PaintBucket } from 'lucide-react'
 
 interface BackgroundPropertiesProps {
   layer: BackgroundLayer
+  openSections?: Set<string>
+  onToggleSection?: (id: string) => void
 }
 
-export function BackgroundProperties({ layer }: BackgroundPropertiesProps) {
+export function BackgroundProperties({ layer, openSections, onToggleSection }: BackgroundPropertiesProps) {
   const updateLayer = useStore((s) => s.updateLayer)
 
   return (
     <CollapsibleSection
-      id="background"
+      id="bg"
       title="Background"
       icon={PaintBucket}
       defaultOpen={true}
+      isOpen={openSections?.has('bg')}
+      onToggle={onToggleSection}
       preview={
         <span
           className="w-[14px] h-[14px] rounded-[2px] border border-border-default"
