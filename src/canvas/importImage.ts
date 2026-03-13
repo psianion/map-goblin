@@ -10,7 +10,8 @@ import { Assets } from 'pixi.js';
 import { toast } from 'sonner';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
-import { PlaceObjectCommand } from '@/store/commands';
+import { PlaceObjectCommand, AddLayerCommand } from '@/store/commands';
+import { createImagesLayer } from '@/store/factories';
 import type { PlacedObject } from '@/store/types';
 import type { RenderEngine } from '@/engine/RenderEngine';
 
@@ -59,17 +60,22 @@ export async function importImageFile(
 
   // Read dimensions
   const bitmap = await createImageBitmap(file);
-  const { width, height } = bitmap;
+  let finalWidth = bitmap.width;
+  let finalHeight = bitmap.height;
   bitmap.close();
 
   let base64 = await fileToBase64(file);
 
   // Warn and resize if oversized
-  if (width > MAX_IMPORT_PX || height > MAX_IMPORT_PX) {
+  if (finalWidth > MAX_IMPORT_PX || finalHeight > MAX_IMPORT_PX) {
     toast.warning(
-      `Image is ${width}×${height}px — resizing to max ${RESIZE_TARGET_PX}px for performance.`,
+      `Image is ${finalWidth}×${finalHeight}px — resizing to max ${RESIZE_TARGET_PX}px for performance.`,
     );
     base64 = await resizeImageToMax(base64, RESIZE_TARGET_PX);
+    // Recalculate dimensions after resize
+    const resizeScale = Math.min(1, RESIZE_TARGET_PX / Math.max(finalWidth, finalHeight));
+    finalWidth = Math.floor(finalWidth * resizeScale);
+    finalHeight = Math.floor(finalHeight * resizeScale);
   }
 
   // Stable IDs
@@ -82,6 +88,10 @@ export async function importImageFile(
   // Register with PIXI.Assets
   await Assets.load({ alias: assetId, src: base64 });
 
+  // Scale so the longest side spans AUTO_SCALE_CELLS world units (grid cells).
+  // PixiJS Sprite scale is a pixel multiplier, so divide desired world size by texture size.
+  const worldScale = AUTO_SCALE_CELLS / Math.max(finalWidth, finalHeight);
+
   const obj: PlacedObject = {
     id: objectId,
     layerId: '',          // caller fills this in
@@ -89,7 +99,7 @@ export async function importImageFile(
     assetId,
     position: { x: viewportCenter.x, y: viewportCenter.y },
     rotation: 0,
-    scale: AUTO_SCALE_CELLS,
+    scale: worldScale,
     tint: '#ffffff',
     groupId: null,
     flipX: false,
@@ -105,12 +115,14 @@ export async function importImageFile(
  */
 export async function handleImageImport(file: File, engine: RenderEngine): Promise<void> {
   const store = useStore.getState();
-  const layerId = store.ui.activeLayerId;
-  const layer = store.layers.find((l) => l.id === layerId);
 
-  if (!layer || layer.type !== 'images') {
-    toast.error('Switch to an images layer to import images');
-    return;
+  // Find or auto-create an images layer
+  let targetLayerId = store.layers.find((l) => l.type === 'images')?.id;
+  if (!targetLayerId) {
+    const newLayer = createImagesLayer('Images');
+    undoManager.execute(new AddLayerCommand('Add images layer', newLayer));
+    useStore.getState().setActiveLayerId(newLayer.id);
+    targetLayerId = newLayer.id;
   }
 
   try {
@@ -118,9 +130,9 @@ export async function handleImageImport(file: File, engine: RenderEngine): Promi
     const center = engine.screenToWorld(vp.width / 2, vp.height / 2);
 
     const obj = await importImageFile(file, center);
-    obj.layerId = layerId;
+    obj.layerId = targetLayerId;
 
-    const cmd = new PlaceObjectCommand('Import image', layerId, obj);
+    const cmd = new PlaceObjectCommand('Import image', targetLayerId, obj);
     undoManager.execute(cmd);
 
     toast.success(`Image imported`);
@@ -136,12 +148,14 @@ export async function handleImageImport(file: File, engine: RenderEngine): Promi
  */
 export function placeAssetAtViewCenter(assetId: string, engine: RenderEngine): void {
   const store = useStore.getState();
-  const layerId = store.ui.activeLayerId;
-  const layer = store.layers.find((l) => l.id === layerId);
 
-  if (!layer || layer.type !== 'images') {
-    toast.error('Switch to an images layer to place assets');
-    return;
+  // Find or auto-create an images layer
+  let targetLayerId = store.layers.find((l) => l.type === 'images')?.id;
+  if (!targetLayerId) {
+    const newLayer = createImagesLayer('Images');
+    undoManager.execute(new AddLayerCommand('Add images layer', newLayer));
+    useStore.getState().setActiveLayerId(newLayer.id);
+    targetLayerId = newLayer.id;
   }
 
   const vp = engine.viewport();
@@ -153,7 +167,7 @@ export function placeAssetAtViewCenter(assetId: string, engine: RenderEngine): v
 
   const obj: PlacedObject = {
     id: crypto.randomUUID(),
-    layerId,
+    layerId: targetLayerId,
     objectType: 'image',
     assetId,
     position: snapped,
@@ -165,6 +179,6 @@ export function placeAssetAtViewCenter(assetId: string, engine: RenderEngine): v
     flipY: false,
   };
 
-  const cmd = new PlaceObjectCommand('Place at center', layerId, obj);
+  const cmd = new PlaceObjectCommand('Place at center', targetLayerId, obj);
   undoManager.execute(cmd);
 }

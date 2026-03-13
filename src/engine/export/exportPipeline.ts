@@ -1,6 +1,7 @@
 import { RenderTexture, type Renderer } from 'pixi.js';
 import type { RenderEngine } from '../RenderEngine';
 import type { SceneGraph } from '../sceneGraph';
+import { getLayerEntry } from '../sceneGraph';
 import type { Layer, DungeonLayer } from '@/store/types';
 import { computeExportDimensions, buildExportFilename, worldBoundsToCells } from './exportMath';
 
@@ -42,7 +43,25 @@ export function computeMapWorldBounds(layers: Layer[]): {
 
   // Default to a 10x10 grid if no geometry
   if (!isFinite(minX)) return { minX: -5, minY: -5, maxX: 5, maxY: 5 };
-  return { minX, minY, maxX, maxY };
+
+  // Pad bounds to capture wall strokes and shadows that extend beyond floor geometry
+  let pad = 0;
+  for (const layer of layers) {
+    if (layer.type !== 'dungeon') continue;
+    const dl = layer as DungeonLayer;
+    const s = dl.style;
+    // Wall strokes are centered on the polygon edge — half extends outward
+    pad = Math.max(pad, s.wallWidth / 2);
+    // Shadow is offset from the floor
+    if (s.shadowEnabled) {
+      pad = Math.max(pad, Math.abs(s.shadowOffset.x) + s.wallWidth / 2);
+      pad = Math.max(pad, Math.abs(s.shadowOffset.y) + s.wallWidth / 2);
+    }
+  }
+  // Add a small extra margin for anti-aliasing
+  pad += 0.05;
+
+  return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
 }
 
 /**
@@ -69,10 +88,20 @@ export async function runExportPipeline(
   // Create an offscreen RenderTexture at export resolution
   const exportRT = engine.createRenderTexture(widthPx, heightPx);
 
-  // Temporarily hide grid if requested
+  // Temporarily hide grids if requested — both the global grid renderer
+  // AND per-layer grid sublayers inside each dungeon layer
   const gridVisible = sceneGraph.gridRenderer.container.visible;
+  const savedGridSubVis: { id: string; visible: boolean }[] = [];
   if (!opts.includeGrid) {
     sceneGraph.gridRenderer.container.visible = false;
+    for (const layer of layers) {
+      if (layer.type !== 'dungeon') continue;
+      const entry = getLayerEntry(layer.id);
+      if (entry?.sublayers?.grid) {
+        savedGridSubVis.push({ id: layer.id, visible: entry.sublayers.grid.visible });
+        entry.sublayers.grid.visible = false;
+      }
+    }
   }
 
   // Compute export-space transform: scale world container so that
@@ -93,10 +122,14 @@ export async function runExportPipeline(
   // Render world to export texture
   engine.renderToTexture(sceneGraph.worldContainer, exportRT);
 
-  // Restore original transform and grid
+  // Restore original transform and grid visibility
   sceneGraph.worldContainer.position.set(origX, origY);
   sceneGraph.worldContainer.scale.set(origScale);
   sceneGraph.gridRenderer.container.visible = gridVisible;
+  for (const { id, visible } of savedGridSubVis) {
+    const entry = getLayerEntry(id);
+    if (entry?.sublayers?.grid) entry.sublayers.grid.visible = visible;
+  }
 
   // Extract pixels from the RenderTexture via PixiJS extract API
   const pixiRenderer = engine.renderer() as Renderer & {
@@ -134,6 +167,7 @@ export function triggerDownload(blob: Blob, filename: string): void {
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
+  a.type = blob.type;  // helps browsers infer file extension
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
