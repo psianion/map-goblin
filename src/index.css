@@ -87,3 +87,25 @@
     font-family: 'Geist Variable', sans-serif;
   }
 }
+
+/* react-colorful overrides for dark theme */
+.react-colorful {
+  width: 200px !important;
+  height: auto !important;
+}
+
+.react-colorful__saturation {
+  height: 150px !important;
+  border-radius: 4px 4px 0 0 !important;
+}
+
+.react-colorful__hue {
+  height: 12px !important;
+  border-radius: 0 0 4px 4px !important;
+}
+
+.react-colorful__saturation-pointer,
+.react-colorful__hue-pointer {
+  width: 16px !important;
+  height: 16px !important;
+}

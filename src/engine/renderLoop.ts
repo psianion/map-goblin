@@ -26,11 +26,10 @@ export function setupRenderLoop(
   sceneGraph.backgroundLayer.addChild(bgFill);
 
   let lastBgColor = '';
-  let bgDirty = true;
 
   // Expose a way to mark background dirty (called by store subscription)
   (sceneGraph.backgroundLayer as SceneGraph['backgroundLayer'] & { _markDirty: () => void })._markDirty = () => {
-    bgDirty = true;
+    // no-op: background redraws every frame to cover viewport after zoom/pan
   };
 
   const stage = engine.stage();
@@ -68,7 +67,6 @@ export function setupRenderLoop(
         ? parseInt(bgLayer.backgroundColor.replace('#', ''), 16)
         : 0x2d2d2d;
       bgFill.fill(bgColorHex);
-      bgDirty = false;
       lastBgColor = bgLayer && bgLayer.type === 'background' ? bgLayer.backgroundColor : '#2d2d2d';
     }
 
