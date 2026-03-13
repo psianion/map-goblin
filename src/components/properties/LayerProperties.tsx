@@ -37,13 +37,13 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
         isOpen={openSections?.has('colors')}
         onToggle={onToggleSection}
         preview={
-          <div className="flex gap-1">
+          <div className="flex gap-2">
             <span
-              className="w-[22px] h-[14px] rounded-[2px] border border-border-default"
+              className="w-[56px] h-[20px] rounded-[2px] border border-border-default"
               style={{ backgroundColor: s.floorColor }}
             />
             <span
-              className="w-[22px] h-[14px] rounded-[2px] border border-border-default"
+              className="w-[56px] h-[20px] rounded-[2px] border border-border-default"
               style={{ backgroundColor: s.wallColor }}
             />
           </div>

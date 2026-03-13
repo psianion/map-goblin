@@ -75,9 +75,11 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
       if (triggerRef.current) {
         const rect = triggerRef.current.getBoundingClientRect()
         const popoverWidth = 232
+        const popoverHeight = 300
+        const maxTop = window.innerHeight - popoverHeight - 8
         setPopoverPos({
           x: rect.left - popoverWidth - 8,
-          y: rect.top,
+          y: Math.min(rect.top, Math.max(8, maxTop)),
         })
       }
       setOpen(true)
@@ -147,11 +149,11 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
         ref={triggerRef}
         type="button"
         onClick={handleOpen}
-        className="flex items-center gap-2 bg-transparent rounded border border-border-default px-2 h-7 cursor-pointer hover:border-border-focus transition-colors"
+        className="flex items-center gap-2 bg-surface-1 rounded border border-white/[0.08] px-2 h-7 cursor-pointer hover:border-border-focus transition-colors"
         aria-label="Pick color"
       >
         <span
-          className="w-[22px] h-[22px] rounded-[4px] border border-border-default shrink-0"
+          className="w-[22px] h-[22px] rounded-[3px] border border-white/10 shrink-0"
           style={{ backgroundColor: value }}
         />
         <span className="font-mono text-[11px] text-text-primary">
