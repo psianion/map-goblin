@@ -95,7 +95,7 @@
   height: 16px !important;
 }
 
-/* Minimal Precision slider — tokens: text-primary=#E8E8E8, border-default=#252525 */
+/* Minimal Precision slider — uses CSS vars from .dark theme */
 .slider-minimal {
   -webkit-appearance: none;
   appearance: none;
@@ -103,8 +103,8 @@
   border-radius: 2px;
   background: linear-gradient(
     to right,
-    #E8E8E8 var(--slider-fill, 0%),
-    #252525 var(--slider-fill, 0%)
+    var(--foreground) var(--slider-fill, 0%),
+    var(--border) var(--slider-fill, 0%)
   );
   outline: none;
   cursor: pointer;
@@ -115,8 +115,8 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #E8E8E8;
-  border: 1px solid #252525;
+  background: var(--foreground);
+  border: 1px solid var(--border);
   cursor: pointer;
 }
 
@@ -124,7 +124,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #E8E8E8;
-  border: 1px solid #252525;
+  background: var(--foreground);
+  border: 1px solid var(--border);
   cursor: pointer;
 }

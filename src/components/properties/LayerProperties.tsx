@@ -2,6 +2,7 @@ import { useStore } from '@/store/store'
 import type { DungeonLayer, DungeonStyle } from '@/store/types'
 import { PropertyField } from './PropertyField'
 import { ColorField } from '@/components/inputs/ColorField'
+import { ColorChip } from '@/components/inputs/ColorChip'
 import { SliderInput } from '@/components/inputs/SliderInput'
 import { NumberInput } from '@/components/inputs/NumberInput'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
@@ -38,14 +39,8 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
         onToggle={onToggleSection}
         preview={
           <div className="flex gap-2">
-            <span
-              className="w-[56px] h-[20px] rounded-[2px] border border-border-default"
-              style={{ backgroundColor: s.floorColor }}
-            />
-            <span
-              className="w-[56px] h-[20px] rounded-[2px] border border-border-default"
-              style={{ backgroundColor: s.wallColor }}
-            />
+            <ColorChip color={s.floorColor} size="preview" />
+            <ColorChip color={s.wallColor} size="preview" />
           </div>
         }
       >

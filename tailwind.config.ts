@@ -42,6 +42,21 @@ export default {
         'strip-label':   ['7px',  { lineHeight: '10px', letterSpacing: '0.1em' }],
       },
     },
+    // Color chip / swatch sizing tokens
+    width: {
+      'chip':    '56px',
+      'chip-sm': '14px',
+      'chip-md': '22px',
+    },
+    height: {
+      'chip':    '20px',
+      'chip-sm': '14px',
+      'chip-md': '22px',
+    },
+    borderRadius: {
+      'chip': '2px',
+      'chip-md': '3px',
+    },
   },
   plugins: [],
 } satisfies Config

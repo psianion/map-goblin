@@ -3,6 +3,7 @@ import type { Light } from '@/store/types'
 import { PropertyField } from './PropertyField'
 import { SliderInput } from '@/components/inputs/SliderInput'
 import { ColorField } from '@/components/inputs/ColorField'
+import { ColorChip } from '@/components/inputs/ColorChip'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { cn } from '@/lib/utils'
 import { Sun, X } from 'lucide-react'
@@ -45,10 +46,7 @@ export function LightProperties({ light, onDeselect, openSections, onToggleSecti
       isOpen={openSections?.has('light')}
       onToggle={onToggleSection}
       preview={
-        <span
-          className="w-[14px] h-[14px] rounded-full border border-border-default"
-          style={{ backgroundColor: light.color }}
-        />
+        <ColorChip color={light.color} size="sm" circular />
       }
       headerExtra={
         onDeselect ? (

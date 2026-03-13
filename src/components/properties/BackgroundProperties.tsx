@@ -2,6 +2,7 @@ import { useStore } from '@/store/store'
 import type { BackgroundLayer } from '@/store/types'
 import { PropertyField } from './PropertyField'
 import { ColorField } from '@/components/inputs/ColorField'
+import { ColorChip } from '@/components/inputs/ColorChip'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { PaintBucket } from 'lucide-react'
 
@@ -23,10 +24,7 @@ export function BackgroundProperties({ layer, openSections, onToggleSection }: B
       isOpen={openSections?.has('bg')}
       onToggle={onToggleSection}
       preview={
-        <span
-          className="w-[14px] h-[14px] rounded-[2px] border border-border-default"
-          style={{ backgroundColor: layer.backgroundColor }}
-        />
+        <ColorChip color={layer.backgroundColor} size="sm" />
       }
     >
       <div className="flex flex-col gap-2 pt-2">

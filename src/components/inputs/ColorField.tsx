@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { HexColorPicker } from 'react-colorful'
+import { Copy, Check } from 'lucide-react'
 
 interface ColorFieldProps {
   value: string
@@ -25,9 +26,17 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
   const [open, setOpen] = useState(false)
   const [hexInput, setHexInput] = useState(value)
   const [popoverPos, setPopoverPos] = useState({ x: 0, y: 0 })
+  const [copied, setCopied] = useState(false)
   const startRef = useRef(value)
   const popoverRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+
+  const handleCopy = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    navigator.clipboard.writeText(value.toUpperCase())
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }, [value])
 
   // Close on outside click
   useEffect(() => {
@@ -149,15 +158,25 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
         ref={triggerRef}
         type="button"
         onClick={handleOpen}
-        className="flex items-center gap-2 bg-surface-1 rounded border border-white/[0.08] px-2 h-7 cursor-pointer hover:border-border-focus transition-colors"
+        className="flex items-center gap-1.5 rounded border border-white/[0.08] px-2 h-7 cursor-pointer hover:border-border-focus transition-colors"
+        style={{ backgroundColor: value }}
         aria-label="Pick color"
       >
-        <span
-          className="w-[22px] h-[22px] rounded-[3px] border border-white/10 shrink-0"
-          style={{ backgroundColor: value }}
-        />
-        <span className="font-mono text-[11px] text-text-primary">
+        <span className="font-mono text-[11px] text-white mix-blend-difference">
           {value.toUpperCase()}
+        </span>
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={handleCopy}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleCopy(e as unknown as React.MouseEvent) }}
+          className="flex items-center justify-center ml-auto cursor-pointer"
+          aria-label="Copy hex color"
+        >
+          {copied
+            ? <Check size={11} className="text-white mix-blend-difference" />
+            : <Copy size={11} className="text-white/60 mix-blend-difference hover:text-white transition-colors" />
+          }
         </span>
       </button>
       {popover}
