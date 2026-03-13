@@ -30,7 +30,7 @@ export function LayerRow({ layer, isActive }: LayerRowProps) {
       data-testid="layer-row"
       className={cn(
         'flex items-center gap-1 px-1 py-1.5 cursor-pointer transition-colors border-l-2',
-        isActive ? 'bg-surface-3 border-l-white' : 'border-l-transparent hover:bg-surface-2',
+        isActive ? 'bg-surface-3 border-l-accent-active' : 'border-l-transparent hover:bg-surface-2',
         !layer.visible && 'opacity-50',
         isDragging && 'opacity-75 z-50',
       )}

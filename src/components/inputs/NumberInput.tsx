@@ -32,9 +32,14 @@ export function NumberInput({
         if (!isNaN(v)) onChange(v);
       }}
       className={cn(
-        'w-full rounded border border-border bg-background px-2 py-1 text-sm text-foreground',
-        'focus:outline-none focus:ring-1 focus:ring-ring',
-        'disabled:cursor-not-allowed disabled:opacity-50',
+        'w-16 h-7 rounded-sm',
+        'bg-transparent border border-border-default',
+        'font-mono text-panel-small text-text-primary',
+        'px-2 tabular-nums',
+        'focus:border-border-focus focus:outline-none',
+        'transition-colors',
+        'disabled:cursor-not-allowed disabled:opacity-40',
+        '[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
         className,
       )}
     />

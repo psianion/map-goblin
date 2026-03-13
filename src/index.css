@@ -1,5 +1,5 @@
 @import "tw-animate-css";
-@import "@fontsource-variable/geist";
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Raleway:wght@300;400;500;600;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -40,40 +40,25 @@
     --sidebar-ring: oklch(0.708 0 0)
   }
   .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.87 0.00 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.371 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.809 0.105 251.813);
-    --chart-2: oklch(0.623 0.214 259.815);
-    --chart-3: oklch(0.546 0.245 262.881);
-    --chart-4: oklch(0.488 0.243 264.376);
-    --chart-5: oklch(0.424 0.199 265.638);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0)
-  }
-  .theme {
-    --font-sans: 'Geist Variable', sans-serif
+    --background: #0E0E0E;        /* surface-0 */
+    --foreground: #E8E8E8;        /* text-primary */
+    --card: #141414;              /* surface-1 */
+    --card-foreground: #E8E8E8;
+    --popover: #141414;           /* surface-1 */
+    --popover-foreground: #E8E8E8;
+    --primary: #E8E8E8;
+    --primary-foreground: #0E0E0E;
+    --secondary: #1E1E1E;         /* surface-2 */
+    --secondary-foreground: #E8E8E8;
+    --muted: #1E1E1E;
+    --muted-foreground: #666666;  /* text-muted */
+    --accent: #282828;            /* surface-3 */
+    --accent-foreground: #E8E8E8;
+    --destructive: #C0392B;       /* danger */
+    --border: #252525;            /* border-default */
+    --input: #252525;
+    --ring: #FFFFFF;              /* border-focus / accent-active */
+    --radius: 0.25rem;            /* 4px */
   }
   * {
     border-color: var(--border);
@@ -84,7 +69,7 @@
     color: var(--foreground);
   }
   html {
-    font-family: 'Geist Variable', sans-serif;
+    font-family: 'Raleway', sans-serif;
   }
 }
 
@@ -108,4 +93,38 @@
 .react-colorful__hue-pointer {
   width: 16px !important;
   height: 16px !important;
+}
+
+/* Minimal Precision slider — tokens: text-primary=#E8E8E8, border-default=#252525 */
+.slider-minimal {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    #E8E8E8 var(--slider-fill, 0%),
+    #252525 var(--slider-fill, 0%)
+  );
+  outline: none;
+  cursor: pointer;
+}
+
+.slider-minimal::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #E8E8E8;
+  border: 1px solid #252525;
+  cursor: pointer;
+}
+
+.slider-minimal::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #E8E8E8;
+  border: 1px solid #252525;
+  cursor: pointer;
 }

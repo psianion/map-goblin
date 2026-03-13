@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { CanvasHost } from '@/canvas/CanvasHost';
 import { LeftToolbar } from '@/components/toolbar/LeftToolbar';
 import { RightPanel } from '@/components/layout/RightPanel';
+import { CollapsedRightPanel } from '@/components/layout/CollapsedRightPanel';
 import { ZoomSlider } from '@/components/toolbar/ZoomSlider';
 import { ExportDialog } from '@/components/shared/ExportDialog';
 import { RecoveryDialog } from '@/components/shared/RecoveryDialog';
@@ -12,6 +13,8 @@ import './index.css';
 export default function App() {
   const [exportOpen, setExportOpen] = useState(false);
   const [showRecovery, setShowRecovery] = useState(() => isDirtyFlagSet());
+  const rightPanelOpen = useStore((s) => s.ui.rightPanelOpen);
+  const togglePanel = useStore((s) => s.togglePanel);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -44,13 +47,10 @@ export default function App() {
 
   return (
     <div
+      className="grid h-screen w-screen overflow-hidden bg-surface-0"
       style={{
-        display: 'grid',
-        gridTemplateColumns: '48px 1fr 300px',
-        height: '100vh',
-        width: '100vw',
-        overflow: 'hidden',
-        background: '#1a1a1a',
+        gridTemplateColumns: rightPanelOpen ? '48px 1fr 300px' : '48px 1fr 48px',
+        transition: 'grid-template-columns 200ms ease-out',
       }}
     >
       {showRecovery && <RecoveryDialog onDismiss={() => setShowRecovery(false)} />}
@@ -59,15 +59,18 @@ export default function App() {
       <LeftToolbar />
 
       {/* Canvas area */}
-      <div style={{ minWidth: 0, minHeight: 0, position: 'relative' }}>
+      <div className="relative min-w-0 min-h-0">
         <CanvasHost />
         <div className="absolute bottom-3 right-3 z-10">
           <ZoomSlider />
         </div>
       </div>
 
-      {/* Right panel: Layers | Assets tabs + Properties */}
-      <RightPanel />
+      {/* Right panel: expanded or collapsed strip */}
+      {rightPanelOpen
+        ? <RightPanel />
+        : <CollapsedRightPanel onExpand={() => togglePanel('right')} />
+      }
 
       {/* Export dialog */}
       <ExportDialog open={exportOpen} onOpenChange={setExportOpen} />

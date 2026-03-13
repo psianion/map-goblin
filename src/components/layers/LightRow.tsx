@@ -20,7 +20,7 @@ export function LightRow({ light }: LightRowProps) {
       data-testid="light-row"
       className={cn(
         'flex items-center gap-1 px-1 py-1.5 cursor-pointer transition-colors border-l-2',
-        isSelected ? 'bg-surface-3 border-l-white' : 'border-l-transparent hover:bg-surface-2',
+        isSelected ? 'bg-surface-3 border-l-accent-active' : 'border-l-transparent hover:bg-surface-2',
         !light.visible && 'opacity-50',
       )}
       onClick={() => setSelectedObjectIds([light.id])}
@@ -37,7 +37,7 @@ export function LightRow({ light }: LightRowProps) {
       <span className="w-4" />
 
       {/* light icon indicator */}
-      <span className="text-text-secondary text-xs">☀</span>
+      <span className="font-mono text-panel-small text-text-muted">☀</span>
 
       {/* name */}
       <span className="flex-1 min-w-0 truncate text-panel-body text-text-primary">
