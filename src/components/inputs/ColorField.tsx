@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { HexColorPicker } from 'react-colorful'
+import { Copy, Check } from 'lucide-react'
 
 interface ColorFieldProps {
   value: string
@@ -25,12 +26,17 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
   const [open, setOpen] = useState(false)
   const [hexInput, setHexInput] = useState(value)
   const [popoverPos, setPopoverPos] = useState({ x: 0, y: 0 })
+  const [copied, setCopied] = useState(false)
   const startRef = useRef(value)
   const popoverRef = useRef<HTMLDivElement>(null)
-  const swatchRef = useRef<HTMLButtonElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
-  // When picker is closed, display value always mirrors the external prop
-  const displayHex = open ? hexInput : value
+  const handleCopy = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    navigator.clipboard.writeText(value.toUpperCase())
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }, [value])
 
   // Close on outside click
   useEffect(() => {
@@ -40,8 +46,8 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
       if (
         popoverRef.current &&
         !popoverRef.current.contains(e.target as Node) &&
-        swatchRef.current &&
-        !swatchRef.current.contains(e.target as Node)
+        triggerRef.current &&
+        !triggerRef.current.contains(e.target as Node)
       ) {
         setOpen(false)
         onChangeCommit?.(value, startRef.current)
@@ -75,13 +81,14 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
     } else {
       startRef.current = value
       setHexInput(value)
-      // Compute position: to the left of the swatch, aligned to its top
-      if (swatchRef.current) {
-        const rect = swatchRef.current.getBoundingClientRect()
-        const popoverWidth = 232 // approximate: 200px picker + padding
+      if (triggerRef.current) {
+        const rect = triggerRef.current.getBoundingClientRect()
+        const popoverWidth = 232
+        const popoverHeight = 300
+        const maxTop = window.innerHeight - popoverHeight - 8
         setPopoverPos({
           x: rect.left - popoverWidth - 8,
-          y: rect.top,
+          y: Math.min(rect.top, Math.max(8, maxTop)),
         })
       }
       setOpen(true)
@@ -108,9 +115,7 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
 
   const handleHexKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter') {
-        handleHexSubmit()
-      }
+      if (e.key === 'Enter') handleHexSubmit()
     },
     [handleHexSubmit],
   )
@@ -125,23 +130,23 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
             top: popoverPos.y,
             zIndex: 9999,
           }}
-          className="rounded-lg border border-border-default bg-surface-2 p-3 shadow-lg"
+          className="rounded border border-border-default bg-surface-1 p-3 shadow-lg"
         >
           <HexColorPicker color={value} onChange={handlePickerChange} />
-
-          <div className="mt-2 flex items-center gap-1">
-            <span className="text-xs text-text-secondary font-mono">#</span>
-            <input
-              type="text"
-              value={displayHex.replace('#', '')}
-              onChange={(e) => setHexInput(`#${e.target.value}`)}
-              onBlur={handleHexSubmit}
-              onKeyDown={handleHexKeyDown}
-              maxLength={6}
-              className="h-7 w-full rounded border border-border-default bg-surface-3 px-2 font-mono text-xs text-text-primary focus:border-border-focus focus:outline-none"
-              aria-label="Hex color value"
-            />
-          </div>
+          <input
+            type="text"
+            value={hexInput}
+            onChange={(e) => {
+              const v = e.target.value.startsWith('#') ? e.target.value : `#${e.target.value}`
+              setHexInput(v)
+            }}
+            onBlur={handleHexSubmit}
+            onKeyDown={handleHexKeyDown}
+            maxLength={7}
+            className="mt-2 w-full h-7 bg-transparent border border-border-default rounded px-2
+                       font-mono text-panel-body text-text-primary focus:border-border-focus outline-none"
+            aria-label="Hex color value"
+          />
         </div>,
         document.body,
       )
@@ -150,13 +155,30 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
   return (
     <div className="relative">
       <button
-        ref={swatchRef}
+        ref={triggerRef}
         type="button"
-        className="h-7 w-7 rounded border border-border-default cursor-pointer"
-        style={{ backgroundColor: value }}
         onClick={handleOpen}
+        className="flex items-center gap-1.5 rounded border border-white/[0.08] px-2 h-7 cursor-pointer hover:border-border-focus transition-colors"
+        style={{ backgroundColor: value }}
         aria-label="Pick color"
-      />
+      >
+        <span className="font-mono text-[11px] text-white mix-blend-difference">
+          {value.toUpperCase()}
+        </span>
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={handleCopy}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleCopy(e as unknown as React.MouseEvent) }}
+          className="flex items-center justify-center ml-auto cursor-pointer"
+          aria-label="Copy hex color"
+        >
+          {copied
+            ? <Check size={11} className="text-white mix-blend-difference" />
+            : <Copy size={11} className="text-white/60 mix-blend-difference hover:text-white transition-colors" />
+          }
+        </span>
+      </button>
       {popover}
     </div>
   )

@@ -44,6 +44,11 @@ function getButtonTop(tool: ToolType): number {
   return btn ? btn.getBoundingClientRect().top : 0;
 }
 
+const BASE_BTN =
+  'relative w-9 h-9 flex items-center justify-center rounded-[6px] cursor-pointer transition-[background,color] duration-[120ms] border shrink-0';
+const ACTIVE_BTN = `${BASE_BTN} bg-surface-3 border-accent-active text-accent-active`;
+const INACTIVE_BTN = `${BASE_BTN} bg-transparent border-transparent text-text-muted hover:bg-surface-2 hover:text-text-primary`;
+
 export function LeftToolbar() {
   const activeTool = useStore((s) => s.tools.activeTool);
   const eraseMode = useStore((s) => s.tools.eraseMode);
@@ -112,22 +117,7 @@ export function LeftToolbar() {
   };
 
   return (
-    <div
-      style={{
-        position: 'relative',
-        width: 48,
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        paddingTop: 8,
-        paddingBottom: 8,
-        gap: 2,
-        background: 'var(--color-surface-1, #1a1a1a)',
-        borderRight: '1px solid var(--color-border, #2a2a2a)',
-        flexShrink: 0,
-      }}
-    >
+    <div className="relative w-12 h-full flex flex-col items-center py-2 gap-0.5 bg-surface-1 border-r border-border-default shrink-0">
       {TOOLS.map(({ tool, icon: Icon, label, shortcut }) => {
         const active = activeTool === tool;
         const hasPopover = TOOLS_WITH_POPOVER.has(tool);
@@ -141,46 +131,13 @@ export function LeftToolbar() {
             }}
             title={shortcut ? `${label} (${shortcut})` : label}
             onClick={() => handleToolClick(tool)}
-            style={{
-              position: 'relative',
-              width: 36,
-              height: 36,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: 6,
-              border: 'none',
-              cursor: 'pointer',
-              background: active ? 'var(--color-accent, #4f8ef7)' : 'transparent',
-              color: active ? '#fff' : 'var(--color-text-muted, #888)',
-              flexShrink: 0,
-              transition: 'background 120ms, color 120ms',
-            }}
-            onMouseEnter={(e) => {
-              if (!active) {
-                (e.currentTarget as HTMLButtonElement).style.background =
-                  'var(--color-surface-2, #2a2a2a)';
-                (e.currentTarget as HTMLButtonElement).style.color = '#ccc';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!active) {
-                (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-                (e.currentTarget as HTMLButtonElement).style.color =
-                  'var(--color-text-muted, #888)';
-              }
-            }}
+            className={active ? ACTIVE_BTN : INACTIVE_BTN}
           >
             <Icon size={18} strokeWidth={1.75} />
             {hasPopover && active && (
               <ChevronRight
                 size={8}
-                style={{
-                  position: 'absolute',
-                  bottom: 3,
-                  right: 3,
-                  opacity: 0.7,
-                }}
+                style={{ position: 'absolute', bottom: 3, right: 3, opacity: 0.7 }}
               />
             )}
           </button>
@@ -188,49 +145,14 @@ export function LeftToolbar() {
       })}
 
       {/* Divider */}
-      <div
-        style={{
-          width: 28,
-          height: 1,
-          background: 'var(--color-border, #2a2a2a)',
-          margin: '4px 0',
-          flexShrink: 0,
-        }}
-      />
+      <div className="w-7 h-px bg-border-default my-1 shrink-0" />
 
       {/* Erase mode toggle */}
       <button
         data-toolbar-button
         title="Erase mode (E)"
         onClick={() => setEraseMode(!eraseMode)}
-        style={{
-          width: 36,
-          height: 36,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRadius: 6,
-          border: 'none',
-          cursor: 'pointer',
-          background: eraseMode ? '#c0392b' : 'transparent',
-          color: eraseMode ? '#fff' : 'var(--color-text-muted, #888)',
-          flexShrink: 0,
-          transition: 'background 120ms, color 120ms',
-        }}
-        onMouseEnter={(e) => {
-          if (!eraseMode) {
-            (e.currentTarget as HTMLButtonElement).style.background =
-              'var(--color-surface-2, #2a2a2a)';
-            (e.currentTarget as HTMLButtonElement).style.color = '#ccc';
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!eraseMode) {
-            (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-            (e.currentTarget as HTMLButtonElement).style.color =
-              'var(--color-text-muted, #888)';
-          }
-        }}
+        className={eraseMode ? ACTIVE_BTN : INACTIVE_BTN}
       >
         <Eraser size={18} strokeWidth={1.75} />
       </button>
@@ -240,34 +162,7 @@ export function LeftToolbar() {
         data-toolbar-button
         title="Rough mode (X)"
         onClick={() => setRoughMode(!roughMode)}
-        style={{
-          width: 36,
-          height: 36,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRadius: 6,
-          border: 'none',
-          cursor: 'pointer',
-          background: roughMode ? 'var(--color-accent, #4f8ef7)' : 'transparent',
-          color: roughMode ? '#fff' : 'var(--color-text-muted, #888)',
-          flexShrink: 0,
-          transition: 'background 120ms, color 120ms',
-        }}
-        onMouseEnter={(e) => {
-          if (!roughMode) {
-            (e.currentTarget as HTMLButtonElement).style.background =
-              'var(--color-surface-2, #2a2a2a)';
-            (e.currentTarget as HTMLButtonElement).style.color = '#ccc';
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!roughMode) {
-            (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-            (e.currentTarget as HTMLButtonElement).style.color =
-              'var(--color-text-muted, #888)';
-          }
-        }}
+        className={roughMode ? ACTIVE_BTN : INACTIVE_BTN}
       >
         <Waves size={18} strokeWidth={1.75} />
       </button>

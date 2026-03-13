@@ -15,11 +15,11 @@ export function LayerHeader() {
 
   return (
     <div className="flex items-center justify-between px-3 py-2">
-      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Layers</span>
+      <span className="font-display text-tab-label uppercase tracking-wider text-text-muted">Layers</span>
       <button
         title="Add layer"
         onClick={handleAddLayer}
-        className="flex items-center justify-center w-6 h-6 rounded hover:bg-white/10 text-muted-foreground hover:text-foreground transition-colors"
+        className="w-7 h-7 rounded-sm flex items-center justify-center bg-transparent hover:bg-surface-2 text-text-muted hover:text-text-primary border border-transparent hover:border-border-default transition-colors"
       >
         <Plus size={14} strokeWidth={2} />
       </button>

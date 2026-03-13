@@ -7,6 +7,8 @@ import { ColorField } from '@/components/inputs/ColorField';
 import { SliderInput } from '@/components/inputs/SliderInput';
 import { PropertyField } from '@/components/properties/PropertyField';
 import { ChevronUp, ChevronDown } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { showToolPreview, hideToolPreview } from '@/engine/toolPreview';
 import type { PreviewSettings } from '@/engine/toolPreview';
 
@@ -87,7 +89,7 @@ export function ToolPopover({ tool, anchorY, onClose }: ToolPopoverProps) {
   return (
     <div
       ref={panelRef}
-      className="absolute z-50 w-[200px] bg-surface-2 border border-border-default rounded-lg shadow-lg p-3"
+      className="absolute z-50 w-[200px] bg-surface-1 border border-border-default rounded shadow-lg p-3"
       style={{ left: 52, top: anchorY }}
     >
       {isDrawingTool && <DrawingToolContent tool={tool} onValueChange={triggerPreview} />}
@@ -130,7 +132,7 @@ function DrawingToolContent({
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+      <span className="font-mono text-panel-heading uppercase text-text-muted">
         {TOOL_LABELS[tool] ?? tool}
       </span>
 
@@ -138,7 +140,7 @@ function DrawingToolContent({
         <PropertyField label="Sides">
           <div className="flex items-center gap-2">
             <button
-              className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10 text-text-muted"
+              className="w-6 h-6 flex items-center justify-center rounded-sm border border-border-default hover:bg-surface-3 text-text-muted hover:text-text-primary transition-colors"
               onClick={() => {
                 updateToolSettings({ regularPolygon: { sides: Math.max(3, polygonSides - 1) } });
                 onValueChange?.();
@@ -146,11 +148,11 @@ function DrawingToolContent({
             >
               <ChevronDown size={14} />
             </button>
-            <span className="text-sm font-semibold text-text-primary w-6 text-center">
+            <span className="font-mono text-panel-body text-text-primary w-6 text-center tabular-nums">
               {polygonSides}
             </span>
             <button
-              className="w-6 h-6 flex items-center justify-center rounded hover:bg-white/10 text-text-muted"
+              className="w-6 h-6 flex items-center justify-center rounded-sm border border-border-default hover:bg-surface-3 text-text-muted hover:text-text-primary transition-colors"
               onClick={() => {
                 updateToolSettings({ regularPolygon: { sides: Math.min(32, polygonSides + 1) } });
                 onValueChange?.();
@@ -181,15 +183,11 @@ function DrawingToolContent({
       </PropertyField>
 
       <PropertyField label="Shadow">
-        <label className="flex items-center gap-2 text-xs text-text-primary">
-          <input
-            type="checkbox"
-            checked={s.shadowEnabled}
-            onChange={(e) => patch({ shadowEnabled: e.target.checked })}
-            className="accent-accent"
-          />
-          Enabled
-        </label>
+        <ToggleSwitch
+          checked={s.shadowEnabled}
+          onChange={(v) => patch({ shadowEnabled: v })}
+          label="Enable shadow"
+        />
       </PropertyField>
     </div>
   );
@@ -215,7 +213,7 @@ function WallToolContent({ onValueChange }: { onValueChange?: () => void }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">Wall</span>
+      <span className="font-mono text-panel-heading uppercase text-text-muted">Wall</span>
 
       <PropertyField label="Wall Color">
         <ColorField value={s.wallColor} onChange={(c) => patch({ wallColor: c })} />
@@ -232,18 +230,14 @@ function WallToolContent({ onValueChange }: { onValueChange?: () => void }) {
       </PropertyField>
 
       <PropertyField label="Blocks Light">
-        <label className="flex items-center gap-2 text-xs text-text-primary">
-          <input
-            type="checkbox"
-            checked={wallBlocksLight}
-            onChange={(e) => {
-              updateToolSettings({ wallBlocksLight: e.target.checked });
-              onValueChange?.();
-            }}
-            className="accent-accent"
-          />
-          Enabled
-        </label>
+        <ToggleSwitch
+          checked={wallBlocksLight}
+          onChange={(v) => {
+            updateToolSettings({ wallBlocksLight: v });
+            onValueChange?.();
+          }}
+          label="Blocks light"
+        />
       </PropertyField>
     </div>
   );
@@ -269,7 +263,7 @@ function LightToolContent({ onValueChange }: { onValueChange?: () => void }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">Light</span>
+      <span className="font-mono text-panel-heading uppercase text-text-muted">Light</span>
 
       <PropertyField label="Color">
         <ColorField value={defaults.color} onChange={(c) => patch({ color: c })} />
@@ -325,26 +319,20 @@ function LightToolContent({ onValueChange }: { onValueChange?: () => void }) {
 
       <PropertyField label="Falloff">
         <div className="flex gap-1">
-          <button
-            className={`flex-1 h-6 text-[10px] rounded border transition-colors ${
-              defaults.falloff === 'linear'
-                ? 'bg-surface-3 border-border-focus text-text-primary'
-                : 'bg-surface-2 border-border-default text-text-secondary hover:bg-surface-3'
-            }`}
-            onClick={() => patch({ falloff: 'linear' })}
-          >
-            Linear
-          </button>
-          <button
-            className={`flex-1 h-6 text-[10px] rounded border transition-colors ${
-              defaults.falloff === 'quadratic'
-                ? 'bg-surface-3 border-border-focus text-text-primary'
-                : 'bg-surface-2 border-border-default text-text-secondary hover:bg-surface-3'
-            }`}
-            onClick={() => patch({ falloff: 'quadratic' })}
-          >
-            Quadratic
-          </button>
+          {(['linear', 'quadratic'] as const).map((f) => (
+            <button
+              key={f}
+              className={cn(
+                'flex-1 h-7 rounded-sm border font-body text-[11px] transition-colors capitalize',
+                defaults.falloff === f
+                  ? 'bg-surface-3 border-accent-active text-text-primary'
+                  : 'bg-transparent border-border-default text-text-muted hover:text-text-primary',
+              )}
+              onClick={() => patch({ falloff: f })}
+            >
+              {f}
+            </button>
+          ))}
         </div>
       </PropertyField>
     </div>

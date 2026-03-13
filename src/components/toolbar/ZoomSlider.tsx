@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, type CSSProperties } from 'react';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 
 const MIN_ZOOM = 10;
@@ -66,13 +66,14 @@ export function ZoomSlider() {
     setZoom(newZoom);
   }, []);
 
-  const pct = Math.round((zoom / MAX_ZOOM) * 100);
+  const sliderVal = zoomToSlider(zoom);
+  const pct = Math.round(sliderVal * 100);
 
   return (
-    <div className="flex items-center gap-2 bg-surface-1/80 backdrop-blur-sm rounded-md px-3 py-1.5 border border-border">
+    <div className="flex items-center gap-2 bg-surface-1/80 backdrop-blur-sm rounded border border-border-default px-2 py-1.5">
       <button
         onClick={handleReset}
-        className="text-xs text-muted-foreground hover:text-foreground tabular-nums min-w-[3ch] text-right"
+        className="font-mono text-panel-small text-text-muted hover:text-text-primary tabular-nums min-w-[3ch] text-right transition-colors"
         title="Reset zoom"
       >
         {pct}%
@@ -82,9 +83,10 @@ export function ZoomSlider() {
         min={0}
         max={1}
         step={0.001}
-        value={zoomToSlider(zoom)}
+        value={sliderVal}
         onChange={handleChange}
-        className="w-24 h-1 accent-accent cursor-pointer"
+        className="w-24 slider-minimal"
+        style={{ '--slider-fill': `${pct}%` } as CSSProperties}
       />
     </div>
   );

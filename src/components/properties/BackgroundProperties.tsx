@@ -1,31 +1,42 @@
-import { useStore } from '@/store/store';
-import type { BackgroundLayer } from '@/store/types';
-import { PropertyField } from './PropertyField';
-import { ColorField } from '@/components/inputs/ColorField';
+import { useStore } from '@/store/store'
+import type { BackgroundLayer } from '@/store/types'
+import { PropertyField } from './PropertyField'
+import { ColorField } from '@/components/inputs/ColorField'
+import { ColorChip } from '@/components/inputs/ColorChip'
+import { CollapsibleSection } from '@/components/ui/collapsible-section'
+import { PaintBucket } from 'lucide-react'
 
 interface BackgroundPropertiesProps {
-  layer: BackgroundLayer;
+  layer: BackgroundLayer
+  openSections?: Set<string>
+  onToggleSection?: (id: string) => void
 }
 
-export function BackgroundProperties({ layer }: BackgroundPropertiesProps) {
-  const updateLayer = useStore((s) => s.updateLayer);
+export function BackgroundProperties({ layer, openSections, onToggleSection }: BackgroundPropertiesProps) {
+  const updateLayer = useStore((s) => s.updateLayer)
 
   return (
-    <div className="flex flex-col gap-3 p-3">
-      <span className="text-panel-heading uppercase text-text-secondary tracking-wider">
-        Background
-      </span>
-
-      <PropertyField label="Background Color">
-        <ColorField
-          value={layer.backgroundColor}
-          onChange={(c) =>
-            updateLayer(layer.id, {
-              backgroundColor: c,
-            } as Partial<BackgroundLayer>)
-          }
-        />
-      </PropertyField>
-    </div>
-  );
+    <CollapsibleSection
+      id="bg"
+      title="Background"
+      icon={PaintBucket}
+      defaultOpen={true}
+      isOpen={openSections?.has('bg')}
+      onToggle={onToggleSection}
+      preview={
+        <ColorChip color={layer.backgroundColor} size="sm" />
+      }
+    >
+      <div className="flex flex-col gap-2 pt-2">
+        <PropertyField label="Background Color">
+          <ColorField
+            value={layer.backgroundColor}
+            onChange={(c) =>
+              updateLayer(layer.id, { backgroundColor: c } as Partial<BackgroundLayer>)
+            }
+          />
+        </PropertyField>
+      </div>
+    </CollapsibleSection>
+  )
 }
