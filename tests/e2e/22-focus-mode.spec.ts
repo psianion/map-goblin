@@ -180,7 +180,7 @@ test.describe('22 - Focus Mode', () => {
     const afterOpacity = await toolbar.evaluate((el) =>
       parseFloat(window.getComputedStyle(el).opacity),
     )
-    expect(afterOpacity).toBeLessThanOrEqual(0.15)
+    expect(afterOpacity).toBeLessThanOrEqual(0.4)
   })
 
   test('toolbar stays opaque after idle in manual mode', async ({ page }) => {
@@ -221,7 +221,7 @@ test.describe('22 - Focus Mode', () => {
     const fadedOpacity = await toolbar.evaluate((el) =>
       parseFloat(window.getComputedStyle(el).opacity),
     )
-    expect(fadedOpacity).toBeLessThanOrEqual(0.15)
+    expect(fadedOpacity).toBeLessThanOrEqual(0.4)
 
     // Hover over the toolbar — should restore to full opacity
     const toolbarBox = await toolbar.boundingBox()
@@ -252,7 +252,7 @@ test.describe('22 - Focus Mode', () => {
     const fadedOpacity = await toolbar.evaluate((el) =>
       parseFloat(window.getComputedStyle(el).opacity),
     )
-    expect(fadedOpacity).toBeLessThanOrEqual(0.15)
+    expect(fadedOpacity).toBeLessThanOrEqual(0.4)
 
     // Move mouse around the canvas — should NOT restore panels
     const canvas = page.locator('canvas')
@@ -269,7 +269,7 @@ test.describe('22 - Focus Mode', () => {
       parseFloat(window.getComputedStyle(el).opacity),
     )
     // Canvas mouse movement must not restore panels — still faded
-    expect(stillFadedOpacity).toBeLessThanOrEqual(0.15)
+    expect(stillFadedOpacity).toBeLessThanOrEqual(0.4)
   })
 
   // ─── Fullscreen Layout Test (will fail until Task #4 collapses panels) ──────

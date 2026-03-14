@@ -209,6 +209,13 @@ export function useCanvasInput(
       updateCursor,
     );
 
+    // Immediately switch tool (and destroy gizmo) when activeTool changes in store.
+    // Without this, the SelectTool gizmo persists visually until the next pointer event.
+    const unsubToolSwitch = useStore.subscribe(
+      (s) => s.tools.activeTool,
+      (type) => { _toolManager?.switchTool(type); },
+    );
+
     canvasEl.addEventListener('pointerdown', onPointerDown);
     canvasEl.addEventListener('pointermove', onPointerMove);
     canvasEl.addEventListener('pointerup', onPointerUp);
@@ -223,6 +230,7 @@ export function useCanvasInput(
 
     return () => {
       unsubCursor();
+      unsubToolSwitch();
       canvasEl.style.cursor = '';
       canvasEl.removeEventListener('pointerdown', onPointerDown);
       canvasEl.removeEventListener('pointermove', onPointerMove);

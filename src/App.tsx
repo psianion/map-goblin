@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Eye, EyeOff, Maximize, ImageDown, Upload } from 'lucide-react';
-import { useIdleTimer } from '@/hooks/useIdleTimer';
 import { CanvasHost } from '@/canvas/CanvasHost';
 import { LeftToolbar } from '@/components/toolbar/LeftToolbar';
 import { RightPanel } from '@/components/layout/RightPanel';
@@ -15,16 +14,58 @@ import { importImageRef } from '@/shortcuts/defaultShortcuts';
 import { useStore } from '@/store/store';
 import './index.css';
 
+/**
+ * Single global fade for all UI chrome. Counter-based enter/leave ensures
+ * hovering ANY chrome element keeps ALL chrome visible. Only when the mouse
+ * leaves all chrome elements for 5s does everything fade together.
+ */
+function usePanelFade(active: boolean) {
+  const [faded, setFaded] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverCount = useRef(0);
+
+  const startTimer = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setFaded(true), 5000);
+  }, []);
+
+  useEffect(() => {
+    hoverCount.current = 0;
+    if (active) {
+      startTimer();
+      return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+    }
+    if (timerRef.current) clearTimeout(timerRef.current);
+    // setFaded must be async to satisfy react-hooks/set-state-in-effect
+    const resetId = setTimeout(() => setFaded(false), 0);
+    return () => { clearTimeout(resetId); };
+  }, [active, startTimer]);
+
+  const onEnter = useCallback(() => {
+    if (!active) return;
+    hoverCount.current += 1;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setFaded(false);
+  }, [active]);
+
+  const onLeave = useCallback(() => {
+    if (!active) return;
+    hoverCount.current = Math.max(0, hoverCount.current - 1);
+    if (hoverCount.current === 0) startTimer();
+  }, [active, startTimer]);
+
+  return { faded, onEnter, onLeave };
+}
+
 export default function App() {
   const [exportOpen, setExportOpen] = useState(false);
   const [showRecovery, setShowRecovery] = useState(() => isDirtyFlagSet());
-  const [leftHovered, setLeftHovered] = useState(false);
-  const [rightHovered, setRightHovered] = useState(false);
   const rightPanelOpen = useStore((s) => s.ui.rightPanelOpen);
   const togglePanel = useStore((s) => s.togglePanel);
   const focusMode = useStore((s) => s.ui.focusMode);
   const setFocusMode = useStore((s) => s.setFocusMode);
-  const { isIdle } = useIdleTimer(5000, focusMode === 'auto');
+
+  const fade = usePanelFade(focusMode === 'auto');
 
   // Persist focusMode to localStorage
   useEffect(() => {
@@ -110,7 +151,6 @@ export default function App() {
   }, []);
 
   const showPanels = focusMode !== 'fullscreen';
-  const panelFaded = focusMode === 'auto' && isIdle;
 
   return (
     <>
@@ -121,8 +161,17 @@ export default function App() {
       {/* Canvas — fills full viewport beneath all overlays */}
       <div className="absolute inset-0">
         <CanvasHost />
-        {/* Top-right: Import / Export / Focus buttons — z-30 so they sit above panel overlays */}
-        <div className="absolute top-3 right-3 z-30 flex gap-1.5">
+        {/* Top-right: Import / Export / Focus buttons — offset right to avoid overlapping the right panel */}
+        <div
+          className="absolute top-3 z-30 flex gap-1.5"
+          style={{
+            right: showPanels ? (rightPanelOpen ? '316px' : '64px') : '12px',
+            transition: 'right 200ms ease-out',
+            opacity: fade.faded ? 0.4 : 1,
+          }}
+          onMouseEnter={fade.onEnter}
+          onMouseLeave={fade.onLeave}
+        >
           <label
             title="Import image"
             htmlFor="import-image-input"
@@ -147,7 +196,16 @@ export default function App() {
             <FocusIcon size={15} strokeWidth={2} />
           </button>
         </div>
-        <div className="absolute bottom-3 right-3 z-30">
+        <div
+          className="absolute bottom-3 z-30"
+          style={{
+            right: showPanels ? (rightPanelOpen ? '316px' : '64px') : '12px',
+            transition: 'right 200ms ease-out',
+            opacity: fade.faded ? 0.4 : 1,
+          }}
+          onMouseEnter={fade.onEnter}
+          onMouseLeave={fade.onLeave}
+        >
           <ZoomSlider />
         </div>
       </div>
@@ -157,12 +215,9 @@ export default function App() {
         <div
           data-testid="left-toolbar"
           className="absolute left-0 top-0 bottom-0 z-20"
-          onMouseEnter={() => setLeftHovered(true)}
-          onMouseLeave={() => setLeftHovered(false)}
-          style={{
-            opacity: panelFaded && !leftHovered ? 0.15 : 1,
-            transition: panelFaded && !leftHovered ? 'opacity 600ms ease-out' : 'none',
-          }}
+          onMouseEnter={fade.onEnter}
+          onMouseLeave={fade.onLeave}
+          style={{ opacity: fade.faded ? 0.4 : 1 }}
         >
           <LeftToolbar />
         </div>
@@ -172,12 +227,11 @@ export default function App() {
       {showPanels && (
         <div
           className="absolute right-0 top-0 bottom-0 z-20 overflow-hidden"
-          onMouseEnter={() => setRightHovered(true)}
-          onMouseLeave={() => setRightHovered(false)}
+          onMouseEnter={fade.onEnter}
+          onMouseLeave={fade.onLeave}
           style={{
             width: rightPanelOpen ? '300px' : '48px',
-            opacity: panelFaded && !rightHovered ? 0.15 : 1,
-            transition: panelFaded && !rightHovered ? 'opacity 600ms ease-out' : 'none',
+            opacity: fade.faded ? 0.4 : 1,
           }}
         >
           {rightPanelOpen
