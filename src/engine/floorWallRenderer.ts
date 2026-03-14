@@ -167,19 +167,12 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     shadowG.alpha = s.shadowIntensity;
     const ox = s.shadowOffset.x;
     const oy = s.shadowOffset.y;
-    // Only offset outer contours for shadow; keep holes at original position
-    // so shadow holes align with floor holes (otherwise shadow bleeds through
-    // transparent floor holes because the shadow's offset hole doesn't cover them).
-    const offsetPolygons: Polygon[] = polygons.map(poly => {
-      if (poly.length < 3) return poly;
-      const isHole = signedArea(poly) < 0;
-      if (isHole) {
-        // Hole stays at original position — aligns with floor hole
-        return poly;
-      }
-      // Outer gets offset for shadow effect
-      return poly.map(([x, y]) => [x + ox, y + oy] as [number, number]);
-    });
+    // Offset ALL polygons (outers + holes) for shadow. The per-outer fill+cut
+    // in fillPolygonsWithHoles correctly handles holes, so the shadow won't
+    // bleed through floor holes.
+    const offsetPolygons: Polygon[] = polygons.map(poly =>
+      poly.map(([x, y]) => [x + ox, y + oy] as [number, number])
+    );
     fillPolygonsWithHoles(shadowG, offsetPolygons, { color: parseColor(s.shadowColor) });
     shadow.addChild(shadowG);
   }
@@ -276,14 +269,13 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     hatching.addChild(hatchContainer);
   }
 
-  // ── Wall outlines (stroke on floor boundary) ─────────────────
-  // Only stroke outer contours — holes (negative signed area) should NOT get wall strokes.
-  // When a selection is moved out, the difference operation creates hole contours that
-  // would otherwise render as black rectangles inside the shape.
-  const outerPolygons = polygons.filter(p => p.length >= 3 && signedArea(p) >= 0);
+  // ── Wall outlines (stroke on ALL floor boundaries including holes) ───────
+  // Holes from erase operations are room cutouts that should have walls.
+  // The earlier "black rectangle" bug was caused by fillPolygonsWithHoles
+  // batching multiple outers — now fixed by per-outer fill+cut.
   const wallG = new Graphics();
   wallG.setStrokeStyle({ color: wallColorNum, width: s.wallWidth, join: 'round', cap: 'round' });
-  tracePolygons(wallG, outerPolygons);
+  tracePolygons(wallG, polygons);
   wallG.stroke();
   walls.addChild(wallG);
 
