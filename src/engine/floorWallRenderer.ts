@@ -35,11 +35,28 @@ function tracePolygons(g: Graphics, polygons: Polygon[]): void {
   }
 }
 
+/** Check if a point is inside a polygon (ray casting). */
+function pointInPolygon(px: number, py: number, poly: Polygon): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0], yi = poly[i][1];
+    const xj = poly[j][0], yj = poly[j][1];
+    if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
 /**
  * Fill polygons with proper hole support for PixiJS v8.
  * Clipper2 returns outer contours (CW in screen-space, positive signed area)
- * and hole contours (CCW, negative signed area). PixiJS v8 needs explicit
- * fill() for outers and cut() for holes.
+ * and hole contours (CCW, negative signed area).
+ *
+ * PixiJS v8's cut() only cuts from the most recent fill(). When there are
+ * multiple disconnected outers, we must fill+cut each outer with its own
+ * holes individually — otherwise cut() can't associate holes with the
+ * correct outer.
  */
 function fillPolygonsWithHoles(g: Graphics, polygons: Polygon[], fillStyle: { color: number }): void {
   const outers: Polygon[] = [];
@@ -53,24 +70,41 @@ function fillPolygonsWithHoles(g: Graphics, polygons: Polygon[], fillStyle: { co
     }
   }
 
-  // If no holes, simple fill
+  // If no holes, simple fill all outers at once
   if (holes.length === 0) {
     tracePolygons(g, outers);
     g.fill(fillStyle);
     return;
   }
 
-  // Draw outers and fill
-  for (const outer of outers) {
-    traceSinglePolygon(g, outer);
+  // Match each hole to its containing outer
+  const outerHoles = new Map<number, Polygon[]>();
+  for (let i = 0; i < outers.length; i++) {
+    outerHoles.set(i, []);
   }
-  g.fill(fillStyle);
-
-  // Draw holes and cut them out
   for (const hole of holes) {
-    traceSinglePolygon(g, hole);
+    // Use first point of hole to find which outer contains it
+    const [hx, hy] = hole[0];
+    for (let i = 0; i < outers.length; i++) {
+      if (pointInPolygon(hx, hy, outers[i])) {
+        outerHoles.get(i)!.push(hole);
+        break;
+      }
+    }
   }
-  g.cut();
+
+  // Fill each outer with its holes individually
+  for (let i = 0; i < outers.length; i++) {
+    const myHoles = outerHoles.get(i)!;
+    traceSinglePolygon(g, outers[i]);
+    g.fill(fillStyle);
+    if (myHoles.length > 0) {
+      for (const hole of myHoles) {
+        traceSinglePolygon(g, hole);
+      }
+      g.cut();
+    }
+  }
 }
 
 /**
