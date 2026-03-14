@@ -234,9 +234,13 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   }
 
   // ── Wall outlines (stroke on floor boundary) ─────────────────
+  // Only stroke outer contours — holes (negative signed area) should NOT get wall strokes.
+  // When a selection is moved out, the difference operation creates hole contours that
+  // would otherwise render as black rectangles inside the shape.
+  const outerPolygons = polygons.filter(p => p.length >= 3 && signedArea(p) >= 0);
   const wallG = new Graphics();
   wallG.setStrokeStyle({ color: wallColorNum, width: s.wallWidth, join: 'round', cap: 'round' });
-  tracePolygons(wallG, polygons);
+  tracePolygons(wallG, outerPolygons);
   wallG.stroke();
   walls.addChild(wallG);
 
