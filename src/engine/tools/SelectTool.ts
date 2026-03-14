@@ -319,11 +319,28 @@ export class SelectTool implements DrawingTool {
     }
 
     const prevFloor = activeLayer.mergedFloor ?? [];
-    // Inflate the selection region slightly before subtracting so the difference
-    // fully removes the area even when Clipper2 intersection coords don't exactly
-    // align with the original floor boundary. This prevents micro-strips at cut edges.
-    const inflatedBase = clipper2Engine.inflate(baseRegion, 0.02);
-    const withoutSelected = clipper2Engine.difference(prevFloor, inflatedBase) as [number, number][][];
+    // Use the selection's bounding box for the difference instead of the
+    // intersection-derived polygons. The intersection produces coordinates
+    // that don't perfectly align with the floor boundary, causing micro-strips.
+    // The bounding box of the selection is a clean rectangle that fully covers
+    // the selected area, ensuring a clean cut.
+    const allPts = baseRegion.flat();
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [x, y] of allPts) {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+    // Expand bbox slightly to ensure full coverage
+    const pad = 0.05;
+    const cutRect: [number, number][][] = [[
+      [minX - pad, minY - pad],
+      [maxX + pad, minY - pad],
+      [maxX + pad, maxY + pad],
+      [minX - pad, maxY + pad],
+    ]];
+    const withoutSelected = clipper2Engine.difference(prevFloor, cutRect) as [number, number][][];
     const newFloor = clipper2Engine.union(withoutSelected, finalRegion) as [number, number][][];
 
     undoManager.execute(
