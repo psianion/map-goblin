@@ -9,8 +9,11 @@ class UndoManager {
   execute(cmd: Command): void {
     cmd.execute();
     this.history.push(cmd);
-    if (this.history.length > this.MAX_SIZE) {
-      this.history.shift();
+    while (this.history.length > this.MAX_SIZE) {
+      const evicted = this.history.shift();
+      if (evicted && 'cleanup' in evicted && typeof evicted.cleanup === 'function') {
+        evicted.cleanup();
+      }
     }
     this.future = [];
     this.notify();

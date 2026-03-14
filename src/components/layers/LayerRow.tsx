@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { Eye, EyeOff, Lock, Unlock, GripVertical } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -11,7 +12,7 @@ interface LayerRowProps {
   isActive: boolean
 }
 
-export function LayerRow({ layer, isActive }: LayerRowProps) {
+export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProps) {
   const setActiveLayerId = useStore((s) => s.setActiveLayerId)
   const updateLayer = useStore((s) => s.updateLayer)
 
@@ -89,4 +90,4 @@ export function LayerRow({ layer, isActive }: LayerRowProps) {
       </Button>
     </div>
   )
-}
+})
