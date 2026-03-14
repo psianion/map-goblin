@@ -320,7 +320,10 @@ export class SelectTool implements DrawingTool {
 
     const prevFloor = activeLayer.mergedFloor ?? [];
     const withoutSelected = clipper2Engine.difference(prevFloor, baseRegion) as [number, number][][];
-    const newFloor = clipper2Engine.union(withoutSelected, finalRegion) as [number, number][][];
+    const merged = clipper2Engine.union(withoutSelected, finalRegion) as [number, number][][];
+    // Simplify to clean up micro-fragments from Clipper2 coordinate misalignment
+    // between intersection-derived selection coords and original floor boundary coords.
+    const newFloor = clipper2Engine.simplify(merged, 0.05) as [number, number][][];
 
     undoManager.execute(
       new SelectionMoveCommand(activeLayerId, activeLayer.mergedFloor, newFloor),
