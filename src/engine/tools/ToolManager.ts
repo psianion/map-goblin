@@ -58,6 +58,16 @@ export class ToolManager {
     return this.tools.get(type);
   }
 
+  /** Returns CSS cursor for gizmo handle hover, or null. */
+  getHoverCursor(sx: number, sy: number): string | null {
+    return this.activeTool?.getHoverCursor?.(sx, sy) ?? null;
+  }
+
+  /** Sync screen-space gizmo position — called every frame. */
+  updateGizmo(): void {
+    this.activeTool?.updateGizmo?.();
+  }
+
   private renderPreview(preview: PreviewShape | null): void {
     this.previewGraphics.clear();
     if (!preview || preview.points.length === 0) return;

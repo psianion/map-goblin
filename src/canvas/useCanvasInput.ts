@@ -88,6 +88,14 @@ export function useCanvasInput(
       const snapped = applyMiddleware(world);
       _toolManager?.onPointerMove(snapped, e);
       _snapIndicator?.show(engine.worldToScreen(snapped.x, snapped.y));
+
+      // Update cursor for gizmo handle hover (non-pan tools only)
+      if (useStore.getState().tools.activeTool !== 'pan') {
+        const sx = e.clientX - rect.left;
+        const sy = e.clientY - rect.top;
+        const gizmoCursor = _toolManager?.getHoverCursor(sx, sy) ?? null;
+        canvasEl.style.cursor = gizmoCursor ?? '';
+      }
     };
 
     const onPointerUp = (e: PointerEvent) => {

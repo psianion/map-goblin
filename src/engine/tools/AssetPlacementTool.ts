@@ -96,6 +96,7 @@ export class AssetPlacementTool implements DrawingTool {
     }
 
     const snapped = snapToCell(point);
+    const assetTexture = Assets.get(this.selectedAssetId!) as { width?: number; height?: number } | undefined;
     const obj: PlacedObject = {
       id: crypto.randomUUID(),
       layerId,
@@ -104,6 +105,8 @@ export class AssetPlacementTool implements DrawingTool {
       position: snapped,
       rotation: 0,
       scale: this.computeScaleFromAsset(this.selectedAssetId!),
+      width: (assetTexture?.width ?? 256) / 256,
+      height: (assetTexture?.height ?? 256) / 256,
       tint: '#ffffff',
       groupId: null,
       flipX: false,

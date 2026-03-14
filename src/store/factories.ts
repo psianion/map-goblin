@@ -104,10 +104,10 @@ type MapBuilderState = Omit<
   | 'addLight' | 'removeLight' | 'updateLight'
   | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'updateToolSettings' | 'addRecentAsset' | 'updateLightDefaults'
   | 'setActiveLayerId' | 'setSelectedObjectIds' | 'setActivePanel' | 'togglePanel'
-  | 'pushToast' | 'dismissToast' | 'showModal' | 'setClipperReady'
+  | 'pushToast' | 'dismissToast' | 'showModal' | 'setClipperReady' | 'setFocusMode'
   | 'applyPreset' | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
-  | 'setSelectedRegion' | 'setClipboard'
+  | 'setSelectedRegion' | 'setClipboard' | 'setSelectionTransform' | 'bakeSelectionTransform'
   | 'toggleFavorite' | 'trackRecentUse' | 'addCustomUpload' | 'removeCustomUpload'
   | 'setManifest' | 'markCategoryLoaded' | 'addCustomImage'
   | 'addPlacedObject' | 'removePlacedObject' | 'updatePlacedObject'
@@ -165,6 +165,7 @@ export function createDefaultState(): MapBuilderState {
       toastQueue: [],
       clipperReady: false,
       customPresets: {},
+      focusMode: 'auto' as const,
     },
     assets: {
       manifest: null,
@@ -177,6 +178,7 @@ export function createDefaultState(): MapBuilderState {
     selection: {
       selectedRegion: null,
       clipboard: null,
+      selectionTransform: null,
     },
   };
 }

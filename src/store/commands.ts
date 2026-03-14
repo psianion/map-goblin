@@ -1,4 +1,4 @@
-import type { Command, DungeonStyle, Light, PlacedObject } from './types';
+import type { Command, DungeonLayer, DungeonStyle, Light, PlacedObject, ShapeRecord } from './types';
 import { useStore } from './store';
 import type { Polygon } from '@/types/geometry';
 import { clipper2Engine } from '@/geometry/Clipper2Engine';
@@ -528,6 +528,90 @@ export class MoveLightCommand implements Command {
 
   undo(): void {
     useStore.getState().updateLight(this.lightId, { position: this.from });
+  }
+}
+
+/**
+ * Command for applying a non-uniform transform to a placed object (position, size, rotation).
+ * Uses updatePlacedObject for atomic before/after patches — clean undo/redo.
+ */
+export class TransformCommand implements Command {
+  readonly label: string;
+  private layerId: string;
+  private objectId: string;
+  private beforePatch: Partial<PlacedObject>;
+  private afterPatch: Partial<PlacedObject>;
+
+  constructor(
+    layerId: string,
+    objectId: string,
+    beforePatch: Partial<PlacedObject>,
+    afterPatch: Partial<PlacedObject>,
+    label = 'Transform object',
+  ) {
+    this.layerId = layerId;
+    this.objectId = objectId;
+    this.beforePatch = beforePatch;
+    this.afterPatch = afterPatch;
+    this.label = label;
+  }
+
+  execute(): void {
+    useStore.getState().updatePlacedObject(this.layerId, this.objectId, this.afterPatch);
+  }
+
+  undo(): void {
+    useStore.getState().updatePlacedObject(this.layerId, this.objectId, this.beforePatch);
+  }
+}
+
+/**
+ * Command for transforming a dungeon shape — updates both the shape's transform field
+ * and the pre-computed mergedFloor snapshot for reliable undo.
+ */
+export class ShapeTransformCommand implements Command {
+  readonly label = 'Transform shape';
+  private layerId: string;
+  private shapeId: string;
+  private beforeTransform: ShapeRecord['transform'];
+  private afterTransform: ShapeRecord['transform'];
+  private beforeMerged: Polygon[] | null;
+  private afterMerged: Polygon[] | null;
+
+  constructor(
+    layerId: string,
+    shapeId: string,
+    beforeTransform: ShapeRecord['transform'],
+    afterTransform: ShapeRecord['transform'],
+    beforeMerged: Polygon[] | null,
+    afterMerged: Polygon[] | null,
+  ) {
+    this.layerId = layerId;
+    this.shapeId = shapeId;
+    this.beforeTransform = beforeTransform;
+    this.afterTransform = afterTransform;
+    this.beforeMerged = beforeMerged;
+    this.afterMerged = afterMerged;
+  }
+
+  execute(): void {
+    useStore.setState((s) => {
+      const l = s.layers.find((l) => l.id === this.layerId) as DungeonLayer | undefined;
+      if (!l) return;
+      const sh = l.shapes.find((s) => s.id === this.shapeId);
+      if (sh) sh.transform = this.afterTransform;
+      l.mergedFloor = this.afterMerged;
+    });
+  }
+
+  undo(): void {
+    useStore.setState((s) => {
+      const l = s.layers.find((l) => l.id === this.layerId) as DungeonLayer | undefined;
+      if (!l) return;
+      const sh = l.shapes.find((s) => s.id === this.shapeId);
+      if (sh) sh.transform = this.beforeTransform;
+      l.mergedFloor = this.beforeMerged;
+    });
   }
 }
 

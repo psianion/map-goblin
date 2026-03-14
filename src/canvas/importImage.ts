@@ -100,6 +100,8 @@ export async function importImageFile(
     position: { x: viewportCenter.x, y: viewportCenter.y },
     rotation: 0,
     scale: worldScale,
+    width: finalWidth * worldScale,
+    height: finalHeight * worldScale,
     tint: '#ffffff',
     groupId: null,
     flipX: false,
@@ -162,8 +164,10 @@ export function placeAssetAtViewCenter(assetId: string, engine: RenderEngine): v
   const center = engine.screenToWorld(vp.width / 2, vp.height / 2);
   const snapped = { x: Math.round(center.x), y: Math.round(center.y) };
 
-  const texture = Assets.get(assetId) as { width?: number } | undefined;
+  const texture = Assets.get(assetId) as { width?: number; height?: number } | undefined;
   const scale = texture?.width ? texture.width / 256 : 1;
+  const texW = texture?.width ?? 256;
+  const texH = texture?.height ?? 256;
 
   const obj: PlacedObject = {
     id: crypto.randomUUID(),
@@ -173,6 +177,8 @@ export function placeAssetAtViewCenter(assetId: string, engine: RenderEngine): v
     position: snapped,
     rotation: 0,
     scale,
+    width: texW * scale,
+    height: texH * scale,
     tint: '#ffffff',
     groupId: null,
     flipX: false,

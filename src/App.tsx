@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ImageDown, Upload } from 'lucide-react';
+import { Eye, EyeOff, Maximize, ImageDown, Upload } from 'lucide-react';
+import { useIdleTimer } from '@/hooks/useIdleTimer';
 import { CanvasHost } from '@/canvas/CanvasHost';
 import { LeftToolbar } from '@/components/toolbar/LeftToolbar';
 import { RightPanel } from '@/components/layout/RightPanel';
@@ -17,8 +18,35 @@ import './index.css';
 export default function App() {
   const [exportOpen, setExportOpen] = useState(false);
   const [showRecovery, setShowRecovery] = useState(() => isDirtyFlagSet());
+  const [leftHovered, setLeftHovered] = useState(false);
+  const [rightHovered, setRightHovered] = useState(false);
   const rightPanelOpen = useStore((s) => s.ui.rightPanelOpen);
   const togglePanel = useStore((s) => s.togglePanel);
+  const focusMode = useStore((s) => s.ui.focusMode);
+  const setFocusMode = useStore((s) => s.setFocusMode);
+  const { isIdle } = useIdleTimer(5000, focusMode === 'auto');
+
+  // Persist focusMode to localStorage
+  useEffect(() => {
+    localStorage.setItem('focusMode', focusMode);
+  }, [focusMode]);
+
+  // Load focusMode from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('focusMode');
+    if (saved === 'auto' || saved === 'manual' || saved === 'fullscreen') {
+      useStore.getState().setFocusMode(saved);
+    }
+  }, []);
+
+  const cycleFocusMode = useCallback(() => {
+    const modes: Array<'auto' | 'manual' | 'fullscreen'> = ['auto', 'manual', 'fullscreen'];
+    const idx = modes.indexOf(focusMode);
+    setFocusMode(modes[(idx + 1) % 3]);
+  }, [focusMode, setFocusMode]);
+
+  const FocusIcon = focusMode === 'auto' ? Eye : focusMode === 'manual' ? EyeOff : Maximize;
+
   const handleExpandToSection = useCallback((sectionId?: string) => {
     if (sectionId) {
       try {
@@ -81,24 +109,20 @@ export default function App() {
     return cleanup;
   }, []);
 
+  const showPanels = focusMode !== 'fullscreen';
+  const panelFaded = focusMode === 'auto' && isIdle;
+
   return (
+    <>
     <div
-      className="grid h-screen w-screen overflow-hidden bg-surface-0"
-      style={{
-        gridTemplateColumns: rightPanelOpen ? '48px 1fr 300px' : '48px 1fr 48px',
-        transition: 'grid-template-columns 200ms ease-out',
-      }}
+      className="relative h-screen w-screen overflow-hidden bg-surface-0"
+      data-focus-mode={focusMode}
     >
-      {showRecovery && <RecoveryDialog onDismiss={() => setShowRecovery(false)} />}
-
-      {/* Left toolbar */}
-      <LeftToolbar />
-
-      {/* Canvas area */}
-      <div className="relative min-w-0 min-h-0">
+      {/* Canvas — fills full viewport beneath all overlays */}
+      <div className="absolute inset-0">
         <CanvasHost />
-        {/* Top-right: Import / Export buttons */}
-        <div className="absolute top-3 right-3 z-10 flex gap-1.5">
+        {/* Top-right: Import / Export / Focus buttons — z-30 so they sit above panel overlays */}
+        <div className="absolute top-3 right-3 z-30 flex gap-1.5">
           <label
             title="Import image"
             htmlFor="import-image-input"
@@ -113,31 +137,71 @@ export default function App() {
           >
             <ImageDown size={15} strokeWidth={2} />
           </button>
+          <button
+            data-testid="focus-mode-btn"
+            aria-label="Cycle focus mode"
+            title={`Focus: ${focusMode}`}
+            onClick={cycleFocusMode}
+            className="flex items-center justify-center w-8 h-8 rounded-md bg-surface-1/80 backdrop-blur border border-border-subtle text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors"
+          >
+            <FocusIcon size={15} strokeWidth={2} />
+          </button>
         </div>
-        <div className="absolute bottom-3 right-3 z-10">
+        <div className="absolute bottom-3 right-3 z-30">
           <ZoomSlider />
         </div>
       </div>
 
-      {/* Right panel: expanded or collapsed strip */}
-      {rightPanelOpen
-        ? <RightPanel />
-        : <CollapsedRightPanel onExpand={handleExpandToSection} />
-      }
+      {/* Left toolbar — absolute overlay on top of canvas */}
+      {showPanels && (
+        <div
+          data-testid="left-toolbar"
+          className="absolute left-0 top-0 bottom-0 z-20"
+          onMouseEnter={() => setLeftHovered(true)}
+          onMouseLeave={() => setLeftHovered(false)}
+          style={{
+            opacity: panelFaded && !leftHovered ? 0.15 : 1,
+            transition: panelFaded && !leftHovered ? 'opacity 600ms ease-out' : 'none',
+          }}
+        >
+          <LeftToolbar />
+        </div>
+      )}
 
-      {/* Export dialog */}
-      <ExportDialog open={exportOpen} onOpenChange={setExportOpen} />
-
-      {/* Off-screen file input for image import */}
-      <input
-        id="import-image-input"
-        ref={importInputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/svg+xml,image/webp"
-        style={{ position: 'absolute', width: 0, height: 0, opacity: 0, overflow: 'hidden', pointerEvents: 'none' }}
-        tabIndex={-1}
-        onChange={onImportChange}
-      />
+      {/* Right panel — absolute overlay on top of canvas */}
+      {showPanels && (
+        <div
+          className="absolute right-0 top-0 bottom-0 z-20 overflow-hidden"
+          onMouseEnter={() => setRightHovered(true)}
+          onMouseLeave={() => setRightHovered(false)}
+          style={{
+            width: rightPanelOpen ? '300px' : '48px',
+            opacity: panelFaded && !rightHovered ? 0.15 : 1,
+            transition: panelFaded && !rightHovered ? 'opacity 600ms ease-out' : 'none',
+          }}
+        >
+          {rightPanelOpen
+            ? <RightPanel />
+            : <CollapsedRightPanel onExpand={handleExpandToSection} />
+          }
+        </div>
+      )}
     </div>
+
+    {/* Modals + overlays outside the layout so they never clip */}
+    {showRecovery && <RecoveryDialog onDismiss={() => setShowRecovery(false)} />}
+    <ExportDialog open={exportOpen} onOpenChange={setExportOpen} />
+
+    {/* Off-screen file input for image import */}
+    <input
+      id="import-image-input"
+      ref={importInputRef}
+      type="file"
+      accept="image/png,image/jpeg,image/svg+xml,image/webp"
+      style={{ position: 'fixed', width: 0, height: 0, opacity: 0, overflow: 'hidden', pointerEvents: 'none' }}
+      tabIndex={-1}
+      onChange={onImportChange}
+    />
+    </>
   );
 }

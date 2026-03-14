@@ -12,7 +12,7 @@ import { LightTool } from './LightTool';
 import { AssetPlacementTool } from './AssetPlacementTool';
 
 export function registerAllTools(manager: ToolManager, worldContainer: Container, engine: RenderEngine): void {
-  const selectTool = new SelectTool();
+  const selectTool = new SelectTool(engine);
   selectTool.overlay.setWorldToScreen((wx, wy) => engine.worldToScreen(wx, wy));
   worldContainer.addChild(selectTool.overlay.container);
   manager.registerTool(selectTool);

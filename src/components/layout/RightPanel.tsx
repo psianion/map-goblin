@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Layers, Package, ChevronRight } from 'lucide-react';
+import { Layers, Package, PanelRightClose } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/store';
 import { LayerPanel } from '@/components/layers/LayerPanel';
@@ -71,7 +71,7 @@ export function RightPanel() {
           aria-label="Collapse panel"
           className="w-9 h-9 flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-3 transition-colors shrink-0"
         >
-          <ChevronRight size={14} />
+          <PanelRightClose size={14} />
         </button>
       </div>
 

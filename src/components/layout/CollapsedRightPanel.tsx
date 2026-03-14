@@ -1,4 +1,4 @@
-import { Palette, Minus, Sun, Grid3x3, Waves, Lightbulb, Package, PaintBucket } from 'lucide-react'
+import { Palette, Minus, Sun, Grid3x3, Waves, Lightbulb, Package, PaintBucket, PanelRightOpen } from 'lucide-react'
 import { useStore } from '@/store/store'
 import { selectActiveLayer } from '@/store/selectors'
 import type { LucideIcon } from 'lucide-react'
@@ -46,6 +46,17 @@ export function CollapsedRightPanel({ onExpand }: CollapsedRightPanelProps) {
 
   return (
     <div className="flex flex-col items-center w-12 h-full bg-surface-1 border-l border-border-default py-2">
+      {/* Expand button */}
+      <button
+        type="button"
+        onClick={() => onExpand()}
+        title="Expand panel"
+        className="flex items-center justify-center w-full h-9 cursor-pointer hover:bg-surface-3 transition-colors shrink-0"
+      >
+        <PanelRightOpen size={16} className="text-text-muted" />
+      </button>
+      <hr className="border-border-default w-8 my-1" />
+
       {/* Property section icons — clicking any expands the panel */}
       {items.map(({ icon: Icon, label }) => (
         <button
