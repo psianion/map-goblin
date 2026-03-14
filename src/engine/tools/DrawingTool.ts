@@ -26,4 +26,8 @@ export interface DrawingTool {
   getPreview(): PreviewShape | null;
   cancel(): void;
   isActive(): boolean;
+  /** Returns a CSS cursor string when hovering over a transform handle, or null. */
+  getHoverCursor?(sx: number, sy: number): string | null;
+  /** Called every frame to sync screen-space gizmo position. */
+  updateGizmo?(): void;
 }

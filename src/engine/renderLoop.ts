@@ -112,7 +112,8 @@ export function setupRenderLoop(
       storeState.mapSettings.ambientLight,
     );
 
-    // (7) Overlay updates — no-op for Sprint 1
+    // (7) Overlay updates — sync transform gizmo screen position
+    sceneGraph.toolManager.updateGizmo();
   };
 
   engine.addTickerCallback(tickerCallback);

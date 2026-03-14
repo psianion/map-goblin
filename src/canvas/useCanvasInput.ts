@@ -88,6 +88,14 @@ export function useCanvasInput(
       const snapped = applyMiddleware(world);
       _toolManager?.onPointerMove(snapped, e);
       _snapIndicator?.show(engine.worldToScreen(snapped.x, snapped.y));
+
+      // Update cursor for gizmo handle hover (non-pan tools only)
+      if (useStore.getState().tools.activeTool !== 'pan') {
+        const sx = e.clientX - rect.left;
+        const sy = e.clientY - rect.top;
+        const gizmoCursor = _toolManager?.getHoverCursor(sx, sy) ?? null;
+        canvasEl.style.cursor = gizmoCursor ?? '';
+      }
     };
 
     const onPointerUp = (e: PointerEvent) => {
@@ -201,6 +209,13 @@ export function useCanvasInput(
       updateCursor,
     );
 
+    // Immediately switch tool (and destroy gizmo) when activeTool changes in store.
+    // Without this, the SelectTool gizmo persists visually until the next pointer event.
+    const unsubToolSwitch = useStore.subscribe(
+      (s) => s.tools.activeTool,
+      (type) => { _toolManager?.switchTool(type); },
+    );
+
     canvasEl.addEventListener('pointerdown', onPointerDown);
     canvasEl.addEventListener('pointermove', onPointerMove);
     canvasEl.addEventListener('pointerup', onPointerUp);
@@ -215,6 +230,7 @@ export function useCanvasInput(
 
     return () => {
       unsubCursor();
+      unsubToolSwitch();
       canvasEl.style.cursor = '';
       canvasEl.removeEventListener('pointerdown', onPointerDown);
       canvasEl.removeEventListener('pointermove', onPointerMove);

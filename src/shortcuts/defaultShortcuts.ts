@@ -125,6 +125,12 @@ const toolKeyMap: Record<string, () => void | false> = {
   'ctrl+i': () => {
     importImageRef.current?.();
   },
+  '`': () => {
+    const state = useStore.getState();
+    const modes: Array<'auto' | 'manual' | 'fullscreen'> = ['auto', 'manual', 'fullscreen'];
+    const idx = modes.indexOf(state.ui.focusMode);
+    state.setFocusMode(modes[(idx + 1) % 3]);
+  },
   'ctrl+x': (): void | false => {
     const store = useStore.getState();
     if (store.tools.activeTool !== 'select' || !store.selection.selectedRegion) return false;
@@ -168,6 +174,7 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'edit.copy',           keys: 'ctrl+c',      category: 'Edit',  label: 'Copy' },
     { id: 'edit.paste',          keys: 'ctrl+v',      category: 'Edit',  label: 'Paste' },
     { id: 'edit.cut',            keys: 'ctrl+x',      category: 'Edit',  label: 'Cut' },
+    { id: 'view.focusMode',      keys: '`',           category: 'View',  label: 'Cycle Focus Mode' },
   ];
 }
 

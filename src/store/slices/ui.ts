@@ -10,6 +10,7 @@ export interface UIActions {
   dismissToast: (id: string) => void;
   showModal: (modal: ModalState | null) => void;
   setClipperReady: (ready: boolean) => void;
+  setFocusMode: (mode: UISlice['focusMode']) => void;
 }
 
 export const createUISlice: StateCreator<
@@ -51,5 +52,9 @@ export const createUISlice: StateCreator<
   setClipperReady: (ready) =>
     set((state) => {
       state.ui.clipperReady = ready;
+    }),
+  setFocusMode: (mode) =>
+    set((state) => {
+      state.ui.focusMode = mode;
     }),
 });

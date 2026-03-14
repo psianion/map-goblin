@@ -6,8 +6,11 @@ import { SelectionMoveCommand, CutCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { clipper2Engine } from '@/geometry/Clipper2Engine';
 import type { DungeonLayer } from '@/store/types';
+import type { RenderEngine } from '@/engine/RenderEngine';
+import { TransformGizmo } from './TransformGizmo';
+import { computeBoundingBox } from './transformMath';
 
-type SelectState = 'IDLE' | 'SELECTING' | 'SELECTED' | 'MOVING';
+type SelectState = 'IDLE' | 'SELECTING' | 'SELECTED' | 'MOVING' | 'TRANSFORMING';
 
 class ToolOverlay {
   readonly container = new Container();
@@ -81,60 +84,122 @@ export class SelectTool implements DrawingTool {
   private state: SelectState = 'IDLE';
   private startPoint: Point | null = null;
   private currentPoint: Point | null = null;
-  private moveStart: Point | null = null;
 
-  onPointerDown(point: Point): void {
+  // Engine reference (for coordinate transforms and canvas access)
+  private engine: RenderEngine;
+
+  // TransformGizmo — created when a region is selected, destroyed when cleared
+  private gizmo: TransformGizmo | null = null;
+  private overlayContainer: Container;
+
+  // Snapshot of the region at drag-start (for live preview and Escape cancel)
+  private transformBaseRegion: [number, number][][] | null = null;
+
+  // The original selection rectangle (user's drag box) — used for clean cuts
+  // instead of intersection-derived polygons which have Clipper2 coord mismatch.
+  private selectionRect: [number, number][] | null = null;
+
+  constructor(engine: RenderEngine) {
+    this.engine = engine;
+    this.overlayContainer = engine.overlay();
+  }
+
+  onPointerDown(point: Point, event?: PointerEvent): void {
     const store = useStore.getState();
-    const selectedRegion = store.selection.selectedRegion;
 
-    if (this.state === 'SELECTED' && selectedRegion) {
-      const testRect: [number, number][] = [
-        [point.x - 0.01, point.y - 0.01],
-        [point.x + 0.01, point.y - 0.01],
-        [point.x + 0.01, point.y + 0.01],
-        [point.x - 0.01, point.y + 0.01],
-      ];
-      const hit = clipper2Engine.intersection(selectedRegion, [testRect]);
-      if (hit.length > 0) {
-        this.state = 'MOVING';
-        this.moveStart = point;
-        this.currentPoint = point;
+    // Hit-test gizmo first (screen-space) when a selection exists
+    if (this.gizmo && this.state === 'SELECTED' && event) {
+      const rect = this.engine.canvas().getBoundingClientRect();
+      const sx = event.clientX - rect.left;
+      const sy = event.clientY - rect.top;
+      const handle = this.gizmo.hitTest(sx, sy);
+      if (handle) {
+        const region = store.selection.selectedRegion;
+        this.transformBaseRegion = region
+          ? region.map((poly) => poly.map((pt) => [...pt] as [number, number]))
+          : null;
+        this.gizmo.startDrag(handle, sx, sy);
+        this.state = handle === 'move' ? 'MOVING' : 'TRANSFORMING';
         return;
       }
     }
 
+    // Start a new box selection
     this.state = 'SELECTING';
     this.startPoint = point;
     this.currentPoint = point;
     store.setSelectedRegion(null);
     this.overlay.clear();
+    this.destroyGizmo();
   }
 
-  onPointerMove(point: Point): void {
+  onPointerMove(point: Point, event?: PointerEvent): void {
     this.currentPoint = point;
-    if (this.state === 'MOVING' && this.moveStart) {
-      const selectedRegion = useStore.getState().selection.selectedRegion;
-      if (selectedRegion) {
-        const dx = point.x - this.moveStart.x;
-        const dy = point.y - this.moveStart.y;
-        const translated = selectedRegion.map((poly) =>
-          poly.map(([px, py]): [number, number] => [px + dx, py + dy]),
-        );
-        this.overlay.drawSelection(translated);
-      }
-    }
+
+    if (!event || !this.gizmo?.isDragging() || !this.transformBaseRegion) return;
+
+    const rect = this.engine.canvas().getBoundingClientRect();
+    const sx = event.clientX - rect.left;
+    const sy = event.clientY - rect.top;
+    const gridState = useStore.getState().grid;
+    const gridSizeScreen = (1 / gridState.snapDivision) * this.engine.stage().scale.x;
+    const delta = this.gizmo.updateDrag(
+      sx, sy,
+      { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey, alt: event.altKey },
+      gridState.snapEnabled,
+      gridSizeScreen,
+    );
+    if (!delta) return;
+
+    const preview = this.state === 'MOVING'
+      ? this.applyTranslate(this.transformBaseRegion, delta.translateX, delta.translateY)
+      : this.applyFullTransform(this.transformBaseRegion, delta);
+    this.overlay.drawSelection(preview);
   }
 
-  onPointerUp(point: Point): void {
+  onPointerUp(point: Point, event?: PointerEvent): void {
+    if ((this.state === 'MOVING' || this.state === 'TRANSFORMING') && this.gizmo?.isDragging() && event && this.transformBaseRegion) {
+      const rect = this.engine.canvas().getBoundingClientRect();
+      const sx = event.clientX - rect.left;
+      const sy = event.clientY - rect.top;
+      const gridState = useStore.getState().grid;
+      const gridSizeScreen = (1 / gridState.snapDivision) * this.engine.stage().scale.x;
+      const delta = this.gizmo.updateDrag(
+        sx, sy,
+        { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey, alt: event.altKey },
+        gridState.snapEnabled,
+        gridSizeScreen,
+      );
+      this.gizmo.endDrag();
+
+      if (delta) {
+        const finalRegion = this.state === 'MOVING'
+          ? this.applyTranslate(this.transformBaseRegion, delta.translateX, delta.translateY)
+          : this.applyFullTransform(this.transformBaseRegion, delta);
+        this.commitTransform(this.transformBaseRegion, finalRegion);
+      } else {
+        this.state = 'SELECTED';
+      }
+      this.transformBaseRegion = null;
+      return;
+    }
+
     if (this.state === 'SELECTING' && this.startPoint) {
       this.finishSelection(this.startPoint, point);
-    } else if (this.state === 'MOVING' && this.moveStart) {
-      this.finishMove(this.moveStart, point);
     }
   }
 
   onKeyDown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
+      if (this.gizmo?.isDragging()) {
+        this.gizmo.cancelDrag();
+        if (this.transformBaseRegion) {
+          this.overlay.drawSelection(this.transformBaseRegion);
+        }
+        this.state = 'SELECTED';
+        this.transformBaseRegion = null;
+        return;
+      }
       this.cancel();
     } else if (event.key === 'Delete' || event.key === 'Backspace') {
       this.deleteSelection();
@@ -162,13 +227,133 @@ export class SelectTool implements DrawingTool {
     this.state = 'IDLE';
     this.startPoint = null;
     this.currentPoint = null;
-    this.moveStart = null;
+    this.transformBaseRegion = null;
+    this.selectionRect = null;
     useStore.getState().setSelectedRegion(null);
     this.overlay.clear();
+    this.destroyGizmo();
   }
 
   isActive(): boolean {
     return this.state !== 'IDLE';
+  }
+
+  /** Called every frame — syncs gizmo to current screen-space bbox of selected region. */
+  updateGizmo(): void {
+    if (!this.gizmo || this.state === 'IDLE' || this.state === 'SELECTING') return;
+    const region = useStore.getState().selection.selectedRegion;
+    if (!region || region.length === 0) return;
+
+    const allWorldPoints = region.flat();
+    const screenPoints = allWorldPoints.map(([wx, wy]): [number, number] => {
+      const sp = this.engine.worldToScreen(wx, wy);
+      return [sp.x, sp.y];
+    });
+
+    const screenBBox = computeBoundingBox(screenPoints);
+    this.gizmo.update(screenBBox, 0);
+  }
+
+  /** Returns CSS cursor when hovering a gizmo handle, or null. */
+  getHoverCursor(sx: number, sy: number): string | null {
+    if (!this.gizmo || this.state !== 'SELECTED') return null;
+    const handle = this.gizmo.hitTest(sx, sy);
+    return handle ? this.gizmo.getCursor(handle) : null;
+  }
+
+  // ─── Private helpers ──────────────────────────────────────────────────────
+
+  private applyTranslate(
+    region: [number, number][][],
+    screenDx: number,
+    screenDy: number,
+  ): [number, number][][] {
+    const zoom = this.engine.stage().scale.x;
+    const worldDx = screenDx / zoom;
+    const worldDy = screenDy / zoom;
+    return region.map((poly) =>
+      poly.map(([px, py]): [number, number] => [px + worldDx, py + worldDy]),
+    );
+  }
+
+  private applyFullTransform(
+    region: [number, number][][],
+    delta: { translateX: number; translateY: number; scaleX: number; scaleY: number; rotation: number },
+  ): [number, number][][] {
+    const zoom = this.engine.stage().scale.x;
+    const worldDx = delta.translateX / zoom;
+    const worldDy = delta.translateY / zoom;
+
+    // Pivot: world-space center of the region bbox
+    const allPoints = region.flat();
+    const bbox = computeBoundingBox(allPoints);
+    const cx = bbox.x + bbox.width / 2;
+    const cy = bbox.y + bbox.height / 2;
+
+    const cos = Math.cos(delta.rotation);
+    const sin = Math.sin(delta.rotation);
+
+    return region.map((poly) =>
+      poly.map(([px, py]): [number, number] => {
+        // Scale around center
+        const sx = cx + (px - cx) * delta.scaleX;
+        const sy = cy + (py - cy) * delta.scaleY;
+        // Rotate around center
+        const dx = sx - cx;
+        const dy = sy - cy;
+        const rx = cx + dx * cos - dy * sin;
+        const ry = cy + dx * sin + dy * cos;
+        // Translate
+        return [rx + worldDx, ry + worldDy];
+      }),
+    );
+  }
+
+  private commitTransform(
+    baseRegion: [number, number][][],
+    finalRegion: [number, number][][],
+  ): void {
+    const store = useStore.getState();
+    const activeLayerId = store.ui.activeLayerId;
+    const activeLayer = store.layers.find(
+      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
+    );
+    if (!activeLayer) {
+      this.state = 'SELECTED';
+      return;
+    }
+
+    const prevFloor = activeLayer.mergedFloor ?? [];
+    // Use the original selection rectangle for the cut — NOT the intersection-
+    // derived baseRegion. The selRect has exact user-drawn coordinates (snapped
+    // to grid), so difference(floor, selRect) always produces clean edges.
+    // The intersection-derived coords have Clipper2 precision drift that causes
+    // micro-strips and healed holes.
+    const cutShape = this.selectionRect ? [this.selectionRect] : [baseRegion.flat()];
+    const withoutSelected = clipper2Engine.difference(prevFloor, cutShape) as [number, number][][];
+    const newFloor = clipper2Engine.union(withoutSelected, finalRegion) as [number, number][][];
+
+    undoManager.execute(
+      new SelectionMoveCommand(activeLayerId, activeLayer.mergedFloor, newFloor),
+    );
+
+    store.setSelectedRegion(finalRegion);
+    this.overlay.drawSelection(finalRegion);
+    this.state = 'SELECTED';
+  }
+
+  private createGizmo(): void {
+    this.destroyGizmo();
+    this.gizmo = new TransformGizmo();
+    this.overlayContainer.addChild(this.gizmo.container);
+    this.updateGizmo();
+  }
+
+  private destroyGizmo(): void {
+    if (this.gizmo) {
+      this.gizmo.destroy();
+      this.gizmo = null;
+    }
   }
 
   private deleteSelection(): void {
@@ -185,6 +370,7 @@ export class SelectTool implements DrawingTool {
     undoManager.execute(new CutCommand(activeLayerId, prevFloor, region));
     store.setSelectedRegion(null);
     this.overlay.clear();
+    this.destroyGizmo();
     this.state = 'IDLE';
   }
 
@@ -213,7 +399,7 @@ export class SelectTool implements DrawingTool {
     const maxX = Math.max(start.x, end.x);
     const minY = Math.min(start.y, end.y);
     const maxY = Math.max(start.y, end.y);
-    const selRect: [number, number][] = [
+    this.selectionRect = [
       [minX, minY],
       [maxX, minY],
       [maxX, maxY],
@@ -222,10 +408,11 @@ export class SelectTool implements DrawingTool {
 
     const selectedRegion = clipper2Engine.intersection(
       activeLayer.mergedFloor,
-      [selRect],
+      [this.selectionRect],
     ) as [number, number][][];
 
     if (selectedRegion.length === 0) {
+      this.selectionRect = null;
       this.state = 'IDLE';
       return;
     }
@@ -233,49 +420,6 @@ export class SelectTool implements DrawingTool {
     store.setSelectedRegion(selectedRegion);
     this.overlay.drawSelection(selectedRegion);
     this.state = 'SELECTED';
-  }
-
-  private finishMove(start: Point, end: Point): void {
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    this.moveStart = null;
-    this.currentPoint = null;
-
-    if (Math.abs(dx) < 0.001 && Math.abs(dy) < 0.001) {
-      this.state = 'SELECTED';
-      return;
-    }
-
-    const store = useStore.getState();
-    const selectedRegion = store.selection.selectedRegion;
-    if (!selectedRegion) {
-      this.state = 'IDLE';
-      return;
-    }
-
-    const activeLayerId = store.ui.activeLayerId;
-    const activeLayer = store.layers.find(
-      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
-    );
-    if (!activeLayer) {
-      this.state = 'IDLE';
-      return;
-    }
-
-    const translated = selectedRegion.map((poly) =>
-      poly.map(([px, py]): [number, number] => [px + dx, py + dy]),
-    );
-
-    const prevFloor = activeLayer.mergedFloor ?? [];
-    const withoutSelected = clipper2Engine.difference(prevFloor, selectedRegion) as [number, number][][];
-    const newFloor = clipper2Engine.union(withoutSelected, translated) as [number, number][][];
-
-    undoManager.execute(
-      new SelectionMoveCommand(activeLayerId, activeLayer.mergedFloor, newFloor),
-    );
-
-    store.setSelectedRegion(translated);
-    this.overlay.drawSelection(translated);
-    this.state = 'SELECTED';
+    this.createGizmo();
   }
 }

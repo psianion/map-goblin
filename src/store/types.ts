@@ -34,6 +34,11 @@ export interface ShapeRecord {
   points: [number, number][];
   roughnessEnabled: boolean;
   roughnessAmplitude?: number;
+  transform?: {
+    translate: [number, number];
+    rotate: number;
+    scale: [number, number];
+  };
 }
 
 export interface WallSegment {
@@ -88,6 +93,8 @@ export interface PlacedObject {
   position: { x: number; y: number };
   rotation: number;                 // radians
   scale: number;                    // uniform scale factor
+  width: number;                    // world units — for non-uniform scaling
+  height: number;                   // world units — for non-uniform scaling
   tint: string;                     // hex color overlay
   groupId: string | null;
   flipX: boolean;
@@ -171,6 +178,11 @@ export interface SelectionClipboard {
 export interface SelectionSlice {
   selectedRegion: [number, number][][] | null;
   clipboard: SelectionClipboard | null;
+  selectionTransform: {
+    translate: [number, number];
+    rotate: number;
+    scale: [number, number];
+  } | null;
 }
 
 // ─── Style Presets ───────────────────────────────────────
@@ -203,6 +215,7 @@ export interface UISlice {
   toastQueue: Toast[];
   clipperReady: boolean;
   customPresets: Record<string, StylePresetData>;
+  focusMode: 'auto' | 'manual' | 'fullscreen';
 }
 
 // ─── Assets ───────────────────────────────────────────────
@@ -322,6 +335,7 @@ export interface MapBuilderStore {
   dismissToast: (id: string) => void;
   showModal: (modal: ModalState | null) => void;
   setClipperReady: (ready: boolean) => void;
+  setFocusMode: (mode: UISlice['focusMode']) => void;
 
   // asset actions
   toggleFavorite: (assetId: string) => void;
@@ -350,6 +364,8 @@ export interface MapBuilderStore {
   // selection actions
   setSelectedRegion: (region: [number, number][][] | null) => void;
   setClipboard: (clipboard: SelectionClipboard | null) => void;
+  setSelectionTransform: (transform: SelectionSlice['selectionTransform']) => void;
+  bakeSelectionTransform: () => void;
 
   // bulk / serialization
   loadFromFile: (data: SerializedMapData) => void;

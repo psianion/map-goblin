@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ImageDown, Upload } from 'lucide-react';
+import { Eye, EyeOff, Maximize, ImageDown, Upload } from 'lucide-react';
 import { CanvasHost } from '@/canvas/CanvasHost';
 import { LeftToolbar } from '@/components/toolbar/LeftToolbar';
 import { RightPanel } from '@/components/layout/RightPanel';
@@ -14,11 +14,87 @@ import { importImageRef } from '@/shortcuts/defaultShortcuts';
 import { useStore } from '@/store/store';
 import './index.css';
 
+/**
+ * Single global fade for all UI chrome. Uses pointermove polling on the
+ * document to detect whether the pointer is over any chrome element
+ * (data-chrome). This avoids enter/leave counter bugs when panels
+ * unmount/remount (e.g. right panel collapse swaps components).
+ */
+function usePanelFade(active: boolean) {
+  const [faded, setFaded] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const overChrome = useRef(false);
+
+  const startTimer = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setFaded(true), 5000);
+  }, []);
+
+  useEffect(() => {
+    if (!active) {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      const id = setTimeout(() => setFaded(false), 0);
+      return () => clearTimeout(id);
+    }
+
+    startTimer();
+
+    const onPointerMove = (e: PointerEvent) => {
+      const target = e.target as Element | null;
+      const isOverChrome = !!target?.closest?.('[data-chrome]');
+      if (isOverChrome && !overChrome.current) {
+        // Entered chrome
+        overChrome.current = true;
+        if (timerRef.current) clearTimeout(timerRef.current);
+        setFaded(false);
+      } else if (!isOverChrome && overChrome.current) {
+        // Left chrome
+        overChrome.current = false;
+        startTimer();
+      }
+    };
+
+    document.addEventListener('pointermove', onPointerMove);
+    return () => {
+      document.removeEventListener('pointermove', onPointerMove);
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [active, startTimer]);
+
+  return { faded };
+}
+
 export default function App() {
   const [exportOpen, setExportOpen] = useState(false);
   const [showRecovery, setShowRecovery] = useState(() => isDirtyFlagSet());
   const rightPanelOpen = useStore((s) => s.ui.rightPanelOpen);
   const togglePanel = useStore((s) => s.togglePanel);
+  const focusMode = useStore((s) => s.ui.focusMode);
+  const setFocusMode = useStore((s) => s.setFocusMode);
+
+  const fade = usePanelFade(focusMode === 'auto');
+
+  // Persist focusMode to localStorage
+  useEffect(() => {
+    localStorage.setItem('focusMode', focusMode);
+  }, [focusMode]);
+
+  // Load focusMode from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('focusMode');
+    if (saved === 'auto' || saved === 'manual' || saved === 'fullscreen') {
+      useStore.getState().setFocusMode(saved);
+    }
+  }, []);
+
+  const cycleFocusMode = useCallback(() => {
+    const modes: Array<'auto' | 'manual' | 'fullscreen'> = ['auto', 'manual', 'fullscreen'];
+    const idx = modes.indexOf(focusMode);
+    setFocusMode(modes[(idx + 1) % 3]);
+  }, [focusMode, setFocusMode]);
+
+  const FocusIcon = focusMode === 'auto' ? Eye : focusMode === 'manual' ? EyeOff : Maximize;
+
   const handleExpandToSection = useCallback((sectionId?: string) => {
     if (sectionId) {
       try {
@@ -81,24 +157,27 @@ export default function App() {
     return cleanup;
   }, []);
 
+  const showPanels = focusMode !== 'fullscreen';
+
   return (
+    <>
     <div
-      className="grid h-screen w-screen overflow-hidden bg-surface-0"
-      style={{
-        gridTemplateColumns: rightPanelOpen ? '48px 1fr 300px' : '48px 1fr 48px',
-        transition: 'grid-template-columns 200ms ease-out',
-      }}
+      className="relative h-screen w-screen overflow-hidden bg-surface-0"
+      data-focus-mode={focusMode}
     >
-      {showRecovery && <RecoveryDialog onDismiss={() => setShowRecovery(false)} />}
-
-      {/* Left toolbar */}
-      <LeftToolbar />
-
-      {/* Canvas area */}
-      <div className="relative min-w-0 min-h-0">
+      {/* Canvas — fills full viewport beneath all overlays */}
+      <div className="absolute inset-0">
         <CanvasHost />
-        {/* Top-right: Import / Export buttons */}
-        <div className="absolute top-3 right-3 z-10 flex gap-1.5">
+        {/* Top-right: Import / Export / Focus buttons — offset right to avoid overlapping the right panel */}
+        <div
+          data-chrome
+          className="absolute top-3 z-30 flex gap-1.5"
+          style={{
+            right: showPanels ? (rightPanelOpen ? '316px' : '64px') : '12px',
+            opacity: fade.faded ? 0.4 : 1,
+            transition: 'right 200ms ease-out, opacity 200ms ease',
+          }}
+        >
           <label
             title="Import image"
             htmlFor="import-image-input"
@@ -113,31 +192,74 @@ export default function App() {
           >
             <ImageDown size={15} strokeWidth={2} />
           </button>
+          <button
+            data-testid="focus-mode-btn"
+            aria-label="Cycle focus mode"
+            title={`Focus: ${focusMode}`}
+            onClick={cycleFocusMode}
+            className="flex items-center justify-center w-8 h-8 rounded-md bg-surface-1/80 backdrop-blur border border-border-subtle text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors"
+          >
+            <FocusIcon size={15} strokeWidth={2} />
+          </button>
         </div>
-        <div className="absolute bottom-3 right-3 z-10">
+        <div
+          data-chrome
+          className="absolute bottom-3 z-30"
+          style={{
+            right: showPanels ? (rightPanelOpen ? '316px' : '64px') : '12px',
+            opacity: fade.faded ? 0.4 : 1,
+            transition: 'right 200ms ease-out, opacity 200ms ease',
+          }}
+        >
           <ZoomSlider />
         </div>
       </div>
 
-      {/* Right panel: expanded or collapsed strip */}
-      {rightPanelOpen
-        ? <RightPanel />
-        : <CollapsedRightPanel onExpand={handleExpandToSection} />
-      }
+      {/* Left toolbar — absolute overlay on top of canvas */}
+      {showPanels && (
+        <div
+          data-testid="left-toolbar"
+          data-chrome
+          className="absolute left-0 top-0 bottom-0 z-20"
+          style={{ opacity: fade.faded ? 0.4 : 1, transition: 'opacity 200ms ease' }}
+        >
+          <LeftToolbar />
+        </div>
+      )}
 
-      {/* Export dialog */}
-      <ExportDialog open={exportOpen} onOpenChange={setExportOpen} />
-
-      {/* Off-screen file input for image import */}
-      <input
-        id="import-image-input"
-        ref={importInputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/svg+xml,image/webp"
-        style={{ position: 'absolute', width: 0, height: 0, opacity: 0, overflow: 'hidden', pointerEvents: 'none' }}
-        tabIndex={-1}
-        onChange={onImportChange}
-      />
+      {/* Right panel — absolute overlay on top of canvas */}
+      {showPanels && (
+        <div
+          data-chrome
+          className="absolute right-0 top-0 bottom-0 z-20 overflow-hidden"
+          style={{
+            width: rightPanelOpen ? '300px' : '48px',
+            opacity: fade.faded ? 0.4 : 1,
+            transition: 'width 200ms ease-out, opacity 200ms ease',
+          }}
+        >
+          {rightPanelOpen
+            ? <RightPanel />
+            : <CollapsedRightPanel onExpand={handleExpandToSection} />
+          }
+        </div>
+      )}
     </div>
+
+    {/* Modals + overlays outside the layout so they never clip */}
+    {showRecovery && <RecoveryDialog onDismiss={() => setShowRecovery(false)} />}
+    <ExportDialog open={exportOpen} onOpenChange={setExportOpen} />
+
+    {/* Off-screen file input for image import */}
+    <input
+      id="import-image-input"
+      ref={importInputRef}
+      type="file"
+      accept="image/png,image/jpeg,image/svg+xml,image/webp"
+      style={{ position: 'fixed', width: 0, height: 0, opacity: 0, overflow: 'hidden', pointerEvents: 'none' }}
+      tabIndex={-1}
+      onChange={onImportChange}
+    />
+    </>
   );
 }

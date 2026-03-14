@@ -71,6 +71,7 @@ export const useStore = create<MapBuilderStore>()(
           state.tools.roughMode = false;
           state.selection.selectedRegion = null;
           state.selection.clipboard = null;
+          state.selection.selectionTransform = null;
         });
       },
 
