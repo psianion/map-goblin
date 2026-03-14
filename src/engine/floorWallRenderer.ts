@@ -133,10 +133,19 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     shadowG.alpha = s.shadowIntensity;
     const ox = s.shadowOffset.x;
     const oy = s.shadowOffset.y;
-    // Offset polygons for shadow, preserving winding for hole detection
-    const offsetPolygons: Polygon[] = polygons.map(poly =>
-      poly.map(([x, y]) => [x + ox, y + oy] as [number, number])
-    );
+    // Only offset outer contours for shadow; keep holes at original position
+    // so shadow holes align with floor holes (otherwise shadow bleeds through
+    // transparent floor holes because the shadow's offset hole doesn't cover them).
+    const offsetPolygons: Polygon[] = polygons.map(poly => {
+      if (poly.length < 3) return poly;
+      const isHole = signedArea(poly) < 0;
+      if (isHole) {
+        // Hole stays at original position — aligns with floor hole
+        return poly;
+      }
+      // Outer gets offset for shadow effect
+      return poly.map(([x, y]) => [x + ox, y + oy] as [number, number]);
+    });
     fillPolygonsWithHoles(shadowG, offsetPolygons, { color: parseColor(s.shadowColor) });
     shadow.addChild(shadowG);
   }
