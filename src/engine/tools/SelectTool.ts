@@ -95,6 +95,10 @@ export class SelectTool implements DrawingTool {
   // Snapshot of the region at drag-start (for live preview and Escape cancel)
   private transformBaseRegion: [number, number][][] | null = null;
 
+  // The original selection rectangle (user's drag box) — used for clean cuts
+  // instead of intersection-derived polygons which have Clipper2 coord mismatch.
+  private selectionRect: [number, number][] | null = null;
+
   constructor(engine: RenderEngine) {
     this.engine = engine;
     this.overlayContainer = engine.overlay();
@@ -224,6 +228,7 @@ export class SelectTool implements DrawingTool {
     this.startPoint = null;
     this.currentPoint = null;
     this.transformBaseRegion = null;
+    this.selectionRect = null;
     useStore.getState().setSelectedRegion(null);
     this.overlay.clear();
     this.destroyGizmo();
@@ -319,28 +324,13 @@ export class SelectTool implements DrawingTool {
     }
 
     const prevFloor = activeLayer.mergedFloor ?? [];
-    // Use the selection's bounding box for the difference instead of the
-    // intersection-derived polygons. The intersection produces coordinates
-    // that don't perfectly align with the floor boundary, causing micro-strips.
-    // The bounding box of the selection is a clean rectangle that fully covers
-    // the selected area, ensuring a clean cut.
-    const allPts = baseRegion.flat();
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const [x, y] of allPts) {
-      if (x < minX) minX = x;
-      if (y < minY) minY = y;
-      if (x > maxX) maxX = x;
-      if (y > maxY) maxY = y;
-    }
-    // Expand bbox slightly to ensure full coverage
-    const pad = 0.05;
-    const cutRect: [number, number][][] = [[
-      [minX - pad, minY - pad],
-      [maxX + pad, minY - pad],
-      [maxX + pad, maxY + pad],
-      [minX - pad, maxY + pad],
-    ]];
-    const withoutSelected = clipper2Engine.difference(prevFloor, cutRect) as [number, number][][];
+    // Use the original selection rectangle for the cut — NOT the intersection-
+    // derived baseRegion. The selRect has exact user-drawn coordinates (snapped
+    // to grid), so difference(floor, selRect) always produces clean edges.
+    // The intersection-derived coords have Clipper2 precision drift that causes
+    // micro-strips and healed holes.
+    const cutShape = this.selectionRect ? [this.selectionRect] : [baseRegion.flat()];
+    const withoutSelected = clipper2Engine.difference(prevFloor, cutShape) as [number, number][][];
     const newFloor = clipper2Engine.union(withoutSelected, finalRegion) as [number, number][][];
 
     undoManager.execute(
@@ -409,7 +399,7 @@ export class SelectTool implements DrawingTool {
     const maxX = Math.max(start.x, end.x);
     const minY = Math.min(start.y, end.y);
     const maxY = Math.max(start.y, end.y);
-    const selRect: [number, number][] = [
+    this.selectionRect = [
       [minX, minY],
       [maxX, minY],
       [maxX, maxY],
@@ -418,10 +408,11 @@ export class SelectTool implements DrawingTool {
 
     const selectedRegion = clipper2Engine.intersection(
       activeLayer.mergedFloor,
-      [selRect],
+      [this.selectionRect],
     ) as [number, number][][];
 
     if (selectedRegion.length === 0) {
+      this.selectionRect = null;
       this.state = 'IDLE';
       return;
     }
