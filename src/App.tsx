@@ -15,14 +15,15 @@ import { useStore } from '@/store/store';
 import './index.css';
 
 /**
- * Single global fade for all UI chrome. Counter-based enter/leave ensures
- * hovering ANY chrome element keeps ALL chrome visible. Only when the mouse
- * leaves all chrome elements for 5s does everything fade together.
+ * Single global fade for all UI chrome. Uses pointermove polling on the
+ * document to detect whether the pointer is over any chrome element
+ * (data-chrome). This avoids enter/leave counter bugs when panels
+ * unmount/remount (e.g. right panel collapse swaps components).
  */
 function usePanelFade(active: boolean) {
   const [faded, setFaded] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hoverCount = useRef(0);
+  const overChrome = useRef(false);
 
   const startTimer = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -30,31 +31,37 @@ function usePanelFade(active: boolean) {
   }, []);
 
   useEffect(() => {
-    hoverCount.current = 0;
-    if (active) {
-      startTimer();
-      return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+    if (!active) {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      const id = setTimeout(() => setFaded(false), 0);
+      return () => clearTimeout(id);
     }
-    if (timerRef.current) clearTimeout(timerRef.current);
-    // setFaded must be async to satisfy react-hooks/set-state-in-effect
-    const resetId = setTimeout(() => setFaded(false), 0);
-    return () => { clearTimeout(resetId); };
+
+    startTimer();
+
+    const onPointerMove = (e: PointerEvent) => {
+      const target = e.target as Element | null;
+      const isOverChrome = !!target?.closest?.('[data-chrome]');
+      if (isOverChrome && !overChrome.current) {
+        // Entered chrome
+        overChrome.current = true;
+        if (timerRef.current) clearTimeout(timerRef.current);
+        setFaded(false);
+      } else if (!isOverChrome && overChrome.current) {
+        // Left chrome
+        overChrome.current = false;
+        startTimer();
+      }
+    };
+
+    document.addEventListener('pointermove', onPointerMove);
+    return () => {
+      document.removeEventListener('pointermove', onPointerMove);
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
   }, [active, startTimer]);
 
-  const onEnter = useCallback(() => {
-    if (!active) return;
-    hoverCount.current += 1;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    setFaded(false);
-  }, [active]);
-
-  const onLeave = useCallback(() => {
-    if (!active) return;
-    hoverCount.current = Math.max(0, hoverCount.current - 1);
-    if (hoverCount.current === 0) startTimer();
-  }, [active, startTimer]);
-
-  return { faded, onEnter, onLeave };
+  return { faded };
 }
 
 export default function App() {
@@ -163,14 +170,13 @@ export default function App() {
         <CanvasHost />
         {/* Top-right: Import / Export / Focus buttons — offset right to avoid overlapping the right panel */}
         <div
+          data-chrome
           className="absolute top-3 z-30 flex gap-1.5"
           style={{
             right: showPanels ? (rightPanelOpen ? '316px' : '64px') : '12px',
             opacity: fade.faded ? 0.4 : 1,
             transition: 'right 200ms ease-out, opacity 200ms ease',
           }}
-          onMouseEnter={fade.onEnter}
-          onMouseLeave={fade.onLeave}
         >
           <label
             title="Import image"
@@ -197,14 +203,13 @@ export default function App() {
           </button>
         </div>
         <div
+          data-chrome
           className="absolute bottom-3 z-30"
           style={{
             right: showPanels ? (rightPanelOpen ? '316px' : '64px') : '12px',
             opacity: fade.faded ? 0.4 : 1,
             transition: 'right 200ms ease-out, opacity 200ms ease',
           }}
-          onMouseEnter={fade.onEnter}
-          onMouseLeave={fade.onLeave}
         >
           <ZoomSlider />
         </div>
@@ -214,9 +219,8 @@ export default function App() {
       {showPanels && (
         <div
           data-testid="left-toolbar"
+          data-chrome
           className="absolute left-0 top-0 bottom-0 z-20"
-          onMouseEnter={fade.onEnter}
-          onMouseLeave={fade.onLeave}
           style={{ opacity: fade.faded ? 0.4 : 1, transition: 'opacity 200ms ease' }}
         >
           <LeftToolbar />
@@ -226,9 +230,8 @@ export default function App() {
       {/* Right panel — absolute overlay on top of canvas */}
       {showPanels && (
         <div
+          data-chrome
           className="absolute right-0 top-0 bottom-0 z-20 overflow-hidden"
-          onMouseEnter={fade.onEnter}
-          onMouseLeave={fade.onLeave}
           style={{
             width: rightPanelOpen ? '300px' : '48px',
             opacity: fade.faded ? 0.4 : 1,
