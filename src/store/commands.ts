@@ -97,6 +97,11 @@ export class DrawShapeCommand implements Command {
       store.removeShape(this.layerId, this.shapeRecord.id);
     }
   }
+
+  cleanup(): void {
+    this.previousMergedFloor = null;
+    this.newMergedFloor = null;
+  }
 }
 
 /**
@@ -234,6 +239,11 @@ export class SelectionMoveCommand implements Command {
   undo(): void {
     useStore.getState().updateMergedFloor(this.layerId, this.previousMergedFloor);
   }
+
+  cleanup(): void {
+    this.previousMergedFloor = null;
+    this.newMergedFloor = null;
+  }
 }
 
 /**
@@ -268,6 +278,12 @@ export class PasteCommand implements Command {
   undo(): void {
     useStore.getState().updateMergedFloor(this.layerId, this.previousMergedFloor);
   }
+
+  cleanup(): void {
+    this.previousMergedFloor = null;
+    this.newMergedFloor = null;
+    this.pastedRegion = [];
+  }
 }
 
 /**
@@ -301,6 +317,12 @@ export class CutCommand implements Command {
 
   undo(): void {
     useStore.getState().updateMergedFloor(this.layerId, this.previousMergedFloor);
+  }
+
+  cleanup(): void {
+    this.previousMergedFloor = null;
+    this.newMergedFloor = null;
+    this.cutRegion = [];
   }
 }
 
@@ -612,6 +634,11 @@ export class ShapeTransformCommand implements Command {
       if (sh) sh.transform = this.beforeTransform;
       l.mergedFloor = this.beforeMerged;
     });
+  }
+
+  cleanup(): void {
+    this.beforeMerged = null;
+    this.afterMerged = null;
   }
 }
 

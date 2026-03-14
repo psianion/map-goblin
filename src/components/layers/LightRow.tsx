@@ -1,6 +1,8 @@
+import { memo } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/store'
+import { useShallow } from 'zustand/react/shallow'
 import type { Light } from '@/store/types'
 import { Button } from '@/components/ui/button'
 
@@ -8,10 +10,10 @@ interface LightRowProps {
   light: Light
 }
 
-export function LightRow({ light }: LightRowProps) {
+export const LightRow = memo(function LightRow({ light }: LightRowProps) {
   const updateLight = useStore((s) => s.updateLight)
   const setSelectedObjectIds = useStore((s) => s.setSelectedObjectIds)
-  const selectedObjectIds = useStore((s) => s.ui.selectedObjectIds)
+  const selectedObjectIds = useStore(useShallow((s) => s.ui.selectedObjectIds))
 
   const isSelected = selectedObjectIds.includes(light.id)
 
@@ -60,4 +62,4 @@ export function LightRow({ light }: LightRowProps) {
       </Button>
     </div>
   )
-}
+})

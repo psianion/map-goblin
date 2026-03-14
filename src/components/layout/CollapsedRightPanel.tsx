@@ -1,5 +1,6 @@
 import { Palette, Minus, Sun, Grid3x3, Waves, Lightbulb, Package, PaintBucket, PanelRightOpen } from 'lucide-react'
 import { useStore } from '@/store/store'
+import { useShallow } from 'zustand/react/shallow'
 import { selectActiveLayer } from '@/store/selectors'
 import type { LucideIcon } from 'lucide-react'
 
@@ -33,8 +34,8 @@ interface CollapsedRightPanelProps {
 
 export function CollapsedRightPanel({ onExpand }: CollapsedRightPanelProps) {
   const activeLayer = useStore(selectActiveLayer)
-  const selectedObjectIds = useStore((s) => s.ui.selectedObjectIds)
-  const lights = useStore((s) => s.lights)
+  const selectedObjectIds = useStore(useShallow((s) => s.ui.selectedObjectIds))
+  const lights = useStore(useShallow((s) => s.lights))
 
   const hasSelectedLight = selectedObjectIds.length > 0 && lights.some((l) => l.id === selectedObjectIds[0])
 

@@ -3,7 +3,7 @@ import type { RenderEngine } from './RenderEngine';
 import type { SceneGraph } from './sceneGraph';
 import { getLayerEntries } from './sceneGraph';
 import { useStore } from '@/store/store';
-import type { DungeonLayer } from '@/store/types';
+import type { DungeonLayer, Layer } from '@/store/types';
 import { LightManager } from './lighting';
 import { renderToolPreview } from './toolPreview';
 
@@ -34,40 +34,66 @@ export function setupRenderLoop(
 
   const stage = engine.stage();
 
+  // Background camera-change guard — skip redraw when camera+viewport+color unchanged
+  let lastBgCamX = NaN;
+  let lastBgCamY = NaN;
+  let lastBgZoom = NaN;
+  let lastBgW = NaN;
+  let lastBgH = NaN;
+
+  // Cached dungeon layer filter — avoids re-allocating array every frame
+  let cachedLayersRef: Layer[] | null = null;
+  let cachedDungeonLayers: DungeonLayer[] = [];
+
   // Access the PixiJS Ticker through the app
   // The ticker callback runs before each render
   const tickerCallback = () => {
     // (1) Camera sync — camera state lives on worldContainer directly,
     // mutated by useCanvasInput. Nothing to sync here.
 
-    // (2) Update background — always redraw so it covers viewport after zoom/pan
+    // (2) Update background — skip redraw when camera+color unchanged
     {
       const vp = engine.viewport();
-      // Draw a large background rectangle in world space
-      // Positioned so it covers the visible area regardless of camera
       const zoom = stage.scale.x;
       const camX = stage.position.x;
       const camY = stage.position.y;
-      const worldLeft = -camX / zoom;
-      const worldTop = -camY / zoom;
-      const worldWidth = vp.width / zoom;
-      const worldHeight = vp.height / zoom;
-
-      // Over-size by 2x to handle panning without immediate redraws
-      const pad = Math.max(worldWidth, worldHeight);
-      bgFill.clear();
-      bgFill.rect(
-        worldLeft - pad,
-        worldTop - pad,
-        worldWidth + pad * 2,
-        worldHeight + pad * 2,
-      );
       const bgLayer = useStore.getState().layers.find((l) => l.type === 'background');
-      const bgColorHex = bgLayer && bgLayer.type === 'background'
-        ? parseInt(bgLayer.backgroundColor.replace('#', ''), 16)
-        : 0x2d2d2d;
-      bgFill.fill(bgColorHex);
-      lastBgColor = bgLayer && bgLayer.type === 'background' ? bgLayer.backgroundColor : '#2d2d2d';
+      const bgColor = bgLayer && bgLayer.type === 'background' ? bgLayer.backgroundColor : '#2d2d2d';
+
+      if (
+        camX !== lastBgCamX ||
+        camY !== lastBgCamY ||
+        zoom !== lastBgZoom ||
+        vp.width !== lastBgW ||
+        vp.height !== lastBgH ||
+        bgColor !== lastBgColor
+      ) {
+        const worldLeft = -camX / zoom;
+        const worldTop = -camY / zoom;
+        const worldWidth = vp.width / zoom;
+        const worldHeight = vp.height / zoom;
+
+        // Over-size by 2x to handle panning without immediate redraws
+        const pad = Math.max(worldWidth, worldHeight);
+        bgFill.clear();
+        bgFill.rect(
+          worldLeft - pad,
+          worldTop - pad,
+          worldWidth + pad * 2,
+          worldHeight + pad * 2,
+        );
+        const bgColorHex = bgLayer && bgLayer.type === 'background'
+          ? parseInt(bgLayer.backgroundColor.replace('#', ''), 16)
+          : 0x2d2d2d;
+        bgFill.fill(bgColorHex);
+
+        lastBgCamX = camX;
+        lastBgCamY = camY;
+        lastBgZoom = zoom;
+        lastBgW = vp.width;
+        lastBgH = vp.height;
+        lastBgColor = bgColor;
+      }
     }
 
     // (3) Clear dirty flags on layer entries
@@ -94,10 +120,13 @@ export function setupRenderLoop(
 
     // (6) Lighting — rebuild wall segments if dirty, update FBO
     const storeState = useStore.getState();
-    const dungeonLayers = storeState.layers.filter(
-      (l): l is DungeonLayer => l.type === 'dungeon' && l.visible,
-    );
-    lightManager.rebuildIfDirty(dungeonLayers);
+    if (storeState.layers !== cachedLayersRef) {
+      cachedLayersRef = storeState.layers;
+      cachedDungeonLayers = storeState.layers.filter(
+        (l): l is DungeonLayer => l.type === 'dungeon' && l.visible,
+      );
+    }
+    lightManager.rebuildIfDirty(cachedDungeonLayers);
 
     // Get camera state for UV → world transform in shader
     const zoom = stage.scale.x;
@@ -117,6 +146,4 @@ export function setupRenderLoop(
   };
 
   engine.addTickerCallback(tickerCallback);
-
-  void lastBgColor;
 }

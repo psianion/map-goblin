@@ -84,9 +84,16 @@ export function useCanvasInput(
         return;
       }
       const rect = canvasEl.getBoundingClientRect();
+      // Process coalesced events for smooth high-DPI/stylus input
+      const coalescedEvents = e.getCoalescedEvents?.() ?? [e];
+      for (const ce of coalescedEvents) {
+        const world = engine.screenToWorld(ce.clientX - rect.left, ce.clientY - rect.top);
+        const snapped = applyMiddleware(world);
+        _toolManager?.onPointerMove(snapped, ce);
+      }
+      // Snap indicator + cursor use the final event only
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
       const snapped = applyMiddleware(world);
-      _toolManager?.onPointerMove(snapped, e);
       _snapIndicator?.show(engine.worldToScreen(snapped.x, snapped.y));
 
       // Update cursor for gizmo handle hover (non-pan tools only)

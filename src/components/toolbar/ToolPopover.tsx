@@ -108,7 +108,7 @@ function DrawingToolContent({
   tool: ToolType;
   onValueChange?: () => void;
 }) {
-  const layer = useStore(selectActiveLayer) as DungeonLayer | null;
+  const layer = useStore(useShallow(selectActiveLayer)) as DungeonLayer | null;
   const updateLayer = useStore((s) => s.updateLayer);
   const polygonSides = useStore((s) => s.tools.settings.regularPolygon.sides);
   const updateToolSettings = useStore((s) => s.updateToolSettings);
@@ -196,7 +196,7 @@ function DrawingToolContent({
 // ─── Wall Tool ───────────────────────────────────
 
 function WallToolContent({ onValueChange }: { onValueChange?: () => void }) {
-  const layer = useStore(selectActiveLayer) as DungeonLayer | null;
+  const layer = useStore(useShallow(selectActiveLayer)) as DungeonLayer | null;
   const updateLayer = useStore((s) => s.updateLayer);
   const wallBlocksLight = useStore((s) => s.tools.settings.wallBlocksLight);
   const updateToolSettings = useStore((s) => s.updateToolSettings);

@@ -1,4 +1,5 @@
 import { useStore } from '@/store/store'
+import { useShallow } from 'zustand/react/shallow'
 import { selectActiveLayer } from '@/store/selectors'
 import { LayerProperties } from './LayerProperties'
 import { BackgroundProperties } from './BackgroundProperties'
@@ -41,8 +42,8 @@ function AmbientSection({ openSections, onToggleSection }: SectionControl) {
 
 export function PropertiesPanel({ openSections, onToggleSection }: SectionControl) {
   const activeLayer = useStore(selectActiveLayer)
-  const lights = useStore((s) => s.lights)
-  const selectedObjectIds = useStore((s) => s.ui.selectedObjectIds)
+  const lights = useStore(useShallow((s) => s.lights))
+  const selectedObjectIds = useStore(useShallow((s) => s.ui.selectedObjectIds))
 
   // Check if first selected ID refers to a light
   const firstSelectedId = selectedObjectIds[0]
