@@ -166,8 +166,8 @@ export default function App() {
           className="absolute top-3 z-30 flex gap-1.5"
           style={{
             right: showPanels ? (rightPanelOpen ? '316px' : '64px') : '12px',
-            transition: 'right 200ms ease-out',
             opacity: fade.faded ? 0.4 : 1,
+            transition: 'right 200ms ease-out, opacity 200ms ease',
           }}
           onMouseEnter={fade.onEnter}
           onMouseLeave={fade.onLeave}
@@ -200,8 +200,8 @@ export default function App() {
           className="absolute bottom-3 z-30"
           style={{
             right: showPanels ? (rightPanelOpen ? '316px' : '64px') : '12px',
-            transition: 'right 200ms ease-out',
             opacity: fade.faded ? 0.4 : 1,
+            transition: 'right 200ms ease-out, opacity 200ms ease',
           }}
           onMouseEnter={fade.onEnter}
           onMouseLeave={fade.onLeave}
@@ -217,7 +217,7 @@ export default function App() {
           className="absolute left-0 top-0 bottom-0 z-20"
           onMouseEnter={fade.onEnter}
           onMouseLeave={fade.onLeave}
-          style={{ opacity: fade.faded ? 0.4 : 1 }}
+          style={{ opacity: fade.faded ? 0.4 : 1, transition: 'opacity 200ms ease' }}
         >
           <LeftToolbar />
         </div>
@@ -232,6 +232,7 @@ export default function App() {
           style={{
             width: rightPanelOpen ? '300px' : '48px',
             opacity: fade.faded ? 0.4 : 1,
+            transition: 'width 200ms ease-out, opacity 200ms ease',
           }}
         >
           {rightPanelOpen
