@@ -11,6 +11,8 @@ import {
   Eraser,
   Waves,
   ChevronRight,
+  TreeDeciduous,
+  Spline,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useStore } from '@/store/store';
@@ -34,6 +36,8 @@ const TOOLS: ToolButton[] = [
   { tool: 'path', icon: Pen, label: 'Path', shortcut: 'D' },
   { tool: 'wall', icon: Minus, label: 'Wall', shortcut: 'W' },
   { tool: 'light', icon: Lightbulb, label: 'Light', shortcut: 'L' },
+  { tool: 'scatterBrush', icon: TreeDeciduous, label: 'Scatter Brush', shortcut: 'B' },
+  { tool: 'splinePath', icon: Spline, label: 'Spline Path', shortcut: 'S' },
 ];
 
 /** Module-level button element map — avoids useRef reads during render */

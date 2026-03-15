@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useStore } from '@/store/store';
 import { useShallow } from 'zustand/react/shallow';
 import { selectActiveLayer } from '@/store/selectors';
-import type { ToolType, DungeonLayer, DungeonStyle } from '@/store/types';
+import type { ToolType, DungeonLayer, DungeonStyle, ScatterBrushSettings } from '@/store/types';
 import { ColorField } from '@/components/inputs/ColorField';
 import { SliderInput } from '@/components/inputs/SliderInput';
 import { PropertyField } from '@/components/properties/PropertyField';
@@ -95,6 +95,7 @@ export function ToolPopover({ tool, anchorY, onClose }: ToolPopoverProps) {
       {isDrawingTool && <DrawingToolContent tool={tool} onValueChange={triggerPreview} />}
       {tool === 'wall' && <WallToolContent onValueChange={triggerPreview} />}
       {tool === 'light' && <LightToolContent onValueChange={triggerPreview} />}
+      {tool === 'scatterBrush' && <ScatterBrushContent />}
     </div>
   );
 }
@@ -335,6 +336,103 @@ function LightToolContent({ onValueChange }: { onValueChange?: () => void }) {
           ))}
         </div>
       </PropertyField>
+    </div>
+  );
+}
+
+// ─── Scatter Brush Tool ──────────────────────────
+
+function ScatterBrushContent() {
+  const scatterSettings = useStore(useShallow((s) => s.tools.settings.scatterBrush));
+  const eraseMode = useStore((s) => s.tools.eraseMode);
+  const updateToolSettings = useStore((s) => s.updateToolSettings);
+
+  const patch = (partial: Partial<ScatterBrushSettings>) => {
+    updateToolSettings({
+      scatterBrush: { ...scatterSettings, ...partial },
+    });
+  };
+
+  const toDeg = (rad: number): number => Math.round((rad * 180) / Math.PI);
+  const toRad = (deg: number): number => (deg * Math.PI) / 180;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="font-mono text-panel-heading uppercase text-text-muted">
+        Scatter Brush {eraseMode && '(Erase)'}
+      </span>
+
+      <PropertyField label="Brush Radius">
+        <SliderInput
+          value={scatterSettings.brushRadius}
+          onChange={(v) => patch({ brushRadius: v })}
+          min={0.5}
+          max={10}
+          step={0.25}
+        />
+      </PropertyField>
+
+      {!eraseMode && (
+        <>
+          <PropertyField label="Density">
+            <SliderInput
+              value={scatterSettings.density}
+              onChange={(v) => patch({ density: v })}
+              min={0.2}
+              max={3}
+              step={0.1}
+            />
+          </PropertyField>
+
+          <PropertyField label="Spacing">
+            <SliderInput
+              value={scatterSettings.spacing}
+              onChange={(v) => patch({ spacing: v })}
+              min={0.25}
+              max={5}
+              step={0.25}
+            />
+          </PropertyField>
+
+          <PropertyField label="Rotation">
+            <div className="flex items-center gap-1 text-[11px] font-mono text-text-muted">
+              <span>{toDeg(scatterSettings.rotationRange[0])}</span>
+              <span className="text-text-muted">-</span>
+              <span>{toDeg(scatterSettings.rotationRange[1])}</span>
+              <span>deg</span>
+            </div>
+            <SliderInput
+              value={toDeg(scatterSettings.rotationRange[1])}
+              onChange={(v) => patch({ rotationRange: [0, toRad(v)] })}
+              min={0}
+              max={360}
+              step={15}
+            />
+          </PropertyField>
+
+          <PropertyField label="Scale Range">
+            <div className="flex items-center gap-1 text-[11px] font-mono text-text-muted">
+              <span>{scatterSettings.scaleRange[0].toFixed(1)}</span>
+              <span className="text-text-muted">-</span>
+              <span>{scatterSettings.scaleRange[1].toFixed(1)}</span>
+            </div>
+            <SliderInput
+              value={scatterSettings.scaleRange[1]}
+              onChange={(v) =>
+                patch({
+                  scaleRange: [
+                    Math.min(scatterSettings.scaleRange[0], v),
+                    v,
+                  ],
+                })
+              }
+              min={0.2}
+              max={3}
+              step={0.1}
+            />
+          </PropertyField>
+        </>
+      )}
     </div>
   );
 }

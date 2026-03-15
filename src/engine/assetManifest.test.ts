@@ -5,41 +5,39 @@ import { getManifest, CATEGORY_IDS } from './assetManifest.ts'
 describe('assetManifest', () => {
   it('exports the correct category IDs', () => {
     expect(CATEGORY_IDS).toEqual([
-      'furniture',
-      'structures',
       'nature',
-      'doors',
       'miscellaneous',
     ])
   })
 
-  it('getManifest returns an AssetManifest with all five categories', () => {
+  it('getManifest returns an AssetManifest with all categories', () => {
     const manifest = getManifest()
-    expect(manifest.categories).toHaveLength(5)
+    expect(manifest.categories).toHaveLength(CATEGORY_IDS.length)
     const ids = manifest.categories.map((c) => c.id)
-    expect(ids).toEqual(CATEGORY_IDS)
+    expect(ids).toEqual([...CATEGORY_IDS])
   })
 
-  it('each category has id, label, and assets array', () => {
+  it('each category has id, label, and non-empty assets array', () => {
     const manifest = getManifest()
     for (const category of manifest.categories) {
       expect(typeof category.id).toBe('string')
       expect(typeof category.label).toBe('string')
       expect(Array.isArray(category.assets)).toBe(true)
+      expect(category.assets.length).toBeGreaterThan(0)
     }
   })
 
-  it('category labels match expected display names', () => {
+  it('assets have required fields', () => {
     const manifest = getManifest()
-    const labelMap: Record<string, string> = {
-      furniture: 'Furniture',
-      structures: 'Structures',
-      nature: 'Nature',
-      doors: 'Doors',
-      miscellaneous: 'Miscellaneous',
-    }
     for (const category of manifest.categories) {
-      expect(category.label).toBe(labelMap[category.id])
+      for (const asset of category.assets) {
+        expect(typeof asset.id).toBe('string')
+        expect(typeof asset.name).toBe('string')
+        expect(typeof asset.url).toBe('string')
+        expect(asset.url).toMatch(/^\/textures\//)
+        expect(typeof asset.cellWidth).toBe('number')
+        expect(typeof asset.cellHeight).toBe('number')
+      }
     }
   })
 })

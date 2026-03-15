@@ -8,6 +8,7 @@ export const TOOLS_WITH_POPOVER = new Set<ToolType>([
   'path',
   'wall',
   'light',
+  'scatterBrush',
 ]);
 
 /**

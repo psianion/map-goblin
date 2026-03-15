@@ -62,12 +62,19 @@ export class RectangleTool implements DrawingTool {
       newFloor = clipper2Engine.union(prevFloor ?? [], [rectPoly]) as [number, number][][];
     }
 
+    const lastTextured = [...activeLayer.shapes].reverse().find((s) => s.textureId);
     const shapeRecord = {
       id: crypto.randomUUID(),
       type: 'rectangle' as const,
       points: rectPoly,
       roughnessEnabled: store.tools.roughMode,
       roughnessAmplitude: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,
+      textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,
+      textureScale: lastTextured?.textureScale ?? 0.25,
+      textureOffsetX: 0,
+      textureOffsetY: 0,
+      textureFillRotation: 0,
+      textureTint: lastTextured?.textureTint ?? '#ffffff',
     };
 
     undoManager.execute(

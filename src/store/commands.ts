@@ -1,4 +1,4 @@
-import type { Command, DungeonLayer, DungeonStyle, Light, PlacedObject, ShapeRecord } from './types';
+import type { Command, DungeonLayer, DungeonStyle, Light, PlacedObject, ShapeRecord, SplinePathRecord } from './types';
 import { useStore } from './store';
 import type { Polygon } from '@/types/geometry';
 import { clipper2Engine } from '@/geometry/Clipper2Engine';
@@ -679,5 +679,186 @@ export class ApplyPresetCommand implements Command {
     state.updateLayer(this.layerId, {
       style: { ...this.previousStyle },
     } as Partial<typeof layer>);
+  }
+}
+
+/**
+ * Command for changing texture properties on a shape.
+ * Captures the before/after texture fields for undo/redo.
+ */
+export class ShapeTextureCommand implements Command {
+  readonly label: string;
+  private layerId: string;
+  private shapeId: string;
+  private before: Partial<ShapeRecord>;
+  private after: Partial<ShapeRecord>;
+
+  constructor(
+    layerId: string,
+    shapeId: string,
+    before: Partial<ShapeRecord>,
+    after: Partial<ShapeRecord>,
+    label = 'Change shape texture',
+  ) {
+    this.layerId = layerId;
+    this.shapeId = shapeId;
+    this.before = before;
+    this.after = after;
+    this.label = label;
+  }
+
+  execute(): void {
+    useStore.setState((s) => {
+      const l = s.layers.find((l) => l.id === this.layerId) as DungeonLayer | undefined;
+      if (!l) return;
+      const shape = l.shapes.find((s) => s.id === this.shapeId);
+      if (shape) Object.assign(shape, this.after);
+    });
+  }
+
+  undo(): void {
+    useStore.setState((s) => {
+      const l = s.layers.find((l) => l.id === this.layerId) as DungeonLayer | undefined;
+      if (!l) return;
+      const shape = l.shapes.find((s) => s.id === this.shapeId);
+      if (shape) Object.assign(shape, this.before);
+    });
+  }
+}
+
+/**
+ * Command for creating a spline path on a dungeon layer.
+ */
+export class CreatePathCommand implements Command {
+  readonly label = 'Create path';
+  private layerId: string;
+  private path: SplinePathRecord;
+
+  constructor(layerId: string, path: SplinePathRecord) {
+    this.layerId = layerId;
+    this.path = path;
+  }
+
+  execute(): void {
+    useStore.getState().addPath(this.layerId, this.path);
+  }
+
+  undo(): void {
+    useStore.getState().removePath(this.layerId, this.path.id);
+  }
+}
+
+/**
+ * Command for deleting a spline path from a dungeon layer.
+ * Captures the path data for undo restoration.
+ */
+export class DeletePathCommand implements Command {
+  readonly label = 'Delete path';
+  private layerId: string;
+  private path: SplinePathRecord;
+
+  constructor(layerId: string, path: SplinePathRecord) {
+    this.layerId = layerId;
+    this.path = path;
+  }
+
+  execute(): void {
+    useStore.getState().removePath(this.layerId, this.path.id);
+  }
+
+  undo(): void {
+    useStore.getState().addPath(this.layerId, this.path);
+  }
+}
+
+/**
+ * Command for modifying a spline path's properties.
+ * Captures before/after state for undo/redo.
+ */
+export class ModifyPathCommand implements Command {
+  readonly label: string;
+  private layerId: string;
+  private pathId: string;
+  private before: Partial<SplinePathRecord>;
+  private after: Partial<SplinePathRecord>;
+
+  constructor(
+    layerId: string,
+    pathId: string,
+    before: Partial<SplinePathRecord>,
+    after: Partial<SplinePathRecord>,
+    label = 'Modify path',
+  ) {
+    this.layerId = layerId;
+    this.pathId = pathId;
+    this.before = before;
+    this.after = after;
+    this.label = label;
+  }
+
+  execute(): void {
+    useStore.getState().updatePath(this.layerId, this.pathId, this.after);
+  }
+
+  undo(): void {
+    useStore.getState().updatePath(this.layerId, this.pathId, this.before);
+  }
+}
+
+/**
+ * Command for scatter-placing multiple objects in a single stroke.
+ * Wraps an array of PlacedObjects for batch undo/redo.
+ */
+export class ScatterPlaceCommand implements Command {
+  readonly label = 'Scatter place';
+  private layerId: string;
+  private objects: PlacedObject[];
+
+  constructor(layerId: string, objects: PlacedObject[]) {
+    this.layerId = layerId;
+    this.objects = objects;
+  }
+
+  execute(): void {
+    const store = useStore.getState();
+    for (const obj of this.objects) {
+      store.addPlacedObject(this.layerId, { ...obj, layerId: this.layerId });
+    }
+  }
+
+  undo(): void {
+    const store = useStore.getState();
+    for (let i = this.objects.length - 1; i >= 0; i--) {
+      store.removePlacedObject(this.layerId, this.objects[i].id);
+    }
+  }
+}
+
+/**
+ * Command for scatter-erasing objects within a brush stroke.
+ * Captures removed objects for undo restoration.
+ */
+export class ScatterEraseCommand implements Command {
+  readonly label = 'Scatter erase';
+  private layerId: string;
+  private removedObjects: PlacedObject[];
+
+  constructor(layerId: string, removedObjects: PlacedObject[]) {
+    this.layerId = layerId;
+    this.removedObjects = removedObjects;
+  }
+
+  execute(): void {
+    const store = useStore.getState();
+    for (const obj of this.removedObjects) {
+      store.removePlacedObject(this.layerId, obj.id);
+    }
+  }
+
+  undo(): void {
+    const store = useStore.getState();
+    for (const obj of this.removedObjects) {
+      store.addPlacedObject(this.layerId, obj);
+    }
   }
 }

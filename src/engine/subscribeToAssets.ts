@@ -7,6 +7,7 @@ import { Assets, Sprite, Texture } from 'pixi.js';
 import { useStore } from '@/store/store';
 import { getLayerEntry } from './sceneGraph';
 import type { ImagesLayer, PlacedObject } from '@/store/types';
+import { getTextureEntry } from '@/assets/textureManifest';
 
 /**
  * Apply all transform/style properties from a PlacedObject onto an existing Sprite.
@@ -34,23 +35,34 @@ function syncSprite(sprite: Sprite, obj: PlacedObject): void {
 }
 
 /**
+ * Resolve a PlacedObject's assetId to a loadable URL.
+ * Manifest-based IDs (e.g. 'fallen-leaves-green1-a1') are resolved to their
+ * file path via the texture manifest. Data URLs and plain URLs pass through.
+ */
+function resolveAssetUrl(assetId: string): string {
+  const entry = getTextureEntry(assetId);
+  if (entry) return entry.path;
+  return assetId;
+}
+
+/**
  * Ensure the asset URL is registered in the PixiJS Assets cache before loading.
  * For data: URLs (custom images) we need to call Assets.add() first if not already known.
+ * For manifest-based IDs, register with the resolved path as src.
  */
-function ensureRegistered(assetId: string): void {
-  if (!assetId.startsWith('data:')) return;
+function ensureRegistered(assetId: string, resolvedUrl: string): void {
   try {
-    // If the asset is already in the cache this throws or returns something valid —
-    // either way, we can skip re-registering.
-    const existing = Assets.get<Texture>(assetId);
+    const existing = Assets.get<Texture>(resolvedUrl);
     if (existing) return;
   } catch {
     // not cached — fall through to register
   }
-  try {
-    Assets.add({ alias: assetId, src: assetId });
-  } catch {
-    // Already registered — ignore duplicate-add errors
+  if (assetId.startsWith('data:') || resolvedUrl !== assetId) {
+    try {
+      Assets.add({ alias: resolvedUrl, src: resolvedUrl });
+    } catch {
+      // Already registered — ignore duplicate-add errors
+    }
   }
 }
 
@@ -108,8 +120,14 @@ export function subscribeToAssets(): () => void {
             const sprite = spriteMap.get(obj.id)!;
             syncSprite(sprite, obj);
           } else {
-            // Create new sprite
-            const cached = Assets.get<Texture>(obj.assetId);
+            // Create new sprite — resolve manifest ID to actual URL
+            const url = resolveAssetUrl(obj.assetId);
+            let cached: Texture | undefined;
+            try {
+              cached = Assets.get<Texture>(url);
+            } catch {
+              cached = undefined;
+            }
             const sprite = new Sprite(cached ?? Texture.WHITE);
             sprite.anchor.set(0.5, 0.5);
             sprite.label = 'placed-' + obj.id;
@@ -119,8 +137,8 @@ export function subscribeToAssets(): () => void {
 
             // If texture wasn't cached, load it asynchronously
             if (!cached) {
-              ensureRegistered(obj.assetId);
-              Assets.load<Texture>(obj.assetId)
+              ensureRegistered(obj.assetId, url);
+              Assets.load<Texture>(url)
                 .then((tex) => {
                   // Only apply if the sprite still exists in the map
                   if (spriteMap.get(obj.id) === sprite) {

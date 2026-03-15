@@ -81,12 +81,19 @@ export class PolygonTool implements DrawingTool {
       ? (clipper2Engine.difference(prevFloor ?? [], [polyPoints]) as [number, number][][])
       : (clipper2Engine.union(prevFloor ?? [], [polyPoints]) as [number, number][][]);
 
+    const lastTextured = [...activeLayer.shapes].reverse().find((s) => s.textureId);
     const shapeRecord = {
       id: crypto.randomUUID(),
       type: 'polygon' as const,
       points: polyPoints,
       roughnessEnabled: store.tools.roughMode,
       roughnessAmplitude: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,
+      textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,
+      textureScale: lastTextured?.textureScale ?? 0.25,
+      textureOffsetX: 0,
+      textureOffsetY: 0,
+      textureFillRotation: 0,
+      textureTint: lastTextured?.textureTint ?? '#ffffff',
     };
 
     undoManager.execute(

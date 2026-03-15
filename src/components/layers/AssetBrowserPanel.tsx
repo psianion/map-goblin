@@ -58,11 +58,11 @@ function AssetThumbnail({ asset, selected, onSelect }: AssetThumbnailProps) {
 
 interface AssetGridProps {
   assets: AssetEntry[];
-  pendingId: string | null;
+  selectedIds: Set<string>;
   onSelect: (id: string) => void;
 }
 
-function AssetGrid({ assets, pendingId, onSelect }: AssetGridProps) {
+function AssetGrid({ assets, selectedIds, onSelect }: AssetGridProps) {
   if (assets.length === 0) {
     return (
       <p className="py-6 text-center text-xs text-muted-foreground">No assets in this category.</p>
@@ -75,7 +75,7 @@ function AssetGrid({ assets, pendingId, onSelect }: AssetGridProps) {
         <AssetThumbnail
           key={asset.id}
           asset={asset}
-          selected={pendingId === asset.id}
+          selected={selectedIds.has(asset.id)}
           onSelect={onSelect}
         />
       ))}
@@ -153,12 +153,34 @@ export function AssetBrowserPanel() {
     return assets;
   }, [activeCategory, recentAssets, categories, search]);
 
+  const activeTool = useStore((s) => s.tools.activeTool);
+  const updateToolSettings = useStore((s) => s.updateToolSettings);
+  const scatterAssetIds = useStore(useShallow((s) => s.tools.settings.scatterBrush.assetIds));
+
+  const selectedIds = useMemo(() => {
+    if (activeTool === 'scatterBrush') {
+      return new Set(scatterAssetIds);
+    }
+    return new Set(pendingId ? [pendingId] : []);
+  }, [activeTool, scatterAssetIds, pendingId]);
+
   const handleSelect = (id: string) => {
-    if (pendingId === id) {
-      setPendingPlacementAssetId(null);
+    trackRecentUse(id);
+
+    if (activeTool === 'scatterBrush') {
+      // Route to scatter brush assetIds instead of single-click placement
+      const current = useStore.getState().tools.settings.scatterBrush;
+      const alreadySelected = current.assetIds.includes(id);
+      const newIds = alreadySelected
+        ? current.assetIds.filter((a) => a !== id)
+        : [...current.assetIds, id];
+      updateToolSettings({ scatterBrush: { ...current, assetIds: newIds } });
     } else {
-      setPendingPlacementAssetId(id);
-      trackRecentUse(id);
+      if (pendingId === id) {
+        setPendingPlacementAssetId(null);
+      } else {
+        setPendingPlacementAssetId(id);
+      }
     }
   };
 
@@ -189,12 +211,16 @@ export function AssetBrowserPanel() {
 
       {/* Grid */}
       <div className="flex-1 overflow-y-auto">
-        {pendingId && (
+        {activeTool === 'scatterBrush' ? (
+          <p className="px-2 py-1 text-[10px] text-accent">
+            Select assets for scatter brush • Click to toggle
+          </p>
+        ) : pendingId ? (
           <p className="px-2 py-1 text-[10px] text-accent">
             Click canvas to place • Click asset again to cancel
           </p>
-        )}
-        <AssetGrid assets={currentAssets} pendingId={pendingId} onSelect={handleSelect} />
+        ) : null}
+        <AssetGrid assets={currentAssets} selectedIds={selectedIds} onSelect={handleSelect} />
       </div>
     </div>
   );
