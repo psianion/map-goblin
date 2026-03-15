@@ -10,7 +10,7 @@ import type {
 const DEFAULT_DUNGEON_STYLE: DungeonStyle = {
   floorColor: '#F1ECDF',
   wallColor: '#000000',
-  wallWidth: 0.08,
+  wallWidth: 0.5,
   shadowEnabled: true,
   shadowColor: '#8C867D',
   shadowOffset: { x: 0.4, y: 0.3 },
@@ -23,10 +23,12 @@ const DEFAULT_DUNGEON_STYLE: DungeonStyle = {
   hatchingInverted: false,
   roughnessAmplitude: 0,
   lineWidth: 0.04,
+  edgeTransitionWidth: 0.5,
+  showEdgeTransitions: true,
+  wallTextureTint: '#ffffff',
 };
 
 const DEFAULT_SUBLAYER_VISIBILITY = {
-  shadow: true,
   floor: true,
   grid: true,
   hatching: true,
@@ -46,6 +48,7 @@ export function createDungeonLayer(name: string): DungeonLayer {
     mergedFloor: null,
     style: { ...DEFAULT_DUNGEON_STYLE },
     sublayerVisibility: { ...DEFAULT_SUBLAYER_VISIBILITY },
+    paths: [],
   };
 }
 
@@ -89,7 +92,7 @@ export function createBackgroundLayer(): BackgroundLayer {
     opacity: 1,
     backgroundColor: '#2d2d2d',
     backgroundTexture: null,
-    textureScale: 1,
+    textureScale: 0.25,
     textureTint: '#ffffff',
     presetLock: false,
   };
@@ -111,6 +114,7 @@ type MapBuilderState = Omit<
   | 'toggleFavorite' | 'trackRecentUse' | 'addCustomUpload' | 'removeCustomUpload'
   | 'setManifest' | 'markCategoryLoaded' | 'addCustomImage'
   | 'addPlacedObject' | 'removePlacedObject' | 'updatePlacedObject'
+  | 'addPath' | 'removePath' | 'updatePath'
   | 'loadFromFile' | 'getSerializableState' | 'resetToDefault'
 >;
 
@@ -140,7 +144,7 @@ export function createDefaultState(): MapBuilderState {
         brushRadius: 0.5,
         regularPolygon: { sides: 4 },
         wallBlocksLight: true,
-        wallWidth: 0.08,
+        wallWidth: 0.5,
         continuousPlacement: false,
         lightDefaults: {
           color: '#ffdd88',
@@ -148,6 +152,14 @@ export function createDefaultState(): MapBuilderState {
           featherRadius: 0,
           intensity: 0.2,
           falloff: 'quadratic' as const,
+        },
+        scatterBrush: {
+          assetIds: [],
+          brushRadius: 2,
+          density: 0.8,
+          spacing: 1,
+          rotationRange: [0, Math.PI * 2],
+          scaleRange: [0.8, 1.2],
         },
       },
       recentAssets: [],

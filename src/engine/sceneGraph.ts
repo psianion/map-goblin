@@ -16,11 +16,11 @@ export interface SceneGraph {
 }
 
 export interface DungeonSublayers {
-  shadow: Container;
   floor: Container;
   grid: Container;
   hatching: Container;
   walls: Container;
+  paths: Container;
 }
 
 export interface LayerEntry {
@@ -117,13 +117,13 @@ export function addLayerToScene(
 
   let sublayers: DungeonSublayers | null = null;
   if (layerType === 'dungeon') {
-    const shadow = new Container(); shadow.label = 'sublayer-shadow';
     const floor = new Container(); floor.label = 'sublayer-floor';
     const grid = new Container(); grid.label = 'sublayer-grid';
     const hatching = new Container(); hatching.label = 'sublayer-hatching';
     const walls = new Container(); walls.label = 'sublayer-walls';
-    container.addChild(shadow, floor, grid, hatching, walls);
-    sublayers = { shadow, floor, grid, hatching, walls };
+    const paths = new Container(); paths.label = 'sublayer-paths';
+    container.addChild(floor, grid, hatching, walls, paths);
+    sublayers = { floor, grid, hatching, walls, paths };
   }
 
   const renderTexture: RenderTexture | null = null;

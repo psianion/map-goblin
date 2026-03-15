@@ -4,10 +4,10 @@ import { PropertyField } from './PropertyField'
 import { ColorField } from '@/components/inputs/ColorField'
 import { ColorChip } from '@/components/inputs/ColorChip'
 import { SliderInput } from '@/components/inputs/SliderInput'
-import { NumberInput } from '@/components/inputs/NumberInput'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { ToggleSwitch } from '@/components/ui/toggle-switch'
-import { Palette, Minus, Sun, Grid3x3, Waves } from 'lucide-react'
+import { Palette, Minus, Grid3x3, Waves, Blend } from 'lucide-react'
+import { getWallSetDefaults, type WallCategory } from '@/assets/textureManifest'
 
 interface LayerPropertiesProps {
   layer: DungeonLayer
@@ -40,7 +40,6 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
         preview={
           <div className="flex gap-2">
             <ColorChip color={s.floorColor} size="preview" />
-            <ColorChip color={s.wallColor} size="preview" />
           </div>
         }
       >
@@ -48,77 +47,55 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
           <PropertyField label="Floor Color">
             <ColorField value={s.floorColor} onChange={(c) => patch({ floorColor: c })} />
           </PropertyField>
-          <PropertyField label="Wall Color">
-            <ColorField value={s.wallColor} onChange={(c) => patch({ wallColor: c })} />
-          </PropertyField>
         </div>
       </CollapsibleSection>
 
       {/* ── Walls ── */}
       <CollapsibleSection id="walls" title="Walls" icon={Minus} defaultOpen={false} isOpen={openSections?.has('walls')} onToggle={onToggleSection}>
         <div className="flex flex-col gap-2 pt-2">
-          <PropertyField label="Wall Width">
-            <SliderInput
-              value={s.wallWidth}
-              onChange={(v) => patch({ wallWidth: v })}
-              min={0.05}
-              max={1}
-              step={0.05}
-            />
+          <PropertyField label="Wall Texture">
+            <select
+              value={s.wallTextureSetId ?? 'none'}
+              onChange={(e) => {
+                const val = e.target.value === 'none' ? undefined : e.target.value
+                if (val) {
+                  const defaults = getWallSetDefaults(val as WallCategory)
+                  patch({ wallTextureSetId: val, wallWidth: defaults.defaultWidth })
+                } else {
+                  patch({ wallTextureSetId: val })
+                }
+              }}
+              className="w-full h-7 px-2 bg-surface-2 text-panel-body text-text-primary rounded border border-border-default focus:border-border-focus focus:outline-none"
+            >
+              <option value="none">None (Invisible)</option>
+              <option value="stone-slate">Stone Slate</option>
+              <option value="wood-ashen">Wood Ashen</option>
+            </select>
           </PropertyField>
-        </div>
-      </CollapsibleSection>
 
-      {/* ── Shadow ── */}
-      <CollapsibleSection
-        id="shadow"
-        title="Shadow"
-        icon={Sun}
-        defaultOpen={false}
-        isOpen={openSections?.has('shadow')}
-        onToggle={onToggleSection}
-        headerExtra={
-          <ToggleSwitch
-            checked={s.shadowEnabled}
-            onChange={(v) => patch({ shadowEnabled: v })}
-            label="Enable shadow"
-          />
-        }
-      >
-        {s.shadowEnabled ? (
-          <div className="flex flex-col gap-2 pt-2">
-            <PropertyField label="Shadow Color">
-              <ColorField value={s.shadowColor} onChange={(c) => patch({ shadowColor: c })} />
-            </PropertyField>
-            <PropertyField label="Intensity">
-              <SliderInput
-                value={s.shadowIntensity}
-                onChange={(v) => patch({ shadowIntensity: v })}
-                min={0}
-                max={1}
-                step={0.05}
-              />
-            </PropertyField>
-            <PropertyField label="Offset X / Y">
-              <div className="flex gap-1">
-                <NumberInput
-                  value={s.shadowOffset.x}
-                  onChange={(v) => patch({ shadowOffset: { ...s.shadowOffset, x: v } })}
-                  step={0.1}
-                  className="w-full h-7 text-panel-body"
-                />
-                <NumberInput
-                  value={s.shadowOffset.y}
-                  onChange={(v) => patch({ shadowOffset: { ...s.shadowOffset, y: v } })}
-                  step={0.1}
-                  className="w-full h-7 text-panel-body"
-                />
-              </div>
-            </PropertyField>
-          </div>
-        ) : (
-          <p className="text-panel-label text-text-muted pt-2">Shadow is disabled.</p>
-        )}
+          {s.wallTextureSetId && (() => {
+            const wd = getWallSetDefaults(s.wallTextureSetId as WallCategory)
+            return (
+              <>
+                <PropertyField label="Wall Width">
+                  <SliderInput
+                    value={s.wallWidth}
+                    onChange={(v) => patch({ wallWidth: v })}
+                    min={wd.minWidth}
+                    max={wd.maxWidth}
+                    step={0.05}
+                  />
+                </PropertyField>
+                <PropertyField label="Wall Tint">
+                  <ColorField
+                    value={s.wallTextureTint}
+                    onChange={(c) => patch({ wallTextureTint: c })}
+                  />
+                </PropertyField>
+              </>
+            )
+          })()}
+        </div>
       </CollapsibleSection>
 
       {/* ── Hatching ── */}
@@ -200,6 +177,39 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
           </div>
         ) : (
           <p className="text-panel-label text-text-muted pt-2">Hatching is disabled.</p>
+        )}
+      </CollapsibleSection>
+
+      {/* ── Edge Transitions ── */}
+      <CollapsibleSection
+        id="edgeTransitions"
+        title="Edge Transitions"
+        icon={Blend}
+        defaultOpen={false}
+        isOpen={openSections?.has('edgeTransitions')}
+        onToggle={onToggleSection}
+        headerExtra={
+          <ToggleSwitch
+            checked={s.showEdgeTransitions}
+            onChange={(v) => patch({ showEdgeTransitions: v })}
+            label="Enable edge transitions"
+          />
+        }
+      >
+        {s.showEdgeTransitions ? (
+          <div className="flex flex-col gap-2 pt-2">
+            <PropertyField label="Transition Width">
+              <SliderInput
+                value={s.edgeTransitionWidth}
+                onChange={(v) => patch({ edgeTransitionWidth: v })}
+                min={0.05}
+                max={2}
+                step={0.05}
+              />
+            </PropertyField>
+          </div>
+        ) : (
+          <p className="text-panel-label text-text-muted pt-2">Edge transitions are disabled.</p>
         )}
       </CollapsibleSection>
 

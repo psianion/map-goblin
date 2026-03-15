@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand';
 import type { Polygon } from '../../types/geometry.ts';
-import type { DungeonStyle, Layer, MapBuilderStore, PlacedObject, ShapeRecord, SublayerVisibility, WallSegment } from '../types.ts';
+import type { DungeonStyle, Layer, MapBuilderStore, PlacedObject, ShapeRecord, SplinePathRecord, SublayerVisibility, WallSegment } from '../types.ts';
 import { BUILT_IN_PRESETS, loadCustomPresets, saveCustomPresetsToStorage, deleteCustomPresetFromStorage } from '../presets.ts';
 import type { StylePreset } from '../presets.ts';
 import { ApplyPresetCommand } from '../commands.ts';
@@ -25,6 +25,9 @@ export interface LayerActions {
   addPlacedObject: (layerId: string, obj: PlacedObject) => void;
   removePlacedObject: (layerId: string, objId: string) => void;
   updatePlacedObject: (layerId: string, objId: string, patch: Partial<PlacedObject>) => void;
+  addPath: (layerId: string, path: SplinePathRecord) => void;
+  removePath: (layerId: string, pathId: string) => void;
+  updatePath: (layerId: string, pathId: string, patch: Partial<SplinePathRecord>) => void;
 }
 
 export const createLayersSlice: StateCreator<
@@ -160,6 +163,9 @@ export const createLayersSlice: StateCreator<
       hatchingLineThickness: style.hatchingLineThickness ?? 0.02,
       hatchingAngle: style.hatchingAngle ?? 45,
       hatchingInverted: style.hatchingInverted ?? false,
+      edgeTransitionWidth: style.edgeTransitionWidth ?? 0.5,
+      showEdgeTransitions: style.showEdgeTransitions ?? true,
+      wallTextureTint: style.wallTextureTint ?? '#ffffff',
     };
     set((state) => {
       state.ui.customPresets[name] = presetStyle;
@@ -195,6 +201,29 @@ export const createLayersSlice: StateCreator<
       if (layer && layer.type === 'images') {
         const obj = layer.objects.find((o) => o.id === objId);
         if (obj) Object.assign(obj, patch);
+      }
+    }),
+  addPath: (layerId, path) =>
+    set((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (layer && layer.type === 'dungeon') {
+        layer.paths.push(path);
+      }
+    }),
+  removePath: (layerId, pathId) =>
+    set((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (layer && layer.type === 'dungeon') {
+        const idx = layer.paths.findIndex((p) => p.id === pathId);
+        if (idx >= 0) layer.paths.splice(idx, 1);
+      }
+    }),
+  updatePath: (layerId, pathId, patch) =>
+    set((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (layer && layer.type === 'dungeon') {
+        const path = layer.paths.find((p) => p.id === pathId);
+        if (path) Object.assign(path, patch);
       }
     }),
 });
