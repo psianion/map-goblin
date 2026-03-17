@@ -1,10 +1,10 @@
 import type { Point } from '@/types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '@/store/store';
-import { DrawShapeCommand } from '@/store/commands';
+import { AddChildCommand, RemoveChildCommand, CompositeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { clipper2Engine } from '@/geometry/Clipper2Engine';
-import type { DungeonLayer } from '@/store/types';
+import type { DungeonLayer, ShapeChild } from '@/store/types';
 
 function generateRegularPolygon(
   cx: number,
@@ -18,6 +18,12 @@ function generateRegularPolygon(
     points.push([cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)]);
   }
   return points;
+}
+
+function countShapesOfType(layer: DungeonLayer, shapeType: string): number {
+  return layer.children.filter(
+    (c) => c.childType === 'shape' && c.shapeType === shapeType,
+  ).length;
 }
 
 export class RegularPolygonTool implements DrawingTool {
@@ -59,38 +65,49 @@ export class RegularPolygonTool implements DrawingTool {
     if (!activeLayer) return;
 
     const polyPoints = generateRegularPolygon(center.x, center.y, radius, sides);
-    const prevFloor = activeLayer.mergedFloor;
     const isErase = store.tools.eraseMode;
 
-    const newFloor = isErase
-      ? (clipper2Engine.difference(prevFloor ?? [], [polyPoints]) as [number, number][][])
-      : (clipper2Engine.union(prevFloor ?? [], [polyPoints]) as [number, number][][]);
+    if (isErase) {
+      const shapesToRemove = activeLayer.children.filter((c) => {
+        if (c.childType !== 'shape') return false;
+        const merged = clipper2Engine.intersection([c.points as [number, number][]], [polyPoints]);
+        return merged.length > 0;
+      });
 
-    const lastTextured = [...activeLayer.shapes].reverse().find((s) => s.textureId);
-    const shapeRecord = {
-      id: crypto.randomUUID(),
-      type: 'regularPolygon' as const,
-      points: polyPoints,
-      roughnessEnabled: store.tools.roughMode,
-      roughnessAmplitude: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,
-      textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,
-      textureScale: lastTextured?.textureScale ?? 0.25,
-      textureOffsetX: 0,
-      textureOffsetY: 0,
-      textureFillRotation: 0,
-      textureTint: lastTextured?.textureTint ?? '#ffffff',
-    };
+      if (shapesToRemove.length === 0) return;
 
-    undoManager.execute(
-      new DrawShapeCommand(
-        isErase ? 'Erase regular polygon' : 'Draw regular polygon',
-        activeLayerId,
-        prevFloor,
-        newFloor,
-        isErase ? null : shapeRecord,
-        isErase,
-      ),
-    );
+      const commands = shapesToRemove.map(
+        (c) => new RemoveChildCommand('Erase regular polygon', activeLayerId, c.id),
+      );
+      undoManager.execute(
+        commands.length === 1
+          ? commands[0]
+          : new CompositeCommand('Erase regular polygon', commands),
+      );
+    } else {
+      const lastTextured = [...activeLayer.children]
+        .reverse()
+        .find((c): c is ShapeChild => c.childType === 'shape' && !!c.textureId) as ShapeChild | undefined;
+
+      const child: ShapeChild = {
+        id: crypto.randomUUID(),
+        name: `Regular Polygon ${countShapesOfType(activeLayer, 'regularPolygon') + 1}`,
+        childType: 'shape',
+        visible: true,
+        shapeType: 'regularPolygon',
+        points: polyPoints,
+        roughnessEnabled: store.tools.roughMode,
+        roughnessAmplitude: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,
+        textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,
+        textureScale: lastTextured?.textureScale ?? 1,
+        textureOffsetX: 0,
+        textureOffsetY: 0,
+        textureFillRotation: 0,
+        textureTint: lastTextured?.textureTint ?? '#ffffff',
+      };
+
+      undoManager.execute(new AddChildCommand('Draw regular polygon', activeLayerId, child));
+    }
   }
 
   onKeyDown(event: KeyboardEvent): void {

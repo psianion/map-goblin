@@ -1,6 +1,6 @@
 /**
  * Image import pipeline — file validation, base64 conversion, resize-if-oversized,
- * PIXI.Assets registration, and PlaceObjectCommand dispatch.
+ * PIXI.Assets registration, and AddChildCommand dispatch.
  *
  * All three entry points (file picker, drag-and-drop, clipboard paste) call
  * handleImageImport(file, engine).
@@ -10,9 +10,8 @@ import { Assets } from 'pixi.js';
 import { toast } from 'sonner';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
-import { PlaceObjectCommand, AddLayerCommand } from '@/store/commands';
-import { createImagesLayer } from '@/store/factories';
-import type { PlacedObject } from '@/store/types';
+import { AddChildCommand } from '@/store/commands';
+import type { AssetChild } from '@/store/types';
 import type { RenderEngine } from '@/engine/RenderEngine';
 
 const VALID_TYPES = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'];
@@ -46,19 +45,16 @@ async function resizeImageToMax(base64: string, maxPx: number): Promise<string> 
 
 /**
  * Core import pipeline. Validates format, checks dimensions, resizes if >4096px,
- * registers the image in the store and PIXI.Assets, returns a PlacedObject.
- *
- * The caller must set `obj.layerId` before creating the command.
+ * registers the image in the store and PIXI.Assets, returns an AssetChild.
  */
 export async function importImageFile(
   file: File,
   viewportCenter: { x: number; y: number },
-): Promise<PlacedObject> {
+): Promise<AssetChild> {
   if (!VALID_TYPES.includes(file.type)) {
     throw new Error(`Unsupported image format: ${file.type}. Use PNG, JPEG, SVG, or WebP.`);
   }
 
-  // Read dimensions
   const bitmap = await createImageBitmap(file);
   let finalWidth = bitmap.width;
   let finalHeight = bitmap.height;
@@ -66,35 +62,28 @@ export async function importImageFile(
 
   let base64 = await fileToBase64(file);
 
-  // Warn and resize if oversized
   if (finalWidth > MAX_IMPORT_PX || finalHeight > MAX_IMPORT_PX) {
     toast.warning(
       `Image is ${finalWidth}×${finalHeight}px — resizing to max ${RESIZE_TARGET_PX}px for performance.`,
     );
     base64 = await resizeImageToMax(base64, RESIZE_TARGET_PX);
-    // Recalculate dimensions after resize
     const resizeScale = Math.min(1, RESIZE_TARGET_PX / Math.max(finalWidth, finalHeight));
     finalWidth = Math.floor(finalWidth * resizeScale);
     finalHeight = Math.floor(finalHeight * resizeScale);
   }
 
-  // Stable IDs
   const assetId = crypto.randomUUID();
-  const objectId = crypto.randomUUID();
 
-  // Register in store for save/load embedding
   useStore.getState().addCustomImage(assetId, base64);
-
-  // Register with PIXI.Assets
   await Assets.load({ alias: assetId, src: base64 });
 
-  // Scale so the longest side spans AUTO_SCALE_CELLS world units (grid cells).
-  // PixiJS Sprite scale is a pixel multiplier, so divide desired world size by texture size.
   const worldScale = AUTO_SCALE_CELLS / Math.max(finalWidth, finalHeight);
 
-  const obj: PlacedObject = {
-    id: objectId,
-    layerId: '',          // caller fills this in
+  const child: AssetChild = {
+    id: crypto.randomUUID(),
+    name: `Image ${assetId.slice(0, 4)}`,
+    childType: 'asset',
+    visible: true,
     objectType: 'image',
     assetId,
     position: { x: viewportCenter.x, y: viewportCenter.y },
@@ -103,39 +92,33 @@ export async function importImageFile(
     width: finalWidth * worldScale,
     height: finalHeight * worldScale,
     tint: '#ffffff',
-    groupId: null,
     flipX: false,
     flipY: false,
   };
 
-  return obj;
+  return child;
 }
 
 /**
  * Shared handler called by all three import entry points.
- * Validates the active layer is an images layer, imports the image, and places it.
+ * Places the imported image as an AssetChild on the active dungeon layer.
  */
 export async function handleImageImport(file: File, engine: RenderEngine): Promise<void> {
   const store = useStore.getState();
 
-  // Find or auto-create an images layer
-  let targetLayerId = store.layers.find((l) => l.type === 'images')?.id;
-  if (!targetLayerId) {
-    const newLayer = createImagesLayer('Images');
-    undoManager.execute(new AddLayerCommand('Add images layer', newLayer));
-    useStore.getState().setActiveLayerId(newLayer.id);
-    targetLayerId = newLayer.id;
+  const targetLayerId = store.ui.activeLayerId;
+  const layer = store.layers.find((l) => l.id === targetLayerId);
+  if (!layer || layer.type !== 'dungeon') {
+    toast.error('Select a dungeon layer to import images.');
+    return;
   }
 
   try {
     const vp = engine.viewport();
     const center = engine.screenToWorld(vp.width / 2, vp.height / 2);
 
-    const obj = await importImageFile(file, center);
-    obj.layerId = targetLayerId;
-
-    const cmd = new PlaceObjectCommand('Import image', targetLayerId, obj);
-    undoManager.execute(cmd);
+    const child = await importImageFile(file, center);
+    undoManager.execute(new AddChildCommand('Import image', targetLayerId, child));
 
     toast.success(`Image imported`);
   } catch (err) {
@@ -146,19 +129,13 @@ export async function handleImageImport(file: File, engine: RenderEngine): Promi
 
 /**
  * Immediately place an asset at the viewport center without entering placement mode.
- * Creates a PlaceObjectCommand and executes via undoManager.
  */
 export function placeAssetAtViewCenter(assetId: string, engine: RenderEngine): void {
   const store = useStore.getState();
 
-  // Find or auto-create an images layer
-  let targetLayerId = store.layers.find((l) => l.type === 'images')?.id;
-  if (!targetLayerId) {
-    const newLayer = createImagesLayer('Images');
-    undoManager.execute(new AddLayerCommand('Add images layer', newLayer));
-    useStore.getState().setActiveLayerId(newLayer.id);
-    targetLayerId = newLayer.id;
-  }
+  const targetLayerId = store.ui.activeLayerId;
+  const layer = store.layers.find((l) => l.id === targetLayerId);
+  if (!layer || layer.type !== 'dungeon') return;
 
   const vp = engine.viewport();
   const center = engine.screenToWorld(vp.width / 2, vp.height / 2);
@@ -169,9 +146,11 @@ export function placeAssetAtViewCenter(assetId: string, engine: RenderEngine): v
   const texW = texture?.width ?? 256;
   const texH = texture?.height ?? 256;
 
-  const obj: PlacedObject = {
+  const child: AssetChild = {
     id: crypto.randomUUID(),
-    layerId: targetLayerId,
+    name: `Asset ${assetId.slice(0, 8)}`,
+    childType: 'asset',
+    visible: true,
     objectType: 'image',
     assetId,
     position: snapped,
@@ -180,11 +159,9 @@ export function placeAssetAtViewCenter(assetId: string, engine: RenderEngine): v
     width: texW * scale,
     height: texH * scale,
     tint: '#ffffff',
-    groupId: null,
     flipX: false,
     flipY: false,
   };
 
-  const cmd = new PlaceObjectCommand('Place at center', targetLayerId, obj);
-  undoManager.execute(cmd);
+  undoManager.execute(new AddChildCommand('Place at center', targetLayerId, child));
 }

@@ -14,7 +14,7 @@ import { serializeToBytes, deserializeFromBytes, MAGIC_HEADER } from './saveLoad
 import type { SerializedMapData } from '@/store/types';
 
 const SAMPLE_DATA: SerializedMapData = {
-  version: '1.1',
+  version: '2.0',
   mapSettings: {
     name: 'Test Dungeon',
     gridType: 'square',
@@ -23,8 +23,6 @@ const SAMPLE_DATA: SerializedMapData = {
   },
   grid: { visible: true, snapDivision: 2, style: 'clean' },
   layers: [],
-  lights: [],
-  placedObjects: [],
   customImages: {},
 };
 
@@ -39,10 +37,24 @@ describe('saveLoad — serializeToBytes / deserializeFromBytes', () => {
   it('deserializeFromBytes round-trips the data correctly', async () => {
     const bytes = await serializeToBytes(SAMPLE_DATA);
     const result = await deserializeFromBytes(bytes);
-    expect(result.version).toBe('1.1');
+    expect(result.version).toBe('2.0');
     expect(result.mapSettings.name).toBe('Test Dungeon');
-    expect(result.lights).toEqual([]);
-    expect(result.placedObjects).toEqual([]);
+    expect(result.layers).toEqual([]);
+    expect(result.customImages).toEqual({});
+  });
+
+  it('deserializeFromBytes rejects v1.x files with an incompatible version error', async () => {
+    const oldData = {
+      version: '1.4',
+      mapSettings: { name: 'Old Map', gridType: 'square', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000' },
+      grid: { visible: true, snapDivision: 2, style: 'clean' },
+      layers: [],
+      lights: [],
+      placedObjects: [],
+      customImages: {},
+    };
+    const bytes = await serializeToBytes(oldData as unknown as SerializedMapData);
+    await expect(deserializeFromBytes(bytes)).rejects.toThrow(/incompatible file version/i);
   });
 
   it('deserializeFromBytes throws on invalid magic header', async () => {

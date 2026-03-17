@@ -2,17 +2,27 @@ import { Container, Graphics } from 'pixi.js';
 import type { Point, Polygon } from '@/types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '@/store/store';
-import { SelectionMoveCommand, CutCommand } from '@/store/commands';
-import { undoManager } from '@/store/undoManager';
 import { clipper2Engine } from '@/geometry/Clipper2Engine';
-import type { DungeonLayer } from '@/store/types';
+import type { AnyChild, DungeonLayer } from '@/store/types';
 import type { RenderEngine } from '@/engine/RenderEngine';
 import { TransformGizmo } from './TransformGizmo';
 import { computeBoundingBox } from './transformMath';
+import {
+  hitTestAllLayers,
+  getChildBounds,
+  boundsIntersect,
+  pointInShape,
+  pointInAsset,
+  pointInLight,
+} from '@/engine/hitTest';
+
+// ─── State machine ────────────────────────────────────────
 
 type SelectState = 'IDLE' | 'SELECTING' | 'SELECTED' | 'MOVING' | 'TRANSFORMING';
 
-class ToolOverlay {
+// ─── Legacy region-cut overlay (Alt+drag / selectedRegion) ───────────────────
+
+class RegionOverlay {
   readonly container = new Container();
   private selectionGraphics = new Graphics();
 
@@ -20,8 +30,8 @@ class ToolOverlay {
     this.container.addChild(this.selectionGraphics);
   }
 
-  setWorldToScreen(_fn: (wx: number, wy: number) => Point): void {
-  }
+  /** No-op — kept for API compatibility with registerTools.ts */
+  setWorldToScreen(_fn: (wx: number, wy: number) => Point): void {}
 
   drawSelection(region: Polygon[]): void {
     this.selectionGraphics.clear();
@@ -44,7 +54,6 @@ class ToolOverlay {
 
     const g = this.selectionGraphics;
 
-    // Fill outers
     for (const poly of outers) {
       g.moveTo(poly[0][0], poly[0][1]);
       for (let i = 1; i < poly.length; i++) g.lineTo(poly[i][0], poly[i][1]);
@@ -52,7 +61,6 @@ class ToolOverlay {
     }
     g.fill({ color: 0x4488ff, alpha: 0.15 });
 
-    // Cut holes
     if (holes.length > 0) {
       for (const poly of holes) {
         g.moveTo(poly[0][0], poly[0][1]);
@@ -62,7 +70,6 @@ class ToolOverlay {
       g.cut();
     }
 
-    // Stroke all contours (outers + holes)
     g.setStrokeStyle({ color: 0x4488ff, width: 0.04 });
     for (const poly of [...outers, ...holes]) {
       g.moveTo(poly[0][0], poly[0][1]);
@@ -77,57 +84,131 @@ class ToolOverlay {
   }
 }
 
+// ─── Hover highlight graphics (screen-space overlay) ─────
+
+const HOVER_COLOR = 0x4488ff;
+const HOVER_ALPHA = 0.4;
+const HOVER_WIDTH = 1.5;
+
+// ─── SelectTool ───────────────────────────────────────────
+
 export class SelectTool implements DrawingTool {
   readonly type = 'select' as const;
-  readonly overlay = new ToolOverlay();
+
+  /** Legacy region overlay — still used for Alt+drag region-cut flow */
+  readonly overlay = new RegionOverlay();
 
   private state: SelectState = 'IDLE';
   private startPoint: Point | null = null;
   private currentPoint: Point | null = null;
 
-  // Engine reference (for coordinate transforms and canvas access)
   private engine: RenderEngine;
-
-  // TransformGizmo — created when a region is selected, destroyed when cleared
-  private gizmo: TransformGizmo | null = null;
   private overlayContainer: Container;
 
-  // Snapshot of the region at drag-start (for live preview and Escape cancel)
-  private transformBaseRegion: [number, number][][] | null = null;
+  // ── Object selection state ────────────────────────────
+  /** Graphics drawn in the overlay to highlight the hovered child */
+  private hoverGraphics: Graphics;
 
-  // The original selection rectangle (user's drag box) — used for clean cuts
-  // instead of intersection-derived polygons which have Clipper2 coord mismatch.
+  // ── Gizmo (object selection) ──────────────────────────
+  private gizmo: TransformGizmo | null = null;
+
+  // ── Legacy region-cut state ───────────────────────────
+  /** Snapshot of region at drag-start for live preview */
+  private transformBaseRegion: [number, number][][] | null = null;
+  /** User's exact drag rectangle — used for clean Clipper2 cuts */
   private selectionRect: [number, number][] | null = null;
+  /** Whether the current drag started with Alt held (region-cut mode) */
+  private altDragMode = false;
 
   constructor(engine: RenderEngine) {
     this.engine = engine;
     this.overlayContainer = engine.overlay();
+
+    this.hoverGraphics = new Graphics();
+    this.hoverGraphics.label = 'selectHover';
+    this.overlayContainer.addChild(this.hoverGraphics);
   }
+
+  // ─── DrawingTool interface ───────────────────────────────────────────────
 
   onPointerDown(point: Point, event?: PointerEvent): void {
     const store = useStore.getState();
 
-    // Hit-test gizmo first (screen-space) when a selection exists
+    // Alt+drag → legacy region-cut mode
+    if (event?.altKey) {
+      this.altDragMode = true;
+      this.state = 'SELECTING';
+      this.startPoint = point;
+      this.currentPoint = point;
+      store.setSelectedRegion(null);
+      store.setSelectedIds([]);
+      this.overlay.clear();
+      this.destroyGizmo();
+      return;
+    }
+    this.altDragMode = false;
+
+    // If a gizmo exists (object selected), hit-test it first (screen-space)
     if (this.gizmo && this.state === 'SELECTED' && event) {
-      const rect = this.engine.canvas().getBoundingClientRect();
-      const sx = event.clientX - rect.left;
-      const sy = event.clientY - rect.top;
+      const canvasRect = this.engine.canvas().getBoundingClientRect();
+      const sx = event.clientX - canvasRect.left;
+      const sy = event.clientY - canvasRect.top;
       const handle = this.gizmo.hitTest(sx, sy);
       if (handle) {
-        const region = store.selection.selectedRegion;
-        this.transformBaseRegion = region
-          ? region.map((poly) => poly.map((pt) => [...pt] as [number, number]))
-          : null;
         this.gizmo.startDrag(handle, sx, sy);
         this.state = handle === 'move' ? 'MOVING' : 'TRANSFORMING';
         return;
       }
     }
 
-    // Start a new box selection
+    // Hit-test children across all visible, unlocked dungeon layers
+    const dungeonLayers = store.layers.filter(
+      (l): l is DungeonLayer => l.type === 'dungeon' && l.visible && !l.locked,
+    );
+    const worldPt: [number, number] = [point.x, point.y];
+    const hit = hitTestAllLayers(dungeonLayers, worldPt);
+
+    if (hit) {
+      if (event?.shiftKey) {
+        // Shift+click: toggle membership in selectedIds
+        const current = store.selection.selectedIds;
+        const alreadySelected = current.includes(hit.child.id);
+        store.setSelectedIds(
+          alreadySelected
+            ? current.filter((id) => id !== hit.child.id)
+            : [...current, hit.child.id],
+        );
+      } else if (event?.ctrlKey || event?.metaKey) {
+        // Ctrl/Meta+click: toggle entire layer's children
+        const layer = dungeonLayers.find((l) => l.id === hit.layerId);
+        if (layer) {
+          const layerIds = layer.children.map((c) => c.id);
+          const current = store.selection.selectedIds;
+          const allSelected = layerIds.every((id) => current.includes(id));
+          store.setSelectedIds(
+            allSelected
+              ? current.filter((id) => !layerIds.includes(id))
+              : [...new Set([...current, ...layerIds])],
+          );
+        }
+      } else {
+        // Plain click: select only this child
+        store.setSelectedIds([hit.child.id]);
+        store.setActiveLayerId(hit.layerId);
+      }
+
+      if (store.selection.selectedIds.length > 0) {
+        this.state = 'SELECTED';
+        this.createGizmo();
+      }
+      return;
+    }
+
+    // Clicked empty space → start box-drag selection
     this.state = 'SELECTING';
     this.startPoint = point;
     this.currentPoint = point;
+    store.setSelectedIds([]);
     store.setSelectedRegion(null);
     this.overlay.clear();
     this.destroyGizmo();
@@ -136,36 +217,68 @@ export class SelectTool implements DrawingTool {
   onPointerMove(point: Point, event?: PointerEvent): void {
     this.currentPoint = point;
 
-    if (!event || !this.gizmo?.isDragging() || !this.transformBaseRegion) return;
+    // Update hover highlight every move (regardless of drag state)
+    if (this.state !== 'MOVING' && this.state !== 'TRANSFORMING') {
+      this.updateHover(point);
+    }
 
-    const rect = this.engine.canvas().getBoundingClientRect();
-    const sx = event.clientX - rect.left;
-    const sy = event.clientY - rect.top;
-    const gridState = useStore.getState().grid;
-    const gridSizeScreen = (1 / gridState.snapDivision) * this.engine.stage().scale.x;
-    const delta = this.gizmo.updateDrag(
-      sx, sy,
-      { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey, alt: event.altKey },
-      gridState.snapEnabled,
-      gridSizeScreen,
-    );
-    if (!delta) return;
+    // Gizmo drag (object transform / move)
+    if (!this.altDragMode && event && this.gizmo?.isDragging()) {
+      const canvasRect = this.engine.canvas().getBoundingClientRect();
+      const sx = event.clientX - canvasRect.left;
+      const sy = event.clientY - canvasRect.top;
+      const gridState = useStore.getState().grid;
+      const gridSizeScreen = (1 / gridState.snapDivision) * this.engine.stage().scale.x;
+      this.gizmo.updateDrag(
+        sx,
+        sy,
+        { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey, alt: event.altKey },
+        gridState.snapEnabled,
+        gridSizeScreen,
+      );
+      return;
+    }
 
-    const preview = this.state === 'MOVING'
-      ? this.applyTranslate(this.transformBaseRegion, delta.translateX, delta.translateY)
-      : this.applyFullTransform(this.transformBaseRegion, delta);
-    this.overlay.drawSelection(preview);
-  }
-
-  onPointerUp(point: Point, event?: PointerEvent): void {
-    if ((this.state === 'MOVING' || this.state === 'TRANSFORMING') && this.gizmo?.isDragging() && event && this.transformBaseRegion) {
-      const rect = this.engine.canvas().getBoundingClientRect();
-      const sx = event.clientX - rect.left;
-      const sy = event.clientY - rect.top;
+    // Legacy region-cut drag preview
+    if (this.altDragMode && event && this.gizmo?.isDragging() && this.transformBaseRegion) {
+      const canvasRect = this.engine.canvas().getBoundingClientRect();
+      const sx = event.clientX - canvasRect.left;
+      const sy = event.clientY - canvasRect.top;
       const gridState = useStore.getState().grid;
       const gridSizeScreen = (1 / gridState.snapDivision) * this.engine.stage().scale.x;
       const delta = this.gizmo.updateDrag(
-        sx, sy,
+        sx,
+        sy,
+        { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey, alt: event.altKey },
+        gridState.snapEnabled,
+        gridSizeScreen,
+      );
+      if (!delta) return;
+      const preview =
+        this.state === 'MOVING'
+          ? this.applyTranslate(this.transformBaseRegion, delta.translateX, delta.translateY)
+          : this.applyFullTransform(this.transformBaseRegion, delta);
+      this.overlay.drawSelection(preview);
+    }
+  }
+
+  onPointerUp(point: Point, event?: PointerEvent): void {
+    // Legacy region-cut transform commit
+    if (
+      this.altDragMode &&
+      (this.state === 'MOVING' || this.state === 'TRANSFORMING') &&
+      this.gizmo?.isDragging() &&
+      event &&
+      this.transformBaseRegion
+    ) {
+      const canvasRect = this.engine.canvas().getBoundingClientRect();
+      const sx = event.clientX - canvasRect.left;
+      const sy = event.clientY - canvasRect.top;
+      const gridState = useStore.getState().grid;
+      const gridSizeScreen = (1 / gridState.snapDivision) * this.engine.stage().scale.x;
+      const delta = this.gizmo.updateDrag(
+        sx,
+        sy,
         { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey, alt: event.altKey },
         gridState.snapEnabled,
         gridSizeScreen,
@@ -173,10 +286,11 @@ export class SelectTool implements DrawingTool {
       this.gizmo.endDrag();
 
       if (delta) {
-        const finalRegion = this.state === 'MOVING'
-          ? this.applyTranslate(this.transformBaseRegion, delta.translateX, delta.translateY)
-          : this.applyFullTransform(this.transformBaseRegion, delta);
-        this.commitTransform(this.transformBaseRegion, finalRegion);
+        const finalRegion =
+          this.state === 'MOVING'
+            ? this.applyTranslate(this.transformBaseRegion, delta.translateX, delta.translateY)
+            : this.applyFullTransform(this.transformBaseRegion, delta);
+        this.commitRegionTransform(this.transformBaseRegion, finalRegion);
       } else {
         this.state = 'SELECTED';
       }
@@ -184,8 +298,24 @@ export class SelectTool implements DrawingTool {
       return;
     }
 
+    // Object gizmo drag end (no commit needed — gizmo fires onTransformEnd)
+    if (
+      !this.altDragMode &&
+      (this.state === 'MOVING' || this.state === 'TRANSFORMING') &&
+      this.gizmo?.isDragging()
+    ) {
+      this.gizmo.endDrag();
+      this.state = 'SELECTED';
+      return;
+    }
+
+    // Finish box-drag selection
     if (this.state === 'SELECTING' && this.startPoint) {
-      this.finishSelection(this.startPoint, point);
+      if (this.altDragMode) {
+        this.finishRegionSelection(this.startPoint, point);
+      } else {
+        this.finishBoxSelection(this.startPoint, point, event);
+      }
     }
   }
 
@@ -229,27 +359,62 @@ export class SelectTool implements DrawingTool {
     this.currentPoint = null;
     this.transformBaseRegion = null;
     this.selectionRect = null;
-    useStore.getState().setSelectedRegion(null);
+    this.altDragMode = false;
+    const store = useStore.getState();
+    store.setSelectedIds([]);
+    store.setHoveredId(null);
+    store.setSelectedRegion(null);
     this.overlay.clear();
     this.destroyGizmo();
+    this.hoverGraphics.clear();
   }
 
   isActive(): boolean {
     return this.state !== 'IDLE';
   }
 
-  /** Called every frame — syncs gizmo to current screen-space bbox of selected region. */
+  /** Called every frame — syncs gizmo to current screen-space bbox of selected children. */
   updateGizmo(): void {
     if (!this.gizmo || this.state === 'IDLE' || this.state === 'SELECTING') return;
-    const region = useStore.getState().selection.selectedRegion;
-    if (!region || region.length === 0) return;
 
-    const allWorldPoints = region.flat();
-    const screenPoints = allWorldPoints.map(([wx, wy]): [number, number] => {
+    const store = useStore.getState();
+
+    // Legacy region-cut path
+    if (this.altDragMode) {
+      const region = store.selection.selectedRegion;
+      if (!region || region.length === 0) return;
+      const allWorldPoints = region.flat();
+      const screenPoints = allWorldPoints.map(([wx, wy]): [number, number] => {
+        const sp = this.engine.worldToScreen(wx, wy);
+        return [sp.x, sp.y];
+      });
+      const screenBBox = computeBoundingBox(screenPoints);
+      this.gizmo.update(screenBBox, 0);
+      return;
+    }
+
+    // Object selection path
+    const { selectedIds } = store.selection;
+    if (selectedIds.length === 0) return;
+
+    const children = this.resolveSelectedChildren(selectedIds, store.layers as DungeonLayer[]);
+    if (children.length === 0) return;
+
+    // Union world-space bounds, then project corners to screen
+    const worldCorners: [number, number][] = [];
+    for (const child of children) {
+      const b = getChildBounds(child);
+      worldCorners.push(
+        [b.x, b.y],
+        [b.x + b.width, b.y],
+        [b.x, b.y + b.height],
+        [b.x + b.width, b.y + b.height],
+      );
+    }
+    const screenPoints = worldCorners.map(([wx, wy]): [number, number] => {
       const sp = this.engine.worldToScreen(wx, wy);
       return [sp.x, sp.y];
     });
-
     const screenBBox = computeBoundingBox(screenPoints);
     this.gizmo.update(screenBBox, 0);
   }
@@ -261,120 +426,159 @@ export class SelectTool implements DrawingTool {
     return handle ? this.gizmo.getCursor(handle) : null;
   }
 
-  // ─── Private helpers ──────────────────────────────────────────────────────
+  // ─── Hover highlight ──────────────────────────────────────────────────────
 
-  private applyTranslate(
-    region: [number, number][][],
-    screenDx: number,
-    screenDy: number,
-  ): [number, number][][] {
-    const zoom = this.engine.stage().scale.x;
-    const worldDx = screenDx / zoom;
-    const worldDy = screenDy / zoom;
-    return region.map((poly) =>
-      poly.map(([px, py]): [number, number] => [px + worldDx, py + worldDy]),
-    );
-  }
-
-  private applyFullTransform(
-    region: [number, number][][],
-    delta: { translateX: number; translateY: number; scaleX: number; scaleY: number; rotation: number },
-  ): [number, number][][] {
-    const zoom = this.engine.stage().scale.x;
-    const worldDx = delta.translateX / zoom;
-    const worldDy = delta.translateY / zoom;
-
-    // Pivot: world-space center of the region bbox
-    const allPoints = region.flat();
-    const bbox = computeBoundingBox(allPoints);
-    const cx = bbox.x + bbox.width / 2;
-    const cy = bbox.y + bbox.height / 2;
-
-    const cos = Math.cos(delta.rotation);
-    const sin = Math.sin(delta.rotation);
-
-    return region.map((poly) =>
-      poly.map(([px, py]): [number, number] => {
-        // Scale around center
-        const sx = cx + (px - cx) * delta.scaleX;
-        const sy = cy + (py - cy) * delta.scaleY;
-        // Rotate around center
-        const dx = sx - cx;
-        const dy = sy - cy;
-        const rx = cx + dx * cos - dy * sin;
-        const ry = cy + dx * sin + dy * cos;
-        // Translate
-        return [rx + worldDx, ry + worldDy];
-      }),
-    );
-  }
-
-  private commitTransform(
-    baseRegion: [number, number][][],
-    finalRegion: [number, number][][],
-  ): void {
+  /**
+   * Called every pointermove (when not actively dragging).
+   * Hit-tests all visible+unlocked dungeon layers and updates hoveredId + hoverGraphics.
+   */
+  private updateHover(worldPoint: Point): void {
     const store = useStore.getState();
-    const activeLayerId = store.ui.activeLayerId;
-    const activeLayer = store.layers.find(
-      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
+    const dungeonLayers = store.layers.filter(
+      (l): l is DungeonLayer => l.type === 'dungeon' && l.visible && !l.locked,
     );
-    if (!activeLayer) {
-      this.state = 'SELECTED';
+    const pt: [number, number] = [worldPoint.x, worldPoint.y];
+    const hit = hitTestAllLayers(dungeonLayers, pt);
+    const newHoveredId = hit?.child.id ?? null;
+
+    // Only update store if value changed (avoid spurious re-renders)
+    if (store.selection.hoveredId !== newHoveredId) {
+      store.setHoveredId(newHoveredId);
+    }
+
+    this.drawHoverHighlight(hit?.child ?? null);
+  }
+
+  /**
+   * Redraws the hover highlight graphics for the given child.
+   * Runs in screen-space (overlay container is not camera-transformed).
+   */
+  private drawHoverHighlight(child: AnyChild | null): void {
+    const g = this.hoverGraphics;
+    g.clear();
+    if (!child) return;
+
+    g.setStrokeStyle({ color: HOVER_COLOR, alpha: HOVER_ALPHA, width: HOVER_WIDTH });
+
+    switch (child.childType) {
+      case 'shape': {
+        // Transform shape points to screen space
+        let pts = child.points;
+        if (child.transform) {
+          const t = child.transform;
+          const cos = Math.cos(t.rotate);
+          const sin = Math.sin(t.rotate);
+          pts = pts.map(([px, py]): [number, number] => {
+            const sx = px * t.scale[0];
+            const sy = py * t.scale[1];
+            return [
+              cos * sx - sin * sy + t.translate[0],
+              sin * sx + cos * sy + t.translate[1],
+            ];
+          });
+        }
+        const screenPts = pts.map(([wx, wy]) => this.engine.worldToScreen(wx, wy));
+        if (screenPts.length < 2) return;
+        g.moveTo(screenPts[0].x, screenPts[0].y);
+        for (let i = 1; i < screenPts.length; i++) g.lineTo(screenPts[i].x, screenPts[i].y);
+        g.closePath();
+        g.stroke();
+        break;
+      }
+      case 'asset': {
+        const halfW = (child.width * child.scale) / 2;
+        const halfH = (child.height * child.scale) / 2;
+        // Four corners in world space (unrotated first, then rotate)
+        const corners: [number, number][] = [
+          [-halfW, -halfH],
+          [halfW, -halfH],
+          [halfW, halfH],
+          [-halfW, halfH],
+        ].map(([lx, ly]): [number, number] => {
+          if (child.rotation !== 0) {
+            const cos = Math.cos(child.rotation);
+            const sin = Math.sin(child.rotation);
+            return [
+              lx * cos - ly * sin + child.position.x,
+              lx * sin + ly * cos + child.position.y,
+            ];
+          }
+          return [lx + child.position.x, ly + child.position.y];
+        });
+        const screenPts = corners.map(([wx, wy]) => this.engine.worldToScreen(wx, wy));
+        g.moveTo(screenPts[0].x, screenPts[0].y);
+        for (let i = 1; i < screenPts.length; i++) g.lineTo(screenPts[i].x, screenPts[i].y);
+        g.closePath();
+        g.stroke();
+        break;
+      }
+      case 'light': {
+        const center = this.engine.worldToScreen(child.position.x, child.position.y);
+        const edgePt = this.engine.worldToScreen(child.position.x + 0.5, child.position.y);
+        const radiusPx = edgePt.x - center.x;
+        g.circle(center.x, center.y, Math.max(radiusPx, 6));
+        g.stroke();
+        break;
+      }
+    }
+  }
+
+  // ─── Box-drag selection ───────────────────────────────────────────────────
+
+  private finishBoxSelection(start: Point, end: Point, event?: PointerEvent): void {
+    this.startPoint = null;
+    this.currentPoint = null;
+
+    const dx = Math.abs(end.x - start.x);
+    const dy = Math.abs(end.y - start.y);
+
+    const store = useStore.getState();
+    const dungeonLayers = store.layers.filter(
+      (l): l is DungeonLayer => l.type === 'dungeon' && l.visible && !l.locked,
+    );
+
+    // Tiny drag → treat as click
+    if (dx < 0.01 && dy < 0.01) {
+      // Single click with no hit was handled in onPointerDown already
+      this.state = 'IDLE';
       return;
     }
 
-    const prevFloor = activeLayer.mergedFloor ?? [];
-    // Use the original selection rectangle for the cut — NOT the intersection-
-    // derived baseRegion. The selRect has exact user-drawn coordinates (snapped
-    // to grid), so difference(floor, selRect) always produces clean edges.
-    // The intersection-derived coords have Clipper2 precision drift that causes
-    // micro-strips and healed holes.
-    const cutShape = this.selectionRect ? [this.selectionRect] : [baseRegion.flat()];
-    const withoutSelected = clipper2Engine.difference(prevFloor, cutShape) as [number, number][][];
-    const newFloor = clipper2Engine.union(withoutSelected, finalRegion) as [number, number][][];
+    const minX = Math.min(start.x, end.x);
+    const maxX = Math.max(start.x, end.x);
+    const minY = Math.min(start.y, end.y);
+    const maxY = Math.max(start.y, end.y);
+    const dragRect = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 
-    undoManager.execute(
-      new SelectionMoveCommand(activeLayerId, activeLayer.mergedFloor, newFloor),
-    );
+    const collected: string[] = [];
+    for (const layer of dungeonLayers) {
+      for (const child of layer.children) {
+        if (!child.visible) continue;
+        const bounds = getChildBounds(child);
+        if (boundsIntersect(bounds, dragRect)) {
+          collected.push(child.id);
+        }
+      }
+    }
 
-    store.setSelectedRegion(finalRegion);
-    this.overlay.drawSelection(finalRegion);
-    this.state = 'SELECTED';
-  }
-
-  private createGizmo(): void {
-    this.destroyGizmo();
-    this.gizmo = new TransformGizmo();
-    this.overlayContainer.addChild(this.gizmo.container);
-    this.updateGizmo();
-  }
-
-  private destroyGizmo(): void {
-    if (this.gizmo) {
-      this.gizmo.destroy();
-      this.gizmo = null;
+    if (collected.length > 0) {
+      if (event?.shiftKey) {
+        const merged = [...new Set([...store.selection.selectedIds, ...collected])];
+        store.setSelectedIds(merged);
+      } else {
+        store.setSelectedIds(collected);
+      }
+      this.state = 'SELECTED';
+      this.createGizmo();
+    } else {
+      store.setSelectedIds([]);
+      this.state = 'IDLE';
     }
   }
 
-  private deleteSelection(): void {
-    const store = useStore.getState();
-    const region = store.selection.selectedRegion;
-    if (!region) return;
-    const activeLayerId = store.ui.activeLayerId;
-    const activeLayer = store.layers.find(
-      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
-    );
-    if (!activeLayer) return;
+  // ─── Legacy region-cut selection (Alt+drag) ───────────────────────────────
 
-    const prevFloor = activeLayer.mergedFloor;
-    undoManager.execute(new CutCommand(activeLayerId, prevFloor, region));
-    store.setSelectedRegion(null);
-    this.overlay.clear();
-    this.destroyGizmo();
-    this.state = 'IDLE';
-  }
-
-  private finishSelection(start: Point, end: Point): void {
+  private finishRegionSelection(start: Point, end: Point): void {
     this.startPoint = null;
     this.currentPoint = null;
 
@@ -382,6 +586,7 @@ export class SelectTool implements DrawingTool {
     const dy = Math.abs(end.y - start.y);
     if (dx < 0.01 && dy < 0.01) {
       this.state = 'IDLE';
+      this.altDragMode = false;
       return;
     }
 
@@ -392,6 +597,7 @@ export class SelectTool implements DrawingTool {
     );
     if (!activeLayer?.mergedFloor) {
       this.state = 'IDLE';
+      this.altDragMode = false;
       return;
     }
 
@@ -414,6 +620,7 @@ export class SelectTool implements DrawingTool {
     if (selectedRegion.length === 0) {
       this.selectionRect = null;
       this.state = 'IDLE';
+      this.altDragMode = false;
       return;
     }
 
@@ -422,4 +629,142 @@ export class SelectTool implements DrawingTool {
     this.state = 'SELECTED';
     this.createGizmo();
   }
+
+  // ─── Legacy region-cut transform commit ───────────────────────────────────
+
+  private commitRegionTransform(
+    baseRegion: [number, number][][],
+    finalRegion: [number, number][][],
+  ): void {
+    const store = useStore.getState();
+    const activeLayerId = store.ui.activeLayerId;
+    const activeLayer = store.layers.find(
+      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
+    );
+    if (!activeLayer) {
+      this.state = 'SELECTED';
+      return;
+    }
+
+    const prevFloor = activeLayer.mergedFloor ?? [];
+    // Use the exact user-drawn selection rect for the cut (avoids Clipper2 precision drift)
+    const cutShape = this.selectionRect ? [this.selectionRect] : [baseRegion.flat()];
+    const withoutSelected = clipper2Engine.difference(prevFloor, cutShape) as [number, number][][];
+    const newFloor = clipper2Engine.union(withoutSelected, finalRegion) as [number, number][][];
+
+    // TODO: wrap in a proper RegionMoveCommand for undo/redo once that command is added
+    // TODO: wrap in a proper RegionMoveCommand for undo/redo once that command is added
+    store.updateLayer(activeLayerId, { mergedFloor: newFloor } as Partial<DungeonLayer>);
+    store.setSelectedRegion(finalRegion);
+    this.overlay.drawSelection(finalRegion);
+    this.state = 'SELECTED';
+  }
+
+  private applyTranslate(
+    region: [number, number][][],
+    screenDx: number,
+    screenDy: number,
+  ): [number, number][][] {
+    const zoom = this.engine.stage().scale.x;
+    const worldDx = screenDx / zoom;
+    const worldDy = screenDy / zoom;
+    return region.map((poly) =>
+      poly.map(([px, py]): [number, number] => [px + worldDx, py + worldDy]),
+    );
+  }
+
+  private applyFullTransform(
+    region: [number, number][][],
+    delta: { translateX: number; translateY: number; scaleX: number; scaleY: number; rotation: number },
+  ): [number, number][][] {
+    const zoom = this.engine.stage().scale.x;
+    const worldDx = delta.translateX / zoom;
+    const worldDy = delta.translateY / zoom;
+
+    const allPoints = region.flat();
+    const bbox = computeBoundingBox(allPoints);
+    const cx = bbox.x + bbox.width / 2;
+    const cy = bbox.y + bbox.height / 2;
+
+    const cos = Math.cos(delta.rotation);
+    const sin = Math.sin(delta.rotation);
+
+    return region.map((poly) =>
+      poly.map(([px, py]): [number, number] => {
+        const sx = cx + (px - cx) * delta.scaleX;
+        const sy = cy + (py - cy) * delta.scaleY;
+        const dx = sx - cx;
+        const dy = sy - cy;
+        const rx = cx + dx * cos - dy * sin;
+        const ry = cy + dx * sin + dy * cos;
+        return [rx + worldDx, ry + worldDy];
+      }),
+    );
+  }
+
+  // ─── Delete ───────────────────────────────────────────────────────────────
+
+  private deleteSelection(): void {
+    const store = useStore.getState();
+
+    // Object selection: handled by Delete shortcut elsewhere; clear for now
+    if (store.selection.selectedIds.length > 0) {
+      store.setSelectedIds([]);
+      this.destroyGizmo();
+      this.state = 'IDLE';
+      return;
+    }
+
+    // Legacy region-cut delete
+    const region = store.selection.selectedRegion;
+    if (!region) return;
+    const activeLayerId = store.ui.activeLayerId;
+    const activeLayer = store.layers.find(
+      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
+    );
+    if (!activeLayer) return;
+
+    const prevFloor = activeLayer.mergedFloor ?? [];
+    // TODO: wrap in a RegionCutCommand for undo/redo once that command is added
+    const newFloor = clipper2Engine.difference(prevFloor, region) as [number, number][][];
+    store.updateLayer(activeLayerId, { mergedFloor: newFloor } as Partial<DungeonLayer>);
+    store.setSelectedRegion(null);
+    this.overlay.clear();
+    this.destroyGizmo();
+    this.state = 'IDLE';
+    this.altDragMode = false;
+  }
+
+  // ─── Gizmo lifecycle ──────────────────────────────────────────────────────
+
+  private createGizmo(): void {
+    this.destroyGizmo();
+    this.gizmo = new TransformGizmo();
+    this.overlayContainer.addChild(this.gizmo.container);
+    this.updateGizmo();
+  }
+
+  private destroyGizmo(): void {
+    if (this.gizmo) {
+      this.gizmo.destroy();
+      this.gizmo = null;
+    }
+  }
+
+  // ─── Helpers ─────────────────────────────────────────────────────────────
+
+  /** Resolves selected IDs to their AnyChild objects across all dungeon layers. */
+  private resolveSelectedChildren(ids: string[], layers: DungeonLayer[]): AnyChild[] {
+    const result: AnyChild[] = [];
+    const idSet = new Set(ids);
+    for (const layer of layers) {
+      for (const child of layer.children) {
+        if (idSet.has(child.id)) result.push(child);
+      }
+    }
+    return result;
+  }
 }
+
+// Re-export hit test helpers for consumers that import from this module
+export { pointInShape, pointInAsset, pointInLight };

@@ -8,7 +8,7 @@
  */
 
 import { Container, Graphics } from 'pixi.js';
-import type { ShapeRecord, DungeonLayer } from '@/store/types';
+import type { ShapeChild, DungeonLayer } from '@/store/types';
 import { clipper2Engine } from '@/geometry/Clipper2Engine';
 import type { Polygon } from '@/types/geometry';
 
@@ -47,7 +47,7 @@ function parseColor(hex: string): number {
  * Resolve the effective texture identity for a shape.
  * Shapes without a textureId are considered "solid color" (null).
  */
-function shapeTextureKey(shape: ShapeRecord): string | null {
+function shapeTextureKey(shape: ShapeChild): string | null {
   return shape.textureId ?? null;
 }
 
@@ -69,7 +69,7 @@ export interface TransitionStrip {
  *    c. Intersect the inflated regions — this gives the transition strip
  */
 export function detectEdgeTransitions(
-  shapes: ShapeRecord[],
+  shapes: ShapeChild[],
   transitionWidth: number,
 ): TransitionStrip[] {
   if (shapes.length < 2 || transitionWidth <= 0) return [];
@@ -127,9 +127,10 @@ export function renderEdgeTransitions(
 ): void {
   const s = layer.style;
   if (!s.showEdgeTransitions || s.edgeTransitionWidth <= 0) return;
-  if (layer.shapes.length < 2) return;
+  const shapeChildren = layer.children.filter((c): c is ShapeChild => c.childType === 'shape');
+  if (shapeChildren.length < 2) return;
 
-  const strips = detectEdgeTransitions(layer.shapes, s.edgeTransitionWidth);
+  const strips = detectEdgeTransitions(shapeChildren, s.edgeTransitionWidth);
   if (strips.length === 0) return;
 
   for (const strip of strips) {

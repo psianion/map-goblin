@@ -1,4 +1,4 @@
-import type { Light, DungeonLayer } from '@/store/types'
+import type { LightChild, DungeonLayer } from '@/store/types'
 import type { VisibilityVertex } from './ClockwiseSweep'
 import { clockwiseSweep } from './ClockwiseSweep'
 import { SegmentQuadtree } from './SegmentQuadtree'
@@ -6,22 +6,22 @@ import { extractWallSegments } from './raycaster'
 import type { Segment } from './raycaster'
 
 export class LightManager {
-  private lights: Light[] = []
+  private lights: LightChild[] = []
   private shadowCache = new Map<string, VisibilityVertex[]>()
   private dirtySet = new Set<string>()
   private wallSegments: Segment[] = []
   private quadtree = new SegmentQuadtree()
   private wallsDirty = true
 
-  getLights(): Light[] {
+  getLights(): LightChild[] {
     return this.lights
   }
 
-  getVisibleLights(): Light[] {
+  getVisibleLights(): LightChild[] {
     return this.lights.filter((l) => l.visible !== false)
   }
 
-  syncFromStore(newLights: Light[]): void {
+  syncFromStore(newLights: LightChild[]): void {
     const prevMap = new Map(this.lights.map((l) => [l.id, l]))
     const newIds = new Set(newLights.map((l) => l.id))
 
@@ -81,7 +81,7 @@ export class LightManager {
     this.wallsDirty = false
   }
 
-  getOrComputePolygon(light: Light): VisibilityVertex[] {
+  getOrComputePolygon(light: LightChild): VisibilityVertex[] {
     const cached = this.shadowCache.get(light.id)
     if (cached && !this.dirtySet.has(light.id)) {
       return cached

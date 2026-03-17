@@ -1,11 +1,11 @@
 import { Container, Graphics, Texture, TilingSprite } from 'pixi.js';
-import type { DungeonLayer, ShapeRecord } from '@/store/types';
+import type { DungeonLayer, ShapeChild } from '@/store/types';
 import type { LayerEntry } from './sceneGraph';
 import type { Polygon } from '@/types/geometry';
 import { clipper2Engine } from '@/geometry/Clipper2Engine';
 import { useStore } from '@/store/store';
 import * as textureLoader from '@/assets/textureLoader';
-import { rebuildPathsSublayer, preloadPathTextures } from './splineRenderer';
+import { preloadPathTextures } from './splineRenderer';
 import { renderEdgeTransitions } from './edgeTransitions';
 import { renderTexturedWalls } from './wallTextureRenderer';
 
@@ -168,7 +168,7 @@ const PX_PER_GRID_CELL = 200;
  */
 function renderTexturedShape(
   parent: Container,
-  shape: ShapeRecord,
+  shape: ShapeChild,
   texture: Texture,
 ): void {
   const { minX, minY, maxX, maxY } = polygonBounds(shape.points);
@@ -220,7 +220,7 @@ function renderTexturedShape(
  */
 function renderSolidShape(
   parent: Container,
-  shape: ShapeRecord,
+  shape: ShapeChild,
   color: number,
 ): void {
   const g = new Graphics();
@@ -236,9 +236,9 @@ function renderSolidShape(
  */
 export function preloadLayerTextures(layer: DungeonLayer): Promise<boolean> {
   const promises: Promise<unknown>[] = [];
-  for (const shape of layer.shapes) {
-    if (shape.textureId && !textureLoader.getSync(shape.textureId)) {
-      promises.push(textureLoader.load(shape.textureId).catch(() => {}));
+  for (const child of layer.children) {
+    if (child.childType === 'shape' && child.textureId && !textureLoader.getSync(child.textureId)) {
+      promises.push(textureLoader.load(child.textureId).catch(() => {}));
     }
   }
   promises.push(...preloadPathTextures(layer));
@@ -264,8 +264,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   for (const child of hatching.removeChildren()) child.destroy();
   for (const child of walls.removeChildren()) child.destroy();
 
-  // Always rebuild paths sublayer — paths render independently of floor shapes
-  rebuildPathsSublayer(layer, entry.sublayers.paths);
+  // paths sublayer removed in v2.0 model — spline paths are no longer separate
 
   const polygons = layer.mergedFloor;
   if (!polygons || polygons.length === 0) return;
@@ -280,11 +279,12 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // A mergedFloor mask on the floor container clips everything to handle
   // erase holes automatically.
 
-  const hasTexturedShapes = layer.shapes.some((sh) => sh.textureId);
+  const shapeChildren = layer.children.filter((c): c is ShapeChild => c.childType === 'shape');
+  const hasTexturedShapes = shapeChildren.some((sh) => sh.textureId);
 
   if (hasTexturedShapes) {
     // Per-shape rendering: iterate back-to-front (array order = render order)
-    for (const shape of layer.shapes) {
+    for (const shape of shapeChildren) {
       if (shape.points.length < 3) continue;
 
       if (shape.textureId) {

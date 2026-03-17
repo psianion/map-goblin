@@ -1,10 +1,16 @@
 import type { Point } from '@/types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '@/store/store';
-import { DrawShapeCommand } from '@/store/commands';
+import { AddChildCommand, RemoveChildCommand, CompositeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { clipper2Engine } from '@/geometry/Clipper2Engine';
-import type { DungeonLayer } from '@/store/types';
+import type { DungeonLayer, ShapeChild } from '@/store/types';
+
+function countShapesOfType(layer: DungeonLayer, shapeType: string): number {
+  return layer.children.filter(
+    (c) => c.childType === 'shape' && c.shapeType === shapeType,
+  ).length;
+}
 
 export class RectangleTool implements DrawingTool {
   readonly type = 'rectangle' as const;
@@ -49,44 +55,51 @@ export class RectangleTool implements DrawingTool {
       [start.x, end.y],
     ];
 
-    const prevFloor = activeLayer.mergedFloor;
     const isErase = store.tools.eraseMode;
 
-    let newFloor: [number, number][][] | null;
     if (isErase) {
-      // Erase: subtract rectangle from existing floor via Clipper2 boolean difference.
-      // The stub implementation returns subjects unchanged — will work once Clipper2 is installed.
-      newFloor = clipper2Engine.difference(prevFloor ?? [], [rectPoly]) as [number, number][][];
+      // Erase: remove all shapes whose points are entirely inside the rectangle
+      // by issuing RemoveChildCommand for each intersecting shape child.
+      const shapesToRemove = activeLayer.children.filter((c) => {
+        if (c.childType !== 'shape') return false;
+        const merged = clipper2Engine.intersection([c.points as [number, number][]], [rectPoly]);
+        return merged.length > 0;
+      });
+
+      if (shapesToRemove.length === 0) return;
+
+      const commands = shapesToRemove.map(
+        (c) => new RemoveChildCommand('Erase rectangle', activeLayerId, c.id),
+      );
+      undoManager.execute(
+        commands.length === 1
+          ? commands[0]
+          : new CompositeCommand('Erase rectangle', commands),
+      );
     } else {
-      // Draw: union new rectangle into existing floor via Clipper2 boolean union
-      newFloor = clipper2Engine.union(prevFloor ?? [], [rectPoly]) as [number, number][][];
+      const lastTextured = [...activeLayer.children]
+        .reverse()
+        .find((c): c is ShapeChild => c.childType === 'shape' && !!c.textureId) as ShapeChild | undefined;
+
+      const child: ShapeChild = {
+        id: crypto.randomUUID(),
+        name: `Rectangle ${countShapesOfType(activeLayer, 'rectangle') + 1}`,
+        childType: 'shape',
+        visible: true,
+        shapeType: 'rectangle',
+        points: rectPoly,
+        roughnessEnabled: store.tools.roughMode,
+        roughnessAmplitude: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,
+        textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,
+        textureScale: lastTextured?.textureScale ?? 1,
+        textureOffsetX: 0,
+        textureOffsetY: 0,
+        textureFillRotation: 0,
+        textureTint: lastTextured?.textureTint ?? '#ffffff',
+      };
+
+      undoManager.execute(new AddChildCommand('Draw rectangle', activeLayerId, child));
     }
-
-    const lastTextured = [...activeLayer.shapes].reverse().find((s) => s.textureId);
-    const shapeRecord = {
-      id: crypto.randomUUID(),
-      type: 'rectangle' as const,
-      points: rectPoly,
-      roughnessEnabled: store.tools.roughMode,
-      roughnessAmplitude: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,
-      textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,
-      textureScale: lastTextured?.textureScale ?? 0.25,
-      textureOffsetX: 0,
-      textureOffsetY: 0,
-      textureFillRotation: 0,
-      textureTint: lastTextured?.textureTint ?? '#ffffff',
-    };
-
-    undoManager.execute(
-      new DrawShapeCommand(
-        isErase ? 'Erase rectangle' : 'Draw rectangle',
-        activeLayerId,
-        prevFloor,
-        newFloor,
-        isErase ? null : shapeRecord,
-        isErase,
-      ),
-    );
   }
 
   onKeyDown(event: KeyboardEvent): void {

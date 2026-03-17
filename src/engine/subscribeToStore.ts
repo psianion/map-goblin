@@ -12,7 +12,7 @@ import type { RenderEngine } from './RenderEngine';
 import { markDirty as markRenderCacheDirty } from './renderCache';
 import { rebuildDungeonLayer, preloadLayerTextures } from './floorWallRenderer';
 import { preloadWallTextures } from './wallTextureRenderer';
-import type { DungeonLayer } from '@/store/types';
+import type { DungeonLayer, LightChild } from '@/store/types';
 import { LightManager } from './lighting';
 
 /**
@@ -111,11 +111,9 @@ export function subscribeToStore(
         .filter((l): l is DungeonLayer => l.type === 'dungeon')
         .map((l) => ({
           id: l.id,
-          shapeCount: l.shapes.length,
+          shapeCount: l.children.filter((c) => c.childType === 'shape').length,
           wallCount: l.standaloneWalls.length,
           mergedFloor: l.mergedFloor,
-          pathCount: l.paths.length,
-          paths: l.paths,
         })),
     (dungeonLayers) => {
       for (const { id } of dungeonLayers) {
@@ -144,7 +142,10 @@ export function subscribeToStore(
 
   // ─── Light changes → LightManager sync ───────────────────
   const unsubLights = useStore.subscribe(
-    (state) => state.lights,
+    (state) =>
+      state.layers
+        .filter((l): l is DungeonLayer => l.type === 'dungeon')
+        .flatMap((l) => l.children.filter((c): c is LightChild => c.childType === 'light')),
     (lights) => {
       lightManager.syncFromStore(lights);
     },

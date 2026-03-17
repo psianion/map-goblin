@@ -1,17 +1,18 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { LightManager } from './LightManager'
-import type { Light } from '@/store/types'
+import type { LightChild } from '@/store/types'
 
-const mockLight = (overrides?: Partial<Light>): Light => ({
+const mockLight = (overrides?: Partial<LightChild>): LightChild => ({
   id: 'l1',
+  childType: 'light',
+  name: 'Test Light',
+  visible: true,
   position: { x: 100, y: 100 },
   color: '#ffffff',
   radius: 200,
   featherRadius: 100,
   intensity: 1,
   falloff: 'linear',
-  name: 'Test Light',
-  visible: true,
   ...overrides,
 })
 

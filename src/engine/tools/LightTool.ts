@@ -1,18 +1,42 @@
 import type { Point } from '@/types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
-import { createLight } from '@/store/factories';
-import { PlaceLightCommand } from '@/store/commands';
+import { AddChildCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { useStore } from '@/store/store';
+import type { LightChild, DungeonLayer } from '@/store/types';
+
+function countLightsInLayer(layer: DungeonLayer): number {
+  return layer.children.filter((c) => c.childType === 'light').length;
+}
 
 export class LightTool implements DrawingTool {
   readonly type = 'light' as const;
   private cursorPoint: Point | null = null;
 
   onPointerDown(point: Point): void {
-    const defaults = useStore.getState().tools.settings.lightDefaults;
-    const light = createLight({ x: point.x, y: point.y }, defaults);
-    undoManager.execute(new PlaceLightCommand(light));
+    const store = useStore.getState();
+    const activeLayerId = store.ui.activeLayerId;
+    const activeLayer = store.layers.find(
+      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
+    );
+    if (!activeLayer) return;
+
+    const defaults = store.tools.settings.lightDefaults;
+
+    const child: LightChild = {
+      id: crypto.randomUUID(),
+      name: `Light ${countLightsInLayer(activeLayer) + 1}`,
+      childType: 'light',
+      visible: true,
+      color: defaults.color,
+      radius: defaults.radius,
+      featherRadius: defaults.featherRadius,
+      intensity: defaults.intensity,
+      falloff: defaults.falloff,
+      position: { x: point.x, y: point.y },
+    };
+
+    undoManager.execute(new AddChildCommand('Place light', activeLayerId, child));
   }
 
   onPointerMove(point: Point): void {

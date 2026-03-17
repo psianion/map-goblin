@@ -4,8 +4,9 @@
 import { saveMap } from '@/io/saveLoad';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
-import { PasteCommand, CutCommand } from '@/store/commands';
-import type { DungeonLayer } from '@/store/types';
+import { AddChildCommand, RemoveChildCommand, CompositeCommand } from '@/store/commands';
+import type { AnyChild, DungeonLayer } from '@/store/types';
+import { selectLayerForChild } from '@/store/selectors';
 import { togglePopoverRef } from '@/components/toolbar/toolConstants';
 
 /** Set by App.tsx so the shortcut system can trigger the file picker */
@@ -103,24 +104,64 @@ const toolKeyMap: Record<string, () => void | false> = {
   },
   'ctrl+c': (): void | false => {
     const store = useStore.getState();
-    if (store.tools.activeTool !== 'select' || !store.selection.selectedRegion) return false;
-    const region = store.selection.selectedRegion;
-    const layer = store.layers.find(
-      (l): l is DungeonLayer => l.id === store.ui.activeLayerId && l.type === 'dungeon',
-    );
-    if (layer) store.setClipboard({ region, style: { ...layer.style } });
+    if (store.tools.activeTool !== 'select') return false;
+
+    // Object-based copy: copy selected children
+    if (store.selection.selectedIds.length > 0) {
+      const children = store.selection.selectedIds
+        .map((id) => {
+          for (const layer of store.layers) {
+            if (layer.type !== 'dungeon') continue;
+            const child = layer.children.find((c) => c.id === id);
+            if (child) return structuredClone(child);
+          }
+          return undefined;
+        })
+        .filter(Boolean);
+      if (children.length > 0) {
+        store.setClipboard({ children: children as AnyChild[] });
+      }
+      return;
+    }
+
+    // Region-based copy (Alt+drag legacy)
+    if (store.selection.selectedRegion) {
+      const region = store.selection.selectedRegion;
+      const layer = store.layers.find(
+        (l): l is DungeonLayer => l.id === store.ui.activeLayerId && l.type === 'dungeon',
+      );
+      if (layer) store.setRegionClipboard({ region, style: { ...layer.style } });
+    }
   },
   'ctrl+v': (): void | false => {
     const store = useStore.getState();
-    const clipboard = store.selection.clipboard;
-    if (!clipboard) return false;
-    const activeLayerId = store.ui.activeLayerId;
-    const layer = store.layers.find(
-      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
-    );
-    if (!layer) return;
-    undoManager.execute(new PasteCommand(activeLayerId, layer.mergedFloor, clipboard.region));
-    store.setSelectedRegion(null);
+
+    // Object-based paste: duplicate children with new IDs
+    if (store.selection.clipboard && store.selection.clipboard.children.length > 0) {
+      const activeLayerId = store.ui.activeLayerId;
+      const cmds = store.selection.clipboard.children.map((child) => {
+        const newChild = structuredClone(child);
+        newChild.id = crypto.randomUUID();
+        newChild.name = `${child.name} (copy)`;
+        if ('position' in newChild) {
+          (newChild as AnyChild & { position: { x: number; y: number } }).position = {
+            x: (newChild as AnyChild & { position: { x: number; y: number } }).position.x + 1,
+            y: (newChild as AnyChild & { position: { x: number; y: number } }).position.y + 1,
+          };
+        } else if ('transform' in newChild && newChild.transform) {
+          newChild.transform.translate = [
+            newChild.transform.translate[0] + 1,
+            newChild.transform.translate[1] + 1,
+          ];
+        }
+        return new AddChildCommand('Paste child', activeLayerId, newChild);
+      });
+      undoManager.execute(new CompositeCommand('Paste', cmds));
+      return;
+    }
+
+    // Region-based paste not implemented in v2.0
+    return false;
   },
   'ctrl+i': () => {
     importImageRef.current?.();
@@ -133,16 +174,61 @@ const toolKeyMap: Record<string, () => void | false> = {
   },
   'ctrl+x': (): void | false => {
     const store = useStore.getState();
-    if (store.tools.activeTool !== 'select' || !store.selection.selectedRegion) return false;
-    const region = store.selection.selectedRegion;
-    const activeLayerId = store.ui.activeLayerId;
-    const layer = store.layers.find(
-      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
-    );
-    if (!layer) return;
-    store.setClipboard({ region, style: { ...layer.style } });
-    undoManager.execute(new CutCommand(activeLayerId, layer.mergedFloor, region));
-    store.setSelectedRegion(null);
+    if (store.tools.activeTool !== 'select') return false;
+
+    // Object-based cut: copy then delete
+    if (store.selection.selectedIds.length > 0) {
+      // Copy first
+      const children = store.selection.selectedIds
+        .map((id) => {
+          for (const layer of store.layers) {
+            if (layer.type !== 'dungeon') continue;
+            const child = layer.children.find((c) => c.id === id);
+            if (child) return structuredClone(child);
+          }
+          return undefined;
+        })
+        .filter(Boolean);
+      if (children.length > 0) {
+        store.setClipboard({ children: children as AnyChild[] });
+      }
+
+      // Delete selected
+      const commands = store.selection.selectedIds.map((id) => {
+        const layer = selectLayerForChild(store, id);
+        return new RemoveChildCommand('Cut', layer?.id ?? '', id);
+      });
+      undoManager.execute(new CompositeCommand('Cut', commands));
+      store.setSelectedIds([]);
+      return;
+    }
+
+    // Region-based cut (Alt+drag legacy)
+    if (store.selection.selectedRegion) {
+      const region = store.selection.selectedRegion;
+      const activeLayerId = store.ui.activeLayerId;
+      const layer = store.layers.find(
+        (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
+      );
+      if (layer) {
+        store.setRegionClipboard({ region, style: { ...layer.style } });
+      }
+      store.setSelectedRegion(null);
+    }
+  },
+  Delete: (): void | false => {
+    const store = useStore.getState();
+    if (store.selection.selectedIds.length === 0) return false;
+
+    const delCmds = store.selection.selectedIds.map((id) => {
+      const layer = selectLayerForChild(store, id);
+      return new RemoveChildCommand('Delete', layer?.id ?? '', id);
+    });
+    undoManager.execute(new CompositeCommand('Delete selected', delCmds));
+    store.setSelectedIds([]);
+  },
+  Backspace: (): void | false => {
+    return toolKeyMap['Delete']?.() ?? false;
   },
 };
 
@@ -174,6 +260,7 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'edit.copy',           keys: 'ctrl+c',      category: 'Edit',  label: 'Copy' },
     { id: 'edit.paste',          keys: 'ctrl+v',      category: 'Edit',  label: 'Paste' },
     { id: 'edit.cut',            keys: 'ctrl+x',      category: 'Edit',  label: 'Cut' },
+    { id: 'edit.delete',         keys: 'Delete',      category: 'Edit',  label: 'Delete' },
     { id: 'view.focusMode',      keys: '`',           category: 'View',  label: 'Cycle Focus Mode' },
   ];
 }

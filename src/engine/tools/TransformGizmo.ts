@@ -6,6 +6,8 @@ import {
   constrainProportions,
   clampScale,
 } from './transformMath';
+import type { AnyChild } from '@/store/types';
+import { getChildBounds, unionChildBounds } from '@/engine/hitTest';
 
 export type HandleType =
   | 'nw' | 'n' | 'ne'
@@ -261,6 +263,22 @@ export class TransformGizmo {
 
   getOriginalRotation(): number {
     return this.originalRotation;
+  }
+
+  /**
+   * Returns the world-space AABB for a single child.
+   * Useful for callers that need per-child bounds without importing hitTest directly.
+   */
+  static getChildBounds(child: AnyChild): BoundingBox {
+    return getChildBounds(child);
+  }
+
+  /**
+   * Returns the union world-space AABB for multiple children.
+   * Returns null if the array is empty.
+   */
+  static unionChildBounds(children: AnyChild[]): BoundingBox | null {
+    return unionChildBounds(children);
   }
 
   destroy(): void {

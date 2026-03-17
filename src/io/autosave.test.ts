@@ -15,7 +15,7 @@ import {
 import type { SerializedMapData } from '@/store/types';
 
 const SAMPLE_DATA: SerializedMapData = {
-  version: '1.1',
+  version: '2.0',
   mapSettings: {
     name: 'Autosave Test',
     gridType: 'square',
@@ -24,8 +24,6 @@ const SAMPLE_DATA: SerializedMapData = {
   },
   grid: { visible: true, snapDivision: 2, style: 'clean' },
   layers: [],
-  lights: [],
-  placedObjects: [],
   customImages: {},
 };
 
@@ -82,6 +80,21 @@ describe('IndexedDB autosave', () => {
     expect(result).not.toBeNull();
     expect(result?.data.mapSettings.name).toBe('Autosave Test');
     expect(typeof result?.savedAt).toBe('number');
+  });
+
+  it('loadFromIndexedDB discards stale v1.x autosaves and returns null', async () => {
+    const staleData = {
+      version: '1.4',
+      mapSettings: { name: 'Old Map', gridType: 'square', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000' },
+      grid: { visible: true, snapDivision: 2, style: 'clean' },
+      layers: [],
+      lights: [],
+      placedObjects: [],
+      customImages: {},
+    };
+    await saveToIndexedDB(staleData as unknown as SerializedMapData);
+    const result = await loadFromIndexedDB();
+    expect(result).toBeNull();
   });
 
   it('saveToIndexedDB overwrites previous save', async () => {

@@ -1,11 +1,10 @@
 import type { Point } from '@/types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '@/store/store';
-import { ScatterPlaceCommand, ScatterEraseCommand } from '@/store/commands';
+import { AddChildCommand, RemoveChildCommand, CompositeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { poissonDiskSample } from '@/geometry/poissonDisk';
-import type { PlacedObject, ImagesLayer } from '@/store/types';
-import { createImagesLayer } from '@/store/factories';
+import type { AssetChild, DungeonLayer } from '@/store/types';
 
 const MAX_OBJECTS_PER_STROKE = 500;
 
@@ -14,15 +13,15 @@ export class ScatterBrushTool implements DrawingTool {
   private brushing = false;
   private lastSamplePoint: Point | null = null;
   private currentPoint: Point | null = null;
-  private placedObjects: PlacedObject[] = [];
-  private removedObjects: PlacedObject[] = [];
+  private placedChildren: AssetChild[] = [];
+  private removedChildIds: string[] = [];
 
   onPointerDown(point: Point): void {
     this.brushing = true;
     this.lastSamplePoint = point;
     this.currentPoint = point;
-    this.placedObjects = [];
-    this.removedObjects = [];
+    this.placedChildren = [];
+    this.removedChildIds = [];
 
     const store = useStore.getState();
     if (store.tools.eraseMode) {
@@ -39,7 +38,6 @@ export class ScatterBrushTool implements DrawingTool {
     const store = useStore.getState();
     const spacing = store.tools.settings.scatterBrush.spacing;
 
-    // Check if we've moved far enough for a new sample
     const dx = point.x - this.lastSamplePoint.x;
     const dy = point.y - this.lastSamplePoint.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -48,7 +46,7 @@ export class ScatterBrushTool implements DrawingTool {
       if (store.tools.eraseMode) {
         this.eraseAt(point);
       } else {
-        if (this.placedObjects.length < MAX_OBJECTS_PER_STROKE) {
+        if (this.placedChildren.length < MAX_OBJECTS_PER_STROKE) {
           this.sampleAt(point);
         }
       }
@@ -62,33 +60,40 @@ export class ScatterBrushTool implements DrawingTool {
     this.lastSamplePoint = null;
 
     const store = useStore.getState();
-    const imagesLayer = this.getImagesLayer();
-    if (!imagesLayer) return;
+    const activeLayerId = store.ui.activeLayerId;
+    const activeLayer = store.layers.find(
+      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
+    );
+    if (!activeLayer) return;
 
     if (store.tools.eraseMode) {
-      if (this.removedObjects.length > 0) {
-        // Re-add preview-removed objects so the command can cleanly remove them
-        for (const obj of this.removedObjects) {
-          store.addPlacedObject(imagesLayer.id, obj);
+      if (this.removedChildIds.length > 0) {
+        // Re-add preview-removed children so the commands can cleanly remove them
+        for (const childId of this.removedChildIds) {
+          const child = this._removedSnapshots.get(childId);
+          if (child) store.addChild(activeLayerId, child);
         }
-        undoManager.execute(
-          new ScatterEraseCommand(imagesLayer.id, [...this.removedObjects]),
+        const commands = this.removedChildIds.map(
+          (id) => new RemoveChildCommand('Scatter erase', activeLayerId, id),
         );
+        undoManager.execute(new CompositeCommand('Scatter erase', commands));
       }
     } else {
-      if (this.placedObjects.length > 0) {
-        // Remove preview-placed objects so the command can cleanly add them
-        for (const obj of this.placedObjects) {
-          store.removePlacedObject(imagesLayer.id, obj.id);
+      if (this.placedChildren.length > 0) {
+        // Remove preview-placed children so the commands can cleanly add them
+        for (const child of this.placedChildren) {
+          store.removeChild(activeLayerId, child.id);
         }
-        undoManager.execute(
-          new ScatterPlaceCommand(imagesLayer.id, [...this.placedObjects]),
+        const commands = this.placedChildren.map(
+          (c) => new AddChildCommand('Scatter place', activeLayerId, c),
         );
+        undoManager.execute(new CompositeCommand('Scatter place', commands));
       }
     }
 
-    this.placedObjects = [];
-    this.removedObjects = [];
+    this.placedChildren = [];
+    this.removedChildIds = [];
+    this._removedSnapshots.clear();
   }
 
   onKeyDown(event: KeyboardEvent): void {
@@ -99,7 +104,6 @@ export class ScatterBrushTool implements DrawingTool {
     if (!this.currentPoint) return null;
     const store = useStore.getState();
     const r = store.tools.settings.scatterBrush.brushRadius;
-    // Circle preview at cursor position
     return {
       type: 'circle',
       points: [this.currentPoint, { x: r, y: 0 }],
@@ -110,12 +114,25 @@ export class ScatterBrushTool implements DrawingTool {
     this.brushing = false;
     this.lastSamplePoint = null;
     this.currentPoint = null;
-    this.placedObjects = [];
-    this.removedObjects = [];
+    this.placedChildren = [];
+    this.removedChildIds = [];
+    this._removedSnapshots.clear();
   }
 
   isActive(): boolean {
     return this.brushing;
+  }
+
+  // Temporary store for removed child snapshots during a stroke (for re-add before command)
+  private _removedSnapshots = new Map<string, AssetChild>();
+
+  private getActiveDungeonLayer(): DungeonLayer | null {
+    const store = useStore.getState();
+    const activeLayerId = store.ui.activeLayerId;
+    const layer = store.layers.find(
+      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
+    );
+    return layer ?? null;
   }
 
   private sampleAt(center: Point): void {
@@ -124,8 +141,11 @@ export class ScatterBrushTool implements DrawingTool {
 
     if (settings.assetIds.length === 0) return;
 
-    const remaining = MAX_OBJECTS_PER_STROKE - this.placedObjects.length;
+    const remaining = MAX_OBJECTS_PER_STROKE - this.placedChildren.length;
     if (remaining <= 0) return;
+
+    const layer = this.getActiveDungeonLayer();
+    if (!layer) return;
 
     const points = poissonDiskSample(
       center,
@@ -134,17 +154,16 @@ export class ScatterBrushTool implements DrawingTool {
       remaining,
     );
 
-    const imagesLayer = this.getImagesLayer();
-    if (!imagesLayer) return;
-
     for (const pt of points) {
       const assetId = settings.assetIds[Math.floor(Math.random() * settings.assetIds.length)];
       const [minRot, maxRot] = settings.rotationRange;
       const [minScale, maxScale] = settings.scaleRange;
 
-      const obj: PlacedObject = {
+      const child: AssetChild = {
         id: crypto.randomUUID(),
-        layerId: imagesLayer.id,
+        name: 'Asset',
+        childType: 'asset',
+        visible: true,
         objectType: 'asset',
         assetId,
         position: { x: pt.x, y: pt.y },
@@ -153,51 +172,36 @@ export class ScatterBrushTool implements DrawingTool {
         width: 1,
         height: 1,
         tint: '#ffffff',
-        groupId: null,
         flipX: false,
         flipY: false,
       };
 
       // Immediately add to store for visual feedback
-      store.addPlacedObject(imagesLayer.id, obj);
-      this.placedObjects.push(obj);
+      store.addChild(layer.id, child);
+      this.placedChildren.push(child);
     }
   }
 
   private eraseAt(center: Point): void {
-    const imagesLayer = this.getImagesLayer();
-    if (!imagesLayer) return;
+    const layer = this.getActiveDungeonLayer();
+    if (!layer) return;
 
     const store = useStore.getState();
     const r = store.tools.settings.scatterBrush.brushRadius;
     const rSq = r * r;
 
-    // Find objects within brush radius
-    const toRemove = imagesLayer.objects.filter((obj) => {
-      // Skip already-removed objects in this stroke
-      if (this.removedObjects.some((ro) => ro.id === obj.id)) return false;
-      const dx = obj.position.x - center.x;
-      const dy = obj.position.y - center.y;
+    const toRemove = layer.children.filter((c): c is AssetChild => {
+      if (c.childType !== 'asset') return false;
+      if (this.removedChildIds.includes(c.id)) return false;
+      const dx = c.position.x - center.x;
+      const dy = c.position.y - center.y;
       return dx * dx + dy * dy <= rSq;
     });
 
-    for (const obj of toRemove) {
-      store.removePlacedObject(imagesLayer.id, obj.id);
-      this.removedObjects.push(obj);
+    for (const child of toRemove) {
+      this._removedSnapshots.set(child.id, child);
+      store.removeChild(layer.id, child.id);
+      this.removedChildIds.push(child.id);
     }
-  }
-
-  private getImagesLayer(): ImagesLayer {
-    const store = useStore.getState();
-    // Prefer active layer if it's images type
-    const activeLayer = store.layers.find((l) => l.id === store.ui.activeLayerId);
-    if (activeLayer?.type === 'images') return activeLayer as ImagesLayer;
-    // Fall back to first images layer
-    const existing = store.layers.find((l): l is ImagesLayer => l.type === 'images');
-    if (existing) return existing;
-    // Auto-create an images layer if none exists
-    const newLayer = createImagesLayer('Images');
-    store.addLayer(newLayer);
-    return newLayer;
   }
 }

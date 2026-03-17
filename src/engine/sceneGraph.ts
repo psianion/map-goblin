@@ -20,12 +20,11 @@ export interface DungeonSublayers {
   grid: Container;
   hatching: Container;
   walls: Container;
-  paths: Container;
 }
 
 export interface LayerEntry {
   id: string;
-  type: 'dungeon' | 'images' | 'background';
+  type: 'dungeon' | 'background';
   container: Container;
   sublayers: DungeonSublayers | null;
   /** RenderTexture for blend-mode isolation (dungeon layers only) */
@@ -109,7 +108,7 @@ export function addLayerToScene(
   _engine: RenderEngine,
   sceneGraph: SceneGraph,
   layerId: string,
-  layerType: 'dungeon' | 'images' | 'background',
+  layerType: 'dungeon' | 'background',
   index?: number,
 ): LayerEntry {
   const container = new Container();
@@ -121,9 +120,8 @@ export function addLayerToScene(
     const grid = new Container(); grid.label = 'sublayer-grid';
     const hatching = new Container(); hatching.label = 'sublayer-hatching';
     const walls = new Container(); walls.label = 'sublayer-walls';
-    const paths = new Container(); paths.label = 'sublayer-paths';
-    container.addChild(floor, grid, hatching, walls, paths);
-    sublayers = { floor, grid, hatching, walls, paths };
+    container.addChild(floor, grid, hatching, walls);
+    sublayers = { floor, grid, hatching, walls };
   }
 
   const renderTexture: RenderTexture | null = null;

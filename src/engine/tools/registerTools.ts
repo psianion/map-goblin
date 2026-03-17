@@ -11,8 +11,6 @@ import { ObjectTool } from './ObjectTool';
 import { LightTool } from './LightTool';
 import { AssetPlacementTool } from './AssetPlacementTool';
 import { ScatterBrushTool } from './ScatterBrushTool';
-import { SplinePathTool } from './SplinePathTool';
-
 export function registerAllTools(manager: ToolManager, worldContainer: Container, engine: RenderEngine): void {
   const selectTool = new SelectTool(engine);
   selectTool.overlay.setWorldToScreen((wx, wy) => engine.worldToScreen(wx, wy));
@@ -32,5 +30,4 @@ export function registerAllTools(manager: ToolManager, worldContainer: Container
   manager.registerTool(new LightTool());
   manager.registerTool(new AssetPlacementTool(worldContainer));
   manager.registerTool(new ScatterBrushTool());
-  manager.registerTool(new SplinePathTool());
 }

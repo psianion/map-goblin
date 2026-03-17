@@ -3,105 +3,109 @@ import { describe, it, expect } from 'vitest'
 import { migrateToLatest, CURRENT_VERSION } from './migration.ts'
 import type { SerializedMapData } from './types.ts'
 
+const V2_DATA: SerializedMapData = {
+  version: '2.0',
+  mapSettings: {
+    name: 'Test',
+    gridType: 'square',
+    cellScale: { value: 5, unit: 'ft' },
+    ambientLight: '#1a1a2e',
+  },
+  grid: { visible: true, snapDivision: 2, style: 'clean' },
+  layers: [],
+  customImages: {},
+}
+
 describe('migrateToLatest', () => {
-  it('exports CURRENT_VERSION as 1.1', () => {
-    expect(CURRENT_VERSION).toBe('1.4')
+  it('exports CURRENT_VERSION as 2.0', () => {
+    expect(CURRENT_VERSION).toBe('2.0')
   })
 
-  it('returns v1.1 data unchanged', () => {
+  it('returns v2.0 data unchanged (same reference)', () => {
+    const result = migrateToLatest(V2_DATA)
+    expect(result).toBe(V2_DATA)
+    expect(result.version).toBe('2.0')
+  })
+
+  it('v2.0 data with layers passes through intact', () => {
     const data: SerializedMapData = {
-      version: '1.1',
-      mapSettings: {
-        name: 'Test',
-        gridType: 'square',
-        cellScale: { value: 5, unit: 'ft' },
-        ambientLight: '#1a1a2e',
-      },
-      grid: { visible: true, snapDivision: 2, style: 'clean' },
-      layers: [],
-      lights: [],
-      placedObjects: [],
-      customImages: {},
+      ...V2_DATA,
+      layers: [
+        {
+          id: 'layer-1',
+          type: 'dungeon',
+          name: 'Ground Floor',
+          visible: true,
+          locked: false,
+          opacity: 1,
+          children: [],
+          style: {
+            floorColor: '#333',
+            wallColor: '#111',
+            wallWidth: 2,
+            shadowColor: '#000',
+            shadowOpacity: 0.5,
+            shadowOffsetX: 2,
+            shadowOffsetY: 2,
+            hatchingColor: '#555',
+            hatchingOpacity: 0.3,
+            hatchingSpacing: 8,
+            hatchingAngle: 45,
+            hatchingWidth: 1,
+            preset: 'default',
+            floorTexture: null,
+            wallTexture: null,
+            wallTextureTint: '#ffffff',
+            edgeTransitionWidth: 0.5,
+            showEdgeTransitions: true,
+          },
+        } as unknown as SerializedMapData['layers'][0],
+      ],
     }
     const result = migrateToLatest(data)
-    expect(result.version).toBe('1.4')
-    expect(result.placedObjects).toEqual([])
-    expect(result.customImages).toEqual({})
+    expect(result.version).toBe('2.0')
+    expect(result.layers).toHaveLength(1)
   })
 
-  it('migrates v1.0 data to v1.1 — adds placedObjects and customImages', () => {
-    const v10Data = {
-      version: '1.0',
-      mapSettings: {
-        name: 'Old Map',
-        gridType: 'square' as const,
-        cellScale: { value: 5, unit: 'ft' },
-        ambientLight: '#1a1a2e',
-      },
-      grid: { visible: true, snapDivision: 2 as const, style: 'clean' as const },
-      layers: [],
-      lights: [],
-    }
-    const result = migrateToLatest(v10Data as unknown as SerializedMapData)
-    expect(result.version).toBe('1.4')
-    expect(result.placedObjects).toEqual([])
-    expect(result.customImages).toEqual({})
+  it('throws for v1.4 data', () => {
+    const oldData = { ...V2_DATA, version: '1.4' }
+    expect(() => migrateToLatest(oldData as unknown as SerializedMapData)).toThrow(
+      /cannot open files from version/i,
+    )
   })
 
-  it('migrates v1.0 lights — adds default name and visible fields', () => {
-    const v10Data = {
-      version: '1.0',
-      mapSettings: {
-        name: 'Torch Map',
-        gridType: 'square' as const,
-        cellScale: { value: 5, unit: 'ft' },
-        ambientLight: '#000000',
-      },
-      grid: { visible: true, snapDivision: 1 as const, style: 'dotted' as const },
-      layers: [],
-      lights: [
-        { id: 'l1', position: { x: 0, y: 0 }, color: '#fff', radius: 5, intensity: 1, falloff: 'linear' },
-      ],
-    }
-    const result = migrateToLatest(v10Data as unknown as SerializedMapData)
-    const light = result.lights[0]
-    expect(light.name).toBe('Light')
-    expect(light.visible).toBe(true)
+  it('throws for v1.3 data', () => {
+    const oldData = { ...V2_DATA, version: '1.3' }
+    expect(() => migrateToLatest(oldData as unknown as SerializedMapData)).toThrow(
+      /cannot open files from version/i,
+    )
   })
 
-  it('migrates v1.0 lights — preserves existing name and visible values', () => {
-    const v10Data = {
-      version: '1.0',
-      mapSettings: {
-        name: 'Named Lights',
-        gridType: 'square' as const,
-        cellScale: { value: 5, unit: 'ft' },
-        ambientLight: '#000000',
-      },
-      grid: { visible: true, snapDivision: 1 as const, style: 'dotted' as const },
-      layers: [],
-      lights: [
-        {
-          id: 'l1',
-          position: { x: 0, y: 0 },
-          color: '#fff',
-          radius: 5,
-          intensity: 1,
-          falloff: 'linear' as const,
-          name: 'Torch',  // pre-existing name — should NOT be overwritten
-          visible: false, // pre-existing visible — should NOT be overwritten
-        },
-      ],
-    }
-    const result = migrateToLatest(v10Data as unknown as SerializedMapData)
-    expect(result.lights[0].name).toBe('Torch')    // preserved
-    expect(result.lights[0].visible).toBe(false)   // preserved
+  it('throws for v1.2 data', () => {
+    const oldData = { ...V2_DATA, version: '1.2' }
+    expect(() => migrateToLatest(oldData as unknown as SerializedMapData)).toThrow(
+      /cannot open files from version/i,
+    )
   })
 
-  it('throws for unknown versions', () => {
-    const badData = { version: '0.9', mapSettings: {}, grid: {}, layers: [], lights: [] }
+  it('throws for v1.1 data', () => {
+    const oldData = { ...V2_DATA, version: '1.1' }
+    expect(() => migrateToLatest(oldData as unknown as SerializedMapData)).toThrow(
+      /cannot open files from version/i,
+    )
+  })
+
+  it('throws for v1.0 data', () => {
+    const oldData = { ...V2_DATA, version: '1.0' }
+    expect(() => migrateToLatest(oldData as unknown as SerializedMapData)).toThrow(
+      /cannot open files from version/i,
+    )
+  })
+
+  it('throws for unknown version string', () => {
+    const badData = { ...V2_DATA, version: '0.9' }
     expect(() => migrateToLatest(badData as unknown as SerializedMapData)).toThrow(
-      /unsupported.*version/i
+      /cannot open files from version/i,
     )
   })
 })

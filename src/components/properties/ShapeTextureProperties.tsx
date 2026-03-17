@@ -6,10 +6,10 @@ import { TexturePicker } from './TexturePicker'
 import { SliderInput } from '@/components/inputs/SliderInput'
 import { NumberInput } from '@/components/inputs/NumberInput'
 import { ColorField } from '@/components/inputs/ColorField'
-import { ShapeTextureCommand, CompositeCommand, ChangePropertyCommand } from '@/store/commands'
+import { UpdateChildCommand, CompositeCommand } from '@/store/commands'
 import { undoManager } from '@/store/undoManager'
 import { Layers } from 'lucide-react'
-import type { DungeonLayer, ShapeRecord } from '@/store/types'
+import type { DungeonLayer, ShapeChild } from '@/store/types'
 
 interface ShapeTexturePropertiesProps {
   layer: DungeonLayer
@@ -17,7 +17,7 @@ interface ShapeTexturePropertiesProps {
   onToggleSection?: (id: string) => void
 }
 
-type TexturePatch = Partial<Pick<ShapeRecord,
+type TexturePatch = Partial<Pick<ShapeChild,
   'textureId' | 'textureScale' | 'textureOffsetX' | 'textureOffsetY' | 'textureFillRotation' | 'textureTint'
 >>
 
@@ -30,9 +30,10 @@ const DEFAULTS = {
 }
 
 function commitToAllShapes(layer: DungeonLayer, after: TexturePatch, before: TexturePatch, label: string) {
-  if (layer.shapes.length === 0) return
-  const cmds = layer.shapes.map(
-    (s) => new ShapeTextureCommand(layer.id, s.id, before, after, label),
+  const shapes = layer.children.filter((c): c is ShapeChild => c.childType === 'shape')
+  if (shapes.length === 0) return
+  const cmds = shapes.map(
+    (s) => new UpdateChildCommand(label, layer.id, s.id, before, after),
   )
   undoManager.execute(cmds.length === 1 ? cmds[0] : new CompositeCommand(label, cmds))
 }
@@ -80,7 +81,7 @@ export function ShapeTextureProperties({
   onToggleSection,
 }: ShapeTexturePropertiesProps) {
   const updateLayer = useStore((s) => s.updateLayer)
-  const shapes = layer.shapes
+  const shapes = layer.children.filter((c): c is ShapeChild => c.childType === 'shape')
 
   // Read display values from the first shape, falling back to defaults
   const ref = shapes[0]
@@ -98,27 +99,30 @@ export function ShapeTextureProperties({
   const applyLive = useCallback((patch: TexturePatch) => {
     useStore.setState((state) => {
       const l = state.layers.find((l) => l.id === layer.id) as DungeonLayer | undefined
-      l?.shapes.forEach((s) => Object.assign(s, patch))
+      if (!l) return
+      l.children.forEach((c) => {
+        if (c.childType === 'shape') Object.assign(c, patch)
+      })
     })
   }, [layer.id])
 
   function handleTextureChange(textureId: string | undefined) {
-    const oldDefaultId = layer.style.defaultTextureId
-    const styleCmd = new ChangePropertyCommand(
-      'Set Default Texture',
-      oldDefaultId,
-      textureId,
-      (val) => updateLayer(layer.id, {
-        style: { ...layer.style, defaultTextureId: val },
-      } as Partial<DungeonLayer>),
-    )
+    // Update the layer's default texture style, then batch-update all shapes
+    updateLayer(layer.id, {
+      style: { ...layer.style, defaultTextureId: textureId },
+    } as Partial<DungeonLayer>)
+
     if (shapes.length > 0) {
-      const shapeCmds = layer.shapes.map(
-        (s) => new ShapeTextureCommand(layer.id, s.id, { textureId: s.textureId }, { textureId }, 'Set Texture'),
+      const cmds = shapes.map(
+        (s) => new UpdateChildCommand(
+          'Set Texture',
+          layer.id,
+          s.id,
+          { textureId: s.textureId },
+          { textureId },
+        ),
       )
-      undoManager.execute(new CompositeCommand('Set Texture', [styleCmd, ...shapeCmds]))
-    } else {
-      undoManager.execute(styleCmd)
+      undoManager.execute(cmds.length === 1 ? cmds[0] : new CompositeCommand('Set Texture', cmds))
     }
   }
 

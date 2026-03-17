@@ -16,21 +16,25 @@ export interface GridConfig {
   style: 'clean' | 'dotted' | 'rough';
 }
 
-// ─── Layers ───────────────────────────────────────────────
-export type LayerType = 'dungeon' | 'images' | 'background';
+// ─── Layer Children (v2.0 scene tree) ─────────────────────
+export type ChildType = 'shape' | 'asset' | 'light';
 
-interface BaseLayer {
+export interface MaskData {
   id: string;
-  name: string;
-  type: LayerType;
-  visible: boolean;
-  locked: boolean;
-  opacity: number;
+  // placeholder — do not read/write until masking ships
 }
 
-export interface ShapeRecord {
+export interface LayerChild {
   id: string;
-  type: 'rectangle' | 'polygon' | 'regularPolygon' | 'path';
+  name: string;
+  childType: ChildType;
+  visible: boolean;
+  mask?: MaskData;
+}
+
+export interface ShapeChild extends LayerChild {
+  childType: 'shape';
+  shapeType: 'rectangle' | 'polygon' | 'regularPolygon' | 'path';
   points: [number, number][];
   roughnessEnabled: boolean;
   roughnessAmplitude?: number;
@@ -45,6 +49,45 @@ export interface ShapeRecord {
   textureOffsetY: number;
   textureFillRotation: number;
   textureTint: string;
+}
+
+export interface AssetChild extends LayerChild {
+  childType: 'asset';
+  objectType: 'asset' | 'image';
+  assetId: string;
+  position: { x: number; y: number };
+  rotation: number;
+  scale: number;
+  width: number;
+  height: number;
+  tint: string;
+  flipX: boolean;
+  flipY: boolean;
+}
+
+export interface LightChild extends LayerChild {
+  childType: 'light';
+  color: string;
+  radius: number;
+  featherRadius: number;
+  intensity: number;
+  falloff: 'linear' | 'quadratic';
+  position: { x: number; y: number };
+}
+
+export type AnyChild = ShapeChild | AssetChild | LightChild;
+
+// ─── Layers ───────────────────────────────────────────────
+export type LayerType = 'dungeon' | 'background';
+
+interface BaseLayer {
+  id: string;
+  name: string;
+  type: LayerType;
+  visible: boolean;
+  locked: boolean;
+  opacity: number;
+  mask?: MaskData;
 }
 
 export interface WallSegment {
@@ -82,50 +125,17 @@ export interface DungeonStyle {
   defaultTextureId?: string;
   edgeTransitionWidth: number;
   showEdgeTransitions: boolean;
-  wallTextureSetId?: string;  // 'stone-slate' | 'wood-ashen' | undefined (invisible walls)
-  wallTextureTint: string;     // hex color, default '#ffffff'
-}
-
-export interface SplinePathRecord {
-  id: string;
-  controlPoints: [number, number][];
-  textureId?: string;
-  textureScale: number;
-  textureTint: string;
-  edgeSoftening: boolean;
-  edgeSofteningWidth: number;
-  closed: boolean;
+  wallTextureSetId?: string;
+  wallTextureTint: string;
 }
 
 export interface DungeonLayer extends BaseLayer {
   type: 'dungeon';
-  shapes: ShapeRecord[];
+  children: AnyChild[];
   standaloneWalls: WallSegment[];
   mergedFloor: Polygon[] | null;
   style: DungeonStyle;
   sublayerVisibility: SublayerVisibility;
-  paths: SplinePathRecord[];
-}
-
-export interface PlacedObject {
-  id: string;
-  layerId: string;
-  objectType: 'asset' | 'image';
-  assetId: string;                  // manifest asset ID or custom upload ID
-  position: { x: number; y: number };
-  rotation: number;                 // radians
-  scale: number;                    // uniform scale factor
-  width: number;                    // world units — for non-uniform scaling
-  height: number;                   // world units — for non-uniform scaling
-  tint: string;                     // hex color overlay
-  groupId: string | null;
-  flipX: boolean;
-  flipY: boolean;
-}
-
-export interface ImagesLayer extends BaseLayer {
-  type: 'images';
-  objects: PlacedObject[];
 }
 
 export interface BackgroundLayer extends BaseLayer {
@@ -137,20 +147,7 @@ export interface BackgroundLayer extends BaseLayer {
   presetLock: boolean;
 }
 
-export type Layer = DungeonLayer | ImagesLayer | BackgroundLayer;
-
-// ─── Lights ───────────────────────────────────────────────
-export interface Light {
-  id: string;
-  position: { x: number; y: number };
-  color: string;        // hex
-  radius: number;       // world units — maximum reach of the light
-  featherRadius: number; // world units — distance from center where falloff begins (0 = sharp edge)
-  intensity: number;    // 0–1
-  falloff: 'linear' | 'quadratic';
-  name: string;         // display name in layer panel
-  visible: boolean;     // visibility toggle
-}
+export type Layer = DungeonLayer | BackgroundLayer;
 
 // ─── Tools ────────────────────────────────────────────────
 export interface LightDefaults {
@@ -173,16 +170,15 @@ export type ToolType =
   | 'light'
   | 'ruler'
   | 'assetPlacement'
-  | 'scatterBrush'
-  | 'splinePath';
+  | 'scatterBrush';
 
 export interface ScatterBrushSettings {
   assetIds: string[];
   brushRadius: number;
-  density: number;        // minDist for Poisson sampling (lower = denser)
-  spacing: number;        // min distance between stroke samples along path
-  rotationRange: [number, number];  // [min, max] radians
-  scaleRange: [number, number];     // [min, max] uniform scale
+  density: number;
+  spacing: number;
+  rotationRange: [number, number];
+  scaleRange: [number, number];
 }
 
 export interface ToolSettings {
@@ -200,23 +196,30 @@ export interface ToolsSlice {
   eraseMode: boolean;
   roughMode: boolean;
   settings: ToolSettings;
-  recentAssets: string[];   // asset IDs, max 8
+  recentAssets: string[];
 }
 
 // ─── Selection ───────────────────────────────────────────
-export interface SelectionClipboard {
+export interface ChildClipboard {
+  children: AnyChild[];
+}
+
+export interface RegionClipboard {
   region: [number, number][][];
   style: DungeonStyle;
 }
 
 export interface SelectionSlice {
-  selectedRegion: [number, number][][] | null;
-  clipboard: SelectionClipboard | null;
+  selectedIds: string[];
+  hoveredId: string | null;
   selectionTransform: {
     translate: [number, number];
     rotate: number;
     scale: [number, number];
   } | null;
+  clipboard: ChildClipboard | null;
+  regionClipboard: RegionClipboard | null;
+  selectedRegion: [number, number][][] | null;
 }
 
 // ─── Style Presets ───────────────────────────────────────
@@ -239,9 +242,8 @@ export interface ModalState {
 export interface UISlice {
   leftPanelOpen: boolean;
   rightPanelOpen: boolean;
-  activePanel: 'tools' | 'assets' | 'lights' | 'export';
+  activePanel: 'tools' | 'assets' | 'export';
   activeLayerId: string;
-  selectedObjectIds: string[];
   expandedLayerIds: string[];
   canUndo: boolean;
   canRedo: boolean;
@@ -265,8 +267,8 @@ export interface AssetEntry {
   name: string;
   url: string;
   thumbnailUrl: string;
-  cellWidth: number;    // sprite width / 256 — footprint in grid cells
-  cellHeight: number;   // sprite height / 256
+  cellWidth: number;
+  cellHeight: number;
 }
 
 export interface AssetCategory {
@@ -282,34 +284,26 @@ export interface AssetManifest {
 export interface AssetsSlice {
   manifest: AssetManifest | null;
   loadedCategories: string[];
-  recentlyUsed: string[];    // asset IDs, max 10
-  favorites: string[];       // asset IDs
+  recentlyUsed: string[];
+  favorites: string[];
   customUploads: AssetRef[];
-  customImages: Record<string, string>;  // id → base64 data URL (for imported images)
+  customImages: Record<string, string>;
 }
 
 // ─── Command Pattern Types ────────────────────────────────
-
 export interface Command {
   execute(): void;
   undo(): void;
   readonly label: string;
 }
 
-export interface UndoSnapshot {
-  mergedFloor: [number, number][][] | null;
-  shapes: ShapeRecord[];
-}
-
 // ─── Serialization ────────────────────────────────────────
 export interface SerializedMapData {
-  version: '1.0' | '1.1' | '1.2' | '1.3' | '1.4';
+  version: '2.0';
   mapSettings: MapSettings;
   grid: Pick<GridConfig, 'visible' | 'snapDivision' | 'style'>;
   layers: Layer[];
-  lights: Light[];
-  placedObjects: PlacedObject[];       // all placed objects across image layers
-  customImages: Record<string, string>; // id → base64 data URL
+  customImages: Record<string, string>;
 }
 
 // ─── Top-Level Store ──────────────────────────────────────
@@ -317,7 +311,6 @@ export interface MapBuilderStore {
   mapSettings: MapSettings;
   grid: GridConfig;
   layers: Layer[];
-  lights: Light[];
   tools: ToolsSlice;
   ui: UISlice;
   assets: AssetsSlice;
@@ -340,22 +333,16 @@ export interface MapBuilderStore {
   reorderLayers: (fromIndex: number, toIndex: number) => void;
   updateLayer: (id: string, patch: Partial<Layer>) => void;
 
-  // shape/wall actions
-  addShape: (layerId: string, shape: ShapeRecord) => void;
-  removeShape: (layerId: string, shapeId: string) => void;
-  updateMergedFloor: (layerId: string, merged: Polygon[] | null) => void;
+  // child CRUD actions
+  addChild: (layerId: string, child: AnyChild) => void;
+  removeChild: (layerId: string, childId: string) => void;
+  reorderChild: (layerId: string, fromIndex: number, toIndex: number) => void;
+  updateChild: (layerId: string, childId: string, patch: Partial<AnyChild>) => void;
+  recomputeMergedFloor: (layerId: string) => void;
+
+  // wall actions (sublayer detail)
   addWall: (layerId: string, wall: WallSegment) => void;
   removeWall: (layerId: string, wallId: string) => void;
-
-  // path actions (spline paths on dungeon layers)
-  addPath: (layerId: string, path: SplinePathRecord) => void;
-  removePath: (layerId: string, pathId: string) => void;
-  updatePath: (layerId: string, pathId: string, patch: Partial<SplinePathRecord>) => void;
-
-  // light actions
-  addLight: (light: Light) => void;
-  removeLight: (id: string) => void;
-  updateLight: (id: string, patch: Partial<Light>) => void;
 
   // tool actions
   setActiveTool: (tool: ToolType) => void;
@@ -367,9 +354,9 @@ export interface MapBuilderStore {
 
   // ui actions
   setActiveLayerId: (id: string) => void;
-  setSelectedObjectIds: (ids: string[]) => void;
   setActivePanel: (panel: UISlice['activePanel']) => void;
   togglePanel: (panel: 'left' | 'right') => void;
+  toggleExpandedLayerId: (layerId: string) => void;
   pushToast: (toast: Toast) => void;
   dismissToast: (id: string) => void;
   showModal: (modal: ModalState | null) => void;
@@ -384,9 +371,6 @@ export interface MapBuilderStore {
   setManifest: (manifest: AssetManifest) => void;
   markCategoryLoaded: (categoryId: string) => void;
   addCustomImage: (id: string, base64: string) => void;
-  addPlacedObject: (layerId: string, obj: PlacedObject) => void;
-  removePlacedObject: (layerId: string, objId: string) => void;
-  updatePlacedObject: (layerId: string, objId: string, patch: Partial<PlacedObject>) => void;
 
   // preset actions
   applyPreset: (layerId: string, presetName: string) => void;
@@ -401,8 +385,11 @@ export interface MapBuilderStore {
   setBackgroundLocked: (layerId: string, locked: boolean) => void;
 
   // selection actions
+  setSelectedIds: (ids: string[]) => void;
+  setHoveredId: (id: string | null) => void;
   setSelectedRegion: (region: [number, number][][] | null) => void;
-  setClipboard: (clipboard: SelectionClipboard | null) => void;
+  setClipboard: (clipboard: ChildClipboard | null) => void;
+  setRegionClipboard: (clipboard: RegionClipboard | null) => void;
   setSelectionTransform: (transform: SelectionSlice['selectionTransform']) => void;
   bakeSelectionTransform: () => void;
 

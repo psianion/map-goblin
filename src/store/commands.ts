@@ -1,7 +1,5 @@
-import type { Command, DungeonLayer, DungeonStyle, Light, PlacedObject, ShapeRecord, SplinePathRecord } from './types';
+import type { AnyChild, Command, DungeonLayer, DungeonStyle, Layer } from './types';
 import { useStore } from './store';
-import type { Polygon } from '@/types/geometry';
-import { clipper2Engine } from '@/geometry/Clipper2Engine';
 import type { StylePreset } from './presets';
 
 /**
@@ -30,127 +28,171 @@ export class CompositeCommand implements Command {
 }
 
 /**
- * Command for changing a single property on a store object.
+ * Adds a child to a dungeon layer. Removes it on undo.
  */
-export class ChangePropertyCommand<T> implements Command {
+export class AddChildCommand implements Command {
   readonly label: string;
-  private oldValue: T;
-  private newValue: T;
-  private applyFn: (value: T) => void;
+  private layerId: string;
+  private child: AnyChild;
 
-  constructor(label: string, oldValue: T, newValue: T, applyFn: (value: T) => void) {
+  constructor(label: string, layerId: string, child: AnyChild) {
     this.label = label;
-    this.oldValue = oldValue;
-    this.newValue = newValue;
-    this.applyFn = applyFn;
+    this.layerId = layerId;
+    this.child = structuredClone(child);
   }
 
   execute(): void {
-    this.applyFn(this.newValue);
+    useStore.getState().addChild(this.layerId, structuredClone(this.child));
   }
 
   undo(): void {
-    this.applyFn(this.oldValue);
+    useStore.getState().removeChild(this.layerId, this.child.id);
   }
 }
 
 /**
- * Command for drawing a shape (union or difference) on a dungeon layer.
- * Snapshots the full merged floor polygon for reliable undo.
+ * Removes a child from a dungeon layer. Restores it at its original index on undo.
  */
-export class DrawShapeCommand implements Command {
+export class RemoveChildCommand implements Command {
   readonly label: string;
   private layerId: string;
-  private previousMergedFloor: [number, number][][] | null;
-  private newMergedFloor: [number, number][][] | null;
-  private shapeRecord: { id: string; type: string; points: [number, number][]; roughnessEnabled: boolean; roughnessAmplitude?: number } | null;
-  private isErase: boolean;
+  private childId: string;
+  private snapshot: AnyChild | null = null;
+  private originalIndex: number = -1;
 
-  constructor(
-    label: string,
-    layerId: string,
-    previousMergedFloor: [number, number][][] | null,
-    newMergedFloor: [number, number][][] | null,
-    shapeRecord: { id: string; type: string; points: [number, number][]; roughnessEnabled: boolean; roughnessAmplitude?: number } | null,
-    isErase: boolean,
-  ) {
+  constructor(label: string, layerId: string, childId: string) {
     this.label = label;
     this.layerId = layerId;
-    this.previousMergedFloor = previousMergedFloor;
-    this.newMergedFloor = newMergedFloor;
-    this.shapeRecord = shapeRecord;
-    this.isErase = isErase;
+    this.childId = childId;
   }
 
   execute(): void {
-    const store = useStore.getState();
-    store.updateMergedFloor(this.layerId, this.newMergedFloor);
-    if (this.shapeRecord && !this.isErase) {
-      store.addShape(this.layerId, this.shapeRecord as Parameters<typeof store.addShape>[1]);
+    const state = useStore.getState();
+    const layer = state.layers.find((l) => l.id === this.layerId);
+    if (!layer || layer.type !== 'dungeon') return;
+    const dungeonLayer = layer as DungeonLayer;
+    this.originalIndex = dungeonLayer.children.findIndex((c) => c.id === this.childId);
+    if (this.originalIndex === -1) return;
+    this.snapshot = structuredClone(dungeonLayer.children[this.originalIndex]);
+    state.removeChild(this.layerId, this.childId);
+  }
+
+  undo(): void {
+    if (!this.snapshot) return;
+    const state = useStore.getState();
+    state.addChild(this.layerId, structuredClone(this.snapshot));
+    if (this.originalIndex >= 0) {
+      const layer = state.layers.find((l) => l.id === this.layerId);
+      if (!layer || layer.type !== 'dungeon') return;
+      const currentIndex = (layer as DungeonLayer).children.findIndex(
+        (c) => c.id === this.childId,
+      );
+      if (currentIndex !== -1 && currentIndex !== this.originalIndex) {
+        state.reorderChild(this.layerId, currentIndex, this.originalIndex);
+      }
+    }
+  }
+}
+
+/**
+ * Reorders a child within a dungeon layer (z-order swap).
+ */
+export class ReorderChildCommand implements Command {
+  readonly label: string;
+  private layerId: string;
+  private fromIndex: number;
+  private toIndex: number;
+
+  constructor(label: string, layerId: string, fromIndex: number, toIndex: number) {
+    this.label = label;
+    this.layerId = layerId;
+    this.fromIndex = fromIndex;
+    this.toIndex = toIndex;
+  }
+
+  execute(): void {
+    useStore.getState().reorderChild(this.layerId, this.fromIndex, this.toIndex);
+  }
+
+  undo(): void {
+    useStore.getState().reorderChild(this.layerId, this.toIndex, this.fromIndex);
+  }
+}
+
+/**
+ * Entry type for TransformChildrenCommand — captures full before/after child snapshots.
+ */
+export interface TransformChildEntry {
+  layerId: string;
+  childId: string;
+  before: AnyChild;
+  after: AnyChild;
+}
+
+/**
+ * Transforms multiple children across one or more layers in a single undoable operation.
+ * Stores full before/after snapshots for each child.
+ */
+export class TransformChildrenCommand implements Command {
+  readonly label: string;
+  private entries: TransformChildEntry[];
+
+  constructor(label: string, entries: TransformChildEntry[]) {
+    this.label = label;
+    this.entries = entries.map((e) => ({
+      layerId: e.layerId,
+      childId: e.childId,
+      before: structuredClone(e.before),
+      after: structuredClone(e.after),
+    }));
+  }
+
+  execute(): void {
+    const state = useStore.getState();
+    for (const entry of this.entries) {
+      state.updateChild(entry.layerId, entry.childId, structuredClone(entry.after));
     }
   }
 
   undo(): void {
-    const store = useStore.getState();
-    store.updateMergedFloor(this.layerId, this.previousMergedFloor);
-    if (this.shapeRecord && !this.isErase) {
-      store.removeShape(this.layerId, this.shapeRecord.id);
+    const state = useStore.getState();
+    for (let i = this.entries.length - 1; i >= 0; i--) {
+      const entry = this.entries[i];
+      state.updateChild(entry.layerId, entry.childId, structuredClone(entry.before));
     }
-  }
-
-  cleanup(): void {
-    this.previousMergedFloor = null;
-    this.newMergedFloor = null;
   }
 }
 
 /**
- * Command for adding a standalone wall segment.
+ * Updates a single child's properties. Captures before/after for undo/redo.
  */
-export class AddWallCommand implements Command {
+export class UpdateChildCommand implements Command {
   readonly label: string;
   private layerId: string;
-  private wall: { id: string; points: [number, number][]; blocksLight: boolean; color: string; width: number; roughness: number };
+  private childId: string;
+  private before: Partial<AnyChild>;
+  private after: Partial<AnyChild>;
 
   constructor(
     label: string,
     layerId: string,
-    wall: { id: string; points: [number, number][]; blocksLight: boolean; color: string; width: number; roughness: number },
+    childId: string,
+    before: Partial<AnyChild>,
+    after: Partial<AnyChild>,
   ) {
     this.label = label;
     this.layerId = layerId;
-    this.wall = wall;
+    this.childId = childId;
+    this.before = structuredClone(before);
+    this.after = structuredClone(after);
   }
 
   execute(): void {
-    useStore.getState().addWall(this.layerId, this.wall);
+    useStore.getState().updateChild(this.layerId, this.childId, structuredClone(this.after));
   }
 
   undo(): void {
-    useStore.getState().removeWall(this.layerId, this.wall.id);
-  }
-}
-
-/**
- * Command for adding a layer.
- */
-export class AddLayerCommand implements Command {
-  readonly label: string;
-  private layer: Parameters<ReturnType<typeof useStore.getState>['addLayer']>[0];
-  private layerId: string;
-
-  constructor(label: string, layer: Parameters<ReturnType<typeof useStore.getState>['addLayer']>[0]) {
-    this.label = label;
-    this.layer = layer;
-    this.layerId = layer.id;
-  }
-
-  execute(): void {
-    useStore.getState().addLayer(this.layer);
-  }
-
-  undo(): void {
-    useStore.getState().removeLayer(this.layerId);
+    useStore.getState().updateChild(this.layerId, this.childId, structuredClone(this.before));
   }
 }
 
@@ -178,12 +220,35 @@ export class ReorderLayerCommand implements Command {
 }
 
 /**
- * Command for removing a layer (captures layer data for undo restoration).
+ * Command for adding a layer.
+ */
+export class AddLayerCommand implements Command {
+  readonly label: string;
+  private layer: Layer;
+  private layerId: string;
+
+  constructor(label: string, layer: Layer) {
+    this.label = label;
+    this.layer = structuredClone(layer);
+    this.layerId = layer.id;
+  }
+
+  execute(): void {
+    useStore.getState().addLayer(structuredClone(this.layer));
+  }
+
+  undo(): void {
+    useStore.getState().removeLayer(this.layerId);
+  }
+}
+
+/**
+ * Command for removing a layer. Captures layer data and index for undo restoration.
  */
 export class RemoveLayerCommand implements Command {
   readonly label: string;
-  private layer: ReturnType<ReturnType<typeof useStore.getState>['getSerializableState']>['layers'][number] | null = null;
   private layerId: string;
+  private snapshot: Layer | null = null;
   private layerIndex: number = -1;
 
   constructor(label: string, layerId: string) {
@@ -195,17 +260,18 @@ export class RemoveLayerCommand implements Command {
     const state = useStore.getState();
     const layers = state.layers;
     this.layerIndex = layers.findIndex((l) => l.id === this.layerId);
-    this.layer = structuredClone(layers[this.layerIndex]) as typeof this.layer;
+    if (this.layerIndex === -1) return;
+    this.snapshot = structuredClone(layers[this.layerIndex]);
     state.removeLayer(this.layerId);
   }
 
   undo(): void {
-    if (!this.layer) return;
+    if (!this.snapshot) return;
     const state = useStore.getState();
-    state.addLayer(this.layer as Parameters<typeof state.addLayer>[0]);
+    state.addLayer(structuredClone(this.snapshot));
     if (this.layerIndex >= 0) {
       const currentIndex = state.layers.findIndex((l) => l.id === this.layerId);
-      if (currentIndex !== this.layerIndex) {
+      if (currentIndex !== -1 && currentIndex !== this.layerIndex) {
         state.reorderLayers(currentIndex, this.layerIndex);
       }
     }
@@ -213,432 +279,25 @@ export class RemoveLayerCommand implements Command {
 }
 
 /**
- * Command for moving a selected region on a dungeon layer.
- * Snapshots merged floor before/after for reliable undo.
+ * Command for adding a standalone wall segment.
  */
-export class SelectionMoveCommand implements Command {
-  readonly label = 'Move selection';
-  private layerId: string;
-  private previousMergedFloor: [number, number][][] | null;
-  private newMergedFloor: [number, number][][] | null;
-
-  constructor(
-    layerId: string,
-    previousMergedFloor: [number, number][][] | null,
-    newMergedFloor: [number, number][][] | null,
-  ) {
-    this.layerId = layerId;
-    this.previousMergedFloor = previousMergedFloor;
-    this.newMergedFloor = newMergedFloor;
-  }
-
-  execute(): void {
-    useStore.getState().updateMergedFloor(this.layerId, this.newMergedFloor);
-  }
-
-  undo(): void {
-    useStore.getState().updateMergedFloor(this.layerId, this.previousMergedFloor);
-  }
-
-  cleanup(): void {
-    this.previousMergedFloor = null;
-    this.newMergedFloor = null;
-  }
-}
-
-/**
- * Command for pasting a polygon region onto a dungeon layer (boolean union).
- */
-export class PasteCommand implements Command {
-  readonly label = 'Paste';
-  private layerId: string;
-  private previousMergedFloor: Polygon[] | null;
-  private newMergedFloor: Polygon[] | null = null;
-  private pastedRegion: Polygon[];
-
-  constructor(
-    layerId: string,
-    previousMergedFloor: Polygon[] | null,
-    pastedRegion: Polygon[],
-  ) {
-    this.layerId = layerId;
-    this.previousMergedFloor = previousMergedFloor;
-    this.pastedRegion = pastedRegion;
-  }
-
-  execute(): void {
-    if (!this.newMergedFloor) {
-      const existing: Polygon[] = this.previousMergedFloor ?? [];
-      const result = clipper2Engine.union(existing, this.pastedRegion);
-      this.newMergedFloor = result;
-    }
-    useStore.getState().updateMergedFloor(this.layerId, this.newMergedFloor);
-  }
-
-  undo(): void {
-    useStore.getState().updateMergedFloor(this.layerId, this.previousMergedFloor);
-  }
-
-  cleanup(): void {
-    this.previousMergedFloor = null;
-    this.newMergedFloor = null;
-    this.pastedRegion = [];
-  }
-}
-
-/**
- * Command for cutting (erasing) a selected region from a dungeon layer.
- */
-export class CutCommand implements Command {
-  readonly label = 'Cut selection';
-  private layerId: string;
-  private previousMergedFloor: Polygon[] | null;
-  private newMergedFloor: Polygon[] | null = null;
-  private cutRegion: Polygon[];
-
-  constructor(
-    layerId: string,
-    previousMergedFloor: Polygon[] | null,
-    cutRegion: Polygon[],
-  ) {
-    this.layerId = layerId;
-    this.previousMergedFloor = previousMergedFloor;
-    this.cutRegion = cutRegion;
-  }
-
-  execute(): void {
-    if (!this.newMergedFloor) {
-      const existing: Polygon[] = this.previousMergedFloor ?? [];
-      const result = clipper2Engine.difference(existing, this.cutRegion);
-      this.newMergedFloor = result;
-    }
-    useStore.getState().updateMergedFloor(this.layerId, this.newMergedFloor);
-  }
-
-  undo(): void {
-    useStore.getState().updateMergedFloor(this.layerId, this.previousMergedFloor);
-  }
-
-  cleanup(): void {
-    this.previousMergedFloor = null;
-    this.newMergedFloor = null;
-    this.cutRegion = [];
-  }
-}
-
-/**
- * Command for placing a new object (asset or imported image) on an images layer.
- */
-export class PlaceObjectCommand implements Command {
+export class AddWallCommand implements Command {
   readonly label: string;
   private layerId: string;
-  private obj: PlacedObject;
+  private wall: import('./types').WallSegment;
 
-  constructor(label: string, layerId: string, obj: PlacedObject) {
+  constructor(label: string, layerId: string, wall: import('./types').WallSegment) {
     this.label = label;
     this.layerId = layerId;
-    this.obj = obj;
+    this.wall = structuredClone(wall);
   }
 
   execute(): void {
-    const store = useStore.getState();
-    store.addPlacedObject(this.layerId, { ...this.obj, layerId: this.layerId });
-    if (this.obj.assetId) {
-      store.trackRecentUse(this.obj.assetId);
-      store.addRecentAsset(this.obj.assetId);
-    }
+    useStore.getState().addWall(this.layerId, structuredClone(this.wall));
   }
 
   undo(): void {
-    useStore.getState().removePlacedObject(this.layerId, this.obj.id);
-  }
-}
-
-/**
- * Command for moving a placed object on an images layer.
- */
-export class MoveObjectCommand implements Command {
-  readonly label = 'Move object';
-  private layerId: string;
-  private objectId: string;
-  private oldPosition: { x: number; y: number };
-  private newPosition: { x: number; y: number };
-
-  constructor(
-    layerId: string,
-    objectId: string,
-    oldPosition: { x: number; y: number },
-    newPosition: { x: number; y: number },
-  ) {
-    this.layerId = layerId;
-    this.objectId = objectId;
-    this.oldPosition = oldPosition;
-    this.newPosition = newPosition;
-  }
-
-  execute(): void {
-    this.applyPosition(this.newPosition);
-  }
-
-  undo(): void {
-    this.applyPosition(this.oldPosition);
-  }
-
-  private applyPosition(pos: { x: number; y: number }): void {
-    const state = useStore.getState();
-    const layer = state.layers.find((l) => l.id === this.layerId);
-    if (!layer || layer.type !== 'images') return;
-    state.updateLayer(this.layerId, {
-      objects: layer.objects.map((o) =>
-        o.id === this.objectId ? { ...o, position: pos } : o,
-      ),
-    } as Partial<typeof layer>);
-  }
-}
-
-/**
- * Command for resizing a placed object.
- */
-export class ResizeObjectCommand implements Command {
-  readonly label = 'Resize object';
-  private layerId: string;
-  private objectId: string;
-  private oldScale: number;
-  private newScale: number;
-
-  constructor(layerId: string, objectId: string, oldScale: number, newScale: number) {
-    this.layerId = layerId;
-    this.objectId = objectId;
-    this.oldScale = oldScale;
-    this.newScale = newScale;
-  }
-
-  execute(): void {
-    this.applyScale(this.newScale);
-  }
-
-  undo(): void {
-    this.applyScale(this.oldScale);
-  }
-
-  private applyScale(scale: number): void {
-    const state = useStore.getState();
-    const layer = state.layers.find((l) => l.id === this.layerId);
-    if (!layer || layer.type !== 'images') return;
-    state.updateLayer(this.layerId, {
-      objects: layer.objects.map((o) =>
-        o.id === this.objectId ? { ...o, scale } : o,
-      ),
-    } as Partial<typeof layer>);
-  }
-}
-
-/**
- * Command for rotating a placed object.
- */
-export class RotateObjectCommand implements Command {
-  readonly label = 'Rotate object';
-  private layerId: string;
-  private objectId: string;
-  private oldRotation: number;
-  private newRotation: number;
-
-  constructor(layerId: string, objectId: string, oldRotation: number, newRotation: number) {
-    this.layerId = layerId;
-    this.objectId = objectId;
-    this.oldRotation = oldRotation;
-    this.newRotation = newRotation;
-  }
-
-  execute(): void {
-    this.applyRotation(this.newRotation);
-  }
-
-  undo(): void {
-    this.applyRotation(this.oldRotation);
-  }
-
-  private applyRotation(rotation: number): void {
-    const state = useStore.getState();
-    const layer = state.layers.find((l) => l.id === this.layerId);
-    if (!layer || layer.type !== 'images') return;
-    state.updateLayer(this.layerId, {
-      objects: layer.objects.map((o) =>
-        o.id === this.objectId ? { ...o, rotation } : o,
-      ),
-    } as Partial<typeof layer>);
-  }
-}
-
-/**
- * Command for reordering objects in an images layer (z-ordering).
- */
-export class ReorderObjectCommand implements Command {
-  readonly label: string;
-  private layerId: string;
-  private oldIndex: number;
-  private newIndex: number;
-
-  constructor(label: string, layerId: string, oldIndex: number, newIndex: number) {
-    this.label = label;
-    this.layerId = layerId;
-    this.oldIndex = oldIndex;
-    this.newIndex = newIndex;
-  }
-
-  execute(): void {
-    this.applyReorder(this.oldIndex, this.newIndex);
-  }
-
-  undo(): void {
-    this.applyReorder(this.newIndex, this.oldIndex);
-  }
-
-  private applyReorder(fromIndex: number, toIndex: number): void {
-    const state = useStore.getState();
-    const layer = state.layers.find((l) => l.id === this.layerId);
-    if (!layer || layer.type !== 'images') return;
-    const objects = [...layer.objects];
-    const [item] = objects.splice(fromIndex, 1);
-    objects.splice(toIndex, 0, item);
-    state.updateLayer(this.layerId, { objects } as Partial<typeof layer>);
-  }
-}
-
-/**
- * Command for placing a new light.
- */
-export class PlaceLightCommand implements Command {
-  readonly label = 'Place Light';
-  private light: Light;
-
-  constructor(light: Light) {
-    this.light = light;
-  }
-
-  execute(): void {
-    useStore.getState().addLight(this.light);
-  }
-
-  undo(): void {
-    useStore.getState().removeLight(this.light.id);
-  }
-}
-
-/**
- * Command for moving an existing light.
- */
-export class MoveLightCommand implements Command {
-  readonly label = 'Move Light';
-  private lightId: string;
-  private from: { x: number; y: number };
-  private to: { x: number; y: number };
-
-  constructor(
-    lightId: string,
-    from: { x: number; y: number },
-    to: { x: number; y: number },
-  ) {
-    this.lightId = lightId;
-    this.from = from;
-    this.to = to;
-  }
-
-  execute(): void {
-    useStore.getState().updateLight(this.lightId, { position: this.to });
-  }
-
-  undo(): void {
-    useStore.getState().updateLight(this.lightId, { position: this.from });
-  }
-}
-
-/**
- * Command for applying a non-uniform transform to a placed object (position, size, rotation).
- * Uses updatePlacedObject for atomic before/after patches — clean undo/redo.
- */
-export class TransformCommand implements Command {
-  readonly label: string;
-  private layerId: string;
-  private objectId: string;
-  private beforePatch: Partial<PlacedObject>;
-  private afterPatch: Partial<PlacedObject>;
-
-  constructor(
-    layerId: string,
-    objectId: string,
-    beforePatch: Partial<PlacedObject>,
-    afterPatch: Partial<PlacedObject>,
-    label = 'Transform object',
-  ) {
-    this.layerId = layerId;
-    this.objectId = objectId;
-    this.beforePatch = beforePatch;
-    this.afterPatch = afterPatch;
-    this.label = label;
-  }
-
-  execute(): void {
-    useStore.getState().updatePlacedObject(this.layerId, this.objectId, this.afterPatch);
-  }
-
-  undo(): void {
-    useStore.getState().updatePlacedObject(this.layerId, this.objectId, this.beforePatch);
-  }
-}
-
-/**
- * Command for transforming a dungeon shape — updates both the shape's transform field
- * and the pre-computed mergedFloor snapshot for reliable undo.
- */
-export class ShapeTransformCommand implements Command {
-  readonly label = 'Transform shape';
-  private layerId: string;
-  private shapeId: string;
-  private beforeTransform: ShapeRecord['transform'];
-  private afterTransform: ShapeRecord['transform'];
-  private beforeMerged: Polygon[] | null;
-  private afterMerged: Polygon[] | null;
-
-  constructor(
-    layerId: string,
-    shapeId: string,
-    beforeTransform: ShapeRecord['transform'],
-    afterTransform: ShapeRecord['transform'],
-    beforeMerged: Polygon[] | null,
-    afterMerged: Polygon[] | null,
-  ) {
-    this.layerId = layerId;
-    this.shapeId = shapeId;
-    this.beforeTransform = beforeTransform;
-    this.afterTransform = afterTransform;
-    this.beforeMerged = beforeMerged;
-    this.afterMerged = afterMerged;
-  }
-
-  execute(): void {
-    useStore.setState((s) => {
-      const l = s.layers.find((l) => l.id === this.layerId) as DungeonLayer | undefined;
-      if (!l) return;
-      const sh = l.shapes.find((s) => s.id === this.shapeId);
-      if (sh) sh.transform = this.afterTransform;
-      l.mergedFloor = this.afterMerged;
-    });
-  }
-
-  undo(): void {
-    useStore.setState((s) => {
-      const l = s.layers.find((l) => l.id === this.layerId) as DungeonLayer | undefined;
-      if (!l) return;
-      const sh = l.shapes.find((s) => s.id === this.shapeId);
-      if (sh) sh.transform = this.beforeTransform;
-      l.mergedFloor = this.beforeMerged;
-    });
-  }
-
-  cleanup(): void {
-    this.beforeMerged = null;
-    this.afterMerged = null;
+    useStore.getState().removeWall(this.layerId, this.wall.id);
   }
 }
 
@@ -655,15 +314,14 @@ export class ApplyPresetCommand implements Command {
   constructor(label: string, layerId: string, presetStyle: StylePreset, previousStyle: DungeonStyle) {
     this.label = label;
     this.layerId = layerId;
-    this.presetStyle = presetStyle;
-    this.previousStyle = previousStyle;
+    this.presetStyle = structuredClone(presetStyle);
+    this.previousStyle = structuredClone(previousStyle);
   }
 
   execute(): void {
     const state = useStore.getState();
     const layer = state.layers.find((l) => l.id === this.layerId);
     if (!layer || layer.type !== 'dungeon') return;
-    // Apply preset properties while preserving roughnessAmplitude and lineWidth
     state.updateLayer(this.layerId, {
       style: {
         ...layer.style,
@@ -677,188 +335,7 @@ export class ApplyPresetCommand implements Command {
     const layer = state.layers.find((l) => l.id === this.layerId);
     if (!layer || layer.type !== 'dungeon') return;
     state.updateLayer(this.layerId, {
-      style: { ...this.previousStyle },
+      style: structuredClone(this.previousStyle),
     } as Partial<typeof layer>);
-  }
-}
-
-/**
- * Command for changing texture properties on a shape.
- * Captures the before/after texture fields for undo/redo.
- */
-export class ShapeTextureCommand implements Command {
-  readonly label: string;
-  private layerId: string;
-  private shapeId: string;
-  private before: Partial<ShapeRecord>;
-  private after: Partial<ShapeRecord>;
-
-  constructor(
-    layerId: string,
-    shapeId: string,
-    before: Partial<ShapeRecord>,
-    after: Partial<ShapeRecord>,
-    label = 'Change shape texture',
-  ) {
-    this.layerId = layerId;
-    this.shapeId = shapeId;
-    this.before = before;
-    this.after = after;
-    this.label = label;
-  }
-
-  execute(): void {
-    useStore.setState((s) => {
-      const l = s.layers.find((l) => l.id === this.layerId) as DungeonLayer | undefined;
-      if (!l) return;
-      const shape = l.shapes.find((s) => s.id === this.shapeId);
-      if (shape) Object.assign(shape, this.after);
-    });
-  }
-
-  undo(): void {
-    useStore.setState((s) => {
-      const l = s.layers.find((l) => l.id === this.layerId) as DungeonLayer | undefined;
-      if (!l) return;
-      const shape = l.shapes.find((s) => s.id === this.shapeId);
-      if (shape) Object.assign(shape, this.before);
-    });
-  }
-}
-
-/**
- * Command for creating a spline path on a dungeon layer.
- */
-export class CreatePathCommand implements Command {
-  readonly label = 'Create path';
-  private layerId: string;
-  private path: SplinePathRecord;
-
-  constructor(layerId: string, path: SplinePathRecord) {
-    this.layerId = layerId;
-    this.path = path;
-  }
-
-  execute(): void {
-    useStore.getState().addPath(this.layerId, this.path);
-  }
-
-  undo(): void {
-    useStore.getState().removePath(this.layerId, this.path.id);
-  }
-}
-
-/**
- * Command for deleting a spline path from a dungeon layer.
- * Captures the path data for undo restoration.
- */
-export class DeletePathCommand implements Command {
-  readonly label = 'Delete path';
-  private layerId: string;
-  private path: SplinePathRecord;
-
-  constructor(layerId: string, path: SplinePathRecord) {
-    this.layerId = layerId;
-    this.path = path;
-  }
-
-  execute(): void {
-    useStore.getState().removePath(this.layerId, this.path.id);
-  }
-
-  undo(): void {
-    useStore.getState().addPath(this.layerId, this.path);
-  }
-}
-
-/**
- * Command for modifying a spline path's properties.
- * Captures before/after state for undo/redo.
- */
-export class ModifyPathCommand implements Command {
-  readonly label: string;
-  private layerId: string;
-  private pathId: string;
-  private before: Partial<SplinePathRecord>;
-  private after: Partial<SplinePathRecord>;
-
-  constructor(
-    layerId: string,
-    pathId: string,
-    before: Partial<SplinePathRecord>,
-    after: Partial<SplinePathRecord>,
-    label = 'Modify path',
-  ) {
-    this.layerId = layerId;
-    this.pathId = pathId;
-    this.before = before;
-    this.after = after;
-    this.label = label;
-  }
-
-  execute(): void {
-    useStore.getState().updatePath(this.layerId, this.pathId, this.after);
-  }
-
-  undo(): void {
-    useStore.getState().updatePath(this.layerId, this.pathId, this.before);
-  }
-}
-
-/**
- * Command for scatter-placing multiple objects in a single stroke.
- * Wraps an array of PlacedObjects for batch undo/redo.
- */
-export class ScatterPlaceCommand implements Command {
-  readonly label = 'Scatter place';
-  private layerId: string;
-  private objects: PlacedObject[];
-
-  constructor(layerId: string, objects: PlacedObject[]) {
-    this.layerId = layerId;
-    this.objects = objects;
-  }
-
-  execute(): void {
-    const store = useStore.getState();
-    for (const obj of this.objects) {
-      store.addPlacedObject(this.layerId, { ...obj, layerId: this.layerId });
-    }
-  }
-
-  undo(): void {
-    const store = useStore.getState();
-    for (let i = this.objects.length - 1; i >= 0; i--) {
-      store.removePlacedObject(this.layerId, this.objects[i].id);
-    }
-  }
-}
-
-/**
- * Command for scatter-erasing objects within a brush stroke.
- * Captures removed objects for undo restoration.
- */
-export class ScatterEraseCommand implements Command {
-  readonly label = 'Scatter erase';
-  private layerId: string;
-  private removedObjects: PlacedObject[];
-
-  constructor(layerId: string, removedObjects: PlacedObject[]) {
-    this.layerId = layerId;
-    this.removedObjects = removedObjects;
-  }
-
-  execute(): void {
-    const store = useStore.getState();
-    for (const obj of this.removedObjects) {
-      store.removePlacedObject(this.layerId, obj.id);
-    }
-  }
-
-  undo(): void {
-    const store = useStore.getState();
-    for (const obj of this.removedObjects) {
-      store.addPlacedObject(this.layerId, obj);
-    }
   }
 }
