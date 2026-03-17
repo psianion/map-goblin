@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useStore } from '@/store/store'
 import type { DungeonLayer, DungeonStyle } from '@/store/types'
 import { PropertyField } from './PropertyField'
@@ -6,8 +7,10 @@ import { ColorChip } from '@/components/inputs/ColorChip'
 import { SliderInput } from '@/components/inputs/SliderInput'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { ToggleSwitch } from '@/components/ui/toggle-switch'
-import { Palette, Minus, Grid3x3, Waves, Blend } from 'lucide-react'
+import { Palette, Minus, Grid3x3, Waves, Blend, Sparkles } from 'lucide-react'
 import { getWallSetDefaults, type WallCategory } from '@/assets/textureManifest'
+import { PresetStrip } from '@/components/shared/PresetStrip'
+import { DUNGEON_STYLE_PRESETS } from '@/store/presetRegistry'
 
 interface LayerPropertiesProps {
   layer: DungeonLayer
@@ -17,11 +20,25 @@ interface LayerPropertiesProps {
 
 const HATCHING_STYLES_ACTIVE = ['crosshatch', 'lines', 'horizontal'] as const
 
+const DUNGEON_PRESET_CHIPS = DUNGEON_STYLE_PRESETS.map((p) => ({
+  id: p.id,
+  label: p.label,
+  color: p.values.floorColor,
+}))
+
 export function LayerProperties({ layer, openSections, onToggleSection }: LayerPropertiesProps) {
   const updateLayer = useStore((s) => s.updateLayer)
+  const [activePresetId, setActivePresetId] = useState<string | undefined>()
 
   function patch(partial: Partial<DungeonStyle>) {
     updateLayer(layer.id, { style: { ...layer.style, ...partial } } as Partial<DungeonLayer>)
+  }
+
+  const handleStylePreset = (id: string) => {
+    const preset = DUNGEON_STYLE_PRESETS.find((p) => p.id === id)
+    if (!preset) return
+    setActivePresetId(id)
+    patch(preset.values)
   }
 
   const s = layer.style
@@ -29,6 +46,24 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
 
   return (
     <div className="flex flex-col pt-2">
+      {/* ── Style Presets ── */}
+      <CollapsibleSection
+        id="style-presets"
+        title="Style Presets"
+        icon={Sparkles}
+        defaultOpen={true}
+        isOpen={openSections?.has('style-presets')}
+        onToggle={onToggleSection}
+      >
+        <div className="pt-2">
+          <PresetStrip
+            presets={DUNGEON_PRESET_CHIPS}
+            activeId={activePresetId}
+            onSelect={handleStylePreset}
+          />
+        </div>
+      </CollapsibleSection>
+
       {/* ── Colors ── */}
       <CollapsibleSection
         id="colors"

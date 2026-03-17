@@ -62,6 +62,11 @@ export function release(textureId: string): void {
   }
 }
 
+/** Get manifest entry for a texture ID (for grid dimensions, etc). */
+export function getManifestEntry(textureId: string): ReturnType<typeof getTextureEntry> {
+  return getTextureEntry(textureId);
+}
+
 /** Clear all cached textures and ref counts. */
 export function reset(): void {
   for (const [id] of cache) {

@@ -50,6 +50,10 @@ export interface TextureEntry {
    *  When set, textureLoader creates a Texture with this frame so only visible
    *  content is used — transparent padding is excluded from tiling/rendering. */
   contentRect?: { x: number; y: number; w: number; h: number };
+  /** Natural width in grid cells for tile-along-path (default 1) */
+  gridWidth?: number;
+  /** Natural height in grid cells for tile-along-path (default 1) */
+  gridHeight?: number;
 }
 
 // ─── Floor Textures ────────────────────────────────────────────────
@@ -91,6 +95,9 @@ const FLOORS: TextureEntry[] = [
   // Water
   { id: 'water-opaque-a-03', path: '/textures/floors/water/Water_Opaque_A_03.jpg', type: 'floor', category: 'water', naturalWidth: 1000, naturalHeight: 1000, label: 'Water Opaque A 03', tags: ['water', 'outdoor'] },
   { id: 'water-still-a-01', path: '/textures/floors/water/Water_Still_A_01.jpg', type: 'floor', category: 'water', naturalWidth: 1400, naturalHeight: 1400, label: 'Water Still A 01', tags: ['water', 'outdoor'] },
+
+  // Scatter path textures (transparent PNGs for natural blending along paths)
+  { id: 'grass-path-scatter-01a', path: '/textures/scatter/Grass_Path_Scatter_01_A.png', type: 'scatter', category: 'grass', naturalWidth: 800, naturalHeight: 400, label: 'Grass Path Scatter', tags: ['grass', 'path', 'scatter', 'outdoor'], gridWidth: 4, gridHeight: 2 },
 ];
 
 // ─── Edge Strips ───────────────────────────────────────────────────

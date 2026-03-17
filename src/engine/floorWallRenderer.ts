@@ -264,6 +264,9 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   for (const child of hatching.removeChildren()) child.destroy();
   for (const child of walls.removeChildren()) child.destroy();
 
+  // Always rebuild paths sublayer — paths render independently of floor shapes
+  rebuildPathsSublayer(layer, entry.sublayers.paths);
+
   const polygons = layer.mergedFloor;
   if (!polygons || polygons.length === 0) return;
 
@@ -403,6 +406,4 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // ── Walls (textured or invisible) ──────────────────────────────
   renderTexturedWalls(walls, polygons, layer.standaloneWalls, s);
 
-  // ── Spline paths sublayer ──────────────────────────────────
-  rebuildPathsSublayer(layer, entry.sublayers.paths);
 }
