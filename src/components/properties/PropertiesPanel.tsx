@@ -4,6 +4,7 @@ import { selectActiveLayer } from '@/store/selectors'
 import { LayerProperties } from './LayerProperties'
 import { BackgroundProperties } from './BackgroundProperties'
 import { LightProperties } from './LightProperties'
+import { ShapeTextureProperties } from './ShapeTextureProperties'
 import { PropertyField } from './PropertyField'
 import { ColorField } from '@/components/inputs/ColorField'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
@@ -73,9 +74,11 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
   }
 
   if (activeLayer.type === 'dungeon') {
+    const dungeonLayer = activeLayer as DungeonLayer
     return (
       <div className="flex flex-col">
-        <LayerProperties layer={activeLayer as DungeonLayer} openSections={openSections} onToggleSection={onToggleSection} />
+        <LayerProperties layer={dungeonLayer} openSections={openSections} onToggleSection={onToggleSection} />
+        <ShapeTextureProperties layer={dungeonLayer} openSections={openSections} onToggleSection={onToggleSection} />
         <AmbientSection openSections={openSections} onToggleSection={onToggleSection} />
       </div>
     )

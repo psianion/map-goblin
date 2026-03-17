@@ -5,7 +5,7 @@ import type { SerializedMapData } from './types.ts'
 
 describe('migrateToLatest', () => {
   it('exports CURRENT_VERSION as 1.1', () => {
-    expect(CURRENT_VERSION).toBe('1.2')
+    expect(CURRENT_VERSION).toBe('1.4')
   })
 
   it('returns v1.1 data unchanged', () => {
@@ -24,7 +24,7 @@ describe('migrateToLatest', () => {
       customImages: {},
     }
     const result = migrateToLatest(data)
-    expect(result.version).toBe('1.2')
+    expect(result.version).toBe('1.4')
     expect(result.placedObjects).toEqual([])
     expect(result.customImages).toEqual({})
   })
@@ -43,7 +43,7 @@ describe('migrateToLatest', () => {
       lights: [],
     }
     const result = migrateToLatest(v10Data as unknown as SerializedMapData)
-    expect(result.version).toBe('1.2')
+    expect(result.version).toBe('1.4')
     expect(result.placedObjects).toEqual([])
     expect(result.customImages).toEqual({})
   })

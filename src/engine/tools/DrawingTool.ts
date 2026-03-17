@@ -10,7 +10,9 @@ export type ToolType =
   | 'wall'
   | 'light'
   | 'ruler'
-  | 'assetPlacement';
+  | 'assetPlacement'
+  | 'scatterBrush'
+  | 'splinePath';
 
 export interface PreviewShape {
   type: 'polygon' | 'rectangle' | 'circle' | 'line';

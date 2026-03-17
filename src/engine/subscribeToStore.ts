@@ -10,7 +10,8 @@ import {
 } from './sceneGraph';
 import type { RenderEngine } from './RenderEngine';
 import { markDirty as markRenderCacheDirty } from './renderCache';
-import { rebuildDungeonLayer } from './floorWallRenderer';
+import { rebuildDungeonLayer, preloadLayerTextures } from './floorWallRenderer';
+import { preloadWallTextures } from './wallTextureRenderer';
 import type { DungeonLayer } from '@/store/types';
 import { LightManager } from './lighting';
 
@@ -113,6 +114,8 @@ export function subscribeToStore(
           shapeCount: l.shapes.length,
           wallCount: l.standaloneWalls.length,
           mergedFloor: l.mergedFloor,
+          pathCount: l.paths.length,
+          paths: l.paths,
         })),
     (dungeonLayers) => {
       for (const { id } of dungeonLayers) {
@@ -120,7 +123,17 @@ export function subscribeToStore(
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
+          // Immediate rebuild (solid color fallback for unloaded textures)
           rebuildDungeonLayer(layer, entry);
+          // Async: preload textures, then re-rebuild once they're cached
+          preloadLayerTextures(layer).then((loaded) => {
+            if (!loaded) return;
+            const fresh = useStore.getState().layers.find((l) => l.id === id);
+            if (fresh && fresh.type === 'dungeon') {
+              markRenderCacheDirty(id);
+              rebuildDungeonLayer(fresh as DungeonLayer, entry);
+            }
+          });
         }
       }
       // Wall geometry changed — invalidate all light visibility polygons
@@ -181,7 +194,6 @@ export function subscribeToStore(
       for (const { id, vis } of layerVis) {
         const entry = getLayerEntry(id);
         if (!entry?.sublayers) continue;
-        entry.sublayers.shadow.visible = vis.shadow;
         entry.sublayers.floor.visible = vis.floor;
         entry.sublayers.grid.visible = vis.grid;
         entry.sublayers.hatching.visible = vis.hatching;
@@ -271,6 +283,25 @@ export function subscribeToStore(
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
           rebuildDungeonLayer(layer, entry);
+          preloadLayerTextures(layer).then((loaded) => {
+            if (!loaded) return;
+            const fresh = useStore.getState().layers.find((l) => l.id === id);
+            if (fresh && fresh.type === 'dungeon') {
+              markRenderCacheDirty(id);
+              rebuildDungeonLayer(fresh as DungeonLayer, entry);
+            }
+          });
+          preloadWallTextures(layer.style).then((loaded) => {
+            if (!loaded) return;
+            const fresh = useStore.getState().layers.find((l) => l.id === id);
+            if (fresh && fresh.type === 'dungeon') {
+              const freshEntry = getLayerEntry(id);
+              if (freshEntry) {
+                markRenderCacheDirty(id);
+                rebuildDungeonLayer(fresh as DungeonLayer, freshEntry);
+              }
+            }
+          });
         }
       }
     },

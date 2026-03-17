@@ -19,6 +19,7 @@ docs/*
 .playwright-mcp
 .superpowers
 test-results
+public/textures/
 
 # Editor directories and files
 .vscode/*

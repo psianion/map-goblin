@@ -10,7 +10,7 @@ export const BUILT_IN_PRESETS: Record<string, { label: string; style: StylePrese
     style: {
       floorColor: '#F1ECDF',
       wallColor: '#000000',
-      wallWidth: 0.08,
+      wallWidth: 0.5,
       shadowEnabled: true,
       shadowColor: '#8C867D',
       shadowOffset: { x: 0.4, y: 0.3 },
@@ -21,6 +21,9 @@ export const BUILT_IN_PRESETS: Record<string, { label: string; style: StylePrese
       hatchingLineThickness: 0.02,
       hatchingAngle: 45,
       hatchingInverted: false,
+      edgeTransitionWidth: 0.5,
+      showEdgeTransitions: true,
+      wallTextureTint: '#ffffff',
     },
   },
   dark: {
@@ -28,7 +31,7 @@ export const BUILT_IN_PRESETS: Record<string, { label: string; style: StylePrese
     style: {
       floorColor: '#2A2A2A',
       wallColor: '#111111',
-      wallWidth: 0.1,
+      wallWidth: 0.5,
       shadowEnabled: true,
       shadowColor: '#000000',
       shadowOffset: { x: 0.3, y: 0.3 },
@@ -39,6 +42,9 @@ export const BUILT_IN_PRESETS: Record<string, { label: string; style: StylePrese
       hatchingLineThickness: 0.02,
       hatchingAngle: 45,
       hatchingInverted: false,
+      edgeTransitionWidth: 0.5,
+      showEdgeTransitions: true,
+      wallTextureTint: '#ffffff',
     },
   },
 };

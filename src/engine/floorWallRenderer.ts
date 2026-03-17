@@ -1,9 +1,13 @@
-import { Container, Graphics } from 'pixi.js';
-import type { DungeonLayer } from '@/store/types';
+import { Container, Graphics, Texture, TilingSprite } from 'pixi.js';
+import type { DungeonLayer, ShapeRecord } from '@/store/types';
 import type { LayerEntry } from './sceneGraph';
 import type { Polygon } from '@/types/geometry';
 import { clipper2Engine } from '@/geometry/Clipper2Engine';
 import { useStore } from '@/store/store';
+import * as textureLoader from '@/assets/textureLoader';
+import { rebuildPathsSublayer, preloadPathTextures } from './splineRenderer';
+import { renderEdgeTransitions } from './edgeTransitions';
+import { renderTexturedWalls } from './wallTextureRenderer';
 
 function parseColor(hex: string): number {
   return parseInt(hex.replace('#', ''), 16);
@@ -137,22 +141,131 @@ function addHatchLines(g: Graphics, polygons: Polygon[], angle: number, spacing:
 }
 
 /**
+ * Compute axis-aligned bounding box of a polygon.
+ */
+function polygonBounds(points: [number, number][]): { minX: number; minY: number; maxX: number; maxY: number } {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const [x, y] of points) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+/**
+ * Base scale factor: 200 texture pixels = 1 world unit (1 grid cell).
+ * This is the FA standard — a 200×200px texture covers exactly 1 grid cell.
+ * A 600px texture covers 3 grid cells at default textureScale=1.
+ */
+const PX_PER_GRID_CELL = 200;
+
+/**
+ * Render a single textured shape: TilingSprite masked to the shape polygon.
+ * The TilingSprite is sized to the shape's bounding box and the texture
+ * tiles seamlessly anchored to world origin.
+ */
+function renderTexturedShape(
+  parent: Container,
+  shape: ShapeRecord,
+  texture: Texture,
+): void {
+  const { minX, minY, maxX, maxY } = polygonBounds(shape.points);
+  const width = maxX - minX;
+  const height = maxY - minY;
+  if (width <= 0 || height <= 0) return;
+
+  // Normalize tile scale: 200px = 1 grid cell, then apply user multiplier
+  const userScale = shape.textureScale || 1;
+  const tileScale = userScale / PX_PER_GRID_CELL;
+
+  const ts = new TilingSprite({
+    texture,
+    width,
+    height,
+    tileScale: { x: tileScale, y: tileScale },
+    tileRotation: shape.textureFillRotation,
+  });
+  ts.position.set(minX, minY);
+
+  // Anchor tile pattern to world origin so adjacent shapes tile seamlessly
+  const offsetX = shape.textureOffsetX ?? 0;
+  const offsetY = shape.textureOffsetY ?? 0;
+  ts.tilePosition.set(
+    (-minX + offsetX) / tileScale,
+    (-minY + offsetY) / tileScale,
+  );
+
+  // Apply tint (guard against undefined/invalid)
+  if (shape.textureTint && shape.textureTint !== '#ffffff') {
+    const tint = parseColor(shape.textureTint);
+    if (!isNaN(tint)) ts.tint = tint;
+  }
+
+  // Mask to shape polygon (coordinates in world space, mask relative to parent)
+  const mask = new Graphics();
+  traceSinglePolygon(mask, shape.points);
+  mask.fill({ color: 0xffffff });
+
+  const container = new Container();
+  container.addChild(ts);
+  container.addChild(mask);
+  container.mask = mask;
+  parent.addChild(container);
+}
+
+/**
+ * Render a single solid-color shape fill.
+ */
+function renderSolidShape(
+  parent: Container,
+  shape: ShapeRecord,
+  color: number,
+): void {
+  const g = new Graphics();
+  traceSinglePolygon(g, shape.points);
+  g.fill({ color });
+  parent.addChild(g);
+}
+
+/**
+ * Preload textures for all textured shapes and paths in a layer.
+ * Returns a Promise<boolean> that resolves to true if any NEW textures
+ * were loaded (caller should re-rebuild the layer in that case).
+ */
+export function preloadLayerTextures(layer: DungeonLayer): Promise<boolean> {
+  const promises: Promise<unknown>[] = [];
+  for (const shape of layer.shapes) {
+    if (shape.textureId && !textureLoader.getSync(shape.textureId)) {
+      promises.push(textureLoader.load(shape.textureId).catch(() => {}));
+    }
+  }
+  promises.push(...preloadPathTextures(layer));
+  if (promises.length === 0) return Promise.resolve(false);
+  return Promise.all(promises).then(() => true);
+}
+
+/**
  * Rebuild a dungeon layer's sublayers from store state.
  * Called by subscribeToStore whenever shapes or walls change.
  *
- * Sublayer order (shadow → floor → grid → hatching → walls) is
+ * Sublayer order (shadow → floor → grid → hatching → walls → paths) is
  * established in sceneGraph.addLayerToScene — we only populate content.
  */
 export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): void {
   if (!entry.sublayers) return;
 
-  const { shadow, floor, hatching, walls } = entry.sublayers;
+  const { floor, hatching, walls } = entry.sublayers;
 
-  // Clear all sublayers
-  for (const child of shadow.removeChildren()) child.destroy();
+  // Clear all sublayers (reset floor mask from prior textured render)
+  floor.mask = null;
   for (const child of floor.removeChildren()) child.destroy();
   for (const child of hatching.removeChildren()) child.destroy();
   for (const child of walls.removeChildren()) child.destroy();
+
+  // Always rebuild paths sublayer — paths render independently of floor shapes
+  rebuildPathsSublayer(layer, entry.sublayers.paths);
 
   const polygons = layer.mergedFloor;
   if (!polygons || polygons.length === 0) return;
@@ -161,26 +274,47 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   const floorColorNum = parseColor(s.floorColor);
   const wallColorNum  = parseColor(s.wallColor);
 
-  // ── Shadow sublayer ──────────────────────────────────────────
-  if (s.shadowEnabled && s.shadowIntensity > 0) {
-    const shadowG = new Graphics();
-    shadowG.alpha = s.shadowIntensity;
-    const ox = s.shadowOffset.x;
-    const oy = s.shadowOffset.y;
-    // Offset ALL polygons (outers + holes) for shadow. The per-outer fill+cut
-    // in fillPolygonsWithHoles correctly handles holes, so the shadow won't
-    // bleed through floor holes.
-    const offsetPolygons: Polygon[] = polygons.map(poly =>
-      poly.map(([x, y]) => [x + ox, y + oy] as [number, number])
-    );
-    fillPolygonsWithHoles(shadowG, offsetPolygons, { color: parseColor(s.shadowColor) });
-    shadow.addChild(shadowG);
+  // ── Floor fill (per-shape back-to-front) ─────────────────────
+  // Render each shape individually: textured shapes get a TilingSprite
+  // masked to their polygon; non-textured shapes get solid color fill.
+  // A mergedFloor mask on the floor container clips everything to handle
+  // erase holes automatically.
+
+  const hasTexturedShapes = layer.shapes.some((sh) => sh.textureId);
+
+  if (hasTexturedShapes) {
+    // Per-shape rendering: iterate back-to-front (array order = render order)
+    for (const shape of layer.shapes) {
+      if (shape.points.length < 3) continue;
+
+      if (shape.textureId) {
+        const texture = textureLoader.getSync(shape.textureId);
+        if (texture && texture.width > 0) {
+          renderTexturedShape(floor, shape, texture);
+        } else {
+          // Texture not loaded yet — fall back to solid tinted fill (guard NaN)
+          const tint = shape.textureTint ? parseColor(shape.textureTint) : NaN;
+          renderSolidShape(floor, shape, isNaN(tint) ? floorColorNum : tint);
+        }
+      } else {
+        renderSolidShape(floor, shape, floorColorNum);
+      }
+    }
+
+    // Clip the entire floor container to mergedFloor (handles erase holes)
+    const floorMask = new Graphics();
+    fillPolygonsWithHoles(floorMask, polygons, { color: 0xffffff });
+    floor.addChild(floorMask);
+    floor.mask = floorMask;
+  } else {
+    // No textured shapes — use original merged floor fill (faster)
+    const floorG = new Graphics();
+    fillPolygonsWithHoles(floorG, polygons, { color: floorColorNum });
+    floor.addChild(floorG);
   }
 
-  // ── Floor fill ───────────────────────────────────────────────
-  const floorG = new Graphics();
-  fillPolygonsWithHoles(floorG, polygons, { color: floorColorNum });
-  floor.addChild(floorG);
+  // ── Edge transitions (between differently-textured shapes) ───
+  renderEdgeTransitions(floor, layer);
 
   // ── Grid sublayer (lines inside shapes) ─────────────────
   {
@@ -269,27 +403,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     hatching.addChild(hatchContainer);
   }
 
-  // ── Wall outlines (stroke on ALL floor boundaries including holes) ───────
-  // Holes from erase operations are room cutouts that should have walls.
-  // The earlier "black rectangle" bug was caused by fillPolygonsWithHoles
-  // batching multiple outers — now fixed by per-outer fill+cut.
-  const wallG = new Graphics();
-  wallG.setStrokeStyle({ color: wallColorNum, width: s.wallWidth, join: 'round', cap: 'round' });
-  tracePolygons(wallG, polygons);
-  wallG.stroke();
-  walls.addChild(wallG);
+  // ── Walls (textured or invisible) ──────────────────────────────
+  renderTexturedWalls(walls, polygons, layer.standaloneWalls, s);
 
-  // ── Standalone walls ──────────────────────────────────────────
-  for (const wall of layer.standaloneWalls) {
-    if (wall.points.length < 2) continue;
-    const wg = new Graphics();
-    const wColor = parseColor(wall.color);
-    wg.setStrokeStyle({ color: wColor, width: wall.width, join: 'round', cap: 'round' });
-    wg.moveTo(wall.points[0][0], wall.points[0][1]);
-    for (let i = 1; i < wall.points.length; i++) {
-      wg.lineTo(wall.points[i][0], wall.points[i][1]);
-    }
-    wg.stroke();
-    walls.addChild(wg);
-  }
 }

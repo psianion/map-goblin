@@ -39,6 +39,12 @@ export interface ShapeRecord {
     rotate: number;
     scale: [number, number];
   };
+  textureId?: string;
+  textureScale: number;
+  textureOffsetX: number;
+  textureOffsetY: number;
+  textureFillRotation: number;
+  textureTint: string;
 }
 
 export interface WallSegment {
@@ -51,7 +57,6 @@ export interface WallSegment {
 }
 
 export interface SublayerVisibility {
-  shadow: boolean;
   floor: boolean;
   grid: boolean;
   hatching: boolean;
@@ -74,6 +79,22 @@ export interface DungeonStyle {
   hatchingInverted: boolean;
   roughnessAmplitude: number;
   lineWidth: number;
+  defaultTextureId?: string;
+  edgeTransitionWidth: number;
+  showEdgeTransitions: boolean;
+  wallTextureSetId?: string;  // 'stone-slate' | 'wood-ashen' | undefined (invisible walls)
+  wallTextureTint: string;     // hex color, default '#ffffff'
+}
+
+export interface SplinePathRecord {
+  id: string;
+  controlPoints: [number, number][];
+  textureId?: string;
+  textureScale: number;
+  textureTint: string;
+  edgeSoftening: boolean;
+  edgeSofteningWidth: number;
+  closed: boolean;
 }
 
 export interface DungeonLayer extends BaseLayer {
@@ -83,6 +104,7 @@ export interface DungeonLayer extends BaseLayer {
   mergedFloor: Polygon[] | null;
   style: DungeonStyle;
   sublayerVisibility: SublayerVisibility;
+  paths: SplinePathRecord[];
 }
 
 export interface PlacedObject {
@@ -150,7 +172,18 @@ export type ToolType =
   | 'wall'
   | 'light'
   | 'ruler'
-  | 'assetPlacement';
+  | 'assetPlacement'
+  | 'scatterBrush'
+  | 'splinePath';
+
+export interface ScatterBrushSettings {
+  assetIds: string[];
+  brushRadius: number;
+  density: number;        // minDist for Poisson sampling (lower = denser)
+  spacing: number;        // min distance between stroke samples along path
+  rotationRange: [number, number];  // [min, max] radians
+  scaleRange: [number, number];     // [min, max] uniform scale
+}
 
 export interface ToolSettings {
   brushRadius: number;
@@ -159,6 +192,7 @@ export interface ToolSettings {
   wallWidth: number;
   continuousPlacement: boolean;
   lightDefaults: LightDefaults;
+  scatterBrush: ScatterBrushSettings;
 }
 
 export interface ToolsSlice {
@@ -269,7 +303,7 @@ export interface UndoSnapshot {
 
 // ─── Serialization ────────────────────────────────────────
 export interface SerializedMapData {
-  version: '1.0' | '1.1' | '1.2';
+  version: '1.0' | '1.1' | '1.2' | '1.3' | '1.4';
   mapSettings: MapSettings;
   grid: Pick<GridConfig, 'visible' | 'snapDivision' | 'style'>;
   layers: Layer[];
@@ -312,6 +346,11 @@ export interface MapBuilderStore {
   updateMergedFloor: (layerId: string, merged: Polygon[] | null) => void;
   addWall: (layerId: string, wall: WallSegment) => void;
   removeWall: (layerId: string, wallId: string) => void;
+
+  // path actions (spline paths on dungeon layers)
+  addPath: (layerId: string, path: SplinePathRecord) => void;
+  removePath: (layerId: string, pathId: string) => void;
+  updatePath: (layerId: string, pathId: string, patch: Partial<SplinePathRecord>) => void;
 
   // light actions
   addLight: (light: Light) => void;
