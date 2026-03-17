@@ -5,6 +5,7 @@ import type { SnapIndicator } from './snapIndicator';
 import type { Point } from '@/types/geometry';
 import { handleImageImport } from './importImage';
 import { handleShortcut } from '@/shortcuts/defaultShortcuts';
+import { cursorWorldPosition } from './cursorPosition';
 import { useStore } from '@/store/store';
 
 type InputMiddleware = (point: Point) => Point;
@@ -94,6 +95,7 @@ export function useCanvasInput(
       // Snap indicator + cursor use the final event only
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
       const snapped = applyMiddleware(world);
+      cursorWorldPosition.current = snapped;
       _snapIndicator?.show(engine.worldToScreen(snapped.x, snapped.y));
 
       // Update cursor for gizmo handle hover (non-pan tools only)
@@ -223,6 +225,11 @@ export function useCanvasInput(
       (type) => { _toolManager?.switchTool(type); },
     );
 
+    const containerEl = containerRef.current;
+    const onPointerLeave = () => {
+      cursorWorldPosition.current = null;
+    };
+
     canvasEl.addEventListener('pointerdown', onPointerDown);
     canvasEl.addEventListener('pointermove', onPointerMove);
     canvasEl.addEventListener('pointerup', onPointerUp);
@@ -234,6 +241,7 @@ export function useCanvasInput(
     canvasEl.addEventListener('drop', onDrop as unknown as EventListener);
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('paste', onPaste as unknown as EventListener);
+    containerEl?.addEventListener('pointerleave', onPointerLeave);
 
     return () => {
       unsubCursor();
@@ -250,6 +258,7 @@ export function useCanvasInput(
       canvasEl.removeEventListener('drop', onDrop as unknown as EventListener);
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('paste', onPaste as unknown as EventListener);
+      containerEl?.removeEventListener('pointerleave', onPointerLeave);
     };
   }, [containerRef, engine]);
 }

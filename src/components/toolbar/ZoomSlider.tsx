@@ -70,7 +70,7 @@ export function ZoomSlider() {
   const pct = Math.round(sliderVal * 100);
 
   return (
-    <div className="flex items-center gap-2 bg-surface-1/80 backdrop-blur-sm rounded border border-border-default px-2 py-1.5">
+    <div className="flex items-center gap-2">
       <button
         onClick={handleReset}
         className="font-mono text-panel-small text-text-muted hover:text-text-primary tabular-nums min-w-[3ch] text-right transition-colors"

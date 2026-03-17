@@ -4,7 +4,7 @@ import { CanvasHost } from '@/canvas/CanvasHost';
 import { LeftToolbar } from '@/components/toolbar/LeftToolbar';
 import { RightPanel } from '@/components/layout/RightPanel';
 import { CollapsedRightPanel } from '@/components/layout/CollapsedRightPanel';
-import { ZoomSlider } from '@/components/toolbar/ZoomSlider';
+import { StatusBar } from '@/components/layout/StatusBar';
 import { ExportDialog } from '@/components/shared/ExportDialog';
 import { RecoveryDialog } from '@/components/shared/RecoveryDialog';
 import { startAutosave, isDirtyFlagSet } from '@/io/autosave';
@@ -202,17 +202,6 @@ export default function App() {
             <FocusIcon size={15} strokeWidth={2} />
           </button>
         </div>
-        <div
-          data-chrome
-          className="absolute bottom-3 z-30"
-          style={{
-            right: showPanels ? (rightPanelOpen ? '316px' : '64px') : '12px',
-            opacity: fade.faded ? 0.4 : 1,
-            transition: 'right 200ms ease-out, opacity 200ms ease',
-          }}
-        >
-          <ZoomSlider />
-        </div>
       </div>
 
       {/* Left toolbar — absolute overlay on top of canvas */}
@@ -243,6 +232,14 @@ export default function App() {
             : <CollapsedRightPanel onExpand={handleExpandToSection} />
           }
         </div>
+      )}
+
+      {/* Bottom status bar */}
+      {showPanels && (
+        <StatusBar
+          rightPanelOpen={rightPanelOpen}
+          faded={fade.faded}
+        />
       )}
     </div>
 
