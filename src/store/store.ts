@@ -116,6 +116,11 @@ export const useStore = create<MapBuilderStore>()(
   ))
 );
 
+// Expose store on window for e2e tests
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).__STORE__ = useStore;
+}
+
 // Wire UndoManager → Zustand canUndo/canRedo reactive state
 undoManager.onChange = (canUndo, canRedo) => {
   useStore.setState((state) => {

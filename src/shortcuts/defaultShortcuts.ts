@@ -216,7 +216,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       store.setSelectedRegion(null);
     }
   },
-  Delete: (): void | false => {
+  'delete': (): void | false => {
     const store = useStore.getState();
     if (store.selection.selectedIds.length === 0) return false;
 
@@ -227,8 +227,8 @@ const toolKeyMap: Record<string, () => void | false> = {
     undoManager.execute(new CompositeCommand('Delete selected', delCmds));
     store.setSelectedIds([]);
   },
-  Backspace: (): void | false => {
-    return toolKeyMap['Delete']?.() ?? false;
+  'backspace': (): void | false => {
+    return toolKeyMap['delete']?.() ?? false;
   },
 };
 
