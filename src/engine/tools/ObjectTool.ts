@@ -2,9 +2,9 @@ import { Container } from 'pixi.js';
 import type { Point } from '@/types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '@/store/store';
-import { MoveObjectCommand } from '@/store/commands';
+import { UpdateChildCommand, RemoveChildCommand, CompositeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
-import type { ImagesLayer, PlacedObject } from '@/store/types';
+import type { AssetChild, DungeonLayer } from '@/store/types';
 
 type ObjectToolState = 'IDLE' | 'MOVING';
 
@@ -13,7 +13,7 @@ class ToolOverlay {
   setWorldToScreen(_fn: (wx: number, wy: number) => Point): void {}
 }
 
-function hitTestObject(obj: PlacedObject, point: Point): boolean {
+function hitTestAssetChild(obj: AssetChild, point: Point): boolean {
   const halfSize = (obj.scale || 1) * 0.5;
   return (
     Math.abs(point.x - obj.position.x) < halfSize &&
@@ -27,39 +27,42 @@ export class ObjectTool implements DrawingTool {
 
   private state: ObjectToolState = 'IDLE';
   private moveStart: Point | null = null;
-  private movingObjectIds: string[] = [];
+  private movingChildIds: string[] = [];
 
   onPointerDown(point: Point, event?: PointerEvent): void {
     const store = useStore.getState();
     const activeLayerId = store.ui.activeLayerId;
     const activeLayer = store.layers.find(
-      (l): l is ImagesLayer => l.id === activeLayerId && l.type === 'images',
+      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
     );
     if (!activeLayer) return;
 
-    const hitObject = [...activeLayer.objects].reverse().find((obj) => hitTestObject(obj, point));
+    const assetChildren = activeLayer.children.filter(
+      (c): c is AssetChild => c.childType === 'asset',
+    );
+    const hitChild = [...assetChildren].reverse().find((c) => hitTestAssetChild(c, point));
 
-    if (hitObject) {
+    if (hitChild) {
       const shiftHeld = event?.shiftKey ?? false;
-      const currentSelected = store.ui.selectedObjectIds;
+      const currentSelected = store.selection.selectedIds;
 
       if (shiftHeld) {
-        if (currentSelected.includes(hitObject.id)) {
-          store.setSelectedObjectIds(currentSelected.filter((id) => id !== hitObject.id));
+        if (currentSelected.includes(hitChild.id)) {
+          store.setSelectedIds(currentSelected.filter((id) => id !== hitChild.id));
         } else {
-          store.setSelectedObjectIds([...currentSelected, hitObject.id]);
+          store.setSelectedIds([...currentSelected, hitChild.id]);
         }
-      } else if (!currentSelected.includes(hitObject.id)) {
-        store.setSelectedObjectIds([hitObject.id]);
+      } else if (!currentSelected.includes(hitChild.id)) {
+        store.setSelectedIds([hitChild.id]);
       }
 
       this.state = 'MOVING';
       this.moveStart = point;
-      this.movingObjectIds = store.ui.selectedObjectIds.includes(hitObject.id)
-        ? [...store.ui.selectedObjectIds]
-        : [hitObject.id];
+      this.movingChildIds = store.selection.selectedIds.includes(hitChild.id)
+        ? [...store.selection.selectedIds]
+        : [hitChild.id];
     } else {
-      store.setSelectedObjectIds([]);
+      store.setSelectedIds([]);
       this.state = 'IDLE';
     }
   }
@@ -76,27 +79,40 @@ export class ObjectTool implements DrawingTool {
       if (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001) {
         const store = useStore.getState();
         const activeLayerId = store.ui.activeLayerId;
+        const activeLayer = store.layers.find(
+          (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
+        );
+        if (!activeLayer) return;
 
-        for (const objId of this.movingObjectIds) {
-          const layer = store.layers.find(
-            (l): l is ImagesLayer => l.id === activeLayerId && l.type === 'images',
+        const commands = this.movingChildIds.flatMap((childId) => {
+          const child = activeLayer.children.find(
+            (c): c is AssetChild => c.id === childId && c.childType === 'asset',
           );
-          const obj = layer?.objects.find((o) => o.id === objId);
-          if (!obj) continue;
+          if (!child) return [];
+          const oldPos = { ...child.position };
+          const newPos = { x: child.position.x + dx, y: child.position.y + dy };
+          return [
+            new UpdateChildCommand(
+              'Move asset',
+              activeLayerId,
+              childId,
+              { position: oldPos },
+              { position: newPos },
+            ),
+          ];
+        });
 
-          const oldPos = { ...obj.position };
-          const newPos = { x: obj.position.x + dx, y: obj.position.y + dy };
-
-          undoManager.execute(
-            new MoveObjectCommand(activeLayerId, objId, oldPos, newPos),
-          );
+        if (commands.length === 1) {
+          undoManager.execute(commands[0]);
+        } else if (commands.length > 1) {
+          undoManager.execute(new CompositeCommand('Move assets', commands));
         }
       }
     }
 
     this.state = 'IDLE';
     this.moveStart = null;
-    this.movingObjectIds = [];
+    this.movingChildIds = [];
   }
 
   onKeyDown(event: KeyboardEvent): void {
@@ -109,18 +125,28 @@ export class ObjectTool implements DrawingTool {
 
   private deleteSelected(): void {
     const store = useStore.getState();
-    const selectedIds = store.ui.selectedObjectIds;
+    const selectedIds = store.selection.selectedIds;
     if (selectedIds.length === 0) return;
-    const activeLayerId = store.ui.activeLayerId;
-    const layer = store.layers.find(
-      (l): l is ImagesLayer => l.id === activeLayerId && l.type === 'images',
-    );
-    if (!layer) return;
 
-    for (const objId of selectedIds) {
-      store.removePlacedObject(activeLayerId, objId);
+    const activeLayerId = store.ui.activeLayerId;
+    const activeLayer = store.layers.find(
+      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
+    );
+    if (!activeLayer) return;
+
+    const commands = selectedIds
+      .filter((id) => activeLayer.children.some((c) => c.id === id))
+      .map((id) => new RemoveChildCommand('Delete asset', activeLayerId, id));
+
+    if (commands.length === 0) return;
+
+    if (commands.length === 1) {
+      undoManager.execute(commands[0]);
+    } else {
+      undoManager.execute(new CompositeCommand('Delete assets', commands));
     }
-    store.setSelectedObjectIds([]);
+
+    store.setSelectedIds([]);
   }
 
   getPreview(): PreviewShape | null {
@@ -130,8 +156,8 @@ export class ObjectTool implements DrawingTool {
   cancel(): void {
     this.state = 'IDLE';
     this.moveStart = null;
-    this.movingObjectIds = [];
-    useStore.getState().setSelectedObjectIds([]);
+    this.movingChildIds = [];
+    useStore.getState().setSelectedIds([]);
   }
 
   isActive(): boolean {

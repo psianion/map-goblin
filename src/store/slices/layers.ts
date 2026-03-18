@@ -1,6 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { Polygon } from '../../types/geometry.ts';
-import type { DungeonStyle, Layer, MapBuilderStore, PlacedObject, ShapeRecord, SplinePathRecord, SublayerVisibility, WallSegment } from '../types.ts';
+import type { AnyChild, DungeonStyle, Layer, MapBuilderStore, SublayerVisibility, WallSegment } from '../types.ts';
 import { BUILT_IN_PRESETS, loadCustomPresets, saveCustomPresetsToStorage, deleteCustomPresetFromStorage } from '../presets.ts';
 import type { StylePreset } from '../presets.ts';
 import { ApplyPresetCommand } from '../commands.ts';
@@ -11,9 +10,11 @@ export interface LayerActions {
   removeLayer: (id: string) => void;
   reorderLayers: (fromIndex: number, toIndex: number) => void;
   updateLayer: (id: string, patch: Partial<Layer>) => void;
-  addShape: (layerId: string, shape: ShapeRecord) => void;
-  removeShape: (layerId: string, shapeId: string) => void;
-  updateMergedFloor: (layerId: string, merged: Polygon[] | null) => void;
+  addChild: (layerId: string, child: AnyChild) => void;
+  removeChild: (layerId: string, childId: string) => void;
+  reorderChild: (layerId: string, fromIndex: number, toIndex: number) => void;
+  updateChild: (layerId: string, childId: string, patch: Partial<AnyChild>) => void;
+  recomputeMergedFloor: (layerId: string) => void;
   addWall: (layerId: string, wall: WallSegment) => void;
   removeWall: (layerId: string, wallId: string) => void;
   setSublayerVisibility: (layerId: string, sublayer: keyof SublayerVisibility, visible: boolean) => void;
@@ -22,12 +23,6 @@ export interface LayerActions {
   applyPreset: (layerId: string, presetName: string) => void;
   saveCustomPreset: (name: string, style: Partial<DungeonStyle>) => void;
   deleteCustomPreset: (name: string) => void;
-  addPlacedObject: (layerId: string, obj: PlacedObject) => void;
-  removePlacedObject: (layerId: string, objId: string) => void;
-  updatePlacedObject: (layerId: string, objId: string, patch: Partial<PlacedObject>) => void;
-  addPath: (layerId: string, path: SplinePathRecord) => void;
-  removePath: (layerId: string, pathId: string) => void;
-  updatePath: (layerId: string, pathId: string, patch: Partial<SplinePathRecord>) => void;
 }
 
 export const createLayersSlice: StateCreator<
@@ -43,10 +38,8 @@ export const createLayersSlice: StateCreator<
   removeLayer: (id) =>
     set((state) => {
       const idx = state.layers.findIndex((l) => l.id === id);
-      // Cannot remove background layer (index 0) or nonexistent layer
       if (idx <= 0) return;
       state.layers.splice(idx, 1);
-      // If the removed layer was active, select the nearest remaining layer
       if (state.ui.activeLayerId === id) {
         const nextIdx = Math.min(idx, state.layers.length - 1);
         state.ui.activeLayerId = state.layers[nextIdx]?.id ?? '';
@@ -54,7 +47,6 @@ export const createLayersSlice: StateCreator<
     }),
   reorderLayers: (fromIndex, toIndex) =>
     set((state) => {
-      // Background layer (index 0) is pinned
       if (fromIndex <= 0 || toIndex <= 0) return;
       if (fromIndex >= state.layers.length) return;
       const [layer] = state.layers.splice(fromIndex, 1);
@@ -65,28 +57,48 @@ export const createLayersSlice: StateCreator<
       const layer = state.layers.find((l) => l.id === id);
       if (layer) Object.assign(layer, patch);
     }),
-  addShape: (layerId, shape) =>
+
+  // ─── Child CRUD ─────────────────────────────────────────
+  addChild: (layerId, child) =>
     set((state) => {
       const layer = state.layers.find((l) => l.id === layerId);
       if (layer && layer.type === 'dungeon') {
-        layer.shapes.push(shape);
+        layer.children.push(child);
       }
     }),
-  removeShape: (layerId, shapeId) =>
+  removeChild: (layerId, childId) =>
     set((state) => {
       const layer = state.layers.find((l) => l.id === layerId);
       if (layer && layer.type === 'dungeon') {
-        const idx = layer.shapes.findIndex((s) => s.id === shapeId);
-        if (idx >= 0) layer.shapes.splice(idx, 1);
+        const idx = layer.children.findIndex((c) => c.id === childId);
+        if (idx >= 0) layer.children.splice(idx, 1);
       }
     }),
-  updateMergedFloor: (layerId, merged) =>
+  reorderChild: (layerId, fromIndex, toIndex) =>
     set((state) => {
       const layer = state.layers.find((l) => l.id === layerId);
       if (layer && layer.type === 'dungeon') {
-        layer.mergedFloor = merged;
+        const [child] = layer.children.splice(fromIndex, 1);
+        if (child) layer.children.splice(toIndex, 0, child);
       }
     }),
+  updateChild: (layerId, childId, patch) =>
+    set((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (layer && layer.type === 'dungeon') {
+        const child = layer.children.find((c) => c.id === childId);
+        if (child) Object.assign(child, patch);
+      }
+    }),
+  recomputeMergedFloor: (layerId) =>
+    set((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (layer && layer.type === 'dungeon') {
+        layer.mergedFloor = null;
+      }
+    }),
+
+  // ─── Wall actions (sublayer detail) ─────────────────────
   addWall: (layerId, wall) =>
     set((state) => {
       const layer = state.layers.find((l) => l.id === layerId);
@@ -102,6 +114,8 @@ export const createLayersSlice: StateCreator<
         if (idx >= 0) layer.standaloneWalls.splice(idx, 1);
       }
     }),
+
+  // ─── Sublayer / background ─────────────────────────────
   setSublayerVisibility: (layerId, sublayer, visible) =>
     set((state) => {
       const layer = state.layers.find((l) => l.id === layerId);
@@ -123,12 +137,13 @@ export const createLayersSlice: StateCreator<
         layer.presetLock = locked;
       }
     }),
+
+  // ─── Presets ───────────────────────────────────────────
   applyPreset: (layerId, presetName) => {
     const state = get();
     const layer = state.layers.find((l) => l.id === layerId);
     if (!layer || layer.type !== 'dungeon') return;
 
-    // Look up preset from built-ins first, then custom presets
     let presetStyle: StylePreset | undefined;
     const builtIn = BUILT_IN_PRESETS[presetName];
     if (builtIn) {
@@ -180,50 +195,4 @@ export const createLayersSlice: StateCreator<
     });
     deleteCustomPresetFromStorage(name);
   },
-  addPlacedObject: (layerId, obj) =>
-    set((state) => {
-      const layer = state.layers.find((l) => l.id === layerId);
-      if (layer && layer.type === 'images') {
-        layer.objects.push(obj);
-      }
-    }),
-  removePlacedObject: (layerId, objId) =>
-    set((state) => {
-      const layer = state.layers.find((l) => l.id === layerId);
-      if (layer && layer.type === 'images') {
-        const idx = layer.objects.findIndex((o) => o.id === objId);
-        if (idx >= 0) layer.objects.splice(idx, 1);
-      }
-    }),
-  updatePlacedObject: (layerId, objId, patch) =>
-    set((state) => {
-      const layer = state.layers.find((l) => l.id === layerId);
-      if (layer && layer.type === 'images') {
-        const obj = layer.objects.find((o) => o.id === objId);
-        if (obj) Object.assign(obj, patch);
-      }
-    }),
-  addPath: (layerId, path) =>
-    set((state) => {
-      const layer = state.layers.find((l) => l.id === layerId);
-      if (layer && layer.type === 'dungeon') {
-        layer.paths.push(path);
-      }
-    }),
-  removePath: (layerId, pathId) =>
-    set((state) => {
-      const layer = state.layers.find((l) => l.id === layerId);
-      if (layer && layer.type === 'dungeon') {
-        const idx = layer.paths.findIndex((p) => p.id === pathId);
-        if (idx >= 0) layer.paths.splice(idx, 1);
-      }
-    }),
-  updatePath: (layerId, pathId, patch) =>
-    set((state) => {
-      const layer = state.layers.find((l) => l.id === layerId);
-      if (layer && layer.type === 'dungeon') {
-        const path = layer.paths.find((p) => p.id === pathId);
-        if (path) Object.assign(path, patch);
-      }
-    }),
 });

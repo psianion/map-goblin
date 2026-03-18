@@ -14,7 +14,6 @@
 import { gzip, gunzip, strToU8, strFromU8 } from 'fflate';
 import type { SerializedMapData } from '@/store/types';
 import { useStore } from '@/store/store';
-import { prepareImageForEmbed } from './imageEmbed';
 
 // Magic bytes to identify .mapbuilder files — "MPBLD\x00"
 export const MAGIC_HEADER = 'MPBLD\x00';
@@ -78,53 +77,20 @@ export async function deserializeFromBytes(bytes: Uint8Array): Promise<Serialize
       try {
         const json = strFromU8(decompressed);
         const data = JSON.parse(json) as SerializedMapData;
+        if (data.version !== '2.0') {
+          reject(
+            new Error(
+              `Incompatible file version "${String((data as { version?: unknown }).version)}". This app requires v2.0 format.`,
+            ),
+          );
+          return;
+        }
         resolve(data);
       } catch (parseErr) {
         reject(new Error(`JSON parse failed: ${String(parseErr)}`));
       }
     });
   });
-}
-
-// ─── Custom Image Embedding ───────────────────────────────────────────────────
-
-/**
- * Build the customImages record for a save file.
- * Collects all custom upload asset IDs from placed objects and encodes
- * their textures as base64 data URLs.
- */
-async function buildCustomImages(data: SerializedMapData): Promise<Record<string, string>> {
-  const customImages: Record<string, string> = {};
-  const customUploads = useStore.getState().assets.customUploads;
-
-  if (customUploads.length === 0 || data.placedObjects.length === 0) {
-    return customImages;
-  }
-
-  const { Assets } = await import('pixi.js');
-
-  for (const obj of data.placedObjects) {
-    const assetId = obj.assetId;
-    if (!assetId || assetId in customImages) continue;
-
-    const isCustom = customUploads.some((u) => u.id === assetId);
-    if (!isCustom) continue;
-
-    try {
-      const texture = Assets.cache.get(assetId) as { source?: { label?: string } } | undefined;
-      if (!texture) continue;
-
-      const uploadRef = customUploads.find((u) => u.id === assetId);
-      if (!uploadRef) continue;
-
-      const srcUrl = texture.source?.label ?? uploadRef.thumbnailUrl;
-      customImages[assetId] = await prepareImageForEmbed(srcUrl);
-    } catch (err) {
-      console.warn(`[buildCustomImages] Could not embed asset "${assetId}":`, err);
-    }
-  }
-
-  return customImages;
 }
 
 // ─── Save ─────────────────────────────────────────────────────────────────────
@@ -140,9 +106,7 @@ async function buildCustomImages(data: SerializedMapData): Promise<Record<string
  * Returns true on success, false if the user cancelled.
  */
 export async function saveMap(forceNewFile = false): Promise<boolean> {
-  const baseData = useStore.getState().getSerializableState();
-  const customImages = await buildCustomImages(baseData);
-  const data: SerializedMapData = { ...baseData, customImages };
+  const data: SerializedMapData = useStore.getState().getSerializableState();
 
   const compressed = await serializeToBytes(data);
   const mapName = data.mapSettings.name || 'untitled-map';
@@ -223,7 +187,15 @@ export async function loadMap(): Promise<boolean> {
     fileBytes = picked;
   }
 
-  const data = await deserializeFromBytes(fileBytes);
+  let data: SerializedMapData;
+  try {
+    data = await deserializeFromBytes(fileBytes);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    useStore.getState().pushToast({ id: crypto.randomUUID(), message, type: 'error', duration: 6000, createdAt: Date.now() });
+    return false;
+  }
+
   // Restore custom images into PIXI.Assets before loading state
   if (data.customImages && Object.keys(data.customImages).length > 0) {
     try {

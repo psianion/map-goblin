@@ -4,8 +4,8 @@ import type { Point } from '@/types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
-import { PlaceObjectCommand } from '@/store/commands';
-import type { PlacedObject } from '@/store/types';
+import { AddChildCommand } from '@/store/commands';
+import type { AssetChild, DungeonLayer } from '@/store/types';
 
 type PlacementState = 'IDLE' | 'PREVIEWING';
 
@@ -22,7 +22,7 @@ function snapToCell(point: Point): Point {
 
 /**
  * Tool that shows a 50%-opacity preview sprite following the cursor,
- * snapped to cell boundaries. Click places the asset via PlaceObjectCommand.
+ * snapped to cell boundaries. Click places the asset via AddChildCommand.
  *
  * Activated by calling `activateForAsset(assetId)` from the asset browser.
  * Escape or single placement (when continuousPlacement=false) returns to select.
@@ -88,18 +88,23 @@ export class AssetPlacementTool implements DrawingTool {
   private placeAsset(point: Point): void {
     const store = useStore.getState();
     const layerId = store.ui.activeLayerId;
-    const layer = store.layers.find((l) => l.id === layerId);
+    const layer = store.layers.find(
+      (l): l is DungeonLayer => l.id === layerId && l.type === 'dungeon',
+    );
 
-    if (!layer || layer.type !== 'images') {
-      toast.error('Switch to an images layer to place assets');
+    if (!layer) {
+      toast.error('Switch to a dungeon layer to place assets');
       return;
     }
 
     const snapped = snapToCell(point);
     const assetTexture = Assets.get(this.selectedAssetId!) as { width?: number; height?: number } | undefined;
-    const obj: PlacedObject = {
+
+    const child: AssetChild = {
       id: crypto.randomUUID(),
-      layerId,
+      name: `Asset`,
+      childType: 'asset',
+      visible: true,
       objectType: 'asset',
       assetId: this.selectedAssetId!,
       position: snapped,
@@ -108,13 +113,11 @@ export class AssetPlacementTool implements DrawingTool {
       width: (assetTexture?.width ?? 256) / 256,
       height: (assetTexture?.height ?? 256) / 256,
       tint: '#ffffff',
-      groupId: null,
       flipX: false,
       flipY: false,
     };
 
-    const cmd = new PlaceObjectCommand('Place asset', layerId, obj);
-    undoManager.execute(cmd);
+    undoManager.execute(new AddChildCommand('Place asset', layerId, child));
 
     if (!store.tools.settings.continuousPlacement) {
       this.cancel();

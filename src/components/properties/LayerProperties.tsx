@@ -139,7 +139,7 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
         title="Hatching"
         icon={Grid3x3}
         defaultOpen={false}
-        isOpen={openSections?.has('hatch')}
+        isOpen={openSections?.has('hatching')}
         onToggle={onToggleSection}
         headerExtra={
           <ToggleSwitch

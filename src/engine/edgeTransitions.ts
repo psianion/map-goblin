@@ -8,7 +8,7 @@
  */
 
 import { Container, Graphics } from 'pixi.js';
-import type { ShapeRecord, DungeonLayer } from '@/store/types';
+import type { ShapeChild, DungeonLayer } from '@/store/types';
 import { clipper2Engine } from '@/geometry/Clipper2Engine';
 import type { Polygon } from '@/types/geometry';
 
@@ -47,7 +47,7 @@ function parseColor(hex: string): number {
  * Resolve the effective texture identity for a shape.
  * Shapes without a textureId are considered "solid color" (null).
  */
-function shapeTextureKey(shape: ShapeRecord): string | null {
+function shapeTextureKey(shape: ShapeChild): string | null {
   return shape.textureId ?? null;
 }
 
@@ -69,7 +69,7 @@ export interface TransitionStrip {
  *    c. Intersect the inflated regions — this gives the transition strip
  */
 export function detectEdgeTransitions(
-  shapes: ShapeRecord[],
+  shapes: ShapeChild[],
   transitionWidth: number,
 ): TransitionStrip[] {
   if (shapes.length < 2 || transitionWidth <= 0) return [];
@@ -78,7 +78,7 @@ export function detectEdgeTransitions(
   const halfWidth = transitionWidth / 2;
 
   // Pre-compute AABBs
-  const aabbs: AABB[] = shapes.map((s) => computeAABB(s.points));
+  const aabbs: AABB[] = shapes.map((s) => computeAABB(s.contours[0]));
 
   for (let i = 0; i < shapes.length; i++) {
     for (let j = i + 1; j < shapes.length; j++) {
@@ -94,11 +94,11 @@ export function detectEdgeTransitions(
       if (!aabbOverlap(aabbs[i], aabbs[j], transitionWidth)) continue;
 
       // Skip shapes with too few points
-      if (shapeA.points.length < 3 || shapeB.points.length < 3) continue;
+      if (shapeA.contours[0].length < 3 || shapeB.contours[0].length < 3) continue;
 
       // Inflate both shapes and intersect
-      const inflatedA = clipper2Engine.inflate([shapeA.points], halfWidth);
-      const inflatedB = clipper2Engine.inflate([shapeB.points], halfWidth);
+      const inflatedA = clipper2Engine.inflate([shapeA.contours[0]], halfWidth);
+      const inflatedB = clipper2Engine.inflate([shapeB.contours[0]], halfWidth);
 
       if (inflatedA.length === 0 || inflatedB.length === 0) continue;
 
@@ -127,9 +127,10 @@ export function renderEdgeTransitions(
 ): void {
   const s = layer.style;
   if (!s.showEdgeTransitions || s.edgeTransitionWidth <= 0) return;
-  if (layer.shapes.length < 2) return;
+  const shapeChildren = layer.children.filter((c): c is ShapeChild => c.childType === 'shape');
+  if (shapeChildren.length < 2) return;
 
-  const strips = detectEdgeTransitions(layer.shapes, s.edgeTransitionWidth);
+  const strips = detectEdgeTransitions(shapeChildren, s.edgeTransitionWidth);
   if (strips.length === 0) return;
 
   for (const strip of strips) {

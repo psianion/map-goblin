@@ -1,6 +1,6 @@
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
-import { selectActiveLayer } from '@/store/selectors'
+import { selectActiveLayer, selectSelectedIds, selectChildById } from '@/store/selectors'
 import { LayerProperties } from './LayerProperties'
 import { BackgroundProperties } from './BackgroundProperties'
 import { LightProperties } from './LightProperties'
@@ -9,7 +9,7 @@ import { PropertyField } from './PropertyField'
 import { ColorField } from '@/components/inputs/ColorField'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { Lightbulb } from 'lucide-react'
-import type { DungeonLayer, BackgroundLayer } from '@/store/types'
+import type { DungeonLayer, BackgroundLayer, LightChild } from '@/store/types'
 
 interface SectionControl {
   openSections?: Set<string>
@@ -43,19 +43,22 @@ function AmbientSection({ openSections, onToggleSection }: SectionControl) {
 
 export function PropertiesPanel({ openSections, onToggleSection }: SectionControl) {
   const activeLayer = useStore(selectActiveLayer)
-  const lights = useStore(useShallow((s) => s.lights))
-  const selectedObjectIds = useStore(useShallow((s) => s.ui.selectedObjectIds))
+  const selectedIds = useStore(useShallow(selectSelectedIds))
 
-  // Check if first selected ID refers to a light
-  const firstSelectedId = selectedObjectIds[0]
-  const selectedLight = firstSelectedId ? lights.find((l) => l.id === firstSelectedId) : undefined
+  // Read first selected child from the store (selector handles deep search)
+  const firstSelectedId = selectedIds[0] ?? null
+  const selectedChild = useStore((s) =>
+    firstSelectedId ? selectChildById(s, firstSelectedId) : undefined,
+  )
 
-  if (selectedLight) {
+  // If first selected child is a light, show light properties
+  if (selectedChild?.childType === 'light') {
+    const lightChild = selectedChild as LightChild
     return (
       <div className="flex flex-col pt-2">
         <LightProperties
-          light={selectedLight}
-          onDeselect={() => useStore.getState().setSelectedObjectIds([])}
+          light={lightChild}
+          onDeselect={() => useStore.getState().setSelectedIds([])}
           openSections={openSections}
           onToggleSection={onToggleSection}
         />

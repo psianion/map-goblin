@@ -10,23 +10,18 @@ import {
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
-import type { Light } from '@/store/types'
+import type { Layer } from '@/store/types'
 import { LayerHeader } from './LayerHeader'
 import { LayerRow } from './LayerRow'
-import { LightRow } from './LightRow'
-import { LightingIndicator } from './LightingIndicator'
-import type { Layer } from '@/store/types'
 import { ReorderLayerCommand } from '@/store/commands'
 import { undoManager } from '@/store/undoManager'
 
 const selectLayers = (s: { layers: Layer[] }) => s.layers
 const selectActiveLayerId = (s: { ui: { activeLayerId: string } }) => s.ui.activeLayerId
-const selectLights = (s: { lights: Light[] }) => s.lights
 
 export function LayerPanel() {
   const layers = useStore(useShallow(selectLayers))
   const activeLayerId = useStore(selectActiveLayerId)
-  const lights = useStore(useShallow(selectLights))
 
   // Background is pinned at index 0 — separate it
   const backgroundLayer = layers.find((l) => l.type === 'background')
@@ -52,7 +47,6 @@ export function LayerPanel() {
   return (
     <div className="flex flex-col">
       <LayerHeader />
-      <LightingIndicator />
       <hr className="border-border-subtle mx-2" />
 
       <DndContext
@@ -81,18 +75,6 @@ export function LayerPanel() {
             layer={backgroundLayer}
             isActive={backgroundLayer.id === activeLayerId}
           />
-        </>
-      )}
-
-      {lights.length > 0 && (
-        <>
-          <hr className="border-border-subtle mx-2" />
-          <div className="px-2 py-1 text-panel-small text-text-muted uppercase tracking-wider">
-            Lights
-          </div>
-          {lights.map((light) => (
-            <LightRow key={light.id} light={light} />
-          ))}
         </>
       )}
     </div>

@@ -43,33 +43,36 @@ export function CollapsibleSection({
 
   return (
     <div className="bg-surface-2 rounded-md border border-border-default mx-2 mb-2">
-      {/* Header */}
-      <button
-        type="button"
-        role="button"
-        aria-expanded={open}
-        aria-controls={`section-${id}`}
-        onClick={handleToggle}
+      {/* Header — outer div prevents nested <button> when headerExtra contains a button */}
+      <div
         className={`
-          flex items-center gap-2 w-full px-3 py-2 cursor-pointer select-none
+          flex items-center w-full
           font-mono text-panel-heading uppercase text-text-muted
           hover:bg-surface-3 transition-colors
           ${open ? 'rounded-t-md' : 'rounded-md'}
         `}
       >
-        <Icon size={14} className="shrink-0 text-text-muted" />
-        <span className="flex-1 text-left">{title.toUpperCase()}</span>
-        {!open && preview && <span className="flex items-center gap-1">{preview}</span>}
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={`section-${id}`}
+          onClick={handleToggle}
+          className="flex items-center gap-2 flex-1 px-3 py-2 cursor-pointer select-none text-left min-w-0"
+        >
+          <Icon size={14} className="shrink-0 text-text-muted" />
+          <span className="flex-1 text-left truncate">{title.toUpperCase()}</span>
+          {!open && preview && <span className="flex items-center gap-1">{preview}</span>}
+          {open
+            ? <ChevronDown size={12} className="shrink-0 text-text-muted" />
+            : <ChevronRight size={12} className="shrink-0 text-text-muted" />
+          }
+        </button>
         {headerExtra && (
-          <span onClick={(e) => e.stopPropagation()} className="flex items-center">
+          <span className="flex items-center pr-3">
             {headerExtra}
           </span>
         )}
-        {open
-          ? <ChevronDown size={12} className="shrink-0 text-text-muted" />
-          : <ChevronRight size={12} className="shrink-0 text-text-muted" />
-        }
-      </button>
+      </div>
 
       {/* Content */}
       {open && (

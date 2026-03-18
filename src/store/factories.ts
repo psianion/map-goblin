@@ -2,8 +2,6 @@ import type {
   BackgroundLayer,
   DungeonLayer,
   DungeonStyle,
-  ImagesLayer,
-  Light,
   MapBuilderStore,
 } from './types.ts';
 
@@ -43,42 +41,11 @@ export function createDungeonLayer(name: string): DungeonLayer {
     visible: true,
     locked: false,
     opacity: 1,
-    shapes: [],
+    children: [],
     standaloneWalls: [],
     mergedFloor: null,
     style: { ...DEFAULT_DUNGEON_STYLE },
     sublayerVisibility: { ...DEFAULT_SUBLAYER_VISIBILITY },
-    paths: [],
-  };
-}
-
-export function createImagesLayer(name: string): ImagesLayer {
-  return {
-    id: crypto.randomUUID(),
-    name,
-    type: 'images',
-    visible: true,
-    locked: false,
-    opacity: 1,
-    objects: [],
-  };
-}
-
-export function createLight(
-  position: { x: number; y: number },
-  overrides?: Partial<Light>,
-): Light {
-  return {
-    id: crypto.randomUUID(),
-    position,
-    color: '#ffdd88',
-    radius: 6,        // 30 ft at default 5 ft/cell
-    featherRadius: 0, // 0% bright zone — falloff starts immediately
-    intensity: 0.2,
-    falloff: 'quadratic',
-    name: 'Light',
-    visible: true,
-    ...overrides,
   };
 }
 
@@ -103,18 +70,17 @@ type MapBuilderState = Omit<
   | 'setMapName' | 'setGridType' | 'setAmbientLight'
   | 'setGridVisible' | 'setSnapEnabled' | 'setSnapDivision' | 'setGridStyle'
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
-  | 'addShape' | 'removeShape' | 'updateMergedFloor' | 'addWall' | 'removeWall'
-  | 'addLight' | 'removeLight' | 'updateLight'
+  | 'addChild' | 'removeChild' | 'reorderChild' | 'updateChild' | 'recomputeMergedFloor'
+  | 'addWall' | 'removeWall'
   | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'updateToolSettings' | 'addRecentAsset' | 'updateLightDefaults'
-  | 'setActiveLayerId' | 'setSelectedObjectIds' | 'setActivePanel' | 'togglePanel'
+  | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
   | 'pushToast' | 'dismissToast' | 'showModal' | 'setClipperReady' | 'setFocusMode'
   | 'applyPreset' | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
-  | 'setSelectedRegion' | 'setClipboard' | 'setSelectionTransform' | 'bakeSelectionTransform'
+  | 'setSelectedIds' | 'setHoveredId' | 'setSelectedRegion'
+  | 'setClipboard' | 'setRegionClipboard' | 'setSelectionTransform' | 'bakeSelectionTransform'
   | 'toggleFavorite' | 'trackRecentUse' | 'addCustomUpload' | 'removeCustomUpload'
   | 'setManifest' | 'markCategoryLoaded' | 'addCustomImage'
-  | 'addPlacedObject' | 'removePlacedObject' | 'updatePlacedObject'
-  | 'addPath' | 'removePath' | 'updatePath'
   | 'loadFromFile' | 'getSerializableState' | 'resetToDefault'
 >;
 
@@ -135,7 +101,6 @@ export function createDefaultState(): MapBuilderState {
       style: 'dotted',
     },
     layers: [bgLayer, dungeonLayer],
-    lights: [],
     tools: {
       activeTool: 'rectangle',
       eraseMode: false,
@@ -169,7 +134,6 @@ export function createDefaultState(): MapBuilderState {
       rightPanelOpen: true,
       activePanel: 'tools',
       activeLayerId: dungeonLayer.id,
-      selectedObjectIds: [],
       expandedLayerIds: [],
       canUndo: false,
       canRedo: false,
@@ -188,8 +152,11 @@ export function createDefaultState(): MapBuilderState {
       customImages: {},
     },
     selection: {
+      selectedIds: [],
+      hoveredId: null,
       selectedRegion: null,
       clipboard: null,
+      regionClipboard: null,
       selectionTransform: null,
     },
   };

@@ -1,18 +1,16 @@
 import { create } from 'zustand';
 import { devtools, subscribeWithSelector } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
-import type { MapBuilderStore, SerializedMapData } from './types.ts';
+import type { DungeonLayer, MapBuilderStore, SerializedMapData } from './types.ts';
 import { createDefaultState } from './factories.ts';
 import { createMapSettingsSlice } from './slices/mapSettings.ts';
 import { createGridSlice } from './slices/grid.ts';
 import { createLayersSlice } from './slices/layers.ts';
-import { createLightsSlice } from './slices/lights.ts';
 import { createToolsSlice } from './slices/tools.ts';
 import { createUISlice } from './slices/ui.ts';
 import { createAssetsSlice } from './slices/assets.ts';
 import { createSelectionSlice } from './slices/selection.ts';
 import { undoManager } from './undoManager.ts';
-import { migrateToLatest, CURRENT_VERSION } from './migration.ts';
 
 export const useStore = create<MapBuilderStore>()(
   subscribeWithSelector(
@@ -24,7 +22,6 @@ export const useStore = create<MapBuilderStore>()(
       ...createMapSettingsSlice(set, get, api),
       ...createGridSlice(set, get, api),
       ...createLayersSlice(set, get, api),
-      ...createLightsSlice(set, get, api),
       ...createToolsSlice(set, get, api),
       ...createUISlice(set, get, api),
       ...createAssetsSlice(set, get, api),
@@ -37,30 +34,32 @@ export const useStore = create<MapBuilderStore>()(
           return;
         }
 
-        let migrated: SerializedMapData;
-        try {
-          migrated = migrateToLatest(structuredClone(data));
-        } catch (err) {
-          console.error('loadFromFile: migration failed —', err);
+        if (data.version !== '2.0') {
+          console.warn('loadFromFile: incompatible version', data.version);
+          get().pushToast({
+            id: crypto.randomUUID(),
+            message: 'This file was created with an older version and cannot be opened.',
+            type: 'error',
+            duration: 5000,
+            createdAt: Date.now(),
+          });
           return;
         }
 
         set((state) => {
-          state.mapSettings = migrated.mapSettings;
+          state.mapSettings = data.mapSettings;
           state.grid = {
             ...state.grid,
-            visible: migrated.grid.visible,
-            snapDivision: migrated.grid.snapDivision,
-            style: migrated.grid.style,
+            visible: data.grid.visible,
+            snapDivision: data.grid.snapDivision,
+            style: data.grid.style,
             snapEnabled: true,
           };
-          state.layers = migrated.layers;
-          state.assets.customImages = migrated.customImages ?? {};
-          state.lights = migrated.lights;
+          state.layers = data.layers;
+          state.assets.customImages = data.customImages ?? {};
 
           state.ui.activeLayerId =
-            migrated.layers.find((l) => l.type === 'dungeon')?.id ?? '';
-          state.ui.selectedObjectIds = [];
+            data.layers.find((l) => l.type === 'dungeon')?.id ?? '';
           state.ui.expandedLayerIds = [];
           state.ui.canUndo = false;
           state.ui.canRedo = false;
@@ -69,8 +68,11 @@ export const useStore = create<MapBuilderStore>()(
           state.tools.activeTool = 'rectangle';
           state.tools.eraseMode = false;
           state.tools.roughMode = false;
+          state.selection.selectedIds = [];
+          state.selection.hoveredId = null;
           state.selection.selectedRegion = null;
           state.selection.clipboard = null;
+          state.selection.regionClipboard = null;
           state.selection.selectionTransform = null;
         });
       },
@@ -78,18 +80,22 @@ export const useStore = create<MapBuilderStore>()(
       getSerializableState: (): SerializedMapData => {
         const s = get();
         return {
-          version: CURRENT_VERSION,
+          version: '2.0',
           mapSettings: s.mapSettings,
           grid: {
             visible: s.grid.visible,
             snapDivision: s.grid.snapDivision,
             style: s.grid.style,
           },
-          layers: s.layers,
-          lights: s.lights,
-          placedObjects: s.layers
-            .filter((l) => l.type === 'images')
-            .flatMap((l) => (l.type === 'images' ? l.objects : [])),
+          // Strip mergedFloor from dungeon layers (derived cache, recomputed on load)
+          layers: s.layers.map((layer) => {
+            if (layer.type === 'dungeon') {
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              const { mergedFloor, ...rest } = layer as DungeonLayer;
+              return { ...rest, mergedFloor: null };
+            }
+            return layer;
+          }),
           customImages: s.assets.customImages,
         };
       },
@@ -100,7 +106,6 @@ export const useStore = create<MapBuilderStore>()(
           state.mapSettings = defaults.mapSettings;
           state.grid = defaults.grid;
           state.layers = defaults.layers;
-          state.lights = defaults.lights;
           state.tools = defaults.tools;
           state.ui = defaults.ui;
           state.assets = defaults.assets;
@@ -110,6 +115,11 @@ export const useStore = create<MapBuilderStore>()(
     { name: 'MapBuilderStore' }
   ))
 );
+
+// Expose store on window for e2e tests
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).__STORE__ = useStore;
+}
 
 // Wire UndoManager → Zustand canUndo/canRedo reactive state
 undoManager.onChange = (canUndo, canRedo) => {

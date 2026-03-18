@@ -76,7 +76,8 @@ export async function saveToIndexedDB(data: SerializedMapData): Promise<void> {
 
 /**
  * Load the autosave entry from IndexedDB.
- * Returns null if no autosave exists.
+ * Returns null if no autosave exists or if the saved data is not v2.0.
+ * Stale v1.x autosaves are discarded and the entry is cleared.
  */
 export async function loadFromIndexedDB(): Promise<AutosaveEntry | null> {
   const db = await openDB();
@@ -86,7 +87,29 @@ export async function loadFromIndexedDB(): Promise<AutosaveEntry | null> {
     const req = store.get(AUTOSAVE_KEY);
     req.onsuccess = (event) => {
       const result = (event.target as IDBRequest<AutosaveEntry | undefined>).result;
-      resolve(result ?? null);
+      if (!result) {
+        resolve(null);
+        db.close();
+        return;
+      }
+      // Discard autosaves from older format versions
+      if (result.data.version !== '2.0') {
+        console.warn(
+          `[autosave] Discarding stale autosave (version "${String((result.data as { version?: unknown }).version)}" is not v2.0)`,
+        );
+        // Best-effort delete — do not block on it
+        try {
+          const deleteTx = db.transaction(AUTOSAVE_STORE_NAME, 'readwrite');
+          deleteTx.objectStore(AUTOSAVE_STORE_NAME).delete(AUTOSAVE_KEY);
+        } catch {
+          // ignore
+        }
+        clearDirtyFlag();
+        resolve(null);
+        db.close();
+        return;
+      }
+      resolve(result);
       db.close();
     };
     req.onerror = (event) => reject((event.target as IDBRequest).error);

@@ -3,9 +3,9 @@ import type { MapBuilderStore, ModalState, Toast, UISlice } from '../types.ts';
 
 export interface UIActions {
   setActiveLayerId: (id: string) => void;
-  setSelectedObjectIds: (ids: string[]) => void;
   setActivePanel: (panel: UISlice['activePanel']) => void;
   togglePanel: (panel: 'left' | 'right') => void;
+  toggleExpandedLayerId: (layerId: string) => void;
   pushToast: (toast: Toast) => void;
   dismissToast: (id: string) => void;
   showModal: (modal: ModalState | null) => void;
@@ -23,10 +23,6 @@ export const createUISlice: StateCreator<
     set((state) => {
       state.ui.activeLayerId = id;
     }),
-  setSelectedObjectIds: (ids) =>
-    set((state) => {
-      state.ui.selectedObjectIds = ids;
-    }),
   setActivePanel: (panel) =>
     set((state) => {
       state.ui.activePanel = panel;
@@ -35,6 +31,15 @@ export const createUISlice: StateCreator<
     set((state) => {
       if (panel === 'left') state.ui.leftPanelOpen = !state.ui.leftPanelOpen;
       else state.ui.rightPanelOpen = !state.ui.rightPanelOpen;
+    }),
+  toggleExpandedLayerId: (layerId) =>
+    set((state) => {
+      const idx = state.ui.expandedLayerIds.indexOf(layerId);
+      if (idx >= 0) {
+        state.ui.expandedLayerIds.splice(idx, 1);
+      } else {
+        state.ui.expandedLayerIds.push(layerId);
+      }
     }),
   pushToast: (toast) =>
     set((state) => {

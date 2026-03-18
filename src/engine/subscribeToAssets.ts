@@ -1,41 +1,32 @@
 // src/engine/subscribeToAssets.ts
 //
-// Zustand → PixiJS sync for image layers (PlacedObject sprites).
+// Zustand → PixiJS sync for asset children (AssetChild sprites inside DungeonLayer.children).
 // Called once from CanvasHost alongside subscribeToStore(); returns a cleanup fn.
 
 import { Assets, Sprite, Texture } from 'pixi.js';
 import { useStore } from '@/store/store';
 import { getLayerEntry } from './sceneGraph';
-import type { ImagesLayer, PlacedObject } from '@/store/types';
+import type { AssetChild, DungeonLayer } from '@/store/types';
 import { getTextureEntry } from '@/assets/textureManifest';
 
 /**
- * Apply all transform/style properties from a PlacedObject onto an existing Sprite.
- * Uses width/height for non-uniform scaling when present; falls back to uniform scale
- * for legacy objects loaded from older save files.
+ * Apply all transform/style properties from an AssetChild onto an existing Sprite.
+ * Uses width/height for non-uniform scaling.
  * Note: sprite.width/height setters compute scale relative to the current texture, so
  * this must be called again after a texture swap (async load).
  */
-function syncSprite(sprite: Sprite, obj: PlacedObject): void {
+function syncSprite(sprite: Sprite, obj: AssetChild): void {
   sprite.position.set(obj.position.x, obj.position.y);
   sprite.rotation = obj.rotation;
-  if (obj.width && obj.height) {
-    sprite.width = obj.width;
-    sprite.height = obj.height;
-    if (obj.flipX) sprite.scale.x *= -1;
-    if (obj.flipY) sprite.scale.y *= -1;
-  } else {
-    // Fallback for legacy saves without explicit dimensions
-    sprite.scale.set(
-      obj.scale * (obj.flipX ? -1 : 1),
-      obj.scale * (obj.flipY ? -1 : 1),
-    );
-  }
+  sprite.width = obj.width;
+  sprite.height = obj.height;
+  if (obj.flipX) sprite.scale.x *= -1;
+  if (obj.flipY) sprite.scale.y *= -1;
   sprite.tint = parseInt(obj.tint.replace('#', ''), 16);
 }
 
 /**
- * Resolve a PlacedObject's assetId to a loadable URL.
+ * Resolve an AssetChild's assetId to a loadable URL.
  * Manifest-based IDs (e.g. 'fallen-leaves-green1-a1') are resolved to their
  * file path via the texture manifest. Data URLs and plain URLs pass through.
  */
@@ -67,18 +58,23 @@ function ensureRegistered(assetId: string, resolvedUrl: string): void {
 }
 
 /**
- * Subscribe to image layer changes (PlacedObjects) and sync PixiJS sprites.
+ * Subscribe to dungeon layer children (AssetChild nodes) and sync PixiJS sprites.
  * Called once from CanvasHost. Returns cleanup function.
  */
 export function subscribeToAssets(): () => void {
-  // Map from layerId → (objectId → Sprite)
+  // Map from layerId → (childId → Sprite)
   const spriteMaps = new Map<string, Map<string, Sprite>>();
 
   const unsub = useStore.subscribe(
     (state) =>
-      state.layers.filter((l): l is ImagesLayer => l.type === 'images'),
-    (imageLayers) => {
-      const currentLayerIds = new Set(imageLayers.map((l) => l.id));
+      state.layers
+        .filter((l): l is DungeonLayer => l.type === 'dungeon')
+        .map((l) => ({
+          id: l.id,
+          assets: l.children.filter((c): c is AssetChild => c.childType === 'asset'),
+        })),
+    (dungeonLayers) => {
+      const currentLayerIds = new Set(dungeonLayers.map((l) => l.id));
 
       // ── Remove sprite maps for layers that no longer exist ──────────
       for (const [layerId, spriteMap] of spriteMaps.entries()) {
@@ -92,8 +88,8 @@ export function subscribeToAssets(): () => void {
         }
       }
 
-      // ── Sync each image layer ────────────────────────────────────────
-      for (const layer of imageLayers) {
+      // ── Sync each dungeon layer's asset children ──────────────────────
+      for (const layer of dungeonLayers) {
         const entry = getLayerEntry(layer.id);
         if (!entry) continue; // scene graph not ready yet for this layer
 
@@ -102,9 +98,9 @@ export function subscribeToAssets(): () => void {
           spriteMaps.set(layer.id, new Map());
         }
         const spriteMap = spriteMaps.get(layer.id)!;
-        const currentObjectIds = new Set(layer.objects.map((o) => o.id));
+        const currentObjectIds = new Set(layer.assets.map((o) => o.id));
 
-        // Remove sprites for deleted objects
+        // Remove sprites for deleted children
         for (const [objId, sprite] of spriteMap.entries()) {
           if (!currentObjectIds.has(objId)) {
             entry.container.removeChild(sprite);
@@ -113,8 +109,8 @@ export function subscribeToAssets(): () => void {
           }
         }
 
-        // Add / update sprites for current objects
-        for (const obj of layer.objects) {
+        // Add / update sprites for current asset children
+        for (const obj of layer.assets) {
           if (spriteMap.has(obj.id)) {
             // Update existing sprite transform
             const sprite = spriteMap.get(obj.id)!;

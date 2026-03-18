@@ -1,12 +1,18 @@
 import type { Point } from '@/types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '@/store/store';
-import { DrawShapeCommand } from '@/store/commands';
+import { AddChildCommand, RemoveChildCommand, UpdateChildCommand, CompositeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { clipper2Engine } from '@/geometry/Clipper2Engine';
-import type { DungeonLayer } from '@/store/types';
+import type { DungeonLayer, ShapeChild } from '@/store/types';
 
 const CLOSE_THRESHOLD = 0.2;
+
+function countShapesOfType(layer: DungeonLayer, shapeType: string): number {
+  return layer.children.filter(
+    (c) => c.childType === 'shape' && c.shapeType === shapeType,
+  ).length;
+}
 
 export class PolygonTool implements DrawingTool {
   readonly type = 'polygon' as const;
@@ -74,37 +80,51 @@ export class PolygonTool implements DrawingTool {
     if (!activeLayer) return;
 
     const polyPoints: [number, number][] = verts.map((v) => [v.x, v.y]);
-    const prevFloor = activeLayer.mergedFloor;
     const isErase = store.tools.eraseMode;
 
-    const newFloor = isErase
-      ? (clipper2Engine.difference(prevFloor ?? [], [polyPoints]) as [number, number][][])
-      : (clipper2Engine.union(prevFloor ?? [], [polyPoints]) as [number, number][][]);
+    if (isErase) {
+      const commands: import('@/store/types').Command[] = [];
+      for (const c of activeLayer.children) {
+        if (c.childType !== 'shape') continue;
+        const shape = c as ShapeChild;
+        const outerRing = shape.contours[0];
+        const inter = clipper2Engine.intersection([outerRing], [polyPoints]);
+        if (inter.length === 0) continue;
+        const existingHoles = shape.contours.slice(1);
+        const remaining = clipper2Engine.difference([outerRing], [...existingHoles, polyPoints]);
+        if (remaining.length === 0) {
+          commands.push(new RemoveChildCommand('Erase', activeLayerId, shape.id));
+        } else {
+          commands.push(new UpdateChildCommand('Erase', activeLayerId, shape.id,
+            { contours: shape.contours } as Partial<ShapeChild>,
+            { contours: remaining } as Partial<ShapeChild>));
+        }
+      }
+      if (commands.length === 0) return;
+      undoManager.execute(commands.length === 1 ? commands[0] : new CompositeCommand('Erase', commands));
+    } else {
+      const lastTextured = [...activeLayer.children]
+        .reverse()
+        .find((c): c is ShapeChild => c.childType === 'shape' && !!c.textureId) as ShapeChild | undefined;
 
-    const lastTextured = [...activeLayer.shapes].reverse().find((s) => s.textureId);
-    const shapeRecord = {
-      id: crypto.randomUUID(),
-      type: 'polygon' as const,
-      points: polyPoints,
-      roughnessEnabled: store.tools.roughMode,
-      roughnessAmplitude: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,
-      textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,
-      textureScale: lastTextured?.textureScale ?? 0.25,
-      textureOffsetX: 0,
-      textureOffsetY: 0,
-      textureFillRotation: 0,
-      textureTint: lastTextured?.textureTint ?? '#ffffff',
-    };
+      const child: ShapeChild = {
+        id: crypto.randomUUID(),
+        name: `Polygon ${countShapesOfType(activeLayer, 'polygon') + 1}`,
+        childType: 'shape',
+        visible: true,
+        shapeType: 'polygon',
+        contours: [polyPoints],
+        roughnessEnabled: store.tools.roughMode,
+        roughnessAmplitude: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,
+        textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,
+        textureScale: lastTextured?.textureScale ?? 1,
+        textureOffsetX: 0,
+        textureOffsetY: 0,
+        textureFillRotation: 0,
+        textureTint: lastTextured?.textureTint ?? '#ffffff',
+      };
 
-    undoManager.execute(
-      new DrawShapeCommand(
-        isErase ? 'Erase polygon' : 'Draw polygon',
-        activeLayerId,
-        prevFloor,
-        newFloor,
-        isErase ? null : shapeRecord,
-        isErase,
-      ),
-    );
+      undoManager.execute(new AddChildCommand('Draw polygon', activeLayerId, child));
+    }
   }
 }

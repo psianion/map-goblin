@@ -1,5 +1,5 @@
 import { useStore } from '@/store/store'
-import type { Light } from '@/store/types'
+import type { LightChild } from '@/store/types'
 import { PropertyField } from './PropertyField'
 import { SliderInput } from '@/components/inputs/SliderInput'
 import { ColorField } from '@/components/inputs/ColorField'
@@ -7,11 +7,12 @@ import { ColorChip } from '@/components/inputs/ColorChip'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { cn } from '@/lib/utils'
 import { Sun, X } from 'lucide-react'
-import { ChangePropertyCommand } from '@/store/commands'
+import { UpdateChildCommand } from '@/store/commands'
 import { undoManager } from '@/store/undoManager'
+import { selectLayerForChild } from '@/store/selectors'
 
 interface LightPropertiesProps {
-  light: Light
+  light: LightChild
   onDeselect?: () => void
   openSections?: Set<string>
   onToggleSection?: (id: string) => void
@@ -27,9 +28,22 @@ const MIN_RADIUS_FT = 5
 const MAX_RADIUS_FT = 300
 
 export function LightProperties({ light, onDeselect, openSections, onToggleSection }: LightPropertiesProps) {
-  const updateLight = useStore((s) => s.updateLight)
+  const updateChild = useStore((s) => s.updateChild)
   const cellScale = useStore((s) => s.mapSettings.cellScale)
   const ftPerCell = cellScale.value
+
+  // Locate the parent layer so we can call updateChild(layerId, childId, patch)
+  const parentLayer = useStore((s) => selectLayerForChild(s, light.id))
+
+  const patchLight = (patch: Partial<LightChild>): void => {
+    if (!parentLayer) return
+    updateChild(parentLayer.id, light.id, patch)
+  }
+
+  const commitLight = (label: string, before: Partial<LightChild>, after: Partial<LightChild>): void => {
+    if (!parentLayer) return
+    undoManager.execute(new UpdateChildCommand(label, parentLayer.id, light.id, before, after))
+  }
 
   // Convert ft bounds to world units for the slider
   const minRadius = MIN_RADIUS_FT / ftPerCell
@@ -65,7 +79,7 @@ export function LightProperties({ light, onDeselect, openSections, onToggleSecti
         <PropertyField label="Name">
           <input
             value={light.name}
-            onChange={(e) => updateLight(light.id, { name: e.target.value })}
+            onChange={(e) => patchLight({ name: e.target.value })}
             className="w-full h-7 px-2 bg-surface-2 text-panel-body text-text-primary rounded border border-border-default focus:border-border-focus focus:outline-none"
           />
         </PropertyField>
@@ -73,13 +87,9 @@ export function LightProperties({ light, onDeselect, openSections, onToggleSecti
         <PropertyField label="Color">
           <ColorField
             value={light.color}
-            onChange={(c) => updateLight(light.id, { color: c })}
+            onChange={(c) => patchLight({ color: c })}
             onChangeCommit={(newColor, startColor) =>
-              undoManager.execute(
-                new ChangePropertyCommand('Light color', startColor, newColor, (v) =>
-                  updateLight(light.id, { color: v }),
-                ),
-              )
+              commitLight('Light color', { color: startColor }, { color: newColor })
             }
           />
         </PropertyField>
@@ -100,16 +110,12 @@ export function LightProperties({ light, onDeselect, openSections, onToggleSecti
               value={light.radius}
               onChange={(v) => {
                 // Keep featherRadius ≤ new radius
-                const updates: Partial<Light> = { radius: v }
-                if (featherRadius > v) updates.featherRadius = v
-                updateLight(light.id, updates)
+                const patch: Partial<LightChild> = { radius: v }
+                if (featherRadius > v) patch.featherRadius = v
+                patchLight(patch)
               }}
               onChangeCommit={(newVal, startVal) =>
-                undoManager.execute(
-                  new ChangePropertyCommand('Light radius', startVal, newVal, (v) =>
-                    updateLight(light.id, { radius: v }),
-                  ),
-                )
+                commitLight('Light radius', { radius: startVal }, { radius: newVal })
               }
               min={minRadius}
               max={maxRadius}
@@ -133,13 +139,13 @@ export function LightProperties({ light, onDeselect, openSections, onToggleSecti
             <SliderInput
               value={light.radius > 0 ? Math.round((featherRadius / light.radius) * 100) : 0}
               onChange={(pct) =>
-                updateLight(light.id, { featherRadius: (pct / 100) * light.radius })
+                patchLight({ featherRadius: (pct / 100) * light.radius })
               }
               onChangeCommit={(newPct, startPct) =>
-                undoManager.execute(
-                  new ChangePropertyCommand('Light bright zone', startPct, newPct, (pct) =>
-                    updateLight(light.id, { featherRadius: (pct / 100) * light.radius }),
-                  ),
+                commitLight(
+                  'Light bright zone',
+                  { featherRadius: (startPct / 100) * light.radius },
+                  { featherRadius: (newPct / 100) * light.radius },
                 )
               }
               min={0}
@@ -153,13 +159,9 @@ export function LightProperties({ light, onDeselect, openSections, onToggleSecti
           <div data-testid="light-intensity-slider">
             <SliderInput
               value={light.intensity}
-              onChange={(v) => updateLight(light.id, { intensity: v })}
+              onChange={(v) => patchLight({ intensity: v })}
               onChangeCommit={(newVal, startVal) =>
-                undoManager.execute(
-                  new ChangePropertyCommand('Light intensity', startVal, newVal, (v) =>
-                    updateLight(light.id, { intensity: v }),
-                  ),
-                )
+                commitLight('Light intensity', { intensity: startVal }, { intensity: newVal })
               }
               min={0}
               max={1}
@@ -171,6 +173,7 @@ export function LightProperties({ light, onDeselect, openSections, onToggleSecti
         <PropertyField label="Falloff">
           <div className="flex gap-1">
             <button
+              type="button"
               className={cn(
                 'flex-1 h-7 text-panel-small rounded border transition-colors',
                 light.falloff === 'linear'
@@ -178,19 +181,13 @@ export function LightProperties({ light, onDeselect, openSections, onToggleSecti
                   : 'bg-surface-2 border-border-default text-text-secondary hover:bg-surface-3',
               )}
               onClick={() =>
-                undoManager.execute(
-                  new ChangePropertyCommand<'linear' | 'quadratic'>(
-                    'Light falloff',
-                    light.falloff,
-                    'linear',
-                    (v) => updateLight(light.id, { falloff: v }),
-                  ),
-                )
+                commitLight('Light falloff', { falloff: light.falloff }, { falloff: 'linear' })
               }
             >
               Linear
             </button>
             <button
+              type="button"
               className={cn(
                 'flex-1 h-7 text-panel-small rounded border transition-colors',
                 light.falloff === 'quadratic'
@@ -198,14 +195,7 @@ export function LightProperties({ light, onDeselect, openSections, onToggleSecti
                   : 'bg-surface-2 border-border-default text-text-secondary hover:bg-surface-3',
               )}
               onClick={() =>
-                undoManager.execute(
-                  new ChangePropertyCommand<'linear' | 'quadratic'>(
-                    'Light falloff',
-                    light.falloff,
-                    'quadratic',
-                    (v) => updateLight(light.id, { falloff: v }),
-                  ),
-                )
+                commitLight('Light falloff', { falloff: light.falloff }, { falloff: 'quadratic' })
               }
             >
               Quadratic
