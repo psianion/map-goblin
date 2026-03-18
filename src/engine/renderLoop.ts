@@ -3,7 +3,7 @@ import type { RenderEngine } from './RenderEngine';
 import type { SceneGraph } from './sceneGraph';
 import { getLayerEntries } from './sceneGraph';
 import { useStore } from '@/store/store';
-import type { DungeonLayer, Layer } from '@/store/types';
+import type { DungeonLayer, Layer, LightChild } from '@/store/types';
 import { LightManager } from './lighting';
 import { renderToolPreview } from './toolPreview';
 
@@ -57,8 +57,17 @@ export function setupRenderLoop(
       const zoom = stage.scale.x;
       const camX = stage.position.x;
       const camY = stage.position.y;
-      const bgLayer = useStore.getState().layers.find((l) => l.type === 'background');
-      const bgColor = bgLayer && bgLayer.type === 'background' ? bgLayer.backgroundColor : '#2d2d2d';
+      const currentState = useStore.getState();
+      const bgLayer = currentState.layers.find((l) => l.type === 'background');
+
+      // When any light exists, use ambient light color for background
+      // to prevent the multiply compositing from darkening to black
+      const hasLights = currentState.layers.some(
+        (l) => l.type === 'dungeon' && l.children.some((c: LightChild | { childType: string }) => c.childType === 'light'),
+      );
+      const bgColor = hasLights
+        ? currentState.mapSettings.ambientLight
+        : (bgLayer && bgLayer.type === 'background' ? bgLayer.backgroundColor : '#2d2d2d');
 
       if (
         camX !== lastBgCamX ||
@@ -82,9 +91,7 @@ export function setupRenderLoop(
           worldWidth + pad * 2,
           worldHeight + pad * 2,
         );
-        const bgColorHex = bgLayer && bgLayer.type === 'background'
-          ? parseInt(bgLayer.backgroundColor.replace('#', ''), 16)
-          : 0x2d2d2d;
+        const bgColorHex = parseInt(bgColor.replace('#', ''), 16);
         bgFill.fill(bgColorHex);
 
         lastBgCamX = camX;

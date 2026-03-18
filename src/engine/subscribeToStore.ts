@@ -160,7 +160,7 @@ export function subscribeToStore(
           // Track shape IDs + transforms to detect changes (NOT mergedFloor — we write that)
           shapeKeys: l.children
             .filter((c) => c.childType === 'shape')
-            .map((c) => c.id)
+            .map((c) => `${c.id}:${c.visible}`)
             .join(','),
         })),
     (dungeonLayers) => {
