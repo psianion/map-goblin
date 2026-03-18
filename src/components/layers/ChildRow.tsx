@@ -25,16 +25,18 @@ function childIcon(childType: AnyChild['childType']) {
 
 export const ChildRow = memo(function ChildRow({ child, layerId }: ChildRowProps) {
   const selectedIds = useStore(useShallow(selectSelectedIds))
-  const activeTool = useStore((s) => s.tools.activeTool)
   const setSelectedIds = useStore((s) => s.setSelectedIds)
+  const setActiveTool = useStore((s) => s.setActiveTool)
+  const setActiveLayerId = useStore((s) => s.setActiveLayerId)
   const updateChild = useStore((s) => s.updateChild)
 
   const isSelected = selectedIds.includes(child.id)
-  const canSelect = activeTool === 'select' || activeTool === 'object'
 
   const handleClick = (e: React.MouseEvent) => {
-    if (!canSelect) return
     e.stopPropagation()
+    // Clicking a child in the panel always selects it and switches to select tool
+    setActiveTool('select')
+    setActiveLayerId(layerId)
     if (e.shiftKey) {
       if (isSelected) {
         setSelectedIds(selectedIds.filter((id) => id !== child.id))

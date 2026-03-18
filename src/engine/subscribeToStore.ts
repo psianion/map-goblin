@@ -12,8 +12,52 @@ import type { RenderEngine } from './RenderEngine';
 import { markDirty as markRenderCacheDirty } from './renderCache';
 import { rebuildDungeonLayer, preloadLayerTextures } from './floorWallRenderer';
 import { preloadWallTextures } from './wallTextureRenderer';
-import type { DungeonLayer, LightChild } from '@/store/types';
+import type { DungeonLayer, LightChild, ShapeChild } from '@/store/types';
 import { LightManager } from './lighting';
+import { clipper2Engine } from '@/geometry/Clipper2Engine';
+import type { Polygon } from '@/types/geometry';
+
+/**
+ * Recompute mergedFloor from shape children via Clipper2 boolean union.
+ * Returns the merged polygons (or null if no shapes).
+ * Does NOT call useStore.setState — the caller writes the result to avoid
+ * infinite subscription loops.
+ */
+function computeMergedFloor(layer: DungeonLayer): Polygon[] | null {
+  const shapeChildren = layer.children.filter(
+    (c): c is ShapeChild => c.childType === 'shape' && c.visible,
+  );
+
+  if (shapeChildren.length === 0) return null;
+
+  // Build polygon paths from shape children, applying transforms
+  const allPaths: Polygon[] = shapeChildren.map((shape) => {
+    let pts = shape.points;
+    if (shape.transform) {
+      const t = shape.transform;
+      pts = pts.map(([x, y]) => {
+        let px = x * t.scale[0];
+        let py = y * t.scale[1];
+        const cos = Math.cos(t.rotate);
+        const sin = Math.sin(t.rotate);
+        const rx = px * cos - py * sin;
+        const ry = px * sin + py * cos;
+        px = rx + t.translate[0];
+        py = ry + t.translate[1];
+        return [px, py] as [number, number];
+      });
+    }
+    return pts;
+  });
+
+  // Progressive union: start with first, union each subsequent
+  let merged: Polygon[] = [allPaths[0]];
+  for (let i = 1; i < allPaths.length; i++) {
+    merged = clipper2Engine.union(merged, [allPaths[i]]);
+  }
+
+  return merged;
+}
 
 /**
  * Subscribe to Zustand store changes and sync PixiJS scene graph.
@@ -113,7 +157,11 @@ export function subscribeToStore(
           id: l.id,
           shapeCount: l.children.filter((c) => c.childType === 'shape').length,
           wallCount: l.standaloneWalls.length,
-          mergedFloor: l.mergedFloor,
+          // Track shape IDs + transforms to detect changes (NOT mergedFloor — we write that)
+          shapeKeys: l.children
+            .filter((c) => c.childType === 'shape')
+            .map((c) => c.id)
+            .join(','),
         })),
     (dungeonLayers) => {
       for (const { id } of dungeonLayers) {
@@ -121,8 +169,19 @@ export function subscribeToStore(
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
+          // Recompute mergedFloor from shape children via Clipper2
+          const newFloor = computeMergedFloor(layer);
+          // Write via setState — safe because the subscription equality fn
+          // only compares shapeCount/wallCount/shapeKeys, not mergedFloor
+          useStore.setState((s) => {
+            const l = s.layers.find((la) => la.id === id);
+            if (l && l.type === 'dungeon') l.mergedFloor = newFloor;
+          });
+          // Re-read layer after mergedFloor update
+          const updatedLayer = useStore.getState().layers.find((l) => l.id === id);
+          if (!updatedLayer || updatedLayer.type !== 'dungeon') continue;
           // Immediate rebuild (solid color fallback for unloaded textures)
-          rebuildDungeonLayer(layer, entry);
+          rebuildDungeonLayer(updatedLayer, entry);
           // Async: preload textures, then re-rebuild once they're cached
           preloadLayerTextures(layer).then((loaded) => {
             if (!loaded) return;
@@ -136,6 +195,16 @@ export function subscribeToStore(
       }
       // Wall geometry changed — invalidate all light visibility polygons
       lightManager.invalidateAll();
+    },
+    {
+      equalityFn: (a, b) =>
+        a.length === b.length &&
+        a.every((item, i) =>
+          item.id === b[i].id &&
+          item.shapeCount === b[i].shapeCount &&
+          item.wallCount === b[i].wallCount &&
+          item.shapeKeys === b[i].shapeKeys,
+        ),
     },
   );
   unsubscribers.push(unsubShapes);
