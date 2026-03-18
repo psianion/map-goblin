@@ -462,8 +462,8 @@ export class SelectTool implements DrawingTool {
 
     switch (child.childType) {
       case 'shape': {
-        // Transform shape points to screen space
-        let pts = child.points;
+        // Transform shape outer ring to screen space
+        let pts = child.contours[0];
         if (child.transform) {
           const t = child.transform;
           const cos = Math.cos(t.rotate);

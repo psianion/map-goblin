@@ -78,7 +78,7 @@ export function detectEdgeTransitions(
   const halfWidth = transitionWidth / 2;
 
   // Pre-compute AABBs
-  const aabbs: AABB[] = shapes.map((s) => computeAABB(s.points));
+  const aabbs: AABB[] = shapes.map((s) => computeAABB(s.contours[0]));
 
   for (let i = 0; i < shapes.length; i++) {
     for (let j = i + 1; j < shapes.length; j++) {
@@ -94,11 +94,11 @@ export function detectEdgeTransitions(
       if (!aabbOverlap(aabbs[i], aabbs[j], transitionWidth)) continue;
 
       // Skip shapes with too few points
-      if (shapeA.points.length < 3 || shapeB.points.length < 3) continue;
+      if (shapeA.contours[0].length < 3 || shapeB.contours[0].length < 3) continue;
 
       // Inflate both shapes and intersect
-      const inflatedA = clipper2Engine.inflate([shapeA.points], halfWidth);
-      const inflatedB = clipper2Engine.inflate([shapeB.points], halfWidth);
+      const inflatedA = clipper2Engine.inflate([shapeA.contours[0]], halfWidth);
+      const inflatedB = clipper2Engine.inflate([shapeB.contours[0]], halfWidth);
 
       if (inflatedA.length === 0 || inflatedB.length === 0) continue;
 

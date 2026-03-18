@@ -1,7 +1,7 @@
 import type { Point } from '@/types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '@/store/store';
-import { AddChildCommand, RemoveChildCommand, CompositeCommand } from '@/store/commands';
+import { AddChildCommand, RemoveChildCommand, UpdateChildCommand, CompositeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { clipper2Engine } from '@/geometry/Clipper2Engine';
 import type { DungeonLayer, ShapeChild } from '@/store/types';
@@ -83,22 +83,25 @@ export class PolygonTool implements DrawingTool {
     const isErase = store.tools.eraseMode;
 
     if (isErase) {
-      const shapesToRemove = activeLayer.children.filter((c) => {
-        if (c.childType !== 'shape') return false;
-        const merged = clipper2Engine.intersection([c.points as [number, number][]], [polyPoints]);
-        return merged.length > 0;
-      });
-
-      if (shapesToRemove.length === 0) return;
-
-      const commands = shapesToRemove.map(
-        (c) => new RemoveChildCommand('Erase polygon', activeLayerId, c.id),
-      );
-      undoManager.execute(
-        commands.length === 1
-          ? commands[0]
-          : new CompositeCommand('Erase polygon', commands),
-      );
+      const commands: import('@/store/types').Command[] = [];
+      for (const c of activeLayer.children) {
+        if (c.childType !== 'shape') continue;
+        const shape = c as ShapeChild;
+        const outerRing = shape.contours[0];
+        const inter = clipper2Engine.intersection([outerRing], [polyPoints]);
+        if (inter.length === 0) continue;
+        const existingHoles = shape.contours.slice(1);
+        const remaining = clipper2Engine.difference([outerRing], [...existingHoles, polyPoints]);
+        if (remaining.length === 0) {
+          commands.push(new RemoveChildCommand('Erase', activeLayerId, shape.id));
+        } else {
+          commands.push(new UpdateChildCommand('Erase', activeLayerId, shape.id,
+            { contours: shape.contours } as Partial<ShapeChild>,
+            { contours: remaining } as Partial<ShapeChild>));
+        }
+      }
+      if (commands.length === 0) return;
+      undoManager.execute(commands.length === 1 ? commands[0] : new CompositeCommand('Erase', commands));
     } else {
       const lastTextured = [...activeLayer.children]
         .reverse()
@@ -110,7 +113,7 @@ export class PolygonTool implements DrawingTool {
         childType: 'shape',
         visible: true,
         shapeType: 'polygon',
-        points: polyPoints,
+        contours: [polyPoints],
         roughnessEnabled: store.tools.roughMode,
         roughnessAmplitude: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,
         textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,

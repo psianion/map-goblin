@@ -25,7 +25,13 @@ export function pointInShape(shape: ShapeChild, point: [number, number]): boolea
     y /= t.scale[1];
     p = [x, y];
   }
-  return pointInPolygon(p, shape.points);
+  // Must be inside outer ring
+  if (!pointInPolygon(p, shape.contours[0])) return false;
+  // Must NOT be inside any hole ring
+  for (let i = 1; i < shape.contours.length; i++) {
+    if (pointInPolygon(p, shape.contours[i])) return false;
+  }
+  return true;
 }
 
 export function pointInAsset(asset: AssetChild, point: [number, number]): boolean {
@@ -92,7 +98,7 @@ export function getChildBounds(child: AnyChild): {
 } {
   switch (child.childType) {
     case 'shape': {
-      let points = child.points;
+      let points = child.contours[0];
       if (child.transform) {
         const t = child.transform;
         const cos = Math.cos(t.rotate);

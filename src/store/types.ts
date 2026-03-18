@@ -35,7 +35,7 @@ export interface LayerChild {
 export interface ShapeChild extends LayerChild {
   childType: 'shape';
   shapeType: 'rectangle' | 'polygon' | 'regularPolygon' | 'path';
-  points: [number, number][];
+  contours: [number, number][][];  // index 0 = outer boundary, 1+ = holes
   roughnessEnabled: boolean;
   roughnessAmplitude?: number;
   transform?: {

@@ -23,6 +23,20 @@ import type { Polygon } from '@/types/geometry';
  * Does NOT call useStore.setState — the caller writes the result to avoid
  * infinite subscription loops.
  */
+function applyTransformToPoints(pts: Polygon, t: { translate: [number, number]; rotate: number; scale: [number, number] }): Polygon {
+  return pts.map(([x, y]) => {
+    let px = x * t.scale[0];
+    let py = y * t.scale[1];
+    const cos = Math.cos(t.rotate);
+    const sin = Math.sin(t.rotate);
+    const rx = px * cos - py * sin;
+    const ry = px * sin + py * cos;
+    px = rx + t.translate[0];
+    py = ry + t.translate[1];
+    return [px, py] as [number, number];
+  });
+}
+
 function computeMergedFloor(layer: DungeonLayer): Polygon[] | null {
   const shapeChildren = layer.children.filter(
     (c): c is ShapeChild => c.childType === 'shape' && c.visible,
@@ -30,30 +44,33 @@ function computeMergedFloor(layer: DungeonLayer): Polygon[] | null {
 
   if (shapeChildren.length === 0) return null;
 
-  // Build polygon paths from shape children, applying transforms
-  const allPaths: Polygon[] = shapeChildren.map((shape) => {
-    let pts = shape.points;
-    if (shape.transform) {
-      const t = shape.transform;
-      pts = pts.map(([x, y]) => {
-        let px = x * t.scale[0];
-        let py = y * t.scale[1];
-        const cos = Math.cos(t.rotate);
-        const sin = Math.sin(t.rotate);
-        const rx = px * cos - py * sin;
-        const ry = px * sin + py * cos;
-        px = rx + t.translate[0];
-        py = ry + t.translate[1];
-        return [px, py] as [number, number];
-      });
-    }
-    return pts;
-  });
+  // Collect outer rings and hole rings separately, applying transforms
+  const outerPaths: Polygon[] = [];
+  const holePaths: Polygon[] = [];
 
-  // Progressive union: start with first, union each subsequent
-  let merged: Polygon[] = [allPaths[0]];
-  for (let i = 1; i < allPaths.length; i++) {
-    merged = clipper2Engine.union(merged, [allPaths[i]]);
+  for (const shape of shapeChildren) {
+    for (let i = 0; i < shape.contours.length; i++) {
+      let pts = shape.contours[i];
+      if (shape.transform) {
+        pts = applyTransformToPoints(pts, shape.transform);
+      }
+      if (i === 0) {
+        outerPaths.push(pts); // outer boundary
+      } else {
+        holePaths.push(pts); // hole ring
+      }
+    }
+  }
+
+  // Union all outer rings
+  let merged: Polygon[] = [outerPaths[0]];
+  for (let i = 1; i < outerPaths.length; i++) {
+    merged = clipper2Engine.union(merged, [outerPaths[i]]);
+  }
+
+  // Subtract all hole rings from the merged result
+  if (holePaths.length > 0) {
+    merged = clipper2Engine.difference(merged, holePaths);
   }
 
   return merged;
@@ -159,8 +176,8 @@ export function subscribeToStore(
           wallCount: l.standaloneWalls.length,
           // Track shape IDs + transforms to detect changes (NOT mergedFloor — we write that)
           shapeKeys: l.children
-            .filter((c) => c.childType === 'shape')
-            .map((c) => `${c.id}:${c.visible}`)
+            .filter((c): c is ShapeChild => c.childType === 'shape')
+            .map((c) => `${c.id}:${c.visible}:${c.contours.length}:${c.contours[0]?.length ?? 0}`)
             .join(','),
         })),
     (dungeonLayers) => {

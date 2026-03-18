@@ -1,7 +1,7 @@
 import type { Point } from '@/types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '@/store/store';
-import { AddChildCommand, RemoveChildCommand, CompositeCommand } from '@/store/commands';
+import { AddChildCommand, RemoveChildCommand, UpdateChildCommand, CompositeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { clipper2Engine } from '@/geometry/Clipper2Engine';
 import type { DungeonLayer, ShapeChild } from '@/store/types';
@@ -58,23 +58,35 @@ export class RectangleTool implements DrawingTool {
     const isErase = store.tools.eraseMode;
 
     if (isErase) {
-      // Erase: remove all shapes whose points are entirely inside the rectangle
-      // by issuing RemoveChildCommand for each intersecting shape child.
-      const shapesToRemove = activeLayer.children.filter((c) => {
-        if (c.childType !== 'shape') return false;
-        const merged = clipper2Engine.intersection([c.points as [number, number][]], [rectPoly]);
-        return merged.length > 0;
-      });
+      // Erase: boolean-difference the erase rect from each intersecting shape.
+      // If the result is empty → remove shape. Otherwise → update shape's points.
+      const commands: import('@/store/types').Command[] = [];
 
-      if (shapesToRemove.length === 0) return;
+      for (const c of activeLayer.children) {
+        if (c.childType !== 'shape') continue;
+        const shape = c as ShapeChild;
+        const outerRing = shape.contours[0];
+        const intersection = clipper2Engine.intersection([outerRing], [rectPoly]);
+        if (intersection.length === 0) continue;
 
-      const commands = shapesToRemove.map(
-        (c) => new RemoveChildCommand('Erase rectangle', activeLayerId, c.id),
-      );
+        // Combine existing holes + new erase rect as clips
+        const existingHoles = shape.contours.slice(1);
+        const allClips = [...existingHoles, rectPoly];
+        const remaining = clipper2Engine.difference([outerRing], allClips);
+        if (remaining.length === 0) {
+          commands.push(new RemoveChildCommand('Erase', activeLayerId, shape.id));
+        } else {
+          const before = { contours: shape.contours } as Partial<ShapeChild>;
+          const after = { contours: remaining } as Partial<ShapeChild>;
+          commands.push(new UpdateChildCommand('Erase', activeLayerId, shape.id, before, after));
+        }
+      }
+
+      if (commands.length === 0) return;
       undoManager.execute(
         commands.length === 1
           ? commands[0]
-          : new CompositeCommand('Erase rectangle', commands),
+          : new CompositeCommand('Erase', commands),
       );
     } else {
       const lastTextured = [...activeLayer.children]
@@ -87,7 +99,7 @@ export class RectangleTool implements DrawingTool {
         childType: 'shape',
         visible: true,
         shapeType: 'rectangle',
-        points: rectPoly,
+        contours: [rectPoly],
         roughnessEnabled: store.tools.roughMode,
         roughnessAmplitude: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,
         textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,

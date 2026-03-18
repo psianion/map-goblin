@@ -171,7 +171,7 @@ function renderTexturedShape(
   shape: ShapeChild,
   texture: Texture,
 ): void {
-  const { minX, minY, maxX, maxY } = polygonBounds(shape.points);
+  const { minX, minY, maxX, maxY } = polygonBounds(shape.contours[0]);
   const width = maxX - minX;
   const height = maxY - minY;
   if (width <= 0 || height <= 0) return;
@@ -205,7 +205,7 @@ function renderTexturedShape(
 
   // Mask to shape polygon (coordinates in world space, mask relative to parent)
   const mask = new Graphics();
-  traceSinglePolygon(mask, shape.points);
+  traceSinglePolygon(mask, shape.contours[0]);
   mask.fill({ color: 0xffffff });
 
   const container = new Container();
@@ -224,7 +224,7 @@ function renderSolidShape(
   color: number,
 ): void {
   const g = new Graphics();
-  traceSinglePolygon(g, shape.points);
+  traceSinglePolygon(g, shape.contours[0]);
   g.fill({ color });
   parent.addChild(g);
 }
@@ -285,7 +285,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   if (hasTexturedShapes) {
     // Per-shape rendering: iterate back-to-front (array order = render order)
     for (const shape of shapeChildren) {
-      if (shape.points.length < 3) continue;
+      if ((shape.contours[0]?.length ?? 0) < 3) continue;
 
       if (shape.textureId) {
         const texture = textureLoader.getSync(shape.textureId);

@@ -21,7 +21,7 @@ function makeShape(
     childType: 'shape',
     shapeType: 'polygon',
     visible: true,
-    points,
+    contours: [points],
     roughnessEnabled: false,
     textureScale: 1,
     textureOffsetX: 0,
