@@ -1,5 +1,5 @@
 // Module-level state for pending placement asset ID.
-// Shared between AssetBrowserPanel and AssetPlacementTool.
+// Shared between AssetBrowserPanel and StampScatterTool.
 let _pendingAssetId: string | null = null;
 const _listeners = new Set<() => void>();
 

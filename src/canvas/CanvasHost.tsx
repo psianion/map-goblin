@@ -80,7 +80,7 @@ export function CanvasHost() {
       const unregWallSnap = registerInputMiddleware(wallEndpointSnap);
 
       // Register drawing tools and wire up ToolManager for input forwarding
-      registerAllTools(sceneGraph.toolManager, sceneGraph.worldContainer, pixiEngine);
+      registerAllTools(sceneGraph.toolManager, sceneGraph.worldContainer, pixiEngine, sceneGraph.previewContainer);
       setToolManager(sceneGraph.toolManager);
 
       // Instantiate snap indicator in overlay container
