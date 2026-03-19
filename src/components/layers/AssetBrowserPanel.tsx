@@ -1,21 +1,8 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useStore } from '@/store/store';
 import { useShallow } from 'zustand/react/shallow';
 import type { AssetEntry, AssetCategory, AssetManifest } from '@/store/types';
 import { cn } from '@/lib/utils';
-import {
-  getPendingPlacementAssetId,
-  setPendingPlacementAssetId,
-  subscribeToPlacementId,
-} from './pendingPlacement';
-
-function usePendingAssetId(): string | null {
-  const [id, setId] = useState<string | null>(getPendingPlacementAssetId);
-  useEffect(() => {
-    return subscribeToPlacementId(() => setId(getPendingPlacementAssetId()));
-  }, []);
-  return id;
-}
 
 // ─── Asset Thumbnail ──────────────────────────────────────
 
@@ -120,7 +107,6 @@ export function AssetBrowserPanel() {
 
   const [activeCategory, setActiveCategory] = useState<string>('recent');
   const [search, setSearch] = useState('');
-  const pendingId = usePendingAssetId();
 
   const categories: AssetCategory[] = useMemo(
     () => manifest?.categories ?? [],
@@ -154,35 +140,38 @@ export function AssetBrowserPanel() {
   }, [activeCategory, recentAssets, categories, search]);
 
   const activeTool = useStore((s) => s.tools.activeTool);
-  const updateToolSettings = useStore((s) => s.updateToolSettings);
-  const scatterAssetIds = useStore(useShallow((s) => s.tools.settings.scatterBrush.assetIds));
+  const scatterSettings = useStore(useShallow((s) => s.tools.settings.scatterBrush));
+  const updateScatterBrushSettings = useStore((s) => s.updateScatterBrushSettings);
+  const setActiveTool = useStore((s) => s.setActiveTool);
 
-  const selectedIds = useMemo(() => {
-    if (activeTool === 'scatterBrush') {
-      return new Set(scatterAssetIds);
-    }
-    return new Set(pendingId ? [pendingId] : []);
-  }, [activeTool, scatterAssetIds, pendingId]);
+  const selectedIds = useMemo(
+    () => new Set(scatterSettings.assetIds),
+    [scatterSettings.assetIds],
+  );
 
-  const handleSelect = (id: string) => {
-    trackRecentUse(id);
+  const handleSelect = useCallback(
+    (assetId: string) => {
+      const store = useStore.getState();
+      const settings = store.tools.settings.scatterBrush;
+      const currentTool = store.tools.activeTool;
 
-    if (activeTool === 'scatterBrush') {
-      // Route to scatter brush assetIds instead of single-click placement
-      const current = useStore.getState().tools.settings.scatterBrush;
-      const alreadySelected = current.assetIds.includes(id);
-      const newIds = alreadySelected
-        ? current.assetIds.filter((a) => a !== id)
-        : [...current.assetIds, id];
-      updateToolSettings({ scatterBrush: { ...current, assetIds: newIds } });
-    } else {
-      if (pendingId === id) {
-        setPendingPlacementAssetId(null);
+      if (currentTool === 'scatterBrush' && !settings.stampMode) {
+        // Scatter mode: toggle asset in/out of pool
+        const current = settings.assetIds;
+        const next = current.includes(assetId)
+          ? current.filter((id) => id !== assetId)
+          : [...current, assetId];
+        updateScatterBrushSettings({ assetIds: next });
       } else {
-        setPendingPlacementAssetId(id);
+        // Stamp mode (or any other tool): set single asset + activate stamp
+        updateScatterBrushSettings({ assetIds: [assetId], stampMode: true });
+        setActiveTool('scatterBrush');
       }
-    }
-  };
+
+      trackRecentUse(assetId);
+    },
+    [updateScatterBrushSettings, setActiveTool, trackRecentUse],
+  );
 
   const tabs = [{ id: 'recent', label: 'Recent' }, ...categories.map((c) => ({ id: c.id, label: c.label }))];
 
@@ -211,15 +200,15 @@ export function AssetBrowserPanel() {
 
       {/* Grid */}
       <div className="flex-1 overflow-y-auto">
-        {activeTool === 'scatterBrush' ? (
+        {activeTool === 'scatterBrush' && !scatterSettings.stampMode ? (
           <p className="px-2 py-1 text-[10px] text-accent">
-            Select assets for scatter brush • Click to toggle
+            Click assets to add/remove from scatter pool
           </p>
-        ) : pendingId ? (
+        ) : (
           <p className="px-2 py-1 text-[10px] text-accent">
-            Click canvas to place • Click asset again to cancel
+            Click an asset to stamp it
           </p>
-        ) : null}
+        )}
         <AssetGrid assets={currentAssets} selectedIds={selectedIds} onSelect={handleSelect} />
       </div>
     </div>
