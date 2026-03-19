@@ -8,11 +8,7 @@ import { poissonDiskSample } from '@/geometry/poissonDisk';
 import { mulberry32, hashPosition } from '@/geometry/seededRng';
 import { AddChildCommand, RemoveChildCommand, CompositeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
-import {
-  getPendingPlacementAssetId,
-  setPendingPlacementAssetId,
-  subscribeToPlacementId,
-} from '@/components/layers/pendingPlacement';
+// pendingPlacement removed — asset browser now communicates via store directly
 
 /** Max items per scatter click to prevent performance issues */
 const MAX_SCATTER_COUNT = 30;
@@ -38,7 +34,8 @@ export class StampScatterTool implements DrawingTool {
   private lastCursorWorld: Point | null = null;
   private pendingPlacements: PlacementPoint[] = [];
   private textureCache = new Map<string, Texture>();
-  private unsubPlacement: (() => void) | null = null;
+  private unsubSettings: (() => void) | null = null;
+  private unsubErase: (() => void) | null = null;
 
   constructor(previewContainer: Container) {
     this.previewContainer = previewContainer;
@@ -46,7 +43,7 @@ export class StampScatterTool implements DrawingTool {
     this.previewContainer.addChild(this.brushCircle);
 
     // Subscribe to settings changes for live preview refresh
-    useStore.subscribe(
+    this.unsubSettings = useStore.subscribe(
       (state) => state.tools.settings.scatterBrush,
       () => {
         if (this.lastCursorWorld) {
@@ -56,7 +53,7 @@ export class StampScatterTool implements DrawingTool {
     );
 
     // Subscribe to eraseMode changes
-    useStore.subscribe(
+    this.unsubErase = useStore.subscribe(
       (state) => state.tools.eraseMode,
       () => {
         if (this.lastCursorWorld) {
@@ -64,23 +61,6 @@ export class StampScatterTool implements DrawingTool {
         }
       },
     );
-
-    // Subscribe to pending placement changes from asset browser
-    this.unsubPlacement = subscribeToPlacementId(() => {
-      const pendingId = getPendingPlacementAssetId();
-      if (pendingId) {
-        const store = useStore.getState();
-        const settings = store.tools.settings.scatterBrush;
-        if (settings.stampMode) {
-          store.updateScatterBrushSettings({ assetIds: [pendingId] });
-        }
-        store.setActiveTool('scatterBrush');
-        setPendingPlacementAssetId(null);
-        if (this.lastCursorWorld) {
-          this.updatePreview(this.lastCursorWorld);
-        }
-      }
-    });
   }
 
   private getSettings(): ScatterBrushSettings {
@@ -180,19 +160,25 @@ export class StampScatterTool implements DrawingTool {
       this.renderPreviewSprite(placement);
     }
 
-    // Draw brush circle
+    // Draw brush circle (stroke width in screen pixels, not world units)
+    const zoom = this.previewContainer.parent?.scale.x ?? 1;
+    const strokeWidth = 2 / zoom;
     this.brushCircle.clear();
     this.brushCircle.circle(worldPoint.x, worldPoint.y, radiusWorld);
-    this.brushCircle.stroke({ width: 2, color: 0x4a9eff, alpha: 0.6 });
+    this.brushCircle.stroke({ width: strokeWidth, color: 0x4a9eff, alpha: 0.6 });
   }
 
   private showErasePreview(worldPoint: Point, settings: ScatterBrushSettings): void {
     const radius = settings.stampMode ? 0.5 : settings.brushRadius;
+    const zoom = this.previewContainer.parent?.scale.x ?? 1;
+    const strokeWidth = 2 / zoom;
 
     this.brushCircle.clear();
+    // Fill first, then stroke (PixiJS v8 flushes path on each operation)
     this.brushCircle.circle(worldPoint.x, worldPoint.y, radius);
-    this.brushCircle.stroke({ width: 2, color: 0xff4444, alpha: 0.6 });
     this.brushCircle.fill({ color: 0xff4444, alpha: 0.1 });
+    this.brushCircle.circle(worldPoint.x, worldPoint.y, radius);
+    this.brushCircle.stroke({ width: strokeWidth, color: 0xff4444, alpha: 0.6 });
   }
 
   private computeStampPlacement(worldPoint: Point, assetId: string): PlacementPoint | null {
@@ -235,10 +221,10 @@ export class StampScatterTool implements DrawingTool {
         tex = maybeTex;
         this.textureCache.set(placement.assetId, tex);
       } else {
-        // Not cached yet — trigger async load, will appear on next preview update
+        // Not cached yet — trigger async load, refresh preview when ready
         void Assets.load(entry.path).then((loaded: Texture) => {
           this.textureCache.set(placement.assetId, loaded);
-          // Trigger re-render on next mouse move
+          this.refreshPreview();
         });
         tex = Texture.WHITE;
       }
@@ -348,14 +334,20 @@ export class StampScatterTool implements DrawingTool {
     const settings = this.getSettings();
     const radius = settings.stampMode ? 0.5 : settings.brushRadius;
 
-    // Find asset children within radius
+    // Find asset children within radius (AABB-to-circle intersection)
     const dungeonLayer = layer as DungeonLayer;
+    const radiusSq = radius * radius;
     const children = dungeonLayer.children.filter((c): c is AssetChild => {
       if (c.childType !== 'asset') return false;
       const ac = c as AssetChild;
-      const dx = ac.position.x - worldPoint.x;
-      const dy = ac.position.y - worldPoint.y;
-      return Math.sqrt(dx * dx + dy * dy) <= radius;
+      const halfW = ac.width / 2;
+      const halfH = ac.height / 2;
+      // Find closest point on asset AABB to the erase center
+      const closestX = Math.max(ac.position.x - halfW, Math.min(worldPoint.x, ac.position.x + halfW));
+      const closestY = Math.max(ac.position.y - halfH, Math.min(worldPoint.y, ac.position.y + halfH));
+      const dx = closestX - worldPoint.x;
+      const dy = closestY - worldPoint.y;
+      return dx * dx + dy * dy <= radiusSq;
     });
 
     if (children.length === 0) return;
@@ -408,7 +400,7 @@ export class StampScatterTool implements DrawingTool {
     return this.previewSprites.length > 0 || this.lastCursorWorld !== null;
   }
 
-  getHoverCursor(): string | null {
+  getHoverCursor(_sx: number, _sy: number): string | null {
     return 'crosshair';
   }
 
@@ -425,8 +417,7 @@ export class StampScatterTool implements DrawingTool {
   destroy(): void {
     this.clearPreview();
     this.brushCircle.destroy();
-    if (this.unsubPlacement) {
-      this.unsubPlacement();
-    }
+    this.unsubSettings?.();
+    this.unsubErase?.();
   }
 }

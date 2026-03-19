@@ -358,7 +358,7 @@ function ScatterBrushContent() {
   );
 
   return (
-    <div className="flex flex-col gap-3 p-3 w-56">
+    <div className="flex flex-col gap-3">
       <div className="text-xs font-medium text-text-secondary uppercase tracking-wider">
         {eraseMode ? 'Erase Assets' : 'Stamp / Scatter'}
       </div>
