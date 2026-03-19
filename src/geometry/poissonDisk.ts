@@ -15,6 +15,7 @@ export function poissonDiskSample(
   radius: number,
   minDist: number,
   maxCount: number,
+  rng: () => number = Math.random,
 ): Point[] {
   if (radius <= 0 || minDist <= 0 || maxCount <= 0) return [];
 
@@ -34,15 +35,15 @@ export function poissonDiskSample(
   addPoint(center);
 
   while (active.length > 0 && points.length < maxCount) {
-    const activeIdx = Math.floor(Math.random() * active.length);
+    const activeIdx = Math.floor(rng() * active.length);
     const activePointIdx = active[activeIdx];
     const pt = points[activePointIdx];
     let found = false;
 
     for (let attempt = 0; attempt < k; attempt++) {
       // Random point at distance [minDist, 2*minDist] from active point
-      const angle = Math.random() * Math.PI * 2;
-      const dist = minDist + Math.random() * minDist;
+      const angle = rng() * Math.PI * 2;
+      const dist = minDist + rng() * minDist;
       const candidate: Point = {
         x: pt.x + Math.cos(angle) * dist,
         y: pt.y + Math.sin(angle) * dist,

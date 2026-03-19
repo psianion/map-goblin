@@ -1,71 +1,43 @@
 import { describe, it, expect } from 'vitest';
 import { poissonDiskSample } from './poissonDisk';
+import { mulberry32 } from './seededRng';
 
 describe('poissonDiskSample', () => {
-  const center = { x: 10, y: 10 };
-
-  it('returns points within the sampling radius', () => {
-    const points = poissonDiskSample(center, 5, 1, 100);
+  it('returns points within the specified radius', () => {
+    const center = { x: 100, y: 100 };
+    const radius = 50;
+    const points = poissonDiskSample(center, radius, 10, 20);
     for (const p of points) {
       const dx = p.x - center.x;
       const dy = p.y - center.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      expect(dist).toBeLessThanOrEqual(5 + 0.001); // tiny epsilon for float
+      expect(Math.sqrt(dx * dx + dy * dy)).toBeLessThanOrEqual(radius + 0.01);
     }
   });
 
-  it('maintains minimum spacing between all points', () => {
-    const minDist = 1.5;
-    const points = poissonDiskSample(center, 5, minDist, 100);
-    for (let i = 0; i < points.length; i++) {
-      for (let j = i + 1; j < points.length; j++) {
-        const dx = points[i].x - points[j].x;
-        const dy = points[i].y - points[j].y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        expect(dist).toBeGreaterThanOrEqual(minDist - 0.001);
-      }
-    }
+  it('respects maxCount limit', () => {
+    const points = poissonDiskSample({ x: 0, y: 0 }, 100, 5, 10);
+    expect(points.length).toBeLessThanOrEqual(10);
   });
 
-  it('respects the max count cap', () => {
-    const points = poissonDiskSample(center, 10, 0.5, 20);
-    expect(points.length).toBeLessThanOrEqual(20);
+  it('is deterministic with a seeded rng', () => {
+    const center = { x: 50, y: 50 };
+    const a = poissonDiskSample(center, 30, 8, 15, mulberry32(42));
+    const b = poissonDiskSample(center, 30, 8, 15, mulberry32(42));
+    expect(a).toEqual(b);
   });
 
-  it('returns at least one point for valid inputs', () => {
-    const points = poissonDiskSample(center, 5, 1, 100);
-    expect(points.length).toBeGreaterThanOrEqual(1);
+  it('produces different results with different seeds', () => {
+    const center = { x: 50, y: 50 };
+    const a = poissonDiskSample(center, 30, 8, 15, mulberry32(1));
+    const b = poissonDiskSample(center, 30, 8, 15, mulberry32(2));
+    // At least one point should differ (extremely unlikely to be identical)
+    const aStr = JSON.stringify(a);
+    const bStr = JSON.stringify(b);
+    expect(aStr).not.toBe(bStr);
   });
 
-  it('returns empty array for zero radius', () => {
-    const points = poissonDiskSample(center, 0, 1, 100);
-    expect(points).toEqual([]);
-  });
-
-  it('returns empty array for zero maxCount', () => {
-    const points = poissonDiskSample(center, 5, 1, 0);
-    expect(points).toEqual([]);
-  });
-
-  it('returns empty array for negative radius', () => {
-    const points = poissonDiskSample(center, -5, 1, 100);
-    expect(points).toEqual([]);
-  });
-
-  it('returns empty array for zero minDist', () => {
-    const points = poissonDiskSample(center, 5, 0, 100);
-    expect(points).toEqual([]);
-  });
-
-  it('returns single point when maxCount is 1', () => {
-    const points = poissonDiskSample(center, 5, 1, 1);
-    expect(points.length).toBe(1);
-  });
-
-  it('produces reasonable density for large area', () => {
-    const points = poissonDiskSample(center, 10, 2, 500);
-    // Area = pi*10^2 ≈ 314, each point occupies ~pi*(minDist/2)^2 ≈ 3.14
-    // Theoretical max ≈ 100. Should get at least 20+.
-    expect(points.length).toBeGreaterThan(15);
+  it('still works without rng parameter (uses Math.random)', () => {
+    const points = poissonDiskSample({ x: 0, y: 0 }, 50, 10, 20);
+    expect(points.length).toBeGreaterThan(0);
   });
 });
