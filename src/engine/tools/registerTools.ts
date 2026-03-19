@@ -9,9 +9,8 @@ import { WallTool } from './WallTool';
 import { SelectTool } from './SelectTool';
 import { ObjectTool } from './ObjectTool';
 import { LightTool } from './LightTool';
-import { AssetPlacementTool } from './AssetPlacementTool';
-import { ScatterBrushTool } from './ScatterBrushTool';
-export function registerAllTools(manager: ToolManager, worldContainer: Container, engine: RenderEngine): void {
+import { StampScatterTool } from './StampScatterTool';
+export function registerAllTools(manager: ToolManager, worldContainer: Container, engine: RenderEngine, previewContainer: Container): void {
   const selectTool = new SelectTool(engine);
   selectTool.overlay.setWorldToScreen((wx, wy) => engine.worldToScreen(wx, wy));
   worldContainer.addChild(selectTool.overlay.container);
@@ -28,6 +27,5 @@ export function registerAllTools(manager: ToolManager, worldContainer: Container
   manager.registerTool(new PathTool());
   manager.registerTool(new WallTool());
   manager.registerTool(new LightTool());
-  manager.registerTool(new AssetPlacementTool(worldContainer));
-  manager.registerTool(new ScatterBrushTool());
+  manager.registerTool(new StampScatterTool(previewContainer));
 }

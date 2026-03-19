@@ -175,8 +175,9 @@ export type ToolType =
 export interface ScatterBrushSettings {
   assetIds: string[];
   brushRadius: number;
-  density: number;
-  spacing: number;
+  count: number;
+  minSpacing: number;
+  stampMode: boolean;
   rotationRange: [number, number];
   scaleRange: [number, number];
 }
@@ -351,6 +352,7 @@ export interface MapBuilderStore {
   updateToolSettings: (patch: Partial<ToolSettings>) => void;
   addRecentAsset: (assetId: string) => void;
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;
+  updateScatterBrushSettings: (patch: Partial<ScatterBrushSettings>) => void;
 
   // ui actions
   setActiveLayerId: (id: string) => void;

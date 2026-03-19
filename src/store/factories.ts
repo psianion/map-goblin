@@ -72,7 +72,7 @@ type MapBuilderState = Omit<
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
   | 'addChild' | 'removeChild' | 'reorderChild' | 'updateChild' | 'recomputeMergedFloor'
   | 'addWall' | 'removeWall'
-  | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'updateToolSettings' | 'addRecentAsset' | 'updateLightDefaults'
+  | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'updateToolSettings' | 'addRecentAsset' | 'updateLightDefaults' | 'updateScatterBrushSettings'
   | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
   | 'pushToast' | 'dismissToast' | 'showModal' | 'setClipperReady' | 'setFocusMode'
   | 'applyPreset' | 'saveCustomPreset' | 'deleteCustomPreset'
@@ -120,9 +120,10 @@ export function createDefaultState(): MapBuilderState {
         },
         scatterBrush: {
           assetIds: [],
-          brushRadius: 2,
-          density: 0.8,
-          spacing: 1,
+          brushRadius: 3,
+          count: 5,
+          minSpacing: 0.8,
+          stampMode: true,
           rotationRange: [0, Math.PI * 2],
           scaleRange: [0.8, 1.2],
         },

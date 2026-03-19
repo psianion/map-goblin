@@ -207,8 +207,8 @@ test.describe('Asset Placement', () => {
 
   test('placing an imported asset via store places a PlacedObject', async ({ page }) => {
     // Tests that PlaceObjectCommand correctly places an object in an images layer.
-    // AssetPlacementTool is not yet registered in registerAllTools (UI wiring pending),
-    // so we test via the drag-drop import pipeline which calls PlaceObjectCommand directly.
+    // StampScatterTool handles asset placement now (registered in registerAllTools),
+    // but we also test via the drag-drop import pipeline which calls PlaceObjectCommand directly.
     await gotoApp(page)
     await addImagesLayerAndActivate(page)
 

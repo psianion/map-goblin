@@ -16,6 +16,7 @@ import { getTextureEntry } from '@/assets/textureManifest';
  * this must be called again after a texture swap (async load).
  */
 function syncSprite(sprite: Sprite, obj: AssetChild): void {
+  sprite.visible = obj.visible;
   sprite.position.set(obj.position.x, obj.position.y);
   sprite.rotation = obj.rotation;
   sprite.width = obj.width;

@@ -10,6 +10,7 @@ export interface SceneGraph {
   overlayContainer: Container;
   backgroundLayer: Container;
   layerContainer: Container;
+  previewContainer: Container;
   gridRenderer: GridRenderer;
   toolManager: ToolManager;
   lightingRenderer: LightingRenderer;
@@ -76,6 +77,11 @@ export function buildSceneGraph(engine: RenderEngine): SceneGraph {
   layerContainer.label = 'layerContainer';
   worldContainer.addChild(layerContainer);
 
+  // Preview container — stamp/scatter tool preview sprites rendered here
+  const previewContainer = new Container();
+  previewContainer.label = 'previewContainer';
+  worldContainer.addChild(previewContainer);
+
   // Tool manager — handles drawing tools and preview rendering
   const toolManager = new ToolManager(worldContainer);
 
@@ -94,6 +100,7 @@ export function buildSceneGraph(engine: RenderEngine): SceneGraph {
     overlayContainer,
     backgroundLayer,
     layerContainer,
+    previewContainer,
     gridRenderer,
     toolManager,
     lightingRenderer,

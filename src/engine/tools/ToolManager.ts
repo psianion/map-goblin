@@ -96,6 +96,12 @@ export class ToolManager {
 
   destroy(): void {
     this.previewGraphics.destroy();
+    // Call destroy on all tools that implement it (cleanup subscriptions, sprites, etc.)
+    for (const tool of this.tools.values()) {
+      if ('destroy' in tool && typeof (tool as { destroy: () => void }).destroy === 'function') {
+        (tool as { destroy: () => void }).destroy();
+      }
+    }
     this.tools.clear();
     this.activeTool = null;
   }
