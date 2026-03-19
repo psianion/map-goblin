@@ -45,6 +45,26 @@ export class StampScatterTool implements DrawingTool {
     this.brushCircle = new Graphics();
     this.previewContainer.addChild(this.brushCircle);
 
+    // Subscribe to settings changes for live preview refresh
+    useStore.subscribe(
+      (state) => state.tools.settings.scatterBrush,
+      () => {
+        if (this.lastCursorWorld) {
+          this.updatePreview(this.lastCursorWorld);
+        }
+      },
+    );
+
+    // Subscribe to eraseMode changes
+    useStore.subscribe(
+      (state) => state.tools.eraseMode,
+      () => {
+        if (this.lastCursorWorld) {
+          this.updatePreview(this.lastCursorWorld);
+        }
+      },
+    );
+
     // Subscribe to pending placement changes from asset browser
     this.unsubPlacement = subscribeToPlacementId(() => {
       const pendingId = getPendingPlacementAssetId();
