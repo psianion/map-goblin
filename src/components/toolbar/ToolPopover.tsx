@@ -5,6 +5,7 @@ import { selectActiveLayer } from '@/store/selectors';
 import type { ToolType, DungeonLayer, DungeonStyle, ScatterBrushSettings } from '@/store/types';
 import { ColorField } from '@/components/inputs/ColorField';
 import { SliderInput } from '@/components/inputs/SliderInput';
+import { DualRangeSlider } from '@/components/inputs/DualRangeSlider';
 import { PropertyField } from '@/components/properties/PropertyField';
 import { ChevronUp, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -343,96 +344,150 @@ function LightToolContent({ onValueChange }: { onValueChange?: () => void }) {
 // ─── Scatter Brush Tool ──────────────────────────
 
 function ScatterBrushContent() {
-  const scatterSettings = useStore(useShallow((s) => s.tools.settings.scatterBrush));
+  const settings = useStore(useShallow((s) => s.tools.settings.scatterBrush));
   const eraseMode = useStore((s) => s.tools.eraseMode);
+  const continuousPlacement = useStore((s) => s.tools.settings.continuousPlacement);
+  const updateSettings = useStore((s) => s.updateScatterBrushSettings);
   const updateToolSettings = useStore((s) => s.updateToolSettings);
 
-  const patch = (partial: Partial<ScatterBrushSettings>) => {
-    updateToolSettings({
-      scatterBrush: { ...scatterSettings, ...partial },
-    });
-  };
-
-  const toDeg = (rad: number): number => Math.round((rad * 180) / Math.PI);
-  const toRad = (deg: number): number => (deg * Math.PI) / 180;
+  const patch = useCallback(
+    (p: Partial<ScatterBrushSettings>) => {
+      updateSettings(p);
+    },
+    [updateSettings],
+  );
 
   return (
-    <div className="flex flex-col gap-2">
-      <span className="font-mono text-panel-heading uppercase text-text-muted">
-        Scatter Brush {eraseMode && '(Erase)'}
-      </span>
+    <div className="flex flex-col gap-3 p-3 w-56">
+      <div className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+        {eraseMode ? 'Erase Assets' : 'Stamp / Scatter'}
+      </div>
 
-      <PropertyField label="Brush Radius">
-        <SliderInput
-          value={scatterSettings.brushRadius}
-          onChange={(v) => patch({ brushRadius: v })}
-          min={0.5}
-          max={10}
-          step={0.25}
-        />
-      </PropertyField>
-
+      {/* Mode toggle */}
       {!eraseMode && (
+        <div className="flex gap-1 bg-surface-2 rounded-lg p-0.5">
+          <button
+            className={cn(
+              'flex-1 text-xs py-1.5 rounded-md transition-colors',
+              settings.stampMode
+                ? 'bg-accent text-white font-semibold'
+                : 'text-text-secondary hover:text-text-primary',
+            )}
+            onClick={() => patch({ stampMode: true })}
+          >
+            Stamp
+          </button>
+          <button
+            className={cn(
+              'flex-1 text-xs py-1.5 rounded-md transition-colors',
+              !settings.stampMode
+                ? 'bg-accent text-white font-semibold'
+                : 'text-text-secondary hover:text-text-primary',
+            )}
+            onClick={() => patch({ stampMode: false })}
+          >
+            Scatter
+          </button>
+        </div>
+      )}
+
+      {/* Scatter-only controls */}
+      {!settings.stampMode && !eraseMode && (
         <>
-          <PropertyField label="Density">
-            <SliderInput
-              value={scatterSettings.density}
-              onChange={(v) => patch({ density: v })}
-              min={0.2}
-              max={3}
-              step={0.1}
-            />
-          </PropertyField>
-
-          <PropertyField label="Spacing">
-            <SliderInput
-              value={scatterSettings.spacing}
-              onChange={(v) => patch({ spacing: v })}
-              min={0.25}
-              max={5}
-              step={0.25}
-            />
-          </PropertyField>
-
-          <PropertyField label="Rotation">
-            <div className="flex items-center gap-1 text-[11px] font-mono text-text-muted">
-              <span>{toDeg(scatterSettings.rotationRange[0])}</span>
-              <span className="text-text-muted">-</span>
-              <span>{toDeg(scatterSettings.rotationRange[1])}</span>
-              <span>deg</span>
+          <div>
+            <div className="flex justify-between mb-1">
+              <span className="text-[11px] text-text-secondary uppercase tracking-wider">Brush Radius</span>
+              <span className="text-xs text-text-primary font-mono">{settings.brushRadius} cells</span>
             </div>
-            <SliderInput
-              value={toDeg(scatterSettings.rotationRange[1])}
-              onChange={(v) => patch({ rotationRange: [0, toRad(v)] })}
+            <SliderInput value={settings.brushRadius} onChange={(v) => patch({ brushRadius: v })} min={1} max={10} step={0.5} />
+          </div>
+          <div>
+            <div className="flex justify-between mb-1">
+              <span className="text-[11px] text-text-secondary uppercase tracking-wider">Count</span>
+              <span className="text-xs text-text-primary font-mono">{settings.count}</span>
+            </div>
+            <SliderInput value={settings.count} onChange={(v) => patch({ count: Math.round(v) })} min={1} max={30} step={1} />
+          </div>
+          <div>
+            <div className="flex justify-between mb-1">
+              <span className="text-[11px] text-text-secondary uppercase tracking-wider">Min Spacing</span>
+              <span className="text-xs text-text-primary font-mono">{settings.minSpacing.toFixed(1)} cells</span>
+            </div>
+            <SliderInput value={settings.minSpacing} onChange={(v) => patch({ minSpacing: v })} min={0.2} max={5} step={0.1} />
+          </div>
+          <div>
+            <div className="text-[11px] text-text-secondary uppercase tracking-wider mb-1">
+              Scale Range
+            </div>
+            <DualRangeSlider
+              min={0.3}
+              max={2.0}
+              step={0.05}
+              value={settings.scaleRange}
+              onChange={(v) => patch({ scaleRange: v })}
+              formatValue={(v) => `${v.toFixed(2)}\u00d7`}
+            />
+          </div>
+          <div>
+            <div className="text-[11px] text-text-secondary uppercase tracking-wider mb-1">
+              Rotation Range
+            </div>
+            <DualRangeSlider
               min={0}
               max={360}
-              step={15}
-            />
-          </PropertyField>
-
-          <PropertyField label="Scale Range">
-            <div className="flex items-center gap-1 text-[11px] font-mono text-text-muted">
-              <span>{scatterSettings.scaleRange[0].toFixed(1)}</span>
-              <span className="text-text-muted">-</span>
-              <span>{scatterSettings.scaleRange[1].toFixed(1)}</span>
-            </div>
-            <SliderInput
-              value={scatterSettings.scaleRange[1]}
+              step={5}
+              value={[
+                (settings.rotationRange[0] * 180) / Math.PI,
+                (settings.rotationRange[1] * 180) / Math.PI,
+              ]}
               onChange={(v) =>
                 patch({
-                  scaleRange: [
-                    Math.min(scatterSettings.scaleRange[0], v),
-                    v,
+                  rotationRange: [
+                    (v[0] * Math.PI) / 180,
+                    (v[1] * Math.PI) / 180,
                   ],
                 })
               }
-              min={0.2}
-              max={3}
-              step={0.1}
+              formatValue={(v) => `${Math.round(v)}\u00b0`}
             />
-          </PropertyField>
+          </div>
         </>
       )}
+
+      {/* Brush radius for erase mode */}
+      {eraseMode && !settings.stampMode && (
+        <div>
+          <div className="flex justify-between mb-1">
+            <span className="text-[11px] text-text-secondary uppercase tracking-wider">Erase Radius</span>
+            <span className="text-xs text-text-primary font-mono">{settings.brushRadius} cells</span>
+          </div>
+          <SliderInput value={settings.brushRadius} onChange={(v) => patch({ brushRadius: v })} min={1} max={10} step={0.5} />
+        </div>
+      )}
+
+      {/* Stamp-only: continuous placement toggle */}
+      {settings.stampMode && !eraseMode && (
+        <label className="flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
+          <input
+            type="checkbox"
+            checked={continuousPlacement}
+            onChange={(e) =>
+              updateToolSettings({
+                continuousPlacement: e.target.checked,
+              })
+            }
+            className="accent-accent"
+          />
+          Continuous placement
+        </label>
+      )}
+
+      {/* Selected assets count */}
+      <div className="text-[10px] text-text-tertiary mt-1">
+        {settings.assetIds.length === 0
+          ? 'Select assets in the browser panel \u2192'
+          : `${settings.assetIds.length} asset${settings.assetIds.length > 1 ? 's' : ''} selected`}
+      </div>
     </div>
   );
 }
