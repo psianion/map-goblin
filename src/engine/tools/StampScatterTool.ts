@@ -8,13 +8,12 @@ import { poissonDiskSample } from '@/geometry/poissonDisk';
 import { mulberry32, hashPosition } from '@/geometry/seededRng';
 import { AddChildCommand, RemoveChildCommand, CompositeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
-// pendingPlacement removed — asset browser now communicates via store directly
 
-/** Max items per scatter click to prevent performance issues */
+/** Max items per scatter click */
 const MAX_SCATTER_COUNT = 30;
 
 /** Quantize step for position hashing (in world units / cells). Controls preview stability zone. */
-const POSITION_QUANTIZE = 0.5; // half a cell — preview stays stable within this zone
+const POSITION_QUANTIZE = 0.5;
 
 interface PlacementPoint {
   position: Point;
@@ -36,6 +35,10 @@ export class StampScatterTool implements DrawingTool {
   private textureCache = new Map<string, Texture>();
   private unsubSettings: (() => void) | null = null;
   private unsubErase: (() => void) | null = null;
+  private destroyed = false;
+  /** Quantized cursor position — used to skip redundant preview rebuilds */
+  private lastQuantizedX = NaN;
+  private lastQuantizedY = NaN;
 
   constructor(previewContainer: Container) {
     this.previewContainer = previewContainer;
@@ -46,6 +49,9 @@ export class StampScatterTool implements DrawingTool {
     this.unsubSettings = useStore.subscribe(
       (state) => state.tools.settings.scatterBrush,
       () => {
+        // Settings changed — force rebuild even if cursor hasn't moved
+        this.lastQuantizedX = NaN;
+        this.lastQuantizedY = NaN;
         if (this.lastCursorWorld) {
           this.updatePreview(this.lastCursorWorld);
         }
@@ -56,6 +62,8 @@ export class StampScatterTool implements DrawingTool {
     this.unsubErase = useStore.subscribe(
       (state) => state.tools.eraseMode,
       () => {
+        this.lastQuantizedX = NaN;
+        this.lastQuantizedY = NaN;
         if (this.lastCursorWorld) {
           this.updatePreview(this.lastCursorWorld);
         }
@@ -75,11 +83,29 @@ export class StampScatterTool implements DrawingTool {
     return useStore.getState().tools.eraseMode;
   }
 
+  private showLayerWarning(message: string): void {
+    useStore.getState().pushToast({
+      id: crypto.randomUUID(),
+      message,
+      type: 'warning',
+      duration: 3000,
+      createdAt: Date.now(),
+    });
+  }
+
   // ─── Preview ───
 
   /** Called on every pointer move and when settings change */
   updatePreview(worldPoint: Point): void {
     this.lastCursorWorld = worldPoint;
+
+    // Performance: skip rebuild if cursor is in the same quantized zone
+    const qx = Math.round(worldPoint.x / POSITION_QUANTIZE);
+    const qy = Math.round(worldPoint.y / POSITION_QUANTIZE);
+    if (qx === this.lastQuantizedX && qy === this.lastQuantizedY) return;
+    this.lastQuantizedX = qx;
+    this.lastQuantizedY = qy;
+
     this.clearPreview();
 
     const settings = this.getSettings();
@@ -107,14 +133,11 @@ export class StampScatterTool implements DrawingTool {
   }
 
   private showScatterPreview(worldPoint: Point, settings: ScatterBrushSettings): void {
-    // 1 world unit = 1 grid cell. brushRadius/minSpacing are already in cells.
     const radiusWorld = settings.brushRadius;
     const minSpacingWorld = settings.minSpacing;
 
     // Seeded RNG from quantized position
-    const qx = Math.round(worldPoint.x / POSITION_QUANTIZE);
-    const qy = Math.round(worldPoint.y / POSITION_QUANTIZE);
-    const seed = hashPosition(qx, qy);
+    const seed = hashPosition(this.lastQuantizedX, this.lastQuantizedY);
     const rng = mulberry32(seed);
 
     // Generate sample points
@@ -141,7 +164,6 @@ export class StampScatterTool implements DrawingTool {
       const entry = getTextureEntry(assetId);
       if (!entry) continue;
 
-      // 1 world unit = 1 cell = GRID_CELL_PX texture pixels
       const baseWidth = entry.naturalWidth / GRID_CELL_PX;
       const baseHeight = entry.naturalHeight / GRID_CELL_PX;
 
@@ -212,8 +234,6 @@ export class StampScatterTool implements DrawingTool {
     const entry = getTextureEntry(placement.assetId);
     if (!entry) return;
 
-    // Use synchronous Assets.get() — textures are pre-loaded via manifest bundles.
-    // If not yet cached, load async and re-render when ready.
     let tex = this.textureCache.get(placement.assetId);
     if (!tex) {
       const maybeTex = Assets.get<Texture>(entry.path);
@@ -221,11 +241,17 @@ export class StampScatterTool implements DrawingTool {
         tex = maybeTex;
         this.textureCache.set(placement.assetId, tex);
       } else {
-        // Not cached yet — trigger async load, refresh preview when ready
-        void Assets.load(entry.path).then((loaded: Texture) => {
-          this.textureCache.set(placement.assetId, loaded);
-          this.refreshPreview();
-        });
+        // Not cached yet — trigger async load with error handling and destroyed guard
+        void Assets.load(entry.path)
+          .then((loaded: Texture) => {
+            if (this.destroyed) return;
+            this.textureCache.set(placement.assetId, loaded);
+            this.refreshPreview();
+          })
+          .catch(() => {
+            // Texture failed to load — silently use placeholder, user sees white rect
+            // which is acceptable since textures load on next hover
+          });
         tex = Texture.WHITE;
       }
     }
@@ -258,27 +284,14 @@ export class StampScatterTool implements DrawingTool {
     const layerId = this.getActiveLayerId();
     if (!layerId) return;
 
-    // Check layer is a dungeon layer and not locked
     const state = useStore.getState();
     const layer = state.layers.find((l) => l.id === layerId);
     if (!layer || layer.type !== 'dungeon') {
-      state.pushToast({
-        id: crypto.randomUUID(),
-        message: 'Select a dungeon layer to place assets',
-        type: 'warning',
-        duration: 3000,
-        createdAt: Date.now(),
-      });
+      this.showLayerWarning('Select a dungeon layer to place assets');
       return;
     }
     if (layer.locked) {
-      state.pushToast({
-        id: crypto.randomUUID(),
-        message: 'Layer is locked',
-        type: 'warning',
-        duration: 3000,
-        createdAt: Date.now(),
-      });
+      this.showLayerWarning('Layer is locked');
       return;
     }
 
@@ -329,7 +342,14 @@ export class StampScatterTool implements DrawingTool {
 
     const state = useStore.getState();
     const layer = state.layers.find((l) => l.id === layerId);
-    if (!layer || layer.type !== 'dungeon' || layer.locked) return;
+    if (!layer || layer.type !== 'dungeon') {
+      this.showLayerWarning('Select a dungeon layer to erase assets');
+      return;
+    }
+    if (layer.locked) {
+      this.showLayerWarning('Layer is locked');
+      return;
+    }
 
     const settings = this.getSettings();
     const radius = settings.stampMode ? 0.5 : settings.brushRadius;
@@ -342,7 +362,6 @@ export class StampScatterTool implements DrawingTool {
       const ac = c as AssetChild;
       const halfW = ac.width / 2;
       const halfH = ac.height / 2;
-      // Find closest point on asset AABB to the erase center
       const closestX = Math.max(ac.position.x - halfW, Math.min(worldPoint.x, ac.position.x + halfW));
       const closestY = Math.max(ac.position.y - halfH, Math.min(worldPoint.y, ac.position.y + halfH));
       const dx = closestX - worldPoint.x;
@@ -394,6 +413,8 @@ export class StampScatterTool implements DrawingTool {
   cancel(): void {
     this.clearPreview();
     this.lastCursorWorld = null;
+    this.lastQuantizedX = NaN;
+    this.lastQuantizedY = NaN;
   }
 
   isActive(): boolean {
@@ -404,20 +425,21 @@ export class StampScatterTool implements DrawingTool {
     return 'crosshair';
   }
 
-  /**
-   * Called when popover controls change.
-   * Recomputes preview using last known cursor position + new settings.
-   */
   refreshPreview(): void {
     if (this.lastCursorWorld) {
+      // Force rebuild by invalidating quantized position
+      this.lastQuantizedX = NaN;
+      this.lastQuantizedY = NaN;
       this.updatePreview(this.lastCursorWorld);
     }
   }
 
   destroy(): void {
-    this.clearPreview();
-    this.brushCircle.destroy();
+    this.destroyed = true;
+    // Unsubscribe BEFORE destroying PixiJS objects to prevent race conditions
     this.unsubSettings?.();
     this.unsubErase?.();
+    this.clearPreview();
+    this.brushCircle.destroy();
   }
 }

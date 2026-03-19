@@ -47,5 +47,13 @@ export const createToolsSlice: StateCreator<
   updateScatterBrushSettings: (patch) =>
     set((state) => {
       Object.assign(state.tools.settings.scatterBrush, patch);
+      // Clamp to valid ranges to prevent infinite loops and rendering bugs
+      const s = state.tools.settings.scatterBrush;
+      s.brushRadius = Math.max(0.5, s.brushRadius);
+      s.count = Math.min(Math.max(1, Math.round(s.count)), 30);
+      s.minSpacing = Math.max(0.1, s.minSpacing);
+      s.scaleRange[0] = Math.max(0.1, s.scaleRange[0]);
+      s.scaleRange[1] = Math.max(s.scaleRange[0], s.scaleRange[1]);
+      s.rotationRange[1] = Math.max(s.rotationRange[0], s.rotationRange[1]);
     }),
 });

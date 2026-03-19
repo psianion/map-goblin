@@ -151,6 +151,7 @@ export const SCATTER_PRESETS: ScatterPreset[] = [
     category: 'nature',
     values: {
       assetIds: ['tree-green-a1', 'stump-ashen-a1', 'fallen-leaves-green1-a1'],
+      stampMode: false,
       brushRadius: 3,
       count: 6,
       minSpacing: 1.2,
@@ -164,6 +165,7 @@ export const SCATTER_PRESETS: ScatterPreset[] = [
     category: 'dungeon',
     values: {
       assetIds: ['rock-stone-mossy-c11', 'log-ashen-a1'],
+      stampMode: false,
       brushRadius: 2,
       count: 5,
       minSpacing: 0.8,
@@ -177,6 +179,7 @@ export const SCATTER_PRESETS: ScatterPreset[] = [
     category: 'nature',
     values: {
       assetIds: ['grass-patch-green1-a1', 'fallen-leaves-green1-a1'],
+      stampMode: false,
       brushRadius: 2.5,
       count: 4,
       minSpacing: 0.6,
@@ -190,6 +193,7 @@ export const SCATTER_PRESETS: ScatterPreset[] = [
     category: 'nature',
     values: {
       assetIds: ['fallen-leaves-green1-a1', 'rock-stone-mossy-c11', 'grass-patch-green1-a1'],
+      stampMode: false,
       brushRadius: 1.5,
       count: 3,
       minSpacing: 0.5,
