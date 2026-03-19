@@ -143,12 +143,10 @@ const EDGES: TextureEntry[] = [
 const OBJECTS: TextureEntry[] = [
   // Trees
   { id: 'tree-green-a1', path: '/textures/objects/Tree_Green_A1_6x6.png', type: 'object', category: 'tree', naturalWidth: 1200, naturalHeight: 1200, gridSize: '6x6', label: 'Tree Green A1', tags: ['outdoor', 'forest'] },
-  { id: 'tree-green-b1', path: '/textures/objects/Tree_Green_B1_4x4.png', type: 'object', category: 'tree', naturalWidth: 800, naturalHeight: 800, gridSize: '4x4', label: 'Tree Green B1', tags: ['outdoor', 'forest'] },
 
   // Foliage
   { id: 'fallen-leaves-green1-a1', path: '/textures/objects/Fallen_Leaves_Piles_Green1_A1_1x1.png', type: 'object', category: 'foliage', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fallen Leaves Green A1', tags: ['outdoor', 'scatter', 'forest'] },
   { id: 'grass-patch-green1-a1', path: '/textures/objects/Grass_Patch_Green1_A1_1x1.png', type: 'object', category: 'foliage', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Grass Patch Green A1', tags: ['outdoor', 'scatter'] },
-  { id: 'bush-green-a1', path: '/textures/objects/Bush_Green_A1_2x2.png', type: 'object', category: 'foliage', naturalWidth: 400, naturalHeight: 400, gridSize: '2x2', label: 'Bush Green A1', tags: ['outdoor', 'forest', 'scatter'] },
   { id: 'stump-ashen-a1', path: '/textures/objects/Stump_Ashen_A1_4x4.png', type: 'object', category: 'foliage', naturalWidth: 800, naturalHeight: 800, gridSize: '4x4', label: 'Stump Ashen A1', tags: ['outdoor', 'forest'] },
 
   // Campfires
