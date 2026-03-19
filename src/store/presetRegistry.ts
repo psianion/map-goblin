@@ -152,8 +152,8 @@ export const SCATTER_PRESETS: ScatterPreset[] = [
     values: {
       assetIds: ['tree-green-a1', 'stump-ashen-a1', 'fallen-leaves-green1-a1'],
       brushRadius: 3,
-      density: 1.2,
-      spacing: 1.5,
+      count: 6,
+      minSpacing: 1.2,
       rotationRange: [0, Math.PI * 2],
       scaleRange: [0.7, 1.3],
     },
@@ -165,8 +165,8 @@ export const SCATTER_PRESETS: ScatterPreset[] = [
     values: {
       assetIds: ['rock-stone-mossy-c11', 'log-ashen-a1'],
       brushRadius: 2,
-      density: 0.8,
-      spacing: 0.8,
+      count: 5,
+      minSpacing: 0.8,
       rotationRange: [0, Math.PI * 2],
       scaleRange: [0.5, 1.1],
     },
@@ -178,8 +178,8 @@ export const SCATTER_PRESETS: ScatterPreset[] = [
     values: {
       assetIds: ['grass-patch-green1-a1', 'fallen-leaves-green1-a1'],
       brushRadius: 2.5,
-      density: 0.6,
-      spacing: 0.5,
+      count: 4,
+      minSpacing: 0.6,
       rotationRange: [0, Math.PI * 2],
       scaleRange: [0.8, 1.2],
     },
@@ -191,8 +191,8 @@ export const SCATTER_PRESETS: ScatterPreset[] = [
     values: {
       assetIds: ['fallen-leaves-green1-a1', 'rock-stone-mossy-c11', 'grass-patch-green1-a1'],
       brushRadius: 1.5,
-      density: 0.5,
-      spacing: 0.6,
+      count: 3,
+      minSpacing: 0.5,
       rotationRange: [0, Math.PI * 2],
       scaleRange: [0.4, 0.9],
     },

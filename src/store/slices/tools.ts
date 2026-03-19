@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { MapBuilderStore, ToolSettings, ToolType, LightDefaults } from '../types.ts';
+import type { MapBuilderStore, ToolSettings, ToolType, LightDefaults, ScatterBrushSettings } from '../types.ts';
 
 export interface ToolActions {
   setActiveTool: (tool: ToolType) => void;
@@ -8,6 +8,7 @@ export interface ToolActions {
   updateToolSettings: (patch: Partial<ToolSettings>) => void;
   addRecentAsset: (assetId: string) => void;
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;
+  updateScatterBrushSettings: (patch: Partial<ScatterBrushSettings>) => void;
 }
 
 export const createToolsSlice: StateCreator<
@@ -42,5 +43,9 @@ export const createToolsSlice: StateCreator<
   updateLightDefaults: (patch) =>
     set((state) => {
       Object.assign(state.tools.settings.lightDefaults, patch);
+    }),
+  updateScatterBrushSettings: (patch) =>
+    set((state) => {
+      Object.assign(state.tools.settings.scatterBrush, patch);
     }),
 });
