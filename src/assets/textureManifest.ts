@@ -142,33 +142,33 @@ const EDGES: TextureEntry[] = [
 
 const OBJECTS: TextureEntry[] = [
   // Trees
-  { id: 'tree-green-a1', path: '/textures/objects/Tree_Green_A1_6x6.png', type: 'object', category: 'tree', naturalWidth: 1200, naturalHeight: 1200, gridSize: '6x6', label: 'Tree Green A1', tags: ['outdoor', 'forest'] },
+  { id: 'tree-green-a1', path: '/textures/objects/Tree_Green_A1_6x6.png', type: 'object', category: 'tree', naturalWidth: 1200, naturalHeight: 1200, gridSize: '6x6', label: 'Tree 1', tags: ['outdoor', 'forest'] },
 
   // Foliage
-  { id: 'fallen-leaves-green1-a1', path: '/textures/objects/Fallen_Leaves_Piles_Green1_A1_1x1.png', type: 'object', category: 'foliage', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fallen Leaves Green A1', tags: ['outdoor', 'scatter', 'forest'] },
-  { id: 'grass-patch-green1-a1', path: '/textures/objects/Grass_Patch_Green1_A1_1x1.png', type: 'object', category: 'foliage', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Grass Patch Green A1', tags: ['outdoor', 'scatter'] },
-  { id: 'stump-ashen-a1', path: '/textures/objects/Stump_Ashen_A1_4x4.png', type: 'object', category: 'foliage', naturalWidth: 800, naturalHeight: 800, gridSize: '4x4', label: 'Stump Ashen A1', tags: ['outdoor', 'forest'] },
+  { id: 'fallen-leaves-green1-a1', path: '/textures/objects/Fallen_Leaves_Piles_Green1_A1_1x1.png', type: 'object', category: 'foliage', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Leaves 1', tags: ['outdoor', 'scatter', 'forest'] },
+  { id: 'grass-patch-green1-a1', path: '/textures/objects/Grass_Patch_Green1_A1_1x1.png', type: 'object', category: 'foliage', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Grass 1', tags: ['outdoor', 'scatter'] },
+  { id: 'stump-ashen-a1', path: '/textures/objects/Stump_Ashen_A1_4x4.png', type: 'object', category: 'foliage', naturalWidth: 800, naturalHeight: 800, gridSize: '4x4', label: 'Stump 1', tags: ['outdoor', 'forest'] },
 
   // Campfires
-  { id: 'campfire-embers-b1', path: '/textures/objects/Campfire_Embers_B1_1x1.png', type: 'object', category: 'campfire', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Campfire Embers B1', tags: ['light', 'camp'] },
-  { id: 'campfire-wood-sandstone-a1', path: '/textures/objects/Campfire_Wood_Dark_Stone_Sandstone_Lit_A1_1x1.png', type: 'object', category: 'campfire', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Campfire Sandstone Lit A1', tags: ['light', 'camp'] },
+  { id: 'campfire-embers-b1', path: '/textures/objects/Campfire_Embers_B1_1x1.png', type: 'object', category: 'campfire', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Campfire 1', tags: ['light', 'camp'] },
+  { id: 'campfire-wood-sandstone-a1', path: '/textures/objects/Campfire_Wood_Dark_Stone_Sandstone_Lit_A1_1x1.png', type: 'object', category: 'campfire', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Campfire 2', tags: ['light', 'camp'] },
 
   // Lamps
-  { id: 'lamp-metal-brass-a', path: '/textures/objects/Lamp_Metal_Brass_A_1x1.png', type: 'object', category: 'lamp', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Lamp Metal Brass A', tags: ['light', 'indoor'] },
-  { id: 'lamp-street-brass-a', path: '/textures/objects/Lamp_Street_Metal_Brass_A_1x1.png', type: 'object', category: 'lamp', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Lamp Street Brass A', tags: ['light', 'outdoor', 'town'] },
+  { id: 'lamp-metal-brass-a', path: '/textures/objects/Lamp_Metal_Brass_A_1x1.png', type: 'object', category: 'lamp', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Lamp 1', tags: ['light', 'indoor'] },
+  { id: 'lamp-street-brass-a', path: '/textures/objects/Lamp_Street_Metal_Brass_A_1x1.png', type: 'object', category: 'lamp', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Lamp 2', tags: ['light', 'outdoor', 'town'] },
 
   // Rocks
-  { id: 'rock-stone-mossy-c11', path: '/textures/objects/Rock_Stone_Mossy_C11_2x1.png', type: 'object', category: 'rock', naturalWidth: 400, naturalHeight: 200, gridSize: '2x1', label: 'Rock Stone Mossy C11', tags: ['outdoor', 'scatter'] },
+  { id: 'rock-stone-mossy-c11', path: '/textures/objects/Rock_Stone_Mossy_C11_2x1.png', type: 'object', category: 'rock', naturalWidth: 400, naturalHeight: 200, gridSize: '2x1', label: 'Rock 1', tags: ['outdoor', 'scatter'] },
 
   // Puddles
-  { id: 'puddle-water-blue-a1', path: '/textures/objects/Puddle_Water_Blue_A1_2x2.png', type: 'object', category: 'puddle', naturalWidth: 400, naturalHeight: 400, gridSize: '2x2', label: 'Puddle Water Blue A1', tags: ['water', 'scatter'] },
-  { id: 'puddle-water-blue-a11', path: '/textures/objects/Puddle_Water_Blue_A11_1x1.png', type: 'object', category: 'puddle', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Puddle Water Blue A11', tags: ['water', 'scatter'] },
-  { id: 'puddle-water-muddy-a5', path: '/textures/objects/Puddle_Water_Muddy_A5_2x2.png', type: 'object', category: 'puddle', naturalWidth: 400, naturalHeight: 400, gridSize: '2x2', label: 'Puddle Water Muddy A5', tags: ['water', 'scatter'] },
-  { id: 'puddle-water-muddy-a12', path: '/textures/objects/Puddle_Water_Muddy_A12_2x2.png', type: 'object', category: 'puddle', naturalWidth: 400, naturalHeight: 400, gridSize: '2x2', label: 'Puddle Water Muddy A12', tags: ['water', 'scatter'] },
+  { id: 'puddle-water-blue-a1', path: '/textures/objects/Puddle_Water_Blue_A1_2x2.png', type: 'object', category: 'puddle', naturalWidth: 400, naturalHeight: 400, gridSize: '2x2', label: 'Puddle 1', tags: ['water', 'scatter'] },
+  { id: 'puddle-water-blue-a11', path: '/textures/objects/Puddle_Water_Blue_A11_1x1.png', type: 'object', category: 'puddle', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Puddle 2', tags: ['water', 'scatter'] },
+  { id: 'puddle-water-muddy-a5', path: '/textures/objects/Puddle_Water_Muddy_A5_2x2.png', type: 'object', category: 'puddle', naturalWidth: 400, naturalHeight: 400, gridSize: '2x2', label: 'Swamp 1', tags: ['water', 'scatter'] },
+  { id: 'puddle-water-muddy-a12', path: '/textures/objects/Puddle_Water_Muddy_A12_2x2.png', type: 'object', category: 'puddle', naturalWidth: 400, naturalHeight: 400, gridSize: '2x2', label: 'Swamp 2', tags: ['water', 'scatter'] },
 
   // Logs
-  { id: 'log-ashen-a1', path: '/textures/objects/Log_Ashen_A1_6x3.png', type: 'object', category: 'log', naturalWidth: 1200, naturalHeight: 600, gridSize: '6x3', label: 'Log Ashen A1', tags: ['outdoor', 'forest'] },
-  { id: 'log-bridge-walnut-a1', path: '/textures/objects/Log_Bridge_Wood_Walnut_A1_11x4.png', type: 'object', category: 'log', naturalWidth: 2200, naturalHeight: 800, gridSize: '11x4', label: 'Log Bridge Walnut A1', tags: ['outdoor', 'bridge'] },
+  { id: 'log-ashen-a1', path: '/textures/objects/Log_Ashen_A1_6x3.png', type: 'object', category: 'log', naturalWidth: 1200, naturalHeight: 600, gridSize: '6x3', label: 'Log 1', tags: ['outdoor', 'forest'] },
+  { id: 'log-bridge-walnut-a1', path: '/textures/objects/Log_Bridge_Wood_Walnut_A1_11x4.png', type: 'object', category: 'log', naturalWidth: 2200, naturalHeight: 800, gridSize: '11x4', label: 'Bridge 1', tags: ['outdoor', 'bridge'] },
 ];
 
 // ─── Wall Sets ─────────────────────────────────────────────────────

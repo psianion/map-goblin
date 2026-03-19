@@ -14,10 +14,11 @@ class ToolOverlay {
 }
 
 function hitTestAssetChild(obj: AssetChild, point: Point): boolean {
-  const halfSize = (obj.scale || 1) * 0.5;
+  const halfW = (obj.width || 1) * 0.5;
+  const halfH = (obj.height || 1) * 0.5;
   return (
-    Math.abs(point.x - obj.position.x) < halfSize &&
-    Math.abs(point.y - obj.position.y) < halfSize
+    Math.abs(point.x - obj.position.x) < halfW &&
+    Math.abs(point.y - obj.position.y) < halfH
   );
 }
 
