@@ -10,6 +10,29 @@ interface ColorFieldProps {
   onChangeCommit?: (newColor: string, startColor: string) => void
 }
 
+function computePickerPosition(triggerRect: DOMRect): { x: number; y: number } {
+  const PICKER_W = 232;
+  const PICKER_H = 300;
+  const GAP = 8;
+
+  const spaceRight = window.innerWidth - triggerRect.right - GAP;
+  const spaceLeft = triggerRect.left - GAP;
+
+  let x: number;
+  if (spaceRight >= PICKER_W) {
+    x = triggerRect.right + GAP;
+  } else if (spaceLeft >= PICKER_W) {
+    x = triggerRect.left - PICKER_W - GAP;
+  } else {
+    x = Math.max(GAP, (window.innerWidth - PICKER_W) / 2);
+  }
+
+  const maxTop = window.innerHeight - PICKER_H - GAP;
+  const y = Math.max(GAP, Math.min(triggerRect.top, maxTop));
+
+  return { x, y };
+}
+
 function isValidHex(hex: string): boolean {
   return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(hex)
 }
@@ -83,13 +106,7 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
       setHexInput(value)
       if (triggerRef.current) {
         const rect = triggerRef.current.getBoundingClientRect()
-        const popoverWidth = 232
-        const popoverHeight = 300
-        const maxTop = window.innerHeight - popoverHeight - 8
-        setPopoverPos({
-          x: rect.left - popoverWidth - 8,
-          y: Math.min(rect.top, Math.max(8, maxTop)),
-        })
+        setPopoverPos(computePickerPosition(rect))
       }
       setOpen(true)
     }
@@ -126,7 +143,7 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
           ref={popoverRef}
           style={{
             position: 'fixed',
-            left: Math.max(8, popoverPos.x),
+            left: popoverPos.x,
             top: popoverPos.y,
             zIndex: 9999,
           }}

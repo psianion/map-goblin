@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { useStore } from '@/store/store';
 import { useShallow } from 'zustand/react/shallow';
 import { selectActiveLayer } from '@/store/selectors';
@@ -14,6 +14,11 @@ import { cn } from '@/lib/utils';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
 import { showToolPreview, hideToolPreview } from '@/engine/toolPreview';
 import type { PreviewSettings } from '@/engine/toolPreview';
+import { PresetGrid } from './PresetGrid';
+import { DUNGEON_STYLE_PRESETS } from '@/store/presetRegistry';
+import type { MapStylePreset } from '@/store/presetRegistry';
+import { PresetApplyCommand, LayerStyleChangeCommand } from '@/store/commands';
+import { undoManager } from '@/store/undoManager';
 
 interface ToolPopoverProps {
   tool: ToolType;
@@ -117,14 +122,42 @@ function DrawingToolContent({
   const updateLayer = useStore((s) => s.updateLayer);
   const polygonSides = useStore((s) => s.tools.settings.regularPolygon.sides);
   const updateToolSettings = useStore((s) => s.updateToolSettings);
+  const [activePresetId, setActivePresetId] = useState<string | undefined>(undefined);
 
   if (!layer || layer.type !== 'dungeon') {
     return <p className="text-xs text-text-muted">No dungeon layer selected</p>;
   }
 
   const s = layer.style;
+
   const patch = (partial: Partial<DungeonStyle>) => {
     updateLayer(layer.id, { style: { ...s, ...partial } } as Partial<DungeonLayer>);
+    // Deselect preset on any manual change
+    setActivePresetId(undefined);
+    onValueChange?.();
+  };
+
+  const commitFieldChange = (field: keyof DungeonStyle, newValue: unknown, startValue: unknown) => {
+    if (newValue === startValue) return;
+    const cmd = new LayerStyleChangeCommand(
+      `Change ${field}`,
+      layer.id,
+      field,
+      startValue,
+      newValue,
+    );
+    undoManager.execute(cmd);
+  };
+
+  const handlePresetSelect = (preset: MapStylePreset) => {
+    const cmd = new PresetApplyCommand(
+      `Apply preset: ${preset.label}`,
+      layer.id,
+      preset,
+      structuredClone(layer.style),
+    );
+    undoManager.execute(cmd);
+    setActivePresetId(preset.id);
     onValueChange?.();
   };
 
@@ -140,6 +173,14 @@ function DrawingToolContent({
       <span className="font-mono text-panel-heading uppercase text-text-muted">
         {TOOL_LABELS[tool] ?? tool}
       </span>
+
+      {/* Preset swatches */}
+      <PresetGrid
+        presets={DUNGEON_STYLE_PRESETS}
+        activeId={activePresetId}
+        onSelect={handlePresetSelect}
+      />
+      <div className="h-px bg-border-default my-1" />
 
       {tool === 'regularPolygon' && (
         <PropertyField label="Sides">
@@ -170,17 +211,26 @@ function DrawingToolContent({
       )}
 
       <PropertyField label="Floor Color">
-        <ColorField value={s.floorColor} onChange={(c) => patch({ floorColor: c })} />
+        <ColorField
+          value={s.floorColor}
+          onChange={(c) => patch({ floorColor: c })}
+          onChangeCommit={(c, start) => commitFieldChange('floorColor', c, start)}
+        />
       </PropertyField>
 
       <PropertyField label="Wall Color">
-        <ColorField value={s.wallColor} onChange={(c) => patch({ wallColor: c })} />
+        <ColorField
+          value={s.wallColor}
+          onChange={(c) => patch({ wallColor: c })}
+          onChangeCommit={(c, start) => commitFieldChange('wallColor', c, start)}
+        />
       </PropertyField>
 
       <PropertyField label="Wall Width">
         <SliderInput
           value={s.wallWidth}
           onChange={(v) => patch({ wallWidth: v })}
+          onChangeCommit={(v, start) => commitFieldChange('wallWidth', v, start)}
           min={0.05}
           max={1}
           step={0.05}
@@ -190,7 +240,18 @@ function DrawingToolContent({
       <PropertyField label="Shadow">
         <ToggleSwitch
           checked={s.shadowEnabled}
-          onChange={(v) => patch({ shadowEnabled: v })}
+          onChange={(v) => {
+            const cmd = new LayerStyleChangeCommand(
+              'Toggle shadow',
+              layer.id,
+              'shadowEnabled',
+              s.shadowEnabled,
+              v,
+            );
+            undoManager.execute(cmd);
+            setActivePresetId(undefined);
+            onValueChange?.();
+          }}
           label="Enable shadow"
         />
       </PropertyField>

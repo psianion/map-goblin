@@ -9,6 +9,8 @@ import { preloadPathTextures } from './splineRenderer';
 import { renderEdgeTransitions } from './edgeTransitions';
 import { renderTexturedWalls } from './wallTextureRenderer';
 import { renderDoors } from './doorRenderer';
+import { resolveStyle } from './styleResolver';
+import type { DungeonStyle } from '@/store/types';
 import type { DoorChild } from '@/shared/types';
 
 function parseColor(hex: string): number {
@@ -284,10 +286,20 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   const shapeChildren = layer.children.filter((c): c is ShapeChild => c.childType === 'shape');
   const hasTexturedShapes = shapeChildren.some((sh) => sh.textureId);
 
-  if (hasTexturedShapes) {
+  // Fast-path detection: check if ANY shape has styleOverrides before
+  // enabling per-shape resolution (avoids overhead in the common case).
+  const hasStyleOverrides = shapeChildren.some((sh) => sh.styleOverrides && Object.keys(sh.styleOverrides).length > 0);
+
+  if (hasTexturedShapes || hasStyleOverrides) {
     // Per-shape rendering: iterate back-to-front (array order = render order)
     for (const shape of shapeChildren) {
       if ((shape.contours[0]?.length ?? 0) < 3) continue;
+
+      // Resolve per-shape style (fast-path: returns layerStyle reference if no overrides)
+      const resolved: DungeonStyle = hasStyleOverrides
+        ? resolveStyle(s, shape.styleOverrides as Partial<DungeonStyle> | undefined)
+        : s;
+      const shapeFloorColor = parseColor(resolved.floorColor);
 
       if (shape.textureId) {
         const texture = textureLoader.getSync(shape.textureId);
@@ -296,10 +308,10 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
         } else {
           // Texture not loaded yet — fall back to solid tinted fill (guard NaN)
           const tint = shape.textureTint ? parseColor(shape.textureTint) : NaN;
-          renderSolidShape(floor, shape, isNaN(tint) ? floorColorNum : tint);
+          renderSolidShape(floor, shape, isNaN(tint) ? shapeFloorColor : tint);
         }
       } else {
-        renderSolidShape(floor, shape, floorColorNum);
+        renderSolidShape(floor, shape, shapeFloorColor);
       }
     }
 
@@ -309,7 +321,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     floor.addChild(floorMask);
     floor.mask = floorMask;
   } else {
-    // No textured shapes — use original merged floor fill (faster)
+    // No textured shapes, no style overrides — use original merged floor fill (faster)
     const floorG = new Graphics();
     fillPolygonsWithHoles(floorG, polygons, { color: floorColorNum });
     floor.addChild(floorG);
@@ -368,6 +380,9 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   }
 
   // ── Hatching sublayer ────────────────────────────────────────
+  // Hatching is a layer-level operation (applied to mergedFloor as a whole),
+  // so we use layer.style directly. Per-shape hatching overrides are not
+  // supported in this release — the merged geometry loses shape boundaries.
   if (s.hatchingStyle !== 'none') {
     const lineAngle = s.hatchingStyle === 'horizontal' ? 0 : s.hatchingAngle;
 
@@ -406,6 +421,9 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   }
 
   // ── Walls (textured or invisible) ──────────────────────────────
+  // Walls are derived from mergedFloor boundary — a layer-level operation.
+  // Wall style overrides per-shape are not applied here; the merged boundary
+  // loses individual shape identity.
   const doorChildren = layer.children.filter(
     (c): c is DoorChild => c.childType === 'door' && c.visible,
   );
