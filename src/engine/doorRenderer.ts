@@ -25,12 +25,14 @@ export function renderDoors(
   gridCellSize: number,
 ): void {
   const wallMap = new Map(walls.map((w) => [w.id, w]));
-  const g = new Graphics();
 
   for (const door of doors) {
     if (!door.visible) continue;
     const wall = wallMap.get(door.wallId);
     if (!wall) continue;
+
+    // Fresh Graphics per door to avoid PixiJS v8 path accumulation
+    const g = new Graphics();
 
     const cx = door.position[0];
     const cy = door.position[1];
@@ -48,13 +50,15 @@ export function renderDoors(
       renderSingleDoor(g, cx, cy, angle, halfWidth, wallColor, door.state, door.isSecret);
     }
 
-    // State indicator dot
-    const stateColor = getStateColor(door);
-    g.circle(cx, cy, gridCellSize * 0.12);
-    g.fill({ color: stateColor });
-  }
+    container.addChild(g);
 
-  container.addChild(g);
+    // State indicator dot (separate Graphics to avoid path contamination)
+    const dot = new Graphics();
+    const stateColor = getStateColor(door);
+    dot.circle(cx, cy, gridCellSize * 0.12);
+    dot.fill({ color: stateColor });
+    container.addChild(dot);
+  }
 }
 
 function renderSingleDoor(
@@ -70,13 +74,15 @@ function renderSingleDoor(
   }
 
   if (state === 'open') {
-    // Arc showing door swing
-    g.arc(
-      cx - Math.cos(angle + Math.PI / 2) * halfWidth,
-      cy - Math.sin(angle + Math.PI / 2) * halfWidth,
-      halfWidth * 2,
-      angle, angle + Math.PI / 4,
-    );
+    // Arc showing door swing — pivot at one end of the door
+    const pivotX = cx - Math.cos(angle) * halfWidth;
+    const pivotY = cy - Math.sin(angle) * halfWidth;
+    const arcRadius = halfWidth * 2;
+    // Move to arc start point to prevent connecting line from origin
+    const startX = pivotX + Math.cos(angle) * arcRadius;
+    const startY = pivotY + Math.sin(angle) * arcRadius;
+    g.moveTo(startX, startY);
+    g.arc(pivotX, pivotY, arcRadius, angle, angle + Math.PI / 4);
     g.stroke({ color, width: 1.5, alpha: 0.6 });
   } else {
     // Closed: thick line along wall
@@ -92,11 +98,22 @@ function renderDoubleDoor(
 ): void {
   if (state === 'open') {
     const offset = halfWidth * 0.5;
-    g.arc(cx - Math.cos(angle) * offset, cy - Math.sin(angle) * offset,
-      halfWidth, angle, angle + Math.PI / 4);
+    // Left leaf arc
+    const lPivotX = cx - Math.cos(angle) * offset;
+    const lPivotY = cy - Math.sin(angle) * offset;
+    const lStartX = lPivotX + Math.cos(angle) * halfWidth;
+    const lStartY = lPivotY + Math.sin(angle) * halfWidth;
+    g.moveTo(lStartX, lStartY);
+    g.arc(lPivotX, lPivotY, halfWidth, angle, angle + Math.PI / 4);
     g.stroke({ color, width: 1.5, alpha: 0.6 });
-    g.arc(cx + Math.cos(angle) * offset, cy + Math.sin(angle) * offset,
-      halfWidth, angle + Math.PI, angle + Math.PI - Math.PI / 4);
+    // Right leaf arc
+    const rPivotX = cx + Math.cos(angle) * offset;
+    const rPivotY = cy + Math.sin(angle) * offset;
+    const rStartAngle = angle + Math.PI;
+    const rStartX = rPivotX + Math.cos(rStartAngle) * halfWidth;
+    const rStartY = rPivotY + Math.sin(rStartAngle) * halfWidth;
+    g.moveTo(rStartX, rStartY);
+    g.arc(rPivotX, rPivotY, halfWidth, rStartAngle, rStartAngle - Math.PI / 4, true);
     g.stroke({ color, width: 1.5, alpha: 0.6 });
   } else {
     // Two parallel lines
