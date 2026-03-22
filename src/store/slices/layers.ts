@@ -17,6 +17,8 @@ export interface LayerActions {
   recomputeMergedFloor: (layerId: string) => void;
   addWall: (layerId: string, wall: WallSegment) => void;
   removeWall: (layerId: string, wallId: string) => void;
+  updateWall: (layerId: string, wallId: string, updates: Partial<WallSegment>) => void;
+  closeAllDoors: (layerId: string) => void;
   setSublayerVisibility: (layerId: string, sublayer: keyof SublayerVisibility, visible: boolean) => void;
   setBackgroundTexture: (layerId: string, url: string | null) => void;
   setBackgroundLocked: (layerId: string, locked: boolean) => void;
@@ -112,6 +114,28 @@ export const createLayersSlice: StateCreator<
       if (layer && layer.type === 'dungeon') {
         const idx = layer.standaloneWalls.findIndex((w) => w.id === wallId);
         if (idx >= 0) layer.standaloneWalls.splice(idx, 1);
+      }
+    }),
+  updateWall: (layerId, wallId, updates) =>
+    set((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (layer && layer.type === 'dungeon') {
+        const wall = layer.standaloneWalls.find((w) => w.id === wallId);
+        if (wall) Object.assign(wall, updates);
+      }
+    }),
+  closeAllDoors: (layerId) =>
+    set((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (layer && layer.type === 'dungeon') {
+        for (const child of layer.children) {
+          if (child.childType === 'door') {
+            const door = child as import('@/shared/types').DoorChild;
+            if (door.style !== 'archway') {
+              door.state = 'closed';
+            }
+          }
+        }
       }
     }),
 

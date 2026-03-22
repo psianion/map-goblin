@@ -8,11 +8,11 @@ export type ToolType =
   | 'regularPolygon'
   | 'path'
   | 'wall'
+  | 'door'
   | 'light'
   | 'ruler'
   | 'assetPlacement'
-  | 'scatterBrush'
-  | 'splinePath';
+  | 'scatterBrush';
 
 export interface PreviewShape {
   type: 'polygon' | 'rectangle' | 'circle' | 'line';

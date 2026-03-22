@@ -8,6 +8,7 @@ import {
   Pen,
   Minus,
   Lightbulb,
+  DoorOpen,
   Eraser,
   Waves,
   ChevronRight,
@@ -32,8 +33,9 @@ const TOOLS: ToolButton[] = [
   { tool: 'rectangle', icon: Square, label: 'Rectangle', shortcut: 'R' },
   { tool: 'polygon', icon: Pentagon, label: 'Polygon', shortcut: 'P' },
   { tool: 'regularPolygon', icon: Hexagon, label: 'Regular Polygon', shortcut: 'H' },
-  { tool: 'path', icon: Pen, label: 'Path', shortcut: 'D' },
+  { tool: 'path', icon: Pen, label: 'Path', shortcut: 'A' },
   { tool: 'wall', icon: Minus, label: 'Wall', shortcut: 'W' },
+  { tool: 'door', icon: DoorOpen, label: 'Door', shortcut: 'D' },
   { tool: 'light', icon: Lightbulb, label: 'Light', shortcut: 'L' },
   { tool: 'scatterBrush', icon: TreeDeciduous, label: 'Scatter Brush', shortcut: 'B' },
 ];

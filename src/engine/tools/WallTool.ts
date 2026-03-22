@@ -46,7 +46,8 @@ export class WallTool implements DrawingTool {
     const wall = {
       id: crypto.randomUUID(),
       points: [[start.x, start.y], [end.x, end.y]] as [number, number][],
-      blocksLight: true,
+      wallType: store.tools.settings.wallType,
+      direction: store.tools.settings.wallDirection,
       color: activeLayer.style.wallColor,
       width: activeLayer.style.wallWidth,
       roughness: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,

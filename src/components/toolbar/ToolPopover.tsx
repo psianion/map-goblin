@@ -5,6 +5,7 @@ import { selectActiveLayer } from '@/store/selectors';
 import type { ToolType, DungeonLayer, DungeonStyle, ScatterBrushSettings } from '@/store/types';
 import { ColorField } from '@/components/inputs/ColorField';
 import { SliderInput } from '@/components/inputs/SliderInput';
+import { SelectInput } from '@/components/inputs/SelectInput';
 import { DualRangeSlider } from '@/components/inputs/DualRangeSlider';
 import { PropertyField } from '@/components/properties/PropertyField';
 import { ChevronUp, ChevronDown } from 'lucide-react';
@@ -200,7 +201,8 @@ function DrawingToolContent({
 function WallToolContent({ onValueChange }: { onValueChange?: () => void }) {
   const layer = useStore(useShallow(selectActiveLayer)) as DungeonLayer | null;
   const updateLayer = useStore((s) => s.updateLayer);
-  const wallBlocksLight = useStore((s) => s.tools.settings.wallBlocksLight);
+  const wallType = useStore((s) => s.tools.settings.wallType);
+  const wallDirection = useStore((s) => s.tools.settings.wallDirection);
   const updateToolSettings = useStore((s) => s.updateToolSettings);
 
   if (!layer || layer.type !== 'dungeon') {
@@ -231,14 +233,35 @@ function WallToolContent({ onValueChange }: { onValueChange?: () => void }) {
         />
       </PropertyField>
 
-      <PropertyField label="Blocks Light">
-        <ToggleSwitch
-          checked={wallBlocksLight}
+      <PropertyField label="Wall Type">
+        <SelectInput
+          value={wallType}
           onChange={(v) => {
-            updateToolSettings({ wallBlocksLight: v });
+            updateToolSettings({ wallType: v as import('@/shared/types').WallType });
             onValueChange?.();
           }}
-          label="Blocks light"
+          options={[
+            { value: 'normal', label: 'Normal' },
+            { value: 'terrain', label: 'Terrain' },
+            { value: 'invisible', label: 'Invisible' },
+            { value: 'ethereal', label: 'Ethereal' },
+            { value: 'window', label: 'Window' },
+          ]}
+        />
+      </PropertyField>
+
+      <PropertyField label="Direction">
+        <SelectInput
+          value={wallDirection}
+          onChange={(v) => {
+            updateToolSettings({ wallDirection: v as import('@/shared/types').WallDirection });
+            onValueChange?.();
+          }}
+          options={[
+            { value: 'both', label: 'Both' },
+            { value: 'left', label: 'Left' },
+            { value: 'right', label: 'Right' },
+          ]}
         />
       </PropertyField>
     </div>

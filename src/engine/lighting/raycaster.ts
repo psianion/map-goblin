@@ -12,7 +12,7 @@ export function extractWallSegments(dungeonLayers: DungeonLayer[]): Segment[] {
 
   for (const layer of dungeonLayers) {
     for (const wall of layer.standaloneWalls) {
-      if (!wall.blocksLight) continue
+      if (wall.wallType === 'terrain' || wall.wallType === 'invisible') continue
       const pts = wall.points
       for (let i = 0; i < pts.length - 1; i++) {
         segments.push({

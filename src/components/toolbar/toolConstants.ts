@@ -7,6 +7,7 @@ export const TOOLS_WITH_POPOVER = new Set<ToolType>([
   'regularPolygon',
   'path',
   'wall',
+  'door',
   'light',
   'scatterBrush',
 ]);

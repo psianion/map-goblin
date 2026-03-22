@@ -3,11 +3,11 @@ import { extractWallSegments } from './raycaster'
 import type { DungeonLayer } from '@/store/types'
 
 describe('extractWallSegments', () => {
-  it('extracts segments from standalone walls with blocksLight', () => {
+  it('extracts segments from standalone walls with normal wallType', () => {
     const layer = {
       type: 'dungeon' as const,
       standaloneWalls: [
-        { points: [[0, 0], [100, 0], [100, 100]] as [number, number][], blocksLight: true },
+        { points: [[0, 0], [100, 0], [100, 100]] as [number, number][], wallType: 'normal', direction: 'both' },
       ],
       mergedFloor: null,
     } as unknown as DungeonLayer
@@ -16,11 +16,11 @@ describe('extractWallSegments', () => {
     expect(segs).toHaveLength(2)
   })
 
-  it('skips walls with blocksLight=false', () => {
+  it('skips walls with terrain wallType', () => {
     const layer = {
       type: 'dungeon' as const,
       standaloneWalls: [
-        { points: [[0, 0], [100, 0]] as [number, number][], blocksLight: false },
+        { points: [[0, 0], [100, 0]] as [number, number][], wallType: 'terrain', direction: 'both' },
       ],
       mergedFloor: null,
     } as unknown as DungeonLayer

@@ -1,9 +1,8 @@
 // src/store/migration.test.ts
 import { describe, it, expect } from 'vitest'
 import { migrateToLatest, CURRENT_VERSION } from './migration.ts'
-import type { SerializedMapData } from './types.ts'
 
-const V2_DATA: SerializedMapData = {
+const V2_BASE = {
   version: '2.0',
   mapSettings: {
     name: 'Test',
@@ -17,95 +16,72 @@ const V2_DATA: SerializedMapData = {
 }
 
 describe('migrateToLatest', () => {
-  it('exports CURRENT_VERSION as 2.0', () => {
-    expect(CURRENT_VERSION).toBe('2.0')
+  it('exports CURRENT_VERSION as 3.0', () => {
+    expect(CURRENT_VERSION).toBe('3.0')
   })
 
-  it('returns v2.0 data unchanged (same reference)', () => {
-    const result = migrateToLatest(V2_DATA)
-    expect(result).toBe(V2_DATA)
-    expect(result.version).toBe('2.0')
+  it('migrates v2.0 data to v3.0', () => {
+    const result = migrateToLatest({ ...V2_BASE })
+    expect(result.version).toBe('3.0')
   })
 
-  it('v2.0 data with layers passes through intact', () => {
-    const data: SerializedMapData = {
-      ...V2_DATA,
-      layers: [
-        {
-          id: 'layer-1',
-          type: 'dungeon',
-          name: 'Ground Floor',
-          visible: true,
-          locked: false,
-          opacity: 1,
-          children: [],
-          style: {
-            floorColor: '#333',
-            wallColor: '#111',
-            wallWidth: 2,
-            shadowColor: '#000',
-            shadowOpacity: 0.5,
-            shadowOffsetX: 2,
-            shadowOffsetY: 2,
-            hatchingColor: '#555',
-            hatchingOpacity: 0.3,
-            hatchingSpacing: 8,
-            hatchingAngle: 45,
-            hatchingWidth: 1,
-            preset: 'default',
-            floorTexture: null,
-            wallTexture: null,
-            wallTextureTint: '#ffffff',
-            edgeTransitionWidth: 0.5,
-            showEdgeTransitions: true,
-          },
-        } as unknown as SerializedMapData['layers'][0],
-      ],
+  it('converts blocksLight: true to wallType: normal', () => {
+    const data = {
+      ...V2_BASE,
+      layers: [{
+        type: 'dungeon', id: 'l1', name: 'L1', visible: true, locked: false, opacity: 1,
+        children: [], standaloneWalls: [
+          { id: 'w1', points: [[0,0],[100,0]] as [number, number][], blocksLight: true, color: '#000', width: 2, roughness: 0 },
+        ], mergedFloor: null, style: {}, sublayerVisibility: {},
+      }],
     }
     const result = migrateToLatest(data)
-    expect(result.version).toBe('2.0')
-    expect(result.layers).toHaveLength(1)
+    expect(result.version).toBe('3.0')
+    const wall = (result.layers[0] as unknown as { standaloneWalls: Array<Record<string, unknown>> }).standaloneWalls[0]
+    expect(wall.wallType).toBe('normal')
+    expect(wall.direction).toBe('both')
+    expect(wall).not.toHaveProperty('blocksLight')
   })
 
-  it('throws for v1.4 data', () => {
-    const oldData = { ...V2_DATA, version: '1.4' }
-    expect(() => migrateToLatest(oldData as unknown as SerializedMapData)).toThrow(
-      /cannot open files from version/i,
-    )
+  it('converts blocksLight: false to wallType: terrain', () => {
+    const data = {
+      ...V2_BASE,
+      layers: [{
+        type: 'dungeon', id: 'l1', name: 'L1', visible: true, locked: false, opacity: 1,
+        children: [], standaloneWalls: [
+          { id: 'w1', points: [[0,0],[100,0]] as [number, number][], blocksLight: false, color: '#000', width: 2, roughness: 0 },
+        ], mergedFloor: null, style: {}, sublayerVisibility: {},
+      }],
+    }
+    const result = migrateToLatest(data)
+    const wall = (result.layers[0] as unknown as { standaloneWalls: Array<Record<string, unknown>> }).standaloneWalls[0]
+    expect(wall.wallType).toBe('terrain')
   })
 
-  it('throws for v1.3 data', () => {
-    const oldData = { ...V2_DATA, version: '1.3' }
-    expect(() => migrateToLatest(oldData as unknown as SerializedMapData)).toThrow(
-      /cannot open files from version/i,
-    )
+  it('passes non-dungeon layers unchanged', () => {
+    const data = {
+      ...V2_BASE,
+      layers: [{ type: 'background', id: 'bg1' }],
+    }
+    const result = migrateToLatest(data)
+    expect(result.layers[0].type).toBe('background')
   })
 
-  it('throws for v1.2 data', () => {
-    const oldData = { ...V2_DATA, version: '1.2' }
-    expect(() => migrateToLatest(oldData as unknown as SerializedMapData)).toThrow(
-      /cannot open files from version/i,
-    )
+  it('loads v3 files without migration', () => {
+    const v3Data = { ...V2_BASE, version: '3.0' }
+    const result = migrateToLatest(v3Data)
+    expect(result.version).toBe('3.0')
   })
 
-  it('throws for v1.1 data', () => {
-    const oldData = { ...V2_DATA, version: '1.1' }
-    expect(() => migrateToLatest(oldData as unknown as SerializedMapData)).toThrow(
-      /cannot open files from version/i,
-    )
+  it('throws for unknown version', () => {
+    const badData = { ...V2_BASE, version: '0.9' }
+    expect(() => migrateToLatest(badData)).toThrow(/unknown map format version/i)
   })
 
-  it('throws for v1.0 data', () => {
-    const oldData = { ...V2_DATA, version: '1.0' }
-    expect(() => migrateToLatest(oldData as unknown as SerializedMapData)).toThrow(
-      /cannot open files from version/i,
-    )
-  })
-
-  it('throws for unknown version string', () => {
-    const badData = { ...V2_DATA, version: '0.9' }
-    expect(() => migrateToLatest(badData as unknown as SerializedMapData)).toThrow(
-      /cannot open files from version/i,
-    )
+  it('throws for v1.x data', () => {
+    for (const ver of ['1.0', '1.1', '1.2', '1.3', '1.4']) {
+      const oldData = { ...V2_BASE, version: ver }
+      expect(() => migrateToLatest(oldData)).toThrow(/unknown map format version/i)
+    }
   })
 })
