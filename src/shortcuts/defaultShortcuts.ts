@@ -41,12 +41,20 @@ const toolKeyMap: Record<string, () => void | false> = {
       s.setActiveTool('regularPolygon');
     }
   },
-  d: () => {
+  a: () => {
     const s = useStore.getState();
     if (s.tools.activeTool === 'path') {
       togglePopoverRef.current?.();
     } else {
       s.setActiveTool('path');
+    }
+  },
+  d: () => {
+    const s = useStore.getState();
+    if (s.tools.activeTool === 'door') {
+      togglePopoverRef.current?.();
+    } else {
+      s.setActiveTool('door');
     }
   },
   w: () => {
@@ -246,8 +254,9 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'tool.rectangle',      keys: 'r',           category: 'Tools', label: 'Rectangle' },
     { id: 'tool.polygon',        keys: 'p',           category: 'Tools', label: 'Polygon' },
     { id: 'tool.regularPolygon', keys: 'h',           category: 'Tools', label: 'Regular Polygon' },
-    { id: 'tool.path',           keys: 'd',           category: 'Tools', label: 'Path' },
+    { id: 'tool.path',           keys: 'a',           category: 'Tools', label: 'Path' },
     { id: 'tool.wall',           keys: 'w',           category: 'Tools', label: 'Wall' },
+    { id: 'tool.door',           keys: 'd',           category: 'Tools', label: 'Door' },
     { id: 'tool.light',          keys: 'l',           category: 'Tools', label: 'Light' },
     { id: 'mode.erase',          keys: 'e',           category: 'Tools', label: 'Toggle Erase' },
     { id: 'mode.rough',          keys: 'x',           category: 'Tools', label: 'Toggle Rough' },

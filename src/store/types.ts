@@ -1,3 +1,5 @@
+export * from '@/shared/types';
+import type { AnyChild, WallSegment, WallType, WallDirection, DoorStyle, MaskData } from '@/shared/types';
 import type { Polygon } from '../types/geometry.ts';
 
 // ─── Map Settings ─────────────────────────────────────────
@@ -16,66 +18,7 @@ export interface GridConfig {
   style: 'clean' | 'dotted' | 'rough';
 }
 
-// ─── Layer Children (v2.0 scene tree) ─────────────────────
-export type ChildType = 'shape' | 'asset' | 'light';
-
-export interface MaskData {
-  id: string;
-  // placeholder — do not read/write until masking ships
-}
-
-export interface LayerChild {
-  id: string;
-  name: string;
-  childType: ChildType;
-  visible: boolean;
-  mask?: MaskData;
-}
-
-export interface ShapeChild extends LayerChild {
-  childType: 'shape';
-  shapeType: 'rectangle' | 'polygon' | 'regularPolygon' | 'path';
-  contours: [number, number][][];  // index 0 = outer boundary, 1+ = holes
-  roughnessEnabled: boolean;
-  roughnessAmplitude?: number;
-  transform?: {
-    translate: [number, number];
-    rotate: number;
-    scale: [number, number];
-  };
-  textureId?: string;
-  textureScale: number;
-  textureOffsetX: number;
-  textureOffsetY: number;
-  textureFillRotation: number;
-  textureTint: string;
-}
-
-export interface AssetChild extends LayerChild {
-  childType: 'asset';
-  objectType: 'asset' | 'image';
-  assetId: string;
-  position: { x: number; y: number };
-  rotation: number;
-  scale: number;
-  width: number;
-  height: number;
-  tint: string;
-  flipX: boolean;
-  flipY: boolean;
-}
-
-export interface LightChild extends LayerChild {
-  childType: 'light';
-  color: string;
-  radius: number;
-  featherRadius: number;
-  intensity: number;
-  falloff: 'linear' | 'quadratic';
-  position: { x: number; y: number };
-}
-
-export type AnyChild = ShapeChild | AssetChild | LightChild;
+// ─── Layer Children — re-exported from @/shared/types ─────
 
 // ─── Layers ───────────────────────────────────────────────
 export type LayerType = 'dungeon' | 'background';
@@ -90,14 +33,7 @@ interface BaseLayer {
   mask?: MaskData;
 }
 
-export interface WallSegment {
-  id: string;
-  points: [number, number][];
-  blocksLight: boolean;
-  color: string;
-  width: number;
-  roughness: number;
-}
+// WallSegment — re-exported from @/shared/types (wallType + direction replace blocksLight)
 
 export interface SublayerVisibility {
   floor: boolean;
@@ -167,6 +103,7 @@ export type ToolType =
   | 'regularPolygon'
   | 'path'
   | 'wall'
+  | 'door'
   | 'light'
   | 'ruler'
   | 'assetPlacement'
@@ -185,11 +122,15 @@ export interface ScatterBrushSettings {
 export interface ToolSettings {
   brushRadius: number;
   regularPolygon: { sides: number };
-  wallBlocksLight: boolean;
+  wallType: WallType;
+  wallDirection: WallDirection;
   wallWidth: number;
   continuousPlacement: boolean;
   lightDefaults: LightDefaults;
   scatterBrush: ScatterBrushSettings;
+  doorStyle: DoorStyle;
+  doorSecret: boolean;
+  doorWidth: number;
 }
 
 export interface ToolsSlice {
@@ -300,7 +241,7 @@ export interface Command {
 
 // ─── Serialization ────────────────────────────────────────
 export interface SerializedMapData {
-  version: '2.0';
+  version: '2.0' | '3.0';
   mapSettings: MapSettings;
   grid: Pick<GridConfig, 'visible' | 'snapDivision' | 'style'>;
   layers: Layer[];
@@ -344,6 +285,8 @@ export interface MapBuilderStore {
   // wall actions (sublayer detail)
   addWall: (layerId: string, wall: WallSegment) => void;
   removeWall: (layerId: string, wallId: string) => void;
+  updateWall: (layerId: string, wallId: string, updates: Partial<WallSegment>) => void;
+  closeAllDoors: (layerId: string) => void;
 
   // tool actions
   setActiveTool: (tool: ToolType) => void;

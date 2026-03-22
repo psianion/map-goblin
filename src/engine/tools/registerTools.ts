@@ -10,6 +10,7 @@ import { SelectTool } from './SelectTool';
 import { ObjectTool } from './ObjectTool';
 import { LightTool } from './LightTool';
 import { StampScatterTool } from './StampScatterTool';
+import { DoorTool } from './DoorTool';
 export function registerAllTools(manager: ToolManager, worldContainer: Container, engine: RenderEngine, previewContainer: Container): void {
   const selectTool = new SelectTool(engine);
   selectTool.overlay.setWorldToScreen((wx, wy) => engine.worldToScreen(wx, wy));
@@ -26,6 +27,7 @@ export function registerAllTools(manager: ToolManager, worldContainer: Container
   manager.registerTool(new RegularPolygonTool());
   manager.registerTool(new PathTool());
   manager.registerTool(new WallTool());
+  manager.registerTool(new DoorTool());
   manager.registerTool(new LightTool());
   manager.registerTool(new StampScatterTool(previewContainer));
 }

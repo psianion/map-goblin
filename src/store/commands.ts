@@ -301,6 +301,122 @@ export class AddWallCommand implements Command {
   }
 }
 
+export class RemoveWallCommand implements Command {
+  readonly label = 'Remove wall';
+  removedWall: import('./types').WallSegment | null = null;
+  layerId: string;
+  wallId: string;
+
+  constructor(layerId: string, wallId: string) {
+    this.layerId = layerId;
+    this.wallId = wallId;
+  }
+
+  execute(): void {
+    const store = useStore.getState();
+    const layer = store.layers.find(l => l.id === this.layerId);
+    if (layer && layer.type === 'dungeon') {
+      const wall = (layer as import('./types').DungeonLayer).standaloneWalls.find(w => w.id === this.wallId);
+      if (wall) this.removedWall = structuredClone(wall);
+    }
+    store.removeWall(this.layerId, this.wallId);
+  }
+
+  undo(): void {
+    if (this.removedWall) {
+      useStore.getState().addWall(this.layerId, structuredClone(this.removedWall));
+    }
+  }
+}
+
+export class UpdateWallCommand implements Command {
+  readonly label = 'Update wall';
+  layerId: string;
+  wallId: string;
+  before: Partial<import('./types').WallSegment>;
+  after: Partial<import('./types').WallSegment>;
+
+  constructor(
+    layerId: string,
+    wallId: string,
+    before: Partial<import('./types').WallSegment>,
+    after: Partial<import('./types').WallSegment>,
+  ) {
+    this.layerId = layerId;
+    this.wallId = wallId;
+    this.before = before;
+    this.after = after;
+  }
+
+  execute(): void {
+    useStore.getState().updateWall(this.layerId, this.wallId, this.after);
+  }
+
+  undo(): void {
+    useStore.getState().updateWall(this.layerId, this.wallId, this.before);
+  }
+}
+
+/**
+ * Creates a wall removal command that cascade-deletes all door children
+ * attached to the removed wall. Returns a CompositeCommand if there are
+ * attached doors, or a plain RemoveWallCommand if none.
+ *
+ * Always use this helper instead of constructing RemoveWallCommand directly
+ * so that orphaned doors are never left in the layer after wall deletion.
+ */
+export function createWallRemovalCommand(layerId: string, wallId: string): Command {
+  const state = useStore.getState();
+  const layer = state.layers.find((l) => l.id === layerId);
+  if (!layer || layer.type !== 'dungeon') {
+    return new RemoveWallCommand(layerId, wallId);
+  }
+  const dungeonLayer = layer as import('./types').DungeonLayer;
+  const attachedDoors = dungeonLayer.children.filter(
+    (c): c is import('@/shared/types').DoorChild =>
+      c.childType === 'door' && (c as import('@/shared/types').DoorChild).wallId === wallId,
+  );
+  if (attachedDoors.length === 0) {
+    return new RemoveWallCommand(layerId, wallId);
+  }
+  const commands: Command[] = [
+    ...attachedDoors.map((d) => new RemoveChildCommand('Remove door', layerId, d.id)),
+    new RemoveWallCommand(layerId, wallId),
+  ];
+  return new CompositeCommand('Remove wall', commands);
+}
+
+export class CloseAllDoorsCommand implements Command {
+  readonly label = 'Close all doors';
+  previousStates: Record<string, import('@/shared/types').DoorState> = {};
+  layerId: string;
+
+  constructor(layerId: string) {
+    this.layerId = layerId;
+  }
+
+  execute(): void {
+    const store = useStore.getState();
+    const layer = store.layers.find(l => l.id === this.layerId);
+    if (layer && layer.type === 'dungeon') {
+      for (const child of (layer as import('./types').DungeonLayer).children) {
+        if (child.childType === 'door') {
+          const door = child as import('@/shared/types').DoorChild;
+          this.previousStates[door.id] = door.state;
+        }
+      }
+    }
+    store.closeAllDoors(this.layerId);
+  }
+
+  undo(): void {
+    const store = useStore.getState();
+    for (const [doorId, state] of Object.entries(this.previousStates)) {
+      store.updateChild(this.layerId, doorId, { state } as Partial<import('@/shared/types').DoorChild>);
+    }
+  }
+}
+
 /**
  * Command for applying a style preset to a dungeon layer.
  * Captures the full previous style for single-step undo.

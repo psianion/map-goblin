@@ -156,6 +156,15 @@ export function getChildBounds(child: AnyChild): {
         height: child.radius * 2,
       };
     }
+    case 'door': {
+      const halfW = child.width / 2;
+      return {
+        x: child.position[0] - halfW,
+        y: child.position[1] - halfW,
+        width: child.width,
+        height: child.width,
+      };
+    }
   }
 }
 

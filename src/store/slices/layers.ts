@@ -17,6 +17,8 @@ export interface LayerActions {
   recomputeMergedFloor: (layerId: string) => void;
   addWall: (layerId: string, wall: WallSegment) => void;
   removeWall: (layerId: string, wallId: string) => void;
+  updateWall: (layerId: string, wallId: string, updates: Partial<WallSegment>) => void;
+  closeAllDoors: (layerId: string) => void;
   setSublayerVisibility: (layerId: string, sublayer: keyof SublayerVisibility, visible: boolean) => void;
   setBackgroundTexture: (layerId: string, url: string | null) => void;
   setBackgroundLocked: (layerId: string, locked: boolean) => void;
@@ -63,6 +65,8 @@ export const createLayersSlice: StateCreator<
     set((state) => {
       const layer = state.layers.find((l) => l.id === layerId);
       if (layer && layer.type === 'dungeon') {
+        // L2: Guard against duplicate IDs — silently ignore if already present
+        if (layer.children.some((c) => c.id === child.id)) return;
         layer.children.push(child);
       }
     }),
@@ -87,7 +91,22 @@ export const createLayersSlice: StateCreator<
       const layer = state.layers.find((l) => l.id === layerId);
       if (layer && layer.type === 'dungeon') {
         const child = layer.children.find((c) => c.id === childId);
-        if (child) Object.assign(child, patch);
+        if (child) {
+          // L8: Archway cannot be locked — the UI already filters this option,
+          // but coerce here as a safety net in case the store is updated directly.
+          if (
+            child.childType === 'door' &&
+            'style' in child &&
+            (patch as Record<string, unknown>).state === 'locked'
+          ) {
+            const doorChild = child as import('@/shared/types').DoorChild;
+            const newStyle = (patch as Record<string, unknown>).style ?? doorChild.style;
+            if (newStyle === 'archway') {
+              (patch as Record<string, unknown>).state = 'closed';
+            }
+          }
+          Object.assign(child, patch);
+        }
       }
     }),
   recomputeMergedFloor: (layerId) =>
@@ -112,6 +131,28 @@ export const createLayersSlice: StateCreator<
       if (layer && layer.type === 'dungeon') {
         const idx = layer.standaloneWalls.findIndex((w) => w.id === wallId);
         if (idx >= 0) layer.standaloneWalls.splice(idx, 1);
+      }
+    }),
+  updateWall: (layerId, wallId, updates) =>
+    set((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (layer && layer.type === 'dungeon') {
+        const wall = layer.standaloneWalls.find((w) => w.id === wallId);
+        if (wall) Object.assign(wall, updates);
+      }
+    }),
+  closeAllDoors: (layerId) =>
+    set((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (layer && layer.type === 'dungeon') {
+        for (const child of layer.children) {
+          if (child.childType === 'door') {
+            const door = child as import('@/shared/types').DoorChild;
+            if (door.style !== 'archway') {
+              door.state = 'closed';
+            }
+          }
+        }
       }
     }),
 

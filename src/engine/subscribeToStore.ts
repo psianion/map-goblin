@@ -179,6 +179,15 @@ export function subscribeToStore(
             .filter((c): c is ShapeChild => c.childType === 'shape')
             .map((c) => `${c.id}:${c.visible}:${c.contours.length}:${c.contours[0]?.length ?? 0}`)
             .join(','),
+          // Track door changes (state, style, position affect rendering + lighting)
+          doorSignature: l.children
+            .filter((c) => c.childType === 'door')
+            .map((c) => `${c.id}:${c.visible}:${(c as import('@/shared/types').DoorChild).state}:${(c as import('@/shared/types').DoorChild).style}:${(c as import('@/shared/types').DoorChild).width}`)
+            .join(','),
+          // Track wall type/direction changes for lighting
+          wallSignature: l.standaloneWalls
+            .map((w) => `${w.id}:${w.wallType}:${w.direction}`)
+            .join(','),
         })),
     (dungeonLayers) => {
       for (const { id } of dungeonLayers) {
@@ -220,7 +229,9 @@ export function subscribeToStore(
           item.id === b[i].id &&
           item.shapeCount === b[i].shapeCount &&
           item.wallCount === b[i].wallCount &&
-          item.shapeKeys === b[i].shapeKeys,
+          item.shapeKeys === b[i].shapeKeys &&
+          item.doorSignature === b[i].doorSignature &&
+          item.wallSignature === b[i].wallSignature,
         ),
     },
   );

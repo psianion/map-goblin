@@ -3,6 +3,7 @@ import { devtools, subscribeWithSelector } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
 import type { DungeonLayer, MapBuilderStore, SerializedMapData } from './types.ts';
 import { createDefaultState } from './factories.ts';
+import { migrateToLatest } from './migration.ts';
 import { createMapSettingsSlice } from './slices/mapSettings.ts';
 import { createGridSlice } from './slices/grid.ts';
 import { createLayersSlice } from './slices/layers.ts';
@@ -34,16 +35,21 @@ export const useStore = create<MapBuilderStore>()(
           return;
         }
 
-        if (data.version !== '2.0') {
+        if (data.version !== '2.0' && data.version !== '3.0') {
           console.warn('loadFromFile: incompatible version', data.version);
           get().pushToast({
             id: crypto.randomUUID(),
-            message: 'This file was created with an older version and cannot be opened.',
+            message: 'This file was created with an incompatible version and cannot be opened.',
             type: 'error',
             duration: 5000,
             createdAt: Date.now(),
           });
           return;
+        }
+
+        // Migrate older formats to current
+        if (data.version === '2.0') {
+          data = migrateToLatest(data);
         }
 
         set((state) => {
@@ -80,7 +86,7 @@ export const useStore = create<MapBuilderStore>()(
       getSerializableState: (): SerializedMapData => {
         const s = get();
         return {
-          version: '2.0',
+          version: '3.0',
           mapSettings: s.mapSettings,
           grid: {
             visible: s.grid.visible,

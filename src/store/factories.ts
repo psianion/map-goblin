@@ -71,7 +71,7 @@ type MapBuilderState = Omit<
   | 'setGridVisible' | 'setSnapEnabled' | 'setSnapDivision' | 'setGridStyle'
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
   | 'addChild' | 'removeChild' | 'reorderChild' | 'updateChild' | 'recomputeMergedFloor'
-  | 'addWall' | 'removeWall'
+  | 'addWall' | 'removeWall' | 'updateWall' | 'closeAllDoors'
   | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'updateToolSettings' | 'addRecentAsset' | 'updateLightDefaults' | 'updateScatterBrushSettings'
   | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
   | 'pushToast' | 'dismissToast' | 'showModal' | 'setClipperReady' | 'setFocusMode'
@@ -108,7 +108,8 @@ export function createDefaultState(): MapBuilderState {
       settings: {
         brushRadius: 0.5,
         regularPolygon: { sides: 4 },
-        wallBlocksLight: true,
+        wallType: 'normal' as const,
+        wallDirection: 'both' as const,
         wallWidth: 0.5,
         continuousPlacement: false,
         lightDefaults: {
@@ -127,6 +128,9 @@ export function createDefaultState(): MapBuilderState {
           rotationRange: [0, Math.PI * 2],
           scaleRange: [0.8, 1.2],
         },
+        doorStyle: 'single' as const,
+        doorSecret: false,
+        doorWidth: 1,
       },
       recentAssets: [],
     },
