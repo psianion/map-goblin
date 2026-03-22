@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useMemo } from 'react';
 import { useStore } from '@/store/store';
 import { useShallow } from 'zustand/react/shallow';
 import { selectActiveLayer } from '@/store/selectors';
@@ -122,7 +122,17 @@ function DrawingToolContent({
   const updateLayer = useStore((s) => s.updateLayer);
   const polygonSides = useStore((s) => s.tools.settings.regularPolygon.sides);
   const updateToolSettings = useStore((s) => s.updateToolSettings);
-  const [activePresetId, setActivePresetId] = useState<string | undefined>(undefined);
+  // Derive active preset from actual layer style — stays in sync with undo
+  const activePresetId = useMemo(() => {
+    if (!layer || layer.type !== 'dungeon') return undefined;
+    const s = layer.style;
+    return DUNGEON_STYLE_PRESETS.find((p) => {
+      const d = p.dungeonStyle;
+      return Object.keys(d).every(
+        (k) => JSON.stringify(d[k as keyof typeof d]) === JSON.stringify(s[k as keyof typeof s]),
+      );
+    })?.id;
+  }, [layer]);
 
   if (!layer || layer.type !== 'dungeon') {
     return <p className="text-xs text-text-muted">No dungeon layer selected</p>;
@@ -132,8 +142,6 @@ function DrawingToolContent({
 
   const patch = (partial: Partial<DungeonStyle>) => {
     updateLayer(layer.id, { style: { ...s, ...partial } } as Partial<DungeonLayer>);
-    // Deselect preset on any manual change
-    setActivePresetId(undefined);
     onValueChange?.();
   };
 
@@ -157,7 +165,6 @@ function DrawingToolContent({
       structuredClone(layer.style),
     );
     undoManager.execute(cmd);
-    setActivePresetId(preset.id);
     onValueChange?.();
   };
 
@@ -249,7 +256,6 @@ function DrawingToolContent({
               v,
             );
             undoManager.execute(cmd);
-            setActivePresetId(undefined);
             onValueChange?.();
           }}
           label="Enable shadow"
@@ -278,18 +284,29 @@ function WallToolContent({ onValueChange }: { onValueChange?: () => void }) {
     onValueChange?.();
   };
 
+  const commitFieldChange = (field: keyof DungeonStyle, newValue: unknown, startValue: unknown) => {
+    if (newValue === startValue) return;
+    const cmd = new LayerStyleChangeCommand(`Change ${field}`, layer.id, field, startValue, newValue);
+    undoManager.execute(cmd);
+  };
+
   return (
     <div className="flex flex-col gap-2">
       <span className="font-mono text-panel-heading uppercase text-text-muted">Wall</span>
 
       <PropertyField label="Wall Color">
-        <ColorField value={s.wallColor} onChange={(c) => patch({ wallColor: c })} />
+        <ColorField
+          value={s.wallColor}
+          onChange={(c) => patch({ wallColor: c })}
+          onChangeCommit={(c, start) => commitFieldChange('wallColor', c, start)}
+        />
       </PropertyField>
 
       <PropertyField label="Wall Width">
         <SliderInput
           value={s.wallWidth}
           onChange={(v) => patch({ wallWidth: v })}
+          onChangeCommit={(v, start) => commitFieldChange('wallWidth', v, start)}
           min={0.05}
           max={1}
           step={0.05}

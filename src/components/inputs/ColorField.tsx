@@ -87,7 +87,7 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
 
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
-        e.stopPropagation()
+        e.stopImmediatePropagation()
         setOpen(false)
         onChangeCommit?.(value, startRef.current)
       }
