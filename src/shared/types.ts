@@ -42,6 +42,12 @@ export interface LayerChild {
   childType: ChildType;
   visible: boolean;
   mask?: MaskData;
+  /**
+   * Per-shape style overrides. Omitted fields inherit from layer.style.
+   * Typed as Record<string, unknown> to avoid circular dep with store/types.ts.
+   * Cast to Partial<DungeonStyle> in engine/store consumer code.
+   */
+  styleOverrides?: Record<string, unknown>;
 }
 
 export interface ShapeChild extends LayerChild {
