@@ -357,6 +357,35 @@ export class UpdateWallCommand implements Command {
   }
 }
 
+/**
+ * Creates a wall removal command that cascade-deletes all door children
+ * attached to the removed wall. Returns a CompositeCommand if there are
+ * attached doors, or a plain RemoveWallCommand if none.
+ *
+ * Always use this helper instead of constructing RemoveWallCommand directly
+ * so that orphaned doors are never left in the layer after wall deletion.
+ */
+export function createWallRemovalCommand(layerId: string, wallId: string): Command {
+  const state = useStore.getState();
+  const layer = state.layers.find((l) => l.id === layerId);
+  if (!layer || layer.type !== 'dungeon') {
+    return new RemoveWallCommand(layerId, wallId);
+  }
+  const dungeonLayer = layer as import('./types').DungeonLayer;
+  const attachedDoors = dungeonLayer.children.filter(
+    (c): c is import('@/shared/types').DoorChild =>
+      c.childType === 'door' && (c as import('@/shared/types').DoorChild).wallId === wallId,
+  );
+  if (attachedDoors.length === 0) {
+    return new RemoveWallCommand(layerId, wallId);
+  }
+  const commands: Command[] = [
+    ...attachedDoors.map((d) => new RemoveChildCommand('Remove door', layerId, d.id)),
+    new RemoveWallCommand(layerId, wallId),
+  ];
+  return new CompositeCommand('Remove wall', commands);
+}
+
 export class CloseAllDoorsCommand implements Command {
   readonly label = 'Close all doors';
   previousStates: Record<string, import('@/shared/types').DoorState> = {};

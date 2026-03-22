@@ -65,6 +65,8 @@ export const createLayersSlice: StateCreator<
     set((state) => {
       const layer = state.layers.find((l) => l.id === layerId);
       if (layer && layer.type === 'dungeon') {
+        // L2: Guard against duplicate IDs — silently ignore if already present
+        if (layer.children.some((c) => c.id === child.id)) return;
         layer.children.push(child);
       }
     }),
@@ -89,7 +91,22 @@ export const createLayersSlice: StateCreator<
       const layer = state.layers.find((l) => l.id === layerId);
       if (layer && layer.type === 'dungeon') {
         const child = layer.children.find((c) => c.id === childId);
-        if (child) Object.assign(child, patch);
+        if (child) {
+          // L8: Archway cannot be locked — the UI already filters this option,
+          // but coerce here as a safety net in case the store is updated directly.
+          if (
+            child.childType === 'door' &&
+            'style' in child &&
+            (patch as Record<string, unknown>).state === 'locked'
+          ) {
+            const doorChild = child as import('@/shared/types').DoorChild;
+            const newStyle = (patch as Record<string, unknown>).style ?? doorChild.style;
+            if (newStyle === 'archway') {
+              (patch as Record<string, unknown>).state = 'closed';
+            }
+          }
+          Object.assign(child, patch);
+        }
       }
     }),
   recomputeMergedFloor: (layerId) =>

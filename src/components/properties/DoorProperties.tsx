@@ -83,9 +83,6 @@ export function DoorProperties({ layerId, childId }: DoorPropertiesProps) {
         />
       </PropertyField>
 
-      <div className="text-xs text-text-muted mt-1">
-        Wall: {door.wallId.slice(0, 8)}...
-      </div>
     </div>
   );
 }

@@ -29,6 +29,10 @@ export const WALL_TYPE_OCCLUSION: Record<WallType, OcclusionProps> = {
 const DOOR_OPEN: OcclusionProps = {
   blocksVision: false, blocksLight: false, blocksMovement: false, blocksSound: false,
 };
+// Design choice: closed doors muffle sound (D&D 5e RAW — closed doors provide
+// cover and reduce sound; locked doors are simply closed doors that can't be
+// pushed open). If granular audio attenuation is added later, blocksSound can
+// be replaced with a numeric attenuation factor instead of a boolean.
 const DOOR_CLOSED: OcclusionProps = {
   blocksVision: true, blocksLight: true, blocksMovement: true, blocksSound: true,
 };
@@ -63,6 +67,27 @@ function projectOntoSegment(
 
 const MIN_SEGMENT_LENGTH = 0.01;
 
+/**
+ * Build occlusion segments from standalone walls, splitting each wall at door
+ * positions so the lighting engine and VTT export receive per-segment props.
+ *
+ * NOTE (H8): This function only receives standalone walls. Auto-walls (floor
+ * polygon edges) are NOT included here. The lighting raycaster handles auto-walls
+ * separately via `extractWallSegments` in `src/engine/lighting/raycaster.ts`,
+ * which already combines both sources. The occlusion cache is currently used
+ * only for door splitting on standalone walls — auto-wall occlusion goes through
+ * the raycaster path and is unaffected by this limitation.
+ * TODO: When UVTT export is implemented (Month 4), merge auto-wall edges here
+ * so the full wall set is available for UVTT wall embedding.
+ *
+ * NOTE (M11): Polyline walls (3+ points) are currently treated as a single chord
+ * from points[0] to points[last] for the purpose of door projection. Doors placed
+ * on intermediate segments will project onto the wrong span and produce inaccurate
+ * split intervals. To fix: iterate consecutive point pairs, project the door onto
+ * each sub-segment, and emit one set of wall/door segments per sub-segment.
+ * Deferred because polyline walls with mid-segment doors are an uncommon case and
+ * the fix requires non-trivial restructuring of the interval logic below.
+ */
 export function buildOcclusionSegments(
   walls: WallSegment[],
   doors: DoorChild[],

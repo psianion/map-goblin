@@ -229,7 +229,9 @@ export function subscribeToStore(
           item.id === b[i].id &&
           item.shapeCount === b[i].shapeCount &&
           item.wallCount === b[i].wallCount &&
-          item.shapeKeys === b[i].shapeKeys,
+          item.shapeKeys === b[i].shapeKeys &&
+          item.doorSignature === b[i].doorSignature &&
+          item.wallSignature === b[i].wallSignature,
         ),
     },
   );

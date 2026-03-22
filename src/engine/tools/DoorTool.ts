@@ -42,18 +42,29 @@ export class DoorTool implements DrawingTool {
       }
     }
 
-    // Compute auto-name
+    // M8: Reject door wider than the wall it's being placed on
+    const wallStart = wall.points[0];
+    const wallEnd = wall.points[wall.points.length - 1];
+    const wallLen = Math.sqrt(
+      (wallEnd[0] - wallStart[0]) ** 2 + (wallEnd[1] - wallStart[1]) ** 2,
+    );
+    if (doorWidth > wallLen) return; // door too wide for wall
+
+    // L6: Auto-name by style — e.g., "Portcullis 1", "Archway 2"
+    const styleName =
+      toolSettings.doorStyle.charAt(0).toUpperCase() + toolSettings.doorStyle.slice(1);
+    const stylePattern = new RegExp(`^${styleName} (\\d+)$`);
     const doorNumbers = activeLayer.children
       .filter((c) => c.childType === 'door')
       .map((c) => {
-        const match = c.name.match(/^Door (\d+)$/);
+        const match = c.name.match(stylePattern);
         return match ? parseInt(match[1], 10) : 0;
       });
     const nextNum = doorNumbers.length > 0 ? Math.max(...doorNumbers) + 1 : 1;
 
     const door: DoorChild = {
       id: crypto.randomUUID(),
-      name: `Door ${nextNum}`,
+      name: `${styleName} ${nextNum}`,
       childType: 'door',
       visible: true,
       wallId: this.snapResult.wallId,
@@ -76,10 +87,18 @@ export class DoorTool implements DrawingTool {
     );
     if (!activeLayer) return;
 
+    // H7: Use a fixed world-unit threshold that gives ~1.5 grid cells of snap range.
+    // World coords use 1 unit = 1 grid cell, so 1.5 is always correct regardless of zoom.
+    // (The old value of 2 was fine but 1.5 is more precise and avoids snapping across gaps.)
+    const snapThreshold = 1.5;
+
+    // M9: Overlap detection uses Euclidean center distance which is a simplification.
+    // For most cases this is accurate enough since doors are placed along a single wall.
+    // A full parametric interval check would be needed for exact edge-case accuracy.
     this.snapResult = snapToNearestWall(
       [point.x, point.y],
       activeLayer.standaloneWalls,
-      2, // snap threshold: 2 world units
+      snapThreshold,
     );
   }
 

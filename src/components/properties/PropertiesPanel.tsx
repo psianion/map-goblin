@@ -4,6 +4,7 @@ import { selectActiveLayer, selectSelectedIds, selectChildById } from '@/store/s
 import { LayerProperties } from './LayerProperties'
 import { BackgroundProperties } from './BackgroundProperties'
 import { LightProperties } from './LightProperties'
+import { DoorProperties } from './DoorProperties'
 import { ShapeTextureProperties } from './ShapeTextureProperties'
 import { PropertyField } from './PropertyField'
 import { ColorField } from '@/components/inputs/ColorField'
@@ -50,6 +51,16 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
   const selectedChild = useStore((s) =>
     firstSelectedId ? selectChildById(s, firstSelectedId) : undefined,
   )
+
+  // If first selected child is a door, show door properties
+  if (selectedChild?.childType === 'door' && activeLayer) {
+    return (
+      <div className="flex flex-col pt-2">
+        <DoorProperties layerId={activeLayer.id} childId={selectedChild.id} />
+        <AmbientSection openSections={openSections} onToggleSection={onToggleSection} />
+      </div>
+    )
+  }
 
   // If first selected child is a light, show light properties
   if (selectedChild?.childType === 'light') {

@@ -4,17 +4,25 @@ import type { DoorChild, WallSegment } from '@/shared/types';
 import type { DungeonStyle } from '@/store/types';
 
 // State color coding (editor overlay)
+// L3: Brighter colors for secret states — dark magenta was hard to see
 const STATE_COLORS: Record<string, number> = {
   closed: 0x9b59b6,        // purple
   open: 0x2ecc71,          // green
   locked: 0xe74c3c,        // red
-  secret_closed: 0x8e44ad, // dark magenta
-  secret_open: 0x27ae60,   // dark green
+  secret_closed: 0xc77dba, // bright magenta (L3)
+  secret_open: 0x5dde8f,   // bright green (L3)
 };
 
 function getStateColor(door: DoorChild): number {
   const key = door.isSecret ? `secret_${door.state}` : door.state;
   return STATE_COLORS[key] ?? STATE_COLORS.closed;
+}
+
+// M7: Guard for zero-length wall segments
+function segmentLength(a: [number, number], b: [number, number]): number {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
 export function renderDoors(
@@ -24,6 +32,10 @@ export function renderDoors(
   style: DungeonStyle,
   _gridCellSize: number,
 ): void {
+  // H3: Door graphics are cleaned up by rebuildDungeonLayer which clears the
+  // entire walls sublayer before calling renderTexturedWalls + renderDoors.
+  // Do NOT clear the container here — it contains wall texture sprites too.
+
   const wallMap = new Map(walls.map((w) => [w.id, w]));
 
   for (const door of doors) {
@@ -31,26 +43,40 @@ export function renderDoors(
     const wall = wallMap.get(door.wallId);
     if (!wall) continue;
 
+    // H1: Always derive angle from wall geometry, never trust door.angle
+    const start = wall.points[0] as [number, number];
+    const end = wall.points[wall.points.length - 1] as [number, number];
+
+    // M7: Skip zero-length walls — atan2(0,0) produces garbage
+    if (segmentLength(start, end) < 0.01) continue;
+
+    const wallAngle = Math.atan2(end[1] - start[1], end[0] - start[0]);
+
     // Fresh Graphics per door to avoid PixiJS v8 path accumulation
     const g = new Graphics();
 
     const cx = door.position[0];
     const cy = door.position[1];
-    const angle = door.angle;
     const halfWidth = door.width / 2;
     const wallColor = parseInt(style.wallColor.replace('#', ''), 16);
 
     if (door.style === 'archway') {
-      renderArchway(g, cx, cy, angle, halfWidth, wallColor);
+      renderArchway(g, cx, cy, wallAngle, halfWidth, wallColor);
     } else if (door.style === 'portcullis') {
-      renderPortcullis(g, cx, cy, angle, halfWidth, wallColor, door.state);
+      renderPortcullis(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
     } else if (door.style === 'double') {
-      renderDoubleDoor(g, cx, cy, angle, halfWidth, wallColor, door.state);
+      renderDoubleDoor(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
     } else {
-      renderSingleDoor(g, cx, cy, angle, halfWidth, wallColor, door.state, door.isSecret);
+      renderSingleDoor(g, cx, cy, wallAngle, halfWidth, wallColor, door.state, door.isSecret);
     }
 
     container.addChild(g);
+
+    // C2: Skip state dot for secret doors that are closed — invisibility is the point
+    // M3: Skip state dot for archways — they are permanent openings, "closed" is meaningless
+    if ((door.isSecret && door.state === 'closed') || door.style === 'archway') {
+      continue;
+    }
 
     // State indicator dot (separate Graphics to avoid path contamination)
     const dot = new Graphics();
@@ -65,6 +91,9 @@ export function renderDoors(
 // 1 world unit = 1 grid cell. Typical wallWidth = 0.4–0.5. Door glyphs use ~15% of that.
 const GLYPH_STROKE = 0.06;
 
+// L1: Fixed glyph color for open-state arcs — avoids near-black on light floors
+const OPEN_ARC_COLOR = 0x555555;
+
 function renderSingleDoor(
   g: Graphics, cx: number, cy: number, angle: number,
   halfWidth: number, color: number, state: string, isSecret: boolean,
@@ -78,7 +107,7 @@ function renderSingleDoor(
   }
 
   if (state === 'open') {
-    // Quarter-circle arc showing door swing — pivot at hinge end
+    // L4: Quarter-circle (90°) arc showing door swing — pivot at hinge end
     const pivotX = cx - Math.cos(angle) * halfWidth;
     const pivotY = cy - Math.sin(angle) * halfWidth;
     const arcRadius = halfWidth * 2;
@@ -86,8 +115,10 @@ function renderSingleDoor(
     const startX = pivotX + Math.cos(perpAngle) * arcRadius;
     const startY = pivotY + Math.sin(perpAngle) * arcRadius;
     g.moveTo(startX, startY);
-    g.arc(pivotX, pivotY, arcRadius, perpAngle, angle, true);
-    g.stroke({ color, width: GLYPH_STROKE, alpha: 0.7 });
+    // L4: Full 90° arc (Math.PI/2) instead of 45° (Math.PI/4)
+    g.arc(pivotX, pivotY, arcRadius, perpAngle, perpAngle - Math.PI / 2, true);
+    // L1: Use fixed glyph color, not potentially-dark wallColor
+    g.stroke({ color: OPEN_ARC_COLOR, width: GLYPH_STROKE, alpha: 0.7 });
   } else {
     // Closed: thin rectangle flush with wall
     const perpAngle = angle + Math.PI / 2;
@@ -120,7 +151,8 @@ function renderDoubleDoor(
     const lStartY = lPivotY + Math.sin(perpAngle) * halfWidth;
     g.moveTo(lStartX, lStartY);
     g.arc(lPivotX, lPivotY, halfWidth, perpAngle, angle, true);
-    g.stroke({ color, width: GLYPH_STROKE, alpha: 0.7 });
+    // L1: Use fixed glyph color for open arcs
+    g.stroke({ color: OPEN_ARC_COLOR, width: GLYPH_STROKE, alpha: 0.7 });
     // Right leaf — hinge at right end, swings opposite
     const rPivotX = cx + Math.cos(angle) * halfWidth;
     const rPivotY = cy + Math.sin(angle) * halfWidth;
@@ -129,12 +161,14 @@ function renderDoubleDoor(
     const rStartY = rPivotY + Math.sin(rEndAngle) * halfWidth;
     g.moveTo(rStartX, rStartY);
     g.arc(rPivotX, rPivotY, halfWidth, rEndAngle, angle + Math.PI, true);
-    g.stroke({ color, width: GLYPH_STROKE, alpha: 0.7 });
+    // L1: Use fixed glyph color for open arcs
+    g.stroke({ color: OPEN_ARC_COLOR, width: GLYPH_STROKE, alpha: 0.7 });
   } else {
     // Two thin rectangles side by side
     const perpAngle = angle + Math.PI / 2;
     const thickness = halfWidth * 0.12;
-    const gap = halfWidth * 0.04;
+    // M5: Increase gap so two door leaves are visually distinct (was 0.05, now 0.15)
+    const gap = halfWidth * 0.15;
     for (const sign of [-1, 1]) {
       const startX = cx + (sign < 0 ? -Math.cos(angle) * halfWidth : Math.cos(angle) * gap);
       const startY = cy + (sign < 0 ? -Math.sin(angle) * halfWidth : Math.sin(angle) * gap);
@@ -156,7 +190,10 @@ function renderPortcullis(
 ): void {
   const barCount = 5;
   const perpAngle = angle + Math.PI / 2;
-  const barLength = halfWidth * 0.35;
+  // M2: Increase bar length from 0.35 to 0.5 for better visibility
+  const barLength = halfWidth * 0.5;
+  // L5: Open-state shift uses perpendicular which doesn't mean "up" on diagonals.
+  // This is acceptable for V1 — a proper fix would require screen-space "up" direction.
   const yShift = state === 'open' ? -halfWidth * 0.4 : 0;
   for (let i = 0; i < barCount; i++) {
     const t = (i / (barCount - 1)) * 2 - 1; // -1 to +1
@@ -190,7 +227,8 @@ function renderArchway(
   halfWidth: number, color: number,
 ): void {
   const perpAngle = angle + Math.PI / 2;
-  const capSize = halfWidth * 0.25;
+  // M6: Increase cap size from 0.25 to 0.35 for visibility at low zoom
+  const capSize = halfWidth * 0.35;
   for (const sign of [-1, 1]) {
     const ex = cx + Math.cos(angle) * halfWidth * sign;
     const ey = cy + Math.sin(angle) * halfWidth * sign;

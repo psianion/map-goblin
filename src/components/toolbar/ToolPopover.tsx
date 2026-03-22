@@ -3,6 +3,7 @@ import { useStore } from '@/store/store';
 import { useShallow } from 'zustand/react/shallow';
 import { selectActiveLayer } from '@/store/selectors';
 import type { ToolType, DungeonLayer, DungeonStyle, ScatterBrushSettings } from '@/store/types';
+import type { DoorStyle } from '@/shared/types';
 import { ColorField } from '@/components/inputs/ColorField';
 import { SliderInput } from '@/components/inputs/SliderInput';
 import { SelectInput } from '@/components/inputs/SelectInput';
@@ -96,6 +97,7 @@ export function ToolPopover({ tool, anchorY, onClose }: ToolPopoverProps) {
     >
       {isDrawingTool && <DrawingToolContent tool={tool} onValueChange={triggerPreview} />}
       {tool === 'wall' && <WallToolContent onValueChange={triggerPreview} />}
+      {tool === 'door' && <DoorToolContent onValueChange={triggerPreview} />}
       {tool === 'light' && <LightToolContent onValueChange={triggerPreview} />}
       {tool === 'scatterBrush' && <ScatterBrushContent />}
     </div>
@@ -359,6 +361,74 @@ function LightToolContent({ onValueChange }: { onValueChange?: () => void }) {
             </button>
           ))}
         </div>
+      </PropertyField>
+    </div>
+  );
+}
+
+// ─── Door Tool ───────────────────────────────────
+
+const DOOR_STYLES: { value: DoorStyle; label: string }[] = [
+  { value: 'single', label: 'Single' },
+  { value: 'double', label: 'Double' },
+  { value: 'portcullis', label: 'Portcullis' },
+  { value: 'archway', label: 'Archway' },
+];
+
+function DoorToolContent({ onValueChange }: { onValueChange?: () => void }) {
+  const doorStyle = useStore((s) => s.tools.settings.doorStyle);
+  const doorSecret = useStore((s) => s.tools.settings.doorSecret);
+  const doorWidth = useStore((s) => s.tools.settings.doorWidth);
+  const updateToolSettings = useStore((s) => s.updateToolSettings);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="font-mono text-panel-heading uppercase text-text-muted">Door</span>
+
+      <PropertyField label="Style">
+        <div className="grid grid-cols-2 gap-1">
+          {DOOR_STYLES.map(({ value, label }) => (
+            <button
+              key={value}
+              className={cn(
+                'h-7 rounded-sm border font-body text-[11px] transition-colors',
+                doorStyle === value
+                  ? 'bg-surface-3 border-accent-active text-text-primary'
+                  : 'bg-transparent border-border-default text-text-muted hover:text-text-primary',
+              )}
+              onClick={() => {
+                updateToolSettings({ doorStyle: value });
+                onValueChange?.();
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </PropertyField>
+
+      <PropertyField label="Secret">
+        <ToggleSwitch
+          checked={doorSecret ?? false}
+          onChange={(v) => {
+            updateToolSettings({ doorSecret: v });
+            onValueChange?.();
+          }}
+          label="Secret door"
+        />
+      </PropertyField>
+
+      <PropertyField label="Width">
+        <SliderInput
+          value={doorWidth ?? 1}
+          onChange={(v) => {
+            updateToolSettings({ doorWidth: v });
+            onValueChange?.();
+          }}
+          min={0.25}
+          max={4}
+          step={0.25}
+        />
       </PropertyField>
     </div>
   );
