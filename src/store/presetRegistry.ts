@@ -3,14 +3,19 @@
 // No store slice — pure data. Import from here wherever presets are needed.
 
 import type { DungeonStyle, ScatterBrushSettings } from './types.ts';
+import type { DoorStyle } from '@/shared/types';
 
 // ─── Shared Preset Shape ──────────────────────────────────
 
-export interface DungeonStylePreset {
+export interface MapStylePreset {
   id: string;
   label: string;
   category: string;
-  values: Partial<DungeonStyle>;
+  /** Floor, wall, shadow, hatching, edge transition settings */
+  dungeonStyle: Partial<DungeonStyle>;
+  /** Door defaults when using this preset */
+  doorStyle?: DoorStyle;
+  doorWidth?: number;
 }
 
 export interface ScatterPreset {
@@ -22,12 +27,12 @@ export interface ScatterPreset {
 
 // ─── S5: Texture-aware dungeon style presets ──────────────
 
-export const DUNGEON_STYLE_PRESETS: DungeonStylePreset[] = [
+export const DUNGEON_STYLE_PRESETS: MapStylePreset[] = [
   {
     id: 'stone-dungeon',
     label: 'Stone Dungeon',
     category: 'dungeon',
-    values: {
+    dungeonStyle: {
       floorColor: '#c8b89a',
       wallColor: '#222222',
       wallWidth: 0.5,
@@ -48,7 +53,7 @@ export const DUNGEON_STYLE_PRESETS: DungeonStylePreset[] = [
     id: 'wood-tavern',
     label: 'Wood Tavern',
     category: 'dungeon',
-    values: {
+    dungeonStyle: {
       floorColor: '#c8a06a',
       wallColor: '#3a2010',
       wallWidth: 0.5,
@@ -69,7 +74,7 @@ export const DUNGEON_STYLE_PRESETS: DungeonStylePreset[] = [
     id: 'cave-natural',
     label: 'Cave / Natural',
     category: 'dungeon',
-    values: {
+    dungeonStyle: {
       floorColor: '#7a6a58',
       wallColor: '#1a1410',
       wallWidth: 0.5,
@@ -94,7 +99,7 @@ export const DUNGEON_STYLE_PRESETS: DungeonStylePreset[] = [
     id: 'sewer',
     label: 'Sewer',
     category: 'dungeon',
-    values: {
+    dungeonStyle: {
       floorColor: '#5a7060',
       wallColor: '#1a2820',
       wallWidth: 0.5,
@@ -119,7 +124,7 @@ export const DUNGEON_STYLE_PRESETS: DungeonStylePreset[] = [
     id: 'crypt',
     label: 'Crypt',
     category: 'dungeon',
-    values: {
+    dungeonStyle: {
       floorColor: '#2a2830',
       wallColor: '#0a0810',
       wallWidth: 0.5,
@@ -138,6 +143,52 @@ export const DUNGEON_STYLE_PRESETS: DungeonStylePreset[] = [
       defaultTextureId: 'smooth-stone-floor-a-10',
       wallTextureSetId: 'stone-slate',
       wallTextureTint: '#ddccaa',
+    },
+  },
+  {
+    id: 'classic-dungeon',
+    label: 'Classic Dungeon',
+    category: 'dungeon',
+    dungeonStyle: {
+      floorColor: '#F1ECDF',
+      wallColor: '#000000',
+      wallWidth: 0.5,
+      shadowEnabled: true,
+      shadowColor: '#8C867D',
+      shadowOffset: { x: 0.4, y: 0.3 },
+      shadowIntensity: 0.4,
+      hatchingStyle: 'none',
+      hatchingBandWidth: 1.0,
+      hatchingLineSpacing: 0.3,
+      hatchingLineThickness: 0.02,
+      hatchingAngle: 45,
+      hatchingInverted: false,
+      edgeTransitionWidth: 0.5,
+      showEdgeTransitions: true,
+      wallTextureTint: '#ffffff',
+    },
+  },
+  {
+    id: 'dark-stone',
+    label: 'Dark Stone',
+    category: 'dungeon',
+    dungeonStyle: {
+      floorColor: '#2A2A2A',
+      wallColor: '#111111',
+      wallWidth: 0.5,
+      shadowEnabled: true,
+      shadowColor: '#000000',
+      shadowOffset: { x: 0.3, y: 0.3 },
+      shadowIntensity: 0.6,
+      hatchingStyle: 'crosshatch',
+      hatchingBandWidth: 1.0,
+      hatchingLineSpacing: 0.25,
+      hatchingLineThickness: 0.02,
+      hatchingAngle: 45,
+      hatchingInverted: false,
+      edgeTransitionWidth: 0.5,
+      showEdgeTransitions: true,
+      wallTextureTint: '#ffffff',
     },
   },
 ];

@@ -23,7 +23,7 @@ const HATCHING_STYLES_ACTIVE = ['crosshatch', 'lines', 'horizontal'] as const
 const DUNGEON_PRESET_CHIPS = DUNGEON_STYLE_PRESETS.map((p) => ({
   id: p.id,
   label: p.label,
-  color: p.values.floorColor,
+  color: p.dungeonStyle.floorColor,
 }))
 
 export function LayerProperties({ layer, openSections, onToggleSection }: LayerPropertiesProps) {
@@ -38,7 +38,7 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
     const preset = DUNGEON_STYLE_PRESETS.find((p) => p.id === id)
     if (!preset) return
     setActivePresetId(id)
-    patch(preset.values)
+    patch(preset.dungeonStyle)
   }
 
   const s = layer.style

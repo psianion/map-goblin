@@ -1,6 +1,6 @@
 import type { AnyChild, Command, DungeonLayer, DungeonStyle, Layer } from './types';
 import { useStore } from './store';
-import type { StylePreset } from './presets';
+import type { MapStylePreset } from './presetRegistry';
 
 /**
  * Groups multiple commands into a single undoable operation.
@@ -421,16 +421,16 @@ export class CloseAllDoorsCommand implements Command {
  * Command for applying a style preset to a dungeon layer.
  * Captures the full previous style for single-step undo.
  */
-export class ApplyPresetCommand implements Command {
+export class PresetApplyCommand implements Command {
   readonly label: string;
-  private layerId: string;
-  private presetStyle: StylePreset;
-  private previousStyle: DungeonStyle;
+  private readonly layerId: string;
+  private readonly presetStyle: Partial<DungeonStyle>;
+  private readonly previousStyle: DungeonStyle;
 
-  constructor(label: string, layerId: string, presetStyle: StylePreset, previousStyle: DungeonStyle) {
+  constructor(label: string, layerId: string, preset: MapStylePreset, previousStyle: DungeonStyle) {
     this.label = label;
     this.layerId = layerId;
-    this.presetStyle = structuredClone(presetStyle);
+    this.presetStyle = structuredClone(preset.dungeonStyle);
     this.previousStyle = structuredClone(previousStyle);
   }
 
@@ -439,19 +439,97 @@ export class ApplyPresetCommand implements Command {
     const layer = state.layers.find((l) => l.id === this.layerId);
     if (!layer || layer.type !== 'dungeon') return;
     state.updateLayer(this.layerId, {
-      style: {
-        ...layer.style,
-        ...this.presetStyle,
-      },
-    } as Partial<typeof layer>);
+      style: { ...layer.style, ...this.presetStyle },
+    } as Partial<DungeonLayer>);
   }
 
   undo(): void {
     const state = useStore.getState();
-    const layer = state.layers.find((l) => l.id === this.layerId);
-    if (!layer || layer.type !== 'dungeon') return;
     state.updateLayer(this.layerId, {
       style: structuredClone(this.previousStyle),
-    } as Partial<typeof layer>);
+    } as Partial<DungeonLayer>);
+  }
+}
+
+/**
+ * Command for a single field change on a dungeon layer's style.
+ */
+export class LayerStyleChangeCommand implements Command {
+  readonly label: string;
+  private readonly layerId: string;
+  private readonly field: keyof DungeonStyle;
+  private readonly prevValue: unknown;
+  private readonly newValue: unknown;
+
+  constructor(
+    label: string,
+    layerId: string,
+    field: keyof DungeonStyle,
+    prevValue: unknown,
+    newValue: unknown,
+  ) {
+    this.label = label;
+    this.layerId = layerId;
+    this.field = field;
+    this.prevValue = structuredClone(prevValue);
+    this.newValue = structuredClone(newValue);
+  }
+
+  execute(): void {
+    const state = useStore.getState();
+    const layer = state.layers.find((l) => l.id === this.layerId) as DungeonLayer | undefined;
+    if (!layer) return;
+    state.updateLayer(this.layerId, {
+      style: { ...layer.style, [this.field]: structuredClone(this.newValue) },
+    } as Partial<DungeonLayer>);
+  }
+
+  undo(): void {
+    const state = useStore.getState();
+    const layer = state.layers.find((l) => l.id === this.layerId) as DungeonLayer | undefined;
+    if (!layer) return;
+    state.updateLayer(this.layerId, {
+      style: { ...layer.style, [this.field]: structuredClone(this.prevValue) },
+    } as Partial<DungeonLayer>);
+  }
+}
+
+/**
+ * Command for per-shape style overrides.
+ * Uses updateChild — never directly mutates child objects.
+ */
+export class ShapeStyleCommand implements Command {
+  readonly label: string;
+  private readonly layerId: string;
+  private readonly childId: string;
+  private readonly prevOverrides: Partial<DungeonStyle> | undefined;
+  private readonly newOverrides: Partial<DungeonStyle> | undefined;
+
+  constructor(
+    label: string,
+    layerId: string,
+    childId: string,
+    prevOverrides: Partial<DungeonStyle> | undefined,
+    newOverrides: Partial<DungeonStyle> | undefined,
+  ) {
+    this.label = label;
+    this.layerId = layerId;
+    this.childId = childId;
+    this.prevOverrides = prevOverrides ? structuredClone(prevOverrides) : undefined;
+    this.newOverrides = newOverrides ? structuredClone(newOverrides) : undefined;
+  }
+
+  execute(): void {
+    const state = useStore.getState();
+    state.updateChild(this.layerId, this.childId, {
+      styleOverrides: this.newOverrides ? structuredClone(this.newOverrides) : undefined,
+    });
+  }
+
+  undo(): void {
+    const state = useStore.getState();
+    state.updateChild(this.layerId, this.childId, {
+      styleOverrides: this.prevOverrides ? structuredClone(this.prevOverrides) : undefined,
+    });
   }
 }

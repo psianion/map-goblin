@@ -164,9 +164,6 @@ export interface SelectionSlice {
   selectedRegion: [number, number][][] | null;
 }
 
-// ─── Style Presets ───────────────────────────────────────
-export type StylePresetData = Omit<DungeonStyle, 'roughnessAmplitude' | 'lineWidth'>;
-
 // ─── UI ───────────────────────────────────────────────────
 export interface Toast {
   id: string;
@@ -192,7 +189,6 @@ export interface UISlice {
   modalState: ModalState | null;
   toastQueue: Toast[];
   clipperReady: boolean;
-  customPresets: Record<string, StylePresetData>;
   focusMode: 'auto' | 'manual' | 'fullscreen';
 }
 
@@ -316,11 +312,6 @@ export interface MapBuilderStore {
   setManifest: (manifest: AssetManifest) => void;
   markCategoryLoaded: (categoryId: string) => void;
   addCustomImage: (id: string, base64: string) => void;
-
-  // preset actions
-  applyPreset: (layerId: string, presetName: string) => void;
-  saveCustomPreset: (name: string, style: Partial<DungeonStyle>) => void;
-  deleteCustomPreset: (name: string) => void;
 
   // sublayer visibility actions
   setSublayerVisibility: (layerId: string, sublayer: keyof SublayerVisibility, visible: boolean) => void;

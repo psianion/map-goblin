@@ -145,7 +145,6 @@ export function createDefaultState(): MapBuilderState {
       modalState: null,
       toastQueue: [],
       clipperReady: false,
-      customPresets: {},
       focusMode: 'auto' as const,
     },
     assets: {
