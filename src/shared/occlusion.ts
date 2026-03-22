@@ -125,13 +125,16 @@ export function buildOcclusionSegments(
 
       const doorStart = lerp2d(start, end, tStart);
       const doorEnd = lerp2d(start, end, tEnd);
-      result.push({
-        points: [doorStart, doorEnd],
-        ...getDoorOcclusion(door),
-        direction: 'both',
-        sourceType: 'door',
-        sourceId: door.id,
-      });
+      // Skip zero-length door segments (zero-width door)
+      if (segmentLength(doorStart, doorEnd) > MIN_SEGMENT_LENGTH) {
+        result.push({
+          points: [doorStart, doorEnd],
+          ...getDoorOcclusion(door),
+          direction: 'both',
+          sourceType: 'door',
+          sourceId: door.id,
+        });
+      }
 
       cursor = tEnd;
     }

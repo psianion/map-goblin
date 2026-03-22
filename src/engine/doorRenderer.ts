@@ -22,7 +22,7 @@ export function renderDoors(
   doors: DoorChild[],
   walls: WallSegment[],
   style: DungeonStyle,
-  gridCellSize: number,
+  _gridCellSize: number,
 ): void {
   const wallMap = new Map(walls.map((w) => [w.id, w]));
 
@@ -55,40 +55,54 @@ export function renderDoors(
     // State indicator dot (separate Graphics to avoid path contamination)
     const dot = new Graphics();
     const stateColor = getStateColor(door);
-    dot.circle(cx, cy, gridCellSize * 0.12);
+    dot.circle(cx, cy, 0.1); // 0.1 world units — subtle but scannable
     dot.fill({ color: stateColor });
     container.addChild(dot);
   }
 }
+
+// Stroke width proportional to wall — thin enough to read as a symbol, not a filled shape.
+// 1 world unit = 1 grid cell. Typical wallWidth = 0.4–0.5. Door glyphs use ~15% of that.
+const GLYPH_STROKE = 0.06;
 
 function renderSingleDoor(
   g: Graphics, cx: number, cy: number, angle: number,
   halfWidth: number, color: number, state: string, isSecret: boolean,
 ): void {
   if (isSecret && state === 'closed') {
-    // Dashed line matching wall (blends in)
+    // Dashed line matching wall (blends in) — just a faint line
     g.moveTo(cx - Math.cos(angle) * halfWidth, cy - Math.sin(angle) * halfWidth);
     g.lineTo(cx + Math.cos(angle) * halfWidth, cy + Math.sin(angle) * halfWidth);
-    g.stroke({ color, width: 2, alpha: 0.5 });
+    g.stroke({ color, width: GLYPH_STROKE, alpha: 0.4 });
     return;
   }
 
   if (state === 'open') {
-    // Arc showing door swing — pivot at one end of the door
+    // Quarter-circle arc showing door swing — pivot at hinge end
     const pivotX = cx - Math.cos(angle) * halfWidth;
     const pivotY = cy - Math.sin(angle) * halfWidth;
     const arcRadius = halfWidth * 2;
-    // Move to arc start point to prevent connecting line from origin
-    const startX = pivotX + Math.cos(angle) * arcRadius;
-    const startY = pivotY + Math.sin(angle) * arcRadius;
+    const perpAngle = angle + Math.PI / 2;
+    const startX = pivotX + Math.cos(perpAngle) * arcRadius;
+    const startY = pivotY + Math.sin(perpAngle) * arcRadius;
     g.moveTo(startX, startY);
-    g.arc(pivotX, pivotY, arcRadius, angle, angle + Math.PI / 4);
-    g.stroke({ color, width: 1.5, alpha: 0.6 });
+    g.arc(pivotX, pivotY, arcRadius, perpAngle, angle, true);
+    g.stroke({ color, width: GLYPH_STROKE, alpha: 0.7 });
   } else {
-    // Closed: thick line along wall
-    g.moveTo(cx - Math.cos(angle) * halfWidth, cy - Math.sin(angle) * halfWidth);
-    g.lineTo(cx + Math.cos(angle) * halfWidth, cy + Math.sin(angle) * halfWidth);
-    g.stroke({ color, width: 3, alpha: 0.8 });
+    // Closed: thin rectangle flush with wall
+    const perpAngle = angle + Math.PI / 2;
+    const thickness = halfWidth * 0.12;
+    const x1 = cx - Math.cos(angle) * halfWidth;
+    const y1 = cy - Math.sin(angle) * halfWidth;
+    const x2 = cx + Math.cos(angle) * halfWidth;
+    const y2 = cy + Math.sin(angle) * halfWidth;
+    // Draw a thin filled rectangle along the wall
+    g.moveTo(x1 - Math.cos(perpAngle) * thickness, y1 - Math.sin(perpAngle) * thickness);
+    g.lineTo(x2 - Math.cos(perpAngle) * thickness, y2 - Math.sin(perpAngle) * thickness);
+    g.lineTo(x2 + Math.cos(perpAngle) * thickness, y2 + Math.sin(perpAngle) * thickness);
+    g.lineTo(x1 + Math.cos(perpAngle) * thickness, y1 + Math.sin(perpAngle) * thickness);
+    g.closePath();
+    g.fill({ color, alpha: 0.8 });
   }
 }
 
@@ -97,35 +111,42 @@ function renderDoubleDoor(
   halfWidth: number, color: number, state: string,
 ): void {
   if (state === 'open') {
-    const offset = halfWidth * 0.5;
-    // Left leaf arc
-    const lPivotX = cx - Math.cos(angle) * offset;
-    const lPivotY = cy - Math.sin(angle) * offset;
-    const lStartX = lPivotX + Math.cos(angle) * halfWidth;
-    const lStartY = lPivotY + Math.sin(angle) * halfWidth;
-    g.moveTo(lStartX, lStartY);
-    g.arc(lPivotX, lPivotY, halfWidth, angle, angle + Math.PI / 4);
-    g.stroke({ color, width: 1.5, alpha: 0.6 });
-    // Right leaf arc
-    const rPivotX = cx + Math.cos(angle) * offset;
-    const rPivotY = cy + Math.sin(angle) * offset;
-    const rStartAngle = angle + Math.PI;
-    const rStartX = rPivotX + Math.cos(rStartAngle) * halfWidth;
-    const rStartY = rPivotY + Math.sin(rStartAngle) * halfWidth;
-    g.moveTo(rStartX, rStartY);
-    g.arc(rPivotX, rPivotY, halfWidth, rStartAngle, rStartAngle - Math.PI / 4, true);
-    g.stroke({ color, width: 1.5, alpha: 0.6 });
-  } else {
-    // Two parallel lines
+    // Two mirrored quarter-circle arcs
     const perpAngle = angle + Math.PI / 2;
-    const gap = halfWidth * 0.05;
+    // Left leaf — hinge at left end, swings perpendicular
+    const lPivotX = cx - Math.cos(angle) * halfWidth;
+    const lPivotY = cy - Math.sin(angle) * halfWidth;
+    const lStartX = lPivotX + Math.cos(perpAngle) * halfWidth;
+    const lStartY = lPivotY + Math.sin(perpAngle) * halfWidth;
+    g.moveTo(lStartX, lStartY);
+    g.arc(lPivotX, lPivotY, halfWidth, perpAngle, angle, true);
+    g.stroke({ color, width: GLYPH_STROKE, alpha: 0.7 });
+    // Right leaf — hinge at right end, swings opposite
+    const rPivotX = cx + Math.cos(angle) * halfWidth;
+    const rPivotY = cy + Math.sin(angle) * halfWidth;
+    const rEndAngle = perpAngle + Math.PI;
+    const rStartX = rPivotX + Math.cos(rEndAngle) * halfWidth;
+    const rStartY = rPivotY + Math.sin(rEndAngle) * halfWidth;
+    g.moveTo(rStartX, rStartY);
+    g.arc(rPivotX, rPivotY, halfWidth, rEndAngle, angle + Math.PI, true);
+    g.stroke({ color, width: GLYPH_STROKE, alpha: 0.7 });
+  } else {
+    // Two thin rectangles side by side
+    const perpAngle = angle + Math.PI / 2;
+    const thickness = halfWidth * 0.12;
+    const gap = halfWidth * 0.04;
     for (const sign of [-1, 1]) {
-      const ox = Math.cos(perpAngle) * gap * sign;
-      const oy = Math.sin(perpAngle) * gap * sign;
-      g.moveTo(cx - Math.cos(angle) * halfWidth + ox, cy - Math.sin(angle) * halfWidth + oy);
-      g.lineTo(cx + Math.cos(angle) * halfWidth + ox, cy + Math.sin(angle) * halfWidth + oy);
+      const startX = cx + (sign < 0 ? -Math.cos(angle) * halfWidth : Math.cos(angle) * gap);
+      const startY = cy + (sign < 0 ? -Math.sin(angle) * halfWidth : Math.sin(angle) * gap);
+      const endX = cx + (sign < 0 ? -Math.cos(angle) * gap : Math.cos(angle) * halfWidth);
+      const endY = cy + (sign < 0 ? -Math.sin(angle) * gap : Math.sin(angle) * halfWidth);
+      g.moveTo(startX - Math.cos(perpAngle) * thickness, startY - Math.sin(perpAngle) * thickness);
+      g.lineTo(endX - Math.cos(perpAngle) * thickness, endY - Math.sin(perpAngle) * thickness);
+      g.lineTo(endX + Math.cos(perpAngle) * thickness, endY + Math.sin(perpAngle) * thickness);
+      g.lineTo(startX + Math.cos(perpAngle) * thickness, startY + Math.sin(perpAngle) * thickness);
+      g.closePath();
+      g.fill({ color, alpha: 0.8 });
     }
-    g.stroke({ color, width: 2, alpha: 0.8 });
   }
 }
 
@@ -133,23 +154,35 @@ function renderPortcullis(
   g: Graphics, cx: number, cy: number, angle: number,
   halfWidth: number, _color: number, state: string,
 ): void {
-  const barCount = 4;
-  const yOffset = state === 'open' ? -halfWidth * 0.5 : 0;
+  const barCount = 5;
   const perpAngle = angle + Math.PI / 2;
+  const barLength = halfWidth * 0.35;
+  const yShift = state === 'open' ? -halfWidth * 0.4 : 0;
   for (let i = 0; i < barCount; i++) {
-    const t = (i / (barCount - 1)) * 2 - 1;
+    const t = (i / (barCount - 1)) * 2 - 1; // -1 to +1
     const bx = cx + Math.cos(angle) * halfWidth * t;
     const by = cy + Math.sin(angle) * halfWidth * t;
     g.moveTo(
-      bx + Math.cos(perpAngle) * halfWidth * 0.3 + Math.cos(perpAngle) * yOffset,
-      by + Math.sin(perpAngle) * halfWidth * 0.3 + Math.sin(perpAngle) * yOffset,
+      bx + Math.cos(perpAngle) * barLength + Math.cos(perpAngle) * yShift,
+      by + Math.sin(perpAngle) * barLength + Math.sin(perpAngle) * yShift,
     );
     g.lineTo(
-      bx - Math.cos(perpAngle) * halfWidth * 0.3 + Math.cos(perpAngle) * yOffset,
-      by - Math.sin(perpAngle) * halfWidth * 0.3 + Math.sin(perpAngle) * yOffset,
+      bx - Math.cos(perpAngle) * barLength + Math.cos(perpAngle) * yShift,
+      by - Math.sin(perpAngle) * barLength + Math.sin(perpAngle) * yShift,
     );
   }
-  g.stroke({ color: 0x444444, width: 2 });
+  g.stroke({ color: 0x666666, width: GLYPH_STROKE * 0.8 });
+  // Horizontal crossbar
+  const crossY = yShift;
+  g.moveTo(
+    cx - Math.cos(angle) * halfWidth + Math.cos(perpAngle) * crossY,
+    cy - Math.sin(angle) * halfWidth + Math.sin(perpAngle) * crossY,
+  );
+  g.lineTo(
+    cx + Math.cos(angle) * halfWidth + Math.cos(perpAngle) * crossY,
+    cy + Math.sin(angle) * halfWidth + Math.sin(perpAngle) * crossY,
+  );
+  g.stroke({ color: 0x666666, width: GLYPH_STROKE * 0.6 });
 }
 
 function renderArchway(
@@ -157,12 +190,12 @@ function renderArchway(
   halfWidth: number, color: number,
 ): void {
   const perpAngle = angle + Math.PI / 2;
-  const capSize = halfWidth * 0.2;
+  const capSize = halfWidth * 0.25;
   for (const sign of [-1, 1]) {
     const ex = cx + Math.cos(angle) * halfWidth * sign;
     const ey = cy + Math.sin(angle) * halfWidth * sign;
     g.moveTo(ex - Math.cos(perpAngle) * capSize, ey - Math.sin(perpAngle) * capSize);
     g.lineTo(ex + Math.cos(perpAngle) * capSize, ey + Math.sin(perpAngle) * capSize);
   }
-  g.stroke({ color, width: 2 });
+  g.stroke({ color, width: GLYPH_STROKE * 1.2 });
 }
