@@ -8,6 +8,8 @@ import * as textureLoader from '@/assets/textureLoader';
 import { preloadPathTextures } from './splineRenderer';
 import { renderEdgeTransitions } from './edgeTransitions';
 import { renderTexturedWalls } from './wallTextureRenderer';
+import { renderDoors } from './doorRenderer';
+import type { DoorChild } from '@/shared/types';
 
 function parseColor(hex: string): number {
   return parseInt(hex.replace('#', ''), 16);
@@ -404,6 +406,20 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   }
 
   // ── Walls (textured or invisible) ──────────────────────────────
-  renderTexturedWalls(walls, polygons, layer.standaloneWalls, s);
+  const doorChildren = layer.children.filter(
+    (c): c is DoorChild => c.childType === 'door' && c.visible,
+  );
+  const doorGaps = doorChildren.map((d) => ({
+    wallId: d.wallId,
+    position: d.position,
+    width: d.width,
+  }));
+  renderTexturedWalls(walls, polygons, layer.standaloneWalls, s, doorGaps);
+
+  // ── Doors (rendered on top of wall gaps) ──────────────────────
+  if (doorChildren.length > 0) {
+    const gridCellSize = useStore.getState().grid.snapDivision || 1;
+    renderDoors(walls, doorChildren, layer.standaloneWalls, s, gridCellSize);
+  }
 
 }

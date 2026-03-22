@@ -2,6 +2,7 @@ import { Sprite, Container, TilingSprite } from 'pixi.js';
 import type { Texture } from 'pixi.js';
 import type { DungeonStyle, WallSegment } from '@/store/types';
 import type { Polygon } from '@/types/geometry';
+import { projectPointOntoLineSegment } from '@/shared/wallSnap';
 import * as textureLoader from '@/assets/textureLoader';
 import { getWallStripTexture, getWallPieces, type WallCategory } from '@/assets/textureManifest';
 
@@ -49,11 +50,18 @@ function renderWallSegment(
  * Render textured walls into the walls Container.
  * If no wallTextureSetId: renders nothing (invisible walls).
  */
+export interface DoorGap {
+  wallId: string;
+  position: [number, number];
+  width: number;
+}
+
 export function renderTexturedWalls(
   wallsContainer: Container,
   polygons: Polygon[],
   standaloneWalls: WallSegment[],
   style: DungeonStyle,
+  doorGaps: DoorGap[] = [],
 ): void {
   wallsContainer.removeChildren();
 
@@ -85,15 +93,57 @@ export function renderTexturedWalls(
     }
   }
 
-  // ── Standalone walls ──
+  // ── Standalone walls (with door gap skipping) ──
   for (const wall of standaloneWalls) {
     if (wall.points.length < 2) continue;
     const w = wall.width || wallWidth;
     const standaloneTS = w / stripTexture.height;
+
+    const gaps = doorGaps.filter((g) => g.wallId === wall.id);
+
     for (let i = 0; i < wall.points.length - 1; i++) {
-      const [x1, y1] = wall.points[i];
-      const [x2, y2] = wall.points[i + 1];
-      renderWallSegment(wallsContainer, x1, y1, x2, y2, w, stripTexture, standaloneTS, tintColor);
+      const start = wall.points[i];
+      const end = wall.points[i + 1];
+
+      if (gaps.length === 0) {
+        renderWallSegment(wallsContainer, start[0], start[1], end[0], end[1], w, stripTexture, standaloneTS, tintColor);
+        continue;
+      }
+
+      // Compute gap intervals as parametric t values along the segment
+      const dx = end[0] - start[0];
+      const dy = end[1] - start[1];
+      const segLen = Math.sqrt(dx * dx + dy * dy);
+      if (segLen < 0.01) continue;
+
+      const intervals: { tStart: number; tEnd: number }[] = [];
+      for (const gap of gaps) {
+        const proj = projectPointOntoLineSegment(gap.position, start, end);
+        const halfT = (gap.width / 2) / segLen;
+        intervals.push({
+          tStart: Math.max(0, proj.t - halfT),
+          tEnd: Math.min(1, proj.t + halfT),
+        });
+      }
+      intervals.sort((a, b) => a.tStart - b.tStart);
+
+      // Render wall sub-segments between gaps
+      let cursor = 0;
+      for (const { tStart, tEnd } of intervals) {
+        if (tStart > cursor + 0.001) {
+          const sx = start[0] + dx * cursor;
+          const sy = start[1] + dy * cursor;
+          const ex = start[0] + dx * tStart;
+          const ey = start[1] + dy * tStart;
+          renderWallSegment(wallsContainer, sx, sy, ex, ey, w, stripTexture, standaloneTS, tintColor);
+        }
+        cursor = Math.max(cursor, tEnd);
+      }
+      if (cursor < 1 - 0.001) {
+        const sx = start[0] + dx * cursor;
+        const sy = start[1] + dy * cursor;
+        renderWallSegment(wallsContainer, sx, sy, end[0], end[1], w, stripTexture, standaloneTS, tintColor);
+      }
     }
   }
 
