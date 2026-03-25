@@ -3,6 +3,8 @@ import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen } from 'lucide-react'
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
 import { selectSelectedIds } from '@/store/selectors'
+import { undoManager } from '@/store/undoManager'
+import { PropertyCommand } from '@/store/commands'
 import type { AnyChild } from '@/store/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -30,7 +32,6 @@ export const ChildRow = memo(function ChildRow({ child, layerId }: ChildRowProps
   const setSelectedIds = useStore((s) => s.setSelectedIds)
   const setActiveTool = useStore((s) => s.setActiveTool)
   const setActiveLayerId = useStore((s) => s.setActiveLayerId)
-  const updateChild = useStore((s) => s.updateChild)
 
   const isSelected = selectedIds.includes(child.id)
 
@@ -76,7 +77,12 @@ export const ChildRow = memo(function ChildRow({ child, layerId }: ChildRowProps
         size="icon-xs"
         onClick={(e) => {
           e.stopPropagation()
-          updateChild(layerId, child.id, { visible: !child.visible } as Partial<AnyChild>)
+          undoManager.execute(new PropertyCommand(
+            child.visible ? 'Hide child' : 'Show child',
+            { type: 'child', layerId, childId: child.id },
+            { visible: child.visible },
+            { visible: !child.visible },
+          ))
         }}
         className="text-text-muted hover:text-text-primary"
         title={child.visible ? 'Hide' : 'Show'}

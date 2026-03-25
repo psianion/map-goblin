@@ -7,6 +7,8 @@ import { cn } from '@/lib/utils'
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
 import { selectSelectedIds } from '@/store/selectors'
+import { undoManager } from '@/store/undoManager'
+import { PropertyCommand } from '@/store/commands'
 import { Button } from '@/components/ui/button'
 import { ChildRow } from './ChildRow'
 
@@ -17,7 +19,6 @@ interface LayerRowProps {
 
 export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProps) {
   const setActiveLayerId = useStore((s) => s.setActiveLayerId)
-  const updateLayer = useStore((s) => s.updateLayer)
   const expandedLayerIds = useStore(useShallow((s) => s.ui.expandedLayerIds))
   const toggleExpandedLayerId = useStore((s) => s.toggleExpandedLayerId)
   const activeTool = useStore((s) => s.tools.activeTool)
@@ -115,7 +116,12 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           size="icon-xs"
           onClick={(e) => {
             e.stopPropagation()
-            updateLayer(layer.id, { locked: !layer.locked } as Partial<Layer>)
+            undoManager.execute(new PropertyCommand(
+              layer.locked ? 'Unlock layer' : 'Lock layer',
+              { type: 'layer', layerId: layer.id },
+              { locked: layer.locked },
+              { locked: !layer.locked },
+            ))
           }}
           className="text-text-muted hover:text-text-primary"
           title={layer.locked ? 'Unlock layer' : 'Lock layer'}
@@ -131,7 +137,12 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           data-visible={layer.visible}
           onClick={(e) => {
             e.stopPropagation()
-            updateLayer(layer.id, { visible: !layer.visible } as Partial<Layer>)
+            undoManager.execute(new PropertyCommand(
+              layer.visible ? 'Hide layer' : 'Show layer',
+              { type: 'layer', layerId: layer.id },
+              { visible: layer.visible },
+              { visible: !layer.visible },
+            ))
           }}
           className="text-text-muted hover:text-text-primary"
           title={layer.visible ? 'Hide layer' : 'Show layer'}

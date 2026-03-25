@@ -2,6 +2,55 @@ import type { AnyChild, Command, DungeonLayer, DungeonStyle, Layer } from './typ
 import { useStore } from './store';
 import type { MapStylePreset } from './presetRegistry';
 
+// ─── PropertyCommand ─────────────────────────────────────
+
+interface PropertyTarget {
+  type: 'layer' | 'child';
+  layerId: string;
+  childId?: string; // required when type === 'child'
+}
+
+/**
+ * Generic command for toggling simple properties on layers or children
+ * (e.g. locked, visible). Routes to updateLayer or updateChild.
+ */
+export class PropertyCommand implements Command {
+  readonly label: string;
+  readonly target: PropertyTarget;
+  private before: Record<string, unknown>;
+  private after: Record<string, unknown>;
+
+  constructor(
+    label: string,
+    target: PropertyTarget,
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+  ) {
+    this.label = label;
+    this.target = target;
+    this.before = structuredClone(before);
+    this.after = structuredClone(after);
+  }
+
+  execute(): void {
+    const store = useStore.getState();
+    if (this.target.type === 'layer') {
+      store.updateLayer(this.target.layerId, this.after as Partial<Layer>);
+    } else {
+      store.updateChild(this.target.layerId, this.target.childId!, this.after as Partial<AnyChild>);
+    }
+  }
+
+  undo(): void {
+    const store = useStore.getState();
+    if (this.target.type === 'layer') {
+      store.updateLayer(this.target.layerId, this.before as Partial<Layer>);
+    } else {
+      store.updateChild(this.target.layerId, this.target.childId!, this.before as Partial<AnyChild>);
+    }
+  }
+}
+
 /**
  * Groups multiple commands into a single undoable operation.
  */
