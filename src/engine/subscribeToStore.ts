@@ -177,7 +177,7 @@ export function subscribeToStore(
           // Track shape IDs + transforms to detect changes (NOT mergedFloor — we write that)
           shapeKeys: l.children
             .filter((c): c is ShapeChild => c.childType === 'shape')
-            .map((c) => `${c.id}:${c.visible}:${c.contours.length}:${c.contours[0]?.length ?? 0}`)
+            .map((c) => `${c.id}:${c.visible}:${c.contours.length}:${c.contours[0]?.length ?? 0}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}`)
             .join(','),
           // Track door changes (state, style, position affect rendering + lighting)
           doorSignature: l.children
