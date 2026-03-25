@@ -9,11 +9,11 @@ interface StatusBarProps {
   faded: boolean;
 }
 
-/** Color class for FPS value based on threshold. */
+/** Color class for FPS value based on threshold (achromatic brightness). */
 function fpsColorClass(fps: number): string {
-  if (fps >= 50) return 'text-emerald-400';
-  if (fps >= 30) return 'text-amber-400';
-  return 'text-red-400';
+  if (fps >= 50) return 'text-text-primary';
+  if (fps >= 30) return 'text-text-secondary';
+  return 'text-text-muted';
 }
 
 export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarProps) {

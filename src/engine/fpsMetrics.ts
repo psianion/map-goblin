@@ -5,6 +5,9 @@
  * Pattern matches cursorWorldPosition in src/canvas/cursorPosition.ts.
  */
 
+/** Pre-allocated metrics object — mutated in place, never re-created. */
+const _metrics = { fps: 0, frameTime: 0 };
+
 /** Shared ref read by StatusBar via requestAnimationFrame. */
 export const fpsMetrics: { current: { fps: number; frameTime: number } | null } = {
   current: null,
@@ -40,7 +43,9 @@ export function recordFrame(): void {
   const fps = ((count - 1) / elapsed) * 1000;
   const frameTime = elapsed / (count - 1);
 
-  fpsMetrics.current = { fps, frameTime };
+  _metrics.fps = fps;
+  _metrics.frameTime = frameTime;
+  fpsMetrics.current = _metrics;
 }
 
 /**
