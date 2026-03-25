@@ -174,6 +174,13 @@ const toolKeyMap: Record<string, () => void | false> = {
   'ctrl+i': () => {
     importImageRef.current?.();
   },
+  'shift+?': () => {
+    useStore.getState().showModal({ type: 'shortcutReference', props: {} });
+  },
+  '?': () => {
+    // Fallback: some keyboards/layouts produce '?' as e.key without shift flag
+    useStore.getState().showModal({ type: 'shortcutReference', props: {} });
+  },
   '`': () => {
     const state = useStore.getState();
     const modes: Array<'auto' | 'manual' | 'fullscreen'> = ['auto', 'manual', 'fullscreen'];
@@ -273,9 +280,11 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'mode.rough',          keys: 'x',           category: 'Tools', label: 'Toggle Rough' },
     { id: 'edit.undo',           keys: 'ctrl+z',      category: 'Edit',  label: 'Undo' },
     { id: 'edit.redo',           keys: 'ctrl+y',      category: 'Edit',  label: 'Redo' },
+    { id: 'edit.redoAlt',        keys: 'ctrl+shift+z', category: 'Edit', label: 'Redo (Alt)' },
+    { id: 'edit.deleteAlt',      keys: 'Backspace',   category: 'Edit',  label: 'Delete (Alt)' },
     { id: 'file.save',           keys: 'ctrl+s',      category: 'File',  label: 'Save' },
     { id: 'file.load',           keys: 'ctrl+o',      category: 'File',  label: 'Open' },
-    { id: 'file.export',         keys: 'ctrl+e',      category: 'File',  label: 'Export' },
+    { id: 'file.export',         keys: 'ctrl+e',      category: 'File',  label: 'Export' }, // handler is in App.tsx (needs React state)
     { id: 'file.import',         keys: 'ctrl+i',      category: 'File',  label: 'Import Image' },
     { id: 'edit.copy',           keys: 'ctrl+c',      category: 'Edit',  label: 'Copy' },
     { id: 'edit.paste',          keys: 'ctrl+v',      category: 'Edit',  label: 'Paste' },
@@ -284,6 +293,7 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'view.focusMode',      keys: '`',           category: 'View',  label: 'Cycle Focus Mode' },
     { id: 'view.toggleMaps',     keys: 'ctrl+shift+m', category: 'View', label: 'Toggle Maps Panel' },
     { id: 'file.newMap',         keys: 'ctrl+shift+n', category: 'File', label: 'New Map' },
+    { id: 'view.shortcuts',      keys: '?',           category: 'View',  label: 'Shortcut Reference' },
   ];
 }
 

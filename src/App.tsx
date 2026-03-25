@@ -14,6 +14,7 @@ import { getMapDB } from '@/store/slices/maps';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { handleImageImport } from '@/canvas/importImage';
 import { importImageRef } from '@/shortcuts/defaultShortcuts';
+import { ShortcutHelpDialog } from '@/components/shared/ShortcutHelpDialog';
 import { useStore } from '@/store/store';
 import './index.css';
 
@@ -75,6 +76,8 @@ export default function App() {
   const togglePanel = useStore((s) => s.togglePanel);
   const focusMode = useStore((s) => s.ui.focusMode);
   const setFocusMode = useStore((s) => s.setFocusMode);
+  const modalState = useStore((s) => s.ui.modalState);
+  const showModal = useStore((s) => s.showModal);
 
   const fade = usePanelFade(focusMode === 'auto');
 
@@ -320,6 +323,10 @@ export default function App() {
     {/* Modals + overlays outside the layout so they never clip */}
     {showRecovery && <RecoveryDialog onDismiss={() => setShowRecovery(false)} />}
     <ExportDialog open={exportOpen} onOpenChange={setExportOpen} />
+    <ShortcutHelpDialog
+      open={modalState?.type === 'shortcutReference'}
+      onOpenChange={(open) => { if (!open) showModal(null); }}
+    />
 
     {/* Off-screen file input for image import */}
     <input
