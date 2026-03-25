@@ -120,6 +120,10 @@ export function useCanvasInput(
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
+      // Skip shortcuts when focus is in a text input (e.g. hex color field)
+      // Exception: allow Ctrl/Cmd combos (Ctrl+S, Ctrl+Z, etc.) to still work
+      if (isTextInput(e.target as Element) && !e.ctrlKey && !e.metaKey) return;
+
       const combo = [
         e.ctrlKey || e.metaKey ? 'ctrl' : '',
         e.shiftKey ? 'shift' : '',
