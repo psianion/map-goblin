@@ -3,6 +3,7 @@ import type { RenderEngine } from './RenderEngine';
 import { GridRenderer } from './grid/GridRenderer';
 import { ToolManager } from './tools/ToolManager';
 import { LightingRenderer } from './lighting';
+import { FogTransition } from './fogTransition';
 import { initToolPreview } from './toolPreview';
 
 export interface SceneGraph {
@@ -14,6 +15,7 @@ export interface SceneGraph {
   gridRenderer: GridRenderer;
   toolManager: ToolManager;
   lightingRenderer: LightingRenderer;
+  fogTransition: FogTransition;
 }
 
 export interface DungeonSublayers {
@@ -95,6 +97,9 @@ export function buildSceneGraph(engine: RenderEngine): SceneGraph {
   const lightingRenderer = new LightingRenderer(engine, vp.width, vp.height);
   // LightingRenderer constructor adds compositingSprite to engine.overlay() internally
 
+  // Fog transition overlay — screen-space black fade for map switching
+  const fogTransition = new FogTransition(overlayContainer, engine.ticker(), vp.width, vp.height);
+
   return {
     worldContainer,
     overlayContainer,
@@ -104,6 +109,7 @@ export function buildSceneGraph(engine: RenderEngine): SceneGraph {
     gridRenderer,
     toolManager,
     lightingRenderer,
+    fogTransition,
   };
 }
 

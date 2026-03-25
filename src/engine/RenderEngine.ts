@@ -1,4 +1,4 @@
-import type { Container, Renderer, RenderTexture } from 'pixi.js';
+import type { Container, Renderer, RenderTexture, Ticker } from 'pixi.js';
 import type { Point, Viewport } from '@/types/geometry';
 
 export interface CameraState {
@@ -25,5 +25,6 @@ export interface RenderEngine {
   createRenderTexture(width: number, height: number): RenderTexture;
   renderToTexture(container: Container, texture: RenderTexture, clear?: boolean): void;
   addTickerCallback(fn: () => void): void;
+  ticker(): Ticker;
   renderer(): Renderer;
 }

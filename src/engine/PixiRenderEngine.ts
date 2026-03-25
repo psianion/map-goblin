@@ -1,4 +1,4 @@
-import { Application, Container, RenderTexture, type Renderer } from 'pixi.js';
+import { Application, Container, RenderTexture, type Renderer, type Ticker } from 'pixi.js';
 import type { RenderEngine, CameraState } from './RenderEngine';
 import type { Point, Viewport } from '@/types/geometry';
 import { registerManifestBundles, getManifest } from './assetManifest.ts';
@@ -9,6 +9,7 @@ export class PixiRenderEngine implements RenderEngine {
   private worldContainer = new Container();
   private overlayContainer = new Container();
   private _viewport: Viewport = { width: 0, height: 0, dpr: 1 };
+  private resizeCallbacks: Array<(width: number, height: number) => void> = [];
 
   async init(container: HTMLDivElement): Promise<void> {
     const dpr = window.devicePixelRatio;
@@ -89,6 +90,15 @@ export class PixiRenderEngine implements RenderEngine {
     this.app.renderer.resize(width, height);
     this._viewport.width = width;
     this._viewport.height = height;
+    for (const cb of this.resizeCallbacks) cb(width, height);
+  }
+
+  /** Register a callback to be invoked on resize. Returns an unregister function. */
+  onResize(cb: (width: number, height: number) => void): () => void {
+    this.resizeCallbacks.push(cb);
+    return () => {
+      this.resizeCallbacks = this.resizeCallbacks.filter((c) => c !== cb);
+    };
   }
 
   setResolution(dpr: number): void {
@@ -142,6 +152,11 @@ export class PixiRenderEngine implements RenderEngine {
   addTickerCallback(fn: () => void): void {
     if (!this.app) throw new Error('Engine not initialized');
     this.app.ticker.add(fn);
+  }
+
+  ticker(): Ticker {
+    if (!this.app) throw new Error('Engine not initialized');
+    return this.app.ticker;
   }
 
   renderer(): Renderer {

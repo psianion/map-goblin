@@ -3,11 +3,12 @@ import { cursorWorldPosition } from '@/canvas/cursorPosition';
 import { ZoomSlider } from '@/components/toolbar/ZoomSlider';
 
 interface StatusBarProps {
+  leftPanelOpen?: boolean;
   rightPanelOpen: boolean;
   faded: boolean;
 }
 
-export function StatusBar({ rightPanelOpen, faded }: StatusBarProps) {
+export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarProps) {
   const [cursorX, setCursorX] = useState<string>('—');
   const [cursorY, setCursorY] = useState<string>('—');
   const rafRef = useRef<number>(0);
@@ -33,11 +34,12 @@ export function StatusBar({ rightPanelOpen, faded }: StatusBarProps) {
   return (
     <div
       data-chrome
-      className="absolute bottom-0 left-[48px] z-20 h-7 flex items-center justify-between px-3 bg-surface-1/80 backdrop-blur-sm border-t border-border-subtle font-mono text-xs text-text-muted"
+      className="absolute bottom-0 z-20 h-7 flex items-center justify-between px-3 bg-surface-1/80 backdrop-blur-sm border-t border-border-subtle font-mono text-xs text-text-muted"
       style={{
+        left: leftPanelOpen ? '308px' : '48px',
         right: rightPanelOpen ? '300px' : '48px',
         opacity: faded ? 0.4 : 1,
-        transition: 'right 200ms ease-out, opacity 200ms ease',
+        transition: 'left 200ms ease-out, right 200ms ease-out, opacity 200ms ease',
       }}
     >
       {/* Left: Cursor position */}

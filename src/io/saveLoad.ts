@@ -19,15 +19,26 @@ import { useStore } from '@/store/store';
 export const MAGIC_HEADER = 'MPBLD\x00';
 const MAGIC_BYTES = new TextEncoder().encode(MAGIC_HEADER);
 
-// In-memory FSA file handle — survives the session but not a page reload
-let _currentFileHandle: FileSystemFileHandle | null = null;
+// In-memory FSA file handles — keyed by mapId, survive the session but not a page reload
+const fileHandles = new Map<string, FileSystemFileHandle>();
 
-export function getCurrentFileHandle(): FileSystemFileHandle | null {
-  return _currentFileHandle;
+export function setFileHandle(mapId: string, handle: FileSystemFileHandle): void {
+  fileHandles.set(mapId, handle);
 }
 
-export function clearFileHandle(): void {
-  _currentFileHandle = null;
+export function getFileHandle(mapId: string): FileSystemFileHandle | undefined {
+  return fileHandles.get(mapId);
+}
+
+export function clearFileHandle(mapId: string): void {
+  fileHandles.delete(mapId);
+}
+
+/** @deprecated Use getFileHandle(mapId) instead. Kept for backward compatibility. */
+export function getCurrentFileHandle(): FileSystemFileHandle | null {
+  const activeMapId = useStore.getState().activeMapId;
+  if (!activeMapId) return null;
+  return fileHandles.get(activeMapId) ?? null;
 }
 
 // ─── Serialization ────────────────────────────────────────────────────────────
@@ -77,10 +88,10 @@ export async function deserializeFromBytes(bytes: Uint8Array): Promise<Serialize
       try {
         const json = strFromU8(decompressed);
         const data = JSON.parse(json) as SerializedMapData;
-        if (data.version !== '2.0') {
+        if (data.version !== '2.0' && data.version !== '3.0') {
           reject(
             new Error(
-              `Incompatible file version "${String((data as { version?: unknown }).version)}". This app requires v2.0 format.`,
+              `Incompatible file version "${String((data as { version?: unknown }).version)}". This app requires v2.0 or v3.0 format.`,
             ),
           );
           return;
@@ -106,7 +117,9 @@ export async function deserializeFromBytes(bytes: Uint8Array): Promise<Serialize
  * Returns true on success, false if the user cancelled.
  */
 export async function saveMap(forceNewFile = false): Promise<boolean> {
-  const data: SerializedMapData = useStore.getState().getSerializableState();
+  const state = useStore.getState();
+  const data: SerializedMapData = state.getSerializableState();
+  const activeMapId = state.activeMapId;
 
   const compressed = await serializeToBytes(data);
   const mapName = data.mapSettings.name || 'untitled-map';
@@ -114,15 +127,16 @@ export async function saveMap(forceNewFile = false): Promise<boolean> {
 
   if ('showSaveFilePicker' in window && !forceNewFile) {
     // Use existing handle for silent overwrite if available
-    if (_currentFileHandle) {
+    const existingHandle = activeMapId ? fileHandles.get(activeMapId) : undefined;
+    if (existingHandle) {
       try {
-        const writable = await _currentFileHandle.createWritable();
+        const writable = await existingHandle.createWritable();
         await writable.write(compressed.buffer as ArrayBuffer);
         await writable.close();
         return true;
       } catch {
         // Handle became invalid (e.g. file deleted) — fall through to prompt
-        _currentFileHandle = null;
+        if (activeMapId) fileHandles.delete(activeMapId);
       }
     }
 
@@ -140,7 +154,7 @@ export async function saveMap(forceNewFile = false): Promise<boolean> {
       const writable = await handle.createWritable();
       await writable.write(compressed.buffer as ArrayBuffer);
       await writable.close();
-      _currentFileHandle = handle;
+      if (activeMapId) fileHandles.set(activeMapId, handle);
       return true;
     } catch (err) {
       if ((err as DOMException).name === 'AbortError') return false;
@@ -155,10 +169,12 @@ export async function saveMap(forceNewFile = false): Promise<boolean> {
 
 /**
  * Open a .mapbuilder file picker and load the selected file into the store.
+ * In multi-map mode, creates a new map entry in IndexedDB and associates the file handle.
  * Returns true on success, false if the user cancelled.
  */
 export async function loadMap(): Promise<boolean> {
   let fileBytes: Uint8Array;
+  let fsaHandle: FileSystemFileHandle | undefined;
 
   if ('showOpenFilePicker' in window) {
     try {
@@ -174,8 +190,7 @@ export async function loadMap(): Promise<boolean> {
       const file = await handle.getFile();
       const buffer = await file.arrayBuffer();
       fileBytes = new Uint8Array(buffer);
-      // Store handle for subsequent Ctrl+S overwrite
-      _currentFileHandle = handle;
+      fsaHandle = handle;
     } catch (err) {
       if ((err as DOMException).name === 'AbortError') return false;
       throw err;
@@ -205,7 +220,23 @@ export async function loadMap(): Promise<boolean> {
       console.warn('[loadMap] restoreCustomImages failed:', err);
     }
   }
+
+  // Load data into the store
   useStore.getState().loadFromFile(data);
+
+  // Create a new map entry in the multi-map system
+  const store = useStore.getState();
+  const mapName = data.mapSettings.name || 'Imported Map';
+  try {
+    const newMapId = await store.createNewMap(mapName);
+    // Associate the FSA handle with the new map for Ctrl+S overwrite
+    if (fsaHandle) {
+      fileHandles.set(newMapId, fsaHandle);
+    }
+  } catch (err) {
+    console.warn('[loadMap] Failed to create map entry:', err);
+  }
+
   return true;
 }
 

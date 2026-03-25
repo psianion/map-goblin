@@ -11,6 +11,7 @@ import { createToolsSlice } from './slices/tools.ts';
 import { createUISlice } from './slices/ui.ts';
 import { createAssetsSlice } from './slices/assets.ts';
 import { createSelectionSlice } from './slices/selection.ts';
+import { createMapsSlice } from './slices/maps.ts';
 import { undoManager } from './undoManager.ts';
 
 export const useStore = create<MapBuilderStore>()(
@@ -27,6 +28,7 @@ export const useStore = create<MapBuilderStore>()(
       ...createUISlice(set, get, api),
       ...createAssetsSlice(set, get, api),
       ...createSelectionSlice(set, get, api),
+      ...createMapsSlice(set, get, api),
 
       // Bulk / serialization actions
       loadFromFile: (data: SerializedMapData) => {

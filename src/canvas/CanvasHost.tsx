@@ -87,6 +87,11 @@ export function CanvasHost() {
       const snapIndicator = new SnapIndicator(sceneGraph.overlayContainer);
       setSnapIndicator(snapIndicator);
 
+      // Wire fog transition resize to engine resize events
+      const unregFogResize = pixiEngine.onResize((w, h) => {
+        sceneGraph.fogTransition.resize(w, h);
+      });
+
       // DPR change listener
       const cleanupDpr = listenDprChanges(pixiEngine);
 
@@ -105,10 +110,12 @@ export function CanvasHost() {
         snapIndicator.destroy();
         sceneGraph.toolManager.destroy();
         sceneGraph.lightingRenderer.destroy();
+        sceneGraph.fogTransition.destroy();
         unsubStore();
         unsubAssets();
         unregSnap();
         unregWallSnap();
+        unregFogResize();
         cleanupDpr();
         canvas.removeEventListener('webglcontextlost', onContextLost);
       };

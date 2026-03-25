@@ -82,6 +82,7 @@ type MapBuilderState = Omit<
   | 'toggleFavorite' | 'trackRecentUse' | 'addCustomUpload' | 'removeCustomUpload'
   | 'setManifest' | 'markCategoryLoaded' | 'addCustomImage'
   | 'loadFromFile' | 'getSerializableState' | 'resetToDefault'
+  | 'loadMapIndex' | 'saveCurrentMap' | 'loadMap' | 'createNewMap' | 'deleteMap' | 'renameMap' | 'duplicateMap'
 >;
 
 export function createDefaultState(): MapBuilderState {
@@ -163,5 +164,8 @@ export function createDefaultState(): MapBuilderState {
       regionClipboard: null,
       selectionTransform: null,
     },
+    mapIndex: [],
+    activeMapId: null,
+    isMapSwitching: false,
   };
 }
