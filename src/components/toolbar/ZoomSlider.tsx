@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback, type CSSProperties } from 're
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { computeMapWorldBounds } from '@/engine/export/exportPipeline';
 import { useStore } from '@/store/store';
-import { zoomToFitRef } from './zoomToFitRef';
+import { zoomToFitRef, cancelZoomAnimationRef } from './zoomToFitRef';
 
 const MIN_ZOOM = 10;
 const MAX_ZOOM = 100;
@@ -37,10 +37,14 @@ export function ZoomSlider() {
     return () => cancelAnimationFrame(rafRef.current);
   }, []);
 
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    // Cancel any in-flight zoom-to-fit animation
+  const cancelAnimation = useCallback(() => {
     cancelAnimationFrame(animationRafId);
     animationRafId = 0;
+  }, []);
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    // Cancel any in-flight zoom-to-fit animation
+    cancelAnimation();
 
     const t = parseFloat(e.target.value);
     const newZoom = sliderToZoom(t);
@@ -58,7 +62,7 @@ export function ZoomSlider() {
     stage.position.y = cy - (cy - stage.position.y) * (newZoom / oldZoom);
     stage.scale.set(newZoom);
     setZoom(newZoom);
-  }, []);
+  }, [cancelAnimation]);
 
   const handleFitToContent = useCallback(() => {
     const singleton = getEngineSingleton();
@@ -69,8 +73,13 @@ export function ZoomSlider() {
     const layers = useStore.getState().layers;
     const bounds = computeMapWorldBounds(layers);
 
-    const worldWidth = bounds.maxX - bounds.minX;
-    const worldHeight = bounds.maxY - bounds.minY;
+    let worldWidth = bounds.maxX - bounds.minX;
+    let worldHeight = bounds.maxY - bounds.minY;
+
+    // Guard against near-zero dimensions (single point or collinear content)
+    if (worldWidth < 1) worldWidth = 10;
+    if (worldHeight < 1) worldHeight = 10;
+
     const centerX = (bounds.minX + bounds.maxX) / 2;
     const centerY = (bounds.minY + bounds.maxY) / 2;
 
@@ -110,13 +119,15 @@ export function ZoomSlider() {
     animationRafId = requestAnimationFrame(tick);
   }, []);
 
-  // Expose handleFitToContent for shortcut system
+  // Expose handleFitToContent and cancelAnimation for shortcut system + input handlers
   useEffect(() => {
     zoomToFitRef.current = handleFitToContent;
+    cancelZoomAnimationRef.current = cancelAnimation;
     return () => {
       zoomToFitRef.current = null;
+      cancelZoomAnimationRef.current = null;
     };
-  }, [handleFitToContent]);
+  }, [handleFitToContent, cancelAnimation]);
 
   const sliderVal = zoomToSlider(zoom);
   const pct = Math.round(sliderVal * 100);
