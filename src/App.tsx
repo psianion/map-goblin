@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Eye, EyeOff, Maximize, ImageDown, Upload } from 'lucide-react';
+import { Eye, EyeOff, Maximize, Scan, ImageDown, Upload } from 'lucide-react';
 import { CanvasHost } from '@/canvas/CanvasHost';
 import { LeftToolbar } from '@/components/toolbar/LeftToolbar';
 import { MapsSidePanel } from '@/components/maps/MapsSidePanel';
@@ -15,6 +15,7 @@ import { getEngineSingleton } from '@/engine/engineSingleton';
 import { handleImageImport } from '@/canvas/importImage';
 import { importImageRef } from '@/shortcuts/defaultShortcuts';
 import { ShortcutHelpDialog } from '@/components/shared/ShortcutHelpDialog';
+import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
 import { useStore } from '@/store/store';
 import './index.css';
 
@@ -248,6 +249,14 @@ export default function App() {
             className="flex items-center justify-center w-8 h-8 rounded-md bg-surface-1/80 backdrop-blur border border-border-subtle text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors"
           >
             <ImageDown size={15} strokeWidth={2} />
+          </button>
+          <button
+            title="Fit to content (Ctrl+0)"
+            aria-label="Fit to content"
+            onClick={() => zoomToFitRef.current?.()}
+            className="flex items-center justify-center w-8 h-8 rounded-md bg-surface-1/80 backdrop-blur border border-border-subtle text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors"
+          >
+            <Scan size={15} strokeWidth={2} />
           </button>
           <button
             data-testid="focus-mode-btn"
