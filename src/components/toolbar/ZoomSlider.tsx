@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState, useCallback, type CSSProperties } from 'react';
 import { getEngineSingleton } from '@/engine/engineSingleton';
+import { computeMapWorldBounds } from '@/engine/export/exportPipeline';
+import { useStore } from '@/store/store';
+import { zoomToFitRef, cancelZoomAnimationRef } from './zoomToFitRef';
 
 const MIN_ZOOM = 10;
 const MAX_ZOOM = 100;
+
+let animationRafId = 0;
 
 /** Convert linear slider [0,1] → exponential zoom */
 function sliderToZoom(t: number): number {
@@ -32,7 +37,15 @@ export function ZoomSlider() {
     return () => cancelAnimationFrame(rafRef.current);
   }, []);
 
+  const cancelAnimation = useCallback(() => {
+    cancelAnimationFrame(animationRafId);
+    animationRafId = 0;
+  }, []);
+
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    // Cancel any in-flight zoom-to-fit animation
+    cancelAnimation();
+
     const t = parseFloat(e.target.value);
     const newZoom = sliderToZoom(t);
     const singleton = getEngineSingleton();
@@ -49,22 +62,72 @@ export function ZoomSlider() {
     stage.position.y = cy - (cy - stage.position.y) * (newZoom / oldZoom);
     stage.scale.set(newZoom);
     setZoom(newZoom);
-  }, []);
+  }, [cancelAnimation]);
 
-  const handleReset = useCallback(() => {
+  const handleFitToContent = useCallback(() => {
     const singleton = getEngineSingleton();
     if (!singleton) return;
+
     const stage = singleton.engine.stage();
     const vp = singleton.engine.viewport();
-    const cx = vp.width / 2;
-    const cy = vp.height / 2;
-    const oldZoom = stage.scale.x;
-    const newZoom = 20;
-    stage.position.x = cx - (cx - stage.position.x) * (newZoom / oldZoom);
-    stage.position.y = cy - (cy - stage.position.y) * (newZoom / oldZoom);
-    stage.scale.set(newZoom);
-    setZoom(newZoom);
+    const layers = useStore.getState().layers;
+    const bounds = computeMapWorldBounds(layers);
+
+    let worldWidth = bounds.maxX - bounds.minX;
+    let worldHeight = bounds.maxY - bounds.minY;
+
+    // Guard against near-zero dimensions (single point or collinear content)
+    if (worldWidth < 1) worldWidth = 10;
+    if (worldHeight < 1) worldHeight = 10;
+
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    const centerY = (bounds.minY + bounds.maxY) / 2;
+
+    const vpWidth = vp.width;
+    const vpHeight = vp.height;
+
+    const requiredZoom = Math.min(vpWidth / worldWidth, vpHeight / worldHeight) * 0.9;
+    const newZoom = Math.min(Math.max(requiredZoom, MIN_ZOOM), MAX_ZOOM);
+
+    const targetX = vpWidth / 2 - centerX * newZoom;
+    const targetY = vpHeight / 2 - centerY * newZoom;
+
+    // Animate to the target position
+    cancelAnimationFrame(animationRafId);
+
+    const startZoom = stage.scale.x;
+    const startX = stage.position.x;
+    const startY = stage.position.y;
+    const startTime = performance.now();
+    const duration = 150;
+
+    function tick(): void {
+      const elapsed = performance.now() - startTime;
+      const t = Math.min(elapsed / duration, 1);
+      const ease = 1 - Math.pow(1 - t, 3); // ease-out cubic
+
+      stage.scale.set(startZoom + (newZoom - startZoom) * ease);
+      stage.position.x = startX + (targetX - startX) * ease;
+      stage.position.y = startY + (targetY - startY) * ease;
+
+      if (t < 1) {
+        animationRafId = requestAnimationFrame(tick);
+      } else {
+        animationRafId = 0;
+      }
+    }
+    animationRafId = requestAnimationFrame(tick);
   }, []);
+
+  // Expose handleFitToContent and cancelAnimation for shortcut system + input handlers
+  useEffect(() => {
+    zoomToFitRef.current = handleFitToContent;
+    cancelZoomAnimationRef.current = cancelAnimation;
+    return () => {
+      zoomToFitRef.current = null;
+      cancelZoomAnimationRef.current = null;
+    };
+  }, [handleFitToContent, cancelAnimation]);
 
   const sliderVal = zoomToSlider(zoom);
   const pct = Math.round(sliderVal * 100);
@@ -72,9 +135,9 @@ export function ZoomSlider() {
   return (
     <div className="flex items-center gap-2">
       <button
-        onClick={handleReset}
+        onClick={handleFitToContent}
         className="font-mono text-panel-small text-text-muted hover:text-text-primary tabular-nums min-w-[3ch] text-right transition-colors"
-        title="Reset zoom"
+        title="Fit to content (Ctrl+0)"
       >
         {pct}%
       </button>

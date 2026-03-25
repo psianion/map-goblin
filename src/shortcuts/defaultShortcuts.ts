@@ -8,6 +8,7 @@ import { AddChildCommand, RemoveChildCommand, CompositeCommand } from '@/store/c
 import type { AnyChild, DungeonLayer } from '@/store/types';
 import { selectLayerForChild } from '@/store/selectors';
 import { togglePopoverRef } from '@/components/toolbar/toolConstants';
+import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
 
 /** Set by App.tsx so the shortcut system can trigger the file picker */
 export const importImageRef: { current: (() => void) | null } = { current: null };
@@ -181,6 +182,9 @@ const toolKeyMap: Record<string, () => void | false> = {
     // Fallback: some keyboards/layouts produce '?' as e.key without shift flag
     useStore.getState().showModal({ type: 'shortcutReference', props: {} });
   },
+  'ctrl+0': () => {
+    zoomToFitRef.current?.();
+  },
   '`': () => {
     const state = useStore.getState();
     const modes: Array<'auto' | 'manual' | 'fullscreen'> = ['auto', 'manual', 'fullscreen'];
@@ -290,6 +294,7 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'edit.paste',          keys: 'ctrl+v',      category: 'Edit',  label: 'Paste' },
     { id: 'edit.cut',            keys: 'ctrl+x',      category: 'Edit',  label: 'Cut' },
     { id: 'edit.delete',         keys: 'Delete',      category: 'Edit',  label: 'Delete' },
+    { id: 'view.fitToContent',   keys: 'ctrl+0',      category: 'View',  label: 'Fit to Content' },
     { id: 'view.focusMode',      keys: '`',           category: 'View',  label: 'Cycle Focus Mode' },
     { id: 'view.toggleMaps',     keys: 'ctrl+shift+m', category: 'View', label: 'Toggle Maps Panel' },
     { id: 'file.newMap',         keys: 'ctrl+shift+n', category: 'File', label: 'New Map' },

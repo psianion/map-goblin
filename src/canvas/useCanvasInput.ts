@@ -7,6 +7,7 @@ import { handleImageImport } from './importImage';
 import { handleShortcut } from '@/shortcuts/defaultShortcuts';
 import { cursorWorldPosition } from './cursorPosition';
 import { useStore } from '@/store/store';
+import { cancelZoomAnimationRef } from '@/components/toolbar/zoomToFitRef';
 
 type InputMiddleware = (point: Point) => Point;
 
@@ -75,6 +76,7 @@ export function useCanvasInput(
     const onPointerMove = (e: PointerEvent) => {
       // Pan tool drag
       if (isPanToolDragging) {
+        cancelZoomAnimationRef.current?.();
         const dx = e.clientX - panToolLastX;
         const dy = e.clientY - panToolLastY;
         panToolLastX = e.clientX;
@@ -155,6 +157,7 @@ export function useCanvasInput(
 
     const onMouseMove = (e: MouseEvent) => {
       if (!isPanning) return;
+      cancelZoomAnimationRef.current?.();
       const dx = e.clientX - lastPanX;
       const dy = e.clientY - lastPanY;
       lastPanX = e.clientX;
@@ -170,6 +173,7 @@ export function useCanvasInput(
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      cancelZoomAnimationRef.current?.();
       const stage = engine.stage();
       const rect = canvasEl.getBoundingClientRect();
       const mx = e.clientX - rect.left;
