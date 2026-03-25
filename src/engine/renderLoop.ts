@@ -6,6 +6,7 @@ import { useStore } from '@/store/store';
 import type { DungeonLayer, Layer, LightChild } from '@/store/types';
 import { LightManager } from './lighting';
 import { renderToolPreview } from './toolPreview';
+import { recordFrame } from './fpsMetrics';
 
 /**
  * Set up the per-frame render loop via PixiJS Ticker.
@@ -48,6 +49,9 @@ export function setupRenderLoop(
   // Access the PixiJS Ticker through the app
   // The ticker callback runs before each render
   const tickerCallback = () => {
+    // (0) Record frame timestamp for FPS metrics
+    recordFrame();
+
     // (1) Camera sync — camera state lives on worldContainer directly,
     // mutated by useCanvasInput. Nothing to sync here.
 
