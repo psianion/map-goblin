@@ -1,8 +1,109 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from './store';
-import { PresetApplyCommand, ShapeStyleCommand } from './commands';
+import { PresetApplyCommand, PropertyCommand, ShapeStyleCommand } from './commands';
 import { DUNGEON_STYLE_PRESETS } from './presetRegistry';
 import type { ShapeChild } from '@/shared/types';
+import type { DungeonLayer } from './types';
+
+describe('PropertyCommand', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+  });
+
+  it('execute applies after values via updateLayer', () => {
+    const state = useStore.getState();
+    const layer = state.layers.find((l) => l.type === 'dungeon');
+    if (!layer) throw new Error('No dungeon layer');
+    expect(layer.locked).toBe(false);
+
+    const cmd = new PropertyCommand(
+      'Lock layer',
+      { type: 'layer', layerId: layer.id },
+      { locked: false },
+      { locked: true },
+    );
+    cmd.execute();
+
+    const updated = useStore.getState().layers.find((l) => l.id === layer.id);
+    expect(updated?.locked).toBe(true);
+  });
+
+  it('undo applies before values via updateLayer', () => {
+    const state = useStore.getState();
+    const layer = state.layers.find((l) => l.type === 'dungeon');
+    if (!layer) throw new Error('No dungeon layer');
+
+    const cmd = new PropertyCommand(
+      'Lock layer',
+      { type: 'layer', layerId: layer.id },
+      { locked: false },
+      { locked: true },
+    );
+    cmd.execute();
+    cmd.undo();
+
+    const restored = useStore.getState().layers.find((l) => l.id === layer.id);
+    expect(restored?.locked).toBe(false);
+  });
+
+  it('execute/undo with type child uses updateChild', () => {
+    const state = useStore.getState();
+    const layer = state.layers.find((l) => l.type === 'dungeon');
+    if (!layer || layer.type !== 'dungeon') throw new Error('No dungeon layer');
+
+    const shape: ShapeChild = {
+      id: 'prop-test-child',
+      name: 'Prop Test',
+      childType: 'shape',
+      visible: true,
+      shapeType: 'rectangle',
+      contours: [[[0, 0], [4, 0], [4, 4], [0, 4]]],
+      roughnessEnabled: false,
+      textureScale: 1,
+      textureOffsetX: 0,
+      textureOffsetY: 0,
+      textureFillRotation: 0,
+      textureTint: '#ffffff',
+    };
+    useStore.getState().addChild(layer.id, shape);
+
+    const cmd = new PropertyCommand(
+      'Hide child',
+      { type: 'child', layerId: layer.id, childId: shape.id },
+      { visible: true },
+      { visible: false },
+    );
+    cmd.execute();
+
+    const afterExec = useStore.getState().layers.find((l) => l.id === layer.id) as DungeonLayer;
+    const childAfter = afterExec.children.find((c) => c.id === shape.id);
+    expect(childAfter?.visible).toBe(false);
+
+    cmd.undo();
+
+    const afterUndo = useStore.getState().layers.find((l) => l.id === layer.id) as DungeonLayer;
+    const childRestored = afterUndo.children.find((c) => c.id === shape.id);
+    expect(childRestored?.visible).toBe(true);
+  });
+
+  it('execute applies visibility change via updateLayer', () => {
+    const state = useStore.getState();
+    const layer = state.layers.find((l) => l.type === 'dungeon');
+    if (!layer) throw new Error('No dungeon layer');
+    expect(layer.visible).toBe(true);
+
+    const cmd = new PropertyCommand(
+      'Hide layer',
+      { type: 'layer', layerId: layer.id },
+      { visible: true },
+      { visible: false },
+    );
+    cmd.execute();
+
+    const updated = useStore.getState().layers.find((l) => l.id === layer.id);
+    expect(updated?.visible).toBe(false);
+  });
+});
 
 describe('PresetApplyCommand', () => {
   beforeEach(() => {
