@@ -228,6 +228,30 @@ export interface AssetsSlice {
   customImages: Record<string, string>;
 }
 
+// ─── Maps (Multi-Map Persistence) ────────────────────────
+export interface MapMeta {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  gridSize: { width: number; height: number };
+  layerCount: number;
+}
+
+export interface MapsSlice {
+  mapIndex: MapMeta[];
+  activeMapId: string | null;
+  isMapSwitching: boolean;
+
+  loadMapIndex: () => Promise<void>;
+  saveCurrentMap: () => Promise<void>;
+  loadMap: (id: string) => Promise<void>;
+  createNewMap: (name?: string) => Promise<string>;
+  deleteMap: (id: string) => Promise<void>;
+  renameMap: (id: string, name: string) => Promise<void>;
+  duplicateMap: (id: string) => Promise<string>;
+}
+
 // ─── Command Pattern Types ────────────────────────────────
 export interface Command {
   execute(): void;
@@ -253,6 +277,11 @@ export interface MapBuilderStore {
   ui: UISlice;
   assets: AssetsSlice;
   selection: SelectionSlice;
+
+  // maps state
+  mapIndex: MapMeta[];
+  activeMapId: string | null;
+  isMapSwitching: boolean;
 
   // mapSettings actions
   setMapName: (name: string) => void;
@@ -328,6 +357,15 @@ export interface MapBuilderStore {
   setRegionClipboard: (clipboard: RegionClipboard | null) => void;
   setSelectionTransform: (transform: SelectionSlice['selectionTransform']) => void;
   bakeSelectionTransform: () => void;
+
+  // maps actions
+  loadMapIndex: () => Promise<void>;
+  saveCurrentMap: () => Promise<void>;
+  loadMap: (id: string) => Promise<void>;
+  createNewMap: (name?: string) => Promise<string>;
+  deleteMap: (id: string) => Promise<void>;
+  renameMap: (id: string, name: string) => Promise<void>;
+  duplicateMap: (id: string) => Promise<string>;
 
   // bulk / serialization
   loadFromFile: (data: SerializedMapData) => void;

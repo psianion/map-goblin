@@ -2,12 +2,15 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Eye, EyeOff, Maximize, ImageDown, Upload } from 'lucide-react';
 import { CanvasHost } from '@/canvas/CanvasHost';
 import { LeftToolbar } from '@/components/toolbar/LeftToolbar';
+import { MapsSidePanel } from '@/components/maps/MapsSidePanel';
 import { RightPanel } from '@/components/layout/RightPanel';
 import { CollapsedRightPanel } from '@/components/layout/CollapsedRightPanel';
 import { StatusBar } from '@/components/layout/StatusBar';
 import { ExportDialog } from '@/components/shared/ExportDialog';
 import { RecoveryDialog } from '@/components/shared/RecoveryDialog';
 import { startAutosave, isDirtyFlagSet } from '@/io/autosave';
+import { migrateAutosave } from '@/io/mapMigration';
+import { getMapDB } from '@/store/slices/maps';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { handleImageImport } from '@/canvas/importImage';
 import { importImageRef } from '@/shortcuts/defaultShortcuts';
@@ -67,6 +70,7 @@ function usePanelFade(active: boolean) {
 export default function App() {
   const [exportOpen, setExportOpen] = useState(false);
   const [showRecovery, setShowRecovery] = useState(() => isDirtyFlagSet());
+  const leftPanelOpen = useStore((s) => s.ui.leftPanelOpen);
   const rightPanelOpen = useStore((s) => s.ui.rightPanelOpen);
   const togglePanel = useStore((s) => s.togglePanel);
   const focusMode = useStore((s) => s.ui.focusMode);
@@ -149,9 +153,59 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  // Multi-map migration + index load on app startup
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const db = await getMapDB();
+        const result = await migrateAutosave(db);
+        if (cancelled) return;
+
+        if (result.migrated) {
+          useStore.getState().pushToast({
+            id: crypto.randomUUID(),
+            message: 'Previous work imported into Maps system',
+            type: 'info',
+            duration: 5000,
+            createdAt: Date.now(),
+          });
+        }
+        if (result.warning) {
+          useStore.getState().pushToast({
+            id: crypto.randomUUID(),
+            message: result.warning,
+            type: 'error',
+            duration: 6000,
+            createdAt: Date.now(),
+          });
+        }
+
+        await useStore.getState().loadMapIndex();
+        if (cancelled) return;
+
+        // If mapIndex is empty after loading, bootstrap a default map
+        const { mapIndex } = useStore.getState();
+        if (mapIndex.length === 0) {
+          await useStore.getState().createNewMap('Untitled Map');
+        }
+
+        // Load the most recent map (first in index since sorted by updatedAt desc)
+        const { mapIndex: updatedIndex, activeMapId } = useStore.getState();
+        if (updatedIndex.length > 0 && !activeMapId) {
+          // loadMapIndex already sets activeMapId to the first entry,
+          // but if the map data needs loading, do it here
+        }
+      } catch (err) {
+        console.warn('[app] Multi-map migration/init failed:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     const cleanup = startAutosave(
-      () => useStore.getState().getSerializableState(),
+      () => useStore.getState().saveCurrentMap(),
       (listener) => useStore.subscribe(listener),
     );
     return cleanup;
@@ -204,13 +258,32 @@ export default function App() {
         </div>
       </div>
 
-      {/* Left toolbar — absolute overlay on top of canvas */}
+      {/* Maps sidebar — clipped for width-transition animation */}
+      {showPanels && leftPanelOpen && (
+        <div
+          data-chrome
+          className="absolute left-0 top-0 bottom-0 z-20 overflow-hidden"
+          style={{
+            width: '260px',
+            opacity: fade.faded ? 0.4 : 1,
+            transition: 'opacity 200ms ease',
+          }}
+        >
+          <MapsSidePanel />
+        </div>
+      )}
+
+      {/* Left toolbar — NOT clipped so tool popovers can escape */}
       {showPanels && (
         <div
           data-testid="left-toolbar"
           data-chrome
-          className="absolute left-0 top-0 bottom-0 z-20"
-          style={{ opacity: fade.faded ? 0.4 : 1, transition: 'opacity 200ms ease' }}
+          className="absolute top-0 bottom-0 z-20"
+          style={{
+            left: leftPanelOpen ? '260px' : '0px',
+            opacity: fade.faded ? 0.4 : 1,
+            transition: 'left 200ms ease-out, opacity 200ms ease',
+          }}
         >
           <LeftToolbar />
         </div>
@@ -237,6 +310,7 @@ export default function App() {
       {/* Bottom status bar */}
       {showPanels && (
         <StatusBar
+          leftPanelOpen={leftPanelOpen}
           rightPanelOpen={rightPanelOpen}
           faded={fade.faded}
         />

@@ -13,6 +13,7 @@ import {
   Waves,
   ChevronRight,
   TreeDeciduous,
+  LayoutGrid,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useStore } from '@/store/store';
@@ -57,9 +58,11 @@ export function LeftToolbar() {
   const activeTool = useStore((s) => s.tools.activeTool);
   const eraseMode = useStore((s) => s.tools.eraseMode);
   const roughMode = useStore((s) => s.tools.roughMode);
+  const leftPanelOpen = useStore((s) => s.ui.leftPanelOpen);
   const setActiveTool = useStore((s) => s.setActiveTool);
   const setEraseMode = useStore((s) => s.setEraseMode);
   const setRoughMode = useStore((s) => s.setRoughMode);
+  const togglePanel = useStore((s) => s.togglePanel);
 
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [popoverTool, setPopoverTool] = useState<ToolType | null>(null);
@@ -122,6 +125,20 @@ export function LeftToolbar() {
 
   return (
     <div className="relative w-12 h-full flex flex-col items-center py-2 gap-0.5 bg-surface-1 border-r border-border-default shrink-0">
+      {/* Maps panel toggle */}
+      <button
+        data-toolbar-button
+        data-testid="maps-toggle"
+        title="Maps (Ctrl+Shift+M)"
+        onClick={() => togglePanel('left')}
+        className={leftPanelOpen ? ACTIVE_BTN : INACTIVE_BTN}
+      >
+        <LayoutGrid size={18} strokeWidth={1.75} />
+      </button>
+
+      {/* Divider */}
+      <div className="w-7 h-px bg-border-default my-1 shrink-0" />
+
       {TOOLS.map(({ tool, icon: Icon, label, shortcut }) => {
         const active = activeTool === tool;
         const hasPopover = TOOLS_WITH_POPOVER.has(tool);

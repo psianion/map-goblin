@@ -180,6 +180,17 @@ const toolKeyMap: Record<string, () => void | false> = {
     const idx = modes.indexOf(state.ui.focusMode);
     state.setFocusMode(modes[(idx + 1) % 3]);
   },
+  'ctrl+shift+m': () => {
+    useStore.getState().togglePanel('left');
+  },
+  'ctrl+shift+n': () => {
+    // TODO: Replace with store.createMap() when MapsSlice lands
+    // For now, just toggle the panel open so the user sees the "+ New Map" button
+    const state = useStore.getState();
+    if (!state.ui.leftPanelOpen) {
+      state.togglePanel('left');
+    }
+  },
   'ctrl+x': (): void | false => {
     const store = useStore.getState();
     if (store.tools.activeTool !== 'select') return false;
@@ -271,6 +282,8 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'edit.cut',            keys: 'ctrl+x',      category: 'Edit',  label: 'Cut' },
     { id: 'edit.delete',         keys: 'Delete',      category: 'Edit',  label: 'Delete' },
     { id: 'view.focusMode',      keys: '`',           category: 'View',  label: 'Cycle Focus Mode' },
+    { id: 'view.toggleMaps',     keys: 'ctrl+shift+m', category: 'View', label: 'Toggle Maps Panel' },
+    { id: 'file.newMap',         keys: 'ctrl+shift+n', category: 'File', label: 'New Map' },
   ];
 }
 

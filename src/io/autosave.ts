@@ -17,6 +17,17 @@ export const AUTOSAVE_STORE_NAME = 'saves';
 export const AUTOSAVE_KEY = 'mapbuilder-autosave';
 export const DIRTY_FLAG_KEY = 'mapbuilder-dirty';
 
+// Guard: set to true during map switch to skip autosave writes
+let _isMapSwitching = false;
+
+export function setMapSwitching(switching: boolean): void {
+  _isMapSwitching = switching;
+}
+
+export function isMapSwitchingActive(): boolean {
+  return _isMapSwitching;
+}
+
 // ─── Dirty Flag (localStorage) ────────────────────────────────────────────────
 
 export function setDirtyFlag(): void {
@@ -127,9 +138,13 @@ const AUTOSAVE_DELAY_MS = 30_000; // 30 seconds
  *
  * The subscriber sets the dirty flag on every state change and schedules
  * an autosave 30 seconds after the last mutation.
+ *
+ * In multi-map mode, the debounced save calls `saveCurrentMap()` on the
+ * store, which persists the active map to the new IndexedDB maps store.
+ * The `isMapSwitching` guard prevents autosave during map switch transitions.
  */
 export function startAutosave(
-  getSerializableState: () => SerializedMapData,
+  saveCurrentMap: () => Promise<void>,
   subscribe: (listener: () => void) => () => void,
 ): () => void {
   const handleChange = () => {
@@ -137,13 +152,15 @@ export function startAutosave(
 
     if (_debounceTimer !== null) clearTimeout(_debounceTimer);
     _debounceTimer = setTimeout(() => {
-      const data = getSerializableState();
-      saveToIndexedDB(data)
+      // Skip autosave during map switch
+      if (_isMapSwitching) return;
+
+      saveCurrentMap()
         .then(() => {
           clearDirtyFlag();
         })
         .catch((err: unknown) => {
-          console.warn('[autosave] IndexedDB write failed:', err);
+          console.warn('[autosave] save failed:', err);
         });
     }, AUTOSAVE_DELAY_MS);
   };
