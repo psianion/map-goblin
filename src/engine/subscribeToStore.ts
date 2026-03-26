@@ -1,5 +1,6 @@
 import { Assets, Texture, TilingSprite } from 'pixi.js';
 import { useStore } from '@/store/store';
+import { notify } from '@/lib/toast';
 import type { SceneGraph } from './sceneGraph';
 import {
   addLayerToScene,
@@ -255,13 +256,7 @@ export function subscribeToStore(
     (state) => state.grid.visible,
     (visible) => {
       sceneGraph.gridRenderer.markDirty();
-      useStore.getState().pushToast({
-        id: `grid-toggle-${Date.now()}`,
-        message: `Grid: ${visible ? 'ON' : 'OFF'}`,
-        type: 'info',
-        duration: 1500,
-        createdAt: Date.now(),
-      });
+      notify.subtle(`Grid: ${visible ? 'ON' : 'OFF'}`);
     },
   );
   unsubscribers.push(unsubGrid);

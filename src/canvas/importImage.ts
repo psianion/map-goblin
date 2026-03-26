@@ -7,7 +7,7 @@
  */
 
 import { Assets } from 'pixi.js';
-import { toast } from 'sonner';
+import { notify } from '@/lib/toast';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { AddChildCommand } from '@/store/commands';
@@ -63,8 +63,8 @@ export async function importImageFile(
   let base64 = await fileToBase64(file);
 
   if (finalWidth > MAX_IMPORT_PX || finalHeight > MAX_IMPORT_PX) {
-    toast.warning(
-      `Image is ${finalWidth}×${finalHeight}px — resizing to max ${RESIZE_TARGET_PX}px for performance.`,
+    notify.warning(
+      `Image is ${finalWidth}\u00d7${finalHeight}px \u2014 resizing to max ${RESIZE_TARGET_PX}px for performance.`,
     );
     base64 = await resizeImageToMax(base64, RESIZE_TARGET_PX);
     const resizeScale = Math.min(1, RESIZE_TARGET_PX / Math.max(finalWidth, finalHeight));
@@ -109,7 +109,7 @@ export async function handleImageImport(file: File, engine: RenderEngine): Promi
   const targetLayerId = store.ui.activeLayerId;
   const layer = store.layers.find((l) => l.id === targetLayerId);
   if (!layer || layer.type !== 'dungeon') {
-    toast.error('Select a dungeon layer to import images.');
+    notify.error('Select a dungeon layer to import images.');
     return;
   }
 
@@ -120,10 +120,10 @@ export async function handleImageImport(file: File, engine: RenderEngine): Promi
     const child = await importImageFile(file, center);
     undoManager.execute(new AddChildCommand('Import image', targetLayerId, child));
 
-    toast.success(`Image imported`);
+    notify.success('Image imported');
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    toast.error(`Import failed: ${message}`);
+    notify.error(`Import failed: ${message}`);
   }
 }
 

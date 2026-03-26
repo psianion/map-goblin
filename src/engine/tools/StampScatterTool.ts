@@ -3,6 +3,7 @@ import type { DrawingTool, PreviewShape } from './DrawingTool';
 import type { Point } from '@/types/geometry';
 import type { AssetChild, DungeonLayer, ScatterBrushSettings } from '@/store/types';
 import { useStore } from '@/store/store';
+import { notify } from '@/lib/toast';
 import { getTextureEntry, GRID_CELL_PX } from '@/assets/textureManifest';
 import { poissonDiskSample } from '@/geometry/poissonDisk';
 import { mulberry32, hashPosition } from '@/geometry/seededRng';
@@ -84,13 +85,7 @@ export class StampScatterTool implements DrawingTool {
   }
 
   private showLayerWarning(message: string): void {
-    useStore.getState().pushToast({
-      id: crypto.randomUUID(),
-      message,
-      type: 'warning',
-      duration: 3000,
-      createdAt: Date.now(),
-    });
+    notify.warning(message);
   }
 
   // ─── Preview ───
