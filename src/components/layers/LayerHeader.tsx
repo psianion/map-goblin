@@ -12,7 +12,7 @@ export function LayerHeader() {
     const layer = createDungeonLayer(`Layer ${layerCount + 1}`);
     undoManager.execute(new AddLayerCommand('Add layer', layer));
     useStore.getState().setActiveLayerId(layer.id);
-    notify.subtle('Layer added');
+    notify.subtle('Layer added', { icon: 'plus' });
   };
 
   return (

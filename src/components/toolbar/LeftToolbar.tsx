@@ -128,7 +128,7 @@ export function LeftToolbar() {
     } else {
       setActiveTool(tool);
       const label = toolLabels[tool];
-      if (label) notify.subtle(label);
+      if (label) notify.subtle(label, { icon: 'tool' });
     }
   };
 

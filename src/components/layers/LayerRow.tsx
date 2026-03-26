@@ -124,7 +124,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
               { locked: wasLocked },
               { locked: !wasLocked },
             ))
-            notify.subtle(wasLocked ? 'Layer unlocked' : 'Layer locked')
+            notify.subtle(wasLocked ? 'Layer unlocked' : 'Layer locked', { icon: wasLocked ? 'unlock' : 'lock' })
           }}
           className="text-text-muted hover:text-text-primary"
           title={layer.locked ? 'Unlock layer' : 'Lock layer'}
@@ -147,7 +147,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
               { visible: wasVisible },
               { visible: !wasVisible },
             ))
-            notify.subtle(wasVisible ? 'Layer hidden' : 'Layer visible')
+            notify.subtle(wasVisible ? 'Layer hidden' : 'Layer visible', { icon: wasVisible ? 'eyeOff' : 'eye' })
           }}
           className="text-text-muted hover:text-text-primary"
           title={layer.visible ? 'Hide layer' : 'Show layer'}

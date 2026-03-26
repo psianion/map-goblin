@@ -159,7 +159,7 @@ export function startAutosave(
       saveCurrentMap()
         .then(() => {
           clearDirtyFlag();
-          notify.subtle('Autosaved');
+          notify.subtle('Autosaved', { icon: 'save' });
         })
         .catch((err: unknown) => {
           console.warn('[autosave] save failed:', err);

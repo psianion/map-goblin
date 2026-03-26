@@ -59,7 +59,7 @@ export function MapsSidePanel() {
     async (id: string, name: string) => {
       try {
         await renameMap(id, name);
-        notify.subtle('Map renamed');
+        notify.subtle('Map renamed', { icon: 'rename' });
       } catch (err) {
         console.error('[MapsSidePanel] Rename failed:', err);
         notify.error('Failed to rename map');
@@ -88,6 +88,7 @@ export function MapsSidePanel() {
         notify.action('Map deleted', {
           label: 'Undo',
           onClick: () => undoManager.undo(),
+          icon: 'trash',
         });
       } catch (err) {
         console.error('[MapsSidePanel] Delete failed:', err);

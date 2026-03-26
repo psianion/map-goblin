@@ -95,48 +95,183 @@
   height: 16px !important;
 }
 
-/* Sonner toast dark theme — matches map-builder design tokens */
+/* ── Compact pill toasts ── */
 [data-sonner-toaster] {
-  --normal-bg: #1E1E1E;
-  --normal-border: #252525;
-  --normal-text: #E8E8E8;
+  --normal-bg: rgba(19, 19, 26, 0.85);
+  --normal-border: rgba(42, 42, 58, 0.5);
+  --normal-text: #B0B0C0;
   font-family: 'Raleway', sans-serif !important;
 }
 
 [data-sonner-toast] {
-  background: #1E1E1E !important;
-  border: 1px solid #252525 !important;
-  border-radius: 4px !important;
-  color: #E8E8E8 !important;
-  font-size: 13px !important;
+  background: rgba(19, 19, 26, 0.88) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(42, 42, 58, 0.5) !important;
+  border-radius: 9999px !important;
+  color: #B0B0C0 !important;
+  font-size: 12px !important;
+  line-height: 1 !important;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
-  padding: 10px 14px !important;
-  gap: 10px !important;
-  max-width: 340px !important;
+  padding: 7px 14px 7px 10px !important;
+  gap: 8px !important;
+  max-width: 260px !important;
+  min-height: unset !important;
 }
 
+/* Hide sonner's default close button — pills auto-dismiss */
+[data-sonner-toast] [data-close-button] {
+  display: none !important;
+}
+
+/* Type-specific subtle border tints */
+[data-sonner-toast][data-type="success"] {
+  border-color: rgba(34, 197, 94, 0.25) !important;
+}
 [data-sonner-toast][data-type="error"] {
-  border-color: #3D2020 !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
 }
-
 [data-sonner-toast][data-type="warning"] {
-  border-color: #3D3520 !important;
+  border-color: rgba(245, 158, 11, 0.3) !important;
+}
+[data-sonner-toast][data-type="info"] {
+  border-color: rgba(59, 130, 246, 0.25) !important;
 }
 
-[data-sonner-toast] [data-button] {
-  background: #282828 !important;
-  border: 1px solid #333 !important;
-  border-radius: 3px !important;
-  color: #E8E8E8 !important;
-  font-family: 'Space Mono', monospace !important;
-  font-size: 11px !important;
-  padding: 3px 10px !important;
-}
+/* Icon semantic colors */
+[data-sonner-toast][data-type="success"] [data-icon] { color: #22C55E !important; }
+[data-sonner-toast][data-type="error"]   [data-icon] { color: #EF4444 !important; }
+[data-sonner-toast][data-type="warning"] [data-icon] { color: #F59E0B !important; }
+[data-sonner-toast][data-type="info"]    [data-icon] { color: #3B82F6 !important; }
 
+/* Icon sizing */
 [data-sonner-toast] [data-icon] {
-  width: 14px;
-  height: 14px;
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 !important;
+  flex-shrink: 0 !important;
 }
+
+/* Action button — compact pill style */
+[data-sonner-toast] [data-button] {
+  background: rgba(59, 130, 246, 0.12) !important;
+  border: 1px solid rgba(59, 130, 246, 0.25) !important;
+  border-radius: 9999px !important;
+  color: #3B82F6 !important;
+  font-family: 'Space Mono', monospace !important;
+  font-size: 10px !important;
+  padding: 2px 8px !important;
+  margin-left: auto !important;
+  white-space: nowrap !important;
+}
+
+/* ── Toast icon animations ── */
+.ti {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Trash — lid wiggle */
+@keyframes ti-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  20% { transform: rotate(-15deg); }
+  40% { transform: rotate(12deg); }
+  60% { transform: rotate(-8deg); }
+  80% { transform: rotate(4deg); }
+}
+.ti-trash { animation: ti-wiggle 400ms ease-out; color: #EF4444; }
+
+/* Check / save — scale bounce in */
+@keyframes ti-bounce-in {
+  0% { transform: scale(0); opacity: 0; }
+  60% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.ti-check { animation: ti-bounce-in 350ms ease-out; color: #22C55E; }
+
+/* Undo — counter-clockwise rotate */
+@keyframes ti-ccw {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(-360deg); }
+}
+.ti-undo { animation: ti-ccw 400ms ease-out; color: #3B82F6; }
+
+/* Redo — clockwise rotate */
+@keyframes ti-cw {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.ti-redo { animation: ti-cw 400ms ease-out; color: #3B82F6; }
+
+/* Copy — slide right */
+@keyframes ti-slide-r {
+  0% { transform: translateX(-4px); opacity: 0; }
+  100% { transform: translateX(0); opacity: 1; }
+}
+.ti-copy { animation: ti-slide-r 250ms ease-out; color: #3B82F6; }
+
+/* Paste — slide down */
+@keyframes ti-slide-d {
+  0% { transform: translateY(-4px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.ti-paste { animation: ti-slide-d 250ms ease-out; color: #3B82F6; }
+
+/* Plus — scale bounce */
+.ti-plus { animation: ti-bounce-in 300ms ease-out; color: #22C55E; }
+
+/* Minus — fade + fall */
+@keyframes ti-fade-fall {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(3px); opacity: 0.5; }
+}
+.ti-minus { animation: ti-fade-fall 300ms ease-out forwards; color: #EF4444; }
+
+/* Error X — shake */
+@keyframes ti-shake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-3px); }
+  30% { transform: translateX(3px); }
+  45% { transform: translateX(-2px); }
+  60% { transform: translateX(2px); }
+  75% { transform: translateX(-1px); }
+}
+.ti-error { animation: ti-shake 400ms ease-out; color: #EF4444; }
+
+/* Warning — pulse breathe */
+@keyframes ti-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+.ti-warning { animation: ti-pulse 600ms ease-in-out; color: #F59E0B; }
+
+/* Download — bounce down */
+@keyframes ti-bounce-d {
+  0% { transform: translateY(-3px); }
+  50% { transform: translateY(2px); }
+  100% { transform: translateY(0); }
+}
+.ti-download { animation: ti-bounce-d 300ms ease-out; color: #22C55E; }
+
+/* Loading — continuous spin */
+@keyframes ti-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.ti-loading { animation: ti-spin 1s linear infinite; color: #3B82F6; }
+
+/* Info — subtle bounce */
+.ti-info { animation: ti-bounce-in 300ms ease-out; color: #3B82F6; }
+
+/* Tool switch — quick pop */
+@keyframes ti-pop {
+  0% { transform: scale(0.7); opacity: 0.5; }
+  60% { transform: scale(1.05); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.ti-tool { animation: ti-pop 200ms ease-out; color: #8B8BA0; }
 
 /* Minimal Precision slider — uses CSS vars from .dark theme */
 .slider-minimal {

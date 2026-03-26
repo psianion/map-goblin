@@ -17,15 +17,15 @@ export const importImageRef: { current: (() => void) | null } = { current: null 
 // Keyed by key-combo string (e.g. 'ctrl+s') to match what onKeyDown builds.
 const toolKeyMap: Record<string, () => void | false> = {
   // Tool selection
-  v: () => { useStore.getState().setActiveTool('select'); notify.subtle('Select'); },
-  g: () => { useStore.getState().setActiveTool('pan'); notify.subtle('Pan'); },
+  v: () => { useStore.getState().setActiveTool('select'); notify.subtle('Select', { icon: 'tool' }); },
+  g: () => { useStore.getState().setActiveTool('pan'); notify.subtle('Pan', { icon: 'tool' }); },
   r: () => {
     const s = useStore.getState();
     if (s.tools.activeTool === 'rectangle') {
       togglePopoverRef.current?.();
     } else {
       s.setActiveTool('rectangle');
-      notify.subtle('Rectangle');
+      notify.subtle('Rectangle', { icon: 'tool' });
     }
   },
   p: () => {
@@ -34,7 +34,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       togglePopoverRef.current?.();
     } else {
       s.setActiveTool('polygon');
-      notify.subtle('Polygon');
+      notify.subtle('Polygon', { icon: 'tool' });
     }
   },
   h: () => {
@@ -43,7 +43,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       togglePopoverRef.current?.();
     } else {
       s.setActiveTool('regularPolygon');
-      notify.subtle('Regular Polygon');
+      notify.subtle('Regular Polygon', { icon: 'tool' });
     }
   },
   a: () => {
@@ -52,7 +52,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       togglePopoverRef.current?.();
     } else {
       s.setActiveTool('path');
-      notify.subtle('Path');
+      notify.subtle('Path', { icon: 'tool' });
     }
   },
   d: () => {
@@ -61,7 +61,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       togglePopoverRef.current?.();
     } else {
       s.setActiveTool('door');
-      notify.subtle('Door');
+      notify.subtle('Door', { icon: 'tool' });
     }
   },
   w: () => {
@@ -70,7 +70,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       togglePopoverRef.current?.();
     } else {
       s.setActiveTool('wall');
-      notify.subtle('Wall');
+      notify.subtle('Wall', { icon: 'tool' });
     }
   },
   l: () => {
@@ -79,7 +79,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       togglePopoverRef.current?.();
     } else {
       s.setActiveTool('light');
-      notify.subtle('Light');
+      notify.subtle('Light', { icon: 'tool' });
     }
   },
   // Mode toggles
@@ -87,38 +87,38 @@ const toolKeyMap: Record<string, () => void | false> = {
     const s = useStore.getState();
     const next = !s.tools.eraseMode;
     s.setEraseMode(next);
-    notify.subtle(next ? 'Erase mode' : 'Draw mode');
+    notify.subtle(next ? 'Erase mode' : 'Draw mode', { icon: 'tool' });
   },
   x: () => {
     const s = useStore.getState();
     const next = !s.tools.roughMode;
     s.setRoughMode(next);
-    notify.subtle(next ? 'Rough mode' : 'Smooth mode');
+    notify.subtle(next ? 'Rough mode' : 'Smooth mode', { icon: 'tool' });
   },
   // Undo / redo
   'ctrl+z': () => {
     if (!undoManager.canUndo()) {
-      notify.subtle('Nothing to undo');
+      notify.subtle('Nothing to undo', { icon: 'undo' });
       return;
     }
     undoManager.undo();
-    notifyCoalesce('undo', 'Undo', { duration: 1500 });
+    notifyCoalesce('undo', 'Undo', { duration: 1500, icon: 'undo' });
   },
   'ctrl+shift+z': () => {
     if (!undoManager.canRedo()) {
-      notify.subtle('Nothing to redo');
+      notify.subtle('Nothing to redo', { icon: 'redo' });
       return;
     }
     undoManager.redo();
-    notifyCoalesce('redo', 'Redo', { duration: 1500 });
+    notifyCoalesce('redo', 'Redo', { duration: 1500, icon: 'redo' });
   },
   'ctrl+y': () => {
     if (!undoManager.canRedo()) {
-      notify.subtle('Nothing to redo');
+      notify.subtle('Nothing to redo', { icon: 'redo' });
       return;
     }
     undoManager.redo();
-    notifyCoalesce('redo', 'Redo', { duration: 1500 });
+    notifyCoalesce('redo', 'Redo', { duration: 1500, icon: 'redo' });
   },
   'ctrl+s': () => {
     saveMap().then((saved) => {
@@ -158,7 +158,7 @@ const toolKeyMap: Record<string, () => void | false> = {
         .filter(Boolean);
       if (children.length > 0) {
         store.setClipboard({ children: children as AnyChild[] });
-        notify.subtle(children.length === 1 ? 'Copied' : `Copied ${children.length} items`);
+        notify.subtle(children.length === 1 ? 'Copied' : `Copied ${children.length} items`, { icon: 'copy' });
       }
       return;
     }
@@ -200,6 +200,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       notify.action(count === 1 ? 'Pasted 1 shape' : `Pasted ${count} shapes`, {
         label: 'Undo',
         onClick: () => undoManager.undo(),
+        icon: 'paste',
       });
       return;
     }
@@ -219,7 +220,7 @@ const toolKeyMap: Record<string, () => void | false> = {
   },
   'ctrl+0': () => {
     zoomToFitRef.current?.();
-    notify.subtle('Zoom to fit');
+    notify.subtle('Zoom to fit', { icon: 'focus' });
   },
   '`': () => {
     const state = useStore.getState();
@@ -228,12 +229,12 @@ const toolKeyMap: Record<string, () => void | false> = {
     const next = modes[(idx + 1) % 3];
     state.setFocusMode(next);
     const labels = { auto: 'Focus: Auto', manual: 'Focus: Manual', fullscreen: 'Focus: Fullscreen' };
-    notify.subtle(labels[next]);
+    notify.subtle(labels[next], { icon: 'focus' });
   },
   'ctrl+shift+m': () => {
     const state = useStore.getState();
     state.togglePanel('left');
-    notify.subtle(state.ui.leftPanelOpen ? 'Maps panel closed' : 'Maps panel opened');
+    notify.subtle(state.ui.leftPanelOpen ? 'Maps panel closed' : 'Maps panel opened', { icon: 'map' });
   },
   'ctrl+shift+n': () => {
     // TODO: Replace with store.createMap() when MapsSlice lands
@@ -274,6 +275,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       notify.action(cutCount === 1 ? 'Cut 1 shape' : `Cut ${cutCount} shapes`, {
         label: 'Undo',
         onClick: () => undoManager.undo(),
+        icon: 'scissors',
       });
       store.setSelectedIds([]);
       return;
@@ -305,6 +307,7 @@ const toolKeyMap: Record<string, () => void | false> = {
     notify.action(delCount === 1 ? 'Deleted 1 shape' : `Deleted ${delCount} shapes`, {
       label: 'Undo',
       onClick: () => undoManager.undo(),
+      icon: 'trash',
     });
     store.setSelectedIds([]);
   },

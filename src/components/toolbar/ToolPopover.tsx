@@ -169,6 +169,7 @@ function DrawingToolContent({
     notify.action(`Applied '${preset.label}'`, {
       label: 'Undo',
       onClick: () => undoManager.undo(),
+      icon: 'palette',
     });
     onValueChange?.();
   };

@@ -79,6 +79,7 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
     notify.action(`Applied '${preset.label}'`, {
       label: 'Undo',
       onClick: () => undoManager.undo(),
+      icon: 'palette',
     })
   }
 

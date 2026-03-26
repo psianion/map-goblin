@@ -339,13 +339,14 @@ export default function App() {
     />
 
     <Toaster
-      position="top-center"
+      position="bottom-center"
       visibleToasts={3}
       toastOptions={{
         className: 'map-builder-toast',
         duration: 2000,
       }}
-      offset={16}
+      offset={24}
+      gap={4}
     />
     </>
   );

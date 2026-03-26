@@ -256,7 +256,7 @@ export function subscribeToStore(
     (state) => state.grid.visible,
     (visible) => {
       sceneGraph.gridRenderer.markDirty();
-      notify.subtle(`Grid: ${visible ? 'ON' : 'OFF'}`);
+      notify.subtle(`Grid: ${visible ? 'ON' : 'OFF'}`, { icon: 'grid' });
     },
   );
   unsubscribers.push(unsubGrid);

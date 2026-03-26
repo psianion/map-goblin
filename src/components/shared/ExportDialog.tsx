@@ -62,7 +62,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
       );
       triggerDownload(blob, filename);
       const formatLabel = format.toUpperCase();
-      notify.success(`Exported as ${formatLabel}`);
+      notify.success(`Exported as ${formatLabel.toLowerCase()}`);
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Export failed. Check console for details.');
