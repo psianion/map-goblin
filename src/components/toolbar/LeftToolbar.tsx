@@ -20,6 +20,7 @@ import { useStore } from '@/store/store';
 import type { ToolType } from '@/store/types';
 import { TOOLS_WITH_POPOVER, togglePopoverRef } from './toolConstants';
 import { ToolPopover } from './ToolPopover';
+import { notify } from '@/lib/toast';
 
 interface ToolButton {
   tool: ToolType;
@@ -108,6 +109,12 @@ export function LeftToolbar() {
     }
   }
 
+  const toolLabels: Record<string, string> = {
+    select: 'Select', pan: 'Pan', rectangle: 'Rectangle', polygon: 'Polygon',
+    regularPolygon: 'Regular Polygon', path: 'Path', wall: 'Wall', door: 'Door',
+    light: 'Light', scatterBrush: 'Scatter Brush',
+  };
+
   const handleToolClick = (tool: ToolType) => {
     if (activeTool === tool) {
       // Toggle popover if already active
@@ -120,6 +127,8 @@ export function LeftToolbar() {
       }
     } else {
       setActiveTool(tool);
+      const label = toolLabels[tool];
+      if (label) notify.subtle(label);
     }
   };
 
