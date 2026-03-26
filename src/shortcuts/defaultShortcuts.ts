@@ -4,6 +4,7 @@
 import { saveMap } from '@/io/saveLoad';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
+import { notify } from '@/lib/toast';
 import { AddChildCommand, RemoveChildCommand, CompositeCommand } from '@/store/commands';
 import type { AnyChild, DungeonLayer } from '@/store/types';
 import { selectLayerForChild } from '@/store/selectors';
@@ -84,13 +85,7 @@ const toolKeyMap: Record<string, () => void | false> = {
   'ctrl+s': () => {
     saveMap().catch((err: unknown) => {
       console.error('[save] failed:', err);
-      useStore.getState().pushToast({
-        id: `save-error-${Date.now()}`,
-        message: 'Save failed — see console for details.',
-        type: 'error',
-        duration: 4000,
-        createdAt: Date.now(),
-      });
+      notify.error('Save failed — see console for details.');
     });
   },
   'ctrl+o': () => {
@@ -98,13 +93,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       .then(({ loadMap }) => {
         loadMap().catch((err: unknown) => {
           console.error('[load] failed:', err);
-          useStore.getState().pushToast({
-            id: `load-error-${Date.now()}`,
-            message: 'Open failed — see console for details.',
-            type: 'error',
-            duration: 4000,
-            createdAt: Date.now(),
-          });
+          notify.error('Open failed — see console for details.');
         });
       })
       .catch(() => {

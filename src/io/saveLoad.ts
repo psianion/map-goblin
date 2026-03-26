@@ -14,6 +14,7 @@
 import { gzip, gunzip, strToU8, strFromU8 } from 'fflate';
 import type { SerializedMapData } from '@/store/types';
 import { useStore } from '@/store/store';
+import { notify } from '@/lib/toast';
 
 // Magic bytes to identify .mapbuilder files — "MPBLD\x00"
 export const MAGIC_HEADER = 'MPBLD\x00';
@@ -207,7 +208,7 @@ export async function loadMap(): Promise<boolean> {
     data = await deserializeFromBytes(fileBytes);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    useStore.getState().pushToast({ id: crypto.randomUUID(), message, type: 'error', duration: 6000, createdAt: Date.now() });
+    notify.error(message);
     return false;
   }
 

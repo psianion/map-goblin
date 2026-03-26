@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Plus, X } from 'lucide-react';
 import { useStore } from '@/store/store';
+import { notify } from '@/lib/toast';
 import { switchMap } from '@/store/mapSwitcher';
 import { undoManager } from '@/store/undoManager';
 import { getEngineSingleton } from '@/engine/engineSingleton';
@@ -35,14 +36,10 @@ export function MapsSidePanel() {
       clearUndo: () => undoManager.clear(),
       fogIn: fog ? () => fog.fogIn() : () => Promise.resolve(),
       fogOut: fog ? () => fog.fogOut() : () => Promise.resolve(),
-      addToast: (msg, type) =>
-        useStore.getState().pushToast({
-          id: crypto.randomUUID(),
-          message: msg,
-          type: type ?? 'info',
-          duration: 4000,
-          createdAt: Date.now(),
-        }),
+      addToast: (msg, type) => {
+        if (type === 'error') notify.error(msg);
+        else notify.info(msg);
+      },
     });
   }, []);
 
