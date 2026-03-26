@@ -9,6 +9,7 @@ import type { AnyChild, DungeonLayer } from '@/store/types';
 import { selectLayerForChild } from '@/store/selectors';
 import { togglePopoverRef } from '@/components/toolbar/toolConstants';
 import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
+import { notify, notifyCoalesce } from '@/lib/toast';
 
 /** Set by App.tsx so the shortcut system can trigger the file picker */
 export const importImageRef: { current: (() => void) | null } = { current: null };
@@ -16,14 +17,15 @@ export const importImageRef: { current: (() => void) | null } = { current: null 
 // Keyed by key-combo string (e.g. 'ctrl+s') to match what onKeyDown builds.
 const toolKeyMap: Record<string, () => void | false> = {
   // Tool selection
-  v: () => { useStore.getState().setActiveTool('select'); },
-  g: () => { useStore.getState().setActiveTool('pan'); },
+  v: () => { useStore.getState().setActiveTool('select'); notify.subtle('Select'); },
+  g: () => { useStore.getState().setActiveTool('pan'); notify.subtle('Pan'); },
   r: () => {
     const s = useStore.getState();
     if (s.tools.activeTool === 'rectangle') {
       togglePopoverRef.current?.();
     } else {
       s.setActiveTool('rectangle');
+      notify.subtle('Rectangle');
     }
   },
   p: () => {
@@ -32,6 +34,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       togglePopoverRef.current?.();
     } else {
       s.setActiveTool('polygon');
+      notify.subtle('Polygon');
     }
   },
   h: () => {
@@ -40,6 +43,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       togglePopoverRef.current?.();
     } else {
       s.setActiveTool('regularPolygon');
+      notify.subtle('Regular Polygon');
     }
   },
   a: () => {
@@ -48,6 +52,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       togglePopoverRef.current?.();
     } else {
       s.setActiveTool('path');
+      notify.subtle('Path');
     }
   },
   d: () => {
@@ -56,6 +61,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       togglePopoverRef.current?.();
     } else {
       s.setActiveTool('door');
+      notify.subtle('Door');
     }
   },
   w: () => {
@@ -64,6 +70,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       togglePopoverRef.current?.();
     } else {
       s.setActiveTool('wall');
+      notify.subtle('Wall');
     }
   },
   l: () => {
@@ -72,25 +79,53 @@ const toolKeyMap: Record<string, () => void | false> = {
       togglePopoverRef.current?.();
     } else {
       s.setActiveTool('light');
+      notify.subtle('Light');
     }
   },
   // Mode toggles
-  e: () => { const s = useStore.getState(); s.setEraseMode(!s.tools.eraseMode); },
-  x: () => { const s = useStore.getState(); s.setRoughMode(!s.tools.roughMode); },
+  e: () => {
+    const s = useStore.getState();
+    const next = !s.tools.eraseMode;
+    s.setEraseMode(next);
+    notify.subtle(next ? 'Erase mode' : 'Draw mode');
+  },
+  x: () => {
+    const s = useStore.getState();
+    const next = !s.tools.roughMode;
+    s.setRoughMode(next);
+    notify.subtle(next ? 'Rough mode' : 'Smooth mode');
+  },
   // Undo / redo
-  'ctrl+z': () => { undoManager.undo(); },
-  'ctrl+shift+z': () => { undoManager.redo(); },
-  'ctrl+y': () => { undoManager.redo(); },
+  'ctrl+z': () => {
+    if (!undoManager.canUndo()) {
+      notify.subtle('Nothing to undo');
+      return;
+    }
+    undoManager.undo();
+    notifyCoalesce('undo', 'Undo', { duration: 1500 });
+  },
+  'ctrl+shift+z': () => {
+    if (!undoManager.canRedo()) {
+      notify.subtle('Nothing to redo');
+      return;
+    }
+    undoManager.redo();
+    notifyCoalesce('redo', 'Redo', { duration: 1500 });
+  },
+  'ctrl+y': () => {
+    if (!undoManager.canRedo()) {
+      notify.subtle('Nothing to redo');
+      return;
+    }
+    undoManager.redo();
+    notifyCoalesce('redo', 'Redo', { duration: 1500 });
+  },
   'ctrl+s': () => {
-    saveMap().catch((err: unknown) => {
+    saveMap().then((saved) => {
+      if (saved) notify.success('Map saved');
+    }).catch((err: unknown) => {
       console.error('[save] failed:', err);
-      useStore.getState().pushToast({
-        id: `save-error-${Date.now()}`,
-        message: 'Save failed — see console for details.',
-        type: 'error',
-        duration: 4000,
-        createdAt: Date.now(),
-      });
+      notify.error('Save failed — see console for details.');
     });
   },
   'ctrl+o': () => {
@@ -98,13 +133,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       .then(({ loadMap }) => {
         loadMap().catch((err: unknown) => {
           console.error('[load] failed:', err);
-          useStore.getState().pushToast({
-            id: `load-error-${Date.now()}`,
-            message: 'Open failed — see console for details.',
-            type: 'error',
-            duration: 4000,
-            createdAt: Date.now(),
-          });
+          notify.error('Open failed — see console for details.');
         });
       })
       .catch(() => {
@@ -129,6 +158,7 @@ const toolKeyMap: Record<string, () => void | false> = {
         .filter(Boolean);
       if (children.length > 0) {
         store.setClipboard({ children: children as AnyChild[] });
+        notify.subtle(children.length === 1 ? 'Copied' : `Copied ${children.length} items`);
       }
       return;
     }
@@ -166,6 +196,11 @@ const toolKeyMap: Record<string, () => void | false> = {
         return new AddChildCommand('Paste child', activeLayerId, newChild);
       });
       undoManager.execute(new CompositeCommand('Paste', cmds));
+      const count = store.selection.clipboard.children.length;
+      notify.action(count === 1 ? 'Pasted 1 shape' : `Pasted ${count} shapes`, {
+        label: 'Undo',
+        onClick: () => undoManager.undo(),
+      });
       return;
     }
 
@@ -184,15 +219,21 @@ const toolKeyMap: Record<string, () => void | false> = {
   },
   'ctrl+0': () => {
     zoomToFitRef.current?.();
+    notify.subtle('Zoom to fit');
   },
   '`': () => {
     const state = useStore.getState();
     const modes: Array<'auto' | 'manual' | 'fullscreen'> = ['auto', 'manual', 'fullscreen'];
     const idx = modes.indexOf(state.ui.focusMode);
-    state.setFocusMode(modes[(idx + 1) % 3]);
+    const next = modes[(idx + 1) % 3];
+    state.setFocusMode(next);
+    const labels = { auto: 'Focus: Auto', manual: 'Focus: Manual', fullscreen: 'Focus: Fullscreen' };
+    notify.subtle(labels[next]);
   },
   'ctrl+shift+m': () => {
-    useStore.getState().togglePanel('left');
+    const state = useStore.getState();
+    state.togglePanel('left');
+    notify.subtle(state.ui.leftPanelOpen ? 'Maps panel closed' : 'Maps panel opened');
   },
   'ctrl+shift+n': () => {
     // TODO: Replace with store.createMap() when MapsSlice lands
@@ -228,7 +269,12 @@ const toolKeyMap: Record<string, () => void | false> = {
         const layer = selectLayerForChild(store, id);
         return new RemoveChildCommand('Cut', layer?.id ?? '', id);
       });
+      const cutCount = store.selection.selectedIds.length;
       undoManager.execute(new CompositeCommand('Cut', commands));
+      notify.action(cutCount === 1 ? 'Cut 1 shape' : `Cut ${cutCount} shapes`, {
+        label: 'Undo',
+        onClick: () => undoManager.undo(),
+      });
       store.setSelectedIds([]);
       return;
     }
@@ -250,11 +296,16 @@ const toolKeyMap: Record<string, () => void | false> = {
     const store = useStore.getState();
     if (store.selection.selectedIds.length === 0) return false;
 
+    const delCount = store.selection.selectedIds.length;
     const delCmds = store.selection.selectedIds.map((id) => {
       const layer = selectLayerForChild(store, id);
       return new RemoveChildCommand('Delete', layer?.id ?? '', id);
     });
     undoManager.execute(new CompositeCommand('Delete selected', delCmds));
+    notify.action(delCount === 1 ? 'Deleted 1 shape' : `Deleted ${delCount} shapes`, {
+      label: 'Undo',
+      onClick: () => undoManager.undo(),
+    });
     store.setSelectedIds([]);
   },
   'backspace': (): void | false => {
