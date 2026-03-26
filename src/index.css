@@ -95,6 +95,49 @@
   height: 16px !important;
 }
 
+/* Sonner toast dark theme — matches map-builder design tokens */
+[data-sonner-toaster] {
+  --normal-bg: #1E1E1E;
+  --normal-border: #252525;
+  --normal-text: #E8E8E8;
+  font-family: 'Raleway', sans-serif !important;
+}
+
+[data-sonner-toast] {
+  background: #1E1E1E !important;
+  border: 1px solid #252525 !important;
+  border-radius: 4px !important;
+  color: #E8E8E8 !important;
+  font-size: 13px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+  padding: 10px 14px !important;
+  gap: 10px !important;
+  max-width: 340px !important;
+}
+
+[data-sonner-toast][data-type="error"] {
+  border-color: #3D2020 !important;
+}
+
+[data-sonner-toast][data-type="warning"] {
+  border-color: #3D3520 !important;
+}
+
+[data-sonner-toast] [data-button] {
+  background: #282828 !important;
+  border: 1px solid #333 !important;
+  border-radius: 3px !important;
+  color: #E8E8E8 !important;
+  font-family: 'Space Mono', monospace !important;
+  font-size: 11px !important;
+  padding: 3px 10px !important;
+}
+
+[data-sonner-toast] [data-icon] {
+  width: 14px;
+  height: 14px;
+}
+
 /* Minimal Precision slider — uses CSS vars from .dark theme */
 .slider-minimal {
   -webkit-appearance: none;

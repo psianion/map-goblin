@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Toaster } from 'sonner';
 import { Eye, EyeOff, Maximize, Scan, ImageDown, Upload } from 'lucide-react';
 import { CanvasHost } from '@/canvas/CanvasHost';
 import { LeftToolbar } from '@/components/toolbar/LeftToolbar';
@@ -346,6 +347,16 @@ export default function App() {
       style={{ position: 'fixed', width: 0, height: 0, opacity: 0, overflow: 'hidden', pointerEvents: 'none' }}
       tabIndex={-1}
       onChange={onImportChange}
+    />
+
+    <Toaster
+      position="top-center"
+      visibleToasts={3}
+      toastOptions={{
+        className: 'map-builder-toast',
+        duration: 2000,
+      }}
+      offset={16}
     />
     </>
   );
