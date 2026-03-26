@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { devtools, subscribeWithSelector } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
 import type { DungeonLayer, MapBuilderStore, SerializedMapData } from './types.ts';
+import { notify } from '@/lib/toast';
 import { createDefaultState } from './factories.ts';
 import { migrateToLatest } from './migration.ts';
 import { createMapSettingsSlice } from './slices/mapSettings.ts';
@@ -39,13 +40,7 @@ export const useStore = create<MapBuilderStore>()(
 
         if (data.version !== '2.0' && data.version !== '3.0') {
           console.warn('loadFromFile: incompatible version', data.version);
-          get().pushToast({
-            id: crypto.randomUUID(),
-            message: 'This file was created with an incompatible version and cannot be opened.',
-            type: 'error',
-            duration: 5000,
-            createdAt: Date.now(),
-          });
+          notify.error('This file was created with an incompatible version and cannot be opened.');
           return;
         }
 
@@ -72,7 +67,6 @@ export const useStore = create<MapBuilderStore>()(
           state.ui.canUndo = false;
           state.ui.canRedo = false;
           state.ui.modalState = null;
-          state.ui.toastQueue = [];
           state.tools.activeTool = 'rectangle';
           state.tools.eraseMode = false;
           state.tools.roughMode = false;

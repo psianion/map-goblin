@@ -165,13 +165,6 @@ export interface SelectionSlice {
 }
 
 // ─── UI ───────────────────────────────────────────────────
-export interface Toast {
-  id: string;
-  message: string;
-  type: 'info' | 'warning' | 'error';
-  duration: number;
-  createdAt: number;
-}
 
 export interface ModalState {
   type: 'confirm' | 'export' | 'save' | 'shortcutReference' | 'layerDelete';
@@ -187,7 +180,6 @@ export interface UISlice {
   canUndo: boolean;
   canRedo: boolean;
   modalState: ModalState | null;
-  toastQueue: Toast[];
   clipperReady: boolean;
   focusMode: 'auto' | 'manual' | 'fullscreen';
 }
@@ -327,8 +319,6 @@ export interface MapBuilderStore {
   setActivePanel: (panel: UISlice['activePanel']) => void;
   togglePanel: (panel: 'left' | 'right') => void;
   toggleExpandedLayerId: (layerId: string) => void;
-  pushToast: (toast: Toast) => void;
-  dismissToast: (id: string) => void;
   showModal: (modal: ModalState | null) => void;
   setClipperReady: (ready: boolean) => void;
   setFocusMode: (mode: UISlice['focusMode']) => void;

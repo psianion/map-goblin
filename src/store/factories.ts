@@ -74,7 +74,7 @@ type MapBuilderState = Omit<
   | 'addWall' | 'removeWall' | 'updateWall' | 'closeAllDoors'
   | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'updateToolSettings' | 'addRecentAsset' | 'updateLightDefaults' | 'updateScatterBrushSettings'
   | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
-  | 'pushToast' | 'dismissToast' | 'showModal' | 'setClipperReady' | 'setFocusMode'
+  | 'showModal' | 'setClipperReady' | 'setFocusMode'
   | 'applyPreset' | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
   | 'setSelectedIds' | 'setHoveredId' | 'setSelectedRegion'
@@ -144,7 +144,6 @@ export function createDefaultState(): MapBuilderState {
       canUndo: false,
       canRedo: false,
       modalState: null,
-      toastQueue: [],
       clipperReady: false,
       focusMode: 'auto' as const,
     },
