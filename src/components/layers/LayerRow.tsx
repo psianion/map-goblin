@@ -11,6 +11,7 @@ import { undoManager } from '@/store/undoManager'
 import { PropertyCommand } from '@/store/commands'
 import { Button } from '@/components/ui/button'
 import { ChildRow } from './ChildRow'
+import { notify } from '@/lib/toast'
 
 interface LayerRowProps {
   layer: Layer
@@ -116,12 +117,14 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           size="icon-xs"
           onClick={(e) => {
             e.stopPropagation()
+            const wasLocked = layer.locked
             undoManager.execute(new PropertyCommand(
-              layer.locked ? 'Unlock layer' : 'Lock layer',
+              wasLocked ? 'Unlock layer' : 'Lock layer',
               { type: 'layer', layerId: layer.id },
-              { locked: layer.locked },
-              { locked: !layer.locked },
+              { locked: wasLocked },
+              { locked: !wasLocked },
             ))
+            notify.subtle(wasLocked ? 'Layer unlocked' : 'Layer locked')
           }}
           className="text-text-muted hover:text-text-primary"
           title={layer.locked ? 'Unlock layer' : 'Lock layer'}
@@ -137,12 +140,14 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           data-visible={layer.visible}
           onClick={(e) => {
             e.stopPropagation()
+            const wasVisible = layer.visible
             undoManager.execute(new PropertyCommand(
-              layer.visible ? 'Hide layer' : 'Show layer',
+              wasVisible ? 'Hide layer' : 'Show layer',
               { type: 'layer', layerId: layer.id },
-              { visible: layer.visible },
-              { visible: !layer.visible },
+              { visible: wasVisible },
+              { visible: !wasVisible },
             ))
+            notify.subtle(wasVisible ? 'Layer hidden' : 'Layer visible')
           }}
           className="text-text-muted hover:text-text-primary"
           title={layer.visible ? 'Hide layer' : 'Show layer'}

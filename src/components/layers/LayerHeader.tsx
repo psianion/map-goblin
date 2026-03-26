@@ -3,6 +3,7 @@ import { useStore } from '@/store/store';
 import { createDungeonLayer } from '@/store/factories';
 import { AddLayerCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
+import { notify } from '@/lib/toast';
 
 export function LayerHeader() {
   const layerCount = useStore((s) => s.layers.filter((l) => l.type === 'dungeon').length);
@@ -11,6 +12,7 @@ export function LayerHeader() {
     const layer = createDungeonLayer(`Layer ${layerCount + 1}`);
     undoManager.execute(new AddLayerCommand('Add layer', layer));
     useStore.getState().setActiveLayerId(layer.id);
+    notify.subtle('Layer added');
   };
 
   return (

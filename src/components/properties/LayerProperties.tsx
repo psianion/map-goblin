@@ -14,9 +14,10 @@ import { getWallSetDefaults, type WallCategory } from '@/assets/textureManifest'
 import { PresetStrip } from '@/components/shared/PresetStrip'
 import { DUNGEON_STYLE_PRESETS } from '@/store/presetRegistry'
 import { resolveStyle } from '@/engine/styleResolver'
-import { ShapeStyleCommand, CompositeCommand } from '@/store/commands'
+import { ShapeStyleCommand, CompositeCommand, PresetApplyCommand } from '@/store/commands'
 import { undoManager } from '@/store/undoManager'
 import { selectActiveLayer, selectSelectedIds } from '@/store/selectors'
+import { notify } from '@/lib/toast'
 
 interface LayerPropertiesProps {
   layer: DungeonLayer
@@ -68,7 +69,17 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
     const preset = DUNGEON_STYLE_PRESETS.find((p) => p.id === id)
     if (!preset) return
     setActivePresetId(id)
-    patch(preset.dungeonStyle as Partial<DungeonStyle>)
+    const cmd = new PresetApplyCommand(
+      `Apply preset: ${preset.label}`,
+      layer.id,
+      preset,
+      structuredClone(layer.style),
+    )
+    undoManager.execute(cmd)
+    notify.action(`Applied '${preset.label}'`, {
+      label: 'Undo',
+      onClick: () => undoManager.undo(),
+    })
   }
 
   // ── Per-shape selection logic ──
