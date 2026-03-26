@@ -20,12 +20,20 @@ export function MapsSidePanel() {
   const [activeTab, setActiveTab] = useState<'maps' | 'scenes'>('maps');
 
   const handleNewMap = useCallback(async () => {
-    await createNewMap();
+    try {
+      await createNewMap();
+      notify.success('New map created');
+    } catch (err) {
+      console.error('[MapsSidePanel] Failed to create map:', err);
+      notify.error('Failed to create map');
+    }
   }, [createNewMap]);
 
   const handleSwitch = useCallback((id: string) => {
     const singleton = getEngineSingleton();
     const fog = singleton?.sceneGraph.fogTransition;
+
+    const targetName = useStore.getState().mapIndex.find((m) => m.id === id)?.name ?? 'map';
 
     switchMap(id, {
       getActiveMapId: () => useStore.getState().activeMapId,
@@ -40,26 +48,51 @@ export function MapsSidePanel() {
         if (type === 'error') notify.error(msg);
         else notify.info(msg);
       },
+    }).then(() => {
+      notify.info(`Switched to '${targetName}'`);
+    }).catch((err: unknown) => {
+      console.error('[MapsSidePanel] Switch failed:', err);
     });
   }, []);
 
   const handleRename = useCallback(
     async (id: string, name: string) => {
-      await renameMap(id, name);
+      try {
+        await renameMap(id, name);
+        notify.subtle('Map renamed');
+      } catch (err) {
+        console.error('[MapsSidePanel] Rename failed:', err);
+        notify.error('Failed to rename map');
+      }
     },
     [renameMap],
   );
 
   const handleDuplicate = useCallback(
     async (id: string) => {
-      await duplicateMap(id);
+      try {
+        await duplicateMap(id);
+        notify.success('Map duplicated');
+      } catch (err) {
+        console.error('[MapsSidePanel] Duplicate failed:', err);
+        notify.error('Failed to duplicate map');
+      }
     },
     [duplicateMap],
   );
 
   const handleDelete = useCallback(
     async (id: string) => {
-      await storeDeleteMap(id);
+      try {
+        await storeDeleteMap(id);
+        notify.action('Map deleted', {
+          label: 'Undo',
+          onClick: () => undoManager.undo(),
+        });
+      } catch (err) {
+        console.error('[MapsSidePanel] Delete failed:', err);
+        notify.error('Failed to delete map');
+      }
     },
     [storeDeleteMap],
   );

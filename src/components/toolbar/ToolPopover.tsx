@@ -19,6 +19,7 @@ import { DUNGEON_STYLE_PRESETS } from '@/store/presetRegistry';
 import type { MapStylePreset } from '@/store/presetRegistry';
 import { PresetApplyCommand, LayerStyleChangeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
+import { notify } from '@/lib/toast';
 
 interface ToolPopoverProps {
   tool: ToolType;
@@ -165,6 +166,10 @@ function DrawingToolContent({
       structuredClone(layer.style),
     );
     undoManager.execute(cmd);
+    notify.action(`Applied '${preset.label}'`, {
+      label: 'Undo',
+      onClick: () => undoManager.undo(),
+    });
     onValueChange?.();
   };
 

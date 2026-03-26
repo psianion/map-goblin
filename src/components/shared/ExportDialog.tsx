@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { notify } from '@/lib/toast';
 
 const PX_PER_CELL_OPTIONS = [64, 128, 256] as const;
 type PxPerCell = (typeof PX_PER_CELL_OPTIONS)[number];
@@ -60,10 +61,13 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
         { format, pxPerCell, includeGrid, mapName },
       );
       triggerDownload(blob, filename);
+      const formatLabel = format.toUpperCase();
+      notify.success(`Exported as ${formatLabel}`);
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Export failed. Check console for details.');
       console.error('[ExportDialog]', err);
+      notify.error('Export failed');
     } finally {
       setExporting(false);
     }
