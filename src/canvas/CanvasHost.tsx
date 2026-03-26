@@ -16,6 +16,7 @@ import { initClipper } from '@/geometry/initClipper';
 import { registerAllTools } from '@/engine/tools/registerTools';
 import { SnapIndicator } from './snapIndicator';
 import { useStore } from '@/store/store';
+import { notify } from '@/lib/toast';
 
 export function CanvasHost() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -43,6 +44,7 @@ export function CanvasHost() {
         await Promise.all([pixiEngine.init(container), initClipper()]);
       } catch (err) {
         console.error('[CanvasHost] Failed to initialize engine or Clipper2 WASM:', err);
+        notify.error('Engine failed to start', { persistent: true });
         return;
       }
       useStore.getState().setClipperReady(true);

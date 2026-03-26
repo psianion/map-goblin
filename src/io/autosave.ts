@@ -9,6 +9,7 @@
 // Recovery check: on app mount, if dirty flag is set, prompt user to restore.
 
 import type { SerializedMapData } from '@/store/types';
+import { notify } from '@/lib/toast';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -158,9 +159,16 @@ export function startAutosave(
       saveCurrentMap()
         .then(() => {
           clearDirtyFlag();
+          notify.subtle('Autosaved');
         })
         .catch((err: unknown) => {
           console.warn('[autosave] save failed:', err);
+          notify.action('Autosave failed', {
+            label: 'Retry',
+            onClick: () => {
+              saveCurrentMap().catch(() => {});
+            },
+          });
         });
     }, AUTOSAVE_DELAY_MS);
   };
