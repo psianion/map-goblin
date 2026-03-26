@@ -4,13 +4,12 @@
 import { saveMap } from '@/io/saveLoad';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
-import { notify } from '@/lib/toast';
+import { notify, notifyCoalesce } from '@/lib/toast';
 import { AddChildCommand, RemoveChildCommand, CompositeCommand } from '@/store/commands';
 import type { AnyChild, DungeonLayer } from '@/store/types';
 import { selectLayerForChild } from '@/store/selectors';
 import { togglePopoverRef } from '@/components/toolbar/toolConstants';
 import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
-import { notify, notifyCoalesce } from '@/lib/toast';
 
 /** Set by App.tsx so the shortcut system can trigger the file picker */
 export const importImageRef: { current: (() => void) | null } = { current: null };

@@ -18,6 +18,7 @@ import { importImageRef } from '@/shortcuts/defaultShortcuts';
 import { ShortcutHelpDialog } from '@/components/shared/ShortcutHelpDialog';
 import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
 import { useStore } from '@/store/store';
+import { notify } from '@/lib/toast';
 import './index.css';
 
 /**
@@ -168,22 +169,10 @@ export default function App() {
         if (cancelled) return;
 
         if (result.migrated) {
-          useStore.getState().pushToast({
-            id: crypto.randomUUID(),
-            message: 'Previous work imported into Maps system',
-            type: 'info',
-            duration: 5000,
-            createdAt: Date.now(),
-          });
+          notify.info('Previous work imported into Maps system');
         }
         if (result.warning) {
-          useStore.getState().pushToast({
-            id: crypto.randomUUID(),
-            message: result.warning,
-            type: 'error',
-            duration: 6000,
-            createdAt: Date.now(),
-          });
+          notify.error(result.warning);
         }
 
         await useStore.getState().loadMapIndex();
