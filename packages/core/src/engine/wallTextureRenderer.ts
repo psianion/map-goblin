@@ -1,0 +1,415 @@
+import { Sprite, Container, TilingSprite } from 'pixi.js';
+import type { Texture } from 'pixi.js';
+import type { DungeonStyle, WallSegment } from '../store/types';
+import type { Polygon } from '../types/geometry';
+import { projectPointOntoLineSegment } from '../shared/wallSnap';
+import * as textureLoader from '../assets/textureLoader';
+import { resolveTexture } from '../assets/textureLoader';
+import { getWallStripTexture, getWallPieces, type WallCategory, type WallPieceType, resolvePackWallPiece } from '../assets/textureManifest';
+import { getAssetPackManager } from './assetPackInstance';
+
+/**
+ * Render a single wall segment as a TilingSprite rotated to follow the edge.
+ *
+ * With contentRect trimming, texture.height = content pixels (no padding).
+ * tileScale = wallWidth / texture.height maps one texture repeat to wallWidth.
+ * Uniform X/Y keeps stone/wood detail proportional at any width.
+ */
+function renderWallSegment(
+  parent: Container,
+  x1: number, y1: number,
+  x2: number, y2: number,
+  wallWidth: number,
+  texture: Texture,
+  tileScaleVal: number,
+  tintColor: number,
+): void {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const length = Math.hypot(dx, dy);
+  if (length < 0.001) return;
+
+  const angle = Math.atan2(dy, dx);
+
+  const ts = new TilingSprite({
+    texture,
+    width: length,
+    height: wallWidth,
+    tileScale: { x: tileScaleVal, y: tileScaleVal },
+  });
+  // Center the wall strip on the edge line
+  ts.position.set(0, -wallWidth / 2);
+  ts.tint = tintColor;
+
+  const seg = new Container();
+  seg.position.set(x1, y1);
+  seg.rotation = angle;
+  seg.addChild(ts);
+  parent.addChild(seg);
+}
+
+/**
+ * Try to resolve a wall piece texture from pack entries.
+ * If setId is a pack category (contains ':'), look up modular pieces from the pack manager.
+ * Falls back to null if no pack piece found.
+ */
+function resolvePackPiece(
+  setId: string,
+  pieceType: WallPieceType,
+): Texture | null {
+  if (!setId.includes(':')) return null;
+
+  const packManager = getAssetPackManager();
+  const [packId] = setId.split(':');
+  if (!packId) return null;
+
+  const prefix = extractWallSetPrefix(setId);
+  if (!prefix) return null;
+
+  // Search the pack's texture cache for matching pieces
+  for (const installed of packManager.getInstalledPacks()) {
+    if (installed.packId !== packId) continue;
+    // Iterate the texture cache to find wall entries
+    const candidates = resolvePackWallPiece(
+      getPackWallEntryIds(packId),
+      prefix,
+      pieceType,
+    );
+    if (candidates.length > 0) {
+      const tex = packManager.getTextureOrNull(candidates[0]);
+      if (tex && tex.width > 0) return tex;
+    }
+  }
+  return null;
+}
+
+/** Extract the wall set family prefix from a pack-scoped setId (e.g. 'Fence_Stone_Slate_A' from material name) */
+function extractWallSetPrefix(setId: string): string | null {
+  const localId = setId.includes(':') ? setId.split(':')[1] : setId;
+  if (!localId) return null;
+  // Match up to the piece type keyword (Straight, Corner, Joint, etc.)
+  const match = localId.match(/^(.+?)_(?:Straight|Corner|Joint|Connector|Ending|DIAG)/);
+  return match?.[1] ?? null;
+}
+
+/** Get all wall entry IDs for a given pack from the texture cache */
+function getPackWallEntryIds(packId: string): string[] {
+  const packManager = getAssetPackManager();
+  return packManager.getEntryIds(packId).filter((id) => id.toLowerCase().includes('wall') || id.includes('Fence') || id.includes('Straight') || id.includes('Corner'));
+}
+
+/**
+ * Render textured walls into the walls Container.
+ * If no wallTextureSetId: renders nothing (invisible walls).
+ */
+export interface DoorGap {
+  wallId: string;
+  position: [number, number];
+  width: number;
+}
+
+export function renderTexturedWalls(
+  wallsContainer: Container,
+  polygons: Polygon[],
+  standaloneWalls: WallSegment[],
+  style: DungeonStyle,
+  doorGaps: DoorGap[] = [],
+): void {
+  wallsContainer.removeChildren();
+
+  if (!style.wallTextureSetId) return;
+
+  const setId = style.wallTextureSetId as WallCategory;
+  const stripEntry = getWallStripTexture(setId);
+  if (!stripEntry) return;
+
+  const stripTexture = resolveTexture(stripEntry.id);
+  if (stripTexture.width === 0) return;
+
+  const tintColor = parseInt(style.wallTextureTint.replace('#', ''), 16) || 0xffffff;
+  const wallWidth = style.wallWidth;
+
+  // tileScale: wallWidth / texture.height.
+  // With contentRect applied, texture.height = content height (no padding).
+  // One texture repeat fills exactly wallWidth world units.
+  // Uniform X/Y keeps stone/wood detail proportional.
+  const tileScaleVal = wallWidth / stripTexture.height;
+
+  // ── Auto-walls: one segment per polygon edge ──
+  for (const poly of polygons) {
+    if (poly.length < 2) continue;
+    for (let i = 0; i < poly.length; i++) {
+      const [x1, y1] = poly[i];
+      const [x2, y2] = poly[(i + 1) % poly.length];
+      renderWallSegment(wallsContainer, x1, y1, x2, y2, wallWidth, stripTexture, tileScaleVal, tintColor);
+    }
+  }
+
+  // ── Standalone walls (with door gap skipping) ──
+  for (const wall of standaloneWalls) {
+    if (wall.points.length < 2) continue;
+    const w = wall.width || wallWidth;
+    const standaloneTS = w / stripTexture.height;
+
+    const gaps = doorGaps.filter((g) => g.wallId === wall.id);
+
+    for (let i = 0; i < wall.points.length - 1; i++) {
+      const start = wall.points[i];
+      const end = wall.points[i + 1];
+
+      if (gaps.length === 0) {
+        renderWallSegment(wallsContainer, start[0], start[1], end[0], end[1], w, stripTexture, standaloneTS, tintColor);
+        continue;
+      }
+
+      // Compute gap intervals as parametric t values along the segment
+      const dx = end[0] - start[0];
+      const dy = end[1] - start[1];
+      const segLen = Math.sqrt(dx * dx + dy * dy);
+      if (segLen < 0.01) continue;
+
+      const intervals: { tStart: number; tEnd: number }[] = [];
+      for (const gap of gaps) {
+        const proj = projectPointOntoLineSegment(gap.position, start, end);
+        const halfT = (gap.width / 2) / segLen;
+        intervals.push({
+          tStart: Math.max(0, proj.t - halfT),
+          tEnd: Math.min(1, proj.t + halfT),
+        });
+      }
+      intervals.sort((a, b) => a.tStart - b.tStart);
+
+      // Render wall sub-segments between gaps
+      let cursor = 0;
+      for (const { tStart, tEnd } of intervals) {
+        if (tStart > cursor + 0.001) {
+          const sx = start[0] + dx * cursor;
+          const sy = start[1] + dy * cursor;
+          const ex = start[0] + dx * tStart;
+          const ey = start[1] + dy * tStart;
+          renderWallSegment(wallsContainer, sx, sy, ex, ey, w, stripTexture, standaloneTS, tintColor);
+        }
+        cursor = Math.max(cursor, tEnd);
+      }
+      if (cursor < 1 - 0.001) {
+        const sx = start[0] + dx * cursor;
+        const sy = start[1] + dy * cursor;
+        renderWallSegment(wallsContainer, sx, sy, end[0], end[1], w, stripTexture, standaloneTS, tintColor);
+      }
+    }
+  }
+
+  // ── Corner overlay sprites at polygon junctions ──
+  // Pass stripTexture.height (content height after trim) as the reference arm width.
+  // Corner pieces have the same arm thickness as the straight strip in the FA pack.
+  renderCornerOverlays(wallsContainer, polygons, setId, style, tintColor, stripTexture.height);
+
+  // ── Ending overlay sprites on standalone wall endpoints ──
+  renderEndingOverlays(wallsContainer, standaloneWalls, setId, style, tintColor, stripTexture.height);
+}
+
+/**
+ * Select the best corner piece for a given angle.
+ * - Sharp corners (~90°): use 1x1 pieces (A/B/C — sharp L-shape)
+ * - Obtuse/diagonal (>100°): use 2x2+ pieces (D/E — rounded) when available
+ * - Very obtuse (>140°): use 3x3 pieces (F — large rounded) when available
+ *
+ * Phase 7: Also tries pack-sourced modular pieces before bundled.
+ */
+function selectCornerTexture(
+  setId: WallCategory | string,
+  _wallWidth: number,
+  angleDeg: number,
+): { tex: import('pixi.js').Texture; gridSize: string } | null {
+  // Phase 7: Try pack modular pieces first
+  const packCorner = resolvePackPiece(setId, angleDeg <= 100 ? 'inner-corner' : 'outer-corner');
+  if (packCorner && packCorner.width > 0) {
+    return { tex: packCorner, gridSize: '1x1' };
+  }
+
+  // Fall back to bundled pieces
+  const pieces = getWallPieces(setId as WallCategory, 'corner');
+  if (pieces.length === 0) return null;
+
+  const loaded: { tex: import('pixi.js').Texture; gridSize: string }[] = [];
+  for (const entry of pieces) {
+    const tex = resolveTexture(entry.id);
+    if (tex.width > 0) {
+      loaded.push({ tex, gridSize: entry.gridSize ?? '1x1' });
+    }
+  }
+  if (loaded.length === 0) return null;
+
+  let targetSize: string;
+  if (angleDeg <= 100) {
+    targetSize = '1x1';
+  } else if (angleDeg <= 140) {
+    targetSize = '2x2';
+  } else {
+    targetSize = '3x3';
+  }
+
+  const exact = loaded.filter((p) => p.gridSize === targetSize);
+  if (exact.length > 0) {
+    return { tex: exact[0].tex, gridSize: exact[0].gridSize };
+  }
+
+  return { tex: loaded[0].tex, gridSize: loaded[0].gridSize };
+}
+
+/**
+ * Place corner sprites at polygon vertices where two edges meet at an angle.
+ * Selects the corner variant based on the angle at each vertex:
+ *   ~90° → 1x1 sharp L-shape
+ *   ~135° → 2x2 rounded corner
+ *   >140° → 3x3 large rounded corner
+ */
+function renderCornerOverlays(
+  container: Container,
+  polygons: Polygon[],
+  setId: WallCategory | string,
+  style: DungeonStyle,
+  tintColor: number,
+  stripContentHeight: number,
+): void {
+  const ANGLE_THRESHOLD_RAD = 30 * (Math.PI / 180);
+  const spriteScale = style.wallWidth / stripContentHeight;
+
+  for (const poly of polygons) {
+    const n = poly.length;
+    if (n < 3) continue;
+
+    for (let i = 0; i < n; i++) {
+      const prev = poly[(i - 1 + n) % n];
+      const curr = poly[i];
+      const next = poly[(i + 1) % n];
+
+      const dx1 = prev[0] - curr[0];
+      const dy1 = prev[1] - curr[1];
+      const dx2 = next[0] - curr[0];
+      const dy2 = next[1] - curr[1];
+
+      const dot = dx1 * dx2 + dy1 * dy2;
+      const cross = dx1 * dy2 - dy1 * dx2;
+      const angle = Math.abs(Math.atan2(cross, dot));
+      const angleDeg = angle * (180 / Math.PI);
+
+      if (angle > ANGLE_THRESHOLD_RAD && angle < (Math.PI - ANGLE_THRESHOLD_RAD)) {
+        const len1 = Math.hypot(dx1, dy1);
+        const len2 = Math.hypot(dx2, dy2);
+        if (len1 < 0.001 || len2 < 0.001) continue;
+
+        // Select corner piece based on this vertex's angle
+        const selected = selectCornerTexture(setId, style.wallWidth, angleDeg);
+        if (!selected) continue;
+
+        const bisectX = dx1 / len1 + dx2 / len2;
+        const bisectY = dy1 / len1 + dy2 / len2;
+        const bisectAngle = Math.atan2(bisectY, bisectX);
+
+        const sprite = new Sprite(selected.tex);
+        sprite.anchor.set(0.5);
+        sprite.position.set(curr[0], curr[1]);
+        sprite.rotation = bisectAngle - Math.PI / 4;
+        sprite.scale.set(spriteScale);
+        sprite.tint = tintColor;
+        container.addChild(sprite);
+      }
+    }
+  }
+}
+
+/**
+ * Place ending sprites at standalone wall endpoints.
+ */
+function renderEndingOverlays(
+  container: Container,
+  standaloneWalls: WallSegment[],
+  setId: WallCategory | string,
+  style: DungeonStyle,
+  tintColor: number,
+  stripContentHeight: number,
+): void {
+  // Phase 7: Try pack end-cap piece first
+  const packEnding = resolvePackPiece(setId, 'end-cap');
+  if (packEnding && packEnding.width > 0) {
+    renderEndingsWithTexture(container, standaloneWalls, style, tintColor, stripContentHeight, packEnding);
+    return;
+  }
+
+  const endingPieces = getWallPieces(setId as WallCategory, 'ending');
+  if (endingPieces.length === 0) return;
+
+  const endingEntry = endingPieces[0];
+  const endingTex = resolveTexture(endingEntry.id);
+  if (endingTex.width === 0) return;
+
+  renderEndingsWithTexture(container, standaloneWalls, style, tintColor, stripContentHeight, endingTex);
+}
+
+/** Shared helper: place ending sprites at standalone wall endpoints using a given texture */
+function renderEndingsWithTexture(
+  container: Container,
+  standaloneWalls: WallSegment[],
+  style: DungeonStyle,
+  tintColor: number,
+  stripContentHeight: number,
+  endingTex: Texture,
+): void {
+  for (const wall of standaloneWalls) {
+    if (wall.points.length < 2) continue;
+    const w = wall.width || style.wallWidth;
+    const spriteScale = w / stripContentHeight;
+
+    // First point
+    const [x0, y0] = wall.points[0];
+    const [x1, y1] = wall.points[1];
+    const startSprite = new Sprite(endingTex);
+    startSprite.anchor.set(0.5);
+    startSprite.position.set(x0, y0);
+    startSprite.rotation = Math.atan2(y0 - y1, x0 - x1);
+    startSprite.scale.set(spriteScale);
+    startSprite.tint = tintColor;
+    container.addChild(startSprite);
+
+    // Last point
+    const last = wall.points.length - 1;
+    const [xL, yL] = wall.points[last];
+    const [xP, yP] = wall.points[last - 1];
+    const endSprite = new Sprite(endingTex);
+    endSprite.anchor.set(0.5);
+    endSprite.position.set(xL, yL);
+    endSprite.rotation = Math.atan2(yL - yP, xL - xP);
+    endSprite.scale.set(spriteScale);
+    endSprite.tint = tintColor;
+    container.addChild(endSprite);
+  }
+}
+
+/**
+ * Preload all textures needed for wall rendering.
+ */
+export function preloadWallTextures(style: DungeonStyle): Promise<boolean> {
+  if (!style.wallTextureSetId) return Promise.resolve(false);
+  const setId = style.wallTextureSetId as WallCategory;
+
+  const promises: Promise<unknown>[] = [];
+
+  const strip = getWallStripTexture(setId);
+  if (strip) promises.push(textureLoader.load(strip.id));
+
+  // Preload ALL corner variants (selector picks best at render time)
+  const corners = getWallPieces(setId, 'corner');
+  for (const entry of corners) {
+    promises.push(textureLoader.load(entry.id));
+  }
+
+  // Preload endings
+  const endings = getWallPieces(setId, 'ending');
+  for (const entry of endings) {
+    promises.push(textureLoader.load(entry.id));
+  }
+
+  if (promises.length === 0) return Promise.resolve(false);
+  return Promise.all(promises).then(() => true).catch(() => false);
+}

@@ -1,0 +1,1825 @@
+{
+  "name": "dungeon-classic",
+  "version": "1.0.0",
+  "description": "Foundation pack — classic dungeon tileset. Ships with map-builder as the zero-install experience.",
+  "theme": [
+    "dungeon",
+    "cave",
+    "ruin"
+  ],
+  "entries": {
+    "Fence_Stone_Slate_A_Connector_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Connector_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Connector_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Connector_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 201,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Connector_C_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Connector_C_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 0,
+        "y": 201,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Connector_DIAG_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Connector_DIAG_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 201,
+        "y": 201,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Connector_D_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Connector_D_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 402,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Corner_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Corner_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 402,
+        "y": 201,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Corner_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Corner_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 0,
+        "y": 402,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Corner_C_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Corner_C_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 201,
+        "y": 402,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Corner_D_2x2_2x2_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Corner_D_2x2",
+      "gridSize": "2x2",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 603,
+        "y": 0,
+        "w": 400,
+        "h": 400
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Corner_E_2x2_2x2_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Corner_E_2x2",
+      "gridSize": "2x2",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 603,
+        "y": 401,
+        "w": 400,
+        "h": 400
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Corner_F_3x3_3x3_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Corner_F_3x3",
+      "gridSize": "3x3",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 1004,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Ending_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Ending_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 402,
+        "y": 402,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Joint_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Joint_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 0,
+        "y": 802,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Joint_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Joint_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 201,
+        "y": 802,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Straight_A_3x1_3x1_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Straight_A_3x1",
+      "gridSize": "3x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 1004,
+        "y": 601,
+        "w": 600,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Straight_B_2x1_2x1_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Straight_B_2x1",
+      "gridSize": "2x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 402,
+        "y": 802,
+        "w": 400,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Straight_C_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Straight_C_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 803,
+        "y": 802,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fence_Stone_Slate_A_Straight_D_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Fence_Stone_Slate_A_Straight_D_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 1004,
+        "y": 802,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Connector_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Connector_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 1205,
+        "y": 802,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Connector_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Connector_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 0,
+        "y": 1003,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Connector_DIAG_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Connector_DIAG_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 201,
+        "y": 1003,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Corner_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Corner_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 402,
+        "y": 1003,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Corner_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Corner_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 603,
+        "y": 1003,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Corner_C_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Corner_C_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 804,
+        "y": 1003,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Corner_D_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Corner_D_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 1005,
+        "y": 1003,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Corner_E_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Corner_E_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 1206,
+        "y": 1003,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Corner_F_2x2_2x2_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Corner_F_2x2",
+      "gridSize": "2x2",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 0,
+        "y": 1204,
+        "w": 400,
+        "h": 400
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Corner_G_2x2_2x2_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Corner_G_2x2",
+      "gridSize": "2x2",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 401,
+        "y": 1204,
+        "w": 400,
+        "h": 400
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Corner_H_3x3_3x3_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Corner_H_3x3",
+      "gridSize": "3x3",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 1605,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Ending_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Ending_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 1406,
+        "y": 802,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Joint_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Joint_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 1605,
+        "y": 601,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Joint_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Joint_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 1806,
+        "y": 601,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Joint_C_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Joint_C_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 802,
+        "y": 1204,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Joint_D_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Joint_D_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 802,
+        "y": 1405,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Straight_A_3x1_3x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Straight_A_3x1",
+      "gridSize": "3x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 1407,
+        "y": 1003,
+        "w": 600,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Straight_B_2x1_2x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Straight_B_2x1",
+      "gridSize": "2x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 1607,
+        "y": 802,
+        "w": 400,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Straight_C_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Straight_C_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 1003,
+        "y": 1204,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Straight_D_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Straight_D_1x1",
+      "gridSize": "1x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 1003,
+        "y": 1405,
+        "w": 200,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wall_Wood_Ashen_B_Straight_Path_8x1_wall_A": {
+      "type": "wall",
+      "material": "Wall_Wood_Ashen_B_Straight_Path",
+      "gridSize": "8x1",
+      "pieceType": "wall",
+      "variant": "A",
+      "atlas": "atlas-wall-ffcc1679.webp",
+      "frame": {
+        "x": 0,
+        "y": 1606,
+        "w": 1600,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Grass_Path_Scatter_01_A_4x2_scatter_A": {
+      "type": "scatter",
+      "material": "Grass_Path_Scatter_01_A",
+      "gridSize": "4x2",
+      "pieceType": "scatter",
+      "variant": "A",
+      "atlas": "atlas-scatter-095695eb.webp",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 400
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "cave-floor-06-a_1x1_floor_A": {
+      "type": "floor",
+      "material": "Cave_Floor_06_A",
+      "gridSize": "5x5",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-060bdb3a.webp",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1000,
+        "h": 1000
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "cobblestone-a-01_1x1_floor_A": {
+      "type": "floor",
+      "material": "Cobblestone_A_01",
+      "gridSize": "3x3",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-060bdb3a.webp",
+      "frame": {
+        "x": 1001,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "cracked-dirt-a-01_1x1_floor_A": {
+      "type": "floor",
+      "material": "Cracked_Dirt_A_01",
+      "gridSize": "5x5",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-060bdb3a.webp",
+      "frame": {
+        "x": 0,
+        "y": 1001,
+        "w": 1000,
+        "h": 1000
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "dirt-b-04_1x1_floor_A": {
+      "type": "floor",
+      "material": "Dirt_B_04",
+      "gridSize": "5x5",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-060bdb3a.webp",
+      "frame": {
+        "x": 1602,
+        "y": 0,
+        "w": 1000,
+        "h": 1000
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "dirt-c-02_1x1_floor_A": {
+      "type": "floor",
+      "material": "Dirt_C_02",
+      "gridSize": "5x5",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-060bdb3a.webp",
+      "frame": {
+        "x": 1001,
+        "y": 1001,
+        "w": 1000,
+        "h": 1000
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "grass-a-01_1x1_floor_A": {
+      "type": "floor",
+      "material": "Grass_A_01",
+      "gridSize": "6x6",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-060bdb3a.webp",
+      "frame": {
+        "x": 0,
+        "y": 2002,
+        "w": 1200,
+        "h": 1200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "grass-a-09_1x1_floor_A": {
+      "type": "floor",
+      "material": "Grass_A_09",
+      "gridSize": "6x6",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-060bdb3a.webp",
+      "frame": {
+        "x": 1201,
+        "y": 2002,
+        "w": 1200,
+        "h": 1200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "grassy-dirt-a-02_1x1_floor_A": {
+      "type": "floor",
+      "material": "Grassy_Dirt_A_02",
+      "gridSize": "5x5",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-060bdb3a.webp",
+      "frame": {
+        "x": 2002,
+        "y": 1001,
+        "w": 1000,
+        "h": 1000
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "gravel-06-c_1x1_floor_A": {
+      "type": "floor",
+      "material": "Gravel_06_C",
+      "gridSize": "5x5",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-060bdb3a.webp",
+      "frame": {
+        "x": 2603,
+        "y": 0,
+        "w": 1000,
+        "h": 1000
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "gravel-06-j_1x1_floor_A": {
+      "type": "floor",
+      "material": "Gravel_06_J",
+      "gridSize": "5x5",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-060bdb3a.webp",
+      "frame": {
+        "x": 2402,
+        "y": 2002,
+        "w": 1000,
+        "h": 1000
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "large-flagstone-a-01_1x1_floor_A": {
+      "type": "floor",
+      "material": "Large_Flagstone_A_01",
+      "gridSize": "4x4",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-060bdb3a.webp",
+      "frame": {
+        "x": 0,
+        "y": 3203,
+        "w": 800,
+        "h": 800
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "rectangular-tiles-a-01_1x1_floor_A": {
+      "type": "floor",
+      "material": "Rectangular_Tiles_A_01",
+      "gridSize": "3x3",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-060bdb3a.webp",
+      "frame": {
+        "x": 3003,
+        "y": 1001,
+        "w": 600,
+        "h": 600
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "rock-ground-c-06_1x1_floor_A": {
+      "type": "floor",
+      "material": "Rock_Ground_C_06",
+      "gridSize": "5x5",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-060bdb3a.webp",
+      "frame": {
+        "x": 2402,
+        "y": 3003,
+        "w": 1000,
+        "h": 1000
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "rock-tiles-b-01_1x1_floor_A": {
+      "type": "floor",
+      "material": "Rock_Tiles_B_01",
+      "gridSize": "3x3",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-060bdb3a.webp",
+      "frame": {
+        "x": 801,
+        "y": 3203,
+        "w": 600,
+        "h": 600
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "smooth-stone-floor-a-10_1x1_floor_A": {
+      "type": "floor",
+      "material": "Smooth_Stone_Floor_Terrain_A_10",
+      "gridSize": "8x8",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-d326408b.webp",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 1600,
+        "h": 1600
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Water_Opaque_A_03_6x6_floor_A": {
+      "type": "floor",
+      "material": "Water_Opaque_A_03",
+      "gridSize": "6x6",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-d326408b.webp",
+      "frame": {
+        "x": 1601,
+        "y": 0,
+        "w": 1200,
+        "h": 1200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Water_Still_A_01_7x7_floor_A": {
+      "type": "floor",
+      "material": "Water_Still_A_01",
+      "gridSize": "7x7",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-d326408b.webp",
+      "frame": {
+        "x": 0,
+        "y": 1601,
+        "w": 1400,
+        "h": 1400
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wooden_Flooring_A_Ashen_5x5_floor_A": {
+      "type": "floor",
+      "material": "Wooden_Flooring_A_Ashen",
+      "gridSize": "5x5",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-d326408b.webp",
+      "frame": {
+        "x": 1601,
+        "y": 1201,
+        "w": 1000,
+        "h": 1000
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wooden_Flooring_B_Dark_5x5_floor_A": {
+      "type": "floor",
+      "material": "Wooden_Flooring_B_Dark",
+      "gridSize": "5x5",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-d326408b.webp",
+      "frame": {
+        "x": 2802,
+        "y": 0,
+        "w": 1000,
+        "h": 1000
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wooden_Flooring_C_Light_5x5_floor_A": {
+      "type": "floor",
+      "material": "Wooden_Flooring_C_Light",
+      "gridSize": "5x5",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-d326408b.webp",
+      "frame": {
+        "x": 2802,
+        "y": 1001,
+        "w": 1000,
+        "h": 1000
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wooden_Flooring_D_Red_5x5_floor_A": {
+      "type": "floor",
+      "material": "Wooden_Flooring_D_Red",
+      "gridSize": "5x5",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-d326408b.webp",
+      "frame": {
+        "x": 0,
+        "y": 3002,
+        "w": 1000,
+        "h": 1000
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Wooden_Flooring_E_Walnut_5x5_floor_A": {
+      "type": "floor",
+      "material": "Wooden_Flooring_E_Walnut",
+      "gridSize": "5x5",
+      "pieceType": "floor",
+      "variant": "A",
+      "atlas": "atlas-floor-d326408b.webp",
+      "frame": {
+        "x": 1001,
+        "y": 3002,
+        "w": 1000,
+        "h": 1000
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Bank_Dirt_01_Path_A1_4x1_edge_A": {
+      "type": "edge",
+      "material": "Bank_Dirt_01_Path_A1",
+      "gridSize": "4x1",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 800,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Bank_Grassy_01_Path_A1_4x1_edge_A": {
+      "type": "edge",
+      "material": "Bank_Grassy_01_Path_A1",
+      "gridSize": "4x1",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 0,
+        "y": 201,
+        "w": 800,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Bank_Stone_Mossy_Path_A1_4x1_edge_A": {
+      "type": "edge",
+      "material": "Bank_Stone_Mossy_Path_A1",
+      "gridSize": "4x1",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 0,
+        "y": 402,
+        "w": 800,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Burrows_Cave_Dirt_01_Path_A1_4x2_edge_A": {
+      "type": "edge",
+      "material": "Burrows_Cave_Dirt_01_Path_A1",
+      "gridSize": "4x2",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 0,
+        "y": 603,
+        "w": 800,
+        "h": 400
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Burrows_Cave_Stone_Mossy_Path_A1_4x2_edge_A": {
+      "type": "edge",
+      "material": "Burrows_Cave_Stone_Mossy_Path_A1",
+      "gridSize": "4x2",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 801,
+        "y": 0,
+        "w": 800,
+        "h": 400
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Cliff_Dirt_01_Path_D1_4x2_edge_A": {
+      "type": "edge",
+      "material": "Cliff_Dirt_01_Path_D1",
+      "gridSize": "4x2",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 801,
+        "y": 401,
+        "w": 800,
+        "h": 400
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Cliff_Dirt_01_Path_E3_4x2_edge_A": {
+      "type": "edge",
+      "material": "Cliff_Dirt_01_Path_E3",
+      "gridSize": "4x2",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 801,
+        "y": 802,
+        "w": 800,
+        "h": 400
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Cliff_Dirt_02_Path_H2_4x2_edge_A": {
+      "type": "edge",
+      "material": "Cliff_Dirt_02_Path_H2",
+      "gridSize": "4x2",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 0,
+        "y": 1004,
+        "w": 800,
+        "h": 400
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Cliff_Grassy_01_Path_F1_4x2_edge_A": {
+      "type": "edge",
+      "material": "Cliff_Grassy_01_Path_F1",
+      "gridSize": "4x2",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 801,
+        "y": 1203,
+        "w": 800,
+        "h": 400
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Cliff_Stone_Mossy_Path_D1_4x2_edge_A": {
+      "type": "edge",
+      "material": "Cliff_Stone_Mossy_Path_D1",
+      "gridSize": "4x2",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 0,
+        "y": 1405,
+        "w": 800,
+        "h": 400
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Cliff_Stone_Mossy_Path_G1_4x2_edge_A": {
+      "type": "edge",
+      "material": "Cliff_Stone_Mossy_Path_G1",
+      "gridSize": "4x2",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 1602,
+        "y": 0,
+        "w": 800,
+        "h": 400
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Cliff_Top_Stone_Mossy_A1_Path_A1_4x1_edge_A": {
+      "type": "edge",
+      "material": "Cliff_Top_Stone_Mossy_A1_Path_A1",
+      "gridSize": "4x1",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 1602,
+        "y": 401,
+        "w": 800,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Cliff_Top_Stone_Mossy_A2_Path_A1_4x1_edge_A": {
+      "type": "edge",
+      "material": "Cliff_Top_Stone_Mossy_A2_Path_A1",
+      "gridSize": "4x1",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 1602,
+        "y": 602,
+        "w": 800,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Floor_Break_Stone_Slate_A_Path_18x1_edge_A": {
+      "type": "edge",
+      "material": "Floor_Break_Stone_Slate_A_Path",
+      "gridSize": "18x1",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 0,
+        "y": 1806,
+        "w": 3600,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Floor_Break_Wood_Ashen_A_Path_9x1_edge_A": {
+      "type": "edge",
+      "material": "Floor_Break_Wood_Ashen_A_Path",
+      "gridSize": "9x1",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 801,
+        "y": 1604,
+        "w": 1800,
+        "h": 200
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Under_Cliff_01_Path_A1_4x2_edge_A": {
+      "type": "edge",
+      "material": "Under_Cliff_01_Path_A1",
+      "gridSize": "4x2",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 2602,
+        "y": 0,
+        "w": 800,
+        "h": 400
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Under_Cliff_02_Path_A2_4x2_edge_A": {
+      "type": "edge",
+      "material": "Under_Cliff_02_Path_A2",
+      "gridSize": "4x2",
+      "pieceType": "edge",
+      "variant": "A",
+      "atlas": "atlas-edge-6d093d27.webp",
+      "frame": {
+        "x": 2602,
+        "y": 401,
+        "w": 800,
+        "h": 400
+      },
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Campfire_Embers_B1_1x1_1x1_object_A": {
+      "type": "object",
+      "material": "Campfire_Embers_B1_1x1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Campfire_Wood_Dark_Stone_Sandstone_Lit_A1_1x1_1x1_object_A": {
+      "type": "object",
+      "material": "Campfire_Wood_Dark_Stone_Sandstone_Lit_A1_1x1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Fallen_Leaves_Piles_Green1_A1_1x1_1x1_object_A": {
+      "type": "object",
+      "material": "Fallen_Leaves_Piles_Green1_A1_1x1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Grass_Patch_Green1_A1_1x1_1x1_object_A": {
+      "type": "object",
+      "material": "Grass_Patch_Green1_A1_1x1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Lamp_Metal_Brass_A_1x1_1x1_object_A": {
+      "type": "object",
+      "material": "Lamp_Metal_Brass_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Lamp_Street_Metal_Brass_A_1x1_1x1_object_A": {
+      "type": "object",
+      "material": "Lamp_Street_Metal_Brass_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Log_Ashen_A1_6x3_6x3_object_A": {
+      "type": "object",
+      "material": "Log_Ashen_A1_6x3",
+      "gridSize": "6x3",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Log_Bridge_Wood_Walnut_A1_11x4_11x4_object_A": {
+      "type": "object",
+      "material": "Log_Bridge_Wood_Walnut_A1_11x4",
+      "gridSize": "11x4",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Puddle_Water_Blue_A11_1x1_1x1_object_A": {
+      "type": "object",
+      "material": "Puddle_Water_Blue_A11_1x1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Puddle_Water_Blue_A1_2x2_2x2_object_A": {
+      "type": "object",
+      "material": "Puddle_Water_Blue_A1_2x2",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Puddle_Water_Muddy_A12_2x2_2x2_object_A": {
+      "type": "object",
+      "material": "Puddle_Water_Muddy_A12_2x2",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Puddle_Water_Muddy_A5_2x2_2x2_object_A": {
+      "type": "object",
+      "material": "Puddle_Water_Muddy_A5_2x2",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Rock_Stone_Mossy_C11_2x1_2x1_object_A": {
+      "type": "object",
+      "material": "Rock_Stone_Mossy_C11_2x1",
+      "gridSize": "2x1",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Stump_Ashen_A1_4x4_4x4_object_A": {
+      "type": "object",
+      "material": "Stump_Ashen_A1_4x4",
+      "gridSize": "4x4",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "Tree_Green_A1_6x6_6x6_object_A": {
+      "type": "object",
+      "material": "Tree_Green_A1_6x6",
+      "gridSize": "6x6",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    }
+  },
+  "atlases": {
+    "atlas-wall-ffcc1679.webp": {
+      "checksum": "sha256:ffcc167993ad7c7d02324886063bf4d1a9d737febc64e0cd2c8200f17f419950",
+      "size": 147960
+    },
+    "atlas-wall-ffcc1679.json": {
+      "checksum": "sha256:c4e617f8927ab84d970b80e88103bd342edeb7315f98d5a99489385719a7958a",
+      "size": 8002
+    },
+    "atlas-scatter-095695eb.webp": {
+      "checksum": "sha256:095695eb874495b08fbd59e4e872f80adfe9cb0abeb29267dcd9d2637a2b3561",
+      "size": 111768
+    },
+    "atlas-scatter-095695eb.json": {
+      "checksum": "sha256:25c5dd9af6643a557c6121ee6dcdb7b6404c3a3b0992a6482c6e167620e08639",
+      "size": 308
+    },
+    "atlas-floor-060bdb3a.webp": {
+      "checksum": "sha256:060bdb3ac81c10a176e155030616c96dc4b093b5168d18748fdeff846ea55964",
+      "size": 3927666
+    },
+    "atlas-floor-060bdb3a.json": {
+      "checksum": "sha256:fcb447535e931c0add1f666e641e029565c333cf63403f8bd7a25b4515d14dfa",
+      "size": 2809
+    },
+    "atlas-floor-d326408b.webp": {
+      "checksum": "sha256:d326408b5b794b26bbf8fd8db18c093394c1ac5cfb94876985b2607d0c978d8d",
+      "size": 1408278
+    },
+    "atlas-floor-d326408b.json": {
+      "checksum": "sha256:a58f83feec0ae568da9e979b938ed117bac8ff977968460ba4ac9f379f3be875",
+      "size": 1738
+    },
+    "atlas-edge-6d093d27.webp": {
+      "checksum": "sha256:6d093d27407bd7192bc992b1484787c8fc1e204601c78d6cf92de43d480f70f3",
+      "size": 929014
+    },
+    "atlas-edge-6d093d27.json": {
+      "checksum": "sha256:3fd4d3c08c00b07bb211aa42d178a341bd2168a1f74c225ee6f500ea4a9fa331",
+      "size": 3429
+    }
+  },
+  "files": {
+    "Campfire_Embers_B1_1x1_1x1_A-02aa09e4.webp": {
+      "checksum": "sha256:02aa09e431e6c8c3bba41ef60305f1f55d057988b0df6bf2e12a7ea2af026b76",
+      "size": 5440
+    },
+    "Campfire_Wood_Dark_Stone_Sandstone_Lit_A1_1x1_1x1_A-88651527.webp": {
+      "checksum": "sha256:88651527c7dc8c8352011defe7998b870ae9fa39db9f5f78fbea40e1f0a536fd",
+      "size": 17550
+    },
+    "Fallen_Leaves_Piles_Green1_A1_1x1_1x1_A-b30d52b8.webp": {
+      "checksum": "sha256:b30d52b8585be876f11fe5b13e3fb5f0b219c39770336f273c363edee18b80f6",
+      "size": 16664
+    },
+    "Grass_Patch_Green1_A1_1x1_1x1_A-34bd5936.webp": {
+      "checksum": "sha256:34bd5936e4f1a7210c61bab46ce96bb6c19cde4a3795acdba927e8cbd5efcfb0",
+      "size": 8996
+    },
+    "Lamp_Metal_Brass_A_1x1_1x1_A-4b290b12.webp": {
+      "checksum": "sha256:4b290b126b49c617e37ebdfc1e0084d2d463ef806130e646ff64b5f481f64639",
+      "size": 2136
+    },
+    "Lamp_Street_Metal_Brass_A_1x1_1x1_A-2f4f203f.webp": {
+      "checksum": "sha256:2f4f203fd031bdfe4a96ae2660f130b8b57b90eaeae9197ea6bae7292be55b0e",
+      "size": 2712
+    },
+    "Log_Ashen_A1_6x3_6x3_A-27ad0b2e.webp": {
+      "checksum": "sha256:27ad0b2ed8f6ddee181043c1db39bbf67d334f2504de2fef7eacbfa3d6a538db",
+      "size": 72898
+    },
+    "Log_Bridge_Wood_Walnut_A1_11x4_11x4_A-ab0a70d2.webp": {
+      "checksum": "sha256:ab0a70d29dc52c80e180612be288873d59a1bd438feebf7be1b3eaa30a29b779",
+      "size": 508398
+    },
+    "Puddle_Water_Blue_A11_1x1_1x1_A-dd589f98.webp": {
+      "checksum": "sha256:dd589f989caf7357fbc2fe6c5952ec4a3ab8daab666fe83a243aeeca0b559ba5",
+      "size": 14268
+    },
+    "Puddle_Water_Blue_A1_2x2_2x2_A-5ff4ab38.webp": {
+      "checksum": "sha256:5ff4ab38ec69a6524d4d1bcffd12dde58a537918e9716fdb8c2dc34eff8267c6",
+      "size": 30084
+    },
+    "Puddle_Water_Muddy_A12_2x2_2x2_A-6812df79.webp": {
+      "checksum": "sha256:6812df792274857bd71f752ad921c805695a5f285888aa195cd88c5d054abf9e",
+      "size": 19592
+    },
+    "Puddle_Water_Muddy_A5_2x2_2x2_A-b99ad399.webp": {
+      "checksum": "sha256:b99ad3993ef6e19bbef71774e0b05228dec35805dd8a1d90c58cf8aa8f54cb45",
+      "size": 26516
+    },
+    "Rock_Stone_Mossy_C11_2x1_2x1_A-446dd2e7.webp": {
+      "checksum": "sha256:446dd2e74158f2ba41cd69c129d5a9f0b8864baf2951348e0816e1760858fbee",
+      "size": 10982
+    },
+    "Stump_Ashen_A1_4x4_4x4_A-8d4c4202.webp": {
+      "checksum": "sha256:8d4c42020590da33fed0656362a39e5494f7eabe59629f99d5cda3b5db19ac08",
+      "size": 59188
+    },
+    "Tree_Green_A1_6x6_6x6_A-a8ca7dab.webp": {
+      "checksum": "sha256:a8ca7dabed4925b4b629f3867b793da53ea06adb8be3422260f2cf2df9562b9b",
+      "size": 502320
+    }
+  },
+  "checksums": {
+    "atlas-wall-ffcc1679.webp": "sha256:ffcc167993ad7c7d02324886063bf4d1a9d737febc64e0cd2c8200f17f419950",
+    "atlas-wall-ffcc1679.json": "sha256:c4e617f8927ab84d970b80e88103bd342edeb7315f98d5a99489385719a7958a",
+    "atlas-scatter-095695eb.webp": "sha256:095695eb874495b08fbd59e4e872f80adfe9cb0abeb29267dcd9d2637a2b3561",
+    "atlas-scatter-095695eb.json": "sha256:25c5dd9af6643a557c6121ee6dcdb7b6404c3a3b0992a6482c6e167620e08639",
+    "atlas-floor-060bdb3a.webp": "sha256:060bdb3ac81c10a176e155030616c96dc4b093b5168d18748fdeff846ea55964",
+    "atlas-floor-060bdb3a.json": "sha256:fcb447535e931c0add1f666e641e029565c333cf63403f8bd7a25b4515d14dfa",
+    "atlas-floor-d326408b.webp": "sha256:d326408b5b794b26bbf8fd8db18c093394c1ac5cfb94876985b2607d0c978d8d",
+    "atlas-floor-d326408b.json": "sha256:a58f83feec0ae568da9e979b938ed117bac8ff977968460ba4ac9f379f3be875",
+    "atlas-edge-6d093d27.webp": "sha256:6d093d27407bd7192bc992b1484787c8fc1e204601c78d6cf92de43d480f70f3",
+    "atlas-edge-6d093d27.json": "sha256:3fd4d3c08c00b07bb211aa42d178a341bd2168a1f74c225ee6f500ea4a9fa331",
+    "Campfire_Embers_B1_1x1_1x1_A-02aa09e4.webp": "sha256:02aa09e431e6c8c3bba41ef60305f1f55d057988b0df6bf2e12a7ea2af026b76",
+    "Campfire_Wood_Dark_Stone_Sandstone_Lit_A1_1x1_1x1_A-88651527.webp": "sha256:88651527c7dc8c8352011defe7998b870ae9fa39db9f5f78fbea40e1f0a536fd",
+    "Fallen_Leaves_Piles_Green1_A1_1x1_1x1_A-b30d52b8.webp": "sha256:b30d52b8585be876f11fe5b13e3fb5f0b219c39770336f273c363edee18b80f6",
+    "Grass_Patch_Green1_A1_1x1_1x1_A-34bd5936.webp": "sha256:34bd5936e4f1a7210c61bab46ce96bb6c19cde4a3795acdba927e8cbd5efcfb0",
+    "Lamp_Metal_Brass_A_1x1_1x1_A-4b290b12.webp": "sha256:4b290b126b49c617e37ebdfc1e0084d2d463ef806130e646ff64b5f481f64639",
+    "Lamp_Street_Metal_Brass_A_1x1_1x1_A-2f4f203f.webp": "sha256:2f4f203fd031bdfe4a96ae2660f130b8b57b90eaeae9197ea6bae7292be55b0e",
+    "Log_Ashen_A1_6x3_6x3_A-27ad0b2e.webp": "sha256:27ad0b2ed8f6ddee181043c1db39bbf67d334f2504de2fef7eacbfa3d6a538db",
+    "Log_Bridge_Wood_Walnut_A1_11x4_11x4_A-ab0a70d2.webp": "sha256:ab0a70d29dc52c80e180612be288873d59a1bd438feebf7be1b3eaa30a29b779",
+    "Puddle_Water_Blue_A11_1x1_1x1_A-dd589f98.webp": "sha256:dd589f989caf7357fbc2fe6c5952ec4a3ab8daab666fe83a243aeeca0b559ba5",
+    "Puddle_Water_Blue_A1_2x2_2x2_A-5ff4ab38.webp": "sha256:5ff4ab38ec69a6524d4d1bcffd12dde58a537918e9716fdb8c2dc34eff8267c6",
+    "Puddle_Water_Muddy_A12_2x2_2x2_A-6812df79.webp": "sha256:6812df792274857bd71f752ad921c805695a5f285888aa195cd88c5d054abf9e",
+    "Puddle_Water_Muddy_A5_2x2_2x2_A-b99ad399.webp": "sha256:b99ad3993ef6e19bbef71774e0b05228dec35805dd8a1d90c58cf8aa8f54cb45",
+    "Rock_Stone_Mossy_C11_2x1_2x1_A-446dd2e7.webp": "sha256:446dd2e74158f2ba41cd69c129d5a9f0b8864baf2951348e0816e1760858fbee",
+    "Stump_Ashen_A1_4x4_4x4_A-8d4c4202.webp": "sha256:8d4c42020590da33fed0656362a39e5494f7eabe59629f99d5cda3b5db19ac08",
+    "Tree_Green_A1_6x6_6x6_A-a8ca7dab.webp": "sha256:a8ca7dabed4925b4b629f3867b793da53ea06adb8be3422260f2cf2df9562b9b"
+  },
+  "bundleSize": 7838716
+}

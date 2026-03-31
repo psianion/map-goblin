@@ -1,0 +1,12 @@
+{
+  "packs": {
+    "dungeon-classic": {
+      "version": "1.0.0",
+      "bundleSize": 7969177,
+      "entryCount": 94,
+      "themes": ["dungeon", "cave", "ruin"],
+      "preview": "preview-9e0e45e5.webp",
+      "manifest": "pack-4a9bdbee.json"
+    }
+  }
+}
