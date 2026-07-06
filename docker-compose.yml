@@ -1,0 +1,7 @@
+services:
+  map-goblin:
+    build: .
+    image: map-goblin:dev
+    ports:
+      - "8080:80"
+    restart: unless-stopped
