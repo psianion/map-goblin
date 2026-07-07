@@ -1,6 +1,18 @@
 // src/io/autosave.test.ts
 import 'fake-indexeddb/auto';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('@/lib/toast', () => ({
+  notify: {
+    subtle: vi.fn(),
+    action: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn(),
+    success: vi.fn(),
+  },
+}));
+
 import {
   AUTOSAVE_DB_NAME,
   AUTOSAVE_STORE_NAME,
@@ -11,7 +23,9 @@ import {
   isDirtyFlagSet,
   saveToIndexedDB,
   loadFromIndexedDB,
+  startAutosave,
 } from './autosave.ts';
+import { notify } from '@/lib/toast';
 import type { SerializedMapData } from '@/store/types';
 
 const SAMPLE_DATA: SerializedMapData = {
@@ -106,5 +120,36 @@ describe('IndexedDB autosave', () => {
     await saveToIndexedDB(updated);
     const result = await loadFromIndexedDB();
     expect(result?.data.mapSettings.name).toBe('Updated Map');
+  });
+});
+
+describe('startAutosave failure surfacing', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('surfaces a toast when the debounced autosave fails', async () => {
+    let listener: () => void = () => {};
+    const subscribe = (l: () => void) => {
+      listener = l;
+      return () => {};
+    };
+    const saveCurrentMap = vi.fn().mockRejectedValue(new Error('disk full'));
+
+    const stop = startAutosave(saveCurrentMap, subscribe);
+    listener(); // marks dirty + schedules the 30s debounced save
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(saveCurrentMap).toHaveBeenCalledTimes(1);
+    expect(notify.action).toHaveBeenCalledWith(
+      'Autosave failed — your changes may not be saved',
+      expect.objectContaining({ label: 'Retry' }),
+    );
+    stop();
   });
 });

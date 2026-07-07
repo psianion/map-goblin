@@ -244,7 +244,11 @@ export function preloadLayerTextures(layer: DungeonLayer): Promise<boolean> {
   for (const child of layer.children) {
     if (child.childType === 'shape' && child.textureId && !child.textureId.includes(':') && !textureLoader.getSync(child.textureId)) {
       // Only preload bundled textures — pack textures are loaded at boot via rehydrate
-      promises.push(textureLoader.load(child.textureId).catch(() => {}));
+      promises.push(
+        textureLoader.load(child.textureId).catch((err: unknown) => {
+          console.error(`[floorWall] texture load failed for "${child.textureId}":`, err);
+        }),
+      );
     }
   }
   promises.push(...preloadPathTextures(layer));
