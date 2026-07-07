@@ -7,6 +7,7 @@ import { undoManager } from '@/store/undoManager';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { PanelTabBar } from './PanelTabBar';
 import { MapList } from './MapList';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 
 export function MapsSidePanel() {
   const togglePanel = useStore((s) => s.togglePanel);
@@ -18,6 +19,7 @@ export function MapsSidePanel() {
   const duplicateMap = useStore((s) => s.duplicateMap);
 
   const [activeTab, setActiveTab] = useState<'maps' | 'scenes'>('maps');
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const handleNewMap = useCallback(async () => {
     try {
@@ -81,22 +83,31 @@ export function MapsSidePanel() {
     [duplicateMap],
   );
 
-  const handleDelete = useCallback(
-    async (id: string) => {
-      try {
-        await storeDeleteMap(id);
-        notify.action('Map deleted', {
-          label: 'Undo',
-          onClick: () => undoManager.undo(),
-          icon: 'trash',
-        });
-      } catch (err) {
-        console.error('[MapsSidePanel] Delete failed:', err);
-        notify.error('Failed to delete map');
-      }
-    },
-    [storeDeleteMap],
-  );
+  // Delete is destructive + irreversible in IndexedDB, so require explicit
+  // confirmation (naming the map) before touching the store. See issue #10.
+  const handleDelete = useCallback((id: string) => {
+    setPendingDeleteId(id);
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    const id = pendingDeleteId;
+    if (!id) return;
+    setPendingDeleteId(null);
+    try {
+      await storeDeleteMap(id);
+      notify.action('Map deleted', {
+        label: 'Undo',
+        onClick: () => undoManager.undo(),
+        icon: 'trash',
+      });
+    } catch (err) {
+      console.error('[MapsSidePanel] Delete failed:', err);
+      notify.error('Failed to delete map');
+    }
+  }, [pendingDeleteId, storeDeleteMap]);
+
+  const pendingMapName =
+    mapIndex.find((m) => m.id === pendingDeleteId)?.name ?? 'this map';
 
   // Sort by updatedAt descending
   const sortedMaps = [...mapIndex].sort((a, b) => b.updatedAt - a.updatedAt);
@@ -145,6 +156,16 @@ export function MapsSidePanel() {
         onRename={handleRename}
         onDuplicate={handleDuplicate}
         onDelete={handleDelete}
+      />
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        onOpenChange={(open) => { if (!open) setPendingDeleteId(null); }}
+        title="Delete map?"
+        message={`This will permanently delete "${pendingMapName}". This cannot be undone.`}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={confirmDelete}
       />
     </div>
   );
