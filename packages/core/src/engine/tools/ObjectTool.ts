@@ -24,6 +24,7 @@ function hitTestAssetChild(obj: AssetChild, point: Point): boolean {
 
 export class ObjectTool implements DrawingTool {
   readonly type = 'object' as const;
+  readonly cursor = 'copy';
   readonly overlay = new ToolOverlay();
 
   private state: ObjectToolState = 'IDLE';

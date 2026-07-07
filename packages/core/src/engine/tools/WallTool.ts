@@ -7,6 +7,7 @@ import type { DungeonLayer } from '../../store/types';
 
 export class WallTool implements DrawingTool {
   readonly type = 'wall' as const;
+  readonly cursor = 'crosshair';
   private startPoint: Point | null = null;
   private currentPoint: Point | null = null;
   private drawing = false;

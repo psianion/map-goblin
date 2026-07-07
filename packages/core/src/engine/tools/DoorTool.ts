@@ -32,6 +32,7 @@ function wallSegmentsFromFloor(mergedFloor: Polygon[]): WallSegment[] {
 
 export class DoorTool implements DrawingTool {
   readonly type = 'door' as const;
+  readonly cursor = 'crosshair';
   snapResult: WallSnapResult | null = null;
 
   onPointerDown(_point: Point): void {
