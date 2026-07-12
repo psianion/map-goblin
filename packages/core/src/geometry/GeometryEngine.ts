@@ -6,5 +6,6 @@ export interface GeometryEngine {
   difference(subjects: Polygon[], clips: Polygon[]): Polygon[];
   intersection(subjects: Polygon[], clips: Polygon[]): Polygon[];
   inflate(paths: Polygon[], delta: number): Polygon[];
+  inflateOpen(paths: Polygon[], delta: number): Polygon[];
   simplify(paths: Polygon[], epsilon: number): Polygon[];
 }

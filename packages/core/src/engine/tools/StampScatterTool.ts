@@ -5,6 +5,7 @@ import type { AssetChild, DungeonLayer, ScatterBrushSettings } from '../../store
 import { useStore } from '../../store/store';
 import { notify } from '../../shared/notify';
 import { getTextureEntry, GRID_CELL_PX } from '../../assets/textureManifest';
+import { resolveTexture } from '../../assets/textureLoader';
 import { poissonDiskSample } from '../../geometry/poissonDisk';
 import { mulberry32, hashPosition } from '../../geometry/seededRng';
 import { AddChildCommand, RemoveChildCommand, CompositeCommand } from '../../store/commands';
@@ -74,6 +75,24 @@ export class StampScatterTool implements DrawingTool {
 
   private getSettings(): ScatterBrushSettings {
     return useStore.getState().tools.settings.scatterBrush;
+  }
+
+  /**
+   * Natural size in grid cells for any asset id. Legacy manifest entries carry
+   * naturalWidth/Height; pack entries (id contains ':') have no manifest entry,
+   * so derive the size from the resolved texture's pixel dimensions.
+   */
+  private getAssetSize(assetId: string): { width: number; height: number } | null {
+    const entry = getTextureEntry(assetId);
+    if (entry) {
+      return {
+        width: entry.naturalWidth / GRID_CELL_PX,
+        height: entry.naturalHeight / GRID_CELL_PX,
+      };
+    }
+    const tex = resolveTexture(assetId);
+    if (tex.width <= 1) return null;
+    return { width: tex.width / GRID_CELL_PX, height: tex.height / GRID_CELL_PX };
   }
 
   private getActiveLayerId(): string {
@@ -156,19 +175,16 @@ export class StampScatterTool implements DrawingTool {
         settings.scaleRange[0] +
         rng() * (settings.scaleRange[1] - settings.scaleRange[0]);
 
-      const entry = getTextureEntry(assetId);
-      if (!entry) continue;
-
-      const baseWidth = entry.naturalWidth / GRID_CELL_PX;
-      const baseHeight = entry.naturalHeight / GRID_CELL_PX;
+      const size = this.getAssetSize(assetId);
+      if (!size) continue;
 
       this.pendingPlacements.push({
         position: pt,
         assetId,
         rotation,
         scale: scaleMul,
-        width: baseWidth * scaleMul,
-        height: baseHeight * scaleMul,
+        width: size.width * scaleMul,
+        height: size.height * scaleMul,
       });
     }
 
@@ -199,20 +215,18 @@ export class StampScatterTool implements DrawingTool {
   }
 
   private computeStampPlacement(worldPoint: Point, assetId: string): PlacementPoint | null {
-    const entry = getTextureEntry(assetId);
-    if (!entry) return null;
+    const size = this.getAssetSize(assetId);
+    if (!size) return null;
 
     const snapped = this.snapToCell(worldPoint);
-    const baseWidth = entry.naturalWidth / GRID_CELL_PX;
-    const baseHeight = entry.naturalHeight / GRID_CELL_PX;
 
     return {
       position: snapped,
       assetId,
       rotation: 0,
       scale: 1,
-      width: baseWidth,
-      height: baseHeight,
+      width: size.width,
+      height: size.height,
     };
   }
 
@@ -226,11 +240,19 @@ export class StampScatterTool implements DrawingTool {
   }
 
   private renderPreviewSprite(placement: PlacementPoint): void {
-    const entry = getTextureEntry(placement.assetId);
-    if (!entry) return;
-
     let tex = this.textureCache.get(placement.assetId);
     if (!tex) {
+      // Unified resolver first — covers pack + legacy-mapped textures synchronously
+      const resolved = resolveTexture(placement.assetId);
+      if (resolved.width > 1) {
+        tex = resolved;
+        this.textureCache.set(placement.assetId, tex);
+      }
+    }
+    if (!tex) {
+      // Legacy bundled path: load from the manifest entry's file URL
+      const entry = getTextureEntry(placement.assetId);
+      if (!entry) return;
       const maybeTex = Assets.get<Texture>(entry.path);
       if (maybeTex) {
         tex = maybeTex;

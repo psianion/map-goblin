@@ -159,6 +159,7 @@ export function subscribeToStore(
       }
     },
     {
+      fireImmediately: true,
       equalityFn: (a, b) =>
         a.length === b.length &&
         a.every((item, i) => item.id === b[i].id && item.opacity === b[i].opacity),
@@ -224,6 +225,11 @@ export function subscribeToStore(
       lightManager.invalidateAll();
     },
     {
+      // fireImmediately: render shapes already in the store at subscribe time.
+      // The map rehydrates from IndexedDB before the engine finishes booting,
+      // so without an initial pass a reloaded map stays invisible until the
+      // first mutation.
+      fireImmediately: true,
       equalityFn: (a, b) =>
         a.length === b.length &&
         a.every((item, i) =>

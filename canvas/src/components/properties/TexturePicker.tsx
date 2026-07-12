@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { getTexturesByType, getTextureEntry } from '@/assets/textureManifest'
 import type { FloorCategory } from '@/assets/textureManifest'
+import { PackThumbnailCanvas } from '@/components/layers/AssetBrowserPanel'
 
 interface TexturePickerProps {
   value: string | undefined
@@ -142,12 +143,7 @@ export function TexturePicker({ value, onChange }: TexturePickerProps) {
                       : 'border-border-default hover:border-white/30'}
                   `}
                 >
-                  <img
-                    src={entry.path}
-                    alt={entry.label}
-                    className="w-full h-full object-cover"
-                    draggable={false}
-                  />
+                  <PackThumbnailCanvas textureId={entry.id} />
                 </button>
               ))}
             </div>
@@ -168,11 +164,9 @@ export function TexturePicker({ value, onChange }: TexturePickerProps) {
       >
         {selectedEntry ? (
           <>
-            <img
-              src={selectedEntry.path}
-              alt={selectedEntry.label}
-              className="w-5 h-5 rounded-sm object-cover shrink-0"
-            />
+            <span className="w-5 h-5 rounded-sm overflow-hidden shrink-0">
+              <PackThumbnailCanvas textureId={selectedEntry.id} />
+            </span>
             <span className="font-mono text-[10px] text-text-secondary truncate">
               {selectedEntry.label}
             </span>

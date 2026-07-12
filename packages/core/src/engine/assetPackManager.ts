@@ -412,11 +412,18 @@ export class AssetPackManager {
           loadParser: 'loadTextures',
         })
 
-        // Match standalone file to its entry by finding the entry whose localId is in the filename
-        for (const [, entry] of Object.entries(manifest.entries)) {
-          // Standalone files have content-hash suffix: LocalId-hash.webp
-          if (fileName.startsWith(entry.localId)) {
-            this.textureCache.set(`${packId}:${entry.localId}`, texture)
+        // Match standalone file to its entry. Real pack manifests carry
+        // `material`/`gridSize`/`variant` (no `localId` field); files are named
+        // `{material}_{gridSize}_{variant}-{hash}.webp` while the entry key is
+        // `{material}_{gridSize}_{type}_{variant}`. Register under the entry KEY
+        // — that's what manifestBridge/resolveTexture look up.
+        for (const [entryId, entry] of Object.entries(manifest.entries)) {
+          const e = entry as ManifestEntry & { material?: string; variant?: string }
+          const prefix = e.material
+            ? `${e.material}_${e.gridSize}_${e.variant ?? 'A'}-`
+            : e.localId
+          if (prefix && fileName.startsWith(prefix)) {
+            this.textureCache.set(`${packId}:${entryId}`, texture)
             break
           }
         }

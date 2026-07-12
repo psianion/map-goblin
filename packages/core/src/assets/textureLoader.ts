@@ -14,6 +14,28 @@ import { getAssetPackManager } from '../engine/assetPackInstance';
 const cache = new Map<string, Texture>();
 const refCounts = new Map<string, number>();
 
+// Content-trimmed views of pack atlas textures, keyed by pack entry ID.
+// Pack atlases ship untrimmed cells (200px, trimmed:false); the renderer's
+// wall math assumes content-height textures, so re-apply the legacy
+// manifest's contentRect as a sub-frame into the atlas.
+const trimmedPackCache = new Map<string, Texture>();
+
+function applyContentRect(legacyId: string, packEntryId: string, packTex: Texture): Texture {
+  const entry = getTextureEntry(legacyId);
+  // Fallback texture is 1x1 — never sub-frame it
+  if (!entry?.contentRect || packTex.width <= 1) return packTex;
+  const cached = trimmedPackCache.get(packEntryId);
+  if (cached) return cached;
+  const { x, y, w, h } = entry.contentRect;
+  const f = packTex.frame;
+  const trimmed = new Texture({
+    source: packTex.source,
+    frame: new Rectangle(f.x + x, f.y + y, w, h),
+  });
+  trimmedPackCache.set(packEntryId, trimmed);
+  return trimmed;
+}
+
 /** Load a texture by manifest ID. Returns Texture.EMPTY for unknown IDs. */
 export async function load(textureId: string): Promise<Texture> {
   const cached = cache.get(textureId);
@@ -21,6 +43,18 @@ export async function load(textureId: string): Promise<Texture> {
 
   const entry = getTextureEntry(textureId);
   if (!entry) return Texture.EMPTY;
+
+  // Prefer the installed pack's texture — the bundled /textures/ files are
+  // not shipped with the app, so loading entry.path would just 404.
+  const mapped = resolveLegacyId(textureId);
+  if (mapped && mapped !== textureId) {
+    const packTex = getAssetPackManager().getTextureOrNull(mapped);
+    if (packTex) {
+      const texture = applyContentRect(textureId, mapped, packTex);
+      cache.set(textureId, texture);
+      return texture;
+    }
+  }
 
   const baseTexture = await Assets.load<Texture>(entry.path);
 
@@ -98,11 +132,11 @@ export function resolveTexture(id: string): Texture {
     return packManager.getTexture(id);
   }
 
-  // 2. Legacy ID mapping
+  // 2. Legacy ID mapping (content-trimmed — see applyContentRect)
   const mapped = resolveLegacyId(id);
   if (mapped && mapped !== id) {
     const packManager = getAssetPackManager();
-    return packManager.getTexture(mapped);
+    return applyContentRect(id, mapped, packManager.getTexture(mapped));
   }
 
   // 3. Bundled texture from existing cache

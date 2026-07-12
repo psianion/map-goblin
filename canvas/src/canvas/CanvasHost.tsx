@@ -6,7 +6,7 @@ import { setupRenderLoop } from '@/engine/renderLoop';
 import { subscribeToStore } from '@/engine/subscribeToStore';
 import { subscribeToAssets } from '@/engine/subscribeToAssets';
 import { setEngineSingleton, clearEngineSingleton } from '@/engine/engineSingleton';
-import { LightManager } from '@/engine/lighting';
+import { LightManager } from '@dnd/core/src/engine/lighting/index';
 import { useCanvasResize } from './useCanvasResize';
 import { useCanvasInput, registerInputMiddleware, setToolManager, setSnapIndicator } from './useCanvasInput';
 import { listenDprChanges } from '@/engine/camera';

@@ -136,12 +136,22 @@ export function renderTexturedWalls(
   const tileScaleVal = wallWidth / stripTexture.height;
 
   // ── Auto-walls: one segment per polygon edge ──
+  // Each segment is extended by wallWidth/2 at both ends so adjacent strips
+  // overlap at the vertex and corners self-cover at any angle (the stone
+  // texture hides the seam). Corner sprites are only overlaid near 90°.
   for (const poly of polygons) {
     if (poly.length < 2) continue;
     for (let i = 0; i < poly.length; i++) {
       const [x1, y1] = poly[i];
       const [x2, y2] = poly[(i + 1) % poly.length];
-      renderWallSegment(wallsContainer, x1, y1, x2, y2, wallWidth, stripTexture, tileScaleVal, tintColor);
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const len = Math.hypot(dx, dy);
+      if (len < 0.001) continue;
+      const ext = wallWidth / 2;
+      const ux = (dx / len) * ext;
+      const uy = (dy / len) * ext;
+      renderWallSegment(wallsContainer, x1 - ux, y1 - uy, x2 + ux, y2 + uy, wallWidth, stripTexture, tileScaleVal, tintColor);
     }
   }
 
@@ -272,7 +282,6 @@ function renderCornerOverlays(
   tintColor: number,
   stripContentHeight: number,
 ): void {
-  const ANGLE_THRESHOLD_RAD = 30 * (Math.PI / 180);
   const spriteScale = style.wallWidth / stripContentHeight;
 
   for (const poly of polygons) {
@@ -294,7 +303,13 @@ function renderCornerOverlays(
       const angle = Math.abs(Math.atan2(cross, dot));
       const angleDeg = angle * (180 / Math.PI);
 
-      if (angle > ANGLE_THRESHOLD_RAD && angle < (Math.PI - ANGLE_THRESHOLD_RAD)) {
+      // Only near-square corners: the L-shaped 1x1 pieces are authored for
+      // ~90° junctions (vertex-centered, bisector-rotated). Oblique corners
+      // are covered by the strip end-extension instead — the rounded 2x2/3x3
+      // pieces need edge-aligned placement this renderer doesn't do yet.
+      const NEAR_SQUARE_MIN = 60 * (Math.PI / 180);
+      const NEAR_SQUARE_MAX = 100 * (Math.PI / 180);
+      if (angle > NEAR_SQUARE_MIN && angle < NEAR_SQUARE_MAX) {
         const len1 = Math.hypot(dx1, dy1);
         const len2 = Math.hypot(dx2, dy2);
         if (len1 < 0.001 || len2 < 0.001) continue;
