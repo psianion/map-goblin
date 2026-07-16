@@ -48,8 +48,9 @@ export async function deleteAutosaveFromIndexedDB(): Promise<void> {
     await new Promise<void>((resolve) => {
       tx.oncomplete = () => { db.close(); resolve(); };
     });
-  } catch {
+  } catch (err) {
     // Best-effort — don't block app
+    console.warn('[autosave] failed to delete autosave entry:', err);
   }
 }
 
@@ -127,8 +128,8 @@ export async function loadFromIndexedDB(): Promise<AutosaveEntry | null> {
         try {
           const deleteTx = db.transaction(AUTOSAVE_STORE_NAME, 'readwrite');
           deleteTx.objectStore(AUTOSAVE_STORE_NAME).delete(AUTOSAVE_KEY);
-        } catch {
-          // ignore
+        } catch (err) {
+          console.warn('[autosave] failed to delete stale autosave entry:', err);
         }
         clearDirtyFlag();
         resolve(null);
@@ -176,11 +177,19 @@ export function startAutosave(
           notify.subtle('Autosaved', { icon: 'save' });
         })
         .catch((err: unknown) => {
-          console.warn('[autosave] save failed:', err);
-          notify.action('Autosave failed', {
+          console.error('[autosave] save failed:', err);
+          notify.action('Autosave failed — your changes may not be saved', {
             label: 'Retry',
             onClick: () => {
-              saveCurrentMap().catch(() => {});
+              saveCurrentMap()
+                .then(() => {
+                  clearDirtyFlag();
+                  notify.subtle('Autosaved', { icon: 'save' });
+                })
+                .catch((retryErr: unknown) => {
+                  console.error('[autosave] retry failed:', retryErr);
+                  notify.error('Autosave retry failed — save manually to avoid losing work');
+                });
             },
           });
         });

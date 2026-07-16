@@ -219,6 +219,7 @@ export async function loadMap(): Promise<boolean> {
       await restoreCustomImages(data.customImages);
     } catch (err) {
       console.warn('[loadMap] restoreCustomImages failed:', err);
+      notify.warning('Some embedded images could not be restored from this file');
     }
   }
 
@@ -236,6 +237,7 @@ export async function loadMap(): Promise<boolean> {
     }
   } catch (err) {
     console.warn('[loadMap] Failed to create map entry:', err);
+    notify.error('Map loaded but could not be saved to your map list');
   }
 
   return true;
