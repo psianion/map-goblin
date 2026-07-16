@@ -155,8 +155,9 @@ export function subscribeToAssets(): () => void {
                     syncSprite(sprite, obj);
                   }
                 })
-                .catch(() => {
-                  // Leave WHITE texture as fallback
+                .catch((err: unknown) => {
+                  // Leave WHITE texture as fallback; surface which asset failed
+                  console.error(`[assets] texture load failed for "${obj.assetId}":`, err);
                 });
             }
           }

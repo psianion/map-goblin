@@ -46,6 +46,12 @@ export class PixiRenderEngine implements RenderEngine {
     this.worldContainer.position.set(rect.width / 2, rect.height / 2);
 
     this.app.ticker.maxFPS = 60;
+
+    // Expose for E2E/automation (dev only): lets tests force a frame while the
+    // tab is hidden, where rAF (and thus the ticker) is suspended.
+    if (import.meta.env.DEV) {
+      (window as Window & { __pixiApp?: Application }).__pixiApp = this.app;
+    }
   }
 
   destroy(): void {

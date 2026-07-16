@@ -3,6 +3,8 @@
 // Legacy IDs are the flat string IDs from textureManifest.ts (e.g. 'stone-slate', 'grass-a-01').
 // New IDs use the pack-scoped format 'dungeon-classic:stone-slate_1x1_floor_A'.
 
+import { getTextureEntry } from '../assets/textureManifest'
+
 /**
  * Built-in mapping table from legacy texture IDs to new pack entry IDs.
  * Generated from the existing textureManifest categories.
@@ -49,7 +51,22 @@ export function resolveLegacyId(textureId: string): string | null {
   }
 
   // Look up in built-in mapping table
-  return LEGACY_MAP[textureId] ?? null
+  const mapped = LEGACY_MAP[textureId]
+  if (mapped) return mapped
+
+  // Derive the pack entry ID from the legacy manifest entry:
+  // {filename-stem}_{gridSize}_{type}_A
+  // e.g. 'wall-stone-a-straight-a-3x1' (Fence_Stone_Slate_A_Straight_A_3x1.png, 3x1)
+  //      → 'dungeon-classic:Fence_Stone_Slate_A_Straight_A_3x1_3x1_wall_A'
+  const entry = getTextureEntry(textureId)
+  if (!entry) return null
+  const stem = entry.path.split('/').pop()?.replace(/\.[a-z]+$/i, '')
+  if (!stem) return null
+  // ponytail: edge entries carry no gridSize; dungeon-classic uses 200px cells
+  const gridSize =
+    entry.gridSize ??
+    `${Math.round(entry.naturalWidth / 200)}x${Math.round(entry.naturalHeight / 200)}`
+  return `dungeon-classic:${stem}_${gridSize}_${entry.type}_A`
 }
 
 /**

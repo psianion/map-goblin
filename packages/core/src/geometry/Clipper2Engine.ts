@@ -110,6 +110,29 @@ class Clipper2EngineImpl {
     return out;
   }
 
+  /**
+   * Offset an OPEN polyline into a closed corridor polygon (round caps).
+   * EndType.Polygon treats input as a closed ring — a 2-point or
+   * near-collinear polyline has ~zero area and offsets to nothing, so open
+   * paths must use EndType.Round instead.
+   */
+  inflateOpen(paths: Polygon[], delta: number): Polygon[] {
+    if (!_clipper) return paths;
+    const C = _clipper;
+    const input = toPathsD(paths);
+    const result = C.InflatePathsD(
+      input, delta,
+      C.JoinType.Round, C.EndType.Round,
+      2,    // miterLimit
+      0.25, // arcTolerance
+      PRECISION,
+    );
+    const out = fromPathsD(result);
+    input.delete();
+    result.delete();
+    return out;
+  }
+
   simplify(paths: Polygon[], epsilon: number): Polygon[] {
     if (!_clipper) return paths;
     const C = _clipper;

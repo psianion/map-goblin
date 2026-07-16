@@ -4,10 +4,12 @@ import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
 import { selectSelectedIds } from '@/store/selectors'
 import { undoManager } from '@/store/undoManager'
-import { PropertyCommand } from '@/store/commands'
+import { PropertyCommand, AddChildCommand, RemoveChildCommand } from '@/store/commands'
 import type { AnyChild } from '@/store/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { notify } from '@/lib/toast'
+import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 
 interface ChildRowProps {
   child: AnyChild
@@ -33,7 +35,44 @@ export const ChildRow = memo(function ChildRow({ child, layerId }: ChildRowProps
   const setActiveTool = useStore((s) => s.setActiveTool)
   const setActiveLayerId = useStore((s) => s.setActiveLayerId)
 
+  const menu = useContextMenu()
   const isSelected = selectedIds.includes(child.id)
+
+  const toggleVisibility = () => {
+    undoManager.execute(new PropertyCommand(
+      child.visible ? 'Hide child' : 'Show child',
+      { type: 'child', layerId, childId: child.id },
+      { visible: child.visible },
+      { visible: !child.visible },
+    ))
+  }
+
+  // Clone with a fresh id and slight offset — same shape as the copy/paste path.
+  const duplicate = () => {
+    const clone = structuredClone(child)
+    clone.id = crypto.randomUUID()
+    clone.name = `${child.name} (copy)`
+    if ('position' in clone) {
+      const c = clone as AnyChild & { position: { x: number; y: number } }
+      c.position = { x: c.position.x + 1, y: c.position.y + 1 }
+    } else if ('transform' in clone && clone.transform) {
+      clone.transform.translate = [clone.transform.translate[0] + 1, clone.transform.translate[1] + 1]
+    }
+    undoManager.execute(new AddChildCommand('Duplicate', layerId, clone))
+    notify.action('Duplicated', { label: 'Undo', onClick: () => undoManager.undo(), icon: 'copy' })
+  }
+
+  const remove = () => {
+    undoManager.execute(new RemoveChildCommand('Delete', layerId, child.id))
+    notify.action('Deleted', { label: 'Undo', onClick: () => undoManager.undo(), icon: 'trash' })
+    setSelectedIds(selectedIds.filter((id) => id !== child.id))
+  }
+
+  const menuItems: ContextMenuItem[] = [
+    { label: 'Duplicate', onSelect: duplicate },
+    { label: child.visible ? 'Hide' : 'Show', onSelect: toggleVisibility },
+    { label: 'Delete', onSelect: remove, danger: true, separatorBefore: true },
+  ]
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -61,6 +100,7 @@ export const ChildRow = memo(function ChildRow({ child, layerId }: ChildRowProps
         !child.visible && 'opacity-50',
       )}
       onClick={handleClick}
+      onContextMenu={menu.open}
       data-testid="child-row"
     >
       {/* type icon */}
@@ -77,18 +117,15 @@ export const ChildRow = memo(function ChildRow({ child, layerId }: ChildRowProps
         size="icon-xs"
         onClick={(e) => {
           e.stopPropagation()
-          undoManager.execute(new PropertyCommand(
-            child.visible ? 'Hide child' : 'Show child',
-            { type: 'child', layerId, childId: child.id },
-            { visible: child.visible },
-            { visible: !child.visible },
-          ))
+          toggleVisibility()
         }}
         className="text-text-muted hover:text-text-primary"
         title={child.visible ? 'Hide' : 'Show'}
       >
         {child.visible ? <Eye size={12} /> : <EyeOff size={12} />}
       </Button>
+
+      <ContextMenu pos={menu.pos} onClose={menu.close} items={menuItems} />
     </div>
   )
 })

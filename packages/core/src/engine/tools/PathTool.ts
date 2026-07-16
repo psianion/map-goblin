@@ -14,6 +14,7 @@ function countShapesOfType(layer: DungeonLayer, shapeType: string): number {
 
 export class PathTool implements DrawingTool {
   readonly type = 'path' as const;
+  readonly cursor = 'crosshair';
   private vertices: Point[] = [];
   private currentPoint: Point | null = null;
   private lastClickTime = 0;
@@ -80,7 +81,7 @@ export class PathTool implements DrawingTool {
 
     const pathPoints: [number, number][] = verts.map((v) => [v.x, v.y]);
     const corridorWidth = 0.5;
-    const inflated = clipper2Engine.inflate([pathPoints], corridorWidth / 2);
+    const inflated = clipper2Engine.inflateOpen([pathPoints], corridorWidth / 2);
 
     if (inflated.length === 0) return;
 

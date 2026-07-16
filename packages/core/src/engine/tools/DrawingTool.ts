@@ -21,6 +21,8 @@ export interface PreviewShape {
 
 export interface DrawingTool {
   readonly type: ToolType;
+  /** CSS cursor for this tool when idle (default: 'default'). Gizmo hover overrides via getHoverCursor. */
+  readonly cursor?: string;
   onPointerDown(point: Point, event?: PointerEvent): void;
   onPointerMove(point: Point, event?: PointerEvent): void;
   onPointerUp(point: Point, event?: PointerEvent): void;

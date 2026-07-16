@@ -60,7 +60,7 @@ function toolToTypeFilter(tool: ToolType): AssetTypeFilter {
 // ─── Asset Thumbnail ──────────────────────────────────────
 
 /** Renders a pack texture (atlas frame) to a canvas for thumbnail display. */
-function PackThumbnailCanvas({ textureId }: { textureId: string }) {
+export function PackThumbnailCanvas({ textureId }: { textureId: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -99,6 +99,9 @@ interface AssetThumbnailProps {
 
 function AssetThumbnail({ asset, selected, onSelect }: AssetThumbnailProps) {
   const isPackAsset = asset.id.includes(':');
+  // Legacy thumbnail URLs point at /textures/ files that aren't shipped —
+  // when the <img> 404s, fall back to drawing the pack texture.
+  const [thumbFailed, setThumbFailed] = useState(false);
 
   return (
     <button
@@ -112,14 +115,15 @@ function AssetThumbnail({ asset, selected, onSelect }: AssetThumbnailProps) {
           : 'border-border bg-muted/30 hover:border-accent/50 hover:bg-muted/60',
       )}
     >
-      {asset.thumbnailUrl ? (
+      {asset.thumbnailUrl && !thumbFailed ? (
         <img
           src={asset.thumbnailUrl}
           alt={asset.name}
           className="h-full w-full object-contain"
           loading="lazy"
+          onError={() => setThumbFailed(true)}
         />
-      ) : isPackAsset ? (
+      ) : isPackAsset || thumbFailed ? (
         <PackThumbnailCanvas textureId={asset.id} />
       ) : (
         <div className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground text-center leading-tight px-1">

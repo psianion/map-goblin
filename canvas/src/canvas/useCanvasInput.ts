@@ -105,7 +105,7 @@ export function useCanvasInput(
         const sx = e.clientX - rect.left;
         const sy = e.clientY - rect.top;
         const gizmoCursor = _toolManager?.getHoverCursor(sx, sy) ?? null;
-        canvasEl.style.cursor = gizmoCursor ?? '';
+        canvasEl.style.cursor = gizmoCursor ?? _toolManager?.getCursor() ?? 'default';
       }
     };
 
@@ -212,25 +212,18 @@ export function useCanvasInput(
       if (file) await handleImageImport(file, engine);
     };
 
-    // ─── Pan tool cursor ────────────────────────────────────
-    const updateCursor = (): void => {
-      if (useStore.getState().tools.activeTool === 'pan') {
-        canvasEl.style.cursor = 'grab';
-      } else {
-        canvasEl.style.cursor = '';
-      }
+    // ─── Tool switch + base cursor ──────────────────────────
+    // Immediately switch tool (and destroy gizmo) when activeTool changes in store,
+    // then apply the new tool's base cursor. Gizmo-hover overrides happen in onPointerMove.
+    // Without the switch, the SelectTool gizmo persists visually until the next pointer event.
+    const applyActiveTool = (type: string): void => {
+      _toolManager?.switchTool(type);
+      canvasEl.style.cursor = type === 'pan' ? 'grab' : (_toolManager?.getCursor() ?? 'default');
     };
-    updateCursor();
-    const unsubCursor = useStore.subscribe(
-      (s) => s.tools.activeTool,
-      updateCursor,
-    );
-
-    // Immediately switch tool (and destroy gizmo) when activeTool changes in store.
-    // Without this, the SelectTool gizmo persists visually until the next pointer event.
+    applyActiveTool(useStore.getState().tools.activeTool);
     const unsubToolSwitch = useStore.subscribe(
       (s) => s.tools.activeTool,
-      (type) => { _toolManager?.switchTool(type); },
+      applyActiveTool,
     );
 
     const containerEl = containerRef.current;
@@ -252,7 +245,6 @@ export function useCanvasInput(
     containerEl?.addEventListener('pointerleave', onPointerLeave);
 
     return () => {
-      unsubCursor();
       unsubToolSwitch();
       canvasEl.style.cursor = '';
       canvasEl.removeEventListener('pointerdown', onPointerDown);
