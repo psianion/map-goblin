@@ -8,10 +8,11 @@ import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
 import { selectSelectedIds } from '@/store/selectors'
 import { undoManager } from '@/store/undoManager'
-import { PropertyCommand } from '@/store/commands'
+import { PropertyCommand, RemoveLayerCommand } from '@/store/commands'
 import { Button } from '@/components/ui/button'
 import { ChildRow } from './ChildRow'
 import { notify } from '@/lib/toast'
+import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 
 interface LayerRowProps {
   layer: Layer
@@ -25,6 +26,8 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
   const activeTool = useStore((s) => s.tools.activeTool)
   const selectedIds = useStore(useShallow(selectSelectedIds))
   const setSelectedIds = useStore((s) => s.setSelectedIds)
+
+  const menu = useContextMenu()
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: layer.id })
@@ -63,6 +66,47 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
     toggleExpandedLayerId(layer.id)
   }
 
+  const toggleLock = () => {
+    const wasLocked = layer.locked
+    undoManager.execute(new PropertyCommand(
+      wasLocked ? 'Unlock layer' : 'Lock layer',
+      { type: 'layer', layerId: layer.id },
+      { locked: wasLocked },
+      { locked: !wasLocked },
+    ))
+    notify.subtle(wasLocked ? 'Layer unlocked' : 'Layer locked', { icon: wasLocked ? 'unlock' : 'lock' })
+  }
+
+  const toggleVisibility = () => {
+    const wasVisible = layer.visible
+    undoManager.execute(new PropertyCommand(
+      wasVisible ? 'Hide layer' : 'Show layer',
+      { type: 'layer', layerId: layer.id },
+      { visible: wasVisible },
+      { visible: !wasVisible },
+    ))
+    notify.subtle(wasVisible ? 'Layer hidden' : 'Layer visible', { icon: wasVisible ? 'eyeOff' : 'eye' })
+  }
+
+  const deleteLayer = () => {
+    undoManager.execute(new RemoveLayerCommand('Delete layer', layer.id))
+    notify.action('Layer deleted', {
+      label: 'Undo',
+      onClick: () => undoManager.undo(),
+      icon: 'trash',
+    })
+  }
+
+  // Menu items mirror the row toolbar; delete only offered for non-background layers
+  // (removeLayer refuses to remove the background layer).
+  const menuItems: ContextMenuItem[] = [
+    { label: layer.locked ? 'Unlock' : 'Lock', onSelect: toggleLock },
+    { label: layer.visible ? 'Hide' : 'Show', onSelect: toggleVisibility },
+    ...(layer.type !== 'background'
+      ? [{ label: 'Delete Layer', onSelect: deleteLayer, danger: true, separatorBefore: true } as ContextMenuItem]
+      : []),
+  ]
+
   return (
     <div ref={setNodeRef} style={style} className={cn(isDragging && 'opacity-75 z-50')}>
       {/* Layer row */}
@@ -74,6 +118,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           !layer.visible && 'opacity-50',
         )}
         onClick={handleLayerClick}
+        onContextMenu={menu.open}
       >
         {/* drag handle */}
         {layer.type !== 'background' ? (
@@ -117,14 +162,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           size="icon-xs"
           onClick={(e) => {
             e.stopPropagation()
-            const wasLocked = layer.locked
-            undoManager.execute(new PropertyCommand(
-              wasLocked ? 'Unlock layer' : 'Lock layer',
-              { type: 'layer', layerId: layer.id },
-              { locked: wasLocked },
-              { locked: !wasLocked },
-            ))
-            notify.subtle(wasLocked ? 'Layer unlocked' : 'Layer locked', { icon: wasLocked ? 'unlock' : 'lock' })
+            toggleLock()
           }}
           className="text-text-muted hover:text-text-primary"
           title={layer.locked ? 'Unlock layer' : 'Lock layer'}
@@ -140,14 +178,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           data-visible={layer.visible}
           onClick={(e) => {
             e.stopPropagation()
-            const wasVisible = layer.visible
-            undoManager.execute(new PropertyCommand(
-              wasVisible ? 'Hide layer' : 'Show layer',
-              { type: 'layer', layerId: layer.id },
-              { visible: wasVisible },
-              { visible: !wasVisible },
-            ))
-            notify.subtle(wasVisible ? 'Layer hidden' : 'Layer visible', { icon: wasVisible ? 'eyeOff' : 'eye' })
+            toggleVisibility()
           }}
           className="text-text-muted hover:text-text-primary"
           title={layer.visible ? 'Hide layer' : 'Show layer'}
@@ -164,6 +195,8 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           ))}
         </div>
       )}
+
+      <ContextMenu pos={menu.pos} onClose={menu.close} items={menuItems} />
     </div>
   )
 })
