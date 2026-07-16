@@ -25,6 +25,8 @@ export function CanvasHost() {
   const containerRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
   const [engine, setEngine] = useState<RenderEngine | null>(null);
+  const [initError, setInitError] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const clipperReady = useStore((s) => s.ui.clipperReady);
 
   useEffect(() => {
@@ -47,7 +49,7 @@ export function CanvasHost() {
         await Promise.all([pixiEngine.init(container), initClipper()]);
       } catch (err) {
         console.error('[CanvasHost] Failed to initialize engine or Clipper2 WASM:', err);
-        notify.error('Engine failed to start', { persistent: true });
+        if (!destroyed) setInitError(true);
         return;
       }
       useStore.getState().setClipperReady(true);
@@ -142,6 +144,7 @@ export function CanvasHost() {
       const canvas = pixiEngine.canvas();
       const onContextLost = () => {
         console.warn('[CanvasHost] WebGL context lost. Try refreshing the page.');
+        notify.error('Graphics context lost — please refresh the page', { persistent: true });
       };
       canvas.addEventListener('webglcontextlost', onContextLost);
 
@@ -176,21 +179,57 @@ export function CanvasHost() {
       pixiEngine.destroy();
       setEngine(null);
     };
-  }, []);
+  }, [retryKey]);
 
   useCanvasResize(containerRef, engine);
   useCanvasInput(containerRef, engine);
 
   return (
-    <div
-      ref={containerRef}
-      data-clipper-ready={clipperReady ? 'true' : undefined}
-      style={{
-        width: '100%',
-        height: '100%',
-        touchAction: 'none',
-        overflow: 'hidden',
-      }}
-    />
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <div
+        ref={containerRef}
+        data-clipper-ready={clipperReady ? 'true' : undefined}
+        style={{
+          width: '100%',
+          height: '100%',
+          touchAction: 'none',
+          overflow: 'hidden',
+        }}
+      />
+      {(initError || !engine) && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 12,
+            color: '#ccc',
+            font: '14px system-ui, sans-serif',
+            background: '#1a1a1a',
+          }}
+        >
+          {initError ? (
+            <>
+              <div>Failed to initialize the canvas. Your browser may not support WebGL 2.</div>
+              <button
+                type="button"
+                onClick={() => {
+                  setInitError(false);
+                  setRetryKey((k) => k + 1);
+                }}
+                style={{ padding: '6px 16px', cursor: 'pointer' }}
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            <div>Initializing…</div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
