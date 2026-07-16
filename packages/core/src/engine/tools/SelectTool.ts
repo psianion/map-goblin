@@ -2,6 +2,8 @@ import { Container, Graphics } from 'pixi.js';
 import type { Point, Polygon } from '../../types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
+import { undoManager } from '../../store/undoManager';
+import { PropertyCommand } from '../../store/commands';
 import { clipper2Engine } from '../../geometry/Clipper2Engine';
 import type { AnyChild, DungeonLayer } from '../../store/types';
 import type { RenderEngine } from '../RenderEngine';
@@ -655,9 +657,15 @@ export class SelectTool implements DrawingTool {
     const withoutSelected = clipper2Engine.difference(prevFloor, cutShape) as [number, number][][];
     const newFloor = clipper2Engine.union(withoutSelected, finalRegion) as [number, number][][];
 
-    // TODO: wrap in a proper RegionMoveCommand for undo/redo once that command is added
-    // TODO: wrap in a proper RegionMoveCommand for undo/redo once that command is added
-    store.updateLayer(activeLayerId, { mergedFloor: newFloor } as Partial<DungeonLayer>);
+    // PropertyCommand snapshots mergedFloor before/after so region moves are undoable.
+    undoManager.execute(
+      new PropertyCommand(
+        'Move region',
+        { type: 'layer', layerId: activeLayerId },
+        { mergedFloor: prevFloor },
+        { mergedFloor: newFloor },
+      ),
+    );
     store.setSelectedRegion(finalRegion);
     this.overlay.drawSelection(finalRegion);
     this.state = 'SELECTED';
@@ -728,9 +736,16 @@ export class SelectTool implements DrawingTool {
     if (!activeLayer) return;
 
     const prevFloor = activeLayer.mergedFloor ?? [];
-    // TODO: wrap in a RegionCutCommand for undo/redo once that command is added
     const newFloor = clipper2Engine.difference(prevFloor, region) as [number, number][][];
-    store.updateLayer(activeLayerId, { mergedFloor: newFloor } as Partial<DungeonLayer>);
+    // PropertyCommand snapshots mergedFloor before/after so region cuts are undoable.
+    undoManager.execute(
+      new PropertyCommand(
+        'Cut region',
+        { type: 'layer', layerId: activeLayerId },
+        { mergedFloor: prevFloor },
+        { mergedFloor: newFloor },
+      ),
+    );
     store.setSelectedRegion(null);
     this.overlay.clear();
     this.destroyGizmo();

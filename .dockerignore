@@ -1,7 +1,7 @@
 **/node_modules
+**/dist
 .git
 .claude
-dist
-playwright-report
-test-results
+**/test-results
+**/playwright-report
 coverage

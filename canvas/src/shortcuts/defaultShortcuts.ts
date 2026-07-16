@@ -237,12 +237,15 @@ const toolKeyMap: Record<string, () => void | false> = {
     notify.subtle(state.ui.leftPanelOpen ? 'Maps panel closed' : 'Maps panel opened', { icon: 'map' });
   },
   'ctrl+shift+n': () => {
-    // TODO: Replace with store.createMap() when MapsSlice lands
-    // For now, just toggle the panel open so the user sees the "+ New Map" button
-    const state = useStore.getState();
-    if (!state.ui.leftPanelOpen) {
-      state.togglePanel('left');
-    }
+    // Mirrors the maps panel "New Map" button (MapsSidePanel.handleNewMap).
+    useStore
+      .getState()
+      .createNewMap()
+      .then(() => notify.success('New map created'))
+      .catch((err) => {
+        console.error('[shortcuts] Failed to create map:', err);
+        notify.error('Failed to create map');
+      });
   },
   'ctrl+x': (): void | false => {
     const store = useStore.getState();

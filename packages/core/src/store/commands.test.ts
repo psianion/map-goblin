@@ -206,3 +206,60 @@ describe('ShapeStyleCommand', () => {
     expect(child?.styleOverrides).toEqual(prevOverrides);
   });
 });
+
+// Region move/cut route mergedFloor changes through PropertyCommand (see SelectTool).
+describe('PropertyCommand mergedFloor (region move/cut undo-redo)', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+  });
+
+  const floorA: [number, number][][] = [[[0, 0], [10, 0], [10, 10], [0, 10]]];
+  const floorB: [number, number][][] = [[[5, 5], [15, 5], [15, 15], [5, 15]]];
+
+  function dungeonLayerId(): string {
+    const layer = useStore.getState().layers.find((l) => l.type === 'dungeon');
+    if (!layer) throw new Error('No dungeon layer');
+    return layer.id;
+  }
+
+  function mergedFloor(id: string) {
+    return (useStore.getState().layers.find((l) => l.id === id) as DungeonLayer).mergedFloor;
+  }
+
+  it('region move: execute applies new floor, undo restores prior, redo reapplies', () => {
+    const id = dungeonLayerId();
+    useStore.getState().updateLayer(id, { mergedFloor: floorA } as Partial<DungeonLayer>);
+
+    const cmd = new PropertyCommand(
+      'Move region',
+      { type: 'layer', layerId: id },
+      { mergedFloor: floorA },
+      { mergedFloor: floorB },
+    );
+    cmd.execute();
+    expect(mergedFloor(id)).toEqual(floorB);
+    cmd.undo();
+    expect(mergedFloor(id)).toEqual(floorA);
+    cmd.execute(); // redo
+    expect(mergedFloor(id)).toEqual(floorB);
+  });
+
+  it('region cut: undo restores exact prior floor, redo reapplies the cut', () => {
+    const id = dungeonLayerId();
+    useStore.getState().updateLayer(id, { mergedFloor: floorA } as Partial<DungeonLayer>);
+    const empty: [number, number][][] = [];
+
+    const cmd = new PropertyCommand(
+      'Cut region',
+      { type: 'layer', layerId: id },
+      { mergedFloor: floorA },
+      { mergedFloor: empty },
+    );
+    cmd.execute();
+    expect(mergedFloor(id)).toEqual(empty);
+    cmd.undo();
+    expect(mergedFloor(id)).toEqual(floorA);
+    cmd.execute(); // redo
+    expect(mergedFloor(id)).toEqual(empty);
+  });
+});
