@@ -28,6 +28,7 @@ interface PlacementPoint {
 
 export class StampScatterTool implements DrawingTool {
   readonly type = 'scatterBrush' as const;
+  readonly cursor = 'crosshair';
 
   private previewContainer: Container;
   private previewSprites: Sprite[] = [];

@@ -63,6 +63,11 @@ export class ToolManager {
     return this.activeTool?.getHoverCursor?.(sx, sy) ?? null;
   }
 
+  /** CSS base cursor for the active tool (default: 'default'). */
+  getCursor(): string {
+    return this.activeTool?.cursor ?? 'default';
+  }
+
   /** Sync screen-space gizmo position — called every frame. */
   updateGizmo(): void {
     this.activeTool?.updateGizmo?.();

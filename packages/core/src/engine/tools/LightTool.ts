@@ -11,6 +11,7 @@ function countLightsInLayer(layer: DungeonLayer): number {
 
 export class LightTool implements DrawingTool {
   readonly type = 'light' as const;
+  readonly cursor = 'crosshair';
   private cursorPoint: Point | null = null;
 
   onPointerDown(point: Point): void {
