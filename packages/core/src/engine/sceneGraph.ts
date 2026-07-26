@@ -5,6 +5,7 @@ import { ToolManager } from './tools/ToolManager';
 import { LightingRenderer } from './lighting';
 import { FogTransition } from './fogTransition';
 import { initToolPreview } from './toolPreview';
+import { initRoomHighlight } from './roomHighlight';
 
 export interface SceneGraph {
   worldContainer: Container;
@@ -91,6 +92,11 @@ export function buildSceneGraph(engine: RenderEngine): SceneGraph {
   const settingsPreview = new Graphics();
   worldContainer.addChild(settingsPreview);
   initToolPreview(settingsPreview);
+
+  // Room highlight — boundary outline driven by RoomPanel hover/selection
+  const roomHighlight = new Graphics();
+  worldContainer.addChild(roomHighlight);
+  initRoomHighlight(roomHighlight);
 
   // Lighting renderer — FBO-based compositing pass
   const vp = engine.viewport();

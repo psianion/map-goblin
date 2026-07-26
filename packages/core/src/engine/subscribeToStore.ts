@@ -16,6 +16,7 @@ import { preloadWallTextures } from './wallTextureRenderer';
 import type { DungeonLayer, LightChild, ShapeChild } from '../store/types';
 import { LightManager } from './lighting';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
+import { scheduleRoomSync } from '../store/roomSync';
 import type { Polygon } from '../types/geometry';
 
 /**
@@ -223,6 +224,10 @@ export function subscribeToStore(
       }
       // Wall geometry changed — invalidate all light visibility polygons
       lightManager.invalidateAll();
+      // ...and rooms are a function of that same geometry. Debounced because
+      // this fires per node while a wall is being drawn. Also covers load:
+      // layers are replaced wholesale, so a file without rooms gets them here.
+      scheduleRoomSync();
     },
     {
       // fireImmediately: render shapes already in the store at subscribe time.

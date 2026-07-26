@@ -19,7 +19,11 @@ export type {
   LightChild,
   DoorChild,
   AnyChild,
+  Room,
 } from './shared/types';
+
+// Session protocol (wire types shared with server + session client)
+export * from './shared/protocol';
 
 // Geometry
 export { interpolateCatmullRom, generatePathPolygon } from './geometry/catmullRom';
@@ -40,6 +44,19 @@ export type { MapBuilderStore } from './store/types';
 export type { RenderEngine, CameraState } from './engine/RenderEngine';
 export { PixiRenderEngine } from './engine/PixiRenderEngine';
 export { setEngineSingleton, getEngineSingleton, clearEngineSingleton } from './engine/engineSingleton';
+
+// Rooms
+export { detectRooms } from './engine/roomDetection';
+export { bindDoorToRooms } from './shared/roomBinding';
+export { syncRooms, scheduleRoomSync } from './store/roomSync';
+export {
+  buildRoom,
+  computeArea,
+  computeCentroid,
+  computeStableRoomId,
+  isPathway,
+  signedArea,
+} from './shared/roomUtils';
 
 // Lighting
 export { LightManager } from './engine/lighting/LightManager';

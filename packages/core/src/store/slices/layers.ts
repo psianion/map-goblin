@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { AnyChild, Layer, MapBuilderStore, SublayerVisibility, WallSegment } from '../types';
+import type { AnyChild, Layer, MapBuilderStore, Room, SublayerVisibility, WallSegment } from '../types';
 
 export interface LayerActions {
   addLayer: (layer: Layer) => void;
@@ -15,6 +15,8 @@ export interface LayerActions {
   removeWall: (layerId: string, wallId: string) => void;
   updateWall: (layerId: string, wallId: string, updates: Partial<WallSegment>) => void;
   closeAllDoors: (layerId: string) => void;
+  setRooms: (layerId: string, rooms: Room[]) => void;
+  renameRoom: (layerId: string, roomId: string, name: string) => void;
   setSublayerVisibility: (layerId: string, sublayer: keyof SublayerVisibility, visible: boolean) => void;
   setBackgroundTexture: (layerId: string, url: string | null) => void;
   setBackgroundLocked: (layerId: string, locked: boolean) => void;
@@ -147,6 +149,26 @@ export const createLayersSlice: StateCreator<
           }
         }
       }
+    }),
+
+  // ─── Rooms ──────────────────────────────────────────────
+  setRooms: (layerId, rooms) =>
+    set((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (layer && layer.type === 'dungeon') {
+        layer.rooms = rooms;
+      }
+    }),
+  // The override is the durable record — re-detection reads it back, so a
+  // renamed room keeps its name even after its boundary is recomputed.
+  renameRoom: (layerId, roomId, name) =>
+    set((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (!layer || layer.type !== 'dungeon') return;
+      layer.roomNameOverrides ??= {};
+      layer.roomNameOverrides[roomId] = name;
+      const room = layer.rooms?.find((r) => r.id === roomId);
+      if (room) room.name = name;
     }),
 
   // ─── Sublayer / background ─────────────────────────────

@@ -1,11 +1,40 @@
 import type { Point, Polygon } from '../../types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import type { DoorChild, DungeonLayer } from '../../store/types';
-import type { WallSegment } from '../../shared/types';
+import type { DoorState, WallSegment } from '../../shared/types';
 import { snapToNearestWall, type WallSnapResult } from '../../shared/wallSnap';
-import { AddChildCommand } from '../../store/commands';
+import { bindDoorToRooms } from '../../shared/roomBinding';
+import { AddChildCommand, RemoveChildCommand, UpdateChildCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
 import { useStore } from '../../store/store';
+
+/** Click-to-cycle order. Archways can't lock, so they skip straight back. */
+const NEXT_STATE: Record<DoorState, DoorState> = {
+  closed: 'open',
+  open: 'locked',
+  locked: 'closed',
+};
+
+/** Minimum click radius, so hairline doors are still clickable. */
+const MIN_HIT_RADIUS = 0.4;
+
+function doorsOf(layer: DungeonLayer): DoorChild[] {
+  return layer.children.filter((c): c is DoorChild => c.childType === 'door');
+}
+
+/** Nearest door within its own half-width of the point, or null. */
+function doorAt(point: Point, layer: DungeonLayer): DoorChild | null {
+  let best: DoorChild | null = null;
+  let bestDist = Infinity;
+  for (const door of doorsOf(layer)) {
+    const dist = Math.hypot(door.position[0] - point.x, door.position[1] - point.y);
+    if (dist <= Math.max(door.width / 2, MIN_HIT_RADIUS) && dist < bestDist) {
+      bestDist = dist;
+      best = door;
+    }
+  }
+  return best;
+}
 
 /** Extract synthetic WallSegments from mergedFloor polygon edges. */
 function wallSegmentsFromFloor(mergedFloor: Polygon[]): WallSegment[] {
@@ -34,16 +63,33 @@ export class DoorTool implements DrawingTool {
   readonly type = 'door' as const;
   readonly cursor = 'crosshair';
   snapResult: WallSnapResult | null = null;
+  /** Door under the cursor — what Delete removes and what a click cycles. */
+  hoveredDoorId: string | null = null;
 
-  onPointerDown(_point: Point): void {
-    if (!this.snapResult) return;
-
+  onPointerDown(point: Point): void {
     const store = useStore.getState();
     const activeLayerId = store.ui.activeLayerId;
     const activeLayer = store.layers.find(
       (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
     );
     if (!activeLayer) return;
+
+    // Clicking a placed door cycles it instead of stacking another one on top.
+    const hit = doorAt(point, activeLayer);
+    if (hit) {
+      undoManager.execute(
+        new UpdateChildCommand(
+          'Cycle door',
+          activeLayerId,
+          hit.id,
+          { state: hit.state },
+          { state: NEXT_STATE[hit.state] ?? 'closed' },
+        ),
+      );
+      return;
+    }
+
+    if (!this.snapResult) return;
 
     const toolSettings = store.tools.settings;
 
@@ -105,6 +151,10 @@ export class DoorTool implements DrawingTool {
       isSecret: toolSettings.doorSecret ?? false,
     };
 
+    // Bind to the rooms either side of the wall now, so lighting/fog see the
+    // topology immediately instead of waiting for the next room re-detection.
+    Object.assign(door, bindDoorToRooms(door, allWalls, activeLayer.rooms ?? []));
+
     undoManager.execute(new AddChildCommand('Place door', activeLayerId, door));
   }
 
@@ -115,6 +165,8 @@ export class DoorTool implements DrawingTool {
       (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
     );
     if (!activeLayer) return;
+
+    this.hoveredDoorId = doorAt(point, activeLayer)?.id ?? null;
 
     // H7: Use a fixed world-unit threshold that gives ~1.5 grid cells of snap range.
     // World coords use 1 unit = 1 grid cell, so 1.5 is always correct regardless of zoom.
@@ -141,10 +193,25 @@ export class DoorTool implements DrawingTool {
   }
 
   onKeyDown(event: KeyboardEvent): void {
-    if (event.key === 'Escape') this.cancel();
+    if (event.key === 'Escape') {
+      this.cancel();
+      return;
+    }
+    if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+    // Delete removes the door under the cursor — the door tool has no
+    // selection of its own, so hover is the target (matching ObjectTool).
+    const store = useStore.getState();
+    if (!this.hoveredDoorId) return;
+    undoManager.execute(
+      new RemoveChildCommand('Delete door', store.ui.activeLayerId, this.hoveredDoorId),
+    );
+    this.hoveredDoorId = null;
   }
 
   getPreview(): PreviewShape | null {
+    // Ghost only while hovering empty wall — over a placed door the click
+    // cycles it rather than placing, so a placement ghost would be a lie.
+    if (this.hoveredDoorId) return null;
     if (!this.snapResult) return null;
     const store = useStore.getState();
     const doorWidth = store.tools.settings.doorWidth || 1;
@@ -165,6 +232,7 @@ export class DoorTool implements DrawingTool {
 
   cancel(): void {
     this.snapResult = null;
+    this.hoveredDoorId = null;
   }
 
   isActive(): boolean {

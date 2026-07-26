@@ -467,6 +467,36 @@ export class CloseAllDoorsCommand implements Command {
 }
 
 /**
+ * Renames a detected room. The name lives in `roomNameOverrides`, which is
+ * what survives re-detection, so undo just writes the previous name back.
+ *
+ * ponytail: a room that had no override before gets one equal to its default
+ * name on undo. Harmless — re-detection produces the same string either way.
+ */
+export class RenameRoomCommand implements Command {
+  readonly label = 'Rename room';
+  private readonly layerId: string;
+  private readonly roomId: string;
+  private readonly before: string;
+  private readonly after: string;
+
+  constructor(layerId: string, roomId: string, before: string, after: string) {
+    this.layerId = layerId;
+    this.roomId = roomId;
+    this.before = before;
+    this.after = after;
+  }
+
+  execute(): void {
+    useStore.getState().renameRoom(this.layerId, this.roomId, this.after);
+  }
+
+  undo(): void {
+    useStore.getState().renameRoom(this.layerId, this.roomId, this.before);
+  }
+}
+
+/**
  * Command for applying a style preset to a dungeon layer.
  * Captures the full previous style for single-step undo.
  */

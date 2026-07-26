@@ -3,6 +3,7 @@ import type { Container } from 'pixi.js';
 import type { DoorChild, WallSegment } from '../shared/types';
 import type { DungeonStyle } from '../store/types';
 import { resolveTexture } from '../assets/textureLoader';
+import { getAssetPackManager } from './assetPackInstance';
 
 // State color coding (editor overlay)
 // L3: Brighter colors for secret states — dark magenta was hard to see
@@ -60,7 +61,10 @@ export function renderDoors(
     const cy = door.position[1];
     const halfWidth = door.width / 2;
     const wallColor = parseInt(style.wallColor.replace('#', ''), 16);
+    // A locked door reads as locked at a glance, not only from the state dot.
+    const glyphColor = door.state === 'locked' ? STATE_COLORS.locked : wallColor;
 
+    let drewSprite = false;
     if (door.style === 'portal' && door.portalTextureId) {
       renderPortalSprite(container, door, wallAngle);
       continue;
@@ -68,13 +72,22 @@ export function renderDoors(
       renderArchway(g, cx, cy, wallAngle, halfWidth, wallColor);
     } else if (door.style === 'portcullis') {
       renderPortcullis(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
-    } else if (door.style === 'double') {
-      renderDoubleDoor(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
     } else {
-      renderSingleDoor(g, cx, cy, wallAngle, halfWidth, wallColor, door.state, door.isSecret);
+      drewSprite = renderDoorSprite(container, door, wallAngle);
+      if (!drewSprite) {
+        if (door.style === 'double') {
+          renderDoubleDoor(g, cx, cy, wallAngle, halfWidth, glyphColor, door.state);
+        } else {
+          renderSingleDoor(g, cx, cy, wallAngle, halfWidth, glyphColor, door.state, door.isSecret);
+        }
+      }
     }
 
-    container.addChild(g);
+    if (drewSprite) {
+      g.destroy();
+    } else {
+      container.addChild(g);
+    }
 
     // C2: Skip state dot for secret doors that are closed — invisibility is the point
     // M3: Skip state dot for archways — they are permanent openings, "closed" is meaningless
@@ -89,6 +102,41 @@ export function renderDoors(
     dot.fill({ color: stateColor });
     container.addChild(dot);
   }
+}
+
+/**
+ * Pack that door sprites are looked up in. Entry IDs are
+ * `door-{single|double}-{closed|open}`; locked reuses the closed art and is
+ * distinguished by tint.
+ *
+ * No installed pack ships these yet, so `getTextureOrNull` returns null and
+ * every door falls back to the Graphics glyph below. Dropping those four
+ * entries into a pack manifest is the whole switch-over — nothing else here
+ * changes. (`getTextureOrNull`, not `resolveTexture`: a miss must be a quiet
+ * null, not a magenta placeholder plastered over the map.)
+ */
+const DOOR_SPRITE_PACK = 'dungeon-classic';
+
+function renderDoorSprite(
+  container: Container,
+  door: DoorChild,
+  wallAngle: number,
+): boolean {
+  const spriteState = door.state === 'open' ? 'open' : 'closed';
+  const tex = getAssetPackManager().getTextureOrNull(
+    `${DOOR_SPRITE_PACK}:door-${door.style}-${spriteState}`,
+  );
+  if (!tex || tex.width <= 1) return false;
+
+  const sprite = new Sprite(tex);
+  sprite.anchor.set(0.5);
+  sprite.position.set(door.position[0], door.position[1]);
+  sprite.rotation = wallAngle;
+  sprite.scale.set(door.width / tex.width);
+  sprite.tint = door.state === 'locked' ? STATE_COLORS.locked : 0xffffff;
+  sprite.alpha = door.isSecret ? 0.35 : 1;
+  container.addChild(sprite);
+  return true;
 }
 
 // Stroke width proportional to wall — thin enough to read as a symbol, not a filled shape.

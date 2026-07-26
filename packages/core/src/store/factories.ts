@@ -72,9 +72,10 @@ type MapBuilderState = Omit<
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
   | 'addChild' | 'removeChild' | 'reorderChild' | 'updateChild' | 'recomputeMergedFloor'
   | 'addWall' | 'removeWall' | 'updateWall' | 'closeAllDoors'
+  | 'setRooms' | 'renameRoom'
   | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'updateToolSettings' | 'addRecentAsset' | 'updateLightDefaults' | 'updateScatterBrushSettings'
   | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
-  | 'showModal' | 'setClipperReady' | 'setFocusMode'
+  | 'showModal' | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
   | 'applyPreset' | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
   | 'setSelectedIds' | 'setHoveredId' | 'setSelectedRegion'
@@ -148,6 +149,7 @@ export function createDefaultState(): MapBuilderState {
       modalState: null,
       clipperReady: false,
       focusMode: 'auto' as const,
+      highlightedRoomId: null,
     },
     assets: {
       manifest: null,
