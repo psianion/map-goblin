@@ -1,0 +1,33 @@
+{
+  "name": "dungeon-classic",
+  "version": "1.0.0",
+  "description": "Foundation pack — classic dungeon tileset. Ships with map-builder as the zero-install experience.",
+  "type": "foundation",
+  "themes": ["dungeon", "cave", "ruin"],
+  "gridPixels": 200,
+  "randomization": {
+    "floors": {
+      "selectionStrategy": "cell-seeded"
+    },
+    "walls": {
+      "segmentSelectionStrategy": "node-seeded"
+    }
+  },
+  "localIdOverrides": {
+    "Grass_A_01_6x6_floor_A": "grass-a-01_1x1_floor_A",
+    "Grass_A_09_6x6_floor_A": "grass-a-09_1x1_floor_A",
+    "Dirt_B_04_5x5_floor_A": "dirt-b-04_1x1_floor_A",
+    "Dirt_C_02_5x5_floor_A": "dirt-c-02_1x1_floor_A",
+    "Cracked_Dirt_A_01_5x5_floor_A": "cracked-dirt-a-01_1x1_floor_A",
+    "Grassy_Dirt_A_02_5x5_floor_A": "grassy-dirt-a-02_1x1_floor_A",
+    "Cobblestone_A_01_3x3_floor_A": "cobblestone-a-01_1x1_floor_A",
+    "Large_Flagstone_A_01_4x4_floor_A": "large-flagstone-a-01_1x1_floor_A",
+    "Rock_Tiles_B_01_3x3_floor_A": "rock-tiles-b-01_1x1_floor_A",
+    "Rectangular_Tiles_A_01_3x3_floor_A": "rectangular-tiles-a-01_1x1_floor_A",
+    "Smooth_Stone_Floor_Terrain_A_10_8x8_floor_A": "smooth-stone-floor-a-10_1x1_floor_A",
+    "Cave_Floor_06_A_5x5_floor_A": "cave-floor-06-a_1x1_floor_A",
+    "Rock_Ground_C_06_5x5_floor_A": "rock-ground-c-06_1x1_floor_A",
+    "Gravel_06_C_5x5_floor_A": "gravel-06-c_1x1_floor_A",
+    "Gravel_06_J_5x5_floor_A": "gravel-06-j_1x1_floor_A"
+  }
+}
