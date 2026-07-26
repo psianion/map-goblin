@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { MapBuilderStore, ToolSettings, ToolType, LightDefaults, ScatterBrushSettings } from '../types';
+import type { MapBuilderStore, ToolSettings, ToolType, LightDefaults, ScatterBrushSettings, TerrainBrushSettings, WaterToolSettings } from '../types';
 
 export interface ToolActions {
   setActiveTool: (tool: ToolType) => void;
@@ -9,6 +9,8 @@ export interface ToolActions {
   addRecentAsset: (assetId: string) => void;
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;
   updateScatterBrushSettings: (patch: Partial<ScatterBrushSettings>) => void;
+  updateTerrainBrushSettings: (patch: Partial<TerrainBrushSettings>) => void;
+  updateWaterSettings: (patch: Partial<WaterToolSettings>) => void;
 }
 
 export const createToolsSlice: StateCreator<
@@ -55,5 +57,20 @@ export const createToolsSlice: StateCreator<
       s.scaleRange[0] = Math.max(0.1, s.scaleRange[0]);
       s.scaleRange[1] = Math.max(s.scaleRange[0], s.scaleRange[1]);
       s.rotationRange[1] = Math.max(s.rotationRange[0], s.rotationRange[1]);
+    }),
+  updateTerrainBrushSettings: (patch) =>
+    set((state) => {
+      Object.assign(state.tools.settings.terrainBrush, patch);
+      const t = state.tools.settings.terrainBrush;
+      t.slot = Math.min(Math.max(0, Math.round(t.slot)), 5);
+      t.radius = Math.min(Math.max(0.25, t.radius), 16);
+      t.strength = Math.min(Math.max(0.05, t.strength), 1);
+    }),
+  updateWaterSettings: (patch) =>
+    set((state) => {
+      Object.assign(state.tools.settings.water, patch);
+      const w = state.tools.settings.water;
+      w.width = Math.min(Math.max(0.25, w.width), 20);
+      w.flowSpeed = Math.min(Math.max(0, w.flowSpeed), 2);
     }),
 });

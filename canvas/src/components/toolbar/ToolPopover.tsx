@@ -20,6 +20,9 @@ import type { MapStylePreset } from '@/store/presetRegistry';
 import { PresetApplyCommand, LayerStyleChangeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { notify } from '@/lib/toast';
+import { getTextureEntry } from '@/assets/textureManifest';
+import { DEFAULT_TERRAIN_PALETTE } from '@dnd/core/src/store/slices/mapSettings';
+import { PackThumbnailCanvas } from '@/components/layers/AssetBrowserPanel';
 
 interface ToolPopoverProps {
   tool: ToolType;
@@ -106,6 +109,8 @@ export function ToolPopover({ tool, anchorY, onClose }: ToolPopoverProps) {
       {tool === 'door' && <DoorToolContent onValueChange={triggerPreview} />}
       {tool === 'light' && <LightToolContent onValueChange={triggerPreview} />}
       {tool === 'scatterBrush' && <ScatterBrushContent />}
+      {tool === 'terrain' && <TerrainBrushContent />}
+      {tool === 'water' && <WaterToolContent />}
     </div>
   );
 }
@@ -664,6 +669,156 @@ function ScatterBrushContent() {
         {settings.assetIds.length === 0
           ? 'Select assets in the browser panel \u2192'
           : `${settings.assetIds.length} asset${settings.assetIds.length > 1 ? 's' : ''} selected`}
+      </div>
+    </div>
+  );
+}
+
+// \u2500\u2500\u2500 Terrain Brush Tool \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+function TerrainBrushContent() {
+  const settings = useStore(useShallow((s) => s.tools.settings.terrainBrush));
+  const eraseMode = useStore((s) => s.tools.eraseMode);
+  const palette = useStore(
+    useShallow((s) => s.mapSettings.terrain?.palette ?? DEFAULT_TERRAIN_PALETTE),
+  );
+  const updateSettings = useStore((s) => s.updateTerrainBrushSettings);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+        {eraseMode ? 'Erase Terrain' : 'Paint Terrain'}
+      </div>
+
+      {/* Terrain slot swatches */}
+      {!eraseMode && (
+        <div className="grid grid-cols-3 gap-1">
+          {palette.map((id, slot) => {
+            if (!id) return <div key={slot} className="aspect-square rounded bg-surface-2" />;
+            const entry = getTextureEntry(id);
+            const selected = settings.slot === slot;
+            return (
+              <button
+                key={slot}
+                title={entry?.label ?? id}
+                onClick={() => updateSettings({ slot })}
+                className={cn(
+                  'aspect-square rounded overflow-hidden border-2 transition-colors cursor-pointer',
+                  selected ? 'border-accent-active' : 'border-transparent hover:border-border-default',
+                )}
+              >
+                <PackThumbnailCanvas textureId={id} />
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <div>
+        <div className="flex justify-between mb-1">
+          <span className="text-[11px] text-text-secondary uppercase tracking-wider">Brush Size</span>
+          <span className="text-xs text-text-primary font-mono">{settings.radius} cells</span>
+        </div>
+        <SliderInput value={settings.radius} onChange={(v) => updateSettings({ radius: v })} min={0.5} max={12} step={0.5} />
+      </div>
+
+      <div>
+        <div className="flex justify-between mb-1">
+          <span className="text-[11px] text-text-secondary uppercase tracking-wider">Strength</span>
+          <span className="text-xs text-text-primary font-mono">{Math.round(settings.strength * 100)}%</span>
+        </div>
+        <SliderInput value={settings.strength} onChange={(v) => updateSettings({ strength: v })} min={0.1} max={1} step={0.05} />
+      </div>
+
+      <div className="text-[10px] text-text-tertiary mt-1">
+        {eraseMode ? 'Drag to clear painted terrain' : 'Drag to paint \u00b7 E toggles erase'}
+      </div>
+    </div>
+  );
+}
+
+// \u2500\u2500\u2500 Water Tool \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+function WaterToolContent() {
+  const settings = useStore(useShallow((s) => s.tools.settings.water));
+  const eraseMode = useStore((s) => s.tools.eraseMode);
+  const updateSettings = useStore((s) => s.updateWaterSettings);
+
+  if (eraseMode) {
+    return (
+      <div className="flex flex-col gap-3">
+        <div className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+          Erase Water
+        </div>
+        <div className="text-[10px] text-text-tertiary">Click a water body to remove it</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+        Water
+      </div>
+
+      {/* Mode toggle */}
+      <div className="flex gap-1 bg-surface-2 rounded-lg p-0.5">
+        <button
+          className={cn(
+            'flex-1 text-xs py-1.5 rounded-md transition-colors',
+            settings.mode === 'river'
+              ? 'bg-accent text-white font-semibold'
+              : 'text-text-secondary hover:text-text-primary',
+          )}
+          onClick={() => updateSettings({ mode: 'river' })}
+        >
+          River
+        </button>
+        <button
+          className={cn(
+            'flex-1 text-xs py-1.5 rounded-md transition-colors',
+            settings.mode === 'lake'
+              ? 'bg-accent text-white font-semibold'
+              : 'text-text-secondary hover:text-text-primary',
+          )}
+          onClick={() => updateSettings({ mode: 'lake' })}
+        >
+          Lake
+        </button>
+      </div>
+
+      {settings.mode === 'river' && (
+        <div>
+          <div className="flex justify-between mb-1">
+            <span className="text-[11px] text-text-secondary uppercase tracking-wider">River Width</span>
+            <span className="text-xs text-text-primary font-mono">{settings.width} cells</span>
+          </div>
+          <SliderInput value={settings.width} onChange={(v) => updateSettings({ width: v })} min={0.5} max={10} step={0.5} />
+        </div>
+      )}
+
+      <div>
+        <div className="flex justify-between mb-1">
+          <span className="text-[11px] text-text-secondary uppercase tracking-wider">Flow Speed</span>
+          <span className="text-xs text-text-primary font-mono">{settings.flowSpeed.toFixed(2)}</span>
+        </div>
+        <SliderInput value={settings.flowSpeed} onChange={(v) => updateSettings({ flowSpeed: v })} min={0} max={1} step={0.05} />
+      </div>
+
+      <PropertyField label="Banks">
+        <ToggleSwitch
+          checked={!!settings.bankTextureId}
+          onChange={(checked) => {
+            updateSettings({ bankTextureId: checked ? 'bank-grassy-01-a1' : '' });
+          }}
+          label="Shoreline banks"
+        />
+      </PropertyField>
+
+      <div className="text-[10px] text-text-tertiary mt-1">
+        {settings.mode === 'river'
+          ? 'Drag to draw a river'
+          : 'Click points \u00b7 double-click or Enter to close'}
       </div>
     </div>
   );

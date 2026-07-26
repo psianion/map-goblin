@@ -10,6 +10,7 @@ import { preloadPathTextures } from './splineRenderer';
 import { renderEdgeTransitions } from './edgeTransitions';
 import { renderTexturedWalls } from './wallTextureRenderer';
 import { renderDoors } from './doorRenderer';
+import { rebuildWaterSublayer } from './water/waterRenderer';
 import { resolveStyle } from './styleResolver';
 import type { DungeonStyle } from '../store/types';
 import type { DoorChild } from '../shared/types';
@@ -241,12 +242,21 @@ function renderSolidShape(
  */
 export function preloadLayerTextures(layer: DungeonLayer): Promise<boolean> {
   const promises: Promise<unknown>[] = [];
+  const wanted: string[] = [];
   for (const child of layer.children) {
-    if (child.childType === 'shape' && child.textureId && !child.textureId.includes(':') && !textureLoader.getSync(child.textureId)) {
+    if (child.childType === 'shape' && child.textureId) {
+      wanted.push(child.textureId);
+    } else if (child.childType === 'water') {
+      wanted.push(child.textureId);
+      if (child.bankTextureId) wanted.push(child.bankTextureId);
+    }
+  }
+  for (const id of wanted) {
+    if (id && !id.includes(':') && !textureLoader.getSync(id)) {
       // Only preload bundled textures — pack textures are loaded at boot via rehydrate
       promises.push(
-        textureLoader.load(child.textureId).catch((err: unknown) => {
-          console.error(`[floorWall] texture load failed for "${child.textureId}":`, err);
+        textureLoader.load(id).catch((err: unknown) => {
+          console.error(`[floorWall] texture load failed for "${id}":`, err);
         }),
       );
     }
@@ -275,6 +285,11 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   for (const child of walls.removeChildren()) child.destroy();
 
   // paths sublayer removed in v2.0 model — spline paths are no longer separate
+
+  // Water renders independently of floor geometry (a layer can be water-only)
+  if (entry.sublayers.water) {
+    rebuildWaterSublayer(entry.sublayers.water, layer);
+  }
 
   const polygons = layer.mergedFloor;
   if (!polygons || polygons.length === 0) return;

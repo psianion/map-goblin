@@ -10,6 +10,8 @@ export const TOOLS_WITH_POPOVER = new Set<ToolType>([
   'door',
   'light',
   'scatterBrush',
+  'terrain',
+  'water',
 ]);
 
 /**
