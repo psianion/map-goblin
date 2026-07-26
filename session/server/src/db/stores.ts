@@ -1,0 +1,295 @@
+// Prepared statements behind five small classes. Rows come back exactly as stored
+// (snake_case, SQLite's 0/1 for booleans) — a mapping layer would buy nothing here.
+// No store for `module_state`: the table exists per spec §2.4 but stays empty until S2.
+
+import { randomUUID } from 'node:crypto'
+import type { Role } from '@dnd/core/src/shared/protocol'
+import type { Database } from './db'
+
+/** D7 — `.mapbuilder` files reach 20MB; anything past that is not a map we accept. */
+export const MAX_MAP_BYTES = 20 * 1024 * 1024
+
+export interface Campaign {
+  id: string
+  name: string
+  created_at: number
+  updated_at: number
+}
+
+export interface MapRow {
+  id: string
+  campaign_id: string
+  name: string
+  /** The `.mapbuilder` JSON, verbatim. */
+  data: string
+  size_bytes: number
+  imported_at: number
+}
+
+/** What the scene list needs — the same row without the multi-megabyte `data` blob. */
+export type MapMeta = Omit<MapRow, 'data'>
+
+export interface SessionRow {
+  id: string
+  campaign_id: string
+  invite_code: string
+  active_scene_id: string | null
+  /** SQLite boolean: 1 while the session is live, 0 once ended. */
+  active: number
+  created_at: number
+}
+
+export interface Identity {
+  id: string
+  campaign_id: string
+  name: string
+  role: Role
+  banned: number
+  last_seen: number | null
+}
+
+export interface Pass {
+  id: string
+  /** null = server admin pass (D6); otherwise the campaign it authorizes. */
+  campaign_id: string | null
+  token_hash: string
+  /** null = never expires. */
+  expires_at: number | null
+}
+
+export class CampaignStore {
+  readonly #insert
+  readonly #get
+  readonly #list
+  readonly #touch
+
+  constructor(db: Database) {
+    this.#insert = db.prepare<[string, string, number, number]>(
+      'INSERT INTO campaigns (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)',
+    )
+    this.#get = db.prepare<[string], Campaign>('SELECT * FROM campaigns WHERE id = ?')
+    this.#list = db.prepare<[], Campaign>('SELECT * FROM campaigns ORDER BY updated_at DESC')
+    this.#touch = db.prepare<[number, string]>('UPDATE campaigns SET updated_at = ? WHERE id = ?')
+  }
+
+  create(name: string): Campaign {
+    const campaign: Campaign = { id: randomUUID(), name, created_at: Date.now(), updated_at: Date.now() }
+    this.#insert.run(campaign.id, campaign.name, campaign.created_at, campaign.updated_at)
+    return campaign
+  }
+
+  get(id: string): Campaign | undefined {
+    return this.#get.get(id)
+  }
+
+  list(): Campaign[] {
+    return this.#list.all()
+  }
+
+  /** Marks the campaign as touched — call after anything that changes what it contains. */
+  touch(id: string): void {
+    this.#touch.run(Date.now(), id)
+  }
+}
+
+export class MapStore {
+  readonly #insert
+  readonly #get
+  readonly #list
+
+  constructor(db: Database) {
+    this.#insert = db.prepare<[string, string, string, string, number, number]>(
+      'INSERT INTO maps (id, campaign_id, name, data, size_bytes, imported_at) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    this.#get = db.prepare<[string], MapRow>('SELECT * FROM maps WHERE id = ?')
+    // Deliberately not `SELECT *`: the scene list must not drag 20MB blobs into memory.
+    this.#list = db.prepare<[string], MapMeta>(
+      'SELECT id, campaign_id, name, size_bytes, imported_at FROM maps WHERE campaign_id = ? ORDER BY imported_at',
+    )
+  }
+
+  /**
+   * @throws if `data` exceeds {@link MAX_MAP_BYTES}. The size is measured here rather
+   * than trusted from the caller — a caller-supplied count is a cap you can lie past,
+   * and it would also let `size_bytes` disagree with what is actually stored.
+   */
+  insert(id: string, campaignId: string, name: string, data: string): MapRow {
+    const size_bytes = Buffer.byteLength(data, 'utf8')
+    if (size_bytes > MAX_MAP_BYTES) {
+      throw new Error(`map too large: ${size_bytes} bytes exceeds the ${MAX_MAP_BYTES} byte limit`)
+    }
+    const row: MapRow = { id, campaign_id: campaignId, name, data, size_bytes, imported_at: Date.now() }
+    this.#insert.run(row.id, row.campaign_id, row.name, row.data, row.size_bytes, row.imported_at)
+    return row
+  }
+
+  get(id: string): MapRow | undefined {
+    return this.#get.get(id)
+  }
+
+  /** Metadata only — fetch the payload with {@link get} when a client actually renders it. */
+  listByCampaign(campaignId: string): MapMeta[] {
+    return this.#list.all(campaignId)
+  }
+}
+
+export class SessionStore {
+  readonly #db
+  readonly #insert
+  readonly #byId
+  readonly #byCode
+  readonly #activeByCampaign
+  readonly #setScene
+  readonly #end
+  readonly #endCampaign
+
+  constructor(db: Database) {
+    this.#db = db
+    this.#insert = db.prepare<[string, string, string, number]>(
+      'INSERT INTO sessions (id, campaign_id, invite_code, active, created_at) VALUES (?, ?, ?, 1, ?)',
+    )
+    this.#byId = db.prepare<[string], SessionRow>('SELECT * FROM sessions WHERE id = ?')
+    this.#byCode = db.prepare<[string], SessionRow>(
+      'SELECT * FROM sessions WHERE invite_code = ? AND active = 1',
+    )
+    this.#activeByCampaign = db.prepare<[string], SessionRow>(
+      'SELECT * FROM sessions WHERE campaign_id = ? AND active = 1',
+    )
+    this.#setScene = db.prepare<[string | null, string]>(
+      'UPDATE sessions SET active_scene_id = ? WHERE id = ?',
+    )
+    this.#end = db.prepare<[string]>('UPDATE sessions SET active = 0 WHERE id = ?')
+    this.#endCampaign = db.prepare<[string]>(
+      'UPDATE sessions SET active = 0 WHERE campaign_id = ? AND active = 1',
+    )
+  }
+
+  /** Starting a session ends whatever was still running for that campaign. */
+  createSession(campaignId: string, inviteCode: string): SessionRow {
+    const row: SessionRow = {
+      id: randomUUID(),
+      campaign_id: campaignId,
+      invite_code: inviteCode,
+      active_scene_id: null,
+      active: 1,
+      created_at: Date.now(),
+    }
+    this.#db.transaction(() => {
+      this.#endCampaign.run(campaignId)
+      this.#insert.run(row.id, row.campaign_id, row.invite_code, row.created_at)
+    })()
+    return row
+  }
+
+  /** Ended sessions included — the caller decides whether `active` still matters. */
+  get(id: string): SessionRow | undefined {
+    return this.#byId.get(id)
+  }
+
+  /** Active sessions only — a code from an ended session resolves to nothing (§2.3: 404). */
+  getByInviteCode(code: string): SessionRow | undefined {
+    return this.#byCode.get(code)
+  }
+
+  getActiveByCampaign(campaignId: string): SessionRow | undefined {
+    return this.#activeByCampaign.get(campaignId)
+  }
+
+  setActiveScene(sessionId: string, sceneId: string | null): void {
+    this.#setScene.run(sceneId, sessionId)
+  }
+
+  endSession(sessionId: string): void {
+    this.#end.run(sessionId)
+  }
+}
+
+export class IdentityStore {
+  readonly #insert
+  readonly #get
+  readonly #ban
+  readonly #touch
+
+  constructor(db: Database) {
+    this.#insert = db.prepare<[string, string, string, string]>(
+      'INSERT INTO identities (id, campaign_id, name, role) VALUES (?, ?, ?, ?)',
+    )
+    this.#get = db.prepare<[string], Identity>('SELECT * FROM identities WHERE id = ?')
+    this.#ban = db.prepare<[string]>('UPDATE identities SET banned = 1 WHERE id = ?')
+    this.#touch = db.prepare<[number, string]>('UPDATE identities SET last_seen = ? WHERE id = ?')
+  }
+
+  /** `id` comes from the caller because A4 signs it into the session token as it mints one. */
+  mint(id: string, campaignId: string, name: string, role: Role): Identity {
+    this.#insert.run(id, campaignId, name, role)
+    return { id, campaign_id: campaignId, name, role, banned: 0, last_seen: null }
+  }
+
+  get(id: string): Identity | undefined {
+    return this.#get.get(id)
+  }
+
+  ban(id: string): void {
+    this.#ban.run(id)
+  }
+
+  /** An identity the server has never heard of is not banned — it is simply unknown. */
+  isBanned(id: string): boolean {
+    return this.get(id)?.banned === 1
+  }
+
+  touchLastSeen(id: string): void {
+    this.#touch.run(Date.now(), id)
+  }
+}
+
+export class PassStore {
+  readonly #insert
+  readonly #byHash
+  readonly #serverAdmin
+
+  constructor(db: Database) {
+    this.#insert = db.prepare<[string, string | null, string, number | null]>(
+      'INSERT INTO passes (id, campaign_id, token_hash, expires_at) VALUES (?, ?, ?, ?)',
+    )
+    this.#byHash = db.prepare<[string, number], Pass>(
+      'SELECT * FROM passes WHERE token_hash = ? AND (expires_at IS NULL OR expires_at > ?)',
+    )
+    this.#serverAdmin = db.prepare<[], Pass>('SELECT * FROM passes WHERE campaign_id IS NULL LIMIT 1')
+  }
+
+  create(tokenHash: string, campaignId: string | null, expiresAt: number | null): Pass {
+    const pass: Pass = { id: randomUUID(), campaign_id: campaignId, token_hash: tokenHash, expires_at: expiresAt }
+    this.#insert.run(pass.id, pass.campaign_id, pass.token_hash, pass.expires_at)
+    return pass
+  }
+
+  /** Expiry is checked in SQL, so an expired pass is indistinguishable from no pass. */
+  findValidByHash(tokenHash: string): Pass | undefined {
+    return this.#byHash.get(tokenHash, Date.now())
+  }
+
+  /** Has the server admin pass been minted yet? Answers "is this the first run?" (D6). */
+  hasServerAdmin(): boolean {
+    return this.#serverAdmin.get() !== undefined
+  }
+}
+
+export interface Stores {
+  campaigns: CampaignStore
+  maps: MapStore
+  sessions: SessionStore
+  identities: IdentityStore
+  passes: PassStore
+}
+
+/** One prepared-statement set per open database — boot calls this once (src/index.ts). */
+export function createStores(db: Database): Stores {
+  return {
+    campaigns: new CampaignStore(db),
+    maps: new MapStore(db),
+    sessions: new SessionStore(db),
+    identities: new IdentityStore(db),
+    passes: new PassStore(db),
+  }
+}

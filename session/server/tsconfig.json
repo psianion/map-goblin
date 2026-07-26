@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // D3: Node runtime, no renderer. Dropping DOM from `lib` is what makes a stray
+    // browser-only API (or a value import that drags pixi.js in) fail to compile.
+    "lib": ["ES2022"],
+    "types": ["node"]
+  },
+  "include": ["src"]
+}

@@ -1,0 +1,120 @@
+// Boot: config → db → http → ws upgrade → SessionManager.
+
+import { createServer, type IncomingMessage } from 'node:http'
+import { pathToFileURL } from 'node:url'
+import { WebSocketServer } from 'ws'
+import { ensureAdminPass, verifyToken } from './auth'
+import { loadConfig, type Config } from './config'
+import { openDb } from './db/db'
+import { createStores, type Stores } from './db/stores'
+import { createRequestHandler } from './http'
+import { ClientConnection, type Identity } from './ws/ClientConnection'
+import { SessionManager, type SessionManagerOptions } from './ws/SessionManager'
+
+/**
+ * D6 — the only thing accepted at upgrade is a session token in `?token=`. The token says
+ * who you are; the database says whether that still means anything: an identity that has
+ * been banned, or a campaign whose session has ended, gets no socket no matter how well
+ * signed its token is.
+ */
+export function authenticateUpgrade(
+  req: IncomingMessage,
+  hmacSecret: string,
+  stores: Stores,
+): Identity | null {
+  const params = new URL(req.url ?? '/', 'http://localhost').searchParams
+  const claims = verifyToken(hmacSecret, params.get('token'))
+  if (!claims) return null
+
+  const identity = stores.identities.get(claims.identityId)
+  if (!identity || identity.banned === 1) return null
+
+  const session = stores.sessions.getActiveByCampaign(claims.campaignId)
+  if (!session) return null
+
+  stores.identities.touchLastSeen(identity.id)
+  return {
+    identityId: identity.id,
+    name: identity.name,
+    // The row wins over the claim — see requireSession in http.ts.
+    role: identity.role,
+    sessionId: session.id,
+    campaignId: session.campaign_id,
+  }
+}
+
+export interface StartOptions extends SessionManagerOptions {
+  /** Overrides PORT. 0 binds an ephemeral port — that is how the tests run. */
+  port?: number
+  /** Overrides the configured database path. Tests pass `:memory:`. */
+  dbPath?: string
+}
+
+export interface RunningServer {
+  port: number
+  sessions: SessionManager
+  stores: Stores
+  config: Config
+  close(): Promise<void>
+}
+
+export async function startServer(options: StartOptions = {}): Promise<RunningServer> {
+  const config = loadConfig()
+  const db = openDb(options.dbPath ?? config.dbPath)
+  const stores = createStores(db)
+  ensureAdminPass(stores.passes)
+
+  const sessions = new SessionManager({
+    // Scene metadata is whatever the campaign has uploaded; the active one is session state.
+    scenes: ({ id, campaignId }) => {
+      const scenes = stores.maps.listByCampaign(campaignId).map((map) => ({ id: map.id, name: map.name }))
+      return {
+        scenes,
+        // Nothing sets `active_scene_id` in S1 — there is no scene-change command yet — so a
+        // session with maps but no explicit choice falls back to the first one. Without this
+        // every client sits on "Waiting for the DM to pick a scene…" forever. The fallback is
+        // computed per snapshot rather than written at upload time so a map uploaded *after*
+        // the session opened still lights up the table.
+        activeSceneId: stores.sessions.get(id)?.active_scene_id ?? scenes[0]?.id ?? null,
+      }
+    },
+    ...options,
+  })
+  const wss = new WebSocketServer({ noServer: true })
+  const http = createServer(
+    createRequestHandler({ hmacSecret: config.secrets.hmacSecret, stores, sessionManager: sessions }),
+  )
+
+  http.on('upgrade', (req, socket, head) => {
+    const identity = authenticateUpgrade(req, config.secrets.hmacSecret, stores)
+    if (!identity) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+      socket.destroy()
+      return
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => sessions.accept(new ClientConnection(ws, identity)))
+  })
+
+  await new Promise<void>((ready) => http.listen(options.port ?? config.port, ready))
+  const address = http.address()
+  const port = typeof address === 'object' && address !== null ? address.port : config.port
+  console.log(`game-server listening on :${port}`)
+
+  return {
+    port,
+    sessions,
+    stores,
+    config,
+    close: async () => {
+      sessions.close() // terminates live sockets so http.close() can actually settle
+      wss.close()
+      http.closeAllConnections() // ...and so does a keep-alive socket nobody is using
+      await new Promise<void>((done) => http.close(() => done()))
+      db.close()
+    },
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  void startServer()
+}
