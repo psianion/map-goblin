@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* D9: container-relative, never 100vw/100vh — Discord's iframe lies about both. */
+html,
+body,
+#root {
+  height: 100%;
+}
