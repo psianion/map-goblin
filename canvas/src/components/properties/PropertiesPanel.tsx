@@ -6,6 +6,7 @@ import { BackgroundProperties } from './BackgroundProperties'
 import { LightProperties } from './LightProperties'
 import { DoorProperties } from './DoorProperties'
 import { ShapeTextureProperties } from './ShapeTextureProperties'
+import { RoomPanel } from './RoomPanel'
 import { PropertyField } from './PropertyField'
 import { ColorField } from '@/components/inputs/ColorField'
 import { SelectInput } from '@/components/inputs/SelectInput'
@@ -149,6 +150,7 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
       <div className="flex flex-col">
         <LayerProperties layer={dungeonLayer} openSections={openSections} onToggleSection={onToggleSection} />
         <ShapeTextureProperties layer={dungeonLayer} openSections={openSections} onToggleSection={onToggleSection} />
+        <RoomPanel layer={dungeonLayer} openSections={openSections} onToggleSection={onToggleSection} />
         <GridSection openSections={openSections} onToggleSection={onToggleSection} />
         <AmbientSection openSections={openSections} onToggleSection={onToggleSection} />
       </div>

@@ -8,11 +8,11 @@ import type { DungeonLayer } from '@/store/types';
 import { UpdateChildCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 
+// V1 ships single + double only. Portcullis/archway still render and still
+// deserialize from older files — they just can't be picked here any more.
 const STYLE_OPTIONS = [
   { value: 'single', label: 'Single' },
   { value: 'double', label: 'Double' },
-  { value: 'portcullis', label: 'Portcullis' },
-  { value: 'archway', label: 'Archway' },
 ];
 
 const STATE_OPTIONS = [
