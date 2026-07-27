@@ -1,0 +1,25 @@
+{
+  "name": "@dnd/vault-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "cli": "tsx src/cli.ts",
+    "forge": "tsx src/cli.ts forge",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "dependencies": {
+    "@dnd/vault-engine": "workspace:*",
+    "commander": "^13.0.0",
+    "sharp": "^0.34.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "~5.9.3",
+    "vitest": "^4.0.18"
+  }
+}

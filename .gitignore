@@ -8,3 +8,11 @@ test-screenshots
 .claude
 *.tsbuildinfo
 coverage
+
+# vault/forge — generated + licensed source images stay local, never in git
+forge/staging/
+forge/jobs/
+forge/examples/
+catalog.db
+packs/*/source/
+assets/test/
