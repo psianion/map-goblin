@@ -3,6 +3,8 @@
 import { createServer, type IncomingMessage } from 'node:http'
 import { pathToFileURL } from 'node:url'
 import type { GameModule } from '@dnd/mechanics/contract'
+import { rollsModule } from '@dnd/mechanics/rolls'
+import { tokensModule } from '@dnd/mechanics/tokens'
 import { WebSocketServer } from 'ws'
 import { ensureAdminPass, verifyToken } from './auth'
 import { loadConfig, type Config } from './config'
@@ -75,6 +77,8 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   const modules = new ModuleRegistry(stores.moduleState)
   modules.register(pingModule)
   modules.register(scenesModule(stores))
+  modules.register(rollsModule)
+  modules.register(tokensModule)
   for (const module of options.modules ?? []) modules.register(module)
 
   const sessions = new SessionManager(modules, {
