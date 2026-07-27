@@ -11,7 +11,7 @@ const gone: PlayerInfo = { identityId: 'p-2', name: 'Borin', role: 'player', con
 
 function session(players: PlayerInfo[]): SessionState {
   return {
-    protocolVersion: 1,
+    protocolVersion: 2,
     sessionId: 's1',
     campaignId: 'c1',
     activeSceneId: null,

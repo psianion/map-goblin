@@ -14,7 +14,7 @@ import { useSessionStore } from './store';
 const ME: PlayerInfo = { identityId: 'i1', name: 'Rue', role: 'dm', connected: true };
 
 const SNAPSHOT: SessionState = {
-  protocolVersion: 1,
+  protocolVersion: 2,
   sessionId: 's1',
   campaignId: 'c1',
   activeSceneId: null,
