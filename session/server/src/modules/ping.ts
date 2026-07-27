@@ -1,7 +1,7 @@
 // Proof module (§2.5): closes the client → router → registry → broadcast loop
 // end-to-end so the plumbing is tested before there is a real module to put in it.
 
-import { ANY_ROLE, type GameModule } from './registry'
+import { ANY_ROLE, type GameModule } from '@dnd/mechanics/contract'
 
 export const pingModule: GameModule = {
   name: 'ping',

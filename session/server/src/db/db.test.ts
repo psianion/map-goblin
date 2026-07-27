@@ -8,10 +8,12 @@ import { randomUUID } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { migrate, openDb, type Database } from './db'
 import {
+  AssetStore,
   CampaignStore,
   IdentityStore,
   MAX_MAP_BYTES,
   MapStore,
+  ModuleStateStore,
   PassStore,
   SessionStore,
 } from './stores'
@@ -37,6 +39,7 @@ describe('migrations', () => {
       .all()
       .map((t) => t.name)
     expect(tables).toEqual([
+      'assets',
       'campaigns',
       'identities',
       'maps',
@@ -194,6 +197,53 @@ describe('PassStore', () => {
     expect(passes.findValidByHash('hash-dm')?.id).toBe(dm.id)
     expect(passes.findValidByHash('hash-stale')).toBeUndefined()
     expect(passes.findValidByHash('hash-nonexistent')).toBeUndefined()
+  })
+})
+
+describe('ModuleStateStore', () => {
+  it('round-trips JSON state, overwrites in place, and keeps campaigns and modules apart', () => {
+    const campaigns = new CampaignStore(db)
+    const mine = campaigns.create('Mine').id
+    const yours = campaigns.create('Yours').id
+    const state = new ModuleStateStore(db)
+
+    // Never written = undefined, which is the registry's cue to seed `initialState`.
+    expect(state.get(mine, 'tokens')).toBeUndefined()
+
+    state.put(mine, 'tokens', { library: {}, byScene: { 'scene-1': { t1: { x: 3, y: 4 } } } })
+    expect(state.get(mine, 'tokens')).toEqual({
+      library: {},
+      byScene: { 'scene-1': { t1: { x: 3, y: 4 } } },
+    })
+
+    // Upsert, not a second row — one row per (campaign, module) is the whole scoping rule.
+    state.put(mine, 'tokens', { library: {}, byScene: {} })
+    expect(state.get(mine, 'tokens')).toEqual({ library: {}, byScene: {} })
+    expect(db.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM module_state').get()?.n).toBe(1)
+
+    state.put(mine, 'rolls', { log: [{ total: 17 }] })
+    state.put(yours, 'tokens', { library: { goblin: {} }, byScene: {} })
+    expect(state.get(mine, 'tokens')).toEqual({ library: {}, byScene: {} })
+    expect(state.get(mine, 'rolls')).toEqual({ log: [{ total: 17 }] })
+    expect(state.get(yours, 'tokens')).toEqual({ library: { goblin: {} }, byScene: {} })
+    expect(state.get(yours, 'rolls')).toBeUndefined()
+  })
+})
+
+describe('AssetStore', () => {
+  it('stores bytes verbatim and measures the size itself', () => {
+    const campaign = new CampaignStore(db).create('C')
+    const assets = new AssetStore(db)
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff])
+
+    const stored = assets.insert('asset-1', campaign.id, 'image/png', png)
+    expect(stored.size).toBe(png.length)
+
+    const read = assets.get('asset-1')
+    expect(read?.mime).toBe('image/png')
+    expect(read?.bytes.equals(png)).toBe(true) // BLOB, not a UTF-8 round trip
+    expect(assets.get('nope')).toBeUndefined()
+    expect(() => assets.insert('orphan', 'no-such-campaign', 'image/png', png)).toThrow(/FOREIGN KEY/i)
   })
 })
 

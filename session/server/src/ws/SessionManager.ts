@@ -1,10 +1,10 @@
 // Sessions, presence, heartbeat — the behaviour contracts in spec §2.5.
 
 import type { ClientMessage, PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol'
+import type { Viewer } from '@dnd/mechanics/contract'
 import { PROTOCOL_VERSION } from '../config'
-import { pingModule } from '../modules/ping'
-import { ModuleRegistry } from '../modules/registry'
-import { Broadcaster, type Redactor } from './Broadcaster'
+import type { ModuleRegistry } from '../modules/registry'
+import { Broadcaster, buildRedactor, type Redactor } from './Broadcaster'
 import type { ClientConnection } from './ClientConnection'
 import { CommandRouter } from './CommandRouter'
 
@@ -29,7 +29,7 @@ export interface SessionManagerOptions {
   heartbeatMs?: number
   /** Unanswered pings tolerated before the socket is dropped. Default 2 (§2.5). */
   missedPongLimit?: number
-  /** Test seam only — the D5 no-bypass test passes a spy. Defaults to `redactForRole`. */
+  /** Test seam only — the D5 no-bypass test passes a spy. Defaults to `buildRedactor`. */
   redact?: Redactor
   /** Defaults to no scenes: a SessionManager without a database has nothing to list. */
   scenes?: SceneSource
@@ -44,20 +44,25 @@ export class SessionManager {
   private readonly router: CommandRouter
   private readonly scenes: SceneSource
 
-  constructor({
-    heartbeatMs = 15_000,
-    missedPongLimit = 2,
-    redact,
-    scenes = () => ({ scenes: [], activeSceneId: null }),
-  }: SessionManagerOptions = {}) {
+  constructor(
+    /** Already populated — boot owns which modules exist (§2.3.8). */
+    private readonly modules: ModuleRegistry,
+    {
+      heartbeatMs = 15_000,
+      missedPongLimit = 2,
+      redact,
+      scenes = () => ({ scenes: [], activeSceneId: null }),
+    }: SessionManagerOptions = {},
+  ) {
     this.missedPongLimit = missedPongLimit
     this.scenes = scenes
     this.timer = setInterval(() => this.heartbeat(), heartbeatMs)
     this.timer.unref()
 
-    this.broadcaster = new Broadcaster((id) => this.sessions.get(id)?.clients ?? [], redact)
-    const modules = new ModuleRegistry()
-    modules.register(pingModule)
+    this.broadcaster = new Broadcaster(
+      (id) => this.sessions.get(id)?.clients ?? [],
+      redact ?? buildRedactor(modules),
+    )
     this.router = new CommandRouter(modules, this.broadcaster)
   }
 
@@ -100,8 +105,15 @@ export class SessionManager {
         return this.join(conn, msg.protocolVersion)
       case 'ping':
         return this.broadcaster.sendTo(conn, { type: 'pong', t: msg.t })
-      case 'command':
-        return this.router.handle(conn, msg)
+      case 'command': {
+        const session = this.sessions.get(conn.identity.sessionId)
+        // ponytail: `scenes()` is two prepared statements and runs per command, including
+        // 10 Hz token drags. Cache it on the Session if a profile ever says to.
+        return this.router.handle(conn, msg, {
+          activeSceneId: session ? this.scenes(session).activeSceneId : null,
+          players: session ? [...session.players.values()] : [],
+        })
+      }
     }
   }
 
@@ -126,7 +138,11 @@ export class SessionManager {
     session.clients.add(conn)
     if (role === 'dm') session.dmSeen = true
 
-    this.broadcaster.sendTo(conn, { type: 'session-state', state: this.snapshot(session), you: player })
+    this.broadcaster.sendTo(conn, {
+      type: 'session-state',
+      state: this.snapshot(session, conn.identity),
+      you: player,
+    })
     this.broadcaster.broadcast(session.id, { type: 'player-joined', player }, conn)
     if (dmReturning) this.broadcaster.broadcast(session.id, { type: 'dm-reconnected' })
   }
@@ -167,14 +183,14 @@ export class SessionManager {
   }
 
   /** Scenes and the active one are read fresh: an upload between joins must show up. */
-  private snapshot(session: Session): SessionState {
+  private snapshot(session: Session, viewer: Viewer): SessionState {
     return {
       protocolVersion: PROTOCOL_VERSION,
       sessionId: session.id,
       campaignId: session.campaignId,
       ...this.scenes(session),
       players: [...session.players.values()],
-      modules: {}, // module slices from S2
+      modules: this.modules.snapshotModules(session.campaignId, viewer),
     }
   }
 }

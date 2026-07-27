@@ -8,10 +8,11 @@ import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import type { Role, ServerMessage } from '@dnd/core/src/shared/protocol'
+import { ANY_ROLE, type GameModule } from '@dnd/mechanics/contract'
 import { issueToken, startSession } from '../auth'
 import type { SessionRow } from '../db/stores'
 import { startServer, type RunningServer, type StartOptions } from '../index'
-import { redactForRole, type Redactor } from './Broadcaster'
+import type { Redactor } from './Broadcaster'
 
 beforeAll(() => {
   // Keep the generated secrets file out of the package directory.
@@ -110,7 +111,7 @@ function next<T extends ServerMessage['type']>(
   })
 }
 
-function sendJoin(socket: WebSocket, protocolVersion = 1): void {
+function sendJoin(socket: WebSocket, protocolVersion = 2): void {
   socket.send(JSON.stringify({ type: 'join', protocolVersion }))
 }
 
@@ -281,6 +282,145 @@ describe('commands', () => {
 })
 
 /**
+ * A third-party module (D2's test): state, setState and redact, defined entirely outside
+ * the platform and registered through the boot seam. Nothing in session/server knows it
+ * exists — which is the property the whole of §2.2 is for.
+ */
+interface Note {
+  by: string
+  text: string
+  secret: boolean
+}
+
+const notesModule: GameModule<{ notes: Note[] }> = {
+  name: 'notes',
+  commands: { add: ANY_ROLE },
+  initialState: { notes: [] },
+  handler(_action, payload, ctx) {
+    const { text, secret } = (payload ?? {}) as { text?: unknown; secret?: unknown }
+    if (typeof text !== 'string') return { code: 'invalid-command', message: 'notes.add needs text' }
+    ctx.setState({ notes: [...ctx.state.notes, { by: ctx.sender.identityId, text, secret: secret === true }] })
+  },
+  redact: (state, viewer) =>
+    viewer.role === 'dm'
+      ? state
+      : { notes: state.notes.filter((note) => !note.secret || note.by === viewer.identityId) },
+}
+
+const notesOf = (msg: { state: unknown }): Note[] => (msg.state as { notes: Note[] }).notes
+
+describe('module contract v2 (§2.2)', () => {
+  it('persists setState and broadcasts it redacted per viewer', async () => {
+    await withServer({ modules: [notesModule] }, async (server) => {
+      const [dm, bob] = await joinedPair(server, 'N')
+      const carol = await connect(server, { identity: 'id-carol', name: 'Carol', session: 'N' })
+      sendJoin(carol)
+      await next(carol, 'session-state')
+
+      const onDm = next(dm, 'state-update')
+      const onBob = next(bob, 'state-update')
+      const onCarol = next(carol, 'state-update')
+      sendCommand(bob, 'notes', 'add', { text: 'the goblin is bluffing', secret: true })
+
+      // The DM sees everything; the author sees their own; the third seat sees nothing.
+      expect(notesOf(await onDm)).toEqual([{ by: 'id-bob', text: 'the goblin is bluffing', secret: true }])
+      expect(notesOf(await onBob).map((n) => n.text)).toEqual(['the goblin is bluffing'])
+      expect(notesOf(await onCarol)).toEqual([])
+
+      // And it is in the database, not just on the wire.
+      expect(server.stores.moduleState.get(table(server, 'N').campaign_id, 'notes')).toEqual({
+        notes: [{ by: 'id-bob', text: 'the goblin is bluffing', secret: true }],
+      })
+    })
+  })
+
+  it('seeds state from initialState and hands joiners a redacted snapshot', async () => {
+    await withServer({ modules: [notesModule] }, async (server) => {
+      const [dm, bob] = await joinedPair(server, 'J')
+      // The very first read seeded `initialState` — the handler appended to it, it did not
+      // crash on undefined.
+      const first = next(dm, 'state-update')
+      sendCommand(bob, 'notes', 'add', { text: 'public plan', secret: false })
+      await first
+      const second = next(dm, 'state-update')
+      sendCommand(bob, 'notes', 'add', { text: 'private plan', secret: true })
+      await second
+
+      const late = await connect(server, { identity: 'id-dave', name: 'Dave', session: 'J' })
+      sendJoin(late)
+      const forDave = await next(late, 'session-state')
+      expect((forDave.state.modules.notes as { notes: Note[] }).notes.map((n) => n.text)).toEqual([
+        'public plan',
+      ])
+
+      const lateDm = await connect(server, { role: 'dm', name: 'Ann', session: 'J' })
+      sendJoin(lateDm)
+      const forDm = await next(lateDm, 'session-state')
+      expect((forDm.state.modules.notes as { notes: Note[] }).notes.map((n) => n.text)).toEqual([
+        'public plan',
+        'private plan',
+      ])
+    })
+  })
+})
+
+describe('scenes module (D6)', () => {
+  /** A campaign needs maps before it has scenes to switch between. */
+  function seedMaps(server: RunningServer, session: string, count: number): string[] {
+    const campaignId = table(server, session).campaign_id
+    return Array.from({ length: count }, (_, i) => {
+      const id = `${session}-map-${i}`
+      server.stores.maps.insert(id, campaignId, `Map ${i}`, '{}')
+      return id
+    })
+  }
+
+  it('moves the active scene for the whole table and remembers it', async () => {
+    await withServer({}, async (server) => {
+      const [first, second] = seedMaps(server, 'SC', 2)
+      const [dm, player] = await joinedPair(server, 'SC')
+
+      const onDm = next(dm, 'scene-changed')
+      const onPlayer = next(player, 'scene-changed')
+      sendCommand(dm, 'scenes', 'activate', { sceneId: second })
+
+      expect((await onDm).sceneId).toBe(second)
+      expect((await onPlayer).sceneId).toBe(second)
+      expect(server.stores.sessions.get(table(server, 'SC').id)?.active_scene_id).toBe(second)
+
+      // A joiner arriving now is told where the table already is, not where it started.
+      const late = await connect(server, { name: 'Late', session: 'SC' })
+      sendJoin(late)
+      const snapshot = await next(late, 'session-state')
+      expect(snapshot.state.activeSceneId).toBe(second)
+      expect(snapshot.state.scenes.map((s) => s.id)).toEqual([first, second])
+    })
+  })
+
+  it('refuses a scene that is not this campaign’s, and a player asking at all', async () => {
+    await withServer({}, async (server) => {
+      const [mine] = seedMaps(server, 'SR', 1)
+      const elsewhere = server.stores.campaigns.create('Someone else')
+      server.stores.maps.insert('their-map', elsewhere.id, 'Theirs', '{}')
+      const [dm, player] = await joinedPair(server, 'SR')
+
+      sendCommand(dm, 'scenes', 'activate', { sceneId: 'their-map' })
+      expect((await next(dm, 'error')).code).toBe('invalid-command')
+
+      sendCommand(dm, 'scenes', 'activate', { sceneId: 42 })
+      expect((await next(dm, 'error')).code).toBe('invalid-command')
+
+      sendCommand(player, 'scenes', 'activate', { sceneId: mine })
+      expect((await next(player, 'error')).code).toBe('unauthorized')
+
+      // Nothing moved, and nobody was told anything had.
+      expect(server.stores.sessions.get(table(server, 'SR').id)?.active_scene_id).toBeNull()
+      await expect(next(player, 'scene-changed')).rejects.toThrow(/timed out/)
+    })
+  })
+})
+
+/**
  * Sprint 1 success metric — "6 clients, state update < 100ms".
  *
  * Server-side on purpose: the metric is the broadcast fan-out, and six browsers would
@@ -331,12 +471,12 @@ describe('multi-client sync (Sprint 1 metric)', () => {
   })
 })
 
-describe('no outbound path bypasses redactForRole (D5)', () => {
+describe('no outbound path bypasses the redactor (D4/D5)', () => {
   it('routes every kind of outbound frame through it', async () => {
     const redacted: string[] = []
-    const redact: Redactor = (msg, role) => {
+    const redact: Redactor = (msg) => {
       redacted.push(msg.type)
-      return redactForRole(msg, role)
+      return msg
     }
 
     await withServer({ redact }, async (server) => {

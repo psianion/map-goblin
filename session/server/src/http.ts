@@ -16,7 +16,7 @@ import {
   startSession,
   verifyToken,
 } from './auth'
-import { MAX_MAP_BYTES, type Identity, type Stores } from './db/stores'
+import { MAX_ASSET_BYTES, MAX_MAP_BYTES, type Identity, type Stores } from './db/stores'
 import { parseMapFile } from './mapImport'
 import type { SessionManager } from './ws/SessionManager'
 
@@ -54,7 +54,10 @@ async function route(deps: HttpDeps, req: IncomingMessage, res: ServerResponse):
   if (method === 'POST' && resource === 'campaigns' && !id) return createCampaign(deps, req, res)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'maps')
     return uploadMap(deps, req, res, id)
+  if (method === 'POST' && resource === 'campaigns' && id && sub === 'assets')
+    return uploadAsset(deps, req, res, id)
   if (method === 'GET' && resource === 'maps' && id && !sub) return getMap(deps, req, res, id)
+  if (method === 'GET' && resource === 'assets' && id && !sub) return getAsset(deps, req, res, id)
   if (method === 'GET' && resource === 'resolve' && id) return resolveCode(deps, res, id)
   if (method === 'POST' && resource === 'join' && !id) return joinSession(deps, req, res)
   if (method === 'POST' && resource === 'sessions' && !id) return openSession(deps, req, res)
@@ -95,13 +98,66 @@ async function uploadMap(
   const body = await readBody(req, MAX_MAP_BYTES)
   if (!body.ok) return json(res, body.status, { error: body.error })
 
-  const map = parseMapFile(body.text)
+  const text = body.bytes.toString('utf8')
+  const map = parseMapFile(text)
   if (!map.ok) return json(res, 400, { error: map.error })
 
   // Stored verbatim: the bytes the editor wrote are the bytes the renderer gets back.
-  const row = deps.stores.maps.insert(randomUUID(), campaignId, map.name, body.text)
+  const row = deps.stores.maps.insert(randomUUID(), campaignId, map.name, text)
   deps.stores.campaigns.touch(campaignId)
   json(res, 201, { mapId: row.id, name: row.name, sizeBytes: row.size_bytes })
+}
+
+/** POST /api/campaigns/:id/assets — DM, ≤ 2MB, raw image bytes (D11). */
+async function uploadAsset(
+  deps: HttpDeps,
+  req: IncomingMessage,
+  res: ServerResponse,
+  campaignId: string,
+): Promise<void> {
+  if (!requireSession(deps, req, res, { campaignId, role: 'dm' })) return
+
+  const body = await readBody(req, MAX_ASSET_BYTES)
+  if (!body.ok) return json(res, body.status, { error: body.error })
+
+  // The bytes decide the type, not the Content-Type header the uploader claimed: the mime
+  // we store here is the one we hand back on GET, and a browser will honour it.
+  const mime = sniffImage(body.bytes)
+  if (!mime) return json(res, 400, { error: 'expected a png, jpeg or webp image' })
+
+  const asset = deps.stores.assets.insert(randomUUID(), campaignId, mime, body.bytes)
+  json(res, 201, { id: asset.id })
+}
+
+/** GET /api/assets/:id — any valid token for the campaign that owns it. */
+function getAsset(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, assetId: string): void {
+  const identity = requireSession(deps, req, res)
+  if (!identity) return
+
+  const asset = deps.stores.assets.get(assetId)
+  if (!asset || asset.campaign_id !== identity.campaign_id) {
+    return json(res, 404, { error: 'no such asset' })
+  }
+  res.writeHead(200, {
+    'content-type': asset.mime,
+    'content-length': asset.size,
+    // Ids are random and a stored asset is never rewritten, so the URL is the version.
+    'cache-control': 'public, max-age=31536000, immutable',
+  })
+  res.end(asset.bytes)
+}
+
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+/** The mime the first few bytes actually are, or null for anything else (D11). */
+function sniffImage(bytes: Buffer): string | null {
+  if (bytes.subarray(0, 8).equals(PNG_MAGIC)) return 'image/png'
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  // RIFF....WEBP — the four bytes between are the file size, which proves nothing.
+  if (bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP') {
+    return 'image/webp'
+  }
+  return null
 }
 
 /** GET /api/maps/:id — any valid token for the campaign that owns it. */
@@ -134,8 +190,11 @@ async function joinSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
   if (!body) return
 
   const code = text(body.code)
+  // §2.3.7 — `text` trims, so "   " is no name at all. Without this the table fills up
+  // with blank seats the client then renders as a ghost "Someone" (S1 gate finding).
   const name = text(body.name)
-  if (!code || !name) return json(res, 400, { error: 'code and name are required' })
+  if (!name) return json(res, 400, { error: 'name-required' })
+  if (!code) return json(res, 400, { error: 'code is required' })
 
   const session = resolveInviteCode(deps.stores.sessions, code)
   if (!session) return json(res, 404, { error: 'no active session for that code' })
@@ -243,7 +302,7 @@ function requireSession(
 
 // ─── Plumbing ─────────────────────────────────────────────
 
-type Body = { ok: true; text: string } | { ok: false; status: number; error: string }
+type Body = { ok: true; bytes: Buffer } | { ok: false; status: number; error: string }
 
 /**
  * Reads a request body, refusing anything over `limit` twice over: the declared
@@ -275,7 +334,8 @@ function readBody(req: IncomingMessage, limit: number): Promise<Body> {
       }
       chunks.push(chunk)
     })
-    req.on('end', () => resolve({ ok: true, text: Buffer.concat(chunks).toString('utf8') }))
+    // Bytes, not text: an image body decoded as UTF-8 and re-encoded is a different image.
+    req.on('end', () => resolve({ ok: true, bytes: Buffer.concat(chunks) }))
     req.on('error', () => resolve({ ok: false, status: 400, error: 'request aborted' }))
   })
 }
@@ -292,7 +352,7 @@ async function readJson(
   }
   let parsed: unknown
   try {
-    parsed = JSON.parse(body.text || '{}')
+    parsed = JSON.parse(body.bytes.toString('utf8') || '{}')
   } catch {
     json(res, 400, { error: 'body must be JSON' })
     return null

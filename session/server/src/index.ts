@@ -2,12 +2,16 @@
 
 import { createServer, type IncomingMessage } from 'node:http'
 import { pathToFileURL } from 'node:url'
+import type { GameModule } from '@dnd/mechanics/contract'
 import { WebSocketServer } from 'ws'
 import { ensureAdminPass, verifyToken } from './auth'
 import { loadConfig, type Config } from './config'
 import { openDb } from './db/db'
 import { createStores, type Stores } from './db/stores'
 import { createRequestHandler } from './http'
+import { pingModule } from './modules/ping'
+import { ModuleRegistry } from './modules/registry'
+import { scenesModule } from './modules/scenes'
 import { ClientConnection, type Identity } from './ws/ClientConnection'
 import { SessionManager, type SessionManagerOptions } from './ws/SessionManager'
 
@@ -48,6 +52,8 @@ export interface StartOptions extends SessionManagerOptions {
   port?: number
   /** Overrides the configured database path. Tests pass `:memory:`. */
   dbPath?: string
+  /** Registered alongside the built-ins — the seam a test module arrives through. */
+  modules?: readonly GameModule[]
 }
 
 export interface RunningServer {
@@ -64,7 +70,14 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   const stores = createStores(db)
   ensureAdminPass(stores.passes)
 
-  const sessions = new SessionManager({
+  // §2.3.8 — the whole module table. Rolls and tokens register here the same way, from
+  // @dnd/mechanics; nothing else in the server changes when they do (D2).
+  const modules = new ModuleRegistry(stores.moduleState)
+  modules.register(pingModule)
+  modules.register(scenesModule(stores))
+  for (const module of options.modules ?? []) modules.register(module)
+
+  const sessions = new SessionManager(modules, {
     // Scene metadata is whatever the campaign has uploaded; the active one is session state.
     scenes: ({ id, campaignId }) => {
       const scenes = stores.maps.listByCampaign(campaignId).map((map) => ({ id: map.id, name: map.name }))

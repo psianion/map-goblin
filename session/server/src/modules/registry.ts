@@ -1,39 +1,28 @@
-// ModuleRegistry (spec §2.5): the table of game modules and the one dispatch path
-// into them. Role gating is data — `commands` maps an action to the roles allowed to
-// run it — so a module cannot ship an ungated command by forgetting a check.
+// ModuleRegistry: the table of game modules and the one dispatch path into them.
+// Role gating is data — `commands` maps an action to the roles allowed to run it — so a
+// module cannot ship an ungated command by forgetting a check.
+//
+// The contract itself lives in @dnd/mechanics/contract (D2/D3): modules are written
+// against a package with no server in it, so a new module is a mechanics folder and a
+// `register` call, never an edit here.
 
-import type { Role, ServerMessage } from '@dnd/core/src/shared/protocol'
+import type {
+  CommandError,
+  GameModule,
+  ModuleContext,
+  Viewer,
+} from '@dnd/mechanics/contract'
+import type { ModuleStateStore } from '../db/stores'
 
-/** Everything a handler is allowed to know about the command it is running. */
-export interface ModuleContext {
-  sessionId: string
-  sender: { identityId: string; role: Role }
-  /** Session-wide, redacted per recipient on the way out (D5). */
-  broadcast: (msg: ServerMessage) => void
-}
-
-/** A typed refusal for the sender only; the connection stays open (§2.5). */
-export type CommandError = Omit<Extract<ServerMessage, { type: 'error' }>, 'type'>
-
-export interface GameModule {
-  name: string
-  /** action → roles permitted to run it. An unlisted action is an unknown action. */
-  commands: Record<string, readonly Role[]>
-  /**
-   * ponytail: carried, not used. S1 keeps `SessionState.modules` empty; this seeds a
-   * module's slice once module_state persistence exists (S2, schema §2.4 already has it).
-   */
-  initialState: unknown
-  /** Return a CommandError to reject the payload — wire input is untrusted. */
-  handler: (action: string, payload: unknown, ctx: ModuleContext) => CommandError | void
-}
-
-export const ANY_ROLE: readonly Role[] = ['dm', 'player']
+/** What the caller supplies; the registry adds `state` and `setState` on top. */
+export type DispatchContext = Omit<ModuleContext<unknown>, 'state' | 'setState'>
 
 export class ModuleRegistry {
-  private readonly modules = new Map<string, GameModule>()
+  private readonly modules = new Map<string, GameModule<unknown>>()
 
-  register(module: GameModule): void {
+  constructor(private readonly store: ModuleStateStore) {}
+
+  register<S>(module: GameModule<S>): void {
     this.modules.set(module.name, module)
   }
 
@@ -42,7 +31,7 @@ export class ModuleRegistry {
     module: string,
     action: string,
     payload: unknown,
-    ctx: ModuleContext,
+    ctx: DispatchContext,
   ): CommandError | null {
     const found = this.modules.get(module)
     if (!found) {
@@ -58,6 +47,44 @@ export class ModuleRegistry {
         message: `role '${ctx.sender.role}' may not run ${module}.${action}`,
       }
     }
-    return found.handler(action, payload, ctx) ?? null
+
+    // Lazy on purpose: a command that never reads its state (ping, scenes) never touches
+    // the row, so dispatch stays one prepared statement for the modules that do.
+    let loaded: { value: unknown } | undefined
+    const read = () => (loaded ??= { value: this.load(ctx.campaignId, found) }).value
+
+    const full: ModuleContext<unknown> = {
+      ...ctx,
+      get state() {
+        return read()
+      },
+      // D3 — one call persists and tells the table. The broadcast carries the *raw* state;
+      // per-viewer redaction happens once, at the Broadcaster choke point (D4).
+      setState: (next) => {
+        loaded = { value: next }
+        this.store.put(ctx.campaignId, found.name, next)
+        ctx.broadcast({ type: 'state-update', module: found.name, state: next })
+      },
+    }
+    return found.handler(action, payload, full) ?? null
+  }
+
+  /** Join snapshots (§2.3.4): every module's slice, redacted for the viewer receiving it. */
+  snapshotModules(campaignId: string, viewer: Viewer): Record<string, unknown> {
+    const slices: Record<string, unknown> = {}
+    for (const module of this.modules.values()) {
+      slices[module.name] = this.redactModule(module.name, this.load(campaignId, module), viewer)
+    }
+    return slices
+  }
+
+  /** How the Broadcaster's redactor reaches a module's `redact` (D4). */
+  redactModule(name: string, state: unknown, viewer: Viewer): unknown {
+    const module = this.modules.get(name)
+    return module?.redact ? module.redact(state, viewer) : state
+  }
+
+  private load(campaignId: string, module: GameModule<unknown>): unknown {
+    return this.store.get(campaignId, module.name) ?? module.initialState
   }
 }

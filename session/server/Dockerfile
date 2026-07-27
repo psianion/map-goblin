@@ -13,6 +13,7 @@ RUN corepack enable && corepack prepare pnpm@10.7.0 --activate
 # can see, and a half-visible workspace reads as an outdated lockfile.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/core/package.json ./packages/core/
+COPY packages/mechanics/package.json ./packages/mechanics/
 COPY canvas/package.json ./canvas/
 COPY session/client/package.json ./session/client/
 COPY session/server/package.json ./session/server/
@@ -20,8 +21,10 @@ RUN pnpm install --frozen-lockfile --filter @dnd/game-server...
 
 # The server runs from source under tsx; core is a type-only import (D3) that esbuild
 # erases, but its sources are copied so `pnpm --filter @dnd/game-server typecheck` works
-# in the image too.
+# in the image too. @dnd/mechanics is a *runtime* import (D2 — it is pure TS, no pixi),
+# so its sources are not optional.
 COPY packages/core ./packages/core
+COPY packages/mechanics ./packages/mechanics
 COPY session/server ./session/server
 
 # Overridable, but the compose volume mounts here: the SQLite file, the secrets and the

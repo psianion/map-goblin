@@ -111,7 +111,7 @@ async function api(
 async function snapshot(base: string, token: string): Promise<SessionState> {
   const socket = new WebSocket(`${base.replace(/^http/, 'ws')}/ws?token=${encodeURIComponent(token)}`)
   await once(socket, 'open')
-  socket.send(JSON.stringify({ type: 'join', protocolVersion: 1 }))
+  socket.send(JSON.stringify({ type: 'join', protocolVersion: 2 }))
   try {
     return await new Promise<SessionState>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('no session-state in 5s')), 5000)
