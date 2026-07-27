@@ -70,6 +70,22 @@ describe('DoorTool', () => {
     expect(doors()).toHaveLength(1);
   });
 
+  it('cycles an archway closed ↔ open, never into locked', () => {
+    useStore.getState().updateToolSettings({ doorStyle: 'archway' });
+    click(tool, 5, 5.1);
+    expect(doors()[0].style).toBe('archway');
+    expect(doors()[0].state).toBe('closed');
+
+    click(tool, 5, 5.1);
+    expect(doors()[0].state).toBe('open');
+
+    // A normal door would be 'locked' here — occlusion treats an archway as permanently
+    // open and the renderer draws it no state dot, so 'locked' would mean nothing.
+    click(tool, 5, 5.1);
+    expect(doors()[0].state).toBe('closed');
+    expect(doors()).toHaveLength(1);
+  });
+
   it('undoes a cycle back to the previous state', () => {
     click(tool, 5, 5.1);
     click(tool, 5, 5.1);
