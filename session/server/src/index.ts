@@ -12,10 +12,17 @@ import { ClientConnection, type Identity } from './ws/ClientConnection'
 import { SessionManager, type SessionManagerOptions } from './ws/SessionManager'
 
 /**
+ * The largest legal ClientMessage is a `command` whose payload is a few fields; `ws`
+ * otherwise defaults to a 100MiB frame, which is 100MiB any token holder can hand to
+ * JSON.parse. Heavy payloads go over HTTP (§2.3) — nothing on this socket is big.
+ */
+const MAX_WS_PAYLOAD_BYTES = 256 * 1024
+
+/**
  * D6 — the only thing accepted at upgrade is a session token in `?token=`. The token says
  * who you are; the database says whether that still means anything: an identity that has
- * been banned, or a campaign whose session has ended, gets no socket no matter how well
- * signed its token is.
+ * been banned, or a session that has ended, gets no socket no matter how well signed its
+ * token is.
  */
 export function authenticateUpgrade(
   req: IncomingMessage,
@@ -29,8 +36,13 @@ export function authenticateUpgrade(
   const identity = stores.identities.get(claims.identityId)
   if (!identity || identity.banned === 1) return null
 
-  const session = stores.sessions.getActiveByCampaign(claims.campaignId)
-  if (!session) return null
+  // A session-bound token opens that session or nothing — ending it, or replacing it with
+  // a new one under a fresh invite code, is what makes the token stop working. An unbound
+  // (DM) token still means "whatever table this campaign is running".
+  const session = claims.sessionId
+    ? stores.sessions.get(claims.sessionId)
+    : stores.sessions.getActiveByCampaign(claims.campaignId)
+  if (!session || session.active !== 1 || session.campaign_id !== claims.campaignId) return null
 
   stores.identities.touchLastSeen(identity.id)
   return {
@@ -78,9 +90,14 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
         activeSceneId: stores.sessions.get(id)?.active_scene_id ?? scenes[0]?.id ?? null,
       }
     },
+    // The upgrade checked both of these once; these are the same questions asked again for
+    // a socket that is already open, because a ban or a closed table has to bite a client
+    // that is sitting there rather than reconnecting.
+    sessionActive: (id) => stores.sessions.get(id)?.active === 1,
+    isBanned: (identityId) => stores.identities.isBanned(identityId),
     ...options,
   })
-  const wss = new WebSocketServer({ noServer: true })
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD_BYTES })
   const http = createServer(
     createRequestHandler({ hmacSecret: config.secrets.hmacSecret, stores, sessionManager: sessions }),
   )

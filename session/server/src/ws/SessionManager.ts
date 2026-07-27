@@ -33,6 +33,13 @@ export interface SessionManagerOptions {
   redact?: Redactor
   /** Defaults to no scenes: a SessionManager without a database has nothing to list. */
   scenes?: SceneSource
+  /**
+   * Is this session still open? Defaults to yes — a SessionManager without a database has
+   * nothing that could have ended behind its back.
+   */
+  sessionActive?: (sessionId: string) => boolean
+  /** Has this identity been banned since it connected? Defaults to no, for the same reason. */
+  isBanned?: (identityId: string) => boolean
 }
 
 export class SessionManager {
@@ -43,15 +50,21 @@ export class SessionManager {
   private readonly broadcaster: Broadcaster
   private readonly router: CommandRouter
   private readonly scenes: SceneSource
+  private readonly sessionActive: (sessionId: string) => boolean
+  private readonly isBanned: (identityId: string) => boolean
 
   constructor({
     heartbeatMs = 15_000,
     missedPongLimit = 2,
     redact,
     scenes = () => ({ scenes: [], activeSceneId: null }),
+    sessionActive = () => true,
+    isBanned = () => false,
   }: SessionManagerOptions = {}) {
     this.missedPongLimit = missedPongLimit
     this.scenes = scenes
+    this.sessionActive = sessionActive
+    this.isBanned = isBanned
     this.timer = setInterval(() => this.heartbeat(), heartbeatMs)
     this.timer.unref()
 
@@ -94,7 +107,24 @@ export class SessionManager {
     for (const client of session.clients) client.close()
   }
 
+  /**
+   * The DM banned someone (§2.3). Their token stays signed and their socket stays open
+   * until told otherwise, so say otherwise — the upgrade refuses the next one.
+   */
+  disconnectIdentity(identityId: string): void {
+    for (const conn of this.connections) {
+      if (conn.identity.identityId === identityId) conn.close()
+    }
+  }
+
   private handleMessage(conn: ClientConnection, msg: ClientMessage): void {
+    // Checked per frame rather than at upgrade only: a ban has to reach the socket someone
+    // is already holding, not just the one they open next.
+    if (this.isBanned(conn.identity.identityId)) {
+      this.broadcaster.sendTo(conn, { type: 'error', code: 'banned', message: 'you have been removed from this table' })
+      conn.close()
+      return
+    }
     switch (msg.type) {
       case 'join':
         return this.join(conn, msg.protocolVersion)
@@ -118,6 +148,15 @@ export class SessionManager {
     }
 
     const { identityId, name, role, sessionId, campaignId } = conn.identity
+    // A socket that upgraded while the table was open, then sat there through the DM
+    // ending it, must not be able to `join` it back into existence: `sessionFor` creates
+    // on miss, so without this the first frame after `endSession` resurrects the session.
+    if (!this.sessionActive(sessionId)) {
+      this.broadcaster.sendTo(conn, { type: 'session-ended' })
+      conn.close()
+      return
+    }
+
     const session = this.sessionFor(sessionId, campaignId)
     const dmReturning = role === 'dm' && session.dmSeen && !hasConnectedDm(session)
 
