@@ -1,28 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { RollEvent } from '@dnd/mechanics/rolls';
 import { ALL_ROLES, registerPanel } from '../session/panels';
 import { useModuleState, useSessionStore } from '../session/store';
-
-/**
- * §2.2's `RollEvent`, restated structurally and entirely optional.
- *
- * ponytail: not imported from `@dnd/mechanics/rolls` on purpose — the rolls
- * module lands a wave later, and the log has to render (empty, then partial)
- * before it does. Everything off the wire is display data the server already
- * length-capped; this panel never does arithmetic on it. Swap this for the real
- * import once mechanics ships if you want the compiler's opinion too.
- */
-interface RollEvent {
-  id?: string;
-  at?: number;
-  playerName?: string;
-  characterName?: string;
-  title?: string;
-  formula?: string;
-  breakdown?: string;
-  total?: number;
-  text?: string;
-  visibility?: 'public' | 'private';
-}
 
 interface Entry {
   key: string;
@@ -41,6 +20,9 @@ interface Entry {
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
 
 export function GameLog() {
+  // `log?` deliberately loosens `RollsState`: the slice is absent before the join snapshot
+  // and is untrusted wire data after it. Nothing below does arithmetic on a roll — the
+  // server already capped every string (§2.2) and this panel only prints them.
   const rolls = useModuleState<{ log?: RollEvent[] }>('rolls');
   const presence = useSessionStore((s) => s.presence);
   const [draft, setDraft] = useState('');
@@ -136,6 +118,9 @@ export function GameLog() {
           onChange={(e) => setDraft(e.target.value)}
           placeholder="stealth 17"
           aria-label="Post a roll"
+          // §2.2 caps `text` at 200; without this the server rejects the command and the
+          // typed line is gone. The native attribute is the whole fix.
+          maxLength={200}
           data-testid="manual-roll"
           className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none"
         />

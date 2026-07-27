@@ -9,6 +9,7 @@ import { useRole } from '../session/store';
 // own index; nothing here needs to change for them.
 import '../components/SessionControls';
 import '../components/GameLog';
+import '../modules/rolls/beyond20';
 
 /**
  * §2.6 — the table. Renderer takes the room, sidebar carries the registered panels.
