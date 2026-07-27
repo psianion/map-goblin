@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { PlayerInfo, ServerMessage, SessionState } from '@dnd/core/src/shared/protocol';
+import type { PlayerInfo, Role, ServerMessage, SessionState } from '@dnd/core/src/shared/protocol';
 import { WebSocketClient } from './WebSocketClient';
 import type { ConnectionStatus } from './WebSocketClient';
 
@@ -16,10 +16,20 @@ let applyingRemote = false;
 /** True while a ServerMessage is being folded into the store. */
 export const isApplyingRemote = (): boolean => applyingRemote;
 
+/** A join/leave line for GameLog — derived here, never sent by the server. */
+export interface PresenceEvent {
+  id: string;
+  at: number;
+  name: string;
+  kind: 'joined' | 'left';
+}
+
 export interface SessionStore {
   connection: ConnectionStatus;
   you: PlayerInfo | null;
   session: SessionState | null;
+  /** Roster changes seen this tab's lifetime, oldest first, capped. */
+  presence: PresenceEvent[];
   mapData: unknown | null;
   latencyMs: number | null;
   client: WebSocketClient | null;
@@ -43,6 +53,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
   connection: 'closed',
   you: null,
   session: null,
+  presence: [],
   mapData: null,
   latencyMs: null,
   client: null,
@@ -104,12 +115,28 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           const session = get().session;
           if (!session) break;
           // Identity is retained on leave (§2.5) — replace in place, never remove.
-          const players = session.players.some((p) => p.identityId === msg.player.identityId)
+          const known = session.players.find((p) => p.identityId === msg.player.identityId);
+          const players = known
             ? session.players.map((p) =>
                 p.identityId === msg.player.identityId ? msg.player : p,
               )
             : [...session.players, msg.player];
-          set({ session: { ...session, players } });
+          // §2.4.3 — a log line only when presence actually changed. A re-`join`
+          // (SessionControls' snapshot refetch) re-announces someone already
+          // connected; that is not an arrival and must not read as one.
+          const changed = known?.connected !== msg.player.connected;
+          const presence = changed
+            ? [
+                ...get().presence,
+                {
+                  id: `${msg.player.identityId}:${Date.now()}`,
+                  at: Date.now(),
+                  name: msg.player.name,
+                  kind: msg.player.connected ? ('joined' as const) : ('left' as const),
+                },
+              ].slice(-100)
+            : get().presence;
+          set({ session: { ...session, players }, presence });
           break;
         }
 
@@ -129,3 +156,19 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
     get().client?.send({ type: 'command', module, action, payload, seq });
   },
 }));
+
+// --- Selectors (D8) ---------------------------------------------------------
+// The two hooks module UI is allowed to know about. Everything a rolls/tokens
+// panel needs — "who am I" and "what is my module's state" — comes from here, so
+// modules never reach into the store shape and the shape stays free to change.
+
+/** Your role at this table; `undefined` until the join snapshot lands. */
+export const useRole = (): Role | undefined => useSessionStore((s) => s.you?.role);
+
+/**
+ * A module's slice of the session snapshot, already redacted for you by the
+ * server (D4). `undefined` before the snapshot arrives or if the module is not
+ * registered server-side — callers render an empty state, they never assume.
+ */
+export const useModuleState = <T,>(moduleName: string): T | undefined =>
+  useSessionStore((s) => s.session?.modules[moduleName] as T | undefined);
