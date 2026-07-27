@@ -10,6 +10,7 @@ import { useRole } from '../session/store';
 import '../components/SessionControls';
 import '../components/GameLog';
 import '../modules/rolls/beyond20';
+import '../modules/tokens';
 
 /**
  * §2.6 — the table. Renderer takes the room, sidebar carries the registered panels.

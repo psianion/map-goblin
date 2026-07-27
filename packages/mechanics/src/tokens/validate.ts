@@ -29,11 +29,10 @@ const VISION_MODES: readonly NonNullable<TokenDef['sight']>['visionMode'][] = [
 
 /** A refusal on its way out to the sender; the handler turns it into a CommandError. */
 export class Reject extends Error {
-  constructor(
-    readonly code: CommandError['code'],
-    message: string,
-  ) {
+  readonly code: CommandError['code']
+  constructor(code: CommandError['code'], message: string) {
     super(message)
+    this.code = code
   }
 }
 
