@@ -102,7 +102,7 @@ export class TerrainTool implements DrawingTool {
 
   private drawBrushPreview(p: Point): void {
     const s = this.settings();
-    const zoom = this.brushCircle.parent?.parent?.scale.x ?? 20;
+    const zoom = this.engine.stage().scale.x;
     const strokeWidth = 1.5 / zoom;
     const erase = this.isErase();
     const color = erase ? 0xff4444 : 0x4a9eff;

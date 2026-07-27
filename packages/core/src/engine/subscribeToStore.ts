@@ -189,7 +189,7 @@ export function subscribeToStore(
           // Track water body changes
           waterSignature: l.children
             .filter((c): c is import('../shared/types').WaterChild => c.childType === 'water')
-            .map((c) => `${c.id}:${c.visible}:${c.contours.length}:${c.contours[0]?.length ?? 0}:${c.textureId}:${c.tint}:${c.opacity}:${c.bankTextureId}:${c.bankWidth}:${c.flowSpeed}:${c.flowAngle}`)
+            .map((c) => `${c.id}:${c.visible}:${c.contours.length}:${c.contours[0]?.length ?? 0}:${c.contours[0]?.[0] ?? ''}:${c.contours[0]?.at(-1) ?? ''}:${c.textureId}:${c.tint}:${c.opacity}:${c.bankTextureId}:${c.bankWidth}:${c.flowSpeed}:${c.flowAngle}`)
             .join(','),
           // Track wall type/direction changes for lighting
           wallSignature: l.standaloneWalls

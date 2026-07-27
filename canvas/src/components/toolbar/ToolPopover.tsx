@@ -21,8 +21,9 @@ import { PresetApplyCommand, LayerStyleChangeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { notify } from '@/lib/toast';
 import { getTextureEntry } from '@/assets/textureManifest';
-import { DEFAULT_TERRAIN_PALETTE } from '@dnd/core/src/store/slices/mapSettings';
-import { PackThumbnailCanvas } from '@/components/layers/AssetBrowserPanel';
+import { DEFAULT_TERRAIN_PALETTE } from '@/store/slices/mapSettings';
+import { TERRAIN_BRUSH_RANGES, WATER_RANGES } from '@/store/slices/tools';
+import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas';
 
 interface ToolPopoverProps {
   tool: ToolType;
@@ -719,7 +720,7 @@ function TerrainBrushContent() {
           <span className="text-[11px] text-text-secondary uppercase tracking-wider">Brush Size</span>
           <span className="text-xs text-text-primary font-mono">{settings.radius} cells</span>
         </div>
-        <SliderInput value={settings.radius} onChange={(v) => updateSettings({ radius: v })} min={0.5} max={12} step={0.5} />
+        <SliderInput value={settings.radius} onChange={(v) => updateSettings({ radius: v })} {...TERRAIN_BRUSH_RANGES.radius} />
       </div>
 
       <div>
@@ -727,7 +728,7 @@ function TerrainBrushContent() {
           <span className="text-[11px] text-text-secondary uppercase tracking-wider">Strength</span>
           <span className="text-xs text-text-primary font-mono">{Math.round(settings.strength * 100)}%</span>
         </div>
-        <SliderInput value={settings.strength} onChange={(v) => updateSettings({ strength: v })} min={0.1} max={1} step={0.05} />
+        <SliderInput value={settings.strength} onChange={(v) => updateSettings({ strength: v })} {...TERRAIN_BRUSH_RANGES.strength} />
       </div>
 
       <div className="text-[10px] text-text-tertiary mt-1">
@@ -793,7 +794,7 @@ function WaterToolContent() {
             <span className="text-[11px] text-text-secondary uppercase tracking-wider">River Width</span>
             <span className="text-xs text-text-primary font-mono">{settings.width} cells</span>
           </div>
-          <SliderInput value={settings.width} onChange={(v) => updateSettings({ width: v })} min={0.5} max={10} step={0.5} />
+          <SliderInput value={settings.width} onChange={(v) => updateSettings({ width: v })} {...WATER_RANGES.width} />
         </div>
       )}
 
@@ -802,7 +803,7 @@ function WaterToolContent() {
           <span className="text-[11px] text-text-secondary uppercase tracking-wider">Flow Speed</span>
           <span className="text-xs text-text-primary font-mono">{settings.flowSpeed.toFixed(2)}</span>
         </div>
-        <SliderInput value={settings.flowSpeed} onChange={(v) => updateSettings({ flowSpeed: v })} min={0} max={1} step={0.05} />
+        <SliderInput value={settings.flowSpeed} onChange={(v) => updateSettings({ flowSpeed: v })} {...WATER_RANGES.flowSpeed} />
       </div>
 
       <PropertyField label="Banks">

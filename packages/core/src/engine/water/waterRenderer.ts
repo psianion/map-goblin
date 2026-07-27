@@ -7,20 +7,61 @@ import { registerFlowSprite, unregisterFlowSpritesIn } from './waterAnimation';
 
 const PX_PER_GRID_CELL = 200;
 const MIN_BANK_EDGE = 0.05;
+/** cos(~2.5°) — edges straighter than this join into one bank strip. */
+const COLINEAR_DOT = 0.999;
 
 function parseColor(hex: string): number {
   return parseInt(hex.replace('#', ''), 16);
 }
 
-function polygonBounds(poly: Polygon) {
+function polygonsBounds(polys: Polygon[]) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const [x, y] of poly) {
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
+  for (const poly of polys) {
+    for (const [x, y] of poly) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
   }
   return { minX, minY, maxX, maxY };
+}
+
+/** Twice the signed area — sign gives the winding direction. */
+function signedArea(poly: Polygon): number {
+  let a = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const [x1, y1] = poly[i];
+    const [x2, y2] = poly[(i + 1) % poly.length];
+    a += x1 * y2 - x2 * y1;
+  }
+  return a;
+}
+
+/**
+ * Collapse consecutive near-colinear edges into single segments. Clipper's
+ * round joins emit dozens of tiny edges per corner and each one would
+ * otherwise become its own bank TilingSprite (and its own draw call).
+ */
+function mergedEdges(poly: Polygon): [number, number, number, number][] {
+  const out: [number, number, number, number][] = [];
+  const n = poly.length;
+  let sx = poly[0][0], sy = poly[0][1];
+  let px = sx, py = sy;
+  for (let i = 1; i <= n; i++) {
+    const [cx, cy] = poly[i % n];
+    const ax = px - sx, ay = py - sy;
+    const bx = cx - px, by = cy - py;
+    const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+    // Break the run where the direction turns by more than ~2.5°
+    if (la > 0 && lb > 0 && (ax * bx + ay * by) / (la * lb) < COLINEAR_DOT) {
+      out.push([sx, sy, px, py]);
+      sx = px; sy = py;
+    }
+    px = cx; py = cy;
+  }
+  out.push([sx, sy, px, py]);
+  return out;
 }
 
 function tracePolygon(g: Graphics, poly: Polygon): void {
@@ -39,7 +80,18 @@ function renderWaterChild(parent: Container, water: WaterChild): void {
   if (!outer || outer.length < 3) return;
 
   const texture = resolveTexture(water.textureId);
-  const { minX, minY, maxX, maxY } = polygonBounds(outer);
+  // resolveTexture hands back a 1x1 magenta placeholder when the id can't be
+  // resolved — tiling that would paint the whole body solid magenta.
+  if (texture.width <= 1) return;
+
+  // Clipper can return several same-winding rings for one self-crossing stroke;
+  // only the opposite-winding ones are holes to cut out of the body.
+  const outerSign = Math.sign(signedArea(outer));
+  const rings = water.contours.filter((c) => c.length >= 3);
+  const fills = rings.filter((c, i) => i === 0 || Math.sign(signedArea(c)) === outerSign);
+  const holes = rings.filter((c, i) => i > 0 && Math.sign(signedArea(c)) !== outerSign);
+
+  const { minX, minY, maxX, maxY } = polygonsBounds(fills);
   const width = maxX - minX;
   const height = maxY - minY;
   if (width <= 0 || height <= 0) return;
@@ -63,14 +115,12 @@ function renderWaterChild(parent: Container, water: WaterChild): void {
   }
   ts.alpha = water.opacity ?? 1;
 
-  // Mask: outer contour minus holes
+  // Mask: filled rings minus holes
   const mask = new Graphics();
-  tracePolygon(mask, outer);
+  for (const ring of fills) tracePolygon(mask, ring);
   mask.fill({ color: 0xffffff });
-  if (water.contours.length > 1) {
-    for (let i = 1; i < water.contours.length; i++) {
-      tracePolygon(mask, water.contours[i]);
-    }
+  if (holes.length > 0) {
+    for (const hole of holes) tracePolygon(mask, hole);
     mask.cut();
   }
 
@@ -89,29 +139,30 @@ function renderWaterChild(parent: Container, water: WaterChild): void {
       banks.label = 'water-banks';
       const bankWidth = water.bankWidth || 0.5;
       const bankScale = bankWidth / bankTex.height;
-      let accum = 0;
-      for (let i = 0; i < outer.length; i++) {
-        const [x1, y1] = outer[i];
-        const [x2, y2] = outer[(i + 1) % outer.length];
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const len = Math.hypot(dx, dy);
-        if (len < MIN_BANK_EDGE) { accum += len; continue; }
+      for (const ring of fills) {
+        let accum = 0;
+        for (const [x1, y1, x2, y2] of mergedEdges(ring)) {
+          const dx = x2 - x1;
+          const dy = y2 - y1;
+          const len = Math.hypot(dx, dy);
+          if (len < MIN_BANK_EDGE) { accum += len; continue; }
 
-        const strip = new TilingSprite({
-          texture: bankTex,
-          width: len,
-          height: bankWidth,
-          tileScale: { x: bankScale, y: bankScale },
-        });
-        strip.position.set(x1, y1);
-        strip.rotation = Math.atan2(dy, dx);
-        // Continuous pattern across polygon edges
-        strip.tilePosition.x = -accum;
-        banks.addChild(strip);
-        accum += len;
+          const strip = new TilingSprite({
+            texture: bankTex,
+            width: len,
+            height: bankWidth,
+            tileScale: { x: bankScale, y: bankScale },
+          });
+          strip.position.set(x1, y1);
+          strip.rotation = Math.atan2(dy, dx);
+          // Continuous pattern across polygon edges
+          strip.tilePosition.x = -accum;
+          banks.addChild(strip);
+          accum += len;
+        }
       }
-      // ponytail: per-edge strips, no corner mitering — dense spline contours hide the joints
+      // ponytail: merged straight runs, no corner mitering — dense spline
+      // contours hide the joints; miter the corners if seams ever show
       parent.addChild(banks);
     }
   }

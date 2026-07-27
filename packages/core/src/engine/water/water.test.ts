@@ -66,7 +66,6 @@ function makeWater(id: string, contour: [number, number][], extra?: Partial<Wate
     waterType: 'lake',
     contours: [contour],
     textureId: 'water-still-a-01',
-    textureScale: 1,
     tint: '#9fc8e8',
     opacity: 0.9,
     bankTextureId: '',
@@ -323,6 +322,19 @@ describe('WaterTool — erase mode', () => {
     tool.onPointerDown({ x: 5, y: 5 });
 
     expect(waterChildren()).toHaveLength(1);
+  });
+
+  it('a click inside a hole is not a hit — no water is drawn there', () => {
+    const tool = new WaterTool(makeEngine());
+    const hole: [number, number][] = [[3, 3], [7, 3], [7, 7], [3, 7]];
+    useStore.getState().addChild(dungeonLayer().id, makeWater('ring', square, { contours: [square, hole] }));
+
+    tool.onPointerDown({ x: 5, y: 5 }); // dead centre of the hole
+
+    expect(waterChildren()).toHaveLength(1);
+
+    tool.onPointerDown({ x: 1, y: 1 }); // on the ring itself
+    expect(waterChildren()).toHaveLength(0);
   });
 
   it('erasing is undoable', () => {

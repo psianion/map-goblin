@@ -17,7 +17,6 @@ function makeWater(outer: [number, number][], visible = true): WaterChild {
     waterType: 'lake',
     contours: [outer],
     textureId: 'water-still-a-01',
-    textureScale: 1,
     tint: '#9fc8e8',
     opacity: 0.9,
     bankTextureId: '',
@@ -38,6 +37,16 @@ function layerWith(
 beforeEach(() => useStore.getState().resetToDefault());
 
 describe('computeMapWorldBounds', () => {
+  it('takes terrain bounds as an argument instead of only reading the live store', () => {
+    const b = computeMapWorldBounds([layerWith(null)], { minX: -30, minY: -20, maxX: 30, maxY: 20 });
+    expect(b.minX).toBeLessThanOrEqual(-30);
+    expect(b.maxX).toBeGreaterThanOrEqual(30);
+    // Explicitly passing null opts out of the store read entirely
+    expect(computeMapWorldBounds([layerWith(null)], null)).toEqual({
+      minX: -5, minY: -5, maxX: 5, maxY: 5,
+    });
+  });
+
   it('falls back to a 10x10 grid when there is no geometry at all', () => {
     expect(computeMapWorldBounds([layerWith(null)])).toEqual({
       minX: -5, minY: -5, maxX: 5, maxY: 5,

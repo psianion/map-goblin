@@ -117,7 +117,6 @@ export interface WaterChild extends LayerChild {
   waterType: 'river' | 'lake';
   contours: [number, number][][]; // index 0 = outer boundary, 1+ = holes
   textureId: string;
-  textureScale: number;
   tint: string;
   opacity: number;
   /** Bank edge-strip texture tiled along the shoreline. Empty string = no banks. */

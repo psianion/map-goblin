@@ -143,7 +143,6 @@ export class WaterTool implements DrawingTool {
       waterType,
       contours,
       textureId: s.textureId,
-      textureScale: 1,
       tint: '#9fc8e8',
       opacity: 0.9,
       bankTextureId: s.bankTextureId,
@@ -207,11 +206,14 @@ export class WaterTool implements DrawingTool {
     const waters = layer.children.filter(
       (c): c is WaterChild => c.childType === 'water' && c.visible,
     );
+    const p: [number, number] = [point.x, point.y];
     for (let i = waters.length - 1; i >= 0; i--) {
-      if (pointInPolygon([point.x, point.y], waters[i].contours[0])) {
-        undoManager.execute(new RemoveChildCommand('Remove water', layer.id, waters[i].id));
-        return;
-      }
+      const contours = waters[i].contours;
+      if (!pointInPolygon(p, contours[0])) continue;
+      // A click inside a hole lands where no water is drawn — not a hit.
+      if (contours.slice(1).some((hole) => pointInPolygon(p, hole))) continue;
+      undoManager.execute(new RemoveChildCommand('Remove water', layer.id, waters[i].id));
+      return;
     }
   }
 }

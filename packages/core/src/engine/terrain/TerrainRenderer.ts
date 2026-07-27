@@ -130,7 +130,8 @@ export class TerrainRenderer {
   private engine: RenderEngine;
   private mesh: Mesh<MeshGeometry, Shader> | null = null;
   private shader: Shader | null = null;
-  private splatRTs: [RenderTexture, RenderTexture];
+  /** Allocated on first paint/restore — 32MB of VRAM maps that never paint don't need. */
+  private splatRTs: [RenderTexture, RenderTexture] | null = null;
   private tileRTs: (RenderTexture | null)[] = new Array(TERRAIN_SLOTS).fill(null);
   private brushTexture: Texture | null = null;
   private stampSprite: Sprite | null = null;
@@ -138,6 +139,12 @@ export class TerrainRenderer {
   private strokeBackup: RenderTexture | null = null;
   private strokeDirty: { minX: number; minY: number; maxX: number; maxY: number } | null = null;
   private loadedPaletteKey = '';
+  /** Bumped per loadPalette() call so a slow load can tell it has been superseded. */
+  private paletteToken = 0;
+  /** Bumped per restoreFromDataUrl() call, per splat, for the same reason. */
+  private restoreTokens = [0, 0];
+  /** Which splats changed since the last persist — clean ones skip the PNG encode. */
+  private splatDirty = [false, false];
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   /** Data URLs we wrote to the store — used to tell our own writes from map loads. */
   private lastPersisted: (string | null)[] = [null, null];
@@ -149,13 +156,23 @@ export class TerrainRenderer {
     this.container = new Container();
     this.container.label = 'terrainLayer';
 
-    this.splatRTs = [
-      RenderTexture.create({ width: SPLAT_SIZE, height: SPLAT_SIZE, resolution: 1 }),
-      RenderTexture.create({ width: SPLAT_SIZE, height: SPLAT_SIZE, resolution: 1 }),
-    ];
-
     this.buildMesh();
     this.watchStore();
+  }
+
+  /** Allocate the splatmaps on first use and bind them to the shader. */
+  private splats(): [RenderTexture, RenderTexture] {
+    if (!this.splatRTs) {
+      this.splatRTs = [
+        RenderTexture.create({ width: SPLAT_SIZE, height: SPLAT_SIZE, resolution: 1 }),
+        RenderTexture.create({ width: SPLAT_SIZE, height: SPLAT_SIZE, resolution: 1 }),
+      ];
+      if (this.shader) {
+        this.shader.resources.uSplat0 = this.splatRTs[0].source;
+        this.shader.resources.uSplat1 = this.splatRTs[1].source;
+      }
+    }
+    return this.splatRTs;
   }
 
   private buildMesh(): void {
@@ -181,8 +198,10 @@ export class TerrainRenderer {
           uExtentSize: { value: WORLD_SIZE, type: 'f32' },
           ...tiles,
         },
-        uSplat0: this.splatRTs[0].source,
-        uSplat1: this.splatRTs[1].source,
+        // Empty until the first paint/restore allocates the real splatmaps —
+        // sampling it yields 0 weight, so the mesh renders nothing.
+        uSplat0: Texture.EMPTY.source,
+        uSplat1: Texture.EMPTY.source,
         uTex0: white,
         uTex1: white,
         uTex2: white,
@@ -212,22 +231,35 @@ export class TerrainRenderer {
     const palette = this.getPalette();
     const key = palette.join('|');
     if (key === this.loadedPaletteKey) return;
-    this.loadedPaletteKey = key;
+    // Staleness is tracked by token, not by the key — the key is only recorded
+    // once every slot has landed, so a failed slot is retried on the next call.
+    const token = ++this.paletteToken;
+    let complete = true;
 
     for (let slot = 0; slot < TERRAIN_SLOTS; slot++) {
       const id = palette[slot];
-      if (!id) continue;
+      if (!id) {
+        // Cleared slot: drop the old tile so it stops being painted.
+        this.tileRTs[slot]?.destroy(true);
+        this.tileRTs[slot] = null;
+        if (this.shader) this.shader.resources[`uTex${slot}`] = Texture.WHITE.source;
+        continue;
+      }
       try {
         if (!id.includes(':') && !textureLoader.getSync(id)) {
           await textureLoader.load(id);
         }
       } catch {
+        complete = false;
         continue;
       }
-      if (this.destroyed || this.loadedPaletteKey !== key) return;
+      if (this.destroyed || this.paletteToken !== token) return;
 
       const tex = textureLoader.resolveTexture(id);
-      if (tex.width <= 1) continue;
+      if (tex.width <= 1) {
+        complete = false;
+        continue;
+      }
 
       const w = Math.min(tex.width, MAX_TILE_EXTRACT);
       const h = Math.min(tex.height, MAX_TILE_EXTRACT);
@@ -254,6 +286,8 @@ export class TerrainRenderer {
         tile[1] = naturalH / 200;
       }
     }
+
+    if (complete) this.loadedPaletteKey = key;
   }
 
   // ─── Painting ────────────────────────────────────────────
@@ -299,26 +333,27 @@ export class TerrainRenderer {
     sprite.height = texelRadius * 2;
 
     const rtIndex = (erase ? 0 : Math.floor(slot / 3)) as 0 | 1;
+    const splats = this.splats();
 
     if (erase) {
       // Decay all channels on both splatmaps.
       sprite.tint = 0x000000;
       sprite.alpha = Math.min(1, strength);
       sprite.blendMode = 'normal';
-      this.engine.renderToTexture(holder, this.splatRTs[0], false);
-      this.engine.renderToTexture(holder, this.splatRTs[1], false);
+      this.engine.renderToTexture(holder, splats[0], false);
+      this.engine.renderToTexture(holder, splats[1], false);
     } else {
       // Soft-erase everything under the brush (both maps), then add the target channel.
       sprite.tint = 0x000000;
       sprite.alpha = Math.min(1, strength * 0.5);
       sprite.blendMode = 'normal';
-      this.engine.renderToTexture(holder, this.splatRTs[0], false);
-      this.engine.renderToTexture(holder, this.splatRTs[1], false);
+      this.engine.renderToTexture(holder, splats[0], false);
+      this.engine.renderToTexture(holder, splats[1], false);
 
       sprite.tint = CHANNEL_TINTS[slot % 3];
       sprite.alpha = Math.min(1, strength);
       sprite.blendMode = 'add';
-      this.engine.renderToTexture(holder, this.splatRTs[rtIndex], false);
+      this.engine.renderToTexture(holder, splats[rtIndex], false);
     }
 
     // Track dirty texel bounds for the stroke snapshot
@@ -354,14 +389,13 @@ export class TerrainRenderer {
       // the backup is double-height: rt0 at y=0, rt1 at y=SPLAT_SIZE.
       const backupFrame = new Rectangle(x, y + rtIndex * SPLAT_SIZE, width, height);
       const before = this.extractRegion(this.strokeBackup!, backupFrame);
-      const after = this.extractRegion(this.splatRTs[rtIndex], frame);
+      const after = this.extractRegion(this.splats()[rtIndex], frame);
       if (!this.regionsEqual(before, after)) {
         snapshots.push({ rtIndex, rect, before, after });
+        this.splatDirty[rtIndex] = true;
       }
     }
 
-    // Update painted world bounds (for export)
-    this.growPaintedBounds(x, y, x2, y2);
     this.schedulePersist();
     return snapshots;
   }
@@ -370,22 +404,20 @@ export class TerrainRenderer {
    * Backup handling: beginStroke() is called before any stamp, so we copy BOTH
    * splat RTs into a single double-height backup (top = rt0, bottom = rt1).
    */
-  private backupValid = false;
-
   copyToBackup(): void {
     if (!this.strokeBackup) {
       this.strokeBackup = RenderTexture.create({ width: SPLAT_SIZE, height: SPLAT_SIZE * 2, resolution: 1 });
     }
+    const splats = this.splats();
     const holder = new Container();
-    const s0 = new Sprite(this.splatRTs[0]);
+    const s0 = new Sprite(splats[0]);
     s0.blendMode = 'none';
-    const s1 = new Sprite(this.splatRTs[1]);
+    const s1 = new Sprite(splats[1]);
     s1.position.set(0, SPLAT_SIZE);
     s1.blendMode = 'none';
     holder.addChild(s0, s1);
     this.engine.renderToTexture(holder, this.strokeBackup, true);
     holder.destroy({ children: true });
-    this.backupValid = true;
   }
 
   /**
@@ -409,10 +441,15 @@ export class TerrainRenderer {
     return out;
   }
 
+  /**
+   * RGB-only compare: the shader reads .rgb and ignores alpha, and every paint
+   * stamp writes alpha to both splatmaps even where it changes no weights —
+   * comparing alpha would snapshot (and persist) the untouched map every stroke.
+   */
   private regionsEqual(a: Uint8Array, b: Uint8Array): boolean {
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
-      if (a[i] !== b[i]) return false;
+      if (i % 4 !== 3 && a[i] !== b[i]) return false;
     }
     return true;
   }
@@ -431,15 +468,16 @@ export class TerrainRenderer {
     sprite.blendMode = 'none';
     const holder = new Container();
     holder.addChild(sprite);
-    this.engine.renderToTexture(holder, this.splatRTs[rtIndex], false);
+    this.engine.renderToTexture(holder, this.splats()[rtIndex], false);
     holder.destroy({ children: true });
     texture.destroy(true);
+    this.splatDirty[rtIndex] = true;
     this.schedulePersist();
   }
 
   /** Cancel an in-flight stroke: restore both splat RTs from the backup. */
   cancelStroke(): void {
-    if (!this.strokeBackup || !this.backupValid) return;
+    if (!this.strokeBackup) return;
     for (const rtIndex of [0, 1] as const) {
       const frame = new Rectangle(0, rtIndex * SPLAT_SIZE, SPLAT_SIZE, SPLAT_SIZE);
       const tex = new Texture({ source: this.strokeBackup.source, frame });
@@ -447,24 +485,36 @@ export class TerrainRenderer {
       sprite.blendMode = 'none';
       const holder = new Container();
       holder.addChild(sprite);
-      this.engine.renderToTexture(holder, this.splatRTs[rtIndex], true);
+      this.engine.renderToTexture(holder, this.splats()[rtIndex], true);
       holder.destroy({ children: true });
       tex.destroy();
     }
     this.strokeDirty = null;
   }
 
-  private growPaintedBounds(tx: number, ty: number, tx2: number, ty2: number): void {
+  /**
+   * Non-empty AABB of a splat readback, in world units, or null if it's blank.
+   * Matches the shader's `rgb sum < 0.004` cutoff so bounds track what's drawn.
+   */
+  private splatBounds(pixels: Uint8Array, size: number) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0, p = 0; i < pixels.length; i += 4, p++) {
+      if (pixels[i] + pixels[i + 1] + pixels[i + 2] < 1) continue;
+      const x = p % size;
+      const y = (p / size) | 0;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    if (!isFinite(minX)) return null;
     const toWorld = (t: number) => t / TEXELS_PER_CELL - TERRAIN_EXTENT_HALF;
-    const store = useStore.getState();
-    const prev = store.mapSettings.terrain?.bounds ?? null;
-    const next = {
-      minX: Math.min(prev?.minX ?? Infinity, toWorld(tx)),
-      minY: Math.min(prev?.minY ?? Infinity, toWorld(ty)),
-      maxX: Math.max(prev?.maxX ?? -Infinity, toWorld(tx2)),
-      maxY: Math.max(prev?.maxY ?? -Infinity, toWorld(ty2)),
+    return {
+      minX: toWorld(minX),
+      minY: toWorld(minY),
+      maxX: toWorld(maxX + 1),
+      maxY: toWorld(maxY + 1),
     };
-    store.setTerrainData({ bounds: next });
   }
 
   // ─── Persistence ─────────────────────────────────────────
@@ -479,30 +529,57 @@ export class TerrainRenderer {
   }
 
   private async persistNow(): Promise<void> {
-    if (this.destroyed) return;
+    if (this.destroyed || !this.splatRTs) return;
     const store = useStore.getState();
+
+    // Recompute painted bounds from the pixels themselves so erase and undo
+    // shrink them again — an accumulated AABB could only ever grow.
+    let bounds: { minX: number; minY: number; maxX: number; maxY: number } | null = null;
     for (const rtIndex of [0, 1] as const) {
+      const { pixels, width } = this.engine.renderer().extract.pixels({ target: this.splatRTs[rtIndex] });
+      const b = this.splatBounds(pixels as unknown as Uint8Array, width);
+      if (!b) continue;
+      bounds = bounds
+        ? {
+            minX: Math.min(bounds.minX, b.minX),
+            minY: Math.min(bounds.minY, b.minY),
+            maxX: Math.max(bounds.maxX, b.maxX),
+            maxY: Math.max(bounds.maxY, b.maxY),
+          }
+        : b;
+    }
+    store.setTerrainData({ bounds });
+
+    for (const rtIndex of [0, 1] as const) {
+      if (!this.splatDirty[rtIndex]) continue;
       try {
         const url = await this.engine.renderer().extract.base64({
           target: this.splatRTs[rtIndex],
           format: 'png',
         });
         if (this.destroyed) return;
+        this.splatDirty[rtIndex] = false;
         this.lastPersisted[rtIndex] = url;
         store.addCustomImage(SPLAT_IMAGE_KEYS[rtIndex], url);
       } catch (err) {
         console.error('[terrain] splatmap persist failed:', err);
       }
     }
-    // Ensure palette metadata exists once terrain has been painted
-    if (!store.mapSettings.terrain) {
-      store.setTerrainData({});
-    }
   }
 
   /** Blit a loaded splat image into a splat RT (map load / restore). */
   private async restoreFromDataUrl(rtIndex: 0 | 1, url: string | null): Promise<void> {
+    // An incoming bitmap supersedes anything we were about to write back, and
+    // any earlier restore still waiting on decode().
+    const token = ++this.restoreTokens[rtIndex];
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    this.splatDirty[rtIndex] = false;
+
     if (!url) {
+      if (!this.splatRTs) return; // nothing allocated = already blank
       const empty = new Container();
       this.engine.renderToTexture(empty, this.splatRTs[rtIndex], true);
       empty.destroy();
@@ -512,7 +589,7 @@ export class TerrainRenderer {
       const img = new Image();
       img.src = url;
       await img.decode();
-      if (this.destroyed) return;
+      if (this.destroyed || this.restoreTokens[rtIndex] !== token) return;
       const tex = Texture.from(img);
       const sprite = new Sprite(tex);
       sprite.width = SPLAT_SIZE;
@@ -520,7 +597,7 @@ export class TerrainRenderer {
       sprite.blendMode = 'none';
       const holder = new Container();
       holder.addChild(sprite);
-      this.engine.renderToTexture(holder, this.splatRTs[rtIndex], true);
+      this.engine.renderToTexture(holder, this.splats()[rtIndex], true);
       holder.destroy({ children: true });
       tex.destroy(true);
     } catch (err) {
@@ -559,12 +636,23 @@ export class TerrainRenderer {
     if (this.persistTimer) clearTimeout(this.persistTimer);
     for (const unsub of this.unsubscribers) unsub();
     this.unsubscribers = [];
+    // Mesh.destroy() only nulls its geometry/shader refs — the GPU buffers and
+    // the compiled shader survive unless they're destroyed explicitly.
+    const geometry = this.mesh?.geometry;
     this.container.destroy({ children: true });
-    this.splatRTs[0].destroy(true);
-    this.splatRTs[1].destroy(true);
+    geometry?.destroy();
+    this.shader?.destroy();
+    this.mesh = null;
+    this.shader = null;
+    this.splatRTs?.[0].destroy(true);
+    this.splatRTs?.[1].destroy(true);
+    this.splatRTs = null;
     this.strokeBackup?.destroy(true);
+    this.strokeBackup = null;
     for (const rt of this.tileRTs) rt?.destroy(true);
+    this.tileRTs.fill(null);
     this.brushTexture?.destroy(true);
+    this.brushTexture = null;
   }
 }
 

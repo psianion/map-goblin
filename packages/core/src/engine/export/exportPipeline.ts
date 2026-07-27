@@ -17,7 +17,10 @@ export interface ExportOptions {
  * Compute the axis-aligned bounding box of all dungeon layer floor geometry,
  * in world space (world units = grid cells).
  */
-export function computeMapWorldBounds(layers: Layer[]): {
+export function computeMapWorldBounds(
+  layers: Layer[],
+  terrainBounds = useStore.getState().mapSettings.terrain?.bounds ?? null,
+): {
   minX: number;
   minY: number;
   maxX: number;
@@ -54,7 +57,6 @@ export function computeMapWorldBounds(layers: Layer[]): {
   }
 
   // Painted terrain extends the map too
-  const terrainBounds = useStore.getState().mapSettings.terrain?.bounds;
   if (terrainBounds) {
     minX = Math.min(minX, terrainBounds.minX);
     minY = Math.min(minY, terrainBounds.minY);

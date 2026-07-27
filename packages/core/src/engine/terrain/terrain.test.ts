@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { TerrainStrokeCommand } from './terrainCommands';
+import { TerrainStrokeCommand, SNAPSHOT_BUDGET_BYTES } from './terrainCommands';
 import { setTerrainRenderer, type StrokeRegionSnapshot, type TerrainRenderer } from './TerrainRenderer';
 import { useStore } from '../../store/store';
+import { TERRAIN_BRUSH_RANGES, WATER_RANGES } from '../../store/slices/tools';
 import type { WaterChild } from '../../shared/types';
 import type { DungeonLayer } from '../../store/types';
 
@@ -54,6 +55,45 @@ describe('TerrainStrokeCommand', () => {
     cmd.execute();
     expect(calls.length).toBe(0);
   });
+
+  it('drops the oldest snapshots once the retained pixel budget is exceeded', () => {
+    const { fake, calls } = makeFakeRenderer();
+    setTerrainRenderer(fake);
+    // byteLength is all the budget accounting reads — no need to really allocate.
+    const huge = (): StrokeRegionSnapshot => ({
+      ...makeSnapshot(),
+      before: { byteLength: SNAPSHOT_BUDGET_BYTES / 2 } as unknown as Uint8Array,
+      after: { byteLength: SNAPSHOT_BUDGET_BYTES / 2 } as unknown as Uint8Array,
+    });
+
+    const first = new TerrainStrokeCommand([huge()]);
+    const second = new TerrainStrokeCommand([huge()]);
+    first.execute();
+    second.execute();
+
+    first.undo(); // evicted — its buffers are gone
+    expect(calls.length).toBe(0);
+    second.undo(); // newest stroke still undoable
+    expect(calls.length).toBe(1);
+
+    second.cleanup();
+  });
+});
+
+describe('tool setting clamps', () => {
+  beforeEach(() => useStore.getState().resetToDefault());
+
+  it('clamps to the same ranges the sliders expose', () => {
+    const s = useStore.getState();
+    s.updateTerrainBrushSettings({ radius: 999, strength: -1 });
+    s.updateWaterSettings({ width: 999, flowSpeed: 999 });
+
+    const { terrainBrush, water } = useStore.getState().tools.settings;
+    expect(terrainBrush.radius).toBe(TERRAIN_BRUSH_RANGES.radius.max);
+    expect(terrainBrush.strength).toBe(TERRAIN_BRUSH_RANGES.strength.min);
+    expect(water.width).toBe(WATER_RANGES.width.max);
+    expect(water.flowSpeed).toBe(WATER_RANGES.flowSpeed.max);
+  });
 });
 
 describe('water children in the store', () => {
@@ -73,7 +113,6 @@ describe('water children in the store', () => {
       waterType: 'river',
       contours: [[[0, 0], [4, 0], [4, 2], [0, 2]]],
       textureId: 'water-still-a-01',
-      textureScale: 1,
       tint: '#9fc8e8',
       opacity: 0.9,
       bankTextureId: 'bank-grassy-01-a1',

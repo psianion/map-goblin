@@ -62,18 +62,36 @@ export function initWaterAnimation(engine: RenderEngine, worldContainer: Contain
 
   let t = 0;
   engine.addTickerCallback(() => {
-    if (flowSprites.size === 0) return;
+    if (!dispSprite || flowSprites.size === 0) return;
     const dt = engine.ticker().deltaMS / 1000;
     t += dt;
     // Slow drift of the displacement field = ripple wobble
-    dispSprite!.position.set(Math.sin(t * 0.35) * 1.5 + t * 0.12, Math.cos(t * 0.28) * 1.5 + t * 0.08);
+    dispSprite.position.set(Math.sin(t * 0.35) * 1.5 + t * 0.12, Math.cos(t * 0.28) * 1.5 + t * 0.08);
     // Tile-scroll each water surface along its flow direction
     for (const [ts, flow] of flowSprites) {
+      // Any destroy path (layer delete, map load, sublayer rebuild) can kill a
+      // sprite without unregistering it; touching tilePosition after destroy
+      // throws and takes the whole render loop down with it.
+      if (ts.destroyed) {
+        flowSprites.delete(ts);
+        continue;
+      }
       if (flow.speed === 0) continue;
       ts.tilePosition.x += Math.cos(flow.angle) * flow.speed * dt;
       ts.tilePosition.y += Math.sin(flow.angle) * flow.speed * dt;
     }
   });
+}
+
+/**
+ * Drop the module-level animation state at engine teardown so a remount builds
+ * a fresh displacement sprite/filter instead of reusing ones parented to the
+ * destroyed world container. The ticker callback dies with its app's ticker.
+ */
+export function destroyWaterAnimation(): void {
+  dispSprite = null;
+  filter = null;
+  flowSprites.clear();
 }
 
 export function getWaterFilter(): DisplacementFilter | null {

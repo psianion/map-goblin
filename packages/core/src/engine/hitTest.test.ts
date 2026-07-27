@@ -87,7 +87,6 @@ function makeWater(outer: [number, number][]): WaterChild {
     waterType: 'lake',
     contours: [outer],
     textureId: 'water-still-a-01',
-    textureScale: 1,
     tint: '#9fc8e8',
     opacity: 0.9,
     bankTextureId: '',
