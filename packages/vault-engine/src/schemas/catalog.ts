@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { GridSizeSchema } from './asset-metadata.js';
 
 const ChunkInfoSchema = z.object({
   index: z.number().int().nonnegative(),
@@ -19,7 +20,7 @@ const CatalogEntrySchema = z.object({
   type: z.string().min(1),
   material: z.string(),
   theme: z.string(),
-  gridSize: z.string().regex(/^\d+x\d+$/),
+  gridSize: GridSizeSchema,
   tags: z.array(z.string()),
   tint: z.string(),
   thumbnailUrl: z.string().min(1),

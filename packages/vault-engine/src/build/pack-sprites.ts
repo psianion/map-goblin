@@ -111,14 +111,6 @@ export async function packSprites(
     });
   }
 
-  // Add related_multi_packs references
-  if (atlases.length > 1) {
-    for (let i = 0; i < atlases.length; i++) {
-      atlases[i]!.meta.related_multi_packs = atlases
-        .filter((_, j) => j !== i)
-        .map((_, j) => `atlas-${j}.json`);
-    }
-  }
-
+  // related_multi_packs is filled in by the caller, which owns the final filenames
   return { atlases };
 }

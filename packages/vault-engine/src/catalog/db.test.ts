@@ -119,12 +119,18 @@ describe('CatalogDB', () => {
     expect(result?.theme).toBe('');
   });
 
-  it('query method returns matching rows', () => {
+  it('byType returns matching rows', () => {
     db.upsert(makeMeta({ id: 'a', type: 'floor' }));
     db.upsert(makeMeta({ id: 'b', type: 'wall' }));
-    const results = db.query('SELECT * FROM assets WHERE type = ?', ['floor']);
+    const results = db.byType('floor');
     expect(results).toHaveLength(1);
     expect(results[0]?.id).toBe('a');
+  });
+
+  it('upsertMany inserts every row in one transaction', () => {
+    db.upsertMany([makeMeta({ id: 'm1' }), makeMeta({ id: 'm2' })]);
+    expect(db.getById('m1')).not.toBeNull();
+    expect(db.getById('m2')).not.toBeNull();
   });
 
   it('preserves boolean fields through round-trip', () => {

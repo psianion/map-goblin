@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Foundation pack — classic dungeon tileset. Ships with map-builder as the zero-install experience.",
   "type": "foundation",
-  "themes": ["dungeon", "cave", "ruin"],
+  "themes": ["dungeon", "cave", "ruins"],
   "gridPixels": 200,
   "randomization": {
     "floors": {

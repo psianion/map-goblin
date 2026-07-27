@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import sharp from 'sharp';
 import { computePhash, hammingDistance } from './phash.js';
-
-const TEST_ASSETS = resolve(import.meta.dirname, '../../../../assets/test');
 
 async function makeImage(r: number, g: number, b: number): Promise<Buffer> {
   return sharp({
@@ -12,6 +8,17 @@ async function makeImage(r: number, g: number, b: number): Promise<Buffer> {
   })
     .png()
     .toBuffer();
+}
+
+/** Deterministic textured image — a solid fill hashes to all zeroes. */
+async function makeNoise(seed: number, w = 200, h = 200): Promise<Buffer> {
+  const px = Buffer.alloc(w * h * 3);
+  let s = seed >>> 0;
+  for (let i = 0; i < px.length; i++) {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    px[i] = s >>> 24;
+  }
+  return sharp(px, { raw: { width: w, height: h, channels: 3 } }).png().toBuffer();
 }
 
 describe('computePhash', () => {
@@ -22,14 +29,33 @@ describe('computePhash', () => {
   });
 
   it('returns same hash for identical images', async () => {
-    const buf = readFileSync(resolve(TEST_ASSETS, 'floors/Cobblestone_A_01.jpg'));
+    const buf = await makeNoise(1);
     expect(await computePhash(buf)).toBe(await computePhash(buf));
   });
 
   it('returns different hashes for visually different images', async () => {
-    const cobble = readFileSync(resolve(TEST_ASSETS, 'floors/Cobblestone_A_01.jpg'));
-    const grass = readFileSync(resolve(TEST_ASSETS, 'floors/Grass_A_01.jpg'));
-    expect(await computePhash(cobble)).not.toBe(await computePhash(grass));
+    const a = await makeNoise(1);
+    const b = await makeNoise(99);
+    expect(await computePhash(a)).not.toBe(await computePhash(b));
+  });
+
+  it('samples the whole image, not just the top-left corner', async () => {
+    // Same left half, different right half — a corner-only hash collides here
+    const left = await makeNoise(7, 100, 200);
+    const compose = async (rightSeed: number) =>
+      sharp({
+        create: { width: 200, height: 200, channels: 3, background: { r: 0, g: 0, b: 0 } },
+      })
+        .composite([
+          { input: left, left: 0, top: 0 },
+          { input: await makeNoise(rightSeed, 100, 200), left: 100, top: 0 },
+        ])
+        .png()
+        .toBuffer();
+
+    expect(await computePhash(await compose(11))).not.toBe(
+      await computePhash(await compose(22)),
+    );
   });
 
   it('returns all-zero hash for uniform solid color', async () => {

@@ -57,7 +57,8 @@ describe('generateCatalogChunks', () => {
     const result = generateCatalogChunks(entries, { chunkSize: 10, urlPrefix: 'catalog/' });
     expect(CatalogMetaSchema.safeParse(result.meta).success).toBe(true);
     expect(result.chunks.every((c) => CatalogChunkSchema.safeParse(c).success)).toBe(true);
-    expect(result.meta.chunks[0]!.url).toBe('catalog/chunk-0.json');
+    // Content-hashed so Phase 1 of a deploy never overwrites live chunk bodies
+    expect(result.meta.chunks[0]!.url).toMatch(/^catalog\/chunk-0-[a-f0-9]{8}\.json$/);
   });
 
   it('sorts entries by type → material → theme', () => {

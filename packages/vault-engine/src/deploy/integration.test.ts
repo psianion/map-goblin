@@ -15,7 +15,6 @@ function mockContext(): DeployContext & { uploads: Map<string, Buffer> } {
       uploads.set(key, data);
     }),
     purgeCache: vi.fn().mockResolvedValue(undefined),
-    listFiles: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -92,6 +91,7 @@ describe('deploy integration', () => {
 
     await atomicDeploy(ctx, {
       packId: 'test-pack',
+      version: '1.0.0',
       files: new Map([['catalog/meta.json', meta]]),
     });
 
@@ -106,6 +106,7 @@ describe('deploy integration', () => {
 
     await atomicDeploy(ctx, {
       packId: 'test-pack',
+      version: '1.0.0',
       files: new Map([['catalog/chunk-0.json', chunk]]),
     });
 
@@ -120,6 +121,7 @@ describe('deploy integration', () => {
 
     await atomicDeploy(ctx, {
       packId: 'test-pack',
+      version: '1.0.0',
       files: new Map([['index.json', index]]),
     });
 
@@ -153,6 +155,7 @@ describe('deploy integration', () => {
 
     await atomicDeploy(ctx, {
       packId: 'test-pack',
+      version: '1.0.0',
       files: new Map([
         ['test-pack/atlas-abc.webp', Buffer.from('img')],
         ['catalog/chunk-0.json', buildTestChunk()],
@@ -162,7 +165,9 @@ describe('deploy integration', () => {
       ]),
     });
 
-    expect(ctx.uploads.size).toBe(5);
+    // 5 inputs + the versioned archive copy of index.json
+    expect(ctx.uploads.size).toBe(6);
+    expect(ctx.uploads.has('_archive/test-pack/1.0.0/index.json')).toBe(true);
     expect(ctx.uploads.has('test-pack/atlas-abc.webp')).toBe(true);
     expect(ctx.uploads.has('catalog/chunk-0.json')).toBe(true);
     expect(ctx.uploads.has('catalog/meta.json')).toBe(true);
@@ -189,10 +194,14 @@ describe('cache control', () => {
   });
 
   it('content-hashed webp gets immutable cache', () => {
-    expect(getCacheControl('test-pack/atlas-floor-abc123.webp')).toBe(CACHE_IMMUTABLE);
+    expect(getCacheControl('test-pack/atlas-floor-abc12345.webp')).toBe(CACHE_IMMUTABLE);
   });
 
-  it('preview webp gets mutable cache', () => {
-    expect(getCacheControl('test-pack/preview-abc123.webp')).toBe(CACHE_MUTABLE);
+  it('content-hashed preview webp gets immutable cache too', () => {
+    expect(getCacheControl('test-pack/preview-abc12345.webp')).toBe(CACHE_IMMUTABLE);
+  });
+
+  it('an unhashed webp stays mutable', () => {
+    expect(getCacheControl('test-pack/logo.webp')).toBe(CACHE_MUTABLE);
   });
 });

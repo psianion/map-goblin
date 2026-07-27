@@ -1,4 +1,5 @@
 // packages/engine/src/build/catalog-gen.ts
+import { contentHash } from '../hash.js';
 import type { CatalogChunk, CatalogEntry, CatalogMeta } from '../schemas/catalog.js';
 
 /** Input for one catalog entry — matches CatalogEntrySchema. */
@@ -6,7 +7,7 @@ export type CatalogEntryInput = CatalogEntry;
 
 export interface ChunkOptions {
   chunkSize: number;
-  /** URL prefix for chunk files, e.g. 'catalog/'. Chunk i → `${urlPrefix}chunk-${i}.json` */
+  /** URL prefix for chunk files, e.g. 'catalog/'. Chunk i → `${urlPrefix}chunk-${i}-${hash}.json` */
   urlPrefix?: string;
 }
 
@@ -54,9 +55,11 @@ export function generateCatalogChunks(
       version: 1,
       totalEntries: sorted.length,
       chunkCount: chunks.length,
+      // Content-hashed so chunk bodies are immutable and meta.json is the only
+      // mutable pointer — a deploy cannot overwrite chunks clients still read.
       chunks: chunks.map((c, i) => ({
         index: i,
-        url: `${urlPrefix}chunk-${i}.json`,
+        url: `${urlPrefix}chunk-${i}-${contentHash(Buffer.from(JSON.stringify(c)))}.json`,
         entryCount: c.entries.length,
       })),
       invertedIndex,

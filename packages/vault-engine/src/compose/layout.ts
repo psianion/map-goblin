@@ -19,6 +19,13 @@ export async function composeStraight(
 ): Promise<Buffer> {
   const { targetWidth, targetHeight } = opts;
 
+  // Both would otherwise hang or crash deep inside sharp: an empty list indexes
+  // sorted[NaN], a zero-width sprite never advances x.
+  if (sprites.length === 0) throw new Error('composeStraight: no sprites');
+  if (sprites.some((s) => s.width <= 0)) {
+    throw new Error('composeStraight: sprite width must be > 0');
+  }
+
   const sorted = [...sprites].sort((a, b) => b.width - a.width);
 
   const composites: sharp.OverlayOptions[] = [];

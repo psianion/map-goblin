@@ -24,7 +24,7 @@ export interface ParsedFilename {
 }
 
 export function parseFilename(filepath: string): ParsedFilename {
-  const folder = dirname(filepath) === '.' ? '' : dirname(filepath).split('/').pop() ?? '';
+  const folder = dirname(filepath) === '.' ? '' : basename(dirname(filepath));
   const name = basename(filepath).replace(/\.[^.]+$/, '');
 
   // Pattern: material-name-VARIANT (e.g., stone-cobble-A)

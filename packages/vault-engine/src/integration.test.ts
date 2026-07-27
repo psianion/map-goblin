@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdir, writeFile, rm, readdir, readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { mkdir, writeFile, rm, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import sharp from 'sharp';
 import { buildPack } from './build/pipeline.js';
@@ -8,7 +8,17 @@ import { importFiles } from './import/pipeline.js';
 import { PackManifestSchema } from './schemas/pack-manifest.js';
 
 const TEST_DIR = join(tmpdir(), 'map-assets-integration-' + Date.now());
-const REAL_ASSETS = resolve(import.meta.dirname, '../../../assets/test');
+
+/** Deterministic textured image — distinct seeds give distinct hashes. */
+async function makeNoise(seed: number, w = 200, h = 200): Promise<Buffer> {
+  const px = Buffer.alloc(w * h * 3);
+  let s = seed >>> 0;
+  for (let i = 0; i < px.length; i++) {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    px[i] = s >>> 24;
+  }
+  return sharp(px, { raw: { width: w, height: h, channels: 3 } }).png().toBuffer();
+}
 
 async function makePng(
   w: number,
@@ -104,14 +114,11 @@ describe('Integration: full build pipeline', () => {
     await rm(TEST_DIR, { recursive: true, force: true });
   });
 
-  it('import pipeline processes real test images', async () => {
-    const cobble = await readFile(join(REAL_ASSETS, 'floors/Cobblestone_A_01.jpg'));
-    const grass = await readFile(join(REAL_ASSETS, 'floors/Grass_A_01.jpg'));
-    const lamp = await readFile(join(REAL_ASSETS, 'objects/Lamp_Metal_Brass_A_1x1.png'));
+  it('import pipeline processes a mixed batch', async () => {
     const files = [
-      { filename: 'floors/cobblestone-A.jpg', data: cobble },
-      { filename: 'floors/grass-A.jpg', data: grass },
-      { filename: 'objects/lamp-A.png', data: lamp },
+      { filename: 'floors/cobblestone-A.jpg', data: await makeNoise(1) },
+      { filename: 'floors/grass-A.jpg', data: await makeNoise(99) },
+      { filename: 'objects/lamp-A.png', data: await makeNoise(1234, 400, 400) },
     ];
     const results = await importFiles(files);
     expect(

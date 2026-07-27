@@ -1,10 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import sharp from 'sharp';
 import { importFiles } from './pipeline.js';
 
-const TEST_ASSETS = resolve(import.meta.dirname, '../../../../assets/test');
+/** Deterministic textured image — distinct seeds give distinct hashes. */
+async function makeNoise(seed: number, w = 200, h = 200): Promise<Buffer> {
+  const px = Buffer.alloc(w * h * 3);
+  let s = seed >>> 0;
+  for (let i = 0; i < px.length; i++) {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    px[i] = s >>> 24;
+  }
+  return sharp(px, { raw: { width: w, height: h, channels: 3 } }).png().toBuffer();
+}
 
 async function makePng(
   w = 200,
@@ -58,13 +65,33 @@ describe('importFiles', () => {
   });
 
   it('processes multiple files in a batch', async () => {
-    const cobble = readFileSync(resolve(TEST_ASSETS, 'floors/Cobblestone_A_01.jpg'));
-    const grass = readFileSync(resolve(TEST_ASSETS, 'floors/Grass_A_01.jpg'));
     const results = await importFiles([
-      { filename: 'floors/cobblestone-A.jpg', data: cobble },
-      { filename: 'floors/grass-A.jpg', data: grass },
+      { filename: 'floors/cobblestone-A.jpg', data: await makeNoise(1) },
+      { filename: 'floors/grass-A.jpg', data: await makeNoise(99) },
     ]);
     expect(results).toHaveLength(2);
     expect(results.every((r) => r.status === 'ok')).toBe(true);
+  });
+
+  it('rejects only the undecodable file, not the whole batch', async () => {
+    // PNG magic bytes and a plausible header, but no decodable image data
+    const corrupt = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(64, 0x7f),
+    ]);
+    const results = await importFiles([
+      { filename: 'floors/good-A.png', data: await makeNoise(5) },
+      { filename: 'floors/corrupt-A.png', data: corrupt },
+    ]);
+    expect(results).toHaveLength(2);
+    expect(results[0]!.status).toBe('ok');
+    expect(results[1]!.status).toBe('rejected');
+  });
+
+  it('rejects SVG, which has no pixel dimensions', async () => {
+    const svg = Buffer.from('<?xml version="1.0"?><svg width="10" height="10"></svg>');
+    const results = await importFiles([{ filename: 'floors/vector-A.svg', data: svg }]);
+    expect(results[0]!.status).toBe('rejected');
+    expect(results[0]!.reason).toMatch(/SVG/);
   });
 });

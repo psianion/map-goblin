@@ -1,8 +1,7 @@
 import { Command } from 'commander';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { generateIndex, type IndexInput } from '@dnd/vault-engine';
-import type { PackManifest } from '@dnd/vault-engine';
+import { generateIndex, PackManifestSchema, type IndexInput } from '@dnd/vault-engine';
 
 export function indexCommand(): Command {
   return new Command('index')
@@ -36,7 +35,7 @@ export function indexCommand(): Command {
             join(packPath, manifestFile),
             'utf-8',
           );
-          const manifest: PackManifest = JSON.parse(manifestData);
+          const manifest = PackManifestSchema.parse(JSON.parse(manifestData));
 
           const entryCount = Object.keys(manifest.entries).length;
           totalEntries += entryCount;
@@ -66,7 +65,9 @@ export function indexCommand(): Command {
         const index = generateIndex({
           packs,
           totalEntries,
-          chunkCount: 1,
+          // No command emits catalog chunks yet — advertising 1 would send
+          // clients after a file that does not exist.
+          chunkCount: 0,
         });
 
         const indexPath = join(opts.dist, 'index.json');

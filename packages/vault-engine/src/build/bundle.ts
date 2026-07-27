@@ -1,5 +1,5 @@
 // packages/engine/src/build/bundle.ts
-import { writeFile, mkdir, rename } from 'node:fs/promises';
+import { writeFile, mkdir, rename, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 async function atomicWrite(filepath: string, data: Buffer): Promise<void> {
@@ -22,6 +22,10 @@ export interface BundleInput {
 export async function writeBundle(input: BundleInput): Promise<string[]> {
   const packDir = join(input.outputDir, input.packName);
   const written: string[] = [];
+
+  // Filenames are content-hashed, so a rebuild would otherwise leave stale
+  // pack-*.json / preview-* siblings behind for consumers to pick from.
+  await rm(packDir, { recursive: true, force: true });
 
   for (const [filename, data] of input.files) {
     const filepath = join(packDir, filename);

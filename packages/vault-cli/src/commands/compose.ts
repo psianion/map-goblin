@@ -76,6 +76,21 @@ export function composeCommand(): Command {
           const variantCount = parseInt(opts.variants);
           const gridPixels = parseInt(opts.gridPixels);
 
+          for (const [flag, n] of [
+            ['--variants', variantCount],
+            ['--grid-pixels', gridPixels],
+          ] as const) {
+            if (!Number.isInteger(n) || n < 1) {
+              console.error(`${flag} must be a positive integer`);
+              process.exit(1);
+            }
+          }
+          const badSizes = sizes.filter((s) => !/^[1-9]\d*x[1-9]\d*$/.test(s));
+          if (badSizes.length > 0) {
+            console.error(`--sizes must be NxM values, got: ${badSizes.join(', ')}`);
+            process.exit(1);
+          }
+
           const results = await composePieces({
             material,
             sprites,

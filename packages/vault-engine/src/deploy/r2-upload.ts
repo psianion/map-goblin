@@ -27,8 +27,9 @@ export const CACHE_MUTABLE = 'public, max-age=300';
 export const CACHE_IMMUTABLE = 'public, max-age=31536000, immutable';
 
 export function getCacheControl(key: string): string {
-  // Content-hashed images are immutable (atlas-*.webp, *-{hash}.webp but NOT preview-*)
-  if (key.endsWith('.webp') && !key.includes('preview-')) {
+  // Immutability follows the content hash the build appends, not the filename
+  // prefix — previews are hashed too (preview-<hash>.webp).
+  if (/-[a-f0-9]{8}\.(webp|png)$/.test(key)) {
     return CACHE_IMMUTABLE;
   }
   // Everything else is mutable metadata
@@ -59,13 +60,22 @@ export async function listR2Files(
   bucket: string,
   prefix: string,
 ): Promise<string[]> {
-  const result = await client.send(
-    new ListObjectsV2Command({
-      Bucket: bucket,
-      Prefix: prefix,
-    }),
-  );
-  return (result.Contents ?? []).map((obj) => obj.Key!).filter(Boolean);
+  // ListObjectsV2 caps at 1000 keys per response — follow the continuation
+  // token so callers never diff against a silently partial listing.
+  const keys: string[] = [];
+  let token: string | undefined;
+  do {
+    const result = await client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        ContinuationToken: token,
+      }),
+    );
+    keys.push(...(result.Contents ?? []).map((obj) => obj.Key!).filter(Boolean));
+    token = result.IsTruncated ? result.NextContinuationToken : undefined;
+  } while (token);
+  return keys;
 }
 
 export async function deleteFromR2(

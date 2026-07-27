@@ -41,14 +41,30 @@ export async function importFiles(files: FileInput[]): Promise<ImportResult[]> {
       continue;
     }
 
-    // Extract dominant color via sharp stats
-    const stats = await sharp(file.data).stats();
-    const r = Math.round(stats.channels[0]?.mean ?? 0);
-    const g = Math.round(stats.channels[1]?.mean ?? 0);
-    const b = Math.round(stats.channels[2]?.mean ?? 0);
-    const dominantColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-
-    const phash = await computePhash(file.data);
+    // Extract dominant color via sharp stats. A header-valid but corrupt image
+    // still throws here, and must reject only itself — not the whole batch.
+    let dominantColor: string;
+    let phash: string;
+    try {
+      const stats = await sharp(file.data).stats();
+      const r = Math.round(stats.channels[0]?.mean ?? 0);
+      const g = Math.round(stats.channels[1]?.mean ?? 0);
+      const b = Math.round(stats.channels[2]?.mean ?? 0);
+      dominantColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+      phash = await computePhash(file.data);
+    } catch {
+      validated.push({
+        file,
+        valid: false,
+        error: 'Failed to decode image',
+        width: 0,
+        height: 0,
+        hasAlpha: false,
+        dominantColor: '#000000',
+        phash: '',
+      });
+      continue;
+    }
 
     validated.push({
       file,
@@ -72,6 +88,7 @@ export async function importFiles(files: FileInput[]): Promise<ImportResult[]> {
   // Phase 3: Build results (first-seen-wins for duplicates)
   const results: ImportResult[] = [];
   const seenHashes = new Set<string>();
+  const byName = new Map(validated.map((v) => [v.file.filename, v]));
 
   for (const v of validated) {
     if (!v.valid) {
@@ -82,7 +99,7 @@ export async function importFiles(files: FileInput[]): Promise<ImportResult[]> {
     // First-seen-wins: only mark as duplicate if an earlier file had the same hash
     const dedup = dedupMap.get(v.file.filename);
     const isDuplicate = dedup?.duplicates.some((d) => {
-      const other = validated.find((x) => x.file.filename === d);
+      const other = byName.get(d);
       return other ? seenHashes.has(other.phash) : false;
     });
     seenHashes.add(v.phash);

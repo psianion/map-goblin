@@ -29,11 +29,14 @@ export interface ValidateResult {
 
 function checkMagicBytes(buf: Buffer): string | null {
   for (const [fmt, bytes] of Object.entries(MAGIC)) {
-    if (bytes.every((b, i) => buf[i] === b)) return fmt;
+    if (!bytes.every((b, i) => buf[i] === b)) continue;
+    // RIFF is shared with WAV/AVI — bytes 8-11 are what make it a WebP
+    if (fmt === 'webp' && buf.subarray(8, 12).toString('latin1') !== 'WEBP') continue;
+    return fmt;
   }
-  // SVG check: starts with '<svg' or '<?xml'
-  const head = buf.subarray(0, 256).toString('utf8').trimStart();
-  if (head.startsWith('<svg') || head.startsWith('<?xml')) return 'svg';
+  // SVG needs an actual <svg element, not just an XML declaration
+  const head = buf.subarray(0, 256).toString('utf8');
+  if (head.includes('<svg')) return 'svg';
   return null;
 }
 
@@ -76,9 +79,9 @@ export async function validateFile(
     };
   }
 
-  // SVG validation — no pixel dimensions
+  // SVG has no pixel dimensions, which every consumer downstream requires
   if (format === 'svg') {
-    return { valid: true, format: 'svg' };
+    return { valid: false, error: 'SVG not supported (no pixel dimensions)' };
   }
 
   // Get image metadata via sharp

@@ -1,10 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdir, writeFile, rm, readdir } from 'node:fs/promises';
+import { resolve, join } from 'node:path';
+import { tmpdir } from 'node:os';
+import sharp from 'sharp';
 import { JobSchema } from './types.js';
+import { approve } from './staging.js';
 import { patchWorkflow, type Workflow } from './comfy.js';
 
 const TEMPLATE_PATH = resolve(import.meta.dirname, '../../../../forge/workflows/txt2img.json');
+const TEST_DIR = join(tmpdir(), 'forge-test-' + Date.now());
 
 describe('JobSchema', () => {
   it('applies defaults', () => {
@@ -20,6 +25,46 @@ describe('JobSchema', () => {
     expect(
       JobSchema.safeParse({ name: 'ok', type: 'object', prompt: 'x', gridSize: '0x1' }).success,
     ).toBe(false);
+  });
+
+  it('rejects a workflow filename that escapes the workflows dir', () => {
+    const bad = { name: 'ok', type: 'object', prompt: 'x', workflow: '../../../.env' };
+    expect(JobSchema.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe('approve', () => {
+  afterAll(async () => { await rm(TEST_DIR, { recursive: true, force: true }); });
+
+  async function stage(name: string): Promise<string> {
+    const dir = join(TEST_DIR, name);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'job.json'), JSON.stringify({
+      name, type: 'object', prompt: 'a lamp', gridSize: '1x1',
+    }));
+    const png = await sharp({
+      create: { width: 64, height: 64, channels: 4, background: { r: 1, g: 2, b: 3, alpha: 1 } },
+    }).png().toBuffer();
+    for (const n of ['a.png', 'b.png']) await writeFile(join(dir, n), png);
+    return dir;
+  }
+
+  it('rejects out-of-range --keep without deleting the staging dir', async () => {
+    const dir = await stage('bad-keep');
+    await expect(
+      approve({ stagingDir: TEST_DIR, name: 'bad-keep', keep: [1, 5], dest: join(TEST_DIR, 'out') }),
+    ).rejects.toThrow(/invalid --keep indices: 5/);
+    // candidates survive a typo
+    expect((await readdir(dir)).filter((f) => f.endsWith('.png'))).toHaveLength(2);
+  });
+
+  it('emits filenames the importer can parse back', async () => {
+    await stage('good-keep');
+    const written = await approve({
+      stagingDir: TEST_DIR, name: 'good-keep', dest: join(TEST_DIR, 'out'),
+    });
+    const names = written.map((f) => f.split(/[\\/]/).pop()!);
+    expect(names).toEqual(['good-keep_1x1-A.png', 'good-keep_1x1-B.png']);
   });
 });
 

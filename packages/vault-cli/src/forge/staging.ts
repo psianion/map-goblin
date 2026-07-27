@@ -1,5 +1,5 @@
 // Staging review: list candidates, approve into a pack source dir, reject.
-import { readdir, readFile, mkdir, rm, copyFile } from 'node:fs/promises';
+import { readdir, readFile, mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { JobSchema, type Job } from './types.js';
@@ -54,8 +54,17 @@ export async function approve(opts: ApproveOptions): Promise<string[]> {
   const height = gh * GRID_PIXELS;
 
   const all = (await readdir(dir)).filter((f) => f.endsWith('.png')).sort();
-  const chosen =
-    opts.keep && opts.keep.length > 0 ? opts.keep.map((n) => all[n - 1]).filter(Boolean) : all;
+
+  // Validate before anything is written or deleted — the staging dir is rm -rf'd
+  // at the end, so a typo'd index would silently destroy candidates.
+  const bad = (opts.keep ?? []).filter(
+    (n) => !Number.isInteger(n) || n < 1 || n > all.length,
+  );
+  if (bad.length > 0) {
+    throw new Error(`invalid --keep indices: ${bad.join(',')} (have 1..${all.length})`);
+  }
+
+  const chosen = opts.keep && opts.keep.length > 0 ? opts.keep.map((n) => all[n - 1]!) : all;
   if (chosen.length === 0) throw new Error('no images selected');
 
   const typeDir = join(opts.dest, job.type);
@@ -64,22 +73,14 @@ export async function approve(opts: ApproveOptions): Promise<string[]> {
   const written: string[] = [];
   const variants = 'ABCDEFGH';
   for (let i = 0; i < chosen.length; i++) {
-    const out = join(typeDir, `${job.name}_${job.gridSize}_${variants[i] ?? String(i)}.png`);
+    // Dash before the variant letter: parseFilename reads `material-VARIANT`
+    const out = join(typeDir, `${job.name}_${job.gridSize}-${variants[i] ?? String(i)}.png`);
     await sharp(join(dir, chosen[i]!)).resize(width, height, { fit: 'fill' }).png().toFile(out);
     written.push(out);
   }
 
   await rm(dir, { recursive: true, force: true });
   return written;
-}
-
-/** Keep raw candidates around by copying instead of resizing (for later rework). */
-export async function exportRaw(stagingDir: string, name: string, dest: string): Promise<number> {
-  const dir = join(stagingDir, name);
-  const all = (await readdir(dir)).filter((f) => f.endsWith('.png'));
-  await mkdir(dest, { recursive: true });
-  for (const f of all) await copyFile(join(dir, f), join(dest, `${name}-${f}`));
-  return all.length;
 }
 
 export async function reject(stagingDir: string, name: string): Promise<void> {

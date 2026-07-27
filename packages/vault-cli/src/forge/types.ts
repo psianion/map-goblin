@@ -15,7 +15,11 @@ export const JobSchema = z.object({
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
   seed: z.number().int().nonnegative().optional(),
-  workflow: z.string().default('txt2img.json'),
+  // Joined onto workflowsDir in the runner, so it must not escape that dir
+  workflow: z
+    .string()
+    .regex(/^[\w-]+\.json$/, 'workflow must be a filesystem-safe .json filename')
+    .default('txt2img.json'),
   checkpoint: z.string().optional(),
 });
 

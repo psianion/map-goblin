@@ -1,12 +1,18 @@
 export interface DeployContext {
   uploadFile: (key: string, data: Buffer) => Promise<void>;
   purgeCache: (urls: string[]) => Promise<void>;
-  listFiles: (prefix: string) => Promise<string[]>;
 }
 
 export interface DeployInput {
   packId: string;
+  /** Version being published — the key this deploy is archived under. */
+  version: string;
   files: Map<string, Buffer>;
+}
+
+/** Where rollbackPack looks for a previously deployed index.json. */
+export function archiveKey(packId: string, version: string): string {
+  return `_archive/${packId}/${version}/index.json`;
 }
 
 const PACK_MANIFEST_PATTERN = /pack-[a-f0-9]+\.json$/;
@@ -45,8 +51,10 @@ export async function atomicDeploy(ctx: DeployContext, input: DeployInput): Prom
     await ctx.uploadFile(key, data);
   }
 
-  // Phase 2b: Upload index.json LAST — this is the atomic switch
+  // Phase 2b: archive this index under its version (so rollback has something
+  // to restore), then upload index.json LAST — this is the atomic switch
   if (indexFile) {
+    await ctx.uploadFile(archiveKey(input.packId, input.version), indexFile[1]);
     await ctx.uploadFile(indexFile[0], indexFile[1]);
   }
 

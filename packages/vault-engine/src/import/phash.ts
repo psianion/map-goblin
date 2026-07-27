@@ -7,7 +7,8 @@ import sharp from 'sharp';
  * 2. Convert to greyscale; for images with >50% transparency, replace
  *    transparent pixels with a checkerboard to avoid degenerate near-zero hashes
  * 3. Compute mean of all pixels
- * 4. Top-left 8×8 region: pixel > mean → 1 bit, else 0 bit → 64 bits
+ * 4. Sample an 8×8 grid across the whole image (4px stride): pixel > mean →
+ *    1 bit, else 0 bit → 64 bits
  *
  * Hamming distance ≤5 = likely duplicate, 6–8 = similar.
  */
@@ -55,11 +56,11 @@ export async function computePhash(imageData: Buffer): Promise<string> {
   }
   const mean = sum / size;
 
-  // Build 64-bit hash from top-left 8×8 region
+  // Build 64-bit hash from an 8×8 grid spanning the whole 32×32 image
   let hash = 0n;
   for (let y = 0; y < 8; y++) {
     for (let x = 0; x < 8; x++) {
-      const idx = y * 32 + x;
+      const idx = y * 4 * 32 + x * 4;
       if (grey[idx]! > mean) {
         hash |= 1n << BigInt(y * 8 + x);
       }

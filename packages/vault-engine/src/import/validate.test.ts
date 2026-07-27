@@ -163,20 +163,38 @@ describe('validateFile', () => {
     expect(result.error).toContain('dimension');
   });
 
-  it('accepts SVG with xml declaration', async () => {
+  it('rejects SVG with xml declaration — no pixel dimensions', async () => {
     const svg = '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100"/></svg>';
-    const buf = Buffer.from(svg);
-    const result = await validateFile(buf, 'icon.svg');
-    expect(result.valid).toBe(true);
-    expect(result.format).toBe('svg');
+    const result = await validateFile(Buffer.from(svg), 'icon.svg');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('SVG');
   });
 
-  it('accepts SVG with direct svg tag', async () => {
+  it('rejects SVG with direct svg tag', async () => {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100"/></svg>';
-    const buf = Buffer.from(svg);
-    const result = await validateFile(buf, 'icon.svg');
-    expect(result.valid).toBe(true);
-    expect(result.format).toBe('svg');
+    const result = await validateFile(Buffer.from(svg), 'icon.svg');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('SVG');
+  });
+
+  it('rejects a plain XML document as an unsupported format', async () => {
+    const xml = '<?xml version="1.0"?><rss><channel><title>not an image</title></channel></rss>';
+    const result = await validateFile(Buffer.from(xml), 'feed.xml');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('Unsupported format');
+  });
+
+  it('rejects a RIFF container that is not WebP', async () => {
+    // RIFF header shared with WAV/AVI — bytes 8-11 decide
+    const wav = Buffer.concat([
+      Buffer.from('RIFF'),
+      Buffer.from([0x24, 0x00, 0x00, 0x00]),
+      Buffer.from('WAVE'),
+      Buffer.alloc(32),
+    ]);
+    const result = await validateFile(wav, 'sound.webp');
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain('Unsupported format');
   });
 
   it('rejects exactly at dimension boundary', async () => {

@@ -74,7 +74,11 @@ export async function submitPrompt(url: string, workflow: Workflow): Promise<str
   if (!res.ok) {
     throw new Error(`ComfyUI /prompt failed: ${res.status} ${await res.text()}`);
   }
-  const data = (await res.json()) as { prompt_id: string };
+  // A 200 carrying an error payload would otherwise poll /history/undefined
+  const data = (await res.json()) as { prompt_id?: unknown };
+  if (typeof data?.prompt_id !== 'string' || !data.prompt_id) {
+    throw new Error('ComfyUI /prompt returned no prompt_id: ' + JSON.stringify(data));
+  }
   return data.prompt_id;
 }
 

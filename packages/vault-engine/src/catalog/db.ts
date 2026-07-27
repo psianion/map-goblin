@@ -3,11 +3,25 @@ import type { AssetMetadata } from '../types.js';
 
 export class CatalogDB {
   private db: Database.Database;
+  private upsertStmt: Database.Statement;
 
   constructor(path: string) {
     this.db = new Database(path);
     this.db.pragma('journal_mode = WAL');
     this.createTables();
+    // better-sqlite3 does not cache prepared statements — compile once
+    this.upsertStmt = this.db.prepare(`
+      INSERT INTO assets (id, source_file, type, theme, material, grid_size, piece_type,
+        variant, tint, tool, tileable, transparency, content_bounds, perceptual_hash, width, height)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        source_file=excluded.source_file, type=excluded.type, theme=excluded.theme,
+        material=excluded.material, grid_size=excluded.grid_size, piece_type=excluded.piece_type,
+        variant=excluded.variant, tint=excluded.tint, tool=excluded.tool,
+        tileable=excluded.tileable, transparency=excluded.transparency,
+        content_bounds=excluded.content_bounds, perceptual_hash=excluded.perceptual_hash,
+        width=excluded.width, height=excluded.height
+    `);
   }
 
   private createTables(): void {
@@ -37,20 +51,7 @@ export class CatalogDB {
   }
 
   upsert(meta: AssetMetadata): void {
-    const stmt = this.db.prepare(`
-      INSERT INTO assets (id, source_file, type, theme, material, grid_size, piece_type,
-        variant, tint, tool, tileable, transparency, content_bounds, perceptual_hash, width, height)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        source_file=excluded.source_file, type=excluded.type, theme=excluded.theme,
-        material=excluded.material, grid_size=excluded.grid_size, piece_type=excluded.piece_type,
-        variant=excluded.variant, tint=excluded.tint, tool=excluded.tool,
-        tileable=excluded.tileable, transparency=excluded.transparency,
-        content_bounds=excluded.content_bounds, perceptual_hash=excluded.perceptual_hash,
-        width=excluded.width, height=excluded.height
-    `);
-
-    stmt.run(
+    this.upsertStmt.run(
       meta.id,
       meta.sourceFile,
       meta.type,
@@ -70,6 +71,13 @@ export class CatalogDB {
     );
   }
 
+  /** Bulk import — one transaction instead of one commit per row. */
+  upsertMany(metas: AssetMetadata[]): void {
+    this.db.transaction((rows: AssetMetadata[]) => {
+      for (const row of rows) this.upsert(row);
+    })(metas);
+  }
+
   getById(id: string): AssetMetadata | null {
     const row = this.db.prepare('SELECT * FROM assets WHERE id = ?').get(id) as
       | Record<string, unknown>
@@ -85,13 +93,24 @@ export class CatalogDB {
     return rows.map((r) => this.rowToMeta(r));
   }
 
-  /** @internal Used by query helpers — do not pass user-provided SQL. */
-  query(sql: string, params: unknown[]): AssetMetadata[] {
+  private query(sql: string, params: unknown[]): AssetMetadata[] {
     const rows = this.db.prepare(sql).all(...params) as Record<
       string,
       unknown
     >[];
     return rows.map((r) => this.rowToMeta(r));
+  }
+
+  byType(type: AssetMetadata['type']): AssetMetadata[] {
+    return this.query('SELECT * FROM assets WHERE type = ?', [type]);
+  }
+
+  byMaterial(materialPrefix: string): AssetMetadata[] {
+    return this.query('SELECT * FROM assets WHERE material LIKE ?', [materialPrefix + '%']);
+  }
+
+  byTheme(theme: string): AssetMetadata[] {
+    return this.query('SELECT * FROM assets WHERE theme = ?', [theme]);
   }
 
   delete(id: string): void {

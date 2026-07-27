@@ -12,7 +12,9 @@ export function generateVariantSeed(
   for (let i = 0; i < pieceType.length; i++) {
     h = hashCombine(h, pieceType.charCodeAt(i));
   }
-  h = hashCombine(h, variant.charCodeAt(0));
+  for (let i = 0; i < variant.length; i++) {
+    h = hashCombine(h, variant.charCodeAt(i));
+  }
   return h;
 }
 

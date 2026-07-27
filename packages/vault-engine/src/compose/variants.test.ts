@@ -76,4 +76,11 @@ describe('generateVariantSeed edge cases', () => {
     );
     expect(new Set(results).size).toBe(1);
   });
+
+  it('distinguishes multi-character variants sharing a first letter', () => {
+    // compose/pipeline names variants V5, V6, V7... — seeding off charCodeAt(0)
+    // alone collapsed all of them onto one seed
+    const seeds = ['V5', 'V6', 'V7'].map((v) => generateVariantSeed('stone', 'wall', v));
+    expect(new Set(seeds).size).toBe(3);
+  });
 });

@@ -16,6 +16,7 @@ export interface DedupResult {
   similar: string[];
 }
 
+// ponytail: O(n^2) hamming, bucket by hash prefix if the batch exceeds ~5k
 export function findDuplicates(
   entries: HashEntry[],
   opts: DedupOptions = {},

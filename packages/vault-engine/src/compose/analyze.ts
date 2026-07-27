@@ -77,14 +77,19 @@ async function extractEdgeStrip(
   width: number,
   height: number,
 ): Promise<Buffer> {
+  // Clamp so images smaller than the strip never produce a negative offset,
+  // which sharp's extract() rejects.
+  const sw = Math.min(EDGE_STRIP_PX, width);
+  const sh = Math.min(EDGE_STRIP_PX, height);
+
   const regions: Record<
     string,
     { left: number; top: number; width: number; height: number }
   > = {
-    left: { left: 0, top: 0, width: EDGE_STRIP_PX, height },
-    right: { left: width - EDGE_STRIP_PX, top: 0, width: EDGE_STRIP_PX, height },
-    top: { left: 0, top: 0, width, height: EDGE_STRIP_PX },
-    bottom: { left: 0, top: height - EDGE_STRIP_PX, width, height: EDGE_STRIP_PX },
+    left: { left: 0, top: 0, width: sw, height },
+    right: { left: width - sw, top: 0, width: sw, height },
+    top: { left: 0, top: 0, width, height: sh },
+    bottom: { left: 0, top: height - sh, width, height: sh },
   };
 
   return sharp(imageData)

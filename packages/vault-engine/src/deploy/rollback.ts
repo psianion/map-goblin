@@ -1,3 +1,5 @@
+import { archiveKey } from './atomic-deploy.js';
+
 export interface RollbackContext {
   getArchive: (key: string) => Promise<Buffer>;
   uploadFile: (key: string, data: Buffer) => Promise<void>;
@@ -9,28 +11,27 @@ export interface RollbackInput {
   targetVersion: string;
 }
 
+/**
+ * Restore a previously deployed index.json. index.json is the only mutable
+ * pointer — it already names the content-hashed manifest for each pack — so
+ * putting the archived one back is the whole rollback.
+ */
 export async function rollbackPack(ctx: RollbackContext, input: RollbackInput): Promise<void> {
-  // Fetch archived manifest
-  const archiveKey = `_archive/${input.packId}/${input.targetVersion}/pack.json`;
-  const manifest = await ctx.getArchive(archiveKey);
+  const key = archiveKey(input.packId, input.targetVersion);
 
-  // Re-upload as current manifest
-  await ctx.uploadFile(`${input.packId}/pack.json`, manifest);
-
-  // Fetch and re-upload archived index.json
+  // Read first: nothing is written unless the archive actually resolves
+  let archivedIndex: Buffer;
   try {
-    const archivedIndex = await ctx.getArchive(`_archive/${input.packId}/${input.targetVersion}/index.json`);
-    await ctx.uploadFile('index.json', archivedIndex);
+    archivedIndex = await ctx.getArchive(key);
   } catch (err: unknown) {
-    // Only swallow "not found" errors — re-throw network/permission/etc.
-    const isNotFound =
-      err instanceof Error &&
-      (err.message.includes('not found') ||
-        err.message.includes('NoSuchKey') ||
-        err.message.includes('404'));
-    if (!isNotFound) throw err;
+    // S3 signals a missing object by name/status, not by message text
+    const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+    if (e?.name === 'NoSuchKey' || e?.$metadata?.httpStatusCode === 404) {
+      throw new Error(`No archived deploy for ${input.packId}@${input.targetVersion}`);
+    }
+    throw err;
   }
 
-  // Purge cache
-  await ctx.purgeCache([`${input.packId}/pack.json`, 'index.json']);
+  await ctx.uploadFile('index.json', archivedIndex);
+  await ctx.purgeCache(['index.json']);
 }

@@ -1,11 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { atomicDeploy, type DeployContext } from './atomic-deploy.js';
+import { atomicDeploy, archiveKey, type DeployContext } from './atomic-deploy.js';
 
 function mockContext(): DeployContext {
   return {
     uploadFile: vi.fn().mockResolvedValue(undefined),
     purgeCache: vi.fn().mockResolvedValue(undefined),
-    listFiles: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -19,6 +18,7 @@ describe('atomicDeploy', () => {
 
     await atomicDeploy(ctx, {
       packId: 'test',
+      version: '1.0.0',
       files: new Map([
         ['test/atlas-abc.webp', Buffer.from('atlas')],
         ['test/pack-def.json', Buffer.from('manifest')],
@@ -45,6 +45,7 @@ describe('atomicDeploy', () => {
     const ctx = mockContext();
     await atomicDeploy(ctx, {
       packId: 'test',
+      version: '1.0.0',
       files: new Map([['index.json', Buffer.from('{}')]]),
     });
     expect(ctx.purgeCache).toHaveBeenCalled();
@@ -57,6 +58,7 @@ describe('atomicDeploy', () => {
     await expect(
       atomicDeploy(ctx, {
         packId: 'test',
+        version: '1.0.0',
         files: new Map([['test/atlas.webp', Buffer.from('data')]]),
       }),
     ).rejects.toThrow('R2 upload failed');
@@ -66,6 +68,7 @@ describe('atomicDeploy', () => {
     const ctx = mockContext();
     await atomicDeploy(ctx, {
       packId: 'test',
+      version: '1.0.0',
       files: new Map(),
     });
     // No uploads, no purge (no manifest URLs)
@@ -82,6 +85,7 @@ describe('atomicDeploy', () => {
 
     await atomicDeploy(ctx, {
       packId: 'test',
+      version: '1.0.0',
       files: new Map([
         ['test/atlas-abc.webp', Buffer.from('atlas')],
         ['test/pack-def.json', Buffer.from('manifest')],
@@ -102,6 +106,7 @@ describe('atomicDeploy', () => {
 
     await atomicDeploy(ctx, {
       packId: 'test',
+      version: '1.0.0',
       files: new Map([
         ['test/atlas-abc.webp', Buffer.from('atlas')],
         ['catalog/meta.json', Buffer.from('meta')],
@@ -118,11 +123,29 @@ describe('atomicDeploy', () => {
     expect(metaIdx).toBeLessThan(indexIdx);
   });
 
+  it('archives the index under its version before the switch', async () => {
+    const ctx = mockContext();
+    const callOrder: string[] = [];
+    ctx.uploadFile = vi.fn().mockImplementation(async (key: string) => {
+      callOrder.push(key);
+    });
+
+    await atomicDeploy(ctx, {
+      packId: 'test',
+      version: '2.1.0',
+      files: new Map([['index.json', Buffer.from('index')]]),
+    });
+
+    const key = archiveKey('test', '2.1.0');
+    expect(callOrder).toEqual([key, 'index.json']);
+  });
+
   it('includes manifest URLs in cache purge', async () => {
     const ctx = mockContext();
 
     await atomicDeploy(ctx, {
       packId: 'test',
+      version: '1.0.0',
       files: new Map([
         ['test/pack-abc123.json', Buffer.from('manifest')],
         ['index.json', Buffer.from('index')],
