@@ -26,6 +26,13 @@ export interface PresenceEvent {
 
 export interface SessionStore {
   connection: ConnectionStatus;
+  /**
+   * The DM ended the table. Terminal: the socket will not come back, so this is what
+   * tells "the session is over" apart from `connection: 'closed'` after a transient drop.
+   * ponytail: a flag beside `connection`, not a fifth `ConnectionStatus` — the status
+   * union is the transport's, and `session-ended` is not a transport event.
+   */
+  sessionEnded: boolean;
   you: PlayerInfo | null;
   session: SessionState | null;
   /** Roster changes seen this tab's lifetime, oldest first, capped. */
@@ -51,6 +58,7 @@ export interface SessionStore {
 // nothing to draft-mutate and no deep selector traffic to memoize.
 export const useSessionStore = create<SessionStore>()((set, get) => ({
   connection: 'closed',
+  sessionEnded: false,
   you: null,
   session: null,
   presence: [],
@@ -69,7 +77,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
       onMessage: (msg) => get().applyServerMessage(msg),
       onLatency: (latencyMs) => set({ latencyMs }),
     });
-    set({ client, token, connection: 'connecting' });
+    set({ client, token, connection: 'connecting', sessionEnded: false });
     client.connect();
   },
 
@@ -140,9 +148,16 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           break;
         }
 
+        case 'session-ended':
+          // Terminal. Retrying is pointless — the session is gone, so the upgrade
+          // would 401 forever and the UI would sit on "reconnecting" for good.
+          get().client?.close();
+          set({ client: null, sessionEnded: true, connection: 'closed' });
+          break;
+
         default:
-          // ponytail: dm-*, session-ended, error and pong land here. Nothing in
-          // S1 reads them from the store — components that care add their cases.
+          // ponytail: dm-*, error and pong land here. Nothing in S1 reads them from
+          // the store — components that care add their cases.
           break;
       }
     } finally {

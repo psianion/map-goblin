@@ -100,20 +100,32 @@ export class SessionManager {
   }
 
   private handleMessage(conn: ClientConnection, msg: ClientMessage): void {
+    if (msg.type === 'join') return this.join(conn, msg.protocolVersion)
+
+    // Nothing before the handshake: a socket that skipped `join` skipped the protocol
+    // gate (D8) with it, and must not be able to broadcast into a session it never
+    // entered. Membership *is* the handshake — `join` is what puts a conn in `clients`.
+    const session = this.sessions.get(conn.identity.sessionId)
+    if (!session?.clients.has(conn)) {
+      this.broadcaster.sendTo(conn, {
+        type: 'error',
+        code: 'unauthorized',
+        message: 'join before sending anything else',
+      })
+      conn.close()
+      return
+    }
+
     switch (msg.type) {
-      case 'join':
-        return this.join(conn, msg.protocolVersion)
       case 'ping':
         return this.broadcaster.sendTo(conn, { type: 'pong', t: msg.t })
-      case 'command': {
-        const session = this.sessions.get(conn.identity.sessionId)
+      case 'command':
         // ponytail: `scenes()` is two prepared statements and runs per command, including
         // 10 Hz token drags. Cache it on the Session if a profile ever says to.
         return this.router.handle(conn, msg, {
-          activeSceneId: session ? this.scenes(session).activeSceneId : null,
-          players: session ? [...session.players.values()] : [],
+          activeSceneId: this.scenes(session).activeSceneId,
+          players: [...session.players.values()],
         })
-      }
     }
   }
 
@@ -131,7 +143,19 @@ export class SessionManager {
 
     const { identityId, name, role, sessionId, campaignId } = conn.identity
     const session = this.sessionFor(sessionId, campaignId)
+    // Read before the supersede below, so a DM opening a second tab is not a *re*connect.
     const dmReturning = role === 'dm' && session.dmSeen && !hasConnectedDm(session)
+
+    // One identity, one live socket. A second tab — or a reconnect that raced the old
+    // socket's close — supersedes the previous one, which leaves the roster *before* it is
+    // closed so `leave()` finds nothing to announce: the identity never went anywhere.
+    // Re-joining on the same socket is a snapshot refresh (§2.4.3) and skips all of this.
+    for (const other of session.clients) {
+      if (other !== conn && other.identity.identityId === identityId) {
+        session.clients.delete(other)
+        other.close()
+      }
+    }
 
     const player: PlayerInfo = { identityId, name, role, connected: true }
     session.players.set(identityId, player)

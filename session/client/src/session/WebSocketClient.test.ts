@@ -60,7 +60,13 @@ let server: ReturnType<typeof startServer> | null = null;
 
 afterEach(async () => {
   useSessionStore.getState().disconnect();
-  useSessionStore.setState({ you: null, session: null, mapData: null, latencyMs: null });
+  useSessionStore.setState({
+    you: null,
+    session: null,
+    mapData: null,
+    latencyMs: null,
+    sessionEnded: false,
+  });
   await server?.close();
   server = null;
 });
@@ -132,5 +138,26 @@ describe('WebSocketClient', () => {
     await vi.waitFor(() => expect(useSessionStore.getState().session?.sessionId).toBe('s1'));
     expect(useSessionStore.getState().connection).toBe('open');
     expect(server.conns).toHaveLength(1); // no reconnect happened
+  });
+
+  it('stops retrying for good once the session has ended', async () => {
+    server = startServer();
+    const url = await server.ready;
+
+    useSessionStore.getState().connect('tok-ended', url);
+    const conn = await server.nth(1);
+    await vi.waitFor(() => expect(useSessionStore.getState().connection).toBe('open'));
+
+    // The server announces, then drops the socket (SessionManager#endSession).
+    conn.socket.send(JSON.stringify({ type: 'session-ended' }));
+    await vi.waitFor(() => expect(useSessionStore.getState().sessionEnded).toBe(true));
+    conn.socket.terminate();
+
+    // A transient drop would be back inside 500ms (0.5s base, equal jitter). This is not
+    // a transient drop: no second socket, and the UI can tell the two apart.
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    expect(server.conns).toHaveLength(1);
+    expect(useSessionStore.getState().connection).toBe('closed');
+    expect(useSessionStore.getState().sessionEnded).toBe(true);
   });
 });

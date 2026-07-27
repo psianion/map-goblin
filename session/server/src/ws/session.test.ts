@@ -195,7 +195,9 @@ describe('session lifecycle', () => {
       client.send(JSON.stringify({ type: 'join' })) // right type, missing field
       expect((await next(client, 'error')).code).toBe('invalid-command')
 
-      // Still usable afterwards.
+      // Still usable afterwards: it can still join, and ping still answers once it has.
+      sendJoin(client)
+      expect((await next(client, 'session-state')).you.name).toBe('Noisy')
       client.send(JSON.stringify({ type: 'ping', t: 42 }))
       expect((await next(client, 'pong')).t).toBe(42)
       expect(client.readyState).toBe(WebSocket.OPEN)
@@ -234,6 +236,47 @@ describe('session lifecycle', () => {
       const back = await connect(server, { role: 'dm', name: 'Ann', session: 'D' })
       sendJoin(back)
       await next(player, 'dm-reconnected')
+    })
+  })
+
+  it('supersedes an identity’s previous socket instead of announcing it left', async () => {
+    await withServer({}, async (server) => {
+      const [dm, player] = await joinedPair(server, 'X')
+      const heard: string[] = []
+      record(player, heard)
+
+      // Ann opens a second tab. Same identity, so the old socket goes — but Ann did not.
+      const secondTab = await connect(server, { role: 'dm', name: 'Ann', session: 'X' })
+      sendJoin(secondTab)
+      await next(secondTab, 'session-state')
+      await once(dm, 'close')
+
+      await expect(next(player, 'player-left')).rejects.toThrow(/timed out/)
+      expect(heard).not.toContain('dm-disconnected')
+      expect(heard).not.toContain('dm-reconnected') // she never left, so she never came back
+      expect(secondTab.readyState).toBe(WebSocket.OPEN)
+
+      // The identity's *last* socket going is a departure, and still reads as one.
+      const left = next(player, 'player-left')
+      const dmGone = next(player, 'dm-disconnected')
+      secondTab.close()
+      expect((await left).player).toMatchObject({ name: 'Ann', connected: false })
+      await dmGone
+    })
+  })
+
+  it('re-joining on the same socket refreshes the snapshot without dropping it', async () => {
+    await withServer({}, async (server) => {
+      const [dm, player] = await joinedPair(server, 'RJ')
+      const heard: string[] = []
+      record(dm, heard)
+
+      sendJoin(player)
+      expect((await next(player, 'session-state')).you).toMatchObject({ name: 'Bob', connected: true })
+      expect(player.readyState).toBe(WebSocket.OPEN)
+
+      await expect(next(dm, 'player-left')).rejects.toThrow(/timed out/)
+      expect(heard).toEqual(['player-joined']) // the re-announce the client de-dups, nothing else
     })
   })
 })
@@ -277,6 +320,25 @@ describe('commands', () => {
       expect(player.readyState).toBe(WebSocket.OPEN)
       sendCommand(player, 'ping', 'echo', { t: 1 })
       expect((await next(player, 'state-update')).module).toBe('ping')
+    })
+  })
+
+  it('refuses anything sent before join and closes that socket', async () => {
+    await withServer({}, async (server) => {
+      const [dm] = await joinedPair(server, 'GC')
+      const heard: string[] = []
+      record(dm, heard)
+
+      // A raw client that never handshook: authenticated at the upgrade, but unjoined,
+      // so it never passed the protocol gate either.
+      const gatecrasher = await connect(server, { identity: 'id-mal', name: 'Mal', session: 'GC' })
+      sendCommand(gatecrasher, 'ping', 'echo', { t: 1 })
+      expect((await next(gatecrasher, 'error')).code).toBe('unauthorized')
+      await once(gatecrasher, 'close')
+
+      // Nothing it sent reached the table.
+      await expect(next(dm, 'state-update')).rejects.toThrow(/timed out/)
+      expect(heard).toEqual([])
     })
   })
 })
