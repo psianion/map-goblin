@@ -7,6 +7,14 @@ import type { MainModule, PathsD } from 'clipper2-wasm/dist/clipper2z';
  */
 const PRECISION = 2;
 
+/**
+ * Max deviation of a round join/cap from the true arc, in world units.
+ * InflatePathsD's trailing args are (miterLimit, precision, arcTolerance) —
+ * passing arcTolerance in the precision slot truncates precision to 0, which
+ * snaps offset output to whole world units and collapses sub-cell rivers.
+ */
+const ARC_TOLERANCE = 0.01;
+
 let _clipper: MainModule | null = null;
 
 /**
@@ -100,9 +108,9 @@ class Clipper2EngineImpl {
     const result = C.InflatePathsD(
       input, delta,
       C.JoinType.Round, C.EndType.Polygon,
-      2,    // miterLimit
-      0.25, // arcTolerance
-      PRECISION,
+      2,          // miterLimit
+      PRECISION,  // precision
+      ARC_TOLERANCE,
     );
     const out = fromPathsD(result);
     input.delete();
@@ -123,9 +131,9 @@ class Clipper2EngineImpl {
     const result = C.InflatePathsD(
       input, delta,
       C.JoinType.Round, C.EndType.Round,
-      2,    // miterLimit
-      0.25, // arcTolerance
-      PRECISION,
+      2,          // miterLimit
+      PRECISION,  // precision
+      ARC_TOLERANCE,
     );
     const out = fromPathsD(result);
     input.delete();

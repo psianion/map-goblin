@@ -67,12 +67,12 @@ export function createBackgroundLayer(): BackgroundLayer {
 
 type MapBuilderState = Omit<
   MapBuilderStore,
-  | 'setMapName' | 'setGridType' | 'setAmbientLight'
+  | 'setMapName' | 'setGridType' | 'setAmbientLight' | 'setTerrainData'
   | 'setGridVisible' | 'setSnapEnabled' | 'setSnapDivision' | 'setGridStyle'
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
   | 'addChild' | 'removeChild' | 'reorderChild' | 'updateChild' | 'recomputeMergedFloor'
   | 'addWall' | 'removeWall' | 'updateWall' | 'closeAllDoors'
-  | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'updateToolSettings' | 'addRecentAsset' | 'updateLightDefaults' | 'updateScatterBrushSettings'
+  | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'updateToolSettings' | 'addRecentAsset' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings' | 'updateWaterSettings'
   | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
   | 'showModal' | 'setClipperReady' | 'setFocusMode'
   | 'applyPreset' | 'saveCustomPreset' | 'deleteCustomPreset'
@@ -134,6 +134,18 @@ export function createDefaultState(): MapBuilderState {
         doorStyle: 'single' as const,
         doorSecret: false,
         doorWidth: 1,
+        terrainBrush: {
+          slot: 0,
+          radius: 2,
+          strength: 0.6,
+        },
+        water: {
+          mode: 'river' as const,
+          width: 2,
+          textureId: 'water-still-a-01',
+          bankTextureId: 'bank-grassy-01-a1',
+          flowSpeed: 0.15,
+        },
       },
       recentAssets: [],
     },

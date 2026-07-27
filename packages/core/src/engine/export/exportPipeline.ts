@@ -3,6 +3,7 @@ import type { RenderEngine } from '../RenderEngine';
 import type { SceneGraph } from '../sceneGraph';
 import { getLayerEntry } from '../sceneGraph';
 import type { Layer, DungeonLayer } from '../../store/types';
+import { useStore } from '../../store/store';
 import { computeExportDimensions, buildExportFilename, worldBoundsToCells } from './exportMath';
 
 export interface ExportOptions {
@@ -16,7 +17,10 @@ export interface ExportOptions {
  * Compute the axis-aligned bounding box of all dungeon layer floor geometry,
  * in world space (world units = grid cells).
  */
-export function computeMapWorldBounds(layers: Layer[]): {
+export function computeMapWorldBounds(
+  layers: Layer[],
+  terrainBounds = useStore.getState().mapSettings.terrain?.bounds ?? null,
+): {
   minX: number;
   minY: number;
   maxX: number;
@@ -30,15 +34,34 @@ export function computeMapWorldBounds(layers: Layer[]): {
   for (const layer of layers) {
     if (layer.type !== 'dungeon') continue;
     const dl = layer as DungeonLayer;
-    if (!dl.mergedFloor) continue;
-    for (const polygon of dl.mergedFloor) {
-      for (const [x, y] of polygon) {
+    if (dl.mergedFloor) {
+      for (const polygon of dl.mergedFloor) {
+        for (const [x, y] of polygon) {
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    // Water bodies extend the map even without floor geometry
+    for (const child of dl.children) {
+      if (child.childType !== 'water' || !child.visible) continue;
+      for (const [x, y] of child.contours[0] ?? []) {
         if (x < minX) minX = x;
         if (y < minY) minY = y;
         if (x > maxX) maxX = x;
         if (y > maxY) maxY = y;
       }
     }
+  }
+
+  // Painted terrain extends the map too
+  if (terrainBounds) {
+    minX = Math.min(minX, terrainBounds.minX);
+    minY = Math.min(minY, terrainBounds.minY);
+    maxX = Math.max(maxX, terrainBounds.maxX);
+    maxY = Math.max(maxY, terrainBounds.maxY);
   }
 
   // Default to a 10x10 grid if no geometry

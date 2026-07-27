@@ -1,10 +1,11 @@
 import type { StateCreator } from 'zustand';
-import type { MapBuilderStore, MapSettings } from '../types';
+import type { MapBuilderStore, MapSettings, TerrainData } from '../types';
 
 export interface MapSettingsActions {
   setMapName: (name: string) => void;
   setGridType: (type: MapSettings['gridType']) => void;
   setAmbientLight: (color: string) => void;
+  setTerrainData: (patch: Partial<TerrainData>) => void;
 }
 
 export const createMapSettingsSlice: StateCreator<
@@ -25,4 +26,21 @@ export const createMapSettingsSlice: StateCreator<
     set((state) => {
       state.mapSettings.ambientLight = color;
     }),
+  setTerrainData: (patch) =>
+    set((state) => {
+      if (!state.mapSettings.terrain) {
+        state.mapSettings.terrain = { palette: DEFAULT_TERRAIN_PALETTE.slice(), bounds: null };
+      }
+      Object.assign(state.mapSettings.terrain, patch);
+    }),
 });
+
+/** Default splat-slot palette — bundled seamless outdoor floor textures. */
+export const DEFAULT_TERRAIN_PALETTE: (string | null)[] = [
+  'grass-a-01',
+  'dirt-b-04',
+  'grassy-dirt-a-02',
+  'gravel-06-c',
+  'rock-ground-c-06',
+  'cracked-dirt-a-01',
+];

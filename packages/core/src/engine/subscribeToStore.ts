@@ -186,6 +186,11 @@ export function subscribeToStore(
             .filter((c) => c.childType === 'door')
             .map((c) => `${c.id}:${c.visible}:${(c as import('../shared/types').DoorChild).state}:${(c as import('../shared/types').DoorChild).style}:${(c as import('../shared/types').DoorChild).width}`)
             .join(','),
+          // Track water body changes
+          waterSignature: l.children
+            .filter((c): c is import('../shared/types').WaterChild => c.childType === 'water')
+            .map((c) => `${c.id}:${c.visible}:${c.contours.length}:${c.contours[0]?.length ?? 0}:${c.contours[0]?.[0] ?? ''}:${c.contours[0]?.at(-1) ?? ''}:${c.textureId}:${c.tint}:${c.opacity}:${c.bankTextureId}:${c.bankWidth}:${c.flowSpeed}:${c.flowAngle}`)
+            .join(','),
           // Track wall type/direction changes for lighting
           wallSignature: l.standaloneWalls
             .map((w) => `${w.id}:${w.wallType}:${w.direction}`)
@@ -238,7 +243,8 @@ export function subscribeToStore(
           item.wallCount === b[i].wallCount &&
           item.shapeKeys === b[i].shapeKeys &&
           item.doorSignature === b[i].doorSignature &&
-          item.wallSignature === b[i].wallSignature,
+          item.wallSignature === b[i].wallSignature &&
+          item.waterSignature === b[i].waterSignature,
         ),
     },
   );

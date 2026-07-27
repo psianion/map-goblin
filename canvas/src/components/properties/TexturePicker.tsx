@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { getTexturesByType, getTextureEntry } from '@/assets/textureManifest'
 import type { FloorCategory } from '@/assets/textureManifest'
-import { PackThumbnailCanvas } from '@/components/layers/AssetBrowserPanel'
+import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas'
 
 interface TexturePickerProps {
   value: string | undefined

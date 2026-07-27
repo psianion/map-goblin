@@ -7,6 +7,8 @@ import { subscribeToStore } from '@/engine/subscribeToStore';
 import { subscribeToAssets } from '@/engine/subscribeToAssets';
 import { setEngineSingleton, clearEngineSingleton } from '@/engine/engineSingleton';
 import { LightManager } from '@dnd/core/src/engine/lighting/index';
+import { setTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
+import { destroyWaterAnimation } from '@dnd/core/src/engine/water/waterAnimation';
 import { useCanvasResize } from './useCanvasResize';
 import { useCanvasInput, registerInputMiddleware, setToolManager, setSnapIndicator } from './useCanvasInput';
 import { listenDprChanges } from '@/engine/camera';
@@ -157,6 +159,9 @@ export function CanvasHost() {
         sceneGraph.toolManager.destroy();
         sceneGraph.lightingRenderer.destroy();
         sceneGraph.fogTransition.destroy();
+        sceneGraph.terrainRenderer.destroy();
+        setTerrainRenderer(null);
+        destroyWaterAnimation();
         unsubStore();
         unsubAssets();
         unregSnap();

@@ -34,7 +34,7 @@ export interface MaskData {
 }
 
 // ---- Child Types ----
-export type ChildType = 'shape' | 'asset' | 'light' | 'door';
+export type ChildType = 'shape' | 'asset' | 'light' | 'door' | 'water';
 
 export interface LayerChild {
   id: string;
@@ -111,4 +111,22 @@ export interface DoorChild extends LayerChild {
   portalTextureId?: string;
 }
 
-export type AnyChild = ShapeChild | AssetChild | LightChild | DoorChild;
+export interface WaterChild extends LayerChild {
+  childType: 'water';
+  /** 'river' = built from a stroked spline, 'lake' = drawn polygon. Editing UX only — rendering is identical. */
+  waterType: 'river' | 'lake';
+  contours: [number, number][][]; // index 0 = outer boundary, 1+ = holes
+  textureId: string;
+  tint: string;
+  opacity: number;
+  /** Bank edge-strip texture tiled along the shoreline. Empty string = no banks. */
+  bankTextureId: string;
+  /** Bank strip width in world units (grid cells). */
+  bankWidth: number;
+  /** Tile-scroll speed in world units/second for the flow animation. 0 = still. */
+  flowSpeed: number;
+  /** Flow direction in radians. */
+  flowAngle: number;
+}
+
+export type AnyChild = ShapeChild | AssetChild | LightChild | DoorChild | WaterChild;

@@ -14,6 +14,8 @@ import {
   ChevronRight,
   TreeDeciduous,
   LayoutGrid,
+  Mountain,
+  Droplets,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useStore } from '@/store/store';
@@ -40,6 +42,8 @@ const TOOLS: ToolButton[] = [
   { tool: 'door', icon: DoorOpen, label: 'Door', shortcut: 'D' },
   { tool: 'light', icon: Lightbulb, label: 'Light', shortcut: 'L' },
   { tool: 'scatterBrush', icon: TreeDeciduous, label: 'Scatter Brush', shortcut: 'B' },
+  { tool: 'terrain', icon: Mountain, label: 'Terrain Brush', shortcut: 'T' },
+  { tool: 'water', icon: Droplets, label: 'Water', shortcut: 'U' },
 ];
 
 /** Module-level button element map — avoids useRef reads during render */
@@ -112,7 +116,7 @@ export function LeftToolbar() {
   const toolLabels: Record<string, string> = {
     select: 'Select', pan: 'Pan', rectangle: 'Rectangle', polygon: 'Polygon',
     regularPolygon: 'Regular Polygon', path: 'Path', wall: 'Wall', door: 'Door',
-    light: 'Light', scatterBrush: 'Scatter Brush',
+    light: 'Light', scatterBrush: 'Scatter Brush', terrain: 'Terrain Brush', water: 'Water',
   };
 
   const handleToolClick = (tool: ToolType) => {
