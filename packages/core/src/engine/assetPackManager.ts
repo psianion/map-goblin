@@ -83,7 +83,9 @@ export class AssetPackManager {
   private installedPacks: Map<string, PackSummary> = new Map()
   private textureCache: Map<string, Texture> = new Map()
   private frameCache: Map<string, FrameData> = new Map()
-  private downloadLimit = pLimit(3) // max 3 concurrent CDN requests
+  // Shared cap for CDN downloads and texture decode/upload — the two never overlap
+  // within one install, and 8 matches what browsers keep in flight per host anyway.
+  private downloadLimit = pLimit(8)
   private installTimestamps: number[] = [] // hourly cap tracking
   private packDB: AssetPackDB | undefined
   private cachedIndex: PackIndex | null = null
@@ -344,11 +346,15 @@ export class AssetPackManager {
   }
 
   /**
-   * Load atlas textures into PixiJS with yielding between uploads
-   * to prevent frame drops (Amendment B2).
+   * Load atlas textures into PixiJS, concurrency-capped (see downloadLimit).
+   * Each task awaits its own decode, so the main thread still yields between
+   * uploads (Amendment B2) without serialising the whole pack.
    *
    * Uses manual Spritesheet creation instead of Assets.load() because
    * blob URLs lack file extensions for PixiJS parser detection.
+   *
+   * Per-file failures are caught and logged: one bad atlas/file must not
+   * abort the rest of the batch.
    */
   private async loadPackTextures(
     packId: string,
@@ -357,80 +363,84 @@ export class AssetPackManager {
   ): Promise<void> {
     const PIXI = await import('pixi.js')
 
-    for (const [atlasJsonFile] of Object.entries(manifest.atlases)) {
-      if (!atlasJsonFile.endsWith('.json')) continue
+    const atlasTasks = Object.keys(manifest.atlases).map((atlasJsonFile) =>
+      this.downloadLimit(async () => {
+        if (!atlasJsonFile.endsWith('.json')) return
 
-      const jsonBlob = blobs.get(atlasJsonFile)
-      if (!jsonBlob) continue
-      const json = JSON.parse(new TextDecoder().decode(jsonBlob))
-      const imageFile = json.meta?.image as string | undefined
-      if (!imageFile) continue
-      const imageBlob = blobs.get(imageFile)
-      if (!imageBlob) continue
+        const jsonBlob = blobs.get(atlasJsonFile)
+        if (!jsonBlob) return
 
-      try {
-        // Load the atlas image as a base texture via blob URL
-        const blob = new Blob([imageBlob.buffer as ArrayBuffer], { type: 'image/webp' })
-        const url = URL.createObjectURL(blob)
+        try {
+          const json = JSON.parse(new TextDecoder().decode(jsonBlob))
+          const imageFile = json.meta?.image as string | undefined
+          if (!imageFile) return
+          const imageBlob = blobs.get(imageFile)
+          if (!imageBlob) return
 
-        // Load the image into PixiJS as a plain texture
-        const baseTexture = await PIXI.Assets.load<Texture>({
-          src: url,
-          loadParser: 'loadTextures',
-        })
+          // Load the atlas image as a base texture via blob URL
+          const blob = new Blob([imageBlob.buffer as ArrayBuffer], { type: 'image/webp' })
+          const url = URL.createObjectURL(blob)
 
-        // Manually create and parse the spritesheet from the loaded texture + JSON data
-        const spritesheet = new PIXI.Spritesheet(baseTexture, json)
-        await spritesheet.parse()
+          // Load the image into PixiJS as a plain texture
+          const baseTexture = await PIXI.Assets.load<Texture>({
+            src: url,
+            parser: 'loadTextures',
+          })
 
-        // Register frames in sync cache
-        for (const [frameId, texture] of Object.entries(
-          spritesheet.textures as Record<string, Texture>,
-        )) {
-          this.textureCache.set(`${packId}:${frameId}`, texture)
+          // Manually create and parse the spritesheet from the loaded texture + JSON data
+          const spritesheet = new PIXI.Spritesheet(baseTexture, json)
+          await spritesheet.parse()
+
+          // Register frames in sync cache
+          for (const [frameId, texture] of Object.entries(
+            spritesheet.textures as Record<string, Texture>,
+          )) {
+            this.textureCache.set(`${packId}:${frameId}`, texture)
+          }
+
+          // Don't revoke blob URL — needed for thumbnail canvas rendering
+        } catch (err) {
+          console.warn(`[AssetPackManager] Failed to load atlas "${atlasJsonFile}" for pack "${packId}":`, err)
         }
-
-        // Don't revoke blob URL — needed for thumbnail canvas rendering
-      } catch (err) {
-        console.warn(`[AssetPackManager] Failed to load atlas "${atlasJsonFile}" for pack "${packId}":`, err)
-      }
-
-      // Yield to event loop between atlas uploads — prevents frame drops
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    }
+      }),
+    )
 
     // Also load standalone files (objects, scatter) that aren't in atlases
-    for (const [fileName] of Object.entries(manifest.files)) {
-      const fileBlob = blobs.get(fileName)
-      if (!fileBlob) continue
+    const fileTasks = Object.keys(manifest.files).map((fileName) =>
+      this.downloadLimit(async () => {
+        const fileBlob = blobs.get(fileName)
+        if (!fileBlob) return
 
-      try {
-        const blob = new Blob([fileBlob.buffer as ArrayBuffer], { type: 'image/webp' })
-        const url = URL.createObjectURL(blob)
-        const texture = await PIXI.Assets.load<Texture>({
-          src: url,
-          loadParser: 'loadTextures',
-        })
+        try {
+          const blob = new Blob([fileBlob.buffer as ArrayBuffer], { type: 'image/webp' })
+          const url = URL.createObjectURL(blob)
+          const texture = await PIXI.Assets.load<Texture>({
+            src: url,
+            parser: 'loadTextures',
+          })
 
-        // Match standalone file to its entry. Real pack manifests carry
-        // `material`/`gridSize`/`variant` (no `localId` field); files are named
-        // `{material}_{gridSize}_{variant}-{hash}.webp` while the entry key is
-        // `{material}_{gridSize}_{type}_{variant}`. Register under the entry KEY
-        // — that's what manifestBridge/resolveTexture look up.
-        for (const [entryId, entry] of Object.entries(manifest.entries)) {
-          const e = entry as ManifestEntry & { material?: string; variant?: string }
-          const prefix = e.material
-            ? `${e.material}_${e.gridSize}_${e.variant ?? 'A'}-`
-            : e.localId
-          if (prefix && fileName.startsWith(prefix)) {
-            this.textureCache.set(`${packId}:${entryId}`, texture)
-            break
+          // Match standalone file to its entry. Real pack manifests carry
+          // `material`/`gridSize`/`variant` (no `localId` field); files are named
+          // `{material}_{gridSize}_{variant}-{hash}.webp` while the entry key is
+          // `{material}_{gridSize}_{type}_{variant}`. Register under the entry KEY
+          // — that's what manifestBridge/resolveTexture look up.
+          for (const [entryId, entry] of Object.entries(manifest.entries)) {
+            const e = entry as ManifestEntry & { material?: string; variant?: string }
+            const prefix = e.material
+              ? `${e.material}_${e.gridSize}_${e.variant ?? 'A'}-`
+              : e.localId
+            if (prefix && fileName.startsWith(prefix)) {
+              this.textureCache.set(`${packId}:${entryId}`, texture)
+              break
+            }
           }
+        } catch (err) {
+          console.warn(`[AssetPackManager] Failed to load file "${fileName}":`, err)
         }
-      } catch (err) {
-        console.warn(`[AssetPackManager] Failed to load file "${fileName}":`, err)
-      }
-    }
+      }),
+    )
+
+    await Promise.all([...atlasTasks, ...fileTasks])
   }
 
   /**
