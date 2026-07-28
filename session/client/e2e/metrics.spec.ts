@@ -76,6 +76,25 @@ test.describe.serial('@sprint1-metrics', () => {
         }
       }
       window.WebSocket = Tracked
+
+      // D14d (Amendment B2 regression): the S2 pack-install parallelization put 94 fetches
+      // and their texture uploads on the main thread at once, so what can regress is pacing,
+      // not throughput — a tab frozen solid while the pack lands. Armed from the init script
+      // because the install is over long before any test line could attach a listener.
+      //
+      // Sampled only while the overlay reads "Starting the renderer…", which is exactly the
+      // phase the install owns: the map is already in hand (small JSON, localhost) and the
+      // engine is not live yet. Consecutive samples are therefore consecutive frames inside
+      // that window, and their deltas are the frame gaps. One subtree `textContent` read per
+      // frame costs no layout and nothing next to an 8MB install.
+      const installFrames: number[] = []
+      ;(window as unknown as { __installFrames: number[] }).__installFrames = installFrames
+      const sample = (at: number) => {
+        const stage = document.querySelector('[data-testid="game-canvas"]')?.parentElement
+        if (stage?.textContent?.includes('Starting the renderer')) installFrames.push(at)
+        requestAnimationFrame(sample)
+      }
+      requestAnimationFrame(sample)
     })
     player = await playerContext.newPage()
     player.on('pageerror', (e) => console.log('[player pageerror]', e.message))
@@ -89,6 +108,42 @@ test.describe.serial('@sprint1-metrics', () => {
     expect(joinMs).toBeLessThan(5000)
 
     await expect(player.getByTestId('player-list').getByRole('listitem')).toHaveCount(2)
+  })
+
+  /**
+   * Metric (D14d): frame pacing *during* the bundled pack install.
+   *
+   * Reads the samples the join above collected — the cold context is the only place the
+   * install actually runs, and it runs once. The number that matters is the worst gap
+   * between two painted frames while the pack is landing: throughput already has a metric
+   * (join time), and a fast install that locks the tab still loses the roster, the log and
+   * the reconnect banner for the duration.
+   *
+   * ponytail: the assert is a freeze guard, not a pacing target — a full second of dead tab
+   * is unambiguously a regression, whatever the hardware. Tighten it toward the recorded
+   * number once a gate run has published a baseline on the dressed map.
+   */
+  test('pack install: frame pacing while the bundled pack lands', async () => {
+    const frames = await player.evaluate(
+      () => (window as unknown as { __installFrames: number[] }).__installFrames,
+    )
+    expect(
+      frames.length,
+      'no frames sampled while the engine was starting — the install window was never observed',
+    ).toBeGreaterThan(1)
+
+    const gaps = frames.slice(1).map((at, i) => at - frames[i])
+    const sorted = [...gaps].sort((a, b) => a - b)
+    const worst = sorted[sorted.length - 1]
+    const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]
+
+    record(
+      'pack install frame pacing',
+      `worst ${worst.toFixed(0)}ms, p95 ${p95.toFixed(0)}ms over ${gaps.length} frames ` +
+        `(window ${(frames[frames.length - 1] - frames[0]).toFixed(0)}ms)`,
+      'no gap ≥ 1000ms',
+    )
+    expect(worst).toBeLessThan(1000)
   })
 
   /**
