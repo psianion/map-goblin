@@ -10,10 +10,10 @@
 // `'pixi.js'` the day session-client declares the dep.
 import { Container, Graphics, Sprite, Text, Texture, type Ticker } from 'pixi.js';
 import { SIZE_CELLS, type Disposition, type Token, type TokensState } from '@dnd/mechanics/tokens';
-import { getEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { endpoints } from '../../endpoints';
+import { addWorldOverlay, mountWhenEngineReady } from '../../renderer/overlayLayer';
 import { useSessionStore } from '../../session/store';
 import { approach, attachTokenInput, drawOrder, useTokenInteraction, type TokenLayer } from './drag';
 
@@ -94,6 +94,16 @@ interface View {
 const signature = (t: Token, isDm: boolean): string =>
   [t.name, t.size, t.disposition, t.imageAssetId, t.hidden, t.ownerId, ownerName(t.ownerId), isDm].join('|');
 
+/**
+ * How a token draws for the viewer. The alpha is here so it can be pinned: PRODUCT
+ * principle 3 says a hidden token on the DM's map is drawn at full strength with a badge,
+ * never faded — Owlbear's ghosting is the anti-reference the whole redaction model exists
+ * to refuse. Players never receive a hidden token at all (D4), so the badge is the DM's.
+ */
+export function tokenAppearance(token: Token, isDm: boolean): { alpha: number; badge: 'hidden' | null } {
+  return { alpha: 1, badge: isDm && token.hidden ? 'hidden' : null };
+}
+
 function buildView(token: Token, isDm: boolean): View {
   const cells = SIZE_CELLS[token.size] ?? 1;
   const r = cells / 2;
@@ -132,8 +142,9 @@ function buildView(token: Token, isDm: boolean): View {
     container.addChild(new Graphics().circle(0, 0, r * 0.86).stroke({ width: r * 0.07, color: 0xffffff }));
   }
 
-  // D4: players never receive a hidden token at all, so this only ever draws for the DM.
-  if (token.hidden) container.addChild(eyeSlash(r));
+  const look = tokenAppearance(token, isDm);
+  container.alpha = look.alpha;
+  if (look.badge === 'hidden') container.addChild(eyeSlash(r));
 
   const owner = ownerName(token.ownerId);
   const label = new Text({
@@ -180,10 +191,10 @@ const SETTLE_MS = 600;
 
 function mountTokenLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => void {
   const layer = new Container();
-  layer.label = 'tokenLayer';
   layer.sortableChildren = true;
-  const world = sceneGraph.worldContainer;
-  world.addChildAt(layer, world.getChildIndex(sceneGraph.layerContainer) + 1);
+  // Topmost of the session overlays, so fog tint never draws over a token (see
+  // `OVERLAY_STACK` — that ordering is PRODUCT principle 3 as a draw order).
+  addWorldOverlay(sceneGraph, layer, 'tokenLayer');
 
   const views = new Map<string, View>();
   let tokens: Token[] = [];
@@ -312,29 +323,9 @@ function mountTokenLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
 }
 
 /**
- * §4 risk — `getEngineSingleton()` is set when GameRenderer finishes booting (async, well
- * after this module is imported) and cleared when it unmounts. This module may not edit
- * the shell to get a ready callback, so it watches for the engine instead: mount when one
- * appears, unmount when it goes or is replaced (Strict Mode remounts). Call from an
- * effect; the returned function is the effect's cleanup.
+ * §4 risk — the engine is booted asynchronously by GameRenderer and cleared when it
+ * unmounts, so this layer waits for one rather than assuming it. Call from an effect; the
+ * returned function is the effect's cleanup.
  */
-export function mountTokenLayerWhenReady(pollMs = 200): () => void {
-  let mounted: SceneGraph | null = null;
-  let unmount: (() => void) | null = null;
-
-  const check = () => {
-    const current = getEngineSingleton();
-    if ((current?.sceneGraph ?? null) === mounted) return;
-    unmount?.();
-    unmount = null;
-    mounted = current?.sceneGraph ?? null;
-    if (current) unmount = mountTokenLayer(current.engine, current.sceneGraph);
-  };
-
-  check();
-  const timer = setInterval(check, pollMs);
-  return () => {
-    clearInterval(timer);
-    unmount?.();
-  };
-}
+export const mountTokenLayerWhenReady = (pollMs?: number): (() => void) =>
+  mountWhenEngineReady(mountTokenLayer, pollMs);

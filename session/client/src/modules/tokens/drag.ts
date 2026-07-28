@@ -14,6 +14,7 @@ import { SIZE_CELLS, snap, type Token, type TokenSize } from '@dnd/mechanics/tok
 import type { Role } from '@dnd/core/src/shared/protocol';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import { useSessionStore } from '../../session/store';
+import { isToolActive } from '../../session/tools';
 
 /** What the renderer exposes to the input layer. */
 export interface TokenLayer {
@@ -118,7 +119,9 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
   };
 
   const onDown = (e: PointerEvent) => {
-    if (e.button !== 0) return;
+    // A tool mode owns the canvas (D11): while the fog tool is armed a click is a fog
+    // click, and token input stands down rather than racing it.
+    if (e.button !== 0 || isToolActive()) return;
     const { x, y } = worldOf(e);
     const { placingDefId, setPlacing, select } = useTokenInteraction.getState();
 

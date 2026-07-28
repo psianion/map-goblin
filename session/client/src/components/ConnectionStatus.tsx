@@ -43,7 +43,7 @@ export function ReconnectingBanner() {
     <div
       role="status"
       data-testid="reconnecting-banner"
-      className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-amber-500/90 px-3 py-1.5 text-center text-sm font-medium text-amber-950"
+      className="pointer-events-none absolute inset-x-0 top-0 z-banner bg-amber-500/90 px-3 py-1.5 text-center text-sm font-medium text-amber-950"
     >
       Connection lost — reconnecting…
     </div>

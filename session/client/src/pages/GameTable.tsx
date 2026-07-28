@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
+import { ActiveToolIndicator } from '../components/ActiveToolIndicator';
 import { ConnectionStatus, ReconnectingBanner } from '../components/ConnectionStatus';
+import { ToastHost } from '../components/Toast';
 import { GameRenderer } from '../renderer/GameRenderer';
 import { usePanels } from '../session/panels';
 import { resumeSeat, useRole } from '../session/store';
@@ -12,6 +14,8 @@ import '../components/SessionControls';
 import '../components/GameLog';
 import '../modules/rolls/beyond20';
 import '../modules/tokens';
+import '../modules/doors';
+import '../modules/fog';
 
 /**
  * §2.6 — the table. Renderer takes the room, sidebar carries the registered panels.
@@ -31,9 +35,13 @@ export default function GameTable() {
     <div data-page="table" className="flex h-full flex-col bg-neutral-950 text-neutral-100 md:flex-row">
       {/* min-w-0/min-h-0: without them the canvas's intrinsic size pins this flex
           item open, so the page overflows instead of the renderer shrinking. */}
+      {/* The tool indicator and the toast belong over the map, not in the sidebar: they are
+          about what the next click does and what the last one did. */}
       <main className="relative min-h-0 min-w-0 flex-1">
         <ReconnectingBanner />
         <GameRenderer />
+        <ActiveToolIndicator />
+        <ToastHost />
       </main>
 
       <aside className="flex shrink-0 flex-col gap-4 border-neutral-800 p-3 max-md:border-t md:w-64 md:overflow-y-auto md:border-l">

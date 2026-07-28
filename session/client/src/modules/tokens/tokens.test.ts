@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Token } from '@dnd/mechanics/tokens';
 import { approach, canDrag, createThrottle, drawOrder, hitTest } from './drag';
-import { DISPOSITION_COLOR, initials, tokensOf } from './TokenRenderer';
+import { DISPOSITION_COLOR, initials, tokenAppearance, tokensOf } from './TokenRenderer';
 
 const token = (over: Partial<Token> = {}): Token => ({
   id: 't1',
@@ -119,6 +119,25 @@ describe('initials + disposition colours (portrait-less fallback, D11)', () => {
     const colors = Object.values(DISPOSITION_COLOR);
     expect(new Set(colors).size).toBe(colors.length);
     expect(DISPOSITION_COLOR.friendly).not.toBe(DISPOSITION_COLOR.hostile);
+  });
+});
+
+describe('tokenAppearance (D11 — the DM never loses visibility)', () => {
+  it('draws a hidden token at full opacity with a badge, never ghosted', () => {
+    expect(tokenAppearance(token({ hidden: true }), true)).toEqual({ alpha: 1, badge: 'hidden' });
+  });
+
+  it('never dims a token, hidden or not, for either seat', () => {
+    for (const hidden of [true, false]) {
+      for (const isDm of [true, false]) {
+        expect(tokenAppearance(token({ hidden }), isDm).alpha).toBe(1);
+      }
+    }
+  });
+
+  it('badges nothing a player can see — they never receive a hidden token anyway (D4)', () => {
+    expect(tokenAppearance(token({ hidden: true }), false).badge).toBeNull();
+    expect(tokenAppearance(token({ hidden: false }), true).badge).toBeNull();
   });
 });
 

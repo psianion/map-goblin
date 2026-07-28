@@ -8,3 +8,59 @@ body,
 #root {
   height: 100%;
 }
+
+@layer base {
+  /*
+   * The editor's shadcn token block (canvas/src/index.css, `.dark`), copied so the runner
+   * and the editor render the same greys. Declared on `:root` rather than `.dark`: the
+   * table has one theme. A DM runs a session in a dim room with the map carrying every
+   * bright pixel — a light chrome would be the thing you squint past all evening.
+   */
+  :root {
+    --background: #0e0e0e; /* surface-0 */
+    --foreground: #e8e8e8; /* text-primary */
+    --card: #141414; /* surface-1 */
+    --card-foreground: #e8e8e8;
+    --popover: #141414;
+    --popover-foreground: #e8e8e8;
+    --primary: #e8e8e8;
+    --primary-foreground: #0e0e0e;
+    --secondary: #1e1e1e; /* surface-2 */
+    --secondary-foreground: #e8e8e8;
+    --muted: #1e1e1e;
+    --muted-foreground: #666666; /* text-muted */
+    --accent: #282828; /* surface-3 */
+    --accent-foreground: #e8e8e8;
+    --destructive: #c0392b; /* danger */
+    --border: #252525; /* border-default */
+    --input: #252525;
+    --ring: #ffffff; /* border-focus */
+    --radius: 0.25rem;
+  }
+
+  * {
+    border-color: var(--border);
+    outline-color: color-mix(in oklch, var(--ring) 50%, transparent);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+}
+
+/*
+ * The blanket reduced-motion alternative. Every animation in this app also has a scripted
+ * alternative (see `prefersReducedMotion`), because Pixi tweens never see CSS — but chrome
+ * that grows a transition later is covered from the moment it is written.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
