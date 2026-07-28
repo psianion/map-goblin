@@ -87,6 +87,8 @@ const onRenderedRoll = (event: Event) => {
 // it is live for the tab's whole lifetime: rolls that arrive between renders still land.
 window.addEventListener('Beyond20_RenderedRoll', onRenderedRoll, true)
 
-// ponytail: no dedup. Beyond20 can pre-render a "fallback" copy of a roll (`rendered:
-// 'fallback'`) alongside the digital-dice result; if the DDB gate shows doubled lines,
-// drop events whose `rendered === 'fallback'` — one condition, in `onRenderedRoll`.
+// ponytail: no dedup — and do NOT dedup by dropping `rendered === 'fallback'`: on custom
+// domains "fallback" is the ONLY render Beyond20 ever delivers (GenericDisplayer.postHTML
+// hardcodes it), and Beyond20 already de-dupes upstream (forwardMessageToDOM bounces the
+// fallback 500ms and cancels it when a real render lands). If the DDB gate ever shows
+// doubled lines, dedup by request id/timestamp window instead.
