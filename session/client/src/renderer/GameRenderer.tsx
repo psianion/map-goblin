@@ -9,6 +9,8 @@ import { subscribeToAssets } from '@dnd/core/src/engine/subscribeToAssets';
 import { setEngineSingleton, clearEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
 import { listenDprChanges } from '@dnd/core/src/engine/camera';
 import { LightManager } from '@dnd/core/src/engine/lighting';
+import { setTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
+import { destroyWaterAnimation } from '@dnd/core/src/engine/water/waterAnimation';
 import { getAssetPackManager } from '@dnd/core/src/engine/assetPackInstance';
 import { computeMapWorldBounds } from '@dnd/core/src/engine/export/exportPipeline';
 import { ensureBundledPack } from '@dnd/core/src/engine/firstBootInstall';
@@ -143,6 +145,11 @@ export function GameRenderer() {
         sceneGraph.toolManager.destroy();
         sceneGraph.lightingRenderer.destroy();
         sceneGraph.fogTransition.destroy();
+        // Same three as CanvasHost's teardown: the terrain renderer keeps two live store
+        // subscriptions and the water filter its own ticker, both outliving the engine.
+        sceneGraph.terrainRenderer.destroy();
+        setTerrainRenderer(null);
+        destroyWaterAnimation();
         unsubStore();
         unsubAssets();
         unregFogResize();
