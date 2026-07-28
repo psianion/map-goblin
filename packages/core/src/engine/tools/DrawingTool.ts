@@ -12,7 +12,9 @@ export type ToolType =
   | 'light'
   | 'ruler'
   | 'assetPlacement'
-  | 'scatterBrush';
+  | 'scatterBrush'
+  | 'terrain'
+  | 'water';
 
 export interface PreviewShape {
   type: 'polygon' | 'rectangle' | 'circle' | 'line';

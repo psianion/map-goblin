@@ -1,5 +1,20 @@
 import type { StateCreator } from 'zustand';
-import type { MapBuilderStore, ToolSettings, ToolType, LightDefaults, ScatterBrushSettings } from '../types';
+import type { MapBuilderStore, ToolSettings, ToolType, LightDefaults, ScatterBrushSettings, TerrainBrushSettings, WaterToolSettings } from '../types';
+
+/** Single source of truth for the clamps below — UI sliders read these too. */
+export const TERRAIN_BRUSH_RANGES = {
+  radius: { min: 0.5, max: 12, step: 0.5 },
+  strength: { min: 0.1, max: 1, step: 0.05 },
+} as const;
+
+export const WATER_RANGES = {
+  width: { min: 0.5, max: 10, step: 0.5 },
+  flowSpeed: { min: 0, max: 1, step: 0.05 },
+} as const;
+
+function clamp(v: number, { min, max }: { min: number; max: number }): number {
+  return Math.min(Math.max(min, v), max);
+}
 
 export interface ToolActions {
   setActiveTool: (tool: ToolType) => void;
@@ -9,6 +24,8 @@ export interface ToolActions {
   addRecentAsset: (assetId: string) => void;
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;
   updateScatterBrushSettings: (patch: Partial<ScatterBrushSettings>) => void;
+  updateTerrainBrushSettings: (patch: Partial<TerrainBrushSettings>) => void;
+  updateWaterSettings: (patch: Partial<WaterToolSettings>) => void;
 }
 
 export const createToolsSlice: StateCreator<
@@ -55,5 +72,20 @@ export const createToolsSlice: StateCreator<
       s.scaleRange[0] = Math.max(0.1, s.scaleRange[0]);
       s.scaleRange[1] = Math.max(s.scaleRange[0], s.scaleRange[1]);
       s.rotationRange[1] = Math.max(s.rotationRange[0], s.rotationRange[1]);
+    }),
+  updateTerrainBrushSettings: (patch) =>
+    set((state) => {
+      Object.assign(state.tools.settings.terrainBrush, patch);
+      const t = state.tools.settings.terrainBrush;
+      t.slot = Math.min(Math.max(0, Math.round(t.slot)), 5);
+      t.radius = clamp(t.radius, TERRAIN_BRUSH_RANGES.radius);
+      t.strength = clamp(t.strength, TERRAIN_BRUSH_RANGES.strength);
+    }),
+  updateWaterSettings: (patch) =>
+    set((state) => {
+      Object.assign(state.tools.settings.water, patch);
+      const w = state.tools.settings.water;
+      w.width = clamp(w.width, WATER_RANGES.width);
+      w.flowSpeed = clamp(w.flowSpeed, WATER_RANGES.flowSpeed);
     }),
 });

@@ -1,0 +1,24 @@
+{
+  "types": [
+    "floor", "wall", "pattern", "edge", "object",
+    "scatter", "path", "portal", "light-mask"
+  ],
+  "themes": [
+    "dungeon", "tavern", "forest", "cave", "castle",
+    "temple", "sewer", "arctic", "desert", "coastal",
+    "ruins", "underground"
+  ],
+  "materials": {
+    "stone": ["cobble", "brick", "slate", "marble", "rough", "mossy"],
+    "wood": ["oak", "aged", "plank", "dark", "birch"],
+    "metal": ["iron", "bronze", "gold", "rusted"],
+    "natural": ["dirt", "grass", "sand", "mud", "gravel", "snow", "ice"],
+    "fabric": ["carpet", "tapestry", "leather"],
+    "liquid": ["water", "lava", "acid", "blood"]
+  },
+  "pieceTypes": {
+    "wall": ["straight", "corner-90", "corner-120", "corner-135", "ending", "junction-t", "junction-x", "connector"],
+    "floor": ["base", "border", "accent"],
+    "path": ["straight", "curve", "intersection", "ending"]
+  }
+}
