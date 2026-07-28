@@ -220,6 +220,9 @@ importers:
       clipper2-wasm:
         specifier: ^0.2.1
         version: 0.2.1
+      pixi.js:
+        specifier: ^8.17.1
+        version: 8.17.1
       react:
         specifier: ^19.2.0
         version: 19.2.4

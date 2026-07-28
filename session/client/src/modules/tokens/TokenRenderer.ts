@@ -8,7 +8,7 @@
 // is one import specifier instead of a second manifest entry + lockfile churn, and it
 // guarantees the same module instance the engine itself booted with. Swap it for a plain
 // `'pixi.js'` the day session-client declares the dep.
-import { Container, Graphics, Sprite, Text, Texture, type Ticker } from '@dnd/core/node_modules/pixi.js';
+import { Container, Graphics, Sprite, Text, Texture, type Ticker } from 'pixi.js';
 import { SIZE_CELLS, type Disposition, type Token, type TokensState } from '@dnd/mechanics/tokens';
 import { getEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
