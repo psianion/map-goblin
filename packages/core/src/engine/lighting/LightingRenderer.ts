@@ -27,6 +27,7 @@ export class LightingRenderer {
   private width: number
   private height: number
   private iconMap = new Map<string, Graphics>()
+  private iconsVisible = true
 
   constructor(engine: RenderEngine, width: number, height: number) {
     this.engine = engine
@@ -52,8 +53,21 @@ export class LightingRenderer {
     engine.overlay().addChild(this.compositingSprite)
   }
 
+  /** Editing affordance toggle — the session runner hides light icons; the editor keeps them. */
+  setIconsVisible(visible: boolean): void {
+    this.iconsVisible = visible
+    if (!visible) {
+      for (const [id, icon] of this.iconMap) {
+        this.engine.overlay().removeChild(icon)
+        icon.destroy()
+        this.iconMap.delete(id)
+      }
+    }
+  }
+
   /** Updates per-light icon circles in the overlay. Runs every frame. */
   private updateIcons(lightManager: LightManager): void {
+    if (!this.iconsVisible) return
     const allLights = lightManager.getLights()
     const lightIds = new Set(allLights.map((l) => l.id))
 

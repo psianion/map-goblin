@@ -127,6 +127,8 @@ export function GameRenderer() {
       }
 
       const sceneGraph = buildSceneGraph(pixiEngine);
+      // The runner has no light-editing tool; icons are editor chrome (the map is the stage).
+      sceneGraph.lightingRenderer.setIconsVisible(false);
       const lightManager = new LightManager();
       setupRenderLoop(pixiEngine, sceneGraph, lightManager);
       const unsubStore = subscribeToStore(pixiEngine, sceneGraph, lightManager);
