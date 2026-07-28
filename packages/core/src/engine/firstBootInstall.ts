@@ -4,10 +4,12 @@
 // dungeon-classic pack from public/packs/. This ensures a zero-config
 // first experience with no CDN dependency.
 
+import pLimit from 'p-limit';
 import type { AssetPackManager } from './assetPackManager';
 import type { PackManifest } from './assetPackManager';
 
 const BUNDLED_PACK_ID = 'dungeon-classic';
+const FETCH_CONCURRENCY = 8;
 const BUNDLED_PACK_PATH = '/packs/dungeon-classic/pack-4a9bdbee.json';
 
 /**
@@ -42,13 +44,22 @@ export async function ensureBundledPack(packManager: AssetPackManager): Promise<
   const allFiles = [...Object.keys(manifest.atlases), ...Object.keys(manifest.files)];
   const blobs = new Map<string, Uint8Array>();
 
-  for (const file of allFiles) {
-    const fileRes = await fetch(`/packs/${BUNDLED_PACK_ID}/${file}`);
-    if (!fileRes.ok) {
-      console.warn(`[firstBootInstall] Failed to fetch bundled file: ${file}`);
-      return false;
-    }
-    blobs.set(file, new Uint8Array(await fileRes.arrayBuffer()));
+  const limit = pLimit(FETCH_CONCURRENCY);
+  try {
+    await Promise.all(
+      allFiles.map((file) =>
+        limit(async () => {
+          const fileRes = await fetch(`/packs/${BUNDLED_PACK_ID}/${file}`);
+          if (!fileRes.ok) throw new Error(file);
+          blobs.set(file, new Uint8Array(await fileRes.arrayBuffer()));
+        }),
+      ),
+    );
+  } catch (err) {
+    // First failure aborts the install, same as the old serial loop.
+    limit.clearQueue();
+    console.warn(`[firstBootInstall] Failed to fetch bundled file: ${(err as Error).message}`);
+    return false;
   }
 
   // Register the bundled pack directly using the already-downloaded data.

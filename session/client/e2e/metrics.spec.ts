@@ -243,6 +243,6 @@ async function joinOverWire(code: string, name: string): Promise<WebSocket> {
   const { token } = (await res.json()) as { token: string }
   const socket = new WebSocket(`${SERVER_URL.replace(/^http/, 'ws')}/ws?token=${encodeURIComponent(token)}`)
   await once(socket, 'open')
-  socket.send(JSON.stringify({ type: 'join', protocolVersion: 1 }))
+  socket.send(JSON.stringify({ type: 'join', protocolVersion: 2 }))
   return socket
 }

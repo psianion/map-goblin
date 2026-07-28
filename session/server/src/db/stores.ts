@@ -1,6 +1,5 @@
-// Prepared statements behind five small classes. Rows come back exactly as stored
+// Prepared statements behind small classes. Rows come back exactly as stored
 // (snake_case, SQLite's 0/1 for booleans) — a mapping layer would buy nothing here.
-// No store for `module_state`: the table exists per spec §2.4 but stays empty until S2.
 
 import { randomUUID } from 'node:crypto'
 import type { Role } from '@dnd/core/src/shared/protocol'
@@ -8,6 +7,9 @@ import type { Database } from './db'
 
 /** D7 — `.mapbuilder` files reach 20MB; anything past that is not a map we accept. */
 export const MAX_MAP_BYTES = 20 * 1024 * 1024
+
+/** D11 — a token portrait, not a wallpaper. */
+export const MAX_ASSET_BYTES = 2 * 1024 * 1024
 
 export interface Campaign {
   id: string
@@ -275,12 +277,84 @@ export class PassStore {
   }
 }
 
+export interface AssetRow {
+  id: string
+  campaign_id: string
+  mime: string
+  bytes: Buffer
+  size: number
+  created_at: number
+}
+
+/** D11 — image blobs modules point an id at (token portraits today). */
+export class AssetStore {
+  readonly #insert
+  readonly #get
+
+  constructor(db: Database) {
+    this.#insert = db.prepare<[string, string, string, Buffer, number, number]>(
+      'INSERT INTO assets (id, campaign_id, mime, bytes, size, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    )
+    this.#get = db.prepare<[string], AssetRow>('SELECT * FROM assets WHERE id = ?')
+  }
+
+  /** Size is measured here, not trusted from the caller — same reason as MapStore.insert. */
+  insert(id: string, campaignId: string, mime: string, bytes: Buffer): AssetRow {
+    const row: AssetRow = {
+      id,
+      campaign_id: campaignId,
+      mime,
+      bytes,
+      size: bytes.length,
+      created_at: Date.now(),
+    }
+    this.#insert.run(row.id, row.campaign_id, row.mime, row.bytes, row.size, row.created_at)
+    return row
+  }
+
+  get(id: string): AssetRow | undefined {
+    return this.#get.get(id)
+  }
+}
+
+/**
+ * D5 — one row per `(campaign_id, module)`. State is opaque JSON: the registry knows what
+ * shape it is, this class only knows how to keep it. Written on every `setState`; the rows
+ * are a few KB and the database is in WAL mode, so measure before batching anything.
+ */
+export class ModuleStateStore {
+  readonly #get
+  readonly #put
+
+  constructor(db: Database) {
+    this.#get = db.prepare<[string, string], { state: string }>(
+      'SELECT state FROM module_state WHERE campaign_id = ? AND module = ?',
+    )
+    this.#put = db.prepare<[string, string, string]>(
+      `INSERT INTO module_state (campaign_id, module, state) VALUES (?, ?, ?)
+       ON CONFLICT (campaign_id, module) DO UPDATE SET state = excluded.state`,
+    )
+  }
+
+  /** undefined = never written, which is the registry's cue to seed `initialState`. */
+  get(campaignId: string, moduleId: string): unknown {
+    const row = this.#get.get(campaignId, moduleId)
+    return row === undefined ? undefined : JSON.parse(row.state)
+  }
+
+  put(campaignId: string, moduleId: string, state: unknown): void {
+    this.#put.run(campaignId, moduleId, JSON.stringify(state))
+  }
+}
+
 export interface Stores {
   campaigns: CampaignStore
   maps: MapStore
   sessions: SessionStore
   identities: IdentityStore
   passes: PassStore
+  assets: AssetStore
+  moduleState: ModuleStateStore
 }
 
 /** One prepared-statement set per open database — boot calls this once (src/index.ts). */
@@ -291,5 +365,7 @@ export function createStores(db: Database): Stores {
     sessions: new SessionStore(db),
     identities: new IdentityStore(db),
     passes: new PassStore(db),
+    assets: new AssetStore(db),
+    moduleState: new ModuleStateStore(db),
   }
 }

@@ -1,22 +1,38 @@
 // The only outbound path for session-scoped messages (D5, spec §2.5).
-// Every frame is redacted for its recipient's role on the way out; the raw socket
-// write lives in ClientConnection#deliver and this file is its only caller.
+// Every frame is redacted for its recipient on the way out; the raw socket write lives in
+// ClientConnection#deliver and this file is its only caller.
 
-import type { Role, ServerMessage } from '@dnd/core/src/shared/protocol'
+import type { ServerMessage } from '@dnd/core/src/shared/protocol'
+import type { Viewer } from '@dnd/mechanics/contract'
+import type { ModuleRegistry } from '../modules/registry'
 import type { ClientConnection } from './ClientConnection'
 
-export type Redactor = (msg: ServerMessage, role: Role) => ServerMessage
+/** D4 — per viewer, not per role: "my own private rolls" needs the identityId too. */
+export type Redactor = (msg: ServerMessage, viewer: Viewer) => ServerMessage
 
 /**
- * Strips whatever the recipient's role must not see.
+ * The production redactor: module state is the only thing on the wire with per-viewer
+ * secrets in it, so this consults each module's `redact` for its own slice and leaves
+ * everything else alone. Roster data (PlayerInfo, identityIds) is public — the client
+ * keys players by it.
  *
- * S1 strips nothing: no ServerMessage carries per-role secrets yet — the snapshot's
- * PlayerInfo is public roster data and identityIds are how the client keys players.
- * The choke point is the deliverable, not the body. Sprint 3's fog redaction (hidden
- * tokens, unlit regions, DM-only notes) lands *here*, as a change to this function,
- * because Broadcaster leaves no way around it.
+ * One function, injected once, so Broadcaster still has exactly one place to call it.
  */
-export const redactForRole: Redactor = (msg, _role) => msg
+export function buildRedactor(registry: ModuleRegistry): Redactor {
+  return (msg, viewer) => {
+    if (msg.type === 'state-update') {
+      return { ...msg, state: registry.redactModule(msg.module, msg.state, viewer) }
+    }
+    if (msg.type === 'session-state') {
+      const modules: Record<string, unknown> = {}
+      for (const [name, state] of Object.entries(msg.state.modules)) {
+        modules[name] = registry.redactModule(name, state, viewer)
+      }
+      return { ...msg, state: { ...msg.state, modules } }
+    }
+    return msg
+  }
+}
 
 /** How Broadcaster finds a session's live clients without owning the session table. */
 export type ClientLookup = (sessionId: string) => Iterable<ClientConnection>
@@ -24,8 +40,8 @@ export type ClientLookup = (sessionId: string) => Iterable<ClientConnection>
 export class Broadcaster {
   constructor(
     private readonly clientsOf: ClientLookup,
-    /** Seam for the no-bypass test (D5). Production leaves it at redactForRole. */
-    private readonly redact: Redactor = redactForRole,
+    /** Seam for the no-bypass test (D5). Production passes buildRedactor(registry). */
+    private readonly redact: Redactor,
   ) {}
 
   broadcast(sessionId: string, msg: ServerMessage, except?: ClientConnection): void {
@@ -35,6 +51,6 @@ export class Broadcaster {
   }
 
   sendTo(conn: ClientConnection, msg: ServerMessage): void {
-    conn.deliver(JSON.stringify(this.redact(msg, conn.identity.role)))
+    conn.deliver(JSON.stringify(this.redact(msg, conn.identity)))
   }
 }

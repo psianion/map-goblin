@@ -1,10 +1,10 @@
 // Sessions, presence, heartbeat — the behaviour contracts in spec §2.5.
 
 import type { ClientMessage, PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol'
+import type { Viewer } from '@dnd/mechanics/contract'
 import { PROTOCOL_VERSION } from '../config'
-import { pingModule } from '../modules/ping'
-import { ModuleRegistry } from '../modules/registry'
-import { Broadcaster, type Redactor } from './Broadcaster'
+import type { ModuleRegistry } from '../modules/registry'
+import { Broadcaster, buildRedactor, type Redactor } from './Broadcaster'
 import type { ClientConnection } from './ClientConnection'
 import { CommandRouter } from './CommandRouter'
 
@@ -29,7 +29,7 @@ export interface SessionManagerOptions {
   heartbeatMs?: number
   /** Unanswered pings tolerated before the socket is dropped. Default 2 (§2.5). */
   missedPongLimit?: number
-  /** Test seam only — the D5 no-bypass test passes a spy. Defaults to `redactForRole`. */
+  /** Test seam only — the D5 no-bypass test passes a spy. Defaults to `buildRedactor`. */
   redact?: Redactor
   /** Defaults to no scenes: a SessionManager without a database has nothing to list. */
   scenes?: SceneSource
@@ -53,14 +53,18 @@ export class SessionManager {
   private readonly sessionActive: (sessionId: string) => boolean
   private readonly isBanned: (identityId: string) => boolean
 
-  constructor({
-    heartbeatMs = 15_000,
-    missedPongLimit = 2,
-    redact,
-    scenes = () => ({ scenes: [], activeSceneId: null }),
-    sessionActive = () => true,
-    isBanned = () => false,
-  }: SessionManagerOptions = {}) {
+  constructor(
+    /** Already populated — boot owns which modules exist (§2.3.8). */
+    private readonly modules: ModuleRegistry,
+    {
+      heartbeatMs = 15_000,
+      missedPongLimit = 2,
+      redact,
+      scenes = () => ({ scenes: [], activeSceneId: null }),
+      sessionActive = () => true,
+      isBanned = () => false,
+    }: SessionManagerOptions = {},
+  ) {
     this.missedPongLimit = missedPongLimit
     this.scenes = scenes
     this.sessionActive = sessionActive
@@ -68,9 +72,10 @@ export class SessionManager {
     this.timer = setInterval(() => this.heartbeat(), heartbeatMs)
     this.timer.unref()
 
-    this.broadcaster = new Broadcaster((id) => this.sessions.get(id)?.clients ?? [], redact)
-    const modules = new ModuleRegistry()
-    modules.register(pingModule)
+    this.broadcaster = new Broadcaster(
+      (id) => this.sessions.get(id)?.clients ?? [],
+      redact ?? buildRedactor(modules),
+    )
     this.router = new CommandRouter(modules, this.broadcaster)
   }
 
@@ -125,13 +130,34 @@ export class SessionManager {
       conn.close()
       return
     }
+
+    if (msg.type === 'join') return this.join(conn, msg.protocolVersion)
+
+    // Nothing before the handshake: a socket that skipped `join` skipped the protocol
+    // gate (D8) with it, and must not be able to broadcast into a session it never
+    // entered. Membership *is* the handshake — `join` is what puts a conn in `clients`.
+    const session = this.sessions.get(conn.identity.sessionId)
+    if (!session?.clients.has(conn)) {
+      this.broadcaster.sendTo(conn, {
+        type: 'error',
+        code: 'unauthorized',
+        message: 'join before sending anything else',
+      })
+      conn.close()
+      return
+    }
+
+
     switch (msg.type) {
-      case 'join':
-        return this.join(conn, msg.protocolVersion)
       case 'ping':
         return this.broadcaster.sendTo(conn, { type: 'pong', t: msg.t })
       case 'command':
-        return this.router.handle(conn, msg)
+        // ponytail: `scenes()` is two prepared statements and runs per command, including
+        // 10 Hz token drags. Cache it on the Session if a profile ever says to.
+        return this.router.handle(conn, msg, {
+          activeSceneId: this.scenes(session).activeSceneId,
+          players: [...session.players.values()],
+        })
     }
   }
 
@@ -158,14 +184,30 @@ export class SessionManager {
     }
 
     const session = this.sessionFor(sessionId, campaignId)
+    // Read before the supersede below, so a DM opening a second tab is not a *re*connect.
     const dmReturning = role === 'dm' && session.dmSeen && !hasConnectedDm(session)
+
+    // One identity, one live socket. A second tab — or a reconnect that raced the old
+    // socket's close — supersedes the previous one, which leaves the roster *before* it is
+    // closed so `leave()` finds nothing to announce: the identity never went anywhere.
+    // Re-joining on the same socket is a snapshot refresh (§2.4.3) and skips all of this.
+    for (const other of session.clients) {
+      if (other !== conn && other.identity.identityId === identityId) {
+        session.clients.delete(other)
+        other.close()
+      }
+    }
 
     const player: PlayerInfo = { identityId, name, role, connected: true }
     session.players.set(identityId, player)
     session.clients.add(conn)
     if (role === 'dm') session.dmSeen = true
 
-    this.broadcaster.sendTo(conn, { type: 'session-state', state: this.snapshot(session), you: player })
+    this.broadcaster.sendTo(conn, {
+      type: 'session-state',
+      state: this.snapshot(session, conn.identity),
+      you: player,
+    })
     this.broadcaster.broadcast(session.id, { type: 'player-joined', player }, conn)
     if (dmReturning) this.broadcaster.broadcast(session.id, { type: 'dm-reconnected' })
   }
@@ -206,14 +248,14 @@ export class SessionManager {
   }
 
   /** Scenes and the active one are read fresh: an upload between joins must show up. */
-  private snapshot(session: Session): SessionState {
+  private snapshot(session: Session, viewer: Viewer): SessionState {
     return {
       protocolVersion: PROTOCOL_VERSION,
       sessionId: session.id,
       campaignId: session.campaignId,
       ...this.scenes(session),
       players: [...session.players.values()],
-      modules: {}, // module slices from S2
+      modules: this.modules.snapshotModules(session.campaignId, viewer),
     }
   }
 }

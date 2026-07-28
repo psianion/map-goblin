@@ -13,6 +13,7 @@
     "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "dependencies": {
+    "@dnd/mechanics": "workspace:*",
     "better-sqlite3": "^12.4.1",
     "ws": "^8.18.3"
   },

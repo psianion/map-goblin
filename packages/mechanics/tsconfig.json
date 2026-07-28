@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // D2: no pixi, no react, no DOM. Dropping DOM from `lib` is what keeps this package
+    // importable from the Node server.
+    "lib": ["ES2022"]
+  },
+  "include": ["src"]
+}

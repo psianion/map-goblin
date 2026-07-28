@@ -59,4 +59,19 @@ export const MIGRATIONS: readonly string[] = [
     PRIMARY KEY (campaign_id, module)
   );
   `,
+
+  // 002 — S2 §2.3.1 / D11: token portraits and anything else a module points an id at.
+  // Blobs in SQLite for the same reason maps are: one file to back up, no orphaned
+  // directory to keep in sync with the rows that reference it.
+  `
+  CREATE TABLE assets (
+    id          TEXT    PRIMARY KEY,
+    campaign_id TEXT    NOT NULL REFERENCES campaigns(id),
+    mime        TEXT    NOT NULL,
+    bytes       BLOB    NOT NULL,
+    size        INTEGER NOT NULL,
+    created_at  INTEGER NOT NULL
+  );
+  CREATE INDEX idx_assets_campaign ON assets(campaign_id);
+  `,
 ]

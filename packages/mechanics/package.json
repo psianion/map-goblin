@@ -1,0 +1,21 @@
+{
+  "name": "@dnd/mechanics",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./contract": "./src/contract.ts",
+    "./rolls": "./src/rolls/module.ts",
+    "./tokens": "./src/tokens/module.ts"
+  },
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@dnd/core": "workspace:*",
+    "typescript": "~5.9.3",
+    "vitest": "^4.0.18"
+  }
+}

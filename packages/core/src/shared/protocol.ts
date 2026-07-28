@@ -2,7 +2,7 @@
 // Session wire protocol — shared by @dnd/server and @dnd/session-client.
 // Pure types + one constant; no runtime deps.
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export type Role = 'dm' | 'player';
 
@@ -21,7 +21,7 @@ export interface SessionState {
   /** Metadata only — map data fetched via HTTP. */
   scenes: { id: string; name: string }[];
   players: PlayerInfo[];
-  /** Empty in S1; module slices from S2. */
+  /** Per-module slices, redacted for the viewer receiving them (S2, D4). */
   modules: Record<string, unknown>;
 }
 
