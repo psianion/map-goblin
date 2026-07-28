@@ -1,7 +1,8 @@
+import { useEffect } from 'react';
 import { ConnectionStatus, ReconnectingBanner } from '../components/ConnectionStatus';
 import { GameRenderer } from '../renderer/GameRenderer';
 import { usePanels } from '../session/panels';
-import { useRole } from '../session/store';
+import { resumeSeat, useRole } from '../session/store';
 
 // Side-effect imports: each of these calls `registerPanel` at module scope. This
 // list is the only thing a new module adds to the shell (D8) — the sidebar below
@@ -20,6 +21,11 @@ import '../modules/tokens';
  */
 export default function GameTable() {
   const panels = usePanels(useRole());
+
+  // A refresh unmounts everything but the seat is in sessionStorage — take it back.
+  useEffect(() => {
+    resumeSeat();
+  }, []);
 
   return (
     <div data-page="table" className="flex h-full flex-col bg-neutral-950 text-neutral-100 md:flex-row">

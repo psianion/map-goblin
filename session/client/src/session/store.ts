@@ -53,6 +53,29 @@ export interface SessionStore {
   sendCommand: (module: string, action: string, payload: unknown) => void;
 }
 
+// The seat survives a refresh: per-tab (sessionStorage dies with the tab, so two
+// tabs stay two identities), cleared on explicit disconnect and on session-ended.
+const SEAT_KEY = 'mg-seat';
+interface SavedSeat {
+  token: string;
+  url?: string;
+  inviteCode: string | null;
+}
+function saveSeat(seat: SavedSeat): void {
+  try {
+    sessionStorage.setItem(SEAT_KEY, JSON.stringify(seat));
+  } catch {
+    /* storage unavailable — the seat just won't survive a refresh */
+  }
+}
+function clearSeat(): void {
+  try {
+    sessionStorage.removeItem(SEAT_KEY);
+  } catch {
+    /* ditto */
+  }
+}
+
 // ponytail: plain zustand — no immer/devtools/subscribeWithSelector like the
 // editor store. Session state arrives as whole snapshots (§2.5), so there is
 // nothing to draft-mutate and no deep selector traffic to memoize.
@@ -78,11 +101,13 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
       onLatency: (latencyMs) => set({ latencyMs }),
     });
     set({ client, token, connection: 'connecting', sessionEnded: false });
+    saveSeat({ token, url, inviteCode: get().inviteCode });
     client.connect();
   },
 
   disconnect: () => {
     get().client?.close();
+    clearSeat();
     set({ client: null, token: null, connection: 'closed' });
   },
 
@@ -152,6 +177,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           // Terminal. Retrying is pointless — the session is gone, so the upgrade
           // would 401 forever and the UI would sit on "reconnecting" for good.
           get().client?.close();
+          clearSeat();
           set({ client: null, sessionEnded: true, connection: 'closed' });
           break;
 
@@ -187,3 +213,24 @@ export const useRole = (): Role | undefined => useSessionStore((s) => s.you?.rol
  */
 export const useModuleState = <T,>(moduleName: string): T | undefined =>
   useSessionStore((s) => s.session?.modules[moduleName] as T | undefined);
+
+/**
+ * Reconnect with the seat a refresh threw away. No-op when already connected,
+ * after session-ended, or with nothing saved. ponytail: a seat whose session
+ * ended while the tab was mid-reload shows "reconnecting" until re-navigation —
+ * detecting that needs an upgrade-401 signal the ws API doesn't expose.
+ */
+export function resumeSeat(): void {
+  const store = useSessionStore.getState();
+  if (store.client || store.sessionEnded) return;
+  try {
+    const raw = sessionStorage.getItem(SEAT_KEY);
+    if (!raw) return;
+    const seat = JSON.parse(raw) as SavedSeat;
+    if (typeof seat.token !== 'string') return;
+    if (seat.inviteCode) store.setInviteCode(seat.inviteCode);
+    store.connect(seat.token, seat.url);
+  } catch {
+    /* corrupted or unavailable seat: land on the lobby instead of crashing */
+  }
+}

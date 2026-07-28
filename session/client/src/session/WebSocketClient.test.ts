@@ -4,12 +4,12 @@
 // while replacing globalThis.Event, so undici dispatches a jsdom Event into a
 // Node EventTarget and throws. Node 22's WebSocket is the same WHATWG API this
 // client uses in the browser, so the node env tests the real thing.
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer } from 'ws';
 import type { WebSocket as WsSocket } from 'ws';
 import type { AddressInfo } from 'node:net';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
-import { useSessionStore } from './store';
+import { resumeSeat, useSessionStore } from './store';
 
 const ME: PlayerInfo = { identityId: 'i1', name: 'Rue', role: 'dm', connected: true };
 
@@ -159,5 +159,56 @@ describe('WebSocketClient', () => {
     expect(server.conns).toHaveLength(1);
     expect(useSessionStore.getState().connection).toBe('closed');
     expect(useSessionStore.getState().sessionEnded).toBe(true);
+  });
+});
+
+describe('seat persistence (reload survival)', () => {
+  // This file runs in the node env (see header) — stub the one Web Storage API
+  // the seat uses. The store's own try/catch covers environments without it.
+  const backing = new Map<string, string>();
+  beforeAll(() => {
+    (globalThis as Record<string, unknown>).sessionStorage = {
+      getItem: (k: string) => backing.get(k) ?? null,
+      setItem: (k: string, v: string) => void backing.set(k, v),
+      removeItem: (k: string) => void backing.delete(k),
+    };
+  });
+  afterAll(() => {
+    delete (globalThis as Record<string, unknown>).sessionStorage;
+  });
+  afterEach(() => backing.clear());
+
+  it('resumes the same token and invite code after the store lost everything', async () => {
+    server = startServer();
+    const url = await server.ready;
+
+    useSessionStore.getState().setInviteCode('ZZTOP1');
+    useSessionStore.getState().connect('tok-seat', url);
+    await server.nth(1);
+
+    // A reload wipes the in-memory store but not sessionStorage. The old client
+    // object is orphaned exactly like a reload orphans its socket.
+    const orphan = useSessionStore.getState().client;
+    useSessionStore.setState({ client: null, token: null, inviteCode: null, connection: 'closed' });
+    orphan?.close();
+
+    resumeSeat();
+    const conn = await server.nth(2);
+    expect(conn.token).toBe('tok-seat');
+    expect(useSessionStore.getState().inviteCode).toBe('ZZTOP1');
+  });
+
+  it('clears the seat on session-ended so a dead session is not resumed', async () => {
+    server = startServer();
+    const url = await server.ready;
+
+    useSessionStore.getState().connect('tok-dead', url);
+    const conn = await server.nth(1);
+    conn.socket.send(JSON.stringify({ type: 'session-ended' }));
+    await vi.waitFor(() => expect(useSessionStore.getState().sessionEnded).toBe(true));
+
+    expect(backing.has('mg-seat')).toBe(false);
+    resumeSeat();
+    expect(useSessionStore.getState().client).toBeNull();
   });
 });
