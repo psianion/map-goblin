@@ -107,8 +107,7 @@ export default function HostSetup() {
             <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
               <p className="text-sm text-neutral-300">No server yet? Run one:</p>
               <Command value="pnpm --filter @dnd/game-server start" />
-              {/* ponytail: docker-compose.yml has no game-server service yet — this is the
-                  command it will answer to once the server image ships. */}
+              {/* The service docker-compose.yml defines for session/server/Dockerfile. */}
               <Command value="docker compose up game-server" />
               <p className="mt-3 text-xs text-neutral-500">
                 It prints an admin pass on first run — that is what goes below.

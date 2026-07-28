@@ -24,6 +24,11 @@ export class ClientConnection {
     socket.on('pong', () => {
       this.missedPongs = 0
     })
+    // `ws` reports a protocol violation — a frame over `maxPayload`, a bad opcode — by
+    // closing the socket and *then* emitting 'error'. An 'error' with no listener is one
+    // Node throws, so without this line a single oversized frame is not a dropped client
+    // but a dead server. `ws` has already started the close; there is nothing left to do.
+    socket.on('error', () => {})
   }
 
   /**

@@ -120,18 +120,55 @@ async function expectUpgradeRejected(port: number, token: string): Promise<void>
   socket.terminate()
 }
 
+/** An upgraded socket that has *not* joined — the state the terminal-state tests care about. */
+async function openSocket(port: number, token: string): Promise<WebSocket> {
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/?token=${token}`)
+  await once(socket, 'open')
+  return socket
+}
+
+/** Campaign → session → one joined player, which is the setup most of the tests below want. */
+async function table(base: string, adminPass: string): Promise<{
+  campaignId: string
+  dmToken: string
+  sessionId: string
+  inviteCode: string
+  playerId: string
+  playerToken: string
+}> {
+  const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+  const campaignId = campaign.body.campaignId as string
+  const dmToken = campaign.body.token as string
+  const started = await api(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId } })
+  const inviteCode = started.body.inviteCode as string
+  const joined = await api(base, 'POST', '/api/join', { body: { code: inviteCode, name: 'Bob' } })
+  return {
+    campaignId,
+    dmToken,
+    sessionId: started.body.sessionId as string,
+    inviteCode,
+    playerId: joined.body.identityId as string,
+    playerToken: joined.body.token as string,
+  }
+}
+
 /**
  * A POST whose body the server is meant to refuse mid-flight. `declaredLength` set = the
  * Content-Length lie (the header claims more than the cap, the body never delivers);
  * unset = a chunked upload that really does overrun. Resolves with the status the server
  * answers *while the request is still being written*, which is the whole point.
+ *
+ * The server hangs up rather than draining a body it has already refused, so this answers
+ * with the status when one arrives and with the socket error code when the hangup beats it.
+ * Both are a refusal; which one you get depends on how much of the upload was still in
+ * flight when the server stopped listening.
  */
 async function refusedUpload(
   port: number,
   path: string,
   token: string,
   declaredLength?: number,
-): Promise<number> {
+): Promise<number | string> {
   const req = request({
     host: '127.0.0.1',
     port,
@@ -143,12 +180,16 @@ async function refusedUpload(
       ...(declaredLength === undefined ? {} : { 'content-length': String(declaredLength) }),
     },
   })
-  const answer = new Promise<number>((resolve, reject) => {
+  let answered = false
+  const answer = new Promise<number | string>((resolve) => {
     req.on('response', (res) => {
       res.resume()
+      res.on('error', () => {}) // the hangup lands here once the status is already read
+      answered = true
       resolve(res.statusCode ?? 0)
     })
-    req.on('error', reject) // ignored once resolved — a settled promise cannot change
+    // The refusal arriving as a dead socket rather than a status is still a refusal.
+    req.on('error', (error: NodeJS.ErrnoException) => resolve(error.code ?? 'error'))
   })
 
   if (declaredLength !== undefined) {
@@ -158,10 +199,10 @@ async function refusedUpload(
     // Each write is awaited so the answer can land mid-upload, which is the point.
     const megabyte = Buffer.alloc(1024 * 1024, 0x61)
     req.write('[') // valid JSON start: nothing but the size can be the reason it fails
-    for (let sent = 0; sent <= MAX_MAP_BYTES; sent += megabyte.length) {
+    for (let sent = 0; sent <= MAX_MAP_BYTES && !answered; sent += megabyte.length) {
       await new Promise<void>((flushed) => req.write(megabyte, () => flushed()))
     }
-    req.end()
+    if (!answered) req.end()
   }
 
   const status = await answer
@@ -316,10 +357,14 @@ describe('rejections', () => {
       const path = `/api/campaigns/${body.campaignId as string}/maps`
       const token = body.token as string
 
-      // A Content-Length over the cap is refused before a byte is buffered...
+      // A Content-Length over the cap is refused before a byte is buffered — cleanly, with
+      // the reason, because there is nothing in flight for the hangup to cut across.
       expect(await refusedUpload(server.port, path, token, MAX_MAP_BYTES + 1)).toBe(413)
-      // ...and a body that lies (or declares nothing) is cut off by the running count.
-      expect(await refusedUpload(server.port, path, token)).toBe(413)
+      // A body that lies (or declares nothing) is cut off by the running byte count. The
+      // server answers and closes instead of reading the rest of an upload it has already
+      // refused, so a sender still pushing megabytes loses the socket mid-write — which is
+      // the point: the bytes stop either way.
+      expect([413, 'ECONNRESET']).toContain(await refusedUpload(server.port, path, token))
 
       // Nothing that big made it in.
       expect(server.stores.maps.listByCampaign(body.campaignId as string)).toEqual([])
@@ -426,6 +471,133 @@ describe('rejections', () => {
       // And my map is not even visible to the other campaign's DM.
       const uploaded = await api(base, 'POST', `/api/campaigns/${myId}/maps`, { token: mine.body.token as string, raw: JSON.stringify(MAP) })
       expect((await api(base, 'GET', `/api/maps/${uploaded.body.mapId as string}`, { token: yourToken })).status).toBe(404)
+    })
+  })
+})
+
+describe('a session that has ended stays ended', () => {
+  it('refuses the upgrade and the join for a session the DM closed', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const { dmToken, sessionId, playerToken } = await table(base, adminPass)
+
+      // Upgraded while the table was open, and still sitting there having never joined.
+      const idle = await openSocket(server.port, playerToken)
+
+      expect((await api(base, 'DELETE', `/api/sessions/${sessionId}`, { token: dmToken })).status).toBe(200)
+
+      // The socket cannot join the session back into existence...
+      const ended = nextMessage(idle, 'session-ended')
+      idle.send(JSON.stringify({ type: 'join', protocolVersion: 2 }))
+      await ended
+      await once(idle, 'close')
+
+      // ...and the token that opened it does not open another one.
+      await expectUpgradeRejected(server.port, playerToken)
+    })
+  })
+
+  it('does not let a token from the last session open the next one', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const { campaignId, dmToken, inviteCode, playerToken } = await table(base, adminPass)
+
+      // Starting a session ends the one before it and mints a fresh invite code — the
+      // closest thing S1 has to rotating one.
+      const next = await api(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId } })
+      expect(next.status).toBe(201)
+      expect(next.body.inviteCode).not.toBe(inviteCode)
+
+      // The old code is dead, and so is every token minted under it.
+      expect((await api(base, 'GET', `/api/resolve/${inviteCode}`)).status).toBe(404)
+      await expectUpgradeRejected(server.port, playerToken)
+
+      // The DM's own token is campaign-wide on purpose: they own whatever table is running.
+      const { socket, state } = await joinSocket(server.port, dmToken)
+      expect(state.state.sessionId).toBe(next.body.sessionId)
+      socket.terminate()
+    })
+  })
+
+  it('answers an unauthenticated close with 401 rather than confirming the id exists', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const { dmToken, sessionId } = await table(base, adminPass)
+
+      // Both of these used to answer 404 vs 401 depending on whether the id was real.
+      expect((await api(base, 'DELETE', `/api/sessions/${sessionId}`)).status).toBe(401)
+      expect((await api(base, 'DELETE', '/api/sessions/not-a-session')).status).toBe(401)
+
+      // With a real token, a session that is not yours is indistinguishable from one that
+      // does not exist — and the one that is yours closes.
+      expect((await api(base, 'DELETE', '/api/sessions/not-a-session', { token: dmToken })).status).toBe(404)
+      expect((await api(base, 'DELETE', `/api/sessions/${sessionId}`, { token: dmToken })).status).toBe(200)
+    })
+  })
+})
+
+describe('banning', () => {
+  it('hangs up the live socket and refuses every later one', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const { dmToken, playerId, playerToken } = await table(base, adminPass)
+      const { socket } = await joinSocket(server.port, playerToken)
+
+      const banned = await api(base, 'POST', `/api/identities/${playerId}/ban`, { token: dmToken })
+      expect(banned.status).toBe(200)
+      expect(banned.body).toEqual({ identityId: playerId, banned: true })
+
+      // The socket they were already holding goes, not just the next one they open.
+      await once(socket, 'close')
+      await expectUpgradeRejected(server.port, playerToken)
+      expect((await api(base, 'GET', '/api/maps/anything', { token: playerToken })).status).toBe(403)
+    })
+  })
+
+  it('is a DM-only route, scoped to that DM’s own campaign', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const mine = await table(base, adminPass)
+      const other = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const otherDm = other.body.identityId as string
+
+      const ban = (id: string, token?: string) =>
+        api(base, 'POST', `/api/identities/${id}/ban`, { token })
+
+      expect((await ban(mine.playerId)).status).toBe(401)
+      // A player cannot ban, not even themselves.
+      expect((await ban(mine.playerId, mine.playerToken)).status).toBe(403)
+      // Another campaign's identity is none of this DM's business.
+      expect((await ban(otherDm, mine.dmToken)).status).toBe(404)
+      expect((await ban('no-such-identity', mine.dmToken)).status).toBe(404)
+      // And a DM cannot lock themselves out of their own campaign with one typo.
+      expect((await ban(otherDm, other.body.token as string)).status).toBe(400)
+    })
+  })
+})
+
+describe('brute force', () => {
+  it('rate-limits invite-code guessing and says how long to wait', async () => {
+    await withServer(async ({ base }) => {
+      // Ten guesses is more than anyone types by hand in a minute; the eleventh is a script.
+      for (let attempt = 0; attempt < 10; attempt++) {
+        expect((await api(base, 'GET', '/api/resolve/ZZZZZZ')).status).toBe(404)
+      }
+      const res = await fetch(`${base}/api/resolve/ZZZZZZ`)
+      expect(res.status).toBe(429)
+      expect(Number(res.headers.get('retry-after'))).toBeGreaterThan(0)
+      await res.text()
+
+      // The budget is per address, not per route: /api/join is the other way in.
+      expect((await api(base, 'POST', '/api/join', { body: { code: 'ZZZZZZ', name: 'Bob' } })).status).toBe(429)
+    })
+  })
+
+  it('closes a socket that sends a frame larger than the protocol needs', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const { playerToken } = await table(base, adminPass)
+      const socket = await openSocket(server.port, playerToken)
+
+      // Well under `ws`'s 100MiB default, well over anything a ClientMessage can be.
+      socket.send(JSON.stringify({ type: 'ping', t: 1, pad: 'a'.repeat(512 * 1024) }))
+
+      const [code] = (await once(socket, 'close')) as [number]
+      expect(code).toBe(1009) // "message too big"
     })
   })
 })

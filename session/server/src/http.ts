@@ -30,14 +30,23 @@ export interface HttpDeps {
 /** Everything but a map upload is a handful of fields. */
 const JSON_BODY_LIMIT = 64 * 1024
 
+/** What the two public, guessable routes get: generous for typing, useless for a script. */
+const INVITE_ATTEMPTS = 10
+const INVITE_WINDOW_MS = 60_000
+
+type RouteDeps = HttpDeps & { rateLimit: RateLimiter }
+
 export function createRequestHandler(deps: HttpDeps) {
+  // Per handler, not per module: the test suite runs several servers in one process and
+  // they must not share a budget.
+  const rateLimit = createRateLimiter(INVITE_ATTEMPTS, INVITE_WINDOW_MS)
   return (req: IncomingMessage, res: ServerResponse): void => {
     cors(res)
     if (req.method === 'OPTIONS') {
       res.writeHead(204).end()
       return
     }
-    route(deps, req, res).catch((error: unknown) => {
+    route({ ...deps, rateLimit }, req, res).catch((error: unknown) => {
       console.error('request failed:', error)
       if (!res.headersSent) json(res, 500, { error: 'internal error' })
       else res.end()
@@ -45,7 +54,7 @@ export function createRequestHandler(deps: HttpDeps) {
   }
 }
 
-async function route(deps: HttpDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
   const path = new URL(req.url ?? '/', 'http://localhost').pathname
   const [api, resource, id, sub] = path.split('/').filter(Boolean)
   const method = req.method ?? 'GET'
@@ -58,9 +67,11 @@ async function route(deps: HttpDeps, req: IncomingMessage, res: ServerResponse):
     return uploadAsset(deps, req, res, id)
   if (method === 'GET' && resource === 'maps' && id && !sub) return getMap(deps, req, res, id)
   if (method === 'GET' && resource === 'assets' && id && !sub) return getAsset(deps, req, res, id)
-  if (method === 'GET' && resource === 'resolve' && id) return resolveCode(deps, res, id)
+  if (method === 'GET' && resource === 'resolve' && id) return resolveCode(deps, req, res, id)
   if (method === 'POST' && resource === 'join' && !id) return joinSession(deps, req, res)
   if (method === 'POST' && resource === 'sessions' && !id) return openSession(deps, req, res)
+  if (method === 'POST' && resource === 'identities' && id && sub === 'ban')
+    return banIdentity(deps, req, res, id)
   if (resource === 'sessions' && id && (method === 'DELETE' || (method === 'POST' && sub === 'end')))
     return closeSession(deps, req, res, id)
 
@@ -96,7 +107,7 @@ async function uploadMap(
   if (!requireSession(deps, req, res, { campaignId, role: 'dm' })) return
 
   const body = await readBody(req, MAX_MAP_BYTES)
-  if (!body.ok) return json(res, body.status, { error: body.error })
+  if (!body.ok) return failBody(req, res, body)
 
   const text = body.bytes.toString('utf8')
   const map = parseMapFile(text)
@@ -178,14 +189,16 @@ function getMap(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, mapId
 }
 
 /** GET /api/resolve/:code — public; the join page calls it before asking for a name. */
-function resolveCode(deps: HttpDeps, res: ServerResponse, code: string): void {
+function resolveCode(deps: RouteDeps, req: IncomingMessage, res: ServerResponse, code: string): void {
+  if (rateLimited(deps, req, res)) return
   const session = resolveInviteCode(deps.stores.sessions, code)
   if (!session) return json(res, 404, { error: 'no active session for that code' })
   json(res, 200, { campaignId: session.campaign_id, sessionId: session.id })
 }
 
 /** POST /api/join — public; `{code, name}` in, player session token out. */
-async function joinSession(deps: HttpDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function joinSession(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (rateLimited(deps, req, res)) return
   const body = await readJson(req, res)
   if (!body) return
 
@@ -213,7 +226,9 @@ async function joinSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
     identityId: identity.id,
     campaignId: session.campaign_id,
     sessionId: session.id,
-    token: issueToken(deps.hmacSecret, identity.id, session.campaign_id, 'player'),
+    // Bound to *this* session: the invite got them into this table, not into every table
+    // the campaign runs for the next seven days.
+    token: issueToken(deps.hmacSecret, identity.id, session.campaign_id, 'player', session.id),
   })
 }
 
@@ -245,13 +260,51 @@ function closeSession(
   res: ServerResponse,
   sessionId: string,
 ): void {
+  // Authentication first, existence second. The other order answered 404 to an anonymous
+  // caller for an id that does not exist and 401 for one that does, which is a free oracle
+  // for walking session ids.
+  const identity = requireSession(deps, req, res)
+  if (!identity) return
+
   const session = deps.stores.sessions.get(sessionId)
-  if (!session) return json(res, 404, { error: 'no such session' })
-  if (!requireSession(deps, req, res, { campaignId: session.campaign_id, role: 'dm' })) return
+  // Another campaign's session is not "forbidden", it is none of this token's business.
+  if (!session || session.campaign_id !== identity.campaign_id) {
+    return json(res, 404, { error: 'no such session' })
+  }
+  if (identity.role !== 'dm') return json(res, 403, { error: 'dm only' })
 
   deps.stores.sessions.endSession(sessionId)
   deps.sessionManager.endSession(sessionId)
   json(res, 200, { sessionId, active: false })
+}
+
+/**
+ * POST /api/identities/:id/ban — the DM throws someone out for good.
+ *
+ * A ban is the only revocation that outlives a session: `IdentityStore.ban` marks the row,
+ * `requireSession` and `authenticateUpgrade` refuse the token that names it, and the live
+ * sockets it already opened are hung up here rather than left to notice.
+ */
+function banIdentity(
+  deps: HttpDeps,
+  req: IncomingMessage,
+  res: ServerResponse,
+  identityId: string,
+): void {
+  const dm = requireSession(deps, req, res)
+  if (!dm) return
+
+  const target = deps.stores.identities.get(identityId)
+  if (!target || target.campaign_id !== dm.campaign_id) {
+    return json(res, 404, { error: 'no such identity' })
+  }
+  if (dm.role !== 'dm') return json(res, 403, { error: 'dm only' })
+  // Otherwise one mistyped id locks the DM out of their own campaign, permanently.
+  if (target.id === dm.id) return json(res, 400, { error: 'the DM cannot ban themselves' })
+
+  deps.stores.identities.ban(identityId)
+  deps.sessionManager.disconnectIdentity(identityId)
+  json(res, 200, { identityId, banned: true })
 }
 
 // ─── Auth ─────────────────────────────────────────────────
@@ -300,6 +353,51 @@ function requireSession(
   return identity
 }
 
+// ─── Rate limiting ────────────────────────────────────────
+
+/** Seconds the caller must wait, or 0 when the request is within budget. */
+type RateLimiter = (key: string) => number
+
+/**
+ * An invite code is six characters from a 31-letter alphabet — 887M combinations, which is
+ * only out of reach if guessing is slow. `/api/join` and `/api/resolve` are the two routes
+ * that will answer a guess, so they get a budget.
+ *
+ * ponytail: a Map of timestamps in this process. That is the right size for a self-hosted
+ * table; it counts per server rather than per cluster, so put a real store behind this if
+ * the day ever comes that two of these run behind one address.
+ */
+function createRateLimiter(limit: number, windowMs: number): RateLimiter {
+  const hits = new Map<string, number[]>()
+  return (key) => {
+    const now = Date.now()
+    // Anything that has aged out of the window is not an attempt any more.
+    const recent = (hits.get(key) ?? []).filter((at) => now - at < windowMs)
+    hits.set(key, recent)
+
+    if (recent.length >= limit) return Math.ceil((windowMs - (now - recent[0]!)) / 1000)
+    recent.push(now)
+
+    // One array per address that has ever called is a slow leak; sweep the idle ones
+    // rather than hold every address the server has seen since boot.
+    if (hits.size > 1024) {
+      for (const [seen, at] of hits) if (now - (at[at.length - 1] ?? 0) >= windowMs) hits.delete(seen)
+    }
+    return 0
+  }
+}
+
+/** Answers 429 and returns true when the caller has spent its budget. */
+function rateLimited(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): boolean {
+  // `remoteAddress`, never `x-forwarded-for`: nothing trusted sits in front of this server,
+  // and a limit keyed on a header the caller writes is a limit with an opt-out.
+  const retryAfter = deps.rateLimit(req.socket.remoteAddress ?? 'unknown')
+  if (retryAfter === 0) return false
+  res.setHeader('retry-after', String(retryAfter))
+  json(res, 429, { error: 'too many attempts — wait a moment and try again' })
+  return true
+}
+
 // ─── Plumbing ─────────────────────────────────────────────
 
 type Body = { ok: true; bytes: Buffer } | { ok: false; status: number; error: string }
@@ -309,6 +407,9 @@ type Body = { ok: true; bytes: Buffer } | { ok: false; status: number; error: st
  * Content-Length is rejected before a byte is buffered, and the running byte count is
  * rejected before the buffer completes — so a lying (or absent) Content-Length costs the
  * server one chunk past the cap, not a 20MB allocation it never wanted.
+ *
+ * Past the cap the stream is paused and the buffer dropped; {@link failBody} answers and
+ * then hangs up, so the rest of an upload we already refused is never read.
  */
 function readBody(req: IncomingMessage, limit: number): Promise<Body> {
   const tooLarge: Body = { ok: false, status: 413, error: `body exceeds the ${limit} byte limit` }
@@ -322,13 +423,8 @@ function readBody(req: IncomingMessage, limit: number): Promise<Body> {
     req.on('data', (chunk: Buffer) => {
       size += chunk.length
       if (size > limit) {
-        // Past the cap the bytes are dropped on the floor, but the stream is left flowing
-        // and the connection is left open. Pausing or hanging up mid-upload sends an RST
-        // that discards the 413 we just wrote — the client would see a reset instead of
-        // the reason. ponytail: so an oversized upload is still read to its end; memory,
-        // which is what the cap protects, stops growing here. Cap the *read* too if this
-        // server ever faces something other than a self-hosted table's own DM.
         chunks.length = 0
+        req.pause()
         resolve(tooLarge)
         return
       }
@@ -340,6 +436,39 @@ function readBody(req: IncomingMessage, limit: number): Promise<Body> {
   })
 }
 
+/**
+ * Answers a body that could not be read. A 413 also hangs up: the sender is mid-upload with
+ * megabytes still to come, and reading them to the end is doing exactly the work the cap
+ * exists to refuse. `readBody` has already paused the stream, so nothing further is read
+ * either way; this closes the connection it was arriving on.
+ *
+ * The close is a FIN and not a `destroy()`, and the difference matters: destroying a socket
+ * that still has an unread request body in its receive buffer resets the connection, and the
+ * reset overtakes the 413 — the client is left with a dead socket and no idea why. Ending it
+ * once the response has flushed delivers the reason and then goes.
+ *
+ * ponytail: a client that ignores the FIN and keeps writing holds one stalled socket (it
+ * cannot make progress — nobody is reading) until Node's requestTimeout reaps it. That is
+ * far cheaper than draining the upload, and the place to tighten it is that timeout.
+ */
+function failBody(req: IncomingMessage, res: ServerResponse, body: Extract<Body, { ok: false }>): void {
+  if (body.status !== 413) return json(res, body.status, { error: body.error })
+
+  // We are the ones hanging up, so the abort that follows is ours and not news. Without
+  // these it surfaces as an unhandled 'error' on a stream nobody is listening to any more,
+  // which is a process-level crash caused by a request the server deliberately refused.
+  req.on('error', () => {})
+  res.on('error', () => {})
+
+  const payload = JSON.stringify({ error: body.error })
+  res.writeHead(413, {
+    'content-type': 'application/json',
+    'content-length': Buffer.byteLength(payload),
+    connection: 'close',
+  })
+  res.end(payload, () => req.socket.end())
+}
+
 /** Small JSON body, or null when it has already answered the request. */
 async function readJson(
   req: IncomingMessage,
@@ -347,7 +476,7 @@ async function readJson(
 ): Promise<Record<string, unknown> | null> {
   const body = await readBody(req, JSON_BODY_LIMIT)
   if (!body.ok) {
-    json(res, body.status, { error: body.error })
+    failBody(req, res, body)
     return null
   }
   let parsed: unknown

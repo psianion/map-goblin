@@ -15,6 +15,17 @@ const NEXT_STATE: Record<DoorState, DoorState> = {
   locked: 'closed',
 };
 
+/**
+ * L8 — an archway is a permanent opening: `occlusion` always treats it as open and
+ * `doorRenderer` draws no state dot for one, so `locked` is a state nothing downstream
+ * can express. Cycling one therefore toggles closed ↔ open rather than parking it in a
+ * state the rest of the engine ignores.
+ */
+function nextState(door: DoorChild): DoorState {
+  const next = NEXT_STATE[door.state] ?? 'closed';
+  return door.style === 'archway' && next === 'locked' ? 'closed' : next;
+}
+
 /** Minimum click radius, so hairline doors are still clickable. */
 const MIN_HIT_RADIUS = 0.4;
 
@@ -83,7 +94,7 @@ export class DoorTool implements DrawingTool {
           activeLayerId,
           hit.id,
           { state: hit.state },
-          { state: NEXT_STATE[hit.state] ?? 'closed' },
+          { state: nextState(hit) },
         ),
       );
       return;

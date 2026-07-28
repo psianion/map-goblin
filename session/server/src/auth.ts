@@ -13,6 +13,17 @@ export interface TokenClaims {
   identityId: string
   campaignId: string
   role: Role
+  /**
+   * The one session this token may open, when it was minted for a session at all.
+   *
+   * Player tokens always carry it: a player is invited to *a table*, so when that table
+   * ends — or the DM starts a fresh one under a new invite code — their token stops
+   * opening anything, instead of silently following the campaign into the next session.
+   *
+   * DM tokens are minted at campaign creation, before any session exists, and are left
+   * unbound on purpose: the DM owns every table their campaign will ever run.
+   */
+  sessionId?: string
   /** Expiry, epoch ms. */
   exp: number
 }
@@ -26,8 +37,20 @@ export function signToken(secret: string, claims: TokenClaims): string {
   return `${payload}.${sign(secret, payload)}`
 }
 
-export function issueToken(secret: string, identityId: string, campaignId: string, role: Role): string {
-  return signToken(secret, { identityId, campaignId, role, exp: Date.now() + TOKEN_TTL_MS })
+export function issueToken(
+  secret: string,
+  identityId: string,
+  campaignId: string,
+  role: Role,
+  sessionId?: string,
+): string {
+  return signToken(secret, {
+    identityId,
+    campaignId,
+    role,
+    ...(sessionId === undefined ? {} : { sessionId }),
+    exp: Date.now() + TOKEN_TTL_MS,
+  })
 }
 
 /** Returns the claims only for a token this server signed and that has not expired. */
@@ -46,11 +69,12 @@ export function verifyToken(secret: string, token: string | null | undefined): T
     return null
   }
   if (typeof claims !== 'object' || claims === null) return null
-  const { identityId, campaignId, role, exp } = claims as Record<string, unknown>
+  const { identityId, campaignId, role, sessionId, exp } = claims as Record<string, unknown>
   if (typeof identityId !== 'string' || typeof campaignId !== 'string') return null
   if (role !== 'dm' && role !== 'player') return null
+  if (sessionId !== undefined && typeof sessionId !== 'string') return null
   if (typeof exp !== 'number' || exp <= Date.now()) return null
-  return { identityId, campaignId, role, exp }
+  return { identityId, campaignId, role, ...(sessionId === undefined ? {} : { sessionId }), exp }
 }
 
 const sign = (secret: string, payload: string): string =>
