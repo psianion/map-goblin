@@ -1,19 +1,22 @@
-// Sprint 2 acceptance (§2.6), the rows that are provable at the wire: token-move fan-out
-// latency across 6 clients, forged-client authorization, and whisper privacy inspected
-// frame by frame on the socket that must never see it.
+// Sprint 2 and 3 acceptance (§2.6), the rows that are provable at the wire: token-move
+// fan-out latency across 6 clients, forged-client authorization, whisper privacy inspected
+// frame by frame on the socket that must never see it — and S3's fog, which is the same
+// question asked of the map itself: what a player's socket is allowed to have carried.
 //
 // Raw sockets, no browser — same reasoning as the S1 6-client test in ws/session.test.ts:
 // the metric is the server's fan-out, and six Chromium event loops sharing one CPU would
 // measure the browsers instead. The browser-level halves (drag latency, roll sync in the
 // DOM, scene-switch timing) live in session/client/e2e.
 
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { once } from 'node:events'
 import type { Role, ServerMessage } from '@dnd/core/src/shared/protocol'
+import type { AssetChild, DoorChild, Room } from '@dnd/core/src/shared/types'
+import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import type { Token, TokensState } from '@dnd/mechanics/tokens'
 import { issueToken, startSession } from './auth'
 import type { SessionRow } from './db/stores'
@@ -42,8 +45,12 @@ async function withServer(
 
 const tables = new WeakMap<RunningServer, Map<string, SessionRow>>()
 
-/** One campaign with one active session (and one map, so `activeSceneId` is real) per name. */
-function table(server: RunningServer, name: string): SessionRow {
+/**
+ * One campaign with one active session (and one map, so `activeSceneId` is real) per name.
+ * `data` is only read on the first touch of a name — S3's rows seat their table on the
+ * dressed gate map, everything before them on a map with nothing in it.
+ */
+function table(server: RunningServer, name: string, data = '{}'): SessionRow {
   let byName = tables.get(server)
   if (!byName) tables.set(server, (byName = new Map()))
 
@@ -52,7 +59,7 @@ function table(server: RunningServer, name: string): SessionRow {
     const campaign = server.stores.campaigns.create(name)
     // Tokens are scene-scoped and `sceneId` defaults to the active scene (§2.2), so every
     // table here needs a scene for the commands to land the way a real client sends them.
-    server.stores.maps.insert(`${name}-map`, campaign.id, `${name} Map`, '{}')
+    server.stores.maps.insert(`${name}-map`, campaign.id, `${name} Map`, data)
     row = startSession(server.stores.sessions, campaign.id)
     byName.set(name, row)
   }
@@ -133,12 +140,36 @@ function nextState<S>(socket: WebSocket, module: string, where: (state: S) => bo
   })
 }
 
-function sendJoin(socket: WebSocket, protocolVersion = 2): void {
+function sendJoin(socket: WebSocket, protocolVersion = 3): void {
   socket.send(JSON.stringify({ type: 'join', protocolVersion }))
 }
 
 function sendCommand(socket: WebSocket, module: string, action: string, payload: unknown): void {
   socket.send(JSON.stringify({ type: 'command', module, action, payload, seq: 1 }))
+}
+
+/**
+ * The next frame matching `where`, parsed but untyped: a fog `state-update` carries a
+ * `mapDelta` the wire union in @dnd/core does not declare (§2.1/§2.5).
+ */
+function nextRaw(
+  socket: WebSocket,
+  where: (msg: Record<string, unknown>) => boolean,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off('message', onMessage)
+      reject(new Error('timed out waiting for a frame'))
+    }, 2000)
+    const onMessage = (raw: Buffer) => {
+      const msg = JSON.parse(raw.toString()) as Record<string, unknown>
+      if (!where(msg)) return
+      clearTimeout(timer)
+      socket.off('message', onMessage)
+      resolve(msg)
+    }
+    socket.on('message', onMessage)
+  })
 }
 
 /** Every frame this socket receives, verbatim — what a packet capture would show. */
@@ -365,6 +396,297 @@ describe('whisper privacy (§2.6 anti-Owlbear check)', () => {
       expect(bobFrames.length).toBeGreaterThan(0)
       for (const frame of bobFrames) expect(frame).not.toContain(CANARY)
       expect(dmFrames.filter((frame) => frame.includes(CANARY)).length).toBeGreaterThan(0)
+    })
+  })
+})
+
+// ── §2.6 (S3): fog is server-enforced ───────────────────────────────────────
+// On the dressed gate map, because a redactor is only honest against real content: the
+// rooms, corridors, secret door and stranded props here are the ones the browser gate
+// walks. Ids are looked up by shape, never spelled out, so re-authoring the map cannot
+// quietly turn these into assertions about nothing.
+
+const GATE_MAP = readFileSync(join(import.meta.dirname, '../../testdata/emberhold-crypt.mapbuilder'), 'utf8')
+const crypt = JSON.parse(GATE_MAP) as SerializedMapData
+const cryptLayer = crypt.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!
+const cryptRooms = cryptLayer.rooms ?? []
+const cryptDoors = cryptLayer.children.filter((c): c is DoorChild => c.childType === 'door')
+const SECRET = cryptDoors.find((d) => d.isSecret)!
+/** An ordinary door the map authors open: the two rooms either side of it test D3 layer 2. */
+const AJAR = cryptDoors.find((d) => d.state === 'open' && !d.isSecret)!
+const roomOf = (id: string | null | undefined): Room => cryptRooms.find((r) => r.id === id)!
+
+/** Props the map leaves outside every room's bounding box are unzoned beyond argument (D6). */
+const STRANDED = cryptLayer.children.filter((child): child is AssetChild => {
+  if (child.childType !== 'asset') return false
+  const { x, y } = child.position
+  return cryptRooms.every((room) => {
+    const xs = room.boundary.map((p) => p[0])
+    const ys = room.boundary.map((p) => p[1])
+    return x < Math.min(...xs) || x > Math.max(...xs) || y < Math.min(...ys) || y > Math.max(...ys)
+  })
+})
+
+const dungeonOf = (map: SerializedMapData): DungeonLayer =>
+  map.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!
+
+async function fetchMap(server: RunningServer, seat: Seat, sceneId: string): Promise<string> {
+  const res = await fetch(`http://127.0.0.1:${server.port}/api/maps/${sceneId}`, {
+    headers: { Authorization: `Bearer ${ticket(server, seat)}` },
+  })
+  expect(res.status).toBe(200)
+  return res.text()
+}
+
+/** A DM and `players` players seated on the gate map. */
+async function crypts(server: RunningServer, name: string, players = 1) {
+  table(server, name, GATE_MAP)
+  return { sceneId: `${name}-map`, ...(await seatTable(server, name, players)) }
+}
+
+describe('fog redaction on the map payload (§2.6, D4)', () => {
+  it('gives a player the rooms the party has been in and no trace of the rest', async () => {
+    await withServer({}, async (server) => {
+      const { sceneId, dm } = await crypts(server, 'FGA', 1)
+      const seen = roomOf(AJAR.roomA)
+
+      const revealed = nextState(dm, 'fog')
+      sendCommand(dm, 'fog', 'reveal', { roomId: seen.id })
+      await revealed
+
+      const wire = await fetchMap(server, { name: 'P0', session: 'FGA', identity: 'FGA-p0' }, sceneId)
+      const layer = dungeonOf(JSON.parse(wire) as SerializedMapData)
+
+      expect(layer.rooms?.map((r) => r.id)).toEqual([seen.id])
+      // Not the geometry, not the id, not the DM's name for it.
+      for (const room of cryptRooms) {
+        if (room.id === seen.id) continue
+        expect(wire, `${room.name} survived redaction`).not.toContain(room.id)
+        expect(wire).not.toContain(room.name)
+      }
+      expect(wire).not.toContain(SECRET.id)
+      expect(STRANDED.length).toBeGreaterThan(0)
+      for (const prop of STRANDED) expect(wire).not.toContain(prop.id)
+      // Something did survive — a payload that is empty proves nothing.
+      expect(layer.children.length).toBeGreaterThan(0)
+      expect(layer.standaloneWalls.length).toBeGreaterThan(0)
+      expect(layer.standaloneWalls.length).toBeLessThan(cryptLayer.standaloneWalls.length)
+    })
+  })
+
+  it('gives the DM the file exactly as it was uploaded', async () => {
+    await withServer({}, async (server) => {
+      const { sceneId, dm } = await crypts(server, 'FGB', 1)
+      const revealed = nextState(dm, 'fog')
+      sendCommand(dm, 'fog', 'reveal', { roomId: cryptRooms[0].id })
+      await revealed
+      expect(await fetchMap(server, { role: 'dm', name: 'Ann', session: 'FGB' }, sceneId)).toBe(GATE_MAP)
+    })
+  })
+
+  it('leaves a re-hidden room drawable — explored memory survives a reload (D4)', async () => {
+    await withServer({}, async (server) => {
+      const { sceneId, dm } = await crypts(server, 'FGC', 1)
+      const seen = roomOf(AJAR.roomA)
+
+      for (const action of ['reveal', 'hide']) {
+        const done = nextState(dm, 'fog')
+        sendCommand(dm, 'fog', action, { roomId: seen.id })
+        await done
+      }
+
+      // The reload: a fresh GET on the same session, after the room went dark again.
+      const layer = dungeonOf(
+        JSON.parse(
+          await fetchMap(server, { name: 'P0', session: 'FGC', identity: 'FGC-p0' }, sceneId),
+        ) as SerializedMapData,
+      )
+      expect(layer.rooms?.map((r) => r.id)).toEqual([seen.id])
+      expect(layer.children.length).toBeGreaterThan(0)
+    })
+  })
+})
+
+describe('fog redaction on snapshots (§2.6, D4a)', () => {
+  it('redacts the join snapshot, and the reconnect snapshot the same way', async () => {
+    await withServer({}, async (server) => {
+      const { sceneId, dm } = await crypts(server, 'FGD', 1)
+      const seen = roomOf(AJAR.roomA)
+
+      const revealed = nextState(dm, 'fog')
+      sendCommand(dm, 'fog', 'reveal', { roomId: seen.id })
+      await revealed
+      // Seeds the whole scene's door state, secret door included — so its absence below
+      // is redaction and not an empty record.
+      const doorsSeeded = nextState<Record<string, unknown>>(dm, 'doors')
+      sendCommand(dm, 'doors', 'toggle', { id: AJAR.id })
+      await doorsSeeded
+
+      const check = async (socket: WebSocket) => {
+        sendJoin(socket)
+        const snapshot = await next(socket, 'session-state')
+        const fog = snapshot.state.modules.fog as { byScene: Record<string, { rooms: object }> }
+        expect(Object.keys(fog.byScene[sceneId].rooms)).toEqual([seen.id])
+        expect(JSON.stringify(snapshot)).not.toContain(SECRET.id)
+        for (const room of cryptRooms) {
+          if (room.id !== seen.id) expect(JSON.stringify(snapshot)).not.toContain(room.id)
+        }
+      }
+
+      // The DM's own view is whole: every room, and the secret door among them.
+      sendJoin(dm)
+      const dmSnapshot = await next(dm, 'session-state')
+      expect(JSON.stringify(dmSnapshot)).toContain(SECRET.id)
+
+      const player = await connect(server, { identity: 'FGD-p0', name: 'P0', session: 'FGD' })
+      await check(player)
+
+      // …and a mid-session reload is the same socket story told again (§2.6 added row).
+      player.close()
+      await once(player, 'close')
+      await check(await connect(server, { identity: 'FGD-p0', name: 'P0', session: 'FGD' }))
+    })
+  })
+})
+
+describe('reveal and retraction broadcasts (§2.6, D4c/D5)', () => {
+  it('carries the revealed room’s geometry in the same frame as the reveal', async () => {
+    await withServer({}, async (server) => {
+      const { dm, players } = await crypts(server, 'FGE', 1)
+      const [player] = players
+      const seen = roomOf(AJAR.roomA)
+
+      const frame = nextRaw(player, (m) => m.type === 'state-update' && m.module === 'fog')
+      sendCommand(dm, 'fog', 'reveal', { roomId: seen.id })
+
+      const delta = (await frame).mapDelta as {
+        sceneId: string
+        layers: { rooms: { id: string }[]; children: { id: string }[] }[]
+      }
+      // Atomic: the state that says "revealed" and the geometry to draw it, one message.
+      expect(delta.layers[0].rooms.map((r) => r.id)).toEqual([seen.id])
+      expect(delta.layers[0].children.length).toBeGreaterThan(0)
+
+      // The DM is sent no delta — they were never missing any of it.
+      const dmFrame = nextRaw(dm, (m) => m.type === 'state-update' && m.module === 'fog')
+      sendCommand(dm, 'fog', 'reveal', { roomId: roomOf(AJAR.roomB).id })
+      expect((await dmFrame).mapDelta).toBeUndefined()
+    })
+  })
+
+  it('retracts what a hide takes away, rather than leaving it in client memory', async () => {
+    await withServer({}, async (server) => {
+      const { sceneId, dm, players } = await crypts(server, 'FGF', 1)
+      const [player] = players
+      const seen = roomOf(AJAR.roomA)
+
+      const revealed = nextState(dm, 'fog')
+      sendCommand(dm, 'fog', 'reveal', { roomId: seen.id })
+      await revealed
+
+      const arrived = nextState<TokensState>(player, 'tokens', (s) =>
+        Object.keys(s.byScene[sceneId] ?? {}).length > 0,
+      )
+      sendCommand(dm, 'tokens', 'place', {
+        name: 'Ghoul',
+        x: seen.centroid[0],
+        y: seen.centroid[1],
+      })
+      expect(Object.values((await arrived).byScene[sceneId]).map((t) => t.name)).toEqual(['Ghoul'])
+
+      // The hide is a fog command, yet the tokens slice has to come back out: without it
+      // the ghoul's last position simply stays on the player's screen (D4c).
+      const dropped = nextState<TokensState>(player, 'tokens')
+      sendCommand(dm, 'fog', 'hide', { roomId: seen.id })
+      expect(Object.keys((await dropped).byScene[sceneId] ?? {})).toEqual([])
+    })
+  })
+
+  it('retracts when a door closes under concealment, and never your own token (D7)', async () => {
+    await withServer({}, async (server) => {
+      const { sceneId, dm, players } = await crypts(server, 'FGG', 1)
+      const [player] = players
+      const here = roomOf(AJAR.roomA)
+      const beyond = roomOf(AJAR.roomB)
+
+      for (const room of [here, beyond]) {
+        const done = nextState(dm, 'fog')
+        sendCommand(dm, 'fog', 'reveal', { roomId: room.id })
+        await done
+      }
+
+      const placed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(dm, 'tokens', 'place', { name: 'Bran', x: here.centroid[0], y: here.centroid[1] })
+      const mine = Object.values((await placed).byScene[sceneId])[0]
+
+      const claimed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(player, 'tokens', 'claim', { id: mine.id })
+      await claimed
+
+      // A monster through the open door: the party can see it from where they stand.
+      const seen = nextState<TokensState>(player, 'tokens', (s) =>
+        Object.keys(s.byScene[sceneId] ?? {}).length === 2,
+      )
+      sendCommand(dm, 'tokens', 'place', {
+        name: 'Wight',
+        x: beyond.centroid[0],
+        y: beyond.centroid[1],
+      })
+      await seen
+
+      // Shutting it costs them the sight of it — and nothing else.
+      const shut = nextState<TokensState>(player, 'tokens', (s) =>
+        Object.keys(s.byScene[sceneId] ?? {}).length === 1,
+      )
+      sendCommand(dm, 'doors', 'toggle', { id: AJAR.id })
+      expect(Object.values((await shut).byScene[sceneId]).map((t) => t.name)).toEqual(['Bran'])
+
+      sendJoin(player)
+      const snapshot = await next(player, 'session-state')
+      const tokens = snapshot.state.modules.tokens as TokensState
+      expect(Object.values(tokens.byScene[sceneId]).map((t) => t.name)).toEqual(['Bran'])
+    })
+  })
+})
+
+describe('canOccupy at the wire (§2.6, D8)', () => {
+  it('fences a player out of the dark and the unzoned, and the DM out of nothing', async () => {
+    await withServer({}, async (server) => {
+      const { sceneId, dm, players } = await crypts(server, 'FGH', 1)
+      const [player] = players
+      const here = roomOf(AJAR.roomA)
+      const unseen = cryptRooms.find((r) => r.id !== here.id && r.id !== AJAR.roomB)!
+
+      const revealed = nextState(dm, 'fog')
+      sendCommand(dm, 'fog', 'reveal', { roomId: here.id })
+      await revealed
+
+      const placed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(dm, 'tokens', 'place', { name: 'Bran', x: here.centroid[0], y: here.centroid[1] })
+      const mine = Object.values((await placed).byScene[sceneId])[0]
+      const claimed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(player, 'tokens', 'claim', { id: mine.id })
+      await claimed
+
+      // Their own room: a step is a step.
+      const moved = nextState<TokensState>(dm, 'tokens')
+      sendCommand(player, 'tokens', 'move', { id: mine.id, x: here.centroid[0] + 1, y: here.centroid[1] })
+      await moved
+
+      for (const target of [
+        { name: 'a room nobody has entered', x: unseen.centroid[0], y: unseen.centroid[1] },
+        { name: 'unzoned map', x: 9999, y: 9999 },
+      ]) {
+        sendCommand(player, 'tokens', 'move', { id: mine.id, x: target.x, y: target.y })
+        expect((await next(player, 'error')).code, target.name).toBe('invalid-command')
+      }
+
+      // The DM answers to none of it.
+      const dmMoved = nextState<TokensState>(dm, 'tokens')
+      sendCommand(dm, 'tokens', 'move', { id: mine.id, x: unseen.centroid[0], y: unseen.centroid[1] })
+      expect(Object.values((await dmMoved).byScene[sceneId])[0].x).toBeCloseTo(
+        Math.floor(unseen.centroid[0]) + 0.5,
+      )
     })
   })
 })

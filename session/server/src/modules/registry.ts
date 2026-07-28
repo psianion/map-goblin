@@ -17,6 +17,15 @@ import type { ModuleStateStore } from '../db/stores'
 /** What the caller supplies; the registry adds `state` and `setState` on top. */
 export type DispatchContext = Omit<ModuleContext<unknown>, 'state' | 'setState'>
 
+/**
+ * S3 D4c — modules whose own state decides what another module's state *means* to a
+ * player. Fog going dark, or a door closing under concealment, does not change one token,
+ * yet it changes which ones a player may hold: the tokens slice is re-sent so redaction on
+ * the way out drops them. Retraction has to be active — redacting future frames leaves the
+ * last known positions sitting in client memory, which is the leak D4c names.
+ */
+const RETRACTS_TOKENS: readonly string[] = ['fog', 'doors']
+
 export class ModuleRegistry {
   private readonly modules = new Map<string, GameModule<unknown>>()
 
@@ -64,6 +73,7 @@ export class ModuleRegistry {
         loaded = { value: next }
         this.store.put(ctx.campaignId, found.name, next)
         ctx.broadcast({ type: 'state-update', module: found.name, state: next })
+        if (RETRACTS_TOKENS.includes(found.name)) this.resend('tokens', ctx)
       },
     }
     return found.handler(action, payload, full) ?? null
@@ -82,6 +92,17 @@ export class ModuleRegistry {
   redactModule(name: string, state: unknown, viewer: Viewer): unknown {
     const module = this.modules.get(name)
     return module?.redact ? module.redact(state, viewer) : state
+  }
+
+  /** Unchanged state, said again — for viewers a *different* module just redacted it for. */
+  private resend(name: string, ctx: DispatchContext): void {
+    const module = this.modules.get(name)
+    if (!module) return
+    ctx.broadcast({
+      type: 'state-update',
+      module: module.name,
+      state: this.load(ctx.campaignId, module),
+    })
   }
 
   private load(campaignId: string, module: GameModule<unknown>): unknown {

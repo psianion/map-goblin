@@ -111,7 +111,7 @@ function next<T extends ServerMessage['type']>(
   })
 }
 
-function sendJoin(socket: WebSocket, protocolVersion = 2): void {
+function sendJoin(socket: WebSocket, protocolVersion = 3): void {
   socket.send(JSON.stringify({ type: 'join', protocolVersion }))
 }
 

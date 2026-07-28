@@ -5,8 +5,8 @@
 // Role gating is data: the registry checks `commands[action]` before the handler runs, so
 // everything below is the *extra* validation — ownership, ids, field caps, snap.
 
-import { ANY_ROLE, type GameModule, type ModuleContext } from '../contract'
-import type { Token, TokenDef, TokensState } from './types'
+import { ANY_ROLE, type GameModule, type ModuleContext, type Viewer } from '../contract'
+import type { SceneVision, Token, TokenDef, TokensState, VisionOf } from './types'
 import {
   DISPOSITIONS,
   ID_MAX,
@@ -42,58 +42,79 @@ let minted = 0
 const mintId = (prefix: string): string =>
   `${prefix}_${Date.now().toString(36)}${(minted++).toString(36)}${Math.random().toString(36).slice(2, 6)}`
 
-export const tokensModule: GameModule<TokensState> = {
-  name: 'tokens',
-  commands: {
-    'library-upsert': ['dm'],
-    'library-delete': ['dm'],
-    place: ['dm'],
-    move: ANY_ROLE,
-    update: ANY_ROLE,
-    hide: ['dm'],
-    delete: ['dm'],
-    claim: ['player'],
-  },
-  initialState: { library: {}, byScene: {} },
+/**
+ * S3 hands this module the fog: `visionOf` is the server's per-scene view of what the
+ * player role may see and stand in (S3 D3/D8), the same shape `fogModule(roomsOf)` and
+ * `doorsModule(doorsOf)` take their map lookups in. The default answers "no fog anywhere",
+ * which is the S2 behaviour and what a scene with no authored rooms gets anyway.
+ */
+export function tokensModule(visionOf: VisionOf = () => null): GameModule<TokensState> {
+  return {
+    name: 'tokens',
+    commands: {
+      'library-upsert': ['dm'],
+      'library-delete': ['dm'],
+      place: ['dm'],
+      move: ANY_ROLE,
+      update: ANY_ROLE,
+      hide: ['dm'],
+      delete: ['dm'],
+      claim: ['player'],
+    },
+    initialState: { library: {}, byScene: {} },
 
-  handler(action, payload, ctx) {
-    try {
-      run(action, obj(payload ?? {}, 'payload'), ctx)
-    } catch (err) {
-      if (err instanceof Reject) return { code: err.code, message: err.message }
-      throw err
-    }
-  },
-
-  // D4: a hidden token is dropped whole for non-DMs — its position is exactly what must
-  // not leak, so filtering fields would not be enough. Pure and idempotent: dropping
-  // hidden tokens from a state with none left is a no-op.
-  redact(state, viewer) {
-    if (viewer.role === 'dm') return state
-    let dropped = false
-    const byScene: TokensState['byScene'] = {}
-    for (const [sceneId, tokens] of Object.entries(state.byScene)) {
-      const visible: Record<string, Token> = {}
-      for (const [id, token] of Object.entries(tokens)) {
-        if (token.hidden) dropped = true
-        else visible[id] = token
+    handler(action, payload, ctx) {
+      try {
+        run(action, obj(payload ?? {}, 'payload'), ctx, visionOf)
+      } catch (err) {
+        if (err instanceof Reject) return { code: err.code, message: err.message }
+        throw err
       }
-      byScene[sceneId] = visible
-    }
-    return dropped ? { ...state, byScene } : state
-  },
+    },
+
+    // D4: a hidden token is dropped whole for non-DMs — its position is exactly what must
+    // not leak, so filtering fields would not be enough. S3 stacks the fog rule on top:
+    // a token in a room the party cannot currently see goes the same way. Pure and
+    // idempotent: dropping tokens from a state with none left to drop is a no-op.
+    redact(state, viewer) {
+      if (viewer.role === 'dm') return state
+      let dropped = false
+      const byScene: TokensState['byScene'] = {}
+      for (const [sceneId, tokens] of Object.entries(state.byScene)) {
+        const scene = visionOf(sceneId)
+        const visible: Record<string, Token> = {}
+        for (const [id, token] of Object.entries(tokens)) {
+          if (token.hidden || !inSight(token, scene, viewer)) dropped = true
+          else visible[id] = token
+        }
+        byScene[sceneId] = visible
+      }
+      return dropped ? { ...state, byScene } : state
+    },
+  }
 }
 
-function run(action: string, p: Payload, ctx: Ctx): void {
+/**
+ * D7 — your own claimed token is always visible, wherever the DM puts the dark; everything
+ * else only while its room is. A token on unzoned map is the DM's alone, same as the map
+ * under it (D6).
+ */
+function inSight(token: Token, scene: SceneVision | null, viewer: Viewer): boolean {
+  if (!scene || token.ownerId === viewer.identityId) return true
+  const room = scene.roomAt(token.x, token.y)
+  return room !== null && scene.visible.has(room)
+}
+
+function run(action: string, p: Payload, ctx: Ctx, visionOf: VisionOf): void {
   switch (action) {
     case 'library-upsert':
       return libraryUpsert(p, ctx)
     case 'library-delete':
       return libraryDelete(p, ctx)
     case 'place':
-      return place(p, ctx)
+      return place(p, ctx, visionOf)
     case 'move':
-      return move(p, ctx)
+      return move(p, ctx, visionOf)
     case 'update':
       return update(p, ctx)
     case 'hide':
@@ -159,7 +180,7 @@ function libraryDelete(p: Payload, ctx: Ctx): void {
   ctx.setState({ ...state, library })
 }
 
-function place(p: Payload, ctx: Ctx): void {
+function place(p: Payload, ctx: Ctx, visionOf: VisionOf): void {
   const { state } = ctx
   const sceneId = sceneOf(p, ctx)
   if (Object.keys(state.byScene[sceneId] ?? {}).length >= SCENE_TOKENS_MAX) bad('this scene is full')
@@ -183,17 +204,18 @@ function place(p: Payload, ctx: Ctx): void {
     hidden: p.hidden === undefined ? false : bool(p.hidden, 'hidden'),
     ownerId: null,
   }
-  if (!canOccupy(token, { x: token.x, y: token.y }, state)) bad('that space cannot be occupied')
+  const at = { x: token.x, y: token.y }
+  if (!canOccupy(token, at, visionOf(sceneId), ctx.sender.role)) bad('that space cannot be occupied')
   put(ctx, sceneId, token)
 }
 
-function move(p: Payload, ctx: Ctx): void {
+function move(p: Payload, ctx: Ctx, visionOf: VisionOf): void {
   const { sceneId, token } = find(p, ctx)
   if (ctx.sender.role !== 'dm' && token.ownerId !== ctx.sender.identityId) {
     denied('you may only move a token you own')
   }
   const pos = { x: snap(num(p.x, 'x'), token.size), y: snap(num(p.y, 'y'), token.size) }
-  if (!canOccupy(token, pos, ctx.state)) bad('that space cannot be occupied')
+  if (!canOccupy(token, pos, visionOf(sceneId), ctx.sender.role)) bad('that space cannot be occupied')
   put(ctx, sceneId, { ...token, ...pos })
 }
 

@@ -51,3 +51,25 @@ export interface TokensState {
   library: Record<string, TokenDef>
   byScene: Record<string, Record<string, Token>>
 }
+
+/**
+ * What the fog rules say about one scene (S3 D3/D6/D8). The sets are the server's — it
+ * owns the map geometry and the fog/door state, computes these once per mutation and
+ * caches them; this module only asks. Room membership is decided by the point, so a token
+ * straddling a boundary belongs to whichever room holds its centre.
+ */
+export interface SceneVision {
+  /** The room whose polygon contains the point; `null` outside every room (D6). */
+  roomAt(x: number, y: number): string | null
+  /** Rooms the player role may see right now (D3). */
+  readonly visible: ReadonlySet<string>
+  /** Rooms a player token may stand in (D8): reachable, and not never-revealed. */
+  readonly occupiable: ReadonlySet<string>
+}
+
+/**
+ * `null` = that scene's map authors no rooms. Fog is room-granular, so a map nobody zoned
+ * has no fog and hides nothing — the S2 behaviour, which is also the default when no
+ * lookup is wired at all.
+ */
+export type VisionOf = (sceneId: string) => SceneVision | null

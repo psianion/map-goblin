@@ -17,6 +17,7 @@ import {
   verifyToken,
 } from './auth'
 import { MAX_ASSET_BYTES, MAX_MAP_BYTES, type Identity, type Stores } from './db/stores'
+import type { Vision } from './fog/vision'
 import { parseMapFile } from './mapImport'
 import type { SessionManager } from './ws/SessionManager'
 
@@ -25,6 +26,8 @@ export interface HttpDeps {
   stores: Stores
   /** Live sockets — an ended session has to be told, not just written off in SQLite. */
   sessionManager: SessionManager
+  /** S3 — the map GET's player path goes through it (D4/D5). */
+  vision: Vision
 }
 
 /** Everything but a map upload is a handful of fields. */
@@ -181,11 +184,21 @@ function getMap(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, mapId
   if (!map || map.campaign_id !== identity.campaign_id) {
     return json(res, 404, { error: 'no such map' })
   }
+  // D4/D5 — the DM gets the file as uploaded, byte for byte. A player gets the rooms the
+  // party has seen and nothing else: this is where the anti-Owlbear guarantee is kept,
+  // because it is the only route the map data travels.
+  let body = map.data
+  if (identity.role !== 'dm') {
+    const player = deps.vision.playerMap(mapId)
+    // Unredactable is unsendable: a map the server cannot read is one it cannot fence.
+    if (!player) return json(res, 500, { error: 'map could not be read' })
+    body = JSON.stringify(player)
+  }
   res.writeHead(200, {
     'content-type': 'application/json',
-    'content-length': Buffer.byteLength(map.data),
+    'content-length': Buffer.byteLength(body),
   })
-  res.end(map.data)
+  res.end(body)
 }
 
 /** GET /api/resolve/:code — public; the join page calls it before asking for a name. */

@@ -12,13 +12,16 @@ vi.mock('./validate', async (importOriginal) => ({
 }))
 
 import type { Viewer } from '../contract'
-import { tokensModule } from './module'
-import type { Token, TokensState } from './types'
+import { tokensModule as buildTokens } from './module'
+import type { SceneVision, Token, TokensState } from './types'
 
 const DM: Viewer = { role: 'dm', identityId: 'dm-1' }
 const P1: Viewer = { role: 'player', identityId: 'p-1' }
 const P2: Viewer = { role: 'player', identityId: 'p-2' }
 const SCENE = 'scene-a'
+
+/** No vision lookup wired: an unzoned map has no fog, which is every test but the last. */
+const tokensModule = buildTokens()
 
 const token = (over: Partial<Token> = {}): Token => ({
   id: 't1',
@@ -449,5 +452,56 @@ describe('redact (D4)', () => {
     const once = redact(state, P1)
     expect(redact(once, P1)).toEqual(once)
     expect(Object.keys(state.byScene[SCENE])).toEqual(['t1', 't2'])
+  })
+})
+
+describe('redact under fog (S3 D7)', () => {
+  // Two rooms side by side; the lit one is visible, the dark one is not.
+  const vision: SceneVision = {
+    roomAt: (x) => (x < 10 ? 'lit' : x < 20 ? 'dark' : null),
+    visible: new Set(['lit']),
+    occupiable: new Set(['lit', 'dark']),
+  }
+  const fogged = buildTokens((sceneId) => (sceneId === SCENE ? vision : null))
+  const redact = fogged.redact!
+
+  const inLit = token({ id: 'lit1', x: 1.5, y: 1.5 })
+  const inDark = token({ id: 'dark1', x: 15.5, y: 1.5 })
+  const outside = token({ id: 'out1', x: 25.5, y: 1.5 })
+  const mine = token({ id: 'mine1', x: 15.5, y: 9.5, ownerId: 'p-1' })
+  const theirs = token({ id: 'theirs1', x: 15.5, y: 8.5, ownerId: 'p-2' })
+  const state: TokensState = {
+    library: {},
+    byScene: {
+      [SCENE]: Object.fromEntries(
+        [inLit, inDark, outside, mine, theirs].map((t) => [t.id, t]),
+      ),
+      // A scene the lookup knows nothing about is a scene with no fog.
+      'scene-b': { b1: token({ id: 'b1', x: 15.5, y: 1.5 }) },
+    },
+  }
+
+  it('drops tokens whose room the party cannot see, and unzoned ones with them', () => {
+    const seen = redact(state, P1)
+    expect(Object.keys(seen.byScene[SCENE]).sort()).toEqual(['lit1', 'mine1'])
+    expect(Object.keys(seen.byScene['scene-b'])).toEqual(['b1'])
+  })
+
+  it('keeps your own claimed token in the dark (D7) but not another player\'s', () => {
+    expect(Object.keys(redact(state, P1).byScene[SCENE])).toContain('mine1')
+    expect(Object.keys(redact(state, P2).byScene[SCENE])).toContain('theirs1')
+    expect(Object.keys(redact(state, P2).byScene[SCENE])).not.toContain('mine1')
+  })
+
+  it('still drops a hidden token standing in a visible room', () => {
+    const withHidden: TokensState = {
+      library: {},
+      byScene: { [SCENE]: { h1: token({ id: 'h1', x: 1.5, y: 1.5, hidden: true, ownerId: 'p-1' }) } },
+    }
+    expect(redact(withHidden, P1).byScene[SCENE]).toEqual({})
+  })
+
+  it('leaves the DM view untouched, object identity included', () => {
+    expect(redact(state, DM)).toBe(state)
   })
 })
