@@ -1,5 +1,5 @@
 export * from '../shared/types';
-import type { AnyChild, WallSegment, WallType, WallDirection, DoorStyle, MaskData } from '../shared/types';
+import type { AnyChild, WallSegment, WallType, WallDirection, DoorStyle, MaskData, Room } from '../shared/types';
 import type { Polygon } from '../types/geometry';
 
 // ─── Map Settings ─────────────────────────────────────────
@@ -83,6 +83,10 @@ export interface DungeonLayer extends BaseLayer {
   mergedFloor: Polygon[] | null;
   style: DungeonStyle;
   sublayerVisibility: SublayerVisibility;
+  /** Detected rooms — serialized into the map file. Absent = not yet detected. */
+  rooms?: Room[];
+  /** User-assigned room names, keyed by stable room ID; survive re-detection. */
+  roomNameOverrides?: Record<string, string>;
 }
 
 export interface BackgroundLayer extends BaseLayer {
@@ -215,6 +219,8 @@ export interface UISlice {
   modalState: ModalState | null;
   clipperReady: boolean;
   focusMode: 'auto' | 'manual' | 'fullscreen';
+  /** Room whose boundary is drawn highlighted on the canvas (RoomPanel hover/select). */
+  highlightedRoomId: string | null;
 }
 
 // ─── Assets ───────────────────────────────────────────────
@@ -363,6 +369,10 @@ export interface MapBuilderStore {
   updateWall: (layerId: string, wallId: string, updates: Partial<WallSegment>) => void;
   closeAllDoors: (layerId: string) => void;
 
+  // room actions
+  setRooms: (layerId: string, rooms: Room[]) => void;
+  renameRoom: (layerId: string, roomId: string, name: string) => void;
+
   // tool actions
   setActiveTool: (tool: ToolType) => void;
   setEraseMode: (enabled: boolean) => void;
@@ -382,6 +392,7 @@ export interface MapBuilderStore {
   showModal: (modal: ModalState | null) => void;
   setClipperReady: (ready: boolean) => void;
   setFocusMode: (mode: UISlice['focusMode']) => void;
+  setHighlightedRoomId: (roomId: string | null) => void;
 
   // asset actions
   toggleFavorite: (assetId: string) => void;

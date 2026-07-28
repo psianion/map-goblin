@@ -109,6 +109,10 @@ export interface DoorChild extends LayerChild {
   lockedSound?: string;
   /** Pack portal texture ID — used when style is 'portal' */
   portalTextureId?: string;
+  /** Room on one side of the wall. `null` = exterior, absent = not yet bound. */
+  roomA?: string | null;
+  /** Room on the other side of the wall. `null` = exterior, absent = not yet bound. */
+  roomB?: string | null;
 }
 
 export interface WaterChild extends LayerChild {
@@ -130,3 +134,17 @@ export interface WaterChild extends LayerChild {
 }
 
 export type AnyChild = ShapeChild | AssetChild | LightChild | DoorChild | WaterChild;
+
+// ---- Room Types ----
+/**
+ * An enclosed area detected from wall geometry. Rooms are computed in the
+ * editor and serialized into the map file; absent means "not yet detected".
+ */
+export interface Room {
+  id: string;
+  name: string;
+  boundary: [number, number][];
+  centroid: [number, number];
+  area: number;
+  isPathway: boolean;
+}

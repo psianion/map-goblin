@@ -1,0 +1,237 @@
+{
+  "version": "3.0",
+  "mapSettings": {
+    "name": "Demo Dungeon",
+    "gridType": "square",
+    "cellScale": { "value": 5, "unit": "ft" },
+    "ambientLight": "#1a1a2e"
+  },
+  "grid": {
+    "visible": true,
+    "snapDivision": 2,
+    "style": "dotted"
+  },
+  "layers": [
+    {
+      "id": "bg-demo",
+      "name": "Background",
+      "type": "background",
+      "visible": true,
+      "locked": false,
+      "opacity": 1,
+      "backgroundColor": "#101014",
+      "backgroundTexture": null,
+      "textureScale": 0.25,
+      "textureTint": "#ffffff",
+      "presetLock": false
+    },
+    {
+      "id": "dungeon-demo",
+      "name": "Dungeon",
+      "type": "dungeon",
+      "visible": true,
+      "locked": false,
+      "opacity": 1,
+      "mergedFloor": null,
+      "style": {
+        "floorColor": "#F1ECDF",
+        "wallColor": "#1c1917",
+        "wallWidth": 0.5,
+        "shadowEnabled": true,
+        "shadowColor": "#8C867D",
+        "shadowOffset": { "x": 0.4, "y": 0.3 },
+        "shadowIntensity": 0.4,
+        "hatchingStyle": "none",
+        "hatchingBandWidth": 1,
+        "hatchingLineSpacing": 0.3,
+        "hatchingLineThickness": 0.02,
+        "hatchingAngle": 45,
+        "hatchingInverted": false,
+        "roughnessAmplitude": 0,
+        "lineWidth": 0.04,
+        "defaultTextureId": "dungeon-classic:cobblestone-a-01_1x1_floor_A",
+        "edgeTransitionWidth": 0.5,
+        "showEdgeTransitions": true,
+        "wallTextureTint": "#ffffff"
+      },
+      "sublayerVisibility": { "floor": true, "grid": true, "hatching": true, "walls": true },
+      "standaloneWalls": [
+        {
+          "id": "wall-hall-east",
+          "points": [[14, 5], [14, 8]],
+          "wallType": "normal",
+          "direction": "both",
+          "color": "#1c1917",
+          "width": 0.5,
+          "roughness": 0
+        },
+        {
+          "id": "wall-corridor-guard",
+          "points": [[19, 5], [19, 8]],
+          "wallType": "normal",
+          "direction": "both",
+          "color": "#1c1917",
+          "width": 0.5,
+          "roughness": 0
+        },
+        {
+          "id": "wall-hall-south",
+          "points": [[6, 11], [9, 11]],
+          "wallType": "normal",
+          "direction": "both",
+          "color": "#1c1917",
+          "width": 0.5,
+          "roughness": 0
+        }
+      ],
+      "children": [
+        {
+          "id": "room-hall",
+          "name": "Great Hall",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [[[2, 2], [14, 2], [14, 11], [2, 11]]],
+          "roughnessEnabled": false,
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff"
+        },
+        {
+          "id": "corridor-east",
+          "name": "East Corridor",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [[[14, 5], [19, 5], [19, 8], [14, 8]]],
+          "roughnessEnabled": false,
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff"
+        },
+        {
+          "id": "room-guard",
+          "name": "Guard Room",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [[[19, 3], [27, 3], [27, 10], [19, 10]]],
+          "roughnessEnabled": false,
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff"
+        },
+        {
+          "id": "corridor-south",
+          "name": "South Stair",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [[[6, 11], [9, 11], [9, 15], [6, 15]]],
+          "roughnessEnabled": false,
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff"
+        },
+        {
+          "id": "room-crypt",
+          "name": "Crypt",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [[[3, 15], [15, 15], [15, 22], [3, 22]]],
+          "roughnessEnabled": false,
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff"
+        },
+        {
+          "id": "door-hall-east",
+          "name": "Hall Door",
+          "childType": "door",
+          "visible": true,
+          "wallId": "wall-hall-east",
+          "position": [14, 6.5],
+          "angle": 1.5707963267948966,
+          "width": 2,
+          "style": "single",
+          "state": "closed",
+          "isSecret": false
+        },
+        {
+          "id": "door-guard",
+          "name": "Guard Door",
+          "childType": "door",
+          "visible": true,
+          "wallId": "wall-corridor-guard",
+          "position": [19, 6.5],
+          "angle": 1.5707963267948966,
+          "width": 2,
+          "style": "double",
+          "state": "open",
+          "isSecret": false
+        },
+        {
+          "id": "door-crypt-stair",
+          "name": "Crypt Door",
+          "childType": "door",
+          "visible": true,
+          "wallId": "wall-hall-south",
+          "position": [7.5, 11],
+          "angle": 0,
+          "width": 2,
+          "style": "single",
+          "state": "locked",
+          "isSecret": false
+        },
+        {
+          "id": "light-hall",
+          "name": "Hall Brazier",
+          "childType": "light",
+          "visible": true,
+          "color": "#ffcc88",
+          "radius": 9,
+          "featherRadius": 2,
+          "intensity": 0.9,
+          "falloff": "quadratic",
+          "position": { "x": 8, "y": 6.5 }
+        },
+        {
+          "id": "light-guard",
+          "name": "Guard Lantern",
+          "childType": "light",
+          "visible": true,
+          "color": "#88bbff",
+          "radius": 7,
+          "featherRadius": 1.5,
+          "intensity": 0.75,
+          "falloff": "quadratic",
+          "position": { "x": 23, "y": 6.5 }
+        },
+        {
+          "id": "light-crypt",
+          "name": "Crypt Candles",
+          "childType": "light",
+          "visible": true,
+          "color": "#ff8866",
+          "radius": 8,
+          "featherRadius": 2,
+          "intensity": 0.8,
+          "falloff": "linear",
+          "position": { "x": 9, "y": 18.5 }
+        }
+      ]
+    }
+  ],
+  "customImages": {}
+}

@@ -9,6 +9,7 @@ export interface UIActions {
   showModal: (modal: ModalState | null) => void;
   setClipperReady: (ready: boolean) => void;
   setFocusMode: (mode: UISlice['focusMode']) => void;
+  setHighlightedRoomId: (roomId: string | null) => void;
 }
 
 export const createUISlice: StateCreator<
@@ -50,5 +51,9 @@ export const createUISlice: StateCreator<
   setFocusMode: (mode) =>
     set((state) => {
       state.ui.focusMode = mode;
+    }),
+  setHighlightedRoomId: (roomId) =>
+    set((state) => {
+      state.ui.highlightedRoomId = roomId;
     }),
 });

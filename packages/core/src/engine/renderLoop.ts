@@ -6,6 +6,7 @@ import { useStore } from '../store/store';
 import type { DungeonLayer, Layer, LightChild } from '../store/types';
 import { LightManager } from './lighting';
 import { renderToolPreview } from './toolPreview';
+import { renderRoomHighlight } from './roomHighlight';
 import { recordFrame } from './fpsMetrics';
 
 /**
@@ -128,6 +129,9 @@ export function setupRenderLoop(
       const previewCy = (-stage.position.y + vp.height / 2) / previewZoom;
       renderToolPreview(previewCx, previewCy, previewZoom);
     }
+
+    // (5c) Room highlight — no-ops unless the highlighted room changed
+    renderRoomHighlight();
 
     // (6) Lighting — rebuild wall segments if dirty, update FBO
     const storeState = useStore.getState();

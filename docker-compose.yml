@@ -5,3 +5,34 @@ services:
     ports:
       - "8080:80"
     restart: unless-stopped
+
+  # `docker compose up game-server` — the command HostSetup hands the DM (D4).
+  game-server:
+    build:
+      context: .
+      dockerfile: session/server/Dockerfile
+    image: map-goblin-game-server:dev
+    ports:
+      - "8787:8787"
+    volumes:
+      # Named, not a bind mount: the admin pass is printed once and only its hash is kept
+      # here, alongside the HMAC secret that signs every session token. Losing this volume
+      # locks the DM out of their own campaigns.
+      - game-server-data:/data
+    restart: unless-stopped
+
+  # The player-facing app. nginx serves the build and reverse-proxies /api and /ws to
+  # game-server, so the browser only ever talks to one origin (see nginx.conf).
+  session-client:
+    build:
+      context: .
+      dockerfile: session/client/Dockerfile
+    image: map-goblin-session-client:dev
+    ports:
+      - "8090:80"
+    depends_on:
+      - game-server
+    restart: unless-stopped
+
+volumes:
+  game-server-data:
