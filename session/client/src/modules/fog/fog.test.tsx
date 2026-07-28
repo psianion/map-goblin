@@ -77,7 +77,14 @@ const fogWith = (rooms: Record<string, RoomFog>, concealBehindDoors = true): Fog
 
 beforeEach(() => {
   cleanup();
-  useSessionStore.setState({ session: null, you: null, client: null, lastError: null });
+  // FogTool lists the server document's rooms, never core's re-detected ones.
+  useSessionStore.setState({
+    session: null,
+    you: null,
+    client: null,
+    lastError: null,
+    mapData: { layers: [dungeonLayer([CRYPT, HALL])] },
+  });
   useActiveTool.getState().setActiveTool(null);
   useToasts.setState({ toast: null });
   useStore.setState({ layers: [dungeonLayer([CRYPT, HALL])] });

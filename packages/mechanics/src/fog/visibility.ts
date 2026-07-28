@@ -3,7 +3,69 @@
 // token-room mutations and caches the result, so this never runs per frame or per message.
 
 import { seedDoor, type AuthoredDoor, type DoorLiveState } from '../doors/types'
-import type { SceneFog } from './types'
+import type { RoomFog, SceneFog } from './types'
+
+/**
+ * Just what picking the default room needs — a core `Room` satisfies it as-is, so nothing
+ * here has to know about boundaries or centroids (and mechanics keeps its type-only reach
+ * into @dnd/core, D3).
+ */
+export interface FogRoom {
+  id: string
+  area: number
+  isPathway: boolean
+}
+
+/**
+ * The room a scene falls back to when the DM has revealed nothing: the largest room that is
+ * not a corridor, lowest id breaking a tie, and the largest room of any kind on a map that
+ * is all corridor. Deterministic on purpose — the server and the client each compute it and
+ * they have to land on the same room without a round trip. Null only for an unzoned map.
+ */
+export function defaultRoom<R extends FogRoom>(rooms: readonly R[]): R | null {
+  const pool = rooms.filter((room) => !room.isPathway)
+  let best: R | null = null
+  for (const room of pool.length ? pool : rooms) {
+    if (!best || room.area > best.area || (room.area === best.area && room.id < best.id)) {
+      best = room
+    }
+  }
+  return best
+}
+
+const EFFECTIVELY_REVEALED: RoomFog = { status: 'revealed', wasEverRevealed: true }
+
+/**
+ * The fog the *rules* run on, as opposed to the fog the DM has stored (amendment
+ * 2026-07-28). Two read-time corrections, both of which exist so a player is never handed a
+ * scene with nothing in it — nothing is written back, and no latch is set:
+ *
+ *  - Nothing stored as `revealed` (a fresh scene, a `reset`, a Hide All) ⇒ the default room
+ *    is revealed, and concealment is off for it. Off, because the fallback's whole job is
+ *    that the screen is not black: routing it through the reachability BFS would put it
+ *    straight back there whenever the party is somewhere else. The DM revealing any real
+ *    room switches the effective set back to stored state and the fallback disappears.
+ *  - No party token on the map ⇒ concealment has nothing to measure (there is nobody to be
+ *    shut behind a door *from*), so the revealed set is the answer.
+ *
+ * Every consumer of `visibleRooms` and of the room-geometry cut runs its fog through this
+ * first; there are two of them (the server's vision cache and the player's fog renderer)
+ * and they must not disagree about which rooms exist.
+ */
+export function effectiveFog(
+  fog: SceneFog,
+  rooms: readonly FogRoom[],
+  playerRoomIds: readonly string[],
+): SceneFog {
+  const concealBehindDoors = fog.concealBehindDoors && playerRoomIds.length > 0
+  const lit = Object.values(fog.rooms).some((room) => room.status === 'revealed')
+  const fallback = lit ? null : defaultRoom(rooms)
+  if (!fallback) return { ...fog, concealBehindDoors }
+  return {
+    rooms: { ...fog.rooms, [fallback.id]: EFFECTIVELY_REVEALED },
+    concealBehindDoors: false,
+  }
+}
 
 /**
  * The rooms the player role may currently see — one set for the whole party, not per

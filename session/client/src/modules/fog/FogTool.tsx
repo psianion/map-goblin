@@ -7,7 +7,6 @@
 // tint — the same reason the "explored" glyph exists.
 
 import { useEffect, useMemo } from 'react';
-import { useStore } from '@dnd/core/src/store/store';
 import type { FogState, RoomFog } from '@dnd/mechanics/fog';
 import { registerPanel } from '../../session/panels';
 import { useModuleState, useSessionStore } from '../../session/store';
@@ -19,8 +18,8 @@ import {
   hideAllRooms,
   revealAllRooms,
   roomFog,
-  roomsOfLayers,
   sceneFog,
+  serverRooms,
 } from './fog';
 import { mountFogOverlayWhenReady } from './FogOverlay';
 
@@ -30,7 +29,7 @@ const send = (action: string, payload: unknown): void =>
 export function FogTool() {
   const fogState = useModuleState<FogState>('fog');
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
-  const layers = useStore((s) => s.layers);
+  const mapData = useSessionStore((s) => s.mapData);
   const activeTool = useActiveTool((s) => s.activeTool);
   const setActiveTool = useActiveTool((s) => s.setActiveTool);
 
@@ -38,7 +37,9 @@ export function FogTool() {
   // late and going away again.
   useEffect(() => mountFogOverlayWhenReady(), []);
 
-  const rooms = useMemo(() => roomsOfLayers(layers), [layers]);
+  // The server's rooms, not core's re-detected ones — same rule as FogOverlay/FogRenderer:
+  // core invents rooms on unzoned maps that no fog command can name.
+  const rooms = useMemo(() => serverRooms(mapData), [mapData]);
   const fog = sceneFog(fogState, sceneId);
   const armed = activeTool === 'fog';
 

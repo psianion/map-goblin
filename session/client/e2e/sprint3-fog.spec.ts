@@ -66,6 +66,23 @@ const lights = layer.children.filter((c): c is LightChild => c.childType === 'li
 
 /** The biggest room on the map — the one every latency and fps number is named after. */
 const CHAMBER = [...rooms].sort((a, b) => b.area - a.area)[0]
+
+/**
+ * The room a player is handed before the DM reveals anything (amendment 2026-07-28): the
+ * largest room that is not a corridor, lowest id breaking a tie. Spelled out rather than
+ * imported for the same reason `REVEAL_MS` is — `@dnd/mechanics` publishes an exports map
+ * over `.ts` sources and this file runs under Playwright's Node loader. Keep it in step with
+ * `defaultRoom` in `packages/mechanics/src/fog/visibility.ts`; the row below asserts it is
+ * `CHAMBER` on this map, so a re-authored fixture separating them fails loudly.
+ */
+const DEFAULT_ROOM = [...rooms]
+  .filter((r) => !r.isPathway)
+  .sort((a, b) => b.area - a.area || (a.id < b.id ? -1 : 1))[0]
+
+/** The room the zero-setup row reveals: the biggest one the player was *not* lent. */
+const UNLENT = [...rooms]
+  .filter((r) => r.id !== DEFAULT_ROOM.id)
+  .sort((a, b) => b.area - a.area)[0]
 const SECRET = doors.find((d) => d.isSecret)!
 const roomById = (id: string | null | undefined) => rooms.find((r) => r.id === id)!
 const lightsIn = (room: Room): number =>
@@ -87,6 +104,8 @@ interface Scene {
   rooms: number
   children: number
   walls: number
+  /** Which rooms, not just how many — the default-room rule is a claim about *which*. */
+  roomIds: string[]
 }
 
 /**
@@ -99,13 +118,19 @@ function scene(page: Page): Promise<Scene> {
   return page.evaluate(() => {
     const store = (window as unknown as { __STORE__?: { getState(): unknown } }).__STORE__
     const state = store?.getState() as {
-      layers: { type: string; rooms?: unknown[]; children?: unknown[]; standaloneWalls?: unknown[] }[]
+      layers: {
+        type: string
+        rooms?: { id: string }[]
+        children?: unknown[]
+        standaloneWalls?: unknown[]
+      }[]
     }
     const dungeon = state.layers.find((l) => l.type === 'dungeon')
     return {
       rooms: dungeon?.rooms?.length ?? 0,
       children: dungeon?.children?.length ?? 0,
       walls: dungeon?.standaloneWalls?.length ?? 0,
+      roomIds: (dungeon?.rooms ?? []).map((r) => r.id).sort(),
     }
   })
 }
@@ -249,8 +274,8 @@ test.describe.serial('@sprint3-fog', () => {
     player = await playerContext.newPage()
     player.on('pageerror', (e) => pageErrors.push(`[player] ${e.message}`))
     await joinTable(player, code, 'Borin')
-    // Not `assertMapRendered`: a player who has explored nothing has no floor to union —
-    // every room is redacted out of their copy, which is the row below, not a failure.
+    // Not `assertMapRendered`: a player holds one room of this map (the default one), so
+    // the floor they union is a fraction of the DM's — the row below is what measures it.
     await assertMapLoaded(player, GATE)
   })
 
@@ -273,37 +298,46 @@ test.describe.serial('@sprint3-fog', () => {
    *
    * Asserted on what each tab *holds* rather than on what it paints — the player's loaded
    * scene is the redacted copy, so these counts are D4 and D5 arriving in a real browser:
-   * nothing at join, exactly one room's geometry after one reveal.
+   * exactly the default room at join (amendment 2026-07-28), one more room after one reveal.
    */
   test('zero-setup: the editor’s file is a fogged table, no masking step', async () => {
+    // The DM's list is the *stored* fog, and nothing has written to it: the default room is
+    // a read-time rule, not a seeded reveal.
     expect(await statuses(dm)).toEqual({ never_revealed: rooms.length })
+    expect(DEFAULT_ROOM.id, 'the biggest room on this map is not the default room').toBe(
+      CHAMBER.id,
+    )
 
     const dmHas = await scene(dm)
     expect(dmHas.rooms).toBe(rooms.length)
     expect(dmHas.walls).toBe(layer.standaloneWalls.length)
 
     const before = await scene(player)
-    expect(before, `the player was handed geometry at join: ${showScene(before)}`).toEqual({
-      rooms: 0,
-      children: 0,
-      walls: 0,
-    })
-    // …and no door either: the doors slice is cut to the rooms they hold geometry for.
-    await expect(player.getByTestId('door-list').locator('[data-door-id]')).toHaveCount(0)
+    // One room, and it is the one the rule names — never the whole map, never nothing.
+    expect(before.roomIds, `the player was handed ${showScene(before)}`).toEqual([DEFAULT_ROOM.id])
+    expect(before.children).toBeGreaterThan(0)
+    expect(before.walls).toBeGreaterThan(0)
+    expect(before.walls).toBeLessThan(layer.standaloneWalls.length)
 
-    await toggleRoom(dm, CHAMBER.id, 'revealed')
-    await expect.poll(async () => (await scene(player)).rooms).toBe(1)
+    // …and its doors, cut to the one room they hold geometry for.
+    const atJoin = await player.getByTestId('door-list').locator('[data-door-id]').count()
+    expect(atJoin).toBeGreaterThan(0)
+    expect(atJoin).toBeLessThan(doors.length)
+
+    await toggleRoom(dm, UNLENT.id, 'revealed')
+    await expect.poll(async () => (await scene(player)).rooms).toBe(2)
     const after = await scene(player)
 
     record(
       'zero-setup reveal (editor file → fogged table → one room’s geometry)',
-      `DM ${showScene(dmHas)}; player ${showScene(before)} → ${showScene(after)} ` +
-        `after revealing ${CHAMBER.name}`,
-      'the player holds nothing until a reveal, then exactly what it carried',
+      `DM ${showScene(dmHas)}; player ${showScene(before)} (${DEFAULT_ROOM.name}) → ` +
+        `${showScene(after)} after revealing ${UNLENT.name}`,
+      'the player holds the default room at join, then exactly what the reveal carried',
     )
     // D5: the geometry rode the same frame as the state, so it is here already.
-    expect(after.children).toBeGreaterThan(0)
-    expect(after.walls).toBeGreaterThan(0)
+    expect(after.roomIds).toEqual([DEFAULT_ROOM.id, UNLENT.id].sort())
+    expect(after.children).toBeGreaterThan(before.children)
+    expect(after.walls).toBeGreaterThan(before.walls)
     expect(after.walls).toBeLessThan(layer.standaloneWalls.length)
 
     // The doors of the room they have now seen arrived with it, and not one more.

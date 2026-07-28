@@ -18,6 +18,7 @@ import type { Role, ServerMessage } from '@dnd/core/src/shared/protocol'
 import type { AnyChild, AssetChild, DoorChild, Room } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import type { Token, TokensState } from '@dnd/mechanics/tokens'
+import { defaultRoom } from '@dnd/mechanics/fog'
 import { issueToken, startSession } from './auth'
 import { centreOf } from './fog/sceneMap'
 import type { SessionRow } from './db/stores'
@@ -448,6 +449,13 @@ const SECRET = cryptDoors.find((d) => d.isSecret)!
 const AJAR = cryptDoors.find((d) => !d.isSecret && d.style !== 'archway')!
 const roomOf = (id: string | null | undefined): Room => cryptRooms.find((r) => r.id === id)!
 
+/**
+ * The room a player is handed before the DM has revealed anything (amendment 2026-07-28) —
+ * on this map, the Torchlit Chamber. Taken from the mechanics helper rather than spelled
+ * out, so a re-authored map moves the rows below with it instead of quietly passing.
+ */
+const DEFAULT_ROOM = defaultRoom(cryptRooms)!
+
 /** Props the map leaves outside every room's bounding box are unzoned beyond argument (D6). */
 const STRANDED = cryptLayer.children.filter((child): child is AssetChild => {
   if (child.childType !== 'asset') return false
@@ -533,8 +541,85 @@ describe('fog redaction on the map payload (§2.6, D4)', () => {
           await fetchMap(server, { name: 'P0', session: 'FGC', identity: 'FGC-p0' }, sceneId),
         ) as SerializedMapData,
       )
-      expect(layer.rooms?.map((r) => r.id)).toEqual([seen.id])
+      // The explored room, and the default room beside it: with the last reveal taken back
+      // nothing is lit, so the fallback is in play again (amendment 2026-07-28).
+      expect(layer.rooms?.map((r) => r.id).sort()).toEqual([seen.id, DEFAULT_ROOM.id].sort())
       expect(layer.children.length).toBeGreaterThan(0)
+    })
+  })
+})
+
+describe('the default room on the wire (amendment 2026-07-28)', () => {
+  it('is a player’s at join, is given up on the first real reveal, and comes back on reset', async () => {
+    await withServer({}, async (server) => {
+      const { sceneId, dm } = await crypts(server, 'FGJ', 1)
+      const seat = { name: 'P0', session: 'FGJ', identity: 'FGJ-p0' }
+      const roomsHeld = async () =>
+        dungeonOf(JSON.parse(await fetchMap(server, seat, sceneId)) as SerializedMapData)
+          .rooms?.map((r) => r.id)
+          .sort()
+
+      // No command has been run at all: the map a player is handed is the default room's.
+      expect(await roomsHeld()).toEqual([DEFAULT_ROOM.id])
+      expect(DEFAULT_ROOM.id).not.toBe(roomOf(AJAR.roomA).id)
+
+      const revealed = nextState(dm, 'fog')
+      sendCommand(dm, 'fog', 'reveal', { roomId: roomOf(AJAR.roomA).id })
+      await revealed
+      // Stored state takes over whole: the room they were lent is not theirs any more.
+      expect(await roomsHeld()).toEqual([roomOf(AJAR.roomA).id])
+
+      const cleared = nextState(dm, 'fog')
+      sendCommand(dm, 'fog', 'reset', {})
+      await cleared
+      expect(await roomsHeld()).toEqual([DEFAULT_ROOM.id])
+    })
+  })
+
+  it('retracts what stood in it the moment a real room is revealed (D4c)', async () => {
+    await withServer({}, async (server) => {
+      const { sceneId, dm, players } = await crypts(server, 'FGK', 1)
+      const [player] = players
+
+      // Nothing revealed, so the default room is lit and a monster standing in it is a
+      // monster the player can see.
+      const arrived = nextState<TokensState>(player, 'tokens', (s) =>
+        Object.keys(s.byScene[sceneId] ?? {}).length > 0,
+      )
+      sendCommand(dm, 'tokens', 'place', {
+        name: 'Ghast',
+        x: DEFAULT_ROOM.centroid[0],
+        y: DEFAULT_ROOM.centroid[1],
+      })
+      expect(Object.values((await arrived).byScene[sceneId]).map((t) => t.name)).toEqual(['Ghast'])
+
+      // Revealing somewhere else takes the fallback away — and with it the ghast, actively,
+      // rather than leaving its last position on the player's screen.
+      const dropped = nextState<TokensState>(player, 'tokens')
+      sendCommand(dm, 'fog', 'reveal', { roomId: roomOf(AJAR.roomA).id })
+      expect(Object.keys((await dropped).byScene[sceneId] ?? {})).toEqual([])
+    })
+  })
+
+  it('lights it again when a Hide All puts every explored room back under (D9)', async () => {
+    await withServer({}, async (server) => {
+      const { sceneId, dm } = await crypts(server, 'FGL', 1)
+      const seat = { name: 'P0', session: 'FGL', identity: 'FGL-p0' }
+      const here = roomOf(AJAR.roomA)
+
+      const revealed = nextState(dm, 'fog')
+      sendCommand(dm, 'fog', 'reveal', { roomId: here.id })
+      await revealed
+
+      // What the DM's Hide All sends: everything seen, nothing lit.
+      const hidden = nextState(dm, 'fog')
+      sendCommand(dm, 'fog', 'set-bulk', {
+        rooms: { [here.id]: { status: 're_hidden', wasEverRevealed: true } },
+      })
+      await hidden
+
+      const layer = dungeonOf(JSON.parse(await fetchMap(server, seat, sceneId)) as SerializedMapData)
+      expect(layer.rooms?.map((r) => r.id).sort()).toEqual([here.id, DEFAULT_ROOM.id].sort())
     })
   })
 })
@@ -907,6 +992,12 @@ describe('nothing unrevealed reaches a player socket (§2.6, D4a/D4b + reconnect
       const heldWalls = new Set(playerMap.standaloneWalls.map((w) => w.id))
       expect(heldWalls.size).toBeLessThan(cryptLayer.standaloneWalls.length)
 
+      // The default room stays in this list on purpose. It is legitimately the player's in
+      // the fresh-scene window this capture opens on (amendment 2026-07-28), but geometry
+      // only ever rides a `mapDelta` or the map GET — and neither happens while the fallback
+      // is in play here, because the first fog command in the script is a real reveal. Add a
+      // fog command *before* that reveal and this row will start naming the default room:
+      // that is the rule working, not a leak, and the exclusion belongs here then.
       const forbidden = [
         ...unexplored.map((r) => r.id),
         ...unexplored.map((r) => r.name),

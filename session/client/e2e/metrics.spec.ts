@@ -25,6 +25,30 @@ function record(name: string, measured: string, target: string): void {
   console.log(`[metric] ${name}: ${measured} (target: ${target})`)
 }
 
+/**
+ * A canvas that has stopped changing. `assertMapRendered` waits on the *store*, which is
+ * satisfied the moment `loadFromFile` returns — several frames before the grid, the walls
+ * and the lighting composite have been painted. Shooting a parity pair on that signal
+ * compares a finished canvas against a half-drawn one; measured, the half-drawn tab was
+ * floor-only and 99.997% of pixels differed. Two identical consecutive frames is the
+ * cheapest honest "done", and it needs no DEV-only engine handle.
+ */
+async function settled(page: Page, selector: string): Promise<Buffer> {
+  // The active-tool chip is DM-only (D11) and absolutely positioned over the canvas, so an
+  // element screenshot picks it up — 0.33% of the frame, and a difference the row is not
+  // about. `style` applies for the duration of the shot only, on both tabs alike.
+  const shoot = () =>
+    page.locator(selector).screenshot({ style: '[data-testid="active-tool"]{display:none}' })
+  let previous = await shoot()
+  for (let attempt = 0; attempt < 60; attempt++) {
+    await page.waitForTimeout(100)
+    const next = await shoot()
+    if (next.equals(previous)) return next
+    previous = next
+  }
+  throw new Error('the canvas never stopped changing — nothing to compare')
+}
+
 const VIEWPORT = { width: 1280, height: 720 }
 
 test.describe.serial('@sprint1-metrics', () => {
@@ -155,29 +179,24 @@ test.describe.serial('@sprint1-metrics', () => {
    * Both contexts run the same `GameRenderer` at the same viewport, so the sidebar is the
    * same width and `frameMap` computes the same camera from the same `computeMapWorldBounds`.
    * Only the canvas is captured, so the sidebar (which legitimately differs — the DM has an
-   * invite-code chip) is out of frame and needs no mask.
+   * invite-code chip) is out of frame; the one DM-only affordance that *is* over the canvas,
+   * the active-tool chip, is styled out of both shots.
    *
    * The diff runs in-page rather than through a golden-file comparator: there is no baseline
    * to store, the two images are both produced by this run, and a browser already has a PNG
    * decoder. Zero new dependencies.
    *
-   * ── Why this is `fixme` from S3 on ─────────────────────────────────────────────────────
-   * The row predates fog and S3 contradicts it. `demo-dungeon.mapbuilder` has **no zoned
-   * rooms** (0 on both layers), so under D6 every pixel of it is unzoned map — DM-only, and
-   * unrevealable by any command. The player's canvas is therefore solid black by design and
-   * the two canvases now differ on 99.998% of pixels (measured, max channel delta 219/255).
-   *
-   * That is a decision, not a bug fix: either the row is retired, or it is re-scoped to a
-   * zoned map with everything revealed, or the demo fixture gains rooms. It is left here,
-   * body intact, so whichever way that goes is a deliberate edit.
-   *
-   * Worth carrying to the same decision: an unzoned map is a *black screen* for players with
-   * no error and no affordance, and every pre-S3 map is unzoned.
+   * ── Why this row survived S3 ───────────────────────────────────────────────────────────
+   * It was `fixme` for one sprint: `demo-dungeon.mapbuilder` has **no zoned rooms** (0 on
+   * both layers), and under D6-as-written every pixel of it was unzoned map, DM-only and
+   * unrevealable — a black screen for players, with no error and no affordance, on every
+   * pre-S3 map there is. The 2026-07-28 amendment settles it the other way: room-granular
+   * fog needs rooms, so a map with none of them is everyone's, whole. Which makes the two
+   * canvases the same picture again, and this row the thing that proves it.
    */
-  test.fixme('render parity: DM canvas vs player canvas', async () => {
+  test('render parity: DM canvas vs player canvas', async () => {
     const selector = '[data-testid="game-canvas"] canvas'
-    const dmShot = await dm.locator(selector).screenshot()
-    const playerShot = await player.locator(selector).screenshot()
+    const [dmShot, playerShot] = await Promise.all([settled(dm, selector), settled(player, selector)])
 
     const result = await dm.evaluate(
       async ([a, b, tolerance]: [string, string, number]) => {
@@ -203,7 +222,21 @@ test.describe.serial('@sprint1-metrics', () => {
           if (delta > maxDelta) maxDelta = delta
           if (delta > tolerance) differing++
         }
-        return { differing, total: x.width * x.height, maxDelta, size: `${x.width}x${x.height}` }
+        const mean = (d: ImageData) => {
+          let sum = 0
+          for (let i = 0; i < d.data.length; i += 4) {
+            sum += 0.2126 * d.data[i] + 0.7152 * d.data[i + 1] + 0.0722 * d.data[i + 2]
+          }
+          return sum / (d.data.length / 4)
+        }
+        return {
+          differing,
+          total: x.width * x.height,
+          maxDelta,
+          size: `${x.width}x${x.height}`,
+          // Which way a failure goes: a dark player canvas is a mask, a bright one is not.
+          means: `dm ${mean(x).toFixed(1)} vs player ${mean(y).toFixed(1)}`,
+        }
       },
       // > 8/255 per channel is not antialiasing or GPU dither, it is different content.
       [`data:image/png;base64,${dmShot.toString('base64')}`, `data:image/png;base64,${playerShot.toString('base64')}`, 8] as [string, string, number],
@@ -214,7 +247,8 @@ test.describe.serial('@sprint1-metrics', () => {
     const ratio = result.differing / result.total
     record(
       'render parity DM vs player',
-      `${(ratio * 100).toFixed(4)}% of ${result.total} px differ (${result.size}, max channel delta ${result.maxDelta}/255)`,
+      `${(ratio * 100).toFixed(4)}% of ${result.total} px differ (${result.size}, max channel ` +
+        `delta ${result.maxDelta}/255, mean luminance ${result.means})`,
       '< 0.1% differing',
     )
     expect(ratio).toBeLessThan(0.001)

@@ -8,7 +8,14 @@
 // — there is no invalidation hook anywhere to forget to call.
 
 import { doorsOfScene, type AuthoredDoor, type DoorLiveState, type DoorsState } from '@dnd/mechanics/doors'
-import { sceneFogOf, visibleRooms, type FogState, type RoomFog, type SceneFog } from '@dnd/mechanics/fog'
+import {
+  effectiveFog,
+  sceneFogOf,
+  visibleRooms,
+  type FogState,
+  type RoomFog,
+  type SceneFog,
+} from '@dnd/mechanics/fog'
 import type { SceneVision, TokensState } from '@dnd/mechanics/tokens'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
 import type { Stores } from '../db/stores'
@@ -72,22 +79,21 @@ export function createVision(stores: Stores): Vision {
     if (previous && previous.revision === stores.moduleState.revision) return previous
 
     const { campaignId } = map
-    const fog = sceneFogOf(read(campaignId, 'fog', NO_FOG), sceneId)
     const doors = doorsOfScene(read(campaignId, 'doors', NO_DOORS), sceneId, map.doors)
     const tokens = read(campaignId, 'tokens', NO_TOKENS).byScene[sceneId] ?? {}
 
     // Party-global (D3): one set for the player role, anchored on the rooms the claimed
-    // tokens stand in. ponytail: with nobody's token on the map there is no party to be
-    // shut behind a door from, so concealment has nothing to measure and the revealed set
-    // is the answer — otherwise a DM revealing a room before the table arrives shows them
-    // nothing at all.
+    // tokens stand in.
     const party: string[] = []
     for (const token of Object.values(tokens)) {
       if (token.ownerId === null || token.hidden) continue
       const room = map.roomAt(token.x, token.y)
       if (room !== null && !party.includes(room)) party.push(room)
     }
-    const concealBehindDoors = fog.concealBehindDoors && party.length > 0
+    // Everything below reads the *effective* fog, never the stored one: the default-room
+    // fallback and the empty-party concealment rule are read-time corrections, and the
+    // player's renderer applies the same helper to the same inputs (amendment 2026-07-28).
+    const fog = effectiveFog(sceneFogOf(read(campaignId, 'fog', NO_FOG), sceneId), map.rooms, party)
 
     const explored = exploredRooms(fog)
     // Against nothing on a cold cache, so the first answer after a restart is everything
@@ -100,18 +106,19 @@ export function createVision(stores: Stores): Vision {
       map,
       fog,
       doors,
-      visible: visibleRooms({ ...fog, concealBehindDoors }, doors, map.doors, party),
+      visible: visibleRooms(fog, doors, map.doors, party),
       // D8 asks a different question of the same graph: a re-hidden room the party can
       // still walk to is somewhere to stand, it is simply dark (D7). Asking `visibleRooms`
       // for a scene where every room they have seen counts as lit answers it exactly.
-      occupiable: visibleRooms(
-        { rooms: asSeen(fog.rooms), concealBehindDoors },
-        doors,
-        map.doors,
-        party,
-      ),
+      occupiable: visibleRooms({ ...fog, rooms: asSeen(fog.rooms) }, doors, map.doors, party),
       explored,
-      playerDoors: new Set(map.doors.filter((door) => doorBound(door, explored)).map((d) => d.id)),
+      // A map nobody zoned has no room to bind a door to and none of its geometry is
+      // withheld, so every door on it is the player's too (amendment 2026-07-28).
+      playerDoors: new Set(
+        map.doors
+          .filter((door) => map.rooms.length === 0 || doorBound(door, explored))
+          .map((d) => d.id),
+      ),
       // Cut once per mutation, not once per viewer: every player at the table is owed the
       // same rooms, and the slice is the expensive half of a reveal.
       delta: revealed.length ? mapDeltaFor(map, sceneId, revealed, doors) : null,

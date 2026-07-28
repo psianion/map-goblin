@@ -16,12 +16,11 @@ import { Container, Graphics } from 'pixi.js';
 import type { Room } from '@dnd/core/src/shared/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
-import { useStore } from '@dnd/core/src/store/store';
 import type { FogState } from '@dnd/mechanics/fog';
 import { addWorldOverlay, mountWhenEngineReady, worldPointOf } from '../../renderer/overlayLayer';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
-import { DM_FOG_LOOK, fogActionFor, roomAt, roomFog, roomsOfLayers, sceneFog } from './fog';
+import { DM_FOG_LOOK, fogActionFor, roomAt, roomFog, sceneFog, serverRooms } from './fog';
 
 /** Near-black, matching the art guide's dungeon negative space rather than a grey wash. */
 const FOG_TINT = 0x05060a;
@@ -59,9 +58,12 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   const toolArmed = () => isDm() && useActiveTool.getState().activeTool === 'fog';
 
   const draw = () => {
-    const { session } = useSessionStore.getState();
+    const { session, mapData } = useSessionStore.getState();
     const sceneId = session?.activeSceneId ?? null;
-    rooms = roomsOfLayers(useStore.getState().layers);
+    // The server's rooms, not core's re-detected ones: on a map nobody zoned core invents
+    // rooms the referee has never heard of, and tinting those paints a DM's whole map dark
+    // over rooms no fog command can even name.
+    rooms = serverRooms(mapData);
     const fog = sceneFog(session?.modules?.fog as FogState | undefined, sceneId);
 
     // The overlay is the DM's alone: a player never has room polygons to tint in the first
@@ -86,17 +88,19 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     }
   };
 
-  // The session store fires on every ping and the core store on every camera nudge, so
-  // redraw only when something this layer actually draws from moved. Slice identity is
-  // enough: both stores replace their slices wholesale (§2.5), never mutate them.
+  // The session store fires on every ping, so redraw only when something this layer
+  // actually draws from moved. Slice identity is enough: the store replaces its slices
+  // wholesale (§2.5), never mutates them.
   let last: unknown[] = [];
   const sync = () => {
-    const { session, you } = useSessionStore.getState();
+    const { session, you, mapData } = useSessionStore.getState();
     const next = [
       you?.role,
       session?.activeSceneId,
       session?.modules?.fog,
-      useStore.getState().layers,
+      // Replaced wholesale on a load and on every merged reveal delta — the rooms this
+      // draws come off it, so identity is the whole test.
+      mapData,
       useActiveTool.getState().activeTool,
       hoverRoomId,
     ];
@@ -150,8 +154,8 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   document.addEventListener('pointermove', onMove, true);
   document.addEventListener('pointerdown', onDown, true);
   document.addEventListener('pointerleave', onLeave, true);
+  // No core-store subscription: everything this draws now comes off the session store.
   const unsubSession = useSessionStore.subscribe(sync);
-  const unsubMap = useStore.subscribe(sync);
   const unsubTool = useActiveTool.subscribe(sync);
   sync();
 
@@ -160,7 +164,6 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     document.removeEventListener('pointerdown', onDown, true);
     document.removeEventListener('pointerleave', onLeave, true);
     unsubSession();
-    unsubMap();
     unsubTool();
     // The engine may already be gone (GameRenderer unmounting first) — its objects are
     // destroyed and touching them throws.

@@ -106,9 +106,11 @@ const token = (over: Partial<Token> = {}): Token => ({
 // ── Classification (D3 + D10) ───────────────────────────────────────────────
 
 describe('roomViews — what each room is doing', () => {
-  it('is black for a room nobody has entered', () => {
+  it('is black for a room nobody has entered — except the default one', () => {
+    // All three are area 16 and none is a corridor, so the tie-break picks the lowest id:
+    // `r-gallery`. A player-facing scene always has one room in it (amendment 2026-07-28).
     const views = roomViews(ROOMS, fogOf({}), [], []);
-    expect([...views.values()]).toEqual<RoomView[]>(['dark', 'dark', 'dark']);
+    expect([...views.values()]).toEqual<RoomView[]>(['dark', 'visible', 'dark']);
   });
 
   it('is clear where the party stands and dim where they have been', () => {
@@ -178,6 +180,41 @@ describe('roomViews — what each room is doing', () => {
   it('leaves a re-hidden room the party is standing in dim, not black (D7)', () => {
     const views = roomViews(ROOMS, fogOf({ [VESTIBULE.id]: stale }), [], [VESTIBULE.id]);
     expect(views.get(VESTIBULE.id)).toBe('explored');
+  });
+
+  // ── the default room (amendment 2026-07-28) ───────────────────────────────
+  // The same helper the server redacts with, so the room the canvas lights is the room the
+  // player was actually sent.
+
+  it('lights the default room even with every door shut and nobody on the map', () => {
+    const shut = [
+      liveDoor(door('d-vg', VESTIBULE.id, GALLERY.id)),
+      liveDoor(door('d-gv', GALLERY.id, VAULT.id)),
+    ];
+    expect(roomViews(ROOMS, fogOf({}), shut, []).get(GALLERY.id)).toBe('visible');
+  });
+
+  it('takes it back to black the moment the DM reveals a real room', () => {
+    // The player holds the default room's geometry by then and no fog record for it — the
+    // absent record *is* never_revealed (D1), so it simply goes dark again.
+    const views = roomViews(ROOMS, fogOf({ [VAULT.id]: seen }), [], [VAULT.id]);
+    expect(views.get(VAULT.id)).toBe('visible');
+    expect(views.get(GALLERY.id)).toBe('dark');
+  });
+
+  it('lights it again when a Hide All leaves nothing revealed', () => {
+    const views = roomViews(
+      ROOMS,
+      fogOf({ [VESTIBULE.id]: stale, [VAULT.id]: stale }),
+      [],
+      [VESTIBULE.id],
+    );
+    expect(views.get(GALLERY.id)).toBe('visible');
+    expect(views.get(VESTIBULE.id)).toBe('explored');
+  });
+
+  it('classifies nothing on a map nobody zoned — there is no fog to enforce (D6)', () => {
+    expect(roomViews([], fogOf({}), [], []).size).toBe(0);
   });
 });
 
@@ -293,9 +330,17 @@ const session = (modules: Record<string, unknown> = {}): SessionState => ({
 const dungeon = (rooms: Room[], children: DoorChild[] = []): Layer =>
   ({ id: 'l1', type: 'dungeon', visible: true, children, standaloneWalls: [], rooms }) as unknown as Layer;
 
+/** The document the server sent — where the mask's rooms come from (never core's store). */
+const sent = (layers: Layer[]) => ({ version: '3.0', layers });
+
 describe('subscribeFogScene', () => {
   beforeEach(() => {
-    useSessionStore.setState({ session: session(), you: player, latencyMs: null });
+    useSessionStore.setState({
+      session: session(),
+      you: player,
+      latencyMs: null,
+      mapData: sent([dungeon(ROOMS)]),
+    });
     useStore.setState({ layers: [dungeon(ROOMS)] });
   });
 
@@ -319,8 +364,10 @@ describe('subscribeFogScene', () => {
     useSessionStore.setState({ session: session({ doors: { byScene: {} } }) });
     useSessionStore.setState({ session: session({ doors: { byScene: {} }, tokens: {} }) });
     useStore.setState({ layers: [dungeon([...ROOMS, room('r-new', 30)])] });
+    // …and when a reveal delta lands, which is the map growing where the mask reads it.
+    useSessionStore.setState({ mapData: sent([dungeon([...ROOMS, room('r-new', 30)])]) });
 
-    expect(onChange).toHaveBeenCalledTimes(4); // subscribe + three mutations
+    expect(onChange).toHaveBeenCalledTimes(5); // subscribe + four mutations
     stop();
   });
 
@@ -350,8 +397,25 @@ describe('subscribeFogScene', () => {
 
 describe('fogScene', () => {
   beforeEach(() => {
-    useSessionStore.setState({ session: session(), you: player });
+    useSessionStore.setState({ session: session(), you: player, mapData: sent([dungeon(ROOMS)]) });
     useStore.setState({ layers: [dungeon(ROOMS)] });
+  });
+
+  it('takes its rooms from the server’s document, never from core’s re-detection', () => {
+    // Core backfills `layer.rooms` from wall geometry 250ms after any load, so a map nobody
+    // zoned arrives in the store with rooms the referee has never heard of — and a mask
+    // built on those blacks out a map the server is not fogging at all. Measured on
+    // `demo-dungeon.mapbuilder`: 0 rooms on disk, 4 in the store.
+    useSessionStore.setState({ mapData: sent([dungeon([])]) });
+    const scene = fogScene();
+    expect(scene.rooms).toEqual([]);
+    expect(scene.views.size).toBe(0);
+    expect(scene.bounds).toBeNull();
+  });
+
+  it('draws nothing at all before the document has arrived', () => {
+    useSessionStore.setState({ mapData: null });
+    expect(fogScene().bounds).toBeNull();
   });
 
   it('masks for a player and not for the DM', () => {

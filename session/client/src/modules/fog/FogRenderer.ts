@@ -27,7 +27,7 @@ import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { useStore } from '@dnd/core/src/store/store';
 import { computeMapWorldBounds } from '@dnd/core/src/engine/export/exportPipeline';
 import type { AuthoredDoor, DoorLiveState } from '@dnd/mechanics/doors';
-import { visibleRooms, type FogState, type SceneFog } from '@dnd/mechanics/fog';
+import { effectiveFog, visibleRooms, type FogState, type SceneFog } from '@dnd/mechanics/fog';
 import type { Token, TokensState } from '@dnd/mechanics/tokens';
 import { addScreenOverlay, mountWhenEngineReady } from '../../renderer/overlayLayer';
 import { prefersReducedMotion } from '../../session/motion';
@@ -35,7 +35,7 @@ import { useSessionStore } from '../../session/store';
 import type { LiveDoor } from '../doors/doors';
 import { liveSceneDoors } from '../doors/DoorRenderer';
 import { tokensOf } from '../tokens/TokenRenderer';
-import { roomAt, roomFog, roomsOfLayers, sceneFog } from './fog';
+import { roomAt, roomFog, sceneFog, serverRooms } from './fog';
 
 /** What the player's canvas does with one room. */
 export type RoomView = 'visible' | 'explored' | 'dark';
@@ -77,10 +77,17 @@ export interface FogScene {
  * D3's two layers, resolved per room. `visibleRooms` is the mechanics module's — the same
  * pure function the server redacts with, so the canvas and the referee cannot disagree.
  * Everything else the party has ever seen is explored; everything left is black.
+ *
+ * `effectiveFog` first, for the same reason: the default-room fallback and the empty-party
+ * concealment rule are read-time corrections the server applies before it redacts, so the
+ * mask has to apply them before it classifies (amendment 2026-07-28). The rooms this is
+ * given are the rooms this tab *holds geometry for*, which is a subset of the map's — but
+ * the fallback's own geometry is always in that subset (the server keeps it for exactly
+ * this reason), so the biggest room here is the biggest room there.
  */
 export function roomViews(
   rooms: readonly Room[],
-  fog: SceneFog,
+  storedFog: SceneFog,
   doors: readonly LiveDoor[],
   partyRooms: readonly string[],
 ): Map<string, RoomView> {
@@ -91,6 +98,7 @@ export function roomViews(
     graph.push(entry.door);
   }
 
+  const fog = effectiveFog(storedFog, rooms, partyRooms);
   const visible = visibleRooms(fog, live, graph, partyRooms);
   const views = new Map<string, RoomView>();
   for (const room of rooms) {
@@ -184,10 +192,10 @@ export function fogBounds(layers: readonly Layer[], rooms: readonly Room[]): Bou
 
 /** Everything the fog draws from, read once per mutation. */
 export function fogScene(): FogScene {
-  const { session, you } = useSessionStore.getState();
+  const { session, you, mapData } = useSessionStore.getState();
   const sceneId = session?.activeSceneId ?? null;
   const layers = useStore.getState().layers;
-  const rooms = roomsOfLayers(layers);
+  const rooms = serverRooms(mapData);
   const fog = sceneFog(session?.modules?.fog as FogState | undefined, sceneId);
   const tokens = tokensOf(session?.modules?.tokens as TokensState | undefined, sceneId);
 
@@ -210,13 +218,16 @@ export function fogScene(): FogScene {
 export function subscribeFogScene(onChange: () => void): () => void {
   let last: unknown[] = [];
   const check = () => {
-    const { session, you } = useSessionStore.getState();
+    const { session, you, mapData } = useSessionStore.getState();
     const next = [
       you?.role,
       session?.activeSceneId,
       session?.modules?.fog,
       session?.modules?.doors,
       session?.modules?.tokens,
+      // The document the mask's rooms come from: replaced wholesale on a load and on every
+      // merged reveal delta, so identity is the whole test here too.
+      mapData,
       useStore.getState().layers,
     ];
     if (next.length === last.length && next.every((v, i) => v === last[i])) return;

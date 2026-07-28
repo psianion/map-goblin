@@ -4,7 +4,7 @@ import type { Viewer } from '../contract'
 import type { AuthoredDoor, DoorLiveState } from '../doors/types'
 import { fogModule } from './module'
 import type { FogState, SceneFog } from './types'
-import { visibleRooms } from './visibility'
+import { defaultRoom, effectiveFog, visibleRooms, type FogRoom } from './visibility'
 
 const DM: Viewer = { role: 'dm', identityId: 'dm-1' }
 const P1: Viewer = { role: 'player', identityId: 'p-1' }
@@ -333,5 +333,91 @@ describe('visibleRooms (D3)', () => {
   it('ignores a door onto the exterior or one that was never bound', () => {
     expect(see(allRevealed, live(), [door({ roomB: null })])).toEqual(['hall'])
     expect(see(allRevealed, live(), [door({ roomA: undefined, roomB: undefined })])).toEqual(['hall'])
+  })
+})
+
+// ── the default room (amendment 2026-07-28) ─────────────────────────────────
+// The two read-time corrections that stand between `visibleRooms` and a black screen. Pure
+// and shared: the server's vision cache and the player's fog renderer both run their fog
+// through this, and a player-facing scene is never left with nothing in it.
+
+describe('defaultRoom / effectiveFog (amendment 2026-07-28)', () => {
+  const area = (id: string, size: number, isPathway = false): FogRoom => ({ id, area: size, isPathway })
+  const HALL = area('hall', 100)
+  const CRYPT = area('crypt', 100)
+  const VAULT = area('vault', 180)
+  const CORRIDOR = area('corridor-1', 400, true)
+  const nothing: SceneFog = { rooms: {}, concealBehindDoors: true }
+  const idsOf = (scene: SceneFog) =>
+    Object.entries(scene.rooms)
+      .filter(([, room]) => room.status === 'revealed')
+      .map(([id]) => id)
+      .sort()
+
+  it('picks the largest room that is not a corridor, however big the corridor', () => {
+    expect(defaultRoom([HALL, CORRIDOR, VAULT])?.id).toBe('vault')
+  })
+
+  it('breaks a tie on the lowest id, so two machines pick the same room', () => {
+    expect(defaultRoom([HALL, CRYPT])?.id).toBe('crypt')
+    expect(defaultRoom([CRYPT, HALL])?.id).toBe('crypt')
+  })
+
+  it('falls back to the largest room of any kind when the map is all corridor', () => {
+    expect(defaultRoom([CORRIDOR, area('corridor-2', 10, true)])?.id).toBe('corridor-1')
+  })
+
+  it('has nothing to pick on a map nobody zoned', () => {
+    expect(defaultRoom([])).toBeNull()
+    expect(effectiveFog(nothing, [], ['nowhere'])).toEqual(nothing)
+  })
+
+  it('reveals the default room while the DM has revealed nothing', () => {
+    const scene = effectiveFog(nothing, [HALL, CORRIDOR, VAULT], [])
+    expect(idsOf(scene)).toEqual(['vault'])
+    // Concealment off with it: routing the fallback through the reachability BFS would put
+    // a party standing somewhere else straight back into the dark.
+    expect(scene.concealBehindDoors).toBe(false)
+  })
+
+  it('reveals it again after a Hide All leaves everything re-hidden', () => {
+    const hidden: SceneFog = {
+      rooms: {
+        hall: { status: 're_hidden', wasEverRevealed: true },
+        vault: { status: 're_hidden', wasEverRevealed: true },
+      },
+      concealBehindDoors: true,
+    }
+    expect(idsOf(effectiveFog(hidden, [HALL, VAULT], ['hall']))).toEqual(['vault'])
+  })
+
+  it('gives it up the moment one real room is revealed, and writes nothing back', () => {
+    const lit: SceneFog = {
+      rooms: { hall: { status: 'revealed', wasEverRevealed: true } },
+      concealBehindDoors: true,
+    }
+    const scene = effectiveFog(lit, [HALL, VAULT], ['hall'])
+    expect(idsOf(scene)).toEqual(['hall'])
+    // The fallback leaves no trace at all — no record, and no latch on the room it lent.
+    expect(scene.rooms.vault).toBeUndefined()
+    expect(lit.rooms.vault).toBeUndefined()
+  })
+
+  it('turns concealment off when no party token is on the map', () => {
+    const lit: SceneFog = {
+      rooms: {
+        hall: { status: 'revealed', wasEverRevealed: true },
+        vault: { status: 'revealed', wasEverRevealed: true },
+      },
+      concealBehindDoors: true,
+    }
+    expect(effectiveFog(lit, [HALL, VAULT], []).concealBehindDoors).toBe(false)
+    expect(effectiveFog(lit, [HALL, VAULT], ['hall']).concealBehindDoors).toBe(true)
+  })
+
+  it('leaves a fresh scene exactly one visible room, however shut the doors are', () => {
+    const scene = effectiveFog(nothing, [HALL, VAULT], [])
+    const shut = [{ id: 'd1', state: 'closed', isSecret: false, roomA: 'hall', roomB: 'vault' } as AuthoredDoor]
+    expect([...visibleRooms(scene, {}, shut, [])]).toEqual(['vault'])
   })
 })

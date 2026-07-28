@@ -41,6 +41,25 @@ export function roomsOfLayers(layers: readonly Layer[]): Room[] {
   return layers.flatMap((layer) => (layer.type === 'dungeon' ? (layer.rooms ?? []) : []));
 }
 
+/**
+ * The rooms the *server* is fogging by — off the document it sent, not off core's store.
+ *
+ * Core re-detects rooms from wall and floor geometry after any load (`roomSync`, the
+ * backfill for files saved before rooms existed) and overwrites `layer.rooms` with the
+ * result. On a map nobody zoned that invents rooms the referee does not have: the server
+ * reads `layer.rooms` off the file, finds none and fogs nothing, while anything built on
+ * core's store tints or masks rooms no fog command can even name. Measured on
+ * `demo-dungeon.mapbuilder`: 0 rooms on disk, 4 in the store.
+ *
+ * The redacted document is the honest source for both seats. A player's copy carries exactly
+ * the rooms they are allowed to know about, which is the set their mask is a statement about;
+ * the DM's is the file.
+ */
+export function serverRooms(mapData: unknown): Room[] {
+  const layers = (mapData as { layers?: Layer[] } | null)?.layers;
+  return layers ? roomsOfLayers(layers) : [];
+}
+
 /** The room polygon under a world point, or undefined for unzoned map (D6). */
 export function roomAt(rooms: readonly Room[], x: number, y: number): Room | undefined {
   return rooms.find((room) => room.boundary.length >= 3 && pointInPolygon([x, y], room.boundary));
