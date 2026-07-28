@@ -1,6 +1,7 @@
 import type { AnyChild, DoorChild, Room, WallSegment } from '@dnd/core/src/shared/types';
 import type { Role } from '@dnd/core/src/shared/protocol';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
+import type { DoorsState } from '@dnd/mechanics/doors';
 import { endpoints } from '../endpoints';
 import { useSessionStore } from './store';
 
@@ -32,8 +33,19 @@ export interface MapDelta {
  * S3's server-side redaction now strips them before the wire, so this is defence in depth
  * rather than the fix: a payload that ever regains one is caught one layer before the canvas.
  * Both the initial load and every reveal delta go through it.
+ *
+ * `revealed` is the door D2 has to leave open. Once the DM lets the party in on a secret
+ * door the server sends its child *deliberately*, and an unconditional filter on the
+ * authored `isSecret` flag throws it away again — which is why a revealed secret door used
+ * to reach the player's door state and never their map, on a broadcast, a reload or a
+ * restart alike. The set is read off this seat's own `doors` slice, which the server has
+ * already cut to `revealed && explored`, so this stays a second lock rather than a hole: a
+ * door the server never admitted is not in the set and is still dropped here.
  */
-export function withoutSecretDoors(data: SerializedMapData): SerializedMapData {
+export function withoutSecretDoors(
+  data: SerializedMapData,
+  revealed: ReadonlySet<string> = new Set(),
+): SerializedMapData {
   return {
     ...data,
     layers: data.layers.map((layer) =>
@@ -41,7 +53,12 @@ export function withoutSecretDoors(data: SerializedMapData): SerializedMapData {
         ? {
             ...layer,
             children: layer.children.filter(
-              (child) => !(child.childType === 'door' && (child as DoorChild).isSecret),
+              (child) =>
+                !(
+                  child.childType === 'door' &&
+                  (child as DoorChild).isSecret &&
+                  !revealed.has(child.id)
+                ),
             ),
           }
         : layer,
@@ -49,9 +66,21 @@ export function withoutSecretDoors(data: SerializedMapData): SerializedMapData {
   };
 }
 
+/** The secret doors this seat has been let in on, off its own (already redacted) slice. */
+function revealedDoors(sceneId: string | null | undefined): Set<string> {
+  const doors = useSessionStore.getState().session?.modules?.doors as DoorsState | undefined;
+  const scene = (sceneId && doors?.byScene?.[sceneId]) || {};
+  const ids = new Set<string>();
+  for (const [id, live] of Object.entries(scene)) if (live.revealed) ids.add(id);
+  return ids;
+}
+
 /** The map as this seat is allowed to hold it. Unknown role is treated as a player. */
-const forViewer = (data: SerializedMapData, role: Role | undefined): SerializedMapData =>
-  role === 'dm' ? data : withoutSecretDoors(data);
+const forViewer = (
+  data: SerializedMapData,
+  role: Role | undefined,
+  sceneId: string | null | undefined,
+): SerializedMapData => (role === 'dm' ? data : withoutSecretDoors(data, revealedDoors(sceneId)));
 
 /**
  * Merge by id, keeping the order the map already had. Upsert rather than append: a door or
@@ -103,7 +132,7 @@ export function mergeMapDelta(
       };
     }),
   };
-  return forViewer(merged, role);
+  return forViewer(merged, role, activeSceneId ?? delta.sceneId);
 }
 
 /**
@@ -118,5 +147,5 @@ export async function loadSceneMap(sceneId: string, token: string): Promise<void
   if (!res.ok) throw new Error(`Map fetch failed: ${res.status} ${res.statusText}`);
   const data = (await res.json()) as SerializedMapData;
   const store = useSessionStore.getState();
-  store.setMapData(forViewer(data, store.you?.role));
+  store.setMapData(forViewer(data, store.you?.role, sceneId));
 }

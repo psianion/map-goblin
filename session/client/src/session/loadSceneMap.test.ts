@@ -36,8 +36,17 @@ function childIds(): string[] {
   return data.layers.flatMap((l) => l.children?.map((c) => c.id) ?? []);
 }
 
+/** A session whose `doors` slice says the DM has let the party in on `d1` (D2). */
+const secretRevealed = (revealed: boolean) =>
+  ({
+    activeSceneId: 's1',
+    modules: {
+      doors: { byScene: { s1: { d1: { open: false, locked: false, revealed } } } },
+    },
+  }) as never;
+
 describe('loadSceneMap', () => {
-  beforeEach(() => useSessionStore.setState({ mapData: null, you: null }));
+  beforeEach(() => useSessionStore.setState({ mapData: null, you: null, session: null }));
   afterEach(() => vi.unstubAllGlobals());
 
   it('fetches the scene with the session token and stores the document', async () => {
@@ -73,6 +82,36 @@ describe('loadSceneMap', () => {
     await loadSceneMap('s1', 'tok');
 
     expect(childIds()).toEqual(['d1', 'd2', 'o1']);
+  });
+
+  /**
+   * The other half of D2. The server only sends a secret door's child once the DM has
+   * revealed it *and* the party has explored a room it is bound to; a filter that reads the
+   * authored `isSecret` flag alone throws that away again, and the door reaches the player's
+   * door state and never their map — on a broadcast, a reload or a restart alike.
+   */
+  it('keeps a secret door this seat has been let in on (D2)', async () => {
+    stubFetch(docWithSecretDoor());
+    useSessionStore.setState({
+      you: { identityId: 'p1', name: 'Bob', role: 'player', connected: true },
+      session: secretRevealed(true),
+    });
+
+    await loadSceneMap('s1', 'tok');
+
+    expect(childIds()).toEqual(['d1', 'd2', 'o1']);
+  });
+
+  it('drops it again when the seat’s own doors slice does not name it revealed', async () => {
+    stubFetch(docWithSecretDoor());
+    useSessionStore.setState({
+      you: { identityId: 'p1', name: 'Bob', role: 'player', connected: true },
+      session: secretRevealed(false),
+    });
+
+    await loadSceneMap('s1', 'tok');
+
+    expect(childIds()).toEqual(['d2', 'o1']);
   });
 
   it('strips secret doors when the role is not known yet', async () => {
@@ -169,6 +208,29 @@ describe('mergeMapDelta', () => {
 
     const asDm = mergeMapDelta(loaded(), sneaky, 'dm', 'scene-1');
     expect(layerOf(asDm).children.map((c) => c.id)).toContain('d-secret');
+  });
+
+  it('does let a revealed one through — that delta is the DM saying so (D2)', () => {
+    const withSecret = delta();
+    withSecret.layers[0].children.push({
+      id: 'd-secret',
+      childType: 'door',
+      isSecret: true,
+    } as unknown as MapDelta['layers'][number]['children'][number]);
+    // The doors slice is the server's own answer, already cut to `revealed && explored`, so
+    // the reveal-secret frame that carries the child arrives after the one that names it.
+    useSessionStore.setState({
+      session: {
+        activeSceneId: 'scene-1',
+        modules: {
+          doors: { byScene: { 'scene-1': { 'd-secret': { open: false, locked: false, revealed: true } } } },
+        },
+      } as never,
+    });
+
+    const merged = mergeMapDelta(loaded(), withSecret, 'player', 'scene-1');
+    expect(layerOf(merged).children.map((c) => c.id)).toContain('d-secret');
+    useSessionStore.setState({ session: null });
   });
 
   it('drops a delta for a scene this client is no longer looking at', () => {

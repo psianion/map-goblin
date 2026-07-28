@@ -17,7 +17,12 @@ import type { Room } from '@dnd/core/src/shared/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import type { FogState } from '@dnd/mechanics/fog';
-import { addWorldOverlay, mountWhenEngineReady, worldPointOf } from '../../renderer/overlayLayer';
+import {
+  addScreenOverlay,
+  addWorldOverlay,
+  mountWhenEngineReady,
+  worldPointOf,
+} from '../../renderer/overlayLayer';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
 import { DM_FOG_LOOK, fogActionFor, roomAt, roomFog, sceneFog, serverRooms } from './fog';
@@ -51,6 +56,24 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   layer.addChild(paint);
   addWorldOverlay(sceneGraph, layer, 'fogOverlay');
 
+  // The hover highlight is the DM's cursor, not map content, and it is the one thing this
+  // layer draws that has to be *brighter* than what is beneath it. The engine composites
+  // lighting as a screen-space multiply after the world (see `addScreenOverlay`), so on an
+  // unlit dungeon a warm stroke drawn in the world survives at about 7%: measured on the
+  // gate map, hovering a room moved the canvas by 1.1/255, which is the "no highlight at
+  // all" the browser gate read as byte-identical.
+  //
+  // The tint and the glyph stay in the world on purpose. A darkening wash still darkens
+  // under a multiply, and both have to keep drawing *under* the DM's tokens and doors —
+  // that draw order is PRODUCT principle 3 (`OVERLAY_STACK`), and lifting them over the
+  // composite would lift them over those layers too.
+  const cursor = new Container();
+  const hover = new Graphics();
+  cursor.addChild(hover);
+  // Nothing here is clickable; the fog tool reads the DOM canvas directly.
+  cursor.eventMode = 'none';
+  addScreenOverlay(sceneGraph, cursor, 'fogOverlay');
+
   let rooms: Room[] = [];
   let hoverRoomId: string | null = null;
 
@@ -69,7 +92,9 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     // The overlay is the DM's alone: a player never has room polygons to tint in the first
     // place (never-revealed geometry is stripped server-side, D4).
     layer.visible = isDm();
+    cursor.visible = layer.visible;
     paint.clear();
+    hover.clear();
     if (!layer.visible) return;
 
     for (const room of rooms) {
@@ -83,10 +108,20 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
 
     const hovered = toolArmed() ? rooms.find((r) => r.id === hoverRoomId) : undefined;
     if (hovered && hovered.boundary.length >= 3) {
-      paint.poly(hovered.boundary.flat()).fill({ color: HOVER_COLOR, alpha: 0.1 });
-      paint.poly(hovered.boundary.flat()).stroke({ color: HOVER_COLOR, width: 0.08, alpha: 0.95 });
+      hover.poly(hovered.boundary.flat()).fill({ color: HOVER_COLOR, alpha: 0.1 });
+      hover.poly(hovered.boundary.flat()).stroke({ color: HOVER_COLOR, width: 0.08, alpha: 0.95 });
     }
   };
+
+  // Per frame: mirror the camera, because the cursor layer lives in screen space. Nothing
+  // is redrawn here — the highlight is rebuilt when the pointer moves and then just drawn.
+  const world = sceneGraph.worldContainer;
+  const tick = (): void => {
+    cursor.position.copyFrom(world.position);
+    cursor.scale.copyFrom(world.scale);
+  };
+  const ticker = engine.ticker();
+  ticker.add(tick);
 
   // The session store fires on every ping, so redraw only when something this layer
   // actually draws from moved. Slice identity is enough: the store replaces its slices
@@ -168,7 +203,9 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     // The engine may already be gone (GameRenderer unmounting first) — its objects are
     // destroyed and touching them throws.
     try {
+      ticker.remove(tick);
       if (!layer.destroyed) layer.destroy({ children: true });
+      if (!cursor.destroyed) cursor.destroy({ children: true });
     } catch {
       /* engine torn down first */
     }

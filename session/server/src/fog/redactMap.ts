@@ -65,6 +65,38 @@ export function redactMapForViewer(
   }
 }
 
+/**
+ * The geometry a `reveal-secret` owes a player (D2/D5).
+ *
+ * A room reveal pays this debt through `mapDeltaFor`: the state that says "revealed" and the
+ * shapes to draw it travel in one frame. Letting the party in on a secret door incurs exactly
+ * the same debt — the door child was cut from their map while it was still a secret — and it
+ * is the only door write that can, because every other door in the scene came with the room
+ * it belongs to. `kept` is the *explored* set, not the newly-revealed one: the rooms either
+ * side of this door are ones the party has already earned, so the door keeps both bindings.
+ */
+export function doorDeltaFor(
+  scene: SceneMap,
+  sceneId: string,
+  doorIds: ReadonlySet<string>,
+  kept: ReadonlySet<string>,
+): MapDelta {
+  return {
+    sceneId,
+    layers: scene.data.layers
+      .filter(isDungeon)
+      .map((layer) => ({
+        id: layer.id,
+        rooms: [] as Room[],
+        children: childrenOf(layer)
+          .filter((child): child is DoorChild => child.childType === 'door' && doorIds.has(child.id))
+          .map((door) => facing(door, kept)) as AnyChild[],
+        standaloneWalls: [] as WallSegment[],
+      }))
+      .filter((layer) => layer.children.length > 0),
+  }
+}
+
 /** The same cut, restricted to the rooms that just became the player's (D5). */
 export function mapDeltaFor(
   scene: SceneMap,
@@ -114,12 +146,12 @@ function childKept(child: AnyChild, scene: SceneMap, kept: ReadonlySet<string>):
  * door bound to neither (the map never zoned it) is unzoned map, which is DM-only. The one
  * rule behind both the geometry cut and the live doors slice a player is sent.
  */
-export function doorBound(door: AuthoredDoor, kept: ReadonlySet<string>): boolean {
+function doorBound(door: AuthoredDoor, kept: ReadonlySet<string>): boolean {
   return (!!door.roomA && kept.has(door.roomA)) || (!!door.roomB && kept.has(door.roomB))
 }
 
 /** …and a secret door does not exist at all until the DM says so. */
-function doorKept(door: DoorChild, kept: ReadonlySet<string>, doors: Doors): boolean {
+export function doorKept(door: DoorChild, kept: ReadonlySet<string>, doors: Doors): boolean {
   const live = doors[door.id] ?? seedDoor(door)
   if (door.isSecret && !live.revealed) return false
   return doorBound(door, kept)

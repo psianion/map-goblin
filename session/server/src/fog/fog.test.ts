@@ -460,14 +460,33 @@ describe('vision.playerDoors (D4)', () => {
     const onTheMap = (redactMapForViewer(sceneMap(), fog(), {}).layers[0] as DungeonLayer).children
       .filter((child) => child.childType === 'door')
       .map((child) => child.id)
-    // `door-secret` is in the set and absent from the map: the doors module strips a secret
-    // door on `revealed` — this seam only answers which rooms the player has been in.
-    expect([...vision.playerDoors(SCENE)].sort()).toEqual([
-      'door-corr-inner',
-      'door-hall-corr',
-      'door-secret',
-    ])
-    expect(onTheMap.sort()).toEqual(['door-corr-inner', 'door-hall-corr'])
+    // One set, not two. An unrevealed secret door is in neither: the live slice would have
+    // been stripped by the doors module anyway, but a set that names a door the player's map
+    // does not have is a set the geometry delta cannot be derived from (D2).
+    expect([...vision.playerDoors(SCENE)].sort()).toEqual(onTheMap.sort())
+    expect(onTheMap).toEqual(['door-corr-inner', 'door-hall-corr'])
+  })
+
+  it('admits a secret door once the DM reveals it, and hands over its geometry (D2)', () => {
+    const { vision, stores, campaignId } = table()
+    stores.moduleState.put(campaignId, 'fog', { byScene: { [SCENE]: fog() } } satisfies FogState)
+    expect([...vision.playerDoors(SCENE)]).not.toContain('door-secret')
+    // The map the player holds is the other half of the same answer.
+    expect(JSON.stringify(vision.playerMap(SCENE))).not.toContain('door-secret')
+
+    stores.moduleState.put(campaignId, 'doors', {
+      byScene: { [SCENE]: { 'door-secret': { open: false, locked: false, revealed: true } } },
+    })
+    expect([...vision.playerDoors(SCENE)]).toContain('door-secret')
+    expect(JSON.stringify(vision.playerMap(SCENE))).toContain('door-secret')
+
+    // …and the door child rides a delta, so a player already at the table gets it without
+    // reloading — cut the same way the map is: the explored side keeps its binding, the
+    // side nobody has been to is `null`, because a room id is a coordinate (D4).
+    const delta = vision.revealDelta(SCENE)
+    const doors = (delta?.layers ?? []).flatMap((layer) => layer.children)
+    expect(doors.map((child) => child.id)).toEqual(['door-secret'])
+    expect(doors[0]).toMatchObject({ roomA: 'inner', roomB: null })
   })
 })
 

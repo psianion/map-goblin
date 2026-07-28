@@ -19,7 +19,14 @@ import {
 import type { SceneVision, TokensState } from '@dnd/mechanics/tokens'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
 import type { Stores } from '../db/stores'
-import { doorBound, mapDeltaFor, redactMapForViewer, exploredRooms, type MapDelta } from './redactMap'
+import {
+  doorDeltaFor,
+  doorKept,
+  mapDeltaFor,
+  redactMapForViewer,
+  exploredRooms,
+  type MapDelta,
+} from './redactMap'
 import { CACHE_MAX, createSceneMaps, type SceneMap } from './sceneMap'
 
 /** Everything the rest of the server asks the fog. One implementation, wired at boot. */
@@ -96,11 +103,29 @@ export function createVision(stores: Stores): Vision {
     const fog = effectiveFog(sceneFogOf(read(campaignId, 'fog', NO_FOG), sceneId), map.rooms, party)
 
     const explored = exploredRooms(fog)
+    // The doors a player may hold — the *same* predicate the map cut uses on the door
+    // children themselves, so the live slice and the geometry name one set of doors and not
+    // two (a secret door the DM has not revealed is in neither). A map nobody zoned has no
+    // room to bind a door to and none of its geometry is withheld, so every door on it is
+    // the player's too (amendment 2026-07-28).
+    const held = map.doors.filter((door) => map.rooms.length === 0 || doorKept(door, explored, doors))
     // Against nothing on a cold cache, so the first answer after a restart is everything
     // the party has explored rather than nothing at all. Correctness must not depend on
     // whether someone happened to fetch the map first, and a client already holding a
     // room's geometry loses nothing by being handed it again.
     const revealed = [...explored].filter((room) => !previous?.explored.has(room))
+    // Cut once per mutation, not once per viewer: every player at the table is owed the same
+    // rooms, and the slice is the expensive half of a reveal.
+    const roomDelta = revealed.length ? mapDeltaFor(map, sceneId, revealed, doors) : null
+    // …and the same question asked of doors, which is how a `reveal-secret` hands over the
+    // door child the player's map was cut without (D2). A door that arrives with the room it
+    // belongs to is already in `roomDelta`, so this only carries what the rooms did not.
+    const carried = new Set(roomDelta?.layers.flatMap((l) => l.children.map((c) => c.id)) ?? [])
+    const newDoors = new Set(
+      held
+        .filter((door) => !previous?.playerDoors.has(door.id) && !carried.has(door.id))
+        .map((door) => door.id),
+    )
     const next: Computed = {
       revision: stores.moduleState.revision,
       map,
@@ -112,16 +137,8 @@ export function createVision(stores: Stores): Vision {
       // for a scene where every room they have seen counts as lit answers it exactly.
       occupiable: visibleRooms({ ...fog, rooms: asSeen(fog.rooms) }, doors, map.doors, party),
       explored,
-      // A map nobody zoned has no room to bind a door to and none of its geometry is
-      // withheld, so every door on it is the player's too (amendment 2026-07-28).
-      playerDoors: new Set(
-        map.doors
-          .filter((door) => map.rooms.length === 0 || doorBound(door, explored))
-          .map((d) => d.id),
-      ),
-      // Cut once per mutation, not once per viewer: every player at the table is owed the
-      // same rooms, and the slice is the expensive half of a reveal.
-      delta: revealed.length ? mapDeltaFor(map, sceneId, revealed, doors) : null,
+      playerDoors: new Set(held.map((door) => door.id)),
+      delta: mergeDelta(roomDelta, newDoors.size ? doorDeltaFor(map, sceneId, newDoors, explored) : null),
     }
     // Held to the same ceiling as the parsed maps: every entry keeps a scene's geometry
     // alive through `map` and `delta`, so an uncapped one would quietly undo that cap.
@@ -155,6 +172,18 @@ export function createVision(stores: Stores): Vision {
 
     revealDelta: (sceneId) => compute(sceneId)?.delta ?? null,
   }
+}
+
+/** Two deltas for one mutation, said in one message — the client merges layers by id. */
+function mergeDelta(rooms: MapDelta | null, doors: MapDelta | null): MapDelta | null {
+  if (!rooms || !doors) return rooms ?? doors
+  const layers = [...rooms.layers]
+  for (const layer of doors.layers) {
+    const existing = layers.find((l) => l.id === layer.id)
+    if (existing) existing.children = [...existing.children, ...layer.children]
+    else layers.push(layer)
+  }
+  return { ...rooms, layers }
 }
 
 /** The same rooms, with everything the party has ever seen counting as lit. */

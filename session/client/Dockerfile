@@ -23,7 +23,10 @@ COPY session/client ./session/client
 # (`/packs/…`, hardcoded in @dnd/core). `vite build` copies publicDir into dist, so
 # this is what puts the pack files in the nginx image.
 COPY canvas/public ./canvas/public
-RUN pnpm --filter @dnd/session-client build
+# vite only, not the package's `tsc -b && vite build`: the typecheck gate needs the
+# whole workspace (src tests import server sources), and this stage deliberately
+# copies only the client's slice. Types are enforced locally/CI on the full tree.
+RUN pnpm --filter @dnd/session-client exec vite build
 
 FROM nginx:alpine AS runtime
 COPY --from=build /app/session/client/dist /usr/share/nginx/html

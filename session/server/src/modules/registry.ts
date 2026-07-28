@@ -27,10 +27,16 @@ export type DispatchContext = Omit<ModuleContext<unknown>, 'state' | 'setState'>
  * Fog moves the doors slice the same way, in the other direction: a player is only told
  * about the doors of rooms they have explored, so without this re-send the door state of
  * the room they just walked into never arrives at all.
+ *
+ * Doors move the *fog* slice for the same reason a reveal moves it: `reveal-secret` hands a
+ * player geometry they did not hold a moment ago (D2), and the fog frame is the one that
+ * carries geometry (`mapDelta`, D5). The fog state itself is unchanged — what changed is
+ * what this viewer may draw — so the re-send is the only way the door child travels without
+ * waiting for a reload.
  */
 const RETRACTS: Record<string, readonly string[]> = {
   fog: ['tokens', 'doors'],
-  doors: ['tokens'],
+  doors: ['tokens', 'fog'],
 }
 
 export class ModuleRegistry {
