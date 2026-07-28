@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { GAME_SERVER, SERVER_PORT } from './ports'
 
 /**
  * Boots a real `@dnd/game-server` on a clean data directory and captures the admin pass it
@@ -15,7 +16,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const dataDir = mkdtempSync(join(tmpdir(), 'map-goblin-e2e-'))
   const server = spawn('pnpm', ['--filter', '@dnd/game-server', 'start'], {
     cwd: join(import.meta.dirname, '../../..'),
-    env: { ...process.env, GAME_SERVER_DATA: dataDir, PORT: '8787' },
+    env: { ...process.env, GAME_SERVER_DATA: dataDir, PORT: String(SERVER_PORT) },
     shell: true,
   })
 
@@ -43,10 +44,10 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   })
 
   process.env.E2E_ADMIN_PASS = adminPass
-  process.env.E2E_SERVER_URL = 'http://localhost:8787'
+  process.env.E2E_SERVER_URL = GAME_SERVER
 
   return async () => {
-    // `pnpm` spawns `tsx` spawns node: killing the shell leaves the server holding :8787,
+    // `pnpm` spawns `tsx` spawns node: killing the shell leaves the server holding the port,
     // which breaks the *next* run rather than this one. Kill the tree.
     if (server.pid) {
       if (process.platform === 'win32') {

@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test'
+import { CLIENT_PORT, CLIENT_URL, viteApiEnv } from './e2e/ports'
 
 /**
  * The Sprint 1 timed metrics (`e2e/metrics.spec.ts`), run against a **production build**.
@@ -13,16 +14,17 @@ import { defineConfig } from '@playwright/test'
  * `VITE_HTTP_BASE`/`VITE_WS_BASE` pointed straight at the game server — the D9 seam
  * `endpoints.ts` already exposes for exactly this (a deployment where the API is not the
  * origin). Server CORS is open, so the cross-origin fetch is the same fetch.
+ *
+ * Both ports come from `e2e/ports.ts` — same defaults, overridable on a box where :8787 is
+ * spoken for.
  */
-const GAME_SERVER = 'http://localhost:8787'
-
 export default defineConfig({
   testDir: './e2e',
   testMatch: 'metrics.spec.ts',
   // Same real game-server boot as the flow spec: it is the only place the admin pass exists.
   globalSetup: './e2e/global-setup.ts',
   use: {
-    baseURL: 'http://localhost:5175',
+    baseURL: CLIENT_URL,
     // `channel: 'chromium'` is the full browser (headless=new), not Playwright's default
     // headless *shell* — the shell has no GPU stack at all and falls back to SwiftShader.
     // That is not a detail: installing the bundled asset pack uploads 94 textures, which
@@ -33,16 +35,12 @@ export default defineConfig({
   },
   timeout: 120_000,
   webServer: {
-    command: 'pnpm build && pnpm exec vite preview --port 5175 --strictPort',
-    url: 'http://localhost:5175',
+    command: `pnpm build && pnpm exec vite preview --port ${CLIENT_PORT} --strictPort`,
+    url: CLIENT_URL,
     // Locally the build is reused between runs; re-run `pnpm build` after touching src/.
     reuseExistingServer: !process.env.CI,
     timeout: 300_000,
-    env: {
-      ...process.env,
-      VITE_HTTP_BASE: GAME_SERVER,
-      VITE_WS_BASE: `${GAME_SERVER.replace(/^http/, 'ws')}/ws`,
-    },
+    env: { ...process.env, ...viteApiEnv() },
   },
   // One worker: a single real server whose invite codes and roster are global state.
   workers: 1,

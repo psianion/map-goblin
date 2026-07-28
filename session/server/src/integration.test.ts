@@ -15,10 +15,11 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { once } from 'node:events'
 import type { Role, ServerMessage } from '@dnd/core/src/shared/protocol'
-import type { AssetChild, DoorChild, Room } from '@dnd/core/src/shared/types'
+import type { AnyChild, AssetChild, DoorChild, Room } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import type { Token, TokensState } from '@dnd/mechanics/tokens'
 import { issueToken, startSession } from './auth'
+import { centreOf } from './fog/sceneMap'
 import type { SessionRow } from './db/stores'
 import { startServer, type RunningServer, type StartOptions } from './index'
 
@@ -167,6 +168,32 @@ function nextRaw(
       clearTimeout(timer)
       socket.off('message', onMessage)
       resolve(msg)
+    }
+    socket.on('message', onMessage)
+  })
+}
+
+/**
+ * The same wait, with a stopwatch and a byte count: the first frame `where` accepts, the
+ * instant it landed, and how big it was. The clock is read before `JSON.parse` — the metric
+ * is when the bytes arrived, not when a test finished reading them.
+ */
+function timedFrame(
+  socket: WebSocket,
+  where: (msg: Record<string, unknown>) => boolean,
+): Promise<{ at: number; bytes: number; msg: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off('message', onMessage)
+      reject(new Error('timed out waiting for a frame'))
+    }, 5000)
+    const onMessage = (raw: Buffer) => {
+      const at = performance.now()
+      const msg = JSON.parse(raw.toString()) as Record<string, unknown>
+      if (!where(msg)) return
+      clearTimeout(timer)
+      socket.off('message', onMessage)
+      resolve({ at, bytes: raw.length, msg })
     }
     socket.on('message', onMessage)
   })
@@ -412,8 +439,13 @@ const cryptLayer = crypt.layers.find((l): l is DungeonLayer => l.type === 'dunge
 const cryptRooms = cryptLayer.rooms ?? []
 const cryptDoors = cryptLayer.children.filter((c): c is DoorChild => c.childType === 'door')
 const SECRET = cryptDoors.find((d) => d.isSecret)!
-/** An ordinary door the map authors open: the two rooms either side of it test D3 layer 2. */
-const AJAR = cryptDoors.find((d) => d.state === 'open' && !d.isSecret)!
+/**
+ * The ordinary door the concealment rows swing: not secret (players may know of it) and not
+ * an archway (archways have no leaf to swing — `toggle` rejects them, and a test that opened
+ * one would hang waiting for a broadcast that is never sent). Authored closed, so the rows
+ * that need it open say so.
+ */
+const AJAR = cryptDoors.find((d) => !d.isSecret && d.style !== 'archway')!
 const roomOf = (id: string | null | undefined): Room => cryptRooms.find((r) => r.id === id)!
 
 /** Props the map leaves outside every room's bounding box are unzoned beyond argument (D6). */
@@ -602,6 +634,54 @@ describe('reveal and retraction broadcasts (§2.6, D4c/D5)', () => {
     })
   })
 
+  it('retracts the room the party is standing in, and leaves them their own token (D7)', async () => {
+    await withServer({}, async (server) => {
+      const { sceneId, dm, players } = await crypts(server, 'FGI', 1)
+      const [player] = players
+      const here = roomOf(AJAR.roomA)
+
+      const revealed = nextState(dm, 'fog')
+      sendCommand(dm, 'fog', 'reveal', { roomId: here.id })
+      await revealed
+
+      // Bran is the party, and the party is *inside* the room about to go dark. D7 allows
+      // it — a DM plunging the table into darkness is drama, not an error — so what the
+      // row is really about is which of the two tokens survives the retraction.
+      const placed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(dm, 'tokens', 'place', { name: 'Bran', x: here.centroid[0], y: here.centroid[1] })
+      const mine = Object.values((await placed).byScene[sceneId])[0]
+      const claimed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(player, 'tokens', 'claim', { id: mine.id })
+      await claimed
+
+      const bothSeen = nextState<TokensState>(player, 'tokens', (s) =>
+        Object.keys(s.byScene[sceneId] ?? {}).length === 2,
+      )
+      sendCommand(dm, 'tokens', 'place', {
+        name: 'Ghoul',
+        x: here.centroid[0] + 1,
+        y: here.centroid[1],
+      })
+      await bothSeen
+
+      // The lights go out with everyone still in the room: the ghoul's last position is
+      // actively taken back (D4c), and the player keeps the one thing they always keep.
+      const dropped = nextState<TokensState>(player, 'tokens', (s) =>
+        Object.keys(s.byScene[sceneId] ?? {}).length < 2,
+      )
+      sendCommand(dm, 'fog', 'hide', { roomId: here.id })
+      expect(Object.values((await dropped).byScene[sceneId] ?? {}).map((t) => t.name)).toEqual([
+        'Bran',
+      ])
+
+      // And the DM still has both — retraction is a redaction, not a deletion.
+      sendJoin(dm)
+      const dmSnapshot = await next(dm, 'session-state')
+      const dmTokens = (dmSnapshot.state.modules.tokens as TokensState).byScene[sceneId]
+      expect(Object.values(dmTokens).map((t) => t.name).sort()).toEqual(['Bran', 'Ghoul'])
+    })
+  })
+
   it('retracts when a door closes under concealment, and never your own token (D7)', async () => {
     await withServer({}, async (server) => {
       const { sceneId, dm, players } = await crypts(server, 'FGG', 1)
@@ -622,6 +702,11 @@ describe('reveal and retraction broadcasts (§2.6, D4c/D5)', () => {
       const claimed = nextState<TokensState>(dm, 'tokens')
       sendCommand(player, 'tokens', 'claim', { id: mine.id })
       await claimed
+
+      // The door is authored shut, so the sight this row takes away has to be given first.
+      const opened = nextState(dm, 'doors')
+      sendCommand(dm, 'doors', 'toggle', { id: AJAR.id })
+      await opened
 
       // A monster through the open door: the party can see it from where they stand.
       const seen = nextState<TokensState>(player, 'tokens', (s) =>
@@ -646,6 +731,229 @@ describe('reveal and retraction broadcasts (§2.6, D4c/D5)', () => {
       const tokens = snapshot.state.modules.tokens as TokensState
       expect(Object.values(tokens.byScene[sceneId]).map((t) => t.name)).toEqual(['Bran'])
     })
+  })
+})
+
+// ── §2.6 (S3): reveal propagation < 200ms ───────────────────────────────────
+
+describe('reveal propagation (§2.6 metric, D5)', () => {
+  it('lands a room on a player socket with its geometry in under 200ms', async () => {
+    await withServer({}, async (server) => {
+      const { dm, players } = await crypts(server, 'FGR', 1)
+      const [player] = players
+
+      // Largest room first, on a cold vision cache: the biggest slice the map has, cut at
+      // the moment nothing is parsed, indexed or memoised yet. Every later reveal is
+      // cheaper, so the headline number is the first one and the row is the worst one.
+      const order = [...cryptRooms].sort((a, b) => b.area - a.area)
+      const measured: { room: Room; ms: number; bytes: number; children: number }[] = []
+
+      for (const room of order) {
+        const arrival = timedFrame(
+          player,
+          (m) => m.type === 'state-update' && m.module === 'fog' && m.mapDelta !== undefined,
+        )
+        const sentAt = performance.now()
+        sendCommand(dm, 'fog', 'reveal', { roomId: room.id })
+        const { at, bytes, msg } = await arrival
+
+        // The whole point of D5: the frame that says "revealed" is the frame that carries
+        // the geometry, so the number above is latency-to-drawable and not latency-to-know.
+        const delta = msg.mapDelta as {
+          layers: { rooms: { id: string }[]; children: unknown[]; standaloneWalls: unknown[] }[]
+        }
+        expect(delta.layers.flatMap((l) => l.rooms.map((r) => r.id))).toEqual([room.id])
+        measured.push({
+          room,
+          ms: at - sentAt,
+          bytes,
+          children: delta.layers.reduce((n, l) => n + l.children.length, 0),
+        })
+      }
+
+      const biggest = measured[0]
+      // Not an empty envelope: the largest room ships props, lights and its own walls.
+      expect(biggest.children).toBeGreaterThan(0)
+      expect(
+        biggest.room.area,
+        'the largest room is not the one this row is named after',
+      ).toBeGreaterThanOrEqual(180)
+
+      const worst = measured.reduce((a, b) => (a.ms > b.ms ? a : b))
+      console.log(
+        `[metric] fog reveal → player, dressed map: ` +
+          `${biggest.room.name} (area ${biggest.room.area}, cold cache) ` +
+          `${biggest.ms.toFixed(1)}ms / ${(biggest.bytes / 1024).toFixed(1)}KB / ` +
+          `${biggest.children} children; worst of ${measured.length} rooms ` +
+          `${worst.room.name} ${worst.ms.toFixed(1)}ms (target < 200ms)`,
+      )
+      expect(worst.ms).toBeLessThan(200)
+    })
+  })
+})
+
+// ── §2.6 (S3): zero unrevealed data client-side, all session long ───────────
+// The row asks a question about bytes, so this asks it of bytes: every frame the player's
+// socket carried across a scripted session, plus both of its join snapshots, searched for
+// anything the party has not earned. Ids and names come off the fixture, so re-authoring
+// the map cannot quietly turn this into an assertion about nothing.
+
+/**
+ * Ray casting, spelled out here because D3 forbids the server runtime-importing @dnd/core
+ * (it pulls in pixi.js) and the redactor's own copy is a private helper. It is the geometry
+ * primitive, not the policy — the policy is `centreOf` plus "which room is that in", and
+ * that composition is exactly what this re-derives independently.
+ */
+function inside(room: Room, x: number, y: number): boolean {
+  const poly = room.boundary
+  let hit = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i]
+    const [xj, yj] = poly[j]
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) hit = !hit
+  }
+  return hit
+}
+
+/** The child ids the map plants inside `rooms` — the same centre rule the redactor uses. */
+function childrenIn(rooms: readonly Room[]): string[] {
+  const ids: string[] = []
+  for (const child of cryptLayer.children as AnyChild[]) {
+    if (child.childType === 'door') continue // doors answer through roomA/roomB, not a centre
+    const [x, y] = centreOf(child)
+    if (rooms.some((room) => inside(room, x, y))) ids.push(child.id)
+  }
+  return ids
+}
+
+describe('nothing unrevealed reaches a player socket (§2.6, D4a/D4b + reconnect)', () => {
+  it('holds across a whole scripted session and on the reconnect snapshot', async () => {
+    await withServer({}, async (server) => {
+      const { sceneId, dm, players } = await crypts(server, 'FGZ', 1)
+      const [player] = players
+      const here = roomOf(AJAR.roomA)
+      const beyond = roomOf(AJAR.roomB)
+      const explored = [here, beyond]
+
+      // Armed before anything happens, and the snapshot re-requested so the capture holds
+      // a join payload too — the row names the snapshot and the broadcasts, not one of them.
+      const seen = rawFrames(player)
+      sendJoin(player)
+      await next(player, 'session-state')
+
+      // ── the script ─────────────────────────────────────────────────────────
+      for (const room of explored) {
+        const done = nextState(dm, 'fog')
+        sendCommand(dm, 'fog', 'reveal', { roomId: room.id })
+        await done
+      }
+
+      const placed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(dm, 'tokens', 'place', { name: 'Bran', x: here.centroid[0], y: here.centroid[1] })
+      const mine = Object.values((await placed).byScene[sceneId])[0]
+      const claimed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(player, 'tokens', 'claim', { id: mine.id })
+      await claimed
+
+      const moved = nextState<TokensState>(dm, 'tokens')
+      sendCommand(player, 'tokens', 'move', {
+        id: mine.id,
+        x: here.centroid[0] + 1,
+        y: here.centroid[1],
+      })
+      await moved
+
+      // An ambusher waiting in a room nobody has entered: hidden *and* in the dark, so both
+      // rules have to hold at once for its name never to appear below.
+      const dark = cryptRooms.find((r) => !explored.some((e) => e.id === r.id))!
+      const ambushed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(dm, 'tokens', 'place', {
+        name: 'Ambusher',
+        x: dark.centroid[0],
+        y: dark.centroid[1],
+        hidden: true,
+      })
+      const ambusher = Object.values((await ambushed).byScene[sceneId]).find((t) => t.hidden)!
+
+      // Open, then shut again: a door that moves twice and settles where it started, so a
+      // frame that leaked something only says so about the toggling and not about the state.
+      for (let swing = 0; swing < 2; swing++) {
+        const swung = nextState(dm, 'doors')
+        sendCommand(dm, 'doors', 'toggle', { id: AJAR.id })
+        await swung
+      }
+
+      // ── the reconnect, captured the same way ───────────────────────────────
+      player.close()
+      await once(player, 'close')
+      const back = await connect(server, { identity: 'FGZ-p0', name: 'P0', session: 'FGZ' })
+      const resumed = rawFrames(back)
+      sendJoin(back)
+      await next(back, 'session-state')
+
+      // ── what may never have been on either socket ──────────────────────────
+      const unexplored = cryptRooms.filter((r) => !explored.some((e) => e.id === r.id))
+      expect(unexplored.length).toBe(cryptRooms.length - 2)
+
+      // Walls are the one set this does not re-derive: the redactor probes perpendicularly
+      // off a wall's midpoint to find the rooms it borders, and a second copy of that rule
+      // here would drift. The player's own map GET answers it instead — a different code
+      // path from the broadcasts and the snapshot, so the two still have to agree.
+      const playerMap = dungeonOf(
+        JSON.parse(
+          await fetchMap(server, { name: 'P0', session: 'FGZ', identity: 'FGZ-p0' }, sceneId),
+        ) as SerializedMapData,
+      )
+      const heldWalls = new Set(playerMap.standaloneWalls.map((w) => w.id))
+      expect(heldWalls.size).toBeLessThan(cryptLayer.standaloneWalls.length)
+
+      const forbidden = [
+        ...unexplored.map((r) => r.id),
+        ...unexplored.map((r) => r.name),
+        ...childrenIn(unexplored),
+        ...cryptLayer.standaloneWalls.filter((w) => !heldWalls.has(w.id)).map((w) => w.id),
+        // …the secret door, which is not geometry the party can earn by walking (D4),
+        SECRET.id,
+        // …the props on unzoned map, which no command can ever reveal (D6),
+        ...STRANDED.map((p) => p.id),
+        // …and the thing waiting in the dark.
+        ambusher.id,
+        'Ambusher',
+      ]
+      expect(forbidden.length).toBeGreaterThan(50)
+
+      const frames = [...seen, ...resumed]
+      expect(frames.length).toBeGreaterThan(5)
+      for (const needle of forbidden) {
+        const leaked = frames.find((frame) => frame.includes(needle))
+        expect(leaked?.slice(0, 200), `'${needle}' was on a player socket`).toBeUndefined()
+      }
+
+      // The other half of the row: something *did* arrive, or the assertions above are
+      // about an empty capture. Both explored rooms, the token, and the door they share.
+      const whole = frames.join('')
+      for (const needle of [here.id, beyond.id, mine.id, 'Bran', AJAR.id]) {
+        expect(whole, `'${needle}' should have reached the player`).toContain(needle)
+      }
+    })
+  })
+
+  it('ships the whole-map terrain bitmaps to players — the second documented leak (§4)', () => {
+    // D4 documents one deliberate leak (explored geometry is permanently client-side); this
+    // is the other one, and it is here so it is a decision on the record rather than a
+    // surprise in a frame capture. `customImages` is the terrain splat: one bitmap per
+    // painted layer, over the whole map, with no per-room slice to cut it along. It is
+    // 53% of this map's bytes and it goes to every player at join.
+    //
+    // Change this assertion the day the splat is sliced per room — do not delete it.
+    const images = crypt.customImages as Record<string, unknown> | undefined
+    expect(Object.keys(images ?? {}).length).toBeGreaterThan(0)
+    const bytes = JSON.stringify(images).length
+    console.log(
+      `[leak] terrain splat bitmaps ship whole-map to players: ` +
+        `${Object.keys(images!).length} image(s), ${(bytes / 1024).toFixed(0)}KB of the ` +
+        `map's ${(GATE_MAP.length / 1024).toFixed(0)}KB (documented, not a failure)`,
+    )
   })
 })
 

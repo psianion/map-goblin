@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { expect, type Page } from '@playwright/test'
+import { GAME_SERVER } from './ports'
 
 /**
  * The steps every E2E shares: host a table, join one, decide whether the map rendered.
@@ -10,7 +11,25 @@ import { expect, type Page } from '@playwright/test'
 
 export const FIXTURE = join(import.meta.dirname, '../../testdata/demo-dungeon.mapbuilder')
 
-export const SERVER_URL = process.env.E2E_SERVER_URL ?? 'http://localhost:8787'
+/** A map a spec hosts on: the file the DM uploads, and the name core's store loads it as. */
+export interface MapUnderTest {
+  file: string
+  name: string
+}
+
+export const DEMO: MapUnderTest = { file: FIXTURE, name: 'Demo Dungeon' }
+
+/**
+ * D15's dressed gate map: 13 rooms and corridors, 13 doors (3 archways, 1 secret, 2 locked),
+ * 206 walls, 4 lights, terrain and water. The S3 rows are only honest against real content.
+ */
+export const GATE: MapUnderTest = {
+  file: join(import.meta.dirname, '../../testdata/emberhold-crypt.mapbuilder'),
+  name: 'Emberhold Crypt',
+}
+
+/** `global-setup.ts` publishes this; the fallback is for a spec run against a live server. */
+export const SERVER_URL = process.env.E2E_SERVER_URL ?? GAME_SERVER
 
 /** The map document the fixture carries, once core's store has actually loaded it. */
 export async function loadedMapName(page: Page): Promise<string | undefined> {
@@ -27,7 +46,24 @@ export async function loadedMapName(page: Page): Promise<string | undefined> {
  * loaded the document. Asserted through the core store rather than the status overlay —
  * the overlay is a UI affordance, the store is the thing the renderer draws from.
  */
-export async function assertMapRendered(page: Page): Promise<void> {
+/**
+ * The half of `assertMapRendered` that holds for a *player* who has explored nothing: the
+ * document arrived and the engine loaded it. There is no floor to union yet — every room is
+ * still redacted out of their copy (D4) — so the mergedFloor check below would be asking
+ * fog to have failed.
+ */
+export async function assertMapLoaded(page: Page, map: MapUnderTest = DEMO): Promise<void> {
+  const canvas = page.locator('[data-testid="game-canvas"] canvas')
+  await expect(canvas).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText(/Waiting for the DM|Loading map|could not|failed/)).toHaveCount(0, {
+    timeout: 30_000,
+  })
+  await expect
+    .poll(() => loadedMapName(page), { timeout: 60_000, intervals: [50] })
+    .toBe(map.name)
+}
+
+export async function assertMapRendered(page: Page, map: MapUnderTest = DEMO): Promise<void> {
   const canvas = page.locator('[data-testid="game-canvas"] canvas')
   await expect(canvas).toBeVisible({ timeout: 30_000 })
 
@@ -45,7 +81,7 @@ export async function assertMapRendered(page: Page): Promise<void> {
   // spent inside the measuring instrument.
   await expect
     .poll(() => loadedMapName(page), { timeout: 60_000, intervals: [50] })
-    .toBe('Demo Dungeon')
+    .toBe(map.name)
 
   // Clipper2 unioned the fixture's five rectangles into the floor the renderer draws.
   // Non-null mergedFloor means the engine's store subscription ran, not just the fetch.
@@ -65,8 +101,15 @@ export async function assertMapRendered(page: Page): Promise<void> {
   expect(box!.height).toBeGreaterThan(100)
 }
 
-/** Landing → HostSetup's four steps. Returns the invite code the table is listening on. */
-export async function hostTable(page: Page): Promise<string> {
+/**
+ * Landing → HostSetup's four steps. Returns the invite code the table is listening on.
+ *
+ * The upload step is the real one: `#map-file` POSTs the `.mapbuilder` to
+ * `/api/campaigns/:id/maps` exactly as a DM's file picker would. There is no masking step,
+ * no fog authoring pass, nothing between the editor's file and a playable table — which is
+ * the whole of §2.6's zero-setup row.
+ */
+export async function hostTable(page: Page, map: MapUnderTest = DEMO): Promise<string> {
   await page.goto('/')
   await page.getByRole('link', { name: 'Host a game' }).click()
 
@@ -77,14 +120,36 @@ export async function hostTable(page: Page): Promise<string> {
   await page.locator('#campaign-name').fill('Cragmaw Hideout')
   await page.getByRole('button', { name: 'Create campaign' }).click()
 
-  await page.locator('#map-file').setInputFiles(FIXTURE)
-  await expect(page.getByTestId('uploaded-map')).toContainText('Demo Dungeon')
+  await page.locator('#map-file').setInputFiles(map.file)
+  await expect(page.getByTestId('uploaded-map')).toContainText(map.name)
   await page.getByRole('button', { name: 'Continue' }).click()
 
   await page.getByRole('button', { name: 'Start session' }).click()
   const code = await page.getByTestId('invite-code').textContent()
   expect(code).toMatch(/^[A-Z0-9]{6}$/)
   return code!
+}
+
+/**
+ * Frames actually painted per second, over `ms`. Foreground only — a hidden tab has its rAF
+ * throttled and the number would be about tab visibility, not about what is on the canvas.
+ */
+export function measureFps(page: Page, ms = 2000): Promise<number> {
+  return page.evaluate(
+    (duration: number) =>
+      new Promise<number>((resolve) => {
+        let frames = 0
+        const started = performance.now()
+        const tick = () => {
+          frames += 1
+          const elapsed = performance.now() - started
+          if (elapsed >= duration) resolve((frames * 1000) / elapsed)
+          else requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
+      }),
+    ms,
+  )
 }
 
 /** `/join/CODE` → a seat at the table. Returns when the table page is mounted. */

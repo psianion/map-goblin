@@ -1,8 +1,10 @@
 import { once } from 'node:events'
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { WebSocket } from 'ws'
-import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol'
-import { assertMapRendered, hostTable, joinTable, loadedMapName, SERVER_URL } from './table'
+// `.ts` because these specs run under Playwright's Node loader, not Vite: @dnd/core has no
+// `exports` map, so the subpath is resolved on the filesystem and needs its real extension.
+import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol.ts'
+import { assertMapRendered, GATE, hostTable, joinTable, loadedMapName, SERVER_URL } from './table'
 
 /**
  * @sprint1-metrics — the Sprint 1 success-metric table, asserted with a stopwatch.
@@ -158,8 +160,21 @@ test.describe.serial('@sprint1-metrics', () => {
    * The diff runs in-page rather than through a golden-file comparator: there is no baseline
    * to store, the two images are both produced by this run, and a browser already has a PNG
    * decoder. Zero new dependencies.
+   *
+   * ── Why this is `fixme` from S3 on ─────────────────────────────────────────────────────
+   * The row predates fog and S3 contradicts it. `demo-dungeon.mapbuilder` has **no zoned
+   * rooms** (0 on both layers), so under D6 every pixel of it is unzoned map — DM-only, and
+   * unrevealable by any command. The player's canvas is therefore solid black by design and
+   * the two canvases now differ on 99.998% of pixels (measured, max channel delta 219/255).
+   *
+   * That is a decision, not a bug fix: either the row is retired, or it is re-scoped to a
+   * zoned map with everything revealed, or the demo fixture gains rooms. It is left here,
+   * body intact, so whichever way that goes is a deliberate edit.
+   *
+   * Worth carrying to the same decision: an unzoned map is a *black screen* for players with
+   * no error and no affordance, and every pre-S3 map is unzoned.
    */
-  test('render parity: DM canvas vs player canvas', async () => {
+  test.fixme('render parity: DM canvas vs player canvas', async () => {
     const selector = '[data-testid="game-canvas"] canvas'
     const dmShot = await dm.locator(selector).screenshot()
     const playerShot = await player.locator(selector).screenshot()
@@ -286,6 +301,75 @@ test.describe.serial('@sprint1-metrics', () => {
     } finally {
       zeph.close()
     }
+  })
+})
+
+/**
+ * Metric (D14e carry-over): join p95 < 1.5s, over enough joins for a p95 to mean something.
+ *
+ * Its own table, on the **dressed gate map** (D15), and its own `describe` — the serial
+ * block above shares one table across four metrics, and a dozen cold contexts joining it
+ * would change what those measure.
+ *
+ * The window is `goto('/join/CODE')` → the table page mounted: document + JS bundle on a
+ * cold HTTP cache, React mount, `GET /api/resolve/:code`, `POST /api/join`, the WS upgrade
+ * and the `session-state` snapshot. It stops at the seat, not at the drawn map — engine
+ * boot, Clipper2 and the 8MB asset-pack install into a cold IndexedDB are a separate metric
+ * with a separate budget (the < 5s row above), and folding them in would make this row a
+ * second measurement of that one.
+ *
+ * Ten joins, in two batches: `/api/resolve` + `/api/join` are the two public guessable
+ * routes and the server rate-limits them together to 10 attempts a minute per IP, which is
+ * exactly five joins. The wait between batches is outside every measurement.
+ */
+test.describe('@sprint1-metrics join p95', () => {
+  const JOINS = 10
+  /** 5 joins × (resolve + join) = the server's whole per-IP minute (http.ts). */
+  const PER_WINDOW = 5
+
+  test('join p95 over 10 cold contexts', async ({ browser }) => {
+    test.setTimeout(300_000)
+
+    const hostContext = await browser.newContext({ viewport: VIEWPORT })
+    const host = await hostContext.newPage()
+    const gateCode = await hostTable(host, GATE)
+
+    const samples: number[] = []
+    try {
+      for (let i = 0; i < JOINS; i++) {
+        if (i % PER_WINDOW === 0) {
+          // Not a measurement, and deliberately outside every clock below: the limiter is a
+          // sliding 60s window, so the budget is only back once the oldest hit ages out. The
+          // wait runs before the *first* batch too — the serial block above has already spent
+          // three of this minute's attempts on its own two joins.
+          await host.waitForTimeout(61_000)
+        }
+        const context = await browser.newContext({ viewport: VIEWPORT })
+        try {
+          const player = await context.newPage()
+          const started = Date.now()
+          await joinTable(player, gateCode, `Delver${i}`)
+          samples.push(Date.now() - started)
+        } finally {
+          await context.close()
+        }
+      }
+    } finally {
+      await hostContext.close()
+    }
+
+    const sorted = [...samples].sort((a, b) => a - b)
+    const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.ceil(q * sorted.length) - 1)]
+    const p95 = at(0.95)
+
+    record(
+      `join p95 over ${JOINS} cold contexts (link → seated at the table, gate map)`,
+      `p95 ${p95}ms, p50 ${at(0.5)}ms, min ${sorted[0]}ms, max ${sorted[sorted.length - 1]}ms ` +
+        `— [${sorted.join(', ')}]ms`,
+      '< 1500ms',
+    )
+    expect(samples).toHaveLength(JOINS)
+    expect(p95).toBeLessThan(1500)
   })
 })
 
