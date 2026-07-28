@@ -6,6 +6,8 @@ import { LightingRenderer } from './lighting';
 import { FogTransition } from './fogTransition';
 import { initToolPreview } from './toolPreview';
 import { initRoomHighlight } from './roomHighlight';
+import { TerrainRenderer, setTerrainRenderer } from './terrain/TerrainRenderer';
+import { initWaterAnimation, getWaterFilter } from './water/waterAnimation';
 
 export interface SceneGraph {
   worldContainer: Container;
@@ -17,9 +19,11 @@ export interface SceneGraph {
   toolManager: ToolManager;
   lightingRenderer: LightingRenderer;
   fogTransition: FogTransition;
+  terrainRenderer: TerrainRenderer;
 }
 
 export interface DungeonSublayers {
+  water: Container;
   floor: Container;
   grid: Container;
   hatching: Container;
@@ -72,6 +76,14 @@ export function buildSceneGraph(engine: RenderEngine): SceneGraph {
   backgroundLayer.label = 'backgroundLayer';
   worldContainer.addChild(backgroundLayer);
 
+  // Terrain splatmap — painted ground, above background / below grid+layers
+  const terrainRenderer = new TerrainRenderer(engine);
+  setTerrainRenderer(terrainRenderer);
+  worldContainer.addChild(terrainRenderer.container);
+
+  // Water animation (shared displacement filter + flow ticker)
+  initWaterAnimation(engine, worldContainer);
+
   // Grid renderer — persistent background grid behind all layers
   const gridRenderer = new GridRenderer();
   worldContainer.addChild(gridRenderer.container);
@@ -116,6 +128,7 @@ export function buildSceneGraph(engine: RenderEngine): SceneGraph {
     toolManager,
     lightingRenderer,
     fogTransition,
+    terrainRenderer,
   };
 }
 
@@ -135,12 +148,16 @@ export function addLayerToScene(
 
   let sublayers: DungeonSublayers | null = null;
   if (layerType === 'dungeon') {
+    const water = new Container(); water.label = 'sublayer-water';
     const floor = new Container(); floor.label = 'sublayer-floor';
     const grid = new Container(); grid.label = 'sublayer-grid';
     const hatching = new Container(); hatching.label = 'sublayer-hatching';
     const walls = new Container(); walls.label = 'sublayer-walls';
-    container.addChild(floor, grid, hatching, walls);
-    sublayers = { floor, grid, hatching, walls };
+    container.addChild(water, floor, grid, hatching, walls);
+    // Shared ripple displacement over all water in this layer
+    const waterFilter = getWaterFilter();
+    if (waterFilter) water.filters = [waterFilter];
+    sublayers = { water, floor, grid, hatching, walls };
   }
 
   const renderTexture: RenderTexture | null = null;

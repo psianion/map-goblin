@@ -3,11 +3,22 @@ import type { AnyChild, WallSegment, WallType, WallDirection, DoorStyle, MaskDat
 import type { Polygon } from '../types/geometry';
 
 // ─── Map Settings ─────────────────────────────────────────
+
+/** Per-map terrain paint state (splatmap metadata — bitmaps live in assets.customImages). */
+export interface TerrainData {
+  /** Texture ids assigned to splat slots (up to 6). null = unassigned slot. */
+  palette: (string | null)[];
+  /** World-space AABB of painted terrain, for export bounds. null = nothing painted. */
+  bounds: { minX: number; minY: number; maxX: number; maxY: number } | null;
+}
+
 export interface MapSettings {
   name: string;
   gridType: 'square' | 'hex' | 'isometric';
   cellScale: { value: number; unit: string };
   ambientLight: string;
+  /** Optional — absent on maps that never painted terrain (and on pre-terrain saves). */
+  terrain?: TerrainData;
 }
 
 // ─── Grid ─────────────────────────────────────────────────
@@ -111,7 +122,27 @@ export type ToolType =
   | 'light'
   | 'ruler'
   | 'assetPlacement'
-  | 'scatterBrush';
+  | 'scatterBrush'
+  | 'terrain'
+  | 'water';
+
+export interface TerrainBrushSettings {
+  /** Active palette slot index (0-5). */
+  slot: number;
+  /** Brush radius in world units (grid cells). */
+  radius: number;
+  /** Paint opacity/flow per stamp, 0-1. */
+  strength: number;
+}
+
+export interface WaterToolSettings {
+  mode: 'river' | 'lake';
+  /** River stroke width in world units. */
+  width: number;
+  textureId: string;
+  bankTextureId: string;
+  flowSpeed: number;
+}
 
 export interface ScatterBrushSettings {
   assetIds: string[];
@@ -135,6 +166,8 @@ export interface ToolSettings {
   doorStyle: DoorStyle;
   doorSecret: boolean;
   doorWidth: number;
+  terrainBrush: TerrainBrushSettings;
+  water: WaterToolSettings;
 }
 
 export interface ToolsSlice {
@@ -309,6 +342,7 @@ export interface MapBuilderStore {
   setMapName: (name: string) => void;
   setGridType: (type: MapSettings['gridType']) => void;
   setAmbientLight: (color: string) => void;
+  setTerrainData: (patch: Partial<TerrainData>) => void;
 
   // grid actions
   setGridVisible: (visible: boolean) => void;
@@ -347,6 +381,8 @@ export interface MapBuilderStore {
   addRecentAsset: (assetId: string) => void;
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;
   updateScatterBrushSettings: (patch: Partial<ScatterBrushSettings>) => void;
+  updateTerrainBrushSettings: (patch: Partial<TerrainBrushSettings>) => void;
+  updateWaterSettings: (patch: Partial<WaterToolSettings>) => void;
 
   // ui actions
   setActiveLayerId: (id: string) => void;

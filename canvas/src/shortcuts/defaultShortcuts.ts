@@ -82,6 +82,24 @@ const toolKeyMap: Record<string, () => void | false> = {
       notify.subtle('Light', { icon: 'tool' });
     }
   },
+  t: () => {
+    const s = useStore.getState();
+    if (s.tools.activeTool === 'terrain') {
+      togglePopoverRef.current?.();
+    } else {
+      s.setActiveTool('terrain');
+      notify.subtle('Terrain Brush', { icon: 'tool' });
+    }
+  },
+  u: () => {
+    const s = useStore.getState();
+    if (s.tools.activeTool === 'water') {
+      togglePopoverRef.current?.();
+    } else {
+      s.setActiveTool('water');
+      notify.subtle('Water', { icon: 'tool' });
+    }
+  },
   // Mode toggles
   e: () => {
     const s = useStore.getState();

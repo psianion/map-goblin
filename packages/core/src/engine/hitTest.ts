@@ -165,6 +165,21 @@ export function getChildBounds(child: AnyChild): {
         height: child.width,
       };
     }
+    case 'water': {
+      const points = child.contours[0] ?? [];
+      if (points.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
+      let minX = points[0][0];
+      let maxX = points[0][0];
+      let minY = points[0][1];
+      let maxY = points[0][1];
+      for (const [px, py] of points) {
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (py < minY) minY = py;
+        if (py > maxY) maxY = py;
+      }
+      return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    }
   }
 }
 
