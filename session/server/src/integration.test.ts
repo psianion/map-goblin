@@ -819,6 +819,66 @@ describe('reveal and retraction broadcasts (§2.6, D4c/D5)', () => {
       expect(Object.values(tokens.byScene[sceneId]).map((t) => t.name)).toEqual(['Bran'])
     })
   })
+
+  it('hands the rest of the map over the moment concealment is switched off (D3 layer 2)', async () => {
+    // The second browser gate read this as a bug: every room revealed, and a player still
+    // holding nothing but the tokens in the room they stand in. That half is D3 working —
+    // every door on the gate map is authored shut, so nothing is reachable. What has to be
+    // true is the other half: the toggle that turns the rule off is felt without a reload,
+    // by a slice no command in it touched.
+    await withServer({}, async (server) => {
+      const { sceneId, dm, players } = await crypts(server, 'FGH', 1)
+      const [player] = players
+      const here = roomOf(AJAR.roomA)
+      const beyond = roomOf(AJAR.roomB)
+
+      // Reveal All, exactly as the fog tool sends it — and every door still shut.
+      const revealedAll = nextState(dm, 'fog')
+      sendCommand(dm, 'fog', 'set-bulk', {
+        rooms: Object.fromEntries(
+          cryptRooms.map((room) => [room.id, { status: 'revealed', wasEverRevealed: true }]),
+        ),
+      })
+      await revealedAll
+
+      const placed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(dm, 'tokens', 'place', { name: 'Bran', x: here.centroid[0], y: here.centroid[1] })
+      const mine = Object.values((await placed).byScene[sceneId])[0]
+      const claimed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(player, 'tokens', 'claim', { id: mine.id })
+      await claimed
+
+      const alone = nextState<TokensState>(player, 'tokens')
+      sendCommand(dm, 'tokens', 'place', {
+        name: 'Wight',
+        x: beyond.centroid[0],
+        y: beyond.centroid[1],
+      })
+      expect(Object.values((await alone).byScene[sceneId]).map((t) => t.name)).toEqual(['Bran'])
+
+      // Both listeners before the command: the fog frame lands first and the tokens resend
+      // rides behind it (D4c), so waiting for one after the other would miss it.
+      const conceal = nextState<FogState>(
+        player,
+        'fog',
+        (s) => s.byScene[sceneId]?.concealBehindDoors === false,
+      )
+      const both = nextState<TokensState>(
+        player,
+        'tokens',
+        (s) => Object.keys(s.byScene[sceneId] ?? {}).length === 2,
+      )
+      sendCommand(dm, 'fog', 'set-conceal', { concealBehindDoors: false })
+
+      // The flag the player's own renderer classifies by, and the tokens it was withholding.
+      await conceal
+      expect(
+        Object.values((await both).byScene[sceneId])
+          .map((t) => t.name)
+          .sort(),
+      ).toEqual(['Bran', 'Wight'])
+    })
+  })
 })
 
 // ── D9: the undo window, replayed at the wire ───────────────────────────────

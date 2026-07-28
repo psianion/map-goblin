@@ -6,6 +6,7 @@
 // that an unrelated store write does not rebuild the mask.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Graphics, Point } from 'pixi.js';
 import type { DoorChild, Room } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import { useStore } from '@dnd/core/src/store/store';
@@ -15,9 +16,11 @@ import type { Token } from '@dnd/mechanics/tokens';
 import type { LiveDoor } from '../doors/doors';
 import { useSessionStore } from '../../session/store';
 import {
-  EXPLORED_SHADE_ALPHA,
+  EXPLORED_TINT,
   EXPLORED_TINT_ALPHA,
+  PARTY_ROOM_UNKNOWN,
   REVEAL_MS,
+  drawLightMask,
   easeOutQuart,
   fogBounds,
   fogScene,
@@ -26,6 +29,7 @@ import {
   revealsBetween,
   roomViews,
   subscribeFogScene,
+  type FogScene,
   type RoomView,
 } from './FogRenderer';
 
@@ -225,9 +229,29 @@ describe('partyRoomIds', () => {
       token({ id: 't2', x: 12, y: 2 }),
       token({ id: 't3', x: 22, y: 2, ownerId: null }), // DM scenery
       token({ id: 't4', x: 22, y: 2, hidden: true }),
-      token({ id: 't5', x: 100, y: 100 }), // unzoned map is nobody's room (D6)
     ];
     expect(partyRoomIds(tokens, ROOMS).sort()).toEqual([GALLERY.id, VESTIBULE.id].sort());
+  });
+
+  it('names a room it cannot place a claimed token in, rather than reporting no party', () => {
+    // The reload case: the party's own token is somewhere this tab has no geometry for,
+    // because the default-room fallback stopped handing that room over (amendment
+    // 2026-07-28). Concealment has to stay on — the server, which *can* place the token,
+    // keeps concealing — so the id has to be a real element that no door leads to.
+    expect(partyRoomIds([token({ x: 100, y: 100 })], ROOMS)).toEqual([PARTY_ROOM_UNKNOWN]);
+    expect(ROOMS.some((r) => r.id === PARTY_ROOM_UNKNOWN)).toBe(false);
+  });
+
+  it('keeps a revealed room a memory when the party is standing somewhere unknown', () => {
+    // Without the line above this reads as "no party", `effectiveFog` drops concealment and
+    // the gallery lights up — while the server goes on withholding everything inside it.
+    const views = roomViews(
+      [GALLERY],
+      fogOf({ [GALLERY.id]: seen }),
+      [liveDoor(door('d1', VESTIBULE.id, GALLERY.id))],
+      partyRoomIds([token({ x: 100, y: 100 })], [GALLERY]),
+    );
+    expect(views.get(GALLERY.id)).toBe<RoomView>('explored');
   });
 });
 
@@ -287,13 +311,94 @@ describe('reveal timing', () => {
   });
 });
 
+// ── The explored look, at the pixel (D10) ───────────────────────────────────
+// The second browser gate read every explored room as a flat dark-grey box with a tick on
+// it, and a flat box is not something the two constants alone can be checked for: what made
+// it flat was the *lighting* underneath, not the wash. So the arithmetic below models both
+// halves — the engine's multiply composite and the fog's fill — over a strip of floor, and
+// asks the only question the gate was really asking: is there still any texture in there.
+
+/** One flat fill over a base channel value, source-over. Channels are 0..255. */
+const over = (base: number, color: number, alpha: number): number =>
+  base * (1 - alpha) + color * alpha;
+
+/**
+ * LightingRenderer's composite: a full-screen sprite at alpha 0.95, blend `multiply`, filled
+ * with the map's ambient where no light reaches. `#0d0e12` is the gate map's, and all four
+ * of its torches are in one room — every other room is composited against exactly this.
+ */
+const AMBIENT = 0x0d;
+const unlit = (base: number): number => base * (0.05 + 0.95 * (AMBIENT / 255));
+
+/** A stretch of dungeon floor, as one channel. Texture is the spread between these. */
+const FLOOR = [140, 168, 120, 190, 152];
+const spread = (values: number[]): number => Math.max(...values) - Math.min(...values);
+
+/** What the wash does to whatever it is given. */
+const washed = (base: number): number => over(base, EXPLORED_TINT & 0xff, EXPLORED_TINT_ALPHA);
+
 describe('the explored look', () => {
-  it('is dim and desaturated, not black — two encodings plus the glyph', () => {
-    // ~35% of the lit render survives, and most of the room's own colour does not.
-    const brightness = (1 - EXPLORED_SHADE_ALPHA) * (1 - EXPLORED_TINT_ALPHA);
-    expect(brightness).toBeGreaterThan(0.15);
-    expect(brightness).toBeLessThan(0.35);
+  it('keeps the floor texture readable — a memory, not a placeholder', () => {
+    const drawn = FLOOR.map(washed);
+    // Spatial detail survives: the gate's "flat box" is a spread of ~1, this is tens.
+    expect(spread(drawn)).toBeGreaterThan(15);
+    // …and it is nowhere near black, which is what `never_revealed` is reserved for.
+    expect(Math.min(...drawn)).toBeGreaterThan(24);
+  });
+
+  it('reads darker and deader than the same floor lit', () => {
+    // A torch at strength: the wash has to leave the explored room below it (task #14's
+    // brightness inversion), while still sitting clear of the dark it is next to.
+    const litFloor = FLOOR.map((v) => v * 0.9);
+    expect(Math.max(...FLOOR.map(washed))).toBeLessThan(Math.min(...litFloor));
+    // Desaturating, not merely darkening: most of the room's own colour is replaced.
     expect(EXPLORED_TINT_ALPHA).toBeGreaterThan(0.5);
+  });
+
+  it('is the lighting multiply that flattened it, which is why the mask exists', () => {
+    // The regression, stated: compose the wash over an ambient-lit room and the floor's
+    // whole 70-level range collapses to under three levels of 255 — the flat box.
+    expect(spread(FLOOR.map((v) => washed(unlit(v))))).toBeLessThan(3);
+  });
+});
+
+describe('drawLightMask — the lighting is held off a memory', () => {
+  const scene = (views: Record<string, RoomView>, isPlayer = true): FogScene => ({
+    rooms: ROOMS,
+    views: new Map(Object.entries(views)),
+    bounds: fogBounds([], ROOMS),
+    sceneId: 'scene-1',
+    isPlayer,
+  });
+  const drawn = (g: { context: { instructions: unknown[] } }): number =>
+    g.context.instructions.length;
+
+  it('asks for no mask at all when nothing is explored — most of a session', () => {
+    const mask = new Graphics();
+    expect(drawLightMask(mask, scene({ [VESTIBULE.id]: 'visible', [GALLERY.id]: 'dark' }))).toBe(
+      false,
+    );
+    expect(drawn(mask as unknown as { context: { instructions: unknown[] } })).toBe(0);
+  });
+
+  it('cuts a hole for every explored room and covers everything else', () => {
+    const mask = new Graphics();
+    expect(
+      drawLightMask(mask, scene({ [VESTIBULE.id]: 'explored', [GALLERY.id]: 'explored' })),
+    ).toBe(true);
+
+    // Inside a memory, the mask is absent — that is the room the multiply cannot reach.
+    expect(mask.context.containsPoint(new Point(...VESTIBULE.centroid))).toBe(false);
+    expect(mask.context.containsPoint(new Point(...GALLERY.centroid))).toBe(false);
+    // The vault is not a memory, so the lighting lands on it as usual.
+    expect(mask.context.containsPoint(new Point(...VAULT.centroid))).toBe(true);
+    // And far outside the map: still covered, so a zoomed-out camera finds no bright ring.
+    expect(mask.context.containsPoint(new Point(-5000, -5000))).toBe(true);
+  });
+
+  it('never holds the lighting off the DM, who is never masked at all', () => {
+    const mask = new Graphics();
+    expect(drawLightMask(mask, scene({ [VESTIBULE.id]: 'explored' }, false))).toBe(false);
   });
 });
 

@@ -18,6 +18,14 @@
 // *beneath* the fog, never recomputed for it. A revealed room fades from black to a
 // finished torchlit room, never to a flat one that lights up a beat later.
 //
+// And an explored room is held *out* of that multiply (`drawLightMask`). A memory is not a
+// thing you are looking at: the party is not standing there with a torch, so composing the
+// live lighting into it means composing 5% ambient into it, which crushes the floor texture
+// to under one level of 255 and leaves the flat grey box the second browser gate found.
+// D10 asks for "~35% brightness on those rooms' render" and the room's render is the map,
+// not the map times the dark it is currently sitting in. So the lighting sprite is masked
+// everywhere except the rooms that are only memories, and the wash below dims *that*.
+//
 // ponytail: pixi through @dnd/core, the same reach-through TokenRenderer documents.
 import { Container, Graphics } from 'pixi.js';
 import type { Room } from '@dnd/core/src/shared/types';
@@ -47,14 +55,38 @@ export const REVEAL_MS = 300;
 export const FOG_BLACK = 0x000000;
 /** Cold slate: the desaturating half of the explored look, pulling warm torchlight out. */
 export const EXPLORED_TINT = 0x2c313b;
-export const EXPLORED_TINT_ALPHA = 0.62;
-/** The brightness half — roughly a third of the lit render comes through. */
-export const EXPLORED_SHADE_ALPHA = 0.4;
+/**
+ * D10's two numbers in one fill, over a room the lighting is not allowed to touch:
+ * `1 - alpha` of the room's own render survives (35%, the brightness half) and the rest is
+ * that cold slate (the desaturating half — 65% of a near-neutral colour collapses the
+ * torchlight out of anything warm underneath).
+ *
+ * Read on a mid-grey floor: 0.35·160 + 0.65·49 ≈ 88, carrying ±14 levels of the floor's own
+ * texture. Black stays 0 and a lit room reads well north of 140, so the three states are
+ * three brightnesses as well as three treatments — PRODUCT's "stale at a glance on a bad
+ * panel" without leaning on colour, and the glyph is the third encoding on top.
+ *
+ * One fill, not the stacked tint-then-shade pair this replaced: two fills multiply their
+ * survivals (0.38 × 0.60 = 23%) *and* stack two pedestals, which is what made the wash
+ * read as a placeholder rather than a dimmed room.
+ */
+export const EXPLORED_TINT_ALPHA = 0.65;
 /** Warm parchment, quiet: the mark that says "you have been here" without colour. */
 export const EXPLORED_GLYPH_COLOR = 0xd8cfc0;
 
 /** Black extends this far past the map so the edge of the world is not a tell. */
 const BOUNDS_PAD = 20;
+
+/**
+ * The lighting sprite is full-screen; the mask that holds explored rooms out of it lives in
+ * world space with the rest of the fog, so it needs a rect big enough to still cover the
+ * viewport when the camera is zoomed all the way out. Anything under-sized would leave a
+ * ring of *undarkened* map around the edge of the world.
+ */
+const LIGHT_MASK_PAD = 100_000;
+
+/** LightingRenderer's label for its full-screen multiply sprite (overlayLayer knows it too). */
+const LIGHTING_COMPOSITE = 'lightingComposite';
 
 export interface Bounds {
   minX: number;
@@ -115,6 +147,26 @@ export function roomViews(
 }
 
 /**
+ * A room this tab cannot name, which is not the same thing as no room at all.
+ *
+ * A player keeps their own claimed token wherever the DM puts the dark (D7), so it can be
+ * standing in a room whose geometry this tab does not hold — most ordinarily after a reload,
+ * because the default-room fallback stops handing that room over the instant the DM reveals
+ * a real one (amendment 2026-07-28), and a fresh map GET is cut without it. Reading that as
+ * "the party is nowhere" would flip concealment off and light up every revealed room, while
+ * the server — which has the whole map and can place the token — goes on concealing them and
+ * withholding what is inside. The amendment's whole point is that those two do not drift, so
+ * an unplaceable party token names a room instead: one no door leads to, so the BFS reaches
+ * nothing and every explored room stays a memory, which is exactly the server's answer.
+ *
+ * ponytail: a token on genuinely unzoned map (D6) is indistinguishable from this and lands
+ * here too, where the server would have skipped it. That errs dark rather than bright and
+ * needs a claimed token parked outside every room to happen at all; the day it matters, the
+ * fix is the server naming the party's rooms on the wire, not a guess on this side.
+ */
+export const PARTY_ROOM_UNKNOWN = ' party-elsewhere';
+
+/**
  * Where the party is standing, for D3's reachability BFS. A claimed token is a player at
  * the table; an unclaimed one is scenery the DM moves. D7 needs no special case here — a
  * player's own claimed token is always in their tokens slice, so it always counts.
@@ -124,7 +176,7 @@ export function partyRoomIds(tokens: readonly Token[], rooms: readonly Room[]): 
   for (const token of tokens) {
     if (!token.ownerId || token.hidden) continue;
     const room = roomAt(rooms, token.x, token.y);
-    if (room) ids.add(room.id);
+    ids.add(room ? room.id : PARTY_ROOM_UNKNOWN);
   }
   return [...ids];
 }
@@ -267,8 +319,37 @@ function paintRoom(g: Graphics, room: Room, view: RoomView): void {
   }
   if (view !== 'explored') return;
   g.poly(path).fill({ color: EXPLORED_TINT, alpha: EXPLORED_TINT_ALPHA });
-  g.poly(path).fill({ color: FOG_BLACK, alpha: EXPLORED_SHADE_ALPHA });
   drawExploredGlyph(g, room.centroid);
+}
+
+/**
+ * Where the lighting composite is allowed to land: everywhere but the rooms that are only
+ * memories. One rect with a hole cut per explored room — the same shape `drawFog` builds,
+ * inverted, and for the same reason: one Graphics is one draw whatever the room count.
+ *
+ * Returns false when nothing is explored, which is most of a session; the caller drops the
+ * mask entirely then rather than pay a full-screen stencil pass to change nothing.
+ */
+export function drawLightMask(mask: Graphics, scene: FogScene): boolean {
+  mask.clear();
+  if (!scene.isPlayer || !scene.bounds) return false;
+
+  const explored = scene.rooms.filter(
+    (room) => room.boundary.length >= 3 && scene.views.get(room.id) === 'explored',
+  );
+  if (explored.length === 0) return false;
+
+  const { minX, minY, maxX, maxY } = scene.bounds;
+  mask
+    .rect(
+      minX - LIGHT_MASK_PAD,
+      minY - LIGHT_MASK_PAD,
+      maxX - minX + LIGHT_MASK_PAD * 2,
+      maxY - minY + LIGHT_MASK_PAD * 2,
+    )
+    .fill({ color: 0xffffff, alpha: 1 });
+  for (const room of explored) mask.poly(room.boundary.flat()).cut();
+  return true;
 }
 
 /**
@@ -301,10 +382,20 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   const layer = new Container();
   const scrim = new Graphics();
   const fadeLayer = new Container();
-  layer.addChild(scrim, fadeLayer);
+  // The light mask rides inside the fog layer purely for its transform: it has to be in
+  // world space and Pixi masks from an object's place in the scene graph. Assigning it as a
+  // mask clears `includeInBuild`, so it is never drawn as colour (pixi.js StencilMask#init).
+  const lightMask = new Graphics();
+  layer.addChild(scrim, fadeLayer, lightMask);
   // Nothing here is clickable; the fog tool and the doors read the DOM canvas directly.
   layer.eventMode = 'none';
   addScreenOverlay(sceneGraph, layer, 'playerFog');
+
+  /** Null on a table with no lighting engine — then there is no multiply to hold back. */
+  const composite = (): Container | null =>
+    (sceneGraph.overlayContainer.children.find((c) => c.label === LIGHTING_COMPOSITE) as
+      | Container
+      | undefined) ?? null;
 
   const world = sceneGraph.worldContainer;
   const fades: Fade[] = [];
@@ -328,6 +419,12 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
 
     layer.visible = scene.isPlayer;
     drawFog(scrim, scene);
+
+    // The DM is never masked and never held out of their own lighting (PRODUCT principle 3),
+    // so `drawLightMask` answering false covers both them and the ordinary player with
+    // nothing explored.
+    const lit = composite();
+    if (lit) lit.mask = drawLightMask(lightMask, scene) ? lightMask : null;
 
     // Reduced motion cuts instead of fading, so it simply never starts one.
     if (scene.isPlayer && revealDurationMs() > 0) {
@@ -373,6 +470,9 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // The engine may already be gone (GameRenderer unmounting first) — its objects are
     // destroyed and touching them throws.
     try {
+      // Hand the lighting back before the mask it points at is destroyed.
+      const lit = composite();
+      if (lit && lit.mask === lightMask) lit.mask = null;
       if (!layer.destroyed) layer.destroy({ children: true });
     } catch {
       /* engine torn down first */
