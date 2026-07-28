@@ -15,10 +15,21 @@ import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
  *
  * Layers place themselves by label, so mount order does not decide the stack — the panels
  * that mount them are ordered by what a DM wants to read, not by what must draw first.
+ *
+ * `playerFog` is last because it is the one layer that must hide the others: a room a
+ * player cannot see hides its tokens and its doors too. It is also the one layer that does
+ * not mount into the world container — the engine composites lighting as a screen-space
+ * multiply *after* the world, so a wash drawn in the world is erased by a dark ambient.
+ * D12 wants the lighting composited *beneath* the fog, so it goes through
+ * `addScreenOverlay` and mirrors the camera itself. It keeps its place in this list because
+ * this list is where "what draws over what" is decided.
  */
-export const OVERLAY_STACK = ['fogOverlay', 'doorOverlay', 'tokenLayer'] as const;
+export const OVERLAY_STACK = ['fogOverlay', 'doorOverlay', 'tokenLayer', 'playerFog'] as const;
 
 export type OverlayLabel = (typeof OVERLAY_STACK)[number];
+
+/** LightingRenderer's own label for its full-screen multiply sprite. */
+const LIGHTING_COMPOSITE = 'lightingComposite';
 
 /** Add an overlay to the world container at its place in `OVERLAY_STACK`. */
 export function addWorldOverlay(sceneGraph: SceneGraph, layer: Container, label: OverlayLabel): void {
@@ -36,6 +47,23 @@ export function addWorldOverlay(sceneGraph: SceneGraph, layer: Container, label:
     if (other >= 0 && other < rank) index = i + 1;
   }
   world.addChildAt(layer, index);
+}
+
+/**
+ * Add an overlay to the screen-space container, directly above the lighting composite.
+ *
+ * Only the player fog needs this: everything else is drawn *under* the lighting on purpose,
+ * because it is content the lighting is supposed to fall on. Fog is the opposite — it is
+ * what the lighting is composited beneath (D12) — so it sits above the multiply and below
+ * the map-switch transition, which stays the topmost thing on the canvas.
+ *
+ * The caller owns the camera: this container is not camera-transformed.
+ */
+export function addScreenOverlay(sceneGraph: SceneGraph, layer: Container, label: OverlayLabel): void {
+  layer.label = label;
+  const overlay = sceneGraph.overlayContainer;
+  const lighting = overlay.children.findIndex((child) => child.label === LIGHTING_COMPOSITE);
+  overlay.addChildAt(layer, lighting >= 0 ? lighting + 1 : overlay.children.length);
 }
 
 /**

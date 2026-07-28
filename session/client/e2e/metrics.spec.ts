@@ -1,6 +1,7 @@
 import { once } from 'node:events'
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { WebSocket } from 'ws'
+import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol'
 import { assertMapRendered, hostTable, joinTable, loadedMapName, SERVER_URL } from './table'
 
 /**
@@ -298,6 +299,6 @@ async function joinOverWire(code: string, name: string): Promise<WebSocket> {
   const { token } = (await res.json()) as { token: string }
   const socket = new WebSocket(`${SERVER_URL.replace(/^http/, 'ws')}/ws?token=${encodeURIComponent(token)}`)
   await once(socket, 'open')
-  socket.send(JSON.stringify({ type: 'join', protocolVersion: 2 }))
+  socket.send(JSON.stringify({ type: 'join', protocolVersion: PROTOCOL_VERSION }))
   return socket
 }

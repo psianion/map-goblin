@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import type { PlayerInfo, Role, ServerMessage, SessionState } from '@dnd/core/src/shared/protocol';
+import type { SerializedMapData } from '@dnd/core/src/store/types';
+import { mergeMapDelta, type MapDelta } from './loadSceneMap';
 import { WebSocketClient } from './WebSocketClient';
 import type { ConnectionStatus } from './WebSocketClient';
 
@@ -142,11 +144,24 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
         case 'state-update': {
           const session = get().session;
           if (!session) break; // update before the snapshot — the snapshot wins
+          // D5: a fog update that reveals rooms carries their geometry in the same message,
+          // so there is no frame in which this client knows a room is revealed and has
+          // nothing to draw for it. One `set`, because that atomicity *is* the guarantee.
+          const delta = (msg as { mapDelta?: MapDelta }).mapDelta;
+          const mapData = delta
+            ? mergeMapDelta(
+                get().mapData as SerializedMapData | null,
+                delta,
+                get().you?.role,
+                session.activeSceneId,
+              )
+            : get().mapData;
           set({
             session: {
               ...session,
               modules: { ...session.modules, [msg.module]: msg.state },
             },
+            mapData,
           });
           break;
         }
