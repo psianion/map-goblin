@@ -22,6 +22,11 @@ export interface AuthoredDoor {
   id: string
   state: 'closed' | 'open' | 'locked'
   isSecret: boolean
+  /**
+   * An archway is a permanent opening — no leaf to swing or lock, and core's own renderer
+   * draws no state indicator on one. Absent reads as an ordinary door.
+   */
+  style?: 'single' | 'double' | 'portcullis' | 'archway' | 'portal'
   /** Room on one side. `null` = exterior, absent = never bound. */
   roomA?: string | null
   roomB?: string | null
@@ -32,10 +37,14 @@ export interface AuthoredDoor {
 export const DOOR_LOCKED = 'door-locked'
 export const UNKNOWN_DOOR = 'unknown-door'
 
+export const isArchway = (door: AuthoredDoor): boolean => door.style === 'archway'
+
+// An archway stands open whatever the map authored on it: sight, light and the BFS all read
+// `open`, and a map that ships one `closed` must not wall the party in behind a hole.
 export function seedDoor(door: AuthoredDoor): DoorLiveState {
   return {
-    open: door.state === 'open',
-    locked: door.state === 'locked',
+    open: isArchway(door) || door.state === 'open',
+    locked: !isArchway(door) && door.state === 'locked',
     revealed: !door.isSecret,
   }
 }

@@ -5,13 +5,16 @@
 // integration.test.ts, against a running server; these are the rules themselves.
 
 import { describe, expect, it } from 'vitest'
-import type { FogState, SceneFog } from '@dnd/mechanics/fog'
-import type { DoorsState } from '@dnd/mechanics/doors'
+import { fogModule, type FogState, type SceneFog } from '@dnd/mechanics/fog'
+import { doorsModule, type DoorsState } from '@dnd/mechanics/doors'
+import type { Viewer } from '@dnd/mechanics/contract'
 import type { Token, TokensState } from '@dnd/mechanics/tokens'
 import type { AnyChild, DoorChild, Room, WallSegment } from '@dnd/core/src/shared/types'
+import type { ServerMessage } from '@dnd/core/src/shared/protocol'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import { openDb } from '../db/db'
 import { createStores, type Stores } from '../db/stores'
+import { ModuleRegistry } from '../modules/registry'
 import { mapDeltaFor, redactMapForViewer } from './redactMap'
 import { createSceneMaps } from './sceneMap'
 import { createVision } from './vision'
@@ -354,5 +357,106 @@ describe('vision (D3/D8)', () => {
       byScene: { [SCENE]: fog({ rooms: { ...fog().rooms, vault: { status: 're_hidden', wasEverRevealed: true } } }) },
     } satisfies FogState)
     expect(vision.revealDelta(SCENE)).toBeNull()
+  })
+})
+
+// ── the doors a player is told about ────────────────────────────────────────
+
+const DM: Viewer = { role: 'dm', identityId: 'dm-1' }
+const P1: Viewer = { role: 'player', identityId: 'p-1' }
+
+const seen = (...rooms: string[]): FogState => ({
+  byScene: {
+    [SCENE]: {
+      concealBehindDoors: true,
+      rooms: Object.fromEntries(
+        rooms.map((id) => [id, { status: 'revealed' as const, wasEverRevealed: true }]),
+      ),
+    },
+  },
+})
+
+describe('vision.playerDoors (D4)', () => {
+  it('is empty before the party has explored anything, and for a scene with no map', () => {
+    const { vision } = table()
+    expect([...vision.playerDoors(SCENE)]).toEqual([])
+    expect([...vision.playerDoors('no-such-scene')]).toEqual([])
+  })
+
+  it('names the doors of the explored rooms and nothing past them', () => {
+    const { vision, stores, campaignId } = table()
+    stores.moduleState.put(campaignId, 'fog', seen('hall'))
+    expect([...vision.playerDoors(SCENE)]).toEqual(['door-hall-corr'])
+  })
+
+  it('answers the same cut redactMapForViewer makes on the door children', () => {
+    const { vision, stores, campaignId } = table()
+    stores.moduleState.put(campaignId, 'fog', { byScene: { [SCENE]: fog() } } satisfies FogState)
+    const onTheMap = (redactMapForViewer(sceneMap(), fog(), {}).layers[0] as DungeonLayer).children
+      .filter((child) => child.childType === 'door')
+      .map((child) => child.id)
+    // `door-secret` is in the set and absent from the map: the doors module strips a secret
+    // door on `revealed` — this seam only answers which rooms the player has been in.
+    expect([...vision.playerDoors(SCENE)].sort()).toEqual([
+      'door-corr-inner',
+      'door-hall-corr',
+      'door-secret',
+    ])
+    expect(onTheMap.sort()).toEqual(['door-corr-inner', 'door-hall-corr'])
+  })
+})
+
+describe('the doors slice on the wire (D4/D4c)', () => {
+  function wired() {
+    const { stores, campaignId, vision } = table()
+    const registry = new ModuleRegistry(stores.moduleState)
+    registry.register(fogModule(vision.roomsOf))
+    registry.register(doorsModule(vision.doorsOf, vision.playerDoors))
+    const sent: ServerMessage[] = []
+    return {
+      sent,
+      run: (module: string, action: string, payload: unknown) =>
+        registry.dispatch(module, action, payload, {
+          campaignId,
+          sessionId: 's-1',
+          activeSceneId: SCENE,
+          sender: DM,
+          players: [],
+          broadcast: (msg) => {
+            sent.push(msg)
+          },
+        }),
+      // The join/reconnect path (§2.3.4), which is where a reload gets its doors from.
+      doorsFor: (viewer: Viewer) =>
+        Object.keys(
+          (registry.snapshotModules(campaignId, viewer).doors as DoorsState).byScene[SCENE] ?? {},
+        ).sort(),
+    }
+  }
+
+  it('re-sends the doors slice when the fog moves', () => {
+    const { run, sent } = wired()
+    expect(run('fog', 'reveal', { sceneId: SCENE, roomId: 'hall' })).toBeNull()
+    // Nothing about the doors *state* changed; what changed is how much of it a player is
+    // owed, and without this frame the room they just entered has no door state at all.
+    expect(sent.map((msg) => (msg.type === 'state-update' ? msg.module : msg.type))).toEqual([
+      'fog',
+      'doors',
+    ])
+  })
+
+  it('hands a player the doors of the rooms they have explored and no others', () => {
+    const { run, doorsFor } = wired()
+    // One touch anywhere seeds every door in the scene — this is the leak, in one command.
+    expect(run('doors', 'toggle', { sceneId: SCENE, id: 'door-corr-inner' })).toBeNull()
+    expect(doorsFor(DM)).toEqual(['door-corr-inner', 'door-hall-corr', 'door-secret'])
+    expect(doorsFor(P1)).toEqual([])
+
+    run('fog', 'reveal', { sceneId: SCENE, roomId: 'hall' })
+    expect(doorsFor(P1)).toEqual(['door-hall-corr'])
+
+    run('fog', 'reveal', { sceneId: SCENE, roomId: 'corr' })
+    // The corridor's own door into the dark arrives; the secret one behind it still does not.
+    expect(doorsFor(P1)).toEqual(['door-corr-inner', 'door-hall-corr'])
   })
 })

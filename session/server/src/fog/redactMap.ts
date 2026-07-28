@@ -5,7 +5,7 @@
 // room nobody has entered has none of it — no floor, no walls, no props, not even the id.
 // Unzoned map is the DM's alone (D6) and an unrevealed secret door does not exist.
 
-import { seedDoor, type DoorLiveState } from '@dnd/mechanics/doors'
+import { seedDoor, type AuthoredDoor, type DoorLiveState } from '@dnd/mechanics/doors'
 import type { SceneFog } from '@dnd/mechanics/fog'
 import type { AnyChild, DoorChild, Room, WallSegment } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
@@ -110,14 +110,19 @@ function childKept(child: AnyChild, scene: SceneMap, kept: ReadonlySet<string>):
 }
 
 /**
- * A secret door does not exist until the DM says so. Otherwise a door is the property of
- * the rooms it joins: one the player has seen keeps it, and a door bound to neither (the
- * map never zoned it) is unzoned map, which is DM-only.
+ * A door is the property of the rooms it joins: one the player has seen keeps it, and a
+ * door bound to neither (the map never zoned it) is unzoned map, which is DM-only. The one
+ * rule behind both the geometry cut and the live doors slice a player is sent.
  */
+export function doorBound(door: AuthoredDoor, kept: ReadonlySet<string>): boolean {
+  return (!!door.roomA && kept.has(door.roomA)) || (!!door.roomB && kept.has(door.roomB))
+}
+
+/** …and a secret door does not exist at all until the DM says so. */
 function doorKept(door: DoorChild, kept: ReadonlySet<string>, doors: Doors): boolean {
   const live = doors[door.id] ?? seedDoor(door)
   if (door.isSecret && !live.revealed) return false
-  return (!!door.roomA && kept.has(door.roomA)) || (!!door.roomB && kept.has(door.roomB))
+  return doorBound(door, kept)
 }
 
 /**

@@ -9,6 +9,7 @@ import {
   DOOR_LOCKED,
   UNKNOWN_DOOR,
   doorsOfScene,
+  isArchway,
   type AuthoredDoor,
   type DoorLiveState,
   type DoorsState,
@@ -19,10 +20,21 @@ export * from './types'
 /** The doors a scene's map authors. */
 export type SceneDoors = (campaignId: string, sceneId: string) => readonly AuthoredDoor[]
 
+/**
+ * S3 D4 — the door ids a player is allowed to hold for a scene: the ones bound to a room
+ * the party has explored. The server backs this with the same fog cache `tokensModule`
+ * takes its `visionOf` from. The default answers `null` — no fog knowledge, nothing
+ * filtered, which is the S2 behaviour and what a scene with no authored rooms gets anyway.
+ */
+export type PlayerDoors = (sceneId: string) => ReadonlySet<string> | null
+
 type Ctx = ModuleContext<DoorsState>
 type Payload = Record<string, unknown>
 
-export function doorsModule(doorsOf: SceneDoors): GameModule<DoorsState> {
+export function doorsModule(
+  doorsOf: SceneDoors,
+  playerDoorsOf: PlayerDoors = () => null,
+): GameModule<DoorsState> {
   return {
     name: 'doors',
     commands: {
@@ -44,13 +56,19 @@ export function doorsModule(doorsOf: SceneDoors): GameModule<DoorsState> {
 
     // D4: an unrevealed secret door is dropped whole for non-DMs. That is also why a plain
     // door is seeded `revealed: true` — `revealed` alone decides this, with no authored
-    // data in reach. Idempotent: a state with the secrets already gone loses nothing more.
+    // data in reach. On top of that a player holds only the doors the fog has handed over:
+    // a live entry for every door in the scene is a map of the dungeon written in ids, and
+    // "door-vault" is a spoiler on its own. Idempotent: a state already cut this way loses
+    // nothing more.
     redact(state, viewer) {
       if (viewer.role === 'dm') return state
       const byScene: DoorsState['byScene'] = {}
       for (const [sceneId, doors] of Object.entries(state.byScene)) {
+        const held = playerDoorsOf(sceneId)
         const known: Record<string, DoorLiveState> = {}
-        for (const [id, door] of Object.entries(doors)) if (door.revealed) known[id] = door
+        for (const [id, door] of Object.entries(doors)) {
+          if (door.revealed && (held === null || held.has(id))) known[id] = door
+        }
         byScene[sceneId] = known
       }
       return { ...state, byScene }
@@ -71,11 +89,18 @@ function run(action: string, p: Payload, ctx: Ctx, doorsOf: SceneDoors): void {
   const scene = doorsOfScene(ctx.state, sceneId, authoredDoors)
   const live = scene[id]
 
+  // Identical refusal to a door that does not exist — a player probing ids learns nothing
+  // about what the DM is hiding. First, so a secret archway refuses as a secret door does.
+  if (authored.isSecret && !live.revealed && ctx.sender.role !== 'dm') unknownDoor()
+  // An archway is a hole in a wall: nothing to swing, nothing to lock. Only what the table
+  // *knows* about one can change, so `reveal-secret` is the one command it still answers.
+  // The client toasts DOOR_LOCKED/UNKNOWN_DOOR alone, so this refusal is silent by design.
+  if (isArchway(authored) && action !== 'reveal-secret') {
+    bad('an archway is a permanent opening — there is nothing to open, close or lock')
+  }
+
   switch (action) {
     case 'toggle':
-      // Identical refusal to a door that does not exist — a player probing ids learns
-      // nothing about what the DM is hiding.
-      if (authored.isSecret && !live.revealed && ctx.sender.role !== 'dm') unknownDoor()
       if (live.locked) bad(`${DOOR_LOCKED}: that door is locked`)
       return put(ctx, sceneId, scene, id, { ...live, open: !live.open })
     case 'lock':

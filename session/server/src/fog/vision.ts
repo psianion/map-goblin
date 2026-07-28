@@ -12,7 +12,7 @@ import { sceneFogOf, visibleRooms, type FogState, type RoomFog, type SceneFog } 
 import type { SceneVision, TokensState } from '@dnd/mechanics/tokens'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
 import type { Stores } from '../db/stores'
-import { mapDeltaFor, redactMapForViewer, exploredRooms, type MapDelta } from './redactMap'
+import { doorBound, mapDeltaFor, redactMapForViewer, exploredRooms, type MapDelta } from './redactMap'
 import { CACHE_MAX, createSceneMaps, type SceneMap } from './sceneMap'
 
 /** Everything the rest of the server asks the fog. One implementation, wired at boot. */
@@ -21,6 +21,13 @@ export interface Vision {
   roomsOf(campaignId: string, sceneId: string): readonly string[]
   /** Backs `doorsModule` — the doors the map authors. */
   doorsOf(campaignId: string, sceneId: string): readonly AuthoredDoor[]
+  /**
+   * Backs `doorsModule`'s redaction — the door ids bound to a room the party has explored,
+   * which is the same cut `redactMapForViewer` makes on the door children themselves, so
+   * the slice and the map a player holds name exactly the same doors. Empty for a scene
+   * with no map, which is the scene a player is handed no geometry for either.
+   */
+  playerDoors(sceneId: string): ReadonlySet<string>
   /** Backs `tokensModule` — redaction (D7) and `canOccupy` (D8). */
   visionOf(sceneId: string): SceneVision | null
   /** The map GET's player path (D4). Null when the map is unknown or will not parse. */
@@ -40,6 +47,8 @@ interface Computed {
   occupiable: Set<string>
   /** Rooms whose geometry the player holds (D4). */
   explored: Set<string>
+  /** The doors that geometry contains — the live states a player may be told about. */
+  playerDoors: Set<string>
   /** The rooms newly explored at this mutation, sliced once and sent to every player. */
   delta: MapDelta | null
 }
@@ -47,6 +56,7 @@ interface Computed {
 const NO_FOG: FogState = { byScene: {} }
 const NO_DOORS: DoorsState = { byScene: {} }
 const NO_TOKENS: TokensState = { library: {}, byScene: {} }
+const NO_ONES_DOORS: ReadonlySet<string> = new Set()
 
 export function createVision(stores: Stores): Vision {
   const sceneMapOf = createSceneMaps(stores)
@@ -101,6 +111,7 @@ export function createVision(stores: Stores): Vision {
         party,
       ),
       explored,
+      playerDoors: new Set(map.doors.filter((door) => doorBound(door, explored)).map((d) => d.id)),
       // Cut once per mutation, not once per viewer: every player at the table is owed the
       // same rooms, and the slice is the expensive half of a reveal.
       delta: revealed.length ? mapDeltaFor(map, sceneId, revealed, doors) : null,
@@ -117,6 +128,7 @@ export function createVision(stores: Stores): Vision {
   return {
     roomsOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.rooms.map((room) => room.id) ?? [],
     doorsOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.doors ?? [],
+    playerDoors: (sceneId) => compute(sceneId)?.playerDoors ?? NO_ONES_DOORS,
 
     visionOf: (sceneId) => {
       const computed = compute(sceneId)

@@ -32,6 +32,8 @@ const AUTHORED: AuthoredDoor[] = [
   MAP_DOOR,
   { id: 'iron', state: 'locked', isSecret: false, roomA: 'hall', roomB: 'vault' },
   { id: 'bookcase', state: 'open', isSecret: true, roomA: 'crypt', roomB: 'vault' },
+  // Authored shut on purpose — an archway has no leaf, so the map's state means nothing.
+  { id: 'arch', state: 'closed', isSecret: false, style: 'archway', roomA: 'hall', roomB: 'crypt' },
 ]
 
 const doors = doorsModule(() => AUTHORED)
@@ -105,6 +107,8 @@ describe('lazy seeding (D2)', () => {
       oak: { open: true, locked: false, revealed: true },
       iron: { open: false, locked: true, revealed: true },
       bookcase: { open: true, locked: false, revealed: false },
+      // the map says `closed`; an archway is a hole in a wall and seeds open regardless
+      arch: { open: true, locked: false, revealed: true },
     })
   })
 
@@ -182,6 +186,49 @@ describe('lock, unlock and reveal-secret', () => {
   })
 })
 
+describe('archways', () => {
+  it('refuses to open or close one, for the DM as well as the table', () => {
+    for (const sender of [P1, DM]) {
+      const { error, next } = run(empty, sender, 'toggle', { id: 'arch' })
+      expect(error?.code).toBe('invalid-command')
+      // deliberately none of the prefixes the client toasts — the refusal is silent
+      expect(error?.message).not.toContain(DOOR_LOCKED)
+      expect(error?.message).not.toContain(UNKNOWN_DOOR)
+      expect(next).toBe(empty)
+    }
+  })
+
+  it('refuses to lock or unlock one — there is no leaf to bar', () => {
+    for (const action of ['lock', 'unlock']) {
+      const { error, next } = run(empty, DM, action, { id: 'arch' })
+      expect(error?.code).toBe('invalid-command')
+      expect(next).toBe(empty)
+    }
+  })
+
+  it('still hides a secret one from a player probing ids', () => {
+    const hidden = doorsModule(() => [
+      { id: 'veil', state: 'open', isSecret: true, style: 'archway', roomA: 'hall', roomB: 'crypt' },
+    ])
+    const error = hidden.handler(
+      'toggle',
+      { id: 'veil' },
+      {
+        campaignId: 'c-1',
+        sessionId: 's-1',
+        activeSceneId: SCENE,
+        sender: P1,
+        players: [],
+        state: empty,
+        setState: () => {},
+        broadcast: () => {},
+      },
+    )
+    // the archway refusal must not fire first and admit the door is there
+    expect(error?.message).toContain(UNKNOWN_DOOR)
+  })
+})
+
 describe('redact (D4)', () => {
   const state: DoorsState = {
     byScene: {
@@ -217,5 +264,44 @@ describe('redact (D4)', () => {
     const once = redact(state, P1)
     expect(redact(once, P1)).toEqual(once)
     expect(Object.keys(state.byScene[SCENE])).toEqual(['oak', 'bookcase'])
+  })
+
+  describe('and the doors the fog has handed over', () => {
+    const played: DoorsState = {
+      byScene: {
+        [SCENE]: {
+          oak: { open: true, locked: false, revealed: true },
+          iron: { open: false, locked: true, revealed: true },
+          arch: { open: true, locked: false, revealed: true },
+        },
+      },
+    }
+    const fogged = (...ids: string[]) => doorsModule(() => AUTHORED, () => new Set(ids)).redact!
+
+    it('sends a player nothing at all before they have explored anything', () => {
+      expect(fogged()(played, P1).byScene[SCENE]).toEqual({})
+      // not one id of the structure they have not walked into
+      expect(JSON.stringify(fogged()(played, P1))).not.toContain('iron')
+    })
+
+    it('sends the doors of the rooms they have, and only those', () => {
+      expect(Object.keys(fogged('oak', 'arch')(played, P1).byScene[SCENE]).sort()).toEqual([
+        'arch',
+        'oak',
+      ])
+    })
+
+    it('still strips a secret door standing in an explored room', () => {
+      const secret: DoorsState = {
+        byScene: { [SCENE]: { bookcase: { open: true, locked: false, revealed: false } } },
+      }
+      expect(fogged('bookcase')(secret, P1).byScene[SCENE]).toEqual({})
+    })
+
+    it('leaves the DM the whole scene and stays idempotent for a player', () => {
+      expect(fogged('oak')(played, DM)).toBe(played)
+      const once = fogged('oak')(played, P1)
+      expect(fogged('oak')(once, P1)).toEqual(once)
+    })
   })
 })

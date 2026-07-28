@@ -99,7 +99,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   modules.register(rollsModule)
   modules.register(tokensModule(vision.visionOf))
   modules.register(fogModule(vision.roomsOf))
-  modules.register(doorsModule(vision.doorsOf))
+  modules.register(doorsModule(vision.doorsOf, vision.playerDoors))
   for (const module of options.modules ?? []) modules.register(module)
 
   const sessions = new SessionManager(modules, {

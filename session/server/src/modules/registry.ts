@@ -18,13 +18,20 @@ import type { ModuleStateStore } from '../db/stores'
 export type DispatchContext = Omit<ModuleContext<unknown>, 'state' | 'setState'>
 
 /**
- * S3 D4c — modules whose own state decides what another module's state *means* to a
- * player. Fog going dark, or a door closing under concealment, does not change one token,
- * yet it changes which ones a player may hold: the tokens slice is re-sent so redaction on
- * the way out drops them. Retraction has to be active — redacting future frames leaves the
- * last known positions sitting in client memory, which is the leak D4c names.
+ * S3 D4c — writer module → the slices its write silently re-redacts. Fog going dark, or a
+ * door closing under concealment, does not change one token, yet it changes which ones a
+ * player may hold: the tokens slice is re-sent so redaction on the way out drops them.
+ * Retraction has to be active — redacting future frames leaves the last known positions
+ * sitting in client memory, which is the leak D4c names.
+ *
+ * Fog moves the doors slice the same way, in the other direction: a player is only told
+ * about the doors of rooms they have explored, so without this re-send the door state of
+ * the room they just walked into never arrives at all.
  */
-const RETRACTS_TOKENS: readonly string[] = ['fog', 'doors']
+const RETRACTS: Record<string, readonly string[]> = {
+  fog: ['tokens', 'doors'],
+  doors: ['tokens'],
+}
 
 export class ModuleRegistry {
   private readonly modules = new Map<string, GameModule<unknown>>()
@@ -73,7 +80,7 @@ export class ModuleRegistry {
         loaded = { value: next }
         this.store.put(ctx.campaignId, found.name, next)
         ctx.broadcast({ type: 'state-update', module: found.name, state: next })
-        if (RETRACTS_TOKENS.includes(found.name)) this.resend('tokens', ctx)
+        for (const name of RETRACTS[found.name] ?? []) this.resend(name, ctx)
       },
     }
     return found.handler(action, payload, full) ?? null
