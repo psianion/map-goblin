@@ -118,7 +118,14 @@ function find(p: Payload, ctx: Ctx): { sceneId: string; token: Token } {
   const sceneId = sceneOf(p, ctx)
   const id = str(p.id, 'id', ID_MAX)
   const token = ctx.state.byScene[sceneId]?.[id]
-  if (!token) bad(`no token '${id}' in scene '${sceneId}'`)
+  // A hidden token does not exist for players — redact drops it whole, and the command
+  // layer must answer the same, or a forged move/update/claim on a remembered id would
+  // confirm it is still there and keep server-side control of it. The message does not
+  // echo the id either: a hidden token's id appears in ZERO player-bound frames, no
+  // exceptions — that absolute is what the fog gate greps for.
+  if (!token || (token.hidden && ctx.sender.role !== 'dm')) {
+    bad('no such token in that scene')
+  }
   return { sceneId, token }
 }
 
@@ -235,8 +242,5 @@ function remove(p: Payload, ctx: Ctx): void {
 function claim(p: Payload, ctx: Ctx): void {
   const { sceneId, token } = find(p, ctx)
   if (token.ownerId !== null) denied('that token is already claimed')
-  // ponytail: a hidden token is invisible to players anyway (redact drops it) — this is
-  // the belt to that braces, for a player guessing ids.
-  if (token.hidden) denied('that token cannot be claimed')
   put(ctx, sceneId, { ...token, ownerId: ctx.sender.identityId })
 }

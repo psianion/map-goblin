@@ -129,7 +129,7 @@ async function uploadAsset(
   if (!requireSession(deps, req, res, { campaignId, role: 'dm' })) return
 
   const body = await readBody(req, MAX_ASSET_BYTES)
-  if (!body.ok) return json(res, body.status, { error: body.error })
+  if (!body.ok) return failBody(req, res, body)
 
   // The bytes decide the type, not the Content-Type header the uploader claimed: the mime
   // we store here is the one we hand back on GET, and a browser will honour it.

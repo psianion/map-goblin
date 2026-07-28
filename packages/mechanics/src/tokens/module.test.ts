@@ -340,9 +340,32 @@ describe('claim', () => {
     expect(run(stateWith(token({ ownerId: 'p-2' })), P1, 'claim', { id: 't1' }).error).toMatchObject(
       { code: 'unauthorized' },
     )
+    // Hidden answers as nonexistent, not as unauthorized — no id confirmation.
     expect(run(stateWith(token({ hidden: true })), P1, 'claim', { id: 't1' }).error).toMatchObject({
-      code: 'unauthorized',
+      code: 'invalid-command',
     })
+  })
+})
+
+describe('hidden tokens and the command layer', () => {
+  // The redactor already drops hidden tokens from player state; these pin that the command
+  // layer agrees — a player who claimed a token before the DM hid it loses control of it.
+  const hiddenOwned = () => stateWith(token({ hidden: true, ownerId: 'p-1' }))
+
+  it('treats a hidden token as nonexistent for players, even its owner', () => {
+    for (const [action, payload] of [
+      ['move', { id: 't1', x: 3.5, y: 3.5 }],
+      ['update', { id: 't1', name: 'Renamed' }],
+    ] as const) {
+      const { next, error } = run(hiddenOwned(), P1, action, payload)
+      expect(error).toMatchObject({ code: 'invalid-command' })
+      expect(next).toEqual(hiddenOwned())
+    }
+  })
+
+  it('leaves the DM in full control of a hidden token', () => {
+    expect(run(hiddenOwned(), DM, 'move', { id: 't1', x: 3.5, y: 3.5 }).error).toBeNull()
+    expect(run(hiddenOwned(), DM, 'update', { id: 't1', name: 'Renamed' }).error).toBeNull()
   })
 })
 

@@ -19,6 +19,9 @@ interface Entry {
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
 
+const withCharacter = (player: string, character: string | undefined): string =>
+  character && character !== player ? `${player} (${character})` : player;
+
 export function GameLog() {
   // `log?` deliberately loosens `RollsState`: the slice is absent before the join snapshot
   // and is untrusted wire data after it. Nothing below does arithmetic on a roll — the
@@ -32,7 +35,9 @@ export function GameLog() {
     const rollEntries = (Array.isArray(rolls?.log) ? rolls.log : []).map((e, i) => ({
       key: str(e?.id) ?? `roll-${i}`,
       at: typeof e?.at === 'number' ? e.at : 0,
-      who: str(e?.characterName) ?? str(e?.playerName) ?? 'Someone',
+      // D7: attribution is the server-stamped sender, never client-supplied. The DDB
+      // character name is flavour riding along, so a forged one can't impersonate a seat.
+      who: withCharacter(str(e?.playerName) ?? 'Someone', str(e?.characterName)),
       title: str(e?.title),
       formula: str(e?.formula),
       breakdown: str(e?.breakdown),

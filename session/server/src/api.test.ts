@@ -196,11 +196,16 @@ async function refusedUpload(
     req.write('{"version":"3.0"') // nowhere near what the header promised, and never will be
   } else {
     // No Content-Length at all: Node chunks it, so only the running byte count can stop us.
-    // Each write is awaited so the answer can land mid-upload, which is the point.
+    // Each write is raced against the answer: a small cap (assets) pauses the server's
+    // reading long before we finish, and a write stuck against buffers nobody will ever
+    // drain would otherwise await a flush that never comes.
     const megabyte = Buffer.alloc(1024 * 1024, 0x61)
     req.write('[') // valid JSON start: nothing but the size can be the reason it fails
     for (let sent = 0; sent <= MAX_MAP_BYTES && !answered; sent += megabyte.length) {
-      await new Promise<void>((flushed) => req.write(megabyte, () => flushed()))
+      await Promise.race([
+        answer,
+        new Promise<void>((flushed) => req.write(megabyte, () => flushed())),
+      ])
     }
     if (!answered) req.end()
   }
@@ -351,7 +356,8 @@ describe('rejections', () => {
     })
   })
 
-  it('refuses an oversized map by declared length and by what actually arrives', async () => {
+  // Four streamed uploads in one test outgrow the 5s default.
+  it('refuses an oversized map or asset by declared length and by what actually arrives', { timeout: 20_000 }, async () => {
     await withServer(async ({ server, base, adminPass }) => {
       const { body } = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
       const path = `/api/campaigns/${body.campaignId as string}/maps`
@@ -365,6 +371,11 @@ describe('rejections', () => {
       // refused, so a sender still pushing megabytes loses the socket mid-write — which is
       // the point: the bytes stop either way.
       expect([413, 'ECONNRESET']).toContain(await refusedUpload(server.port, path, token))
+
+      // The asset route takes the same mid-stream refusal without crossing the process.
+      const assets = `/api/campaigns/${body.campaignId as string}/assets`
+      expect(await refusedUpload(server.port, assets, token, MAX_ASSET_BYTES + 1)).toBe(413)
+      expect([413, 'ECONNRESET']).toContain(await refusedUpload(server.port, assets, token))
 
       // Nothing that big made it in.
       expect(server.stores.maps.listByCampaign(body.campaignId as string)).toEqual([])

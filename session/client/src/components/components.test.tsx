@@ -3,6 +3,7 @@ import { render, screen, cleanup } from '@testing-library/react';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import { useSessionStore } from '../session/store';
 import { ConnectionStatus, ReconnectingBanner } from './ConnectionStatus';
+import { GameLog } from './GameLog';
 import { PlayerList } from './PlayerList';
 import { InviteCodeChip } from './InviteCodeChip';
 
@@ -29,6 +30,27 @@ beforeEach(() => {
     session: null,
     you: null,
     inviteCode: null,
+  });
+});
+
+describe('GameLog', () => {
+  it('attributes a roll to the seat that sent it; character name is flavour, never the lead', () => {
+    const s = session([dm]);
+    s.modules = {
+      rolls: {
+        log: [
+          // A forged characterName must not impersonate another seat (S2 metric: attributed
+          // to the rolling player). The server stamps playerName; the client leads with it.
+          { id: 'r1', at: 1, identityId: 'p-9', playerName: 'Borin', characterName: 'Ayla', total: 20, visibility: 'public' },
+          { id: 'r2', at: 2, identityId: 'p-9', playerName: 'Borin', characterName: 'Borin', text: 'stealth 17', visibility: 'public' },
+        ],
+      },
+    };
+    useSessionStore.setState({ session: s, presence: [] });
+    render(<GameLog />);
+    const log = screen.getByTestId('game-log').textContent ?? '';
+    expect(log).toContain('Borin (Ayla)'); // player leads, character trails
+    expect(log).not.toContain('Borin (Borin)'); // same name renders once
   });
 });
 

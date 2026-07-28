@@ -298,9 +298,10 @@ describe('forged clients (§2.6 ownership enforcement)', () => {
       expect(ambusher.name).toBe('Ambusher')
 
       // The player never received it (D4 drops hidden tokens whole), but a forged client
-      // can still guess an id — the handler refuses that too (the belt to redaction's braces).
+      // can still guess an id — the handler answers as if the token does not exist, so the
+      // guess is not even confirmed (the belt to redaction's braces).
       sendCommand(player, 'tokens', 'claim', { id: ambusher.id })
-      expect((await next(player, 'error')).code).toBe('unauthorized')
+      expect((await next(player, 'error')).code).toBe('invalid-command')
 
       sendJoin(player)
       const snapshot = await next(player, 'session-state')
