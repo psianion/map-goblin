@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { FIXTURE, assertMapRendered, hostTable, loadedMapName } from './table'
+import { canvasPoint, createDef, placeToken, tokenPositions } from './tokens'
 
 /**
  * @sprint2-scenes — §2.6 "Scene switch < 2s". One DM context, two maps, a stopwatch on the
@@ -57,26 +58,33 @@ async function switchTo(page: Page, name: string): Promise<number> {
   return Date.now() - started
 }
 
+/**
+ * A DM sitting at a table with both scenes uploaded and the first one live. No player
+ * joins anywhere in this file, so it spends none of the server's per-IP join budget.
+ */
+async function tableWithTwoScenes(browser: Browser): Promise<{ context: BrowserContext; dm: Page }> {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } })
+  const dm = await context.newPage()
+  dm.on('pageerror', (e) => console.log('[dm pageerror]', e.message))
+
+  await hostTable(dm)
+  await dm.getByRole('button', { name: 'Enter table' }).click()
+  await expect(dm.locator('[data-page="table"]')).toBeVisible()
+  await assertMapRendered(dm)
+
+  // D6: an in-session import is the existing upload endpoint plus a snapshot refetch, so
+  // the second scene appears in the list without a server round of its own.
+  await dm.getByTestId('scene-upload').setInputFiles(secondMap())
+  await expect(dm.getByTestId('scene-list').getByRole('button')).toHaveCount(2, { timeout: 30_000 })
+  await expect(sceneButton(dm, 'Demo Dungeon')).toHaveAttribute('aria-current', 'true')
+  return { context, dm }
+}
+
 test.describe.serial('@sprint2-scenes', () => {
   test('the DM switches scenes and the table follows in under 2s', async ({ browser }) => {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 720 } })
-    const dm = await context.newPage()
-    dm.on('pageerror', (e) => console.log('[dm pageerror]', e.message))
+    const { context, dm } = await tableWithTwoScenes(browser)
 
     try {
-      await hostTable(dm)
-      await dm.getByRole('button', { name: 'Enter table' }).click()
-      await expect(dm.locator('[data-page="table"]')).toBeVisible()
-      await assertMapRendered(dm)
-
-      // D6: an in-session import is the existing upload endpoint plus a snapshot refetch,
-      // so the second scene appears in the list without a server round of its own.
-      await dm.getByTestId('scene-upload').setInputFiles(secondMap())
-      await expect(dm.getByTestId('scene-list').getByRole('button')).toHaveCount(2, {
-        timeout: 30_000,
-      })
-      await expect(sceneButton(dm, 'Demo Dungeon')).toHaveAttribute('aria-current', 'true')
-
       const there = await switchTo(dm, SCENE_B)
       await expect(sceneButton(dm, SCENE_B)).toHaveAttribute('aria-current', 'true')
       await assertSceneRendered(dm)
@@ -96,10 +104,39 @@ test.describe.serial('@sprint2-scenes', () => {
     }
   })
 
-  // PHASE 2 (needs `modules/tokens/**` — TokenRenderer + placement): place tokens on scene
-  // A, switch to B, switch back, assert every token is on the cell it was left on. The
-  // switch timing above is the same walk; only the token assertions are missing.
-  test.skip('token positions are restored across a scene switch — phase 2: needs TokenRenderer', () => {})
+  test('tokens are where they were left when the DM comes back to a scene', async ({ browser }) => {
+    const { context, dm } = await tableWithTwoScenes(browser)
+
+    try {
+      await createDef(dm, 'Goblin')
+      await placeToken(dm, 'Goblin', await canvasPoint(dm, 0.3, 0.3))
+      await placeToken(dm, 'Goblin', await canvasPoint(dm, 0.7, 0.7))
+      const placed = await tokenPositions(dm)
+      // Two tokens, two different cells — anything else and "restored" would be trivially
+      // true. The cells themselves are the server's business (it snaps), so they are read
+      // rather than asserted.
+      const cells = Object.values(placed).map(({ x, y }) => `${x},${y}`)
+      expect(new Set(cells).size).toBe(2)
+
+      // D5: `byScene[sceneId]` is what makes this free — the upper level is a different
+      // key, so it starts empty rather than inheriting the great hall's goblins.
+      const away = await switchTo(dm, SCENE_B)
+      await expect(dm.getByTestId('token-layer')).toHaveCount(0)
+
+      const home = await switchTo(dm, 'Demo Dungeon')
+      // Not "a token is there": the same ids on the same cells, in the same order.
+      await expect.poll(() => tokenPositions(dm), { timeout: 10_000 }).toEqual(placed)
+
+      console.log(
+        `[metric] scene switch with tokens: → ${SCENE_B} ${away}ms, → Demo Dungeon ${home}ms ` +
+          `(target < 2000ms, ${Object.keys(placed).length} tokens restored)`,
+      )
+      expect(away).toBeLessThan(2000)
+      expect(home).toBeLessThan(2000)
+    } finally {
+      await context.close()
+    }
+  })
 })
 
 /**
