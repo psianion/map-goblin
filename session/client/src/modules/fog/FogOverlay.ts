@@ -1,8 +1,10 @@
 // §2.4.4 — the DM's fog overlay, and the fog tool's pointer handling.
 //
 // This is the *DM* view: a tint that says which rooms the party cannot see, plus the room
-// under the cursor while the tool is armed. The player-facing mask is a different thing
-// built by a different layer (D10) — nothing here ever renders for a player.
+// under the cursor while the tool is armed — highlighted in that room's own state, so the
+// cursor answers "what am I about to change" and not only "what am I over" (D11). The
+// player-facing mask is a different thing built by a different layer (D10) — nothing here
+// ever renders for a player.
 //
 // Nothing here tweens, and that is the design rather than an omission. The hover highlight
 // tracks a pointer, so easing it would only make it lag; the tint changes when the DM
@@ -29,10 +31,10 @@ import { DM_FOG_LOOK, fogActionFor, roomAt, roomFog, sceneFog, serverRooms } fro
 
 /** Near-black, matching the art guide's dungeon negative space rather than a grey wash. */
 const FOG_TINT = 0x05060a;
-/** Warm torchlight — the map's own accent language, not a UI blue. */
-const HOVER_COLOR = 0xf0a252;
 /** Explored mark: warm parchment, quiet enough to sit under a token. */
 const GLYPH_COLOR = 0xd8cfc0;
+/** The hover outline. Full strength on every state — the DM's cursor is never ghosted. */
+const HOVER_STROKE = { width: 0.08, alpha: 0.95 };
 
 /** Where the fog tool sends its clicks. */
 const send = (action: string, payload: unknown): void =>
@@ -106,10 +108,15 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
       if (look.glyph) drawExploredGlyph(paint, room.centroid);
     }
 
+    // D11 asks the hover to name the room's *state*, not merely its outline, so it is drawn
+    // from the same table the tint is: torchlight on a lit room, parchment on a memory, cold
+    // slate on one nobody has seen. Both are what the click is about to change.
     const hovered = toolArmed() ? rooms.find((r) => r.id === hoverRoomId) : undefined;
     if (hovered && hovered.boundary.length >= 3) {
-      hover.poly(hovered.boundary.flat()).fill({ color: HOVER_COLOR, alpha: 0.1 });
-      hover.poly(hovered.boundary.flat()).stroke({ color: HOVER_COLOR, width: 0.08, alpha: 0.95 });
+      const look = DM_FOG_LOOK[roomFog(fog, hovered.id).status];
+      const path = hovered.boundary.flat();
+      hover.poly(path).fill({ color: look.hoverColor, alpha: look.hoverAlpha });
+      hover.poly(path).stroke({ color: look.hoverColor, ...HOVER_STROKE });
     }
   };
 

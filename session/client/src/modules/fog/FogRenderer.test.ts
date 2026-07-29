@@ -535,8 +535,8 @@ describe('fogScene', () => {
   });
 
   it('reads fog, doors and tokens together', () => {
-    useStore.setState({ layers: [dungeon(ROOMS, [door('d-vg', VESTIBULE.id, GALLERY.id)])] });
     useSessionStore.setState({
+      mapData: sent([dungeon(ROOMS, [door('d-vg', VESTIBULE.id, GALLERY.id)])]),
       session: session({
         fog: { byScene: { 'scene-1': fogOf({ [VESTIBULE.id]: seen, [GALLERY.id]: seen }) } },
         tokens: { library: {}, byScene: { 'scene-1': { t1: token() } } },
@@ -548,5 +548,38 @@ describe('fogScene', () => {
     // The authored door is shut, so the gallery is sealed off behind it.
     expect(scene.views.get(GALLERY.id)).toBe('explored');
     expect(scene.bounds).not.toBeNull();
+  });
+
+  it('walks the server’s door graph, not the room ids core re-bound the doors to', () => {
+    // The drift this exists to stop. Core's `roomSync` re-detects rooms after every load and
+    // rewrites `roomA`/`roomB` on every door from the geometry *that tab* holds — and a
+    // player holds a partial map with no merged floor at all (the server ships it null). So
+    // the store's idea of which rooms a door joins is the store's alone, and a reachability
+    // BFS run over it can seal a room the referee opened, or open one it sealed. Only the
+    // document's own door records carry the ids the server tested with.
+    const authored = door('d-vg', VESTIBULE.id, GALLERY.id, { state: 'open' });
+    // Same door id, bound to rooms core invented — plus a link to the vault that the server
+    // never authored, so a mask reading this would err bright as well as dark.
+    const rebound = door('d-vg', 'r-detected-a', VAULT.id, { state: 'open' });
+
+    useSessionStore.setState({
+      mapData: sent([dungeon(ROOMS, [authored])]),
+      session: session({
+        fog: {
+          byScene: {
+            'scene-1': fogOf({ [VESTIBULE.id]: seen, [GALLERY.id]: seen, [VAULT.id]: seen }),
+          },
+        },
+        tokens: { library: {}, byScene: { 'scene-1': { t1: token() } } },
+      }),
+    });
+    useStore.setState({ layers: [dungeon(ROOMS, [rebound])] });
+
+    const views = fogScene().views;
+    expect(views.get(VESTIBULE.id)).toBe('visible');
+    // Through the door the *document* authors: the party walks vestibule → gallery.
+    expect(views.get(GALLERY.id)).toBe('visible');
+    // …and never through the one only core believes in.
+    expect(views.get(VAULT.id)).toBe('explored');
   });
 });

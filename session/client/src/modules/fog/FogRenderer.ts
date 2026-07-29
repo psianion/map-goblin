@@ -34,16 +34,15 @@ import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { useStore } from '@dnd/core/src/store/store';
 import { computeMapWorldBounds } from '@dnd/core/src/engine/export/exportPipeline';
-import type { AuthoredDoor, DoorLiveState } from '@dnd/mechanics/doors';
+import type { AuthoredDoor, DoorLiveState, DoorsState } from '@dnd/mechanics/doors';
 import { effectiveFog, visibleRooms, type FogState, type SceneFog } from '@dnd/mechanics/fog';
 import type { Token, TokensState } from '@dnd/mechanics/tokens';
 import { addScreenOverlay, mountWhenEngineReady } from '../../renderer/overlayLayer';
 import { prefersReducedMotion } from '../../session/motion';
 import { useSessionStore } from '../../session/store';
 import type { LiveDoor } from '../doors/doors';
-import { liveSceneDoors } from '../doors/DoorRenderer';
 import { tokensOf } from '../tokens/TokenRenderer';
-import { roomAt, roomFog, sceneFog, serverRooms } from './fog';
+import { roomAt, roomFog, sceneFog, serverDoors, serverRooms } from './fog';
 
 /** What the player's canvas does with one room. */
 export type RoomView = 'visible' | 'explored' | 'dark';
@@ -253,9 +252,17 @@ export function fogScene(): FogScene {
 
   return {
     rooms,
-    // liveSceneDoors is the doors layer's own reading — one answer to "what are the doors
-    // doing", so the mask cannot drift from the marks drawn on them.
-    views: roomViews(rooms, fog, liveSceneDoors(), partyRoomIds(tokens, rooms)),
+    // Rooms and the door graph off the *same* document, so the BFS this runs is the BFS the
+    // server ran. Reading the graph off core's store instead lets the two disagree: core
+    // re-binds every door to rooms it re-detected from the partial geometry a player holds
+    // (`serverDoors`). Live door state still comes off the session slice the door marks are
+    // drawn from, so the mask cannot drift from what those marks say either.
+    views: roomViews(
+      rooms,
+      fog,
+      serverDoors(mapData, session?.modules?.doors as DoorsState | undefined, sceneId),
+      partyRoomIds(tokens, rooms),
+    ),
     bounds: fogBounds(layers, rooms),
     sceneId,
     isPlayer: you?.role !== 'dm',

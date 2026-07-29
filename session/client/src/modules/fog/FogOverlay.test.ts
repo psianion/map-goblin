@@ -25,6 +25,7 @@ import { clearEngineSingleton, setEngineSingleton } from '@dnd/core/src/engine/e
 import type { FogState } from '@dnd/mechanics/fog';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
+import { DM_FOG_LOOK } from './fog';
 import { mountFogOverlayWhenReady } from './FogOverlay';
 
 const room = (id: string, x: number): Room => ({
@@ -197,6 +198,46 @@ describe('FogOverlay hover highlight (D11)', () => {
     const cursor = layerNamed(sceneGraph.overlayContainer, 'fogOverlay')!;
     expect([cursor.position.x, cursor.position.y]).toEqual([120, -40]);
     expect(cursor.scale.x).toBe(3);
+  });
+
+  it('highlights the hovered room in that room’s own fog state, not one colour for all three', () => {
+    // D11: "hovering highlights the room polygon under the cursor with its current state".
+    // One warm tint for every state answers "what am I over" and drops the half of the
+    // sentence that matters mid-play — which of the three a click is about to flip.
+    unmount = mountFogOverlayWhenReady();
+    useActiveTool.getState().setActiveTool('fog');
+    move(2, 2);
+
+    const hoverOf = (rooms: FogState['byScene'][string]['rooms']): string => {
+      useSessionStore.setState({ session: session({ fog: fogWith(rooms) }) });
+      return drawn(sceneGraph);
+    };
+
+    const unrevealed = hoverOf({});
+    const revealed = hoverOf({ [CRYPT.id]: { status: 'revealed', wasEverRevealed: true } });
+    const explored = hoverOf({ [CRYPT.id]: { status: 're_hidden', wasEverRevealed: true } });
+
+    expect(new Set([unrevealed, revealed, explored]).size, 'three states, three looks').toBe(3);
+    expect(unrevealed).toContain(String(DM_FOG_LOOK.never_revealed.hoverColor));
+    expect(revealed).toContain(String(DM_FOG_LOOK.revealed.hoverColor));
+    expect(explored).toContain(String(DM_FOG_LOOK.re_hidden.hoverColor));
+
+    // The state is the room's, not the pointer's: moving to the other room, still unrevealed,
+    // goes back to the unrevealed look while the crypt keeps its own.
+    move(12, 2);
+    expect(drawn(sceneGraph)).toContain(String(DM_FOG_LOOK.never_revealed.hoverColor));
+  });
+
+  it('lifts the hover fill through the tint it has to read over, so all three land alike', () => {
+    // The fill sits on a room already carrying `tintAlpha` of near-black; a flat fill would
+    // read strongest exactly where there is nothing over it. Heavier tint, heavier fill.
+    const byTint = (['revealed', 're_hidden', 'never_revealed'] as const).map(
+      (status) => DM_FOG_LOOK[status],
+    );
+    expect(byTint.map((look) => look.tintAlpha)).toEqual([...byTint.map((l) => l.tintAlpha)].sort());
+    expect(byTint.map((look) => look.hoverAlpha)).toEqual(
+      [...byTint.map((l) => l.hoverAlpha)].sort(),
+    );
   });
 
   it('draws nothing extra while the tool is not armed', () => {

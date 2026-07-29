@@ -101,8 +101,12 @@ describe('fog geometry and vocabulary', () => {
   });
 
   it('encodes every state twice over, so none of them is colour alone (D11)', () => {
-    expect(DM_FOG_LOOK.never_revealed).toEqual({ tintAlpha: 0.62, glyph: false });
-    expect(DM_FOG_LOOK.revealed).toEqual({ tintAlpha: 0, glyph: false });
+    expect(DM_FOG_LOOK.never_revealed).toMatchObject({ tintAlpha: 0.62, glyph: false });
+    expect(DM_FOG_LOOK.revealed).toMatchObject({ tintAlpha: 0, glyph: false });
+    // The hover is a third reading of the same three states, and three separate colours —
+    // an outline that means "you are over a room" and nothing more is D11 half-built.
+    const hovers = Object.values(DM_FOG_LOOK).map((look) => look.hoverColor);
+    expect(new Set(hovers).size).toBe(3);
     // Explored is lighter than unrevealed *and* carries the glyph.
     expect(DM_FOG_LOOK.re_hidden.glyph).toBe(true);
     expect(DM_FOG_LOOK.re_hidden.tintAlpha).toBeGreaterThan(0);
