@@ -6,6 +6,7 @@
 // against a package with no server in it, so a new module is a mechanics folder and a
 // `register` call, never an edit here.
 
+import type { ServerMessage } from '@dnd/core/src/shared/protocol'
 import type {
   CommandError,
   GameModule,
@@ -13,6 +14,7 @@ import type {
   Viewer,
 } from '@dnd/mechanics/contract'
 import type { ModuleStateStore } from '../db/stores'
+import type { SceneTagged } from '../ws/Broadcaster'
 
 /** What the caller supplies; the registry adds `state` and `setState` on top. */
 export type DispatchContext = Omit<ModuleContext<unknown>, 'state' | 'setState'>
@@ -75,6 +77,18 @@ export class ModuleRegistry {
     let loaded: { value: unknown } | undefined
     const read = () => (loaded ??= { value: this.load(ctx.campaignId, found) }).value
 
+    // The scene this command names, read the way every scene-scoped module reads its own
+    // payload, and tagged onto every `state-update` the dispatch sends — the module's own
+    // and the retract re-sends. Module state names every scene the table has ever touched,
+    // so a frame is the only thing that can say which one a change was about, and the
+    // geometry a reveal carries has to be keyed off the scene that was written (D5).
+    const sceneId = sceneOf(payload, ctx.activeSceneId)
+    const say = (msg: ServerMessage): void => {
+      if (msg.type !== 'state-update' || !sceneId) return ctx.broadcast(msg)
+      const tagged: SceneTagged = { ...msg, sceneId }
+      ctx.broadcast(tagged)
+    }
+
     const full: ModuleContext<unknown> = {
       ...ctx,
       get state() {
@@ -85,8 +99,8 @@ export class ModuleRegistry {
       setState: (next) => {
         loaded = { value: next }
         this.store.put(ctx.campaignId, found.name, next)
-        ctx.broadcast({ type: 'state-update', module: found.name, state: next })
-        for (const name of RETRACTS[found.name] ?? []) this.resend(name, ctx)
+        say({ type: 'state-update', module: found.name, state: next })
+        for (const name of RETRACTS[found.name] ?? []) this.resend(name, ctx.campaignId, say)
       },
     }
     return found.handler(action, payload, full) ?? null
@@ -108,17 +122,24 @@ export class ModuleRegistry {
   }
 
   /** Unchanged state, said again — for viewers a *different* module just redacted it for. */
-  private resend(name: string, ctx: DispatchContext): void {
+  private resend(name: string, campaignId: string, say: (msg: ServerMessage) => void): void {
     const module = this.modules.get(name)
     if (!module) return
-    ctx.broadcast({
-      type: 'state-update',
-      module: module.name,
-      state: this.load(ctx.campaignId, module),
-    })
+    say({ type: 'state-update', module: module.name, state: this.load(campaignId, module) })
   }
 
   private load(campaignId: string, module: GameModule<unknown>): unknown {
     return this.store.get(campaignId, module.name) ?? module.initialState
   }
+}
+
+/**
+ * The scene a command names: its payload's `sceneId`, else the table's active scene. Fog,
+ * doors and tokens each apply exactly this rule to their own payload; it is here as well
+ * because the frames leaving this file all need the same answer and none of them can ask a
+ * module for it.
+ */
+function sceneOf(payload: unknown, activeSceneId: string | null): string | null {
+  const named = (payload as { sceneId?: unknown } | null | undefined)?.sceneId
+  return typeof named === 'string' ? named : activeSceneId
 }

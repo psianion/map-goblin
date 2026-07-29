@@ -15,6 +15,7 @@ import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import { openDb } from '../db/db'
 import { createStores, type Stores } from '../db/stores'
 import { ModuleRegistry } from '../modules/registry'
+import { buildRedactor, type OutboundMessage } from '../ws/Broadcaster'
 import { mapDeltaFor, redactMapForViewer } from './redactMap'
 import { createSceneMaps } from './sceneMap'
 import { createVision } from './vision'
@@ -212,6 +213,9 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
     expect(doors.map((d) => d.id)).toEqual(['door-hall-corr', 'door-corr-inner'])
     expect(doors[0]).toMatchObject({ roomA: 'hall', roomB: null })
     expect(doors[1]).toMatchObject({ roomA: null, roomB: 'inner' })
+    // …nor its name, which on a real map is the room's own ("Reliquary Door" in the wall of
+    // the only room a party has entered). The client labels an unnamed door `Door N`.
+    expect(doors.map((d) => d.name)).toEqual(['', ''])
   })
 
   it('shows a secret door once the DM reveals it', () => {
@@ -544,5 +548,92 @@ describe('the doors slice on the wire (D4/D4c)', () => {
     run('fog', 'reveal', { sceneId: SCENE, roomId: 'corr' })
     // The corridor's own door into the dark arrives; the secret one behind it still does not.
     expect(doorsFor(P1)).toEqual(['door-corr-inner', 'door-hall-corr'])
+  })
+})
+
+// ── which scene a reveal's geometry is keyed off ────────────────────────────
+
+describe('the scene a mapDelta belongs to, with more than one in play (§2.1, D5)', () => {
+  const P2: Viewer = { role: 'player', identityId: 'p-2' }
+  /** The second scene, named so it sorts — and is written — ahead of `SCENE`. */
+  const OTHER = 'scene-0'
+
+  function twoScenes() {
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Crypt')
+    stores.maps.insert(OTHER, campaign.id, 'Crypt', JSON.stringify(mapFile()))
+    stores.maps.insert(SCENE, campaign.id, 'Crypt', JSON.stringify(mapFile()))
+    const vision = createVision(stores)
+    const registry = new ModuleRegistry(stores.moduleState)
+    registry.register(fogModule(vision.roomsOf))
+    registry.register(doorsModule(vision.doorsOf, vision.playerDoors))
+    const redact = buildRedactor(registry, vision)
+    const held = new Map<string, OutboundMessage[]>([P1, P2].map((v) => [v.identityId, []]))
+    return {
+      stores,
+      vision,
+      campaignId: campaign.id,
+      /** What each viewer was handed, in the order it went out. */
+      deltasFor: (viewer: Viewer) =>
+        (held.get(viewer.identityId) ?? []).flatMap((msg) =>
+          'mapDelta' in msg ? [msg.mapDelta] : [],
+        ),
+      run: (sceneId: string, action: string, payload: object) =>
+        registry.dispatch(
+          'fog',
+          action,
+          { sceneId, ...payload },
+          {
+            campaignId: campaign.id,
+            sessionId: 's-1',
+            activeSceneId: SCENE,
+            sender: DM,
+            players: [],
+            // Redacted as each frame goes out, never afterwards: the delta belongs to the
+            // mutation that produced the frame, so a capture redacted later is a capture of
+            // a different moment.
+            broadcast: (msg) => {
+              for (const viewer of [P1, P2]) held.get(viewer.identityId)!.push(redact(msg, viewer))
+            },
+          },
+        ),
+    }
+  }
+
+  const lit = (...ids: string[]) =>
+    Object.fromEntries(
+      ids.map((id) => [id, { status: 'revealed' as const, wasEverRevealed: true }]),
+    )
+
+  it('hands every viewer the delta for the scene the command wrote, and only that one', () => {
+    const { stores, campaignId, vision, run, deltasFor } = twoScenes()
+    // Both scenes fogged, `scene-0` written into the record first. Nothing has asked the
+    // vision about it — which is what a scene the party explored last session looks like on
+    // a freshly started server, or after `CACHE_MAX` evicts it — so the first question put
+    // to it answers with the whole of its explored geometry.
+    stores.moduleState.put(campaignId, 'fog', {
+      byScene: { [OTHER]: fog(), [SCENE]: fog() },
+    } satisfies FogState)
+    // `scene-1` primed, so what it owes below is the room this command opens, not its history.
+    expect(vision.revealDelta(SCENE)).not.toBeNull()
+
+    expect(run(SCENE, 'set-bulk', { rooms: lit('hall', 'inner', 'vault') })).toBeNull()
+
+    for (const viewer of [P1, P2]) {
+      const deltas = deltasFor(viewer)
+      expect(
+        deltas.map((d) => d.sceneId),
+        `${viewer.identityId} was sent another scene's geometry`,
+      ).toEqual([SCENE])
+      expect(deltas[0].layers.flatMap((l) => l.rooms.map((r) => r.id))).toEqual(['vault'])
+    }
+
+    // …and again with both scenes in the cache, where a walk over the state would have
+    // stumbled onto the right answer anyway. Same result, for a reason this time.
+    expect(vision.revealDelta(OTHER)).not.toBeNull()
+    expect(run(SCENE, 'reveal', { roomId: 'corr' })).toBeNull()
+    for (const viewer of [P1, P2]) {
+      expect(deltasFor(viewer).map((d) => d.sceneId)).toEqual([SCENE, SCENE])
+    }
   })
 })

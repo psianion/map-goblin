@@ -161,10 +161,18 @@ export function doorKept(door: DoorChild, kept: ReadonlySet<string>, doors: Door
  * A door on the edge of the known world keeps only the side the player has been. Room ids
  * are a hash of the room's centroid, so the far side's id is a coordinate nobody has
  * earned yet; `null` is the shape the map already uses for "leads outside".
+ *
+ * The authored name goes with the binding, and for the same reason: "Reliquary Door" in the
+ * wall of the one room a party has entered names what is behind it as plainly as the id
+ * does, and the editor names doors after their rooms because that is what a DM would call
+ * them. Blank, not renamed — the client's own `doorLabel` already falls back to "Door N",
+ * which is exactly what a player standing in front of it knows.
  */
 function facing(door: DoorChild, kept: ReadonlySet<string>): DoorChild {
+  const unearned = (room: string | null | undefined) => !!room && !kept.has(room)
   return {
     ...door,
+    name: unearned(door.roomA) || unearned(door.roomB) ? '' : door.name,
     roomA: door.roomA && kept.has(door.roomA) ? door.roomA : null,
     roomB: door.roomB && kept.has(door.roomB) ? door.roomB : null,
   }

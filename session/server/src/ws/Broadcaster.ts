@@ -18,6 +18,13 @@ type StateUpdate = Extract<ServerMessage, { type: 'state-update' }>
  */
 export type OutboundMessage = ServerMessage | (StateUpdate & { mapDelta: MapDelta })
 
+/**
+ * …and the field arriving the other way: the scene the command that produced this frame
+ * actually wrote, tagged on by `ModuleRegistry`. Declared here for the same reason, because
+ * this file is the only one that reads it.
+ */
+export type SceneTagged = StateUpdate & { sceneId: string }
+
 /** D4 — per viewer, not per role: "my own private rolls" needs the identityId too. */
 export type Redactor = (msg: ServerMessage, viewer: Viewer) => OutboundMessage
 
@@ -54,17 +61,18 @@ export function buildRedactor(registry: ModuleRegistry, vision?: Vision): Redact
 }
 
 /**
- * One command writes one scene, so the first scene with anything newly explored is the one
- * that changed. `vision` recomputes per mutation and caches, so asking every touched scene
- * costs a map lookup each.
+ * One command writes one scene — but the state it broadcasts names *every* scene the table
+ * has ever fogged, so the state cannot say which one, and walking `byScene` picks whichever
+ * key happens to come first. That is the wrong scene as soon as two are in play: a scene the
+ * party has explored but nobody has asked the vision about in this process answers with all
+ * of its geometry, and that delta rides out in place of the reveal that actually happened.
+ * The client keys its merge off `sceneId` too, so the wrong scene's slice is dropped on
+ * arrival and the room the DM just revealed has nothing to draw — the one window D5 exists
+ * to close. The scene is threaded through the frame instead.
  */
 function revealed(msg: StateUpdate, vision: Vision): MapDelta | null {
-  const byScene = (msg.state as { byScene?: Record<string, unknown> }).byScene ?? {}
-  for (const sceneId of Object.keys(byScene)) {
-    const delta = vision.revealDelta(sceneId)
-    if (delta) return delta
-  }
-  return null
+  const { sceneId } = msg as Partial<SceneTagged>
+  return sceneId ? vision.revealDelta(sceneId) : null
 }
 
 /** How Broadcaster finds a session's live clients without owning the session table. */
