@@ -26,7 +26,9 @@ export function ToastHost() {
   const entrance = prefersReducedMotion() ? '' : 'animate-toast-in';
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-4 z-toast flex justify-center px-4">
+    // max-sm lift: clears the bottom-left tool indicator once the map pane gets
+    // narrow enough for the centred track to reach it.
+    <div className="pointer-events-none absolute inset-x-0 bottom-4 z-toast flex justify-center px-4 max-sm:bottom-14">
       <div
         role="status"
         aria-live="polite"

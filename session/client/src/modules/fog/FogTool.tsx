@@ -134,9 +134,12 @@ export function FogTool() {
                     <button
                       type="button"
                       onClick={() => send(fogActionFor(status), { roomId: room.id })}
+                      aria-label={`${fogActionFor(status) === 'reveal' ? 'Reveal' : 'Hide'} ${room.name} · ${FOG_STATUS_LABEL[status]}`}
                       className="flex w-full items-baseline gap-2 rounded px-2 py-0.5 text-left text-xs transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 motion-reduce:transition-none"
                     >
-                      <span className="min-w-0 flex-1 truncate text-text-primary">{room.name}</span>
+                      <span title={room.name} className="min-w-0 flex-1 truncate text-text-primary">
+                        {room.name}
+                      </span>
                       <span className="shrink-0 text-text-secondary">
                         {FOG_STATUS_LABEL[status]}
                       </span>

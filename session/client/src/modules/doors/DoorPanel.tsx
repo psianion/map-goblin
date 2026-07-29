@@ -64,6 +64,7 @@ export function DoorPanel() {
             <button
               type="button"
               aria-current={door.id === selectedId}
+              aria-label={`${live.open ? 'Close' : 'Open'} ${doorLabel(door, i)} · ${doorStatusLabel(door, live)}`}
               onClick={() => {
                 select(door.id);
                 send('toggle', { id: door.id });
@@ -72,7 +73,7 @@ export function DoorPanel() {
                 door.id === selectedId ? 'bg-surface-3' : ''
               }`}
             >
-              <span className="min-w-0 flex-1 truncate text-text-primary">
+              <span title={doorLabel(door, i)} className="min-w-0 flex-1 truncate text-text-primary">
                 {doorLabel(door, i)}
               </span>
               <span className="shrink-0 text-text-secondary">{doorStatusLabel(door, live)}</span>
