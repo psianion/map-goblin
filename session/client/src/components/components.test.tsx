@@ -1,11 +1,15 @@
-import { describe, expect, it, beforeEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { act, fireEvent, render, screen, cleanup } from '@testing-library/react';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import { useSessionStore } from '../session/store';
+import { useToasts } from '../session/toasts';
+import { useActiveTool } from '../session/tools';
+import { ActiveToolIndicator } from './ActiveToolIndicator';
 import { ConnectionStatus, ReconnectingBanner } from './ConnectionStatus';
 import { GameLog } from './GameLog';
 import { PlayerList } from './PlayerList';
 import { InviteCodeChip } from './InviteCodeChip';
+import { ToastHost } from './Toast';
 
 const dm: PlayerInfo = { identityId: 'dm-1', name: 'Ayla', role: 'dm', connected: true };
 const gone: PlayerInfo = { identityId: 'p-2', name: 'Borin', role: 'player', connected: false };
@@ -31,6 +35,8 @@ beforeEach(() => {
     you: null,
     inviteCode: null,
   });
+  useToasts.setState({ toast: null });
+  useActiveTool.getState().setActiveTool(null);
 });
 
 describe('GameLog', () => {
@@ -108,6 +114,98 @@ describe('PlayerList', () => {
     expect(rows[0].getAttribute('data-connected')).toBe('true');
     expect(rows[1].textContent).toContain('Borin');
     expect(rows[1].getAttribute('data-connected')).toBe('false');
+  });
+});
+
+describe('ToastHost', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    Reflect.deleteProperty(window, 'matchMedia');
+  });
+
+  /** jsdom ships no matchMedia — the app treats that as "animate", so opt in explicitly. */
+  const reduceMotion = (matches: boolean) => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: () => ({ matches, media: '', addEventListener() {}, removeEventListener() {} }),
+    });
+  };
+
+  it('renders nothing until something has to be said', () => {
+    render(<ToastHost />);
+    expect(screen.queryByTestId('toast')).toBeNull();
+  });
+
+  it('carries one message and one way out', () => {
+    let undone = 0;
+    act(() =>
+      void useToasts.getState().show({
+        message: 'Revealed every room.',
+        action: { label: 'Undo', onAction: () => (undone += 1) },
+      }),
+    );
+    render(<ToastHost />);
+    expect(screen.getByTestId('toast').textContent).toContain('Revealed every room.');
+
+    fireEvent.click(screen.getByTestId('toast-action'));
+    expect(undone).toBe(1);
+    // The way out closes behind you — an undo you can press twice is a bug.
+    expect(useToasts.getState().toast).toBeNull();
+    expect(screen.queryByTestId('toast')).toBeNull();
+  });
+
+  it('stands down on its own after its window closes', () => {
+    vi.useFakeTimers();
+    act(() => void useToasts.getState().show({ message: 'That door is locked.', durationMs: 4000 }));
+    render(<ToastHost />);
+    expect(screen.getByTestId('toast')).not.toBeNull();
+
+    act(() => vi.advanceTimersByTime(4000));
+    expect(screen.queryByTestId('toast')).toBeNull();
+  });
+
+  it('animates its arrival by default, and simply appears under reduced motion', () => {
+    reduceMotion(false);
+    act(() => void useToasts.getState().show({ message: 'Hid every explored room.' }));
+    render(<ToastHost />);
+    expect(screen.getByTestId('toast').className).toContain('animate-toast-in');
+    expect(screen.getByTestId('toast').getAttribute('data-animated')).toBe('true');
+
+    cleanup();
+    reduceMotion(true);
+    render(<ToastHost />);
+    const quiet = screen.getByTestId('toast');
+    expect(quiet.className).not.toContain('animate-');
+    expect(quiet.getAttribute('data-animated')).toBe('false');
+    // The message still arrives — reduced motion removes the movement, never the content.
+    expect(quiet.textContent).toContain('Hid every explored room.');
+  });
+});
+
+describe('ActiveToolIndicator', () => {
+  it('is the DM’s, and is on screen whether or not a tool is armed', () => {
+    useSessionStore.setState({ you: dm });
+    render(<ActiveToolIndicator />);
+    const chip = screen.getByTestId('active-tool');
+    expect(chip.getAttribute('data-tool')).toBe('none');
+    expect(chip.textContent).toContain('None');
+
+    cleanup();
+    useSessionStore.setState({ you: { ...gone, role: 'player', connected: true } });
+    render(<ActiveToolIndicator />);
+    expect(screen.queryByTestId('active-tool')).toBeNull();
+  });
+
+  it('names the armed tool and hands back the key that exits it', () => {
+    useSessionStore.setState({ you: dm });
+    act(() => useActiveTool.getState().setActiveTool('fog'));
+    render(<ActiveToolIndicator />);
+    expect(screen.getByTestId('active-tool').getAttribute('data-tool')).toBe('fog');
+    expect(screen.getByTestId('active-tool').textContent).toContain('Fog');
+
+    fireEvent.click(screen.getByTestId('active-tool-exit'));
+    expect(useActiveTool.getState().activeTool).toBeNull();
+    expect(screen.getByTestId('active-tool').getAttribute('data-tool')).toBe('none');
   });
 });
 

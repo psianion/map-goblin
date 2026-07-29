@@ -325,6 +325,7 @@ export class AssetStore {
 export class ModuleStateStore {
   readonly #get
   readonly #put
+  #revision = 0
 
   constructor(db: Database) {
     this.#get = db.prepare<[string, string], { state: string }>(
@@ -344,6 +345,16 @@ export class ModuleStateStore {
 
   put(campaignId: string, moduleId: string, state: unknown): void {
     this.#put.run(campaignId, moduleId, JSON.stringify(state))
+    this.#revision++
+  }
+
+  /**
+   * Writes so far. S3's fog cache keys itself on this: every answer it holds is derived
+   * from module state, so "nothing has been written since" is exactly "still valid", and
+   * there is no invalidation call anyone can forget to make.
+   */
+  get revision(): number {
+    return this.#revision
   }
 }
 

@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { defineConfig } from '@playwright/test'
+import { CLIENT_PORT, CLIENT_URL, viteApiEnv } from './ports'
 
 /**
  * The Sprint 2 browser scenarios (`e2e/sprint2-*.spec.ts`).
@@ -16,30 +17,24 @@ import { defineConfig } from '@playwright/test'
  * stack instead of SwiftShader, and the game server booted by `global-setup.ts` — the only
  * place the first-run admin pass is ever printed.
  */
-const GAME_SERVER = 'http://localhost:8787'
-
 export default defineConfig({
   testDir: '.',
   testMatch: /sprint2-.*\.spec\.ts/,
   globalSetup: './global-setup.ts',
   use: {
-    baseURL: 'http://localhost:5175',
+    baseURL: CLIENT_URL,
     channel: 'chromium',
     launchOptions: { args: ['--use-angle=default', '--ignore-gpu-blocklist'] },
   },
   timeout: 120_000,
   webServer: {
-    command: 'pnpm build && pnpm exec vite preview --port 5175 --strictPort',
+    command: `pnpm build && pnpm exec vite preview --port ${CLIENT_PORT} --strictPort`,
     cwd: join(import.meta.dirname, '..'),
-    url: 'http://localhost:5175',
+    url: CLIENT_URL,
     // Locally the build is reused between runs; re-run `pnpm build` after touching src/.
     reuseExistingServer: !process.env.CI,
     timeout: 300_000,
-    env: {
-      ...process.env,
-      VITE_HTTP_BASE: GAME_SERVER,
-      VITE_WS_BASE: `${GAME_SERVER.replace(/^http/, 'ws')}/ws`,
-    },
+    env: { ...process.env, ...viteApiEnv() },
   },
   // One worker: a single real game server whose invite codes and roster are global state.
   workers: 1,

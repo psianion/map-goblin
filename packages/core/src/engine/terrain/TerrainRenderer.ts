@@ -239,10 +239,12 @@ export class TerrainRenderer {
     for (let slot = 0; slot < TERRAIN_SLOTS; slot++) {
       const id = palette[slot];
       if (!id) {
-        // Cleared slot: drop the old tile so it stops being painted.
+        // Cleared slot: drop the old tile so it stops being painted. Rebind BEFORE
+        // destroying — pixi nulls a BindGroup's whole resource map when a resource it
+        // still holds is destroyed, and setResource unhooks the old one first.
+        if (this.shader) this.shader.resources[`uTex${slot}`] = Texture.WHITE.source;
         this.tileRTs[slot]?.destroy(true);
         this.tileRTs[slot] = null;
-        if (this.shader) this.shader.resources[`uTex${slot}`] = Texture.WHITE.source;
         continue;
       }
       try {
@@ -272,7 +274,8 @@ export class TerrainRenderer {
       this.engine.renderToTexture(holder, rt, true);
       holder.destroy({ children: true });
 
-      this.tileRTs[slot]?.destroy(true);
+      // Same order as the cleared slot above: rebind first, then release the old tile.
+      const previous = this.tileRTs[slot];
       this.tileRTs[slot] = rt;
 
       if (this.shader) {
@@ -285,6 +288,7 @@ export class TerrainRenderer {
         tile[0] = naturalW / 200;
         tile[1] = naturalH / 200;
       }
+      previous?.destroy(true);
     }
 
     if (complete) this.loadedPaletteKey = key;
@@ -601,8 +605,18 @@ export class TerrainRenderer {
       holder.destroy({ children: true });
       tex.destroy(true);
     } catch (err) {
-      console.error('[terrain] splatmap restore failed:', err);
+      this.fail('splatmap restore', err);
     }
+  }
+
+  /**
+   * Terrain is the one layer with a hand-written shader, so it is the one that can leave a
+   * dead resource bound and take every later frame down with it. Failing costs the ground
+   * layer and one log line instead of the whole canvas — pixi skips a hidden subtree.
+   */
+  private fail(what: string, err: unknown): void {
+    this.container.visible = false;
+    console.error(`[terrain] ${what} failed — terrain layer hidden:`, err);
   }
 
   // ─── Store subscriptions ─────────────────────────────────
@@ -615,7 +629,9 @@ export class TerrainRenderer {
         (url) => {
           if (url === this.lastPersisted[rtIndex]) return; // our own write
           this.lastPersisted[rtIndex] = url;
-          void this.restoreFromDataUrl(rtIndex, url);
+          // Fire-and-forget: an unhandled rejection here reaches no boundary (the hosts'
+          // try/catch around loadFromFile is long gone by the time it settles).
+          this.restoreFromDataUrl(rtIndex, url).catch((err) => this.fail('splatmap restore', err));
         },
         { fireImmediately: true },
       );
@@ -625,7 +641,7 @@ export class TerrainRenderer {
     // Palette changes → reload tile textures
     const unsubPalette = useStore.subscribe(
       (s) => s.mapSettings.terrain?.palette?.join('|') ?? DEFAULT_TERRAIN_PALETTE.join('|'),
-      () => void this.loadPalette(),
+      () => void this.loadPalette().catch((err) => this.fail('palette load', err)),
       { fireImmediately: true },
     );
     this.unsubscribers.push(unsubPalette);

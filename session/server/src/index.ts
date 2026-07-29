@@ -3,6 +3,8 @@
 import { createServer, type IncomingMessage } from 'node:http'
 import { pathToFileURL } from 'node:url'
 import type { GameModule } from '@dnd/mechanics/contract'
+import { doorsModule } from '@dnd/mechanics/doors'
+import { fogModule } from '@dnd/mechanics/fog'
 import { rollsModule } from '@dnd/mechanics/rolls'
 import { tokensModule } from '@dnd/mechanics/tokens'
 import { WebSocketServer } from 'ws'
@@ -10,6 +12,7 @@ import { ensureAdminPass, verifyToken } from './auth'
 import { loadConfig, type Config } from './config'
 import { openDb } from './db/db'
 import { createStores, type Stores } from './db/stores'
+import { createVision } from './fog/vision'
 import { createRequestHandler } from './http'
 import { pingModule } from './modules/ping'
 import { ModuleRegistry } from './modules/registry'
@@ -84,16 +87,23 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   const stores = createStores(db)
   ensureAdminPass(stores.passes)
 
+  // Rooms, doors and who may see what: one cache behind every fog answer the server gives
+  // (S3 §2.3). The three modules below take their map lookups from it.
+  const vision = createVision(stores)
+
   // §2.3.8 — the whole module table. Rolls and tokens register here the same way, from
   // @dnd/mechanics; nothing else in the server changes when they do (D2).
   const modules = new ModuleRegistry(stores.moduleState)
   modules.register(pingModule)
   modules.register(scenesModule(stores))
   modules.register(rollsModule)
-  modules.register(tokensModule)
+  modules.register(tokensModule(vision.visionOf))
+  modules.register(fogModule(vision.roomsOf))
+  modules.register(doorsModule(vision.doorsOf, vision.playerDoors))
   for (const module of options.modules ?? []) modules.register(module)
 
   const sessions = new SessionManager(modules, {
+    vision,
     // Scene metadata is whatever the campaign has uploaded; the active one is session state.
     scenes: ({ id, campaignId }) => {
       const scenes = stores.maps.listByCampaign(campaignId).map((map) => ({ id: map.id, name: map.name }))
@@ -116,7 +126,12 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   })
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD_BYTES })
   const http = createServer(
-    createRequestHandler({ hmacSecret: config.secrets.hmacSecret, stores, sessionManager: sessions }),
+    createRequestHandler({
+      hmacSecret: config.secrets.hmacSecret,
+      stores,
+      sessionManager: sessions,
+      vision,
+    }),
   )
 
   http.on('upgrade', (req, socket, head) => {

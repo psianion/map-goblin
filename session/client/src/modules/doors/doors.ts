@@ -1,0 +1,130 @@
+// The doors UI's arithmetic and vocabulary — Pixi-free and DOM-free, so both the canvas
+// layer and the panel can be checked without either.
+//
+// Authored doors come off the loaded map (D2: the map file is the default); live state
+// comes off the session's `doors` slice, seeded from the authored data by the same
+// function the server seeds with.
+
+import type { DoorChild } from '@dnd/core/src/shared/types';
+import type { Layer } from '@dnd/core/src/store/types';
+import {
+  DOOR_LOCKED,
+  UNKNOWN_DOOR,
+  doorsOfScene,
+  type DoorLiveState,
+  type DoorsState,
+} from '@dnd/mechanics/doors';
+
+/** A door and the state the table is playing it at. */
+export interface LiveDoor {
+  door: DoorChild;
+  live: DoorLiveState;
+}
+
+/**
+ * PRODUCT principle 3, as a number. Nothing on the DM's view is ever ghosted to say it is
+ * hidden — the badge says it, at full strength, over the fog tint. Owlbear's habit of
+ * fading the DM's own secrets is the anti-reference this exists to refuse.
+ */
+export const DM_ENTITY_ALPHA = 1;
+
+export type DoorBadge = 'locked' | 'secret' | null;
+
+export interface DoorLook {
+  color: number;
+  alpha: number;
+  /** Filled disc = shut, ring = open. Shape carries the state, colour only seconds it. */
+  filled: boolean;
+  badge: DoorBadge;
+}
+
+/** Warm parchment, the map's own ink language rather than a UI palette. */
+const DOOR_COLOR = 0xe0d6c3;
+/** The editor's `danger` token, so a locked door reads the same in both apps. */
+const LOCKED_COLOR = 0xc0392b;
+/** Warm gold — the guide's treasure/secret accent. */
+const SECRET_COLOR = 0xe0b252;
+
+/**
+ * How one door draws. A player never receives an unrevealed secret door at all (D4), so
+ * the secret branch is the DM's; it is full opacity plus a badge, never a ghost.
+ */
+export function doorLook(door: DoorChild, live: DoorLiveState): DoorLook {
+  if (door.isSecret && !live.revealed) {
+    return { color: SECRET_COLOR, alpha: DM_ENTITY_ALPHA, filled: !live.open, badge: 'secret' };
+  }
+  if (live.locked) {
+    return { color: LOCKED_COLOR, alpha: DM_ENTITY_ALPHA, filled: true, badge: 'locked' };
+  }
+  return { color: DOOR_COLOR, alpha: DM_ENTITY_ALPHA, filled: !live.open, badge: null };
+}
+
+/** The words under the mark — state is never left to colour alone. */
+export function doorStatusLabel(door: DoorChild, live: DoorLiveState): string {
+  const parts = [live.open ? 'Open' : 'Closed'];
+  if (live.locked) parts.push('locked');
+  if (door.isSecret) parts.push(live.revealed ? 'secret, revealed' : 'secret');
+  return parts.join(' · ');
+}
+
+/** The author's own name for the door ("Reliquary Door"), else a stable fallback. */
+export const doorLabel = (door: DoorChild, index: number): string =>
+  door.name?.trim() || `Door ${index + 1}`;
+
+/**
+ * The refusals a door hands back, in words a player can act on — or null for anything that
+ * is not a door's business. Matched on the exported prefixes rather than the sentence: the
+ * wire's `code` is `invalid-command` for every rejection, so the constant at the head of
+ * the message is the real discriminator.
+ *
+ * `unknown-door` is deliberately the same shrug as a stale id. A player probing for the
+ * secret door the DM has not revealed must learn nothing from the wording either.
+ */
+export function doorRefusal(message: string): string | null {
+  if (message.startsWith(DOOR_LOCKED)) return "That door is locked — it won't budge.";
+  if (message.startsWith(UNKNOWN_DOOR)) return 'That door is no longer there.';
+  return null;
+}
+
+/** Hit radius in world units (grid cells) — never smaller than a comfortable click. */
+export const doorHitRadius = (door: DoorChild): number => Math.max(door.width / 2, 0.45);
+
+/** The door under a world point, nearest first. */
+export function doorAt(doors: readonly LiveDoor[], x: number, y: number): LiveDoor | undefined {
+  let best: LiveDoor | undefined;
+  let bestDist = Infinity;
+  for (const entry of doors) {
+    const [dx, dy] = [entry.door.position[0] - x, entry.door.position[1] - y];
+    const dist = Math.hypot(dx, dy);
+    if (dist > doorHitRadius(entry.door) || dist >= bestDist) continue;
+    bestDist = dist;
+    best = entry;
+  }
+  return best;
+}
+
+/** Every authored door of the loaded map. Players never receive secret ones. */
+export function doorsOfLayers(layers: readonly Layer[]): DoorChild[] {
+  return layers.flatMap((layer) =>
+    layer.type === 'dungeon'
+      ? layer.children.filter((c): c is DoorChild => c.childType === 'door' && c.visible !== false)
+      : [],
+  );
+}
+
+/**
+ * The scene's doors at their live state — the one reading of "what are the doors doing"
+ * this client has. The lighting lane feeds ClockwiseSweep's wall input from exactly this
+ * (D12: a closed door is a wall), which is why it returns authored geometry alongside the
+ * overlay instead of the overlay alone.
+ */
+export function liveDoors(
+  layers: readonly Layer[],
+  doorsState: DoorsState | undefined,
+  sceneId: string | null | undefined,
+): LiveDoor[] {
+  const authored = doorsOfLayers(layers);
+  if (authored.length === 0) return [];
+  const live = doorsOfScene(doorsState ?? { byScene: {} }, sceneId ?? '', authored);
+  return authored.map((door) => ({ door, live: live[door.id] }));
+}

@@ -93,7 +93,7 @@ async function joinSocket(
 ): Promise<{ socket: WebSocket; state: Extract<ServerMessage, { type: 'session-state' }> }> {
   const socket = new WebSocket(`ws://127.0.0.1:${port}/?token=${token}`)
   await once(socket, 'open')
-  socket.send(JSON.stringify({ type: 'join', protocolVersion: 2 }))
+  socket.send(JSON.stringify({ type: 'join', protocolVersion: 3 }))
   return { socket, state: await nextMessage(socket, 'session-state') }
 }
 
@@ -498,7 +498,7 @@ describe('a session that has ended stays ended', () => {
 
       // The socket cannot join the session back into existence...
       const ended = nextMessage(idle, 'session-ended')
-      idle.send(JSON.stringify({ type: 'join', protocolVersion: 2 }))
+      idle.send(JSON.stringify({ type: 'join', protocolVersion: 3 }))
       await ended
       await once(idle, 'close')
 

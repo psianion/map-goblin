@@ -3,6 +3,7 @@
 import type { ClientMessage, PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol'
 import type { Viewer } from '@dnd/mechanics/contract'
 import { PROTOCOL_VERSION } from '../config'
+import type { Vision } from '../fog/vision'
 import type { ModuleRegistry } from '../modules/registry'
 import { Broadcaster, buildRedactor, type Redactor } from './Broadcaster'
 import type { ClientConnection } from './ClientConnection'
@@ -31,6 +32,8 @@ export interface SessionManagerOptions {
   missedPongLimit?: number
   /** Test seam only — the D5 no-bypass test passes a spy. Defaults to `buildRedactor`. */
   redact?: Redactor
+  /** S3 — what the fog answers; without it a fog reveal carries no map delta (D5). */
+  vision?: Vision
   /** Defaults to no scenes: a SessionManager without a database has nothing to list. */
   scenes?: SceneSource
   /**
@@ -60,6 +63,7 @@ export class SessionManager {
       heartbeatMs = 15_000,
       missedPongLimit = 2,
       redact,
+      vision,
       scenes = () => ({ scenes: [], activeSceneId: null }),
       sessionActive = () => true,
       isBanned = () => false,
@@ -74,7 +78,7 @@ export class SessionManager {
 
     this.broadcaster = new Broadcaster(
       (id) => this.sessions.get(id)?.clients ?? [],
-      redact ?? buildRedactor(modules),
+      redact ?? buildRedactor(modules, vision),
     )
     this.router = new CommandRouter(modules, this.broadcaster)
   }

@@ -13,7 +13,7 @@ import type * as Protocol from '@dnd/core/src/shared/protocol'
  * wire version. The annotation pins it to core's literal type: bump `PROTOCOL_VERSION`
  * in core and this line stops compiling, so the two cannot silently drift.
  */
-export const PROTOCOL_VERSION: typeof Protocol.PROTOCOL_VERSION = 2
+export const PROTOCOL_VERSION: typeof Protocol.PROTOCOL_VERSION = 3
 
 export interface Secrets {
   /** Signs session tokens (D6). Rotating it invalidates every token ever issued. */

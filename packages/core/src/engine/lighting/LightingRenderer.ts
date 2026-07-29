@@ -1,7 +1,52 @@
 import { Container, FillGradient, Graphics, RenderTexture, Sprite } from 'pixi.js'
 import type { RenderEngine } from '../RenderEngine'
+import type { LightChild } from '../../store/types'
 import type { LightManager } from './LightManager'
 import { resolveTexture } from '../../assets/textureLoader'
+
+/**
+ * Everything the composite below is a function of, as one comparable string.
+ *
+ * The pass costs a full-viewport FBO clear plus two full-viewport render-target passes and
+ * one gradient-texture upload *per light*, every frame — and on an idle table none of its
+ * inputs move. `lightFBO` keeps its contents between frames and the compositing sprite goes
+ * on drawing it, so a frame whose signature is unchanged would redraw the identical picture.
+ *
+ * Every input that can change the picture has to appear here, which is what
+ * `LightingRenderer.test.ts` pins field by field. The light positions are *screen* space by
+ * the time they are drawn, so the camera belongs in the signature as much as the lights do.
+ *
+ * ponytail: `maskTextureId` goes in by id, not by whether its texture has finished loading —
+ * nothing in the app writes that field today. If a light ever gets a mask, add the resolved
+ * texture's width so a late-arriving one is not held out by a stale signature.
+ */
+export function lightingSignature(
+  camX: number,
+  camY: number,
+  zoom: number,
+  width: number,
+  height: number,
+  ambientColor: string,
+  lights: LightChild[],
+  isDirty: (lightId: string) => boolean,
+): string {
+  const parts = [camX, camY, zoom, width, height, ambientColor]
+  for (const l of lights) {
+    parts.push(
+      l.id,
+      l.position.x,
+      l.position.y,
+      l.radius,
+      l.color,
+      l.intensity,
+      l.falloff,
+      l.featherRadius ?? 0,
+      l.maskTextureId ?? '',
+      isDirty(l.id) ? 'dirty' : '',
+    )
+  }
+  return parts.join('|')
+}
 
 /**
  * LightingRenderer — FBO-based light compositing pass.
@@ -27,6 +72,8 @@ export class LightingRenderer {
   private width: number
   private height: number
   private iconMap = new Map<string, Graphics>()
+  private iconsVisible = true
+  private lastSignature = ''
 
   constructor(engine: RenderEngine, width: number, height: number) {
     this.engine = engine
@@ -52,8 +99,21 @@ export class LightingRenderer {
     engine.overlay().addChild(this.compositingSprite)
   }
 
+  /** Editing affordance toggle — the session runner hides light icons; the editor keeps them. */
+  setIconsVisible(visible: boolean): void {
+    this.iconsVisible = visible
+    if (!visible) {
+      for (const [id, icon] of this.iconMap) {
+        this.engine.overlay().removeChild(icon)
+        icon.destroy()
+        this.iconMap.delete(id)
+      }
+    }
+  }
+
   /** Updates per-light icon circles in the overlay. Runs every frame. */
   private updateIcons(lightManager: LightManager): void {
+    if (!this.iconsVisible) return
     const allLights = lightManager.getLights()
     const lightIds = new Set(allLights.map((l) => l.id))
 
@@ -88,20 +148,41 @@ export class LightingRenderer {
   /** Called each frame from renderLoop. */
   updateAndRender(
     lightManager: LightManager,
-    _camX: number,
-    _camY: number,
+    camX: number,
+    camY: number,
     zoom: number,
     ambientColor: string,
   ): void {
     this.updateIcons(lightManager)
 
+    // Viewport first — it sizes the composite, and a resize has to reach the signature
+    // below before the guard can decide the picture is unchanged.
+    const vp = this.engine.viewport()
+    if (vp.width !== this.width || vp.height !== this.height) {
+      this.resize(vp.width, vp.height)
+    }
+
     const visibleLights = lightManager.getVisibleLights()
 
     if (visibleLights.length === 0) {
       this.compositingSprite.visible = false
+      this.lastSignature = ''
       return
     }
     this.compositingSprite.visible = true
+
+    const signature = lightingSignature(
+      camX,
+      camY,
+      zoom,
+      this.width,
+      this.height,
+      ambientColor,
+      visibleLights,
+      (id) => lightManager.isDirty(id),
+    )
+    if (signature === this.lastSignature) return
+    this.lastSignature = signature
 
     const ambientHex = parseInt(ambientColor.replace('#', ''), 16)
     const ambientR = (ambientHex >> 16) & 0xff
@@ -225,11 +306,6 @@ export class LightingRenderer {
     blitSprite.destroy()
     blitContainer.destroy()
     for (const g of frameGradients) g.destroy()
-
-    const vp = this.engine.viewport()
-    if (vp.width !== this.width || vp.height !== this.height) {
-      this.resize(vp.width, vp.height)
-    }
   }
 
   resize(width: number, height: number): void {

@@ -1,7 +1,10 @@
 import { once } from 'node:events'
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { WebSocket } from 'ws'
-import { assertMapRendered, hostTable, joinTable, loadedMapName, SERVER_URL } from './table'
+// `.ts` because these specs run under Playwright's Node loader, not Vite: @dnd/core has no
+// `exports` map, so the subpath is resolved on the filesystem and needs its real extension.
+import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol.ts'
+import { assertMapRendered, GATE, hostTable, joinTable, loadedMapName, SERVER_URL } from './table'
 
 /**
  * @sprint1-metrics — the Sprint 1 success-metric table, asserted with a stopwatch.
@@ -20,6 +23,30 @@ import { assertMapRendered, hostTable, joinTable, loadedMapName, SERVER_URL } fr
 /** Every measurement lands in the run log in one grep-able shape. */
 function record(name: string, measured: string, target: string): void {
   console.log(`[metric] ${name}: ${measured} (target: ${target})`)
+}
+
+/**
+ * A canvas that has stopped changing. `assertMapRendered` waits on the *store*, which is
+ * satisfied the moment `loadFromFile` returns — several frames before the grid, the walls
+ * and the lighting composite have been painted. Shooting a parity pair on that signal
+ * compares a finished canvas against a half-drawn one; measured, the half-drawn tab was
+ * floor-only and 99.997% of pixels differed. Two identical consecutive frames is the
+ * cheapest honest "done", and it needs no DEV-only engine handle.
+ */
+async function settled(page: Page, selector: string): Promise<Buffer> {
+  // The active-tool chip is DM-only (D11) and absolutely positioned over the canvas, so an
+  // element screenshot picks it up — 0.33% of the frame, and a difference the row is not
+  // about. `style` applies for the duration of the shot only, on both tabs alike.
+  const shoot = () =>
+    page.locator(selector).screenshot({ style: '[data-testid="active-tool"]{display:none}' })
+  let previous = await shoot()
+  for (let attempt = 0; attempt < 60; attempt++) {
+    await page.waitForTimeout(100)
+    const next = await shoot()
+    if (next.equals(previous)) return next
+    previous = next
+  }
+  throw new Error('the canvas never stopped changing — nothing to compare')
 }
 
 const VIEWPORT = { width: 1280, height: 720 }
@@ -76,6 +103,25 @@ test.describe.serial('@sprint1-metrics', () => {
         }
       }
       window.WebSocket = Tracked
+
+      // D14d (Amendment B2 regression): the S2 pack-install parallelization put 94 fetches
+      // and their texture uploads on the main thread at once, so what can regress is pacing,
+      // not throughput — a tab frozen solid while the pack lands. Armed from the init script
+      // because the install is over long before any test line could attach a listener.
+      //
+      // Sampled only while the overlay reads "Starting the renderer…", which is exactly the
+      // phase the install owns: the map is already in hand (small JSON, localhost) and the
+      // engine is not live yet. Consecutive samples are therefore consecutive frames inside
+      // that window, and their deltas are the frame gaps. One subtree `textContent` read per
+      // frame costs no layout and nothing next to an 8MB install.
+      const installFrames: number[] = []
+      ;(window as unknown as { __installFrames: number[] }).__installFrames = installFrames
+      const sample = (at: number) => {
+        const stage = document.querySelector('[data-testid="game-canvas"]')?.parentElement
+        if (stage?.textContent?.includes('Starting the renderer')) installFrames.push(at)
+        requestAnimationFrame(sample)
+      }
+      requestAnimationFrame(sample)
     })
     player = await playerContext.newPage()
     player.on('pageerror', (e) => console.log('[player pageerror]', e.message))
@@ -92,21 +138,65 @@ test.describe.serial('@sprint1-metrics', () => {
   })
 
   /**
+   * Metric (D14d): frame pacing *during* the bundled pack install.
+   *
+   * Reads the samples the join above collected — the cold context is the only place the
+   * install actually runs, and it runs once. The number that matters is the worst gap
+   * between two painted frames while the pack is landing: throughput already has a metric
+   * (join time), and a fast install that locks the tab still loses the roster, the log and
+   * the reconnect banner for the duration.
+   *
+   * ponytail: the assert is a freeze guard, not a pacing target — a full second of dead tab
+   * is unambiguously a regression, whatever the hardware. Tighten it toward the recorded
+   * number once a gate run has published a baseline on the dressed map.
+   */
+  test('pack install: frame pacing while the bundled pack lands', async () => {
+    const frames = await player.evaluate(
+      () => (window as unknown as { __installFrames: number[] }).__installFrames,
+    )
+    expect(
+      frames.length,
+      'no frames sampled while the engine was starting — the install window was never observed',
+    ).toBeGreaterThan(1)
+
+    const gaps = frames.slice(1).map((at, i) => at - frames[i])
+    const sorted = [...gaps].sort((a, b) => a - b)
+    const worst = sorted[sorted.length - 1]
+    const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]
+
+    record(
+      'pack install frame pacing',
+      `worst ${worst.toFixed(0)}ms, p95 ${p95.toFixed(0)}ms over ${gaps.length} frames ` +
+        `(window ${(frames[frames.length - 1] - frames[0]).toFixed(0)}ms)`,
+      'no gap ≥ 1000ms',
+    )
+    expect(worst).toBeLessThan(1000)
+  })
+
+  /**
    * Metric: render parity DM vs player — pixel-identical.
    *
    * Both contexts run the same `GameRenderer` at the same viewport, so the sidebar is the
    * same width and `frameMap` computes the same camera from the same `computeMapWorldBounds`.
    * Only the canvas is captured, so the sidebar (which legitimately differs — the DM has an
-   * invite-code chip) is out of frame and needs no mask.
+   * invite-code chip) is out of frame; the one DM-only affordance that *is* over the canvas,
+   * the active-tool chip, is styled out of both shots.
    *
    * The diff runs in-page rather than through a golden-file comparator: there is no baseline
    * to store, the two images are both produced by this run, and a browser already has a PNG
    * decoder. Zero new dependencies.
+   *
+   * ── Why this row survived S3 ───────────────────────────────────────────────────────────
+   * It was `fixme` for one sprint: `demo-dungeon.mapbuilder` has **no zoned rooms** (0 on
+   * both layers), and under D6-as-written every pixel of it was unzoned map, DM-only and
+   * unrevealable — a black screen for players, with no error and no affordance, on every
+   * pre-S3 map there is. The 2026-07-28 amendment settles it the other way: room-granular
+   * fog needs rooms, so a map with none of them is everyone's, whole. Which makes the two
+   * canvases the same picture again, and this row the thing that proves it.
    */
   test('render parity: DM canvas vs player canvas', async () => {
     const selector = '[data-testid="game-canvas"] canvas'
-    const dmShot = await dm.locator(selector).screenshot()
-    const playerShot = await player.locator(selector).screenshot()
+    const [dmShot, playerShot] = await Promise.all([settled(dm, selector), settled(player, selector)])
 
     const result = await dm.evaluate(
       async ([a, b, tolerance]: [string, string, number]) => {
@@ -132,7 +222,21 @@ test.describe.serial('@sprint1-metrics', () => {
           if (delta > maxDelta) maxDelta = delta
           if (delta > tolerance) differing++
         }
-        return { differing, total: x.width * x.height, maxDelta, size: `${x.width}x${x.height}` }
+        const mean = (d: ImageData) => {
+          let sum = 0
+          for (let i = 0; i < d.data.length; i += 4) {
+            sum += 0.2126 * d.data[i] + 0.7152 * d.data[i + 1] + 0.0722 * d.data[i + 2]
+          }
+          return sum / (d.data.length / 4)
+        }
+        return {
+          differing,
+          total: x.width * x.height,
+          maxDelta,
+          size: `${x.width}x${x.height}`,
+          // Which way a failure goes: a dark player canvas is a mask, a bright one is not.
+          means: `dm ${mean(x).toFixed(1)} vs player ${mean(y).toFixed(1)}`,
+        }
       },
       // > 8/255 per channel is not antialiasing or GPU dither, it is different content.
       [`data:image/png;base64,${dmShot.toString('base64')}`, `data:image/png;base64,${playerShot.toString('base64')}`, 8] as [string, string, number],
@@ -143,7 +247,8 @@ test.describe.serial('@sprint1-metrics', () => {
     const ratio = result.differing / result.total
     record(
       'render parity DM vs player',
-      `${(ratio * 100).toFixed(4)}% of ${result.total} px differ (${result.size}, max channel delta ${result.maxDelta}/255)`,
+      `${(ratio * 100).toFixed(4)}% of ${result.total} px differ (${result.size}, max channel ` +
+        `delta ${result.maxDelta}/255, mean luminance ${result.means})`,
       '< 0.1% differing',
     )
     expect(ratio).toBeLessThan(0.001)
@@ -233,6 +338,75 @@ test.describe.serial('@sprint1-metrics', () => {
   })
 })
 
+/**
+ * Metric (D14e carry-over): join p95 < 1.5s, over enough joins for a p95 to mean something.
+ *
+ * Its own table, on the **dressed gate map** (D15), and its own `describe` — the serial
+ * block above shares one table across four metrics, and a dozen cold contexts joining it
+ * would change what those measure.
+ *
+ * The window is `goto('/join/CODE')` → the table page mounted: document + JS bundle on a
+ * cold HTTP cache, React mount, `GET /api/resolve/:code`, `POST /api/join`, the WS upgrade
+ * and the `session-state` snapshot. It stops at the seat, not at the drawn map — engine
+ * boot, Clipper2 and the 8MB asset-pack install into a cold IndexedDB are a separate metric
+ * with a separate budget (the < 5s row above), and folding them in would make this row a
+ * second measurement of that one.
+ *
+ * Ten joins, in two batches: `/api/resolve` + `/api/join` are the two public guessable
+ * routes and the server rate-limits them together to 10 attempts a minute per IP, which is
+ * exactly five joins. The wait between batches is outside every measurement.
+ */
+test.describe('@sprint1-metrics join p95', () => {
+  const JOINS = 10
+  /** 5 joins × (resolve + join) = the server's whole per-IP minute (http.ts). */
+  const PER_WINDOW = 5
+
+  test('join p95 over 10 cold contexts', async ({ browser }) => {
+    test.setTimeout(300_000)
+
+    const hostContext = await browser.newContext({ viewport: VIEWPORT })
+    const host = await hostContext.newPage()
+    const gateCode = await hostTable(host, GATE)
+
+    const samples: number[] = []
+    try {
+      for (let i = 0; i < JOINS; i++) {
+        if (i % PER_WINDOW === 0) {
+          // Not a measurement, and deliberately outside every clock below: the limiter is a
+          // sliding 60s window, so the budget is only back once the oldest hit ages out. The
+          // wait runs before the *first* batch too — the serial block above has already spent
+          // three of this minute's attempts on its own two joins.
+          await host.waitForTimeout(61_000)
+        }
+        const context = await browser.newContext({ viewport: VIEWPORT })
+        try {
+          const player = await context.newPage()
+          const started = Date.now()
+          await joinTable(player, gateCode, `Delver${i}`)
+          samples.push(Date.now() - started)
+        } finally {
+          await context.close()
+        }
+      }
+    } finally {
+      await hostContext.close()
+    }
+
+    const sorted = [...samples].sort((a, b) => a - b)
+    const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.ceil(q * sorted.length) - 1)]
+    const p95 = at(0.95)
+
+    record(
+      `join p95 over ${JOINS} cold contexts (link → seated at the table, gate map)`,
+      `p95 ${p95}ms, p50 ${at(0.5)}ms, min ${sorted[0]}ms, max ${sorted[sorted.length - 1]}ms ` +
+        `— [${sorted.join(', ')}]ms`,
+      '< 1500ms',
+    )
+    expect(samples).toHaveLength(JOINS)
+    expect(p95).toBeLessThan(1500)
+  })
+})
+
 /** A player that is a socket and nothing else — no browser, no renderer. */
 async function joinOverWire(code: string, name: string): Promise<WebSocket> {
   const res = await fetch(`${SERVER_URL}/api/join`, {
@@ -243,6 +417,6 @@ async function joinOverWire(code: string, name: string): Promise<WebSocket> {
   const { token } = (await res.json()) as { token: string }
   const socket = new WebSocket(`${SERVER_URL.replace(/^http/, 'ws')}/ws?token=${encodeURIComponent(token)}`)
   await once(socket, 'open')
-  socket.send(JSON.stringify({ type: 'join', protocolVersion: 2 }))
+  socket.send(JSON.stringify({ type: 'join', protocolVersion: PROTOCOL_VERSION }))
   return socket
 }

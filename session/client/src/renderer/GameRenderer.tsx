@@ -9,6 +9,8 @@ import { subscribeToAssets } from '@dnd/core/src/engine/subscribeToAssets';
 import { setEngineSingleton, clearEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
 import { listenDprChanges } from '@dnd/core/src/engine/camera';
 import { LightManager } from '@dnd/core/src/engine/lighting';
+import { setTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
+import { destroyWaterAnimation } from '@dnd/core/src/engine/water/waterAnimation';
 import { getAssetPackManager } from '@dnd/core/src/engine/assetPackInstance';
 import { computeMapWorldBounds } from '@dnd/core/src/engine/export/exportPipeline';
 import { ensureBundledPack } from '@dnd/core/src/engine/firstBootInstall';
@@ -17,6 +19,8 @@ import { useStore } from '@dnd/core/src/store/store';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import { useSessionStore } from '../session/store';
 import { loadSceneMap } from '../session/loadSceneMap';
+import { syncDoorsToLighting } from '../modules/doors/doorLighting';
+import { mountPlayerFogWhenReady } from '../modules/fog/FogRenderer';
 
 // ponytail: copied from canvas/src/geometry/initClipper.ts (12 lines). It cannot
 // live in @dnd/core — the `?url` import is a Vite-bundler feature and core is
@@ -73,6 +77,7 @@ function frameMap(engine: PixiRenderEngine): void {
  */
 export function GameRenderer() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const framedScene = useRef<string | null>(null);
   const [engine, setEngine] = useState<PixiRenderEngine | null>(null);
   const [initFailed, setInitFailed] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -124,6 +129,8 @@ export function GameRenderer() {
       }
 
       const sceneGraph = buildSceneGraph(pixiEngine);
+      // The runner has no light-editing tool; icons are editor chrome (the map is the stage).
+      sceneGraph.lightingRenderer.setIconsVisible(false);
       const lightManager = new LightManager();
       setupRenderLoop(pixiEngine, sceneGraph, lightManager);
       const unsubStore = subscribeToStore(pixiEngine, sceneGraph, lightManager);
@@ -138,6 +145,11 @@ export function GameRenderer() {
         sceneGraph.toolManager.destroy();
         sceneGraph.lightingRenderer.destroy();
         sceneGraph.fogTransition.destroy();
+        // Same three as CanvasHost's teardown: the terrain renderer keeps two live store
+        // subscriptions and the water filter its own ticker, both outliving the engine.
+        sceneGraph.terrainRenderer.destroy();
+        setTerrainRenderer(null);
+        destroyWaterAnimation();
         unsubStore();
         unsubAssets();
         unregFogResize();
@@ -157,6 +169,13 @@ export function GameRenderer() {
       setEngine(null);
     };
   }, []);
+
+  // ── Fog + door sight (S3) ─────────────────────────────────────────────────
+  // Both live here rather than in a module panel: the player fog has no panel to hang off
+  // (the fog *tool* is the DM's), and the door→lighting feed is D3 layer 1, which is always
+  // on for both roles. Each waits for the engine on its own and is role-aware inside.
+  useEffect(() => mountPlayerFogWhenReady(), []);
+  useEffect(() => syncDoorsToLighting(), []);
 
   // ── Container-relative sizing (D9) ────────────────────────────────────────
   useEffect(() => {
@@ -257,14 +276,21 @@ export function GameRenderer() {
       // mostly off-screen and the player has to go looking for it. `loadFromFile` runs the
       // scene-graph subscribers synchronously, so mergedFloor — what the bounds are
       // measured from — already exists by the time this line runs.
-      frameMap(engine);
+      //
+      // Once per scene, though: from S3 the map grows as rooms are revealed (D5), and
+      // re-framing on a reveal would yank the camera out from under whoever is looking at
+      // it. The opening view is an opening view, not a response to every delta.
+      if (framedScene.current !== sceneId) {
+        framedScene.current = sceneId;
+        frameMap(engine);
+      }
     } catch (err) {
       console.error('[GameRenderer] map document rejected by the engine:', err);
       // Terminal error path — one extra render, versus a blank page.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoadFailed(true);
     }
-  }, [engine, mapData]);
+  }, [engine, mapData, sceneId]);
 
   const status = initFailed
     ? 'Renderer failed to start — WebGL may be unavailable.'

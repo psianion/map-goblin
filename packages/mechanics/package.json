@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     "./contract": "./src/contract.ts",
+    "./doors": "./src/doors/module.ts",
+    "./fog": "./src/fog/module.ts",
     "./rolls": "./src/rolls/module.ts",
     "./tokens": "./src/tokens/module.ts"
   },

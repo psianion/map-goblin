@@ -1,0 +1,121 @@
+// D3 layer 2 — concealment. Line of sight at room resolution: no raycasting, just a BFS
+// over the rooms-and-doors graph. Pure on purpose; the caller recomputes on fog/door/
+// token-room mutations and caches the result, so this never runs per frame or per message.
+
+import { seedDoor, type AuthoredDoor, type DoorLiveState } from '../doors/types'
+import type { RoomFog, SceneFog } from './types'
+
+/**
+ * Just what picking the default room needs — a core `Room` satisfies it as-is, so nothing
+ * here has to know about boundaries or centroids (and mechanics keeps its type-only reach
+ * into @dnd/core, D3).
+ */
+export interface FogRoom {
+  id: string
+  area: number
+  isPathway: boolean
+}
+
+/**
+ * The room a scene falls back to when the DM has revealed nothing: the largest room that is
+ * not a corridor, lowest id breaking a tie, and the largest room of any kind on a map that
+ * is all corridor. Deterministic on purpose — the server and the client each compute it and
+ * they have to land on the same room without a round trip. Null only for an unzoned map.
+ */
+export function defaultRoom<R extends FogRoom>(rooms: readonly R[]): R | null {
+  const pool = rooms.filter((room) => !room.isPathway)
+  let best: R | null = null
+  for (const room of pool.length ? pool : rooms) {
+    if (!best || room.area > best.area || (room.area === best.area && room.id < best.id)) {
+      best = room
+    }
+  }
+  return best
+}
+
+const EFFECTIVELY_REVEALED: RoomFog = { status: 'revealed', wasEverRevealed: true }
+
+/**
+ * The fog the *rules* run on, as opposed to the fog the DM has stored (amendment
+ * 2026-07-28). Two read-time corrections, both of which exist so a player is never handed a
+ * scene with nothing in it — nothing is written back, and no latch is set:
+ *
+ *  - Nothing stored as `revealed` (a fresh scene, a `reset`, a Hide All) ⇒ the default room
+ *    is revealed, and concealment is off for it. Off, because the fallback's whole job is
+ *    that the screen is not black: routing it through the reachability BFS would put it
+ *    straight back there whenever the party is somewhere else. The DM revealing any real
+ *    room switches the effective set back to stored state and the fallback disappears.
+ *  - No party token on the map ⇒ concealment has nothing to measure (there is nobody to be
+ *    shut behind a door *from*), so the revealed set is the answer.
+ *
+ * Every consumer of `visibleRooms` and of the room-geometry cut runs its fog through this
+ * first; there are two of them (the server's vision cache and the player's fog renderer)
+ * and they must not disagree about which rooms exist.
+ */
+export function effectiveFog(
+  fog: SceneFog,
+  rooms: readonly FogRoom[],
+  playerRoomIds: readonly string[],
+): SceneFog {
+  const concealBehindDoors = fog.concealBehindDoors && playerRoomIds.length > 0
+  const lit = Object.values(fog.rooms).some((room) => room.status === 'revealed')
+  const fallback = lit ? null : defaultRoom(rooms)
+  if (!fallback) return { ...fog, concealBehindDoors }
+  return {
+    rooms: { ...fog.rooms, [fallback.id]: EFFECTIVELY_REVEALED },
+    concealBehindDoors: false,
+  }
+}
+
+/**
+ * The rooms the player role may currently see — one set for the whole party, not per
+ * player. `roomGraph` is the scene's authored doors: `roomA`/`roomB` are the edge it
+ * connects (null = exterior). `doors` is the live overlay; doors missing from it fall
+ * back to their authored state, the same seeding the doors module does.
+ */
+export function visibleRooms(
+  sceneFog: SceneFog,
+  doors: Record<string, DoorLiveState>,
+  roomGraph: readonly AuthoredDoor[],
+  playerRoomIds: readonly string[],
+): Set<string> {
+  const revealed = new Set<string>()
+  for (const [roomId, fog] of Object.entries(sceneFog.rooms)) {
+    if (fog.status === 'revealed') revealed.add(roomId)
+  }
+  if (!sceneFog.concealBehindDoors) return revealed
+
+  const links = new Map<string, string[]>()
+  for (const door of roomGraph) {
+    const live = doors[door.id] ?? seedDoor(door)
+    // A door you do not know exists is a wall, even if the map authored it open.
+    if (!live.open || (door.isSecret && !live.revealed)) continue
+    const a = door.roomA
+    const b = door.roomB
+    if (!a || !b) continue
+    for (const [from, to] of [
+      [a, b],
+      [b, a],
+    ]) {
+      const neighbours = links.get(from)
+      if (neighbours) neighbours.push(to)
+      else links.set(from, [to])
+    }
+  }
+
+  const reached = new Set(playerRoomIds)
+  const queue = [...reached]
+  for (let i = 0; i < queue.length; i++) {
+    for (const next of links.get(queue[i]) ?? []) {
+      if (reached.has(next)) continue
+      reached.add(next)
+      queue.push(next)
+    }
+  }
+
+  // Reachable *and* revealed: the party standing in a re-hidden room still sees nothing
+  // there (D7 keeps their own token visible — that is the token redactor's job, not this).
+  const visible = new Set<string>()
+  for (const roomId of reached) if (revealed.has(roomId)) visible.add(roomId)
+  return visible
+}

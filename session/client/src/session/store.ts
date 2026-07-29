@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import type { PlayerInfo, Role, ServerMessage, SessionState } from '@dnd/core/src/shared/protocol';
+import type { SerializedMapData } from '@dnd/core/src/store/types';
+import { mergeMapDelta, type MapDelta } from './loadSceneMap';
 import { WebSocketClient } from './WebSocketClient';
 import type { ConnectionStatus } from './WebSocketClient';
 
@@ -15,6 +17,18 @@ let applyingRemote = false;
 
 /** True while a ServerMessage is being folded into the store. */
 export const isApplyingRemote = (): boolean => applyingRemote;
+
+/**
+ * The last refusal the server sent. Kept as data rather than turned into UI here: the
+ * shell has no idea what `door-locked` means, and the module that issued the command
+ * does. `at` makes a repeat of the same refusal a new object, so a module watching this
+ * sees the second locked door too.
+ */
+export interface ServerError {
+  code: 'protocol-mismatch' | 'unauthorized' | 'invalid-command' | 'banned';
+  message: string;
+  at: number;
+}
 
 /** A join/leave line for GameLog — derived here, never sent by the server. */
 export interface PresenceEvent {
@@ -38,6 +52,8 @@ export interface SessionStore {
   /** Roster changes seen this tab's lifetime, oldest first, capped. */
   presence: PresenceEvent[];
   mapData: unknown | null;
+  /** Most recent server refusal; modules interpret it (see `useDoorFeedback`). */
+  lastError: ServerError | null;
   latencyMs: number | null;
   client: WebSocketClient | null;
   /** Session token, kept so REST calls (GET /api/maps/:id) can authorize. */
@@ -86,6 +102,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
   session: null,
   presence: [],
   mapData: null,
+  lastError: null,
   latencyMs: null,
   client: null,
   token: null,
@@ -127,11 +144,24 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
         case 'state-update': {
           const session = get().session;
           if (!session) break; // update before the snapshot — the snapshot wins
+          // D5: a fog update that reveals rooms carries their geometry in the same message,
+          // so there is no frame in which this client knows a room is revealed and has
+          // nothing to draw for it. One `set`, because that atomicity *is* the guarantee.
+          const delta = (msg as { mapDelta?: MapDelta }).mapDelta;
+          const mapData = delta
+            ? mergeMapDelta(
+                get().mapData as SerializedMapData | null,
+                delta,
+                get().you?.role,
+                session.activeSceneId,
+              )
+            : get().mapData;
           set({
             session: {
               ...session,
               modules: { ...session.modules, [msg.module]: msg.state },
             },
+            mapData,
           });
           break;
         }
@@ -181,9 +211,15 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           set({ client: null, sessionEnded: true, connection: 'closed' });
           break;
 
+        case 'error':
+          // Recorded, never rendered from here — the module whose command was refused owns
+          // the wording. A locked door is the DM's drama, not a stack trace.
+          set({ lastError: { code: msg.code, message: msg.message, at: Date.now() } });
+          break;
+
         default:
-          // ponytail: dm-*, error and pong land here. Nothing in S1 reads them from
-          // the store — components that care add their cases.
+          // ponytail: dm-* and pong land here. Nothing reads them from the store —
+          // components that care add their cases.
           break;
       }
     } finally {

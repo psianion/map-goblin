@@ -2,14 +2,14 @@
 // persisted row and every other client) is parsed here first. Also home to the D13 snap
 // and the `canOccupy` seam S3's fog tightens.
 
-import type { CommandError } from '../contract'
+import type { CommandError, Viewer } from '../contract'
 import {
   SIZE_CELLS,
   type Disposition,
+  type SceneVision,
   type Token,
   type TokenDef,
   type TokenSize,
-  type TokensState,
 } from './types'
 
 export const NAME_MAX = 60
@@ -88,15 +88,23 @@ export function snap(v: number, size: TokenSize): number {
 }
 
 /**
- * D10 seam: S3's fog/terrain rules tighten this. It is called on every place and move so
- * the check site exists before the rule does — module.test.ts pins the call.
+ * S3 D8 — where a player token may stand. Unzoned map is the DM's alone (D6), a room
+ * nobody has ever seen is not somewhere to walk into, and with concealment on neither is
+ * one the party cannot reach. A re-hidden room the party is standing in stays occupiable:
+ * the DM plunging them into darkness must not also freeze them (D7).
+ *
+ * The DM is fenced by none of it, and a scene with no authored rooms (`scene` null) has no
+ * fog to enforce. Called on every place and move — module.test.ts pins the call site.
  */
 export function canOccupy(
   _token: Token,
-  _pos: { x: number; y: number },
-  _state: TokensState,
+  pos: { x: number; y: number },
+  scene: SceneVision | null,
+  role: Viewer['role'],
 ): boolean {
-  return true
+  if (role === 'dm' || !scene) return true
+  const room = scene.roomAt(pos.x, pos.y)
+  return room !== null && scene.occupiable.has(room)
 }
 
 function parseSight(v: unknown): TokenDef['sight'] {
