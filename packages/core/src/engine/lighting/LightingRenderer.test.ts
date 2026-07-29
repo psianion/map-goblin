@@ -1,5 +1,72 @@
-import { describe, expect, it } from 'vitest';
-import { lightingSignature } from './LightingRenderer';
+import { describe, expect, it, vi } from 'vitest';
+
+// The composite itself needs a GPU, so the browser gate owns "does it look right". What is
+// checkable here is which frames it runs on at all — so Pixi and the texture loader are
+// stubbed down to bookkeeping and `updateAndRender` runs end to end on the CPU.
+vi.mock('pixi.js', () => {
+  class MockContainer {
+    label = '';
+    children: { label: string }[] = [];
+    addChild(c: { label: string }): unknown {
+      this.children.push(c);
+      return c;
+    }
+    removeChild(c: { label: string }): unknown {
+      const i = this.children.indexOf(c);
+      if (i >= 0) this.children.splice(i, 1);
+      return c;
+    }
+    removeChildren(): void {
+      this.children = [];
+    }
+    destroy(): void {}
+  }
+  class MockGraphics extends MockContainer {
+    clear(): this { return this; }
+    rect(): this { return this; }
+    fill(): this { return this; }
+    stroke(): this { return this; }
+    circle(): this { return this; }
+    setStrokeStyle(): this { return this; }
+    moveTo(): this { return this; }
+    lineTo(): this { return this; }
+    closePath(): this { return this; }
+  }
+  class MockSprite extends MockContainer {
+    texture: unknown;
+    width = 0;
+    height = 0;
+    alpha = 1;
+    tint = 0;
+    blendMode = '';
+    visible = true;
+    anchor = { set: (): void => {} };
+    position = { set: (): void => {} };
+    scale = { set: (): void => {} };
+    constructor(texture?: unknown) {
+      super();
+      this.texture = texture;
+    }
+  }
+  class MockFillGradient {
+    destroy(): void {}
+  }
+  class MockRenderTexture {}
+  return {
+    Container: MockContainer,
+    Graphics: MockGraphics,
+    Sprite: MockSprite,
+    FillGradient: MockFillGradient,
+    RenderTexture: MockRenderTexture,
+  };
+});
+vi.mock('../../assets/textureLoader', () => ({
+  resolveTexture: () => ({ width: 1, height: 1 }),
+}));
+
+import { LightingRenderer, lightingSignature } from './LightingRenderer';
+import { LightManager } from './LightManager';
+import type { RenderEngine } from '../RenderEngine';
 import type { LightChild } from '../../store/types';
 
 /**
@@ -74,5 +141,130 @@ describe('lightingSignature', () => {
 
   it('does not confuse a moved light with a moved camera', () => {
     expect(sig([light({ position: { x: 13, y: 20 } })])).not.toBe(sig([light()], [101, 200, 1.5]));
+  });
+});
+
+// ── The guard in place ──────────────────────────────────────────────────────
+// The signature above only proves a field is *in* the key. These pin the frame the guard
+// actually lets through: a resize has to reach `this.width` before the key is built, or the
+// skip eats it and the table keeps the old picture in a freshly blanked buffer.
+
+type FakeTexture = { width: number; height: number; destroy: () => void };
+
+/** A renderer on a fake engine that records the texture every pass drew into. */
+function table() {
+  const overlay = {
+    children: [] as { label: string }[],
+    addChild(c: { label: string }) {
+      this.children.push(c);
+      return c;
+    },
+    removeChild(c: { label: string }) {
+      const i = this.children.indexOf(c);
+      if (i >= 0) this.children.splice(i, 1);
+      return c;
+    },
+  };
+  const viewport = { width: 1280, height: 720, dpr: 1 };
+  const drawnInto: FakeTexture[] = [];
+  const engine = {
+    overlay: () => overlay,
+    viewport: () => viewport,
+    worldToScreen: (wx: number, wy: number) => ({ x: wx, y: wy }),
+    createRenderTexture: (width: number, height: number): FakeTexture => ({
+      width,
+      height,
+      destroy: () => {},
+    }),
+    renderToTexture: (_c: unknown, texture: FakeTexture) => {
+      drawnInto.push(texture);
+    },
+  } as unknown as RenderEngine;
+
+  const lights = new LightManager();
+  lights.syncFromStore([light()]);
+  lights.rebuildIfDirty([]);
+
+  const renderer = new LightingRenderer(engine, viewport.width, viewport.height);
+  const frame = (ambient = '#0d0e12'): void =>
+    renderer.updateAndRender(lights, 100, 200, 1.5, ambient);
+
+  // A freshly synced light starts dirty; two frames settle the polygon rebuild it earns.
+  frame();
+  frame();
+  return { renderer, lights, overlay, viewport, drawnInto, frame };
+}
+
+const iconCount = (overlay: { children: { label: string }[] }): number =>
+  overlay.children.filter((c) => c.label.startsWith('light-icon-')).length;
+
+describe('LightingRenderer composite guard', () => {
+  it('draws nothing on an idle frame', () => {
+    const t = table();
+    const settled = t.drawnInto.length;
+    t.frame();
+    expect(t.drawnInto.length).toBe(settled);
+  });
+
+  it('recomposites at the new size when only the viewport resized', () => {
+    const t = table();
+    const settled = t.drawnInto.length;
+    t.viewport.width = 1600;
+    t.viewport.height = 900;
+    t.frame();
+    expect(t.drawnInto.length).toBeGreaterThan(settled);
+    expect(t.drawnInto.at(-1)).toMatchObject({ width: 1600, height: 900 });
+  });
+
+  it('recomposites when the resize came from outside the render loop', () => {
+    const t = table();
+    t.viewport.width = 1600;
+    t.viewport.height = 900;
+    t.renderer.resize(1600, 900);
+    const settled = t.drawnInto.length;
+    t.frame();
+    expect(t.drawnInto.length).toBeGreaterThan(settled);
+    expect(t.drawnInto.at(-1)).toMatchObject({ width: 1600, height: 900 });
+  });
+
+  it('recomposites when a door swing invalidates the light polygons', () => {
+    const t = table();
+    const settled = t.drawnInto.length;
+    // What a door's state change does once the store subscription sees it.
+    t.lights.invalidateAll();
+    t.frame();
+    expect(t.drawnInto.length).toBeGreaterThan(settled);
+  });
+
+  it('recomposites when the ambient level changes', () => {
+    const t = table();
+    const settled = t.drawnInto.length;
+    t.frame('#202030');
+    expect(t.drawnInto.length).toBeGreaterThan(settled);
+  });
+
+  it('rearms after the last light is hidden and lit again', () => {
+    const t = table();
+    t.lights.syncFromStore([light({ visible: false })]);
+    t.frame();
+    const dark = t.drawnInto.length;
+    t.lights.syncFromStore([light()]);
+    t.frame();
+    expect(t.drawnInto.length).toBeGreaterThan(dark);
+  });
+});
+
+describe('LightingRenderer light icons', () => {
+  it('draws the editing icons unless something opts out', () => {
+    const t = table();
+    expect(iconCount(t.overlay)).toBe(1);
+  });
+
+  it('drops the icons and stops redrawing them once they are turned off', () => {
+    const t = table();
+    t.renderer.setIconsVisible(false);
+    expect(iconCount(t.overlay)).toBe(0);
+    t.frame();
+    expect(iconCount(t.overlay)).toBe(0);
   });
 });
