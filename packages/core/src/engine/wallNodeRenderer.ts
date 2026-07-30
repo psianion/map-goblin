@@ -23,9 +23,17 @@ import {
 } from './wallLayout';
 
 export interface DoorGap {
+  /** Resolved wall id. Floor-ring edges are `floor:{ring}:{edge}`. */
   wallId: string;
   position: [number, number];
   width: number;
+  /**
+   * Ring index for a gap on a floor-ring edge, absent for a standalone wall.
+   * A ring is laid out as one polygon, so gaps are collected per ring, not per
+   * edge — matching is by ring plus the distance test `withoutDoorGaps` already
+   * does, which is what keeps a gap off the neighbouring ring's stones.
+   */
+  ring?: number;
 }
 
 /**
@@ -171,7 +179,8 @@ export function renderNodeWalls(
     // A floor ring's stones are hand-editable too; its edits live on the layer
     // because the ring itself is recomputed from the shapes every time.
     const nodes = applyWallEdits(auto, floorEdits[String(i)]);
-    placeNodes(wallsContainer, nodes, specById, wallWidth, tint);
+    const gaps = doorGaps.filter((g) => g.ring === i);
+    placeNodes(wallsContainer, withoutDoorGaps(nodes, gaps), specById, wallWidth, tint);
   }
 
   for (const wall of standaloneWalls) {

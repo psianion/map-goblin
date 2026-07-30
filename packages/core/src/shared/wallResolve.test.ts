@@ -65,6 +65,20 @@ describe('resolveWalls', () => {
     expect(walls[0].kind).toBe('standalone');
   });
 
+  it('tags floor edges with their ring and edge index', () => {
+    const walls = resolveWalls(layer({ mergedFloor: [ring(0, 0), ring(40, 0)] }));
+    expect(walls.map((w) => [w.ring, w.edge])).toEqual([
+      [0, 0], [0, 1], [0, 2], [0, 3],
+      [1, 0], [1, 1], [1, 2], [1, 3],
+    ]);
+  });
+
+  it('leaves ring and edge unset on standalone walls', () => {
+    const [w] = resolveWalls(layer({ standaloneWalls: [wall()] }));
+    expect(w.ring).toBeUndefined();
+    expect(w.edge).toBeUndefined();
+  });
+
   it('recomputes only when the geometry reference changes', () => {
     const l = layer({ standaloneWalls: [wall()] });
     expect(resolveWalls(l)).toBe(resolveWalls(l));
@@ -144,6 +158,18 @@ describe('resolveDoors', () => {
 
     const orphaned = layer({ standaloneWalls: [up], children: [corner] });
     expect(resolve(orphaned)[0].wall!.id).toBe('w2');
+  });
+
+  it('reports the ring a floor door sits on, so the stone gap lands on it', () => {
+    // The node renderer lays each ring out as one polygon and matches gaps by
+    // ring index — this is the field it keys on.
+    const l = layer({
+      mergedFloor: [ring(0, 0), ring(40, 0)],
+      children: [door({ wallId: FLOOR_ANCHORED, position: [45, 0] })],
+    });
+    const resolved = resolve(l)[0];
+    expect(resolved.wall!.ring).toBe(1);
+    expect(resolved.wall!.kind).toBe('floor');
   });
 
   it('detaches a floor door when the wall under it is gone', () => {

@@ -8,15 +8,27 @@ import * as textureLoader from '../assets/textureLoader';
 import { resolveTexture } from '../assets/textureLoader';
 import { preloadPathTextures } from './splineRenderer';
 import { renderEdgeTransitions } from './edgeTransitions';
-import { renderNodeWalls } from './wallNodeRenderer';
+import { renderNodeWalls, type DoorGap } from './wallNodeRenderer';
 import { renderDoors } from './doorRenderer';
 import { rebuildWaterSublayer } from './water/waterRenderer';
 import { resolveStyle } from './styleResolver';
 import type { DungeonStyle } from '../store/types';
-import type { DoorChild } from '../shared/types';
+import { resolveDoors, resolveWalls, type ResolvedDoor } from '../shared/wallResolve';
 
 function parseColor(hex: string): number {
   return parseInt(hex.replace('#', ''), 16);
+}
+
+/** Stone-gap openings for the doorways. A detached door has no wall to gap. */
+function doorGapsFor(doors: ResolvedDoor[]): DoorGap[] {
+  return doors
+    .filter((d) => d.wall !== null)
+    .map((d) => ({
+      wallId: d.wall!.id,
+      position: d.position,
+      width: d.door.width,
+      ring: d.wall!.ring,
+    }));
 }
 
 /** Signed area of a polygon. Positive = CW in screen-space (outer), negative = CCW (hole). */
@@ -296,20 +308,23 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // render, and a layer holding only standalone walls used to draw nothing at
   // all because this ran after that return. Z-order is unaffected — walls live
   // in their own sublayer container.
-  const doorChildren = layer.children.filter(
-    (c): c is DoorChild => c.childType === 'door' && c.visible,
-  );
+  // Doors resolve against every wall the engine knows about — standalone
+  // segments and floor-ring edges alike — so a door on a floor edge draws and
+  // gaps the stones exactly like one on a standalone wall, and both follow node
+  // edits because their geometry is derived here rather than read off the child.
+  const resolvedWalls = resolveWalls(layer);
+  const doors = resolveDoors(layer, resolvedWalls).filter((d) => d.door.visible);
   renderNodeWalls(
     walls,
     layer.mergedFloor ?? [],
     layer.standaloneWalls,
     layer.style,
-    doorChildren.map((d) => ({ wallId: d.wallId, position: d.position, width: d.width })),
+    doorGapsFor(doors),
     layer.floorWallEdits ?? {},
   );
-  if (doorChildren.length > 0) {
+  if (doors.length > 0) {
     const gridCellSize = useStore.getState().grid.snapDivision || 1;
-    renderDoors(walls, doorChildren, layer.standaloneWalls, layer.style, gridCellSize);
+    renderDoors(walls, doors, layer.style, gridCellSize);
   }
 
   const polygons = layer.mergedFloor;

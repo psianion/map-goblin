@@ -10,6 +10,10 @@ import { snapToNearestWall } from './wallSnap';
  */
 export interface ResolvedWall extends WallSegment {
   kind: 'standalone' | 'floor';
+  /** Index into `mergedFloor`. Floor kind only — the ring's stone edits key on it. */
+  ring?: number;
+  /** Index of this edge within its ring. Floor kind only. */
+  edge?: number;
 }
 
 /**
@@ -97,6 +101,8 @@ export function resolveWalls(layer: DungeonLayer): ResolvedWall[] {
           width: 1,
           roughness: 0,
           kind: 'floor',
+          ring,
+          edge,
         });
       }
     }

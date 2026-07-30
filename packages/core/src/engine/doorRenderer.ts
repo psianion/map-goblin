@@ -1,6 +1,7 @@
 import { Graphics, Sprite } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import type { DoorChild, WallSegment } from '../shared/types';
+import type { DoorChild } from '../shared/types';
+import type { ResolvedDoor } from '../shared/wallResolve';
 import type { DungeonStyle } from '../store/types';
 import { resolveTexture } from '../assets/textureLoader';
 import { getAssetPackManager } from './assetPackInstance';
@@ -20,17 +21,16 @@ function getStateColor(door: DoorChild): number {
   return STATE_COLORS[key] ?? STATE_COLORS.closed;
 }
 
-// M7: Guard for zero-length wall segments
-function segmentLength(a: [number, number], b: [number, number]): number {
-  const dx = b[0] - a[0];
-  const dy = b[1] - a[1];
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
+/**
+ * Draw every resolved door. Position and angle come from the resolver — the
+ * copies on the child are authored intent, and a door on a floor-ring edge has
+ * no wall of its own to re-derive them from (H1 used to do that here, off the
+ * hinted standalone wall only; the resolver now does it for both wall kinds,
+ * per-segment rather than end-to-end, so this is the single source).
+ */
 export function renderDoors(
   container: Container,
-  doors: DoorChild[],
-  walls: WallSegment[],
+  doors: ResolvedDoor[],
   style: DungeonStyle,
   _gridCellSize: number,
 ): void {
@@ -38,42 +38,40 @@ export function renderDoors(
   // entire walls sublayer before calling renderTexturedWalls + renderDoors.
   // Do NOT clear the container here — it contains wall texture sprites too.
 
-  const wallMap = new Map(walls.map((w) => [w.id, w]));
-
-  for (const door of doors) {
+  for (const resolved of doors) {
+    const { door, position, angle: wallAngle } = resolved;
     if (!door.visible) continue;
-    const wall = wallMap.get(door.wallId);
-    if (!wall) continue;
-
-    // H1: Always derive angle from wall geometry, never trust door.angle
-    const start = wall.points[0] as [number, number];
-    const end = wall.points[wall.points.length - 1] as [number, number];
-
-    // M7: Skip zero-length walls — atan2(0,0) produces garbage
-    if (segmentLength(start, end) < 0.01) continue;
-
-    const wallAngle = Math.atan2(end[1] - start[1], end[0] - start[0]);
 
     // Fresh Graphics per door to avoid PixiJS v8 path accumulation
     const g = new Graphics();
 
-    const cx = door.position[0];
-    const cy = door.position[1];
+    const cx = position[0];
+    const cy = position[1];
     const halfWidth = door.width / 2;
+
+    if (resolved.detached) {
+      renderDetachedMarker(g, cx, cy, wallAngle, halfWidth);
+      container.addChild(g);
+      // No state dot: a door attached to nothing has no meaningful state, and
+      // the marker must not read as a normal door with an odd colour.
+      continue;
+    }
+
     const wallColor = parseInt(style.wallColor.replace('#', ''), 16);
     // A locked door reads as locked at a glance, not only from the state dot.
     const glyphColor = door.state === 'locked' ? STATE_COLORS.locked : wallColor;
 
     let drewSprite = false;
     if (door.style === 'portal' && door.portalTextureId) {
-      renderPortalSprite(container, door, wallAngle);
+      renderPortalSprite(container, door, position, wallAngle);
+      g.destroy();
       continue;
     } else if (door.style === 'archway') {
       renderArchway(g, cx, cy, wallAngle, halfWidth, wallColor);
     } else if (door.style === 'portcullis') {
       renderPortcullis(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
     } else {
-      drewSprite = renderDoorSprite(container, door, wallAngle);
+      drewSprite = renderDoorSprite(container, door, position, wallAngle);
       if (!drewSprite) {
         if (door.style === 'double') {
           renderDoubleDoor(g, cx, cy, wallAngle, halfWidth, glyphColor, door.state);
@@ -120,6 +118,7 @@ const DOOR_SPRITE_PACK = 'dungeon-classic';
 function renderDoorSprite(
   container: Container,
   door: DoorChild,
+  position: [number, number],
   wallAngle: number,
 ): boolean {
   const spriteState = door.state === 'open' ? 'open' : 'closed';
@@ -130,7 +129,7 @@ function renderDoorSprite(
 
   const sprite = new Sprite(tex);
   sprite.anchor.set(0.5);
-  sprite.position.set(door.position[0], door.position[1]);
+  sprite.position.set(position[0], position[1]);
   sprite.rotation = wallAngle;
   sprite.scale.set(door.width / tex.width);
   sprite.tint = door.state === 'locked' ? STATE_COLORS.locked : 0xffffff;
@@ -187,6 +186,30 @@ function renderSingleDoor(
     g.closePath();
     g.fill({ color, alpha: 0.8 });
   }
+}
+
+// Detached marker: a door whose wall or floor was deleted out from under it.
+// Grey reads as "inert", but grey alone would be one more state colour, so the
+// shape carries the meaning: the bar is broken in the middle and ringed. That
+// silhouette matches no other door glyph (solid bar, arc, two bars, faint line,
+// two caps, portcullis bars), so it survives greyscale and low zoom.
+const DETACHED_COLOR = 0x8a8a8a;
+
+function renderDetachedMarker(
+  g: Graphics, cx: number, cy: number, angle: number, halfWidth: number,
+): void {
+  // Two stubs along the door axis with a gap where the wall should have been.
+  const stub = halfWidth * 0.45;
+  for (const sign of [-1, 1]) {
+    const ex = cx + Math.cos(angle) * halfWidth * sign;
+    const ey = cy + Math.sin(angle) * halfWidth * sign;
+    g.moveTo(ex, ey);
+    g.lineTo(ex - Math.cos(angle) * stub * sign, ey - Math.sin(angle) * stub * sign);
+  }
+  g.stroke({ color: DETACHED_COLOR, width: GLYPH_STROKE, alpha: 0.9 });
+  // Hollow ring in the gap — the badge, not a filled state dot.
+  g.circle(cx, cy, halfWidth * 0.3);
+  g.stroke({ color: DETACHED_COLOR, width: GLYPH_STROKE * 0.8, alpha: 0.9 });
 }
 
 function renderDoubleDoor(
@@ -298,6 +321,7 @@ function renderArchway(
 function renderPortalSprite(
   container: Container,
   door: DoorChild,
+  position: [number, number],
   wallAngle: number,
 ): void {
   if (!door.portalTextureId) return;
@@ -307,7 +331,7 @@ function renderPortalSprite(
 
   const sprite = new Sprite(tex);
   sprite.anchor.set(0.5);
-  sprite.position.set(door.position[0], door.position[1]);
+  sprite.position.set(position[0], position[1]);
   sprite.rotation = wallAngle;
 
   // Scale sprite to match door width
