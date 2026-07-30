@@ -100,6 +100,11 @@ const toolKeyMap: Record<string, () => void | false> = {
       notify.subtle('Water', { icon: 'tool' });
     }
   },
+  m: () => {
+    // No popover: the ruler has nothing to configure.
+    useStore.getState().setActiveTool('ruler');
+    notify.subtle('Measure', { icon: 'tool' });
+  },
   // Mode toggles
   e: () => {
     const s = useStore.getState();
@@ -353,6 +358,7 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'tool.regularPolygon', keys: 'h',           category: 'Tools', label: 'Regular Polygon' },
     { id: 'tool.path',           keys: 'a',           category: 'Tools', label: 'Path' },
     { id: 'tool.wall',           keys: 'w',           category: 'Tools', label: 'Wall' },
+    { id: 'tool.ruler',          keys: 'm',           category: 'Tools', label: 'Measure' },
     { id: 'tool.door',           keys: 'd',           category: 'Tools', label: 'Door' },
     { id: 'tool.light',          keys: 'l',           category: 'Tools', label: 'Light' },
     { id: 'mode.erase',          keys: 'e',           category: 'Tools', label: 'Toggle Erase' },

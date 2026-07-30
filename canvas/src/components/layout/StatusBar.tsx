@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { cursorWorldPosition } from '@/canvas/cursorPosition';
 import { fpsMetrics } from '@/engine/fpsMetrics';
+import { rulerMeasurement } from '@/engine/rulerMeasurement';
+import { useStore } from '@/store/store';
 import { ZoomSlider } from '@/components/toolbar/ZoomSlider';
 
 interface StatusBarProps {
@@ -22,8 +24,16 @@ export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarPro
   const [fpsStr, setFpsStr] = useState<string>('—');
   const [ftStr, setFtStr] = useState<string>('—');
   const [fpsColor, setFpsColor] = useState<string>('text-text-muted');
+  const [rulerStr, setRulerStr] = useState<string>('');
+  const cellScale = useStore((s) => s.mapSettings.cellScale);
   const rafRef = useRef<number>(0);
   const frameCountRef = useRef<number>(0);
+  // Read inside the frame loop without making it a dependency, so the loop is
+  // installed once rather than restarting whenever the map scale changes.
+  const cellScaleRef = useRef(cellScale);
+  useEffect(() => {
+    cellScaleRef.current = cellScale;
+  }, [cellScale]);
 
   useEffect(() => {
     const tick = () => {
@@ -57,6 +67,16 @@ export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarPro
         }
       }
 
+      // --- Ruler reading (every frame; empty unless a measurement is live) ---
+      {
+        const m = rulerMeasurement.current;
+        const { value, unit } = cellScaleRef.current;
+        const next = m
+          ? `${(m.cells * value).toFixed(1)}${unit} · ${m.cells.toFixed(1)} sq`
+          : '';
+        setRulerStr((prev) => (prev !== next ? next : prev));
+      }
+
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
@@ -84,8 +104,10 @@ export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarPro
         <span className="text-text-muted">{ftStr}ms</span>
       </div>
 
-      {/* Middle: Reserved for future metadata */}
-      <div className="flex-1" />
+      {/* Middle: live ruler reading, absent unless measuring */}
+      <div className="flex-1 flex justify-center">
+        {rulerStr && <span className="text-text-primary tabular-nums">{rulerStr}</span>}
+      </div>
 
       {/* Right: Zoom controls */}
       <ZoomSlider />

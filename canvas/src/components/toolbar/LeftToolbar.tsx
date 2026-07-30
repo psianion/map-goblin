@@ -16,6 +16,7 @@ import {
   LayoutGrid,
   Mountain,
   Droplets,
+  Ruler,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useStore } from '@/store/store';
@@ -44,6 +45,8 @@ const TOOLS: ToolButton[] = [
   { tool: 'scatterBrush', icon: TreeDeciduous, label: 'Scatter Brush', shortcut: 'B' },
   { tool: 'terrain', icon: Mountain, label: 'Terrain Brush', shortcut: 'T' },
   { tool: 'water', icon: Droplets, label: 'Water', shortcut: 'U' },
+  // M for measure — R is already the rectangle.
+  { tool: 'ruler', icon: Ruler, label: 'Measure', shortcut: 'M' },
 ];
 
 /** Module-level button element map — avoids useRef reads during render */
