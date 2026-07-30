@@ -157,8 +157,16 @@ export interface LightChild extends LayerChild {
 
 export interface DoorChild extends LayerChild {
   childType: 'door';
+  /**
+   * Standalone wall this door was placed on, or `''` when it is anchored to the
+   * floor outline — floor rings are recomputed on every change, so they have no
+   * id worth storing. Only a hint either way: `shared/wallResolve.ts` projects
+   * the door onto a wall each resolve.
+   */
   wallId: string;
+  /** Authored intent. Where the door actually sits is resolved, not read from here. */
   position: [number, number];
+  /** Authored intent — always re-derived from the resolved wall for rendering. */
   angle: number;
   width: number;
   style: DoorStyle;

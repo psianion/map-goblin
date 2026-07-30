@@ -68,4 +68,31 @@ describe('extractWallSegments', () => {
     // 2 wall sub-segments + 1 closed door segment (all block light) = 3
     expect(segs).toHaveLength(3)
   })
+
+  it('blocks light along every floor-ring edge', () => {
+    const layer = {
+      id: 'floor-only',
+      type: 'dungeon' as const,
+      children: [],
+      standaloneWalls: [],
+      mergedFloor: [[[0, 0], [100, 0], [100, 100], [0, 100]] as [number, number][]],
+    } as unknown as DungeonLayer
+
+    expect(extractWallSegments([layer])).toHaveLength(4)
+  })
+
+  it('open door on a floor-ring edge passes light', () => {
+    const layer = {
+      id: 'floor-door',
+      type: 'dungeon' as const,
+      children: [
+        { id: 'd1', childType: 'door', visible: true, wallId: '', position: [50, 0] as [number, number], angle: 0, width: 20, style: 'single', state: 'open', isSecret: false, name: 'Door 1' },
+      ],
+      standaloneWalls: [],
+      mergedFloor: [[[0, 0], [100, 0], [100, 100], [0, 100]] as [number, number][]],
+    } as unknown as DungeonLayer
+
+    // 3 intact edges + 2 stubs either side of the gap; the open door blocks nothing.
+    expect(extractWallSegments([layer])).toHaveLength(5)
+  })
 })

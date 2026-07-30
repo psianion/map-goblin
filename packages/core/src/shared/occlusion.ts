@@ -68,17 +68,14 @@ function projectOntoSegment(
 const MIN_SEGMENT_LENGTH = 0.01;
 
 /**
- * Build occlusion segments from standalone walls, splitting each wall at door
+ * Build occlusion segments from resolved walls, splitting each wall at door
  * positions so the lighting engine and VTT export receive per-segment props.
  *
- * NOTE (H8): This function only receives standalone walls. Auto-walls (floor
- * polygon edges) are NOT included here. The lighting raycaster handles auto-walls
- * separately via `extractWallSegments` in `src/engine/lighting/raycaster.ts`,
- * which already combines both sources. The occlusion cache is currently used
- * only for door splitting on standalone walls — auto-wall occlusion goes through
- * the raycaster path and is unaffected by this limitation.
- * TODO: When UVTT export is implemented (Month 4), merge auto-wall edges here
- * so the full wall set is available for UVTT wall embedding.
+ * Both wall kinds arrive here: `resolveWalls` in `shared/wallResolve.ts` hands
+ * over standalone segments *and* floor-ring edges, and `toOcclusionDoors` hands
+ * over doors already projected onto them (detached ones dropped). Doors are
+ * matched to walls by id, so pass resolved doors rather than raw children —
+ * a floor door stores no wall id of its own.
  *
  * NOTE (M11): Polyline walls (3+ points) are currently treated as a single chord
  * from points[0] to points[last] for the purpose of door projection. Doors placed

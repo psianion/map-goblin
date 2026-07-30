@@ -1,8 +1,9 @@
-import type { Point, Polygon } from '../../types/geometry';
+import type { Point } from '../../types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import type { DoorChild, DungeonLayer } from '../../store/types';
-import type { DoorState, WallSegment } from '../../shared/types';
+import type { DoorState } from '../../shared/types';
 import { snapToNearestWall, type WallSnapResult } from '../../shared/wallSnap';
+import { FLOOR_ANCHORED, resolveDoors, resolveWalls } from '../../shared/wallResolve';
 import { bindDoorToRooms } from '../../shared/roomBinding';
 import { AddChildCommand, RemoveChildCommand, UpdateChildCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
@@ -47,29 +48,6 @@ function doorAt(point: Point, layer: DungeonLayer): DoorChild | null {
   return best;
 }
 
-/** Extract synthetic WallSegments from mergedFloor polygon edges. */
-function wallSegmentsFromFloor(mergedFloor: Polygon[]): WallSegment[] {
-  const segments: WallSegment[] = [];
-  for (let pi = 0; pi < mergedFloor.length; pi++) {
-    const poly = mergedFloor[pi];
-    if (poly.length < 2) continue;
-    for (let ei = 0; ei < poly.length; ei++) {
-      const start = poly[ei];
-      const end = poly[(ei + 1) % poly.length];
-      segments.push({
-        id: `floor-${pi}-${ei}`,
-        points: [start, end],
-        wallType: 'normal',
-        direction: 'both',
-        color: '#000000',
-        width: 1,
-        roughness: 0,
-      });
-    }
-  }
-  return segments;
-}
-
 export class DoorTool implements DrawingTool {
   readonly type = 'door' as const;
   readonly cursor = 'crosshair';
@@ -104,26 +82,23 @@ export class DoorTool implements DrawingTool {
 
     const toolSettings = store.tools.settings;
 
-    // Check for door overlap on this wall
-    const existingDoors = activeLayer.children.filter(
-      (c) => c.childType === 'door' && (c as DoorChild).wallId === this.snapResult!.wallId,
-    ) as DoorChild[];
-
     const doorWidth = toolSettings.doorWidth || 1;
-    const floorWalls = activeLayer.mergedFloor
-      ? wallSegmentsFromFloor(activeLayer.mergedFloor)
-      : [];
-    const allWalls = [...activeLayer.standaloneWalls, ...floorWalls];
+    const allWalls = resolveWalls(activeLayer);
     const wall = allWalls.find((w) => w.id === this.snapResult!.wallId);
     if (!wall) return;
 
-    // Validate: check overlap
+    // Validate: check overlap against the doors that currently resolve onto this
+    // wall — a floor door stores no wall id, so its anchor is only known once
+    // resolved.
+    const existingDoors = resolveDoors(activeLayer, allWalls).filter(
+      (r) => r.wall?.id === wall.id,
+    );
     for (const existing of existingDoors) {
       const dist = Math.sqrt(
         (existing.position[0] - this.snapResult.position[0]) ** 2 +
         (existing.position[1] - this.snapResult.position[1]) ** 2,
       );
-      if (dist < (existing.width + doorWidth) / 2) {
+      if (dist < (existing.door.width + doorWidth) / 2) {
         return; // overlap — reject placement
       }
     }
@@ -153,7 +128,9 @@ export class DoorTool implements DrawingTool {
       name: `${styleName} ${nextNum}`,
       childType: 'door',
       visible: true,
-      wallId: this.snapResult.wallId,
+      // Floor-ring ids are derived per resolve, so storing one would rot on the
+      // next union. Position + projection is the whole anchor for those.
+      wallId: wall.kind === 'floor' ? FLOOR_ANCHORED : wall.id,
       position: this.snapResult.position,
       angle: this.snapResult.angle,
       width: doorWidth,
@@ -187,14 +164,9 @@ export class DoorTool implements DrawingTool {
     // M9: Overlap detection uses Euclidean center distance which is a simplification.
     // For most cases this is accurate enough since doors are placed along a single wall.
     // A full parametric interval check would be needed for exact edge-case accuracy.
-    const floorWalls = activeLayer.mergedFloor
-      ? wallSegmentsFromFloor(activeLayer.mergedFloor)
-      : [];
-    const allWalls = [...activeLayer.standaloneWalls, ...floorWalls];
-
     this.snapResult = snapToNearestWall(
       [point.x, point.y],
-      allWalls,
+      resolveWalls(activeLayer),
       snapThreshold,
     );
   }
