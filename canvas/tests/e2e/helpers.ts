@@ -1,9 +1,15 @@
 import { type Page } from '@playwright/test'
 
-/** Navigate to app and wait for canvas + Clipper2 WASM to be ready */
+/**
+ * Navigate to app and wait for canvas + Clipper2 WASM to be ready.
+ *
+ * A minute rather than the twenty seconds this used to allow: the first page of a
+ * run pays Vite's cold compile, and a boot that lands at 21 seconds is a slow box,
+ * not a broken app. The wait costs nothing when the app is up.
+ */
 export async function gotoApp(page: Page): Promise<void> {
   await page.goto('/')
-  await page.waitForSelector('[data-clipper-ready="true"]', { timeout: 20000 })
+  await page.waitForSelector('[data-clipper-ready="true"]', { timeout: 60_000 })
 }
 
 /**

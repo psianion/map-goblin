@@ -341,7 +341,7 @@ async function onlyDoor(page: Page): Promise<DoorRec> {
   return list[0]
 }
 
-async function useDoorTool(page: Page): Promise<void> {
+async function selectDoorTool(page: Page): Promise<void> {
   await page.keyboard.press('d')
   await waitFrame(page, 2)
 }
@@ -355,7 +355,7 @@ const WALL: [number, number][] = [
 ]
 
 async function placeOnWall(page: Page, at: [number, number] = [2, -6]): Promise<DoorRec> {
-  await useDoorTool(page)
+  await selectDoorTool(page)
   await clickAt(page, at)
   return onlyDoor(page)
 }
@@ -363,6 +363,10 @@ async function placeOnWall(page: Page, at: [number, number] = [2, -6]): Promise<
 // ── Pointer editing ────────────────────────────────────────────────────────
 
 test.describe('Doors — pointer editing', () => {
+  // A gesture is a dozen driver round trips and this box charges ~350ms for each,
+  // so a two-drag row lands inside a couple of seconds of the default budget.
+  test.slow()
+
   test('a click selects a placed door and changes nothing about it', async ({ page }) => {
     await open(page, { walls: [{ id: 'w1', points: WALL }] })
     const placed = await placeOnWall(page)
@@ -400,7 +404,7 @@ test.describe('Doors — pointer editing', () => {
       walls: [{ id: 'w1', points: WALL }],
       doors: [{ id: 'arch', wallId: 'w1', position: [2, -6], style: 'archway', width: 2 }],
     })
-    await useDoorTool(page)
+    await selectDoorTool(page)
     const at: [number, number] = [2, -6]
 
     await doubleClickAt(page, at)
@@ -522,6 +526,8 @@ const ROOM: [number, number][] = [
 ]
 
 test.describe('Doors — floor-ring edges', () => {
+  test.slow() // drags, and a round trip per move (see the note above)
+
   test('a door placed on a floor edge renders, gaps the stones and drags', async ({ page }) => {
     // A 3-cell doorway: stones on this ring sit more than a cell apart, so a
     // hairline door can honestly gap nothing at all.
@@ -531,7 +537,7 @@ test.describe('Doors — floor-ring edges', () => {
     const before = await drawnAt(page, [1, 0], 1.5)
     expect(before.sprites).toBeGreaterThan(0) // stones run through the doorway
 
-    await useDoorTool(page)
+    await selectDoorTool(page)
     await clickAt(page, [1, 0])
 
     const door = await onlyDoor(page)
@@ -569,7 +575,7 @@ test.describe('Doors — floor-ring edges', () => {
     await page.waitForTimeout(800) // room detection is debounced
     expect((await page.evaluate(() => window.__t.rooms())).length).toBeGreaterThanOrEqual(2)
 
-    await useDoorTool(page)
+    await selectDoorTool(page)
     await clickAt(page, [0, 4])
     const inner = await onlyDoor(page)
     expect(inner.wallId).toBe('divider')
@@ -591,7 +597,7 @@ test.describe('Doors — floor-ring edges', () => {
     page,
   }) => {
     await open(page, { floors: [{ id: 'floor', contours: [ROOM] }] })
-    await useDoorTool(page)
+    await selectDoorTool(page)
     await clickAt(page, [1, 0])
     const door = await onlyDoor(page)
 
@@ -615,7 +621,7 @@ test.describe('Doors — floor-ring edges', () => {
 
   test('a door follows the wall under it when the geometry moves', async ({ page }) => {
     await open(page, { walls: [{ id: 'w1', points: WALL }] })
-    await useDoorTool(page)
+    await selectDoorTool(page)
     await clickAt(page, [2, -6])
     expect((await drawnAt(page, [2, -6], 0.8)).graphics).toBeGreaterThan(0)
 
@@ -693,7 +699,7 @@ test.describe('Doors — floor-ring edges', () => {
     // …but the door draws on the ring edge, not 0.4 units inside the room.
     expect((await drawnAt(page, [2, 0], 0.8)).graphics).toBeGreaterThan(0)
 
-    await useDoorTool(page)
+    await selectDoorTool(page)
     await clickAt(page, [2, 0])
     expect(await selection(page)).toEqual(['legacy-door'])
   })
@@ -752,7 +758,7 @@ test.describe('Doors — light', () => {
     })
     await waitFrame(page, 15)
 
-    await useDoorTool(page)
+    await selectDoorTool(page)
     await clickAt(page, [0, -2])
     const door = await onlyDoor(page)
     expect(door.wallId).toBe('')
