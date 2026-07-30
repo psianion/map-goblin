@@ -7,6 +7,7 @@ import { RegularPolygonTool } from './RegularPolygonTool';
 import { PathTool } from './PathTool';
 import { WallTool } from './WallTool';
 import { RulerTool } from './RulerTool';
+import { TextTool } from './TextTool';
 import { SelectTool } from './SelectTool';
 import { ObjectTool } from './ObjectTool';
 import { LightTool } from './LightTool';
@@ -31,6 +32,7 @@ export function registerAllTools(manager: ToolManager, worldContainer: Container
   manager.registerTool(new PathTool());
   manager.registerTool(new WallTool());
   manager.registerTool(new RulerTool());
+  manager.registerTool(new TextTool());
   manager.registerTool(new DoorTool());
   manager.registerTool(new LightTool());
   manager.registerTool(new StampScatterTool(previewContainer));

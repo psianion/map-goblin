@@ -13,10 +13,23 @@ import {
   beginNodeDrag,
   nudgeWallNode,
   endNodeDrag,
+  cancelNodeDrag,
+  isDraggingNode,
   toggleNodeEditAt,
   exitNodeEdit,
   handleNodeKey,
 } from './wallNodeEdit';
+import { outlineHitAt } from '@/engine/shapeNodeOverlay';
+import {
+  applyOutlineEdit,
+  beginOutlineDrag,
+  updateOutlineDrag,
+  endOutlineDrag,
+  cancelOutlineDrag,
+  isDraggingOutline,
+  toggleShapeNodeEditAt,
+  exitShapeNodeEdit,
+} from '@/engine/shapeNodeEdit';
 
 type InputMiddleware = (point: Point) => Point;
 
@@ -72,6 +85,8 @@ export function useCanvasInput(
     // rather than its own tool, so there is no DrawingTool to route it through.
     let draggingNodeT: number | null = null;
     let nodeDragLast: Point | null = null;
+    /** Where an outline vertex/edge drag began, for the edge-drag offset. */
+    let outlineDragStart: Point | null = null;
 
     const onPointerDown = (e: PointerEvent) => {
       canvasEl.setPointerCapture(e.pointerId);
@@ -101,6 +116,25 @@ export function useCanvasInput(
         useStore.getState().selectNode(null);
       }
 
+      if (e.button === 0 && useStore.getState().tools.shapeNodeEditId) {
+        // Unsnapped, same as wall nodes: handles sit where they sit, and the
+        // grid would drag the pick off one that lies between divisions.
+        const hit = outlineHitAt(rawWorld, engine.stage().scale.x);
+        if (hit?.kind === 'insert') {
+          useStore.getState().selectVertex(null);
+          applyOutlineEdit({ kind: 'insert', index: hit.index, x: hit.x, y: hit.y }, 'Add vertex');
+          return;
+        }
+        if (hit) {
+          useStore.getState().selectVertex(hit.kind === 'vertex' ? hit.index : null);
+          if (beginOutlineDrag(hit.kind === 'vertex' ? 'vertex' : 'edge', hit.index)) {
+            outlineDragStart = rawWorld;
+            return;
+          }
+        }
+        useStore.getState().selectVertex(null);
+      }
+
       const snapped = applyMiddleware(rawWorld);
       _toolManager?.onPointerDown(snapped, e);
     };
@@ -125,6 +159,13 @@ export function useCanvasInput(
         const w = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
         nudgeWallNode(draggingNodeT, w.x - nodeDragLast.x, w.y - nodeDragLast.y);
         nodeDragLast = w;
+        return;
+      }
+
+      // Outline vertex/edge drag — the floor and its walls follow live.
+      if (isDraggingOutline() && outlineDragStart) {
+        const w = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+        updateOutlineDrag(w, { x: w.x - outlineDragStart.x, y: w.y - outlineDragStart.y });
         return;
       }
 
@@ -162,18 +203,40 @@ export function useCanvasInput(
         endNodeDrag();
         return;
       }
+      if (isDraggingOutline()) {
+        outlineDragStart = null;
+        endOutlineDrag();
+        return;
+      }
       const rect = canvasEl.getBoundingClientRect();
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
       const snapped = applyMiddleware(world);
       _toolManager?.onPointerUp(snapped, e);
     };
 
-    // Double-click a wall with the select tool to expose its nodes.
+    // A touch or stylus gesture can be taken away mid-drag. Both node drags
+    // write straight to the store, and the outline one also collapses its
+    // contributing shapes for the preview — without this the layer is left in
+    // that half-finished state with no undo entry that reaches it.
+    const onPointerCancel = () => {
+      if (draggingNodeT !== null) {
+        draggingNodeT = null;
+        nodeDragLast = null;
+        cancelNodeDrag();
+      }
+      if (isDraggingOutline()) {
+        outlineDragStart = null;
+        cancelOutlineDrag();
+      }
+    };
+
+    // Double-click with the select tool to expose nodes: a wall's sprite nodes
+    // if the click landed on one, otherwise the floor outline's vertices.
     const onDoubleClick = (e: MouseEvent) => {
       if (useStore.getState().tools.activeTool !== 'select') return;
       const rect = canvasEl.getBoundingClientRect();
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
-      if (toggleNodeEditAt(world)) e.preventDefault();
+      if (toggleNodeEditAt(world) || toggleShapeNodeEditAt(world)) e.preventDefault();
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -184,9 +247,51 @@ export function useCanvasInput(
       // Escape leaves node editing before anything else claims it, so it does
       // not also cancel whatever drawing tool happens to be selected.
       if (e.key === 'Escape' && useStore.getState().tools.nodeEditWallId) {
-        exitNodeEdit();
+        // Mid-drag it abandons the gesture and stays in edit mode, matching the
+        // outline handles below. Leaving outright would strand the half-dragged
+        // stone: the drag writes straight to the store, and endNodeDrag can no
+        // longer resolve the run once edit mode is gone.
+        if (isDraggingNode()) {
+          draggingNodeT = null;
+          nodeDragLast = null;
+          cancelNodeDrag();
+        } else {
+          exitNodeEdit();
+        }
         e.preventDefault();
         return;
+      }
+
+      if (e.key === 'Escape' && useStore.getState().tools.shapeNodeEditId) {
+        // Mid-drag Escape abandons the gesture but stays in edit mode; a second
+        // one leaves. Rolling the drag back first also undoes the collapse it
+        // performed for the preview.
+        if (isDraggingOutline()) {
+          outlineDragStart = null;
+          cancelOutlineDrag();
+        } else {
+          exitShapeNodeEdit();
+        }
+        e.preventDefault();
+        return;
+      }
+
+      // Delete removes the selected vertex, ahead of the global table where
+      // Delete means "delete the selected shape".
+      {
+        const tools = useStore.getState().tools;
+        if (
+          tools.shapeNodeEditId &&
+          tools.selectedVertex !== null &&
+          (e.key === 'Delete' || e.key === 'Backspace') &&
+          !e.ctrlKey &&
+          !e.metaKey
+        ) {
+          applyOutlineEdit({ kind: 'delete', index: tools.selectedVertex }, 'Delete vertex');
+          useStore.getState().selectVertex(null);
+          e.preventDefault();
+          return;
+        }
       }
 
       // Rotate / resize / delete the selected node, ahead of the global
@@ -315,6 +420,7 @@ export function useCanvasInput(
     canvasEl.addEventListener('pointerdown', onPointerDown);
     canvasEl.addEventListener('pointermove', onPointerMove);
     canvasEl.addEventListener('pointerup', onPointerUp);
+    canvasEl.addEventListener('pointercancel', onPointerCancel);
     canvasEl.addEventListener('mousedown', onMiddleDown);
     canvasEl.addEventListener('mousemove', onMouseMove);
     canvasEl.addEventListener('mouseup', onMouseUp);
@@ -332,7 +438,10 @@ export function useCanvasInput(
       canvasEl.removeEventListener('pointerdown', onPointerDown);
       canvasEl.removeEventListener('pointermove', onPointerMove);
       canvasEl.removeEventListener('pointerup', onPointerUp);
+      canvasEl.removeEventListener('pointercancel', onPointerCancel);
       canvasEl.removeEventListener('mousedown', onMiddleDown);
+      // Unmount mid-drag leaves the same half-finished state a cancel does.
+      onPointerCancel();
       canvasEl.removeEventListener('mousemove', onMouseMove);
       canvasEl.removeEventListener('mouseup', onMouseUp);
       canvasEl.removeEventListener('wheel', onWheel);

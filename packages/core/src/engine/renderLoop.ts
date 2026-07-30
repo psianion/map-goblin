@@ -8,6 +8,7 @@ import { LightManager } from './lighting';
 import { renderToolPreview } from './toolPreview';
 import { renderRoomHighlight } from './roomHighlight';
 import { renderWallNodeHandles } from './wallNodeOverlay';
+import { renderShapeNodeHandles } from './shapeNodeOverlay';
 import { recordFrame } from './fpsMetrics';
 
 /**
@@ -137,6 +138,7 @@ export function setupRenderLoop(
     // (5d) Wall node handles — no-ops unless the edited wall, selection or zoom
     // changed. Zoom matters: handles are drawn at a constant screen size.
     renderWallNodeHandles(stage.scale.x);
+    renderShapeNodeHandles(stage.scale.x);
 
     // (6) Lighting — rebuild wall segments if dirty, update FBO
     const storeState = useStore.getState();

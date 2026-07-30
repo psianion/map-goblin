@@ -5,6 +5,7 @@
 
 import { Sprite, Container } from 'pixi.js';
 import type { DungeonStyle, WallSegment } from '../store/types';
+import type { WallEdits } from '../shared/types';
 import type { Polygon } from '../types/geometry';
 import * as textureLoader from '../assets/textureLoader';
 import { resolveTexture } from '../assets/textureLoader';
@@ -149,6 +150,8 @@ export function renderNodeWalls(
   standaloneWalls: WallSegment[],
   style: DungeonStyle,
   doorGaps: DoorGap[] = [],
+  /** Hand edits for floor rings, keyed by ring index. */
+  floorEdits: Record<string, WallEdits> = {},
 ): void {
   wallsContainer.removeChildren();
   if (!style.wallTextureSetId) return;
@@ -161,9 +164,13 @@ export function renderNodeWalls(
   const tint = parseInt(style.wallTextureTint.replace('#', ''), 16) || 0xffffff;
   const wallWidth = style.wallWidth;
 
-  for (const poly of polygons) {
+  for (let i = 0; i < polygons.length; i++) {
+    const poly = polygons[i];
     if (poly.length < 3) continue;
-    const nodes = layoutWall(poly, true, specs, { wallWidth, seed: seedForPoints(poly) });
+    const auto = layoutWall(poly, true, specs, { wallWidth, seed: seedForPoints(poly) });
+    // A floor ring's stones are hand-editable too; its edits live on the layer
+    // because the ring itself is recomputed from the shapes every time.
+    const nodes = applyWallEdits(auto, floorEdits[String(i)]);
     placeNodes(wallsContainer, nodes, specById, wallWidth, tint);
   }
 

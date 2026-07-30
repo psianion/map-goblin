@@ -39,6 +39,41 @@ function applyTransformToPoints(pts: Polygon, t: { translate: [number, number]; 
   });
 }
 
+/**
+ * Cheap fingerprint of a shape's actual geometry.
+ *
+ * This used to be ring count plus point count, which is blind to a point
+ * *moving*: dragging, resizing or nudging a vertex left the key identical, so
+ * mergedFloor was never recomputed and the floor and walls kept the old
+ * outline while the store held the new one. The stored transform was missing
+ * too, despite the comment claiming otherwise.
+ *
+ * Folded to a number rather than a string — this runs on every store change,
+ * and a map's worth of coordinates is not worth allocating a string for.
+ * Quantised to 1e-4 of a cell so float noise alone cannot trigger a rebuild.
+ */
+function geometryDigest(shape: ShapeChild): number {
+  let h = 0x811c9dc5;
+  const mix = (v: number): void => {
+    h ^= Math.round(v * 1e4) | 0;
+    h = Math.imul(h, 0x01000193);
+  };
+  for (const ring of shape.contours) {
+    mix(ring.length);
+    for (const [x, y] of ring) {
+      mix(x);
+      mix(y);
+    }
+  }
+  const t = shape.transform;
+  if (t) {
+    mix(t.translate[0]); mix(t.translate[1]);
+    mix(t.rotate);
+    mix(t.scale[0]); mix(t.scale[1]);
+  }
+  return h >>> 0;
+}
+
 function computeMergedFloor(layer: DungeonLayer): Polygon[] | null {
   const shapeChildren = layer.children.filter(
     (c): c is ShapeChild => c.childType === 'shape' && c.visible,
@@ -177,10 +212,10 @@ export function subscribeToStore(
           id: l.id,
           shapeCount: l.children.filter((c) => c.childType === 'shape').length,
           wallCount: l.standaloneWalls.length,
-          // Track shape IDs + transforms to detect changes (NOT mergedFloor — we write that)
+          // Track shape IDs + geometry to detect changes (NOT mergedFloor — we write that)
           shapeKeys: l.children
             .filter((c): c is ShapeChild => c.childType === 'shape')
-            .map((c) => `${c.id}:${c.visible}:${c.contours.length}:${c.contours[0]?.length ?? 0}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}`)
+            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}`)
             .join(','),
           // Track door changes (state, style, position affect rendering + lighting)
           doorSignature: l.children

@@ -1,4 +1,4 @@
-import type { DrawingTool, PreviewShape } from './DrawingTool';
+import { isDoubleClick, type DrawingTool, type PreviewShape } from './DrawingTool';
 import type { Point } from '../../types/geometry';
 import type { RenderEngine } from '../RenderEngine';
 import type { DungeonLayer } from '../../store/types';
@@ -24,7 +24,7 @@ export class WaterTool implements DrawingTool {
   // lake mode: click vertices
   private lakeVertices: Point[] = [];
   private currentPoint: Point | null = null;
-  private lastClickTime = 0;
+  private lastClick: { point: Point; time: number } | null = null;
 
   constructor(engine: RenderEngine) {
     this.engine = engine;
@@ -66,12 +66,12 @@ export class WaterTool implements DrawingTool {
 
     // lake mode: click vertices, double-click closes
     const now = Date.now();
-    if (this.lakeVertices.length >= 3 && now - this.lastClickTime < 300) {
+    if (this.lakeVertices.length >= 3 && isDoubleClick(this.lastClick, point, now)) {
       this.finalizeLake();
-      this.lastClickTime = 0;
+      this.lastClick = null;
       return;
     }
-    this.lastClickTime = now;
+    this.lastClick = { point, time: now };
     this.lakeVertices.push(point);
     this.currentPoint = point;
   }
@@ -119,7 +119,7 @@ export class WaterTool implements DrawingTool {
     this.riverPoints = [];
     this.lakeVertices = [];
     this.currentPoint = null;
-    this.lastClickTime = 0;
+    this.lastClick = null;
   }
 
   isActive(): boolean {

@@ -105,6 +105,11 @@ const toolKeyMap: Record<string, () => void | false> = {
     useStore.getState().setActiveTool('ruler');
     notify.subtle('Measure', { icon: 'tool' });
   },
+  // N for note — T is terrain and X is the rough-mode toggle.
+  n: () => {
+    useStore.getState().setActiveTool('text');
+    notify.subtle('Label', { icon: 'tool' });
+  },
   // Mode toggles
   e: () => {
     const s = useStore.getState();
@@ -359,6 +364,7 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'tool.path',           keys: 'a',           category: 'Tools', label: 'Path' },
     { id: 'tool.wall',           keys: 'w',           category: 'Tools', label: 'Wall' },
     { id: 'tool.ruler',          keys: 'm',           category: 'Tools', label: 'Measure' },
+    { id: 'tool.text',           keys: 'n',           category: 'Tools', label: 'Label' },
     { id: 'tool.door',           keys: 'd',           category: 'Tools', label: 'Door' },
     { id: 'tool.light',          keys: 'l',           category: 'Tools', label: 'Light' },
     { id: 'mode.erase',          keys: 'e',           category: 'Tools', label: 'Toggle Erase' },

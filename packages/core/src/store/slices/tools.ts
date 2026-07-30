@@ -29,6 +29,9 @@ export interface ToolActions {
   /** Expose a wall's sprite nodes for hand-editing, or null to hide them. */
   setNodeEditWall: (wallId: string | null) => void;
   selectNode: (t: number | null) => void;
+  /** Expose a floor outline's vertices for editing, or null to hide them. */
+  setShapeNodeEdit: (shapeId: string | null) => void;
+  selectVertex: (index: number | null) => void;
 }
 
 export const createToolsSlice: StateCreator<
@@ -44,6 +47,8 @@ export const createToolsSlice: StateCreator<
       // the DM reaches for next — switching tools drops out of edit mode.
       state.tools.nodeEditWallId = null;
       state.tools.selectedNodeT = null;
+      state.tools.shapeNodeEditId = null;
+      state.tools.selectedVertex = null;
     }),
   setNodeEditWall: (wallId) =>
     set((state) => {
@@ -53,6 +58,19 @@ export const createToolsSlice: StateCreator<
   selectNode: (t) =>
     set((state) => {
       state.tools.selectedNodeT = t;
+    }),
+  setShapeNodeEdit: (shapeId) =>
+    set((state) => {
+      // Only drop the vertex selection when the outline actually changes.
+      // Clearing unconditionally meant a click that selected a vertex lost it
+      // again on pointer-up — the drag session re-asserts the same id — so
+      // Delete fell through to the global binding and removed the whole shape.
+      if (state.tools.shapeNodeEditId !== shapeId) state.tools.selectedVertex = null;
+      state.tools.shapeNodeEditId = shapeId;
+    }),
+  selectVertex: (index) =>
+    set((state) => {
+      state.tools.selectedVertex = index;
     }),
   setEraseMode: (enabled) =>
     set((state) => {

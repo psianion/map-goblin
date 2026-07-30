@@ -14,11 +14,37 @@ export type ToolType =
   | 'assetPlacement'
   | 'scatterBrush'
   | 'terrain'
-  | 'water';
+  | 'water'
+  | 'text';
 
 export interface PreviewShape {
   type: 'polygon' | 'rectangle' | 'circle' | 'line';
   points: Point[];
+}
+
+/** Two clicks this far apart in time are separate clicks, never a double-click. */
+const DOUBLE_CLICK_MS = 300;
+/**
+ * ...and this far apart in world units. Time alone is not enough: a fast user
+ * clicking along a chain lands successive anchors well inside 300ms, and
+ * without a distance check every one of those pairs commits the chain early.
+ */
+const DOUBLE_CLICK_SLOP = 0.35;
+
+/**
+ * True when `point` at `now` completes a double-click on `last`.
+ * Shared by every click-to-chain tool so they agree on what a double-click is.
+ */
+export function isDoubleClick(
+  last: { point: Point; time: number } | null,
+  point: Point,
+  now: number,
+): boolean {
+  if (!last) return false;
+  return (
+    now - last.time < DOUBLE_CLICK_MS &&
+    Math.hypot(point.x - last.point.x, point.y - last.point.y) <= DOUBLE_CLICK_SLOP
+  );
 }
 
 export interface DrawingTool {

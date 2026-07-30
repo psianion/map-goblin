@@ -7,6 +7,7 @@ import { FogTransition } from './fogTransition';
 import { initToolPreview } from './toolPreview';
 import { initRoomHighlight } from './roomHighlight';
 import { initWallNodeOverlay } from './wallNodeOverlay';
+import { initShapeNodeOverlay } from './shapeNodeOverlay';
 import { TerrainRenderer, setTerrainRenderer } from './terrain/TerrainRenderer';
 import { initWaterAnimation, getWaterFilter } from './water/waterAnimation';
 
@@ -115,6 +116,10 @@ export function buildSceneGraph(engine: RenderEngine): SceneGraph {
   const wallNodeOverlay = new Graphics();
   worldContainer.addChild(wallNodeOverlay);
   initWallNodeOverlay(wallNodeOverlay);
+
+  const shapeNodeOverlay = new Graphics();
+  worldContainer.addChild(shapeNodeOverlay);
+  initShapeNodeOverlay(shapeNodeOverlay);
 
   // Lighting renderer — FBO-based compositing pass
   const vp = engine.viewport();

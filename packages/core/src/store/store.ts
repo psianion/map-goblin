@@ -72,6 +72,13 @@ export const useStore = create<MapBuilderStore>()(
           state.tools.activeTool = 'rectangle';
           state.tools.eraseMode = false;
           state.tools.roughMode = false;
+          // Node-edit targets are ids into the map that was open. A floor ring
+          // id in particular is just `floor:<n>`, so left alone it rebinds to
+          // whatever ring n happens to be in the map being loaded.
+          state.tools.nodeEditWallId = null;
+          state.tools.selectedNodeT = null;
+          state.tools.shapeNodeEditId = null;
+          state.tools.selectedVertex = null;
           state.selection.selectedIds = [];
           state.selection.hoveredId = null;
           state.selection.selectedRegion = null;

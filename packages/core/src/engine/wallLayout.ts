@@ -12,7 +12,7 @@
 // fillet arc, each rotated to the local tangent.
 
 import type { Point } from '../types/geometry';
-import type { WallNodeEdit, WallSpanEdit, WallNodeInsert } from '../shared/types';
+import type { WallNodeEdit, WallSpanEdit, WallEdits } from '../shared/types';
 
 /** Grid unit: 200px = 1 cell (FA standard at 200ppi). */
 export const PX_PER_CELL = 200;
@@ -92,6 +92,39 @@ const DEFAULTS = {
 const STRAIGHT_EPS = 4 * (Math.PI / 180);
 
 /**
+ * Below this turn a vertex is carried by the cover stone alone; at or above it
+ * the cover stone also gets an angled stone along each arm.
+ *
+ * The arms exist to bridge the wedge a sharp turn opens between the cover stone
+ * and the straights. A shallow turn barely opens one, and placing arms anyway
+ * is not merely redundant — each arm pushes the straight run back by its own
+ * length, so a 45° octagon vertex reserved ~1.3 units on each side of a
+ * 3.4-unit edge. Nothing but the shortest straight could fit in what was left
+ * and the wall read as loose rubble instead of masonry.
+ *
+ * Set clear of a hexagon's exact 60° so hexagons and octagons stay cap-only.
+ */
+const ARM_TURN_MIN = 65 * (Math.PI / 180);
+
+/**
+ * Which way the cover stone lies.
+ *
+ * A band turning a corner mitres: its outer edges cross further from the vertex
+ * than half the band width, so a stone lying *across* the corner leaves the tip
+ * of a sharp point open. Scaling the stone up to cover it was the wrong answer —
+ * the straights are rows of small pebbles, so an inflated rock reads as a
+ * boulder dropped on the wall and half of it hangs outside the band.
+ *
+ * Turning it instead costs nothing: at a sharp point the stone lies along the
+ * outward bisector with its *length* plugging the point, which is how a real
+ * cornerstone sits. At a gentle turn it lies along the wall like every other
+ * stone. Natural size either way.
+ */
+function capAngleFor(through: number, turn: number): number {
+  return Math.abs(turn) >= ARM_TURN_MIN ? through + Math.PI / 2 : through;
+}
+
+/**
  * World length of a piece at a given band width. Pieces scale uniformly so the
  * stone detail keeps its proportions — the same rule the strip renderer used.
  */
@@ -140,6 +173,15 @@ function norm(a: number): number {
 }
 
 /**
+ * Shortest a piece may be squeezed, as a fraction of its natural length. Below
+ * this a stone stops reading as a stone and becomes a smear — a 4%-length
+ * sliver stretched to full band thickness is worse than the hairline it was
+ * inserted to avoid. Overrun past the run's end is harmless: neighbouring
+ * pieces overlap by design, and a junction's cover stone sits on top.
+ */
+const MIN_PIECE_SCALE = 0.45;
+
+/**
  * Fill a straight run with the largest pieces that fit, then absorb the
  * remainder by scaling every chosen piece uniformly. Uniform scaling is why
  * runs never show a gap: the error is spread, not dumped at one end.
@@ -179,21 +221,21 @@ function fillRun(
   }
 
   if (chosen.length === 0) {
-    // Run shorter than half the smallest piece: squeeze one in rather than gap.
+    // Run shorter than half the smallest piece: squeeze one in rather than gap,
+    // but never past the point where it reads as a smear.
     const piece = byLen[byLen.length - 1];
-    return [{ piece, scale: runLength / pieceWorldLength(piece, wallWidth) }];
+    const fit = runLength / pieceWorldLength(piece, wallWidth);
+    return [{ piece, scale: Math.max(fit, MIN_PIECE_SCALE) }];
   }
 
   const natural = chosen.reduce((s, p) => s + advance(p), 0);
   const scale = natural > 0 ? runLength / natural : 1;
-  return chosen.map((piece) => ({ piece, scale }));
+  return chosen.map((piece) => ({ piece, scale: Math.max(scale, MIN_PIECE_SCALE) }));
 }
 
-export interface WallEdits {
-  nodeEdits?: WallNodeEdit[];
-  spanEdits?: WallSpanEdit[];
-  nodeInserts?: WallNodeInsert[];
-}
+// Defined in shared/types so the store can hold floor-ring edits without
+// reaching into the engine. Re-exported here, where every consumer expects it.
+export type { WallEdits } from '../shared/types';
 
 /** Index of the node nearest `t`, or -1 if none is within tolerance. */
 function nearestNode(nodes: WallNode[], t: number, tolerance: number): number {
@@ -353,14 +395,18 @@ export function mergeSpanEdit(
 }
 
 /**
- * How far a rotated piece reaches from its own centre in world direction `dir`.
- * Support function of a rectangle: half-length projected on `dir`, plus
- * half-thickness projected on the perpendicular.
+ * How far a rotated piece's *painted stone* reaches from its own centre in
+ * world direction `dir`.
  *
- * The cover stone is rotated to the through-direction, so at a sharp turn it
- * presents its narrow side to the arms. Offsetting the arms by half its length
- * regardless — the obvious version — leaves an obvious hole exactly where the
- * turn is tightest.
+ * Modelled as an ellipse inscribed in the piece's box, not as the box itself.
+ * A rock is a blob: along its own axes it fills the box, but toward a diagonal
+ * the box corner is almost entirely transparent. Using the rectangle's support
+ * function overstated the reach by ~40% on the diagonal, which is precisely the
+ * direction the arms approach a rotated cover stone from — so the arms were
+ * parked against empty pixels and the turn showed a hole even though the
+ * bounding boxes overlapped.
+ *
+ * Exact at 0° and 90°, so straight runs are unaffected.
  */
 function extentToward(
   halfLength: number,
@@ -369,7 +415,10 @@ function extentToward(
   dir: number,
 ): number {
   const d = pieceAngle - dir;
-  return Math.abs(halfLength * Math.cos(d)) + Math.abs(halfThickness * Math.sin(d));
+  const c = halfThickness * Math.cos(d);
+  const s = halfLength * Math.sin(d);
+  const denom = Math.hypot(c, s);
+  return denom < 1e-9 ? Math.min(halfLength, halfThickness) : (halfLength * halfThickness) / denom;
 }
 
 /**
@@ -379,10 +428,14 @@ function extentToward(
  */
 interface Fan {
   cap: WallPieceSpec;
-  armIn: WallPieceSpec;
-  armOut: WallPieceSpec;
-  /** Cover stone rotation — the average of the two travel directions. */
-  through: number;
+  /** Null on a shallow turn, where the cover stone carries the vertex alone. */
+  armIn: WallPieceSpec | null;
+  armOut: WallPieceSpec | null;
+  /**
+   * Cover stone rotation. Along the wall at a gentle turn; square to it, so its
+   * length plugs the point, at a sharp one. See capAngleFor.
+   */
+  capAngle: number;
   /** Vertex to arm-centre distance, back along the incoming edge. */
   dIn: number;
   /** Vertex to arm-centre distance, forward along the outgoing edge. */
@@ -392,10 +445,51 @@ interface Fan {
 interface Junction {
   /** Turn applied at this vertex, radians. Signed; 0 = straight through. */
   turn: number;
-  /** Spine length reserved on the incoming and outgoing edge. */
-  reach: number;
+  /**
+   * Spine length reserved on the incoming edge, and on the outgoing edge.
+   *
+   * These are separate because the two arms of a fan are independently picked
+   * and rarely the same length. Reserving the larger of the two on both sides —
+   * one scalar for the whole vertex — left the shorter arm ending well before
+   * the straight run began, opening a hole on that side of every sharp turn.
+   */
+  reachIn: number;
+  reachOut: number;
   elbow: WallPieceSpec | null;
   fan: Fan | null;
+}
+
+/**
+ * Shortest edge the wall band can actually express, as a fraction of its own
+ * thickness. Detail finer than this is below the resolution of the masonry.
+ */
+const MIN_EDGE_FRAC = 0.5;
+
+/**
+ * Drop vertices that sit closer together than the band can resolve.
+ *
+ * Boolean unions of floor shapes routinely emit slivers — a 0.07-unit edge
+ * where a corridor grazes a room's diagonal is typical. Every vertex earns a
+ * junction, so a sliver stacked three cover stones inside a fraction of the
+ * wall's thickness and the join came out as a heap of boulders.
+ *
+ * Bails out rather than degenerate: a shape that simplifies away entirely is
+ * returned untouched, so a genuinely tiny room still gets walls.
+ */
+function simplifySpine(pts: Point[], minEdge: number, closed: boolean): Point[] {
+  if (minEdge <= 0) return pts;
+  const kept: Point[] = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const last = kept[kept.length - 1];
+    if (Math.hypot(pts[i].x - last.x, pts[i].y - last.y) >= minEdge) kept.push(pts[i]);
+  }
+  // On a closed ring the last point also has to clear the first.
+  if (closed && kept.length > 2) {
+    const first = kept[0];
+    const last = kept[kept.length - 1];
+    if (Math.hypot(last.x - first.x, last.y - first.y) < minEdge) kept.pop();
+  }
+  return kept.length >= (closed ? 3 : 2) ? kept : pts;
 }
 
 /**
@@ -411,12 +505,13 @@ export function layoutWall(
   pieces: WallPieceSpec[],
   opts: LayoutOptions,
 ): WallNode[] {
-  const pts: Point[] = (points as (Point | [number, number])[]).map((p) =>
+  const raw: Point[] = (points as (Point | [number, number])[]).map((p) =>
     Array.isArray(p) ? { x: p[0], y: p[1] } : p,
   );
-  if (pts.length < 2) return [];
+  if (raw.length < 2) return [];
 
   const { wallWidth } = opts;
+  const pts = simplifySpine(raw, wallWidth * MIN_EDGE_FRAC, closed);
   const seed = opts.seed ?? 1;
   const elbowTol = opts.elbowTolerance ?? DEFAULTS.elbowTolerance;
   const overlap = Math.min(Math.max(opts.overlap ?? DEFAULTS.overlap, 0), 0.5);
@@ -461,11 +556,12 @@ export function layoutWall(
       elbows.find((p) => Math.abs(Math.abs(turn) - (p.authoredTurn ?? Math.PI / 2)) <= elbowTol) ??
       null;
 
-    let reach: number;
+    let reachIn: number;
+    let reachOut: number;
     let fan: Fan | null = null;
 
     if (elbow) {
-      reach = pieceWorldLength(elbow, wallWidth) / 2;
+      reachIn = reachOut = pieceWorldLength(elbow, wallWidth) / 2;
     } else {
       // No authored piece fits this angle. Cover the vertex with one stone and
       // angle one more along each arm. Nothing is compressed, so this holds up
@@ -474,36 +570,58 @@ export function layoutWall(
       const cap = [...fanPieces].sort(
         (a, b) => pieceWorldLength(b, wallWidth) - pieceWorldLength(a, wallWidth),
       )[0];
-      const armIn = pick(fanPieces, seed, i * 7919);
-      const armOut = pick(fanPieces, seed, i * 7919 + 1);
-
       // Opposite travel directions cancel — fall back to the incoming edge.
       const bx = Math.cos(prev.ang) + Math.cos(curr.ang);
       const by = Math.sin(prev.ang) + Math.sin(curr.ang);
       const through = Math.hypot(bx, by) < 1e-9 ? prev.ang : Math.atan2(by, bx);
 
+      const capAngle = capAngleFor(through, turn);
       const capHalfLen = pieceWorldLength(cap, wallWidth) / 2;
       const capHalfThick = wallWidth / 2;
-      const inHalf = pieceWorldLength(armIn, wallWidth) / 2;
-      const outHalf = pieceWorldLength(armOut, wallWidth) / 2;
-
-      // Each arm sits just clear of however far the cap actually reaches that
-      // way, then tucks back under it by the overlap.
       const dirIn = norm(prev.ang + Math.PI);
-      const dIn =
-        (extentToward(capHalfLen, capHalfThick, through, dirIn) + inHalf) * (1 - overlap);
-      const dOut =
-        (extentToward(capHalfLen, capHalfThick, through, curr.ang) + outHalf) * (1 - overlap);
+      // How far the cover stone actually reaches back along each arm. Measured
+      // at the angle it is really drawn at, or the neighbours get parked against
+      // empty space.
+      const capIn = extentToward(capHalfLen, capHalfThick, capAngle, dirIn);
+      const capOut = extentToward(capHalfLen, capHalfThick, capAngle, curr.ang);
 
-      fan = { cap, armIn, armOut, through, dIn, dOut };
-      reach = Math.min(
-        Math.max(dIn + inHalf, dOut + outHalf),
-        prev.len / 2,
-        curr.len / 2,
-      );
+      if (Math.abs(turn) >= ARM_TURN_MIN) {
+        const armIn = pick(fanPieces, seed, i * 7919);
+        const armOut = pick(fanPieces, seed, i * 7919 + 1);
+        const inHalf = pieceWorldLength(armIn, wallWidth) / 2;
+        const outHalf = pieceWorldLength(armOut, wallWidth) / 2;
+
+        // Each arm sits just clear of however far the cap actually reaches that
+        // way, then tucks back under it by the overlap.
+        const dIn = (capIn + inHalf) * (1 - overlap);
+        const dOut = (capOut + outHalf) * (1 - overlap);
+
+        fan = { cap, armIn, armOut, capAngle, dIn, dOut };
+        // Each side reserves exactly as far as its own arm actually reaches.
+        reachIn = dIn + inHalf;
+        reachOut = dOut + outHalf;
+      } else {
+        // Shallow turn: the straights butt straight onto the cover stone.
+        fan = { cap, armIn: null, armOut: null, capAngle, dIn: 0, dOut: 0 };
+        reachIn = capIn * (1 - overlap);
+        reachOut = capOut * (1 - overlap);
+      }
+    }
+    reachIn = Math.min(reachIn, prev.len / 2);
+    reachOut = Math.min(reachOut, curr.len / 2);
+    // The arms are placed from `dIn`/`dOut`, so clamping only the reserve let a
+    // sharp turn on a short edge draw its arm past the neighbouring vertex,
+    // floating off the band. A no-op whenever the clamp above did nothing.
+    if (fan?.armIn) {
+      const half = pieceWorldLength(fan.armIn, wallWidth) / 2;
+      fan.dIn = Math.max(0, Math.min(fan.dIn, reachIn - half));
+    }
+    if (fan?.armOut) {
+      const half = pieceWorldLength(fan.armOut, wallWidth) / 2;
+      fan.dOut = Math.max(0, Math.min(fan.dOut, reachOut - half));
     }
 
-    junctions.set(i, { turn, reach, elbow, fan });
+    junctions.set(i, { turn, reachIn, reachOut, elbow, fan });
   }
 
   const nodes: WallNode[] = [];
@@ -511,9 +629,9 @@ export function layoutWall(
 
   const push = (
     x: number, y: number, angle: number, pieceId: string, scale: number,
-    kind: NodeKind, at: number,
+    kind: NodeKind, at: number, sizeScale = 1,
   ) => {
-    nodes.push({ t: total > 0 ? at / total : 0, x, y, angle, pieceId, scale, sizeScale: 1, kind });
+    nodes.push({ t: total > 0 ? at / total : 0, x, y, angle, pieceId, scale, sizeScale, kind });
   };
 
   // ── Opening end cap ──
@@ -527,10 +645,12 @@ export function layoutWall(
     const startJ = junctions.get(i);
     const endJ = junctions.get((i + 1) % edges.length);
 
-    // Reserve the vertex regions at both ends of this edge.
-    const headReserve = startJ ? startJ.reach : 0;
+    // Reserve the vertex regions at both ends of this edge. This edge leaves
+    // the junction at its head and arrives at the junction at its tail, so it
+    // takes the outgoing reserve of one and the incoming reserve of the other.
+    const headReserve = startJ ? startJ.reachOut : 0;
     const tailReserve =
-      endJ && (closed || i + 1 < edges.length) ? endJ.reach : 0;
+      endJ && (closed || i + 1 < edges.length) ? endJ.reachIn : 0;
 
     // ── Vertex at the head of this edge ──
     if (startJ) {
@@ -555,7 +675,7 @@ export function layoutWall(
         // the stones badly once the turn got acute and the arc got short.
         // Pushed in spatial order (in-arm, cap, out-arm) so downstream code can
         // treat the node list as a walk along the wall.
-        const { cap, armIn, armOut, through, dIn, dOut } = startJ.fan;
+        const { cap, armIn, armOut, capAngle, dIn, dOut } = startJ.fan;
         const prev = edges[(i - 1 + edges.length) % edges.length];
 
         // Each stone gets the spine position it actually occupies, so the three
@@ -564,21 +684,23 @@ export function layoutWall(
         // on whichever one came first, so two of the three could never be moved.
         // The in-arm sits before the vertex, which is behind the start of this
         // edge; on a closed wall that wraps onto the last edge.
-        const atIn = closed
-          ? (travelled - dIn + total) % total
-          : Math.max(0, travelled - dIn);
-
-        push(
-          vx - Math.cos(prev.ang) * dIn, vy - Math.sin(prev.ang) * dIn,
-          prev.ang, armIn.id, 1, 'fan', atIn,
-        );
-        // The cover stone lies along the average of the two travel directions,
-        // so it reads as carrying through the turn rather than favouring an arm.
-        push(vx, vy, through, cap.id, 1, 'fan', travelled);
-        push(
-          vx + Math.cos(e.ang) * dOut, vy + Math.sin(e.ang) * dOut,
-          e.ang, armOut.id, 1, 'fan', travelled + dOut,
-        );
+        if (armIn) {
+          const atIn = closed
+            ? (travelled - dIn + total) % total
+            : Math.max(0, travelled - dIn);
+          push(
+            vx - Math.cos(prev.ang) * dIn, vy - Math.sin(prev.ang) * dIn,
+            prev.ang, armIn.id, 1, 'fan', atIn,
+          );
+        }
+        // Natural size, so it matches the grain of the stones either side of it.
+        push(vx, vy, capAngle, cap.id, 1, 'fan', travelled);
+        if (armOut) {
+          push(
+            vx + Math.cos(e.ang) * dOut, vy + Math.sin(e.ang) * dOut,
+            e.ang, armOut.id, 1, 'fan', travelled + dOut,
+          );
+        }
       }
     }
 

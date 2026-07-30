@@ -1,5 +1,5 @@
 import type { Point } from '../../types/geometry';
-import type { DrawingTool, PreviewShape } from './DrawingTool';
+import { isDoubleClick, type DrawingTool, type PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
 import { AddChildCommand, RemoveChildCommand, UpdateChildCommand, CompositeCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
@@ -17,16 +17,16 @@ export class PathTool implements DrawingTool {
   readonly cursor = 'crosshair';
   private vertices: Point[] = [];
   private currentPoint: Point | null = null;
-  private lastClickTime = 0;
+  private lastClick: { point: Point; time: number } | null = null;
 
   onPointerDown(point: Point): void {
     const now = Date.now();
-    if (this.vertices.length >= 2 && now - this.lastClickTime < 300) {
+    if (this.vertices.length >= 2 && isDoubleClick(this.lastClick, point, now)) {
       this.finalize();
-      this.lastClickTime = 0;
+      this.lastClick = null;
       return;
     }
-    this.lastClickTime = now;
+    this.lastClick = { point, time: now };
     this.vertices.push(point);
     this.currentPoint = point;
   }
@@ -57,7 +57,7 @@ export class PathTool implements DrawingTool {
   cancel(): void {
     this.vertices = [];
     this.currentPoint = null;
-    this.lastClickTime = 0;
+    this.lastClick = null;
   }
 
   isActive(): boolean {
@@ -68,7 +68,7 @@ export class PathTool implements DrawingTool {
     const verts = this.vertices;
     this.vertices = [];
     this.currentPoint = null;
-    this.lastClickTime = 0;
+    this.lastClick = null;
 
     if (verts.length < 2) return;
 

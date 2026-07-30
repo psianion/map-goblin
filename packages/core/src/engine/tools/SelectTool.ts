@@ -3,16 +3,24 @@ import type { Point, Polygon } from '../../types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
-import { PropertyCommand } from '../../store/commands';
+import { CompositeCommand, PropertyCommand, UpdateChildCommand } from '../../store/commands';
 import { clipper2Engine } from '../../geometry/Clipper2Engine';
 import type { AnyChild, DungeonLayer } from '../../store/types';
 import type { RenderEngine } from '../RenderEngine';
-import { TransformGizmo } from './TransformGizmo';
+import { TransformGizmo, type HandleType } from './TransformGizmo';
 import { computeBoundingBox } from './transformMath';
+import {
+  anchorForHandle,
+  isIdentity,
+  snapshotChild,
+  transformChild,
+  type ChildSnapshot,
+} from './childTransform';
 import {
   hitTestAllLayers,
   getChildBounds,
   boundsIntersect,
+  unionChildBounds,
   pointInShape,
   pointInAsset,
   pointInLight,
@@ -121,6 +129,17 @@ export class SelectTool implements DrawingTool {
   private selectionRect: [number, number][] | null = null;
   /** Whether the current drag started with Alt held (region-cut mode) */
   private altDragMode = false;
+  /**
+   * Children as they were when the gizmo drag began, plus the point the drag
+   * pivots about. Re-transformed from this each frame rather than accumulated,
+   * so a long drag cannot drift.
+   */
+  private transformSession: {
+    anchor: { x: number; y: number };
+    entries: { layerId: string; childId: string; snap: ChildSnapshot; before: Partial<AnyChild> }[];
+  } | null = null;
+  /** Last delta applied this gesture — what gets committed on pointer up. */
+  private lastTransform: import('./childTransform').WorldTransform | null = null;
 
   constructor(engine: RenderEngine) {
     this.engine = engine;
@@ -159,6 +178,7 @@ export class SelectTool implements DrawingTool {
       if (handle) {
         this.gizmo.startDrag(handle, sx, sy);
         this.state = handle === 'move' ? 'MOVING' : 'TRANSFORMING';
+        this.beginTransformSession(handle);
         return;
       }
     }
@@ -199,7 +219,12 @@ export class SelectTool implements DrawingTool {
         store.setActiveLayerId(hit.layerId);
       }
 
-      if (store.selection.selectedIds.length > 0) {
+      // Re-read: `store` is the snapshot from before setSelectedIds, so its
+      // selectedIds still holds the PREVIOUS selection. Trusting it meant the
+      // first click on an object left state !== 'SELECTED' and created no
+      // gizmo, and only a second click — seeing the stale count from the first —
+      // brought one up.
+      if (useStore.getState().selection.selectedIds.length > 0) {
         this.state = 'SELECTED';
         this.createGizmo();
       }
@@ -231,13 +256,14 @@ export class SelectTool implements DrawingTool {
       const sy = event.clientY - canvasRect.top;
       const gridState = useStore.getState().grid;
       const gridSizeScreen = (1 / gridState.snapDivision) * this.engine.stage().scale.x;
-      this.gizmo.updateDrag(
+      const delta = this.gizmo.updateDrag(
         sx,
         sy,
         { shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey, alt: event.altKey },
         gridState.snapEnabled,
         gridSizeScreen,
       );
+      if (delta) this.applyTransformSession(delta);
       return;
     }
 
@@ -300,13 +326,14 @@ export class SelectTool implements DrawingTool {
       return;
     }
 
-    // Object gizmo drag end (no commit needed — gizmo fires onTransformEnd)
+    // Object gizmo drag end
     if (
       !this.altDragMode &&
       (this.state === 'MOVING' || this.state === 'TRANSFORMING') &&
       this.gizmo?.isDragging()
     ) {
       this.gizmo.endDrag();
+      this.commitTransformSession();
       this.state = 'SELECTED';
       return;
     }
@@ -325,6 +352,13 @@ export class SelectTool implements DrawingTool {
     if (event.key === 'Escape') {
       if (this.gizmo?.isDragging()) {
         this.gizmo.cancelDrag();
+        // Escape abandons the gesture, so roll the live preview back rather
+        // than leaving the half-dragged state committed.
+        for (const e of this.transformSession?.entries ?? []) {
+          useStore.getState().updateChild(e.layerId, e.childId, e.before);
+        }
+        this.transformSession = null;
+        this.lastTransform = null;
         if (this.transformBaseRegion) {
           this.overlay.drawSelection(this.transformBaseRegion);
         }
@@ -422,6 +456,113 @@ export class SelectTool implements DrawingTool {
     });
     const screenBBox = computeBoundingBox(screenPoints);
     this.gizmo.update(screenBBox, 0);
+  }
+
+  // ─── Gizmo transform ──────────────────────────────────────────────────────
+
+  /** Screen-space drag deltas are in pixels; children live in world units. */
+  private screenToWorldScale(): number {
+    const k = this.engine.stage().scale.x;
+    return k === 0 ? 1 : 1 / k;
+  }
+
+  private beginTransformSession(handle: HandleType): void {
+    const store = useStore.getState();
+    const dungeonLayers = store.layers.filter(
+      (l): l is DungeonLayer => l.type === 'dungeon' && !l.locked,
+    );
+    const entries: NonNullable<typeof this.transformSession>['entries'] = [];
+    const selected: AnyChild[] = [];
+    const idSet = new Set(store.selection.selectedIds);
+
+    for (const layer of dungeonLayers) {
+      for (const child of layer.children) {
+        if (!idSet.has(child.id)) continue;
+        const snap = snapshotChild(child);
+        if (snap.kind === 'none') continue;
+        selected.push(child);
+        // `before` mirrors the fields the patch writes, so undo restores exactly
+        // what was overwritten and nothing else.
+        const before =
+          snap.kind === 'rings'
+            ? // The child's OWN rings, not the snapshot's — those have any
+              // transform already baked in, so pairing them with the transform
+              // as well would apply it a second time on restore.
+              ({
+                contours: structuredClone((child as { contours: [number, number][][] }).contours),
+                transform: (child as { transform?: unknown }).transform,
+              } as Partial<AnyChild>)
+            : snap.kind === 'box'
+              ? ({ position: snap.position, rotation: snap.rotation, scale: snap.scale } as Partial<AnyChild>)
+              : ({ position: snap.position } as Partial<AnyChild>);
+        entries.push({ layerId: layer.id, childId: child.id, snap, before });
+      }
+    }
+
+    if (entries.length === 0) {
+      this.transformSession = null;
+      return;
+    }
+
+    const box = unionChildBounds(selected) ?? { x: 0, y: 0, width: 0, height: 0 };
+    this.transformSession = { anchor: anchorForHandle(handle, box), entries };
+  }
+
+  private applyTransformSession(delta: {
+    translateX: number;
+    translateY: number;
+    scaleX: number;
+    scaleY: number;
+    rotation: number;
+  }): void {
+    const session = this.transformSession;
+    if (!session) return;
+    const k = this.screenToWorldScale();
+    const t = {
+      translateX: delta.translateX * k,
+      translateY: delta.translateY * k,
+      scaleX: delta.scaleX,
+      scaleY: delta.scaleY,
+      rotation: delta.rotation,
+      anchorX: session.anchor.x,
+      anchorY: session.anchor.y,
+    };
+    // Live preview only — no undo entry per frame.
+    const updateChild = useStore.getState().updateChild;
+    for (const e of session.entries) {
+      updateChild(e.layerId, e.childId, transformChild(e.snap, t));
+    }
+    this.lastTransform = t;
+  }
+
+  private commitTransformSession(): void {
+    const session = this.transformSession;
+    const t = this.lastTransform;
+    this.transformSession = null;
+    this.lastTransform = null;
+    if (!session || !t) return;
+
+    if (isIdentity(t)) {
+      // A click that never moved: put back what the preview overwrote.
+      for (const e of session.entries) {
+        useStore.getState().updateChild(e.layerId, e.childId, e.before);
+      }
+      return;
+    }
+
+    // Rewind, then replay through the command so undo has a clean before/after.
+    for (const e of session.entries) {
+      useStore.getState().updateChild(e.layerId, e.childId, e.before);
+    }
+    const label = session.entries.length > 1 ? 'Transform objects' : 'Transform object';
+    const commands = session.entries.map(
+      (e) => new UpdateChildCommand(label, e.layerId, e.childId, e.before, transformChild(e.snap, t)),
+    );
+    // One gesture, one undo entry. Executed separately, dragging three selected
+    // shapes took three presses to put back.
+    undoManager.execute(
+      commands.length === 1 ? commands[0] : new CompositeCommand(label, commands),
+    );
   }
 
   /** Returns CSS cursor when hovering a gizmo handle, or null. */

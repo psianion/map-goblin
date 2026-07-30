@@ -1,4 +1,4 @@
-import type { AnyChild, ShapeChild, AssetChild, LightChild, DungeonLayer } from '../store/types';
+import type { AnyChild, ShapeChild, LightChild, DungeonLayer } from '../store/types';
 
 export function pointInPolygon(point: [number, number], polygon: [number, number][]): boolean {
   let inside = false;
@@ -34,7 +34,19 @@ export function pointInShape(shape: ShapeChild, point: [number, number]): boolea
   return true;
 }
 
-export function pointInAsset(asset: AssetChild, point: [number, number]): boolean {
+/**
+ * Anything picked as an oriented box: assets and text labels both.
+ * Structural rather than a union so a new box-shaped child needs no change here.
+ */
+interface BoxChild {
+  position: { x: number; y: number };
+  width: number;
+  height: number;
+  scale: number;
+  rotation: number;
+}
+
+export function pointInAsset(asset: BoxChild, point: [number, number]): boolean {
   const halfW = (asset.width * asset.scale) / 2;
   const halfH = (asset.height * asset.scale) / 2;
   const cx = asset.position.x;
@@ -64,6 +76,7 @@ export function hitTestChildren(children: AnyChild[], point: [number, number]): 
         if (pointInShape(child, point)) return child;
         break;
       case 'asset':
+      case 'text':
         if (pointInAsset(child, point)) return child;
         break;
       case 'light':
@@ -125,7 +138,9 @@ export function getChildBounds(child: AnyChild): {
       }
       return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
     }
-    case 'asset': {
+    // Text labels are boxes with the same fields, so they share this case.
+    case 'asset':
+    case 'text': {
       const halfW = (child.width * child.scale) / 2;
       const halfH = (child.height * child.scale) / 2;
       if (child.rotation !== 0) {

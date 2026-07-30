@@ -61,7 +61,19 @@ export interface WallNodeInsert {
   scale?: number;
 }
 
-export interface WallSegment {
+/**
+ * Hand adjustments to a run's composed stones, keyed by `t` along the spine.
+ *
+ * Lives here rather than beside the layout engine because a floor-derived wall
+ * stores these on its layer, and the store must not reach into the engine.
+ */
+export interface WallEdits {
+  nodeEdits?: WallNodeEdit[];
+  spanEdits?: WallSpanEdit[];
+  nodeInserts?: WallNodeInsert[];
+}
+
+export interface WallSegment extends WallEdits {
   id: string;
   points: [number, number][];
   wallType: WallType;
@@ -69,10 +81,6 @@ export interface WallSegment {
   color: string;
   width: number;
   roughness: number;
-  /** Absent means pure auto-layout — the common case. */
-  nodeEdits?: WallNodeEdit[];
-  spanEdits?: WallSpanEdit[];
-  nodeInserts?: WallNodeInsert[];
 }
 
 // ---- Door Types ----
@@ -86,7 +94,7 @@ export interface MaskData {
 }
 
 // ---- Child Types ----
-export type ChildType = 'shape' | 'asset' | 'light' | 'door' | 'water';
+export type ChildType = 'shape' | 'asset' | 'light' | 'door' | 'water' | 'text';
 
 export interface LayerChild {
   id: string;
@@ -185,7 +193,31 @@ export interface WaterChild extends LayerChild {
   flowAngle: number;
 }
 
-export type AnyChild = ShapeChild | AssetChild | LightChild | DoorChild | WaterChild;
+/**
+ * A label drawn on the map — a room name, an area title, a note.
+ *
+ * Shaped like AssetChild on purpose: position, rotation, scale and a
+ * width/height box. Hit testing, bounds and the selection gizmo then work on it
+ * unchanged instead of each growing another case.
+ */
+export interface TextChild extends LayerChild {
+  childType: 'text';
+  text: string;
+  position: { x: number; y: number };
+  rotation: number;
+  scale: number;
+  /** Type size in world units (grid cells), before `scale`. */
+  fontSize: number;
+  color: string;
+  /**
+   * Estimated extent in world units, kept on the child so hit testing stays a
+   * pure function of the data. Recomputed whenever text or size changes.
+   */
+  width: number;
+  height: number;
+}
+
+export type AnyChild = ShapeChild | AssetChild | LightChild | DoorChild | WaterChild | TextChild;
 
 // ---- Room Types ----
 /**

@@ -1,5 +1,5 @@
 export * from '../shared/types';
-import type { AnyChild, WallSegment, WallType, WallDirection, DoorStyle, MaskData, Room } from '../shared/types';
+import type { AnyChild, WallSegment, WallEdits, WallType, WallDirection, DoorStyle, MaskData, Room } from '../shared/types';
 import type { Polygon } from '../types/geometry';
 
 // ─── Map Settings ─────────────────────────────────────────
@@ -87,6 +87,17 @@ export interface DungeonLayer extends BaseLayer {
   rooms?: Room[];
   /** User-assigned room names, keyed by stable room ID; survive re-detection. */
   roomNameOverrides?: Record<string, string>;
+  /**
+   * Hand adjustments to the stones of floor-derived walls, keyed by ring index
+   * within `mergedFloor`.
+   *
+   * Standalone walls carry their own edits on the WallSegment. A floor ring has
+   * no such object — it is recomputed from the shapes every time — so its edits
+   * live here. Keyed by `t` along the ring inside each WallEdits, so they
+   * survive the ring being relaid after a vertex moves, the same way a
+   * standalone wall's do.
+   */
+  floorWallEdits?: Record<string, WallEdits>;
 }
 
 export interface BackgroundLayer extends BaseLayer {
@@ -124,7 +135,8 @@ export type ToolType =
   | 'assetPlacement'
   | 'scatterBrush'
   | 'terrain'
-  | 'water';
+  | 'water'
+  | 'text';
 
 export interface TerrainBrushSettings {
   /** Active palette slot index (0-5). */
@@ -184,6 +196,15 @@ export interface ToolsSlice {
   nodeEditWallId: string | null;
   /** Node within that wall currently selected, keyed by spine position. */
   selectedNodeT: number | null;
+  /**
+   * Shape whose floor outline is exposed for vertex editing. Handles are drawn
+   * on the MERGED outline this shape belongs to, not on the shape's own ring,
+   * so a hallway made of several rectangles is edited as the one outline the
+   * DM actually sees.
+   */
+  shapeNodeEditId: string | null;
+  /** Vertex index within that outline currently selected. */
+  selectedVertex: number | null;
 }
 
 // ─── Selection ───────────────────────────────────────────
@@ -375,6 +396,7 @@ export interface MapBuilderStore {
   addWall: (layerId: string, wall: WallSegment) => void;
   removeWall: (layerId: string, wallId: string) => void;
   updateWall: (layerId: string, wallId: string, updates: Partial<WallSegment>) => void;
+  setFloorWallEdits: (layerId: string, ringKey: string, edits: WallEdits | undefined) => void;
   closeAllDoors: (layerId: string) => void;
 
   // room actions
@@ -393,6 +415,8 @@ export interface MapBuilderStore {
   updateWaterSettings: (patch: Partial<WaterToolSettings>) => void;
   setNodeEditWall: (wallId: string | null) => void;
   selectNode: (t: number | null) => void;
+  setShapeNodeEdit: (shapeId: string | null) => void;
+  selectVertex: (index: number | null) => void;
 
   // ui actions
   setActiveLayerId: (id: string) => void;

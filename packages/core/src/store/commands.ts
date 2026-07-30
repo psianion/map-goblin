@@ -407,6 +407,39 @@ export class UpdateWallCommand implements Command {
 }
 
 /**
+ * Same job as UpdateWallCommand, for a wall derived from the floor outline.
+ * Those rings are recomputed from the shapes on every change, so their hand
+ * edits live on the layer keyed by ring index rather than on a WallSegment.
+ */
+export class UpdateFloorWallEditsCommand implements Command {
+  readonly label = 'Update wall';
+  private layerId: string;
+  private ringKey: string;
+  private before: import('../shared/types').WallEdits | undefined;
+  private after: import('../shared/types').WallEdits | undefined;
+
+  constructor(
+    layerId: string,
+    ringKey: string,
+    before: import('../shared/types').WallEdits | undefined,
+    after: import('../shared/types').WallEdits | undefined,
+  ) {
+    this.layerId = layerId;
+    this.ringKey = ringKey;
+    this.before = structuredClone(before);
+    this.after = structuredClone(after);
+  }
+
+  execute(): void {
+    useStore.getState().setFloorWallEdits(this.layerId, this.ringKey, this.after);
+  }
+
+  undo(): void {
+    useStore.getState().setFloorWallEdits(this.layerId, this.ringKey, this.before);
+  }
+}
+
+/**
  * Creates a wall removal command that cascade-deletes all door children
  * attached to the removed wall. Returns a CompositeCommand if there are
  * attached doors, or a plain RemoveWallCommand if none.

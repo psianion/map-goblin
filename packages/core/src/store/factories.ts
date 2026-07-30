@@ -71,10 +71,10 @@ type MapBuilderState = Omit<
   | 'setGridVisible' | 'setSnapEnabled' | 'setSnapDivision' | 'setGridStyle'
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
   | 'addChild' | 'removeChild' | 'reorderChild' | 'updateChild' | 'recomputeMergedFloor'
-  | 'addWall' | 'removeWall' | 'updateWall' | 'closeAllDoors'
+  | 'addWall' | 'removeWall' | 'updateWall' | 'setFloorWallEdits' | 'closeAllDoors'
   | 'setRooms' | 'renameRoom'
   | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'updateToolSettings' | 'addRecentAsset' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings' | 'updateWaterSettings'
-  | 'setNodeEditWall' | 'selectNode'
+  | 'setNodeEditWall' | 'selectNode' | 'setShapeNodeEdit' | 'selectVertex'
   | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
   | 'showModal' | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
   | 'applyPreset' | 'saveCustomPreset' | 'deleteCustomPreset'
@@ -152,6 +152,8 @@ export function createDefaultState(): MapBuilderState {
       recentAssets: [],
       nodeEditWallId: null,
       selectedNodeT: null,
+      shapeNodeEditId: null,
+      selectedVertex: null,
     },
     ui: {
       leftPanelOpen: true,

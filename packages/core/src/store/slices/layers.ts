@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand';
 import type { AnyChild, Layer, MapBuilderStore, Room, SublayerVisibility, WallSegment } from '../types';
+import type { WallEdits } from '../../shared/types';
 
 export interface LayerActions {
   addLayer: (layer: Layer) => void;
@@ -14,6 +15,8 @@ export interface LayerActions {
   addWall: (layerId: string, wall: WallSegment) => void;
   removeWall: (layerId: string, wallId: string) => void;
   updateWall: (layerId: string, wallId: string, updates: Partial<WallSegment>) => void;
+  /** Replace the hand edits for one floor ring; undefined clears them. */
+  setFloorWallEdits: (layerId: string, ringKey: string, edits: WallEdits | undefined) => void;
   closeAllDoors: (layerId: string) => void;
   setRooms: (layerId: string, rooms: Room[]) => void;
   renameRoom: (layerId: string, roomId: string, name: string) => void;
@@ -135,6 +138,17 @@ export const createLayersSlice: StateCreator<
         const wall = layer.standaloneWalls.find((w) => w.id === wallId);
         if (wall) Object.assign(wall, updates);
       }
+    }),
+  setFloorWallEdits: (layerId, ringKey, edits) =>
+    set((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (!layer || layer.type !== 'dungeon') return;
+      if (!edits) {
+        if (layer.floorWallEdits) delete layer.floorWallEdits[ringKey];
+        return;
+      }
+      layer.floorWallEdits ??= {};
+      layer.floorWallEdits[ringKey] = edits;
     }),
   closeAllDoors: (layerId) =>
     set((state) => {

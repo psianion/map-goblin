@@ -36,6 +36,24 @@ function ngon(cx: number, cy: number, r: number, sides: number, rot = 0): [numbe
 const run = (pts: [number, number][], closed: boolean) =>
   layoutWall(pts, closed, STONE, { wallWidth: WIDTH, seed: 7 });
 
+/**
+ * How far a node's painted stone reaches from its own centre toward `dir`.
+ *
+ * Measured from the scales that actually land, and as the inscribed ellipse
+ * rather than the bounding box — a rock's box corners are transparent, so a
+ * box-based check passes on contact that is not visibly there.
+ */
+function reachToward(node: { pieceId: string; angle: number; scale: number; sizeScale: number },
+  dir: number): number {
+  const spec = STONE.find((p) => p.id === node.pieceId)!;
+  const [sx, sy] = nodeSpriteScale(node, spec, WIDTH);
+  const halfLen = (spec.lengthPx * sx) / 2;
+  const halfThick = (spec.thicknessPx * sy) / 2;
+  const d = node.angle - dir;
+  const denom = Math.hypot(halfThick * Math.cos(d), halfLen * Math.sin(d));
+  return denom < 1e-9 ? Math.min(halfLen, halfThick) : (halfLen * halfThick) / denom;
+}
+
 describe('layoutWall — junctions', () => {
   it('uses authored elbows at 90° corners', () => {
     const nodes = run(ngon(0, 0, 6, 4, Math.PI / 4), true);
@@ -88,32 +106,57 @@ describe('layoutWall — junctions', () => {
     expect(nodes.filter((n) => n.kind === 'fan').length).toBeGreaterThanOrEqual(8);
   });
 
+  // Needs a turn sharp enough to earn arms — a shallow vertex is one stone, so
+  // there would be nothing to turn through.
   it('rotates every fan piece to its own angle', () => {
-    const nodes = run(ngon(0, 0, 6, 6), true);
+    const nodes = layoutWall([[0, 0], [10, 0], [2, 3]], false, STONE, {
+      wallWidth: WIDTH,
+      seed: 7,
+    });
     const angles = new Set(nodes.filter((n) => n.kind === 'fan').map((n) => n.angle.toFixed(4)));
-    // A rigid elbow would give one angle per vertex; a fan turns through it.
-    expect(angles.size).toBeGreaterThan(6);
+    // A rigid elbow would give one angle for the vertex; a fan turns through it.
+    expect(angles.size).toBe(3);
   });
 
   // Fan pieces are fitted by arc length. Spacing them evenly by turn angle
   // instead opens a hole whenever the rocks picked are shorter than the gap.
   it('fills a turn with no gap between fan pieces', () => {
-    const nodes = layoutWall([[0, 0], [10, 0], [16, 6]], false, STONE, {
+    const nodes = layoutWall([[0, 0], [10, 0], [2, 8]], false, STONE, {
       wallWidth: WIDTH,
       seed: 11,
     });
     const fans = nodes.filter((n) => n.kind === 'fan');
     expect(fans.length).toBeGreaterThan(1);
     for (let i = 1; i < fans.length; i++) {
-      const a = STONE.find((p) => p.id === fans[i - 1].pieceId)!;
-      const b = STONE.find((p) => p.id === fans[i].pieceId)!;
-      const halfSum =
-        (pieceWorldLength(a, WIDTH) * fans[i - 1].scale) / 2 +
-        (pieceWorldLength(b, WIDTH) * fans[i].scale) / 2;
-      // Centres sit on an arc, so their chord can never exceed the arc spacing
-      // unless a gap was left.
-      const dist = Math.hypot(fans[i].x - fans[i - 1].x, fans[i].y - fans[i - 1].y);
-      expect(dist).toBeLessThanOrEqual(halfSum + 1e-9);
+      const a = fans[i - 1];
+      const b = fans[i];
+      const dir = Math.atan2(b.y - a.y, b.x - a.x);
+      // Each must reach far enough toward the other to close the distance
+      // between them; anything left over is a hole.
+      const dist = Math.hypot(b.x - a.x, b.y - a.y);
+      expect(dist).toBeLessThanOrEqual(
+        reachToward(a, dir) + reachToward(b, dir + Math.PI) + 1e-9,
+      );
+    }
+  });
+
+  // The reserve a junction takes out of the straight run is clamped to half the
+  // edge, but the arms are placed from their own offsets. Clamping only the
+  // reserve let a sharp turn on a short edge draw its arm past the neighbouring
+  // vertex, floating off the band with nothing under it.
+  it('keeps fan arms inside the chain when the edge is shorter than the arm', () => {
+    // A rock arm sits ~0.46 units back from the vertex at this band width, so a
+    // 0.3-unit first edge cannot hold one. The reserve was clamped to half the
+    // edge but the arm was still placed from the unclamped offset, putting it
+    // off the near end of the wall with nothing under it.
+    // 70°: sharp enough for arms, far enough from 90° that no authored elbow
+    // claims the vertex first.
+    const pts: [number, number][] = [[0, 0], [0.3, 0], [0.813, 1.41]];
+    const nodes = layoutWall(pts, false, STONE, { wallWidth: WIDTH, seed: 3 });
+    expect(nodes.some((n) => n.kind === 'fan')).toBe(true);
+
+    for (const n of nodes) {
+      expect(n.x).toBeGreaterThanOrEqual(-1e-6);
     }
   });
 
@@ -438,10 +481,12 @@ describe('layoutWall — ends and determinism', () => {
   // straights of the same world length — Straight_C is 200px of content and
   // Straight_D is 100px — so largest-first has exactly one candidate per step
   // and nothing to choose between. Variety lives in the rocks.
+  // The seeded picks are the arms, so this needs vertices sharp enough to have
+  // arms; the cover stone is always the largest rock and never varies.
   it('varies fan material with the seed', () => {
-    const pts = ngon(0, 0, 6, 6);
-    const a = layoutWall(pts, true, STONE, { wallWidth: WIDTH, seed: 1 });
-    const b = layoutWall(pts, true, STONE, { wallWidth: WIDTH, seed: 999 });
+    const pts: [number, number][] = [[0, 0], [10, 0], [2, 3], [11, 5], [3, 9]];
+    const a = layoutWall(pts, false, STONE, { wallWidth: WIDTH, seed: 1 });
+    const b = layoutWall(pts, false, STONE, { wallWidth: WIDTH, seed: 999 });
     const fans = (ns: typeof a) => ns.filter((n) => n.kind === 'fan').map((n) => n.pieceId);
     expect(fans(a)).not.toEqual(fans(b));
   });
@@ -469,18 +514,26 @@ describe('layoutWall — ends and determinism', () => {
     });
     const fans = nodes.filter((n) => n.kind === 'fan');
     expect(fans).toHaveLength(3);
-    expect(fans.every((f) => f.scale === 1)).toBe(true);
+    // "Not squashed" is about what gets drawn: no piece may render smaller than
+    // its natural size on either axis. The cover stone is deliberately grown
+    // across the band, which is the opposite of squashing.
+    for (const f of fans) {
+      const spec = STONE.find((p) => p.id === f.pieceId)!;
+      const natural = WIDTH / spec.thicknessPx;
+      const [sx, sy] = nodeSpriteScale(f, spec, WIDTH);
+      expect(sx).toBeGreaterThanOrEqual(natural - 1e-9);
+      expect(sy).toBeGreaterThanOrEqual(natural - 1e-9);
+    }
   });
 
   // The cover stone is rotated to the through-direction, so at a sharp turn it
   // shows the arms its narrow side. Offsetting the arms by half its LENGTH
   // regardless leaves a visible hole exactly where the turn is tightest.
   it.each([
-    // All well clear of 90°, which takes an authored elbow instead of a fan.
+    // Both well clear of 90°, which takes an authored elbow instead of a fan,
+    // and both sharp enough to earn arms.
     ['hairpin ~159°', [[0, 0], [10, 0], [2, 3]]],
     ['acute ~135°', [[0, 0], [10, 0], [2, 8]]],
-    ['obtuse ~45°', [[0, 0], [10, 0], [16, 6]]],
-    ['shallow ~21°', [[0, 0], [10, 0], [18, 3]]],
   ] as [string, [number, number][]][])(
     'tucks both arm stones against the cover stone (%s)',
     (_name, pts) => {
@@ -490,23 +543,164 @@ describe('layoutWall — ends and determinism', () => {
 
       const [vx, vy] = pts[1];
       const cap = fans.find((f) => Math.hypot(f.x - vx, f.y - vy) < 1e-9)!;
-      const capHalfLen =
-        (pieceWorldLength(STONE.find((p) => p.id === cap.pieceId)!, WIDTH) * cap.scale) / 2;
-      const capHalfThick = WIDTH / 2;
 
       for (const arm of fans.filter((f) => f !== cap)) {
         const dir = Math.atan2(arm.y - vy, arm.x - vx);
         const dist = Math.hypot(arm.x - vx, arm.y - vy);
-        const armHalfLen =
-          (pieceWorldLength(STONE.find((p) => p.id === arm.pieceId)!, WIDTH) * arm.scale) / 2;
-        const d = cap.angle - dir;
-        const capReach =
-          Math.abs(capHalfLen * Math.cos(d)) + Math.abs(capHalfThick * Math.sin(d));
         // Negative means they overlap, which is what we want. Positive is a gap.
-        expect(dist - armHalfLen - capReach).toBeLessThanOrEqual(1e-9);
+        expect(
+          dist - reachToward(arm, dir + Math.PI) - reachToward(cap, dir),
+        ).toBeLessThanOrEqual(1e-9);
       }
     },
   );
+
+  // A stone squeezed to a few percent of its length reads as a smear, not
+  // masonry. Overrunning the run slightly is the better trade — neighbours
+  // overlap anyway.
+  it('never squeezes a stone down to a smear', () => {
+    // Sweep run lengths through the awkward band where only a squeezed piece
+    // fits, and check nothing comes out below the floor.
+    for (let len = 0.02; len < 3; len += 0.02) {
+      const nodes = layoutWall([[0, 0], [len, 0]], false, [STONE[3]], {
+        wallWidth: WIDTH,
+        seed: 5,
+      });
+      for (const n of nodes) {
+        expect(n.scale).toBeGreaterThanOrEqual(0.45 - 1e-9);
+      }
+    }
+  });
+
+  // Unioning floor shapes emits slivers. Every vertex earns a junction, so a
+  // sliver stacked several cover stones inside a fraction of the band's
+  // thickness and the join rendered as a heap of boulders.
+  it('ignores sliver edges the band cannot resolve', () => {
+    // A straight run with a 0.07-unit jog in the middle — the shape a corridor
+    // grazing a room's diagonal produces after a union.
+    const withSliver: [number, number][] = [
+      [0, 0], [10, 0], [10, 0.07], [20, 0.07],
+    ];
+    const nodes = layoutWall(withSliver, false, STONE, { wallWidth: WIDTH, seed: 3 });
+    expect(nodes.filter((n) => n.kind === 'fan' || n.kind === 'corner')).toHaveLength(0);
+  });
+
+  it('still walls a room smaller than the simplify threshold', () => {
+    const tiny = ngon(0, 0, 0.05, 4);
+    expect(layoutWall(tiny, true, STONE, { wallWidth: WIDTH, seed: 3 }).length)
+      .toBeGreaterThan(0);
+  });
+
+  // A band turning a corner mitres — its outer edges cross further from the
+  // vertex than half the band width. A cover stone only as thick as the band
+  // left the tip of a sharp corner open, which showed as floor through the
+  // point of a pointed apse.
+  // Scaling a stone up to span the mitre made it a boulder among pebbles, and
+  // half of it hung outside the band. Turning it costs nothing: at a sharp
+  // point its length plugs the point instead.
+  it('turns the cover stone to plug a sharp point, at natural size', () => {
+    const pts: [number, number][] = [[0, 0], [10, 0], [2, 5]];
+    const nodes = layoutWall(pts, false, STONE, { wallWidth: WIDTH, seed: 4 });
+    const cap = nodes.find(
+      (n) => n.kind === 'fan' && Math.hypot(n.x - pts[1][0], n.y - pts[1][1]) < 1e-9,
+    )!;
+    const spec = STONE.find((p) => p.id === cap.pieceId)!;
+    const natural = WIDTH / spec.thicknessPx;
+    expect(nodeSpriteScale(cap, spec, WIDTH)).toEqual([natural, natural]);
+
+    // Its long axis must point out of the corner, i.e. along the outward
+    // bisector — square to the direction the wall travels through the vertex.
+    const inDir = Math.atan2(pts[1][1] - pts[0][1], pts[1][0] - pts[0][0]);
+    const outDir = Math.atan2(pts[2][1] - pts[1][1], pts[2][0] - pts[1][0]);
+    const through = Math.atan2(
+      Math.sin(inDir) + Math.sin(outDir),
+      Math.cos(inDir) + Math.cos(outDir),
+    );
+    const off = Math.abs(Math.atan2(Math.sin(cap.angle - through), Math.cos(cap.angle - through)));
+    expect(off).toBeCloseTo(Math.PI / 2, 6);
+  });
+
+  it('lays the cover stone along the wall on a gentle turn', () => {
+    const pts: [number, number][] = [[0, 0], [10, 0], [18, 3]];
+    const nodes = layoutWall(pts, false, STONE, { wallWidth: WIDTH, seed: 4 });
+    const cap = nodes.find((n) => n.kind === 'fan')!;
+    const spec = STONE.find((p) => p.id === cap.pieceId)!;
+    const natural = WIDTH / spec.thicknessPx;
+    expect(nodeSpriteScale(cap, spec, WIDTH)).toEqual([natural, natural]);
+    // ~21° turn: within a whisker of both travel directions, not square to them.
+    expect(Math.abs(cap.angle)).toBeLessThan(0.3);
+  });
+
+  // The two arms are picked independently and are rarely the same length.
+  // Reserving the longer one's span on BOTH sides of the vertex left the
+  // shorter arm ending well short of where the straights resumed, so every
+  // sharp turn had a hole on one side.
+  it('starts the straights where the arm actually ends, on both sides', () => {
+    const pts: [number, number][] = [[0, 0], [10, 0], [2, 5]];
+    const nodes = layoutWall(pts, false, STONE, { wallWidth: WIDTH, seed: 4 });
+    const [vx, vy] = pts[1];
+    const fans = nodes.filter((n) => n.kind === 'fan');
+    const cap = fans.find((f) => Math.hypot(f.x - vx, f.y - vy) < 1e-9)!;
+
+    const far = (n: (typeof nodes)[number]) =>
+      Math.hypot(n.x - vx, n.y - vy) +
+      (pieceWorldLength(STONE.find((p) => p.id === n.pieceId)!, WIDTH) * n.scale) / 2;
+
+    // For each arm, the nearest straight on that side must start no further out
+    // than the arm reaches.
+    for (const arm of fans.filter((f) => f !== cap)) {
+      const armDir = Math.atan2(arm.y - vy, arm.x - vx);
+      const sameSide = nodes.filter((n) => {
+        if (n.kind !== 'straight') return false;
+        const d = Math.atan2(n.y - vy, n.x - vx) - armDir;
+        return Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) < Math.PI / 2;
+      });
+      expect(sameSide.length).toBeGreaterThan(0);
+      const nearest = Math.min(
+        ...sameSide.map(
+          (n) =>
+            Math.hypot(n.x - vx, n.y - vy) -
+            (pieceWorldLength(STONE.find((p) => p.id === n.pieceId)!, WIDTH) * n.scale) / 2,
+        ),
+      );
+      expect(nearest).toBeLessThanOrEqual(far(arm) + 1e-9);
+    }
+  });
+
+  // Arms bridge the wedge a sharp turn opens. A shallow turn barely opens one,
+  // and each arm pushes the straight run back by its own length — which on a
+  // short edge left no room for a real straight and made the wall read as
+  // rubble. Below the threshold the cover stone carries the vertex alone.
+  it.each([
+    ['obtuse ~45°', [[0, 0], [10, 0], [16, 6]]],
+    ['shallow ~21°', [[0, 0], [10, 0], [18, 3]]],
+  ] as [string, [number, number][]][])(
+    'carries a shallow vertex on the cover stone alone (%s)',
+    (_name, pts) => {
+      const fans = layoutWall(pts, false, STONE, { wallWidth: WIDTH, seed: 4 })
+        .filter((n) => n.kind === 'fan');
+      expect(fans).toHaveLength(1);
+      // ...and it sits on the vertex itself.
+      expect(Math.hypot(fans[0].x - pts[1][0], fans[0].y - pts[1][1])).toBeLessThan(1e-9);
+    },
+  );
+
+  // The regression this whole threshold exists for: an octagon's edges must end
+  // up carrying real straights, not a chain of little rocks.
+  it('leaves an octagon edge long enough for full-size straights', () => {
+    const nodes = layoutWall(ngon(0, 0, 12, 8, Math.PI / 8), true, STONE, {
+      wallWidth: WIDTH,
+      seed: 7,
+    });
+    const straights = nodes.filter((n) => n.kind === 'straight');
+    const longest = Math.max(
+      ...straights.map((n) => pieceWorldLength(STONE.find((p) => p.id === n.pieceId)!, WIDTH)),
+    );
+    // The 1x1 (200px) is the shortest piece worth calling masonry; before the
+    // threshold the fans ate the edge and only the 100px filler ever fitted.
+    expect(longest).toBeGreaterThanOrEqual(pieceWorldLength(STONE[2], WIDTH));
+    expect(nodes.filter((n) => n.kind === 'fan')).toHaveLength(8);
+  });
 
   // Edits key on t, so nodes sharing a t are indistinguishable to edit lookup.
   // All three fan stones once carried the vertex's t, which meant dragging any

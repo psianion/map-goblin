@@ -6,6 +6,7 @@ import { BackgroundProperties } from './BackgroundProperties'
 import { LightProperties } from './LightProperties'
 import { DoorProperties } from './DoorProperties'
 import { ShapeTextureProperties } from './ShapeTextureProperties'
+import { TextProperties } from './TextProperties'
 import { RoomPanel } from './RoomPanel'
 import { PropertyField } from './PropertyField'
 import { ColorField } from '@/components/inputs/ColorField'
@@ -13,7 +14,7 @@ import { SelectInput } from '@/components/inputs/SelectInput'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { ToggleSwitch } from '@/components/ui/toggle-switch'
 import { Lightbulb, Grid3x3 } from 'lucide-react'
-import type { DungeonLayer, BackgroundLayer, LightChild, GridConfig } from '@/store/types'
+import type { DungeonLayer, BackgroundLayer, LightChild, TextChild, GridConfig } from '@/store/types'
 
 interface SectionControl {
   openSections?: Set<string>
@@ -124,6 +125,22 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
       <div className="flex flex-col pt-2">
         <LightProperties
           light={lightChild}
+          onDeselect={() => useStore.getState().setSelectedIds([])}
+          openSections={openSections}
+          onToggleSection={onToggleSection}
+        />
+        <GridSection openSections={openSections} onToggleSection={onToggleSection} />
+        <AmbientSection openSections={openSections} onToggleSection={onToggleSection} />
+      </div>
+    )
+  }
+
+  // If first selected child is a text label, show label properties
+  if (selectedChild?.childType === 'text') {
+    return (
+      <div className="flex flex-col pt-2">
+        <TextProperties
+          label={selectedChild as TextChild}
           onDeselect={() => useStore.getState().setSelectedIds([])}
           openSections={openSections}
           onToggleSection={onToggleSection}

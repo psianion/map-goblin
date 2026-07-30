@@ -305,6 +305,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     layer.standaloneWalls,
     layer.style,
     doorChildren.map((d) => ({ wallId: d.wallId, position: d.position, width: d.width })),
+    layer.floorWallEdits ?? {},
   );
   if (doorChildren.length > 0) {
     const gridCellSize = useStore.getState().grid.snapDivision || 1;
