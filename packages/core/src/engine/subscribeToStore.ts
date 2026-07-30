@@ -221,10 +221,12 @@ export function subscribeToStore(
             .filter((c): c is ShapeChild => c.childType === 'shape')
             .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}`)
             .join(','),
-          // Track door changes (state, style, position affect rendering + lighting)
+          // Track door changes (state, style, position, wall and secrecy all
+          // affect rendering + lighting). Not angle — it is derived from the
+          // resolved wall, and authored angle only moves with position/wallId.
           doorSignature: l.children
-            .filter((c) => c.childType === 'door')
-            .map((c) => `${c.id}:${c.visible}:${(c as import('../shared/types').DoorChild).state}:${(c as import('../shared/types').DoorChild).style}:${(c as import('../shared/types').DoorChild).width}`)
+            .filter((c): c is import('../shared/types').DoorChild => c.childType === 'door')
+            .map((c) => `${c.id}:${c.visible}:${c.state}:${c.style}:${c.width}:${c.position[0]}_${c.position[1]}:${c.wallId}:${c.isSecret}`)
             .join(','),
           // Track water body changes
           waterSignature: l.children
@@ -277,6 +279,13 @@ export function subscribeToStore(
             }
           });
         }
+      }
+      // Drop keys for layers that no longer exist, so the map does not grow for
+      // the life of the session. Guarded because this handler now also fires per
+      // pointermove while a door is dragged.
+      if (prevGeometryKeys.size > dungeonLayers.length) {
+        const liveIds = new Set(dungeonLayers.map((l) => l.id));
+        for (const id of prevGeometryKeys.keys()) if (!liveIds.has(id)) prevGeometryKeys.delete(id);
       }
       // Unconditional: door state feeds occlusion, so an open door has to
       // re-sweep even though no geometry moved.
