@@ -1,4 +1,15 @@
 import type { Command } from './types';
+import { syncRooms } from './roomSync';
+
+/**
+ * Rooms and door→room bindings are derived from geometry, so a command that
+ * moved geometry re-derives them here — in the same undo entry, which is what
+ * keeps the table's vision from reading a stale roomA/B (DD7). Undo needs no
+ * saved binding: it is a pure function of the geometry undo just restored.
+ */
+function rederiveRooms(cmd: Command): void {
+  if (cmd.affectsRooms) syncRooms();
+}
 
 class UndoManager {
   private history: Command[] = [];
@@ -8,6 +19,7 @@ class UndoManager {
 
   execute(cmd: Command): void {
     cmd.execute();
+    rederiveRooms(cmd);
     this.history.push(cmd);
     while (this.history.length > this.MAX_SIZE) {
       const evicted = this.history.shift();
@@ -23,6 +35,7 @@ class UndoManager {
     const cmd = this.history.pop();
     if (!cmd) return;
     cmd.undo();
+    rederiveRooms(cmd);
     this.future.push(cmd);
     this.notify();
   }
@@ -31,6 +44,7 @@ class UndoManager {
     const cmd = this.future.pop();
     if (!cmd) return;
     cmd.execute();
+    rederiveRooms(cmd);
     this.history.push(cmd);
     this.notify();
   }

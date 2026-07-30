@@ -17,6 +17,7 @@ interface PropertyTarget {
 export class PropertyCommand implements Command {
   readonly label: string;
   readonly target: PropertyTarget;
+  readonly affectsRooms: boolean;
   private before: Record<string, unknown>;
   private after: Record<string, unknown>;
 
@@ -30,6 +31,10 @@ export class PropertyCommand implements Command {
     this.target = target;
     this.before = structuredClone(before);
     this.after = structuredClone(after);
+    // Region moves and cuts commit the floor outline through this command, so
+    // the room-defining fields are what mark it as geometry.
+    this.affectsRooms =
+      target.type === 'layer' && ('mergedFloor' in after || 'standaloneWalls' in after);
   }
 
   execute(): void {
@@ -63,6 +68,11 @@ export class CompositeCommand implements Command {
     this.commands = commands;
   }
 
+  /** One re-derive for the whole group, not one per member. */
+  get affectsRooms(): boolean {
+    return this.commands.some((c) => c.affectsRooms);
+  }
+
   execute(): void {
     for (const cmd of this.commands) {
       cmd.execute();
@@ -77,10 +87,20 @@ export class CompositeCommand implements Command {
 }
 
 /**
+ * Child types whose add/remove moves the room graph: shapes are what
+ * `mergedFloor` is unioned from, and a door needs a roomA/B the moment it
+ * appears. Lights, labels and assets sit on top of the geometry.
+ */
+function childAffectsRooms(child: AnyChild | null): boolean {
+  return child?.childType === 'shape' || child?.childType === 'door';
+}
+
+/**
  * Adds a child to a dungeon layer. Removes it on undo.
  */
 export class AddChildCommand implements Command {
   readonly label: string;
+  readonly affectsRooms: boolean;
   private layerId: string;
   private child: AnyChild;
 
@@ -88,6 +108,7 @@ export class AddChildCommand implements Command {
     this.label = label;
     this.layerId = layerId;
     this.child = structuredClone(child);
+    this.affectsRooms = childAffectsRooms(this.child);
   }
 
   execute(): void {
@@ -113,6 +134,11 @@ export class RemoveChildCommand implements Command {
     this.label = label;
     this.layerId = layerId;
     this.childId = childId;
+  }
+
+  /** Read from the snapshot, so it only answers once execute has run. */
+  get affectsRooms(): boolean {
+    return childAffectsRooms(this.snapshot);
   }
 
   execute(): void {
@@ -332,6 +358,7 @@ export class RemoveLayerCommand implements Command {
  */
 export class AddWallCommand implements Command {
   readonly label: string;
+  readonly affectsRooms = true;
   private layerId: string;
   private wall: import('./types').WallSegment;
 
@@ -352,6 +379,7 @@ export class AddWallCommand implements Command {
 
 export class RemoveWallCommand implements Command {
   readonly label = 'Remove wall';
+  readonly affectsRooms = true;
   removedWall: import('./types').WallSegment | null = null;
   layerId: string;
   wallId: string;
@@ -380,6 +408,7 @@ export class RemoveWallCommand implements Command {
 
 export class UpdateWallCommand implements Command {
   readonly label = 'Update wall';
+  readonly affectsRooms = true;
   layerId: string;
   wallId: string;
   before: Partial<import('./types').WallSegment>;
@@ -413,6 +442,7 @@ export class UpdateWallCommand implements Command {
  */
 export class UpdateFloorWallEditsCommand implements Command {
   readonly label = 'Update wall';
+  readonly affectsRooms = true;
   private layerId: string;
   private ringKey: string;
   private before: import('../shared/types').WallEdits | undefined;

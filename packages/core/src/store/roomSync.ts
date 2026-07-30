@@ -1,6 +1,7 @@
 import type { DoorChild } from '../shared/types';
 import { detectRooms } from '../engine/roomDetection';
 import { bindDoorToRooms } from '../shared/roomBinding';
+import { resolveDoors, resolveWalls, toOcclusionDoors } from '../shared/wallResolve';
 import { useStore } from './store';
 
 /**
@@ -21,6 +22,13 @@ const DEBOUNCE_MS = 250;
  * renamed room keeps its name across re-detection.
  */
 export function syncRooms(): void {
+  // A command that commits geometry runs this directly, and the store change it
+  // made has already armed the debounce. Drop that pending pass: this one is
+  // reading the same state, and anything later re-arms the timer anyway.
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
   for (const layer of useStore.getState().layers) {
     if (layer.type !== 'dungeon') continue;
     const rooms = detectRooms(
@@ -31,6 +39,22 @@ export function syncRooms(): void {
     );
     useStore.getState().setRooms(layer.id, rooms);
 
+    // Bind against resolved geometry, not the authored fields: a door on a
+    // floor-ring edge has no `wallId` to look up, and both position and angle
+    // on the child go stale the moment the wall under it is edited. A detached
+    // door is absent from this list and keeps whatever it was bound to last.
+    //
+    // ponytail: every door rebinds, not just the ones whose wall moved. A room
+    // boundary can move anywhere the geometry changed, so `detectRooms` above
+    // has to run wholesale regardless — and it is the expensive half (~8ms vs
+    // ~6ms for 40 doors across 100 rooms). Narrow to a touched set only if the
+    // probes, which are O(doors x rooms), start showing up on a real map.
+    const walls = resolveWalls(layer);
+    const bindable = toOcclusionDoors(resolveDoors(layer, walls));
+    const bound = new Map(
+      bindable.map((d) => [d.id, bindDoorToRooms(d, walls, rooms)] as const),
+    );
+
     // Door→room binding is derived from geometry, not user intent, so it is
     // written straight to the store and never lands on the undo stack.
     useStore.setState((s) => {
@@ -39,9 +63,10 @@ export function syncRooms(): void {
       for (const child of target.children) {
         if (child.childType !== 'door') continue;
         const door = child as DoorChild;
-        const bound = bindDoorToRooms(door, target.standaloneWalls, rooms);
-        door.roomA = bound.roomA;
-        door.roomB = bound.roomB;
+        const next = bound.get(door.id);
+        if (!next) continue;
+        door.roomA = next.roomA;
+        door.roomB = next.roomB;
       }
     });
   }
