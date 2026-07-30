@@ -134,6 +134,23 @@ export function toOcclusionDoors(resolved: ResolvedDoor[]): DoorChild[] {
     .map((r) => ({ ...r.door, wallId: r.wall!.id, position: r.position, angle: r.angle }));
 }
 
+/**
+ * Where `door` lands when dragged to `point` on `wall` — the same projection and
+ * end clamp a resolve applies, so what a drag commits is what the next render
+ * draws. The door tool's drag is the only caller; everything else resolves.
+ */
+export function projectDoorOnto(
+  door: DoorChild,
+  wall: ResolvedWall,
+  point: [number, number],
+): ResolvedDoor {
+  return resolveDoor(
+    { ...door, position: point, wallId: wall.id },
+    [wall],
+    new Map([[wall.id, wall]]),
+  );
+}
+
 function resolveDoor(
   door: DoorChild,
   walls: ResolvedWall[],

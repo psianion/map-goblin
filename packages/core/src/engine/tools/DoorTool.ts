@@ -1,9 +1,14 @@
 import type { Point } from '../../types/geometry';
-import type { DrawingTool, PreviewShape } from './DrawingTool';
+import { isDoubleClick, type DrawingTool, type PreviewShape } from './DrawingTool';
 import type { DoorChild, DungeonLayer } from '../../store/types';
 import type { DoorState } from '../../shared/types';
 import { snapToNearestWall, type WallSnapResult } from '../../shared/wallSnap';
-import { FLOOR_ANCHORED, resolveDoors, resolveWalls } from '../../shared/wallResolve';
+import {
+  FLOOR_ANCHORED,
+  projectDoorOnto,
+  resolveDoors,
+  resolveWalls,
+} from '../../shared/wallResolve';
 import { bindDoorToRooms } from '../../shared/roomBinding';
 import { AddChildCommand, RemoveChildCommand, UpdateChildCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
@@ -30,54 +35,111 @@ function nextState(door: DoorChild): DoorState {
 /** Minimum click radius, so hairline doors are still clickable. */
 const MIN_HIT_RADIUS = 0.4;
 
-function doorsOf(layer: DungeonLayer): DoorChild[] {
-  return layer.children.filter((c): c is DoorChild => c.childType === 'door');
-}
+/**
+ * H7: a fixed world-unit threshold giving ~1.5 grid cells of snap range. World
+ * coords are 1 unit = 1 grid cell, so it holds at any zoom. Placement snapping
+ * and drag re-anchoring share it — a door lands where it would be dragged to.
+ */
+const SNAP_THRESHOLD = 1.5;
 
-/** Nearest door within its own half-width of the point, or null. */
+/**
+ * How far the pointer must travel before a press counts as a drag rather than a
+ * click. Well inside `DOUBLE_CLICK_SLOP` so a slightly wobbly double-click still
+ * cycles instead of committing a one-pixel move.
+ * ponytail: no shared drag-slop constant exists yet; hoist if a second tool needs one.
+ */
+const DRAG_SLOP = 0.15;
+
+/**
+ * Nearest door within its own half-width of the point, or null.
+ *
+ * Hit-tests the *resolved* position, not the authored one: a floor door or a
+ * door on a node-edited wall draws where it resolves, so that is where it has to
+ * be clickable. Detached doors resolve to their authored position, which is
+ * where their broken-bar marker draws — they stay pickable too.
+ */
 function doorAt(point: Point, layer: DungeonLayer): DoorChild | null {
   let best: DoorChild | null = null;
   let bestDist = Infinity;
-  for (const door of doorsOf(layer)) {
-    const dist = Math.hypot(door.position[0] - point.x, door.position[1] - point.y);
-    if (dist <= Math.max(door.width / 2, MIN_HIT_RADIUS) && dist < bestDist) {
+  for (const r of resolveDoors(layer, resolveWalls(layer))) {
+    const dist = Math.hypot(r.position[0] - point.x, r.position[1] - point.y);
+    if (dist <= Math.max(r.door.width / 2, MIN_HIT_RADIUS) && dist < bestDist) {
       bestDist = dist;
-      best = door;
+      best = r.door;
     }
   }
   return best;
+}
+
+/** The fields a drag rewrites — snapshotted for undo and for Escape. */
+type DoorAnchor = Pick<DoorChild, 'wallId' | 'position' | 'angle' | 'roomA' | 'roomB'>;
+
+function anchorOf(door: DoorChild): DoorAnchor {
+  return {
+    wallId: door.wallId,
+    position: [...door.position],
+    angle: door.angle,
+    roomA: door.roomA,
+    roomB: door.roomB,
+  };
+}
+
+function activeDungeonLayer(): DungeonLayer | undefined {
+  const store = useStore.getState();
+  return store.layers.find(
+    (l): l is DungeonLayer => l.id === store.ui.activeLayerId && l.type === 'dungeon',
+  );
 }
 
 export class DoorTool implements DrawingTool {
   readonly type = 'door' as const;
   readonly cursor = 'crosshair';
   snapResult: WallSnapResult | null = null;
-  /** Door under the cursor — what Delete removes and what a click cycles. */
+  /** Door under the cursor — the Delete target when nothing is selected. */
   hoveredDoorId: string | null = null;
+
+  private lastClick: { point: Point; time: number } | null = null;
+  /** Door under a held pointer, and where the press started. */
+  private pressedDoorId: string | null = null;
+  private pressPoint: Point | null = null;
+  /** Set once the press passes `DRAG_SLOP`; holds what to put back on Escape/undo. */
+  private dragFrom: DoorAnchor | null = null;
 
   onPointerDown(point: Point): void {
     const store = useStore.getState();
     const activeLayerId = store.ui.activeLayerId;
-    const activeLayer = store.layers.find(
-      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
-    );
+    const activeLayer = activeDungeonLayer();
     if (!activeLayer) return;
 
-    // Clicking a placed door cycles it instead of stacking another one on top.
     const hit = doorAt(point, activeLayer);
     if (hit) {
-      undoManager.execute(
-        new UpdateChildCommand(
-          'Cycle door',
-          activeLayerId,
-          hit.id,
-          { state: hit.state },
-          { state: nextState(hit) },
-        ),
-      );
+      // Second click of a double cycles the state; the first already selected the
+      // door, and selection is idempotent, so nothing fires twice.
+      if (isDoubleClick(this.lastClick, point, Date.now())) {
+        this.lastClick = null;
+        this.pressedDoorId = null;
+        this.pressPoint = null;
+        undoManager.execute(
+          new UpdateChildCommand(
+            'Cycle door',
+            activeLayerId,
+            hit.id,
+            { state: hit.state },
+            { state: nextState(hit) },
+          ),
+        );
+        return;
+      }
+      // Single click selects — the properties panel keys off the selection, so a
+      // door can now be inspected without being mutated (DR10).
+      store.setSelectedIds([hit.id]);
+      this.lastClick = { point, time: Date.now() };
+      this.pressedDoorId = hit.id;
+      this.pressPoint = point;
       return;
     }
 
+    store.setSelectedIds([]);
     if (!this.snapResult) return;
 
     const toolSettings = store.tools.settings;
@@ -144,22 +206,24 @@ export class DoorTool implements DrawingTool {
     Object.assign(door, bindDoorToRooms(door, allWalls, activeLayer.rooms ?? []));
 
     undoManager.execute(new AddChildCommand('Place door', activeLayerId, door));
+    // Width is a panel field, not a canvas handle (DD6), so a fresh door has to
+    // arrive selected or there is no way to size it without hunting the layer list.
+    store.setSelectedIds([door.id]);
   }
 
   onPointerMove(point: Point): void {
-    const store = useStore.getState();
-    const activeLayerId = store.ui.activeLayerId;
-    const activeLayer = store.layers.find(
-      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
-    );
+    const activeLayer = activeDungeonLayer();
     if (!activeLayer) return;
 
-    this.hoveredDoorId = doorAt(point, activeLayer)?.id ?? null;
+    if (this.pressedDoorId && this.pressPoint) {
+      const moved = Math.hypot(point.x - this.pressPoint.x, point.y - this.pressPoint.y);
+      if (this.dragFrom || moved > DRAG_SLOP) {
+        this.slideTo(point, activeLayer);
+        return;
+      }
+    }
 
-    // H7: Use a fixed world-unit threshold that gives ~1.5 grid cells of snap range.
-    // World coords use 1 unit = 1 grid cell, so 1.5 is always correct regardless of zoom.
-    // (The old value of 2 was fine but 1.5 is more precise and avoids snapping across gaps.)
-    const snapThreshold = 1.5;
+    this.hoveredDoorId = doorAt(point, activeLayer)?.id ?? null;
 
     // M9: Overlap detection uses Euclidean center distance which is a simplification.
     // For most cases this is accurate enough since doors are placed along a single wall.
@@ -167,12 +231,65 @@ export class DoorTool implements DrawingTool {
     this.snapResult = snapToNearestWall(
       [point.x, point.y],
       resolveWalls(activeLayer),
-      snapThreshold,
+      SNAP_THRESHOLD,
     );
   }
 
+  /**
+   * Live-slides the pressed door to the pointer. Writes straight to the store so
+   * the door tracks the cursor; `onPointerUp` rewinds and replays through the
+   * command, which is how one gesture becomes one undo entry (as SelectTool does).
+   */
+  private slideTo(point: Point, layer: DungeonLayer): void {
+    const door = layer.children.find(
+      (c): c is DoorChild => c.id === this.pressedDoorId && c.childType === 'door',
+    );
+    if (!door) return;
+
+    const walls = resolveWalls(layer);
+    // The nearest wall within snap range wins, so dragging past a corner
+    // re-anchors to the wall the pointer has crossed to. Out of range nothing
+    // moves — a door cannot be dragged off the walls.
+    const snap = snapToNearestWall([point.x, point.y], walls, SNAP_THRESHOLD);
+    const wall = snap && walls.find((w) => w.id === snap.wallId);
+    if (!wall) return;
+
+    this.dragFrom ??= anchorOf(door);
+    // Projection + end clamp come from the resolver, so the committed position is
+    // exactly the one the next render resolves to.
+    const placed = projectDoorOnto(door, wall, [point.x, point.y]);
+    const next: DoorAnchor = {
+      wallId: wall.kind === 'floor' ? FLOOR_ANCHORED : wall.id,
+      position: placed.position,
+      angle: placed.angle,
+      ...bindDoorToRooms(
+        { ...door, position: placed.position, angle: placed.angle, wallId: wall.id },
+        walls,
+        layer.rooms ?? [],
+      ),
+    };
+    useStore.getState().updateChild(layer.id, door.id, next);
+  }
+
   onPointerUp(_point: Point): void {
-    // Single-click tool — no drag behavior
+    const from = this.dragFrom;
+    const doorId = this.pressedDoorId;
+    this.pressedDoorId = null;
+    this.pressPoint = null;
+    this.dragFrom = null;
+    if (!from || !doorId) return;
+
+    const layer = activeDungeonLayer();
+    const moved = layer?.children.find(
+      (c): c is DoorChild => c.id === doorId && c.childType === 'door',
+    );
+    if (!layer || !moved) return;
+
+    const to = anchorOf(moved);
+    // Rewind the live preview, then replay it as a command so undo has a clean
+    // before/after and the whole slide costs exactly one press of undo.
+    useStore.getState().updateChild(layer.id, doorId, from);
+    undoManager.execute(new UpdateChildCommand('Move door', layer.id, doorId, from, to));
   }
 
   onKeyDown(event: KeyboardEvent): void {
@@ -181,20 +298,26 @@ export class DoorTool implements DrawingTool {
       return;
     }
     if (event.key !== 'Delete' && event.key !== 'Backspace') return;
-    // Delete removes the door under the cursor — the door tool has no
-    // selection of its own, so hover is the target (matching ObjectTool).
     const store = useStore.getState();
-    if (!this.hoveredDoorId) return;
-    undoManager.execute(
-      new RemoveChildCommand('Delete door', store.ui.activeLayerId, this.hoveredDoorId),
+    const layer = activeDungeonLayer();
+    if (!layer) return;
+    // Delete removes the selection; hover stays the target when nothing is
+    // selected, which is how the tool worked before it could select.
+    const selected = store.selection.selectedIds.find((id) =>
+      layer.children.some((c) => c.id === id && c.childType === 'door'),
     );
+    const target = selected ?? this.hoveredDoorId;
+    if (!target) return;
+    undoManager.execute(new RemoveChildCommand('Delete door', layer.id, target));
+    if (selected) store.setSelectedIds([]);
     this.hoveredDoorId = null;
   }
 
   getPreview(): PreviewShape | null {
     // Ghost only while hovering empty wall — over a placed door the click
-    // cycles it rather than placing, so a placement ghost would be a lie.
-    if (this.hoveredDoorId) return null;
+    // selects it rather than placing, so a placement ghost would be a lie, and
+    // during a slide the door itself is already tracking the cursor.
+    if (this.hoveredDoorId || this.dragFrom) return null;
     if (!this.snapResult) return null;
     const store = useStore.getState();
     const doorWidth = store.tools.settings.doorWidth || 1;
@@ -213,12 +336,27 @@ export class DoorTool implements DrawingTool {
     };
   }
 
+  /** A placed door is draggable, so say so before the user finds out by accident. */
+  getHoverCursor(): string | null {
+    return this.dragFrom ? 'grabbing' : this.hoveredDoorId ? 'move' : null;
+  }
+
   cancel(): void {
+    // Escape mid-slide puts the door back where it was picked up; the tool exit
+    // that Escape also means then has nothing half-applied behind it.
+    const layer = this.dragFrom ? activeDungeonLayer() : undefined;
+    if (layer && this.dragFrom && this.pressedDoorId) {
+      useStore.getState().updateChild(layer.id, this.pressedDoorId, this.dragFrom);
+    }
+    this.dragFrom = null;
+    this.pressedDoorId = null;
+    this.pressPoint = null;
+    this.lastClick = null;
     this.snapResult = null;
     this.hoveredDoorId = null;
   }
 
   isActive(): boolean {
-    return false; // single-click tool
+    return this.dragFrom !== null;
   }
 }
