@@ -5,6 +5,7 @@ import { buildSceneGraph } from '@/engine/sceneGraph';
 import { setupRenderLoop } from '@/engine/renderLoop';
 import { subscribeToStore } from '@/engine/subscribeToStore';
 import { subscribeToAssets } from '@/engine/subscribeToAssets';
+import { subscribeToTextLabels } from '@/engine/subscribeToTextLabels';
 import { setEngineSingleton, clearEngineSingleton } from '@/engine/engineSingleton';
 import { LightManager } from '@dnd/core/src/engine/lighting/index';
 import { setTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
@@ -120,6 +121,9 @@ export function CanvasHost() {
       // Subscribe to asset/image layer changes → PixiJS sprite sync
       const unsubAssets = subscribeToAssets();
 
+      // Text labels sync the same way, into the same layer containers
+      const unsubLabels = subscribeToTextLabels();
+
       pixiEngine.startRenderLoop();
 
       // Register input middleware (order matters: gridSnap first, then wallEndpointSnap)
@@ -164,6 +168,7 @@ export function CanvasHost() {
         destroyWaterAnimation();
         unsubStore();
         unsubAssets();
+        unsubLabels();
         unregSnap();
         unregWallSnap();
         unregFogResize();

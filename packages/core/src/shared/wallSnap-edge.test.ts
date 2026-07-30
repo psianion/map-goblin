@@ -12,6 +12,51 @@ const makeWall = (id: string, points: [number, number][]): WallSegment => ({
   roughness: 0,
 });
 
+describe('snapToNearestWall — multi-point chains', () => {
+  // The wall tool now commits a chain as one WallSegment with N points.
+  // Projecting onto points[0]→points[last] cuts the corners off and would put
+  // doors on a line the wall does not follow.
+  const chain = {
+    id: 'chain',
+    points: [[0, 0], [10, 0], [10, 10]] as [number, number][],
+    wallType: 'normal' as const,
+    direction: 'both' as const,
+    color: '#000',
+    width: 0.5,
+    roughness: 0,
+  };
+
+  it('snaps to an interior segment, not the first-to-last chord', () => {
+    // (5, 0.2) is right on the first leg; the chord runs (0,0)→(10,10).
+    const r = snapToNearestWall([5, 0.2], [chain], 5);
+    expect(r).not.toBeNull();
+    expect(r!.position[0]).toBeCloseTo(5, 6);
+    expect(r!.position[1]).toBeCloseTo(0, 6);
+    expect(r!.distance).toBeCloseTo(0.2, 6);
+  });
+
+  it('snaps to the second leg when that is nearer', () => {
+    const r = snapToNearestWall([10.3, 6], [chain], 5);
+    expect(r!.position[0]).toBeCloseTo(10, 6);
+    expect(r!.position[1]).toBeCloseTo(6, 6);
+    expect(r!.angle).toBeCloseTo(Math.PI / 2, 6);
+  });
+
+  it('reports t along the whole polyline', () => {
+    // Corner sits at half the 20-unit run.
+    expect(snapToNearestWall([10, 0], [chain], 5)!.t).toBeCloseTo(0.5, 6);
+    expect(snapToNearestWall([0, 0], [chain], 5)!.t).toBeCloseTo(0, 6);
+    expect(snapToNearestWall([10, 10], [chain], 5)!.t).toBeCloseTo(1, 6);
+  });
+
+  it('is unchanged for a two-point wall', () => {
+    const straight = { ...chain, points: [[0, 0], [10, 0]] as [number, number][] };
+    const r = snapToNearestWall([3, 1], [straight], 5)!;
+    expect(r.t).toBeCloseTo(0.3, 6);
+    expect(r.angle).toBeCloseTo(0, 6);
+  });
+});
+
 describe('snapToNearestWall — edge cases', () => {
   // 1. Empty walls array
   it('empty walls array returns null', () => {

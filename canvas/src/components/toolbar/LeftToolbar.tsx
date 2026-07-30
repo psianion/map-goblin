@@ -16,6 +16,8 @@ import {
   LayoutGrid,
   Mountain,
   Droplets,
+  Ruler,
+  Type,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useStore } from '@/store/store';
@@ -44,6 +46,10 @@ const TOOLS: ToolButton[] = [
   { tool: 'scatterBrush', icon: TreeDeciduous, label: 'Scatter Brush', shortcut: 'B' },
   { tool: 'terrain', icon: Mountain, label: 'Terrain Brush', shortcut: 'T' },
   { tool: 'water', icon: Droplets, label: 'Water', shortcut: 'U' },
+  // M for measure — R is already the rectangle.
+  { tool: 'ruler', icon: Ruler, label: 'Measure', shortcut: 'M' },
+  // N for note — T is terrain and X is the rough-mode toggle.
+  { tool: 'text', icon: Type, label: 'Label', shortcut: 'N' },
 ];
 
 /** Module-level button element map — avoids useRef reads during render */
@@ -117,6 +123,7 @@ export function LeftToolbar() {
     select: 'Select', pan: 'Pan', rectangle: 'Rectangle', polygon: 'Polygon',
     regularPolygon: 'Regular Polygon', path: 'Path', wall: 'Wall', door: 'Door',
     light: 'Light', scatterBrush: 'Scatter Brush', terrain: 'Terrain Brush', water: 'Water',
+    ruler: 'Measure', text: 'Label',
   };
 
   const handleToolClick = (tool: ToolType) => {

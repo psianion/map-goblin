@@ -4,6 +4,10 @@ export type {
   WallType,
   WallDirection,
   WallSegment,
+  WallEdits,
+  WallNodeEdit,
+  WallSpanEdit,
+  WallNodeInsert,
   DoorStyle,
   DoorState,
   MaskData,
@@ -13,5 +17,6 @@ export type {
   AssetChild,
   LightChild,
   DoorChild,
+  TextChild,
   AnyChild,
 } from '@dnd/core/src/shared/types';

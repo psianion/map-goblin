@@ -38,6 +38,17 @@ export function projectPointOntoLineSegment(
   return { closest, t, distance };
 }
 
+/**
+ * Nearest point on any wall, within `maxDistance`.
+ *
+ * Walks every segment of the polyline. This used to project onto a single line
+ * from `points[0]` to the last point, which was equivalent while every wall was
+ * two points — since the wall tool started producing chains it would have
+ * snapped doors to a phantom line cutting the corners off the actual wall.
+ *
+ * `t` is parametric along the whole polyline by arc length, so it still means
+ * "how far along this wall" and is unchanged for two-point walls.
+ */
 export function snapToNearestWall(
   worldPos: [number, number],
   walls: WallSegment[],
@@ -47,21 +58,36 @@ export function snapToNearestWall(
   let bestDist = maxDistance;
 
   for (const wall of walls) {
-    const start = wall.points[0];
-    const end = wall.points[wall.points.length - 1];
-    const proj = projectPointOntoLineSegment(worldPos, start, end);
+    if (wall.points.length < 2) continue;
 
-    if (proj.distance < bestDist) {
-      bestDist = proj.distance;
-      const dx = end[0] - start[0];
-      const dy = end[1] - start[1];
-      best = {
-        wallId: wall.id,
-        position: proj.closest,
-        angle: Math.atan2(dy, dx),
-        t: proj.t,
-        distance: proj.distance,
-      };
+    const lengths: number[] = [];
+    let total = 0;
+    for (let i = 0; i < wall.points.length - 1; i++) {
+      const len = Math.hypot(
+        wall.points[i + 1][0] - wall.points[i][0],
+        wall.points[i + 1][1] - wall.points[i][1],
+      );
+      lengths.push(len);
+      total += len;
+    }
+
+    let travelled = 0;
+    for (let i = 0; i < wall.points.length - 1; i++) {
+      const start = wall.points[i];
+      const end = wall.points[i + 1];
+      const proj = projectPointOntoLineSegment(worldPos, start, end);
+
+      if (proj.distance < bestDist) {
+        bestDist = proj.distance;
+        best = {
+          wallId: wall.id,
+          position: proj.closest,
+          angle: Math.atan2(end[1] - start[1], end[0] - start[0]),
+          t: total > 0 ? (travelled + proj.t * lengths[i]) / total : 0,
+          distance: proj.distance,
+        };
+      }
+      travelled += lengths[i];
     }
   }
 
