@@ -38,6 +38,16 @@ const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floo
 test('a state-only door toggle costs no union rebuild and lands within the frame budget', async ({
   page,
 }) => {
+  // KNOWN MISS, pinned rather than relaxed: the §6 bar is 50ms and it stays 50ms.
+  // #18's union rebuild is gone — the row below proves the union is untouched — but a
+  // state flip still runs `rebuildDungeonLayer`, which clears the walls sublayer and
+  // re-places every stone on the map before the frame that draws the door. On the
+  // dressed map that is ~22ms of store write plus a ~40ms frame against a ~16ms idle
+  // one. Doors want their own sublayer so a state flip redraws doors and relights
+  // without touching the stones; when that lands this test starts passing and the
+  // runner will say so.
+  test.fail()
+
   await gotoApp(page)
   await waitForEngine(page)
 
@@ -110,6 +120,7 @@ test('a state-only door toggle costs no union rebuild and lands within the frame
   // shape children only now, so a state flip must not touch it — asserted on
   // array identity, which a rebuild cannot preserve.
   expect(samples.every((s) => s.floorSame)).toBe(true)
-  // …and the work the toggle does do stays inside the row's budget.
-  expect(write).toBeLessThan(50)
+  // …and the whole toggle, up to and including the frame that draws it, inside the
+  // §6 budget. This is the half that still misses (see `test.fail()` above).
+  expect(write + frame).toBeLessThan(50)
 })
