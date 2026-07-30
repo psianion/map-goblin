@@ -6,6 +6,25 @@ export async function gotoApp(page: Page): Promise<void> {
   await page.waitForSelector('[data-clipper-ready="true"]', { timeout: 20000 })
 }
 
+/**
+ * Wait until the engine has finished booting — `data-clipper-ready` is set well
+ * before it, while the bundled asset pack is still being installed into a cold
+ * IndexedDB, and until that finishes the canvas is an "Initializing…" overlay
+ * with an empty scene graph. Anything driven by a real pointer has to wait for
+ * this: the overlay sits on top of the canvas, so a click lands on a div.
+ */
+export async function waitForEngine(page: Page, timeout = 120_000): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const app = (window as Window & { __pixiApp?: { stage: { children: { children: unknown[] }[] } } })
+        .__pixiApp
+      return !!app && app.stage.children.length > 0 && app.stage.children[0].children.length > 0
+    },
+    undefined,
+    { timeout },
+  )
+}
+
 /** Wait for n animation frames */
 export async function waitFrame(page: Page, n: number = 1): Promise<void> {
   for (let i = 0; i < n; i++) {
