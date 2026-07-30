@@ -61,23 +61,24 @@ export function renderDoors(
     // A locked door reads as locked at a glance, not only from the state dot.
     const glyphColor = door.state === 'locked' ? STATE_COLORS.locked : wallColor;
 
-    let drewSprite = false;
+    // A portal carries its own authored texture, so it never consults the door
+    // pack. Every other style tries the pack first and falls back to its glyph.
     if (door.style === 'portal' && door.portalTextureId) {
       renderPortalSprite(container, door, position, wallAngle);
       g.destroy();
       continue;
-    } else if (door.style === 'archway') {
-      renderArchway(g, cx, cy, wallAngle, halfWidth, wallColor);
-    } else if (door.style === 'portcullis') {
-      renderPortcullis(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
-    } else {
-      drewSprite = renderDoorSprite(container, door, position, wallAngle);
-      if (!drewSprite) {
-        if (door.style === 'double') {
-          renderDoubleDoor(g, cx, cy, wallAngle, halfWidth, glyphColor, door.state);
-        } else {
-          renderSingleDoor(g, cx, cy, wallAngle, halfWidth, glyphColor, door.state, door.isSecret);
-        }
+    }
+
+    const drewSprite = renderDoorSprite(container, door, position, wallAngle);
+    if (!drewSprite) {
+      if (door.style === 'archway') {
+        renderArchway(g, cx, cy, wallAngle, halfWidth, wallColor);
+      } else if (door.style === 'portcullis') {
+        renderPortcullis(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
+      } else if (door.style === 'double') {
+        renderDoubleDoor(g, cx, cy, wallAngle, halfWidth, glyphColor, door.state);
+      } else {
+        renderSingleDoor(g, cx, cy, wallAngle, halfWidth, glyphColor, door.state, door.isSecret);
       }
     }
 
@@ -103,15 +104,27 @@ export function renderDoors(
 }
 
 /**
- * Pack that door sprites are looked up in. Entry IDs are
- * `door-{single|double}-{closed|open}`; locked reuses the closed art and is
- * distinguished by tint.
+ * Pack that door sprites are looked up in. The full set of entry IDs a pack
+ * must provide to replace the glyphs — this list is the contract, nothing else
+ * is consulted:
+ *
+ *   door-single-closed     door-single-open
+ *   door-double-closed     door-double-open
+ *   door-portcullis-closed door-portcullis-open
+ *   door-archway-open
+ *
+ * No `door-archway-closed`: an archway is a permanent opening (occlusion always
+ * treats it as passable and no state dot is drawn), so a closed archway — which
+ * the store does allow — still renders as the open art. Locked and secret need
+ * no art either: locked reuses the closed art with a red tint, secret reuses
+ * whatever its state maps to at 0.35 alpha. Portals are excluded; they carry an
+ * authored `portalTextureId` instead.
  *
  * No installed pack ships these yet, so `getTextureOrNull` returns null and
- * every door falls back to the Graphics glyph below. Dropping those four
- * entries into a pack manifest is the whole switch-over — nothing else here
- * changes. (`getTextureOrNull`, not `resolveTexture`: a miss must be a quiet
- * null, not a magenta placeholder plastered over the map.)
+ * every door falls back to the Graphics glyphs below. Dropping the entries into
+ * a pack manifest is the whole switch-over — nothing else here changes.
+ * (`getTextureOrNull`, not `resolveTexture`: a miss must be a quiet null, not a
+ * magenta placeholder plastered over the map.)
  */
 const DOOR_SPRITE_PACK = 'dungeon-classic';
 
@@ -121,7 +134,8 @@ function renderDoorSprite(
   position: [number, number],
   wallAngle: number,
 ): boolean {
-  const spriteState = door.state === 'open' ? 'open' : 'closed';
+  const spriteState =
+    door.style === 'archway' || door.state === 'open' ? 'open' : 'closed';
   const tex = getAssetPackManager().getTextureOrNull(
     `${DOOR_SPRITE_PACK}:door-${door.style}-${spriteState}`,
   );
