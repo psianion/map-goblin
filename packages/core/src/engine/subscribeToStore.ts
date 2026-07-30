@@ -204,6 +204,10 @@ export function subscribeToStore(
   unsubscribers.push(unsubOpacity);
 
   // ─── Shape/wall changes → mark render cache dirty ────
+  // Last geometry seen per layer, so the handler can tell a floor edit from a
+  // door toggle: both wake it, only one may touch the union or the rooms.
+  const prevGeometryKeys = new Map<string, { floor: string; room: string }>();
+
   const unsubShapes = useStore.subscribe(
     (state) =>
       state.layers
@@ -233,19 +237,31 @@ export function subscribeToStore(
             .join(','),
         })),
     (dungeonLayers) => {
-      for (const { id } of dungeonLayers) {
+      let geometryChanged = false;
+      for (const { id, shapeCount, shapeKeys, wallCount, wallSignature } of dungeonLayers) {
         markRenderCacheDirty(id);
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
-          // Recompute mergedFloor from shape children via Clipper2
-          const newFloor = computeMergedFloor(layer);
-          // Write via setState — safe because the subscription equality fn
-          // only compares shapeCount/wallCount/shapeKeys, not mergedFloor
-          useStore.setState((s) => {
-            const l = s.layers.find((la) => la.id === id);
-            if (l && l.type === 'dungeon') l.mergedFloor = newFloor;
-          });
+          // The union is a function of the shape children and nothing else, but
+          // this subscription also fires for doors, walls and water. Toggling a
+          // door open used to rebuild it anyway (#18): Clipper2 on a dressed map
+          // is ~280ms, and the fresh mergedFloor array it wrote busted the wall
+          // resolver memo on top, dragging the stones through a rebuild too.
+          const floorKey = `${shapeCount}|${shapeKeys}`;
+          const roomKey = `${floorKey}|${wallCount}|${wallSignature}`;
+          const prev = prevGeometryKeys.get(id);
+          if (prev?.room !== roomKey) geometryChanged = true;
+          if (prev?.floor !== floorKey) {
+            const newFloor = computeMergedFloor(layer);
+            // Write via setState — safe because the subscription equality fn
+            // only compares shapeCount/wallCount/shapeKeys, not mergedFloor
+            useStore.setState((s) => {
+              const l = s.layers.find((la) => la.id === id);
+              if (l && l.type === 'dungeon') l.mergedFloor = newFloor;
+            });
+          }
+          prevGeometryKeys.set(id, { floor: floorKey, room: roomKey });
           // Re-read layer after mergedFloor update
           const updatedLayer = useStore.getState().layers.find((l) => l.id === id);
           if (!updatedLayer || updatedLayer.type !== 'dungeon') continue;
@@ -262,12 +278,16 @@ export function subscribeToStore(
           });
         }
       }
-      // Wall geometry changed — invalidate all light visibility polygons
+      // Unconditional: door state feeds occlusion, so an open door has to
+      // re-sweep even though no geometry moved.
       lightManager.invalidateAll();
-      // ...and rooms are a function of that same geometry. Debounced because
-      // this fires per node while a wall is being drawn. Also covers load:
-      // layers are replaced wholesale, so a file without rooms gets them here.
-      scheduleRoomSync();
+      // Rooms are a function of floor + wall geometry only — a door opening
+      // does not move a room boundary, and syncRooms rewrites every door's
+      // roomA/roomB, which would churn the door children for nothing.
+      // Debounced because this fires per node while a wall is being drawn. Also
+      // covers load: layers are replaced wholesale, so a file without rooms
+      // gets them here.
+      if (geometryChanged) scheduleRoomSync();
     },
     {
       // fireImmediately: render shapes already in the store at subscribe time.

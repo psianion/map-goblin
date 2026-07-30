@@ -95,4 +95,50 @@ describe('extractWallSegments', () => {
     // 3 intact edges + 2 stubs either side of the gap; the open door blocks nothing.
     expect(extractWallSegments([layer])).toHaveLength(5)
   })
+
+  describe('door mid-hallway (corridor edge produced by the union)', () => {
+    // Two rooms joined by a corridor, unioned into one ring — the shared edges
+    // between the touching shapes are gone, so the corridor's long side is a
+    // single ring edge with no standalone wall anywhere near it. That edge is
+    // what a hallway door has to anchor to.
+    //          (0,0)──────(40,0)      (100,0)──────(140,0)
+    //            │           │           │            │
+    //            │        (40,40)────(100,40)         │   ← corridor top edge
+    //            │                                    │
+    //          (0,80)────(40,80)   (100,80)────(140,80)   ← corridor bottom edge
+    const hallwayRing: [number, number][] = [
+      [0, 0], [40, 0], [40, 40], [100, 40], [100, 0], [140, 0],
+      [140, 80], [100, 80], [100, 60], [40, 60], [40, 80], [0, 80],
+    ]
+
+    function layerWithDoor(state: string | null) {
+      return {
+        id: 'hallway',
+        type: 'dungeon' as const,
+        children: state
+          ? [{ id: 'd1', childType: 'door', visible: true, wallId: '', position: [70, 40] as [number, number], angle: 0, width: 20, style: 'single', state, isSecret: false, name: 'Hall door' }]
+          : [],
+        standaloneWalls: [],
+        mergedFloor: [hallwayRing],
+      } as unknown as DungeonLayer
+    }
+
+    it('closed door on the corridor edge occludes', () => {
+      const bare = extractWallSegments([layerWithDoor(null)]).length
+      // Corridor edge split into 2 stubs + the closed door itself.
+      expect(extractWallSegments([layerWithDoor('closed')])).toHaveLength(bare + 2)
+    })
+
+    it('open door on the corridor edge passes light', () => {
+      const bare = extractWallSegments([layerWithDoor(null)]).length
+      const open = extractWallSegments([layerWithDoor('open')])
+      // 2 stubs replace 1 edge, and the doorway contributes nothing.
+      expect(open).toHaveLength(bare + 1)
+
+      const length = (segs: typeof open) =>
+        segs.reduce((sum, s) => sum + Math.hypot(s.x2 - s.x1, s.y2 - s.y1), 0)
+      const bareLength = length(extractWallSegments([layerWithDoor(null)]))
+      expect(length(open)).toBeCloseTo(bareLength - 20, 5)
+    })
+  })
 })
