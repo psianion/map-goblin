@@ -26,6 +26,9 @@ export interface ToolActions {
   updateScatterBrushSettings: (patch: Partial<ScatterBrushSettings>) => void;
   updateTerrainBrushSettings: (patch: Partial<TerrainBrushSettings>) => void;
   updateWaterSettings: (patch: Partial<WaterToolSettings>) => void;
+  /** Expose a wall's sprite nodes for hand-editing, or null to hide them. */
+  setNodeEditWall: (wallId: string | null) => void;
+  selectNode: (t: number | null) => void;
 }
 
 export const createToolsSlice: StateCreator<
@@ -37,6 +40,19 @@ export const createToolsSlice: StateCreator<
   setActiveTool: (tool) =>
     set((state) => {
       state.tools.activeTool = tool;
+      // Node handles belong to the wall being finished, not to whatever tool
+      // the DM reaches for next — switching tools drops out of edit mode.
+      state.tools.nodeEditWallId = null;
+      state.tools.selectedNodeT = null;
+    }),
+  setNodeEditWall: (wallId) =>
+    set((state) => {
+      state.tools.nodeEditWallId = wallId;
+      state.tools.selectedNodeT = null;
+    }),
+  selectNode: (t) =>
+    set((state) => {
+      state.tools.selectedNodeT = t;
     }),
   setEraseMode: (enabled) =>
     set((state) => {

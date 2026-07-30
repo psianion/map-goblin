@@ -13,6 +13,54 @@ export type Polygon = [number, number][];
 export type WallType = 'normal' | 'terrain' | 'invisible' | 'ethereal' | 'window';
 export type WallDirection = 'both' | 'left' | 'right';
 
+/**
+ * Manual adjustments to a wall's composed sprite nodes (GitHub #19).
+ *
+ * Auto-layout is deterministic, so nodes are derived rather than stored and an
+ * untouched wall adds nothing to the save file. Only deviations persist.
+ *
+ * Every edit anchors on `t`, the node's parametric position along the spine,
+ * never on an array index. Moving a wall vertex relays the whole run, and an
+ * index-keyed edit would silently reattach to a different stone; a `t`-keyed
+ * edit reattaches to the nearest node or lapses.
+ */
+export interface WallNodeEdit {
+  /** Spine position, 0..1, of the node this edit attaches to. */
+  t: number;
+  /** Swap for a different piece. */
+  pieceId?: string;
+  /** Extra rotation on top of the spine tangent, radians. */
+  rotate?: number;
+  /**
+   * Uniform size multiplier for this stone — both axes, so a hand-resized
+   * stone reads as a bigger stone rather than a smeared one. Distinct from
+   * `WallNode.scale`, which is the auto-fit length multiplier a run uses to
+   * absorb its remainder and must stay on the spine axis alone.
+   */
+  scale?: number;
+  /** World-space nudge off the spine, from dragging the node's handle. */
+  dx?: number;
+  dy?: number;
+  /** Delete this node. */
+  removed?: boolean;
+}
+
+/** Widen or tighten the seam between two adjacent nodes. */
+export interface WallSpanEdit {
+  /** Spine position of the node leading the seam. */
+  t: number;
+  /** Signed spine units. Negative pulls the two stones together. */
+  gap: number;
+}
+
+/** A node the DM added by hand, on top of auto-layout. */
+export interface WallNodeInsert {
+  t: number;
+  pieceId: string;
+  rotate?: number;
+  scale?: number;
+}
+
 export interface WallSegment {
   id: string;
   points: [number, number][];
@@ -21,6 +69,10 @@ export interface WallSegment {
   color: string;
   width: number;
   roughness: number;
+  /** Absent means pure auto-layout — the common case. */
+  nodeEdits?: WallNodeEdit[];
+  spanEdits?: WallSpanEdit[];
+  nodeInserts?: WallNodeInsert[];
 }
 
 // ---- Door Types ----

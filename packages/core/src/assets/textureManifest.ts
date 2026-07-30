@@ -222,11 +222,17 @@ const WALLS_STONE_SLATE_A: TextureEntry[] = [
   { id: 'wall-stone-a-joint-b-1x1', path: '/textures/walls/stone-slate-a/Fence_Stone_Slate_A_Joint_B_1x1.png', type: 'wall', category: 'stone-slate', wallPiece: 'joint', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Stone Wall Joint B 1x1' },
 
   // Connectors (decorative join pieces)
-  { id: 'wall-stone-a-connector-a-1x1', path: '/textures/walls/stone-slate-a/Fence_Stone_Slate_A_Connector_A_1x1.png', type: 'wall', category: 'stone-slate', wallPiece: 'connector', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Stone Wall Connector A 1x1' },
-  { id: 'wall-stone-a-connector-b-1x1', path: '/textures/walls/stone-slate-a/Fence_Stone_Slate_A_Connector_B_1x1.png', type: 'wall', category: 'stone-slate', wallPiece: 'connector', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Stone Wall Connector B 1x1' },
-  { id: 'wall-stone-a-connector-c-1x1', path: '/textures/walls/stone-slate-a/Fence_Stone_Slate_A_Connector_C_1x1.png', type: 'wall', category: 'stone-slate', wallPiece: 'connector', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Stone Wall Connector C 1x1' },
-  { id: 'wall-stone-a-connector-d-1x1', path: '/textures/walls/stone-slate-a/Fence_Stone_Slate_A_Connector_D_1x1.png', type: 'wall', category: 'stone-slate', wallPiece: 'connector', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Stone Wall Connector D 1x1' },
-  { id: 'wall-stone-a-connector-diag-a-1x1', path: '/textures/walls/stone-slate-a/Fence_Stone_Slate_A_Connector_DIAG_A_1x1.png', type: 'wall', category: 'stone-slate', wallPiece: 'connector', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Stone Wall Connector Diag A 1x1' },
+  // Connector_A-D are single rocks, not junction hardware. They are the fan
+  // material the node renderer lays through oblique vertices (GitHub #19), so
+  // they need a contentRect like the straights do. Values are measured alpha
+  // bounds from atlas-wall-ffcc1679 at alpha > 12, not eyeballed.
+  // Note these rocks are 34-42px tall against the straights' 57-61px band, so
+  // each piece must scale by its OWN content height to fill the band.
+  { id: 'wall-stone-a-connector-a-1x1', path: '/textures/walls/stone-slate-a/Fence_Stone_Slate_A_Connector_A_1x1.png', type: 'wall', category: 'stone-slate', wallPiece: 'connector', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Stone Wall Connector A 1x1', contentRect: { x: 73, y: 84, w: 61, h: 34 } },
+  { id: 'wall-stone-a-connector-b-1x1', path: '/textures/walls/stone-slate-a/Fence_Stone_Slate_A_Connector_B_1x1.png', type: 'wall', category: 'stone-slate', wallPiece: 'connector', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Stone Wall Connector B 1x1', contentRect: { x: 80, y: 79, w: 40, h: 42 } },
+  { id: 'wall-stone-a-connector-c-1x1', path: '/textures/walls/stone-slate-a/Fence_Stone_Slate_A_Connector_C_1x1.png', type: 'wall', category: 'stone-slate', wallPiece: 'connector', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Stone Wall Connector C 1x1', contentRect: { x: 79, y: 83, w: 39, h: 38 } },
+  { id: 'wall-stone-a-connector-d-1x1', path: '/textures/walls/stone-slate-a/Fence_Stone_Slate_A_Connector_D_1x1.png', type: 'wall', category: 'stone-slate', wallPiece: 'connector', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Stone Wall Connector D 1x1', contentRect: { x: 76, y: 86, w: 57, h: 36 } },
+  { id: 'wall-stone-a-connector-diag-a-1x1', path: '/textures/walls/stone-slate-a/Fence_Stone_Slate_A_Connector_DIAG_A_1x1.png', type: 'wall', category: 'stone-slate', wallPiece: 'connector', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Stone Wall Connector Diag A 1x1', contentRect: { x: 25, y: 71, w: 141, h: 101 } },
 
   // Ending
   { id: 'wall-stone-a-ending-a-1x1', path: '/textures/walls/stone-slate-a/Fence_Stone_Slate_A_Ending_A_1x1.png', type: 'wall', category: 'stone-slate', wallPiece: 'ending', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Stone Wall Ending A 1x1' },

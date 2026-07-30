@@ -12,7 +12,7 @@ import {
 import type { RenderEngine } from './RenderEngine';
 import { markDirty as markRenderCacheDirty } from './renderCache';
 import { rebuildDungeonLayer, preloadLayerTextures } from './floorWallRenderer';
-import { preloadWallTextures } from './wallTextureRenderer';
+import { preloadWallTextures } from './wallNodeRenderer';
 import type { DungeonLayer, LightChild, ShapeChild } from '../store/types';
 import { LightManager } from './lighting';
 import { clipper2Engine } from '../geometry/Clipper2Engine';

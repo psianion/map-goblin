@@ -176,6 +176,14 @@ export interface ToolsSlice {
   roughMode: boolean;
   settings: ToolSettings;
   recentAssets: string[];
+  /**
+   * Wall whose composed sprite nodes are exposed for hand-editing (GitHub #19).
+   * Null means nodes are hidden, which is the default — they are a finishing
+   * tool, not something to trip over while drawing.
+   */
+  nodeEditWallId: string | null;
+  /** Node within that wall currently selected, keyed by spine position. */
+  selectedNodeT: number | null;
 }
 
 // ─── Selection ───────────────────────────────────────────
@@ -383,6 +391,8 @@ export interface MapBuilderStore {
   updateScatterBrushSettings: (patch: Partial<ScatterBrushSettings>) => void;
   updateTerrainBrushSettings: (patch: Partial<TerrainBrushSettings>) => void;
   updateWaterSettings: (patch: Partial<WaterToolSettings>) => void;
+  setNodeEditWall: (wallId: string | null) => void;
+  selectNode: (t: number | null) => void;
 
   // ui actions
   setActiveLayerId: (id: string) => void;

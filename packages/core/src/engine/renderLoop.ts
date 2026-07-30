@@ -7,6 +7,7 @@ import type { DungeonLayer, Layer, LightChild } from '../store/types';
 import { LightManager } from './lighting';
 import { renderToolPreview } from './toolPreview';
 import { renderRoomHighlight } from './roomHighlight';
+import { renderWallNodeHandles } from './wallNodeOverlay';
 import { recordFrame } from './fpsMetrics';
 
 /**
@@ -132,6 +133,10 @@ export function setupRenderLoop(
 
     // (5c) Room highlight — no-ops unless the highlighted room changed
     renderRoomHighlight();
+
+    // (5d) Wall node handles — no-ops unless the edited wall, selection or zoom
+    // changed. Zoom matters: handles are drawn at a constant screen size.
+    renderWallNodeHandles(stage.scale.x);
 
     // (6) Lighting — rebuild wall segments if dirty, update FBO
     const storeState = useStore.getState();

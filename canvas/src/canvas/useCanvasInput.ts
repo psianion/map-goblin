@@ -8,6 +8,15 @@ import { handleShortcut } from '@/shortcuts/defaultShortcuts';
 import { cursorWorldPosition } from './cursorPosition';
 import { useStore } from '../store/store';
 import { cancelZoomAnimationRef } from '@/components/toolbar/zoomToFitRef';
+import { wallNodeAt } from '@/engine/wallNodeOverlay';
+import {
+  beginNodeDrag,
+  nudgeWallNode,
+  endNodeDrag,
+  toggleNodeEditAt,
+  exitNodeEdit,
+  handleNodeKey,
+} from './wallNodeEdit';
 
 type InputMiddleware = (point: Point) => Point;
 
@@ -58,6 +67,12 @@ export function useCanvasInput(
     let panToolLastX = 0;
     let panToolLastY = 0;
 
+    // Wall node handle drag — intercepted ahead of the tool manager, the same
+    // way pan-tool dragging is below. Node editing is a mode on a selected wall
+    // rather than its own tool, so there is no DrawingTool to route it through.
+    let draggingNodeT: number | null = null;
+    let nodeDragLast: Point | null = null;
+
     const onPointerDown = (e: PointerEvent) => {
       canvasEl.setPointerCapture(e.pointerId);
       // Pan tool: left-click starts panning
@@ -68,8 +83,25 @@ export function useCanvasInput(
         canvasEl.style.cursor = 'grabbing';
         return;
       }
-      const world = engine.screenToWorld(e.clientX - canvasEl.getBoundingClientRect().left, e.clientY - canvasEl.getBoundingClientRect().top);
-      const snapped = applyMiddleware(world);
+      const rect0 = canvasEl.getBoundingClientRect();
+      const rawWorld = engine.screenToWorld(e.clientX - rect0.left, e.clientY - rect0.top);
+
+      if (e.button === 0 && useStore.getState().tools.nodeEditWallId) {
+        // Hit test the unsnapped point: handles are where they are, and the
+        // grid snap would drag the pick off a node sitting between divisions.
+        const hit = wallNodeAt(rawWorld, engine.stage().scale.x);
+        if (hit) {
+          draggingNodeT = hit.t;
+          nodeDragLast = rawWorld;
+          useStore.getState().selectNode(hit.t);
+          beginNodeDrag();
+          return;
+        }
+        // Clicking away from any handle clears the selection but stays in mode.
+        useStore.getState().selectNode(null);
+      }
+
+      const snapped = applyMiddleware(rawWorld);
       _toolManager?.onPointerDown(snapped, e);
     };
 
@@ -87,6 +119,15 @@ export function useCanvasInput(
         return;
       }
       const rect = canvasEl.getBoundingClientRect();
+
+      // Node handle drag — accumulate the delta as a nudge on that node.
+      if (draggingNodeT !== null && nodeDragLast) {
+        const w = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+        nudgeWallNode(draggingNodeT, w.x - nodeDragLast.x, w.y - nodeDragLast.y);
+        nodeDragLast = w;
+        return;
+      }
+
       // Process coalesced events for smooth high-DPI/stylus input
       const coalescedEvents = e.getCoalescedEvents?.() ?? [e];
       for (const ce of coalescedEvents) {
@@ -115,16 +156,55 @@ export function useCanvasInput(
         canvasEl.style.cursor = 'grab';
         return;
       }
+      if (draggingNodeT !== null) {
+        draggingNodeT = null;
+        nodeDragLast = null;
+        endNodeDrag();
+        return;
+      }
       const rect = canvasEl.getBoundingClientRect();
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
       const snapped = applyMiddleware(world);
       _toolManager?.onPointerUp(snapped, e);
     };
 
+    // Double-click a wall with the select tool to expose its nodes.
+    const onDoubleClick = (e: MouseEvent) => {
+      if (useStore.getState().tools.activeTool !== 'select') return;
+      const rect = canvasEl.getBoundingClientRect();
+      const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+      if (toggleNodeEditAt(world)) e.preventDefault();
+    };
+
     const onKeyDown = (e: KeyboardEvent) => {
       // Skip shortcuts when focus is in a text input (e.g. hex color field)
       // Exception: allow Ctrl/Cmd combos (Ctrl+S, Ctrl+Z, etc.) to still work
       if (isTextInput(e.target as Element) && !e.ctrlKey && !e.metaKey) return;
+
+      // Escape leaves node editing before anything else claims it, so it does
+      // not also cancel whatever drawing tool happens to be selected.
+      if (e.key === 'Escape' && useStore.getState().tools.nodeEditWallId) {
+        exitNodeEdit();
+        e.preventDefault();
+        return;
+      }
+
+      // Rotate / resize / delete the selected node, ahead of the global
+      // shortcut table: Delete is bound there to the shape selection, and with
+      // a node selected it has to mean this node.
+      {
+        const tools = useStore.getState().tools;
+        if (
+          tools.nodeEditWallId &&
+          tools.selectedNodeT !== null &&
+          !e.ctrlKey &&
+          !e.metaKey &&
+          handleNodeKey(e.key, tools.selectedNodeT)
+        ) {
+          e.preventDefault();
+          return;
+        }
+      }
 
       const combo = [
         e.ctrlKey || e.metaKey ? 'ctrl' : '',
@@ -231,6 +311,7 @@ export function useCanvasInput(
       cursorWorldPosition.current = null;
     };
 
+    canvasEl.addEventListener('dblclick', onDoubleClick);
     canvasEl.addEventListener('pointerdown', onPointerDown);
     canvasEl.addEventListener('pointermove', onPointerMove);
     canvasEl.addEventListener('pointerup', onPointerUp);
@@ -247,6 +328,7 @@ export function useCanvasInput(
     return () => {
       unsubToolSwitch();
       canvasEl.style.cursor = '';
+      canvasEl.removeEventListener('dblclick', onDoubleClick);
       canvasEl.removeEventListener('pointerdown', onPointerDown);
       canvasEl.removeEventListener('pointermove', onPointerMove);
       canvasEl.removeEventListener('pointerup', onPointerUp);

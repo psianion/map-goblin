@@ -8,7 +8,7 @@ import * as textureLoader from '../assets/textureLoader';
 import { resolveTexture } from '../assets/textureLoader';
 import { preloadPathTextures } from './splineRenderer';
 import { renderEdgeTransitions } from './edgeTransitions';
-import { renderTexturedWalls } from './wallTextureRenderer';
+import { renderNodeWalls } from './wallNodeRenderer';
 import { renderDoors } from './doorRenderer';
 import { rebuildWaterSublayer } from './water/waterRenderer';
 import { resolveStyle } from './styleResolver';
@@ -291,6 +291,26 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     rebuildWaterSublayer(entry.sublayers.water, layer);
   }
 
+  // ── Walls and doors ────────────────────────────────────────────
+  // Ahead of the no-floor bail-out below: walls do not depend on the floor
+  // render, and a layer holding only standalone walls used to draw nothing at
+  // all because this ran after that return. Z-order is unaffected — walls live
+  // in their own sublayer container.
+  const doorChildren = layer.children.filter(
+    (c): c is DoorChild => c.childType === 'door' && c.visible,
+  );
+  renderNodeWalls(
+    walls,
+    layer.mergedFloor ?? [],
+    layer.standaloneWalls,
+    layer.style,
+    doorChildren.map((d) => ({ wallId: d.wallId, position: d.position, width: d.width })),
+  );
+  if (doorChildren.length > 0) {
+    const gridCellSize = useStore.getState().grid.snapDivision || 1;
+    renderDoors(walls, doorChildren, layer.standaloneWalls, layer.style, gridCellSize);
+  }
+
   const polygons = layer.mergedFloor;
   if (!polygons || polygons.length === 0) return;
 
@@ -441,24 +461,6 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     hatching.addChild(hatchContainer);
   }
 
-  // ── Walls (textured or invisible) ──────────────────────────────
-  // Walls are derived from mergedFloor boundary — a layer-level operation.
-  // Wall style overrides per-shape are not applied here; the merged boundary
-  // loses individual shape identity.
-  const doorChildren = layer.children.filter(
-    (c): c is DoorChild => c.childType === 'door' && c.visible,
-  );
-  const doorGaps = doorChildren.map((d) => ({
-    wallId: d.wallId,
-    position: d.position,
-    width: d.width,
-  }));
-  renderTexturedWalls(walls, polygons, layer.standaloneWalls, s, doorGaps);
-
-  // ── Doors (rendered on top of wall gaps) ──────────────────────
-  if (doorChildren.length > 0) {
-    const gridCellSize = useStore.getState().grid.snapDivision || 1;
-    renderDoors(walls, doorChildren, layer.standaloneWalls, s, gridCellSize);
-  }
+  // Walls and doors already rendered above, before the no-floor bail-out.
 
 }

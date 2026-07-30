@@ -74,6 +74,7 @@ type MapBuilderState = Omit<
   | 'addWall' | 'removeWall' | 'updateWall' | 'closeAllDoors'
   | 'setRooms' | 'renameRoom'
   | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'updateToolSettings' | 'addRecentAsset' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings' | 'updateWaterSettings'
+  | 'setNodeEditWall' | 'selectNode'
   | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
   | 'showModal' | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
   | 'applyPreset' | 'saveCustomPreset' | 'deleteCustomPreset'
@@ -149,6 +150,8 @@ export function createDefaultState(): MapBuilderState {
         },
       },
       recentAssets: [],
+      nodeEditWallId: null,
+      selectedNodeT: null,
     },
     ui: {
       leftPanelOpen: true,
