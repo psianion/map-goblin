@@ -1,5 +1,7 @@
 import { useState } from 'react';
+import type { Room } from '@dnd/core/src/shared/types';
 import { endpoints } from '../endpoints';
+import { serverRooms } from '../modules/fog/fog';
 import { navigate } from '../router';
 import { createCampaignAsDm, startSession, uploadMapFile, type DmSession } from '../session/auth';
 import { useSessionStore } from '../session/store';
@@ -28,7 +30,11 @@ export default function HostSetup() {
   const [adminPass, setAdminPass] = useState('');
   const [campaignName, setCampaignName] = useState('');
   const [dm, setDm] = useState<DmSession | null>(null);
-  const [map, setMap] = useState<{ name: string; sizeBytes: number } | null>(null);
+  const [map, setMap] = useState<{ mapId: string; name: string; sizeBytes: number } | null>(null);
+  /** The uploaded map's own rooms — the same list the fog panel will show at the table. */
+  const [rooms, setRooms] = useState<Room[]>([]);
+  /** '' = none, which is the table starting dark exactly as it did before this picker. */
+  const [startRoomId, setStartRoomId] = useState('');
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,13 +61,20 @@ export default function HostSetup() {
   const uploadMap = (file: File) =>
     run(async () => {
       if (!dm) return;
-      setMap(await uploadMapFile(dm.campaignId, dm.token, await file.text()));
+      const text = await file.text();
+      setMap(await uploadMapFile(dm.campaignId, dm.token, text));
+      // Only reached once the server has accepted the same bytes, so it parses here too.
+      setRooms(serverRooms(JSON.parse(text)));
+      setStartRoomId('');
     });
 
   const openTable = () =>
     run(async () => {
       if (!dm) return;
-      const opened = await startSession(dm.campaignId, dm.token);
+      // A scene *is* a map: the id the upload handed back is the one fog is keyed by.
+      const startingRoom =
+        map && startRoomId ? { sceneId: map.mapId, roomId: startRoomId } : undefined;
+      const opened = await startSession(dm.campaignId, dm.token, startingRoom);
       setInviteCode(opened.inviteCode);
     });
 
@@ -199,6 +212,36 @@ export default function HostSetup() {
                 Uploaded <span className="font-medium">{map.name}</span>{' '}
                 <span className="text-neutral-500">({(map.sizeBytes / 1024).toFixed(1)} KB)</span>
               </p>
+            )}
+
+            {/*
+              The one thing worth deciding before the table opens. Everything else about fog
+              is a click at the table, but the first room is the one nobody is there to
+              reveal: without it the party's first minute is a black canvas they cannot move
+              a token on. Skipping is the old behaviour, so the default stays "none".
+            */}
+            {map && rooms.length > 0 && (
+              <div>
+                <label className={label} htmlFor="starting-room">
+                  Starting room
+                </label>
+                <select
+                  id="starting-room"
+                  className={field}
+                  value={startRoomId}
+                  onChange={(e) => setStartRoomId(e.target.value)}
+                >
+                  <option value="">None — the map starts dark</option>
+                  {rooms.map((room, i) => (
+                    <option key={room.id} value={room.id}>
+                      {room.name || `Room ${i + 1}`}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-neutral-500">
+                  Revealed when players join. Every other room stays dark until you reveal it.
+                </p>
+              </div>
             )}
 
             <button type="button" className={primary} disabled={!map} onClick={() => setStep(4)}>

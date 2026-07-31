@@ -56,12 +56,25 @@ export function uploadMapFile(
   );
 }
 
-/** Opens the table and returns the code players type in. */
+/** A scene id is the id of the map it was uploaded as — the server keys fog by it. */
+export interface StartingRoom {
+  sceneId: string;
+  roomId: string;
+}
+
+/**
+ * Opens the table and returns the code players type in.
+ *
+ * `startingRoom` is §2.6's optional pick: the server reveals it before the session is
+ * reachable, so it is stored fog by the time the first player joins. Omitted = the table
+ * starts dark, which is what it did before the picker existed.
+ */
 export function startSession(
   campaignId: string,
   token: string,
+  startingRoom?: StartingRoom,
 ): Promise<{ sessionId: string; campaignId: string; inviteCode: string }> {
-  return request('/api/sessions', postJson({ campaignId }), token);
+  return request('/api/sessions', postJson({ campaignId, startingRoom }), token);
 }
 
 /** Public code check — JoinSession calls it before asking for a name (§2.3). */

@@ -1114,3 +1114,77 @@ test.describe.serial('@sprint3-fog', () => {
     ).toBeGreaterThanOrEqual(0.5)
   })
 })
+
+/**
+ * §2.6 — the starting room the DM picks while setting the table up.
+ *
+ * Its own table, deliberately: the block above is the "nothing is lent to a player" lane and
+ * its `virgin` reading is only honest on a session nobody revealed anything on. This one is
+ * the other half of the same rule — a room is lit for a player at join *because the DM said
+ * so during setup*, not because the server lent it to them. One room, chosen in the host
+ * flow, and the rest of the crypt is as black as it is up there.
+ */
+test.describe.serial('@sprint3-fog starting room', () => {
+  let dmContext: BrowserContext
+  let playerContext: BrowserContext
+  let dm: Page
+  let player: Page
+  let lit: Look
+  const pageErrors: string[] = []
+
+  test.beforeAll(async ({ browser }) => {
+    dmContext = await browser.newContext({ viewport: VIEWPORT })
+    dm = await dmContext.newPage()
+    dm.on('pageerror', (e) => pageErrors.push(`[dm] ${e.message}`))
+
+    // The whole feature is this argument: one extra selection in the host flow.
+    const code = await hostTable(dm, GATE, CHAMBER.id)
+    await dm.getByRole('button', { name: 'Enter table' }).click()
+    await expect(dm.locator('[data-page="table"]')).toBeVisible()
+    await assertMapRendered(dm, GATE)
+
+    playerContext = await browser.newContext({ viewport: VIEWPORT })
+    player = await playerContext.newPage()
+    player.on('pageerror', (e) => pageErrors.push(`[player] ${e.message}`))
+    await joinTable(player, code, 'Borin')
+    await assertMapLoaded(player, GATE)
+    await player.waitForTimeout(REVEAL_MS * 4)
+    lit = await look(player)
+  })
+
+  test.afterAll(async () => {
+    await playerContext?.close()
+    await dmContext?.close()
+    if (pageErrors.length) {
+      console.log(`[finding] ${pageErrors.length} uncaught page error(s) on the started room:`)
+      for (const message of [...new Set(pageErrors)]) console.log(`  ${message}`)
+    }
+  })
+
+  test('the room the DM chose is lit at join, and only that room', async () => {
+    // The DM's panel is the stored fog read back, and it reads the pick as an ordinary
+    // reveal — there is no third status for "started here" because there is no third state.
+    expect(await statuses(dm)).toEqual({ revealed: 1, never_revealed: rooms.length - 1 })
+    await expect(roomRow(dm, CHAMBER.id)).toHaveAttribute('data-fog-status', 'revealed')
+
+    // The player holds exactly the geometry of that room. Every other room is black in the
+    // only way that counts: the referee never sent it (principle 2).
+    const held = await scene(player)
+    expect(held.roomIds, `the player was handed ${showScene(held)}`).toEqual([CHAMBER.id])
+
+    record(
+      'starting room (host flow → stored fog → the player’s first frame)',
+      `DM reads ${CHAMBER.name} Revealed with ${rooms.length - 1} dark; player holds ` +
+        `${showScene(held)} and draws ${show(lit)}`,
+      'exactly the chosen room, lit, at join',
+    )
+
+    // …and the canvas is drawing it. Not the frame mean: `look` averages the whole viewport
+    // and one room of thirteen leaves that in the single digits however bright the room is
+    // (this row asserted mean > 8 once and failed at 4.6 on a room that was plainly lit).
+    // What the reveal actually moves is how much of the frame clears the black floor at all
+    // — the table with no starting room in the block above sits at exactly 0 (`virgin.lit`),
+    // and nothing but the DM's pick puts anything above it.
+    expect(lit.lit, `the player's canvas is drawing ${show(lit)}`).toBeGreaterThan(0.01)
+  })
+})
