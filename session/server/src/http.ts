@@ -287,6 +287,13 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
   const session = startSession(deps.stores.sessions, campaignId)
   if (replaced) deps.sessionManager.endSession(replaced.id)
 
+  // The scene the DM revealed into is the scene the table opens on. Without this the reveal
+  // is stored against the map the wizard just uploaded while the snapshot falls back to the
+  // campaign's *first* map (see `scenes` in index.ts): on a campaign holding more than one
+  // map the two are different ids, so the fog panel reads a scene nothing was revealed in
+  // and the player joins to full black — with a 201 and no error anywhere to say so.
+  if (start) deps.stores.sessions.setActiveScene(session.id, start.sceneId)
+
   // Nobody can be at this table yet — the invite code is still in this function — so the
   // reveal lands before the first join rather than racing it, and the broadcast it would
   // normally make has no one to make it to.

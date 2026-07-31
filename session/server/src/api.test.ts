@@ -386,6 +386,80 @@ describe('the starting room the DM picks while setting up', () => {
       expect(server.stores.moduleState.get(campaignId, 'fog')).toBeUndefined()
     })
   })
+
+  /**
+   * The gate walk's failure, which every test above missed by uploading exactly one map: with
+   * a second map in the campaign the reveal landed on the map the wizard had just uploaded
+   * while the table opened on the campaign's *other* one. Both halves answered 201 and the
+   * fog was written correctly — it was simply written about a scene nobody was looking at, so
+   * the DM's panel called the room Unrevealed and the player joined to full black.
+   */
+  it('opens the table on the scene it revealed, not on an older map in the campaign', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+
+      const older = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(ROOMED),
+      })
+      const picked = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(ROOMED),
+      })
+      const olderId = older.body.mapId as string
+      const pickedId = picked.body.mapId as string
+      expect(olderId).not.toBe(pickedId)
+
+      const started = await api(base, 'POST', '/api/sessions', {
+        token: dmToken,
+        body: { campaignId, startingRoom: { sceneId: pickedId, roomId: 'r-hall' } },
+      })
+      expect(started.status).toBe(201)
+
+      const joined = await api(base, 'POST', '/api/join', {
+        body: { code: started.body.inviteCode as string, name: 'Bob' },
+      })
+      const { socket, state } = await joinSocket(server.port, joined.body.token as string)
+
+      // The one assertion that would have caught it: the scene the player is looking at is
+      // the scene the reveal is stored under, so the fog they were handed is about their map.
+      expect(state.state.activeSceneId).toBe(pickedId)
+      expect(state.state.modules.fog).toEqual({
+        byScene: {
+          [pickedId]: {
+            rooms: { 'r-hall': { status: 'revealed', wasEverRevealed: true } },
+            concealBehindDoors: true,
+          },
+        },
+      })
+      socket.terminate()
+    })
+  })
+
+  /** …and with no pick at all, the table still opens on the map the DM uploaded last. */
+  it('falls back to the most recently uploaded map, not the campaign’s first', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+
+      await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, { token: dmToken, raw: JSON.stringify(ROOMED) })
+      const newest = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(ROOMED),
+      })
+
+      const started = await api(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId } })
+      const joined = await api(base, 'POST', '/api/join', {
+        body: { code: started.body.inviteCode as string, name: 'Bob' },
+      })
+      const { socket, state } = await joinSocket(server.port, joined.body.token as string)
+      expect(state.state.activeSceneId).toBe(newest.body.mapId as string)
+      socket.terminate()
+    })
+  })
 })
 
 /** Just enough of each format for the magic-byte sniff to have something to read. */
