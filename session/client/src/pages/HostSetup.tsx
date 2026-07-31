@@ -4,6 +4,7 @@ import { endpoints } from '../endpoints';
 import { serverRooms } from '../modules/fog/fog';
 import { navigate } from '../router';
 import { createCampaignAsDm, startSession, uploadMapFile, type DmSession } from '../session/auth';
+import { readMapFile } from '../session/mapFile';
 import { useSessionStore } from '../session/store';
 
 const STEPS = ['Server', 'Campaign', 'Map', 'Invite'];
@@ -61,7 +62,8 @@ export default function HostSetup() {
   const uploadMap = (file: File) =>
     run(async () => {
       if (!dm) return;
-      const text = await file.text();
+      // The editor's own save is gzipped (`readMapFile`); a testdata fixture is plain JSON.
+      const text = await readMapFile(file);
       setMap(await uploadMapFile(dm.campaignId, dm.token, text));
       // Only reached once the server has accepted the same bytes, so it parses here too.
       setRooms(serverRooms(JSON.parse(text)));

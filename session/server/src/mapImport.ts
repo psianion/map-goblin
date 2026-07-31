@@ -2,10 +2,36 @@
 // Rooms, walls and lighting were computed in the editor and arrive inside the file; this
 // module only refuses payloads the renderer could not read, and never throws doing it.
 
+import { gunzipSync } from 'node:zlib'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
 
 /** Everything `SerializedMapData['version']` allows. Widen it when core widens. */
 const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0']
+
+/**
+ * The editor writes a `.mapbuilder` as `MPBLD\0` + gzip(UTF-8 JSON) — canvas/src/io/saveLoad.ts
+ * owns that format. The fixtures in testdata are the same schema stored as plain JSON.
+ */
+const MAGIC = Buffer.from('MPBLD\0', 'latin1')
+
+/**
+ * The JSON inside an uploaded `.mapbuilder`, or null if there is none to be had.
+ *
+ * The server sniffs the container rather than trusting the client to unwrap it: this is the
+ * only route map data enters by, and the editor's own save is the common case. `maxBytes`
+ * caps the *decompressed* size — the request cap only bounds what arrives on the wire, and a
+ * few compressed megabytes can otherwise expand without limit.
+ */
+export function unwrapMapFile(bytes: Buffer, maxBytes: number): string | null {
+  if (!bytes.subarray(0, MAGIC.length).equals(MAGIC)) return bytes.toString('utf8')
+  try {
+    return gunzipSync(bytes.subarray(MAGIC.length), { maxOutputLength: maxBytes }).toString('utf8')
+  } catch {
+    // Truncated, corrupt, or bigger than we will store — all of them mean the same thing to
+    // the DM, and none of them should reach `JSON.parse`.
+    return null
+  }
+}
 
 export type MapImportResult =
   | { ok: true; data: SerializedMapData; name: string }

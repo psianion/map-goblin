@@ -7,6 +7,7 @@ import { mkdtempSync } from 'node:fs'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { gzipSync } from 'node:zlib'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import type { ServerMessage } from '@dnd/core/src/shared/protocol'
@@ -580,6 +581,42 @@ describe('rejections', () => {
       expect((await post(JSON.stringify({ ...MAP, layers: 'lots' }))).status).toBe(400)
       // JSON.stringify drops the undefined, so this really is a file with no mapSettings.
       expect((await post(JSON.stringify({ ...MAP, mapSettings: undefined }))).status).toBe(400)
+
+      // A container with the right magic and rubbish behind it is not a readable map either.
+      const corrupt = Buffer.concat([Buffer.from('MPBLD\0', 'latin1'), Buffer.from('not gzip')])
+      expect((await api(base, 'POST', path, { token, bytes: corrupt })).status).toBe(400)
+    })
+  })
+
+  /**
+   * The editor's own save, byte for byte: `MPBLD\0` + gzip(JSON) (canvas/src/io/saveLoad.ts).
+   * The table used to `JSON.parse` these bytes raw and refuse every one of them, so no map
+   * authored in the editor had ever been loadable — the format is built here rather than
+   * mocked so the sniff is tested against the thing it has to accept.
+   */
+  it('takes the editor’s gzipped .mapbuilder as readily as plain JSON', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const { body } = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const path = `/api/campaigns/${body.campaignId as string}/maps`
+      const token = body.token as string
+
+      const json = JSON.stringify(MAP)
+      const container = Buffer.concat([Buffer.from('MPBLD\0', 'latin1'), gzipSync(Buffer.from(json, 'utf8'))])
+      expect(container.subarray(0, 6).toString('latin1')).toBe('MPBLD\0')
+
+      const uploaded = await api(base, 'POST', path, { token, bytes: container })
+      expect(uploaded.status).toBe(201)
+      expect(uploaded.body.name).toBe('Cragmaw Hideout')
+
+      // Stored decoded: everything downstream — the scene index, the player redaction, the
+      // DM's own map GET — reads the row with a bare `JSON.parse`.
+      const fetched = await api(base, 'GET', `/api/maps/${uploaded.body.mapId as string}`, { token })
+      expect(fetched.status).toBe(200)
+      expect(JSON.parse(fetched.text)).toEqual(MAP)
+
+      // …and the plain-JSON fixtures keep working unchanged.
+      const plain = await api(base, 'POST', path, { token, raw: json })
+      expect(plain.status).toBe(201)
     })
   })
 

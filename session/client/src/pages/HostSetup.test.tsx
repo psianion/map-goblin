@@ -3,6 +3,7 @@
 // has to arrive on the call that opens the table, because that call is the only moment the
 // server can light it before anyone is in the door.
 
+import { gzipSync } from 'node:zlib';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import HostSetup from './HostSetup';
@@ -75,6 +76,36 @@ async function startTable(): Promise<void> {
   fireEvent.click(await screen.findByRole('button', { name: 'Start session' }));
   await screen.findByTestId('invite-code');
 }
+
+describe('HostSetup — the map file', () => {
+  /**
+   * The editor saves `MPBLD\0` + gzip(JSON), and the wizard used to read it with
+   * `file.text()` — which mangles the bytes, so the upload was refused and the room picker
+   * never appeared. The file here is the real container, not a stand-in.
+   */
+  it('takes the editor’s gzipped save and still offers its rooms', async () => {
+    render(<HostSetup />);
+    fireEvent.change(screen.getByLabelText('Server address'), {
+      target: { value: 'http://localhost:8787' },
+    });
+    fireEvent.change(screen.getByLabelText('Admin pass'), { target: { value: 'hunter2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }));
+    await screen.findByLabelText('Map file');
+
+    const json = JSON.stringify(MAP);
+    const bytes = Buffer.concat([Buffer.from('MPBLD\0', 'latin1'), gzipSync(Buffer.from(json, 'utf8'))]);
+    const file = new File([bytes], 'crypt.mapbuilder');
+    fireEvent.change(screen.getByLabelText('Map file'), { target: { files: [file] } });
+    await screen.findByTestId('uploaded-map');
+
+    // The server is handed the decoded JSON, not the container bytes.
+    expect(vi.mocked(uploadMapFile).mock.calls[0][2]).toBe(json);
+
+    const picker = await screen.findByLabelText<HTMLSelectElement>('Starting room');
+    expect([...picker.options].map((o) => o.text)).toContain('Vestibule of Ash');
+  });
+});
 
 describe('HostSetup — the starting room', () => {
   it('sends the room the DM picked with the call that opens the table', async () => {
