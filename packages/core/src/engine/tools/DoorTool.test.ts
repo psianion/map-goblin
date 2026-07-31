@@ -189,7 +189,7 @@ describe('DoorTool', () => {
     expect(doors()[0].state).toBe('open');
 
     // A normal door would be 'locked' here — occlusion treats an archway as permanently
-    // open and the renderer draws it no state dot, so 'locked' would mean nothing.
+    // open and it renders as the open art regardless, so 'locked' would mean nothing.
     doubleClick(tool, 5, 5.1);
     expect(doors()[0].state).toBe('closed');
     expect(doors()).toHaveLength(1);
@@ -376,7 +376,7 @@ describe('DoorTool', () => {
   });
 
   it('reds the ghost where the door would be wider than its wall', () => {
-    // Past the auto-fit span, so the width setting stands — and overhangs.
+    // The width setting overhangs the wall it is aimed at.
     addWall('long', 7, 20);
     useStore.getState().updateToolSettings({ doorWidth: 8 });
 
@@ -388,18 +388,20 @@ describe('DoorTool', () => {
     expect(doors()).toHaveLength(0);
   });
 
-  // ── Auto-fit to openings ─────────────────────────────────────────────────
+  // ── The chosen width, and only it ────────────────────────────────────────
+  // A door used to swell to fill any wall of six cells or less, so the width in
+  // the panel was a suggestion the tool ignored on exactly the short walls a DM
+  // is most likely to be aiming at. It is now the width, everywhere.
 
-  it('fills a doorway-sized wall end to end, centred, wherever it was clicked', () => {
+  it('keeps the chosen width on a short wall instead of filling it', () => {
     addWall('stub', 3, 20);
     click(tool, 0.5, 20.1);
 
-    expect(doors()[0].width).toBeCloseTo(3);
-    expect(doors()[0].position[0]).toBeCloseTo(1.5);
+    expect(doors()[0].width).toBe(1);
     expect(doors()[0].position[1]).toBeCloseTo(20);
   });
 
-  it('fills an opening-sized floor-ring edge too', () => {
+  it('keeps the chosen width on a floor-ring edge too', () => {
     useStore.getState().updateLayer(layer().id, {
       mergedFloor: [[[0, 30], [4, 30], [4, 34], [0, 34]]],
     });
@@ -407,34 +409,36 @@ describe('DoorTool', () => {
 
     const placed = doors()[0];
     expect(placed.wallId).toBe(''); // FLOOR_ANCHORED — the ring has no stable id
-    expect(placed.width).toBeCloseTo(4);
-    expect(placed.position[0]).toBeCloseTo(2);
+    expect(placed.width).toBe(1);
+    expect(placed.position[0]).toBeCloseTo(1);
   });
 
-  it('keeps the width setting on a wall longer than an opening', () => {
-    // The default wall runs x 0→10, well past the six-cell span.
+  it('keeps the width setting on a long wall', () => {
     click(tool, 5, 5.1);
     expect(doors()[0].width).toBe(1);
     expect(doors()[0].position[0]).toBeCloseTo(5);
   });
 
-  it('auto-fits at exactly six cells and not a step past it', () => {
-    addWall('six', 6, 20);
-    click(tool, 3, 20.1);
-    expect(doors()[0].width).toBeCloseTo(6);
-
-    addWall('sixplus', 6.5, 30);
-    click(tool, 3, 30.1);
-    expect(doors()[1].width).toBe(1);
-  });
-
   it('accepts a door exactly as wide as its wall', () => {
-    // An auto-fit door is wall-length by construction, so the too-wide rule has
-    // to be `>` past an epsilon or the tool would refuse its own preview.
+    // The too-wide rule has to be `>` past an epsilon, or a door sized to the
+    // wall it is aimed at would be refused on float noise alone.
     addWall('stub', 2, 20);
+    useStore.getState().updateToolSettings({ doorWidth: 2 });
     click(tool, 1, 20.1);
     expect(doors()).toHaveLength(1);
     expect(doors()[0].width).toBeCloseTo(2);
+  });
+
+  it('refuses a door wider than the short wall it was aimed at', () => {
+    // What auto-fit used to paper over: the wall is too short, so the ghost
+    // reds and the click does nothing rather than silently shrinking the door.
+    addWall('stub', 1.5, 20);
+    useStore.getState().updateToolSettings({ doorWidth: 3 });
+
+    tool.onPointerMove({ x: 0.75, y: 20.1 });
+    expect(ghost.tint).toBe(0xcc3344);
+    tool.onPointerDown({ x: 0.75, y: 20.1 });
+    expect(doors()).toHaveLength(0);
   });
 
   // ── Per-style minimum widths ─────────────────────────────────────────────
@@ -442,8 +446,7 @@ describe('DoorTool', () => {
   // either side: none of them survive being squeezed into a single cell.
 
   it('widens a narrow setting up to the style minimum', () => {
-    // The default wall is ten cells, past the auto-fit span, so the setting
-    // would otherwise stand at 1.
+    // The setting would otherwise stand at 1.
     useStore.getState().updateToolSettings({ doorStyle: 'double', doorWidth: 1 });
     click(tool, 5, 5.1);
     expect(doors()[0].width).toBe(2);
@@ -456,8 +459,8 @@ describe('DoorTool', () => {
   });
 
   it('refuses a style too wide for the opening it was aimed at', () => {
-    // The stub auto-fits to 1.5, which a double widens to 2 — wider than the
-    // wall, so the existing too-wide rule reds the ghost and eats the click.
+    // A double widens to 2, wider than the 1.5-cell wall, so the existing
+    // too-wide rule reds the ghost and eats the click.
     addWall('stub', 1.5, 20);
     useStore.getState().updateToolSettings({ doorStyle: 'double' });
 

@@ -140,7 +140,7 @@ describe('renderNodeWalls — door gaps through the pool', () => {
     expect(inGap(container)).toHaveLength(0);
   });
 
-  // The auto-fit case: a door as wide as its wall. It was already pixel-perfect
+  // A door as wide as its wall. It was already pixel-perfect
   // under the old centre-radius cull, so the new cut must not disturb it.
   it('still clears the whole edge when the opening is the full wall', () => {
     const container = new Container();
@@ -289,7 +289,7 @@ describe('withoutDoorGaps — a door that lands inside a stone', () => {
   });
 
   it('strands nothing outside the wall when the door is the whole wall', () => {
-    // Auto-fit full-edge door. The end caps sit ON the ends, so a rule that only
+    // A door filling the whole edge. The end caps sit ON the ends, so a rule that only
     // knows how to slide a clipped stone outward slides them off the wall.
     expect(cut([door(LENGTH / 2, LENGTH)])).toEqual([]);
   });

@@ -27,8 +27,8 @@ const NEXT_STATE: Record<DoorState, DoorState> = {
 };
 
 /**
- * L8 — an archway is a permanent opening: `occlusion` always treats it as open and
- * `doorRenderer` draws no state dot for one, so `locked` is a state nothing downstream
+ * L8 — an archway is a permanent opening: `occlusion` always treats it as open and it
+ * renders as the open art whatever its state, so `locked` is a state nothing downstream
  * can express. Cycling one therefore toggles closed ↔ open rather than parking it in a
  * state the rest of the engine ignores.
  */
@@ -53,22 +53,9 @@ const SNAP_THRESHOLD = 1.5;
 const DRAG_SLOP = 0.15;
 
 /**
- * A wall no longer than this is an opening rather than a run of wall — a doorway
- * stub, a cave mouth, the gap a union left between two rooms — so a door placed
- * on it fills it end to end instead of leaving a sliver of wall either side.
- * Six cells is a double door and its frame; anything longer is a wall the DM is
- * placing a door *somewhere* on, and the width setting wins. World units are
- * grid cells (see `SNAP_THRESHOLD`), so no grid lookup is involved.
- */
-const AUTO_FIT_MAX_CELLS = 6;
-
-/** The panel's width floor. A wall shorter than this is a crack, not an opening. */
-const AUTO_FIT_MIN_WIDTH = 0.25;
-
-/**
- * Slack on the width-vs-wall-length compare. An auto-fit door is *exactly* as
- * wide as its wall, which is the widest a door can honestly be — without this
- * the placement it just previewed would reject itself on float noise.
+ * Slack on the width-vs-wall-length compare. A door exactly as wide as its wall
+ * is the widest a door can honestly be — without this a door sized to the wall
+ * it is being placed on would reject itself on float noise.
  */
 const WIDTH_EPSILON = 1e-6;
 
@@ -83,13 +70,6 @@ const INVALID_TINT = 0xcc3344;
  * perpendicular to one at all, changes nothing that is drawn.
  */
 const GHOST_QUANTIZE = 0.25;
-
-/** Width a door takes on a wall of `wallLength`, auto-fitting an opening-sized one. */
-function fittedWidth(wallLength: number, settingsWidth: number): number {
-  return wallLength <= AUTO_FIT_MAX_CELLS && wallLength >= AUTO_FIT_MIN_WIDTH
-    ? wallLength
-    : settingsWidth;
-}
 
 /**
  * Styles that are drawn as a two-cell opening. A double door has two leaves, a
@@ -276,19 +256,19 @@ export class DoorTool implements DrawingTool {
       wallId: wall.kind === 'floor' ? FLOOR_ANCHORED : wall.id,
       position: snap.position,
       angle: snap.angle,
-      // The minimum wins over both the setting and the auto-fit. A wall too
-      // short to hold it then trips `isPlaceable`'s width-vs-wall check on its
-      // own, so an opening that cannot take this style previews red and commits
-      // nothing — no separate rule needed.
-      width: Math.max(fittedWidth(wallLength, settings.doorWidth || 1), minDoorWidth(style)),
+      // Exactly the width the DM asked for, with the style's minimum as the only
+      // override. A wall too short to hold it trips `isPlaceable`'s
+      // width-vs-wall check on its own, so an opening that cannot take this door
+      // previews red and commits nothing — no separate rule needed.
+      width: Math.max(settings.doorWidth || 1, minDoorWidth(style)),
       style,
       state: 'closed',
       isSecret: settings.doorSecret ?? false,
     };
 
-    // Anchor it the way a render will, so an auto-fit door — as wide as its wall,
-    // hence clamped to t = 0.5 — arrives centred on the opening with no
-    // centring maths of its own.
+    // Anchor it the way a render will, so a door as wide as its wall — hence
+    // clamped to t = 0.5 — arrives centred on the opening with no centring maths
+    // of its own.
     const placed = projectDoorOnto(draft, wall, snap.position);
     draft.position = placed.position;
     draft.angle = placed.angle;
