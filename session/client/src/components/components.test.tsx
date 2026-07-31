@@ -115,6 +115,28 @@ describe('PlayerList', () => {
     expect(rows[1].textContent).toContain('Borin');
     expect(rows[1].getAttribute('data-connected')).toBe('false');
   });
+
+  /**
+   * A reconnect from a new tab mints a fresh identity (the join route will not honour a
+   * caller-supplied one), and §2.5 keeps the old seat on the roster — so the gate walk saw
+   * "Borin" greyed out sitting next to "Borin (you)".
+   */
+  it('drops the seat a returning player left behind', () => {
+    const back: PlayerInfo = { identityId: 'p-3', name: 'Borin', role: 'player', connected: true };
+    useSessionStore.setState({ session: session([dm, gone, back]), you: back });
+    render(<PlayerList />);
+
+    const rows = screen.getByTestId('player-list').querySelectorAll('li');
+    expect(rows).toHaveLength(2);
+    expect(rows[1].textContent).toContain('(you)');
+    expect(rows[1].getAttribute('data-connected')).toBe('true');
+  });
+
+  it('still lists a player who is merely away', () => {
+    useSessionStore.setState({ session: session([dm, gone]), you: dm });
+    render(<PlayerList />);
+    expect(screen.getByTestId('player-list').querySelectorAll('li')).toHaveLength(2);
+  });
 });
 
 describe('ToastHost', () => {

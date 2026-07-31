@@ -59,6 +59,16 @@ function activeTokens(): Token[] {
 const ownerName = (ownerId: string | null): string | null =>
   useSessionStore.getState().session?.players.find((p) => p.identityId === ownerId)?.name ?? null;
 
+/**
+ * What a token says under it: its own name, and who is playing it when that adds anything.
+ *
+ * A token named for the character and the player who claimed it are routinely the same word
+ * — the DM lays out "Borin" and Borin claims it — and "Borin · Borin" reads as a rendering
+ * bug rather than as ownership.
+ */
+export const tokenLabelText = (name: string, owner: string | null): string =>
+  owner && owner !== name ? `${name} · ${owner}` : name;
+
 // ─── Portrait textures ──────────────────────────────────────
 // GET /api/assets/:id needs the session token in a header, so this is a fetch + decode
 // rather than `Assets.load(url)`. Cached per asset id for the tab's lifetime: ids are
@@ -155,7 +165,7 @@ function buildView(token: Token, isDm: boolean): View {
 
   const owner = ownerName(token.ownerId);
   const label = new Text({
-    text: owner ? `${token.name} · ${owner}` : token.name,
+    text: tokenLabelText(token.name, owner),
     style: { fill: 0xe5e5e5, fontFamily: 'sans-serif', fontSize: 32 },
   });
   label.anchor.set(0.5, 0);

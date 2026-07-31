@@ -6,6 +6,7 @@ import type { Token } from '@dnd/mechanics/tokens';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import { useSessionStore } from '../../session/store';
 import { useToasts } from '../../session/toasts';
+import { tokenLabelText } from './TokenRenderer';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import {
   SETTLE_MS,
@@ -395,5 +396,20 @@ describe('tokensOf', () => {
     expect(tokensOf(state, 'nope')).toEqual([]);
     expect(tokensOf(state, null)).toEqual([]);
     expect(tokensOf(undefined, 'a')).toEqual([]);
+  });
+});
+
+describe('tokenLabelText', () => {
+  it('names the player alongside the token when that says something new', () => {
+    expect(tokenLabelText('Goblin Archer', 'Borin')).toBe('Goblin Archer · Borin');
+  });
+
+  /** The gate walk's "Borin · Borin": the token and its claimant are the same word. */
+  it('says the name once when the token is already called that', () => {
+    expect(tokenLabelText('Borin', 'Borin')).toBe('Borin');
+  });
+
+  it('is just the token name while nobody has claimed it', () => {
+    expect(tokenLabelText('Borin', null)).toBe('Borin');
   });
 });
