@@ -19,6 +19,7 @@ import {
 import { MAX_ASSET_BYTES, MAX_MAP_BYTES, type Identity, type Stores } from './db/stores'
 import type { Vision } from './fog/vision'
 import { parseMapFile } from './mapImport'
+import type { ModuleRegistry } from './modules/registry'
 import type { SessionManager } from './ws/SessionManager'
 
 export interface HttpDeps {
@@ -28,6 +29,8 @@ export interface HttpDeps {
   sessionManager: SessionManager
   /** S3 — the map GET's player path goes through it (D4/D5). */
   vision: Vision
+  /** The DM's starting room is a `fog.reveal` like any other — see `openSession`. */
+  modules: ModuleRegistry
 }
 
 /** Everything but a map upload is a handful of fields. */
@@ -245,19 +248,58 @@ async function joinSession(deps: RouteDeps, req: IncomingMessage, res: ServerRes
   })
 }
 
-/** POST /api/sessions — DM starts a session for a campaign and gets its invite code. */
+/**
+ * POST /api/sessions — DM starts a session for a campaign and gets its invite code.
+ *
+ * `startingRoom` is §2.6's optional one: the room the DM picked while setting the table up,
+ * lit before anyone is in the door. It is not a second kind of fog — it is the reveal the DM
+ * would have clicked, run here through the same module, so the stored fog is the only source
+ * of truth and redaction, the DM's panel and every join agree without being told about it.
+ */
 async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
   const body = await readJson(req, res)
   if (!body) return
 
   const campaignId = text(body.campaignId)
   if (!campaignId) return json(res, 400, { error: 'campaignId is required' })
-  if (!requireSession(deps, req, res, { campaignId, role: 'dm' })) return
+  const dm = requireSession(deps, req, res, { campaignId, role: 'dm' })
+  if (!dm) return
+
+  // Checked before anything is started, so a bad pick cannot leave the DM with a table whose
+  // invite code went out in a 400. Scene ids are map ids, and this is the same list the fog
+  // module would validate the reveal against.
+  const named = body.startingRoom as { sceneId?: unknown; roomId?: unknown } | undefined
+  let start: { sceneId: string; roomId: string } | null = null
+  if (named != null) {
+    const sceneId = text(named.sceneId)
+    const roomId = text(named.roomId)
+    if (!sceneId || !roomId) {
+      return json(res, 400, { error: 'startingRoom needs a sceneId and a roomId' })
+    }
+    if (!deps.vision.roomsOf(campaignId, sceneId).includes(roomId)) {
+      return json(res, 400, { error: `no room '${roomId}' in that scene` })
+    }
+    start = { sceneId, roomId }
+  }
 
   // createSession ends whatever was running; the table it replaced deserves to hear so.
   const replaced = deps.stores.sessions.getActiveByCampaign(campaignId)
   const session = startSession(deps.stores.sessions, campaignId)
   if (replaced) deps.sessionManager.endSession(replaced.id)
+
+  // Nobody can be at this table yet — the invite code is still in this function — so the
+  // reveal lands before the first join rather than racing it, and the broadcast it would
+  // normally make has no one to make it to.
+  if (start) {
+    deps.modules.dispatch('fog', 'reveal', start, {
+      campaignId,
+      sessionId: session.id,
+      activeSceneId: start.sceneId,
+      sender: { role: 'dm', identityId: dm.id },
+      players: [],
+      broadcast: () => {},
+    })
+  }
 
   json(res, 201, {
     sessionId: session.id,

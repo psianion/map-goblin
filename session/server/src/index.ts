@@ -131,6 +131,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
       stores,
       sessionManager: sessions,
       vision,
+      modules,
     }),
   )
 
