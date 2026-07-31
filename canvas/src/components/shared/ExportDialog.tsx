@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { useStore } from '@/store/store';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { runExportPipeline, triggerDownload } from '@/engine/export/exportPipeline';
+import { downloadMapFile } from '@/io/saveLoad';
 import { computeExportDimensions, worldBoundsToCells } from '@/engine/export/exportMath';
 import { computeMapWorldBounds } from '@/engine/export/exportPipeline';
 import {
@@ -19,6 +20,15 @@ import { notify } from '@/lib/toast';
 const PX_PER_CELL_OPTIONS = [64, 128, 256] as const;
 type PxPerCell = (typeof PX_PER_CELL_OPTIONS)[number];
 
+// 'mapbuilder' is the editable map itself, not a picture of it — the resolution
+// and grid controls below only mean anything for the two image formats.
+const FORMATS = [
+  { value: 'png', label: 'PNG' },
+  { value: 'jpeg', label: 'JPEG' },
+  { value: 'mapbuilder', label: 'Map file' },
+] as const;
+type ExportFormat = (typeof FORMATS)[number]['value'];
+
 interface ExportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -28,7 +38,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   const layers = useStore((s) => s.layers);
   const mapName = useStore((s) => s.mapSettings.name);
 
-  const [format, setFormat] = useState<'png' | 'jpeg'>('png');
+  const [format, setFormat] = useState<ExportFormat>('png');
   const [pxPerCell, setPxPerCell] = useState<PxPerCell>(128);
   const [includeGrid, setIncludeGrid] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -44,6 +54,23 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   );
 
   const handleExport = useCallback(async () => {
+    if (format === 'mapbuilder') {
+      setExporting(true);
+      setError(null);
+      try {
+        await downloadMapFile();
+        notify.success('Map file downloaded');
+        onOpenChange(false);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Export failed. Check console for details.');
+        console.error('[ExportDialog]', err);
+        notify.error('Export failed');
+      } finally {
+        setExporting(false);
+      }
+      return;
+    }
+
     const singleton = getEngineSingleton();
     if (!singleton) {
       setError('Renderer not ready. Please wait for the canvas to initialize.');
@@ -90,23 +117,31 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
             <div>
               <label className="text-xs text-muted-foreground mb-1.5 block">Format</label>
               <div className="flex gap-2">
-                {(['png', 'jpeg'] as const).map((f) => (
+                {FORMATS.map((f) => (
                   <button
-                    key={f}
-                    onClick={() => setFormat(f)}
+                    key={f.value}
+                    onClick={() => setFormat(f.value)}
                     className={cn(
                       'flex-1 py-1.5 rounded text-sm font-medium transition-colors border',
-                      format === f
+                      format === f.value
                         ? 'bg-accent text-accent-foreground border-accent'
                         : 'bg-background text-muted-foreground border-border hover:bg-muted',
                     )}
                   >
-                    {f.toUpperCase()}
+                    {f.label}
                   </button>
                 ))}
               </div>
             </div>
 
+            {format === 'mapbuilder' ? (
+              <div className="rounded bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                Downloads the editable map as a <span className="font-mono">.mapbuilder</span> file —
+                the same thing <span className="font-mono">Ctrl+S</span> writes. Open it here again,
+                or load it on the table.
+              </div>
+            ) : (
+              <>
             {/* Resolution */}
             <div>
               <label className="text-xs text-muted-foreground mb-1.5 block">
@@ -148,6 +183,8 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
                 <span className="ml-1 text-yellow-400">⚠ clamped to 8192px max</span>
               )}
             </div>
+              </>
+            )}
 
             {error && (
               <p className="text-xs text-destructive">{error}</p>

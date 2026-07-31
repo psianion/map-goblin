@@ -10,7 +10,13 @@ vi.mock('@/store/store', () => ({
   useStore: { getState: vi.fn(() => ({ getSerializableState: vi.fn(), assets: { customUploads: [] } })) },
 }));
 
-import { serializeToBytes, deserializeFromBytes, MAGIC_HEADER } from './saveLoad.ts';
+import {
+  serializeToBytes,
+  deserializeFromBytes,
+  downloadMapFile,
+  MAGIC_HEADER,
+} from './saveLoad.ts';
+import { useStore } from '@/store/store';
 import type { SerializedMapData } from '@/store/types';
 
 const SAMPLE_DATA: SerializedMapData = {
@@ -71,5 +77,64 @@ describe('saveLoad — serializeToBytes / deserializeFromBytes', () => {
     const rawJson = new TextEncoder().encode(JSON.stringify(bigData));
     // Gzip should compress repetitive data significantly
     expect(bytes.length).toBeLessThan(rawJson.length);
+  });
+});
+
+describe('saveLoad — downloadMapFile', () => {
+  /** Runs the download and hands back the bytes the blob anchor was given. */
+  async function captureDownload(data: SerializedMapData) {
+    vi.mocked(useStore.getState).mockReturnValue({
+      getSerializableState: () => data,
+    } as unknown as ReturnType<typeof useStore.getState>);
+
+    let blob: Blob | undefined;
+    const createObjectURL = vi.fn((b: Blob) => {
+      blob = b;
+      return 'blob:stub';
+    });
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL,
+      revokeObjectURL: vi.fn(),
+    });
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined);
+
+    try {
+      const filename = await downloadMapFile();
+      return {
+        filename,
+        anchorClicked: click.mock.calls.length,
+        bytes: new Uint8Array(await blob!.arrayBuffer()),
+      };
+    } finally {
+      click.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  }
+
+  it('downloads MPBLD-container bytes that round-trip back to the same map', async () => {
+    const { filename, anchorClicked, bytes } = await captureDownload(SAMPLE_DATA);
+
+    // Same container Ctrl+S writes: magic header, then gzip.
+    expect(new TextDecoder().decode(bytes.slice(0, MAGIC_HEADER.length))).toBe(MAGIC_HEADER);
+    expect(Array.from(bytes.slice(MAGIC_HEADER.length, MAGIC_HEADER.length + 2))).toEqual([
+      0x1f, 0x8b,
+    ]);
+    await expect(deserializeFromBytes(bytes)).resolves.toEqual(SAMPLE_DATA);
+
+    // Byte-identical to the shortcut path, and delivered without a native picker.
+    expect(bytes).toEqual(await serializeToBytes(SAMPLE_DATA));
+    expect(anchorClicked).toBe(1);
+    expect(filename).toBe('Test Dungeon.mapbuilder');
+  });
+
+  it('sanitises the map name into the filename', async () => {
+    const { filename } = await captureDownload({
+      ...SAMPLE_DATA,
+      mapSettings: { ...SAMPLE_DATA.mapSettings, name: 'Crypt: level 2/3' },
+    });
+    expect(filename).toBe('Crypt_ level 2_3.mapbuilder');
   });
 });

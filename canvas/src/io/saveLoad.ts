@@ -107,6 +107,28 @@ export async function deserializeFromBytes(bytes: Uint8Array): Promise<Serialize
 
 // ─── Save ─────────────────────────────────────────────────────────────────────
 
+/** Map name reduced to a filesystem-safe `.mapbuilder` filename. */
+function mapFilename(data: SerializedMapData): string {
+  const mapName = data.mapSettings.name || 'untitled-map';
+  return `${mapName.replace(/[^a-z0-9\-_ ]/gi, '_')}.mapbuilder`;
+}
+
+/**
+ * Write the current map to a `.mapbuilder` download — same container bytes as
+ * `saveMap`, delivered through a blob anchor instead of the native file picker.
+ *
+ * This is the Export dialog's map-file option. It exists because the picker is
+ * the only thing `saveMap` will use on Chrome/Edge, and a native picker cannot
+ * be driven by automation or found by a user who has not been told about
+ * Ctrl+S. Returns the filename it downloaded as.
+ */
+export async function downloadMapFile(): Promise<string> {
+  const data: SerializedMapData = useStore.getState().getSerializableState();
+  const filename = mapFilename(data);
+  downloadBytes(await serializeToBytes(data), filename);
+  return filename;
+}
+
 /**
  * Save the current store state to a .mapbuilder file.
  *
@@ -123,8 +145,7 @@ export async function saveMap(forceNewFile = false): Promise<boolean> {
   const activeMapId = state.activeMapId;
 
   const compressed = await serializeToBytes(data);
-  const mapName = data.mapSettings.name || 'untitled-map';
-  const filename = `${mapName.replace(/[^a-z0-9\-_ ]/gi, '_')}.mapbuilder`;
+  const filename = mapFilename(data);
 
   if ('showSaveFilePicker' in window && !forceNewFile) {
     // Use existing handle for silent overwrite if available
