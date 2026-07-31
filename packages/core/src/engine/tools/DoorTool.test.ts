@@ -136,6 +136,24 @@ describe('DoorTool', () => {
     expect(doors()).toHaveLength(0);
   });
 
+  it('places a door on a press with no hover before it', () => {
+    // Every helper above hovers first, which is why this went unseen. Activating
+    // the tool clears the snap and opens the tool popover over the canvas, so
+    // the press that dismisses the popover is routinely the first pointer event
+    // the tool sees — and a press that waited for a hover placed nothing and
+    // said nothing, so one door took two identical clicks. Touch never hovers.
+    tool.onPointerDown({ x: 5, y: 5.1 });
+    tool.onPointerUp({ x: 5, y: 5.1 });
+    expect(doors()).toHaveLength(1);
+    expect(doors()[0].wallId).toBe('w1');
+  });
+
+  it('still refuses an unhovered press out of snap range', () => {
+    tool.onPointerDown({ x: 5, y: 50 });
+    tool.onPointerUp({ x: 5, y: 50 });
+    expect(doors()).toHaveLength(0);
+  });
+
   it('selects a placed door on a single click without changing it', () => {
     click(tool, 5, 5.1);
     const placed = doors()[0];

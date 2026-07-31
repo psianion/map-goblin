@@ -197,9 +197,20 @@ export class DoorTool implements DrawingTool {
 
     store.setSelectedIds([]);
 
-    // The ghost the pointer has been showing *is* the placement — same plan, so
-    // what was previewed is exactly what lands, invalidity included.
+    // The ghost the pointer has been showing *is* the placement — same snap at
+    // the same point, so what was previewed is exactly what lands, invalidity
+    // included.
     const allWalls = resolveWalls(activeLayer);
+    // Snapped from the press itself rather than trusting a hover to have
+    // happened.
+    // `cancel()` clears the snap and `ToolManager.switchTool` cancels the tool it
+    // is leaving, so the snap is null every time the door tool is activated —
+    // and activating it opens the tool popover over the canvas, so the press
+    // that dismisses the popover is routinely the first pointer event this tool
+    // sees. With nothing to plan from, that press placed nothing and said
+    // nothing: two identical clicks were needed for one door. Touch never
+    // hovers at all, so it could not place a door by any number of taps.
+    this.snapResult = snapToNearestWall([point.x, point.y], allWalls, SNAP_THRESHOLD);
     const plan = this.plan(activeLayer, allWalls);
     if (!plan || !plan.valid) return;
 
