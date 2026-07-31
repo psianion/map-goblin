@@ -59,8 +59,10 @@ export function renderResolvedDoor(
   // Door art carries its own state: closed art and open art are different
   // drawings. Locked used to be painted on top in red and every door wore a
   // coloured status dot, which meant the map was scattered with editor
-  // symbology that no player-facing view wants. Locked and secret now read from
-  // the selection's properties panel instead of from the art.
+  // symbology that no player-facing view wants. Locked now reads from the
+  // selection's properties panel instead of from the art. Secret keeps a mark —
+  // one badge, not a status dot on every door — because a DM who cannot see
+  // their own secret doors while authoring cannot place them well.
   const wallColor = parseInt(style.wallColor.replace('#', ''), 16);
 
   // A portal carries its own authored texture, so it never consults the door
@@ -86,11 +88,17 @@ export function renderResolvedDoor(
     } else if (door.style === 'double') {
       renderDoubleDoor(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
     } else {
-      renderSingleDoor(g, cx, cy, wallAngle, halfWidth, wallColor, door.state, door.isSecret);
+      renderSingleDoor(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
     }
   }
 
-  if (drewSprite) {
+  // The art says what the door is; this says the players have not found it. It
+  // goes on top of whichever art was drawn, sprite or glyph, so the badge is
+  // the only thing that marks a door secret and it marks every style the same
+  // way (PRODUCT principle 3).
+  if (door.isSecret) renderSecretBadge(g, cx, cy, halfWidth);
+
+  if (drewSprite && !door.isSecret) {
     g.destroy();
   } else {
     container.addChild(g);
@@ -110,9 +118,9 @@ export function renderResolvedDoor(
  * No `door-archway-closed`: an archway is a permanent opening (occlusion always
  * treats it as passable), so a closed archway — which the store does allow —
  * still renders as the open art. Locked needs no art: it is not drawn at all,
- * it reads from the properties panel. Secret reuses whatever its state maps to
- * at 0.35 alpha. Portals are excluded; they carry an authored `portalTextureId`
- * instead.
+ * it reads from the properties panel. Secret needs none either — it reuses
+ * whatever its state maps to, at full strength, and wears the badge on top.
+ * Portals are excluded; they carry an authored `portalTextureId` instead.
  *
  * No installed pack ships these yet, so `getTextureOrNull` returns null and
  * every door falls back to the Graphics glyphs below. Dropping the entries into
@@ -253,8 +261,6 @@ function renderDoorSprite(
   sprite.position.set(position[0], position[1]);
   sprite.rotation = wallAngle + fit.rotate;
   sprite.scale.set(fit.scaleX, fit.scaleY);
-  // Secret art stays faded — that is fog semantics, not a status glyph.
-  sprite.alpha = door.isSecret ? 0.35 : 1;
   container.addChild(sprite);
   return true;
 }
@@ -268,16 +274,8 @@ const OPEN_ARC_COLOR = 0x555555;
 
 function renderSingleDoor(
   g: Graphics, cx: number, cy: number, angle: number,
-  halfWidth: number, color: number, state: string, isSecret: boolean,
+  halfWidth: number, color: number, state: string,
 ): void {
-  if (isSecret && state === 'closed') {
-    // Dashed line matching wall (blends in) — just a faint line
-    g.moveTo(cx - Math.cos(angle) * halfWidth, cy - Math.sin(angle) * halfWidth);
-    g.lineTo(cx + Math.cos(angle) * halfWidth, cy + Math.sin(angle) * halfWidth);
-    g.stroke({ color, width: GLYPH_STROKE, alpha: 0.4 });
-    return;
-  }
-
   if (state === 'open') {
     // L4: Quarter-circle (90°) arc showing door swing — pivot at hinge end
     const pivotX = cx - Math.cos(angle) * halfWidth;
@@ -333,6 +331,40 @@ function renderDetachedMarker(
   // Hollow ring in the gap — the badge, not a filled state dot.
   g.circle(cx, cy, halfWidth * 0.3);
   g.stroke({ color: DETACHED_COLOR, width: GLYPH_STROKE * 0.8, alpha: 0.9 });
+}
+
+/**
+ * Warm amber, the accent the table's DM seat marks a secret with. Kept off the
+ * saturated primaries the art guide rules out, and off every other glyph colour
+ * here (wall, `OPEN_ARC_COLOR`, `DETACHED_COLOR`) so it reads as a badge rather
+ * than as part of the door.
+ */
+const SECRET_COLOR = 0xe0b252;
+
+/**
+ * The badge that says "there is more here than the map shows".
+ *
+ * A four-point star, the same mark the table's DM seat draws, so one glance
+ * means the same thing whether the DM is authoring or running. Struck on the
+ * world axes rather than the wall's, which keeps it reading as chrome laid over
+ * the art instead of a part of the door that happens to be lit differently.
+ *
+ * This is the whole of what "secret" looks like now. The editor used to fade
+ * secret art to 0.35 alpha, and a secret closed single door threw its art away
+ * for a faint dashed line — so a secret door was hard to find on the DM's own
+ * map and impossible to tell from a plain one at a glance. That is fog
+ * semantics, and the editor is not a fog view: the art now reads at full
+ * strength and this sits on top of it (PRODUCT principle 3).
+ */
+function renderSecretBadge(g: Graphics, cx: number, cy: number, halfWidth: number): void {
+  // Near-constant: a badge is chrome, so it should not grow with the door it
+  // marks, but a pinprick on a one-cell door would not read either.
+  const s = Math.min(halfWidth * 0.45, 0.26);
+  for (const [dx, dy] of [[1, 0], [0, 1]]) {
+    g.moveTo(cx - dx * s, cy - dy * s);
+    g.lineTo(cx + dx * s, cy + dy * s);
+  }
+  g.stroke({ color: SECRET_COLOR, width: GLYPH_STROKE * 0.9, cap: 'round' });
 }
 
 function renderDoubleDoor(

@@ -3,17 +3,22 @@ import type { DoorChild, DoorStyle } from '../shared/types';
 import type { ResolvedDoor } from '../shared/wallResolve';
 import type { DungeonStyle } from '../store/types';
 
-// Graphics stub: every draw call is chainable and recorded nowhere — the tests
-// only care about *which* display object lands in the container.
+// Graphics stub: every draw call is chainable. Geometry goes unrecorded — the
+// tests care about *which* display object lands in the container — but the
+// paints are kept, because a badge struck into the same Graphics as the art it
+// sits on is not otherwise tellable from the art.
+interface Paint { op: 'stroke' | 'fill'; color?: number }
+
 class FakeGraphics {
   destroyed = false;
+  paints: Paint[] = [];
   moveTo() { return this; }
   lineTo() { return this; }
   arc() { return this; }
   circle() { return this; }
   closePath() { return this; }
-  stroke() { return this; }
-  fill() { return this; }
+  stroke(o?: { color?: number }) { this.paints.push({ op: 'stroke', color: o?.color }); return this; }
+  fill(o?: { color?: number }) { this.paints.push({ op: 'fill', color: o?.color }); return this; }
   destroy() { this.destroyed = true; }
 }
 
@@ -89,6 +94,9 @@ function render(doors: ResolvedDoor[]) {
 
 const STYLES: DoorStyle[] = ['single', 'double', 'portcullis', 'archway'];
 
+/** The badge colour, mirrored from the table's DM seat. */
+const SECRET_AMBER = 0xe0b252;
+
 describe('renderDoors sprite dispatch', () => {
   beforeEach(() => {
     getTextureOrNull.mockReset();
@@ -126,14 +134,51 @@ describe('renderDoors sprite dispatch', () => {
     ]));
   });
 
-  it('leaves locked art untinted and fades secret, whatever the style', () => {
+  it('leaves locked art untinted and secret art unfaded', () => {
     getTextureOrNull.mockReturnValue(packTexture(200, 200));
     const [locked] = render([resolved('portcullis', { state: 'locked' })]) as FakeSprite[];
     // Locked is panel information now, not a red wash over the art.
     expect(locked.tint).toBe(0xffffff);
-    // Secret stays faded: that is fog semantics, not a status glyph.
+    // Secret art used to be faded to 0.35 — fog semantics on a view that is not
+    // a fog view. The DM's own map never hides what the DM has to see.
     const [secret] = render([resolved('archway', { isSecret: true })]) as FakeSprite[];
-    expect(secret.alpha).toBe(0.35);
+    expect(secret.alpha).toBe(1);
+  });
+
+  it('badges a secret door, whatever the style and whatever drew the art', () => {
+    for (const style of STYLES) {
+      // Glyph fallback: the badge is struck into the same Graphics as the art.
+      getTextureOrNull.mockReturnValue(null);
+      const [glyph] = render([resolved(style, { isSecret: true })]) as FakeGraphics[];
+      expect(glyph.paints.some((p) => p.color === SECRET_AMBER)).toBe(true);
+
+      // Sprite path: the art sprite, then the badge over it.
+      getTextureOrNull.mockReturnValue(packTexture(200, 200));
+      const out = render([resolved(style, { isSecret: true })]);
+      expect(out).toHaveLength(2);
+      expect((out[0] as FakeSprite).alpha).toBe(1);
+      expect((out[1] as FakeGraphics).paints.some((p) => p.color === SECRET_AMBER)).toBe(true);
+    }
+  });
+
+  it('badges nothing that is not secret', () => {
+    for (const style of STYLES) {
+      getTextureOrNull.mockReturnValue(null);
+      const [glyph] = render([resolved(style)]) as FakeGraphics[];
+      expect(glyph.paints.some((p) => p.color === SECRET_AMBER)).toBe(false);
+    }
+  });
+
+  it('gives a secret door the same art as a plain one', () => {
+    // A secret closed single door used to throw its art away for a faint dashed
+    // line, so it could not be told from a plain one — or found at all.
+    getTextureOrNull.mockReturnValue(null);
+    const [plain] = render([resolved('single', { state: 'closed' })]) as FakeGraphics[];
+    const [secret] = render([
+      resolved('single', { state: 'closed', isSecret: true }),
+    ]) as FakeGraphics[];
+    expect(secret.paints.filter((p) => p.color !== SECRET_AMBER)).toEqual(plain.paints);
+    expect(plain.paints.length).toBeGreaterThan(0);
   });
 
   it('draws no status marker over the art', () => {
