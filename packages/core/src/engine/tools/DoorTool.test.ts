@@ -41,7 +41,7 @@ vi.mock('../assetPackInstance', () => ({
 vi.mock('../../assets/textureLoader', () => ({ resolveTexture: () => ({ width: 0 }) }));
 
 import { Container } from 'pixi.js';
-import { DoorTool } from './DoorTool';
+import { DoorTool, clampDoorWidth } from './DoorTool';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
 import { createWallRemovalCommand } from '../../store/commands';
@@ -499,5 +499,37 @@ describe('DoorTool', () => {
     undoManager.undo();
     expect(doors()).toHaveLength(1);
     expect(layer().standaloneWalls).toHaveLength(1);
+  });
+});
+
+describe('clampDoorWidth', () => {
+  // Single→double bumps up; the reverse used to leave the bumped width behind,
+  // which on a 1-cell wall is the overhang the placement tool draws in red.
+  it('clamps down to the host wall when the style no longer needs the width', () => {
+    expect(clampDoorWidth(2, 'single', 1)).toBe(1);
+  });
+
+  it('leaves a wide single alone on a wall long enough to hold it', () => {
+    expect(clampDoorWidth(2, 'single', 6)).toBe(2);
+  });
+
+  it('still raises a narrow door to its style minimum', () => {
+    expect(clampDoorWidth(1, 'double', 6)).toBe(2);
+  });
+
+  it('keeps the style minimum when the wall is too short for any legal width', () => {
+    // Nothing fits, so narrowing further would only swap one invalid door for another.
+    expect(clampDoorWidth(2, 'double', 1)).toBe(2);
+  });
+
+  it('does not clamp a detached door, which has no opening to fit', () => {
+    expect(clampDoorWidth(3, 'single', Infinity)).toBe(3);
+  });
+
+  it('agrees with the placement rule the ghost turns red on', () => {
+    const wallLength = 1.5;
+    for (const width of [0.5, 1, 2, 3, 4]) {
+      expect(clampDoorWidth(width, 'single', wallLength)).toBeLessThanOrEqual(wallLength);
+    }
   });
 });

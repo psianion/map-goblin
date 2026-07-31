@@ -110,6 +110,24 @@ export function minDoorWidth(style: DoorStyle): number {
   return WIDE_STYLES.has(style) ? 2 : 1;
 }
 
+/**
+ * The width a door of this style may actually have in an opening this long.
+ *
+ * Clamps both ways. The style sets the floor — a double needs room for two
+ * leaves. The host wall sets the ceiling, because a door wider than its opening
+ * is exactly the state the placement tool refuses with a red ghost, and
+ * switching the style of a door already on the map must not be able to conjure
+ * it. Going double→single on a long wall keeps the extra width: a wide single
+ * is legal, just unusual.
+ *
+ * A wall too short even for the style's minimum keeps the minimum — there is no
+ * legal width to be had there, and going narrower only trades one invalid door
+ * for another. Pass `Infinity` for a detached door, which has no opening to fit.
+ */
+export function clampDoorWidth(width: number, style: DoorStyle, wallLength: number): number {
+  return Math.max(minDoorWidth(style), Math.min(width, wallLength));
+}
+
 /** What a click would place, and whether it would be allowed to. */
 interface DoorPlan {
   /** Transient — the commit fills in the id, the name and the room binding. */

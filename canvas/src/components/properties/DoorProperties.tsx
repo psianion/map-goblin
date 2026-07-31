@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
 import { SelectInput } from '@/components/inputs/SelectInput';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
@@ -9,9 +10,11 @@ import { UpdateChildCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import {
   minDoorWidth,
+  clampDoorWidth,
   doorStyleLabel,
   PLACEABLE_DOOR_STYLES,
 } from '@dnd/core/src/engine/tools/DoorTool';
+import { polylineLength, resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve';
 
 // The same list the door tool places from, so a placed portcullis or archway
 // can be recognised here and changed into something else.
@@ -32,13 +35,23 @@ interface DoorPropertiesProps {
 }
 
 export function DoorProperties({ layerId, childId }: DoorPropertiesProps) {
-  const door = useStore((state) => {
-    const layer = state.layers.find((l) => l.id === layerId);
-    if (!layer || layer.type !== 'dungeon') return null;
-    const child = (layer as DungeonLayer).children.find((c) => c.id === childId);
-    if (!child || child.childType !== 'door') return null;
-    return child as DoorChild;
-  });
+  // The host wall's length rides along with the door: every width the panel can
+  // produce has to fit the opening, and only the resolved wall knows how long
+  // that is.
+  const { door, wallLength } = useStore(
+    useShallow((state) => {
+      const layer = state.layers.find((l) => l.id === layerId);
+      if (!layer || layer.type !== 'dungeon') return { door: null, wallLength: Infinity };
+      const child = (layer as DungeonLayer).children.find((c) => c.id === childId);
+      if (!child || child.childType !== 'door') return { door: null, wallLength: Infinity };
+      const resolved = resolveDoors(layer, resolveWalls(layer)).find((r) => r.door.id === childId);
+      return {
+        door: child as DoorChild,
+        // A detached door has no opening to fit — leave it unclamped.
+        wallLength: resolved?.wall ? polylineLength(resolved.wall.points) : Infinity,
+      };
+    }),
+  );
 
   if (!door) return null;
 
@@ -55,10 +68,11 @@ export function DoorProperties({ layerId, childId }: DoorPropertiesProps) {
           value={door.style}
           options={STYLE_OPTIONS}
           onChange={(v) => {
-            // Switching to a wider style takes the width up with it — a double
-            // door left at a single door's width has no room for two leaves.
+            // Switching style resizes both ways: up so a double has room for two
+            // leaves, and back down so a width the new style only had because the
+            // old one demanded it cannot be left overhanging the opening.
             const style = v as DoorStyle;
-            const width = Math.max(door.width, minDoorWidth(style));
+            const width = clampDoorWidth(door.width, style, wallLength);
             update({ style: door.style, width: door.width }, { style, width });
           }}
         />
@@ -88,11 +102,11 @@ export function DoorProperties({ layerId, childId }: DoorPropertiesProps) {
         <NumberInput
           value={door.width}
           min={minDoorWidth(door.style)}
-          max={4}
+          max={Math.max(minDoorWidth(door.style), Math.min(4, wallLength))}
           step={0.25}
-          // The spinner respects `min`, typing does not, so clamp here too.
+          // The spinner respects `min`/`max`, typing does not, so clamp here too.
           onChange={(v) =>
-            update({ width: door.width }, { width: Math.max(v, minDoorWidth(door.style)) })
+            update({ width: door.width }, { width: clampDoorWidth(v, door.style, wallLength) })
           }
         />
       </PropertyField>
