@@ -97,19 +97,30 @@ export function doorDeltaFor(
   }
 }
 
-/** The same cut, restricted to the rooms that just became the player's (D5). */
+/**
+ * The same cut, restricted to the rooms that just became the player's (D5).
+ *
+ * `explored` is every room they hold, this reveal included, and it is what the doors are
+ * *faced* against — same rule as `doorDeltaFor`, for a sharper reason. A door's child is
+ * replaced wholesale by the one this delta carries (`mergeMapDelta` upserts by id), so
+ * facing it against the newly-revealed room alone would null the binding to the room the
+ * party is standing in, and the client's own reachability BFS would then read the door as
+ * leading outside — the room would light up on the referee's side and stay a memory on
+ * theirs, forever. Defaulted so the callers that reveal into an empty map need not care.
+ */
 export function mapDeltaFor(
   scene: SceneMap,
   sceneId: string,
   rooms: readonly string[],
   doors: Doors,
+  explored: ReadonlySet<string> = new Set(rooms),
 ): MapDelta {
   const kept = new Set(rooms)
   return {
     sceneId,
     layers: scene.data.layers
       .filter(isDungeon)
-      .map((layer) => ({ id: layer.id, ...slice(layer, scene, kept, doors) }))
+      .map((layer) => ({ id: layer.id, ...slice(layer, scene, kept, doors, explored) }))
       .filter((layer) => layer.rooms.length > 0),
   }
 }
@@ -119,6 +130,7 @@ function slice(
   scene: SceneMap,
   kept: ReadonlySet<string>,
   doors: Doors,
+  facingSet: ReadonlySet<string> = kept,
 ): { rooms: Room[]; children: AnyChild[]; standaloneWalls: WallSegment[] } {
   return {
     rooms: (layer.rooms ?? []).filter((room) => kept.has(room.id)),
@@ -126,7 +138,7 @@ function slice(
       .filter((child) =>
         child.childType === 'door' ? doorKept(child, kept, doors) : childKept(child, scene, kept),
       )
-      .map((child) => (child.childType === 'door' ? facing(child, kept) : child)),
+      .map((child) => (child.childType === 'door' ? facing(child, facingSet) : child)),
     // A wall belongs to the rooms on either side of it, so one shared with a room the
     // player has seen survives — it is that room's own outline either way.
     standaloneWalls: wallsOf(layer).filter((wall) =>

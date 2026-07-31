@@ -254,6 +254,18 @@ describe('mapDeltaFor (D5)', () => {
   it('still withholds an unrevealed secret door on the room it opens onto', () => {
     expect(JSON.stringify(mapDeltaFor(sceneMap(), SCENE, ['vault'], {}))).not.toContain('door-secret')
   })
+
+  it('leaves a door bound to the room the party is already standing in', () => {
+    // Revealing `corr` to a party that holds `hall`: the door between them is carried by
+    // the delta and replaces the copy the player had, so nulling `hall` here would take
+    // the near side away and seal the door for their own reachability BFS.
+    const delta = mapDeltaFor(sceneMap(), SCENE, ['corr'], {}, new Set(['hall', 'corr']))
+    const door = delta.layers[0].children.find((c) => c.id === 'door-hall-corr') as DoorChild
+    expect([door.roomA, door.roomB]).toEqual(['hall', 'corr'])
+    // The far side is still unearned: `inner` is nobody's yet, and its id is its centroid.
+    const onward = delta.layers[0].children.find((c) => c.id === 'door-corr-inner') as DoorChild
+    expect([onward.roomA, onward.roomB]).toEqual(['corr', null])
+  })
 })
 
 // ── vision ──────────────────────────────────────────────────────────────────

@@ -116,7 +116,7 @@ export function createVision(stores: Stores): Vision {
     const revealed = [...explored].filter((room) => !previous?.explored.has(room))
     // Cut once per mutation, not once per viewer: every player at the table is owed the same
     // rooms, and the slice is the expensive half of a reveal.
-    const roomDelta = revealed.length ? mapDeltaFor(map, sceneId, revealed, doors) : null
+    const roomDelta = revealed.length ? mapDeltaFor(map, sceneId, revealed, doors, explored) : null
     // …and the same question asked of doors, which is how a `reveal-secret` hands over the
     // door child the player's map was cut without (D2). A door that arrives with the room it
     // belongs to is already in `roomDelta`, so this only carries what the rooms did not.
