@@ -277,6 +277,69 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
     expect(dungeon().mergedFloor).toBe(floorBefore);
   });
 
+  // Hand stone edits reached no selector key at all. `renderNodeWalls` consumes a wall's
+  // nodeEdits/spanEdits/nodeInserts and the layer's floorWallEdits, but nothing carried
+  // them, so nudging a stone wrote the store and redrew nothing — the same hole the wall's
+  // own points had, and for the same reason: it only ever worked through the accidental
+  // universal rebuild the perf pass removed.
+  //
+  // They belong in renderKey and nowhere else. A stone is cosmetic layout: it moves no room
+  // boundary (roomKey) and casts no new shadow (lightingKey), so a drag that re-detected
+  // rooms or re-swept every light would undo the perf pass to fix a redraw.
+  it('a node edit on a standalone wall re-lays the stones and nothing else', () => {
+    const layerId = seed({
+      children: [shape('s1', 500, 500), shape('s2', 560, 500), light('l1', 50, -30)],
+      standaloneWalls: [wall('w1', 0, 0, 100, 0)],
+    });
+
+    unsub = start();
+    const floorBefore = dungeon().mergedFloor;
+    vi.clearAllMocks();
+    const invalidateAll = vi.spyOn(lightManager, 'invalidateAll');
+
+    useStore.getState().updateWall(layerId, 'w1', { nodeEdits: [{ t: 0.5, dx: 0.3, dy: -0.2 }] });
+    flushLayerDraws();
+
+    expect(rebuildDungeonLayer).toHaveBeenCalled();
+    expect(scheduleRoomSync).not.toHaveBeenCalled();
+    expect(invalidateAll).not.toHaveBeenCalled();
+    expect(clipper2Engine.union).not.toHaveBeenCalled();
+    expect(clipper2Engine.difference).not.toHaveBeenCalled();
+    expect(dungeon().mergedFloor).toBe(floorBefore);
+  });
+
+  it('a floor-ring edit re-lays the stones and nothing else', () => {
+    const layerId = seed({
+      children: [shape('s1', 500, 500), shape('s2', 560, 500), light('l1', 50, -30)],
+      standaloneWalls: [wall('w1', 0, 0, 100, 0)],
+    });
+
+    unsub = start();
+    const floorBefore = dungeon().mergedFloor;
+    vi.clearAllMocks();
+    const invalidateAll = vi.spyOn(lightManager, 'invalidateAll');
+
+    // A floor ring has no wall object to hang edits on, so they live on the layer.
+    useStore.getState().setFloorWallEdits(layerId, '0', { nodeEdits: [{ t: 0.25, rotate: 0.4 }] });
+    flushLayerDraws();
+
+    expect(rebuildDungeonLayer).toHaveBeenCalled();
+    expect(scheduleRoomSync).not.toHaveBeenCalled();
+    expect(invalidateAll).not.toHaveBeenCalled();
+    expect(clipper2Engine.union).not.toHaveBeenCalled();
+    expect(clipper2Engine.difference).not.toHaveBeenCalled();
+    expect(dungeon().mergedFloor).toBe(floorBefore);
+
+    // Clearing it is an edit too — the undo has to redraw as surely as the drag did.
+    vi.clearAllMocks();
+    useStore.getState().setFloorWallEdits(layerId, '0', undefined);
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalled();
+  });
+
+  // The unrelated-write half of the pin above: a wall write that is not an edit and not
+  // geometry must still draw nothing, or the new digest is just the old universal rebuild
+  // wearing a hash.
   it('a wall colour edit moves no geometry and draws nothing', () => {
     const layerId = seed({
       children: [shape('s1', 500, 500)],

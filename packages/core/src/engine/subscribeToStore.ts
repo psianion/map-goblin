@@ -14,7 +14,7 @@ import { markDirty as markRenderCacheDirty } from './renderCache';
 import { rebuildDungeonLayer, redrawDoors, redrawGrid, preloadLayerTextures } from './floorWallRenderer';
 import { preloadWallTextures } from './wallNodeRenderer';
 import type { DungeonLayer, LightChild, ShapeChild } from '../store/types';
-import type { WallSegment } from '../shared/types';
+import type { WallEdits, WallSegment } from '../shared/types';
 import { LightManager } from './lighting';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { scheduleRoomSync } from '../store/roomSync';
@@ -42,6 +42,7 @@ function applyTransformToPoints(pts: Polygon, t: { translate: [number, number]; 
 
 const digestCache = new WeakMap<ShapeChild, number>();
 const wallDigestCache = new WeakMap<WallSegment, number>();
+const editsDigestCache = new WeakMap<WallEdits, number>();
 
 /**
  * One FNV-1a step, quantised to 1e-4 of a cell so float noise alone cannot
@@ -121,6 +122,71 @@ function wallDigest(wall: WallSegment): number {
   const digest = h >>> 0;
   wallDigestCache.set(wall, digest);
   return digest;
+}
+
+/** Fold a string (a piece id, a ring key) into the same hash. */
+function mixString(h: number, s: string | undefined): number {
+  h = mixInto(h, s === undefined ? -1 : s.length);
+  for (let i = 0; i < (s?.length ?? 0); i++) h = mixInto(h, (s as string).charCodeAt(i));
+  return h;
+}
+
+/**
+ * The same fold again, for the hand edits to a run's composed stones.
+ *
+ * Deliberately *not* part of `wallDigest`: that one rides into `roomKey`, and through it
+ * into the room resync and every light's occlusion sweep. A nudged, swapped or removed
+ * stone moves no room boundary and casts no new shadow — it is cosmetic layout — so this
+ * belongs in `renderKey` alone, or a stone drag re-detects the rooms and re-sweeps every
+ * light on every pointermove.
+ *
+ * Nothing carried these before: `renderNodeWalls` consumes `nodeEdits`/`spanEdits`/
+ * `nodeInserts` and the layer's `floorWallEdits`, but no selector key mentioned them, so
+ * `updateWall({ nodeEdits })` and `setFloorWallEdits(...)` wrote the store and redrew
+ * nothing. The same hole the wall's own points had — both only ever worked through the
+ * accidental universal rebuild the perf pass removed.
+ *
+ * Memoised on the edits object's own reference, for the reason the two above are: both
+ * writes go through immer, which replaces the wall (and the layer's `floorWallEdits`
+ * record) whenever anything under it changes.
+ */
+function editsDigest(edits: WallEdits): number {
+  const cached = editsDigestCache.get(edits);
+  if (cached !== undefined) return cached;
+
+  let h = 0x811c9dc5;
+  for (const e of edits.nodeEdits ?? []) {
+    h = mixInto(h, e.t);
+    h = mixInto(h, e.rotate ?? 0);
+    h = mixInto(h, e.scale ?? 0);
+    h = mixInto(h, e.dx ?? 0);
+    h = mixInto(h, e.dy ?? 0);
+    h = mixInto(h, e.removed ? 1 : 0);
+    h = mixString(h, e.pieceId);
+  }
+  for (const s of edits.spanEdits ?? []) h = mixInto(mixInto(h, s.t), s.gap);
+  for (const n of edits.nodeInserts ?? []) {
+    h = mixInto(mixInto(mixInto(h, n.t), n.rotate ?? 0), n.scale ?? 0);
+    h = mixString(h, n.pieceId);
+  }
+  const digest = h >>> 0;
+  editsDigestCache.set(edits, digest);
+  return digest;
+}
+
+/**
+ * Every hand edit on a layer, standalone runs and floor rings alike, as one key.
+ *
+ * A standalone wall carries its edits on itself (`WallSegment extends WallEdits`); a floor
+ * ring has no such object, so its edits live on the layer keyed by ring index. Both reach
+ * `renderNodeWalls`, so both have to reach `renderKey`.
+ */
+function wallEditsKeyOf(layer: DungeonLayer): string {
+  const walls = layer.standaloneWalls.map((w) => editsDigest(w)).join(',');
+  const rings = Object.entries(layer.floorWallEdits ?? {})
+    .map(([ring, edits]) => `${ring}:${editsDigest(edits)}`)
+    .join(',');
+  return `${walls}|${rings}`;
 }
 
 function computeMergedFloor(layer: DungeonLayer): Polygon[] | null {
@@ -384,11 +450,15 @@ export function subscribeToStore(
           wallSignature: l.standaloneWalls
             .map((w) => `${w.id}:${w.wallType}:${w.direction}:${wallDigest(w)}`)
             .join(','),
+          // Hand stone edits, standalone runs and floor rings alike — see wallEditsKeyOf.
+          // This rides into renderKey and nothing else: a nudged stone is cosmetic layout,
+          // so it must not move a room boundary or re-sweep a light.
+          wallEditsKey: wallEditsKeyOf(l),
         })),
     (dungeonLayers) => {
       let geometryChanged = false;
       const lightingKeys: string[] = [];
-      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, waterSignature, doorGeometryKey, doorStateKey } of dungeonLayers) {
+      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, waterSignature, doorGeometryKey, doorStateKey } of dungeonLayers) {
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
@@ -402,11 +472,12 @@ export function subscribeToStore(
           const floorKey = `${shapeCount}|${shapeGeometryKeys}`;
           const roomKey = `${floorKey}|${wallCount}|${wallSignature}`;
           // Everything that forces a full rebuild (stone re-layout): floor
-          // and wall geometry, the shapes' dressing, water, and door GEOMETRY —
+          // and wall geometry, the shapes' dressing, water, door GEOMETRY, and
+          // the hand stone edits —
           // door geometry is here (not just roomKey) because withoutDoorGaps
           // needs it to cut stone gaps. Door STATE is deliberately excluded: it
           // is handled by the doors-only redraw below and must never re-run this.
-          const renderKey = `${roomKey}|${shapeKeys}|${waterSignature}|${doorGeometryKey}`;
+          const renderKey = `${roomKey}|${shapeKeys}|${waterSignature}|${doorGeometryKey}|${wallEditsKey}`;
           // What occlusion is a function of: the outlines light is cast against
           // (floor rings and walls) plus every door's geometry and state. A
           // texture edit is absent from all of it.
@@ -486,6 +557,7 @@ export function subscribeToStore(
           item.doorGeometryKey === b[i].doorGeometryKey &&
           item.doorStateKey === b[i].doorStateKey &&
           item.wallSignature === b[i].wallSignature &&
+          item.wallEditsKey === b[i].wallEditsKey &&
           item.waterSignature === b[i].waterSignature,
         ),
     },
