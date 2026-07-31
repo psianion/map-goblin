@@ -1,4 +1,4 @@
-import { Graphics, Sprite } from 'pixi.js';
+import { Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { DoorChild } from '../shared/types';
 import type { ResolvedDoor } from '../shared/wallResolve';
@@ -85,7 +85,13 @@ export function renderResolvedDoor(
     return;
   }
 
-  const drewSprite = renderDoorSprite(container, door, position, wallAngle);
+  // The band the door has to sit in. A standalone wall may carry its own width;
+  // a floor-ring edge has none of its own, so the style's is the wall's. Same
+  // rule `renderNodeWalls` uses to scale the stones, so the door is thick enough
+  // to fill the hole they left.
+  const wallWidth = resolved.wall?.width || style.wallWidth;
+
+  const drewSprite = renderDoorSprite(container, door, position, wallAngle, wallWidth);
   if (!drewSprite) {
     if (door.style === 'archway') {
       renderArchway(g, cx, cy, wallAngle, halfWidth, wallColor);
@@ -143,24 +149,137 @@ export function renderResolvedDoor(
  */
 const DOOR_SPRITE_PACK = 'dungeon-classic';
 
+/** Where an entry's paint actually is, and which way round it was drawn. */
+export interface DoorSpriteMeta {
+  /** Opaque content rect, as fractions of the texture's own canvas. */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Extra rotation that puts the content's long axis along the wall. */
+  rotate?: number;
+}
+
+/**
+ * The opaque content of each door entry.
+ *
+ * Door art is authored on a padded grid cell — a single door is 49px of paint in
+ * a 200px square — so measuring the sprite by its texture is measuring mostly
+ * nothing. Fitting the *canvas* to the door's width is what made a default-width
+ * door render as a hairline: the paint was a fifth of what was being scaled.
+ *
+ * Fractions, not pixels, so the table still holds if a pack ships the same art
+ * at a different resolution. It lives here rather than in the manifest because
+ * the pack's `ManifestEntry` has no content-rect field to put it in.
+ *
+ * An entry with no row here is used whole, which is right for art that was
+ * authored tight and is no worse than the alternative for art that was not.
+ */
+const SPRITE_META: Record<string, DoorSpriteMeta> = {
+  // 200x200 canvas, 200x49 of paint at (0,76).
+  'door-single-closed': { x: 0, y: 0.38, w: 1, h: 0.245 },
+  // 400x200, 281x81 at (60,59).
+  'door-single-open': { x: 0.15, y: 0.295, w: 0.7025, h: 0.405 },
+  // 400x200, 400x54 at (0,73).
+  'door-double-closed': { x: 0, y: 0.365, w: 1, h: 0.27 },
+  // 600x200, 481x81 at (60,59).
+  'door-double-open': { x: 0.1, y: 0.295, w: 481 / 600, h: 0.405 },
+  // 400x200, 400x54 at (0,73).
+  'door-portcullis-closed': { x: 0, y: 0.365, w: 1, h: 0.27 },
+  // 200x400, 27x212 at (87,94). Authored as an upright 1x2 arch, so its paint is
+  // a vertical sliver — quarter-turned here so the 212px side runs along the wall.
+  'door-archway-open': { x: 0.435, y: 0.235, w: 0.135, h: 0.53, rotate: Math.PI / 2 },
+};
+
+const WHOLE_CANVAS: DoorSpriteMeta = { x: 0, y: 0, w: 1, h: 1 };
+
+export interface DoorSpriteFit {
+  /** Sub-frame of the texture canvas holding the paint, in px. */
+  frame: { x: number; y: number; w: number; h: number };
+  scaleX: number;
+  scaleY: number;
+  rotate: number;
+}
+
+/**
+ * Trimmed frame and per-axis scale for one door sprite. Pure, so the two rules
+ * that were wrong are checkable without a GPU:
+ *
+ * - along the wall the sprite spans exactly `doorWidth`, measured on the paint
+ *   rather than on the canvas it was authored in;
+ * - across the wall it is never thinner than the wall it plugs. A uniform scale
+ *   tied thickness to width, so narrowing a door thinned it toward nothing;
+ *   here width and thickness are independent and thickness has a floor. It may
+ *   still come out thicker, when the art's own proportions at that length ask
+ *   for it — a wide door is allowed to look like a wide door.
+ */
+export function doorSpriteFit(
+  entryId: string,
+  texW: number,
+  texH: number,
+  doorWidth: number,
+  wallWidth: number,
+): DoorSpriteFit {
+  const meta = SPRITE_META[entryId] ?? WHOLE_CANVAS;
+  const frame = { x: meta.x * texW, y: meta.y * texH, w: meta.w * texW, h: meta.h * texH };
+  const rotate = meta.rotate ?? 0;
+  // Only the quarter turn in the table exists, and it swaps the axes.
+  const turned = rotate !== 0;
+  const alongPx = turned ? frame.h : frame.w;
+  const acrossPx = turned ? frame.w : frame.h;
+  const along = alongPx > 0 ? doorWidth / alongPx : 0;
+  const across = acrossPx > 0 ? Math.max(wallWidth / acrossPx, along) : along;
+  return {
+    frame,
+    scaleX: turned ? across : along,
+    scaleY: turned ? along : across,
+    rotate,
+  };
+}
+
+/**
+ * Trimmed views of the pack's door textures, keyed by full entry id — same
+ * lifetime and same swap-on-pack-reinstall caveat as `textureLoader`'s.
+ */
+const trimmedCache = new Map<string, Texture>();
+
+function trimmed(entryId: string, tex: Texture, frame: DoorSpriteFit['frame']): Texture {
+  const cached = trimmedCache.get(entryId);
+  if (cached) return cached;
+  // Offset by the texture's own frame: an entry packed into an atlas is already
+  // a window onto a larger source, and the content rect is relative to that
+  // window, not to the atlas.
+  const base = tex.frame ?? { x: 0, y: 0 };
+  const sub = new Texture({
+    source: tex.source,
+    frame: new Rectangle(base.x + frame.x, base.y + frame.y, frame.w, frame.h),
+  });
+  trimmedCache.set(entryId, sub);
+  return sub;
+}
+
 function renderDoorSprite(
   container: Container,
   door: DoorChild,
   position: [number, number],
   wallAngle: number,
+  wallWidth: number,
 ): boolean {
   const spriteState =
     door.style === 'archway' || door.state === 'open' ? 'open' : 'closed';
-  const tex = getAssetPackManager().getTextureOrNull(
-    `${DOOR_SPRITE_PACK}:door-${door.style}-${spriteState}`,
-  );
+  const entryId = `${DOOR_SPRITE_PACK}:door-${door.style}-${spriteState}`;
+  const tex = getAssetPackManager().getTextureOrNull(entryId);
   if (!tex || tex.width <= 1) return false;
 
-  const sprite = new Sprite(tex);
+  const fit = doorSpriteFit(
+    `door-${door.style}-${spriteState}`, tex.width, tex.height, door.width, wallWidth,
+  );
+
+  const sprite = new Sprite(trimmed(entryId, tex, fit.frame));
   sprite.anchor.set(0.5);
   sprite.position.set(position[0], position[1]);
-  sprite.rotation = wallAngle;
-  sprite.scale.set(door.width / tex.width);
+  sprite.rotation = wallAngle + fit.rotate;
+  sprite.scale.set(fit.scaleX, fit.scaleY);
   sprite.tint = door.state === 'locked' ? STATE_COLORS.locked : 0xffffff;
   sprite.alpha = door.isSecret ? 0.35 : 1;
   container.addChild(sprite);
