@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useStore } from '@/store/store';
 import { SelectInput } from '@/components/inputs/SelectInput';
@@ -53,15 +54,43 @@ export function DoorProperties({ layerId, childId }: DoorPropertiesProps) {
     }),
   );
 
+  // `null` = not being edited, so the field follows the door. Typing takes it
+  // over until blur or Enter commits, the way renaming a room works.
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+
   if (!door) return null;
 
   const update = (before: Partial<DoorChild>, after: Partial<DoorChild>) => {
     undoManager.execute(new UpdateChildCommand('Update door', layerId, childId, before, after));
   };
 
+  const commitName = () => {
+    const name = nameDraft?.trim();
+    // An empty box means "I changed my mind", not "call it nothing" — a door
+    // with no name is a blank row in the table's door list.
+    if (name && name !== door.name) update({ name: door.name }, { name });
+    setNameDraft(null);
+  };
+
   return (
     <div className="flex flex-col gap-2">
       <span className="font-mono text-panel-heading uppercase text-text-muted">Door Properties</span>
+
+      <PropertyField label="Name">
+        <input
+          type="text"
+          aria-label="Door name"
+          value={nameDraft ?? door.name}
+          placeholder={doorStyleLabel(door.style)}
+          onChange={(e) => setNameDraft(e.target.value)}
+          onBlur={commitName}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+            if (e.key === 'Escape') setNameDraft(null);
+          }}
+          className="min-w-0 rounded border border-border-default bg-surface-1 px-1 py-0.5 text-panel-body text-text-primary outline-none focus:border-border-focus"
+        />
+      </PropertyField>
 
       <PropertyField label="Style">
         <SelectInput

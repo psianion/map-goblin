@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from './store';
 import { createDungeonLayer } from './factories';
+import type { DoorChild } from '../shared/types';
 import type { SerializedMapData } from './types';
 
 describe('MapBuilderStore', () => {
@@ -94,6 +95,34 @@ describe('MapBuilderStore', () => {
     original.mapSettings.name = 'Round-Trip Map';
     useStore.getState().loadFromFile(original);
     expect(useStore.getState().mapSettings.name).toBe('Round-Trip Map');
+  });
+
+  it('keeps a door its authored name through a save/load round-trip', () => {
+    const layer = useStore.getState().layers.find((l) => l.type === 'dungeon');
+    if (!layer) throw new Error('No dungeon layer');
+    const door: DoorChild = {
+      id: 'door-1',
+      // The whole point of the field: not "Single 1".
+      name: 'Bone Door',
+      childType: 'door',
+      visible: true,
+      wallId: '',
+      position: [2, 2],
+      angle: 0,
+      width: 1,
+      style: 'single',
+      state: 'closed',
+      isSecret: false,
+    };
+    useStore.getState().addChild(layer.id, door);
+
+    const saved = structuredClone(useStore.getState().getSerializableState());
+    useStore.getState().resetToDefault();
+    useStore.getState().loadFromFile(saved);
+
+    const loaded = useStore.getState().layers.find((l) => l.type === 'dungeon');
+    if (!loaded || loaded.type !== 'dungeon') throw new Error('Dungeon layer gone');
+    expect(loaded.children.find((c) => c.id === 'door-1')?.name).toBe('Bone Door');
   });
 
   it('resetToDefault restores initial state', () => {
