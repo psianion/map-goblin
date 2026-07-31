@@ -5,8 +5,12 @@
 // dim or clear under each fog/door/reachability combination, which reveal earns a fade, and
 // that an unrelated store write does not rebuild the mask.
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Container, Graphics, Ticker } from 'pixi.js';
+import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
+import { setClipperModule } from '@dnd/core/src/geometry/Clipper2Engine';
+import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
+import { pointInPolygon } from '@dnd/core/src/engine/hitTest';
 import type { DoorChild, Room } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
@@ -18,10 +22,12 @@ import type { RoomFog, SceneFog } from '@dnd/mechanics/fog';
 import type { Token } from '@dnd/mechanics/tokens';
 import type { LiveDoor } from '../doors/doors';
 import { useSessionStore } from '../../session/store';
+import { FOG_MARGIN, fogPad, fogRegion, ringsWithHoles } from './fog';
 import {
   EXPLORED_TINT,
   EXPLORED_TINT_ALPHA,
   FOG_BLACK,
+  FOG_FEATHER,
   LIGHTING_STRENGTH,
   PARTY_ROOM_UNKNOWN,
   REVEAL_MS,
@@ -35,8 +41,28 @@ import {
   roomViews,
   mountPlayerFogWhenReady,
   subscribeFogScene,
+  type FogScene,
   type RoomView,
 } from './FogRenderer';
+
+/**
+ * The mask's padding is Clipper2 offsets, so the geometry half of this file needs the real
+ * WASM. jsdom sends emscripten down the browser path, where it tries to `fetch` the .wasm over
+ * HTTP and fails under vitest — so hand it the bytes directly, as `roomDetection.test.ts` does.
+ *
+ * Every Clipper call degrades to the identity without this, which is the unpadded mask, so a
+ * missing module here would quietly pass the rest of the file rather than fail it.
+ */
+beforeAll(async () => {
+  // `as string` keeps these untyped — the package has no @types/node.
+  const { readFileSync } = await import('node:fs' as string);
+  const { createRequire } = await import('node:module' as string);
+  const wasmBinary = readFileSync(
+    createRequire(import.meta.url).resolve('clipper2-wasm/dist/es/clipper2z.wasm'),
+  );
+  const mod = await import('clipper2-wasm/dist/es/clipper2z.js' as string);
+  setClipperModule((await mod.default({ wasmBinary })) as MainModule);
+}, 30_000);
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 // A three-room crypt in a line: vestibule — gallery — vault, one door between each.
@@ -247,6 +273,7 @@ describe('roomViews — what each room is doing', () => {
       rooms: ROOMS,
       views: roomViews(ROOMS, fogOf({}), [], []),
       bounds: fogBounds([], ROOMS),
+      pad: fogPad([]),
       sceneId: 's1',
       isPlayer: true,
     });
@@ -265,6 +292,7 @@ describe('roomViews — what each room is doing', () => {
       rooms: ROOMS,
       views,
       bounds: fogBounds([], ROOMS),
+      pad: fogPad([]),
       sceneId: 's1',
       isPlayer: true,
     });
@@ -439,6 +467,193 @@ describe('the lighting strength each seat composites at', () => {
     // The art guide's grey floors, not black ones: a mid-grey floor keeps a quarter of
     // itself with no light on it at all.
     expect(unlit(160)).toBeGreaterThan(160 * 0.25);
+  });
+});
+
+// ── The padded, feathered edge (the player seat's report) ───────────────────
+// What came back from the table: the mask cut straight through the wall band, so a lit room
+// showed roughly half the stones of its own walls and a door opening sat in a black
+// rectangular notch with the mark floating in it. The cause is that `room.boundary` is the
+// *floor* — detection subtracts the wall band from the merged floor and does not put the door
+// gap back — so anything cut to the polygon crops the room at the inside face of its walls.
+//
+// The fixture is that geometry rather than a convenient rectangle: two 6-cell rooms either
+// side of one 0.5-wide wall, floors cut back 0.25 from its centreline exactly as
+// `wallToRects` cuts them, and a door filling the gap between them.
+
+const WALL_WIDTH = 0.5;
+/** The shared wall's centreline; each floor stops `WALL_WIDTH / 2` short of it. */
+const SPINE = 10;
+
+const hall = (id: string, x0: number, x1: number): Room => ({
+  id,
+  name: id,
+  boundary: [
+    [x0, 0],
+    [x1, 0],
+    [x1, 6],
+    [x0, 6],
+  ],
+  centroid: [(x0 + x1) / 2, 3],
+  area: (x1 - x0) * 6,
+  isPathway: false,
+});
+
+/** Floors stop at 9.75 and 10.25; the stones between them are the wall nobody's polygon owns. */
+const WEST = hall('r-west', 4, SPINE - WALL_WIDTH / 2);
+const EAST = hall('r-east', SPINE + WALL_WIDTH / 2, 16);
+
+/** West's outer (exterior) wall: centreline 3.75, so its far face is a full wallWidth out. */
+const WEST_OUTER_FACE = 4 - WALL_WIDTH;
+
+const inRegion = (rings: Polygon[], point: [number, number]): boolean =>
+  ringsWithHoles(rings).some(
+    ({ outline, holes }) =>
+      pointInPolygon(point, outline) && !holes.some((hole) => pointInPolygon(point, hole)),
+  );
+
+describe('fogPad — how far past its floor a room reaches', () => {
+  it('buys the whole wall band, not half of it, plus the margin', () => {
+    // Detection's cutter takes width/2 off the floor and the stones straddle the centreline by
+    // another width/2, so the far face is a full wallWidth out. Paying half leaves the outer
+    // row of stones in the dark, which is the report.
+    expect(fogPad([])).toBeCloseTo(WALL_WIDTH + FOG_MARGIN);
+    expect(fogPad([dungeon([])])).toBeCloseTo(WALL_WIDTH + FOG_MARGIN);
+  });
+
+  it('follows the map’s own wall width rather than a constant', () => {
+    const thick = { ...dungeon([]), style: { wallWidth: 1.2 } } as unknown as Layer;
+    expect(fogPad([thick])).toBeCloseTo(1.2 + FOG_MARGIN);
+  });
+});
+
+describe('fogRegion — the hole the mask cuts', () => {
+  const PAD = fogPad([]);
+  const region = (lit: Room[], blocked: Room[]) =>
+    fogRegion(
+      lit.map((r) => r.boundary),
+      blocked.map((r) => r.boundary),
+      PAD,
+      FOG_FEATHER,
+    );
+
+  it('reaches past the outer face of the wall band, with margin to spare', () => {
+    const { clear } = region([WEST], []);
+    // The stones themselves, inside and out — never half-swallowed.
+    expect(inRegion(clear, [4 - 0.01, 3])).toBe(true);
+    expect(inRegion(clear, [WEST_OUTER_FACE, 3])).toBe(true);
+    // …and the margin past them, so the boundary is not sitting on the last stone's edge.
+    expect(inRegion(clear, [WEST_OUTER_FACE - FOG_MARGIN + 0.05, 3])).toBe(true);
+    // The claim is bounded, though: it is the wall plus a margin, not an open-ended halo.
+    expect(inRegion(clear, [WEST_OUTER_FACE - FOG_MARGIN - 0.1, 3])).toBe(false);
+  });
+
+  it('takes in the door opening next to a revealed room — no notch, no floating mark', () => {
+    // The gap runs the full thickness of the wall, 9.75 to 10.25, and the floor polygon owns
+    // none of it. Both jambs and the leaf between them have to be inside the hole or the door
+    // the player is looking at is a black rectangle with a marker in it.
+    const { clear } = region([WEST], []);
+    for (const y of [2.5, 3, 3.5]) {
+      expect(inRegion(clear, [SPINE - WALL_WIDTH / 2 + 0.01, y])).toBe(true);
+      expect(inRegion(clear, [SPINE, y])).toBe(true);
+      expect(inRegion(clear, [SPINE + WALL_WIDTH / 2 - 0.01, y])).toBe(true);
+    }
+  });
+
+  it('stops dead at an unrevealed neighbour’s floor, however close the wall is', () => {
+    // The wall is only 0.5 thick, so the margin alone would hand over the first fraction of a
+    // cell of the room next door. Walls are a fair thing to spend the pad on; floors are the
+    // tell, and the region is where that is enforced rather than in a repaint afterwards.
+    const { clear, reach } = region([WEST], [EAST]);
+    expect(inRegion(clear, [SPINE, 3])).toBe(true); // the wall between them: still West's
+    expect(inRegion(clear, [SPINE + WALL_WIDTH / 2 + 0.01, 3])).toBe(false);
+    expect(inRegion(clear, [13, 3])).toBe(false); // deep inside the unrevealed room
+    // …and the falloff does not smuggle it back in either.
+    expect(inRegion(reach, [SPINE + WALL_WIDTH / 2 + 0.01, 3])).toBe(false);
+    expect(inRegion(reach, [13, 3])).toBe(false);
+  });
+
+  it('merges two rooms a wall apart into one hole rather than two overlapping ones', () => {
+    // Padded footprints of adjacent rooms overlap, and Pixi's `cut` takes a set of holes on
+    // the promise that they do not. Unmerged, the shared wall is triangulated twice.
+    const { clear } = region([WEST, EAST], []);
+    expect(ringsWithHoles(clear)).toHaveLength(1);
+    expect(inRegion(clear, [SPINE, 3])).toBe(true);
+  });
+
+  it('runs the falloff outside the room’s claim, never into it', () => {
+    const { clear, reach } = region([WEST], []);
+    const edge = 4 - PAD;
+    // Everything the room owns is at full strength before the ramp starts.
+    expect(inRegion(clear, [edge + 0.05, 3])).toBe(true);
+    // The ramp lives beyond it…
+    expect(inRegion(reach, [edge - FOG_FEATHER + 0.05, 3])).toBe(true);
+    expect(inRegion(clear, [edge - FOG_FEATHER + 0.05, 3])).toBe(false);
+    // …and finishes. Past the reach the fog is solid, which is where an unrevealed room's own
+    // geometry would otherwise start becoming readable.
+    expect(inRegion(reach, [edge - FOG_FEATHER - 0.1, 3])).toBe(false);
+  });
+
+  it('has nothing to say about a map with no revealed rooms', () => {
+    expect(fogRegion([], [WEST.boundary], PAD, FOG_FEATHER)).toEqual({ clear: [], reach: [] });
+  });
+});
+
+describe('drawFog — the padded hole and its falloff, as instructions', () => {
+  const scene = (views: Record<string, RoomView>): FogScene => ({
+    rooms: [WEST, EAST],
+    views: new Map(Object.entries(views)),
+    bounds: fogBounds([], [WEST, EAST]),
+    pad: fogPad([]),
+    sceneId: 's1',
+    isPlayer: true,
+  });
+
+  const strokesOf = (g: Graphics) =>
+    g.context.instructions
+      .filter((i) => i.action === 'stroke')
+      .map(
+        (i) => (i.data as { style: { alpha: number; width: number; alignment: number } }).style,
+      );
+
+  it('cuts one merged hole and ramps the fog back in over it', () => {
+    const scrim = new Graphics();
+    drawFog(scrim, scene({ [WEST.id]: 'visible', [EAST.id]: 'dark' }));
+
+    // One black fill for the map, with the earned region taken out of it.
+    const fills = fillsOf(scrim);
+    expect(fills[0].style.color).toBe(FOG_BLACK);
+    expect(fills[0].hole).toBeDefined();
+
+    // The falloff: nested strokes laid inside the reach, thickening towards its rim. Alpha
+    // 1/k is what makes them composite to an even ramp — see `featherEdge`.
+    const strokes = strokesOf(scrim);
+    expect(strokes.length).toBeGreaterThan(0);
+    expect(strokes.every((s) => s.alignment === 1)).toBe(true);
+    expect(strokes[0].alpha).toBe(1); // solid at the outer rim…
+    expect(strokes[strokes.length - 1].alpha).toBeLessThan(0.2); // …and barely there at the lip
+    // No stroke reaches further in than the falloff is wide.
+    expect(Math.max(...strokes.map((s) => s.width))).toBeCloseTo(FOG_FEATHER);
+  });
+
+  it('gives a memory the same padded footprint at its own darkness', () => {
+    const scrim = new Graphics();
+    drawFog(scrim, scene({ [WEST.id]: 'explored', [EAST.id]: 'dark' }));
+
+    const wash = fillsOf(scrim).find((f) => f.style.color === EXPLORED_TINT);
+    expect(wash).toBeDefined();
+    expect(wash!.style.alpha).toBe(EXPLORED_TINT_ALPHA);
+    // Padded and feathered like a lit room — the wash runs out to the reach so the ramp has
+    // something to thicken over rather than a gap between the two to fall through.
+    expect(strokesOf(scrim).length).toBeGreaterThan(0);
+  });
+
+  it('leaves an all-dark map one unbroken fill, padded or not', () => {
+    const scrim = new Graphics();
+    drawFog(scrim, scene({ [WEST.id]: 'dark', [EAST.id]: 'dark' }));
+    expect(fillsOf(scrim)).toHaveLength(1);
+    expect(fillsOf(scrim)[0].hole).toBeUndefined();
+    expect(strokesOf(scrim)).toHaveLength(0);
   });
 });
 

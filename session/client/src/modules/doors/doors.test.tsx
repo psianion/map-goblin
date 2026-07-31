@@ -367,6 +367,24 @@ describe('DoorPanel', () => {
     expect(screen.queryByTestId('door-reveal-secret')).toBeNull();
   });
 
+  /**
+   * The gate walk's finding: Open on a locked door did nothing a DM could see. The command
+   * is refused server-side whatever the seat, so the button says the state instead of
+   * spending a round trip to be told — Unlock is the next move and sits right beside it.
+   */
+  it('says Locked on the toggle of a locked door, and will not send it', () => {
+    useSessionStore.setState({ session: session(), you: dm });
+    useDoorSelection.getState().select('d2');
+    const sent = captureCommands();
+    render(<DoorPanel />);
+
+    const toggle = screen.getByTestId('door-toggle') as HTMLButtonElement;
+    expect(toggle.textContent).toBe('Locked');
+    expect(toggle.disabled).toBe(true);
+    fireEvent.click(toggle);
+    expect(sent.filter((s) => s.action === 'toggle')).toEqual([]);
+  });
+
   it('disables reveal-secret once the secret is out', () => {
     const state: DoorsState = {
       byScene: { 'scene-1': { d3: { open: false, locked: false, revealed: true } } },
