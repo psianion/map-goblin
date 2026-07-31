@@ -54,7 +54,8 @@ vi.mock('../assets/textureManifest', () => ({
 }));
 
 import { Container } from 'pixi.js';
-import { renderNodeWalls, withoutDoorGaps } from './wallNodeRenderer';
+import { renderNodeWalls, withoutDoorGaps, type DoorGap } from './wallNodeRenderer';
+import { layoutWall, pieceWorldLength } from './wallLayout';
 import type { WallNode, WallPieceSpec } from './wallLayout';
 import type { DungeonStyle, WallSegment } from '../store/types';
 import type { Polygon } from '../types/geometry';
@@ -211,5 +212,92 @@ describe('withoutDoorGaps', () => {
     // Projects onto this stone's axis at along = 0, but sits two units off it.
     const other = stone(0, 2);
     expect(cut([other])).toEqual([other]);
+  });
+});
+
+/**
+ * The cut against real stone, on a real layout.
+ *
+ * stone-slate's straights are 600, 400, 200 and 100 px of content over a 61px
+ * band, so at the default 0.5-cell wall width they are 4.92, 3.28, 1.75 and 0.94
+ * CELLS long. The longest is more than half a nine-cell wall, which is the whole
+ * problem: a door on that wall almost never lands between two stones, it lands
+ * inside one. Treating that stone as a unit that has to end up wholly outside
+ * the opening throws away the two or three cells of it that were covering the
+ * wall on the far side.
+ */
+describe('withoutDoorGaps — a door that lands inside a stone', () => {
+  const WALL_WIDTH = 0.5;
+  const LENGTH = 9;
+  const SLATE: WallPieceSpec[] = [
+    { id: 'straight-a', role: 'straight', lengthPx: 600, thicknessPx: 61 },
+    { id: 'straight-b', role: 'straight', lengthPx: 400, thicknessPx: 61 },
+    { id: 'straight-c', role: 'straight', lengthPx: 200, thicknessPx: 57 },
+    { id: 'straight-d', role: 'straight', lengthPx: 100, thicknessPx: 53 },
+    { id: 'ending-a', role: 'ending', lengthPx: 200, thicknessPx: 61 },
+  ];
+  const BY_ID = new Map(SLATE.map((s) => [s.id, s]));
+
+  /** The art director's repro: one straight nine-cell wall, laid out for real. */
+  const laid = (): WallNode[] =>
+    layoutWall([[0, 0], [LENGTH, 0]], false, SLATE, { wallWidth: WALL_WIDTH, seed: 1 });
+
+  const door = (x: number, width = 1): DoorGap =>
+    ({ wallId: 'w1', position: [x, 0], width });
+
+  const cut = (gaps: DoorGap[], nodes = laid()): WallNode[] =>
+    withoutDoorGaps(nodes, gaps, BY_ID, WALL_WIDTH, [[0, 0], [LENGTH, 0]]);
+
+  /** What each stone actually paints on the wall's axis, `[start, end]`. */
+  const span = (n: WallNode): [number, number] => {
+    const s = BY_ID.get(n.pieceId)!;
+    const half = (pieceWorldLength(s, WALL_WIDTH) * n.scale * n.sizeScale) / 2;
+    return [n.x - half, n.x + half];
+  };
+
+  /** Stretches of `[from, to]` no stone covers — bare floor where wall belongs. */
+  function bare(nodes: WallNode[], from: number, to: number): [number, number][] {
+    const spans = nodes.map(span).sort((a, b) => a[0] - b[0]);
+    const out: [number, number][] = [];
+    let cursor = from;
+    for (const [a, b] of spans) {
+      if (cursor >= to) break;
+      if (a > cursor + 1e-6) out.push([cursor, Math.min(a, to)]);
+      if (b > cursor) cursor = b;
+    }
+    if (cursor < to - 1e-6) out.push([cursor, to]);
+    return out;
+  }
+
+  it('leaves no bare floor between the wall start and a door two cells along', () => {
+    const out = cut([door(2)]);
+    expect(bare(out, 0, 1.5)).toEqual([]);
+    expect(bare(out, 2.5, LENGTH)).toEqual([]);
+  });
+
+  it('leaves no bare floor between a door and the wall end', () => {
+    const out = cut([door(7)]);
+    expect(bare(out, 7.5, LENGTH)).toEqual([]);
+    expect(bare(out, 0, 6.5)).toEqual([]);
+  });
+
+  it('keeps the run trapped between two doors and no stone off the end', () => {
+    const out = cut([door(2), door(6)]);
+    expect(bare(out, 2.5, 5.5)).toEqual([]);
+    // The orphan cobble: nothing may be pushed past either end of the wall.
+    expect(out.every((n) => n.x >= -1e-6 && n.x <= LENGTH + 1e-6)).toBe(true);
+  });
+
+  it('strands nothing outside the wall when the door is the whole wall', () => {
+    // Auto-fit full-edge door. The end caps sit ON the ends, so a rule that only
+    // knows how to slide a clipped stone outward slides them off the wall.
+    expect(cut([door(LENGTH / 2, LENGTH)])).toEqual([]);
+  });
+
+  it('puts nothing inside the opening', () => {
+    for (const [a, b] of cut([door(2)]).map(span)) {
+      // Every stone sits wholly on one side of the opening or the other.
+      expect(b <= 1.5 + 1e-6 || a >= 2.5 - 1e-6).toBe(true);
+    }
   });
 });

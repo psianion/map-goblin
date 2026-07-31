@@ -166,15 +166,32 @@ function trimTo(parent: Container, count: number): void {
 }
 
 /**
+ * Shortest stretch of wall still worth a stone, as a fraction of the band
+ * thickness. Below this a fragment reads as a smear rather than masonry — the
+ * judgement `fillRun`'s MIN_PIECE_SCALE makes about a piece, made here about the
+ * run it would have to fill.
+ */
+const MIN_RUN_FRAC = 0.5;
+
+/**
  * Cut the stones a door opening passes through.
  *
- * The old rule dropped any stone whose *centre* fell within half the gap width
- * of the door, which threw a whole stone away for a sliver of overlap and left
- * up to a stone's worth of dead wall on each side of any door narrower than the
- * wall it sits in. This one measures the overlap along the spine instead: a
- * stone clear of the opening is untouched, one swallowed by it is dropped, and
- * one the opening merely clips is slid outward by exactly the overlap so its
- * inner edge lands on the opening's edge.
+ * The hard part is that a stone can be much longer than a door. stone-slate's
+ * longest straight is 600px of content on a 61px band, so at the default wall
+ * width it is nearly five CELLS long — more than half a nine-cell wall. A
+ * one-cell door on that wall does not land between two stones, it lands inside
+ * one, with cells of that same stone still covering wall on either side.
+ *
+ * So a stone is not treated as a unit that must end up wholly outside the
+ * opening. The wall is cut into the runs the openings leave, and each stone is
+ * placed into every run its own body reaches: kept whole and slid flush to the
+ * run's edge where the run can take it, squeezed along the spine to fit where it
+ * cannot, and emitted twice when a door splits it and both sides still hold
+ * enough of it to be worth drawing. The runs are bounded by the wall's own ends,
+ * so nothing can be pushed off the end of the wall it belongs to.
+ *
+ * Squeezing lands on `scale`, the run-fit axis, so a fitted stone keeps the
+ * band's thickness instead of being smeared across it.
  *
  * Copies, never mutates — the node arrays are shared with the overlay — and
  * carries `t` across unchanged, because that is the anchor every hand edit on
@@ -187,10 +204,18 @@ export function withoutDoorGaps(
   gaps: DoorGap[],
   specById: Map<string, WallPieceSpec>,
   wallWidth: number,
+  /**
+   * The two ends of an open wall, world units, so a stone pushed clear of an
+   * opening is held inside the wall it belongs to. Omitted for a closed ring,
+   * which has no ends to fall off.
+   */
+  wallEnds?: [[number, number], [number, number]],
 ): WallNode[] {
   if (gaps.length === 0) return nodes;
 
+  const minRun = wallWidth * MIN_RUN_FRAC;
   const out: WallNode[] = [];
+
   for (const node of nodes) {
     const spec = specById.get(node.pieceId);
     // Same length the sprite will be drawn at — nodeSpriteScale's along-spine
@@ -201,43 +226,84 @@ export function withoutDoorGaps(
 
     const cos = Math.cos(node.angle);
     const sin = Math.sin(node.angle);
-    // How far this stone has already been slid along its own axis by an earlier
-    // gap. Carried as a scalar rather than a rebuilt node so a stone no gap
-    // touches comes out as the very same object it went in as.
-    let shift = 0;
-    let dropped = false;
 
+    // Every opening that actually reaches this stone, as an interval on the
+    // stone's own axis with the stone's centre at zero.
+    const cuts: [number, number][] = [];
     for (const gap of gaps) {
-      const dx = gap.position[0] - (node.x + cos * shift);
-      const dy = gap.position[1] - (node.y + sin * shift);
+      const dx = gap.position[0] - node.x;
+      const dy = gap.position[1] - node.y;
       const along = dx * cos + dy * sin;
       const across = -dx * sin + dy * cos;
-
       // A door on the far side of a room projects onto this stone's axis just as
       // happily as one on its own edge. The perpendicular distance is what says
       // which edge the gap belongs to, so it is checked first.
       if (Math.abs(across) > wallWidth) continue;
-
       const half = gap.width / 2;
-      // Centre inside the opening: no amount of sliding saves it.
-      if (Math.abs(along) < half) { dropped = true; break; }
+      if (Math.abs(along) >= halfLength + half) continue;
+      cuts.push([along - half, along + half]);
+    }
+    // Untouched by every opening, so it comes out as the very same object it
+    // went in as.
+    if (cuts.length === 0) { out.push(node); continue; }
+    cuts.sort((a, b) => a[0] - b[0]);
 
-      const overlap = half + halfLength - Math.abs(along);
-      if (overlap <= 0) continue;
-
-      // No "too far to slide, drop it instead" escape hatch: the centre test
-      // above pins `|along| >= half`, which caps the overlap at `halfLength` —
-      // half a stone. Everything that survives to here can be slid clear by less
-      // than its own half-length, so there is nothing left to bail out of.
-      //
-      // `along` points from the stone toward the gap, so move against it.
-      shift += along > 0 ? -overlap : overlap;
+    // The wall's own ends, projected onto this stone's axis. Projection rather
+    // than arc length because a stone is not always laid facing along the spine
+    // — an opening cap is turned to face out of the wall, a cornerstone on a
+    // sharp turn lies square across it — and an arc-length bound would then hold
+    // the stone inside a wall running the other way.
+    let lo = -Infinity;
+    let hi = Infinity;
+    if (wallEnds) {
+      const p0 = (wallEnds[0][0] - node.x) * cos + (wallEnds[0][1] - node.y) * sin;
+      const p1 = (wallEnds[1][0] - node.x) * cos + (wallEnds[1][1] - node.y) * sin;
+      lo = Math.min(p0, p1);
+      hi = Math.max(p0, p1);
     }
 
-    if (dropped) continue;
-    out.push(
-      shift === 0 ? node : { ...node, x: node.x + cos * shift, y: node.y + sin * shift },
-    );
+    // What is left of the wall once every opening is taken out of it.
+    const runs: [number, number][] = [];
+    let cursor = lo;
+    for (const [a, b] of cuts) {
+      const end = Math.min(a, hi);
+      if (end > cursor) runs.push([cursor, end]);
+      if (b > cursor) cursor = b;
+    }
+    if (cursor < hi) runs.push([cursor, hi]);
+
+    for (const [a, b] of runs) {
+      // How much of this stone's own body the run holds. A run the stone barely
+      // reaches into is its neighbour's to fill, not its.
+      if (Math.min(b, halfLength) - Math.max(a, -halfLength) < minRun) continue;
+
+      const room = b - a;
+      const fits = room >= 2 * halfLength;
+      // Whole stone, as near home as the run allows — which is what keeps a long
+      // run exact and its stones full size. Squeezed onto the run when the run is
+      // shorter than the stone, because the alternative is the bug this replaced:
+      // a cell and a half of bare floor beside every door.
+      const shift = fits
+        ? Math.min(Math.max(0, a + halfLength), b - halfLength)
+        : (a + b) / 2;
+      const squeeze = fits ? 1 : room / (2 * halfLength);
+
+      out.push(
+        shift === 0 && squeeze === 1
+          ? node
+          : {
+              ...node,
+              x: node.x + cos * shift,
+              y: node.y + sin * shift,
+              // ponytail: a door through the middle of a long stone emits it
+              // once per side, and the two halves of a stone that spans a short
+              // run can land on the same patch as a neighbour's. Overlapping
+              // masonry is what this pack draws anyway; dedupe if the sprite
+              // count ever shows up in a profile.
+              scale: node.scale * squeeze,
+            },
+      );
+    }
   }
   return out;
 }
@@ -301,7 +367,10 @@ export function renderNodeWalls(
     const gaps = doorGaps.filter((g) => g.wallId === wall.id);
     placed = placeNodes(
       wallsContainer,
-      withoutDoorGaps(nodes, gaps, specById, w),
+      withoutDoorGaps(nodes, gaps, specById, w, [
+        wall.points[0],
+        wall.points[wall.points.length - 1],
+      ]),
       specById, w, tint, placed,
     );
   }
