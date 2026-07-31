@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { Container } from 'pixi.js';
+import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
+import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import type { DoorChild } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import { useStore } from '@dnd/core/src/store/store';
@@ -19,7 +22,7 @@ import {
   liveDoors,
 } from './doors';
 import { DoorPanel } from './DoorPanel';
-import { trackDoorIds } from './DoorRenderer';
+import { mountDoorLayer, trackDoorIds } from './DoorRenderer';
 import { useDoorSelection } from './selection';
 
 // The camera is Pixi's; what the panel owes it is one call with the door's world point.
@@ -126,6 +129,59 @@ describe('live door state', () => {
       byScene: { 'scene-1': { d1: { open: true, locked: false, revealed: true } } },
     };
     expect(liveDoors(redacted, stale, 'scene-1')).toEqual([]);
+  });
+});
+
+describe('the door art a player is shown', () => {
+  /** Overlay container plus the multiply the screen overlays rank against. */
+  function harness() {
+    const worldContainer = new Container();
+    const layerContainer = new Container();
+    layerContainer.label = 'layerContainer';
+    worldContainer.addChild(layerContainer);
+    const overlayContainer = new Container();
+    const sceneGraph = { worldContainer, layerContainer, overlayContainer } as unknown as SceneGraph;
+    const engine = {
+      canvas: () => document.createElement('canvas'),
+      ticker: () => ({ add: () => {}, remove: () => {} }),
+    } as unknown as RenderEngine;
+    return { sceneGraph, overlayContainer, engine };
+  }
+
+  const artOf = (overlay: Container): Container =>
+    overlay.children.find((c) => String(c.label) === 'doorOverlay')!.children[0] as Container;
+
+  /**
+   * The gate measured 262 warm-wood pixels in a door's box on the DM seat and 0 on the
+   * player's. Core draws door art into the world container, which on a player's screen is
+   * under the fog scrim and the lighting multiply — and the scrim only cuts room polygons,
+   * so the door band between two rooms is never cut out of it. The art is redrawn in the
+   * overlay that already beats the mask, for the doors the server let this seat hold.
+   */
+  it('draws the art above the mask for a player', () => {
+    useSessionStore.setState({ session: session(), you: player });
+    const { sceneGraph, overlayContainer, engine } = harness();
+    const unmount = mountDoorLayer(engine, sceneGraph);
+    expect(artOf(overlayContainer).children.length).toBeGreaterThan(0);
+    unmount();
+  });
+
+  it('leaves the DM’s seat alone, where the world copy is already lit', () => {
+    useSessionStore.setState({ session: session(), you: dm });
+    const { sceneGraph, overlayContainer, engine } = harness();
+    const unmount = mountDoorLayer(engine, sceneGraph);
+    expect(artOf(overlayContainer).children).toEqual([]);
+    unmount();
+  });
+
+  /** A seat holding no doors draws no art — the redaction leak, at the other end. */
+  it('draws nothing at all when the player holds no doors', () => {
+    useStore.setState({ layers: [dungeonLayer([])] });
+    useSessionStore.setState({ session: session(), you: player });
+    const { sceneGraph, overlayContainer, engine } = harness();
+    const unmount = mountDoorLayer(engine, sceneGraph);
+    expect(artOf(overlayContainer).children).toEqual([]);
+    unmount();
   });
 });
 

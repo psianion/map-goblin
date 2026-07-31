@@ -36,7 +36,6 @@
 //
 // ponytail: pixi through @dnd/core, the same reach-through TokenRenderer documents.
 import { Container, Graphics } from 'pixi.js';
-import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import type { Room } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
@@ -57,17 +56,7 @@ import { prefersReducedMotion } from '../../session/motion';
 import { useSessionStore } from '../../session/store';
 import type { LiveDoor } from '../doors/doors';
 import { tokensOf } from '../tokens/TokenRenderer';
-import {
-  fogPad,
-  fogRegion,
-  ringsWithHoles,
-  roomAt,
-  roomFog,
-  sceneFog,
-  serverDoors,
-  serverLayers,
-  serverRooms,
-} from './fog';
+import { roomAt, roomFog, sceneFog, serverDoors, serverRooms } from './fog';
 
 /** What the player's canvas does with one room. */
 export type RoomView = 'visible' | 'explored' | 'dark';
@@ -124,34 +113,6 @@ export const LIGHTING_STRENGTH = { dm: 0, player: 0.7 };
 /** Black extends this far past the map so the edge of the world is not a tell. */
 const BOUNDS_PAD = 20;
 
-/**
- * How wide the mask's edge falls off, in world units (= grid cells).
- *
- * The boundary is meant to read as the room running out of light, and light does not stop on
- * a line. A cut does, which is the other half of what came back from the player seat: even
- * once the mask clears the wall band (`fogPad`), a one-pixel step from finished art to solid
- * black reads as the picture having been trimmed rather than as the dark beginning.
- *
- * Held under the pad on purpose. The falloff starts where the room's own claim ends, so
- * everything the room owns — floor, wall band, margin — is already at full strength before
- * any of this is drawn, and the ramp spends itself on map the room does not own.
- */
-export const FOG_FEATHER = 0.4;
-
-/**
- * How many steps that falloff is cut into.
- *
- * A blur would be the obvious answer and is the wrong one here: a filter re-runs every frame
- * the stage draws, and the whole discipline of this layer is that the mask is built on a fog
- * change and then only drawn (the fps bar is 25-30 on integrated graphics). Six nested
- * strokes are geometry — they cost what any other shape costs, once, at rebuild.
- *
- * ponytail: six bands over 0.4 of a cell is ~2-4 screen pixels each at play zoom, which is
- * under what banding needs to be visible against art this dark. The upgrade, if the animated
- * fog ever wants a true gradient, is a cached texture — not more bands.
- */
-const FEATHER_STEPS = 6;
-
 /** LightingRenderer's label for its full-screen multiply sprite (overlayLayer knows it too). */
 const LIGHTING_COMPOSITE = 'lightingComposite';
 
@@ -167,8 +128,6 @@ export interface FogScene {
   views: Map<string, RoomView>;
   /** null when there is no geometry yet — the layer draws nothing rather than guessing. */
   bounds: Bounds | null;
-  /** How far past a room's floor the mask reaches, in world units — see `fogPad`. */
-  pad: number;
   sceneId: string | null;
   /** The DM keeps full lighting and no mask (PRODUCT principle 3). Unknown role ⇒ masked. */
   isPlayer: boolean;
@@ -390,9 +349,6 @@ export function fogScene(): FogScene {
     // right or wrong about, and covering the canvas on the strength of an empty store would
     // black out the DM's own first frame of a map that is merely still in flight.
     bounds: mapData ? fogBounds(layers, rooms) : null,
-    // Off the referee's document, like the rooms it pads: the wall band a player's mask has
-    // to clear is the one the referee sent them, not whatever core relaid underneath.
-    pad: fogPad(serverLayers(mapData)),
     sceneId,
     isPlayer: you?.role !== 'dm',
   };
@@ -451,68 +407,22 @@ export function subscribeFogScene(onChange: () => void): () => void {
   };
 }
 
-/**
- * The soft edge, cut into geometry rather than blurred.
- *
- * `alignment: 1` puts a stroke wholly *inside* a closed path, so these all sit within the
- * region's reach and thicken the fog back up as they approach its rim. Each step is wider
- * than the last, so a point one band deep is covered by every stroke but the narrowest, and a
- * point at the inner lip only by the widest — the overlap is the ramp.
- *
- * `1 / step` is the alpha that makes those overlaps land on an even one: source-over of the
- * strokes covering a band composites to `1 - Π(1 - 1/k)`, which telescopes to exactly that
- * band's share of the way to solid. Colour is uniform, so the order they are drawn in does
- * not matter.
- */
-function featherEdge(g: Graphics, ring: Polygon): void {
-  const path = ring.flat();
-  for (let step = 1; step <= FEATHER_STEPS; step++) {
-    g.poly(path).stroke({
-      color: FOG_BLACK,
-      alpha: 1 / step,
-      width: (FOG_FEATHER * step) / FEATHER_STEPS,
-      alignment: 1,
-    });
+/** One room's covering. Used for the steady mask and, unchanged, for the fade out of it. */
+function paintRoom(g: Graphics, room: Room, view: RoomView): void {
+  if (room.boundary.length < 3) return;
+  const path = room.boundary.flat();
+  if (view === 'dark') {
+    g.poly(path).fill({ color: FOG_BLACK, alpha: 1 });
+    return;
   }
+  if (view !== 'explored') return;
+  g.poly(path).fill({ color: EXPLORED_TINT, alpha: EXPLORED_TINT_ALPHA });
 }
 
 /**
- * One room's covering, for the fade out of a reveal.
- *
- * Drawn on the padded footprint the mask cuts, not on the floor polygon: fading the floor
- * alone would clear the wall band on the first frame and then dissolve the room out from
- * inside a ring that was already lit.
- *
- * ponytail: hard-edged where the mask is feathered. It is a 300ms transient dissolving to
- * nothing over the shape it is covering, and a rim that never sits still is not one anybody
- * can read.
- */
-function paintRoom(g: Graphics, room: Room, view: RoomView, pad: number): void {
-  if (room.boundary.length < 3 || view === 'visible') return;
-  const style =
-    view === 'dark'
-      ? { color: FOG_BLACK, alpha: 1 }
-      : { color: EXPLORED_TINT, alpha: EXPLORED_TINT_ALPHA };
-  for (const ring of fogRegion([room.boundary], [], pad, FOG_FEATHER).reach) {
-    g.poly(ring.flat()).fill(style);
-  }
-}
-
-/**
- * The mask itself: one fill over the map, a hole for everything the player has earned, the
- * explored wash inside the holes that are only memories, and the falloff last so it thickens
- * over both.
- *
- * The hole is one merged region rather than one shape per room (`fogRegion`), which is what
- * lets it be padded at all — rooms a wall apart overlap once they are grown, and `cut` cannot
- * take overlapping holes. Each ring's holes go in as a single `cut`, because Pixi attaches a
- * cut to the fill instruction before it and a second one on the same fill reaches back a
- * further instruction as well.
- *
- * ponytail: the fill is flat black, which is the placeholder the animated fog replaces. Every
- * decision about *where* the fog is lives in the region above and the falloff below; the fill
- * and the wash are two colours passed to `fill`, and swapping them for an animated treatment
- * touches neither.
+ * The mask itself: one black fill over the map with a hole cut for every room the player
+ * may see at all, then the explored wash inside the holes that are only memories. `cut`
+ * hangs each hole off that single fill, so the whole of "what is dark" is one shape.
  */
 export function drawFog(scrim: Graphics, scene: FogScene): void {
   scrim.clear();
@@ -520,41 +430,14 @@ export function drawFog(scrim: Graphics, scene: FogScene): void {
 
   const { minX, minY, maxX, maxY } = scene.bounds;
   scrim.rect(minX, minY, maxX - minX, maxY - minY).fill({ color: FOG_BLACK, alpha: 1 });
-
-  const floorsOf = (view: RoomView): Polygon[] =>
-    scene.rooms
-      .filter((room) => room.boundary.length >= 3 && scene.views.get(room.id) === view)
-      .map((room) => room.boundary);
-
-  const dark = floorsOf('dark');
-  const visible = floorsOf('visible');
-  const explored = floorsOf('explored');
-
-  const seen = fogRegion([...visible, ...explored], dark, scene.pad, FOG_FEATHER);
-  const earned = ringsWithHoles(seen.reach);
-  for (const { outline } of earned) scrim.poly(outline.flat());
-  if (earned.length > 0) scrim.cut();
-
-  // Fog the region has closed all the way around — an unrevealed pocket walled in by revealed
-  // rooms. Put back as solid black: it is inside the hole, so nothing else is covering it.
-  // ponytail: hard-edged. `featherEdge` thickens fog towards a rim from the inside, and a
-  // pocket wants the opposite; it takes a closed ring of revealed rooms to make one.
-  for (const { holes } of earned) {
-    for (const hole of holes) scrim.poly(hole.flat()).fill({ color: FOG_BLACK, alpha: 1 });
+  for (const room of scene.rooms) {
+    if (room.boundary.length < 3) continue;
+    if (scene.views.get(room.id) === 'dark') continue;
+    scrim.poly(room.boundary.flat()).cut();
   }
-
-  // D10's memory tier, on the same padded footprint at its own darkness. It stops at a live
-  // room's floor rather than at its own wall, so a wall between a memory and a lit room reads
-  // as the memory's — and it runs out to `reach` rather than to `clear`, so the falloff below
-  // has a wash to thicken over instead of a gap between the two to fall through.
-  const memory = fogRegion(explored, [...dark, ...visible], scene.pad, FOG_FEATHER);
-  for (const { outline, holes } of ringsWithHoles(memory.reach)) {
-    scrim.poly(outline.flat()).fill({ color: EXPLORED_TINT, alpha: EXPLORED_TINT_ALPHA });
-    for (const hole of holes) scrim.poly(hole.flat());
-    if (holes.length > 0) scrim.cut();
+  for (const room of scene.rooms) {
+    if (scene.views.get(room.id) === 'explored') paintRoom(scrim, room, 'explored');
   }
-
-  for (const { outline } of earned) featherEdge(scrim, outline);
 }
 
 interface Fade {
@@ -612,7 +495,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
         const room = roomById.get(roomId);
         if (!room) continue;
         const graphic = new Graphics();
-        paintRoom(graphic, room, before, scene.pad);
+        paintRoom(graphic, room, before);
         fadeLayer.addChild(graphic);
         fades.push({ graphic, startedAt: performance.now() });
       }

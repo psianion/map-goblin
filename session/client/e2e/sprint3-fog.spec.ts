@@ -784,17 +784,7 @@ test.describe.serial('@sprint3-fog', () => {
 
     // A sample of nothing would pass every assertion below it.
     expect(live.covered, 'the lit map drew almost none of the frame').toBeGreaterThan(0.02)
-    // 50, not the 60 this read for three gates. Nothing about the lit room dimmed: the mask
-    // stopped cropping it. It used to be cut to `room.boundary`, which is the room's *floor*
-    // — so a lit room's own wall stones fell outside the hole and measured as black, below
-    // the 32 floor, and never entered this sample at all. The mask now clears the wall band
-    // and a margin past it (`fogPad`), so the stones are in frame and in the sample, and
-    // stone is darker than a torchlit floor: 60.3 → 57.9 measured, on a wider set of pixels.
-    // The product rows below are ratios against `live` and are unmoved by that; this one is
-    // an absolute, and an absolute over a changed sample has to be restated or it is asserting
-    // about the old crop. Explored lands in the twenties and never-revealed at a true 0, so
-    // there is still daylight under it.
-    expect(live.mean, 'the lit map is not lit').toBeGreaterThan(50)
+    expect(live.mean, 'the lit map is not lit').toBeGreaterThan(60)
 
     // Dimmer: the product target, and the direction the third gate had inverted.
     expect(memory.mean, `explored read ${memory.mean.toFixed(1)} against live ${live.mean.toFixed(1)}`)

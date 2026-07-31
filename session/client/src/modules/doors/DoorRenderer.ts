@@ -7,8 +7,10 @@
 // live inline in the panel, never behind a modal.
 
 import { Container, Graphics } from 'pixi.js';
+import { renderDoors } from '@dnd/core/src/engine/doorRenderer';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
+import { resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve';
 import { useStore } from '@dnd/core/src/store/store';
 import type { DoorsState } from '@dnd/mechanics/doors';
 import { addScreenOverlay, mountWhenEngineReady, worldPointOf } from '../../renderer/overlayLayer';
@@ -94,9 +96,14 @@ function drawSecretBadge(g: Graphics, x: number, y: number, color: number, alpha
   g.stroke({ color, width: MARK_RADIUS * 0.22, alpha, cap: 'round' });
 }
 
-function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => void {
+/** Exported for the tests; production mounts it through `mountDoorLayerWhenReady`. */
+export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => void {
   const layer = new Container();
+  const art = new Container();
   const paint = new Graphics();
+  // Art first, marks over it: the mark is the interaction affordance and has to stay legible
+  // on top of whatever the door is drawn as.
+  layer.addChild(art);
   layer.addChild(paint);
   // Screen space, not the world, and that is the whole of the fix for "the player's canvas
   // never moved when a door opened". The player's fog mask is a screen-space layer (D12 —
@@ -125,6 +132,40 @@ function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
       return 1;
     }
     return easeOutQuart(t);
+  };
+
+  /**
+   * The map's own door art, drawn a second time — above the fog mask, for the player seat.
+   *
+   * Core draws every door into the world container, which on a player's screen sits under
+   * the fog scrim *and* under the lighting multiply. The scrim only cuts holes for room
+   * polygons, and a door sits on the wall *between* two rooms — room boundaries are detected
+   * inset by half a wall width, so the door band falls outside every hole there is. The DM
+   * has neither the scrim nor the multiply, which is the whole of why one door measured 262
+   * warm-wood pixels on that seat and exactly zero here.
+   *
+   * Redrawing it in the overlay is safe for the same reason the marks are: the server has
+   * already cut a player's doors down to the ones they earned (PRODUCT principle 2), so this
+   * shows nothing the referee did not hand over. The DM is skipped — their copy in the world
+   * is already lit, and a second one would just pay for itself twice.
+   *
+   * ponytail: the player's buried world copy is still drawn and simply never seen. Hiding
+   * core's doors sublayer would save it, and would mean reaching into the scene graph to do
+   * it — worth doing the day a map has enough doors for the double draw to show up in a
+   * frame budget.
+   */
+  const drawArt = () => {
+    for (const child of art.removeChildren()) child.destroy({ children: true });
+    if (useSessionStore.getState().you?.role === 'dm') return;
+
+    const cell = useStore.getState().grid.snapDivision || 1;
+    for (const dungeon of useStore.getState().layers) {
+      if (dungeon.type !== 'dungeon') continue;
+      // The layer holds only the doors this seat was sent, so the resolve is already the
+      // held set — the same list the marks below are drawn from.
+      const resolved = resolveDoors(dungeon, resolveWalls(dungeon)).filter((d) => d.door.visible);
+      if (resolved.length > 0) renderDoors(art, resolved, dungeon.style, cell);
+    }
   };
 
   const draw = () => {
@@ -212,7 +253,12 @@ function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   ticker.add(tick);
   // Same feed the lighting lane will read, so there is one answer to "what are the doors
   // doing" and the overlay cannot drift from the walls. It draws once on subscribe.
-  const unsubDoors = subscribeLiveDoors(draw);
+  // The art only changes when the doors or the document do — never on a selection or a fade
+  // frame — so it is rebuilt here rather than inside `draw`.
+  const unsubDoors = subscribeLiveDoors(() => {
+    drawArt();
+    draw();
+  });
   let lastSelected = useDoorSelection.getState().selectedId;
   const unsubSelection = useDoorSelection.subscribe(() => {
     const selected = useDoorSelection.getState().selectedId;
