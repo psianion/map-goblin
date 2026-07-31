@@ -81,6 +81,13 @@ describe('saveLoad — serializeToBytes / deserializeFromBytes', () => {
 });
 
 describe('saveLoad — downloadMapFile', () => {
+  /** Copy with the gzip header's 4-byte MTIME zeroed, so two runs compare equal. */
+  function withoutGzipMtime(bytes: Uint8Array): Uint8Array {
+    const copy = new Uint8Array(bytes);
+    copy.fill(0, MAGIC_HEADER.length + 4, MAGIC_HEADER.length + 8);
+    return copy;
+  }
+
   /** Runs the download and hands back the bytes the blob anchor was given. */
   async function captureDownload(data: SerializedMapData) {
     vi.mocked(useStore.getState).mockReturnValue({
@@ -124,8 +131,10 @@ describe('saveLoad — downloadMapFile', () => {
     ]);
     await expect(deserializeFromBytes(bytes)).resolves.toEqual(SAMPLE_DATA);
 
-    // Byte-identical to the shortcut path, and delivered without a native picker.
-    expect(bytes).toEqual(await serializeToBytes(SAMPLE_DATA));
+    // Byte-identical to what Ctrl+S writes, and delivered without a native
+    // picker. The gzip header carries an mtime, so that one field is blanked on
+    // both sides — everything else, container and payload, has to match.
+    expect(withoutGzipMtime(bytes)).toEqual(withoutGzipMtime(await serializeToBytes(SAMPLE_DATA)));
     expect(anchorClicked).toBe(1);
     expect(filename).toBe('Test Dungeon.mapbuilder');
   });
