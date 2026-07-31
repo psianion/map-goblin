@@ -279,6 +279,25 @@ export function preloadLayerTextures(layer: DungeonLayer): Promise<boolean> {
 }
 
 /**
+ * Redraw only the doors sublayer — for a door STATE flip (open/closed/locked,
+ * isSecret, style) that leaves door geometry (position/width/wallId) alone.
+ * Skips wall-stone re-layout and the Clipper2 floor union entirely: those
+ * only need to run again when `withoutDoorGaps` (wallNodeRenderer.ts) would
+ * cut different gaps, which is a geometry change, not a state change.
+ */
+export function redrawDoors(layer: DungeonLayer, entry: LayerEntry): void {
+  if (!entry.sublayers) return;
+  const { doors: doorsSublayer } = entry.sublayers;
+  for (const child of doorsSublayer.removeChildren()) child.destroy();
+
+  const resolvedWalls = resolveWalls(layer);
+  const doors = resolveDoors(layer, resolvedWalls).filter((d) => d.door.visible);
+  if (doors.length === 0) return;
+  const gridCellSize = useStore.getState().grid.snapDivision || 1;
+  renderDoors(doorsSublayer, doors, layer.style, gridCellSize);
+}
+
+/**
  * Rebuild a dungeon layer's sublayers from store state.
  * Called by subscribeToStore whenever shapes or walls change.
  *
@@ -288,13 +307,14 @@ export function preloadLayerTextures(layer: DungeonLayer): Promise<boolean> {
 export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): void {
   if (!entry.sublayers) return;
 
-  const { floor, hatching, walls } = entry.sublayers;
+  const { floor, hatching, walls, doors: doorsSublayer } = entry.sublayers;
 
   // Clear all sublayers (reset floor mask from prior textured render)
   floor.mask = null;
   for (const child of floor.removeChildren()) child.destroy();
   for (const child of hatching.removeChildren()) child.destroy();
   for (const child of walls.removeChildren()) child.destroy();
+  for (const child of doorsSublayer.removeChildren()) child.destroy();
 
   // paths sublayer removed in v2.0 model — spline paths are no longer separate
 
@@ -324,7 +344,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   );
   if (doors.length > 0) {
     const gridCellSize = useStore.getState().grid.snapDivision || 1;
-    renderDoors(walls, doors, layer.style, gridCellSize);
+    renderDoors(doorsSublayer, doors, layer.style, gridCellSize);
   }
 
   const polygons = layer.mergedFloor;

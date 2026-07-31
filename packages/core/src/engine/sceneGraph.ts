@@ -30,6 +30,13 @@ export interface DungeonSublayers {
   grid: Container;
   hatching: Container;
   walls: Container;
+  /**
+   * Doors draw here, not into `walls`. A door state flip (open/closed,
+   * locked, secret, style) redraws only this container — no wall-stone
+   * re-layout. Door GEOMETRY changes still need the full rebuild because
+   * `withoutDoorGaps` (wallNodeRenderer.ts) cuts stone gaps from it.
+   */
+  doors: Container;
 }
 
 export interface LayerEntry {
@@ -164,11 +171,12 @@ export function addLayerToScene(
     const grid = new Container(); grid.label = 'sublayer-grid';
     const hatching = new Container(); hatching.label = 'sublayer-hatching';
     const walls = new Container(); walls.label = 'sublayer-walls';
-    container.addChild(water, floor, grid, hatching, walls);
+    const doors = new Container(); doors.label = 'sublayer-doors';
+    container.addChild(water, floor, grid, hatching, walls, doors);
     // Shared ripple displacement over all water in this layer
     const waterFilter = getWaterFilter();
     if (waterFilter) water.filters = [waterFilter];
-    sublayers = { water, floor, grid, hatching, walls };
+    sublayers = { water, floor, grid, hatching, walls, doors };
   }
 
   const renderTexture: RenderTexture | null = null;

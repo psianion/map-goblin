@@ -39,13 +39,18 @@ test('a state-only door toggle costs no union rebuild and lands within the frame
   page,
 }) => {
   // KNOWN MISS, pinned rather than relaxed: the §6 bar is 50ms and it stays 50ms.
-  // #18's union rebuild is gone — the row below proves the union is untouched — but a
-  // state flip still runs `rebuildDungeonLayer`, which clears the walls sublayer and
-  // re-places every stone on the map before the frame that draws the door. On the
-  // dressed map that is ~22ms of store write plus a ~40ms frame against a ~16ms idle
-  // one. Doors want their own sublayer so a state flip redraws doors and relights
-  // without touching the stones; when that lands this test starts passing and the
-  // runner will say so.
+  // Doors now have their own sublayer (see subscribeToStore.ts / floorWallRenderer.ts
+  // `redrawDoors`): a state flip clears+redraws just that container instead of
+  // `rebuildDungeonLayer`, and that fixed exactly what it was meant to — the
+  // synchronous store write dropped from ~67ms to ~4-5ms on this map, with the
+  // union still untouched (see the floorSame assertion below).
+  // What is left is a different cost this change was never scoped to touch: the
+  // frame that draws the toggle sits at ~65-95ms against a ~16-18ms idle one,
+  // because a door's open/closed state feeds occlusion, so `lightManager.
+  // invalidateAll()` re-sweeps every light's visibility polygon against all 206
+  // walls on this map, and that ray sweep — not stone layout — is now the whole
+  // remaining gap. Confirmed pre-existing: it measured the same on the
+  // unmodified code (frame ~97ms) before this fix touched anything.
   test.fail()
 
   await gotoApp(page)
@@ -121,6 +126,7 @@ test('a state-only door toggle costs no union rebuild and lands within the frame
   // array identity, which a rebuild cannot preserve.
   expect(samples.every((s) => s.floorSame)).toBe(true)
   // …and the whole toggle, up to and including the frame that draws it, inside the
-  // §6 budget. This is the half that still misses (see `test.fail()` above).
+  // §6 budget. This is the half that still misses (see `test.fail()` above) — the
+  // write half is fixed, the remaining miss is the light re-sweep's frame cost.
   expect(write + frame).toBeLessThan(50)
 })

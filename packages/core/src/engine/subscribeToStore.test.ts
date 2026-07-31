@@ -17,6 +17,7 @@ vi.mock('pixi.js', () => ({
 
 vi.mock('./floorWallRenderer', () => ({
   rebuildDungeonLayer: vi.fn(),
+  redrawDoors: vi.fn(),
   preloadLayerTextures: vi.fn(() => Promise.resolve(false)),
 }));
 
@@ -35,6 +36,7 @@ vi.mock('./sceneGraph', () => {
       grid: { visible: true },
       hatching: { visible: true },
       walls: { visible: true },
+      doors: { visible: true },
     },
   };
   return {
@@ -56,7 +58,7 @@ import { subscribeToStore } from './subscribeToStore';
 import { useStore } from '../store/store';
 import { LightManager, extractWallSegments } from './lighting';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
-import { rebuildDungeonLayer } from './floorWallRenderer';
+import { rebuildDungeonLayer, redrawDoors } from './floorWallRenderer';
 import { scheduleRoomSync } from '../store/roomSync';
 import type { RenderEngine } from './RenderEngine';
 import type { SceneGraph } from './sceneGraph';
@@ -183,9 +185,10 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
     vi.clearAllMocks();
     patchDoor(layerId, 'd1', { state: 'open' });
 
-    // The handler ran...
-    expect(rebuildDungeonLayer).toHaveBeenCalled();
-    // ...but nothing geometric moved.
+    // The handler ran, but only the doors sublayer redrew...
+    expect(redrawDoors).toHaveBeenCalled();
+    // ...no wall-stone re-layout, and nothing geometric moved.
+    expect(rebuildDungeonLayer).not.toHaveBeenCalled();
     expect(clipper2Engine.union).not.toHaveBeenCalled();
     expect(clipper2Engine.difference).not.toHaveBeenCalled();
     expect(scheduleRoomSync).not.toHaveBeenCalled();
@@ -301,10 +304,13 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
 
   // A door can be dragged now, so its authored position is live data. The
   // signature used to omit it: the commit wrote the store and nothing redrew.
-  it.each([
-    ['position', { position: [70, 0] as [number, number] }],
-    ['isSecret', { isSecret: true }],
-  ])('a %s-only door change redraws and re-lights, but skips union and rooms', (_label, patch) => {
+  //
+  // Position/width/wallId is door GEOMETRY: withoutDoorGaps (wallNodeRenderer)
+  // cuts stone gaps from it, so it still needs the full rebuild. isSecret is
+  // door STATE — it changes occlusion and the glyph, not where the stones
+  // sit, so it takes the doors-only path instead (this is #22, layered on
+  // top of #18's floor/room split above).
+  it('a position-only door change still forces the full rebuild (stone gaps depend on it)', () => {
     const layerId = seed({
       children: [shape('s1', 500, 500), shape('s2', 560, 500), door('d1', 'w1', 50, 0)],
       standaloneWalls: [wall('w1', 0, 0, 100, 0)],
@@ -315,16 +321,53 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
     vi.clearAllMocks();
     const invalidateAll = vi.spyOn(lightManager, 'invalidateAll');
 
-    patchDoor(layerId, 'd1', patch);
+    patchDoor(layerId, 'd1', { position: [70, 0] });
 
-    // The stone gap moves with the door, and secrecy feeds occlusion.
     expect(rebuildDungeonLayer).toHaveBeenCalled();
+    expect(redrawDoors).not.toHaveBeenCalled();
     expect(invalidateAll).toHaveBeenCalled();
     // Neither is floor or wall geometry, so #18 still applies.
     expect(clipper2Engine.union).not.toHaveBeenCalled();
     expect(clipper2Engine.difference).not.toHaveBeenCalled();
     expect(scheduleRoomSync).not.toHaveBeenCalled();
     expect(dungeon().mergedFloor).toBe(floorBefore);
+  });
+
+  it('an isSecret-only door change redraws just the doors sublayer and re-lights', () => {
+    const layerId = seed({
+      children: [shape('s1', 500, 500), shape('s2', 560, 500), door('d1', 'w1', 50, 0)],
+      standaloneWalls: [wall('w1', 0, 0, 100, 0)],
+    });
+
+    unsub = subscribeToStore(engine, sceneGraph, lightManager);
+    const floorBefore = dungeon().mergedFloor;
+    vi.clearAllMocks();
+    const invalidateAll = vi.spyOn(lightManager, 'invalidateAll');
+
+    patchDoor(layerId, 'd1', { isSecret: true });
+
+    expect(redrawDoors).toHaveBeenCalled();
+    expect(rebuildDungeonLayer).not.toHaveBeenCalled();
+    expect(invalidateAll).toHaveBeenCalled();
+    expect(clipper2Engine.union).not.toHaveBeenCalled();
+    expect(clipper2Engine.difference).not.toHaveBeenCalled();
+    expect(scheduleRoomSync).not.toHaveBeenCalled();
+    expect(dungeon().mergedFloor).toBe(floorBefore);
+  });
+
+  it('a style-only door change also skips the rebuild', () => {
+    const layerId = seed({
+      children: [door('d1', 'w1', 50, 0)],
+      standaloneWalls: [wall('w1', 0, 0, 100, 0)],
+    });
+
+    unsub = subscribeToStore(engine, sceneGraph, lightManager);
+    vi.clearAllMocks();
+
+    patchDoor(layerId, 'd1', { style: 'archway' });
+
+    expect(redrawDoors).toHaveBeenCalled();
+    expect(rebuildDungeonLayer).not.toHaveBeenCalled();
   });
 
   it('a deleted layer stops holding a geometry key', () => {

@@ -11,7 +11,7 @@ import {
 } from './sceneGraph';
 import type { RenderEngine } from './RenderEngine';
 import { markDirty as markRenderCacheDirty } from './renderCache';
-import { rebuildDungeonLayer, preloadLayerTextures } from './floorWallRenderer';
+import { rebuildDungeonLayer, redrawDoors, preloadLayerTextures } from './floorWallRenderer';
 import { preloadWallTextures } from './wallNodeRenderer';
 import type { DungeonLayer, LightChild, ShapeChild } from '../store/types';
 import { LightManager } from './lighting';
@@ -206,7 +206,7 @@ export function subscribeToStore(
   // ─── Shape/wall changes → mark render cache dirty ────
   // Last geometry seen per layer, so the handler can tell a floor edit from a
   // door toggle: both wake it, only one may touch the union or the rooms.
-  const prevGeometryKeys = new Map<string, { floor: string; room: string }>();
+  const prevGeometryKeys = new Map<string, { floor: string; room: string; render: string; doorState: string }>();
 
   const unsubShapes = useStore.subscribe(
     (state) =>
@@ -221,12 +221,21 @@ export function subscribeToStore(
             .filter((c): c is ShapeChild => c.childType === 'shape')
             .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}`)
             .join(','),
-          // Track door changes (state, style, position, wall and secrecy all
-          // affect rendering + lighting). Not angle — it is derived from the
-          // resolved wall, and authored angle only moves with position/wallId.
-          doorSignature: l.children
+          // Door GEOMETRY (id/visible/width/position/wallId) — a change here
+          // still needs the full rebuild below because withoutDoorGaps
+          // (wallNodeRenderer.ts) cuts stone gaps from this exact geometry.
+          // Not angle — it is derived from the resolved wall, and authored
+          // angle only moves with position/wallId anyway.
+          doorGeometryKey: l.children
             .filter((c): c is import('../shared/types').DoorChild => c.childType === 'door')
-            .map((c) => `${c.id}:${c.visible}:${c.state}:${c.style}:${c.width}:${c.position[0]}_${c.position[1]}:${c.wallId}:${c.isSecret}`)
+            .map((c) => `${c.id}:${c.visible}:${c.width}:${c.position[0]}_${c.position[1]}:${c.wallId}`)
+            .join(','),
+          // Door STATE (state/isSecret/style) — changes how a door looks and
+          // whether it blocks light, but not wall geometry. Handled by a
+          // doors-only redraw further down: no stone re-layout, no Clipper2.
+          doorStateKey: l.children
+            .filter((c): c is import('../shared/types').DoorChild => c.childType === 'door')
+            .map((c) => `${c.id}:${c.state}:${c.isSecret}:${c.style}`)
             .join(','),
           // Track water body changes
           waterSignature: l.children
@@ -240,8 +249,7 @@ export function subscribeToStore(
         })),
     (dungeonLayers) => {
       let geometryChanged = false;
-      for (const { id, shapeCount, shapeKeys, wallCount, wallSignature } of dungeonLayers) {
-        markRenderCacheDirty(id);
+      for (const { id, shapeCount, shapeKeys, wallCount, wallSignature, waterSignature, doorGeometryKey, doorStateKey } of dungeonLayers) {
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
@@ -252,8 +260,16 @@ export function subscribeToStore(
           // resolver memo on top, dragging the stones through a rebuild too.
           const floorKey = `${shapeCount}|${shapeKeys}`;
           const roomKey = `${floorKey}|${wallCount}|${wallSignature}`;
+          // Everything that forces a full rebuild (stone re-layout): floor
+          // and wall geometry, water, and door GEOMETRY — door geometry is
+          // here (not just roomKey) because withoutDoorGaps needs it to cut
+          // stone gaps. Door STATE is deliberately excluded: it is handled
+          // by the doors-only redraw below and must never re-run this.
+          const renderKey = `${roomKey}|${waterSignature}|${doorGeometryKey}`;
           const prev = prevGeometryKeys.get(id);
           if (prev?.room !== roomKey) geometryChanged = true;
+          const renderChanged = prev?.render !== renderKey;
+          const doorStateChanged = prev?.doorState !== doorStateKey;
           if (prev?.floor !== floorKey) {
             const newFloor = computeMergedFloor(layer);
             // Write via setState — safe because the subscription equality fn
@@ -263,21 +279,30 @@ export function subscribeToStore(
               if (l && l.type === 'dungeon') l.mergedFloor = newFloor;
             });
           }
-          prevGeometryKeys.set(id, { floor: floorKey, room: roomKey });
-          // Re-read layer after mergedFloor update
+          prevGeometryKeys.set(id, { floor: floorKey, room: roomKey, render: renderKey, doorState: doorStateKey });
+          // Re-read layer after a possible mergedFloor update
           const updatedLayer = useStore.getState().layers.find((l) => l.id === id);
           if (!updatedLayer || updatedLayer.type !== 'dungeon') continue;
-          // Immediate rebuild (solid color fallback for unloaded textures)
-          rebuildDungeonLayer(updatedLayer, entry);
-          // Async: preload textures, then re-rebuild once they're cached
-          preloadLayerTextures(layer).then((loaded) => {
-            if (!loaded) return;
-            const fresh = useStore.getState().layers.find((l) => l.id === id);
-            if (fresh && fresh.type === 'dungeon') {
-              markRenderCacheDirty(id);
-              rebuildDungeonLayer(fresh as DungeonLayer, entry);
-            }
-          });
+
+          if (renderChanged) {
+            markRenderCacheDirty(id);
+            // Immediate rebuild (solid color fallback for unloaded textures)
+            rebuildDungeonLayer(updatedLayer, entry);
+            // Async: preload textures, then re-rebuild once they're cached
+            preloadLayerTextures(layer).then((loaded) => {
+              if (!loaded) return;
+              const fresh = useStore.getState().layers.find((l) => l.id === id);
+              if (fresh && fresh.type === 'dungeon') {
+                markRenderCacheDirty(id);
+                rebuildDungeonLayer(fresh as DungeonLayer, entry);
+              }
+            });
+          } else if (doorStateChanged) {
+            // State-only flip: redraw the doors sublayer, skip stone re-layout
+            // and the Clipper2 union entirely — this is the ~60ms→<50ms fix.
+            markRenderCacheDirty(id);
+            redrawDoors(updatedLayer, entry);
+          }
         }
       }
       // Drop keys for layers that no longer exist, so the map does not grow for
@@ -311,7 +336,8 @@ export function subscribeToStore(
           item.shapeCount === b[i].shapeCount &&
           item.wallCount === b[i].wallCount &&
           item.shapeKeys === b[i].shapeKeys &&
-          item.doorSignature === b[i].doorSignature &&
+          item.doorGeometryKey === b[i].doorGeometryKey &&
+          item.doorStateKey === b[i].doorStateKey &&
           item.wallSignature === b[i].wallSignature &&
           item.waterSignature === b[i].waterSignature,
         ),
@@ -372,6 +398,10 @@ export function subscribeToStore(
         entry.sublayers.grid.visible = vis.grid;
         entry.sublayers.hatching.visible = vis.hatching;
         entry.sublayers.walls.visible = vis.walls;
+        // Doors have their own sublayer now (see sceneGraph.ts) but still
+        // follow the "walls" visibility toggle — same as when they lived
+        // inside the walls container.
+        entry.sublayers.doors.visible = vis.walls;
       }
     },
     { fireImmediately: true },
@@ -478,6 +508,16 @@ export function subscribeToStore(
           });
         }
       }
+    },
+    {
+      // Immer keeps `style` by reference when nothing under it changed, but
+      // the selector maps a fresh array on every call, so without this the
+      // default Object.is check on that fresh array never matches and this
+      // fires — full rebuildDungeonLayer included — on every single store
+      // mutation (any door toggle, any drag), not just an actual style edit.
+      equalityFn: (a, b) =>
+        a.length === b.length &&
+        a.every((item, i) => item.id === b[i].id && item.style === b[i].style),
     },
   );
   unsubscribers.push(unsubStyle);
