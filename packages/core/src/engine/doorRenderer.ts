@@ -185,9 +185,11 @@ function renderSingleDoor(
     // L1: Use fixed glyph color, not potentially-dark wallColor
     g.stroke({ color: OPEN_ARC_COLOR, width: GLYPH_STROKE, alpha: 0.7 });
   } else {
-    // Closed: thin rectangle flush with wall
+    // Closed: thin rectangle flush with wall. Floored so a width-1 door does
+    // not anti-alias into invisibility at editor zoom, leaving only the state
+    // dot to read as "a purple circle on the wall".
     const perpAngle = angle + Math.PI / 2;
-    const thickness = halfWidth * 0.12;
+    const thickness = Math.max(halfWidth * 0.12, 0.09);
     const x1 = cx - Math.cos(angle) * halfWidth;
     const y1 = cy - Math.sin(angle) * halfWidth;
     const x2 = cx + Math.cos(angle) * halfWidth;
@@ -253,9 +255,9 @@ function renderDoubleDoor(
     // L1: Use fixed glyph color for open arcs
     g.stroke({ color: OPEN_ARC_COLOR, width: GLYPH_STROKE, alpha: 0.7 });
   } else {
-    // Two thin rectangles side by side
+    // Two thin rectangles side by side, thickness floored like the single door
     const perpAngle = angle + Math.PI / 2;
-    const thickness = halfWidth * 0.12;
+    const thickness = Math.max(halfWidth * 0.12, 0.09);
     // M5: Increase gap so two door leaves are visually distinct (was 0.05, now 0.15)
     const gap = halfWidth * 0.15;
     for (const sign of [-1, 1]) {

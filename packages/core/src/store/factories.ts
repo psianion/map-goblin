@@ -23,6 +23,10 @@ const DEFAULT_DUNGEON_STYLE: DungeonStyle = {
   lineWidth: 0.04,
   edgeTransitionWidth: 0.5,
   showEdgeTransitions: true,
+  // Zero-setup default: without a texture set the node-wall renderer bails and
+  // walls (and the door gaps cut into them) are simply invisible on new maps.
+  // Existing saves keep whatever their style says — this only seeds new layers.
+  wallTextureSetId: 'stone-slate',
   wallTextureTint: '#ffffff',
 };
 
