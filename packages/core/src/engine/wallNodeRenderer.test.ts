@@ -300,4 +300,51 @@ describe('withoutDoorGaps — a door that lands inside a stone', () => {
       expect(b <= 1.5 + 1e-6 || a >= 2.5 - 1e-6).toBe(true);
     }
   });
+
+  /** What fraction of its own natural length a stone is actually drawn at. */
+  const frac = (n: WallNode): number => n.scale * n.sizeScale;
+
+  it('fills a short run with few stones near their natural length', () => {
+    // A door at 7 leaves 7.5..9 — a cell and a half, less than a third of the
+    // longest straight. Squeezing that straight onto it drew one stone at 0.30
+    // of its natural length, and every stone reaching the run drew its own
+    // full-run copy on top: a picket fence of hairline slivers with doubled ink
+    // outlines. The run wants smaller stones, not a thinner one.
+    const out = cut([door(7)]);
+    const inRun = out.filter((n) => {
+      const [a, b] = span(n);
+      return b > 7.5 + 1e-6 && a < 9 - 1e-6;
+    });
+
+    expect(bare(out, 7.5, 9)).toEqual([]);
+    // A cell and a half of stone-slate is two of its smallest straights, not
+    // fourteen slivers.
+    expect(inRun.length).toBeLessThanOrEqual(4);
+    expect(inRun.length).toBeGreaterThan(0);
+    for (const n of inRun) {
+      // MIN_FIT_FRAC. Below this a stone stops reading as masonry.
+      expect(frac(n)).toBeGreaterThanOrEqual(0.65);
+    }
+  });
+
+  it('never slides a stone across a second door further along', () => {
+    // A run is bounded by every opening on the wall, not only the ones already
+    // cutting the stone. Bounded by the near door alone, a stone clipped at 2.5
+    // slid flush and ran on to 9 — straight over the door at 6.
+    const openings: [number, number][] = [[1.5, 2.5], [5.5, 6.5]];
+    for (const [a, b] of cut([door(2), door(6)]).map(span)) {
+      for (const [lo, hi] of openings) {
+        expect(b <= lo + 1e-6 || a >= hi - 1e-6).toBe(true);
+      }
+    }
+  });
+
+  it('leaves the end caps on the wall ends when a door is elsewhere', () => {
+    // Caps straddle their endpoint on purpose. Bounding their runs by a distant
+    // door must not slide them inboard.
+    const capsBefore = laid().filter((n) => n.pieceId === 'ending-a');
+    const capsAfter = cut([door(4.5)]).filter((n) => n.pieceId === 'ending-a');
+    expect(capsAfter.map((n) => n.x).sort((p, q) => p - q))
+      .toEqual(capsBefore.map((n) => n.x).sort((p, q) => p - q));
+  });
 });

@@ -17,8 +17,10 @@ import {
 import {
   layoutWall,
   applyWallEdits,
+  fillRun,
   nodeSpriteScale,
   pieceWorldLength,
+  DEFAULT_WALL_OVERLAP,
   type WallPieceSpec,
   type WallNode,
 } from './wallLayout';
@@ -174,6 +176,44 @@ function trimTo(parent: Container, count: number): void {
 const MIN_RUN_FRAC = 0.5;
 
 /**
+ * How far below its natural length a stone may be squeezed to fit a run before
+ * the run is refilled with smaller stones instead.
+ *
+ * The squeeze exists so a door never leaves bare floor beside it, but it was
+ * unbounded: on stone-slate at the default wall width the longest straight is
+ * nearly five cells, so a one-and-a-half-cell residual run drew it at 0.30 of
+ * its natural length and a 0.4-cell run at 0.08 — hairline slivers whose ink
+ * outlines pile onto each other instead of the continuous clean segments the
+ * art guide asks for. Above this fraction a squeezed stone still reads as
+ * masonry; below it the run wants different stones, not a thinner one.
+ */
+const MIN_FIT_FRAC = 0.65;
+
+/** Quantised world point, so the same run found from two stones keys alike. */
+function runKey(x0: number, y0: number, x1: number, y1: number): string {
+  const q = (v: number): number => Math.round(v * 1e4);
+  // Normalised end-for-end: two stones facing opposite ways along one wall walk
+  // the same run from opposite directions.
+  const [ax, ay, bx, by] =
+    q(x0) < q(x1) || (q(x0) === q(x1) && q(y0) <= q(y1))
+      ? [x0, y0, x1, y1]
+      : [x1, y1, x0, y0];
+  return `${q(ax)}:${q(ay)}:${q(bx)}:${q(by)}`;
+}
+
+/** One stone's claim on one run, in that stone's own axis coordinates. */
+interface RunClaim {
+  node: WallNode;
+  cos: number;
+  sin: number;
+  halfLength: number;
+  a: number;
+  b: number;
+  /** Index of the claiming stone in the input, to keep the draw order. */
+  order: number;
+}
+
+/**
  * Cut the stones a door opening passes through.
  *
  * The hard part is that a stone can be much longer than a door. stone-slate's
@@ -214,9 +254,18 @@ export function withoutDoorGaps(
   if (gaps.length === 0) return nodes;
 
   const minRun = wallWidth * MIN_RUN_FRAC;
-  const out: WallNode[] = [];
+  const straights = [...specById.values()].filter((s) => s.role === 'straight');
+  // Runs are found stone by stone, on each stone's own axis, so one stretch of
+  // wall is found once per stone that reaches it. Collected under a world-space
+  // key so the run is decided once, for all of them together.
+  const byRun = new Map<string, RunClaim[]>();
+  // Stones lap over their neighbours by design, so which one is drawn last is
+  // visible. Every batch keeps the index of the earliest stone it came from and
+  // the batches are laid out in that order, so the shingling still runs the way
+  // the wall does.
+  const batches: { order: number; made: WallNode[] }[] = [];
 
-  for (const node of nodes) {
+  for (const [index, node] of nodes.entries()) {
     const spec = specById.get(node.pieceId);
     // Same length the sprite will be drawn at — nodeSpriteScale's along-spine
     // factor times the piece's own length is exactly this.
@@ -227,9 +276,18 @@ export function withoutDoorGaps(
     const cos = Math.cos(node.angle);
     const sin = Math.sin(node.angle);
 
-    // Every opening that actually reaches this stone, as an interval on the
-    // stone's own axis with the stone's centre at zero.
+    // Every opening on this wall, as an interval on the stone's own axis with
+    // the stone's centre at zero.
     const cuts: [number, number][] = [];
+    // Whether any of them actually passes through this stone's body, which is a
+    // different question from which of them bound its runs. Openings that reach
+    // the stone decide whether it is rearranged at all; every opening on the
+    // wall bounds the runs it may be rearranged into, because a stone slides
+    // along its run to sit flush against the opening that cut it and a run
+    // bounded only by the openings already touching the stone runs straight
+    // through the next door along — which is what put a full-size stone across
+    // a second doorway.
+    let touched = false;
     for (const gap of gaps) {
       const dx = gap.position[0] - node.x;
       const dy = gap.position[1] - node.y;
@@ -240,12 +298,14 @@ export function withoutDoorGaps(
       // which edge the gap belongs to, so it is checked first.
       if (Math.abs(across) > wallWidth) continue;
       const half = gap.width / 2;
-      if (Math.abs(along) >= halfLength + half) continue;
+      if (Math.abs(along) < halfLength + half) touched = true;
       cuts.push([along - half, along + half]);
     }
     // Untouched by every opening, so it comes out as the very same object it
-    // went in as.
-    if (cuts.length === 0) { out.push(node); continue; }
+    // went in as. End caps and cornerstones live here: they are placed on an
+    // authored anchor — the wall's own endpoint, the vertex — and straddle it on
+    // purpose, so a door elsewhere on the wall must not slide them inboard.
+    if (!touched) { batches.push({ order: index, made: [node] }); continue; }
     cuts.sort((a, b) => a[0] - b[0]);
 
     // The wall's own ends, projected onto this stone's axis. Projection rather
@@ -276,36 +336,111 @@ export function withoutDoorGaps(
       // How much of this stone's own body the run holds. A run the stone barely
       // reaches into is its neighbour's to fill, not its.
       if (Math.min(b, halfLength) - Math.max(a, -halfLength) < minRun) continue;
-
-      const room = b - a;
-      const fits = room >= 2 * halfLength;
-      // Whole stone, as near home as the run allows — which is what keeps a long
-      // run exact and its stones full size. Squeezed onto the run when the run is
-      // shorter than the stone, because the alternative is the bug this replaced:
-      // a cell and a half of bare floor beside every door.
-      const shift = fits
-        ? Math.min(Math.max(0, a + halfLength), b - halfLength)
-        : (a + b) / 2;
-      const squeeze = fits ? 1 : room / (2 * halfLength);
-
-      out.push(
-        shift === 0 && squeeze === 1
-          ? node
-          : {
-              ...node,
-              x: node.x + cos * shift,
-              y: node.y + sin * shift,
-              // ponytail: a door through the middle of a long stone emits it
-              // once per side, and the two halves of a stone that spans a short
-              // run can land on the same patch as a neighbour's. Overlapping
-              // masonry is what this pack draws anyway; dedupe if the sprite
-              // count ever shows up in a profile.
-              scale: node.scale * squeeze,
-            },
-      );
+      claim(runKey(node.x + cos * a, node.y + sin * a, node.x + cos * b, node.y + sin * b), {
+        node, cos, sin, halfLength, a, b, order: index,
+      });
     }
   }
-  return out;
+
+  for (const claims of byRun.values()) {
+    const order = claims[0].order;
+
+    // A run at least as long as one of its stones is tiled by whole stones, the
+    // way the layout pass drew it — nothing to reconsider.
+    if (claims.some((c) => c.b - c.a >= 2 * c.halfLength)) {
+      batches.push({ order, made: claims.map(place) });
+      continue;
+    }
+
+    // Every stone here is longer than the run, and a squeezed stone spans the
+    // whole run on its own — so emitting one per claim stacks identical slabs of
+    // ink on one patch of wall. One stone covers it; the rest are redundant.
+    // Take the one that has to give up least.
+    const best = claims.reduce((a, c) =>
+      (c.b - c.a) / (2 * c.halfLength) > (a.b - a.a) / (2 * a.halfLength) ? c : a,
+    );
+    batches.push({
+      order,
+      made:
+        (best.b - best.a) / (2 * best.halfLength) >= MIN_FIT_FRAC
+          ? [place(best)]
+          : // Too short for even the smallest stone that reaches it. Squeezing
+            // anyway is what drew the sliver comb, so the run gets stones chosen
+            // to suit it instead — fewer of them, each near its natural length.
+            refill(best),
+    });
+  }
+
+  batches.sort((p, q) => p.order - q.order);
+  return batches.flatMap((b) => b.made);
+
+  function claim(key: string, c: RunClaim): void {
+    const at = byRun.get(key);
+    if (at) at.push(c);
+    else byRun.set(key, [c]);
+  }
+
+  /** Today's placement: whole and slid flush where it fits, squeezed where not. */
+  function place(c: RunClaim): WallNode {
+    const { node, cos, sin, halfLength, a, b } = c;
+    const room = b - a;
+    const fits = room >= 2 * halfLength;
+    // Whole stone, as near home as the run allows — which is what keeps a long
+    // run exact and its stones full size. Squeezed onto the run when the run is
+    // shorter than the stone, because the alternative is the bug this replaced:
+    // a cell and a half of bare floor beside every door.
+    const shift = fits
+      ? Math.min(Math.max(0, a + halfLength), b - halfLength)
+      : (a + b) / 2;
+    const squeeze = fits ? 1 : room / (2 * halfLength);
+
+    return shift === 0 && squeeze === 1
+      ? node
+      : {
+          ...node,
+          x: node.x + cos * shift,
+          y: node.y + sin * shift,
+          // ponytail: a door through the middle of a long stone still emits it
+          // once per side. Overlapping masonry is what this pack draws anyway;
+          // dedupe if the sprite count ever shows up in a profile.
+          scale: node.scale * squeeze,
+        };
+  }
+
+  /** Re-lay one short run out of whatever straights the set actually has. */
+  function refill(c: RunClaim): WallNode[] {
+    const { node, cos, sin, a, b } = c;
+    const room = b - a;
+    const sx = node.x + cos * a;
+    const sy = node.y + sin * a;
+    // Stable in the wall's own frame, so the run redraws identically every time.
+    const seed = (Math.round(sx * 1e3) * 73856093) ^ (Math.round(sy * 1e3) * 19349663);
+    const filled = fillRun(room, straights, wallWidth, DEFAULT_WALL_OVERLAP, seed >>> 0, 0);
+    if (filled.length === 0) return [place(c)];
+
+    const made: WallNode[] = [];
+    let along = 0;
+    for (const { piece, scale } of filled) {
+      const wl = pieceWorldLength(piece, wallWidth) * scale;
+      made.push({
+        ...node,
+        x: sx + cos * (along + wl / 2),
+        y: sy + sin * (along + wl / 2),
+        pieceId: piece.id,
+        scale,
+        // A refilled fragment is a fresh piece, not the donor resized, so the
+        // donor's own hand-resize does not carry onto it.
+        sizeScale: 1,
+        kind: 'straight',
+        // ponytail: the whole run inherits the donor's t. Nothing downstream
+        // reads t off this function's output — placeNodes ignores it and the
+        // node overlay recomputes its own layout — so distinct values would buy
+        // nothing today. Interpolate if an edit handle ever keys off these.
+      });
+      along += wl * (1 - DEFAULT_WALL_OVERLAP);
+    }
+    return made;
+  }
 }
 
 /**
