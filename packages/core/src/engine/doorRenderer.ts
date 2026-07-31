@@ -39,68 +39,83 @@ export function renderDoors(
   // Do NOT clear the container here — it contains wall texture sprites too.
 
   for (const resolved of doors) {
-    const { door, position, angle: wallAngle } = resolved;
-    if (!door.visible) continue;
-
-    // Fresh Graphics per door to avoid PixiJS v8 path accumulation
-    const g = new Graphics();
-
-    const cx = position[0];
-    const cy = position[1];
-    const halfWidth = door.width / 2;
-
-    if (resolved.detached) {
-      renderDetachedMarker(g, cx, cy, wallAngle, halfWidth);
-      container.addChild(g);
-      // No state dot: a door attached to nothing has no meaningful state, and
-      // the marker must not read as a normal door with an odd colour.
-      continue;
-    }
-
-    const wallColor = parseInt(style.wallColor.replace('#', ''), 16);
-    // A locked door reads as locked at a glance, not only from the state dot.
-    const glyphColor = door.state === 'locked' ? STATE_COLORS.locked : wallColor;
-
-    // A portal carries its own authored texture, so it never consults the door
-    // pack. Every other style tries the pack first and falls back to its glyph.
-    if (door.style === 'portal' && door.portalTextureId) {
-      renderPortalSprite(container, door, position, wallAngle);
-      g.destroy();
-      continue;
-    }
-
-    const drewSprite = renderDoorSprite(container, door, position, wallAngle);
-    if (!drewSprite) {
-      if (door.style === 'archway') {
-        renderArchway(g, cx, cy, wallAngle, halfWidth, wallColor);
-      } else if (door.style === 'portcullis') {
-        renderPortcullis(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
-      } else if (door.style === 'double') {
-        renderDoubleDoor(g, cx, cy, wallAngle, halfWidth, glyphColor, door.state);
-      } else {
-        renderSingleDoor(g, cx, cy, wallAngle, halfWidth, glyphColor, door.state, door.isSecret);
-      }
-    }
-
-    if (drewSprite) {
-      g.destroy();
-    } else {
-      container.addChild(g);
-    }
-
-    // C2: Skip state dot for secret doors that are closed — invisibility is the point
-    // M3: Skip state dot for archways — they are permanent openings, "closed" is meaningless
-    if ((door.isSecret && door.state === 'closed') || door.style === 'archway') {
-      continue;
-    }
-
-    // State indicator dot (separate Graphics to avoid path contamination)
-    const dot = new Graphics();
-    const stateColor = getStateColor(door);
-    dot.circle(cx, cy, 0.1); // 0.1 world units — subtle but scannable
-    dot.fill({ color: stateColor });
-    container.addChild(dot);
+    renderResolvedDoor(container, resolved, style);
   }
+}
+
+/**
+ * One door's art into `container`. Split out of `renderDoors` so the door tool's
+ * placement ghost draws through the same path a committed door does — a preview
+ * that reimplemented the glyph dispatch would drift from it on the first style
+ * that changed. Callers wanting a ghost tint or fade set them on the container
+ * they pass, not here.
+ */
+export function renderResolvedDoor(
+  container: Container,
+  resolved: ResolvedDoor,
+  style: DungeonStyle,
+): void {
+  const { door, position, angle: wallAngle } = resolved;
+  if (!door.visible) return;
+
+  // Fresh Graphics per door to avoid PixiJS v8 path accumulation
+  const g = new Graphics();
+
+  const cx = position[0];
+  const cy = position[1];
+  const halfWidth = door.width / 2;
+
+  if (resolved.detached) {
+    renderDetachedMarker(g, cx, cy, wallAngle, halfWidth);
+    container.addChild(g);
+    // No state dot: a door attached to nothing has no meaningful state, and
+    // the marker must not read as a normal door with an odd colour.
+    return;
+  }
+
+  const wallColor = parseInt(style.wallColor.replace('#', ''), 16);
+  // A locked door reads as locked at a glance, not only from the state dot.
+  const glyphColor = door.state === 'locked' ? STATE_COLORS.locked : wallColor;
+
+  // A portal carries its own authored texture, so it never consults the door
+  // pack. Every other style tries the pack first and falls back to its glyph.
+  if (door.style === 'portal' && door.portalTextureId) {
+    renderPortalSprite(container, door, position, wallAngle);
+    g.destroy();
+    return;
+  }
+
+  const drewSprite = renderDoorSprite(container, door, position, wallAngle);
+  if (!drewSprite) {
+    if (door.style === 'archway') {
+      renderArchway(g, cx, cy, wallAngle, halfWidth, wallColor);
+    } else if (door.style === 'portcullis') {
+      renderPortcullis(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
+    } else if (door.style === 'double') {
+      renderDoubleDoor(g, cx, cy, wallAngle, halfWidth, glyphColor, door.state);
+    } else {
+      renderSingleDoor(g, cx, cy, wallAngle, halfWidth, glyphColor, door.state, door.isSecret);
+    }
+  }
+
+  if (drewSprite) {
+    g.destroy();
+  } else {
+    container.addChild(g);
+  }
+
+  // C2: Skip state dot for secret doors that are closed — invisibility is the point
+  // M3: Skip state dot for archways — they are permanent openings, "closed" is meaningless
+  if ((door.isSecret && door.state === 'closed') || door.style === 'archway') {
+    return;
+  }
+
+  // State indicator dot (separate Graphics to avoid path contamination)
+  const dot = new Graphics();
+  const stateColor = getStateColor(door);
+  dot.circle(cx, cy, 0.1); // 0.1 world units — subtle but scannable
+  dot.fill({ color: stateColor });
+  container.addChild(dot);
 }
 
 /**

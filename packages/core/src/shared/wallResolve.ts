@@ -188,7 +188,12 @@ function nearestWall(door: DoorChild, walls: ResolvedWall[]): ResolvedWall | nul
   return snap ? walls.find((w) => w.id === snap.wallId) ?? null : null;
 }
 
-function polylineLength(points: [number, number][]): number {
+/**
+ * Total arc length of a wall's polyline. Exported because "how long is this
+ * wall" is the door tool's auto-fit and too-wide question too, and measuring it
+ * end-to-end there would cut the corners off a chained wall.
+ */
+export function polylineLength(points: [number, number][]): number {
   let total = 0;
   for (let i = 0; i + 1 < points.length; i++) {
     total += Math.hypot(points[i + 1][0] - points[i][0], points[i + 1][1] - points[i][1]);

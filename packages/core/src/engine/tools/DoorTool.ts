@@ -1,3 +1,4 @@
+import { Container } from 'pixi.js';
 import type { Point } from '../../types/geometry';
 import { isDoubleClick, type DrawingTool, type PreviewShape } from './DrawingTool';
 import type { DoorChild, DungeonLayer } from '../../store/types';
@@ -5,10 +6,13 @@ import type { DoorState } from '../../shared/types';
 import { snapToNearestWall, type WallSnapResult } from '../../shared/wallSnap';
 import {
   FLOOR_ANCHORED,
+  polylineLength,
   projectDoorOnto,
   resolveDoors,
   resolveWalls,
+  type ResolvedWall,
 } from '../../shared/wallResolve';
+import { renderResolvedDoor } from '../doorRenderer';
 import { bindDoorToRooms } from '../../shared/roomBinding';
 import { DOOR_MIN_HIT_RADIUS as MIN_HIT_RADIUS } from '../hitTest';
 import { AddChildCommand, RemoveChildCommand, UpdateChildCommand } from '../../store/commands';
@@ -47,6 +51,53 @@ const SNAP_THRESHOLD = 1.5;
  * ponytail: no shared drag-slop constant exists yet; hoist if a second tool needs one.
  */
 const DRAG_SLOP = 0.15;
+
+/**
+ * A wall no longer than this is an opening rather than a run of wall — a doorway
+ * stub, a cave mouth, the gap a union left between two rooms — so a door placed
+ * on it fills it end to end instead of leaving a sliver of wall either side.
+ * Six cells is a double door and its frame; anything longer is a wall the DM is
+ * placing a door *somewhere* on, and the width setting wins. World units are
+ * grid cells (see `SNAP_THRESHOLD`), so no grid lookup is involved.
+ */
+const AUTO_FIT_MAX_CELLS = 6;
+
+/** The panel's width floor. A wall shorter than this is a crack, not an opening. */
+const AUTO_FIT_MIN_WIDTH = 0.25;
+
+/**
+ * Slack on the width-vs-wall-length compare. An auto-fit door is *exactly* as
+ * wide as its wall, which is the widest a door can honestly be — without this
+ * the placement it just previewed would reject itself on float noise.
+ */
+const WIDTH_EPSILON = 1e-6;
+
+/** Ghost alpha and the tint that says "this click will do nothing". */
+const GHOST_ALPHA = 0.5;
+const INVALID_TINT = 0xcc3344;
+
+/**
+ * World-unit step the ghost's rebuild key quantizes to. Same trick as
+ * `StampScatterTool`'s `POSITION_QUANTIZE`, but keyed on the *snapped* door
+ * rather than the cursor: sliding along a wall inside a quarter cell, or moving
+ * perpendicular to one at all, changes nothing that is drawn.
+ */
+const GHOST_QUANTIZE = 0.25;
+
+/** Width a door takes on a wall of `wallLength`, auto-fitting an opening-sized one. */
+function fittedWidth(wallLength: number, settingsWidth: number): number {
+  return wallLength <= AUTO_FIT_MAX_CELLS && wallLength >= AUTO_FIT_MIN_WIDTH
+    ? wallLength
+    : settingsWidth;
+}
+
+/** What a click would place, and whether it would be allowed to. */
+interface DoorPlan {
+  /** Transient — the commit fills in the id, the name and the room binding. */
+  door: DoorChild;
+  wall: ResolvedWall;
+  valid: boolean;
+}
 
 /**
  * Nearest door within its own half-width of the point, or null.
@@ -102,6 +153,17 @@ export class DoorTool implements DrawingTool {
   private pressPoint: Point | null = null;
   /** Set once the press passes `DRAG_SLOP`; holds what to put back on Escape/undo. */
   private dragFrom: DoorAnchor | null = null;
+  /** Holds the placement ghost. Owned here, parented to the shared preview layer. */
+  private ghost: Container;
+  /** What the ghost currently shows, quantized; null when it is empty. */
+  private ghostKey: string | null = null;
+
+  constructor(previewContainer: Container) {
+    this.ghost = new Container();
+    this.ghost.label = 'doorGhost';
+    this.ghost.alpha = GHOST_ALPHA;
+    previewContainer.addChild(this.ghost);
+  }
 
   onPointerDown(point: Point): void {
     const store = useStore.getState();
@@ -138,42 +200,15 @@ export class DoorTool implements DrawingTool {
     }
 
     store.setSelectedIds([]);
-    if (!this.snapResult) return;
 
-    const toolSettings = store.tools.settings;
-
-    const doorWidth = toolSettings.doorWidth || 1;
+    // The ghost the pointer has been showing *is* the placement — same plan, so
+    // what was previewed is exactly what lands, invalidity included.
     const allWalls = resolveWalls(activeLayer);
-    const wall = allWalls.find((w) => w.id === this.snapResult!.wallId);
-    if (!wall) return;
-
-    // Validate: check overlap against the doors that currently resolve onto this
-    // wall — a floor door stores no wall id, so its anchor is only known once
-    // resolved.
-    const existingDoors = resolveDoors(activeLayer, allWalls).filter(
-      (r) => r.wall?.id === wall.id,
-    );
-    for (const existing of existingDoors) {
-      const dist = Math.sqrt(
-        (existing.position[0] - this.snapResult.position[0]) ** 2 +
-        (existing.position[1] - this.snapResult.position[1]) ** 2,
-      );
-      if (dist < (existing.door.width + doorWidth) / 2) {
-        return; // overlap — reject placement
-      }
-    }
-
-    // M8: Reject door wider than the wall it's being placed on
-    const wallStart = wall.points[0];
-    const wallEnd = wall.points[wall.points.length - 1];
-    const wallLen = Math.sqrt(
-      (wallEnd[0] - wallStart[0]) ** 2 + (wallEnd[1] - wallStart[1]) ** 2,
-    );
-    if (doorWidth > wallLen) return; // door too wide for wall
+    const plan = this.plan(activeLayer, allWalls);
+    if (!plan || !plan.valid) return;
 
     // L6: Auto-name by style — e.g., "Portcullis 1", "Archway 2"
-    const styleName =
-      toolSettings.doorStyle.charAt(0).toUpperCase() + toolSettings.doorStyle.slice(1);
+    const styleName = plan.door.style.charAt(0).toUpperCase() + plan.door.style.slice(1);
     const stylePattern = new RegExp(`^${styleName} (\\d+)$`);
     const doorNumbers = activeLayer.children
       .filter((c) => c.childType === 'door')
@@ -184,19 +219,9 @@ export class DoorTool implements DrawingTool {
     const nextNum = doorNumbers.length > 0 ? Math.max(...doorNumbers) + 1 : 1;
 
     const door: DoorChild = {
+      ...plan.door,
       id: crypto.randomUUID(),
       name: `${styleName} ${nextNum}`,
-      childType: 'door',
-      visible: true,
-      // Floor-ring ids are derived per resolve, so storing one would rot on the
-      // next union. Position + projection is the whole anchor for those.
-      wallId: wall.kind === 'floor' ? FLOOR_ANCHORED : wall.id,
-      position: this.snapResult.position,
-      angle: this.snapResult.angle,
-      width: doorWidth,
-      style: toolSettings.doorStyle ?? 'single',
-      state: 'closed',
-      isSecret: toolSettings.doorSecret ?? false,
     };
 
     // Bind to the rooms either side of the wall now, so lighting/fog see the
@@ -204,9 +229,126 @@ export class DoorTool implements DrawingTool {
     Object.assign(door, bindDoorToRooms(door, allWalls, activeLayer.rooms ?? []));
 
     undoManager.execute(new AddChildCommand('Place door', activeLayerId, door));
+    // The real door draws now, so the ghost of it would only double the ink.
+    this.clearGhost();
     // Width is a panel field, not a canvas handle (DD6), so a fresh door has to
     // arrive selected or there is no way to size it without hunting the layer list.
     store.setSelectedIds([door.id]);
+  }
+
+  /**
+   * The door a click at the current snap would place, with the width it would
+   * get and whether it would be allowed. One source for the ghost and the
+   * commit — the preview is the placement, rendered early.
+   */
+  private plan(layer: DungeonLayer, walls: ResolvedWall[]): DoorPlan | null {
+    const snap = this.snapResult;
+    if (!snap) return null;
+    const wall = walls.find((w) => w.id === snap.wallId);
+    if (!wall) return null;
+
+    const settings = useStore.getState().tools.settings;
+    const wallLength = polylineLength(wall.points);
+    const draft: DoorChild = {
+      id: '',
+      name: '',
+      childType: 'door',
+      visible: true,
+      // Floor-ring ids are derived per resolve, so storing one would rot on the
+      // next union. Position + projection is the whole anchor for those.
+      wallId: wall.kind === 'floor' ? FLOOR_ANCHORED : wall.id,
+      position: snap.position,
+      angle: snap.angle,
+      width: fittedWidth(wallLength, settings.doorWidth || 1),
+      style: settings.doorStyle ?? 'single',
+      state: 'closed',
+      isSecret: settings.doorSecret ?? false,
+    };
+
+    // Anchor it the way a render will, so an auto-fit door — as wide as its wall,
+    // hence clamped to t = 0.5 — arrives centred on the opening with no
+    // centring maths of its own.
+    const placed = projectDoorOnto(draft, wall, snap.position);
+    draft.position = placed.position;
+    draft.angle = placed.angle;
+
+    return { door: draft, wall, valid: this.isPlaceable(draft, wall, wallLength, layer, walls) };
+  }
+
+  /** M8 (too wide for its wall) and overlap, the two rules a click is silent about. */
+  private isPlaceable(
+    door: DoorChild,
+    wall: ResolvedWall,
+    wallLength: number,
+    layer: DungeonLayer,
+    walls: ResolvedWall[],
+  ): boolean {
+    if (door.width > wallLength + WIDTH_EPSILON) return false;
+
+    // Overlap is checked against the doors that currently *resolve* onto this
+    // wall — a floor door stores no wall id, so its anchor is only known once
+    // resolved.
+    // M9: Euclidean centre distance is a simplification. It is accurate enough
+    // for doors along a single wall; exact edge cases would want a parametric
+    // interval check.
+    for (const existing of resolveDoors(layer, walls)) {
+      if (existing.wall?.id !== wall.id) continue;
+      const dist = Math.hypot(
+        existing.position[0] - door.position[0],
+        existing.position[1] - door.position[1],
+      );
+      if (dist < (existing.door.width + door.width) / 2) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Draws what the click would place, in the art it would place it in — through
+   * `renderResolvedDoor`, the same path the committed door takes. Red says the
+   * click will do nothing and why it is refusing (the door overlaps one already
+   * there, or is wider than its wall); nothing at all says no wall is in range.
+   *
+   * ponytail: no subscription to the tool settings — a style or width change
+   * shows on the next pointer move. Add one if the panel ever needs to redraw
+   * the ghost with the cursor parked.
+   */
+  private updateGhost(layer: DungeonLayer): void {
+    // Over a placed door the click selects rather than places, and during a
+    // slide the door itself is tracking the cursor: either way a placement
+    // ghost would be a lie.
+    const plan =
+      this.hoveredDoorId || this.dragFrom ? null : this.plan(layer, resolveWalls(layer));
+    if (!plan) {
+      this.clearGhost();
+      return;
+    }
+
+    const { door } = plan;
+    const key = [
+      Math.round(door.position[0] / GHOST_QUANTIZE),
+      Math.round(door.position[1] / GHOST_QUANTIZE),
+      door.angle.toFixed(3),
+      door.width,
+      door.style,
+      door.isSecret,
+      plan.valid,
+    ].join(':');
+    if (key === this.ghostKey) return;
+
+    this.clearGhost();
+    this.ghostKey = key;
+    this.ghost.tint = plan.valid ? 0xffffff : INVALID_TINT;
+    renderResolvedDoor(
+      this.ghost,
+      { door, wall: plan.wall, t: 0.5, position: door.position, angle: door.angle, detached: false },
+      layer.style,
+    );
+  }
+
+  private clearGhost(): void {
+    if (this.ghostKey === null) return;
+    for (const child of this.ghost.removeChildren()) child.destroy();
+    this.ghostKey = null;
   }
 
   onPointerMove(point: Point): void {
@@ -216,6 +358,7 @@ export class DoorTool implements DrawingTool {
     if (this.pressedDoorId && this.pressPoint) {
       const moved = Math.hypot(point.x - this.pressPoint.x, point.y - this.pressPoint.y);
       if (this.dragFrom || moved > DRAG_SLOP) {
+        this.clearGhost();
         this.slideTo(point, activeLayer);
         return;
       }
@@ -223,14 +366,13 @@ export class DoorTool implements DrawingTool {
 
     this.hoveredDoorId = doorAt(point, activeLayer)?.id ?? null;
 
-    // M9: Overlap detection uses Euclidean center distance which is a simplification.
-    // For most cases this is accurate enough since doors are placed along a single wall.
-    // A full parametric interval check would be needed for exact edge-case accuracy.
     this.snapResult = snapToNearestWall(
       [point.x, point.y],
       resolveWalls(activeLayer),
       SNAP_THRESHOLD,
     );
+
+    this.updateGhost(activeLayer);
   }
 
   /**
@@ -312,26 +454,10 @@ export class DoorTool implements DrawingTool {
   }
 
   getPreview(): PreviewShape | null {
-    // Ghost only while hovering empty wall — over a placed door the click
-    // selects it rather than placing, so a placement ghost would be a lie, and
-    // during a slide the door itself is already tracking the cursor.
-    if (this.hoveredDoorId || this.dragFrom) return null;
-    if (!this.snapResult) return null;
-    const store = useStore.getState();
-    const doorWidth = store.tools.settings.doorWidth || 1;
-    const halfWidth = doorWidth / 2;
-    const angle = this.snapResult.angle;
-    const cx = this.snapResult.position[0];
-    const cy = this.snapResult.position[1];
-
-    // Line along the wall at the snap point
-    return {
-      type: 'line',
-      points: [
-        { x: cx - Math.cos(angle) * halfWidth, y: cy - Math.sin(angle) * halfWidth },
-        { x: cx + Math.cos(angle) * halfWidth, y: cy + Math.sin(angle) * halfWidth },
-      ],
-    };
+    // Retired: the shared blue line said "a door of some width goes roughly
+    // here". The ghost draws the door itself, at the width that will commit, so
+    // a second preview under it would only be a worse one.
+    return null;
   }
 
   /** A placed door is draggable, so say so before the user finds out by accident. */
@@ -352,6 +478,9 @@ export class DoorTool implements DrawingTool {
     this.lastClick = null;
     this.snapResult = null;
     this.hoveredDoorId = null;
+    // `ToolManager.switchTool` cancels the outgoing tool, so this is also the
+    // tool-exit clear — the ghost must not outlive the door tool being active.
+    this.clearGhost();
   }
 
   isActive(): boolean {

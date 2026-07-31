@@ -220,7 +220,12 @@ function installKit(page: Page): Promise<void> {
         const zoom = w.scale.x
         const containers: Any[] = []
         const walk = (node: Any) => {
-          if (node.label === 'sublayer-walls') containers.push(node)
+          // Doors moved into a sublayer of their own so a state flip can redraw
+          // without re-laying every stone. Both halves of the census live there
+          // and here: stones in `sublayer-walls`, glyphs in `sublayer-doors`.
+          if (node.label === 'sublayer-walls' || node.label === 'sublayer-doors') {
+            containers.push(node)
+          }
           for (const kid of (node.children as Any[]) ?? []) walk(kid)
         }
         for (const child of app().stage.children) walk(child)

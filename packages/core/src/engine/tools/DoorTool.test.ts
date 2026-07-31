@@ -1,4 +1,46 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+/**
+ * PixiJS stubs. The tool owns a real display object now — the placement ghost —
+ * and the rows below read what landed in it, so the stubs only have to record
+ * parentage and swallow every draw call.
+ */
+vi.mock('pixi.js', () => {
+  class MockContainer {
+    label = '';
+    alpha = 1;
+    tint = 0xffffff;
+    children: MockContainer[] = [];
+    destroyed = false;
+    addChild(child: MockContainer) { this.children.push(child); return child; }
+    removeChildren() { const out = this.children; this.children = []; return out; }
+    destroy() { this.destroyed = true; }
+  }
+  class MockGraphics extends MockContainer {
+    moveTo() { return this; }
+    lineTo() { return this; }
+    arc() { return this; }
+    circle() { return this; }
+    closePath() { return this; }
+    stroke() { return this; }
+    fill() { return this; }
+  }
+  class MockSprite extends MockContainer {
+    anchor = { set: vi.fn() };
+    position = { set: vi.fn() };
+    scale = { set: vi.fn() };
+    rotation = 0;
+  }
+  return { Container: MockContainer, Graphics: MockGraphics, Sprite: MockSprite };
+});
+
+// No pack art in a unit run: every door falls back to its vector glyph.
+vi.mock('../assetPackInstance', () => ({
+  getAssetPackManager: () => ({ getTextureOrNull: () => null }),
+}));
+vi.mock('../../assets/textureLoader', () => ({ resolveTexture: () => ({ width: 0 }) }));
+
+import { Container } from 'pixi.js';
 import { DoorTool } from './DoorTool';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
@@ -52,14 +94,33 @@ function selectedIds(): string[] {
   return useStore.getState().selection.selectedIds;
 }
 
+/** A standalone wall of `length` cells along y = `y`, starting at x = 0. */
+function addWall(id: string, length: number, y: number): void {
+  useStore.getState().addWall(layer().id, {
+    ...structuredClone(WALL),
+    id,
+    points: [[0, y], [length, y]],
+  });
+}
+
+/** The tool's ghost container — the one thing it adds to the preview layer. */
+interface Ghost {
+  children: unknown[];
+  tint: number;
+  alpha: number;
+}
+
 describe('DoorTool', () => {
   let tool: DoorTool;
+  let ghost: Ghost;
 
   beforeEach(() => {
     undoManager.clear();
     useStore.getState().resetToDefault();
     useStore.getState().addWall(layer().id, structuredClone(WALL));
-    tool = new DoorTool();
+    const preview = new Container();
+    tool = new DoorTool(preview);
+    ghost = preview.children[0] as unknown as Ghost;
   });
 
   it('places a closed single door snapped to the wall', () => {
@@ -265,10 +326,115 @@ describe('DoorTool', () => {
   it('suppresses the placement ghost while hovering a placed door', () => {
     click(tool, 5, 5.1);
     tool.onPointerMove({ x: 5, y: 5.1 });
-    expect(tool.getPreview()).toBeNull();
+    expect(ghost.children).toHaveLength(0);
 
     tool.onPointerMove({ x: 9, y: 5.1 });
-    expect(tool.getPreview()).not.toBeNull();
+    expect(ghost.children.length).toBeGreaterThan(0);
+  });
+
+  // ── Placement ghost ──────────────────────────────────────────────────────
+
+  it('ghosts the door a click would place, faded and untinted', () => {
+    tool.onPointerMove({ x: 5, y: 5.1 });
+    expect(ghost.children.length).toBeGreaterThan(0);
+    expect(ghost.alpha).toBe(0.5);
+    expect(ghost.tint).toBe(0xffffff);
+    // Nothing was committed by hovering.
+    expect(doors()).toHaveLength(0);
+  });
+
+  it('shows no ghost with no wall in snap range', () => {
+    tool.onPointerMove({ x: 5, y: 5.1 });
+    expect(ghost.children.length).toBeGreaterThan(0);
+
+    tool.onPointerMove({ x: 5, y: 50 });
+    expect(ghost.children).toHaveLength(0);
+  });
+
+  it('drops the ghost once the door it was showing is placed', () => {
+    click(tool, 5, 5.1);
+    expect(doors()).toHaveLength(1);
+    expect(ghost.children).toHaveLength(0);
+  });
+
+  it('drops the ghost when the tool is cancelled', () => {
+    tool.onPointerMove({ x: 5, y: 5.1 });
+    tool.cancel();
+    expect(ghost.children).toHaveLength(0);
+  });
+
+  it('reds the ghost where the click would overlap a placed door', () => {
+    click(tool, 5, 5.1);
+    // Outside the door's hit radius (0.5) but inside the overlap span (1.0):
+    // the click would be silently refused, so the ghost has to say so.
+    tool.onPointerMove({ x: 5.6, y: 5.1 });
+    expect(ghost.children.length).toBeGreaterThan(0);
+    expect(ghost.tint).toBe(0xcc3344);
+
+    tool.onPointerDown({ x: 5.6, y: 5.1 });
+    expect(doors()).toHaveLength(1);
+  });
+
+  it('reds the ghost where the door would be wider than its wall', () => {
+    // Past the auto-fit span, so the width setting stands — and overhangs.
+    addWall('long', 7, 20);
+    useStore.getState().updateToolSettings({ doorWidth: 8 });
+
+    tool.onPointerMove({ x: 3, y: 20.1 });
+    expect(ghost.children.length).toBeGreaterThan(0);
+    expect(ghost.tint).toBe(0xcc3344);
+
+    tool.onPointerDown({ x: 3, y: 20.1 });
+    expect(doors()).toHaveLength(0);
+  });
+
+  // ── Auto-fit to openings ─────────────────────────────────────────────────
+
+  it('fills a doorway-sized wall end to end, centred, wherever it was clicked', () => {
+    addWall('stub', 3, 20);
+    click(tool, 0.5, 20.1);
+
+    expect(doors()[0].width).toBeCloseTo(3);
+    expect(doors()[0].position[0]).toBeCloseTo(1.5);
+    expect(doors()[0].position[1]).toBeCloseTo(20);
+  });
+
+  it('fills an opening-sized floor-ring edge too', () => {
+    useStore.getState().updateLayer(layer().id, {
+      mergedFloor: [[[0, 30], [4, 30], [4, 34], [0, 34]]],
+    });
+    click(tool, 1, 30.1);
+
+    const placed = doors()[0];
+    expect(placed.wallId).toBe(''); // FLOOR_ANCHORED — the ring has no stable id
+    expect(placed.width).toBeCloseTo(4);
+    expect(placed.position[0]).toBeCloseTo(2);
+  });
+
+  it('keeps the width setting on a wall longer than an opening', () => {
+    // The default wall runs x 0→10, well past the six-cell span.
+    click(tool, 5, 5.1);
+    expect(doors()[0].width).toBe(1);
+    expect(doors()[0].position[0]).toBeCloseTo(5);
+  });
+
+  it('auto-fits at exactly six cells and not a step past it', () => {
+    addWall('six', 6, 20);
+    click(tool, 3, 20.1);
+    expect(doors()[0].width).toBeCloseTo(6);
+
+    addWall('sixplus', 6.5, 30);
+    click(tool, 3, 30.1);
+    expect(doors()[1].width).toBe(1);
+  });
+
+  it('accepts a door exactly as wide as its wall', () => {
+    // An auto-fit door is wall-length by construction, so the too-wide rule has
+    // to be `>` past an epsilon or the tool would refuse its own preview.
+    addWall('stub', 2, 20);
+    click(tool, 1, 20.1);
+    expect(doors()).toHaveLength(1);
+    expect(doors()[0].width).toBeCloseTo(2);
   });
 
   it('removing a wall cascades to the doors attached to it', () => {
