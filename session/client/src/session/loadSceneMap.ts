@@ -87,14 +87,38 @@ const forViewer = (
  * a wall on the boundary between two rooms arrives with *both* of them, so a reveal that
  * opens the second one re-sends geometry the client already holds (§2.3.3).
  */
-function upsertById<T extends { id: string }>(current: readonly T[], incoming: readonly T[]): T[] {
+function upsertById<T extends { id: string }>(
+  current: readonly T[],
+  incoming: readonly T[],
+  merge: (existing: T, next: T) => T = (_existing, next) => next,
+): T[] {
   if (incoming.length === 0) return current as T[];
   const byId = new Map(incoming.map((item) => [item.id, item]));
-  const merged = current.map((item) => byId.get(item.id) ?? item);
+  const merged = current.map((item) => {
+    const next = byId.get(item.id);
+    return next ? merge(item, next) : item;
+  });
   for (const item of incoming) {
     if (!current.some((existing) => existing.id === item.id)) merged.push(item);
   }
   return merged;
+}
+
+/**
+ * A door that was open stays open across a reveal.
+ *
+ * Live door state travels on the `doors` module slice, and the lighting lane writes it back
+ * onto the map's own door children so ClockwiseSweep can treat a shut door as a wall (D12,
+ * `doorLighting`). The server's delta carries the *authored* child — `redactMap` never
+ * stamps the live state onto it — so replacing the child wholesale reset `state` to whatever
+ * the map was saved with. A fog reveal whose delta happened to carry an already-open door
+ * therefore swung it shut, occlusion and all, with nobody touching it: the portcullis the
+ * gate walk saw close on its own. `syncDoorsToLighting` repairs the drift on the next store
+ * pass, which is why it normally reads as a flash and only sometimes sticks.
+ */
+function keepLiveDoorState(existing: AnyChild, next: AnyChild): AnyChild {
+  if (existing.childType !== 'door' || next.childType !== 'door') return next;
+  return { ...next, state: (existing as DoorChild).state };
 }
 
 /**
@@ -127,7 +151,7 @@ export function mergeMapDelta(
       return {
         ...layer,
         rooms: upsertById(layer.rooms ?? [], patch.rooms ?? []),
-        children: upsertById(layer.children, patch.children ?? []),
+        children: upsertById(layer.children, patch.children ?? [], keepLiveDoorState),
         standaloneWalls: upsertById(layer.standaloneWalls, patch.standaloneWalls ?? []),
       };
     }),

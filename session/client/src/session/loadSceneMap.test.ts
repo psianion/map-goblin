@@ -190,6 +190,24 @@ describe('mergeMapDelta', () => {
     expect(layer.rooms.map((r) => r.id)).toEqual(['r-vestibule', 'r-gallery']);
   });
 
+  /**
+   * The portcullis that shut on its own. The lighting lane writes the table's live door
+   * state onto the map's own door children (`doorLighting`), and the server's delta carries
+   * the *authored* child — so replacing it wholesale swung an already-open door shut, with
+   * its occlusion, and nobody had touched it.
+   */
+  it('keeps a door the table has open open when a reveal re-sends it', () => {
+    const open = loaded();
+    // What `syncDoorsToLighting` wrote after the party opened it.
+    (open.layers[0] as unknown as { children: { state: string }[] }).children[0].state = 'open';
+
+    const merged = mergeMapDelta(open, delta(), 'player', 'scene-1');
+    const door = layerOf(merged).children[0] as { state: string; roomB?: string | null };
+    expect(door.state).toBe('open');
+    // …and the delta still wins on everything it is actually authoritative for.
+    expect(door.roomB).toBe('r-gallery');
+  });
+
   it('leaves the merged floor for core to rebuild, as the server sent it', () => {
     const merged = mergeMapDelta(loaded(), delta(), 'player', 'scene-1');
     expect((merged!.layers[0] as unknown as { mergedFloor: unknown }).mergedFloor).toBeNull();
