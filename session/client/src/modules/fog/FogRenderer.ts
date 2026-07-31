@@ -18,13 +18,21 @@
 // *beneath* the fog, never recomputed for it. A revealed room fades from black to a
 // finished torchlit room, never to a flat one that lights up a beat later.
 //
-// And an explored room is held *out* of that multiply (`drawLightMask`). A memory is not a
-// thing you are looking at: the party is not standing there with a torch, so composing the
-// live lighting into it means composing 5% ambient into it, which crushes the floor texture
-// to under one level of 255 and leaves the flat grey box the second browser gate found.
-// D10 asks for "~35% brightness on those rooms' render" and the room's render is the map,
-// not the map times the dark it is currently sitting in. So the lighting sprite is masked
-// everywhere except the rooms that are only memories, and the wash below dims *that*.
+// The brightness order is the whole point, and it is what the third browser gate found
+// inverted: explored rooms read *brighter* than lit ones. The cause was that a memory was
+// held out of the multiply entirely and then washed to ~35% of the raw art, while a live
+// room with no torch in it kept the full multiply and landed at the map's 5% ambient. A
+// fixed wash cannot sit below a floor that low without being black, so the floor is what
+// moves: `LIGHTING_STRENGTH` dials the composite back, which lifts *unlit* map to somewhere
+// legible while leaving anything a torch actually reaches at full strength. The memory wash
+// then composites over the lit result like any other overlay, so explored is a strict
+// dimming of exactly the pixels the room shows when live — the order holds by construction
+// rather than by two constants agreeing, which is what let it invert in the first place.
+//
+// The DM is not in that hierarchy at all. PRODUCT principle 3 — the DM never loses
+// visibility — makes darkness a thing the DM *stages*, never a thing imposed on them, so
+// their composite is dialled to nothing and the fog state reaches them as the overlay's
+// tints (FogOverlay) instead of as an unreadable stage.
 //
 // ponytail: pixi through @dnd/core, the same reach-through TokenRenderer documents.
 import { Container, Graphics } from 'pixi.js';
@@ -52,37 +60,50 @@ export const REVEAL_MS = 300;
 
 /** Art guide §5: dungeon negative space is pure black, never a grey wash. */
 export const FOG_BLACK = 0x000000;
-/** Cold slate: the desaturating half of the explored look, pulling warm torchlight out. */
-export const EXPLORED_TINT = 0x2c313b;
 /**
- * D10's two numbers in one fill, over a room the lighting is not allowed to touch:
- * `1 - alpha` of the room's own render survives (35%, the brightness half) and the rest is
- * that cold slate (the desaturating half — 65% of a near-neutral colour collapses the
- * torchlight out of anything warm underneath).
+ * Cold near-black: the desaturating half of the explored look, pulling warm torchlight out.
  *
- * Read on a mid-grey floor: 0.35·160 + 0.65·49 ≈ 88, carrying ±14 levels of the floor's own
- * texture. Black stays 0 and a lit room reads well north of 140, so the three states are
- * three brightnesses as well as three treatments — PRODUCT's "stale at a glance on a bad
- * panel" without leaning on colour, and the glyph is the third encoding on top.
- *
- * One fill, not the stacked tint-then-shade pair this replaced: two fills multiply their
- * survivals (0.38 × 0.60 = 23%) *and* stack two pedestals, which is what made the wash
- * read as a placeholder rather than a dimmed room.
+ * Darker than the dimmest thing a *visible* room can be, and that is a requirement rather
+ * than a preference. The wash leaves `alpha` of this colour standing wherever the art under
+ * it is black, so a tint brighter than the live floor would put a memory above a lit room
+ * again — the inversion, back through the other door.
  */
-export const EXPLORED_TINT_ALPHA = 0.65;
+export const EXPLORED_TINT = 0x0e1118;
+/**
+ * How much of the room's live render the wash replaces. `1 - alpha` of what the room looks
+ * like *right now* survives, so a memory is always a strict dimming of the same pixels.
+ *
+ * Read on a mid-grey floor with no torch on it: the composite floors that at ~0.34 of the
+ * art (see `LIGHTING_STRENGTH`), so live ≈ 0.34·160 ≈ 54, and the memory of it is
+ * 0.38·54 + 0.62·24 ≈ 35 — about two thirds as bright, carrying ±9 levels of the floor's
+ * own texture rather than the flat box the second gate found. Never-revealed stays a true 0
+ * and a torchlit room runs well north of 140, so the three states are three brightnesses as
+ * well as three treatments: PRODUCT's "stale at a glance on a bad panel", without colour.
+ *
+ * ponytail: tuned on the crypt's #0d0e12 ambient, which is the darkest map in the repo. The
+ * knob to turn on a map that reads flat is this pair and `LIGHTING_STRENGTH` together — they
+ * trade against each other and neither is meaningful alone.
+ */
+export const EXPLORED_TINT_ALPHA = 0.62;
+/**
+ * How hard the engine's lighting multiply is allowed to bite, per seat.
+ *
+ * `LightingRenderer` composites its full-screen sprite at `alpha` 0.95 and never writes that
+ * field again (it only toggles `visible`), so this is a stable dial and not a fight with the
+ * render loop. On a multiply the alpha is a strength: the result is `dst · lerp(1, src, a)`,
+ * so a=0 is no darkening at all and a=1 is the raw ambient. Dialling it back raises the
+ * floor under *unlit* map without touching what a torch reaches, which is exactly the knob
+ * this needs — the art guide wants grey floors and warm glows, not black floors.
+ *
+ * The DM gets 0: principle 3, and the reason their stage came back from the gate ~90%
+ * near-black with everything revealed.
+ */
+export const LIGHTING_STRENGTH = { dm: 0, player: 0.7 };
 /** Warm parchment, quiet: the mark that says "you have been here" without colour. */
 export const EXPLORED_GLYPH_COLOR = 0xd8cfc0;
 
 /** Black extends this far past the map so the edge of the world is not a tell. */
 const BOUNDS_PAD = 20;
-
-/**
- * The lighting sprite is full-screen; the mask that holds explored rooms out of it lives in
- * world space with the rest of the fog, so it needs a rect big enough to still cover the
- * viewport when the camera is zoomed all the way out. Anything under-sized would leave a
- * ring of *undarkened* map around the edge of the world.
- */
-const LIGHT_MASK_PAD = 100_000;
 
 /** LightingRenderer's label for its full-screen multiply sprite (overlayLayer knows it too). */
 const LIGHTING_COMPOSITE = 'lightingComposite';
@@ -349,36 +370,6 @@ function paintRoom(g: Graphics, room: Room, view: RoomView): void {
 }
 
 /**
- * Where the lighting composite is allowed to land: everywhere but the rooms that are only
- * memories. One rect with a hole cut per explored room — the same shape `drawFog` builds,
- * inverted, and for the same reason: one Graphics is one draw whatever the room count.
- *
- * Returns false when nothing is explored, which is most of a session; the caller drops the
- * mask entirely then rather than pay a full-screen stencil pass to change nothing.
- */
-export function drawLightMask(mask: Graphics, scene: FogScene): boolean {
-  mask.clear();
-  if (!scene.isPlayer || !scene.bounds) return false;
-
-  const explored = scene.rooms.filter(
-    (room) => room.boundary.length >= 3 && scene.views.get(room.id) === 'explored',
-  );
-  if (explored.length === 0) return false;
-
-  const { minX, minY, maxX, maxY } = scene.bounds;
-  mask
-    .rect(
-      minX - LIGHT_MASK_PAD,
-      minY - LIGHT_MASK_PAD,
-      maxX - minX + LIGHT_MASK_PAD * 2,
-      maxY - minY + LIGHT_MASK_PAD * 2,
-    )
-    .fill({ color: 0xffffff, alpha: 1 });
-  for (const room of explored) mask.poly(room.boundary.flat()).cut();
-  return true;
-}
-
-/**
  * The mask itself: one black fill over the map with a hole cut for every room the player
  * may see at all, then the explored wash inside the holes that are only memories. `cut`
  * hangs each hole off that single fill, so the whole of "what is dark" is one shape.
@@ -408,11 +399,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   const layer = new Container();
   const scrim = new Graphics();
   const fadeLayer = new Container();
-  // The light mask rides inside the fog layer purely for its transform: it has to be in
-  // world space and Pixi masks from an object's place in the scene graph. Assigning it as a
-  // mask clears `includeInBuild`, so it is never drawn as colour (pixi.js StencilMask#init).
-  const lightMask = new Graphics();
-  layer.addChild(scrim, fadeLayer, lightMask);
+  layer.addChild(scrim, fadeLayer);
   // Nothing here is clickable; the fog tool and the doors read the DOM canvas directly.
   layer.eventMode = 'none';
   addScreenOverlay(sceneGraph, layer, 'playerFog');
@@ -446,11 +433,10 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     layer.visible = scene.isPlayer;
     drawFog(scrim, scene);
 
-    // The DM is never masked and never held out of their own lighting (PRODUCT principle 3),
-    // so `drawLightMask` answering false covers both them and the ordinary player with
-    // nothing explored.
+    // Set every rebuild rather than once at mount: the seat is not known until the join
+    // snapshot lands, and the composite itself is created asynchronously with the engine.
     const lit = composite();
-    if (lit) lit.mask = drawLightMask(lightMask, scene) ? lightMask : null;
+    if (lit) lit.alpha = scene.isPlayer ? LIGHTING_STRENGTH.player : LIGHTING_STRENGTH.dm;
 
     // Reduced motion cuts instead of fading, so it simply never starts one.
     if (scene.isPlayer && revealDurationMs() > 0) {
@@ -496,9 +482,9 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // The engine may already be gone (GameRenderer unmounting first) — its objects are
     // destroyed and touching them throws.
     try {
-      // Hand the lighting back before the mask it points at is destroyed.
+      // Hand the lighting back at the strength the editor and every other mount expects.
       const lit = composite();
-      if (lit && lit.mask === lightMask) lit.mask = null;
+      if (lit) lit.alpha = 0.95;
       if (!layer.destroyed) layer.destroy({ children: true });
     } catch {
       /* engine torn down first */

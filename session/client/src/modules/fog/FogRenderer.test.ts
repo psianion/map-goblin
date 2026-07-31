@@ -6,7 +6,6 @@
 // that an unrelated store write does not rebuild the mask.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Graphics, Point } from 'pixi.js';
 import type { DoorChild, Room } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import { useStore } from '@dnd/core/src/store/store';
@@ -18,9 +17,9 @@ import { useSessionStore } from '../../session/store';
 import {
   EXPLORED_TINT,
   EXPLORED_TINT_ALPHA,
+  LIGHTING_STRENGTH,
   PARTY_ROOM_UNKNOWN,
   REVEAL_MS,
-  drawLightMask,
   easeOutQuart,
   fogBounds,
   fogScene,
@@ -29,7 +28,6 @@ import {
   revealsBetween,
   roomViews,
   subscribeFogScene,
-  type FogScene,
   type RoomView,
 } from './FogRenderer';
 
@@ -312,23 +310,26 @@ describe('reveal timing', () => {
 });
 
 // ── The explored look, at the pixel (D10) ───────────────────────────────────
-// The second browser gate read every explored room as a flat dark-grey box with a tick on
-// it, and a flat box is not something the two constants alone can be checked for: what made
-// it flat was the *lighting* underneath, not the wash. So the arithmetic below models both
-// halves — the engine's multiply composite and the fog's fill — over a strip of floor, and
-// asks the only question the gate was really asking: is there still any texture in there.
+// Two browser gates have been lost in here, in opposite directions: the second read every
+// explored room as a flat dark-grey box, and the third read them *brighter* than the lit
+// rooms next to them. Neither is something the wash constants can be checked for alone —
+// what a memory looks like is the multiply composite and the fog's fill together. So the
+// arithmetic below models both halves over a strip of floor and asks both questions: is
+// there still texture in there, and is it below the same floor when the room is live.
 
 /** One flat fill over a base channel value, source-over. Channels are 0..255. */
 const over = (base: number, color: number, alpha: number): number =>
   base * (1 - alpha) + color * alpha;
 
 /**
- * LightingRenderer's composite: a full-screen sprite at alpha 0.95, blend `multiply`, filled
- * with the map's ambient where no light reaches. `#0d0e12` is the gate map's, and all four
- * of its torches are in one room — every other room is composited against exactly this.
+ * LightingRenderer's composite, at the strength the player's seat dials it to. The blend is
+ * `multiply` and the sprite's alpha is a *strength* — `dst · lerp(1, src, a)` — so this is
+ * the map's ambient wherever no light reaches. `#0d0e12` is the gate map's, and all four of
+ * its torches are in one room: every other room is composited against exactly this.
  */
 const AMBIENT = 0x0d;
-const unlit = (base: number): number => base * (0.05 + 0.95 * (AMBIENT / 255));
+const unlit = (base: number): number =>
+  base * (1 - LIGHTING_STRENGTH.player + LIGHTING_STRENGTH.player * (AMBIENT / 255));
 
 /** A stretch of dungeon floor, as one channel. Texture is the spread between these. */
 const FLOOR = [140, 168, 120, 190, 152];
@@ -339,66 +340,48 @@ const washed = (base: number): number => over(base, EXPLORED_TINT & 0xff, EXPLOR
 
 describe('the explored look', () => {
   it('keeps the floor texture readable — a memory, not a placeholder', () => {
-    const drawn = FLOOR.map(washed);
-    // Spatial detail survives: the gate's "flat box" is a spread of ~1, this is tens.
-    expect(spread(drawn)).toBeGreaterThan(15);
-    // …and it is nowhere near black, which is what `never_revealed` is reserved for.
+    // Composed the way it actually is: the wash over the room's *lit* render, which is what
+    // collapsed to under three levels of 255 and read as the second gate's flat box.
+    const drawn = FLOOR.map((v) => washed(unlit(v)));
+    expect(spread(drawn)).toBeGreaterThan(5);
+    // …and nowhere near black, which is what `never_revealed` is reserved for.
     expect(Math.min(...drawn)).toBeGreaterThan(24);
   });
 
-  it('reads darker and deader than the same floor lit', () => {
-    // A torch at strength: the wash has to leave the explored room below it (task #14's
-    // brightness inversion), while still sitting clear of the dark it is next to.
-    const litFloor = FLOOR.map((v) => v * 0.9);
-    expect(Math.max(...FLOOR.map(washed))).toBeLessThan(Math.min(...litFloor));
+  it('is a strict dimming of the same room live — the third gate’s inversion', () => {
+    // Unlit floor: the case that inverted, because a memory used to skip the multiply
+    // entirely and land ten times brighter than the ambient-lit room beside it.
+    for (const v of FLOOR) expect(washed(unlit(v))).toBeLessThan(unlit(v));
+    // And under a torch at full strength, where the wash has the most to give back.
+    for (const v of FLOOR) expect(washed(v)).toBeLessThan(v);
     // Desaturating, not merely darkening: most of the room's own colour is replaced.
     expect(EXPLORED_TINT_ALPHA).toBeGreaterThan(0.5);
   });
 
-  it('is the lighting multiply that flattened it, which is why the mask exists', () => {
-    // The regression, stated: compose the wash over an ambient-lit room and the floor's
-    // whole 70-level range collapses to under three levels of 255 — the flat box.
-    expect(spread(FLOOR.map((v) => washed(unlit(v))))).toBeLessThan(3);
+  it('never pedestals a memory above the dimmest thing a live room can be', () => {
+    // The invariant behind both rows above, stated once: what the wash leaves standing over
+    // pure black is the floor of "explored", and it has to sit under the floor of "visible"
+    // or the order inverts again on the next map with a darker ambient.
+    const pedestal = (EXPLORED_TINT & 0xff) * EXPLORED_TINT_ALPHA;
+    expect(pedestal).toBeLessThan(Math.min(...FLOOR.map(unlit)));
   });
 });
 
-describe('drawLightMask — the lighting is held off a memory', () => {
-  const scene = (views: Record<string, RoomView>, isPlayer = true): FogScene => ({
-    rooms: ROOMS,
-    views: new Map(Object.entries(views)),
-    bounds: fogBounds([], ROOMS),
-    sceneId: 'scene-1',
-    isPlayer,
-  });
-  const drawn = (g: { context: { instructions: unknown[] } }): number =>
-    g.context.instructions.length;
-
-  it('asks for no mask at all when nothing is explored — most of a session', () => {
-    const mask = new Graphics();
-    expect(drawLightMask(mask, scene({ [VESTIBULE.id]: 'visible', [GALLERY.id]: 'dark' }))).toBe(
-      false,
-    );
-    expect(drawn(mask as unknown as { context: { instructions: unknown[] } })).toBe(0);
+describe('the lighting strength each seat composites at', () => {
+  it('leaves the DM out of the multiply entirely (PRODUCT principle 3)', () => {
+    // The gate found the DM's stage ~90% near-black with everything revealed. Darkness is
+    // something a DM stages, never something staged at them.
+    expect(LIGHTING_STRENGTH.dm).toBe(0);
   });
 
-  it('cuts a hole for every explored room and covers everything else', () => {
-    const mask = new Graphics();
-    expect(
-      drawLightMask(mask, scene({ [VESTIBULE.id]: 'explored', [GALLERY.id]: 'explored' })),
-    ).toBe(true);
-
-    // Inside a memory, the mask is absent — that is the room the multiply cannot reach.
-    expect(mask.context.containsPoint(new Point(...VESTIBULE.centroid))).toBe(false);
-    expect(mask.context.containsPoint(new Point(...GALLERY.centroid))).toBe(false);
-    // The vault is not a memory, so the lighting lands on it as usual.
-    expect(mask.context.containsPoint(new Point(...VAULT.centroid))).toBe(true);
-    // And far outside the map: still covered, so a zoomed-out camera finds no bright ring.
-    expect(mask.context.containsPoint(new Point(-5000, -5000))).toBe(true);
-  });
-
-  it('never holds the lighting off the DM, who is never masked at all', () => {
-    const mask = new Graphics();
-    expect(drawLightMask(mask, scene({ [VESTIBULE.id]: 'explored' }, false))).toBe(false);
+  it('keeps drama for the player without floors that read as unlit', () => {
+    // Below 1, so unlit-but-visible map lands somewhere legible rather than at the ambient's
+    // ~5%; above 0, so a torch still means something.
+    expect(LIGHTING_STRENGTH.player).toBeGreaterThan(0);
+    expect(LIGHTING_STRENGTH.player).toBeLessThan(1);
+    // The art guide's grey floors, not black ones: a mid-grey floor keeps a quarter of
+    // itself with no light on it at all.
+    expect(unlit(160)).toBeGreaterThan(160 * 0.25);
   });
 });
 
