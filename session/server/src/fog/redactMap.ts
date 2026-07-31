@@ -50,8 +50,22 @@ export function redactMapForViewer(
   return {
     ...scene.data,
     layers: scene.data.layers.map((layer) => {
-      // A layer nobody zoned has no fog to enforce — room-granular fog needs rooms (D6).
-      if (!isDungeon(layer) || !layer.rooms?.length) return layer
+      if (!isDungeon(layer)) return layer
+      // A layer nobody zoned has no fog to enforce — room-granular fog needs rooms (D6) — so
+      // its geometry goes over whole.
+      //
+      // Its doors do not. A door with no room to be bound to can never be earned, and the
+      // player's door marks are drawn *above* the fog mask on the strength of a player only
+      // ever holding doors they earned. Handing them over anyway put three marks at full
+      // brightness on a canvas that was otherwise black, which is the door positions
+      // disclosed by exactly the styling PRODUCT principle 2 says must never carry it.
+      if (!layer.rooms?.length) {
+        const kids = childrenOf(layer)
+        const doorless = kids.filter((child) => child.childType !== 'door')
+        // Untouched when there was nothing to take, so a layer with no doors stays the very
+        // object it arrived as rather than growing an empty `children` it never had.
+        return doorless.length === kids.length ? layer : { ...layer, children: doorless }
+      }
       return {
         ...layer,
         ...slice(layer, scene, kept, doors),

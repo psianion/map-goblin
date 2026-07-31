@@ -115,10 +115,15 @@ export function createVision(stores: Stores): Vision {
     const explored = exploredRooms(fog)
     // The doors a player may hold — the *same* predicate the map cut uses on the door
     // children themselves, so the live slice and the geometry name one set of doors and not
-    // two (a secret door the DM has not revealed is in neither). A map nobody zoned has no
-    // room to bind a door to and none of its geometry is withheld, so every door on it is
-    // the player's too (amendment 2026-07-28).
-    const held = map.doors.filter((door) => map.rooms.length === 0 || doorKept(door, explored, doors))
+    // two (a secret door the DM has not revealed is in neither).
+    //
+    // A map nobody zoned used to be exempt: with no room to bind a door to, the explored cut
+    // takes every one of them, so the amendment of 2026-07-28 handed them all over instead.
+    // That is the leak the fourth browser gate measured — three marks at full brightness over
+    // a black canvas, disclosing where the doors are. The geometry of an unzoned map is still
+    // handed over whole (`redactMapForViewer`); only the doors on it are the DM's, because a
+    // door nobody can earn is a door no player should be told about.
+    const held = map.doors.filter((door) => doorKept(door, explored, doors))
     // Against nothing on a cold cache, so the first answer after a restart is everything
     // the party has explored rather than nothing at all. Correctness must not depend on
     // whether someone happened to fetch the map first, and a client already holding a

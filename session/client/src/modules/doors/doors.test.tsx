@@ -111,6 +111,22 @@ describe('live door state', () => {
     expect(liveDoors([], undefined, 'scene-1')).toEqual([]);
     expect(liveDoors(useStore.getState().layers, undefined, null)).toHaveLength(3);
   });
+
+  /**
+   * The fourth browser gate found three door marks at full brightness on a player canvas
+   * with nothing revealed. Marks are drawn above the fog mask on the strength of the server
+   * having already cut the doors a player has not earned, so a redacted document carrying no
+   * door children has to yield no marks — even with a doors slice still naming them.
+   */
+  it('draws nothing for a player whose map was cut of its doors', () => {
+    const redacted: Layer[] = [
+      { ...(useStore.getState().layers[0] as Layer & { children: unknown[] }), children: [] } as Layer,
+    ];
+    const stale: DoorsState = {
+      byScene: { 'scene-1': { d1: { open: true, locked: false, revealed: true } } },
+    };
+    expect(liveDoors(redacted, stale, 'scene-1')).toEqual([]);
+  });
 });
 
 describe('how a door draws (D11 — the DM never loses visibility)', () => {

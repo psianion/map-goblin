@@ -227,14 +227,19 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
     expect(ids).toContain('floor-vault')
   })
 
-  it('leaves a layer nobody zoned exactly as it was', () => {
+  it('leaves a layer nobody zoned as it was, less its doors', () => {
     const plain = mapFile()
     const layer = plain.layers[0] as DungeonLayer
     delete layer.rooms
     const stores = createStores(openDb(':memory:'))
     const campaign = stores.campaigns.create('Flat')
     stores.maps.insert('flat', campaign.id, 'Flat', JSON.stringify(plain))
-    expect(createVision(stores).playerMap('flat')).toEqual(plain)
+    // No fog to enforce, so the geometry is untouched — but a door nobody can earn is not
+    // the player's to be shown (see 'hands a map nobody zoned over whole' below).
+    expect(createVision(stores).playerMap('flat')).toEqual({
+      ...plain,
+      layers: [{ ...layer, children: layer.children.filter((c) => c.childType !== 'door') }],
+    })
   })
 })
 
@@ -434,16 +439,37 @@ describe('a scene the DM has revealed nothing in', () => {
     expect(roomsOfMap(vision.playerMap(SCENE))).toEqual(['hall', 'inner'])
   })
 
-  it('hands a map nobody zoned over whole, doors and all', () => {
+  /**
+   * The fourth browser gate measured three door marks at full brightness (lum 215) on an
+   * otherwise black player canvas. They were the doors of `demo-dungeon.mapbuilder`, which
+   * has no `rooms` at all: the unzoned exemption handed every one of them over, and the
+   * player's marks are drawn above the fog mask precisely because that is not supposed to
+   * be possible. The map still goes over whole — there is no fog on it to enforce — but its
+   * doors are the DM's.
+   */
+  it('hands a map nobody zoned over whole, but keeps its doors from the player', () => {
     const plain = mapFile()
     delete (plain.layers[0] as DungeonLayer).rooms
     const stores = createStores(openDb(':memory:'))
     const campaign = stores.campaigns.create('Flat')
     stores.maps.insert('flat', campaign.id, 'Flat', JSON.stringify(plain))
     const vision = createVision(stores)
-    // No rooms to bind a door to, so the explored-rooms cut would take every one of them.
-    expect([...vision.playerDoors('flat')].sort()).toEqual(DOORS.map((d) => d.id).sort())
-    expect(vision.playerMap('flat')).toEqual(plain)
+
+    expect([...vision.playerDoors('flat')]).toEqual([])
+    const held = vision.playerMap('flat')
+    expect((held?.layers[0] as DungeonLayer).children.filter((c) => c.childType === 'door')).toEqual([])
+    // Everything that is not a door is untouched: the floor is still theirs to draw.
+    expect((held?.layers[0] as DungeonLayer).children.map((c) => c.id)).toEqual(
+      (plain.layers[0] as DungeonLayer).children.filter((c) => c.childType !== 'door').map((c) => c.id),
+    )
+  })
+
+  /** The regression in one line, on the zoned map: nothing revealed, nothing to draw. */
+  it('tells a player about no door at all until a room of one is revealed', () => {
+    const { vision } = table()
+    expect([...vision.playerDoors(SCENE)]).toEqual([])
+    const map = vision.playerMap(SCENE)
+    expect((map?.layers[0] as DungeonLayer).children.filter((c) => c.childType === 'door')).toEqual([])
   })
 })
 
