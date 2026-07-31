@@ -298,6 +298,13 @@ test.describe.serial('@doors flagship', () => {
     // The refusal is the server's: the token is still where it stood, on both seats.
     await expect.poll(() => tokenPositions(player).then((p) => p[tokenId])).toEqual(START)
     expect((await tokenPositions(dm))[tokenId]).toEqual(START)
+
+    // …and it stays there however often it is asked. The browser gate measured a token
+    // creeping about a cell forward per refused drag (x: 406→429→455→451px over four), so
+    // "refused" has to mean the same cell every time and not merely "not all the way".
+    for (let i = 0; i < 3; i++) await sendMove(player, tokenId, BEYOND)
+    await expect.poll(() => tokenPositions(player).then((p) => p[tokenId])).toEqual(START)
+    expect((await tokenPositions(dm))[tokenId]).toEqual(START)
   })
 
   test('the player opens the door and their sight runs into the gallery', async () => {

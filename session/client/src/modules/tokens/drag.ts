@@ -27,6 +27,12 @@ export interface TokenLayer {
    * `false` it starts waiting for the authoritative echo and rubber-bands if none comes.
    */
   setDragging(id: string, dragging: boolean): void;
+  /**
+   * Put a token back at a position the caller is asserting, dropping the optimistic state
+   * of the gesture that led there. The sprite eases rather than cuts, so a refusal reads as
+   * the token being pushed back and not as a teleport.
+   */
+  settleAt(id: string, x: number, y: number): void;
 }
 
 interface TokenInteraction {
@@ -49,6 +55,9 @@ export const useTokenInteraction = create<TokenInteraction>()((set) => ({
 
 /** D9: ~10 Hz while the pointer is down. */
 export const MOVE_INTERVAL_MS = 100;
+
+/** How long a dropped token waits for the server to agree before rubber-banding (D9). */
+export const SETTLE_MS = 600;
 
 /** Leading-edge throttle. `run` fires immediately or drops; nothing is queued. */
 export function createThrottle(intervalMs: number, now: () => number = Date.now) {
@@ -121,6 +130,57 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
   let drag: { id: string; size: TokenSize; dx: number; dy: number; x: number; y: number; moved: boolean } | null =
     null;
 
+  /**
+   * The whole gesture, kept until the server has answered the drop.
+   *
+   * A drag streams moves at ~10 Hz (D9) and the server judges each one on its own, so a
+   * gesture that ends on a cell it refuses has usually had its earlier, legal hops committed
+   * already. Rubber-banding to "the last position we were told about" therefore lands on the
+   * furthest legal hop rather than on the cell the token was picked up from, and the token
+   * keeps that ground — about a cell per refused drag, which is the creep the gate measured.
+   * The gesture is one move as far as a player is concerned, so a refusal undoes all of it.
+   */
+  let gesture:
+    | { id: string; from: { x: number; y: number }; to: { x: number; y: number }; endedAt: number }
+    | null = null;
+
+  /** Put the token back where the pointer picked it up, on this side and on the server's. */
+  const revert = (): void => {
+    if (!gesture) return;
+    const { id, from } = gesture;
+    gesture = null;
+    layer.settleAt(id, from.x, from.y);
+    // The sprite answers immediately; the server has to be *told*, because the hops it
+    // accepted on the way are real state over there and only a move undoes them. Deferred
+    // one microtask because this runs from a store subscription, and `sendCommand` drops
+    // anything sent while a server message is still being folded in (`applyingRemote`).
+    queueMicrotask(() => send('move', { id, x: from.x, y: from.y }));
+  };
+
+  /**
+   * A refusal is this gesture's verdict only if it could still be about the drop, and only
+   * if the drop did not land after all — an intermediate hop can be refused on the way to a
+   * cell the server is perfectly happy with, and that move must stand.
+   */
+  let seenError = useSessionStore.getState().lastError;
+  const onStoreChange = (): void => {
+    const { lastError } = useSessionStore.getState();
+    if (lastError === seenError) return;
+    seenError = lastError;
+    // Still steering: the pointer is the authority until it lifts, and yanking the sprite
+    // out from under a live drag would read as a stutter rather than as an answer.
+    const g = gesture;
+    if (!lastError || !g || drag || !tokenRefusal(lastError.message)) return;
+    if (lastError.at > g.endedAt + SETTLE_MS) return;
+    const landed = layer.tokens().find((t) => t.id === g.id);
+    if (landed && landed.x === g.to.x && landed.y === g.to.y) {
+      gesture = null; // the drop stands; this refusal was an earlier hop's
+      return;
+    }
+    revert();
+  };
+  const unsubscribe = useSessionStore.subscribe(onStoreChange);
+
   const worldOf = (e: PointerEvent) => {
     const rect = canvas.getBoundingClientRect();
     return engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
@@ -156,6 +216,8 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
     const you = useSessionStore.getState().you;
     if (!canDrag(token, you?.role, you?.identityId)) return;
     drag = { id: token.id, size: token.size, dx: x - token.x, dy: y - token.y, x: token.x, y: token.y, moved: false };
+    // `endedAt: 0` is "the pointer is still down" — nothing can be this gesture's verdict yet.
+    gesture = { id: token.id, from: { x: token.x, y: token.y }, to: { x: token.x, y: token.y }, endedAt: 0 };
     layer.setDragging(token.id, true);
     canvas.setPointerCapture(e.pointerId);
     throttle.reset();
@@ -184,6 +246,13 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
     // The throttle may have dropped the last move — the drop is always sent.
     if (drag.moved) send('move', { id: drag.id, x: drag.x, y: drag.y });
     layer.setDragging(drag.id, false);
+    // A gesture that never moved sent nothing, so there is nothing a refusal could undo.
+    if (gesture && drag.moved) {
+      gesture.to = { x: drag.x, y: drag.y };
+      gesture.endedAt = Date.now();
+    } else {
+      gesture = null;
+    }
     drag = null;
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
   };
@@ -193,6 +262,7 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
   canvas.addEventListener('pointerup', onUp, true);
   canvas.addEventListener('pointercancel', onUp, true);
   return () => {
+    unsubscribe();
     canvas.removeEventListener('pointerdown', onDown, true);
     canvas.removeEventListener('pointermove', onMove, true);
     canvas.removeEventListener('pointerup', onUp, true);

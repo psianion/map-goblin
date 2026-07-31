@@ -6,7 +6,18 @@ import type { Token } from '@dnd/mechanics/tokens';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import { useSessionStore } from '../../session/store';
 import { useToasts } from '../../session/toasts';
-import { approach, canDrag, createThrottle, drawOrder, hitTest, tokenRefusal } from './drag';
+import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
+import {
+  SETTLE_MS,
+  approach,
+  attachTokenInput,
+  canDrag,
+  createThrottle,
+  drawOrder,
+  hitTest,
+  tokenRefusal,
+  type TokenLayer,
+} from './drag';
 import { TokenPanel } from './TokenPanel';
 import { DISPOSITION_COLOR, initials, tokenAppearance, tokensOf } from './TokenRenderer';
 
@@ -202,6 +213,173 @@ describe('a refused move (the rubber-band on its own says nothing)', () => {
     render(createElement(TokenPanel));
     act(() => useSessionStore.setState({ session: session([token({ x: 4.5, y: 6.5 })]) }));
     expect(useToasts.getState().toast).toBeNull();
+  });
+});
+
+describe('a refused drag rubber-bands to where the pointer picked the token up', () => {
+  const player: PlayerInfo = { identityId: 'p-2', name: 'Borin', role: 'player', connected: true };
+  const mine = (over: Partial<Token> = {}) => token({ ownerId: 'p-2', ...over });
+
+  const session = (tokens: Token[]): SessionState => ({
+    protocolVersion: 3,
+    sessionId: 's1',
+    campaignId: 'c1',
+    activeSceneId: 'scene-1',
+    scenes: [{ id: 'scene-1', name: 'Crypt' }],
+    players: [player],
+    modules: {
+      tokens: { library: {}, byScene: { 'scene-1': Object.fromEntries(tokens.map((t) => [t.id, t])) } },
+    },
+  });
+
+  /**
+   * A canvas that hands its listeners back. `drag.ts` wires capture-phase DOM listeners and
+   * reads only button/clientX/clientY/pointerId off an event, so driving them directly is
+   * the whole gesture without jsdom's PointerEvent — which is the GPU-free seam the file
+   * was split for.
+   */
+  function fakeCanvas() {
+    const listeners: Record<string, ((e: unknown) => void)[]> = {};
+    return {
+      el: {
+        addEventListener: (t: string, fn: unknown) => void (listeners[t] ??= []).push(fn as never),
+        removeEventListener: () => {},
+        getBoundingClientRect: () => ({ left: 0, top: 0 }),
+        setPointerCapture: () => {},
+        hasPointerCapture: () => false,
+        releasePointerCapture: () => {},
+      },
+      fire(type: string, clientX: number, clientY: number) {
+        for (const fn of listeners[type] ?? []) {
+          fn({ button: 0, clientX, clientY, pointerId: 1, stopPropagation() {}, preventDefault() {} });
+        }
+      },
+    };
+  }
+
+  /** Every `tokens` command the tab put on the wire, in order. */
+  function harness(held: Token[]) {
+    const canvas = fakeCanvas();
+    const sent: { action: string; payload: { id: string; x: number; y: number } }[] = [];
+    let tokens = held;
+    let settled: { x: number; y: number } | null = null;
+
+    useSessionStore.setState({
+      session: session(tokens),
+      you: player,
+      lastError: null,
+      client: {
+        send: (m: unknown) => {
+          const msg = m as { module: string; action: string; payload: typeof sent[number]['payload'] };
+          if (msg.module === 'tokens') sent.push({ action: msg.action, payload: msg.payload });
+        },
+      } as never,
+    });
+
+    const engine = {
+      canvas: () => canvas.el,
+      // One screen unit is one world unit, so a client point is already a world point.
+      screenToWorld: (x: number, y: number) => ({ x, y }),
+    } as unknown as RenderEngine;
+
+    const layer: TokenLayer = {
+      tokens: () => tokens,
+      placeAt: () => {},
+      setDragging: () => {},
+      settleAt: (_id, x, y) => void (settled = { x, y }),
+    };
+
+    return {
+      canvas,
+      sent,
+      detach: attachTokenInput(engine, layer),
+      settled: () => settled,
+      /** The server took a hop: the authoritative slice now says the token moved. */
+      accept: (x: number, y: number) => {
+        tokens = [mine({ x, y })];
+        act(() => useSessionStore.setState({ session: session(tokens) }));
+      },
+      refuse: () =>
+        act(() =>
+          useSessionStore.setState({
+            lastError: { code: 'invalid-command', message: 'that space cannot be occupied', at: Date.now() },
+          }),
+        ),
+    };
+  }
+
+  beforeEach(() => {
+    cleanup();
+    useToasts.setState({ toast: null });
+  });
+
+  it('undoes the hops the drag already got past the server, not just the last one', async () => {
+    const h = harness([mine({ x: 0.5, y: 0.5 })]);
+
+    // The gesture: down on the token, across, up. The throttle's leading edge puts the
+    // first hop on the wire mid-drag, which is the one the server takes.
+    h.canvas.fire('pointerdown', 0.5, 0.5);
+    h.canvas.fire('pointermove', 2.5, 0.5);
+    h.canvas.fire('pointermove', 6.5, 0.5);
+    h.canvas.fire('pointerup', 6.5, 0.5);
+
+    // That legal hop is committed over there — this is the ground a refused drag used to
+    // keep, one cell at a time.
+    h.accept(2.5, 0.5);
+    h.refuse();
+    await Promise.resolve();
+
+    expect(h.settled(), 'the sprite goes back to the cell it was picked up from').toEqual({
+      x: 0.5,
+      y: 0.5,
+    });
+    expect(h.sent.at(-1), 'and the server is told to give the ground back').toEqual({
+      action: 'move',
+      payload: { id: 't1', x: 0.5, y: 0.5 },
+    });
+    h.detach();
+  });
+
+  it('leaves an accepted drop alone, even when a hop on the way was refused', async () => {
+    const h = harness([mine({ x: 0.5, y: 0.5 })]);
+
+    h.canvas.fire('pointerdown', 0.5, 0.5);
+    h.canvas.fire('pointermove', 2.5, 0.5);
+    h.canvas.fire('pointerup', 6.5, 0.5);
+    const drop = h.sent.at(-1)!.payload;
+
+    // The server refused a cell on the way but took the drop; a move that landed must not
+    // be undone by the answer to one that did not.
+    h.accept(drop.x, drop.y);
+    h.refuse();
+    await Promise.resolve();
+
+    expect(h.settled()).toBeNull();
+    expect(h.sent.at(-1)!.payload).toEqual(drop);
+    h.detach();
+  });
+
+  it('ignores a refusal that arrives long after the gesture settled', async () => {
+    const h = harness([mine({ x: 0.5, y: 0.5 })]);
+
+    h.canvas.fire('pointerdown', 0.5, 0.5);
+    h.canvas.fire('pointermove', 2.5, 0.5);
+    h.canvas.fire('pointerup', 2.5, 0.5);
+    h.accept(2.5, 0.5);
+
+    act(() =>
+      useSessionStore.setState({
+        lastError: {
+          code: 'invalid-command',
+          message: 'that space cannot be occupied',
+          at: Date.now() + SETTLE_MS + 1,
+        },
+      }),
+    );
+    await Promise.resolve();
+
+    expect(h.settled(), 'somebody else’s refusal never moves this token').toBeNull();
+    h.detach();
   });
 });
 
