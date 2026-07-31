@@ -561,18 +561,32 @@ export class RenameRoomCommand implements Command {
 
 /**
  * Command for applying a style preset to a dungeon layer.
- * Captures the full previous style for single-step undo.
+ *
+ * A preset chooses the style for what gets drawn *next*. It is not a restyle of
+ * the map, and it used to behave like one: shapes carry only sparse
+ * `styleOverrides` and resolve everything else from `layer.style` at render
+ * time, so rewriting the layer style silently repainted every shape already on
+ * the map. Existing shapes are therefore pinned to their current appearance
+ * before the layer style moves under them.
  */
 export class PresetApplyCommand implements Command {
   readonly label: string;
   private readonly layerId: string;
   private readonly presetStyle: Partial<DungeonStyle>;
   private readonly previousStyle: DungeonStyle;
+  /** `styleOverrides` each shape had before the apply, keyed by child id. */
+  private readonly previousOverrides = new Map<string, Record<string, unknown> | undefined>();
 
   constructor(label: string, layerId: string, preset: MapStylePreset, previousStyle: DungeonStyle) {
     this.label = label;
     this.layerId = layerId;
-    this.presetStyle = structuredClone(preset.dungeonStyle);
+    // A key whose value is `undefined` survives structuredClone and then wins
+    // the spread below, unsetting whatever the layer had. That is what switched
+    // wall texture to none and made every authored wall vanish. A preset that
+    // does not name a field means "leave it alone", never "clear it".
+    this.presetStyle = Object.fromEntries(
+      Object.entries(structuredClone(preset.dungeonStyle)).filter(([, v]) => v !== undefined),
+    ) as Partial<DungeonStyle>;
     this.previousStyle = structuredClone(previousStyle);
   }
 
@@ -580,13 +594,37 @@ export class PresetApplyCommand implements Command {
     const state = useStore.getState();
     const layer = state.layers.find((l) => l.id === this.layerId);
     if (!layer || layer.type !== 'dungeon') return;
+
+    // Snapshot of the pre-apply layer style — `layer` is the state object from
+    // before the writes below, so these stay the old values throughout.
+    const keys = Object.keys(this.presetStyle) as (keyof DungeonStyle)[];
+    const before = layer.style;
+
+    this.previousOverrides.clear();
+    for (const child of layer.children) {
+      if (child.childType !== 'shape') continue;
+      const existing = child.styleOverrides as Record<string, unknown> | undefined;
+      this.previousOverrides.set(child.id, existing ? structuredClone(existing) : undefined);
+      // An override the shape already had is its own authored intent — keep it.
+      const pinned: Record<string, unknown> = { ...existing };
+      for (const key of keys) {
+        if (!(key in pinned)) pinned[key] = before[key];
+      }
+      state.updateChild(this.layerId, child.id, { styleOverrides: pinned });
+    }
+
     state.updateLayer(this.layerId, {
-      style: { ...layer.style, ...this.presetStyle },
+      style: { ...before, ...this.presetStyle },
     } as Partial<DungeonLayer>);
   }
 
   undo(): void {
     const state = useStore.getState();
+    for (const [childId, overrides] of this.previousOverrides) {
+      state.updateChild(this.layerId, childId, {
+        styleOverrides: overrides ? structuredClone(overrides) : undefined,
+      });
+    }
     state.updateLayer(this.layerId, {
       style: structuredClone(this.previousStyle),
     } as Partial<DungeonLayer>);

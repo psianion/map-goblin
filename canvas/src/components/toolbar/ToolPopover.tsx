@@ -20,7 +20,7 @@ import {
 import { showToolPreview, hideToolPreview } from '@/engine/toolPreview';
 import type { PreviewSettings } from '@/engine/toolPreview';
 import { PresetGrid } from './PresetGrid';
-import { DUNGEON_STYLE_PRESETS } from '@/store/presetRegistry';
+import { DUNGEON_STYLE_PRESETS, matchPresetId } from '@/store/presetRegistry';
 import type { MapStylePreset } from '@/store/presetRegistry';
 import { PresetApplyCommand, LayerStyleChangeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
@@ -135,16 +135,10 @@ function DrawingToolContent({
   const polygonSides = useStore((s) => s.tools.settings.regularPolygon.sides);
   const updateToolSettings = useStore((s) => s.updateToolSettings);
   // Derive active preset from actual layer style — stays in sync with undo
-  const activePresetId = useMemo(() => {
-    if (!layer || layer.type !== 'dungeon') return undefined;
-    const s = layer.style;
-    return DUNGEON_STYLE_PRESETS.find((p) => {
-      const d = p.dungeonStyle;
-      return Object.keys(d).every(
-        (k) => JSON.stringify(d[k as keyof typeof d]) === JSON.stringify(s[k as keyof typeof s]),
-      );
-    })?.id;
-  }, [layer]);
+  const activePresetId = useMemo(
+    () => (layer && layer.type === 'dungeon' ? matchPresetId(layer.style) : undefined),
+    [layer],
+  );
 
   if (!layer || layer.type !== 'dungeon') {
     return <p className="text-xs text-text-muted">No dungeon layer selected</p>;

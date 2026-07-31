@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from './store';
 import { PresetApplyCommand, PropertyCommand, ShapeStyleCommand } from './commands';
 import { DUNGEON_STYLE_PRESETS } from './presetRegistry';
+import { resolveStyle } from '../engine/styleResolver';
 import type { ShapeChild } from '../shared/types';
-import type { DungeonLayer } from './types';
+import type { DungeonLayer, DungeonStyle } from './types';
 
 describe('PropertyCommand', () => {
   beforeEach(() => {
@@ -135,6 +136,112 @@ describe('PresetApplyCommand', () => {
     const restored = useStore.getState().layers.find((l) => l.id === layer.id);
     if (!restored || restored.type !== 'dungeon') throw new Error('Layer gone');
     expect(restored.style.floorColor).toBe(prevStyle.floorColor);
+  });
+
+  // A preset picks the style for the NEXT shape. Everything already drawn has
+  // to come through the apply looking identical — that is the whole defect.
+  describe('leaves existing shapes alone', () => {
+    const dungeonLayer = (): DungeonLayer => {
+      const layer = useStore.getState().layers.find((l) => l.type === 'dungeon');
+      if (!layer || layer.type !== 'dungeon') throw new Error('No dungeon layer');
+      return layer;
+    };
+
+    const makeShape = (id: string, styleOverrides?: Record<string, unknown>): ShapeChild => ({
+      id,
+      name: id,
+      childType: 'shape',
+      visible: true,
+      shapeType: 'rectangle',
+      contours: [[[0, 0], [4, 0], [4, 4], [0, 4]]],
+      roughnessEnabled: false,
+      textureScale: 1,
+      textureOffsetX: 0,
+      textureOffsetY: 0,
+      textureFillRotation: 0,
+      textureTint: '#ffffff',
+      ...(styleOverrides ? { styleOverrides } : {}),
+    });
+
+    /** How each shape actually renders right now. */
+    const appearances = (): DungeonStyle[] => {
+      const layer = dungeonLayer();
+      return layer.children
+        .filter((c): c is ShapeChild => c.childType === 'shape')
+        .map((c) => resolveStyle(layer.style, c.styleOverrides as Partial<DungeonStyle>));
+    };
+
+    beforeEach(() => {
+      useStore.getState().resetToDefault();
+      const layerId = dungeonLayer().id;
+      useStore.getState().addChild(layerId, makeShape('plain-shape'));
+      useStore.getState().addChild(layerId, makeShape('authored-shape', { floorColor: '#abcdef' }));
+    });
+
+    it('every existing shape renders identically after a preset is applied', () => {
+      const layer = dungeonLayer();
+      const before = appearances();
+      // Any preset that actually changes the floor is a valid probe.
+      const preset = DUNGEON_STYLE_PRESETS.find(
+        (p) => p.dungeonStyle.floorColor && p.dungeonStyle.floorColor !== layer.style.floorColor,
+      );
+      if (!preset) throw new Error('No preset changes floorColor');
+
+      new PresetApplyCommand('test', layer.id, preset, structuredClone(layer.style)).execute();
+
+      expect(appearances()).toEqual(before);
+      // ...while the layer style — what the next shape inherits — did move.
+      expect(dungeonLayer().style.floorColor).toBe(preset.dungeonStyle.floorColor);
+    });
+
+    it('keeps a shape its own authored override rather than the pinned value', () => {
+      const layer = dungeonLayer();
+      const preset = DUNGEON_STYLE_PRESETS.find((p) => p.dungeonStyle.floorColor);
+      if (!preset) throw new Error('No preset sets floorColor');
+
+      new PresetApplyCommand('test', layer.id, preset, structuredClone(layer.style)).execute();
+
+      const authored = dungeonLayer().children.find((c) => c.id === 'authored-shape');
+      expect(authored?.styleOverrides?.floorColor).toBe('#abcdef');
+    });
+
+    it('does not clear a layer field the preset leaves undefined', () => {
+      const layerId = dungeonLayer().id;
+      useStore.getState().updateLayer(layerId, {
+        style: { ...dungeonLayer().style, wallTextureSetId: 'stone-slate' },
+      } as Partial<DungeonLayer>);
+
+      // e.g. Cave / Natural, which carries `wallTextureSetId: undefined` — the
+      // key that used to switch wall texture off and hide every authored wall.
+      const preset = DUNGEON_STYLE_PRESETS.find(
+        (p) => 'wallTextureSetId' in p.dungeonStyle && p.dungeonStyle.wallTextureSetId === undefined,
+      );
+      if (!preset) throw new Error('Expected a preset with an explicit undefined wall texture');
+
+      const layer = dungeonLayer();
+      new PresetApplyCommand('test', layer.id, preset, structuredClone(layer.style)).execute();
+
+      expect(dungeonLayer().style.wallTextureSetId).toBe('stone-slate');
+    });
+
+    it('undo puts the shapes back to the overrides they had', () => {
+      const layer = dungeonLayer();
+      const before = appearances();
+      const preset = DUNGEON_STYLE_PRESETS.find(
+        (p) => p.dungeonStyle.floorColor && p.dungeonStyle.floorColor !== layer.style.floorColor,
+      );
+      if (!preset) throw new Error('No preset changes floorColor');
+
+      const cmd = new PresetApplyCommand('test', layer.id, preset, structuredClone(layer.style));
+      cmd.execute();
+      cmd.undo();
+
+      expect(dungeonLayer().children.find((c) => c.id === 'plain-shape')?.styleOverrides)
+        .toBeUndefined();
+      expect(dungeonLayer().children.find((c) => c.id === 'authored-shape')?.styleOverrides)
+        .toEqual({ floorColor: '#abcdef' });
+      expect(appearances()).toEqual(before);
+    });
   });
 });
 

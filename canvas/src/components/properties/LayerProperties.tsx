@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
 import type { DungeonLayer, DungeonStyle } from '@/store/types'
@@ -12,7 +11,7 @@ import { ToggleSwitch } from '@/components/ui/toggle-switch'
 import { Palette, Minus, Grid3x3, Waves, Blend, Sparkles, RotateCcw } from 'lucide-react'
 import { getWallSetDefaults, type WallCategory } from '@/assets/textureManifest'
 import { PresetStrip } from '@/components/shared/PresetStrip'
-import { DUNGEON_STYLE_PRESETS } from '@/store/presetRegistry'
+import { DUNGEON_STYLE_PRESETS, matchPresetId } from '@/store/presetRegistry'
 import { resolveStyle } from '@/engine/styleResolver'
 import { ShapeStyleCommand, CompositeCommand, PresetApplyCommand } from '@/store/commands'
 import { undoManager } from '@/store/undoManager'
@@ -54,7 +53,9 @@ function isMixed<T>(values: T[]): boolean {
 
 export function LayerProperties({ layer, openSections, onToggleSection }: LayerPropertiesProps) {
   const updateLayer = useStore((s) => s.updateLayer)
-  const [activePresetId, setActivePresetId] = useState<string | undefined>()
+  // Derived, not remembered — a local copy would keep highlighting a preset
+  // that undo had already taken back off the layer.
+  const activePresetId = matchPresetId(layer.style)
 
   // Selection state
   const selectedIds = useStore(useShallow(selectSelectedIds))
@@ -68,7 +69,6 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
   const handleStylePreset = (id: string) => {
     const preset = DUNGEON_STYLE_PRESETS.find((p) => p.id === id)
     if (!preset) return
-    setActivePresetId(id)
     const cmd = new PresetApplyCommand(
       `Apply preset: ${preset.label}`,
       layer.id,
