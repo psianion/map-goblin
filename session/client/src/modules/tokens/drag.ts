@@ -76,6 +76,19 @@ export function approach(from: number, to: number, dtMs: number, ms = 150): numb
   return from + (to - from) * (1 - Math.exp((-3 * dtMs) / ms));
 }
 
+/**
+ * The refusal a move hands back, in words a player can act on — or null for anything that
+ * is not this module's business. The doors lane matches on typed prefixes (`DOOR_LOCKED`);
+ * tokens have none, so this matches the sentence `canOccupy` refuses with.
+ *
+ * ponytail: a string copied from `mechanics/tokens/module.ts`, so a reworded refusal there
+ * goes quiet here rather than wrong. The upgrade is an exported constant beside the
+ * message, the day a second token refusal needs telling apart from this one.
+ */
+export function tokenRefusal(message: string): string | null {
+  return message.includes('cannot be occupied') ? "You can't move there." : null;
+}
+
 /** D10 client-side gate. The server enforces this too — this only saves a round trip. */
 export function canDrag(token: Token, role: Role | undefined, identityId: string | undefined): boolean {
   if (role === 'dm') return true;

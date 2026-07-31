@@ -7,11 +7,39 @@ import { useEffect, useMemo } from 'react';
 import type { TokensState } from '@dnd/mechanics/tokens';
 import { ALL_ROLES, registerPanel } from '../../session/panels';
 import { useModuleState, useSessionStore } from '../../session/store';
-import { useTokenInteraction } from './drag';
+import { showToast, useToasts } from '../../session/toasts';
+import { tokenRefusal, useTokenInteraction } from './drag';
 import { mountTokenLayerWhenReady, tokensOf } from './TokenRenderer';
 
 const send = (action: string, payload: unknown): void =>
   useSessionStore.getState().sendCommand('tokens', action, payload);
+
+/**
+ * Turns the server's refusal into the one toast the table has — the doors lane's
+ * `useDoorFeedback`, for the move a player is not allowed to make. Without it the only
+ * feedback is the 600ms rubber-band in `TokenRenderer`, which reads as a dropped frame
+ * rather than as an answer.
+ *
+ * Only the seat that sent the move ever sees it: a refusal reaches the sender alone
+ * (`CommandRouter`), and the DM is refused by none of this (`canOccupy` passes the DM).
+ */
+function useTokenFeedback(): void {
+  const lastError = useSessionStore((s) => s.lastError);
+  useEffect(() => {
+    if (!lastError) return;
+    const message = tokenRefusal(lastError.message);
+    // One toast per rejected drop, not one per refused message: a drag across a wall is
+    // refused at ~10 Hz on the way and again on the drop, and the last throttled move can
+    // land after the pointer is already up. While the same words are still on screen there
+    // is nothing to add — and an accepted move raises no error at all, so a slow echo
+    // (the case the rubber-band also fires on) stays silent.
+    // ponytail: a second refused drop inside the toast's 4s window rides the standing toast
+    // instead of restarting it; key it on the drag gesture the day that reads as a missed
+    // beat rather than as one continuous refusal.
+    if (!message || useToasts.getState().toast?.message === message) return;
+    showToast({ message });
+  }, [lastError]);
+}
 
 export function TokenPanel() {
   const state = useModuleState<TokensState>('tokens');
@@ -24,6 +52,7 @@ export function TokenPanel() {
   // Mount for as long as the table is on screen; the helper handles the engine appearing
   // late and going away again.
   useEffect(() => mountTokenLayerWhenReady(), []);
+  useTokenFeedback();
 
   const tokens = useMemo(() => tokensOf(state, sceneId), [state, sceneId]);
   const selected = tokens.find((t) => t.id === selectedId);

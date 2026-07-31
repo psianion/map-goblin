@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { act, cleanup, render } from '@testing-library/react';
+import { DOOR_LOCKED } from '@dnd/mechanics/doors';
 import type { Token } from '@dnd/mechanics/tokens';
-import { approach, canDrag, createThrottle, drawOrder, hitTest } from './drag';
+import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
+import { useSessionStore } from '../../session/store';
+import { useToasts } from '../../session/toasts';
+import { approach, canDrag, createThrottle, drawOrder, hitTest, tokenRefusal } from './drag';
+import { TokenPanel } from './TokenPanel';
 import { DISPOSITION_COLOR, initials, tokenAppearance, tokensOf } from './TokenRenderer';
 
 const token = (over: Partial<Token> = {}): Token => ({
@@ -138,6 +145,63 @@ describe('tokenAppearance (D11 — the DM never loses visibility)', () => {
   it('badges nothing a player can see — they never receive a hidden token anyway (D4)', () => {
     expect(tokenAppearance(token({ hidden: true }), false).badge).toBeNull();
     expect(tokenAppearance(token({ hidden: false }), true).badge).toBeNull();
+  });
+});
+
+describe('a refused move (the rubber-band on its own says nothing)', () => {
+  const player: PlayerInfo = { identityId: 'p-2', name: 'Borin', role: 'player', connected: true };
+
+  const session = (tokens: Token[]): SessionState => ({
+    protocolVersion: 3,
+    sessionId: 's1',
+    campaignId: 'c1',
+    activeSceneId: 'scene-1',
+    scenes: [{ id: 'scene-1', name: 'Crypt' }],
+    players: [player],
+    modules: {
+      tokens: { library: {}, byScene: { 'scene-1': Object.fromEntries(tokens.map((t) => [t.id, t])) } },
+    },
+  });
+
+  /** What the server hands back for `tokens.move` into a room a player may not stand in. */
+  const refused = (at: number) => ({
+    code: 'invalid-command' as const,
+    message: 'that space cannot be occupied',
+    at,
+  });
+
+  beforeEach(() => {
+    cleanup();
+    useSessionStore.setState({ session: session([token()]), you: player, client: null, lastError: null });
+    useToasts.setState({ toast: null });
+  });
+
+  it('reads the sentence a move is refused with, and nobody else’s refusal', () => {
+    expect(tokenRefusal('that space cannot be occupied')).toBe("You can't move there.");
+    expect(tokenRefusal('you may only move a token you own')).toBeNull();
+    expect(tokenRefusal(`${DOOR_LOCKED}: that door is locked`)).toBeNull();
+  });
+
+  it('toasts the player who dropped a token where it may not stand, once per drop', () => {
+    render(createElement(TokenPanel));
+
+    const shown: string[] = [];
+    const unsubscribe = useToasts.subscribe((s) => {
+      if (s.toast) shown.push(s.toast.message);
+    });
+    // A drag across a wall is refused on the way at ~10 Hz and again on the drop; the
+    // player is owed one answer, not one per message.
+    act(() => useSessionStore.setState({ lastError: refused(1) }));
+    act(() => useSessionStore.setState({ lastError: refused(2) }));
+    unsubscribe();
+
+    expect(shown).toEqual(["You can't move there."]);
+  });
+
+  it('says nothing when the move was taken — a slow echo is not a refusal', () => {
+    render(createElement(TokenPanel));
+    act(() => useSessionStore.setState({ session: session([token({ x: 4.5, y: 6.5 })]) }));
+    expect(useToasts.getState().toast).toBeNull();
   });
 });
 
