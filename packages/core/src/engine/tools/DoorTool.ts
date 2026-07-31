@@ -10,6 +10,7 @@ import {
   resolveWalls,
 } from '../../shared/wallResolve';
 import { bindDoorToRooms } from '../../shared/roomBinding';
+import { DOOR_MIN_HIT_RADIUS as MIN_HIT_RADIUS } from '../hitTest';
 import { AddChildCommand, RemoveChildCommand, UpdateChildCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
 import { useStore } from '../../store/store';
@@ -31,9 +32,6 @@ function nextState(door: DoorChild): DoorState {
   const next = NEXT_STATE[door.state] ?? 'closed';
   return door.style === 'archway' && next === 'locked' ? 'closed' : next;
 }
-
-/** Minimum click radius, so hairline doors are still clickable. */
-const MIN_HIT_RADIUS = 0.4;
 
 /**
  * H7: a fixed world-unit threshold giving ~1.5 grid cells of snap range. World

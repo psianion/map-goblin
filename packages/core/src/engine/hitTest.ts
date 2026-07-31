@@ -1,4 +1,13 @@
 import type { AnyChild, ShapeChild, LightChild, DungeonLayer } from '../store/types';
+import { resolveDoors, resolveWalls } from '../shared/wallResolve';
+
+/**
+ * Narrow doors stay clickable: a width-1 door's half-width is only 0.5 world
+ * units, and anything under this radius is a misclick trap at table zoom.
+ * Shared with DoorTool so a door is pickable in exactly the same spots
+ * whichever tool is active.
+ */
+export const DOOR_MIN_HIT_RADIUS = 0.4;
 
 export function pointInPolygon(point: [number, number], polygon: [number, number][]): boolean {
   let inside = false;
@@ -67,7 +76,16 @@ export function pointInLight(light: LightChild, point: [number, number]): boolea
   return dx * dx + dy * dy <= hitRadius * hitRadius;
 }
 
-export function hitTestChildren(children: AnyChild[], point: [number, number]): AnyChild | null {
+export function hitTestChildren(
+  children: AnyChild[],
+  point: [number, number],
+  layer?: DungeonLayer,
+): AnyChild | null {
+  // Doors hit-test at their *resolved* position (a floor-ring door draws where
+  // the resolver projects it, not where it was authored), which needs the whole
+  // layer. Resolved lazily, once, only when a door child is actually reached;
+  // without a layer the authored position is the best available approximation.
+  let doorPositions: Map<string, [number, number]> | null = null;
   for (let i = children.length - 1; i >= 0; i--) {
     const child = children[i];
     if (!child.visible) continue;
@@ -82,6 +100,20 @@ export function hitTestChildren(children: AnyChild[], point: [number, number]): 
       case 'light':
         if (pointInLight(child, point)) return child;
         break;
+      case 'door': {
+        if (doorPositions === null) {
+          doorPositions = new Map();
+          if (layer) {
+            for (const r of resolveDoors(layer, resolveWalls(layer))) {
+              doorPositions.set(r.door.id, r.position);
+            }
+          }
+        }
+        const pos = doorPositions.get(child.id) ?? child.position;
+        const dist = Math.hypot(pos[0] - point[0], pos[1] - point[1]);
+        if (dist <= Math.max(child.width / 2, DOOR_MIN_HIT_RADIUS)) return child;
+        break;
+      }
     }
   }
   return null;
@@ -94,7 +126,7 @@ export function hitTestAllLayers(
   for (let i = layers.length - 1; i >= 0; i--) {
     const layer = layers[i];
     if (!layer.visible || layer.locked) continue;
-    const hit = hitTestChildren(layer.children, point);
+    const hit = hitTestChildren(layer.children, point, layer);
     if (hit) return { child: hit, layerId: layer.id };
   }
   return null;

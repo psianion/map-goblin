@@ -8,7 +8,7 @@ import {
   boundsIntersect,
 } from './hitTest';
 import type { ShapeChild, AssetChild, LightChild } from '../store/types';
-import type { WaterChild } from '../shared/types';
+import type { DoorChild, WaterChild } from '../shared/types';
 
 // ─── Helpers ──────────────────────────────────────────────
 
@@ -93,6 +93,26 @@ function makeWater(outer: [number, number][]): WaterChild {
     bankWidth: 0.5,
     flowSpeed: 0,
     flowAngle: 0,
+  };
+}
+
+function makeDoor(
+  position: [number, number],
+  overrides?: Partial<DoorChild>,
+): DoorChild {
+  return {
+    id: 'door-1',
+    name: 'Door',
+    childType: 'door',
+    visible: true,
+    wallId: '',
+    position,
+    angle: 0,
+    width: 1,
+    style: 'single',
+    state: 'closed',
+    isSecret: false,
+    ...overrides,
   };
 }
 
@@ -230,6 +250,26 @@ describe('hitTestChildren', () => {
     expect(hitTestChildren([light], [5.4, 5.4])).toBeNull();
     // [5.1, 5.1] — dist ≈ 0.141 < 0.5 — should hit
     expect(hitTestChildren([light], [5.1, 5.1])).toBe(light);
+  });
+
+  it('returns door child within its hit radius', () => {
+    const door = makeDoor([5, 5], { width: 1 });
+    // half-width 0.5 > DOOR_MIN_HIT_RADIUS; dist ≈ 0.42 < 0.5 — hit
+    expect(hitTestChildren([door], [5.3, 5.3])).toBe(door);
+    expect(hitTestChildren([door], [6, 6])).toBeNull();
+  });
+
+  it('prefers a door over the shape it sits on', () => {
+    // A floor-ring door sits ON the room outline, so the shape's polygon
+    // contains the click point too — the door (rendered on top) must win.
+    const shape = makeShape(square, { id: 'floor' });
+    const door = makeDoor([5, 0], { id: 'door-1' });
+    expect(hitTestChildren([shape, door], [5, 0.1])?.id).toBe('door-1');
+  });
+
+  it('skips invisible doors', () => {
+    const door = makeDoor([5, 5], { visible: false });
+    expect(hitTestChildren([door], [5, 5])).toBeNull();
   });
 });
 
