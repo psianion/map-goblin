@@ -80,6 +80,29 @@ const GHOST_QUANTIZE = 0.25;
 const WIDE_STYLES = new Set<DoorStyle>(['double', 'portcullis', 'archway']);
 
 /**
+ * The door styles a DM can place and pick, in the order both pickers show them.
+ *
+ * One list because there are two pickers — the tool popover and the door
+ * properties panel. Written out separately, the panel kept only the first two,
+ * so a placed portcullis or archway could not be recognised in the panel or
+ * changed into anything else afterwards.
+ *
+ * `portal` is deliberately absent: it draws from a pack texture rather than a
+ * glyph, so it is not one of the shapes there is any point offering in a list.
+ */
+export const PLACEABLE_DOOR_STYLES: readonly DoorStyle[] = [
+  'single',
+  'double',
+  'portcullis',
+  'archway',
+];
+
+/** Title-cased style — the picker label, and the stem of a new door's name. */
+export function doorStyleLabel(style: DoorStyle): string {
+  return style.charAt(0).toUpperCase() + style.slice(1);
+}
+
+/**
  * Narrowest a door of this style may be, in world units — grid cells, the same
  * units `door.width` and `SNAP_THRESHOLD` are in.
  */
@@ -215,7 +238,7 @@ export class DoorTool implements DrawingTool {
     if (!plan || !plan.valid) return;
 
     // L6: Auto-name by style — e.g., "Portcullis 1", "Archway 2"
-    const styleName = plan.door.style.charAt(0).toUpperCase() + plan.door.style.slice(1);
+    const styleName = doorStyleLabel(plan.door.style);
     const stylePattern = new RegExp(`^${styleName} (\\d+)$`);
     const doorNumbers = activeLayer.children
       .filter((c) => c.childType === 'door')

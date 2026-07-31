@@ -7,14 +7,18 @@ import type { DoorChild, DoorStyle, DoorState } from '@/shared/types';
 import type { DungeonLayer } from '@/store/types';
 import { UpdateChildCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
-import { minDoorWidth } from '@dnd/core/src/engine/tools/DoorTool';
+import {
+  minDoorWidth,
+  doorStyleLabel,
+  PLACEABLE_DOOR_STYLES,
+} from '@dnd/core/src/engine/tools/DoorTool';
 
-// V1 ships single + double only. Portcullis/archway still render and still
-// deserialize from older files — they just can't be picked here any more.
-const STYLE_OPTIONS = [
-  { value: 'single', label: 'Single' },
-  { value: 'double', label: 'Double' },
-];
+// The same list the door tool places from, so a placed portcullis or archway
+// can be recognised here and changed into something else.
+const STYLE_OPTIONS = PLACEABLE_DOOR_STYLES.map((value) => ({
+  value,
+  label: doorStyleLabel(value),
+}));
 
 const STATE_OPTIONS = [
   { value: 'open', label: 'Open' },

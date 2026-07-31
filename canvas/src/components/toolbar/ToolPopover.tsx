@@ -12,7 +12,11 @@ import { PropertyField } from '@/components/properties/PropertyField';
 import { ChevronUp, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
-import { minDoorWidth } from '@dnd/core/src/engine/tools/DoorTool';
+import {
+  minDoorWidth,
+  doorStyleLabel,
+  PLACEABLE_DOOR_STYLES,
+} from '@dnd/core/src/engine/tools/DoorTool';
 import { showToolPreview, hideToolPreview } from '@/engine/toolPreview';
 import type { PreviewSettings } from '@/engine/toolPreview';
 import { PresetGrid } from './PresetGrid';
@@ -459,12 +463,10 @@ function LightToolContent({ onValueChange }: { onValueChange?: () => void }) {
 
 // ─── Door Tool ───────────────────────────────────
 
-const DOOR_STYLES: { value: DoorStyle; label: string }[] = [
-  { value: 'single', label: 'Single' },
-  { value: 'double', label: 'Double' },
-  { value: 'portcullis', label: 'Portcullis' },
-  { value: 'archway', label: 'Archway' },
-];
+const DOOR_STYLES: { value: DoorStyle; label: string }[] = PLACEABLE_DOOR_STYLES.map((value) => ({
+  value,
+  label: doorStyleLabel(value),
+}));
 
 function DoorToolContent({ onValueChange }: { onValueChange?: () => void }) {
   const doorStyle = useStore((s) => s.tools.settings.doorStyle);
