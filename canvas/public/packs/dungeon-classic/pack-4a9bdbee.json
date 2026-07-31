@@ -1349,7 +1349,7 @@
     },
     "door-single-closed": {
       "type": "door",
-      "material": "Door_Stone_Slate_A",
+      "material": "Door_Wood_Ashen_D",
       "gridSize": "1x1",
       "pieceType": "door",
       "variant": "A",
@@ -1847,9 +1847,9 @@
       "checksum": "sha256:a8ca7dabed4925b4b629f3867b793da53ea06adb8be3422260f2cf2df9562b9b",
       "size": 502320
     },
-    "Door_Stone_Slate_A_1x1_A-1157ed8b.webp": {
-      "checksum": "sha256:1157ed8b1322cb69361a86311e95443a2abb733a379079b9da95816282b684bf",
-      "size": 2548
+    "Door_Wood_Ashen_D_1x1_A-653c6d2a.webp": {
+      "checksum": "sha256:653c6d2a508d61f4ffe0316fda78ee2415cf67fcecab1da62a2ed3893b2eb7bc",
+      "size": 2224
     },
     "Door_Frame_Stone_Slate_A_2x1_A-03475465.webp": {
       "checksum": "sha256:03475465b639fe9f44f6056bf4b35de3d37a5277ff278a6c2ebfa5677e4a7064",
@@ -2006,7 +2006,7 @@
     "Rock_Stone_Mossy_C11_2x1_2x1_A-446dd2e7.webp": "sha256:446dd2e74158f2ba41cd69c129d5a9f0b8864baf2951348e0816e1760858fbee",
     "Stump_Ashen_A1_4x4_4x4_A-8d4c4202.webp": "sha256:8d4c42020590da33fed0656362a39e5494f7eabe59629f99d5cda3b5db19ac08",
     "Tree_Green_A1_6x6_6x6_A-a8ca7dab.webp": "sha256:a8ca7dabed4925b4b629f3867b793da53ea06adb8be3422260f2cf2df9562b9b",
-    "Door_Stone_Slate_A_1x1_A-1157ed8b.webp": "sha256:1157ed8b1322cb69361a86311e95443a2abb733a379079b9da95816282b684bf",
+    "Door_Wood_Ashen_D_1x1_A-653c6d2a.webp": "sha256:653c6d2a508d61f4ffe0316fda78ee2415cf67fcecab1da62a2ed3893b2eb7bc",
     "Door_Frame_Stone_Slate_A_2x1_A-03475465.webp": "sha256:03475465b639fe9f44f6056bf4b35de3d37a5277ff278a6c2ebfa5677e4a7064",
     "Door_Large_Wood_Ashen_A_2x1_A-6d442b14.webp": "sha256:6d442b146bc73bf4bc68c5b0c73e39ad900136c6f9e3ef44b94230b47988c1bd",
     "Door_Frame_Double_Stone_Slate_A_3x1_A-f98a2450.webp": "sha256:f98a2450fc0c0bb228077058402bb60cc72130d8c3cb9185bce1fc81e14891c7",
@@ -2040,5 +2040,5 @@
     "Railing_Rough_Wood_Ashen_B1_2x1_A-836ff29e.webp": "sha256:836ff29e14299cf9ffc68a5eca3cbab82d5f6fede02417869b372cc6e2017387",
     "Arch_Cross_Stone_Slate_A1_3x3_A-c283fc95.webp": "sha256:c283fc95d3fde6d9f952b7f75d6a4e08a846fe36efb8ba61ec1efd92551ffa3f"
   },
-  "bundleSize": 8057844
+  "bundleSize": 8057520
 }

@@ -212,9 +212,9 @@ describe('doorSpriteFit', () => {
   const WALL = 0.4;
 
   it('spans the door width on tight art and never thins below the wall', () => {
-    // 200x200 canvas, 200x49 of paint.
+    // 200x200 canvas, 200x45 of paint.
     const fit = doorSpriteFit('door-single-closed', 200, 200, 1, WALL);
-    expect(fit.frame).toEqual({ x: 0, y: 76, w: 200, h: 49 });
+    expect(fit.frame).toEqual({ x: 0, y: 77, w: 200, h: 45 });
     expect(fit.rotate).toBe(0);
     expect(fit.frame.w * fit.scaleX).toBeCloseTo(1);
     expect(fit.frame.h * fit.scaleY).toBeCloseTo(WALL);
@@ -249,7 +249,7 @@ describe('doorSpriteFit', () => {
     expect(narrow.frame.w * narrow.scaleX).toBeCloseTo(0.5);
     // A wide door is allowed to be thicker than the wall: the art's own
     // proportions take over once they exceed the floor.
-    expect(wide.frame.h * wide.scaleY).toBeCloseTo(49 * (4 / 200));
+    expect(wide.frame.h * wide.scaleY).toBeCloseTo(45 * (4 / 200));
     expect(wide.frame.w * wide.scaleX).toBeCloseTo(4);
   });
 

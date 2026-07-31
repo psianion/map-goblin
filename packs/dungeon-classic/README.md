@@ -66,13 +66,18 @@ wall 42, edge 17, scatter 1, object 21, door 6 (new type).
 
 | Entry ID | Source file |
 |----------|-------------|
-| `door-single-closed` | `Doors/Door_Stone_Slate_A_1x1.png` |
+| `door-single-closed` | `Doors/Door_Wood_Ashen_D_1x1.png` |
 | `door-single-open` | `Doors/Door_Frames/Door_Frame_Stone_Slate_A_2x1.png` |
 | `door-double-closed` | `Doors/Large_Doors/Door_Large_Wood_Ashen_A_2x1.png` |
 | `door-double-open` | `Doors/Door_Frames/Door_Frame_Double_Stone_Slate_A_3x1.png` |
 | `door-portcullis-closed` | `Doors/Large_Doors/Portcullis_Metal_Gray_A_2x1.png` |
 | `door-archway-open` | `Arches/Arch_Small_Stone_Slate_A1_1x2.png` |
 | `door-portcullis-open` | **absent** — no such art exists in the source kit; `doorRenderer.ts`'s per-key glyph fallback covers this state |
+
+Single and double closed doors are both Ashen wood on purpose: the kit has no stone
+double, so a slate single next to an ashen double split the palette inside one map.
+`Door_Wood_Ashen_D` was picked over the other ashen singles because its 5-panel slab
+and hinge barrel keep the silhouette the slate door had.
 
 ### Wall set: `stone-slate` (superset, 21 pieces)
 

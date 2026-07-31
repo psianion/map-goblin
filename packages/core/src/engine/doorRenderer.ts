@@ -144,7 +144,7 @@ export interface DoorSpriteMeta {
 /**
  * The opaque content of each door entry.
  *
- * Door art is authored on a padded grid cell — a single door is 49px of paint in
+ * Door art is authored on a padded grid cell — a single door is 45px of paint in
  * a 200px square — so measuring the sprite by its texture is measuring mostly
  * nothing. Fitting the *canvas* to the door's width is what made a default-width
  * door render as a hairline: the paint was a fifth of what was being scaled.
@@ -157,8 +157,8 @@ export interface DoorSpriteMeta {
  * authored tight and is no worse than the alternative for art that was not.
  */
 const SPRITE_META: Record<string, DoorSpriteMeta> = {
-  // 200x200 canvas, 200x49 of paint at (0,76).
-  'door-single-closed': { x: 0, y: 0.38, w: 1, h: 0.245 },
+  // 200x200 canvas, 200x45 of paint at (0,77).
+  'door-single-closed': { x: 0, y: 0.385, w: 1, h: 0.225 },
   // 400x200, 281x81 at (60,59).
   'door-single-open': { x: 0.15, y: 0.295, w: 0.7025, h: 0.405 },
   // 400x200, 400x54 at (0,73).
