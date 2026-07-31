@@ -6,8 +6,12 @@
 // that an unrelated store write does not rebuild the mask.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Container, Ticker } from 'pixi.js';
 import type { DoorChild, Room } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
+import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
+import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
+import { clearEngineSingleton, setEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
 import { useStore } from '@dnd/core/src/store/store';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import type { RoomFog, SceneFog } from '@dnd/mechanics/fog';
@@ -27,6 +31,7 @@ import {
   revealDurationMs,
   revealsBetween,
   roomViews,
+  mountPlayerFogWhenReady,
   subscribeFogScene,
   type RoomView,
 } from './FogRenderer';
@@ -597,5 +602,74 @@ describe('fogScene', () => {
     expect(views.get(GALLERY.id)).toBe('visible');
     // …and never through the one only core believes in.
     expect(views.get(VAULT.id)).toBe('explored');
+  });
+});
+
+// ── The composite each seat actually gets (D12 / principle 3) ───────────────
+// `LIGHTING_STRENGTH` is only a pair of numbers until something applies it, and the seat it
+// matters most for is the one with no fog layer drawn at all — the DM, whose stage came back
+// from the browser gate ~90% near-black. So this mounts the layer for real and reads the
+// sprite, which is the only place the two halves meet.
+
+describe('the lighting composite each seat is mounted with', () => {
+  /** The overlay container the engine puts its multiply sprite in. */
+  function fakeSceneGraph(): { sceneGraph: SceneGraph; lighting: Container } {
+    const worldContainer = new Container();
+    const layerContainer = new Container();
+    worldContainer.addChild(layerContainer);
+    const overlayContainer = new Container();
+    const lighting = new Container();
+    lighting.label = 'lightingComposite';
+    lighting.alpha = 0.95;
+    overlayContainer.addChild(lighting);
+    return {
+      sceneGraph: { worldContainer, layerContainer, overlayContainer } as unknown as SceneGraph,
+      lighting,
+    };
+  }
+
+  const seat = (role: 'dm' | 'player') => ({ ...player, role });
+
+  function mounted(role: 'dm' | 'player'): { lighting: Container; unmount: () => void } {
+    const { sceneGraph, lighting } = fakeSceneGraph();
+    const ticker = new Ticker();
+    useSessionStore.setState({
+      session: session(),
+      you: seat(role),
+      mapData: sent([dungeon(ROOMS)]),
+    });
+    useStore.setState({ layers: [dungeon(ROOMS)] });
+    setEngineSingleton(
+      { ticker: () => ticker, canvas: () => document.createElement('canvas') } as unknown as RenderEngine,
+      sceneGraph,
+    );
+    const stop = mountPlayerFogWhenReady();
+    return {
+      lighting,
+      unmount: () => {
+        stop();
+        clearEngineSingleton();
+        ticker.destroy();
+      },
+    };
+  }
+
+  it('dials the multiply off for the DM — darkness is staged, never imposed', () => {
+    const { lighting, unmount } = mounted('dm');
+    expect(lighting.alpha).toBe(LIGHTING_STRENGTH.dm);
+    expect(lighting.alpha).toBe(0);
+    unmount();
+  });
+
+  it('leaves the player theirs, dialled back rather than off', () => {
+    const { lighting, unmount } = mounted('player');
+    expect(lighting.alpha).toBe(LIGHTING_STRENGTH.player);
+    unmount();
+  });
+
+  it('hands the composite back at full strength when the table goes away', () => {
+    const { lighting, unmount } = mounted('dm');
+    unmount();
+    expect(lighting.alpha).toBe(0.95);
   });
 });
