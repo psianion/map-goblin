@@ -181,7 +181,7 @@ export function roomViews(
  * needs a claimed token parked outside every room to happen at all; the day it matters, the
  * fix is the server naming the party's rooms on the wire, not a guess on this side.
  */
-export const PARTY_ROOM_UNKNOWN = ' party-elsewhere';
+export const PARTY_ROOM_UNKNOWN = '\0party-elsewhere';
 
 /**
  * Where the party is standing, for D3's reachability BFS. A claimed token is a player at
