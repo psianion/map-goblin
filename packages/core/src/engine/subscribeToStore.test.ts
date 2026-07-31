@@ -54,7 +54,7 @@ vi.mock('../shared/notify', () => ({
   notify: { subtle: vi.fn(), info: vi.fn(), error: vi.fn(), success: vi.fn() },
 }));
 
-import { subscribeToStore } from './subscribeToStore';
+import { subscribeToStore, flushLayerDraws } from './subscribeToStore';
 import { useStore } from '../store/store';
 import { LightManager, extractWallSegments } from './lighting';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
@@ -162,11 +162,27 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
 
   beforeEach(() => {
     useStore.getState().resetToDefault();
+    flushLayerDraws();
     vi.clearAllMocks();
     lightManager = new LightManager();
   });
 
-  afterEach(() => unsub?.());
+  afterEach(() => {
+    unsub?.();
+    // Layer draws are queued for the next frame; drain them here so a pending
+    // one cannot land mid-way through the next test.
+    flushLayerDraws();
+  });
+
+  /**
+   * Subscribe and draw the initial pass. Rebuilds are coalesced to a frame, so a
+   * test that asserts on them has to say when the frame is.
+   */
+  function start(): () => void {
+    const stop = subscribeToStore(engine, sceneGraph, lightManager);
+    flushLayerDraws();
+    return stop;
+  }
 
   it('a state-only toggle skips the mergedFloor union and the room resync', () => {
     // Two shapes so the union has real work; a wall + door far from them.
@@ -175,7 +191,7 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
       standaloneWalls: [wall('w1', 0, 0, 100, 0)],
     });
 
-    unsub = subscribeToStore(engine, sceneGraph, lightManager);
+    unsub = start();
 
     // fireImmediately did the first union.
     expect(vi.mocked(clipper2Engine.union).mock.calls.length).toBeGreaterThan(0);
@@ -184,6 +200,7 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
 
     vi.clearAllMocks();
     patchDoor(layerId, 'd1', { state: 'open' });
+    flushLayerDraws();
 
     // The handler ran, but only the doors sublayer redrew...
     expect(redrawDoors).toHaveBeenCalled();
@@ -202,7 +219,7 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
       standaloneWalls: [wall('w1', 0, 0, 100, 0)],
     });
 
-    unsub = subscribeToStore(engine, sceneGraph, lightManager);
+    unsub = start();
     const floorBefore = dungeon().mergedFloor;
     vi.clearAllMocks();
 
@@ -223,7 +240,7 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
       standaloneWalls: [wall('w1', 0, 0, 100, 0)],
     });
 
-    unsub = subscribeToStore(engine, sceneGraph, lightManager);
+    unsub = start();
     vi.clearAllMocks();
 
     useStore.setState((s) => {
@@ -241,7 +258,7 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
       standaloneWalls: [wall('w1', 0, 0, 100, 0)],
     });
 
-    unsub = subscribeToStore(engine, sceneGraph, lightManager);
+    unsub = start();
 
     lightManager.rebuildIfDirty([dungeon()]);
     const segsClosed = extractWallSegments([dungeon()]).length;
@@ -277,7 +294,7 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
       standaloneWalls: walls,
     });
 
-    unsub = subscribeToStore(engine, sceneGraph, lightManager);
+    unsub = start();
     lightManager.rebuildIfDirty([dungeon()]);
     for (const l of lights) lightManager.getOrComputePolygon(l);
 
@@ -316,12 +333,13 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
       standaloneWalls: [wall('w1', 0, 0, 100, 0)],
     });
 
-    unsub = subscribeToStore(engine, sceneGraph, lightManager);
+    unsub = start();
     const floorBefore = dungeon().mergedFloor;
     vi.clearAllMocks();
     const invalidateAll = vi.spyOn(lightManager, 'invalidateAll');
 
     patchDoor(layerId, 'd1', { position: [70, 0] });
+    flushLayerDraws();
 
     expect(rebuildDungeonLayer).toHaveBeenCalled();
     expect(redrawDoors).not.toHaveBeenCalled();
@@ -339,12 +357,13 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
       standaloneWalls: [wall('w1', 0, 0, 100, 0)],
     });
 
-    unsub = subscribeToStore(engine, sceneGraph, lightManager);
+    unsub = start();
     const floorBefore = dungeon().mergedFloor;
     vi.clearAllMocks();
     const invalidateAll = vi.spyOn(lightManager, 'invalidateAll');
 
     patchDoor(layerId, 'd1', { isSecret: true });
+    flushLayerDraws();
 
     expect(redrawDoors).toHaveBeenCalled();
     expect(rebuildDungeonLayer).not.toHaveBeenCalled();
@@ -361,19 +380,87 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
       standaloneWalls: [wall('w1', 0, 0, 100, 0)],
     });
 
-    unsub = subscribeToStore(engine, sceneGraph, lightManager);
+    unsub = start();
     vi.clearAllMocks();
 
     patchDoor(layerId, 'd1', { style: 'archway' });
+    flushLayerDraws();
 
     expect(redrawDoors).toHaveBeenCalled();
     expect(rebuildDungeonLayer).not.toHaveBeenCalled();
   });
 
+  // ── W4 smoothness pass ────────────────────────────────────────────────
+  // Each of these pins one of the audited fixes, by the thing that breaks if
+  // the optimisation is undone.
+
+  it('unions every shape in one Clipper2 call, not one per shape', () => {
+    seed({ children: [shape('s1', 0, 0), shape('s2', 20, 0), shape('s3', 40, 0)] });
+
+    unsub = start();
+
+    // Three overlapping shapes used to be two folded unions; the merged output
+    // is the same set of rings either way.
+    expect(vi.mocked(clipper2Engine.union).mock.calls).toHaveLength(1);
+    expect(vi.mocked(clipper2Engine.union).mock.calls[0][0]).toHaveLength(3);
+    expect(dungeon().mergedFloor).toHaveLength(3);
+  });
+
+  it('a texture-only edit re-renders without re-unioning, re-detecting or re-lighting', () => {
+    const layerId = seed({
+      children: [shape('s1', 0, 0), shape('s2', 20, 0), light('l1', 10, 10)],
+    });
+
+    unsub = start();
+    const floorBefore = dungeon().mergedFloor;
+    vi.clearAllMocks();
+    const invalidateAll = vi.spyOn(lightManager, 'invalidateAll');
+
+    useStore.setState((s) => {
+      const l = s.layers.find((la) => la.id === layerId);
+      if (!l || l.type !== 'dungeon') return;
+      (l.children[0] as ShapeChild).textureTint = '#884422';
+    });
+    flushLayerDraws();
+
+    // The floor still has to redraw — the tint is what changed.
+    expect(rebuildDungeonLayer).toHaveBeenCalled();
+    // Nothing under it moved, so none of the expensive passes may run.
+    expect(clipper2Engine.union).not.toHaveBeenCalled();
+    expect(scheduleRoomSync).not.toHaveBeenCalled();
+    expect(invalidateAll).not.toHaveBeenCalled();
+    expect(dungeon().mergedFloor).toBe(floorBefore);
+  });
+
+  it('several writes before the frame draw once, and a rebuild beats a redraw', () => {
+    const layerId = seed({
+      children: [shape('s1', 0, 0), door('d1', 'w1', 50, 0)],
+      standaloneWalls: [wall('w1', 0, 0, 100, 0)],
+    });
+
+    unsub = start();
+    vi.clearAllMocks();
+
+    // What a drag delivers between two frames.
+    patchDoor(layerId, 'd1', { state: 'open' });
+    patchDoor(layerId, 'd1', { position: [60, 0] });
+    patchDoor(layerId, 'd1', { position: [70, 0] });
+    expect(rebuildDungeonLayer).not.toHaveBeenCalled();
+
+    flushLayerDraws();
+    expect(rebuildDungeonLayer).toHaveBeenCalledTimes(1);
+    // rebuildDungeonLayer draws the doors too, so the queued redraw is dropped.
+    expect(redrawDoors).not.toHaveBeenCalled();
+    // The last write is the one drawn.
+    const drawn = vi.mocked(rebuildDungeonLayer).mock.calls[0][0] as DungeonLayer;
+    const drawnDoor = drawn.children.find((c) => c.id === 'd1') as DoorChild;
+    expect(drawnDoor.position).toEqual([70, 0]);
+  });
+
   it('a deleted layer stops holding a geometry key', () => {
     const layerId = seed({ children: [shape('s1', 500, 500), shape('s2', 560, 500)] });
 
-    unsub = subscribeToStore(engine, sceneGraph, lightManager);
+    unsub = start();
     const snapshot = structuredClone(dungeon());
 
     useStore.setState((s) => {

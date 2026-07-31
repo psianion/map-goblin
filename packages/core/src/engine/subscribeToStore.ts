@@ -11,7 +11,7 @@ import {
 } from './sceneGraph';
 import type { RenderEngine } from './RenderEngine';
 import { markDirty as markRenderCacheDirty } from './renderCache';
-import { rebuildDungeonLayer, redrawDoors, preloadLayerTextures } from './floorWallRenderer';
+import { rebuildDungeonLayer, redrawDoors, redrawGrid, preloadLayerTextures } from './floorWallRenderer';
 import { preloadWallTextures } from './wallNodeRenderer';
 import type { DungeonLayer, LightChild, ShapeChild } from '../store/types';
 import { LightManager } from './lighting';
@@ -39,6 +39,8 @@ function applyTransformToPoints(pts: Polygon, t: { translate: [number, number]; 
   });
 }
 
+const digestCache = new WeakMap<ShapeChild, number>();
+
 /**
  * Cheap fingerprint of a shape's actual geometry.
  *
@@ -51,8 +53,20 @@ function applyTransformToPoints(pts: Polygon, t: { translate: [number, number]; 
  * Folded to a number rather than a string — this runs on every store change,
  * and a map's worth of coordinates is not worth allocating a string for.
  * Quantised to 1e-4 of a cell so float noise alone cannot trigger a rebuild.
+ *
+ * Memoised on the shape's own object reference: immer replaces a shape whenever
+ * anything under it changes, so a stale entry is unreachable by construction and
+ * the map never needs sweeping. Without it this walks every coordinate of every
+ * shape on every store change, which during a drag is every pointermove.
+ *
+ * ponytail: a write that mutates a ShapeChild outside immer would keep the old
+ * digest. Nothing does today — every write goes through useStore.setState. If
+ * one appears, key the cache on a version counter instead.
  */
 function geometryDigest(shape: ShapeChild): number {
+  const cached = digestCache.get(shape);
+  if (cached !== undefined) return cached;
+
   let h = 0x811c9dc5;
   const mix = (v: number): void => {
     h ^= Math.round(v * 1e4) | 0;
@@ -71,7 +85,9 @@ function geometryDigest(shape: ShapeChild): number {
     mix(t.rotate);
     mix(t.scale[0]); mix(t.scale[1]);
   }
-  return h >>> 0;
+  const digest = h >>> 0;
+  digestCache.set(shape, digest);
+  return digest;
 }
 
 function computeMergedFloor(layer: DungeonLayer): Polygon[] | null {
@@ -99,11 +115,18 @@ function computeMergedFloor(layer: DungeonLayer): Polygon[] | null {
     }
   }
 
-  // Union all outer rings
-  let merged: Polygon[] = [outerPaths[0]];
-  for (let i = 1; i < outerPaths.length; i++) {
-    merged = clipper2Engine.union(merged, [outerPaths[i]]);
-  }
+  // Union every outer ring in one call. UnionD's NonZero fill merges the
+  // subjects against each other as well as against the (empty) clip set, so
+  // this is the same answer the left fold it replaces produced — for N shapes
+  // in one WASM round trip instead of N-1, which is where a dressed map's
+  // ~280ms went.
+  //
+  // ponytail: a lone ring is still handed back untouched rather than round
+  // tripped for normalisation, exactly as the fold did. The ring's winding
+  // reaches `seedForPoints`, so normalising it would relay every stone on a
+  // one-shape map to change nothing visible.
+  let merged: Polygon[] =
+    outerPaths.length === 1 ? [outerPaths[0]] : clipper2Engine.union(outerPaths, []);
 
   // Subtract all hole rings from the merged result
   if (holePaths.length > 0) {
@@ -111,6 +134,73 @@ function computeMergedFloor(layer: DungeonLayer): Polygon[] | null {
   }
 
   return merged;
+}
+
+// ─── Layer draws, coalesced to one per frame ──────────────────────────────
+//
+// A drag delivers several pointermove events between two frames and every one
+// of them lands a store write, so the unbatched path ran 3-8 full stone
+// rebuilds to draw a single frame. Pending layer ids collect in a set and the
+// flush re-reads the layer, so the last write of the frame is the one drawn.
+//
+// A rebuild supersedes a doors-only redraw of the same layer: rebuildDungeonLayer
+// redraws the doors sublayer anyway, so running both would draw them twice.
+
+const pendingRebuild = new Set<string>();
+const pendingRedraw = new Set<string>();
+let rafHandle: number | null = null;
+let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Draw everything queued, now.
+ *
+ * Exported so unit tests stay synchronous — they drive the store directly and
+ * never run a frame.
+ */
+export function flushLayerDraws(): void {
+  if (rafHandle !== null) { cancelAnimationFrame(rafHandle); rafHandle = null; }
+  if (timeoutHandle !== null) { clearTimeout(timeoutHandle); timeoutHandle = null; }
+
+  const rebuilds = [...pendingRebuild];
+  const redraws = [...pendingRedraw];
+  pendingRebuild.clear();
+  pendingRedraw.clear();
+
+  for (const id of rebuilds) {
+    const entry = getLayerEntry(id);
+    const layer = useStore.getState().layers.find((l) => l.id === id);
+    if (entry && layer && layer.type === 'dungeon') rebuildDungeonLayer(layer, entry);
+  }
+  for (const id of redraws) {
+    const entry = getLayerEntry(id);
+    const layer = useStore.getState().layers.find((l) => l.id === id);
+    if (entry && layer && layer.type === 'dungeon') redrawDoors(layer, entry);
+  }
+}
+
+/**
+ * Backstop for the rAF above. A backgrounded tab suspends rAF entirely, and the
+ * E2E hooks force frames through `__pixiApp.render()` where it never runs — a
+ * rebuild queued and never flushed is a blank map. One frame's worth of slack,
+ * so the rAF still wins whenever the tab is drawing.
+ */
+const HIDDEN_TAB_FLUSH_MS = 32;
+
+function armFlush(): void {
+  if (rafHandle !== null || timeoutHandle !== null) return;
+  rafHandle = requestAnimationFrame(flushLayerDraws);
+  timeoutHandle = setTimeout(flushLayerDraws, HIDDEN_TAB_FLUSH_MS);
+}
+
+function scheduleRebuild(layerId: string): void {
+  pendingRedraw.delete(layerId);
+  pendingRebuild.add(layerId);
+  armFlush();
+}
+
+function scheduleRedrawDoors(layerId: string): void {
+  if (!pendingRebuild.has(layerId)) pendingRedraw.add(layerId);
+  armFlush();
 }
 
 /**
@@ -207,6 +297,9 @@ export function subscribeToStore(
   // Last geometry seen per layer, so the handler can tell a floor edit from a
   // door toggle: both wake it, only one may touch the union or the rooms.
   const prevGeometryKeys = new Map<string, { floor: string; room: string; render: string; doorState: string }>();
+  // Every layer's lighting-relevant key, joined — a layer appearing or leaving
+  // moves it too, which is what a per-layer comparison would have missed.
+  let prevLightingKey: string | null = null;
 
   const unsubShapes = useStore.subscribe(
     (state) =>
@@ -220,6 +313,15 @@ export function subscribeToStore(
           shapeKeys: l.children
             .filter((c): c is ShapeChild => c.childType === 'shape')
             .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}:${c.textureId ?? ''}:${c.textureScale ?? ''}:${c.textureTint ?? ''}:${c.textureOffsetX ?? 0}:${c.textureOffsetY ?? 0}:${c.textureFillRotation ?? 0}`)
+            .join(','),
+          // The same shapes, geometry only. Everything above this line that is
+          // dressing — texture, scale, tint, offset, fill rotation — moves no
+          // outline, so the Clipper2 union and detectRooms must not see it:
+          // nudging a texture offset used to re-union the map and re-detect
+          // every room on every pointermove.
+          shapeGeometryKeys: l.children
+            .filter((c): c is ShapeChild => c.childType === 'shape')
+            .map((c) => `${c.id}:${c.visible}:${geometryDigest(c)}`)
             .join(','),
           // Door GEOMETRY (id/visible/width/position/wallId) — a change here
           // still needs the full rebuild below because withoutDoorGaps
@@ -249,7 +351,8 @@ export function subscribeToStore(
         })),
     (dungeonLayers) => {
       let geometryChanged = false;
-      for (const { id, shapeCount, shapeKeys, wallCount, wallSignature, waterSignature, doorGeometryKey, doorStateKey } of dungeonLayers) {
+      const lightingKeys: string[] = [];
+      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, waterSignature, doorGeometryKey, doorStateKey } of dungeonLayers) {
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
@@ -258,14 +361,21 @@ export function subscribeToStore(
           // door open used to rebuild it anyway (#18): Clipper2 on a dressed map
           // is ~280ms, and the fresh mergedFloor array it wrote busted the wall
           // resolver memo on top, dragging the stones through a rebuild too.
-          const floorKey = `${shapeCount}|${shapeKeys}`;
+          // Geometry only — see shapeGeometryKeys above. A texture edit leaves
+          // both of these identical and so touches neither Clipper2 nor rooms.
+          const floorKey = `${shapeCount}|${shapeGeometryKeys}`;
           const roomKey = `${floorKey}|${wallCount}|${wallSignature}`;
           // Everything that forces a full rebuild (stone re-layout): floor
-          // and wall geometry, water, and door GEOMETRY — door geometry is
-          // here (not just roomKey) because withoutDoorGaps needs it to cut
-          // stone gaps. Door STATE is deliberately excluded: it is handled
-          // by the doors-only redraw below and must never re-run this.
-          const renderKey = `${roomKey}|${waterSignature}|${doorGeometryKey}`;
+          // and wall geometry, the shapes' dressing, water, and door GEOMETRY —
+          // door geometry is here (not just roomKey) because withoutDoorGaps
+          // needs it to cut stone gaps. Door STATE is deliberately excluded: it
+          // is handled by the doors-only redraw below and must never re-run this.
+          const renderKey = `${roomKey}|${shapeKeys}|${waterSignature}|${doorGeometryKey}`;
+          // What occlusion is a function of: the outlines light is cast against
+          // (floor rings and walls) plus every door's geometry and state. A
+          // texture edit is absent from all of it.
+          const lightingKey = `${id}|${roomKey}|${doorGeometryKey}|${doorStateKey}`;
+          lightingKeys.push(lightingKey);
           const prev = prevGeometryKeys.get(id);
           if (prev?.room !== roomKey) geometryChanged = true;
           const renderChanged = prev?.render !== renderKey;
@@ -280,28 +390,22 @@ export function subscribeToStore(
             });
           }
           prevGeometryKeys.set(id, { floor: floorKey, room: roomKey, render: renderKey, doorState: doorStateKey });
-          // Re-read layer after a possible mergedFloor update
-          const updatedLayer = useStore.getState().layers.find((l) => l.id === id);
-          if (!updatedLayer || updatedLayer.type !== 'dungeon') continue;
 
           if (renderChanged) {
             markRenderCacheDirty(id);
-            // Immediate rebuild (solid color fallback for unloaded textures)
-            rebuildDungeonLayer(updatedLayer, entry);
+            // Queued for the frame (solid color fallback for unloaded textures)
+            scheduleRebuild(id);
             // Async: preload textures, then re-rebuild once they're cached
             preloadLayerTextures(layer).then((loaded) => {
               if (!loaded) return;
-              const fresh = useStore.getState().layers.find((l) => l.id === id);
-              if (fresh && fresh.type === 'dungeon') {
-                markRenderCacheDirty(id);
-                rebuildDungeonLayer(fresh as DungeonLayer, entry);
-              }
+              markRenderCacheDirty(id);
+              scheduleRebuild(id);
             });
           } else if (doorStateChanged) {
             // State-only flip: redraw the doors sublayer, skip stone re-layout
             // and the Clipper2 union entirely — this is the ~60ms→<50ms fix.
             markRenderCacheDirty(id);
-            redrawDoors(updatedLayer, entry);
+            scheduleRedrawDoors(id);
           }
         }
       }
@@ -312,9 +416,16 @@ export function subscribeToStore(
         const liveIds = new Set(dungeonLayers.map((l) => l.id));
         for (const id of prevGeometryKeys.keys()) if (!liveIds.has(id)) prevGeometryKeys.delete(id);
       }
-      // Unconditional: door state feeds occlusion, so an open door has to
-      // re-sweep even though no geometry moved.
-      lightManager.invalidateAll();
+      // Door state feeds occlusion, so an open door has to re-sweep even though
+      // no geometry moved — but a texture or tint edit does not, and this used
+      // to fire on any render-key change, dragging every light's visibility
+      // polygon through a full re-sweep per pointermove while a swatch was
+      // being nudged. The key is every input `extractWallSegments` reads.
+      const lightingKey = lightingKeys.join('||');
+      if (lightingKey !== prevLightingKey) {
+        prevLightingKey = lightingKey;
+        lightManager.invalidateAll();
+      }
       // Rooms are a function of floor + wall geometry only — a door opening
       // does not move a room boundary, and syncRooms rewrites every door's
       // roomA/roomB, which would churn the door children for nothing.
@@ -354,7 +465,15 @@ export function subscribeToStore(
     (lights) => {
       lightManager.syncFromStore(lights);
     },
-    { fireImmediately: true },
+    {
+      fireImmediately: true,
+      // flatMap builds a fresh array every call, so the default Object.is check
+      // never matches and this re-synced every light on every store mutation.
+      // Immer keeps each light by reference until it actually changes, so
+      // per-index identity is the whole test (same pattern as the layer
+      // visibility and style selectors).
+      equalityFn: (a, b) => a.length === b.length && a.every((l, i) => l === b[i]),
+    },
   );
   unsubscribers.push(unsubLights);
 
@@ -466,7 +585,9 @@ export function subscribeToStore(
       for (const layer of dungeonLayers) {
         const entry = getLayerEntry(layer.id);
         if (entry) {
-          rebuildDungeonLayer(layer, entry);
+          // Grid lines are their own sublayer and nothing else reads
+          // grid.visible, so the toggle has no business re-laying every stone.
+          redrawGrid(layer, entry);
           markRenderCacheDirty(layer.id);
         }
       }
@@ -486,25 +607,16 @@ export function subscribeToStore(
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
-          rebuildDungeonLayer(layer, entry);
+          scheduleRebuild(id);
           preloadLayerTextures(layer).then((loaded) => {
             if (!loaded) return;
-            const fresh = useStore.getState().layers.find((l) => l.id === id);
-            if (fresh && fresh.type === 'dungeon') {
-              markRenderCacheDirty(id);
-              rebuildDungeonLayer(fresh as DungeonLayer, entry);
-            }
+            markRenderCacheDirty(id);
+            scheduleRebuild(id);
           });
           preloadWallTextures(layer.style).then((loaded) => {
             if (!loaded) return;
-            const fresh = useStore.getState().layers.find((l) => l.id === id);
-            if (fresh && fresh.type === 'dungeon') {
-              const freshEntry = getLayerEntry(id);
-              if (freshEntry) {
-                markRenderCacheDirty(id);
-                rebuildDungeonLayer(fresh as DungeonLayer, freshEntry);
-              }
-            }
+            markRenderCacheDirty(id);
+            scheduleRebuild(id);
           });
         }
       }

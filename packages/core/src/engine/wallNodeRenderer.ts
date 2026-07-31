@@ -109,20 +109,36 @@ export function seedForPoints(points: [number, number][]): number {
   return h >>> 0;
 }
 
+/**
+ * Fill `parent` from index `from` onward, reusing the sprites already there.
+ *
+ * A drag rebuilds this container every frame and every stone was a `destroy()`
+ * plus a fresh `new Sprite` — for a wall whose piece count barely changes
+ * between frames. Reassigning texture and transform in place keeps the same
+ * objects, so only a wall that grew allocates. Returns the next free index.
+ */
 function placeNodes(
   parent: Container,
   nodes: WallNode[],
   specById: Map<string, WallPieceSpec>,
   wallWidth: number,
   tint: number,
-): void {
+  from: number,
+): number {
+  let at = from;
   for (const node of nodes) {
     const spec = specById.get(node.pieceId);
     if (!spec) continue;
     const tex = resolveTexture(node.pieceId);
     if (tex.width === 0) continue;
 
-    const sprite = new Sprite(tex);
+    let sprite = parent.children[at] as Sprite | undefined;
+    if (sprite) {
+      sprite.texture = tex;
+    } else {
+      sprite = new Sprite(tex);
+      parent.addChild(sprite);
+    }
     // 0.5 lands on the visible stone for straights and rocks: resolveTexture
     // hands those back already trimmed to contentRect, so the anchor is the
     // stone's own centre and a resize grows it evenly in every direction rather
@@ -136,7 +152,15 @@ function placeNodes(
     const [sx, sy] = nodeSpriteScale(node, spec, wallWidth);
     sprite.scale.set(sx, sy);
     sprite.tint = tint;
-    parent.addChild(sprite);
+    at++;
+  }
+  return at;
+}
+
+/** Drop the tail of the pool a shorter layout no longer needs. */
+function trimTo(parent: Container, count: number): void {
+  while (parent.children.length > count) {
+    parent.removeChildAt(parent.children.length - 1).destroy();
   }
 }
 
@@ -161,16 +185,23 @@ export function renderNodeWalls(
   /** Hand edits for floor rings, keyed by ring index. */
   floorEdits: Record<string, WallEdits> = {},
 ): void {
-  wallsContainer.removeChildren();
-  if (!style.wallTextureSetId) return;
+  if (!style.wallTextureSetId) {
+    trimTo(wallsContainer, 0);
+    return;
+  }
 
   const setId = style.wallTextureSetId as WallCategory;
   const specs = buildPieceSpecs(setId);
-  if (specs.length === 0) return;
+  if (specs.length === 0) {
+    trimTo(wallsContainer, 0);
+    return;
+  }
 
   const specById = new Map(specs.map((s) => [s.id, s]));
   const tint = parseInt(style.wallTextureTint.replace('#', ''), 16) || 0xffffff;
   const wallWidth = style.wallWidth;
+
+  let placed = 0;
 
   for (let i = 0; i < polygons.length; i++) {
     const poly = polygons[i];
@@ -180,7 +211,7 @@ export function renderNodeWalls(
     // because the ring itself is recomputed from the shapes every time.
     const nodes = applyWallEdits(auto, floorEdits[String(i)]);
     const gaps = doorGaps.filter((g) => g.ring === i);
-    placeNodes(wallsContainer, withoutDoorGaps(nodes, gaps), specById, wallWidth, tint);
+    placed = placeNodes(wallsContainer, withoutDoorGaps(nodes, gaps), specById, wallWidth, tint, placed);
   }
 
   for (const wall of standaloneWalls) {
@@ -194,8 +225,10 @@ export function renderNodeWalls(
     // edits — the common case — pass straight through.
     const nodes = applyWallEdits(auto, wall);
     const gaps = doorGaps.filter((g) => g.wallId === wall.id);
-    placeNodes(wallsContainer, withoutDoorGaps(nodes, gaps), specById, w, tint);
+    placed = placeNodes(wallsContainer, withoutDoorGaps(nodes, gaps), specById, w, tint, placed);
   }
+
+  trimTo(wallsContainer, placed);
 }
 
 /** Preload every piece the layout engine can place. */

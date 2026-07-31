@@ -37,8 +37,6 @@ export function syncRooms(): void {
       GRID_SIZE,
       layer.roomNameOverrides ?? {},
     );
-    useStore.getState().setRooms(layer.id, rooms);
-
     // Bind against resolved geometry, not the authored fields: a door on a
     // floor-ring edge has no `wallId` to look up, and both position and angle
     // on the child go stale the moment the wall under it is edited. A detached
@@ -55,11 +53,15 @@ export function syncRooms(): void {
       bindable.map((d) => [d.id, bindDoorToRooms(d, walls, rooms)] as const),
     );
 
+    // Rooms and the bindings derived from them are one write: they are the same
+    // recomputation, and two setStates means every subscriber runs twice — once
+    // on a layer whose doors still point at the rooms that no longer exist.
     // Door→room binding is derived from geometry, not user intent, so it is
     // written straight to the store and never lands on the undo stack.
     useStore.setState((s) => {
       const target = s.layers.find((l) => l.id === layer.id);
       if (!target || target.type !== 'dungeon') return;
+      target.rooms = rooms;
       for (const child of target.children) {
         if (child.childType !== 'door') continue;
         const door = child as DoorChild;

@@ -24,6 +24,12 @@ export class PixiRenderEngine implements RenderEngine {
       backgroundColor: 0x2d2d2d,
       // Required for E2E pixel-sampling tests (ctx.drawImage on WebGL canvas)
       preserveDrawingBuffer: true,
+      // Every pointer, wheel and click path in the app is a DOM listener on the
+      // canvas element (useCanvasInput, tokens/drag, DoorRenderer, FogOverlay) —
+      // nothing sets eventMode or subscribes to a Pixi federated event. Left on,
+      // Pixi hit-tests the whole scene tree on every pointermove for listeners
+      // that do not exist.
+      eventFeatures: { move: false, globalMove: false, click: false, wheel: false },
     });
 
     // Guard: destroy() may have been called during async init (React Strict Mode)

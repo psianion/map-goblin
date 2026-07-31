@@ -273,10 +273,20 @@ export function fogScene(): FogScene {
  * Fires when anything the mask is built from changes, and once on subscribe. The session
  * store fires on every ping and the core store on every camera nudge; slice identity is
  * enough to tell those apart, because both stores replace slices wholesale (§2.5).
+ *
+ * Coalesced to the frame. One reveal is not one write: the delta replaces the fog slice,
+ * the door slice and the map document, and core re-lays the layers under it — four
+ * notifications for one beat, and the mask was rebuilt from scratch on each. Waiting for
+ * the frame costs the fade nothing (it starts inside the same frame the delta lands in)
+ * and there is no draw to miss without one — the fog is only ever seen through a frame.
+ * The first paint stays synchronous: the mask has to exist before the map under it is
+ * drawn, or the player sees one unmasked frame of the whole dungeon.
  */
 export function subscribeFogScene(onChange: () => void): () => void {
   let last: unknown[] = [];
-  const check = () => {
+  let queued: number | null = null;
+
+  const changed = (): boolean => {
     const { session, you, mapData } = useSessionStore.getState();
     const next = [
       you?.role,
@@ -289,15 +299,24 @@ export function subscribeFogScene(onChange: () => void): () => void {
       mapData,
       useStore.getState().layers,
     ];
-    if (next.length === last.length && next.every((v, i) => v === last[i])) return;
+    if (next.length === last.length && next.every((v, i) => v === last[i])) return false;
     last = next;
-    onChange();
+    return true;
   };
 
-  check();
+  const flush = (): void => {
+    queued = null;
+    onChange();
+  };
+  const check = (): void => {
+    if (changed() && queued === null) queued = requestAnimationFrame(flush);
+  };
+
+  if (changed()) onChange();
   const unsubSession = useSessionStore.subscribe(check);
   const unsubMap = useStore.subscribe(check);
   return () => {
+    if (queued !== null) cancelAnimationFrame(queued);
     unsubSession();
     unsubMap();
   };

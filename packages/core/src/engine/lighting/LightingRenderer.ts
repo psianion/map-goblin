@@ -74,6 +74,7 @@ export class LightingRenderer {
   private iconMap = new Map<string, Graphics>()
   private iconsVisible = true
   private lastSignature = ''
+  private lastIconSignature = ''
 
   constructor(engine: RenderEngine, width: number, height: number) {
     this.engine = engine
@@ -102,6 +103,8 @@ export class LightingRenderer {
   /** Editing affordance toggle — the session runner hides light icons; the editor keeps them. */
   setIconsVisible(visible: boolean): void {
     this.iconsVisible = visible
+    // Turning them back on has to redraw whatever the guard below last saw.
+    this.lastIconSignature = ''
     if (!visible) {
       for (const [id, icon] of this.iconMap) {
         this.engine.overlay().removeChild(icon)
@@ -111,10 +114,27 @@ export class LightingRenderer {
     }
   }
 
-  /** Updates per-light icon circles in the overlay. Runs every frame. */
-  private updateIcons(lightManager: LightManager): void {
+  /**
+   * Updates per-light icon circles in the overlay. Runs every frame.
+   *
+   * Guarded the same way the composite below is, and for the same reason: the
+   * icons are drawn in *screen* space, so the camera decides where they land as
+   * much as the lights do — and on an idle editor neither moves. Unguarded this
+   * cleared and re-traced every light's Graphics 60 times a second to draw the
+   * identical circle.
+   */
+  private updateIcons(lightManager: LightManager, camX: number, camY: number, zoom: number): void {
     if (!this.iconsVisible) return
     const allLights = lightManager.getLights()
+
+    const parts: (string | number)[] = [camX, camY, zoom]
+    for (const l of allLights) {
+      parts.push(l.id, l.position.x, l.position.y, l.color, l.visible !== false ? 1 : 0)
+    }
+    const signature = parts.join('|')
+    if (signature === this.lastIconSignature) return
+    this.lastIconSignature = signature
+
     const lightIds = new Set(allLights.map((l) => l.id))
 
     for (const [id, icon] of this.iconMap) {
@@ -153,7 +173,7 @@ export class LightingRenderer {
     zoom: number,
     ambientColor: string,
   ): void {
-    this.updateIcons(lightManager)
+    this.updateIcons(lightManager, camX, camY, zoom)
 
     // Viewport first — it sizes the composite, and a resize has to reach the signature
     // below before the guard can decide the picture is unchanged.

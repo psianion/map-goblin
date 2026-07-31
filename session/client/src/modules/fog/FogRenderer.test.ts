@@ -449,7 +449,11 @@ describe('subscribeFogScene', () => {
     useStore.setState({ layers: [dungeon(ROOMS)] });
   });
 
-  it('rebuilds when the fog slice changes', () => {
+  /** Rebuilds are coalesced to the frame; this is the frame. */
+  const frame = (): Promise<void> =>
+    new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+  it('rebuilds when the fog slice changes', async () => {
     const onChange = vi.fn();
     const stop = subscribeFogScene(onChange);
     expect(onChange).toHaveBeenCalledTimes(1); // once on subscribe, like the other layers
@@ -457,26 +461,53 @@ describe('subscribeFogScene', () => {
     useSessionStore.setState({
       session: session({ fog: { byScene: { 'scene-1': fogOf({ [VESTIBULE.id]: seen }) } } }),
     });
+    await frame();
     expect(onChange).toHaveBeenCalledTimes(2);
 
     stop();
   });
 
-  it('rebuilds when a door or a token moves, and when the map grows', () => {
+  it('rebuilds when a door or a token moves, and when the map grows', async () => {
     const onChange = vi.fn();
     const stop = subscribeFogScene(onChange);
+    onChange.mockClear();
 
     useSessionStore.setState({ session: session({ doors: { byScene: {} } }) });
+    await frame();
     useSessionStore.setState({ session: session({ doors: { byScene: {} }, tokens: {} }) });
+    await frame();
     useStore.setState({ layers: [dungeon([...ROOMS, room('r-new', 30)])] });
+    await frame();
     // …and when a reveal delta lands, which is the map growing where the mask reads it.
     useSessionStore.setState({ mapData: sent([dungeon([...ROOMS, room('r-new', 30)])]) });
+    await frame();
 
-    expect(onChange).toHaveBeenCalledTimes(5); // subscribe + four mutations
+    expect(onChange).toHaveBeenCalledTimes(4);
     stop();
   });
 
-  it('does not rebuild on an unrelated store write', () => {
+  it('builds the mask once for the several writes one reveal lands', async () => {
+    // A reveal replaces the fog slice, the door slice and the document, and core
+    // re-lays the layers under it. Four notifications, one beat, one mask.
+    const onChange = vi.fn();
+    const stop = subscribeFogScene(onChange);
+    onChange.mockClear();
+
+    const grown = [dungeon([...ROOMS, room('r-new', 30)])];
+    useSessionStore.setState({
+      session: session({ fog: { byScene: { 'scene-1': fogOf({ [VESTIBULE.id]: seen }) } } }),
+    });
+    useSessionStore.setState({ session: session({ doors: { byScene: {} } }) });
+    useSessionStore.setState({ mapData: sent(grown) });
+    useStore.setState({ layers: grown });
+    expect(onChange).not.toHaveBeenCalled();
+
+    await frame();
+    expect(onChange).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it('does not rebuild on an unrelated store write', async () => {
     const onChange = vi.fn();
     const stop = subscribeFogScene(onChange);
     onChange.mockClear();
@@ -487,15 +518,17 @@ describe('subscribeFogScene', () => {
     useSessionStore.setState({ presence: [] });
     useStore.setState({ grid: { ...useStore.getState().grid } });
 
+    await frame();
     expect(onChange).not.toHaveBeenCalled();
     stop();
   });
 
-  it('stops rebuilding once unsubscribed', () => {
+  it('stops rebuilding once unsubscribed', async () => {
     const onChange = vi.fn();
     subscribeFogScene(onChange)();
     onChange.mockClear();
     useSessionStore.setState({ session: session({ fog: { byScene: {} } }) });
+    await frame();
     expect(onChange).not.toHaveBeenCalled();
   });
 });

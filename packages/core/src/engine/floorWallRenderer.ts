@@ -298,6 +298,63 @@ export function redrawDoors(layer: DungeonLayer, entry: LayerEntry): void {
 }
 
 /**
+ * Redraw only the grid sublayer — for the grid visibility toggle, which moves
+ * no geometry at all. Mirror of {@link redrawDoors}: no stone re-layout, no
+ * Clipper2, no floor fill.
+ *
+ * Called from `rebuildDungeonLayer` too, so the two can never drift.
+ */
+export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
+  if (!entry.sublayers) return;
+  const gridSub = entry.sublayers.grid;
+  for (const child of gridSub.removeChildren()) child.destroy();
+
+  const polygons = layer.mergedFloor;
+  if (!polygons || polygons.length === 0) return;
+  if (!useStore.getState().grid.visible) return;
+
+  // Compute bounding box of all floor polygons
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const polygon of polygons) {
+    for (const [x, y] of polygon) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  const gridMinX = Math.floor(minX);
+  const gridMaxX = Math.ceil(maxX);
+  const gridMinY = Math.floor(minY);
+  const gridMaxY = Math.ceil(maxY);
+
+  // Mask to clip grid lines within floor shape
+  const maskG = new Graphics();
+  fillPolygonsWithHoles(maskG, polygons, { color: 0xffffff });
+
+  // Grid lines
+  const gridG = new Graphics();
+  const gridColor = parseColor(layer.style.wallColor);
+  gridG.setStrokeStyle({ color: gridColor, width: 0.02, alpha: 0.25 });
+
+  for (let x = gridMinX; x <= gridMaxX; x++) {
+    gridG.moveTo(x, gridMinY);
+    gridG.lineTo(x, gridMaxY);
+  }
+  for (let y = gridMinY; y <= gridMaxY; y++) {
+    gridG.moveTo(gridMinX, y);
+    gridG.lineTo(gridMaxX, y);
+  }
+  gridG.stroke();
+
+  const gridContainer = new Container();
+  gridContainer.addChild(maskG);
+  gridContainer.addChild(gridG);
+  gridContainer.mask = maskG;
+  gridSub.addChild(gridContainer);
+}
+
+/**
  * Rebuild a dungeon layer's sublayers from store state.
  * Called by subscribeToStore whenever shapes or walls change.
  *
@@ -313,7 +370,10 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   floor.mask = null;
   for (const child of floor.removeChildren()) child.destroy();
   for (const child of hatching.removeChildren()) child.destroy();
-  for (const child of walls.removeChildren()) child.destroy();
+  // Not the walls: `renderNodeWalls` pools its stone sprites, reassigning the
+  // ones already in the container and trimming the tail itself. Emptying it
+  // here would throw the pool away on every rebuild, which is the allocation
+  // this drag path exists to avoid.
   for (const child of doorsSublayer.removeChildren()) child.destroy();
 
   // paths sublayer removed in v2.0 model — spline paths are no longer separate
@@ -408,53 +468,7 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   renderEdgeTransitions(floor, layer);
 
   // ── Grid sublayer (lines inside shapes) ─────────────────
-  {
-    const gridSub = entry.sublayers.grid;
-    for (const child of gridSub.removeChildren()) child.destroy();
-
-    const gridState = useStore.getState().grid;
-    if (gridState.visible) {
-      // Compute bounding box of all floor polygons
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const polygon of polygons) {
-        for (const [x, y] of polygon) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
-      }
-      const gridMinX = Math.floor(minX);
-      const gridMaxX = Math.ceil(maxX);
-      const gridMinY = Math.floor(minY);
-      const gridMaxY = Math.ceil(maxY);
-
-      // Mask to clip grid lines within floor shape
-      const maskG = new Graphics();
-      fillPolygonsWithHoles(maskG, polygons, { color: 0xffffff });
-
-      // Grid lines
-      const gridG = new Graphics();
-      const gridColor = parseColor(s.wallColor);
-      gridG.setStrokeStyle({ color: gridColor, width: 0.02, alpha: 0.25 });
-
-      for (let x = gridMinX; x <= gridMaxX; x++) {
-        gridG.moveTo(x, gridMinY);
-        gridG.lineTo(x, gridMaxY);
-      }
-      for (let y = gridMinY; y <= gridMaxY; y++) {
-        gridG.moveTo(gridMinX, y);
-        gridG.lineTo(gridMaxX, y);
-      }
-      gridG.stroke();
-
-      const gridContainer = new Container();
-      gridContainer.addChild(maskG);
-      gridContainer.addChild(gridG);
-      gridContainer.mask = maskG;
-      gridSub.addChild(gridContainer);
-    }
-  }
+  redrawGrid(layer, entry);
 
   // ── Hatching sublayer ────────────────────────────────────────
   // Hatching is a layer-level operation (applied to mergedFloor as a whole),
