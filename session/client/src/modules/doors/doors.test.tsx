@@ -133,14 +133,36 @@ describe('how a door draws (D11 — the DM never loses visibility)', () => {
     }
   });
 
-  it('carries state in shape and badge, not colour alone', () => {
+  it('carries open and shut in shape, not colour alone', () => {
     const shut = doorLook(PLAIN, { open: false, locked: false, revealed: true });
     const open = doorLook(PLAIN, { open: true, locked: false, revealed: true });
-    const locked = doorLook(LOCKED, { open: false, locked: true, revealed: true });
     expect(shut.filled).toBe(true);
     expect(open.filled).toBe(false);
-    expect(locked.badge).toBe('locked');
     expect(shut.badge).toBeNull();
+  });
+
+  it('gives a locked door the same neutral mark as any other, on either seat', () => {
+    // No saturated status colour over the door art (PRODUCT principle 1). Locked is said in
+    // the panel row and in the toast a player gets for bumping one — `doorStatusLabel` and
+    // `doorRefusal` below — never by turning the mark red on everyone's canvas.
+    const plain = doorLook(PLAIN, { open: false, locked: false, revealed: true });
+    const locked = doorLook(LOCKED, { open: false, locked: true, revealed: true });
+    expect(locked).toEqual(plain);
+    expect(locked.badge).toBeNull();
+  });
+
+  it('leaves a player’s canvas no state colour at all', () => {
+    // Everything a player can hold: a plain door and a secret one the DM has revealed. An
+    // unrevealed secret is never sent to them (D4), so the gold branch is the DM's alone.
+    const plain = doorLook(PLAIN, { open: false, locked: false, revealed: true });
+    for (const [d, live] of [
+      [PLAIN, { open: true, locked: false, revealed: true }],
+      [LOCKED, { open: false, locked: true, revealed: true }],
+      [SECRET, { open: false, locked: false, revealed: true }],
+    ] as const) {
+      expect(doorLook(d, live).color).toBe(plain.color);
+      expect(doorLook(d, live).badge).toBeNull();
+    }
   });
 
   it('says the state in words too', () => {

@@ -81,15 +81,6 @@ export function trackDoorIds(
   };
 }
 
-/** A padlock: a bar with a shackle over it, small enough to sit on the mark. */
-function drawLockBadge(g: Graphics, x: number, y: number, color: number, alpha: number): void {
-  const s = MARK_RADIUS * 0.62;
-  g.rect(x - s * 0.6, y - s * 0.1, s * 1.2, s * 0.9).fill({ color, alpha });
-  g.moveTo(x - s * 0.32, y - s * 0.1);
-  g.arc(x, y - s * 0.1, s * 0.32, Math.PI, 0);
-  g.stroke({ color, width: s * 0.24, alpha });
-}
-
 /** A four-point star — "there is more here than the map says". */
 function drawSecretBadge(g: Graphics, x: number, y: number, color: number, alpha: number): void {
   const s = MARK_RADIUS * 0.85;
@@ -172,10 +163,12 @@ function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
           .stroke({ color: look.color, width: MARK_RADIUS * 0.34, alpha });
       }
 
-      // Badges are drawn in the mark's counter-colour so they read on either fill.
-      const badgeColor = look.filled ? 0x141414 : look.color;
-      if (look.badge === 'locked') drawLockBadge(paint, x, y, badgeColor, alpha);
-      if (look.badge === 'secret') drawSecretBadge(paint, x, y, badgeColor, alpha);
+      // The badge is drawn in the mark's counter-colour so it reads on either fill. Only the
+      // DM ever has one to draw (`doorLook`): a player's canvas carries no state colour at
+      // all, and locked lives in the door panel and the bump toast instead.
+      if (look.badge === 'secret') {
+        drawSecretBadge(paint, x, y, look.filled ? 0x141414 : look.color, alpha);
+      }
 
       if (door.id === selectedId) {
         paint

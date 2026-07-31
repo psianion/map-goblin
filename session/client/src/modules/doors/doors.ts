@@ -28,7 +28,7 @@ export interface LiveDoor {
  */
 export const DM_ENTITY_ALPHA = 1;
 
-export type DoorBadge = 'locked' | 'secret' | null;
+export type DoorBadge = 'secret' | null;
 
 export interface DoorLook {
   color: number;
@@ -40,21 +40,32 @@ export interface DoorLook {
 
 /** Warm parchment, the map's own ink language rather than a UI palette. */
 const DOOR_COLOR = 0xe0d6c3;
-/** The editor's `danger` token, so a locked door reads the same in both apps. */
-const LOCKED_COLOR = 0xc0392b;
-/** Warm gold — the guide's treasure/secret accent. */
+/**
+ * Warm gold — the art guide's own accent for a stone interior ("warm orange/gold accents
+ * only at light sources and treasure"), which is the register a secret belongs in. Not a
+ * status colour: it is the one mark on the canvas the guide's palette already has a place
+ * for, and it is the DM's alone.
+ */
 const SECRET_COLOR = 0xe0b252;
 
 /**
- * How one door draws. A player never receives an unrevealed secret door at all (D4), so
- * the secret branch is the DM's; it is full opacity plus a badge, never a ghost.
+ * How one door draws.
+ *
+ * Two looks, and neither is a status colour over the door art. There used to be a third: a
+ * locked door came back saturated red on both seats, which put a UI alert on top of a
+ * hand-painted map (PRODUCT principle 1 — the map is the stage) and said "locked" in nothing
+ * but hue. Locked is a *panel* state now: the door rows name it in words and the toast names
+ * it again when a player bumps one, which is where a player can actually act on it. On the
+ * canvas a locked door is a door.
+ *
+ * What is left is the neutral mark every player ever sees, and the DM's secret badge —
+ * PRODUCT principle 3, full opacity and a badge rather than a ghost. A player never receives
+ * an unrevealed secret door at all (D4), so that branch cannot be reached from a player's
+ * seat and no seat argument is needed to keep their canvas free of state colour.
  */
 export function doorLook(door: DoorChild, live: DoorLiveState): DoorLook {
   if (door.isSecret && !live.revealed) {
     return { color: SECRET_COLOR, alpha: DM_ENTITY_ALPHA, filled: !live.open, badge: 'secret' };
-  }
-  if (live.locked) {
-    return { color: LOCKED_COLOR, alpha: DM_ENTITY_ALPHA, filled: true, badge: 'locked' };
   }
   return { color: DOOR_COLOR, alpha: DM_ENTITY_ALPHA, filled: !live.open, badge: null };
 }
