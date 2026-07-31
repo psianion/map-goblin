@@ -54,7 +54,8 @@ vi.mock('../assets/textureManifest', () => ({
 }));
 
 import { Container } from 'pixi.js';
-import { renderNodeWalls } from './wallNodeRenderer';
+import { renderNodeWalls, withoutDoorGaps } from './wallNodeRenderer';
+import type { WallNode, WallPieceSpec } from './wallLayout';
 import type { DungeonStyle, WallSegment } from '../store/types';
 import type { Polygon } from '../types/geometry';
 
@@ -136,5 +137,79 @@ describe('renderNodeWalls — door gaps through the pool', () => {
     renderNodeWalls(container, [ROOM], [], style, [{ ...GAP, position: [-3, 0] }]);
     renderNodeWalls(container, [ROOM], [], style, [GAP]);
     expect(inGap(container)).toHaveLength(0);
+  });
+
+  // The auto-fit case: a door as wide as its wall. It was already pixel-perfect
+  // under the old centre-radius cull, so the new cut must not disturb it.
+  it('still clears the whole edge when the opening is the full wall', () => {
+    const container = new Container();
+    renderNodeWalls(container, [], [wall('w1', 10)], style, [
+      { wallId: 'w1', position: [5, 0], width: 10 },
+    ]);
+    const onEdge = container.children.filter((s) => {
+      const p = (s as unknown as { position: { x: number; y: number } }).position;
+      return Math.abs(p.y) < 0.5 && p.x > 0 && p.x < 10;
+    });
+    expect(onEdge).toHaveLength(0);
+  });
+});
+
+/**
+ * The cut itself. A door narrower than its wall used to lose a whole stone for a
+ * sliver of overlap — up to a stone of dead wall on each side of every opening —
+ * because the old rule only asked whether a stone's CENTRE was inside the door.
+ *
+ * Numbers are chosen to be exact: at wallWidth 0.5 the piece below is
+ * `100 * (0.5 / 50)` = 1 world unit long, so its half-length is 0.5.
+ */
+describe('withoutDoorGaps', () => {
+  const WALL_WIDTH = 0.5;
+  const SPEC: WallPieceSpec = { id: 'p', role: 'straight', lengthPx: 100, thicknessPx: 50 };
+  const SPECS = new Map([[SPEC.id, SPEC]]);
+  const HALF_LENGTH = 0.5;
+
+  /** A stone lying along +x at `x`. */
+  const stone = (x: number, y = 0, angle = 0): WallNode =>
+    ({ t: 0.25, x, y, angle, pieceId: 'p', scale: 1, sizeScale: 1, kind: 'straight' });
+
+  /** A two-unit opening centred on the origin: it spans x -1..1. */
+  const gap = { wallId: 'w1', position: [0, 0] as [number, number], width: 2 };
+
+  const cut = (nodes: WallNode[]) => withoutDoorGaps(nodes, [gap], SPECS, WALL_WIDTH);
+
+  it('drops a stone sitting inside the opening', () => {
+    expect(cut([stone(0.2)])).toHaveLength(0);
+  });
+
+  it('leaves a stone clear of the opening exactly as it was', () => {
+    const clear = stone(3);
+    const out = cut([clear]);
+    // Same object, not a copy: nothing about it changed.
+    expect(out).toEqual([clear]);
+    expect(out[0]).toBe(clear);
+  });
+
+  it('slides a clipped stone out by exactly its overlap', () => {
+    // Centre at 1.3, so the stone spans 0.8..1.8 and the opening eats 0.2 of it.
+    const clipped = stone(1.3);
+    const [moved] = cut([clipped]);
+    expect(moved.x).toBeCloseTo(1.5);
+    // Its inner edge now lands on the opening's edge, not inside it.
+    expect(moved.x - HALF_LENGTH).toBeCloseTo(gap.width / 2);
+    expect(moved.y).toBeCloseTo(0);
+    // The input is shared with the overlay and `t` anchors every hand edit.
+    expect(clipped.x).toBe(1.3);
+    expect(moved.t).toBe(clipped.t);
+  });
+
+  it('slides the stone on the other side the other way', () => {
+    const [moved] = cut([stone(-1.3)]);
+    expect(moved.x).toBeCloseTo(-1.5);
+  });
+
+  it('ignores an opening that belongs to a different edge', () => {
+    // Projects onto this stone's axis at along = 0, but sits two units off it.
+    const other = stone(0, 2);
+    expect(cut([other])).toEqual([other]);
   });
 });

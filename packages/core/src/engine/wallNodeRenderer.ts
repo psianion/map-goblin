@@ -18,6 +18,7 @@ import {
   layoutWall,
   applyWallEdits,
   nodeSpriteScale,
+  pieceWorldLength,
   type WallPieceSpec,
   type WallNode,
 } from './wallLayout';
@@ -164,12 +165,81 @@ function trimTo(parent: Container, count: number): void {
   }
 }
 
-/** Drop nodes that fall inside a door opening. */
-function withoutDoorGaps(nodes: WallNode[], gaps: DoorGap[]): WallNode[] {
+/**
+ * Cut the stones a door opening passes through.
+ *
+ * The old rule dropped any stone whose *centre* fell within half the gap width
+ * of the door, which threw a whole stone away for a sliver of overlap and left
+ * up to a stone's worth of dead wall on each side of any door narrower than the
+ * wall it sits in. This one measures the overlap along the spine instead: a
+ * stone clear of the opening is untouched, one swallowed by it is dropped, and
+ * one the opening merely clips is slid outward by exactly the overlap so its
+ * inner edge lands on the opening's edge.
+ *
+ * Copies, never mutates — the node arrays are shared with the overlay — and
+ * carries `t` across unchanged, because that is the anchor every hand edit on
+ * the wall is keyed to.
+ *
+ * Exported for the unit test; the renderer is its only real caller.
+ */
+export function withoutDoorGaps(
+  nodes: WallNode[],
+  gaps: DoorGap[],
+  specById: Map<string, WallPieceSpec>,
+  wallWidth: number,
+): WallNode[] {
   if (gaps.length === 0) return nodes;
-  return nodes.filter((n) =>
-    !gaps.some((g) => Math.hypot(n.x - g.position[0], n.y - g.position[1]) < g.width / 2),
-  );
+
+  const out: WallNode[] = [];
+  for (const node of nodes) {
+    const spec = specById.get(node.pieceId);
+    // Same length the sprite will be drawn at — nodeSpriteScale's along-spine
+    // factor times the piece's own length is exactly this.
+    const halfLength = spec
+      ? (pieceWorldLength(spec, wallWidth) * node.scale * node.sizeScale) / 2
+      : 0;
+
+    const cos = Math.cos(node.angle);
+    const sin = Math.sin(node.angle);
+    // How far this stone has already been slid along its own axis by an earlier
+    // gap. Carried as a scalar rather than a rebuilt node so a stone no gap
+    // touches comes out as the very same object it went in as.
+    let shift = 0;
+    let dropped = false;
+
+    for (const gap of gaps) {
+      const dx = gap.position[0] - (node.x + cos * shift);
+      const dy = gap.position[1] - (node.y + sin * shift);
+      const along = dx * cos + dy * sin;
+      const across = -dx * sin + dy * cos;
+
+      // A door on the far side of a room projects onto this stone's axis just as
+      // happily as one on its own edge. The perpendicular distance is what says
+      // which edge the gap belongs to, so it is checked first.
+      if (Math.abs(across) > wallWidth) continue;
+
+      const half = gap.width / 2;
+      // Centre inside the opening: no amount of sliding saves it.
+      if (Math.abs(along) < half) { dropped = true; break; }
+
+      const overlap = half + halfLength - Math.abs(along);
+      if (overlap <= 0) continue;
+
+      // No "too far to slide, drop it instead" escape hatch: the centre test
+      // above pins `|along| >= half`, which caps the overlap at `halfLength` —
+      // half a stone. Everything that survives to here can be slid clear by less
+      // than its own half-length, so there is nothing left to bail out of.
+      //
+      // `along` points from the stone toward the gap, so move against it.
+      shift += along > 0 ? -overlap : overlap;
+    }
+
+    if (dropped) continue;
+    out.push(
+      shift === 0 ? node : { ...node, x: node.x + cos * shift, y: node.y + sin * shift },
+    );
+  }
+  return out;
 }
 
 /**
@@ -211,7 +281,11 @@ export function renderNodeWalls(
     // because the ring itself is recomputed from the shapes every time.
     const nodes = applyWallEdits(auto, floorEdits[String(i)]);
     const gaps = doorGaps.filter((g) => g.ring === i);
-    placed = placeNodes(wallsContainer, withoutDoorGaps(nodes, gaps), specById, wallWidth, tint, placed);
+    placed = placeNodes(
+      wallsContainer,
+      withoutDoorGaps(nodes, gaps, specById, wallWidth),
+      specById, wallWidth, tint, placed,
+    );
   }
 
   for (const wall of standaloneWalls) {
@@ -225,7 +299,11 @@ export function renderNodeWalls(
     // edits — the common case — pass straight through.
     const nodes = applyWallEdits(auto, wall);
     const gaps = doorGaps.filter((g) => g.wallId === wall.id);
-    placed = placeNodes(wallsContainer, withoutDoorGaps(nodes, gaps), specById, w, tint, placed);
+    placed = placeNodes(
+      wallsContainer,
+      withoutDoorGaps(nodes, gaps, specById, w),
+      specById, w, tint, placed,
+    );
   }
 
   trimTo(wallsContainer, placed);
