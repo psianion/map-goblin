@@ -158,7 +158,10 @@ async function roomViews(page: Page): Promise<Record<string, RoomView>> {
     if (!room) throw new Error(`a claimed token at ${at.x},${at.y} is in no room this tab holds`)
     if (!party.includes(room.id)) party.push(room.id)
   }
-  const fog = effectiveFog(held.fog, held.rooms, party)
+  // No rooms handed to `effectiveFog`, exactly as `FogRenderer` calls it: the default-room
+  // fallback is off on both sides of the wire, and passing rooms here would light a room the
+  // renderer under test leaves dark.
+  const fog = effectiveFog(held.fog, [], party)
   const visible = visibleRooms(fog, held.live, held.doors, party)
   return Object.fromEntries(
     held.rooms.map((room) => [
@@ -251,8 +254,8 @@ test.describe.serial('@doors flagship', () => {
     player = await playerContext.newPage()
     player.on('pageerror', (e) => pageErrors.push(`[player] ${e.message}`))
     await joinTable(player, code, 'Borin')
-    // A player holds one room of this map at join, so their floor is a fraction of the
-    // DM's — `assertMapRendered` would be asking fog to have failed.
+    // A player holds no room of this map until the DM reveals one, so there is no floor for
+    // them to draw — `assertMapRendered` would be asking fog to have failed.
     await assertMapLoaded(player, FLOOR_DOORS)
 
     // The DM puts a token on the map, then stands it on the cell this flow starts from.
@@ -273,17 +276,19 @@ test.describe.serial('@doors flagship', () => {
   })
 
   test('the player claims a token, and the room behind the shut door is memory, not sight', async () => {
-    // The token is in the room the party is lent at join, so it is on the player's seat.
+    // The party's own room first. Nothing is lent to a player at join, so until the DM
+    // reveals the chamber the token standing in it is redacted off the player's seat
+    // altogether (D4/D7) — that is the fog working, not a token gone missing.
+    await expect(player.getByTestId('token-layer').locator('[data-token-id]')).toHaveCount(0)
+    await revealRoom(dm, CHAMBER.id)
+
     const row = player.getByTestId('token-layer').locator(`[data-token-id="${tokenId}"]`)
     await expect(row).toHaveCount(1, { timeout: 20_000 })
     await row.getByRole('button').click()
     await player.getByTestId('claim-button').click()
     await expect(row).toHaveAttribute('data-owner', /.+/, { timeout: 20_000 })
 
-    // Both rooms are the DM's to hand over; the door is what holds the party out of one.
-    // Chamber first: the moment a real room is revealed the default-room fallback stops
-    // applying, and revealing the corridor first would take the party's own room away.
-    await revealRoom(dm, CHAMBER.id)
+    // The room beyond is the DM's to hand over too; the door is what holds the party out.
     await revealRoom(dm, GALLERY.id)
 
     await expect.poll(() => viewOf(player, GALLERY), { timeout: 20_000 }).toBe('explored')

@@ -164,8 +164,8 @@ test.describe.serial('@doors', () => {
     player = await playerContext.newPage()
     player.on('pageerror', (e) => pageErrors.push(`[player] ${e.message}`))
     await joinTable(player, code, 'Borin')
-    // A player holds one room of this map at join, so their floor is a fraction of the
-    // DM's — `assertMapRendered` would be asking fog to have failed.
+    // A player holds no room of this map until the DM reveals one, so there is no floor for
+    // them to draw — `assertMapRendered` would be asking fog to have failed.
     await assertMapLoaded(player, FLOOR_DOORS)
   })
 
@@ -184,8 +184,13 @@ test.describe.serial('@doors', () => {
     await expect(doorRow(dm, FLOOR.id)).toHaveCount(1)
     await expect(doorRow(dm, SECRET.id)).toHaveCount(1)
 
-    // The player holds the room they were lent, which is both of these doors' room —
-    // so a door with no wall id is a door at the table like any other.
+    // A player is handed nothing until the DM reveals something, so their list starts empty
+    // — a door is bound to a room and they hold none.
+    await expect(player.getByTestId('door-list').locator('[data-door-id]')).toHaveCount(0)
+
+    // The chamber is both of these doors' room, so revealing it hands both over — and a door
+    // with no wall id is a door at the table like any other.
+    await revealRoom(dm, FLOOR.roomA!)
     await expect(doorRow(player, HALLWAY.id)).toHaveCount(1)
     await expect(doorRow(player, FLOOR.id)).toHaveCount(1)
 
