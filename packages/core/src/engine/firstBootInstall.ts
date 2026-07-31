@@ -19,13 +19,13 @@ const BUNDLED_PACK_PATH = '/packs/dungeon-classic/pack-4a9bdbee.json';
  * @returns true if the bundled pack was installed, false if already present
  */
 export async function ensureBundledPack(packManager: AssetPackManager): Promise<boolean> {
-  // Skip if dungeon-classic is already installed
   const installed = packManager.getInstalledPacks();
-  if (installed.some((p) => p.packId === BUNDLED_PACK_ID)) {
-    return false;
-  }
+  const current = installed.find((p) => p.packId === BUNDLED_PACK_ID);
 
-  // Fetch the bundled manifest from public/
+  // Fetch the bundled manifest even when a copy is already installed: the
+  // manifest lives at a fixed path, so updated content arrives under the same
+  // URL and an installed-check alone would pin every returning browser to its
+  // first-ever copy forever. The fetch is a small local file — cheap at boot.
   const res = await fetch(BUNDLED_PACK_PATH);
   if (!res.ok) {
     console.warn(`[firstBootInstall] Bundled pack manifest not found at ${BUNDLED_PACK_PATH}`);
@@ -38,6 +38,23 @@ export async function ensureBundledPack(packManager: AssetPackManager): Promise<
   if (Object.keys(manifest.entries).length === 0) {
     console.info('[firstBootInstall] Bundled pack manifest has no entries — skipping (placeholder)');
     return false;
+  }
+
+  // Installed and matching the bundled manifest — nothing to do. Compared on
+  // version AND entry count so a content update ships even if a version bump
+  // was forgotten.
+  const bundledEntryCount = Object.keys(manifest.entries).length;
+  if (current && current.version === manifest.version && current.entryCount === bundledEntryCount) {
+    return false;
+  }
+
+  // Outdated copy: drop it so the reinstall below starts clean — no stale
+  // textures lingering under keys the new manifest no longer declares.
+  if (current) {
+    console.info(
+      `[firstBootInstall] Bundled pack outdated (installed ${current.version}/${current.entryCount} entries, bundled ${manifest.version}/${bundledEntryCount}) — reinstalling`,
+    );
+    await packManager.uninstallPack(BUNDLED_PACK_ID);
   }
 
   // Download all atlas + file assets from the bundled path

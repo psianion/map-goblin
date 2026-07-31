@@ -12,11 +12,27 @@ function manifest() {
   return { name: 'p', description: '', version: '1.0.0', bundleSize: 1, entries: { a: {} }, atlases, files }
 }
 
-function fakeManager() {
+function fakeManager(installed: { packId: string; version: string; entryCount: number }[] = []) {
   return {
-    getInstalledPacks: () => [],
+    getInstalledPacks: () => installed,
     registerPack: vi.fn(async () => {}),
-  } as unknown as AssetPackManager & { registerPack: ReturnType<typeof vi.fn> }
+    uninstallPack: vi.fn(async () => {}),
+  } as unknown as AssetPackManager & {
+    registerPack: ReturnType<typeof vi.fn>
+    uninstallPack: ReturnType<typeof vi.fn>
+  }
+}
+
+function stubManifestFetch() {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      if (url.endsWith('.json') && url.includes('pack-')) {
+        return { ok: true, json: async () => manifest() } as unknown as Response
+      }
+      return { ok: true, arrayBuffer: async () => new Uint8Array([1]).buffer } as unknown as Response
+    }),
+  )
 }
 
 afterEach(() => vi.unstubAllGlobals())
@@ -61,5 +77,23 @@ describe('ensureBundledPack', () => {
     const mgr = fakeManager()
     expect(await ensureBundledPack(mgr)).toBe(false)
     expect(mgr.registerPack).not.toHaveBeenCalled()
+  })
+
+  it('skips when the installed pack matches the bundled manifest', async () => {
+    stubManifestFetch()
+    const mgr = fakeManager([{ packId: 'dungeon-classic', version: '1.0.0', entryCount: 1 }])
+    expect(await ensureBundledPack(mgr)).toBe(false)
+    expect(mgr.uninstallPack).not.toHaveBeenCalled()
+    expect(mgr.registerPack).not.toHaveBeenCalled()
+  })
+
+  it('reinstalls when the installed pack is outdated', async () => {
+    // The bundled manifest ships at a fixed path, so content updates arrive
+    // under the same URL — a mere installed-check would pin the stale copy.
+    stubManifestFetch()
+    const mgr = fakeManager([{ packId: 'dungeon-classic', version: '1.0.0', entryCount: 94 }])
+    expect(await ensureBundledPack(mgr)).toBe(true)
+    expect(mgr.uninstallPack).toHaveBeenCalledWith('dungeon-classic')
+    expect(mgr.registerPack).toHaveBeenCalled()
   })
 })
