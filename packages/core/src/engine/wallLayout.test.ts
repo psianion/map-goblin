@@ -188,6 +188,30 @@ describe('layoutWall — straight fill', () => {
     expect(covered).toBeCloseTo(L, 6);
   });
 
+  it('paints a straight run flush to both its ends', () => {
+    // The stones are the wall's visible body — the caps sit on the endpoints on
+    // purpose. A run that starts flush but overhangs at the tail is the wall
+    // end-cap overhang: every piece but the last tucks under its successor, so
+    // scaling the row by the advance sum alone leaves the last one's untucked
+    // tail hanging past the endpoint.
+    for (const L of [9, 12, 17.3, 23]) {
+      const straights = layoutWall([[0, 0], [L, 0]], false, STONE, {
+        wallWidth: WIDTH,
+        seed: 3,
+      }).filter((n) => n.kind === 'straight');
+
+      const edge = (n: (typeof straights)[number], side: -1 | 1) => {
+        const p = STONE.find((q) => q.id === n.pieceId)!;
+        return n.x + (side * pieceWorldLength(p, WIDTH) * n.scale * n.sizeScale) / 2;
+      };
+      const left = Math.min(...straights.map((n) => edge(n, -1)));
+      const right = Math.max(...straights.map((n) => edge(n, 1)));
+
+      expect(left).toBeCloseTo(0, 6);
+      expect(right).toBeCloseTo(L, 6);
+    }
+  });
+
   it('leaves no gap between consecutive straight pieces', () => {
     const nodes = layoutWall([[0, 0], [23, 0]], false, STONE, {
       wallWidth: WIDTH,

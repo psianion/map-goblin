@@ -228,8 +228,19 @@ function fillRun(
     return [{ piece, scale: Math.max(fit, MIN_PIECE_SCALE) }];
   }
 
-  const natural = chosen.reduce((s, p) => s + advance(p), 0);
-  const scale = natural > 0 ? runLength / natural : 1;
+  // What the row actually paints, which is not what it advances. Every piece
+  // but the last is tucked under its successor and so only shows `advance`; the
+  // last one has no successor and shows its whole length. Scaling against the
+  // advance sum alone therefore let that untucked tail hang past the run's end —
+  // on stone-slate's longest straight, two thirds of a cell past the wall's own
+  // endpoint, while the run's head stayed flush. That asymmetry was the wall
+  // end-cap overhang.
+  const last = chosen[chosen.length - 1];
+  const painted =
+    chosen.reduce((s, p) => s + advance(p), 0) -
+    advance(last) +
+    pieceWorldLength(last, wallWidth);
+  const scale = painted > 0 ? runLength / painted : 1;
   return chosen.map((piece) => ({ piece, scale: Math.max(scale, MIN_PIECE_SCALE) }));
 }
 
