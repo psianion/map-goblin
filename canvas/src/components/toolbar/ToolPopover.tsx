@@ -12,6 +12,7 @@ import { PropertyField } from '@/components/properties/PropertyField';
 import { ChevronUp, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
+import { minDoorWidth } from '@dnd/core/src/engine/tools/DoorTool';
 import { showToolPreview, hideToolPreview } from '@/engine/toolPreview';
 import type { PreviewSettings } from '@/engine/toolPreview';
 import { PresetGrid } from './PresetGrid';
@@ -487,7 +488,14 @@ function DoorToolContent({ onValueChange }: { onValueChange?: () => void }) {
                   : 'bg-transparent border-border-default text-text-muted hover:text-text-primary',
               )}
               onClick={() => {
-                updateToolSettings({ doorStyle: value });
+                // Switching to a wider style takes the width up with it, the
+                // same bump the properties panel does — a double door left at a
+                // single door's width has no room for two leaves, and finding
+                // that out only at commit means the panel was lying.
+                updateToolSettings({
+                  doorStyle: value,
+                  doorWidth: Math.max(doorWidth ?? 1, minDoorWidth(value)),
+                });
                 onValueChange?.();
               }}
             >
@@ -515,7 +523,7 @@ function DoorToolContent({ onValueChange }: { onValueChange?: () => void }) {
             updateToolSettings({ doorWidth: v });
             onValueChange?.();
           }}
-          min={0.25}
+          min={minDoorWidth(doorStyle ?? 'single')}
           max={4}
           step={0.25}
         />
