@@ -64,11 +64,8 @@ export function DoorPanel() {
             <button
               type="button"
               aria-current={door.id === selectedId}
-              aria-label={`${live.open ? 'Close' : 'Open'} ${doorLabel(door, i)} · ${doorStatusLabel(door, live)}`}
-              onClick={() => {
-                select(door.id);
-                send('toggle', { id: door.id });
-              }}
+              aria-label={`Select ${doorLabel(door, i)} · ${doorStatusLabel(door, live)}`}
+              onClick={() => select(door.id)}
               className={`flex w-full items-baseline gap-2 rounded px-2 py-0.5 text-left text-xs transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 motion-reduce:transition-none ${
                 door.id === selectedId ? 'bg-surface-3' : ''
               }`}
@@ -82,22 +79,32 @@ export function DoorPanel() {
         ))}
       </ul>
 
-      {selected && isDm && (
+      {selected && (
         <div
           data-testid="door-actions"
           className="flex flex-wrap gap-1 border-t border-border-default pt-2"
         >
           <button
             type="button"
-            data-testid="door-lock"
-            onClick={() =>
-              send(selected.live.locked ? 'unlock' : 'lock', { id: selected.door.id })
-            }
+            data-testid="door-toggle"
+            onClick={() => send('toggle', { id: selected.door.id })}
             className="rounded border border-border-default bg-surface-2 px-2 py-0.5 text-xs text-text-primary transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 motion-reduce:transition-none"
           >
-            {selected.live.locked ? 'Unlock' : 'Lock'}
+            {selected.live.open ? 'Close' : 'Open'}
           </button>
-          {selected.door.isSecret && (
+          {isDm && (
+            <button
+              type="button"
+              data-testid="door-lock"
+              onClick={() =>
+                send(selected.live.locked ? 'unlock' : 'lock', { id: selected.door.id })
+              }
+              className="rounded border border-border-default bg-surface-2 px-2 py-0.5 text-xs text-text-primary transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 motion-reduce:transition-none"
+            >
+              {selected.live.locked ? 'Unlock' : 'Lock'}
+            </button>
+          )}
+          {isDm && selected.door.isSecret && (
             <button
               type="button"
               data-testid="door-reveal-secret"

@@ -120,24 +120,19 @@ async function revealRoom(dm: Page, roomId: string): Promise<void> {
   await expect(row).toHaveAttribute('data-fog-status', 'revealed')
 }
 
-/** A door row is also the door's own button — clicking it sends the toggle. */
-const toggleDoor = (page: Page, id: string) => doorRow(page, id).getByRole('button').click()
-
 /**
- * Selecting a door is what puts the DM's lock / reveal affordances beside it — and the
- * row is also the door's toggle, so selecting one swings it. A second click puts it back
- * and leaves the selection where the row below needs it.
+ * Selects a door row, then swings it with the explicit open/close control beside it —
+ * the row itself only selects (D10: select and toggle are separate gestures).
  */
+async function toggleDoor(page: Page, id: string): Promise<void> {
+  await doorRow(page, id).getByRole('button').click()
+  await page.getByTestId('door-toggle').click()
+}
+
+/** Selecting a door is what puts the DM's lock / reveal affordances beside it. */
 async function selectDoorAsDm(dm: Page, id: string): Promise<void> {
-  const was = await doorRow(dm, id).getAttribute('data-open')
-  const swung = was === 'true' ? 'false' : 'true'
   await doorRow(dm, id).getByRole('button').click()
   await expect(dm.getByTestId('door-actions')).toBeVisible()
-  // Waited for rather than assumed: the state comes back from the server, and a
-  // second click sent before it lands would leave the door the wrong way round.
-  await expect(doorRow(dm, id)).toHaveAttribute('data-open', swung)
-  await doorRow(dm, id).getByRole('button').click()
-  await expect(doorRow(dm, id)).toHaveAttribute('data-open', was!)
 }
 
 // ── The table ──────────────────────────────────────────────────────────────
@@ -197,6 +192,15 @@ test.describe.serial('@doors', () => {
     // …and the secret one is not in their copy of the map at all, not merely hidden:
     // asked of both stores, so a collapsed panel would not pass this by accident.
     expect(await holds(player, SECRET.id)).toBe(false)
+  })
+
+  test('selecting a door row only highlights it, and never swings the door', async () => {
+    await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-open', 'false')
+
+    await doorRow(dm, FLOOR.id).getByRole('button').click()
+    await expect(dm.getByTestId('door-actions')).toBeVisible()
+    await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-open', 'false')
+    await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-open', 'false')
   })
 
   test('the DM opens a floor-ring door and both seats agree', async () => {

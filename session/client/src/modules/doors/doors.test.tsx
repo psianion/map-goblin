@@ -174,7 +174,7 @@ describe('doorAt', () => {
 });
 
 describe('DoorPanel', () => {
-  it('lists the scene’s doors with their live state, and toggles one on click', () => {
+  it('lists the scene’s doors and selects one on click, without touching its state', () => {
     useSessionStore.setState({ session: session(), you: player });
     const sent = captureCommands();
     render(<DoorPanel />);
@@ -185,12 +185,22 @@ describe('DoorPanel', () => {
     expect(rows[2].getAttribute('data-secret')).toBe('true');
 
     fireEvent.click(rows[0].querySelector('button')!);
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ module: 'doors', action: 'toggle', payload: { id: 'd1' } });
+    expect(sent).toHaveLength(0);
     expect(useDoorSelection.getState().selectedId).toBe('d1');
   });
 
-  it('offers lock and reveal-secret to the DM only', () => {
+  it('toggles the selected door only via the explicit control', () => {
+    useSessionStore.setState({ session: session(), you: player });
+    useDoorSelection.getState().select('d1');
+    const sent = captureCommands();
+    render(<DoorPanel />);
+
+    fireEvent.click(screen.getByTestId('door-toggle'));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ module: 'doors', action: 'toggle', payload: { id: 'd1' } });
+  });
+
+  it('offers lock and reveal-secret to the DM only, but toggle to anyone', () => {
     useSessionStore.setState({ session: session(), you: dm });
     useDoorSelection.getState().select('d3');
     render(<DoorPanel />);
@@ -200,7 +210,7 @@ describe('DoorPanel', () => {
     cleanup();
     useSessionStore.setState({ you: player });
     render(<DoorPanel />);
-    expect(screen.queryByTestId('door-actions')).toBeNull();
+    expect(screen.getByTestId('door-toggle')).not.toBeNull();
     expect(screen.queryByTestId('door-lock')).toBeNull();
     expect(screen.queryByTestId('door-reveal-secret')).toBeNull();
   });
