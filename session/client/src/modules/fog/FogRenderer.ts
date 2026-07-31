@@ -74,23 +74,28 @@ export const FOG_BLACK = 0x000000;
  * it is black, so a tint brighter than the live floor would put a memory above a lit room
  * again — the inversion, back through the other door.
  */
-export const EXPLORED_TINT = 0x0e1118;
+export const EXPLORED_TINT = 0x0b0e14;
 /**
  * How much of the room's live render the wash replaces. `1 - alpha` of what the room looks
  * like *right now* survives, so a memory is always a strict dimming of the same pixels.
  *
- * Read on a mid-grey floor with no torch on it: the composite floors that at ~0.34 of the
- * art (see `LIGHTING_STRENGTH`), so live ≈ 0.34·160 ≈ 54, and the memory of it is
- * 0.38·54 + 0.62·24 ≈ 35 — about two thirds as bright, carrying ±9 levels of the floor's
- * own texture rather than the flat box the second gate found. Never-revealed stays a true 0
- * and a torchlit room runs well north of 140, so the three states are three brightnesses as
- * well as three treatments: PRODUCT's "stale at a glance on a bad panel", without colour.
+ * Set against a browser measurement rather than against arithmetic, which is the whole
+ * lesson of the fourth gate: at 0.62 over the old `#0e1118` this pair put explored at 56% of
+ * the same pixels live (34.0 against 60.3, masked to the pixels the lit map draws), and the
+ * product line is half. Dropping the tint a shade and lifting the alpha lands ~46% while
+ * *keeping* more of the room's own texture than raising the alpha alone would: the tint does
+ * more of the work and the art does less of the disappearing.
+ *
+ * The other two states bracket it — never-revealed measures a true 0.0 and a lit crypt runs
+ * 60+ on the same mask — so the three states are three brightnesses as well as three
+ * treatments, which is PRODUCT's "stale at a glance on a bad panel" without leaning on hue.
+ * Chroma comes down with it (24.7 → 7.2 measured), so the warm torchlight leaves too.
  *
  * ponytail: tuned on the crypt's #0d0e12 ambient, which is the darkest map in the repo. The
  * knob to turn on a map that reads flat is this pair and `LIGHTING_STRENGTH` together — they
  * trade against each other and neither is meaningful alone.
  */
-export const EXPLORED_TINT_ALPHA = 0.62;
+export const EXPLORED_TINT_ALPHA = 0.7;
 /**
  * How hard the engine's lighting multiply is allowed to bite, per seat.
  *
@@ -250,15 +255,51 @@ export const revealDurationMs = (): number => (prefersReducedMotion() ? 0 : REVE
 export const easeOutQuart = (t: number): number => 1 - (1 - t) ** 4;
 
 /**
+ * The whole plane, for a player who has earned no part of the map.
+ *
+ * There is no footprint to take: the rooms are the footprint and they hold none. The layer
+ * this is drawn into mirrors the camera, so the cover has to be wide enough to outlast any
+ * pan or zoom rather than any particular map — a million grid squares out is past every
+ * limit the camera has, and a solid rect costs two triangles whatever its size.
+ */
+const EVERYTHING: Bounds = { minX: -1e6, minY: -1e6, maxX: 1e6, maxY: 1e6 };
+
+/**
+ * A map nobody zoned, as against a map this player has been shown no part of yet.
+ *
+ * Both reach the mask as "no rooms" and the two want opposite answers — the first is D6 and
+ * carries no fog at all, the second is a player who must see black. The server's own cut
+ * tells them apart: it leaves an unzoned layer exactly as it was (`redactMapForViewer`) and
+ * cuts a zoned one down to the rooms the party has explored, which for a party that has
+ * explored nothing is an empty layer. So dungeon content without rooms is the unzoned map,
+ * and no content at all is a player holding nothing.
+ *
+ * ponytail: an authored map with rooms but no props and no walls would read as "holding
+ * nothing" and go black — which is what it should look like anyway, there being nothing on
+ * it to see. The day that is wrong, the fix is the server naming the scene room-fogged on
+ * the wire rather than a better guess on this side.
+ */
+const holdsUnzonedMap = (layers: readonly Layer[]): boolean =>
+  layers.some(
+    (layer) =>
+      layer.type === 'dungeon' &&
+      (layer.children.length > 0 || layer.standaloneWalls.length > 0),
+  );
+
+/**
  * The map's footprint plus a margin, or null when there is nothing to cover.
  *
- * No rooms means no fog: room-granular fog needs rooms, so the server leaves an unzoned
- * layer whole for players (D6, `redactMapForViewer`) and there is nothing here to hide.
- * That is also the guard against blacking out a 10x10 square of empty canvas while the map
- * is still in flight — core's bounds fall back to one rather than reporting nothing.
+ * No rooms *and* a map in hand means no fog: room-granular fog needs rooms, so the server
+ * leaves an unzoned layer whole for players (D6, `redactMapForViewer`) and there is nothing
+ * here to hide. No rooms and nothing in hand is the opposite case and the fourth browser
+ * gate's second finding: a player at a table where the DM has revealed nothing used to fall
+ * through this guard, take no mask at all, and get the grid and the background at full
+ * strength — 39.3% of the frame drawn, on a seat that had been shown nothing. It is also
+ * still the guard against blacking out a 10x10 square of empty canvas while the map is in
+ * flight, because core's bounds fall back to one rather than reporting nothing.
  */
 export function fogBounds(layers: readonly Layer[], rooms: readonly Room[]): Bounds | null {
-  if (rooms.length === 0) return null;
+  if (rooms.length === 0) return holdsUnzonedMap(layers) ? null : EVERYTHING;
 
   // A player's copy has no mergedFloor until core rebuilds it (redactMap ships it null), so
   // the room polygons are the only bounds that exist on the first frame after a reveal.
@@ -304,7 +345,10 @@ export function fogScene(): FogScene {
       serverDoors(mapData, session?.modules?.doors as DoorsState | undefined, sceneId),
       partyRoomIds(tokens, rooms),
     ),
-    bounds: fogBounds(layers, rooms),
+    // No document, no statement: until the referee has sent one there is nothing to be
+    // right or wrong about, and covering the canvas on the strength of an empty store would
+    // black out the DM's own first frame of a map that is merely still in flight.
+    bounds: mapData ? fogBounds(layers, rooms) : null,
     sceneId,
     isPlayer: you?.role !== 'dm',
   };

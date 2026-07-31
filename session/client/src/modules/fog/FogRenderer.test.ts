@@ -112,6 +112,18 @@ const token = (over: Partial<Token> = {}): Token => ({
   ...over,
 });
 
+/**
+ * The fills a `drawFog` scrim is made of, and the hole each one carries.
+ *
+ * Pixi's instruction union covers textures and strokes as well, none of which the scrim ever
+ * emits — the cast is what lets a row read `style.color` without narrowing past three shapes
+ * that cannot occur here.
+ */
+const fillsOf = (g: Graphics) =>
+  g.context.instructions
+    .filter((i) => i.action === 'fill')
+    .map((i) => i.data as { style: { color: number; alpha: number }; hole?: unknown });
+
 // ── Classification (D3 + D10) ───────────────────────────────────────────────
 
 describe('roomViews — what each room is doing', () => {
@@ -239,11 +251,11 @@ describe('roomViews — what each room is doing', () => {
       isPlayer: true,
     });
 
-    const fills = scrim.context.instructions.filter((i) => i.action === 'fill');
+    const fills = fillsOf(scrim);
     expect(fills).toHaveLength(1);
-    expect(fills[0].data.style.color).toBe(FOG_BLACK);
-    expect(fills[0].data.style.alpha).toBe(1);
-    expect(fills[0].data.hole).toBeUndefined();
+    expect(fills[0].style.color).toBe(FOG_BLACK);
+    expect(fills[0].style.alpha).toBe(1);
+    expect(fills[0].hole).toBeUndefined();
   });
 
   it('cuts a hole for a room the DM did reveal, so the mask is not simply always black', () => {
@@ -257,8 +269,7 @@ describe('roomViews — what each room is doing', () => {
       isPlayer: true,
     });
 
-    const fills = scrim.context.instructions.filter((i) => i.action === 'fill');
-    expect(fills[0].data.hole).toBeDefined();
+    expect(fillsOf(scrim)[0].hole).toBeDefined();
   });
 
   it('classifies nothing on a map nobody zoned — there is no fog to enforce (D6)', () => {
@@ -434,10 +445,20 @@ describe('the lighting strength each seat composites at', () => {
 // ── Bounds ──────────────────────────────────────────────────────────────────
 
 describe('fogBounds', () => {
-  it('is null with no rooms — an unzoned map has no fog to enforce (D6)', () => {
-    // And it is what keeps a black square off an empty canvas while the map is in flight:
-    // core's own bounds fall back to a 10x10 grid rather than reporting nothing.
-    expect(fogBounds([], [])).toBeNull();
+  it('is null on a map nobody zoned — there is no fog to enforce (D6)', () => {
+    // Content but no rooms is the unzoned map, which the server hands over whole.
+    const unzoned = dungeon([], [door('d1', 'a', 'b')]);
+    expect(fogBounds([unzoned], [])).toBeNull();
+  });
+
+  it('covers everything for a player holding nothing at all', () => {
+    // Not the same case, and the opposite answer: an empty layer is a party that has been
+    // shown nothing, and the fourth gate caught that seat rendering the grid and the
+    // background at full strength because this returned null and the mask was never drawn.
+    const bounds = fogBounds([dungeon([], [])], [])!;
+    expect(bounds).not.toBeNull();
+    expect(bounds.minX).toBeLessThan(-1000);
+    expect(bounds.maxX).toBeGreaterThan(1000);
   });
 
   it('covers every room and then some, so the edge of the map is not a tell', () => {
@@ -577,7 +598,11 @@ describe('fogScene', () => {
     const scene = fogScene();
     expect(scene.rooms).toEqual([]);
     expect(scene.views.size).toBe(0);
-    expect(scene.bounds).toBeNull();
+    // The document the referee sent has no rooms *and* nothing in it, which is a player who
+    // has been shown nothing rather than an unzoned map — so it is covered, not left open.
+    // A real unzoned map arrives with its props and walls and takes the other branch, which
+    // is the case `fogBounds` above pins.
+    expect(scene.bounds).not.toBeNull();
   });
 
   it('draws nothing at all before the document has arrived', () => {
