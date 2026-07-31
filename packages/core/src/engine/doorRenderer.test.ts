@@ -120,18 +120,33 @@ describe('renderDoors sprite dispatch', () => {
       'dungeon-classic:door-double-open',
       'dungeon-classic:door-portcullis-closed',
       'dungeon-classic:door-portcullis-open',
-      // Locked reuses the closed art; a closed archway still asks for the open
+      // Locked asks for the closed art; a closed archway still asks for the open
       // art, so there is no `door-archway-closed` key to ship.
       'dungeon-classic:door-archway-open',
     ]));
   });
 
-  it('tints locked and fades secret on the sprite path, whatever the style', () => {
+  it('leaves locked art untinted and fades secret, whatever the style', () => {
     getTextureOrNull.mockReturnValue(packTexture(200, 200));
     const [locked] = render([resolved('portcullis', { state: 'locked' })]) as FakeSprite[];
-    expect(locked.tint).toBe(0xe74c3c);
+    // Locked is panel information now, not a red wash over the art.
+    expect(locked.tint).toBe(0xffffff);
+    // Secret stays faded: that is fog semantics, not a status glyph.
     const [secret] = render([resolved('archway', { isSecret: true })]) as FakeSprite[];
     expect(secret.alpha).toBe(0.35);
+  });
+
+  it('draws no status marker over the art', () => {
+    // The state dot was a second display object stacked on the door. One door,
+    // one display object — on the sprite path and on the glyph fallback alike.
+    for (const style of STYLES) {
+      for (const state of ['closed', 'open', 'locked'] as const) {
+        getTextureOrNull.mockReturnValue(null);
+        expect(render([resolved(style, { state })])).toHaveLength(1);
+        getTextureOrNull.mockReturnValue(packTexture(200, 200));
+        expect(render([resolved(style, { state })])).toHaveLength(1);
+      }
+    }
   });
 
   it('leaves portals on their authored texture, never the door pack', () => {

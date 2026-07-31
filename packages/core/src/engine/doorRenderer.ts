@@ -6,21 +6,6 @@ import type { DungeonStyle } from '../store/types';
 import { resolveTexture } from '../assets/textureLoader';
 import { getAssetPackManager } from './assetPackInstance';
 
-// State color coding (editor overlay)
-// L3: Brighter colors for secret states — dark magenta was hard to see
-const STATE_COLORS: Record<string, number> = {
-  closed: 0x9b59b6,        // purple
-  open: 0x2ecc71,          // green
-  locked: 0xe74c3c,        // red
-  secret_closed: 0xc77dba, // bright magenta (L3)
-  secret_open: 0x5dde8f,   // bright green (L3)
-};
-
-function getStateColor(door: DoorChild): number {
-  const key = door.isSecret ? `secret_${door.state}` : door.state;
-  return STATE_COLORS[key] ?? STATE_COLORS.closed;
-}
-
 /**
  * Draw every resolved door. Position and angle come from the resolver — the
  * copies on the child are authored intent, and a door on a floor-ring edge has
@@ -68,14 +53,15 @@ export function renderResolvedDoor(
   if (resolved.detached) {
     renderDetachedMarker(g, cx, cy, wallAngle, halfWidth);
     container.addChild(g);
-    // No state dot: a door attached to nothing has no meaningful state, and
-    // the marker must not read as a normal door with an odd colour.
     return;
   }
 
+  // Door art carries its own state: closed art and open art are different
+  // drawings. Locked used to be painted on top in red and every door wore a
+  // coloured status dot, which meant the map was scattered with editor
+  // symbology that no player-facing view wants. Locked and secret now read from
+  // the selection's properties panel instead of from the art.
   const wallColor = parseInt(style.wallColor.replace('#', ''), 16);
-  // A locked door reads as locked at a glance, not only from the state dot.
-  const glyphColor = door.state === 'locked' ? STATE_COLORS.locked : wallColor;
 
   // A portal carries its own authored texture, so it never consults the door
   // pack. Every other style tries the pack first and falls back to its glyph.
@@ -98,9 +84,9 @@ export function renderResolvedDoor(
     } else if (door.style === 'portcullis') {
       renderPortcullis(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
     } else if (door.style === 'double') {
-      renderDoubleDoor(g, cx, cy, wallAngle, halfWidth, glyphColor, door.state);
+      renderDoubleDoor(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
     } else {
-      renderSingleDoor(g, cx, cy, wallAngle, halfWidth, glyphColor, door.state, door.isSecret);
+      renderSingleDoor(g, cx, cy, wallAngle, halfWidth, wallColor, door.state, door.isSecret);
     }
   }
 
@@ -109,19 +95,6 @@ export function renderResolvedDoor(
   } else {
     container.addChild(g);
   }
-
-  // C2: Skip state dot for secret doors that are closed — invisibility is the point
-  // M3: Skip state dot for archways — they are permanent openings, "closed" is meaningless
-  if ((door.isSecret && door.state === 'closed') || door.style === 'archway') {
-    return;
-  }
-
-  // State indicator dot (separate Graphics to avoid path contamination)
-  const dot = new Graphics();
-  const stateColor = getStateColor(door);
-  dot.circle(cx, cy, 0.1); // 0.1 world units — subtle but scannable
-  dot.fill({ color: stateColor });
-  container.addChild(dot);
 }
 
 /**
@@ -135,11 +108,11 @@ export function renderResolvedDoor(
  *   door-archway-open
  *
  * No `door-archway-closed`: an archway is a permanent opening (occlusion always
- * treats it as passable and no state dot is drawn), so a closed archway — which
- * the store does allow — still renders as the open art. Locked and secret need
- * no art either: locked reuses the closed art with a red tint, secret reuses
- * whatever its state maps to at 0.35 alpha. Portals are excluded; they carry an
- * authored `portalTextureId` instead.
+ * treats it as passable), so a closed archway — which the store does allow —
+ * still renders as the open art. Locked needs no art: it is not drawn at all,
+ * it reads from the properties panel. Secret reuses whatever its state maps to
+ * at 0.35 alpha. Portals are excluded; they carry an authored `portalTextureId`
+ * instead.
  *
  * No installed pack ships these yet, so `getTextureOrNull` returns null and
  * every door falls back to the Graphics glyphs below. Dropping the entries into
@@ -280,7 +253,7 @@ function renderDoorSprite(
   sprite.position.set(position[0], position[1]);
   sprite.rotation = wallAngle + fit.rotate;
   sprite.scale.set(fit.scaleX, fit.scaleY);
-  sprite.tint = door.state === 'locked' ? STATE_COLORS.locked : 0xffffff;
+  // Secret art stays faded — that is fog semantics, not a status glyph.
   sprite.alpha = door.isSecret ? 0.35 : 1;
   container.addChild(sprite);
   return true;
