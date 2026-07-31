@@ -21,19 +21,23 @@ export const fogActionFor = (status: RoomFogStatus): 'reveal' | 'hide' =>
   status === 'revealed' ? 'hide' : 'reveal';
 
 /**
- * D11's DM grammar, restrained: unrevealed carries the heavier tint, explored a lighter
- * one plus a glyph, revealed nothing at all. Two encodings on every state that has one, so
- * "explored" survives a bad panel in a dim room.
+ * D11's DM grammar, restrained: unrevealed carries the heaviest tint, explored a lighter
+ * one, revealed nothing at all. Three weights of one near-black, so the state reads as
+ * brightness rather than as hue and survives a bad panel in a dim room.
+ *
+ * No mark is stamped on the room to second that. One used to be — a check at the centroid,
+ * on both seats — and two art reviews read it as a glyph printed on the painting rather
+ * than as map state (PRODUCT principle 1: the map is the stage, chrome stays out of it).
+ * The word carries it where a mark would have to: `FOG_STATUS_LABEL` in the fog tool, and
+ * the hover, which names the state the click is about to change.
  */
 export interface FogLook {
   /** 0 = draw nothing over the room. */
   tintAlpha: number;
-  /** The small "explored" mark at the centroid. */
-  glyph: boolean;
   /**
    * The hover highlight, which says the room's state too (D11: "with its current state").
    * One warm-to-cold axis, the map's own: torchlight where the party is standing in the
-   * light, drained parchment — the explored glyph's own ink — for a memory, cold slate for a
+   * light, drained parchment for a memory, cold slate for a
    * room no one has ever lit. Full-strength stroke on all three; the DM's cursor is never
    * ghosted to say something is hidden (PRODUCT principle 3).
    */
@@ -42,16 +46,16 @@ export interface FogLook {
    * …and how heavy its fill is. This is a legibility correction, not a second reading of the
    * state: the highlight sits above a room already carrying `tintAlpha` of near-black, so the
    * fill climbs with that tint to land the same lift on all three. What actually seconds the
-   * colour is underneath it — the hover draws *over* the tint and the glyph, never instead
-   * of them, so a DM who cannot separate the three hues still reads three rooms.
+   * colour is underneath it — the hover draws *over* the tint, never instead of it, so a DM
+   * who cannot separate the three hues still reads three rooms.
    */
   hoverAlpha: number;
 }
 
 export const DM_FOG_LOOK: Record<RoomFogStatus, FogLook> = {
-  never_revealed: { tintAlpha: 0.62, glyph: false, hoverColor: 0x9fb2cc, hoverAlpha: 0.18 },
-  revealed: { tintAlpha: 0, glyph: false, hoverColor: 0xf0a252, hoverAlpha: 0.1 },
-  re_hidden: { tintAlpha: 0.32, glyph: true, hoverColor: 0xd8cfc0, hoverAlpha: 0.14 },
+  never_revealed: { tintAlpha: 0.62, hoverColor: 0x9fb2cc, hoverAlpha: 0.18 },
+  revealed: { tintAlpha: 0, hoverColor: 0xf0a252, hoverAlpha: 0.1 },
+  re_hidden: { tintAlpha: 0.32, hoverColor: 0xd8cfc0, hoverAlpha: 0.14 },
 };
 
 /** Every zoned area of the loaded map. Corridors are rooms (D6) — nothing filters them. */

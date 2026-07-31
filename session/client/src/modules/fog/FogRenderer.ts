@@ -5,10 +5,10 @@
 // — and every scrap of unzoned map (D6) — is pure black: the guide's dungeon negative
 // space, not a grey wash, and black is also the only colour that survives the lighting
 // pass unchanged, so a never-revealed room cannot be teased out by turning a monitor up.
-// A room the party has seen but cannot see now is a memory: desaturated, about a third of
-// its lit brightness, and marked with the same "explored" tick the DM's overlay draws, so
-// the state reads on a bad panel in a dim room without leaning on colour. A room they can
-// see is simply not drawn on.
+// A room the party has seen but cannot see now is a memory: the same room, desaturated and
+// dimmed to well under what it reads at live, so the state carries on brightness rather
+// than on colour and survives a bad panel in a dim room. A room they can see is simply not
+// drawn on.
 //
 // Where this sits is load-bearing. The engine composites lighting as a screen-space
 // multiply *after* the world container (LightingRenderer adds its sprite to
@@ -99,9 +99,6 @@ export const EXPLORED_TINT_ALPHA = 0.62;
  * near-black with everything revealed.
  */
 export const LIGHTING_STRENGTH = { dm: 0, player: 0.7 };
-/** Warm parchment, quiet: the mark that says "you have been here" without colour. */
-export const EXPLORED_GLYPH_COLOR = 0xd8cfc0;
-
 /** Black extends this far past the map so the edge of the world is not a tell. */
 const BOUNDS_PAD = 20;
 
@@ -343,19 +340,6 @@ export function subscribeFogScene(onChange: () => void): () => void {
   };
 }
 
-/**
- * The "you have been here" tick, at the room's centroid. Deliberately the same mark the
- * DM's overlay draws (FogOverlay) so both seats share one word for one state; seven lines
- * of duplication beats reaching into another lane's file to export it.
- */
-function drawExploredGlyph(g: Graphics, [cx, cy]: [number, number]): void {
-  const s = 0.34;
-  g.moveTo(cx - s, cy);
-  g.lineTo(cx - s * 0.25, cy + s * 0.62);
-  g.lineTo(cx + s, cy - s * 0.62);
-  g.stroke({ color: EXPLORED_GLYPH_COLOR, width: 0.11, alpha: 0.55, cap: 'round', join: 'round' });
-}
-
 /** One room's covering. Used for the steady mask and, unchanged, for the fade out of it. */
 function paintRoom(g: Graphics, room: Room, view: RoomView): void {
   if (room.boundary.length < 3) return;
@@ -366,7 +350,6 @@ function paintRoom(g: Graphics, room: Room, view: RoomView): void {
   }
   if (view !== 'explored') return;
   g.poly(path).fill({ color: EXPLORED_TINT, alpha: EXPLORED_TINT_ALPHA });
-  drawExploredGlyph(g, room.centroid);
 }
 
 /**
