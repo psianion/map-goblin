@@ -376,30 +376,36 @@ describe('vision (D3/D8)', () => {
   })
 })
 
-// ── the default room (amendment 2026-07-28) ─────────────────────────────────
-// A player-facing scene always has one room in it. `hall`, `inner` and `vault` are all
-// area 100 and none is a pathway, so the tie-break picks `hall` — and picking it is a
-// read-time rule, so nothing below ever writes a fog record.
+// ── nothing is revealed for free ────────────────────────────────────────────
+// The default-room fallback (amendment 2026-07-28) handed a fresh scene its largest
+// non-pathway room — `hall` here, on a three-way area tie broken by id. The fourth browser
+// gate measured what that meant on a real map: a player who had been told nothing was sent
+// the geometry of emberhold-crypt's Torchlit Chamber and rendered it at full brightness,
+// while the DM's own fog panel called all thirteen rooms Unrevealed. It is off on both
+// sides of the wire now — the referee's half is here, the mask's in `FogRenderer`.
 
-describe('the default room, on the server (amendment 2026-07-28)', () => {
+describe('a scene the DM has revealed nothing in', () => {
   const roomsOfMap = (map: SerializedMapData | null) =>
     (map?.layers[0] as DungeonLayer).rooms?.map((r) => r.id).sort()
 
-  it('gives a fresh scene its largest non-pathway room and nothing else', () => {
+  it('sends a player no rooms and shows them nothing, however big the room', () => {
     const { vision, stores, campaignId } = table()
-    expect([...vision.visionOf(SCENE)!.visible]).toEqual(['hall'])
-    expect(roomsOfMap(vision.playerMap(SCENE))).toEqual(['hall'])
-    // Read-time, not a seed: the module's own state is still untouched.
+    expect([...vision.visionOf(SCENE)!.visible]).toEqual([])
+    expect(roomsOfMap(vision.playerMap(SCENE))).toEqual([])
+    // The geometry is withheld, not merely masked: a light baked into `hall` cannot reach a
+    // canvas that was never sent the room (PRODUCT principle 2).
+    expect(JSON.stringify(vision.playerMap(SCENE))).not.toContain('floor-hall')
+    // Still read-time, and still writes nothing: the module's own state is untouched.
     expect(stores.moduleState.get(campaignId, 'fog')).toBeUndefined()
   })
 
-  it('lets a player stand in it, so a fresh table is not a fenced-off map (D8)', () => {
+  it('gives a player nowhere to stand until the DM opens the map (D8)', () => {
     const { vision } = table()
-    expect(vision.visionOf(SCENE)!.occupiable.has('hall')).toBe(true)
+    expect(vision.visionOf(SCENE)!.occupiable.has('hall')).toBe(false)
     expect(vision.visionOf(SCENE)!.occupiable.has('vault')).toBe(false)
   })
 
-  it('gives it up the moment the DM reveals a real room, and retracts its geometry', () => {
+  it('hands over exactly the room the DM reveals, and nothing beside it', () => {
     const { vision, stores, campaignId } = table()
     stores.moduleState.put(campaignId, 'fog', seen('inner'))
     expect([...vision.visionOf(SCENE)!.visible]).toEqual(['inner'])
@@ -407,7 +413,7 @@ describe('the default room, on the server (amendment 2026-07-28)', () => {
     expect(JSON.stringify(vision.playerMap(SCENE))).not.toContain('floor-hall')
   })
 
-  it('falls back again when a Hide All leaves nothing revealed', () => {
+  it('leaves a Hide All every room explored and none of them visible', () => {
     const { vision, stores, campaignId } = table()
     // What `set-bulk` writes for D9's Hide All: everything seen, nothing lit.
     stores.moduleState.put(campaignId, 'fog', {
@@ -421,8 +427,10 @@ describe('the default room, on the server (amendment 2026-07-28)', () => {
         },
       },
     } satisfies FogState)
-    expect([...vision.visionOf(SCENE)!.visible]).toEqual(['hall'])
-    // …and the room they explored keeps its geometry either way (D4).
+    // The regression behind the explored wash reading identical to a live room: the last
+    // room going under used to bring `hall` straight back as visible.
+    expect([...vision.visionOf(SCENE)!.visible]).toEqual([])
+    // …and the rooms they explored keep their geometry either way (D4).
     expect(roomsOfMap(vision.playerMap(SCENE))).toEqual(['hall', 'inner'])
   })
 
@@ -456,11 +464,10 @@ const seen = (...rooms: string[]): FogState => ({
 })
 
 describe('vision.playerDoors (D4)', () => {
-  it('is the default room’s doors before the party has explored anything, and empty for a scene with no map', () => {
+  it('is empty before the party has explored anything, and for a scene with no map', () => {
     const { vision } = table()
-    // `hall` is the fallback (amendment 2026-07-28), so the door out of it is the one door
-    // a player holds at join — never none at all.
-    expect([...vision.playerDoors(SCENE)]).toEqual(['door-hall-corr'])
+    // A door is bound to a room, and a player holding no room holds no door either.
+    expect([...vision.playerDoors(SCENE)]).toEqual([])
     expect([...vision.playerDoors('no-such-scene')]).toEqual([])
   })
 
@@ -550,9 +557,9 @@ describe('the doors slice on the wire (D4/D4c)', () => {
     // One touch anywhere seeds every door in the scene — this is the leak, in one command.
     expect(run('doors', 'toggle', { sceneId: SCENE, id: 'door-corr-inner' })).toBeNull()
     expect(doorsFor(DM)).toEqual(['door-corr-inner', 'door-hall-corr', 'door-secret'])
-    // Not none: `hall` is the default room until the DM reveals something (amendment
-    // 2026-07-28), so its door is a player's from the first frame.
-    expect(doorsFor(P1)).toEqual(['door-hall-corr'])
+    // None: a player who has explored nothing is bound to no room, so the seeding reaches
+    // them with no door in it at all.
+    expect(doorsFor(P1)).toEqual([])
 
     run('fog', 'reveal', { sceneId: SCENE, roomId: 'hall' })
     expect(doorsFor(P1)).toEqual(['door-hall-corr'])

@@ -12,6 +12,7 @@ import {
   effectiveFog,
   sceneFogOf,
   visibleRooms,
+  type FogRoom,
   type FogState,
   type RoomFog,
   type SceneFog,
@@ -68,6 +69,8 @@ interface Computed {
 }
 
 const NO_FOG: FogState = { byScene: {} }
+/** `effectiveFog`'s default-room fallback, switched off — see its call site below. */
+const NO_ROOMS: readonly FogRoom[] = []
 const NO_DOORS: DoorsState = { byScene: {} }
 const NO_TOKENS: TokensState = { library: {}, byScene: {} }
 const NO_ONES_DOORS: ReadonlySet<string> = new Set()
@@ -97,10 +100,17 @@ export function createVision(stores: Stores): Vision {
       const room = map.roomAt(token.x, token.y)
       if (room !== null && !party.includes(room)) party.push(room)
     }
-    // Everything below reads the *effective* fog, never the stored one: the default-room
-    // fallback and the empty-party concealment rule are read-time corrections, and the
-    // player's renderer applies the same helper to the same inputs (amendment 2026-07-28).
-    const fog = effectiveFog(sceneFogOf(read(campaignId, 'fog', NO_FOG), sceneId), map.rooms, party)
+    // Everything below reads the *effective* fog, never the stored one, and the player's
+    // renderer applies the same helper to the same inputs so the two cannot drift.
+    //
+    // With no rooms to pick from, the one read-time correction left is the empty-party
+    // concealment rule. The other — the default room, which revealed the largest non-pathway
+    // room whenever nothing was stored as revealed (amendment 2026-07-28) — is off: it handed
+    // a player who had been told nothing the geometry of the map's biggest room, which on
+    // emberhold-crypt is the torchlit one, and the fourth browser gate read it at full
+    // brightness on a scene the DM's panel called Unrevealed. Withholding it here is the half
+    // that matters; the mask is only the half the player can see (PRODUCT principle 2).
+    const fog = effectiveFog(sceneFogOf(read(campaignId, 'fog', NO_FOG), sceneId), NO_ROOMS, party)
 
     const explored = exploredRooms(fog)
     // The doors a player may hold — the *same* predicate the map cut uses on the door

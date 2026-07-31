@@ -6,7 +6,7 @@
 // that an unrelated store write does not rebuild the mask.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Container, Ticker } from 'pixi.js';
+import { Container, Graphics, Ticker } from 'pixi.js';
 import type { DoorChild, Room } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
@@ -21,9 +21,11 @@ import { useSessionStore } from '../../session/store';
 import {
   EXPLORED_TINT,
   EXPLORED_TINT_ALPHA,
+  FOG_BLACK,
   LIGHTING_STRENGTH,
   PARTY_ROOM_UNKNOWN,
   REVEAL_MS,
+  drawFog,
   easeOutQuart,
   fogBounds,
   fogScene,
@@ -113,11 +115,9 @@ const token = (over: Partial<Token> = {}): Token => ({
 // ── Classification (D3 + D10) ───────────────────────────────────────────────
 
 describe('roomViews — what each room is doing', () => {
-  it('is black for a room nobody has entered — except the default one', () => {
-    // All three are area 16 and none is a corridor, so the tie-break picks the lowest id:
-    // `r-gallery`. A player-facing scene always has one room in it (amendment 2026-07-28).
+  it('is black for every room nobody has entered', () => {
     const views = roomViews(ROOMS, fogOf({}), [], []);
-    expect([...views.values()]).toEqual<RoomView[]>(['dark', 'visible', 'dark']);
+    expect([...views.values()]).toEqual<RoomView[]>(['dark', 'dark', 'dark']);
   });
 
   it('is clear where the party stands and dim where they have been', () => {
@@ -189,35 +189,76 @@ describe('roomViews — what each room is doing', () => {
     expect(views.get(VESTIBULE.id)).toBe('explored');
   });
 
-  // ── the default room (amendment 2026-07-28) ───────────────────────────────
-  // The same helper the server redacts with, so the room the canvas lights is the room the
-  // player was actually sent.
+  // ── no room is lit for free ────────────────────────────────────────────────
+  // The default-room fallback used to reveal the largest non-pathway room whenever nothing
+  // was stored as revealed (amendment 2026-07-28). The fourth browser gate read it as the
+  // map's brightest room shown to a player the DM had told nothing, so it is off on both
+  // sides of the wire — see `NO_FALLBACK_ROOM`, and `vision.ts` for the referee's half.
 
-  it('lights the default room even with every door shut and nobody on the map', () => {
+  it('stays black on a fresh scene, however big the room and whoever is on the map', () => {
     const shut = [
       liveDoor(door('d-vg', VESTIBULE.id, GALLERY.id)),
       liveDoor(door('d-gv', GALLERY.id, VAULT.id)),
     ];
-    expect(roomViews(ROOMS, fogOf({}), shut, []).get(GALLERY.id)).toBe('visible');
+    expect(roomViews(ROOMS, fogOf({}), shut, []).get(GALLERY.id)).toBe('dark');
+    expect(roomViews(ROOMS, fogOf({}), shut, [VESTIBULE.id]).get(GALLERY.id)).toBe('dark');
   });
 
-  it('takes it back to black the moment the DM reveals a real room', () => {
-    // The player holds the default room's geometry by then and no fog record for it — the
-    // absent record *is* never_revealed (D1), so it simply goes dark again.
+  it('stays black for a room the DM has never named, next to one they have', () => {
     const views = roomViews(ROOMS, fogOf({ [VAULT.id]: seen }), [], [VAULT.id]);
     expect(views.get(VAULT.id)).toBe('visible');
     expect(views.get(GALLERY.id)).toBe('dark');
   });
 
-  it('lights it again when a Hide All leaves nothing revealed', () => {
+  it('leaves a Hide All a map of memories, with nothing lit', () => {
     const views = roomViews(
       ROOMS,
       fogOf({ [VESTIBULE.id]: stale, [VAULT.id]: stale }),
       [],
       [VESTIBULE.id],
     );
-    expect(views.get(GALLERY.id)).toBe('visible');
+    // The wash's own regression: the last room going under used to hand the biggest one
+    // back as `visible`, which is why a memory measured within 0.35% of the same room live.
     expect(views.get(VESTIBULE.id)).toBe('explored');
+    expect(views.get(VAULT.id)).toBe('explored');
+    expect(views.get(GALLERY.id)).toBe('dark');
+  });
+
+  it('covers an unrevealed room with unbroken black, whatever is lit underneath it', () => {
+    // The half a classification cannot show: the room's torch is baked into the map art and
+    // composited *below* this layer (D12), so the only thing standing between a player and a
+    // lit room they were never shown is whether the scrim has a hole in it. On a fresh scene
+    // it must have none at all — one opaque rect, no cut, nothing for the light to come
+    // through. This is the fourth gate's 83.1-luminance Torchlit Chamber, as an assertion.
+    const scrim = new Graphics();
+    drawFog(scrim, {
+      rooms: ROOMS,
+      views: roomViews(ROOMS, fogOf({}), [], []),
+      bounds: fogBounds([], ROOMS),
+      sceneId: 's1',
+      isPlayer: true,
+    });
+
+    const fills = scrim.context.instructions.filter((i) => i.action === 'fill');
+    expect(fills).toHaveLength(1);
+    expect(fills[0].data.style.color).toBe(FOG_BLACK);
+    expect(fills[0].data.style.alpha).toBe(1);
+    expect(fills[0].data.hole).toBeUndefined();
+  });
+
+  it('cuts a hole for a room the DM did reveal, so the mask is not simply always black', () => {
+    const scrim = new Graphics();
+    const views = roomViews(ROOMS, fogOf({ [GALLERY.id]: seen }), [], [GALLERY.id]);
+    drawFog(scrim, {
+      rooms: ROOMS,
+      views,
+      bounds: fogBounds([], ROOMS),
+      sceneId: 's1',
+      isPlayer: true,
+    });
+
+    const fills = scrim.context.instructions.filter((i) => i.action === 'fill');
+    expect(fills[0].data.hole).toBeDefined();
   });
 
   it('classifies nothing on a map nobody zoned — there is no fog to enforce (D6)', () => {

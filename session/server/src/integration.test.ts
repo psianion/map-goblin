@@ -452,11 +452,14 @@ const AJAR = cryptDoors.find((d) => !d.isSecret && d.style !== 'archway')!
 const roomOf = (id: string | null | undefined): Room => cryptRooms.find((r) => r.id === id)!
 
 /**
- * The room a player is handed before the DM has revealed anything (amendment 2026-07-28) —
- * on this map, the Torchlit Chamber. Taken from the mechanics helper rather than spelled
- * out, so a re-authored map moves the rows below with it instead of quietly passing.
+ * The map's largest non-pathway room — on this map, the Torchlit Chamber, which is also the
+ * brightest thing on it. The default-room fallback used to lend it to a player who had been
+ * told nothing (amendment 2026-07-28) and the fourth browser gate read it at full brightness
+ * on a scene the DM's panel called Unrevealed, so the rows below are how that stays fixed.
+ * Taken from the mechanics helper rather than spelled out, so a re-authored map moves them
+ * with it instead of quietly passing.
  */
-const DEFAULT_ROOM = defaultRoom(cryptRooms)!
+const BIGGEST_ROOM = defaultRoom(cryptRooms)!
 
 /** Props the map leaves outside every room's bounding box are unzoned beyond argument (D6). */
 const STRANDED = cryptLayer.children.filter((child): child is AssetChild => {
@@ -543,67 +546,73 @@ describe('fog redaction on the map payload (§2.6, D4)', () => {
           await fetchMap(server, { name: 'P0', session: 'FGC', identity: 'FGC-p0' }, sceneId),
         ) as SerializedMapData,
       )
-      // The explored room, and the default room beside it: with the last reveal taken back
-      // nothing is lit, so the fallback is in play again (amendment 2026-07-28).
-      expect(layer.rooms?.map((r) => r.id).sort()).toEqual([seen.id, DEFAULT_ROOM.id].sort())
+      // The explored room and nothing beside it: taking the last reveal back leaves a
+      // memory, never a fresh loan of the biggest room on the map.
+      expect(layer.rooms?.map((r) => r.id)).toEqual([seen.id])
       expect(layer.children.length).toBeGreaterThan(0)
     })
   })
 })
 
-describe('the default room on the wire (amendment 2026-07-28)', () => {
-  it('is a player’s at join, is given up on the first real reveal, and comes back on reset', async () => {
+describe('an unrevealed room on the wire', () => {
+  it('is not a player’s at join, is theirs once revealed, and is taken back on reset', async () => {
     await withServer({}, async (server) => {
       const { sceneId, dm } = await crypts(server, 'FGJ', 1)
       const seat = { name: 'P0', session: 'FGJ', identity: 'FGJ-p0' }
+      const wire = async () => await fetchMap(server, seat, sceneId)
       const roomsHeld = async () =>
-        dungeonOf(JSON.parse(await fetchMap(server, seat, sceneId)) as SerializedMapData)
+        dungeonOf(JSON.parse(await wire()) as SerializedMapData)
           .rooms?.map((r) => r.id)
           .sort()
 
-      // No command has been run at all: the map a player is handed is the default room's.
-      expect(await roomsHeld()).toEqual([DEFAULT_ROOM.id])
-      expect(DEFAULT_ROOM.id).not.toBe(roomOf(AJAR.roomA).id)
+      // No command has been run at all, so the player is handed no room whatsoever — and
+      // above all not the brightest one on the map, whose light is baked into geometry a
+      // canvas cannot dim once it holds it.
+      expect(await roomsHeld()).toEqual([])
+      expect(await wire()).not.toContain(BIGGEST_ROOM.id)
+      expect(BIGGEST_ROOM.id).not.toBe(roomOf(AJAR.roomA).id)
 
       const revealed = nextState(dm, 'fog')
       sendCommand(dm, 'fog', 'reveal', { roomId: roomOf(AJAR.roomA).id })
       await revealed
-      // Stored state takes over whole: the room they were lent is not theirs any more.
       expect(await roomsHeld()).toEqual([roomOf(AJAR.roomA).id])
 
       const cleared = nextState(dm, 'fog')
       sendCommand(dm, 'fog', 'reset', {})
       await cleared
-      expect(await roomsHeld()).toEqual([DEFAULT_ROOM.id])
+      expect(await roomsHeld()).toEqual([])
     })
   })
 
-  it('retracts what stood in it the moment a real room is revealed (D4c)', async () => {
+  it('retracts what stood in it the moment the DM takes the room back (D4c)', async () => {
     await withServer({}, async (server) => {
       const { sceneId, dm, players } = await crypts(server, 'FGK', 1)
       const [player] = players
 
-      // Nothing revealed, so the default room is lit and a monster standing in it is a
-      // monster the player can see.
+      const lit = nextState(dm, 'fog')
+      sendCommand(dm, 'fog', 'reveal', { roomId: BIGGEST_ROOM.id })
+      await lit
+
+      // Revealed, so a monster standing in it is a monster the player can see.
       const arrived = nextState<TokensState>(player, 'tokens', (s) =>
         Object.keys(s.byScene[sceneId] ?? {}).length > 0,
       )
       sendCommand(dm, 'tokens', 'place', {
         name: 'Ghast',
-        x: DEFAULT_ROOM.centroid[0],
-        y: DEFAULT_ROOM.centroid[1],
+        x: BIGGEST_ROOM.centroid[0],
+        y: BIGGEST_ROOM.centroid[1],
       })
       expect(Object.values((await arrived).byScene[sceneId]).map((t) => t.name)).toEqual(['Ghast'])
 
-      // Revealing somewhere else takes the fallback away — and with it the ghast, actively,
-      // rather than leaving its last position on the player's screen.
+      // Hiding the room takes the ghast with it, actively, rather than leaving its last
+      // position on the player's screen.
       const dropped = nextState<TokensState>(player, 'tokens')
-      sendCommand(dm, 'fog', 'reveal', { roomId: roomOf(AJAR.roomA).id })
+      sendCommand(dm, 'fog', 'hide', { roomId: BIGGEST_ROOM.id })
       expect(Object.keys((await dropped).byScene[sceneId] ?? {})).toEqual([])
     })
   })
 
-  it('lights it again when a Hide All puts every explored room back under (D9)', async () => {
+  it('stays unrevealed when a Hide All puts every explored room back under (D9)', async () => {
     await withServer({}, async (server) => {
       const { sceneId, dm } = await crypts(server, 'FGL', 1)
       const seat = { name: 'P0', session: 'FGL', identity: 'FGL-p0' }
@@ -620,8 +629,9 @@ describe('the default room on the wire (amendment 2026-07-28)', () => {
       })
       await hidden
 
+      // The memory they earned, and not one room more: nothing lit is nothing lent.
       const layer = dungeonOf(JSON.parse(await fetchMap(server, seat, sceneId)) as SerializedMapData)
-      expect(layer.rooms?.map((r) => r.id).sort()).toEqual([here.id, DEFAULT_ROOM.id].sort())
+      expect(layer.rooms?.map((r) => r.id)).toEqual([here.id])
     })
   })
 })

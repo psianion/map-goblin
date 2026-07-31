@@ -43,7 +43,13 @@ import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { useStore } from '@dnd/core/src/store/store';
 import { computeMapWorldBounds } from '@dnd/core/src/engine/export/exportPipeline';
 import type { AuthoredDoor, DoorLiveState, DoorsState } from '@dnd/mechanics/doors';
-import { effectiveFog, visibleRooms, type FogState, type SceneFog } from '@dnd/mechanics/fog';
+import {
+  effectiveFog,
+  visibleRooms,
+  type FogRoom,
+  type FogState,
+  type SceneFog,
+} from '@dnd/mechanics/fog';
 import type { Token, TokensState } from '@dnd/mechanics/tokens';
 import { addScreenOverlay, mountWhenEngineReady } from '../../renderer/overlayLayer';
 import { prefersReducedMotion } from '../../session/motion';
@@ -123,16 +129,33 @@ export interface FogScene {
 }
 
 /**
+ * `effectiveFog`'s default-room fallback, switched off: the argument it picks the fallback
+ * from, with nothing in it to pick.
+ *
+ * The fallback revealed the largest non-pathway room whenever nothing was stored as revealed,
+ * so that a fresh table was never a black screen (amendment 2026-07-28). It bought that at a
+ * price the fourth browser gate measured on both sides. On emberhold-crypt the largest room
+ * is the Torchlit Chamber, so a player joining a session with no reveals in it read the map's
+ * brightest room at full strength while the DM's own panel said "Unrevealed" — and the rule
+ * fired a second time whenever the DM re-hid the last lit room, handing that room back as
+ * *visible* and skipping the explored wash entirely, which is why a memory and a live room
+ * measured within 0.35% of each other.
+ *
+ * A room the DM never revealed is black, and a room they took back is a memory. Neither is a
+ * room the map lights for free (PRODUCT principle 2 — the player sees what the referee sent,
+ * never what the styling let through).
+ *
+ * The empty-party concealment correction is the other half of `effectiveFog` and stays on,
+ * which is why this still goes *through* the shared helper rather than around it: the server
+ * runs the same one over the same inputs (`vision.ts`), and the two must not answer "what can
+ * they see" differently.
+ */
+const NO_FALLBACK_ROOM: readonly FogRoom[] = [];
+
+/**
  * D3's two layers, resolved per room. `visibleRooms` is the mechanics module's — the same
  * pure function the server redacts with, so the canvas and the referee cannot disagree.
  * Everything else the party has ever seen is explored; everything left is black.
- *
- * `effectiveFog` first, for the same reason: the default-room fallback and the empty-party
- * concealment rule are read-time corrections the server applies before it redacts, so the
- * mask has to apply them before it classifies (amendment 2026-07-28). The rooms this is
- * given are the rooms this tab *holds geometry for*, which is a subset of the map's — but
- * the fallback's own geometry is always in that subset (the server keeps it for exactly
- * this reason), so the biggest room here is the biggest room there.
  */
 export function roomViews(
   rooms: readonly Room[],
@@ -147,7 +170,7 @@ export function roomViews(
     graph.push(entry.door);
   }
 
-  const fog = effectiveFog(storedFog, rooms, partyRooms);
+  const fog = effectiveFog(storedFog, NO_FALLBACK_ROOM, partyRooms);
   const visible = visibleRooms(fog, live, graph, partyRooms);
   const views = new Map<string, RoomView>();
   for (const room of rooms) {
