@@ -7,6 +7,7 @@ import type { DoorChild, DoorStyle, DoorState } from '@/shared/types';
 import type { DungeonLayer } from '@/store/types';
 import { UpdateChildCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
+import { minDoorWidth } from '@dnd/core/src/engine/tools/DoorTool';
 
 // V1 ships single + double only. Portcullis/archway still render and still
 // deserialize from older files — they just can't be picked here any more.
@@ -49,7 +50,13 @@ export function DoorProperties({ layerId, childId }: DoorPropertiesProps) {
         <SelectInput
           value={door.style}
           options={STYLE_OPTIONS}
-          onChange={(v) => update({ style: door.style }, { style: v as DoorStyle })}
+          onChange={(v) => {
+            // Switching to a wider style takes the width up with it — a double
+            // door left at a single door's width has no room for two leaves.
+            const style = v as DoorStyle;
+            const width = Math.max(door.width, minDoorWidth(style));
+            update({ style: door.style, width: door.width }, { style, width });
+          }}
         />
       </PropertyField>
 
@@ -76,10 +83,13 @@ export function DoorProperties({ layerId, childId }: DoorPropertiesProps) {
       <PropertyField label="Width">
         <NumberInput
           value={door.width}
-          min={0.25}
+          min={minDoorWidth(door.style)}
           max={4}
           step={0.25}
-          onChange={(v) => update({ width: door.width }, { width: v })}
+          // The spinner respects `min`, typing does not, so clamp here too.
+          onChange={(v) =>
+            update({ width: door.width }, { width: Math.max(v, minDoorWidth(door.style)) })
+          }
         />
       </PropertyField>
 

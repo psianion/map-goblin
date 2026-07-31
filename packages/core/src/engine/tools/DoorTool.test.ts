@@ -437,6 +437,36 @@ describe('DoorTool', () => {
     expect(doors()[0].width).toBeCloseTo(2);
   });
 
+  // ── Per-style minimum widths ─────────────────────────────────────────────
+  // A double door is two leaves, a portcullis a row of bars, an archway a jamb
+  // either side: none of them survive being squeezed into a single cell.
+
+  it('widens a narrow setting up to the style minimum', () => {
+    // The default wall is ten cells, past the auto-fit span, so the setting
+    // would otherwise stand at 1.
+    useStore.getState().updateToolSettings({ doorStyle: 'double', doorWidth: 1 });
+    click(tool, 5, 5.1);
+    expect(doors()[0].width).toBe(2);
+  });
+
+  it('leaves a single door on the width it was given', () => {
+    useStore.getState().updateToolSettings({ doorStyle: 'single', doorWidth: 1 });
+    click(tool, 5, 5.1);
+    expect(doors()[0].width).toBe(1);
+  });
+
+  it('refuses a style too wide for the opening it was aimed at', () => {
+    // The stub auto-fits to 1.5, which a double widens to 2 — wider than the
+    // wall, so the existing too-wide rule reds the ghost and eats the click.
+    addWall('stub', 1.5, 20);
+    useStore.getState().updateToolSettings({ doorStyle: 'double' });
+
+    tool.onPointerMove({ x: 0.75, y: 20.1 });
+    expect(ghost.tint).toBe(0xcc3344);
+    tool.onPointerDown({ x: 0.75, y: 20.1 });
+    expect(doors()).toHaveLength(0);
+  });
+
   it('removing a wall cascades to the doors attached to it', () => {
     click(tool, 5, 5.1);
     expect(doors()).toHaveLength(1);

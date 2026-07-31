@@ -2,7 +2,7 @@ import { Container } from 'pixi.js';
 import type { Point } from '../../types/geometry';
 import { isDoubleClick, type DrawingTool, type PreviewShape } from './DrawingTool';
 import type { DoorChild, DungeonLayer } from '../../store/types';
-import type { DoorState } from '../../shared/types';
+import type { DoorState, DoorStyle } from '../../shared/types';
 import { snapToNearestWall, type WallSnapResult } from '../../shared/wallSnap';
 import {
   FLOOR_ANCHORED,
@@ -89,6 +89,22 @@ function fittedWidth(wallLength: number, settingsWidth: number): number {
   return wallLength <= AUTO_FIT_MAX_CELLS && wallLength >= AUTO_FIT_MIN_WIDTH
     ? wallLength
     : settingsWidth;
+}
+
+/**
+ * Styles that are drawn as a two-cell opening. A double door has two leaves, a
+ * portcullis a row of bars, an archway a stone jamb either side — squeeze any of
+ * them into one cell and the art is a smear with no readable detail. Single-leaf
+ * styles (and portals, which carry their own art) fit a cell.
+ */
+const WIDE_STYLES = new Set<DoorStyle>(['double', 'portcullis', 'archway']);
+
+/**
+ * Narrowest a door of this style may be, in world units — grid cells, the same
+ * units `door.width` and `SNAP_THRESHOLD` are in.
+ */
+export function minDoorWidth(style: DoorStyle): number {
+  return WIDE_STYLES.has(style) ? 2 : 1;
 }
 
 /** What a click would place, and whether it would be allowed to. */
@@ -249,6 +265,7 @@ export class DoorTool implements DrawingTool {
 
     const settings = useStore.getState().tools.settings;
     const wallLength = polylineLength(wall.points);
+    const style = settings.doorStyle ?? 'single';
     const draft: DoorChild = {
       id: '',
       name: '',
@@ -259,8 +276,12 @@ export class DoorTool implements DrawingTool {
       wallId: wall.kind === 'floor' ? FLOOR_ANCHORED : wall.id,
       position: snap.position,
       angle: snap.angle,
-      width: fittedWidth(wallLength, settings.doorWidth || 1),
-      style: settings.doorStyle ?? 'single',
+      // The minimum wins over both the setting and the auto-fit. A wall too
+      // short to hold it then trips `isPlaceable`'s width-vs-wall check on its
+      // own, so an opening that cannot take this style previews red and commits
+      // nothing — no separate rule needed.
+      width: Math.max(fittedWidth(wallLength, settings.doorWidth || 1), minDoorWidth(style)),
+      style,
       state: 'closed',
       isSecret: settings.doorSecret ?? false,
     };
