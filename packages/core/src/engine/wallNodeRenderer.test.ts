@@ -56,6 +56,7 @@ vi.mock('../assets/textureManifest', () => ({
 import { Container } from 'pixi.js';
 import { renderNodeWalls } from './wallNodeRenderer';
 import type { DungeonStyle, WallSegment } from '../store/types';
+import type { Polygon } from '../types/geometry';
 
 const style = { wallTextureSetId: 'stone-slate', wallTextureTint: '#ffffff', wallWidth: 0.4 } as DungeonStyle;
 
@@ -99,5 +100,41 @@ describe('renderNodeWalls — stone sprite pool', () => {
     const container = render([wall('w1', 10)]);
     renderNodeWalls(container, [], [wall('w1', 10)], { ...style, wallTextureSetId: '' } as DungeonStyle);
     expect(container.children).toHaveLength(0);
+  });
+});
+
+// The pool has to survive the transition that opens a doorway: the second pass
+// lays out fewer stones than the first, and the ones it does lay out land at
+// different indices. A stone left behind inside the opening is the e2e's
+// "doorway is clear of stones" row failing.
+describe('renderNodeWalls — door gaps through the pool', () => {
+  const ROOM: Polygon = [
+    [-6, 0],
+    [6, 0],
+    [6, 8],
+    [-6, 8],
+  ];
+  const GAP = { wallId: 'floor:0:0', position: [1, 0] as [number, number], width: 3, ring: 0 };
+
+  const inGap = (c: Container): unknown[] =>
+    c.children.filter((s) => {
+      const p = (s as unknown as { position: { x: number; y: number } }).position;
+      return Math.hypot(p.x - GAP.position[0], p.y - GAP.position[1]) < GAP.width / 2;
+    });
+
+  it('leaves no stone in the opening when a door is added to an already-drawn ring', () => {
+    const container = new Container();
+    renderNodeWalls(container, [ROOM], [], style);
+    expect(inGap(container).length).toBeGreaterThan(0); // stones run through it
+
+    renderNodeWalls(container, [ROOM], [], style, [GAP]);
+    expect(inGap(container)).toHaveLength(0);
+  });
+
+  it('leaves no stone behind when the opening moves', () => {
+    const container = new Container();
+    renderNodeWalls(container, [ROOM], [], style, [{ ...GAP, position: [-3, 0] }]);
+    renderNodeWalls(container, [ROOM], [], style, [GAP]);
+    expect(inGap(container)).toHaveLength(0);
   });
 });

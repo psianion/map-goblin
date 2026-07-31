@@ -232,6 +232,7 @@ function installKit(page: Page): Promise<void> {
         let sprites = 0
         let graphics = 0
         for (const container of containers) {
+          const stones = container.label === 'sublayer-walls'
           for (const child of (container.children as Any[]) ?? []) {
             const node = child as unknown as {
               getBounds(): { x: number; y: number; width: number; height: number }
@@ -241,9 +242,11 @@ function installKit(page: Page): Promise<void> {
             const cx = (b.x + b.width / 2 - w.position.x) / zoom
             const cy = (b.y + b.height / 2 - w.position.y) / zoom
             if (Math.hypot(cx - wx, cy - wy) > r) continue
-            // Wall stones are Sprites (they have an anchor); the door glyphs
-            // are Graphics. Both are "drawn", only one is a stone.
-            if ('anchor' in child) sprites++
+            // Which sublayer drew it, not what class it is. This used to read
+            // "has an anchor, so it is a stone", which was true only while
+            // every door was a Graphics glyph — a door with real art is a
+            // Sprite, and it counted as a stone sitting in its own doorway.
+            if (stones) sprites++
             else graphics++
           }
         }

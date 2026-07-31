@@ -14,6 +14,7 @@ import { markDirty as markRenderCacheDirty } from './renderCache';
 import { rebuildDungeonLayer, redrawDoors, redrawGrid, preloadLayerTextures } from './floorWallRenderer';
 import { preloadWallTextures } from './wallNodeRenderer';
 import type { DungeonLayer, LightChild, ShapeChild } from '../store/types';
+import type { WallSegment } from '../shared/types';
 import { LightManager } from './lighting';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { scheduleRoomSync } from '../store/roomSync';
@@ -40,6 +41,16 @@ function applyTransformToPoints(pts: Polygon, t: { translate: [number, number]; 
 }
 
 const digestCache = new WeakMap<ShapeChild, number>();
+const wallDigestCache = new WeakMap<WallSegment, number>();
+
+/**
+ * One FNV-1a step, quantised to 1e-4 of a cell so float noise alone cannot
+ * trigger a rebuild. Shared by both digests below.
+ */
+function mixInto(h: number, v: number): number {
+  h ^= Math.round(v * 1e4) | 0;
+  return Math.imul(h, 0x01000193);
+}
 
 /**
  * Cheap fingerprint of a shape's actual geometry.
@@ -69,8 +80,7 @@ function geometryDigest(shape: ShapeChild): number {
 
   let h = 0x811c9dc5;
   const mix = (v: number): void => {
-    h ^= Math.round(v * 1e4) | 0;
-    h = Math.imul(h, 0x01000193);
+    h = mixInto(h, v);
   };
   for (const ring of shape.contours) {
     mix(ring.length);
@@ -87,6 +97,29 @@ function geometryDigest(shape: ShapeChild): number {
   }
   const digest = h >>> 0;
   digestCache.set(shape, digest);
+  return digest;
+}
+
+/**
+ * The same fold, for a standalone wall's own geometry.
+ *
+ * `wallSignature` carried id, type and direction and nothing else, so moving a
+ * wall's points moved no key at all: the stones kept the old layout, the rooms
+ * were never re-detected, occlusion kept casting against the line the wall used
+ * to be on, and a door anchored to that wall drew where the wall no longer was.
+ * Width is in here too — it scales every stone on the run.
+ *
+ * Memoised on the segment's own reference, for the reason `geometryDigest` is:
+ * immer replaces a wall whenever anything under it changes.
+ */
+function wallDigest(wall: WallSegment): number {
+  const cached = wallDigestCache.get(wall);
+  if (cached !== undefined) return cached;
+
+  let h = mixInto(0x811c9dc5, wall.width);
+  for (const [x, y] of wall.points) h = mixInto(mixInto(h, x), y);
+  const digest = h >>> 0;
+  wallDigestCache.set(wall, digest);
   return digest;
 }
 
@@ -344,9 +377,12 @@ export function subscribeToStore(
             .filter((c): c is import('../shared/types').WaterChild => c.childType === 'water')
             .map((c) => `${c.id}:${c.visible}:${c.contours.length}:${c.contours[0]?.length ?? 0}:${c.contours[0]?.[0] ?? ''}:${c.contours[0]?.at(-1) ?? ''}:${c.textureId}:${c.tint}:${c.opacity}:${c.bankTextureId}:${c.bankWidth}:${c.flowSpeed}:${c.flowAngle}`)
             .join(','),
-          // Track wall type/direction changes for lighting
+          // Wall type/direction for lighting, plus the wall's own geometry —
+          // see wallDigest. This rides into roomKey, and through it into
+          // renderKey and lightingKey, so a wall that moves re-lays its stones,
+          // re-detects the rooms and re-sweeps the lights, exactly once.
           wallSignature: l.standaloneWalls
-            .map((w) => `${w.id}:${w.wallType}:${w.direction}`)
+            .map((w) => `${w.id}:${w.wallType}:${w.direction}:${wallDigest(w)}`)
             .join(','),
         })),
     (dungeonLayers) => {

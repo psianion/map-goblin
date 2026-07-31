@@ -252,6 +252,52 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
     expect(clipper2Engine.union).not.toHaveBeenCalled();
   });
 
+  // The signature used to be id/type/direction, so a wall whose points moved
+  // matched its own previous key: nothing redrew, no room was re-detected, and
+  // a door anchored to that wall kept drawing where the wall used to be.
+  it('moving a wall point re-lays the stones, the rooms and the lights', () => {
+    const layerId = seed({
+      children: [shape('s1', 500, 500), shape('s2', 560, 500), door('d1', 'w1', 50, 0)],
+      standaloneWalls: [wall('w1', 0, 0, 100, 0)],
+    });
+
+    unsub = start();
+    const floorBefore = dungeon().mergedFloor;
+    vi.clearAllMocks();
+    const invalidateAll = vi.spyOn(lightManager, 'invalidateAll');
+
+    useStore.getState().updateWall(layerId, 'w1', { points: [[0, 40], [100, 40]] });
+    flushLayerDraws();
+
+    expect(rebuildDungeonLayer).toHaveBeenCalled();
+    expect(scheduleRoomSync).toHaveBeenCalled();
+    expect(invalidateAll).toHaveBeenCalled();
+    // A wall is not a floor shape, so #18's union skip still holds.
+    expect(clipper2Engine.union).not.toHaveBeenCalled();
+    expect(dungeon().mergedFloor).toBe(floorBefore);
+  });
+
+  it('a wall colour edit moves no geometry and draws nothing', () => {
+    const layerId = seed({
+      children: [shape('s1', 500, 500)],
+      standaloneWalls: [wall('w1', 0, 0, 100, 0)],
+    });
+
+    unsub = start();
+    vi.clearAllMocks();
+    const invalidateAll = vi.spyOn(lightManager, 'invalidateAll');
+
+    // Colour is not an input to the stone layout — `renderNodeWalls` tints from
+    // the layer style — so the digest must not see it.
+    useStore.getState().updateWall(layerId, 'w1', { color: '#ff0000' });
+    flushLayerDraws();
+
+    expect(rebuildDungeonLayer).not.toHaveBeenCalled();
+    expect(redrawDoors).not.toHaveBeenCalled();
+    expect(scheduleRoomSync).not.toHaveBeenCalled();
+    expect(invalidateAll).not.toHaveBeenCalled();
+  });
+
   it('occlusion and the light polygon do update on a toggle', () => {
     const layerId = seed({
       children: [shape('s1', 500, 500), door('d1', 'w1', 50, 0), light('l1', 50, -30)],
