@@ -448,6 +448,18 @@ async function statuses(dm: Page): Promise<Record<string, number>> {
 const doorRow = (page: Page, doorId: string) =>
   page.getByTestId('door-list').locator(`[data-door-id="${doorId}"]`)
 
+/**
+ * Select the door row, then swing it with the control beside it.
+ *
+ * Two gestures, not one: the door overhaul split selecting a door from operating it (D10),
+ * so the row's own button only opens the actions beside it. The doors lane has the same
+ * helper — this row was still clicking the row and expecting a swing.
+ */
+async function swingDoor(page: Page, doorId: string): Promise<void> {
+  await doorRow(page, doorId).getByRole('button').click()
+  await page.getByTestId('door-toggle').click()
+}
+
 // ── The table ──────────────────────────────────────────────────────────────
 
 test.describe.serial('@sprint3-fog', () => {
@@ -653,12 +665,12 @@ test.describe.serial('@sprint3-fog', () => {
     }
     await expect(doorRow(player, SHUT.door.id)).toHaveAttribute('data-open', 'false')
 
-    await doorRow(dm, SHUT.door.id).getByRole('button').click()
+    await swingDoor(dm, SHUT.door.id)
     await expect(doorRow(dm, SHUT.door.id)).toHaveAttribute('data-open', 'true')
     await expect(doorRow(player, SHUT.door.id)).toHaveAttribute('data-open', 'true')
 
     // …and back, so the row proves a toggle and not a one-way write.
-    await doorRow(dm, SHUT.door.id).getByRole('button').click()
+    await swingDoor(dm, SHUT.door.id)
     await expect(doorRow(player, SHUT.door.id)).toHaveAttribute('data-open', 'false')
   })
 
@@ -808,7 +820,7 @@ test.describe.serial('@sprint3-fog', () => {
     const shutAgain = await shoot(player)
     const noise = await changed(player, shut, shutAgain)
 
-    await doorRow(dm, SHUT.door.id).getByRole('button').click()
+    await swingDoor(dm, SHUT.door.id)
     await expect(doorRow(player, SHUT.door.id)).toHaveAttribute('data-open', 'true')
     await player.waitForTimeout(REVEAL_MS * 2)
     const open = await shoot(player)
