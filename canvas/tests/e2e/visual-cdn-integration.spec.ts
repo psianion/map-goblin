@@ -172,7 +172,7 @@ test.describe('CDN Connectivity', () => {
 
     expect(result.found).toBe(true)
     expect(result.version).toBe('1.0.0')
-    expect(result.entryCount).toBe(94)
+    expect(result.entryCount).toBe(109)
     expect(result.hasManifest).toBe(true)
   })
 
@@ -219,7 +219,7 @@ test.describe('CDN Connectivity', () => {
     expect(result.ok).toBe(true)
     expect(result.version).toBe('1.0.0')
     expect(result.name).toBe('dungeon-classic')
-    expect(result.entryCount).toBe(94)
+    expect(result.entryCount).toBe(109)
     expect(result.atlasCount).toBeGreaterThan(0)
   })
 
@@ -465,10 +465,10 @@ test.describe('Asset Browser Displays CDN Assets', () => {
     )
 
     // Verify known dungeon-classic composition
-    expect(counts.total).toBe(94)
+    expect(counts.total).toBe(109)
     expect(counts.floor).toBe(22)
-    expect(counts.wall).toBe(39)
-    expect(counts.object).toBe(15)
+    expect(counts.wall).toBe(42)
+    expect(counts.object).toBe(21)
     expect(counts.edge).toBe(17)
     expect(counts.scatter).toBe(1)
   })
@@ -907,7 +907,7 @@ test.describe('CDN Failure Resilience', () => {
       ;(manager as any).installedPacks.set('dungeon-classic', {
         packId: 'dungeon-classic',
         version: '1.0.0',
-        entryCount: 94,
+        entryCount: 109,
         themes: [],
         bundleSize: 7000000,
       })

@@ -8,348 +8,6 @@
     "ruin"
   ],
   "entries": {
-    "Fence_Stone_Slate_A_Connector_A_1x1_1x1_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Connector_A_1x1",
-      "gridSize": "1x1",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 0,
-        "y": 0,
-        "w": 200,
-        "h": 200
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Connector_B_1x1_1x1_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Connector_B_1x1",
-      "gridSize": "1x1",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 201,
-        "y": 0,
-        "w": 200,
-        "h": 200
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Connector_C_1x1_1x1_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Connector_C_1x1",
-      "gridSize": "1x1",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 0,
-        "y": 201,
-        "w": 200,
-        "h": 200
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Connector_DIAG_A_1x1_1x1_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Connector_DIAG_A_1x1",
-      "gridSize": "1x1",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 201,
-        "y": 201,
-        "w": 200,
-        "h": 200
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Connector_D_1x1_1x1_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Connector_D_1x1",
-      "gridSize": "1x1",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 402,
-        "y": 0,
-        "w": 200,
-        "h": 200
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Corner_A_1x1_1x1_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Corner_A_1x1",
-      "gridSize": "1x1",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 402,
-        "y": 201,
-        "w": 200,
-        "h": 200
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Corner_B_1x1_1x1_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Corner_B_1x1",
-      "gridSize": "1x1",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 0,
-        "y": 402,
-        "w": 200,
-        "h": 200
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Corner_C_1x1_1x1_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Corner_C_1x1",
-      "gridSize": "1x1",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 201,
-        "y": 402,
-        "w": 200,
-        "h": 200
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Corner_D_2x2_2x2_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Corner_D_2x2",
-      "gridSize": "2x2",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 603,
-        "y": 0,
-        "w": 400,
-        "h": 400
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Corner_E_2x2_2x2_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Corner_E_2x2",
-      "gridSize": "2x2",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 603,
-        "y": 401,
-        "w": 400,
-        "h": 400
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Corner_F_3x3_3x3_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Corner_F_3x3",
-      "gridSize": "3x3",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 1004,
-        "y": 0,
-        "w": 600,
-        "h": 600
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Ending_A_1x1_1x1_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Ending_A_1x1",
-      "gridSize": "1x1",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 402,
-        "y": 402,
-        "w": 200,
-        "h": 200
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Joint_A_1x1_1x1_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Joint_A_1x1",
-      "gridSize": "1x1",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 0,
-        "y": 802,
-        "w": 200,
-        "h": 200
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Joint_B_1x1_1x1_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Joint_B_1x1",
-      "gridSize": "1x1",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 201,
-        "y": 802,
-        "w": 200,
-        "h": 200
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Straight_A_3x1_3x1_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Straight_A_3x1",
-      "gridSize": "3x1",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 1004,
-        "y": 601,
-        "w": 600,
-        "h": 200
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Straight_B_2x1_2x1_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Straight_B_2x1",
-      "gridSize": "2x1",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 402,
-        "y": 802,
-        "w": 400,
-        "h": 200
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Straight_C_1x1_1x1_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Straight_C_1x1",
-      "gridSize": "1x1",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 803,
-        "y": 802,
-        "w": 200,
-        "h": 200
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
-    "Fence_Stone_Slate_A_Straight_D_1x1_1x1_wall_A": {
-      "type": "wall",
-      "material": "Fence_Stone_Slate_A_Straight_D_1x1",
-      "gridSize": "1x1",
-      "pieceType": "wall",
-      "variant": "A",
-      "atlas": "atlas-wall-ffcc1679.webp",
-      "frame": {
-        "x": 1004,
-        "y": 802,
-        "w": 200,
-        "h": 200
-      },
-      "tags": [
-        "dungeon",
-        "cave",
-        "ruin"
-      ]
-    },
     "Wall_Wood_Ashen_B_Connector_A_1x1_1x1_wall_A": {
       "type": "wall",
       "material": "Wall_Wood_Ashen_B_Connector_A_1x1",
@@ -1688,6 +1346,402 @@
         "cave",
         "ruin"
       ]
+    },
+    "door-single-closed": {
+      "type": "door",
+      "material": "Door_Stone_Slate_A",
+      "gridSize": "1x1",
+      "pieceType": "door",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "door-single-open": {
+      "type": "door",
+      "material": "Door_Frame_Stone_Slate_A",
+      "gridSize": "2x1",
+      "pieceType": "door",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "door-double-closed": {
+      "type": "door",
+      "material": "Door_Large_Wood_Ashen_A",
+      "gridSize": "2x1",
+      "pieceType": "door",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "door-double-open": {
+      "type": "door",
+      "material": "Door_Frame_Double_Stone_Slate_A",
+      "gridSize": "3x1",
+      "pieceType": "door",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "door-portcullis-closed": {
+      "type": "door",
+      "material": "Portcullis_Metal_Gray_A",
+      "gridSize": "2x1",
+      "pieceType": "door",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "door-archway-open": {
+      "type": "door",
+      "material": "Arch_Small_Stone_Slate_A1",
+      "gridSize": "1x2",
+      "pieceType": "door",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-connector-a": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Connector_A",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-connector-b": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Connector_B",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-connector-diag-a": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Connector_DIAG_A",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-corner-a": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Corner_A",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-corner-b": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Corner_B",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-corner-c": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Corner_C",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-corner-d": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Corner_D",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-corner-e": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Corner_E",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-corner-f": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Corner_F",
+      "gridSize": "2x2",
+      "pieceType": "corner",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-corner-g": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Corner_G",
+      "gridSize": "2x2",
+      "pieceType": "corner",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-corner-h": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Corner_H",
+      "gridSize": "3x3",
+      "pieceType": "corner",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-ending-a": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Ending_A",
+      "gridSize": "1x1",
+      "pieceType": "ending",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-joint-a": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Joint_A",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-joint-b": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Joint_B",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-joint-c": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Joint_C",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-joint-d": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Joint_D",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-straight-a": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Straight_A",
+      "gridSize": "3x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-straight-b": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Straight_B",
+      "gridSize": "2x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-straight-c": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Straight_C",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-straight-d": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Straight_D",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "wall-stone-slate-straight-path": {
+      "type": "wall",
+      "material": "Wall_Stone_Slate_A_Straight_Path",
+      "gridSize": "8x1",
+      "pieceType": "path",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "prop-fireplace-slate-ashen": {
+      "type": "object",
+      "material": "Fireplace_Corner_Chimney_Stone_Slate_A_Wood_Ashen",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "prop-pillar-stone-slate": {
+      "type": "object",
+      "material": "Pillar_Stone_Slate_A1",
+      "gridSize": "1x1",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "prop-stairs-stone-slate": {
+      "type": "object",
+      "material": "Stairs_Stone_Slate_A",
+      "gridSize": "1x3",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "prop-rubble-stone-earthy": {
+      "type": "object",
+      "material": "Rubble_Pile_Stone_Earthy_A11",
+      "gridSize": "2x2",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "prop-railing-wood-ashen": {
+      "type": "object",
+      "material": "Railing_Rough_Wood_Ashen_B1",
+      "gridSize": "2x1",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "prop-arch-stone-slate": {
+      "type": "object",
+      "material": "Arch_Cross_Stone_Slate_A1",
+      "gridSize": "3x3",
+      "pieceType": "object",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
     }
   },
   "atlases": {
@@ -1792,6 +1846,138 @@
     "Tree_Green_A1_6x6_6x6_A-a8ca7dab.webp": {
       "checksum": "sha256:a8ca7dabed4925b4b629f3867b793da53ea06adb8be3422260f2cf2df9562b9b",
       "size": 502320
+    },
+    "Door_Stone_Slate_A_1x1_A-1157ed8b.webp": {
+      "checksum": "sha256:1157ed8b1322cb69361a86311e95443a2abb733a379079b9da95816282b684bf",
+      "size": 2548
+    },
+    "Door_Frame_Stone_Slate_A_2x1_A-03475465.webp": {
+      "checksum": "sha256:03475465b639fe9f44f6056bf4b35de3d37a5277ff278a6c2ebfa5677e4a7064",
+      "size": 2376
+    },
+    "Door_Large_Wood_Ashen_A_2x1_A-6d442b14.webp": {
+      "checksum": "sha256:6d442b146bc73bf4bc68c5b0c73e39ad900136c6f9e3ef44b94230b47988c1bd",
+      "size": 5038
+    },
+    "Door_Frame_Double_Stone_Slate_A_3x1_A-f98a2450.webp": {
+      "checksum": "sha256:f98a2450fc0c0bb228077058402bb60cc72130d8c3cb9185bce1fc81e14891c7",
+      "size": 2498
+    },
+    "Portcullis_Metal_Gray_A_2x1_A-29a20333.webp": {
+      "checksum": "sha256:29a2033377b11c962c8b67b3e3f26e9d31234c5eea6a822e81b5e1a384a24ae7",
+      "size": 7630
+    },
+    "Arch_Small_Stone_Slate_A1_1x2_A-341e161f.webp": {
+      "checksum": "sha256:341e161f44aee539a991d47e587127186865c04ef5ee0c00c8d340645d334f61",
+      "size": 2748
+    },
+    "Wall_Stone_Slate_A_Connector_A_1x1_A-f7db7578.webp": {
+      "checksum": "sha256:f7db75786e2c945d1f7bf3580eb800b15811348142f55b1214dd6e220bab2ed7",
+      "size": 1666
+    },
+    "Wall_Stone_Slate_A_Connector_B_1x1_A-5c6d1a01.webp": {
+      "checksum": "sha256:5c6d1a0107a8887755939407cd60fd5f9d51fc93155efb505f113c380944a207",
+      "size": 1344
+    },
+    "Wall_Stone_Slate_A_Connector_DIAG_A_1x1_A-653b719d.webp": {
+      "checksum": "sha256:653b719d5869ecfb70e788fce5ec9aadbc31c16907b13bf3c2d9be7f66710b24",
+      "size": 3310
+    },
+    "Wall_Stone_Slate_A_Corner_A_1x1_A-6e4d5b05.webp": {
+      "checksum": "sha256:6e4d5b05b67709b5578e0ba4a86f5728c67a7dc20875a2f6f39b966b01b1eb43",
+      "size": 2238
+    },
+    "Wall_Stone_Slate_A_Corner_B_1x1_A-0936cded.webp": {
+      "checksum": "sha256:0936cded366c0db62aeee78c5c4c4717cdff1cdfe182e7e3b01455a0dd40bf6c",
+      "size": 2328
+    },
+    "Wall_Stone_Slate_A_Corner_C_1x1_A-bedc546b.webp": {
+      "checksum": "sha256:bedc546b9d92cdfc03ffa3bd5963942a1563c697100f640256444e6c3259efbe",
+      "size": 2798
+    },
+    "Wall_Stone_Slate_A_Corner_D_1x1_A-ae9b0548.webp": {
+      "checksum": "sha256:ae9b0548f8d5b4c13ffb719b3a0dab91e1c277f39ca57753865d373ece86a013",
+      "size": 2874
+    },
+    "Wall_Stone_Slate_A_Corner_E_1x1_A-53d3b670.webp": {
+      "checksum": "sha256:53d3b670aacea629b12b838faa0b6ae1dce838246b682041198832e4d720e54d",
+      "size": 2864
+    },
+    "Wall_Stone_Slate_A_Corner_F_2x2_A-d05fd5ac.webp": {
+      "checksum": "sha256:d05fd5acdf90e175562912a186d38b1096e393742e61524f4567593cf4bd13a0",
+      "size": 5424
+    },
+    "Wall_Stone_Slate_A_Corner_G_2x2_A-0b06205d.webp": {
+      "checksum": "sha256:0b06205da7ccb10e1b733c10d4ce930eb234e34a0e45833e8f9fd6c6767c44ae",
+      "size": 7990
+    },
+    "Wall_Stone_Slate_A_Corner_H_3x3_A-ac056c22.webp": {
+      "checksum": "sha256:ac056c22b4c50a699f6a5220423ea1e45570459715fc78a838f30bd10a3eb9f6",
+      "size": 10610
+    },
+    "Wall_Stone_Slate_A_Ending_A_1x1_A-a5e908eb.webp": {
+      "checksum": "sha256:a5e908eb747886287aa6c8823b7fbc1cb820373d6dff0fcf7660db283dba7b7e",
+      "size": 898
+    },
+    "Wall_Stone_Slate_A_Joint_A_1x1_A-e2f79984.webp": {
+      "checksum": "sha256:e2f79984fb36f213ecdf47313e07d8c081d8753f9c5a93f5f536cbcfa19fbeb7",
+      "size": 2980
+    },
+    "Wall_Stone_Slate_A_Joint_B_1x1_A-115c72a8.webp": {
+      "checksum": "sha256:115c72a8c3780e5c7d72c342a6918d29cc9717d99ef0cc933d43483aa1006f06",
+      "size": 2376
+    },
+    "Wall_Stone_Slate_A_Joint_C_1x1_A-bac21129.webp": {
+      "checksum": "sha256:bac211291694e182b7b6bd942ca07a137ee42bb976250685b60caad8cf2ca1ad",
+      "size": 4640
+    },
+    "Wall_Stone_Slate_A_Joint_D_1x1_A-9d99bba5.webp": {
+      "checksum": "sha256:9d99bba5c1445ffbacfde21d9c991f11f8078bfb804ac2faee34e8475bd92663",
+      "size": 3688
+    },
+    "Wall_Stone_Slate_A_Straight_A_3x1_A-5eb6f14e.webp": {
+      "checksum": "sha256:5eb6f14eb9546e8b742287031ae6db11bab8eae1290ea8fd7a9d496052c9c0e3",
+      "size": 7418
+    },
+    "Wall_Stone_Slate_A_Straight_B_2x1_A-6cddabe0.webp": {
+      "checksum": "sha256:6cddabe0e159194e4941fe77a03ca35f5f79c58bfeb44e0fe4142400166b4584",
+      "size": 5188
+    },
+    "Wall_Stone_Slate_A_Straight_C_1x1_A-309a0ad1.webp": {
+      "checksum": "sha256:309a0ad18d53bf136e0ad53525f4f45ae83581bd78f362d7acfb810ffa4b1e6d",
+      "size": 2592
+    },
+    "Wall_Stone_Slate_A_Straight_D_1x1_A-2fe88b68.webp": {
+      "checksum": "sha256:2fe88b684338b9d57e1df8b2db585d39fd72400e6d6ca66ca1b90e02f888ebeb",
+      "size": 1416
+    },
+    "Wall_Stone_Slate_A_Straight_Path_8x1_A-5e656b9b.webp": {
+      "checksum": "sha256:5e656b9bf4a8a44e05b0850e4808ad82c62dfb876b3fcd817bc9f3cc529faace",
+      "size": 18642
+    },
+    "Fireplace_Corner_Chimney_Stone_Slate_A_Wood_Ashen_2x2_A-1affb0ad.webp": {
+      "checksum": "sha256:1affb0ad7af38f3b98bc7cc06503e5df067a6145623d7aba36cd730e882a16b5",
+      "size": 19818
+    },
+    "Pillar_Stone_Slate_A1_1x1_A-ac61965c.webp": {
+      "checksum": "sha256:ac61965cce0c90b5c4b2baa8ec9587e41db599b7ff8684d933656e5a985152a6",
+      "size": 10448
+    },
+    "Stairs_Stone_Slate_A_1x3_A-fb20627d.webp": {
+      "checksum": "sha256:fb20627da8158de21403912442d24164271350f2dd18ca139c1749a4ee80f707",
+      "size": 19994
+    },
+    "Rubble_Pile_Stone_Earthy_A11_2x2_A-5809adcd.webp": {
+      "checksum": "sha256:5809adcdbefc9beb35884f59b3a29de50e246d380e8ed07b98ebe26639ecc7b3",
+      "size": 19524
+    },
+    "Railing_Rough_Wood_Ashen_B1_2x1_A-836ff29e.webp": {
+      "checksum": "sha256:836ff29e14299cf9ffc68a5eca3cbab82d5f6fede02417869b372cc6e2017387",
+      "size": 4870
+    },
+    "Arch_Cross_Stone_Slate_A1_3x3_A-c283fc95.webp": {
+      "checksum": "sha256:c283fc95d3fde6d9f952b7f75d6a4e08a846fe36efb8ba61ec1efd92551ffa3f",
+      "size": 28352
     }
   },
   "checksums": {
@@ -1819,7 +2005,40 @@
     "Puddle_Water_Muddy_A5_2x2_2x2_A-b99ad399.webp": "sha256:b99ad3993ef6e19bbef71774e0b05228dec35805dd8a1d90c58cf8aa8f54cb45",
     "Rock_Stone_Mossy_C11_2x1_2x1_A-446dd2e7.webp": "sha256:446dd2e74158f2ba41cd69c129d5a9f0b8864baf2951348e0816e1760858fbee",
     "Stump_Ashen_A1_4x4_4x4_A-8d4c4202.webp": "sha256:8d4c42020590da33fed0656362a39e5494f7eabe59629f99d5cda3b5db19ac08",
-    "Tree_Green_A1_6x6_6x6_A-a8ca7dab.webp": "sha256:a8ca7dabed4925b4b629f3867b793da53ea06adb8be3422260f2cf2df9562b9b"
+    "Tree_Green_A1_6x6_6x6_A-a8ca7dab.webp": "sha256:a8ca7dabed4925b4b629f3867b793da53ea06adb8be3422260f2cf2df9562b9b",
+    "Door_Stone_Slate_A_1x1_A-1157ed8b.webp": "sha256:1157ed8b1322cb69361a86311e95443a2abb733a379079b9da95816282b684bf",
+    "Door_Frame_Stone_Slate_A_2x1_A-03475465.webp": "sha256:03475465b639fe9f44f6056bf4b35de3d37a5277ff278a6c2ebfa5677e4a7064",
+    "Door_Large_Wood_Ashen_A_2x1_A-6d442b14.webp": "sha256:6d442b146bc73bf4bc68c5b0c73e39ad900136c6f9e3ef44b94230b47988c1bd",
+    "Door_Frame_Double_Stone_Slate_A_3x1_A-f98a2450.webp": "sha256:f98a2450fc0c0bb228077058402bb60cc72130d8c3cb9185bce1fc81e14891c7",
+    "Portcullis_Metal_Gray_A_2x1_A-29a20333.webp": "sha256:29a2033377b11c962c8b67b3e3f26e9d31234c5eea6a822e81b5e1a384a24ae7",
+    "Arch_Small_Stone_Slate_A1_1x2_A-341e161f.webp": "sha256:341e161f44aee539a991d47e587127186865c04ef5ee0c00c8d340645d334f61",
+    "Wall_Stone_Slate_A_Connector_A_1x1_A-f7db7578.webp": "sha256:f7db75786e2c945d1f7bf3580eb800b15811348142f55b1214dd6e220bab2ed7",
+    "Wall_Stone_Slate_A_Connector_B_1x1_A-5c6d1a01.webp": "sha256:5c6d1a0107a8887755939407cd60fd5f9d51fc93155efb505f113c380944a207",
+    "Wall_Stone_Slate_A_Connector_DIAG_A_1x1_A-653b719d.webp": "sha256:653b719d5869ecfb70e788fce5ec9aadbc31c16907b13bf3c2d9be7f66710b24",
+    "Wall_Stone_Slate_A_Corner_A_1x1_A-6e4d5b05.webp": "sha256:6e4d5b05b67709b5578e0ba4a86f5728c67a7dc20875a2f6f39b966b01b1eb43",
+    "Wall_Stone_Slate_A_Corner_B_1x1_A-0936cded.webp": "sha256:0936cded366c0db62aeee78c5c4c4717cdff1cdfe182e7e3b01455a0dd40bf6c",
+    "Wall_Stone_Slate_A_Corner_C_1x1_A-bedc546b.webp": "sha256:bedc546b9d92cdfc03ffa3bd5963942a1563c697100f640256444e6c3259efbe",
+    "Wall_Stone_Slate_A_Corner_D_1x1_A-ae9b0548.webp": "sha256:ae9b0548f8d5b4c13ffb719b3a0dab91e1c277f39ca57753865d373ece86a013",
+    "Wall_Stone_Slate_A_Corner_E_1x1_A-53d3b670.webp": "sha256:53d3b670aacea629b12b838faa0b6ae1dce838246b682041198832e4d720e54d",
+    "Wall_Stone_Slate_A_Corner_F_2x2_A-d05fd5ac.webp": "sha256:d05fd5acdf90e175562912a186d38b1096e393742e61524f4567593cf4bd13a0",
+    "Wall_Stone_Slate_A_Corner_G_2x2_A-0b06205d.webp": "sha256:0b06205da7ccb10e1b733c10d4ce930eb234e34a0e45833e8f9fd6c6767c44ae",
+    "Wall_Stone_Slate_A_Corner_H_3x3_A-ac056c22.webp": "sha256:ac056c22b4c50a699f6a5220423ea1e45570459715fc78a838f30bd10a3eb9f6",
+    "Wall_Stone_Slate_A_Ending_A_1x1_A-a5e908eb.webp": "sha256:a5e908eb747886287aa6c8823b7fbc1cb820373d6dff0fcf7660db283dba7b7e",
+    "Wall_Stone_Slate_A_Joint_A_1x1_A-e2f79984.webp": "sha256:e2f79984fb36f213ecdf47313e07d8c081d8753f9c5a93f5f536cbcfa19fbeb7",
+    "Wall_Stone_Slate_A_Joint_B_1x1_A-115c72a8.webp": "sha256:115c72a8c3780e5c7d72c342a6918d29cc9717d99ef0cc933d43483aa1006f06",
+    "Wall_Stone_Slate_A_Joint_C_1x1_A-bac21129.webp": "sha256:bac211291694e182b7b6bd942ca07a137ee42bb976250685b60caad8cf2ca1ad",
+    "Wall_Stone_Slate_A_Joint_D_1x1_A-9d99bba5.webp": "sha256:9d99bba5c1445ffbacfde21d9c991f11f8078bfb804ac2faee34e8475bd92663",
+    "Wall_Stone_Slate_A_Straight_A_3x1_A-5eb6f14e.webp": "sha256:5eb6f14eb9546e8b742287031ae6db11bab8eae1290ea8fd7a9d496052c9c0e3",
+    "Wall_Stone_Slate_A_Straight_B_2x1_A-6cddabe0.webp": "sha256:6cddabe0e159194e4941fe77a03ca35f5f79c58bfeb44e0fe4142400166b4584",
+    "Wall_Stone_Slate_A_Straight_C_1x1_A-309a0ad1.webp": "sha256:309a0ad18d53bf136e0ad53525f4f45ae83581bd78f362d7acfb810ffa4b1e6d",
+    "Wall_Stone_Slate_A_Straight_D_1x1_A-2fe88b68.webp": "sha256:2fe88b684338b9d57e1df8b2db585d39fd72400e6d6ca66ca1b90e02f888ebeb",
+    "Wall_Stone_Slate_A_Straight_Path_8x1_A-5e656b9b.webp": "sha256:5e656b9bf4a8a44e05b0850e4808ad82c62dfb876b3fcd817bc9f3cc529faace",
+    "Fireplace_Corner_Chimney_Stone_Slate_A_Wood_Ashen_2x2_A-1affb0ad.webp": "sha256:1affb0ad7af38f3b98bc7cc06503e5df067a6145623d7aba36cd730e882a16b5",
+    "Pillar_Stone_Slate_A1_1x1_A-ac61965c.webp": "sha256:ac61965cce0c90b5c4b2baa8ec9587e41db599b7ff8684d933656e5a985152a6",
+    "Stairs_Stone_Slate_A_1x3_A-fb20627d.webp": "sha256:fb20627da8158de21403912442d24164271350f2dd18ca139c1749a4ee80f707",
+    "Rubble_Pile_Stone_Earthy_A11_2x2_A-5809adcd.webp": "sha256:5809adcdbefc9beb35884f59b3a29de50e246d380e8ed07b98ebe26639ecc7b3",
+    "Railing_Rough_Wood_Ashen_B1_2x1_A-836ff29e.webp": "sha256:836ff29e14299cf9ffc68a5eca3cbab82d5f6fede02417869b372cc6e2017387",
+    "Arch_Cross_Stone_Slate_A1_3x3_A-c283fc95.webp": "sha256:c283fc95d3fde6d9f952b7f75d6a4e08a846fe36efb8ba61ec1efd92551ffa3f"
   },
-  "bundleSize": 7838716
+  "bundleSize": 8057844
 }
