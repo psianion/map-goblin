@@ -123,8 +123,14 @@ export class AssetPackManager {
       const index = await this.fetchIndex()
       const entry = index.packs[packId]
       if (entry?.manifest) return entry.manifest
-    } catch {
-      // Index unavailable — fall through to default
+    } catch (err) {
+      // Index unavailable — fall through to the default name. Worth saying so:
+      // a pack whose manifest is content-hashed has no `pack.json` to fall back
+      // onto, so the install that follows will 404 for a reason decided here.
+      console.warn(
+        `[AssetPackManager] Pack index unavailable for "${packId}" — trying pack.json.`,
+        err,
+      )
     }
     return 'pack.json'
   }
@@ -187,7 +193,15 @@ export class AssetPackManager {
       })
 
       if (res.status === 304) return []
-      if (!res.ok) return []
+      if (!res.ok) {
+        // Swallowing this cost a gate walk: a bad status on the pack index was
+        // indistinguishable from "you are up to date", so a broken index could
+        // sit in a deployed build with nothing anywhere saying so.
+        console.warn(
+          `[AssetPackManager] Pack index ${this.config.cdnBaseUrl}/index.json returned ${res.status} — skipping the update check.`,
+        )
+        return []
+      }
 
       const newEtag = res.headers.get('etag')
       if (newEtag) localStorage.setItem('index-etag', newEtag)
@@ -209,8 +223,12 @@ export class AssetPackManager {
       }
 
       return updates
-    } catch {
-      // CDN unreachable — return empty, don't block app
+    } catch (err) {
+      // CDN unreachable — still never blocks the app, but no longer in silence.
+      console.warn(
+        `[AssetPackManager] Pack index ${this.config.cdnBaseUrl}/index.json unreachable — skipping the update check.`,
+        err,
+      )
       return []
     }
   }
