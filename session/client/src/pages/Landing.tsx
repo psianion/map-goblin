@@ -8,7 +8,7 @@ export default function Landing() {
       className="flex h-full flex-col items-center justify-center gap-8 bg-neutral-950 p-6 text-neutral-100"
     >
       <header className="text-center">
-        <h1 className="text-3xl font-semibold tracking-tight">Map Goblin</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Good Goblin</h1>
         <p className="mt-1 text-sm text-neutral-400">One map, one table, everyone looking at it.</p>
       </header>
 
