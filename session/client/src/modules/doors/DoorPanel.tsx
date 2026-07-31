@@ -8,7 +8,9 @@
 
 import { useEffect, useMemo } from 'react';
 import { useStore } from '@dnd/core/src/store/store';
+import type { DoorChild } from '@dnd/core/src/shared/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
+import { frameWorldPoint } from '../../renderer/camera';
 import { ALL_ROLES, registerPanel } from '../../session/panels';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { showToast } from '../../session/toasts';
@@ -46,6 +48,15 @@ export function DoorPanel() {
   );
   const selected = doors.find((d) => d.door.id === selectedId);
 
+  // Selecting a door also brings it into view — the panel is the keyboard route to a door
+  // (D8) and hunting for the mark by hand was the standing complaint from every walk. The
+  // row is a real <button>, so Enter and Space arrive here as a click and behave the same.
+  // Per-client by construction: `frameWorldPoint` moves this stage, never the table's.
+  const pick = (door: DoorChild): void => {
+    select(door.id);
+    frameWorldPoint(door.position[0], door.position[1]);
+  };
+
   if (doors.length === 0) {
     return <p className="text-sm text-text-secondary">No doors on this scene.</p>;
   }
@@ -65,7 +76,7 @@ export function DoorPanel() {
               type="button"
               aria-current={door.id === selectedId}
               aria-label={`Select ${doorLabel(door, i)} · ${doorStatusLabel(door, live)}`}
-              onClick={() => select(door.id)}
+              onClick={() => pick(door)}
               className={`flex w-full items-baseline gap-2 rounded px-2 py-0.5 text-left text-xs transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 motion-reduce:transition-none ${
                 door.id === selectedId ? 'bg-surface-3' : ''
               }`}
@@ -84,6 +95,14 @@ export function DoorPanel() {
           data-testid="door-actions"
           className="flex flex-wrap gap-1 border-t border-border-default pt-2"
         >
+          {/* Reveal and Open are two moves, and the panel says so rather than leaving the
+              DM to wonder why the party still cannot walk through what they just revealed.
+              No combined button: the DM may well want the reveal without the swing. */}
+          {selected.door.isSecret && selected.live.revealed && !selected.live.open && (
+            <p data-testid="door-status" className="basis-full pb-1 text-xs text-text-secondary">
+              Revealed — still closed
+            </p>
+          )}
           <button
             type="button"
             data-testid="door-toggle"

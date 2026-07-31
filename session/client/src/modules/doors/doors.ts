@@ -81,7 +81,7 @@ export const doorLabel = (door: DoorChild, index: number): string =>
  * secret door the DM has not revealed must learn nothing from the wording either.
  */
 export function doorRefusal(message: string): string | null {
-  if (message.startsWith(DOOR_LOCKED)) return "That door is locked — it won't budge.";
+  if (message.startsWith(DOOR_LOCKED)) return 'The door is locked.';
   if (message.startsWith(UNKNOWN_DOOR)) return 'That door is no longer there.';
   return null;
 }

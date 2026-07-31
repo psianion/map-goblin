@@ -14,6 +14,7 @@ import type { DoorsState } from '@dnd/mechanics/doors';
 import { addWorldOverlay, mountWhenEngineReady, worldPointOf } from '../../renderer/overlayLayer';
 import { useSessionStore } from '../../session/store';
 import { isToolActive } from '../../session/tools';
+import { REVEAL_MS, easeOutQuart, revealDurationMs } from '../fog/FogRenderer';
 import { doorAt, doorLook, liveDoors, type LiveDoor } from './doors';
 import { useDoorSelection } from './selection';
 
@@ -60,17 +61,37 @@ export function subscribeLiveDoors(onChange: () => void): () => void {
   };
 }
 
+/**
+ * The door ids that just arrived — the reveal beat's trigger — and the set to remember.
+ *
+ * `known === null` is a first paint: a fresh mount, or a scene change. It fades nothing,
+ * because the drama belongs to the secret the DM just revealed, not to arriving at a table
+ * that already has doors in it. An empty list is never a diff either: a fog delta reloads
+ * the whole map document (GameRenderer), so a frame caught with no doors in hand must not
+ * make every door "new" on the frame after.
+ */
+export function trackDoorIds(
+  known: ReadonlySet<string> | null,
+  ids: readonly string[],
+): { arrived: string[]; known: ReadonlySet<string> | null } {
+  if (ids.length === 0) return { arrived: [], known };
+  return {
+    arrived: known ? ids.filter((id) => !known.has(id)) : [],
+    known: new Set(ids),
+  };
+}
+
 /** A padlock: a bar with a shackle over it, small enough to sit on the mark. */
-function drawLockBadge(g: Graphics, x: number, y: number, color: number): void {
+function drawLockBadge(g: Graphics, x: number, y: number, color: number, alpha: number): void {
   const s = MARK_RADIUS * 0.62;
-  g.rect(x - s * 0.6, y - s * 0.1, s * 1.2, s * 0.9).fill({ color, alpha: 1 });
+  g.rect(x - s * 0.6, y - s * 0.1, s * 1.2, s * 0.9).fill({ color, alpha });
   g.moveTo(x - s * 0.32, y - s * 0.1);
   g.arc(x, y - s * 0.1, s * 0.32, Math.PI, 0);
-  g.stroke({ color, width: s * 0.24, alpha: 1 });
+  g.stroke({ color, width: s * 0.24, alpha });
 }
 
 /** A four-point star — "there is more here than the map says". */
-function drawSecretBadge(g: Graphics, x: number, y: number, color: number): void {
+function drawSecretBadge(g: Graphics, x: number, y: number, color: number, alpha: number): void {
   const s = MARK_RADIUS * 0.85;
   for (const [dx, dy] of [
     [1, 0],
@@ -79,7 +100,7 @@ function drawSecretBadge(g: Graphics, x: number, y: number, color: number): void
     g.moveTo(x - dx * s, y - dy * s);
     g.lineTo(x + dx * s, y + dy * s);
   }
-  g.stroke({ color, width: MARK_RADIUS * 0.22, alpha: 1, cap: 'round' });
+  g.stroke({ color, width: MARK_RADIUS * 0.22, alpha, cap: 'round' });
 }
 
 function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => void {
@@ -89,36 +110,78 @@ function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   addWorldOverlay(sceneGraph, layer, 'doorOverlay');
 
   let doors: LiveDoor[] = [];
+  // The reveal beat (PRODUCT — the one dramatic play beat): a door mark that was not on the
+  // player's map last frame fades in over the same 300ms the fog reveal takes. The DM is
+  // exempt: their secret door was always there, at full opacity, badge and all.
+  let known: ReadonlySet<string> | null = null;
+  let fadeScene: string | null = null;
+  const fading = new Map<string, number>();
+
+  const fadeAlpha = (id: string, now: number): number => {
+    const startedAt = fading.get(id);
+    if (startedAt === undefined) return 1;
+    const t = (now - startedAt) / REVEAL_MS;
+    if (t >= 1) {
+      fading.delete(id);
+      return 1;
+    }
+    return easeOutQuart(t);
+  };
 
   const draw = () => {
     doors = liveSceneDoors();
     const selectedId = useDoorSelection.getState().selectedId;
+    const now = performance.now();
+
+    const sceneId = useSessionStore.getState().session?.activeSceneId ?? null;
+    // A different scene is a different set of doors; nothing carries over.
+    if (sceneId !== fadeScene) {
+      fadeScene = sceneId;
+      known = null;
+      fading.clear();
+    }
+    const arrivals = trackDoorIds(known, doors.map(({ door }) => door.id));
+    known = arrivals.known;
+    // Reduced motion cuts instead of fading, so it simply never starts one.
+    if (useSessionStore.getState().you?.role !== 'dm' && revealDurationMs() > 0) {
+      for (const id of arrivals.arrived) fading.set(id, now);
+    }
+
     paint.clear();
 
     for (const { door, live } of doors) {
       const look = doorLook(door, live);
       const [x, y] = door.position;
-
       // Full opacity, always. A secret door on the DM's map is not a hint, it is a door.
+      // The only thing that ever moves this number is the arrival fade above.
+      const alpha = look.alpha * fadeAlpha(door.id, now);
+
       if (look.filled) {
-        paint.circle(x, y, MARK_RADIUS).fill({ color: look.color, alpha: look.alpha });
+        paint.circle(x, y, MARK_RADIUS).fill({ color: look.color, alpha });
       } else {
         paint
           .circle(x, y, MARK_RADIUS)
-          .stroke({ color: look.color, width: MARK_RADIUS * 0.34, alpha: look.alpha });
+          .stroke({ color: look.color, width: MARK_RADIUS * 0.34, alpha });
       }
 
       // Badges are drawn in the mark's counter-colour so they read on either fill.
       const badgeColor = look.filled ? 0x141414 : look.color;
-      if (look.badge === 'locked') drawLockBadge(paint, x, y, badgeColor);
-      if (look.badge === 'secret') drawSecretBadge(paint, x, y, badgeColor);
+      if (look.badge === 'locked') drawLockBadge(paint, x, y, badgeColor, alpha);
+      if (look.badge === 'secret') drawSecretBadge(paint, x, y, badgeColor, alpha);
 
       if (door.id === selectedId) {
         paint
           .circle(x, y, MARK_RADIUS * 1.7)
-          .stroke({ color: 0xffffff, width: MARK_RADIUS * 0.16, alpha: 0.85 });
+          .stroke({ color: 0xffffff, width: MARK_RADIUS * 0.16, alpha: 0.85 * alpha });
       }
     }
+  };
+
+  // ponytail: the whole overlay is repainted per frame while a door is fading, rather than
+  // giving each fading mark its own Graphics. A scene has tens of doors and a fade lasts
+  // 300ms; split them out if a map ever makes this show up in a frame budget.
+  const tick = () => {
+    if (fading.size > 0) draw();
   };
 
   // Canvas capture, like token input — and registered after it, because TokenPanel mounts
@@ -138,6 +201,8 @@ function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   };
 
   canvas.addEventListener('pointerdown', onDown, true);
+  const ticker = engine.ticker();
+  ticker.add(tick);
   // Same feed the lighting lane will read, so there is one answer to "what are the doors
   // doing" and the overlay cannot drift from the walls. It draws once on subscribe.
   const unsubDoors = subscribeLiveDoors(draw);
@@ -151,6 +216,7 @@ function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
 
   return () => {
     canvas.removeEventListener('pointerdown', onDown, true);
+    ticker.remove(tick);
     unsubDoors();
     unsubSelection();
     // The engine may already be gone (GameRenderer unmounting first).
