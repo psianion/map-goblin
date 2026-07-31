@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { gotoApp, drawRect, waitFrame } from './helpers';
+import { gotoApp, waitForEngine, drawRect, waitFrame } from './helpers';
 
 test.describe('14 - Hatching Visual', () => {
   test('dark preset renders hatching lines', async ({ page }) => {
     await gotoApp(page);
+    // The boot overlay eats pointer events until the engine is up.
+    await waitForEngine(page);
     await page.keyboard.press('r');
     const canvas = page.locator('canvas');
     const box = await canvas.boundingBox();
@@ -14,15 +16,11 @@ test.describe('14 - Hatching Visual', () => {
     await page.waitForTimeout(800);
     await waitFrame(page, 5);
 
-    await page.evaluate(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = (window as any).__store;
-      if (store) {
-        const state = store.getState();
-        const layerId = state.ui.activeLayerId;
-        state.applyPreset(layerId, 'dark');
-      }
-    });
+    const chip = page.getByRole('button', { name: 'Dark Stone', exact: true });
+    if ((await chip.count()) === 0 || !(await chip.first().isVisible())) {
+      await page.getByRole('button', { name: /style presets/i }).first().click();
+    }
+    await chip.first().click();
     await page.waitForTimeout(500);
     await waitFrame(page, 8);
 
