@@ -11,7 +11,7 @@ import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { useStore } from '@dnd/core/src/store/store';
 import type { DoorsState } from '@dnd/mechanics/doors';
-import { addWorldOverlay, mountWhenEngineReady, worldPointOf } from '../../renderer/overlayLayer';
+import { addScreenOverlay, mountWhenEngineReady, worldPointOf } from '../../renderer/overlayLayer';
 import { useSessionStore } from '../../session/store';
 import { isToolActive } from '../../session/tools';
 import { REVEAL_MS, easeOutQuart, revealDurationMs } from '../fog/FogRenderer';
@@ -107,7 +107,15 @@ function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   const layer = new Container();
   const paint = new Graphics();
   layer.addChild(paint);
-  addWorldOverlay(sceneGraph, layer, 'doorOverlay');
+  // Screen space, not the world, and that is the whole of the fix for "the player's canvas
+  // never moved when a door opened". The player's fog mask is a screen-space layer (D12 —
+  // the lighting is composited beneath it), and no world-space child can sort above one,
+  // whatever `OVERLAY_STACK` says. A door sits on a room boundary, so the scrim's own edge
+  // covered ~95% of its mark. What the player holds has already been redacted by the referee
+  // (PRODUCT principle 2), so drawing above the mask leaks nothing — see `OVERLAY_STACK`.
+  // Nothing here is clickable; the doors read the DOM canvas directly, below.
+  layer.eventMode = 'none';
+  addScreenOverlay(sceneGraph, layer, 'doorOverlay');
 
   let doors: LiveDoor[] = [];
   // The reveal beat (PRODUCT — the one dramatic play beat): a door mark that was not on the
@@ -177,10 +185,16 @@ function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     }
   };
 
+  // Per frame: mirror the camera, because the layer lives in screen space now, and advance
+  // any fade.
+  //
   // ponytail: the whole overlay is repainted per frame while a door is fading, rather than
   // giving each fading mark its own Graphics. A scene has tens of doors and a fade lasts
   // 300ms; split them out if a map ever makes this show up in a frame budget.
+  const world = sceneGraph.worldContainer;
   const tick = () => {
+    layer.position.copyFrom(world.position);
+    layer.scale.copyFrom(world.scale);
     if (fading.size > 0) draw();
   };
 

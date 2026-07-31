@@ -16,54 +16,73 @@ import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
  * Layers place themselves by label, so mount order does not decide the stack — the panels
  * that mount them are ordered by what a DM wants to read, not by what must draw first.
  *
- * `playerFog` is last because it is the one layer that must hide the others: a room a
- * player cannot see hides its tokens and its doors too. It is also the one layer that does
- * not mount into the world container — the engine composites lighting as a screen-space
- * multiply *after* the world, so a wash drawn in the world is erased by a dark ambient.
- * D12 wants the lighting composited *beneath* the fog, so it goes through
- * `addScreenOverlay` and mirrors the camera itself. It keeps its place in this list because
- * this list is where "what draws over what" is decided.
+ * `tokenLayer` is under `playerFog` because a room a player cannot see hides its tokens:
+ * that is the mask doing its job, and moving a token behind the dark must not leak where it
+ * went.
+ *
+ * `doorOverlay` is over it, and that is not an inconsistency. Every door child a player
+ * holds has already been redacted by the referee (PRODUCT principle 2): only doors bound to
+ * an explored room are ever sent, and an unrevealed secret never is. So a mark drawn above
+ * the mask leaks nothing that was not already earned — it is the remembered door on an
+ * explored-dim boundary, which is exactly what the player should be able to read. Under the
+ * mask it was not readable at all: a door on a room boundary is ~95% covered by the scrim's
+ * own edge, which the doors-table redraw row measured as a player canvas that did not move.
+ *
+ * Neither `playerFog` nor `doorOverlay` mounts into the world container. The engine
+ * composites lighting as a screen-space multiply *after* the world, so a wash drawn in the
+ * world is erased by a dark ambient; D12 wants the lighting composited *beneath* the fog.
+ * Both therefore go through `addScreenOverlay` and mirror the camera themselves — a
+ * world-space layer can never sort above a screen-space one, whatever this list says, so a
+ * layer that must beat the fog has to be in the same container as the fog. They keep their
+ * places here because this list is where "what draws over what" is decided.
  */
-export const OVERLAY_STACK = ['fogOverlay', 'doorOverlay', 'tokenLayer', 'playerFog'] as const;
+export const OVERLAY_STACK = ['fogOverlay', 'tokenLayer', 'playerFog', 'doorOverlay'] as const;
 
 export type OverlayLabel = (typeof OVERLAY_STACK)[number];
 
 /** LightingRenderer's own label for its full-screen multiply sprite. */
 const LIGHTING_COMPOSITE = 'lightingComposite';
 
-/** Add an overlay to the world container at its place in `OVERLAY_STACK`. */
-export function addWorldOverlay(sceneGraph: SceneGraph, layer: Container, label: OverlayLabel): void {
+/** Place `layer` among `parent`'s children by its `OVERLAY_STACK` rank, at `base` or above. */
+function insertByRank(parent: Container, base: number, layer: Container, label: OverlayLabel): void {
   layer.label = label;
-  const world = sceneGraph.worldContainer;
-  const base = world.getChildIndex(sceneGraph.layerContainer) + 1;
   const rank = OVERLAY_STACK.indexOf(label);
 
-  // Land directly above the last overlay that belongs below this one; failing that, on the
-  // map itself. `addChildAt` pushes whatever sat there upwards, so overlays that belong on
-  // top stay on top however late this one arrives.
+  // Land directly above the last overlay that belongs below this one; failing that, on
+  // whatever `base` sits on. `addChildAt` pushes whatever sat there upwards, so overlays
+  // that belong on top stay on top however late this one arrives.
   let index = base;
-  for (let i = base; i < world.children.length; i++) {
-    const other = OVERLAY_STACK.indexOf(world.children[i].label as OverlayLabel);
+  for (let i = base; i < parent.children.length; i++) {
+    const other = OVERLAY_STACK.indexOf(parent.children[i].label as OverlayLabel);
     if (other >= 0 && other < rank) index = i + 1;
   }
-  world.addChildAt(layer, index);
+  parent.addChildAt(layer, index);
+}
+
+/** Add an overlay to the world container at its place in `OVERLAY_STACK`. */
+export function addWorldOverlay(sceneGraph: SceneGraph, layer: Container, label: OverlayLabel): void {
+  const world = sceneGraph.worldContainer;
+  insertByRank(world, world.getChildIndex(sceneGraph.layerContainer) + 1, layer, label);
 }
 
 /**
- * Add an overlay to the screen-space container, directly above the lighting composite.
+ * Add an overlay to the screen-space container, above the lighting composite.
  *
- * Only the player fog needs this: everything else is drawn *under* the lighting on purpose,
- * because it is content the lighting is supposed to fall on. Fog is the opposite — it is
- * what the lighting is composited beneath (D12) — so it sits above the multiply and below
- * the map-switch transition, which stays the topmost thing on the canvas.
+ * Everything drawn *under* the lighting is there on purpose, because it is content the
+ * lighting is supposed to fall on. The layers here are the opposite: the fog is what the
+ * lighting is composited beneath (D12), and the door marks have to beat the fog. Both sit
+ * above the multiply and below the map-switch transition, which stays the topmost thing on
+ * the canvas — hence the same rank-ordered insert the world container uses, rather than
+ * "last one mounted wins", which left the door/fog order up to panel mount order.
  *
  * The caller owns the camera: this container is not camera-transformed.
  */
 export function addScreenOverlay(sceneGraph: SceneGraph, layer: Container, label: OverlayLabel): void {
-  layer.label = label;
   const overlay = sceneGraph.overlayContainer;
+  // -1 when there is no lighting engine, which makes the base 0 — still below the
+  // transition, and still rank-ordered against the other overlays.
   const lighting = overlay.children.findIndex((child) => child.label === LIGHTING_COMPOSITE);
-  overlay.addChildAt(layer, lighting >= 0 ? lighting + 1 : overlay.children.length);
+  insertByRank(overlay, lighting + 1, layer, label);
 }
 
 /**

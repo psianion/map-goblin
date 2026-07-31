@@ -272,22 +272,27 @@ test.describe.serial('@doors', () => {
     await dm.waitForTimeout(1500)
     await player.waitForTimeout(1500)
 
-    // Each seat's own noise floor first.
+    // The DM's noise floor. The player's is taken per door below, because their baseline
+    // has to be shot from the framing the measurement is taken in.
     const dmShut = await shoot(dm)
     const dmShutAgain = await shoot(dm)
     const dmNoise = await changed(dm, dmShut, dmShutAgain)
-    const playerShut = await shoot(player)
-    const playerShutAgain = await shoot(player)
-    const playerNoise = await changed(player, playerShut, playerShutAgain)
 
-    // The player's canvas is clipped to what the party has earned. Both of these doors
-    // open onto the map's exterior — a floor-ring door always does, since the union
-    // gives it a room on one side only — so the light itself lands where a player's fog
-    // covers it, and only the door in their own room moves anything on their seat.
-    for (const { door, onPlayerCanvas } of [
-      { door: HALLWAY, onPlayerCanvas: false },
-      { door: FLOOR, onPlayerCanvas: true },
-    ]) {
+    for (const door of [HALLWAY, FLOOR]) {
+      // Frame the door on the player's seat before measuring anything on it.
+      //
+      // A mark parked outside their viewport cannot move their canvas whatever it is drawn
+      // over, and the player's camera is wherever their last reveal left it — which depends
+      // on how many rooms the rows above this one handed over, so without this the
+      // measurement is a function of the suite's order. Selecting the row is the product's
+      // own "take me to it" (D8, `DoorPanel.pick`) and moves this seat's stage alone; the
+      // row only selects, never swings (D10), so the door is still shut here.
+      await doorRow(player, door.id).getByRole('button').click()
+      await player.waitForTimeout(1500)
+      const playerShut = await shoot(player)
+      const playerShutAgain = await shoot(player)
+      const playerNoise = await changed(player, playerShut, playerShutAgain)
+
       await toggleDoor(dm, door.id)
       await expect(doorRow(player, door.id)).toHaveAttribute('data-open', 'true')
       await dm.waitForTimeout(1500)
@@ -301,11 +306,13 @@ test.describe.serial('@doors', () => {
       )
       // The DM's canvas draws the light through the doorway either way.
       expect(dmMoved).toBeGreaterThan(Math.max(dmNoise * 4, 0.0002))
-      // The player's redraws for the door in the room they hold — the door's own mark,
-      // an order of magnitude smaller, against a renderer whose noise floor is zero.
-      if (onPlayerCanvas) {
-        expect(playerMoved).toBeGreaterThan(Math.max(playerNoise * 4, 0.00002))
-      }
+      // The player's redraws too, for the door's own mark. Both of these doors open onto
+      // the map's exterior — a floor-ring door always does, since the union gives it a room
+      // on one side only — so the light itself lands where their fog covers it and the mark
+      // is the whole of what moves: an order of magnitude smaller, against a renderer whose
+      // noise floor is zero. It is only readable at all because the mark draws *above* the
+      // player's mask (`OVERLAY_STACK`); under it, a door on a room boundary is ~95% scrim.
+      expect(playerMoved).toBeGreaterThan(Math.max(playerNoise * 4, 0.00002))
       await toggleDoor(dm, door.id)
       await expect(doorRow(player, door.id)).toHaveAttribute('data-open', 'false')
       await dm.waitForTimeout(1000)

@@ -192,8 +192,10 @@ const SETTLE_MS = 600;
 function mountTokenLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => void {
   const layer = new Container();
   layer.sortableChildren = true;
-  // Topmost of the session overlays, so fog tint never draws over a token (see
-  // `OVERLAY_STACK` — that ordering is PRODUCT principle 3 as a draw order).
+  // Topmost of the world-space session overlays, so the DM's fog tint never draws over a
+  // token (see `OVERLAY_STACK` — that ordering is PRODUCT principle 3 as a draw order).
+  // Deliberately still under the *player's* mask, which is screen space: a token in a room
+  // the party cannot see is hidden, and that is the mask doing its job.
   addWorldOverlay(sceneGraph, layer, 'tokenLayer');
 
   const views = new Map<string, View>();
