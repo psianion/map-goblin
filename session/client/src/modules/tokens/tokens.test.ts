@@ -384,6 +384,33 @@ describe('a refused drag rubber-bands to where the pointer picked the token up',
     expect(h.settled(), 'somebody else’s refusal never moves this token').toBeNull();
     h.detach();
   });
+
+  // The gate refuses this drag before a single move leaves the tab, so the server never
+  // answers and the refusal toast never fires. Silence is what the browser gate found.
+  it('answers a grab at a token this seat may not move', () => {
+    const h = harness([token({ id: 't1', ownerId: null })]);
+
+    h.canvas.fire('pointerdown', 0.5, 0.5);
+    expect(useToasts.getState().toast?.message).toBe('Claim this token to move it.');
+    // Refused before the wire, not on it: nothing was sent and nothing moved.
+    expect(h.sent).toEqual([]);
+    expect(h.settled()).toBeNull();
+
+    // One toast per refusal, not one per grab.
+    const id = useToasts.getState().toast!.id;
+    h.canvas.fire('pointerup', 0.5, 0.5);
+    h.canvas.fire('pointerdown', 0.5, 0.5);
+    expect(useToasts.getState().toast!.id).toBe(id);
+    h.detach();
+  });
+
+  it('names the holder when the token is somebody else’s', () => {
+    const h = harness([token({ id: 't1', ownerId: 'p-9' })]);
+
+    h.canvas.fire('pointerdown', 0.5, 0.5);
+    expect(useToasts.getState().toast?.message).toBe('Another player is holding that token.');
+    h.detach();
+  });
 });
 
 describe('tokensOf', () => {

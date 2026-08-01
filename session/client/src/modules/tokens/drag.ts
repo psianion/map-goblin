@@ -14,6 +14,7 @@ import { SIZE_CELLS, snap, type Token, type TokenSize } from '@dnd/mechanics/tok
 import type { Role } from '@dnd/core/src/shared/protocol';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import { useSessionStore } from '../../session/store';
+import { showToast, useToasts } from '../../session/toasts';
 import { isToolActive } from '../../session/tools';
 import { doorRefusal, type LiveDoor } from '../doors/doors';
 
@@ -105,6 +106,20 @@ export function approach(from: number, to: number, dtMs: number, ms = 150): numb
 export function tokenRefusal(message: string, doors: readonly LiveDoor[] = []): string | null {
   if (!message.includes('cannot be occupied')) return null;
   return doorRefusal(message, doors) ?? "You can't move there.";
+}
+
+/**
+ * Why the pointer cannot move this token — the answer the gate below owes a player.
+ *
+ * A drag the client refuses never reaches the server, so nothing refuses it back and the
+ * refusal-toast path (`useTokenFeedback`, which reads `lastError`) is never on. The gesture
+ * was answered by a 600ms rubber-band and nothing else, which reads as a dropped frame.
+ * These words point at the affordance the panel is already offering beside the token.
+ */
+export function dragRefusal(token: Token): string {
+  return token.ownerId === null
+    ? 'Claim this token to move it.'
+    : 'Another player is holding that token.';
 }
 
 /** D10 client-side gate. The server enforces this too — this only saves a round trip. */
@@ -223,7 +238,13 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
     claim(e);
 
     const you = useSessionStore.getState().you;
-    if (!canDrag(token, you?.role, you?.identityId)) return;
+    if (!canDrag(token, you?.role, you?.identityId)) {
+      // Deduped the way `useTokenFeedback` dedupes a refusal: while the same words are
+      // still on screen, grabbing the token again has nothing to add.
+      const message = dragRefusal(token);
+      if (useToasts.getState().toast?.message !== message) showToast({ message });
+      return;
+    }
     drag = { id: token.id, size: token.size, dx: x - token.x, dy: y - token.y, x: token.x, y: token.y, moved: false };
     // `endedAt: 0` is "the pointer is still down" — nothing can be this gesture's verdict yet.
     gesture = { id: token.id, from: { x: token.x, y: token.y }, to: { x: token.x, y: token.y }, endedAt: 0 };
