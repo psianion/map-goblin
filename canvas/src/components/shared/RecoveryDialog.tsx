@@ -35,9 +35,19 @@ export function RecoveryDialog({ onDismiss }: RecoveryDialogProps) {
     onDismiss();
   };
 
-  if (loading) return null;
+  // Nothing to restore — a flag left behind with no autosave behind it. Offering a
+  // modal whose only button is "Discard" just makes the user dismiss a dead end, so
+  // clear the flag and get out of the way.
+  useEffect(() => {
+    if (!loading && !entry) {
+      clearDirtyFlag();
+      onDismiss();
+    }
+  }, [loading, entry, onDismiss]);
 
-  const savedAtStr = entry ? new Date(entry.savedAt).toLocaleString() : 'unknown time';
+  if (loading || !entry) return null;
+
+  const savedAtStr = new Date(entry.savedAt).toLocaleString();
 
   return (
     <div
@@ -53,14 +63,11 @@ export function RecoveryDialog({ onDismiss }: RecoveryDialogProps) {
         <p className="text-sm text-text-muted mb-1">
           The previous session ended without saving.
         </p>
-        {entry && (
-          <p className="text-xs text-text-muted mb-4">
-            Autosave from: <span className="text-white">{savedAtStr}</span>
-            {' — '}
-            <span className="text-white">{entry.data.mapSettings.name}</span>
-          </p>
-        )}
-        {!entry && <p className="text-xs text-text-muted mb-4">No autosave data found.</p>}
+        <p className="text-xs text-text-muted mb-4">
+          Autosave from: <span className="text-white">{savedAtStr}</span>
+          {' — '}
+          <span className="text-white">{entry.data.mapSettings.name}</span>
+        </p>
         <div className="flex gap-3 justify-end">
           <button
             onClick={handleDiscard}
@@ -68,14 +75,12 @@ export function RecoveryDialog({ onDismiss }: RecoveryDialogProps) {
           >
             Discard
           </button>
-          {entry && (
-            <button
-              onClick={handleRestore}
-              className="px-3 py-1.5 text-sm rounded bg-accent text-white hover:bg-accent/80 transition-colors"
-            >
-              Restore
-            </button>
-          )}
+          <button
+            onClick={handleRestore}
+            className="px-3 py-1.5 text-sm rounded bg-accent text-white hover:bg-accent/80 transition-colors"
+          >
+            Restore
+          </button>
         </div>
       </div>
     </div>

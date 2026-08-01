@@ -58,6 +58,57 @@ export function isDirtyFlagSet(): boolean {
   return localStorage.getItem(DIRTY_FLAG_KEY) === 'true';
 }
 
+// ─── What counts as an unsaved change ─────────────────────────────────────────
+
+/** The slices `getSerializableState` actually writes to a save file. */
+interface DocumentSlices {
+  mapSettings: unknown;
+  grid: unknown;
+  layers: readonly object[];
+  assets: { customImages: unknown };
+}
+
+/**
+ * Fields on a layer that are recomputed from its geometry rather than authored.
+ *
+ * `mergedFloor` is the boolean-op cache the engine fills in once the scene is
+ * built (and `getSerializableState` strips it before saving); `rooms` is
+ * re-derived by `syncRooms` from the same geometry. Both get rewritten during a
+ * boot nobody touched, which is what left every session ending "dirty". A real
+ * edit changes the geometry they come from, so ignoring them loses nothing.
+ */
+const DERIVED_LAYER_FIELDS = ['mergedFloor', 'rooms'];
+
+/** Layers, ignoring the derived fields above. */
+function layersDiffer(next: readonly object[], prev: readonly object[]): boolean {
+  if (next === prev) return false;
+  if (next.length !== prev.length) return true;
+  return next.some((layer, i) => {
+    const a = layer as Record<string, unknown>;
+    const b = prev[i] as Record<string, unknown>;
+    if (a === b) return false;
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    for (const derived of DERIVED_LAYER_FIELDS) keys.delete(derived);
+    for (const k of keys) if (a[k] !== b[k]) return true;
+    return false;
+  });
+}
+
+/**
+ * Did this store change touch the saved document?
+ *
+ * The autosave subscriber used to fire on *any* state change — selecting a tool,
+ * panning the camera, the asset packs finishing their install. Those set the
+ * dirty flag on a boot where the user did nothing, so the next visit opened on
+ * "Recover Unsaved Changes?". Only the slices that end up in a save file count.
+ */
+export function isDocumentChange(next: DocumentSlices, prev: DocumentSlices): boolean {
+  if (next.mapSettings !== prev.mapSettings) return true;
+  if (next.grid !== prev.grid) return true;
+  if (next.assets.customImages !== prev.assets.customImages) return true;
+  return layersDiffer(next.layers, prev.layers);
+}
+
 // ─── IndexedDB ────────────────────────────────────────────────────────────────
 
 export interface AutosaveEntry {

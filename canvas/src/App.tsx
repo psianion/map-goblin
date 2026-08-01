@@ -9,7 +9,7 @@ import { CollapsedRightPanel } from '@/components/layout/CollapsedRightPanel';
 import { StatusBar } from '@/components/layout/StatusBar';
 import { ExportDialog } from '@/components/shared/ExportDialog';
 import { RecoveryDialog } from '@/components/shared/RecoveryDialog';
-import { startAutosave, isDirtyFlagSet } from '@/io/autosave';
+import { startAutosave, isDirtyFlagSet, isDocumentChange, clearDirtyFlag } from '@/io/autosave';
 import { migrateAutosave } from '@/io/mapMigration';
 import { getMapDB } from '@/store/slices/maps';
 import { getEngineSingleton } from '@/engine/engineSingleton';
@@ -190,6 +190,12 @@ export default function App() {
           // loadMapIndex already sets activeMapId to the first entry,
           // but if the map data needs loading, do it here
         }
+
+        // Boot itself is not an edit. Everything above either wrote the map to
+        // IndexedDB (createNewMap) or read it back from there (loadMapIndex), so
+        // what is on screen now matches what is stored — whatever the subscriber
+        // marked on the way here is not work anyone can lose.
+        clearDirtyFlag();
       } catch (err) {
         console.warn('[app] Multi-map migration/init failed:', err);
       }
@@ -200,7 +206,10 @@ export default function App() {
   useEffect(() => {
     const cleanup = startAutosave(
       () => useStore.getState().saveCurrentMap(),
-      (listener) => useStore.subscribe(listener),
+      (listener) =>
+        useStore.subscribe((s, prev) => {
+          if (isDocumentChange(s, prev)) listener();
+        }),
     );
     return cleanup;
   }, []);
