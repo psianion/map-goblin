@@ -138,7 +138,7 @@ function mapFile(): SerializedMapData {
     standaloneWalls: [wall('wall-hall', 0, 0, 10, 0), wall('wall-vault', 30, 0, 40, 0)],
     mergedFloor: [rect(0, 0, 40, 10)],
     style: {} as DungeonLayer['style'],
-    sublayerVisibility: { floor: true, grid: true, hatching: true, walls: true },
+    sublayerVisibility: { floor: true, grid: true, walls: true },
     rooms: ROOMS,
     roomNameOverrides: Object.fromEntries(ROOMS.map((r) => [r.id, r.name])),
   }

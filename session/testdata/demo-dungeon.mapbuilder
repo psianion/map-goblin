@@ -41,12 +41,6 @@
         "shadowColor": "#8C867D",
         "shadowOffset": { "x": 0.4, "y": 0.3 },
         "shadowIntensity": 0.4,
-        "hatchingStyle": "none",
-        "hatchingBandWidth": 1,
-        "hatchingLineSpacing": 0.3,
-        "hatchingLineThickness": 0.02,
-        "hatchingAngle": 45,
-        "hatchingInverted": false,
         "roughnessAmplitude": 0,
         "lineWidth": 0.04,
         "defaultTextureId": "dungeon-classic:cobblestone-a-01_1x1_floor_A",
@@ -54,7 +48,7 @@
         "showEdgeTransitions": true,
         "wallTextureTint": "#ffffff"
       },
-      "sublayerVisibility": { "floor": true, "grid": true, "hatching": true, "walls": true },
+      "sublayerVisibility": { "floor": true, "grid": true, "walls": true },
       "standaloneWalls": [
         {
           "id": "wall-hall-east",

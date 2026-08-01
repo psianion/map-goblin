@@ -2,7 +2,6 @@ import { Container, Graphics, Texture, TilingSprite } from 'pixi.js';
 import type { DungeonLayer, ShapeChild } from '../store/types';
 import type { LayerEntry } from './sceneGraph';
 import type { Polygon } from '../types/geometry';
-import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { useStore } from '../store/store';
 import * as textureLoader from '../assets/textureLoader';
 import { resolveTexture } from '../assets/textureLoader';
@@ -130,35 +129,6 @@ function fillPolygonsWithHoles(g: Graphics, polygons: Polygon[], fillStyle: { co
 }
 
 /**
- * Draw parallel hatch lines across the bounding box of `polygons`.
- * Direction is determined by `angle` (radians), spaced `spacing` apart.
- */
-function addHatchLines(g: Graphics, polygons: Polygon[], angle: number, spacing: number): void {
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const polygon of polygons) {
-    for (const [x, y] of polygon) {
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-    }
-  }
-  const r = Math.hypot(maxX - minX, maxY - minY) / 2 + 2;
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  // Perpendicular direction for stepping between lines
-  const steps = Math.ceil((r * 2) / spacing) + 2;
-  for (let i = -steps; i <= steps; i++) {
-    const px = cx + (-sin) * i * spacing;
-    const py = cy + cos * i * spacing;
-    g.moveTo(px - cos * r, py - sin * r);
-    g.lineTo(px + cos * r, py + sin * r);
-  }
-}
-
-/**
  * Compute axis-aligned bounding box of a polygon.
  */
 function polygonBounds(points: [number, number][]): { minX: number; minY: number; maxX: number; maxY: number } {
@@ -236,48 +206,6 @@ function renderTexturedShape(
 /**
  * Render a single solid-color shape fill.
  */
-/**
- * Draw one hatch treatment over `area`, using `style` for everything about it.
- *
- * Split out so the layer-wide pass and the per-shape pass share a body — the two
- * differ only in the polygons they are handed and the style they resolve.
- */
-function renderHatching(hatching: Container, area: Polygon[], style: DungeonStyle): void {
-  if (style.hatchingStyle === 'none' || area.length === 0) return;
-
-  const lineAngle = style.hatchingStyle === 'horizontal' ? 0 : style.hatchingAngle;
-
-  // Hatch region: the whole interior, or a band inset from its edge.
-  let hatchRegion: Polygon[];
-  if (style.hatchingInverted) {
-    hatchRegion = area;
-  } else {
-    const inner = clipper2Engine.inflate(area, -style.hatchingBandWidth);
-    hatchRegion = inner.length > 0 ? clipper2Engine.difference(area, inner) : area;
-  }
-
-  const maskG = new Graphics();
-  fillPolygonsWithHoles(maskG, hatchRegion, { color: 0xffffff });
-
-  const hatchG = new Graphics();
-  hatchG.setStrokeStyle({
-    color: parseColor(style.wallColor),
-    width: style.hatchingLineThickness,
-  });
-  addHatchLines(hatchG, area, lineAngle, style.hatchingLineSpacing);
-  if (style.hatchingStyle === 'crosshatch') {
-    addHatchLines(hatchG, area, lineAngle + Math.PI / 2, style.hatchingLineSpacing);
-  }
-  hatchG.stroke();
-
-  // Wrap in a Container so the mask applies to the lines only
-  const hatchContainer = new Container();
-  hatchContainer.addChild(maskG);
-  hatchContainer.addChild(hatchG);
-  hatchContainer.mask = maskG;
-  hatching.addChild(hatchContainer);
-}
-
 function renderSolidShape(
   parent: Container,
   shape: ShapeChild,
@@ -400,18 +328,17 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
  * Rebuild a dungeon layer's sublayers from store state.
  * Called by subscribeToStore whenever shapes or walls change.
  *
- * Sublayer order (shadow → floor → grid → hatching → walls → paths) is
+ * Sublayer order (shadow → floor → grid → walls → paths) is
  * established in sceneGraph.addLayerToScene — we only populate content.
  */
 export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): void {
   if (!entry.sublayers) return;
 
-  const { floor, hatching, walls, doors: doorsSublayer } = entry.sublayers;
+  const { floor, walls, doors: doorsSublayer } = entry.sublayers;
 
   // Clear all sublayers (reset floor mask from prior textured render)
   floor.mask = null;
   for (const child of floor.removeChildren()) child.destroy();
-  for (const child of hatching.removeChildren()) child.destroy();
   // Not the walls: `renderNodeWalls` pools its stone sprites, reassigning the
   // ones already in the container and trimming the tail itself. Emptying it
   // here would throw the pool away on every rebuild, which is the allocation
@@ -510,29 +437,6 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
 
   // ── Grid sublayer (lines inside shapes) ─────────────────
   redrawGrid(layer, entry);
-
-  // ── Hatching sublayer ────────────────────────────────────────
-  // On a plain layer this runs once over the merged floor, which is both the
-  // cheap path and the right look — hatching reads as one treatment of the whole
-  // room, not a per-shape decoration.
-  //
-  // Once any shape carries a style pin it has to run per shape instead. A pin is
-  // what a preset leaves behind so an already-drawn shape keeps the look it was
-  // drawn with (PresetApplyCommand); drawing the hatch from `layer.style` here
-  // ignored those pins, and applying a preset restyled every shape on the map
-  // through the hatch alone.
-  if (hasStyleOverrides) {
-    for (const shape of shapeChildren) {
-      if ((shape.contours[0]?.length ?? 0) < 3) continue;
-      const resolved = resolveStyle(s, shape.styleOverrides as Partial<DungeonStyle> | undefined);
-      // Clip to the merged floor so an erase hole cuts the hatch too.
-      const shapeArea = clipper2Engine.intersection(shape.contours as Polygon[], polygons);
-      if (shapeArea.length === 0) continue;
-      renderHatching(hatching, shapeArea, resolved);
-    }
-  } else {
-    renderHatching(hatching, polygons, s);
-  }
 
   // Walls and doors already rendered above, before the no-floor bail-out.
 

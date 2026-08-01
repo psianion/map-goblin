@@ -13,12 +13,6 @@ const DEFAULT_DUNGEON_STYLE: DungeonStyle = {
   shadowColor: '#8C867D',
   shadowOffset: { x: 0.4, y: 0.3 },
   shadowIntensity: 0.4,
-  hatchingStyle: 'none',
-  hatchingBandWidth: 1.0,
-  hatchingLineSpacing: 0.3,
-  hatchingLineThickness: 0.02,
-  hatchingAngle: 45,
-  hatchingInverted: false,
   roughnessAmplitude: 0,
   lineWidth: 0.04,
   edgeTransitionWidth: 0.5,
@@ -33,7 +27,6 @@ const DEFAULT_DUNGEON_STYLE: DungeonStyle = {
 const DEFAULT_SUBLAYER_VISIBILITY = {
   floor: true,
   grid: true,
-  hatching: true,
   walls: true,
 };
 

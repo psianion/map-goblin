@@ -8,24 +8,9 @@ interface PresetGridProps {
   onSelect: (preset: MapStylePreset) => void;
 }
 
-/** Renders a CSS background for the hatching hint section of a swatch */
-function hatchingBackground(style: Partial<DungeonStyle>): string {
-  if (!style.hatchingStyle || style.hatchingStyle === 'none') {
-    // Use shadow color as solid fill if shadow enabled, otherwise a subtle neutral
-    return style.shadowEnabled ? (style.shadowColor ?? '#444') : '#1a1a1a';
-  }
-  const angle = style.hatchingAngle ?? 45;
-  const spacing = Math.max(3, (style.hatchingLineSpacing ?? 0.3) * 12);
-  const color = style.wallColor ?? '#333';
-  if (style.hatchingStyle === 'crosshatch') {
-    return [
-      `repeating-linear-gradient(${angle}deg, ${color} 0px, ${color} 1px, transparent 1px, transparent ${spacing}px)`,
-      `repeating-linear-gradient(${angle + 90}deg, ${color} 0px, ${color} 1px, transparent 1px, transparent ${spacing}px)`,
-    ].join(', ');
-  }
-  // 'lines' or 'horizontal'
-  const lineAngle = style.hatchingStyle === 'horizontal' ? 0 : angle;
-  return `repeating-linear-gradient(${lineAngle}deg, ${color} 0px, ${color} 1px, transparent 1px, transparent ${spacing}px)`;
+/** Solid fill for the bottom hint section of a swatch — shadow color if enabled, else a neutral. */
+function shadowBackground(style: Partial<DungeonStyle>): string {
+  return style.shadowEnabled ? (style.shadowColor ?? '#444') : '#1a1a1a';
 }
 
 export function PresetGrid({ presets, activeId, onSelect }: PresetGridProps) {
@@ -57,12 +42,12 @@ export function PresetGrid({ presets, activeId, onSelect }: PresetGridProps) {
               className="w-full"
               style={{ height: '4px', backgroundColor: s.wallColor ?? '#222' }}
             />
-            {/* Hatching hint — remaining bottom */}
+            {/* Shadow hint — remaining bottom */}
             <div
               className="w-full"
               style={{
                 height: 'calc(40% - 4px)',
-                background: hatchingBackground(s),
+                background: shadowBackground(s),
               }}
             />
           </button>

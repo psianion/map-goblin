@@ -8,7 +8,7 @@ import { ColorChip } from '@/components/inputs/ColorChip'
 import { SliderInput } from '@/components/inputs/SliderInput'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { ToggleSwitch } from '@/components/ui/toggle-switch'
-import { Palette, Minus, Grid3x3, Waves, Blend, Sparkles, RotateCcw } from 'lucide-react'
+import { Palette, Minus, Waves, Blend, Sparkles, RotateCcw } from 'lucide-react'
 import { getWallSetDefaults, type WallCategory } from '@/assets/textureManifest'
 import { PresetStrip } from '@/components/shared/PresetStrip'
 import { DUNGEON_STYLE_PRESETS, matchPresetId } from '@/store/presetRegistry'
@@ -23,8 +23,6 @@ interface LayerPropertiesProps {
   openSections?: Set<string>
   onToggleSection?: (id: string) => void
 }
-
-const HATCHING_STYLES_ACTIVE = ['crosshatch', 'lines', 'horizontal'] as const
 
 const DUNGEON_PRESET_CHIPS = DUNGEON_STYLE_PRESETS.map((p) => ({
   id: p.id,
@@ -208,22 +206,11 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
         wallTextureSetId: getShapeValue('wallTextureSetId') as string | undefined,
         wallWidth: getShapeValue('wallWidth') as number,
         wallTextureTint: getShapeValue('wallTextureTint') as string,
-        hatchingStyle: getShapeValue('hatchingStyle') as DungeonStyle['hatchingStyle'] | typeof MIXED,
-        hatchingBandWidth: getShapeValue('hatchingBandWidth') as number,
-        hatchingLineSpacing: getShapeValue('hatchingLineSpacing') as number,
-        hatchingLineThickness: getShapeValue('hatchingLineThickness') as number,
-        hatchingAngle: getShapeValue('hatchingAngle') as number,
-        hatchingInverted: getShapeValue('hatchingInverted') as boolean,
         showEdgeTransitions: getShapeValue('showEdgeTransitions') as boolean,
         edgeTransitionWidth: getShapeValue('edgeTransitionWidth') as number,
         roughnessAmplitude: getShapeValue('roughnessAmplitude') as number,
       }
     : layer.style
-
-  const hatchingEnabled =
-    hasSelection
-      ? s.hatchingStyle !== 'none' && s.hatchingStyle !== MIXED
-      : layer.style.hatchingStyle !== 'none'
 
   return (
     <div className="flex flex-col pt-2">
@@ -392,168 +379,6 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
               )
             })()}
         </div>
-      </CollapsibleSection>
-
-      {/* ── Hatching ── */}
-      <CollapsibleSection
-        id="hatching"
-        title="Hatching"
-        icon={Grid3x3}
-        defaultOpen={false}
-        isOpen={openSections?.has('hatching')}
-        onToggle={onToggleSection}
-        headerExtra={
-          <ToggleSwitch
-            checked={hatchingEnabled}
-            onChange={(v) => {
-              const newStyle = v ? 'lines' : 'none'
-              if (hasSelection) {
-                applyShapeOverride('hatchingStyle', newStyle)
-              } else {
-                patch({ hatchingStyle: newStyle })
-              }
-            }}
-            label="Enable hatching"
-          />
-        }
-      >
-        {hatchingEnabled ? (
-          <div className="flex flex-col gap-2 pt-2">
-            <PropertyField
-              label={
-                <span className="flex items-center">
-                  Style
-                  {hasSelection && hasOverride('hatchingStyle') && <OverrideDot />}
-                </span>
-              }
-            >
-              {s.hatchingStyle === MIXED ? (
-                <div className="flex items-center h-7 px-2 text-panel-body text-text-muted italic">
-                  Mixed
-                </div>
-              ) : (
-                <select
-                  value={s.hatchingStyle as string}
-                  onChange={(e) => {
-                    const newStyle = e.target.value as DungeonStyle['hatchingStyle']
-                    if (hasSelection) {
-                      applyShapeOverride('hatchingStyle', newStyle)
-                    } else {
-                      patch({ hatchingStyle: newStyle })
-                    }
-                  }}
-                  className="w-full h-7 px-2 bg-surface-2 text-panel-body text-text-primary rounded border border-border-default focus:border-border-focus focus:outline-none"
-                >
-                  {HATCHING_STYLES_ACTIVE.map((style) => (
-                    <option key={style} value={style}>
-                      {style.charAt(0).toUpperCase() + style.slice(1)}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </PropertyField>
-            <PropertyField
-              label={
-                <span className="flex items-center">
-                  Band Width
-                  {hasSelection && hasOverride('hatchingBandWidth') && <OverrideDot />}
-                </span>
-              }
-            >
-              <SliderInput
-                value={s.hatchingBandWidth as number}
-                onChange={(v) =>
-                  hasSelection
-                    ? applyShapeOverride('hatchingBandWidth', v)
-                    : patch({ hatchingBandWidth: v })
-                }
-                min={0.1}
-                max={2}
-                step={0.1}
-              />
-            </PropertyField>
-            <PropertyField
-              label={
-                <span className="flex items-center">
-                  Line Spacing
-                  {hasSelection && hasOverride('hatchingLineSpacing') && <OverrideDot />}
-                </span>
-              }
-            >
-              <SliderInput
-                value={s.hatchingLineSpacing as number}
-                onChange={(v) =>
-                  hasSelection
-                    ? applyShapeOverride('hatchingLineSpacing', v)
-                    : patch({ hatchingLineSpacing: v })
-                }
-                min={0.05}
-                max={1}
-                step={0.05}
-              />
-            </PropertyField>
-            <PropertyField
-              label={
-                <span className="flex items-center">
-                  Line Thickness
-                  {hasSelection && hasOverride('hatchingLineThickness') && <OverrideDot />}
-                </span>
-              }
-            >
-              <SliderInput
-                value={s.hatchingLineThickness as number}
-                onChange={(v) =>
-                  hasSelection
-                    ? applyShapeOverride('hatchingLineThickness', v)
-                    : patch({ hatchingLineThickness: v })
-                }
-                min={0.01}
-                max={0.2}
-                step={0.01}
-              />
-            </PropertyField>
-            <PropertyField
-              label={
-                <span className="flex items-center">
-                  Angle
-                  {hasSelection && hasOverride('hatchingAngle') && <OverrideDot />}
-                </span>
-              }
-            >
-              <SliderInput
-                value={s.hatchingAngle as number}
-                onChange={(v) =>
-                  hasSelection
-                    ? applyShapeOverride('hatchingAngle', v)
-                    : patch({ hatchingAngle: v })
-                }
-                min={0}
-                max={Math.PI}
-                step={0.05}
-              />
-            </PropertyField>
-            <PropertyField
-              label={
-                <span className="flex items-center">
-                  Inverted
-                  {hasSelection && hasOverride('hatchingInverted') && <OverrideDot />}
-                </span>
-              }
-            >
-              <ToggleSwitch
-                checked={s.hatchingInverted as boolean}
-                onChange={(v) =>
-                  hasSelection
-                    ? applyShapeOverride('hatchingInverted', v)
-                    : patch({ hatchingInverted: v })
-                }
-                label="Invert hatching"
-              />
-            </PropertyField>
-          </div>
-        ) : (
-          <p className="text-panel-label text-text-muted pt-2">Hatching is disabled.</p>
-        )}
       </CollapsibleSection>
 
       {/* ── Edge Transitions ── */}
