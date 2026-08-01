@@ -209,9 +209,18 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
     const rect = canvas.getBoundingClientRect();
     return engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
   };
-  // Claiming the gesture: the camera pan listener sits on the canvas's parent.
+  /**
+   * Claiming the gesture. The camera pan listener sits on the canvas's parent, so
+   * `stopPropagation` is what tells it "I grabbed a token" — but the door overlay listens
+   * on this very element, and propagation is between *nodes*: a same-element listener runs
+   * regardless. So pressing down on a token standing in a doorway grabbed the token AND
+   * swung the door, and the move that followed walked through the opening the grab had just
+   * made — a door a player never chose to open, logged under their name. Immediate, so the
+   * token really does win the click the way the door overlay already documents (it registers
+   * after this one, on purpose: tokens are dragged, doors are only tapped).
+   */
   const claim = (e: PointerEvent) => {
-    e.stopPropagation();
+    e.stopImmediatePropagation();
     e.preventDefault();
   };
 

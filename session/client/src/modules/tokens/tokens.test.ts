@@ -252,9 +252,27 @@ describe('a refused drag rubber-bands to where the pointer picked the token up',
         hasPointerCapture: () => false,
         releasePointerCapture: () => {},
       },
+      /**
+       * Dispatch, with `stopImmediatePropagation` meaning what the DOM means by it: the
+       * listeners registered after the one that called it never run. That is the whole of
+       * how a grabbed token keeps the door overlay — which listens on this very element —
+       * out of the same press, so the fake has to model it rather than no-op it.
+       */
       fire(type: string, clientX: number, clientY: number) {
+        let stopped = false;
         for (const fn of listeners[type] ?? []) {
-          fn({ button: 0, clientX, clientY, pointerId: 1, stopPropagation() {}, preventDefault() {} });
+          if (stopped) return;
+          fn({
+            button: 0,
+            clientX,
+            clientY,
+            pointerId: 1,
+            stopPropagation() {},
+            stopImmediatePropagation() {
+              stopped = true;
+            },
+            preventDefault() {},
+          });
         }
       },
     };
@@ -401,6 +419,28 @@ describe('a refused drag rubber-bands to where the pointer picked the token up',
     h.canvas.fire('pointerup', 0.5, 0.5);
     h.canvas.fire('pointerdown', 0.5, 0.5);
     expect(useToasts.getState().toast!.id).toBe(id);
+    h.detach();
+  });
+
+  /**
+   * The door overlay listens on this same canvas, and it registers after token input on
+   * purpose — tokens are dragged, doors are only tapped. `stopPropagation` never enforced
+   * that: propagation is between nodes, so a listener on the same element ran anyway, and
+   * pressing down on a token standing in a doorway both grabbed the token and swung the
+   * door open under it. A door opens because somebody chose to open it.
+   */
+  it('keeps the press that grabs a token away from the door overlay behind it', () => {
+    const h = harness([mine({ x: 0.5, y: 0.5 })]);
+    const overlay: number[] = [];
+    h.canvas.el.addEventListener('pointerdown', () => void overlay.push(1));
+
+    h.canvas.fire('pointerdown', 0.5, 0.5);
+    expect(overlay, 'the token won the press; the door under it stays shut').toEqual([]);
+
+    // A press that grabs nothing is still the door's to answer.
+    h.canvas.fire('pointerup', 0.5, 0.5);
+    h.canvas.fire('pointerdown', 40.5, 40.5);
+    expect(overlay).toEqual([1]);
     h.detach();
   });
 
