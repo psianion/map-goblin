@@ -17,6 +17,7 @@ interface PropertyTarget {
 export class PropertyCommand implements Command {
   readonly label: string;
   readonly target: PropertyTarget;
+  readonly affectsRooms: boolean;
   private before: Record<string, unknown>;
   private after: Record<string, unknown>;
 
@@ -30,6 +31,10 @@ export class PropertyCommand implements Command {
     this.target = target;
     this.before = structuredClone(before);
     this.after = structuredClone(after);
+    // Region moves and cuts commit the floor outline through this command, so
+    // the room-defining fields are what mark it as geometry.
+    this.affectsRooms =
+      target.type === 'layer' && ('mergedFloor' in after || 'standaloneWalls' in after);
   }
 
   execute(): void {
@@ -63,6 +68,11 @@ export class CompositeCommand implements Command {
     this.commands = commands;
   }
 
+  /** One re-derive for the whole group, not one per member. */
+  get affectsRooms(): boolean {
+    return this.commands.some((c) => c.affectsRooms);
+  }
+
   execute(): void {
     for (const cmd of this.commands) {
       cmd.execute();
@@ -77,10 +87,20 @@ export class CompositeCommand implements Command {
 }
 
 /**
+ * Child types whose add/remove moves the room graph: shapes are what
+ * `mergedFloor` is unioned from, and a door needs a roomA/B the moment it
+ * appears. Lights, labels and assets sit on top of the geometry.
+ */
+function childAffectsRooms(child: AnyChild | null): boolean {
+  return child?.childType === 'shape' || child?.childType === 'door';
+}
+
+/**
  * Adds a child to a dungeon layer. Removes it on undo.
  */
 export class AddChildCommand implements Command {
   readonly label: string;
+  readonly affectsRooms: boolean;
   private layerId: string;
   private child: AnyChild;
 
@@ -88,6 +108,7 @@ export class AddChildCommand implements Command {
     this.label = label;
     this.layerId = layerId;
     this.child = structuredClone(child);
+    this.affectsRooms = childAffectsRooms(this.child);
   }
 
   execute(): void {
@@ -113,6 +134,11 @@ export class RemoveChildCommand implements Command {
     this.label = label;
     this.layerId = layerId;
     this.childId = childId;
+  }
+
+  /** Read from the snapshot, so it only answers once execute has run. */
+  get affectsRooms(): boolean {
+    return childAffectsRooms(this.snapshot);
   }
 
   execute(): void {
@@ -332,6 +358,7 @@ export class RemoveLayerCommand implements Command {
  */
 export class AddWallCommand implements Command {
   readonly label: string;
+  readonly affectsRooms = true;
   private layerId: string;
   private wall: import('./types').WallSegment;
 
@@ -352,6 +379,7 @@ export class AddWallCommand implements Command {
 
 export class RemoveWallCommand implements Command {
   readonly label = 'Remove wall';
+  readonly affectsRooms = true;
   removedWall: import('./types').WallSegment | null = null;
   layerId: string;
   wallId: string;
@@ -380,6 +408,7 @@ export class RemoveWallCommand implements Command {
 
 export class UpdateWallCommand implements Command {
   readonly label = 'Update wall';
+  readonly affectsRooms = true;
   layerId: string;
   wallId: string;
   before: Partial<import('./types').WallSegment>;
@@ -413,6 +442,7 @@ export class UpdateWallCommand implements Command {
  */
 export class UpdateFloorWallEditsCommand implements Command {
   readonly label = 'Update wall';
+  readonly affectsRooms = true;
   private layerId: string;
   private ringKey: string;
   private before: import('../shared/types').WallEdits | undefined;
@@ -531,18 +561,37 @@ export class RenameRoomCommand implements Command {
 
 /**
  * Command for applying a style preset to a dungeon layer.
- * Captures the full previous style for single-step undo.
+ *
+ * A preset chooses the style for what gets drawn *next*. It is not a restyle of
+ * the map, and it used to behave like one: shapes carry only sparse
+ * `styleOverrides` and resolve everything else from `layer.style` at render
+ * time, so rewriting the layer style silently repainted every shape already on
+ * the map. Existing shapes are therefore pinned to their current appearance
+ * before the layer style moves under them.
  */
 export class PresetApplyCommand implements Command {
   readonly label: string;
   private readonly layerId: string;
   private readonly presetStyle: Partial<DungeonStyle>;
   private readonly previousStyle: DungeonStyle;
+  /** `styleOverrides` each shape had before the apply, keyed by child id. */
+  private readonly previousOverrides = new Map<string, Record<string, unknown> | undefined>();
+  /** The style pins each standalone wall had before the apply, keyed by wall id. */
+  private readonly previousWallPins = new Map<
+    string,
+    { textureSetId?: string; textureTint?: string }
+  >();
 
   constructor(label: string, layerId: string, preset: MapStylePreset, previousStyle: DungeonStyle) {
     this.label = label;
     this.layerId = layerId;
-    this.presetStyle = structuredClone(preset.dungeonStyle);
+    // A key whose value is `undefined` survives structuredClone and then wins
+    // the spread below, unsetting whatever the layer had. That is what switched
+    // wall texture to none and made every authored wall vanish. A preset that
+    // does not name a field means "leave it alone", never "clear it".
+    this.presetStyle = Object.fromEntries(
+      Object.entries(structuredClone(preset.dungeonStyle)).filter(([, v]) => v !== undefined),
+    ) as Partial<DungeonStyle>;
     this.previousStyle = structuredClone(previousStyle);
   }
 
@@ -550,13 +599,64 @@ export class PresetApplyCommand implements Command {
     const state = useStore.getState();
     const layer = state.layers.find((l) => l.id === this.layerId);
     if (!layer || layer.type !== 'dungeon') return;
+
+    // Snapshot of the pre-apply layer style — `layer` is the state object from
+    // before the writes below, so these stay the old values throughout.
+    const keys = Object.keys(this.presetStyle) as (keyof DungeonStyle)[];
+    const before = layer.style;
+
+    this.previousOverrides.clear();
+    for (const child of layer.children) {
+      if (child.childType !== 'shape') continue;
+      const existing = child.styleOverrides as Record<string, unknown> | undefined;
+      this.previousOverrides.set(child.id, existing ? structuredClone(existing) : undefined);
+      // An override the shape already had is its own authored intent — keep it.
+      const pinned: Record<string, unknown> = { ...existing };
+      for (const key of keys) {
+        if (!(key in pinned)) pinned[key] = before[key];
+      }
+      state.updateChild(this.layerId, child.id, { styleOverrides: pinned });
+    }
+
+    // Standalone walls get the same treatment. They are not `LayerChild`ren, so
+    // they carry their own pins rather than a `styleOverrides` bag, but the rule is
+    // identical: a wall already drawn keeps the look it was drawn with, and a pin
+    // the wall already had is its own authored intent.
+    this.previousWallPins.clear();
+    for (const wall of layer.standaloneWalls) {
+      const pin: { textureSetId?: string; textureTint?: string } = {};
+      if ('wallTextureSetId' in this.presetStyle && wall.textureSetId === undefined) {
+        pin.textureSetId = before.wallTextureSetId;
+      }
+      if ('wallTextureTint' in this.presetStyle && wall.textureTint === undefined) {
+        pin.textureTint = before.wallTextureTint;
+      }
+      if (Object.keys(pin).length === 0) continue;
+      this.previousWallPins.set(wall.id, {
+        textureSetId: wall.textureSetId,
+        textureTint: wall.textureTint,
+      });
+      state.updateWall(this.layerId, wall.id, pin);
+    }
+
     state.updateLayer(this.layerId, {
-      style: { ...layer.style, ...this.presetStyle },
+      style: { ...before, ...this.presetStyle },
     } as Partial<DungeonLayer>);
   }
 
   undo(): void {
     const state = useStore.getState();
+    for (const [childId, overrides] of this.previousOverrides) {
+      state.updateChild(this.layerId, childId, {
+        styleOverrides: overrides ? structuredClone(overrides) : undefined,
+      });
+    }
+    for (const [wallId, pins] of this.previousWallPins) {
+      state.updateWall(this.layerId, wallId, {
+        textureSetId: pins.textureSetId,
+        textureTint: pins.textureTint,
+      });
+    }
     state.updateLayer(this.layerId, {
       style: structuredClone(this.previousStyle),
     } as Partial<DungeonLayer>);

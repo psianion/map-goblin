@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { act, fireEvent, render, screen, cleanup } from '@testing-library/react';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import { useSessionStore } from '../session/store';
-import { useToasts } from '../session/toasts';
+import { DEFAULT_TOAST_MS, useToasts } from '../session/toasts';
 import { useActiveTool } from '../session/tools';
 import { ActiveToolIndicator } from './ActiveToolIndicator';
 import { ConnectionStatus, ReconnectingBanner } from './ConnectionStatus';
@@ -115,6 +115,28 @@ describe('PlayerList', () => {
     expect(rows[1].textContent).toContain('Borin');
     expect(rows[1].getAttribute('data-connected')).toBe('false');
   });
+
+  /**
+   * A reconnect from a new tab mints a fresh identity (the join route will not honour a
+   * caller-supplied one), and §2.5 keeps the old seat on the roster — so the gate walk saw
+   * "Borin" greyed out sitting next to "Borin (you)".
+   */
+  it('drops the seat a returning player left behind', () => {
+    const back: PlayerInfo = { identityId: 'p-3', name: 'Borin', role: 'player', connected: true };
+    useSessionStore.setState({ session: session([dm, gone, back]), you: back });
+    render(<PlayerList />);
+
+    const rows = screen.getByTestId('player-list').querySelectorAll('li');
+    expect(rows).toHaveLength(2);
+    expect(rows[1].textContent).toContain('(you)');
+    expect(rows[1].getAttribute('data-connected')).toBe('true');
+  });
+
+  it('still lists a player who is merely away', () => {
+    useSessionStore.setState({ session: session([dm, gone]), you: dm });
+    render(<PlayerList />);
+    expect(screen.getByTestId('player-list').querySelectorAll('li')).toHaveLength(2);
+  });
 });
 
 describe('ToastHost', () => {
@@ -156,11 +178,35 @@ describe('ToastHost', () => {
 
   it('stands down on its own after its window closes', () => {
     vi.useFakeTimers();
-    act(() => void useToasts.getState().show({ message: 'That door is locked.', durationMs: 4000 }));
+    act(() => void useToasts.getState().show({ message: 'That door is locked.' }));
     render(<ToastHost />);
     expect(screen.getByTestId('toast')).not.toBeNull();
 
-    act(() => vi.advanceTimersByTime(4000));
+    act(() => vi.advanceTimersByTime(DEFAULT_TOAST_MS - 1));
+    expect(screen.queryByTestId('toast')).not.toBeNull();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByTestId('toast')).toBeNull();
+  });
+
+  /**
+   * A refused drag is refused at ~10 Hz on the way across and again on the drop. The clock
+   * has to run from the last of those, not the first: started at the first, the toast the
+   * player reads when they let go had a second left on it, which is the "it vanished before
+   * I could read it" the walk found. One toast, renewed — not one toast, expiring early.
+   */
+  it('restarts its window when the same refusal comes again', () => {
+    vi.useFakeTimers();
+    act(() => void useToasts.getState().show({ message: 'You can’t move there.' }));
+    render(<ToastHost />);
+
+    act(() => vi.advanceTimersByTime(DEFAULT_TOAST_MS - 500));
+    act(() => void useToasts.getState().show({ message: 'You can’t move there.' }));
+
+    // The original window has closed by now; the toast is still up on the renewed one.
+    act(() => vi.advanceTimersByTime(600));
+    expect(screen.queryByTestId('toast')).not.toBeNull();
+
+    act(() => vi.advanceTimersByTime(DEFAULT_TOAST_MS));
     expect(screen.queryByTestId('toast')).toBeNull();
   });
 

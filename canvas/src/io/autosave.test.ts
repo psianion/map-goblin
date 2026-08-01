@@ -21,6 +21,7 @@ import {
   setDirtyFlag,
   clearDirtyFlag,
   isDirtyFlagSet,
+  isDocumentChange,
   saveToIndexedDB,
   loadFromIndexedDB,
   startAutosave,
@@ -71,6 +72,50 @@ describe('dirty flag (localStorage)', () => {
     setDirtyFlag();
     clearDirtyFlag();
     expect(isDirtyFlagSet()).toBe(false);
+  });
+});
+
+describe('isDocumentChange', () => {
+  const base = () => {
+    const layer = { id: 'l1', children: [], mergedFloor: null, rooms: [] };
+    return {
+      mapSettings: { name: 'a' },
+      grid: { visible: true },
+      layers: [layer],
+      assets: { customImages: {} },
+    };
+  };
+
+  it('is false when nothing moved', () => {
+    const s = base();
+    expect(isDocumentChange(s, s)).toBe(false);
+  });
+
+  it('is false when only the derived layer caches were rewritten', () => {
+    const prev = base();
+    const next = {
+      ...prev,
+      layers: [{ ...prev.layers[0], mergedFloor: [[]], rooms: [{ id: 'r' }] }],
+    };
+    expect(isDocumentChange(next, prev)).toBe(false);
+  });
+
+  it('is true when a layer gains a child', () => {
+    const prev = base();
+    const next = { ...prev, layers: [{ ...prev.layers[0], children: [{ id: 'c' }] }] };
+    expect(isDocumentChange(next, prev)).toBe(true);
+  });
+
+  it('is true when the map settings, grid, or custom images change', () => {
+    const prev = base();
+    expect(isDocumentChange({ ...prev, mapSettings: { name: 'b' } }, prev)).toBe(true);
+    expect(isDocumentChange({ ...prev, grid: { visible: false } }, prev)).toBe(true);
+    expect(isDocumentChange({ ...prev, assets: { customImages: { a: 'b' } } }, prev)).toBe(true);
+  });
+
+  it('is true when a layer is added or removed', () => {
+    const prev = base();
+    expect(isDocumentChange({ ...prev, layers: [...prev.layers, { id: 'l2' }] }, prev)).toBe(true);
   });
 });
 

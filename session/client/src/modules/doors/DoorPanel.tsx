@@ -8,24 +8,29 @@
 
 import { useEffect, useMemo } from 'react';
 import { useStore } from '@dnd/core/src/store/store';
+import type { DoorChild } from '@dnd/core/src/shared/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
+import { frameWorldPoint } from '../../renderer/camera';
 import { ALL_ROLES, registerPanel } from '../../session/panels';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { showToast } from '../../session/toasts';
-import { doorLabel, doorRefusal, doorStatusLabel, liveDoors } from './doors';
+import { doorLabel, doorRefusal, doorStatusLabel, liveDoors, type LiveDoor } from './doors';
 import { mountDoorLayerWhenReady } from './DoorRenderer';
 import { useDoorSelection } from './selection';
 
 const send = (action: string, payload: unknown): void =>
   useSessionStore.getState().sendCommand('doors', action, payload);
 
-/** Turns the server's refusal into the one toast the table has. */
-function useDoorFeedback(): void {
+/** Turns the server's refusal into the one toast the table has, naming the door it names. */
+function useDoorFeedback(doors: readonly LiveDoor[]): void {
   const lastError = useSessionStore((s) => s.lastError);
   useEffect(() => {
     if (!lastError) return;
-    const message = doorRefusal(lastError.message);
+    const message = doorRefusal(lastError.message, doors);
     if (message) showToast({ message });
+    // The doors are read for the name only: a door list arriving a beat later must not
+    // re-toast a refusal the player has already been given.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastError]);
 }
 
@@ -38,13 +43,22 @@ export function DoorPanel() {
   const select = useDoorSelection((s) => s.select);
 
   useEffect(() => mountDoorLayerWhenReady(), []);
-  useDoorFeedback();
 
   const doors = useMemo(
     () => liveDoors(layers, doorsState, sceneId),
     [layers, doorsState, sceneId],
   );
+  useDoorFeedback(doors);
   const selected = doors.find((d) => d.door.id === selectedId);
+
+  // Selecting a door also brings it into view — the panel is the keyboard route to a door
+  // (D8) and hunting for the mark by hand was the standing complaint from every walk. The
+  // row is a real <button>, so Enter and Space arrive here as a click and behave the same.
+  // Per-client by construction: `frameWorldPoint` moves this stage, never the table's.
+  const pick = (door: DoorChild): void => {
+    select(door.id);
+    frameWorldPoint(door.position[0], door.position[1]);
+  };
 
   if (doors.length === 0) {
     return <p className="text-sm text-text-secondary">No doors on this scene.</p>;
@@ -64,40 +78,75 @@ export function DoorPanel() {
             <button
               type="button"
               aria-current={door.id === selectedId}
-              aria-label={`${live.open ? 'Close' : 'Open'} ${doorLabel(door, i)} · ${doorStatusLabel(door, live)}`}
-              onClick={() => {
-                select(door.id);
-                send('toggle', { id: door.id });
-              }}
+              aria-label={`Select ${doorLabel(door, i)} · ${doorStatusLabel(door, live)}`}
+              onClick={() => pick(door)}
               className={`flex w-full items-baseline gap-2 rounded px-2 py-0.5 text-left text-xs transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 motion-reduce:transition-none ${
                 door.id === selectedId ? 'bg-surface-3' : ''
               }`}
             >
-              <span title={doorLabel(door, i)} className="min-w-0 flex-1 truncate text-text-primary">
+              {/* Wraps rather than truncates. A door row is read to answer "which door is
+                  that", and "Hidden Pantr…" answers it for no one — the sidebar is narrow
+                  enough that an authored name of ordinary length lost its last word. Two
+                  lines cost the list one row of height and give the name back; the title
+                  still carries the whole string for a name long enough to run past both. */}
+              <span title={doorLabel(door, i)} className="min-w-0 flex-1 break-words text-text-primary">
                 {doorLabel(door, i)}
               </span>
-              <span className="shrink-0 text-text-secondary">{doorStatusLabel(door, live)}</span>
+              <span
+                title={doorStatusLabel(door, live)}
+                className="shrink-0 text-right text-text-secondary"
+              >
+                {doorStatusLabel(door, live)}
+              </span>
             </button>
           </li>
         ))}
       </ul>
 
-      {selected && isDm && (
+      {selected && (
         <div
           data-testid="door-actions"
           className="flex flex-wrap gap-1 border-t border-border-default pt-2"
         >
+          {/* Reveal and Open are two moves, and the panel says so rather than leaving the
+              DM to wonder why the party still cannot walk through what they just revealed.
+              No combined button: the DM may well want the reveal without the swing. */}
+          {selected.door.isSecret && selected.live.revealed && !selected.live.open && (
+            <p data-testid="door-status" className="basis-full pb-1 text-xs text-text-secondary">
+              Revealed — still closed
+            </p>
+          )}
+          {/*
+            The DM only. A locked door refuses every toggle, and the DM is the one holding
+            the key — `door-lock` is the next control along — so Open spending a round trip
+            to be told "locked" is a no-op they can see coming. It says the state instead.
+
+            A player keeps a live button on purpose: rattling a locked door and being told it
+            is locked is the discovery, not a mis-click. That refusal is the server's and
+            arrives as a toast.
+          */}
           <button
             type="button"
-            data-testid="door-lock"
-            onClick={() =>
-              send(selected.live.locked ? 'unlock' : 'lock', { id: selected.door.id })
-            }
-            className="rounded border border-border-default bg-surface-2 px-2 py-0.5 text-xs text-text-primary transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 motion-reduce:transition-none"
+            data-testid="door-toggle"
+            disabled={isDm && selected.live.locked}
+            onClick={() => send('toggle', { id: selected.door.id })}
+            className="rounded border border-border-default bg-surface-2 px-2 py-0.5 text-xs text-text-primary transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 disabled:cursor-not-allowed disabled:text-text-muted disabled:hover:bg-surface-2 motion-reduce:transition-none"
           >
-            {selected.live.locked ? 'Unlock' : 'Lock'}
+            {isDm && selected.live.locked ? 'Locked' : selected.live.open ? 'Close' : 'Open'}
           </button>
-          {selected.door.isSecret && (
+          {isDm && (
+            <button
+              type="button"
+              data-testid="door-lock"
+              onClick={() =>
+                send(selected.live.locked ? 'unlock' : 'lock', { id: selected.door.id })
+              }
+              className="rounded border border-border-default bg-surface-2 px-2 py-0.5 text-xs text-text-primary transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 motion-reduce:transition-none"
+            >
+              {selected.live.locked ? 'Unlock' : 'Lock'}
+            </button>
+          )}
+          {isDm && selected.door.isSecret && (
             <button
               type="button"
               data-testid="door-reveal-secret"

@@ -3,7 +3,11 @@
 // and the `canOccupy` seam S3's fog tightens.
 
 import type { CommandError, Viewer } from '../contract'
+import { DOOR_CLOSED, DOOR_LOCKED, refusal } from '../doors/types'
 import {
+  MOVE_BLOCKED,
+  OUTSIDE_MAP,
+  ROOM_UNEXPLORED,
   SIZE_CELLS,
   type Disposition,
   type SceneVision,
@@ -97,14 +101,54 @@ export function snap(v: number, size: TokenSize): number {
  * fog to enforce. Called on every place and move — module.test.ts pins the call site.
  */
 export function canOccupy(
-  _token: Token,
+  token: Token,
   pos: { x: number; y: number },
   scene: SceneVision | null,
   role: Viewer['role'],
 ): boolean {
-  if (role === 'dm' || !scene) return true
+  // Delegates rather than repeating the rule: `occupyRefusal` answers the same question
+  // with the cause attached, and two copies of "where may a token stand" would drift.
+  return occupyRefusal(token, pos, scene, role) === null
+}
+
+/**
+ * The same question as `canOccupy`, answered with the reason instead of a boolean —
+ * `null` when the space is fine.
+ *
+ * `canOccupy` collapsed locked door, closed door, unexplored room and unzoned map into one
+ * sentence, so the player got "that space cannot be occupied" whichever it was and could
+ * not tell a door they could open from a wall. Every cause below is already sitting in the
+ * data the check reads; only the boolean return threw them away.
+ *
+ * The message keeps "that space cannot be occupied" verbatim after the prefix. That string
+ * is what the shipped client matches to decide a refusal is a move refusal at all, so the
+ * wire stays backward compatible and the prefix is purely additive.
+ */
+export function occupyRefusal(
+  _token: Token,
+  pos: { x: number; y: number },
+  scene: SceneVision | null,
+  role: Viewer['role'],
+): string | null {
+  if (role === 'dm' || !scene) return null
   const room = scene.roomAt(pos.x, pos.y)
-  return room !== null && scene.occupiable.has(room)
+  const say = (code: string, subjectId: string | null = null): string =>
+    refusal(code, subjectId, 'that space cannot be occupied')
+
+  // Off every authored room. Unzoned map is the DM's alone (D6).
+  if (room === null) return say(OUTSIDE_MAP)
+  if (scene.occupiable.has(room)) return null
+
+  // A door the party could name is the most useful thing to say, so the door's id rides
+  // along and the client turns it into the name it holds. `door-locked` is the doors
+  // module's own constant on purpose: a move stopped by a locked door is the same fact as a
+  // toggle stopped by one, and the client already has words for it.
+  const edge = scene.blockedEdge?.(room)
+  if (edge) return say(edge.kind === 'locked-door' ? DOOR_LOCKED : DOOR_CLOSED, edge.doorId)
+
+  // No door explains it. Somewhere they have seen but cannot reach is blocked; somewhere
+  // they have never seen is not a place they know to walk into.
+  return say(scene.visible.has(room) ? MOVE_BLOCKED : ROOM_UNEXPLORED)
 }
 
 function parseSight(v: unknown): TokenDef['sight'] {

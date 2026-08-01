@@ -231,6 +231,34 @@ describe('AssetPackManager.checkForUpdates', () => {
     expect(updates).toEqual([])
   })
 
+  it('says so when the index answers with an error status', async () => {
+    // A 503 on /packs/index.json used to return [] exactly like "no updates",
+    // so a deployed build could fail this check on every load and never once
+    // mention it.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503, headers: { get: () => null } }))
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} })
+
+    const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com' })
+    expect(await mgr.checkForUpdates()).toEqual([])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('503'))
+    warn.mockRestore()
+  })
+
+  it('says so when the index cannot be reached at all', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network error')))
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} })
+
+    const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com' })
+    expect(await mgr.checkForUpdates()).toEqual([])
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('unreachable'),
+      expect.any(Error),
+    )
+    warn.mockRestore()
+  })
+
   it('returns empty on 304 Not Modified', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 304, headers: { get: () => null } }))
     vi.stubGlobal('localStorage', { getItem: () => '"etag-123"', setItem: () => {} })

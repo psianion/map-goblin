@@ -2,6 +2,8 @@
 // the table plays with — `byScene[sceneId][doorId]`, seeded from the authored data the
 // first time a command touches the scene, so an untouched campaign persists nothing.
 
+import type { Logged } from '../log'
+
 export interface DoorLiveState {
   open: boolean
   locked: boolean
@@ -9,7 +11,7 @@ export interface DoorLiveState {
   revealed: boolean
 }
 
-export interface DoorsState {
+export interface DoorsState extends Logged {
   byScene: Record<string, Record<string, DoorLiveState>>
 }
 
@@ -35,7 +37,35 @@ export interface AuthoredDoor {
 // The wire's `code` union is fixed by the protocol (`invalid-command` here), so the typed
 // refusals of §2.2 ride at the head of the message; clients match on these constants.
 export const DOOR_LOCKED = 'door-locked'
+export const DOOR_CLOSED = 'door-closed'
 export const UNKNOWN_DOOR = 'unknown-door'
+
+/**
+ * The refusal grammar every lane writes to: `<cause> <subject?>: sentence`.
+ *
+ * The cause alone got a player "The door is locked." for a door they can see the name of on
+ * the panel beside it, because the id never left the server. The subject is the id, never
+ * the name: the name a *player* is allowed to read is already decided by the map redactor
+ * (a door onto a room nobody has entered comes over blank), so the client resolves the id
+ * against the doors it actually holds and falls back to the nameless sentence when it holds
+ * nothing. Putting the name on the wire here would hand it over behind the redactor's back.
+ */
+export const refusal = (cause: string, subjectId: string | null, sentence: string): string =>
+  `${cause}${subjectId ? ` ${subjectId}` : ''}: ${sentence}`
+
+/** The id a refusal named, or null — including for the older, subjectless form. */
+export function refusalSubject(message: string): string | null {
+  const colon = message.indexOf(':')
+  if (colon < 0) return null
+  const head = message.slice(0, colon).split(' ')
+  return head.length === 2 ? head[1] : null
+}
+
+/** Why a room the party cannot reach is shut off, and which door said so. */
+export interface BlockedEdge {
+  kind: 'locked-door' | 'closed-door'
+  doorId: string
+}
 
 export const isArchway = (door: AuthoredDoor): boolean => door.style === 'archway'
 

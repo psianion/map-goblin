@@ -119,6 +119,10 @@ export async function handleImageImport(file: File, engine: RenderEngine): Promi
 
     const child = await importImageFile(file, center);
     undoManager.execute(new AddChildCommand('Import image', targetLayerId, child));
+    // An imported picture is an asset the user is likely to place again, and the
+    // browser's Recent tab is where they would look for it. Nothing on the
+    // import path recorded the use, so imports never showed up there.
+    store.trackRecentUse(child.assetId);
 
     notify.success('Image imported');
   } catch (err) {

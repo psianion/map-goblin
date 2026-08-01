@@ -1,6 +1,27 @@
-import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { act, cleanup, render } from '@testing-library/react';
+import { DOOR_CLOSED, DOOR_LOCKED } from '@dnd/mechanics/doors';
 import type { Token } from '@dnd/mechanics/tokens';
-import { approach, canDrag, createThrottle, drawOrder, hitTest } from './drag';
+import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
+import type { Layer } from '@dnd/core/src/store/types';
+import { liveDoors } from '../doors/doors';
+import { useSessionStore } from '../../session/store';
+import { useToasts, type Toast } from '../../session/toasts';
+import { tokenLabelText } from './TokenRenderer';
+import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
+import {
+  SETTLE_MS,
+  approach,
+  attachTokenInput,
+  canDrag,
+  createThrottle,
+  drawOrder,
+  hitTest,
+  tokenRefusal,
+  type TokenLayer,
+} from './drag';
+import { TokenPanel } from './TokenPanel';
 import { DISPOSITION_COLOR, initials, tokenAppearance, tokensOf } from './TokenRenderer';
 
 const token = (over: Partial<Token> = {}): Token => ({
@@ -141,6 +162,306 @@ describe('tokenAppearance (D11 — the DM never loses visibility)', () => {
   });
 });
 
+describe('a refused move (the rubber-band on its own says nothing)', () => {
+  const player: PlayerInfo = { identityId: 'p-2', name: 'Borin', role: 'player', connected: true };
+
+  const session = (tokens: Token[]): SessionState => ({
+    protocolVersion: 3,
+    sessionId: 's1',
+    campaignId: 'c1',
+    activeSceneId: 'scene-1',
+    scenes: [{ id: 'scene-1', name: 'Crypt' }],
+    players: [player],
+    modules: {
+      tokens: { library: {}, byScene: { 'scene-1': Object.fromEntries(tokens.map((t) => [t.id, t])) } },
+    },
+  });
+
+  /** What the server hands back for `tokens.move` into a room a player may not stand in. */
+  const refused = (at: number) => ({
+    code: 'invalid-command' as const,
+    message: 'that space cannot be occupied',
+    at,
+  });
+
+  beforeEach(() => {
+    cleanup();
+    useSessionStore.setState({ session: session([token()]), you: player, client: null, lastError: null });
+    useToasts.setState({ toast: null });
+  });
+
+  it('reads the sentence a move is refused with, and nobody else’s refusal', () => {
+    expect(tokenRefusal('that space cannot be occupied')).toBe("You can't move there.");
+    expect(tokenRefusal('you may only move a token you own')).toBeNull();
+    expect(tokenRefusal(`${DOOR_LOCKED}: that door is locked`)).toBeNull();
+  });
+
+  it('toasts the player who dropped a token where it may not stand, once per drop', () => {
+    render(createElement(TokenPanel));
+
+    const shown: Toast[] = [];
+    const unsubscribe = useToasts.subscribe((s) => {
+      if (s.toast) shown.push(s.toast);
+    });
+    // A drag across a wall is refused on the way at ~10 Hz and again on the drop; the
+    // player is owed one answer, not one per message.
+    act(() => useSessionStore.setState({ lastError: refused(1) }));
+    act(() => useSessionStore.setState({ lastError: refused(2) }));
+    unsubscribe();
+
+    // One toast — the same id throughout, never a second one stacked behind it.
+    expect(new Set(shown.map((t) => t.id)).size).toBe(1);
+    expect(shown.map((t) => t.message)).toEqual([
+      "You can't move there.",
+      "You can't move there.",
+    ]);
+    // …but re-set on the later refusal, which is what restarts its dismissal window. The
+    // drop is what the player actually looks up from; a clock started by the first refusal
+    // mid-drag had all but run out by then.
+    expect(shown[1]).not.toBe(shown[0]);
+  });
+
+  it('says nothing when the move was taken — a slow echo is not a refusal', () => {
+    render(createElement(TokenPanel));
+    act(() => useSessionStore.setState({ session: session([token({ x: 4.5, y: 6.5 })]) }));
+    expect(useToasts.getState().toast).toBeNull();
+  });
+});
+
+describe('a refused drag rubber-bands to where the pointer picked the token up', () => {
+  const player: PlayerInfo = { identityId: 'p-2', name: 'Borin', role: 'player', connected: true };
+  const mine = (over: Partial<Token> = {}) => token({ ownerId: 'p-2', ...over });
+
+  const session = (tokens: Token[]): SessionState => ({
+    protocolVersion: 3,
+    sessionId: 's1',
+    campaignId: 'c1',
+    activeSceneId: 'scene-1',
+    scenes: [{ id: 'scene-1', name: 'Crypt' }],
+    players: [player],
+    modules: {
+      tokens: { library: {}, byScene: { 'scene-1': Object.fromEntries(tokens.map((t) => [t.id, t])) } },
+    },
+  });
+
+  /**
+   * A canvas that hands its listeners back. `drag.ts` wires capture-phase DOM listeners and
+   * reads only button/clientX/clientY/pointerId off an event, so driving them directly is
+   * the whole gesture without jsdom's PointerEvent — which is the GPU-free seam the file
+   * was split for.
+   */
+  function fakeCanvas() {
+    const listeners: Record<string, ((e: unknown) => void)[]> = {};
+    return {
+      el: {
+        addEventListener: (t: string, fn: unknown) => void (listeners[t] ??= []).push(fn as never),
+        removeEventListener: () => {},
+        getBoundingClientRect: () => ({ left: 0, top: 0 }),
+        setPointerCapture: () => {},
+        hasPointerCapture: () => false,
+        releasePointerCapture: () => {},
+      },
+      /**
+       * Dispatch, with `stopImmediatePropagation` meaning what the DOM means by it: the
+       * listeners registered after the one that called it never run. That is the whole of
+       * how a grabbed token keeps the door overlay — which listens on this very element —
+       * out of the same press, so the fake has to model it rather than no-op it.
+       */
+      fire(type: string, clientX: number, clientY: number) {
+        let stopped = false;
+        for (const fn of listeners[type] ?? []) {
+          if (stopped) return;
+          fn({
+            button: 0,
+            clientX,
+            clientY,
+            pointerId: 1,
+            stopPropagation() {},
+            stopImmediatePropagation() {
+              stopped = true;
+            },
+            preventDefault() {},
+          });
+        }
+      },
+    };
+  }
+
+  /** Every `tokens` command the tab put on the wire, in order. */
+  function harness(held: Token[]) {
+    const canvas = fakeCanvas();
+    const sent: { action: string; payload: { id: string; x: number; y: number } }[] = [];
+    let tokens = held;
+    let settled: { x: number; y: number } | null = null;
+
+    useSessionStore.setState({
+      session: session(tokens),
+      you: player,
+      lastError: null,
+      client: {
+        send: (m: unknown) => {
+          const msg = m as { module: string; action: string; payload: typeof sent[number]['payload'] };
+          if (msg.module === 'tokens') sent.push({ action: msg.action, payload: msg.payload });
+        },
+      } as never,
+    });
+
+    const engine = {
+      canvas: () => canvas.el,
+      // One screen unit is one world unit, so a client point is already a world point.
+      screenToWorld: (x: number, y: number) => ({ x, y }),
+    } as unknown as RenderEngine;
+
+    const layer: TokenLayer = {
+      tokens: () => tokens,
+      placeAt: () => {},
+      setDragging: () => {},
+      settleAt: (_id, x, y) => void (settled = { x, y }),
+    };
+
+    return {
+      canvas,
+      sent,
+      detach: attachTokenInput(engine, layer),
+      settled: () => settled,
+      /** The server took a hop: the authoritative slice now says the token moved. */
+      accept: (x: number, y: number) => {
+        tokens = [mine({ x, y })];
+        act(() => useSessionStore.setState({ session: session(tokens) }));
+      },
+      refuse: () =>
+        act(() =>
+          useSessionStore.setState({
+            lastError: { code: 'invalid-command', message: 'that space cannot be occupied', at: Date.now() },
+          }),
+        ),
+    };
+  }
+
+  beforeEach(() => {
+    cleanup();
+    useToasts.setState({ toast: null });
+  });
+
+  it('undoes the hops the drag already got past the server, not just the last one', async () => {
+    const h = harness([mine({ x: 0.5, y: 0.5 })]);
+
+    // The gesture: down on the token, across, up. The throttle's leading edge puts the
+    // first hop on the wire mid-drag, which is the one the server takes.
+    h.canvas.fire('pointerdown', 0.5, 0.5);
+    h.canvas.fire('pointermove', 2.5, 0.5);
+    h.canvas.fire('pointermove', 6.5, 0.5);
+    h.canvas.fire('pointerup', 6.5, 0.5);
+
+    // That legal hop is committed over there — this is the ground a refused drag used to
+    // keep, one cell at a time.
+    h.accept(2.5, 0.5);
+    h.refuse();
+    await Promise.resolve();
+
+    expect(h.settled(), 'the sprite goes back to the cell it was picked up from').toEqual({
+      x: 0.5,
+      y: 0.5,
+    });
+    expect(h.sent.at(-1), 'and the server is told to give the ground back').toEqual({
+      action: 'move',
+      payload: { id: 't1', x: 0.5, y: 0.5 },
+    });
+    h.detach();
+  });
+
+  it('leaves an accepted drop alone, even when a hop on the way was refused', async () => {
+    const h = harness([mine({ x: 0.5, y: 0.5 })]);
+
+    h.canvas.fire('pointerdown', 0.5, 0.5);
+    h.canvas.fire('pointermove', 2.5, 0.5);
+    h.canvas.fire('pointerup', 6.5, 0.5);
+    const drop = h.sent.at(-1)!.payload;
+
+    // The server refused a cell on the way but took the drop; a move that landed must not
+    // be undone by the answer to one that did not.
+    h.accept(drop.x, drop.y);
+    h.refuse();
+    await Promise.resolve();
+
+    expect(h.settled()).toBeNull();
+    expect(h.sent.at(-1)!.payload).toEqual(drop);
+    h.detach();
+  });
+
+  it('ignores a refusal that arrives long after the gesture settled', async () => {
+    const h = harness([mine({ x: 0.5, y: 0.5 })]);
+
+    h.canvas.fire('pointerdown', 0.5, 0.5);
+    h.canvas.fire('pointermove', 2.5, 0.5);
+    h.canvas.fire('pointerup', 2.5, 0.5);
+    h.accept(2.5, 0.5);
+
+    act(() =>
+      useSessionStore.setState({
+        lastError: {
+          code: 'invalid-command',
+          message: 'that space cannot be occupied',
+          at: Date.now() + SETTLE_MS + 1,
+        },
+      }),
+    );
+    await Promise.resolve();
+
+    expect(h.settled(), 'somebody else’s refusal never moves this token').toBeNull();
+    h.detach();
+  });
+
+  // The gate refuses this drag before a single move leaves the tab, so the server never
+  // answers and the refusal toast never fires. Silence is what the browser gate found.
+  it('answers a grab at a token this seat may not move', () => {
+    const h = harness([token({ id: 't1', ownerId: null })]);
+
+    h.canvas.fire('pointerdown', 0.5, 0.5);
+    expect(useToasts.getState().toast?.message).toBe('Claim this token to move it.');
+    // Refused before the wire, not on it: nothing was sent and nothing moved.
+    expect(h.sent).toEqual([]);
+    expect(h.settled()).toBeNull();
+
+    // One toast per refusal, not one per grab.
+    const id = useToasts.getState().toast!.id;
+    h.canvas.fire('pointerup', 0.5, 0.5);
+    h.canvas.fire('pointerdown', 0.5, 0.5);
+    expect(useToasts.getState().toast!.id).toBe(id);
+    h.detach();
+  });
+
+  /**
+   * The door overlay listens on this same canvas, and it registers after token input on
+   * purpose — tokens are dragged, doors are only tapped. `stopPropagation` never enforced
+   * that: propagation is between nodes, so a listener on the same element ran anyway, and
+   * pressing down on a token standing in a doorway both grabbed the token and swung the
+   * door open under it. A door opens because somebody chose to open it.
+   */
+  it('keeps the press that grabs a token away from the door overlay behind it', () => {
+    const h = harness([mine({ x: 0.5, y: 0.5 })]);
+    const overlay: number[] = [];
+    h.canvas.el.addEventListener('pointerdown', () => void overlay.push(1));
+
+    h.canvas.fire('pointerdown', 0.5, 0.5);
+    expect(overlay, 'the token won the press; the door under it stays shut').toEqual([]);
+
+    // A press that grabs nothing is still the door's to answer.
+    h.canvas.fire('pointerup', 0.5, 0.5);
+    h.canvas.fire('pointerdown', 40.5, 40.5);
+    expect(overlay).toEqual([1]);
+    h.detach();
+  });
+
+  it('names the holder when the token is somebody else’s', () => {
+    const h = harness([token({ id: 't1', ownerId: 'p-9' })]);
+
+    h.canvas.fire('pointerdown', 0.5, 0.5);
+    expect(useToasts.getState().toast?.message).toBe('Another player is holding that token.');
+    h.detach();
+  });
+});
+
 describe('tokensOf', () => {
   const state = { library: {}, byScene: { a: { t1: token(), junk: null as unknown as Token }, b: {} } };
 
@@ -153,5 +474,82 @@ describe('tokensOf', () => {
     expect(tokensOf(state, 'nope')).toEqual([]);
     expect(tokensOf(state, null)).toEqual([]);
     expect(tokensOf(undefined, 'a')).toEqual([]);
+  });
+});
+
+describe('tokenLabelText', () => {
+  it('names the player alongside the token when that says something new', () => {
+    expect(tokenLabelText('Goblin Archer', 'Borin')).toBe('Goblin Archer · Borin');
+  });
+
+  /** The gate walk's "Borin · Borin": the token and its claimant are the same word. */
+  it('says the name once when the token is already called that', () => {
+    expect(tokenLabelText('Borin', 'Borin')).toBe('Borin');
+  });
+
+  it('is just the token name while nobody has claimed it', () => {
+    expect(tokenLabelText('Borin', null)).toBe('Borin');
+  });
+});
+
+describe('tokenRefusal carries the cause the server named', () => {
+  it('says the bare fact when the refusal names no cause', () => {
+    expect(tokenRefusal('that space cannot be occupied')).toBe("You can't move there.");
+  });
+
+  /**
+   * The unification: a move blocked by a door is the same fact the doors lane already has
+   * words for, so it gets those words rather than a vaguer sentence of its own.
+   */
+  it('says which door, once a refusal carries the door lane’s prefix', () => {
+    expect(tokenRefusal(`${DOOR_LOCKED}: that space cannot be occupied`)).toBe(
+      'The door is locked.',
+    );
+    expect(tokenRefusal(`${DOOR_CLOSED}: that space cannot be occupied`)).toBe(
+      'The door is closed.',
+    );
+  });
+
+  /** …and by name, when this seat holds the door the server named. */
+  it('names the door out of the ones this seat holds', () => {
+    const doors = liveDoors(
+      [
+        {
+          id: 'l1',
+          type: 'dungeon',
+          rooms: [],
+          standaloneWalls: [],
+          children: [
+            {
+              id: 'door-sump',
+              name: 'Sump Portcullis',
+              childType: 'door',
+              visible: true,
+              wallId: 'w1',
+              position: [4, 4],
+              angle: 0,
+              width: 1.6,
+              style: 'portcullis',
+              state: 'closed',
+              isSecret: false,
+            },
+          ],
+        } as unknown as Layer,
+      ],
+      undefined,
+      'scene-1',
+    );
+    expect(tokenRefusal(`${DOOR_CLOSED} door-sump: that space cannot be occupied`, doors)).toBe(
+      'Sump Portcullis is closed.',
+    );
+    // A door this seat was not handed keeps the nameless sentence — never "Door 1".
+    expect(tokenRefusal(`${DOOR_CLOSED} door-elsewhere: that space cannot be occupied`, doors)).toBe(
+      'The door is closed.',
+    );
+  });
+
+  it('stays out of refusals that are not about a move', () => {
+    expect(tokenRefusal(`${DOOR_LOCKED}: that door is locked`)).toBeNull();
+    expect(tokenRefusal('no token def "goblin"')).toBeNull();
   });
 });

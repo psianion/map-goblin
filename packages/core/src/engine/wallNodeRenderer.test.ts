@@ -1,0 +1,350 @@
+// The stone sprite pool. Layout itself is wallLayout.test.ts's job — what is
+// checkable here is that a rebuild reuses the sprites already in the container
+// instead of destroying every stone and allocating a fresh one, which on a drag
+// happened for every wall on the map, every frame.
+
+import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('pixi.js', () => {
+  class MockContainer {
+    label = '';
+    destroyed = false;
+    children: MockContainer[] = [];
+    addChild(c: MockContainer): MockContainer {
+      this.children.push(c);
+      return c;
+    }
+    removeChildAt(i: number): MockContainer {
+      return this.children.splice(i, 1)[0];
+    }
+    removeChildren(): MockContainer[] {
+      const out = this.children;
+      this.children = [];
+      return out;
+    }
+    destroy(): void {
+      this.destroyed = true;
+    }
+  }
+  class MockSprite extends MockContainer {
+    texture: unknown;
+    rotation = 0;
+    tint = 0;
+    anchor = { set: (): void => {} };
+    position = { x: 0, y: 0, set(x: number, y: number): void { this.x = x; this.y = y; } };
+    scale = { x: 1, y: 1, set(x: number, y: number): void { this.x = x; this.y = y; } };
+    constructor(texture?: unknown) {
+      super();
+      this.texture = texture;
+    }
+  }
+  return { Container: MockContainer, Sprite: MockSprite };
+});
+
+vi.mock('../assets/textureLoader', () => ({
+  resolveTexture: (id: string) => ({ id, width: 200, height: 200 }),
+  load: vi.fn(() => Promise.resolve(null)),
+}));
+
+vi.mock('../assets/textureManifest', () => ({
+  getWallPieces: (_set: string, piece: string) =>
+    piece === 'straight'
+      ? [{ id: 'straight-a', naturalWidth: 200, naturalHeight: 200, contentRect: { x: 0, y: 0, w: 200, h: 60 } }]
+      : [],
+}));
+
+import { Container } from 'pixi.js';
+import { renderNodeWalls, withoutDoorGaps, type DoorGap } from './wallNodeRenderer';
+import { layoutWall, pieceWorldLength } from './wallLayout';
+import type { WallNode, WallPieceSpec } from './wallLayout';
+import type { DungeonStyle, WallSegment } from '../store/types';
+import type { Polygon } from '../types/geometry';
+
+const style = { wallTextureSetId: 'stone-slate', wallTextureTint: '#ffffff', wallWidth: 0.4 } as DungeonStyle;
+
+const wall = (id: string, length: number): WallSegment =>
+  ({ id, points: [[0, 0], [length, 0]], width: 0.4 }) as WallSegment;
+
+function render(walls: WallSegment[], container = new Container()): Container {
+  renderNodeWalls(container, [], walls, style);
+  return container;
+}
+
+describe('renderNodeWalls — stone sprite pool', () => {
+  it('draws a stone per laid-out node', () => {
+    expect(render([wall('w1', 10)]).children.length).toBeGreaterThan(0);
+  });
+
+  it('reuses the same sprites when the same wall is drawn again', () => {
+    const container = render([wall('w1', 10)]);
+    const before = [...container.children];
+
+    render([wall('w1', 10)], container);
+
+    expect(container.children).toEqual(before);
+    expect(before.every((s) => !s.destroyed)).toBe(true);
+  });
+
+  it('destroys only the tail when the wall gets shorter', () => {
+    const container = render([wall('w1', 30)]);
+    const before = [...container.children];
+
+    render([wall('w1', 6)], container);
+
+    expect(container.children.length).toBeLessThan(before.length);
+    // Everything still on screen is the object it was...
+    expect(container.children).toEqual(before.slice(0, container.children.length));
+    // ...and only what fell off the end was destroyed.
+    expect(before.slice(container.children.length).every((s) => s.destroyed)).toBe(true);
+  });
+
+  it('empties the container when the style has no wall set', () => {
+    const container = render([wall('w1', 10)]);
+    renderNodeWalls(container, [], [wall('w1', 10)], { ...style, wallTextureSetId: '' } as DungeonStyle);
+    expect(container.children).toHaveLength(0);
+  });
+});
+
+// The pool has to survive the transition that opens a doorway: the second pass
+// lays out fewer stones than the first, and the ones it does lay out land at
+// different indices. A stone left behind inside the opening is the e2e's
+// "doorway is clear of stones" row failing.
+describe('renderNodeWalls — door gaps through the pool', () => {
+  const ROOM: Polygon = [
+    [-6, 0],
+    [6, 0],
+    [6, 8],
+    [-6, 8],
+  ];
+  const GAP = { wallId: 'floor:0:0', position: [1, 0] as [number, number], width: 3, ring: 0 };
+
+  const inGap = (c: Container): unknown[] =>
+    c.children.filter((s) => {
+      const p = (s as unknown as { position: { x: number; y: number } }).position;
+      return Math.hypot(p.x - GAP.position[0], p.y - GAP.position[1]) < GAP.width / 2;
+    });
+
+  it('leaves no stone in the opening when a door is added to an already-drawn ring', () => {
+    const container = new Container();
+    renderNodeWalls(container, [ROOM], [], style);
+    expect(inGap(container).length).toBeGreaterThan(0); // stones run through it
+
+    renderNodeWalls(container, [ROOM], [], style, [GAP]);
+    expect(inGap(container)).toHaveLength(0);
+  });
+
+  it('leaves no stone behind when the opening moves', () => {
+    const container = new Container();
+    renderNodeWalls(container, [ROOM], [], style, [{ ...GAP, position: [-3, 0] }]);
+    renderNodeWalls(container, [ROOM], [], style, [GAP]);
+    expect(inGap(container)).toHaveLength(0);
+  });
+
+  // A door as wide as its wall. It was already pixel-perfect
+  // under the old centre-radius cull, so the new cut must not disturb it.
+  it('still clears the whole edge when the opening is the full wall', () => {
+    const container = new Container();
+    renderNodeWalls(container, [], [wall('w1', 10)], style, [
+      { wallId: 'w1', position: [5, 0], width: 10 },
+    ]);
+    const onEdge = container.children.filter((s) => {
+      const p = (s as unknown as { position: { x: number; y: number } }).position;
+      return Math.abs(p.y) < 0.5 && p.x > 0 && p.x < 10;
+    });
+    expect(onEdge).toHaveLength(0);
+  });
+});
+
+/**
+ * The cut itself. A door narrower than its wall used to lose a whole stone for a
+ * sliver of overlap — up to a stone of dead wall on each side of every opening —
+ * because the old rule only asked whether a stone's CENTRE was inside the door.
+ *
+ * Numbers are chosen to be exact: at wallWidth 0.5 the piece below is
+ * `100 * (0.5 / 50)` = 1 world unit long, so its half-length is 0.5.
+ */
+describe('withoutDoorGaps', () => {
+  const WALL_WIDTH = 0.5;
+  const SPEC: WallPieceSpec = { id: 'p', role: 'straight', lengthPx: 100, thicknessPx: 50 };
+  const SPECS = new Map([[SPEC.id, SPEC]]);
+  const HALF_LENGTH = 0.5;
+
+  /** A stone lying along +x at `x`. */
+  const stone = (x: number, y = 0, angle = 0): WallNode =>
+    ({ t: 0.25, x, y, angle, pieceId: 'p', scale: 1, sizeScale: 1, kind: 'straight' });
+
+  /** A two-unit opening centred on the origin: it spans x -1..1. */
+  const gap = { wallId: 'w1', position: [0, 0] as [number, number], width: 2 };
+
+  const cut = (nodes: WallNode[]) => withoutDoorGaps(nodes, [gap], SPECS, WALL_WIDTH);
+
+  it('drops a stone sitting inside the opening', () => {
+    expect(cut([stone(0.2)])).toHaveLength(0);
+  });
+
+  it('leaves a stone clear of the opening exactly as it was', () => {
+    const clear = stone(3);
+    const out = cut([clear]);
+    // Same object, not a copy: nothing about it changed.
+    expect(out).toEqual([clear]);
+    expect(out[0]).toBe(clear);
+  });
+
+  it('slides a clipped stone out by exactly its overlap', () => {
+    // Centre at 1.3, so the stone spans 0.8..1.8 and the opening eats 0.2 of it.
+    const clipped = stone(1.3);
+    const [moved] = cut([clipped]);
+    expect(moved.x).toBeCloseTo(1.5);
+    // Its inner edge now lands on the opening's edge, not inside it.
+    expect(moved.x - HALF_LENGTH).toBeCloseTo(gap.width / 2);
+    expect(moved.y).toBeCloseTo(0);
+    // The input is shared with the overlay and `t` anchors every hand edit.
+    expect(clipped.x).toBe(1.3);
+    expect(moved.t).toBe(clipped.t);
+  });
+
+  it('slides the stone on the other side the other way', () => {
+    const [moved] = cut([stone(-1.3)]);
+    expect(moved.x).toBeCloseTo(-1.5);
+  });
+
+  it('ignores an opening that belongs to a different edge', () => {
+    // Projects onto this stone's axis at along = 0, but sits two units off it.
+    const other = stone(0, 2);
+    expect(cut([other])).toEqual([other]);
+  });
+});
+
+/**
+ * The cut against real stone, on a real layout.
+ *
+ * stone-slate's straights are 600, 400, 200 and 100 px of content over a 61px
+ * band, so at the default 0.5-cell wall width they are 4.92, 3.28, 1.75 and 0.94
+ * CELLS long. The longest is more than half a nine-cell wall, which is the whole
+ * problem: a door on that wall almost never lands between two stones, it lands
+ * inside one. Treating that stone as a unit that has to end up wholly outside
+ * the opening throws away the two or three cells of it that were covering the
+ * wall on the far side.
+ */
+describe('withoutDoorGaps — a door that lands inside a stone', () => {
+  const WALL_WIDTH = 0.5;
+  const LENGTH = 9;
+  const SLATE: WallPieceSpec[] = [
+    { id: 'straight-a', role: 'straight', lengthPx: 600, thicknessPx: 61 },
+    { id: 'straight-b', role: 'straight', lengthPx: 400, thicknessPx: 61 },
+    { id: 'straight-c', role: 'straight', lengthPx: 200, thicknessPx: 57 },
+    { id: 'straight-d', role: 'straight', lengthPx: 100, thicknessPx: 53 },
+    { id: 'ending-a', role: 'ending', lengthPx: 200, thicknessPx: 61 },
+  ];
+  const BY_ID = new Map(SLATE.map((s) => [s.id, s]));
+
+  /** The art director's repro: one straight nine-cell wall, laid out for real. */
+  const laid = (): WallNode[] =>
+    layoutWall([[0, 0], [LENGTH, 0]], false, SLATE, { wallWidth: WALL_WIDTH, seed: 1 });
+
+  const door = (x: number, width = 1): DoorGap =>
+    ({ wallId: 'w1', position: [x, 0], width });
+
+  const cut = (gaps: DoorGap[], nodes = laid()): WallNode[] =>
+    withoutDoorGaps(nodes, gaps, BY_ID, WALL_WIDTH, [[0, 0], [LENGTH, 0]]);
+
+  /** What each stone actually paints on the wall's axis, `[start, end]`. */
+  const span = (n: WallNode): [number, number] => {
+    const s = BY_ID.get(n.pieceId)!;
+    const half = (pieceWorldLength(s, WALL_WIDTH) * n.scale * n.sizeScale) / 2;
+    return [n.x - half, n.x + half];
+  };
+
+  /** Stretches of `[from, to]` no stone covers — bare floor where wall belongs. */
+  function bare(nodes: WallNode[], from: number, to: number): [number, number][] {
+    const spans = nodes.map(span).sort((a, b) => a[0] - b[0]);
+    const out: [number, number][] = [];
+    let cursor = from;
+    for (const [a, b] of spans) {
+      if (cursor >= to) break;
+      if (a > cursor + 1e-6) out.push([cursor, Math.min(a, to)]);
+      if (b > cursor) cursor = b;
+    }
+    if (cursor < to - 1e-6) out.push([cursor, to]);
+    return out;
+  }
+
+  it('leaves no bare floor between the wall start and a door two cells along', () => {
+    const out = cut([door(2)]);
+    expect(bare(out, 0, 1.5)).toEqual([]);
+    expect(bare(out, 2.5, LENGTH)).toEqual([]);
+  });
+
+  it('leaves no bare floor between a door and the wall end', () => {
+    const out = cut([door(7)]);
+    expect(bare(out, 7.5, LENGTH)).toEqual([]);
+    expect(bare(out, 0, 6.5)).toEqual([]);
+  });
+
+  it('keeps the run trapped between two doors and no stone off the end', () => {
+    const out = cut([door(2), door(6)]);
+    expect(bare(out, 2.5, 5.5)).toEqual([]);
+    // The orphan cobble: nothing may be pushed past either end of the wall.
+    expect(out.every((n) => n.x >= -1e-6 && n.x <= LENGTH + 1e-6)).toBe(true);
+  });
+
+  it('strands nothing outside the wall when the door is the whole wall', () => {
+    // A door filling the whole edge. The end caps sit ON the ends, so a rule that only
+    // knows how to slide a clipped stone outward slides them off the wall.
+    expect(cut([door(LENGTH / 2, LENGTH)])).toEqual([]);
+  });
+
+  it('puts nothing inside the opening', () => {
+    for (const [a, b] of cut([door(2)]).map(span)) {
+      // Every stone sits wholly on one side of the opening or the other.
+      expect(b <= 1.5 + 1e-6 || a >= 2.5 - 1e-6).toBe(true);
+    }
+  });
+
+  /** What fraction of its own natural length a stone is actually drawn at. */
+  const frac = (n: WallNode): number => n.scale * n.sizeScale;
+
+  it('fills a short run with few stones near their natural length', () => {
+    // A door at 7 leaves 7.5..9 — a cell and a half, less than a third of the
+    // longest straight. Squeezing that straight onto it drew one stone at 0.30
+    // of its natural length, and every stone reaching the run drew its own
+    // full-run copy on top: a picket fence of hairline slivers with doubled ink
+    // outlines. The run wants smaller stones, not a thinner one.
+    const out = cut([door(7)]);
+    const inRun = out.filter((n) => {
+      const [a, b] = span(n);
+      return b > 7.5 + 1e-6 && a < 9 - 1e-6;
+    });
+
+    expect(bare(out, 7.5, 9)).toEqual([]);
+    // A cell and a half of stone-slate is two of its smallest straights, not
+    // fourteen slivers.
+    expect(inRun.length).toBeLessThanOrEqual(4);
+    expect(inRun.length).toBeGreaterThan(0);
+    for (const n of inRun) {
+      // MIN_FIT_FRAC. Below this a stone stops reading as masonry.
+      expect(frac(n)).toBeGreaterThanOrEqual(0.65);
+    }
+  });
+
+  it('never slides a stone across a second door further along', () => {
+    // A run is bounded by every opening on the wall, not only the ones already
+    // cutting the stone. Bounded by the near door alone, a stone clipped at 2.5
+    // slid flush and ran on to 9 — straight over the door at 6.
+    const openings: [number, number][] = [[1.5, 2.5], [5.5, 6.5]];
+    for (const [a, b] of cut([door(2), door(6)]).map(span)) {
+      for (const [lo, hi] of openings) {
+        expect(b <= lo + 1e-6 || a >= hi - 1e-6).toBe(true);
+      }
+    }
+  });
+
+  it('leaves the end caps on the wall ends when a door is elsewhere', () => {
+    // Caps straddle their endpoint on purpose. Bounding their runs by a distant
+    // door must not slide them inboard.
+    const capsBefore = laid().filter((n) => n.pieceId === 'ending-a');
+    const capsAfter = cut([door(4.5)]).filter((n) => n.pieceId === 'ending-a');
+    expect(capsAfter.map((n) => n.x).sort((p, q) => p - q))
+      .toEqual(capsBefore.map((n) => n.x).sort((p, q) => p - q));
+  });
+});

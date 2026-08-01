@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import type { SessionState } from '@dnd/core/src/shared/protocol';
 import { uploadMapFile } from '../session/auth';
+import { readMapFile } from '../session/mapFile';
 import { ALL_ROLES, registerPanel } from '../session/panels';
 import { useSessionStore } from '../session/store';
 import { InviteCodeChip } from './InviteCodeChip';
@@ -36,7 +37,8 @@ export function SessionControls() {
     setBusy(true);
     setError(null);
     try {
-      await uploadMapFile(session.campaignId, token, await file.text());
+      // The editor's own save is gzipped (`readMapFile`); a testdata fixture is plain JSON.
+      await uploadMapFile(session.campaignId, token, await readMapFile(file));
       // D6: the scene list only travels inside a snapshot, and `join` is what asks
       // for one. Re-sending it *is* the refetch — the server reads scenes fresh per
       // snapshot, so the new map shows up in the list below. Everyone else sees a

@@ -99,22 +99,5 @@ export async function prepareImageForEmbed(url: string): Promise<string> {
   return dataUrl;
 }
 
-/**
- * Restore custom images from a save file's customImages map into PIXI.Assets.
- * Must be called BEFORE loadFromFile() restores the layer state.
- */
-export async function restoreCustomImages(customImages: Record<string, string>): Promise<void> {
-  if (!customImages || Object.keys(customImages).length === 0) return;
-  const { Assets } = await import('pixi.js');
-  for (const [id, dataUrl] of Object.entries(customImages)) {
-    try {
-      if (Assets.cache.has(id)) continue;
-      const texture = await Assets.load({ alias: id, src: dataUrl });
-      if (!texture) {
-        console.warn('[restoreCustomImages] Failed to load texture for ID:', id);
-      }
-    } catch (err) {
-      console.warn('[restoreCustomImages] Error loading asset', id, err);
-    }
-  }
-}
+// `restoreCustomImages` moved to `@/assets/textureLoader` — the table needs it too, and
+// it belongs beside the resolver step that reads what it registers.

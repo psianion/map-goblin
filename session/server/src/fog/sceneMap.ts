@@ -97,6 +97,7 @@ export function centreOf(child: AnyChild): [number, number] {
   switch (child.childType) {
     case 'asset':
     case 'light':
+    case 'text':
       return [child.position.x, child.position.y]
     case 'door':
       return child.position

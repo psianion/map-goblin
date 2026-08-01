@@ -12,10 +12,15 @@ import { PropertyField } from '@/components/properties/PropertyField';
 import { ChevronUp, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ToggleSwitch } from '@/components/ui/toggle-switch';
+import {
+  minDoorWidth,
+  doorStyleLabel,
+  PLACEABLE_DOOR_STYLES,
+} from '@dnd/core/src/engine/tools/DoorTool';
 import { showToolPreview, hideToolPreview } from '@/engine/toolPreview';
 import type { PreviewSettings } from '@/engine/toolPreview';
 import { PresetGrid } from './PresetGrid';
-import { DUNGEON_STYLE_PRESETS } from '@/store/presetRegistry';
+import { DUNGEON_STYLE_PRESETS, matchPresetId } from '@/store/presetRegistry';
 import type { MapStylePreset } from '@/store/presetRegistry';
 import { PresetApplyCommand, LayerStyleChangeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
@@ -130,16 +135,10 @@ function DrawingToolContent({
   const polygonSides = useStore((s) => s.tools.settings.regularPolygon.sides);
   const updateToolSettings = useStore((s) => s.updateToolSettings);
   // Derive active preset from actual layer style — stays in sync with undo
-  const activePresetId = useMemo(() => {
-    if (!layer || layer.type !== 'dungeon') return undefined;
-    const s = layer.style;
-    return DUNGEON_STYLE_PRESETS.find((p) => {
-      const d = p.dungeonStyle;
-      return Object.keys(d).every(
-        (k) => JSON.stringify(d[k as keyof typeof d]) === JSON.stringify(s[k as keyof typeof s]),
-      );
-    })?.id;
-  }, [layer]);
+  const activePresetId = useMemo(
+    () => (layer && layer.type === 'dungeon' ? matchPresetId(layer.style) : undefined),
+    [layer],
+  );
 
   if (!layer || layer.type !== 'dungeon') {
     return <p className="text-xs text-text-muted">No dungeon layer selected</p>;
@@ -458,12 +457,10 @@ function LightToolContent({ onValueChange }: { onValueChange?: () => void }) {
 
 // ─── Door Tool ───────────────────────────────────
 
-const DOOR_STYLES: { value: DoorStyle; label: string }[] = [
-  { value: 'single', label: 'Single' },
-  { value: 'double', label: 'Double' },
-  { value: 'portcullis', label: 'Portcullis' },
-  { value: 'archway', label: 'Archway' },
-];
+const DOOR_STYLES: { value: DoorStyle; label: string }[] = PLACEABLE_DOOR_STYLES.map((value) => ({
+  value,
+  label: doorStyleLabel(value),
+}));
 
 function DoorToolContent({ onValueChange }: { onValueChange?: () => void }) {
   const doorStyle = useStore((s) => s.tools.settings.doorStyle);
@@ -487,7 +484,14 @@ function DoorToolContent({ onValueChange }: { onValueChange?: () => void }) {
                   : 'bg-transparent border-border-default text-text-muted hover:text-text-primary',
               )}
               onClick={() => {
-                updateToolSettings({ doorStyle: value });
+                // Switching to a wider style takes the width up with it, the
+                // same bump the properties panel does — a double door left at a
+                // single door's width has no room for two leaves, and finding
+                // that out only at commit means the panel was lying.
+                updateToolSettings({
+                  doorStyle: value,
+                  doorWidth: Math.max(doorWidth ?? 1, minDoorWidth(value)),
+                });
                 onValueChange?.();
               }}
             >
@@ -515,7 +519,7 @@ function DoorToolContent({ onValueChange }: { onValueChange?: () => void }) {
             updateToolSettings({ doorWidth: v });
             onValueChange?.();
           }}
-          min={0.25}
+          min={minDoorWidth(doorStyle ?? 'single')}
           max={4}
           step={0.25}
         />

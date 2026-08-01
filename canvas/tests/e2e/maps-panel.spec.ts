@@ -25,7 +25,7 @@
  */
 
 import { test, expect, type Page } from '@playwright/test'
-import { gotoApp, waitFrame, drawRect, pressShortcut } from './helpers'
+import { gotoApp, waitForBoot, waitFrame, drawRect, pressShortcut } from './helpers'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -44,7 +44,7 @@ async function clickMapsToggle(page: Page): Promise<void> {
 
 /** Open the maps panel (idempotent — does nothing if already open) */
 async function openMapsPanel(page: Page): Promise<void> {
-  const panel = page.locator('[data-testid="maps-side-panel"]')
+  const panel = page.locator('[data-testid="maps-panel"]')
   const isVisible = await panel.isVisible().catch(() => false)
   if (!isVisible) {
     await clickMapsToggle(page)
@@ -54,7 +54,7 @@ async function openMapsPanel(page: Page): Promise<void> {
 
 /** Close the maps panel (idempotent — does nothing if already closed) */
 async function closeMapsPanel(page: Page): Promise<void> {
-  const panel = page.locator('[data-testid="maps-side-panel"]')
+  const panel = page.locator('[data-testid="maps-panel"]')
   const isVisible = await panel.isVisible().catch(() => false)
   if (isVisible) {
     await clickMapsToggle(page)
@@ -67,14 +67,24 @@ function getMapCards(page: Page) {
   return page.locator('[data-testid="map-card"]')
 }
 
-/** Click the "+ New Map" button and wait for fog transition to settle */
+/**
+ * Click the "+ New Map" button and wait for the map to actually exist.
+ *
+ * Creating a map serialises and gzips the open one, writes it, then writes a
+ * blank blob for the new one — on a cold IndexedDB that runs past a second. The
+ * fixed 1s sleep this used to do returned while the card list was still the old
+ * one, so callers renamed or clicked the *previous* map and the failure surfaced
+ * several steps later as a card that had gone missing.
+ */
 async function clickNewMap(page: Page): Promise<void> {
+  const before = await getMapCards(page).count()
   const newMapBtn = page.locator(
     '[data-testid="new-map-button"], button:has-text("+ New Map"), button:has-text("New Map")'
   )
   await newMapBtn.first().click()
-  // Wait for fog transition: fog-in (~300ms) + state swap + fog-out (~300ms) + buffer
-  await page.waitForTimeout(1000)
+  await expect(getMapCards(page)).toHaveCount(before + 1, { timeout: 30_000 })
+  // Fog transition: fog-in (~300ms) + state swap + fog-out (~300ms) + buffer
+  await page.waitForTimeout(700)
 }
 
 /** Right-click a map card by index to open the context menu */
@@ -135,8 +145,11 @@ test.describe('Maps Panel', () => {
   test.describe('1. Panel Toggle', () => {
 
     test('clicking Maps toggle icon opens the panel', async ({ page }) => {
-      // Step 1: Verify the panel is NOT visible initially (default: closed)
-      const panel = page.locator('[data-testid="maps-side-panel"]')
+      // The panel ships open — `ui.leftPanelOpen` defaults to true — so this
+      // starts by checking that, then closes it to have something to open.
+      const panel = page.locator('[data-testid="maps-panel"]')
+      await expect(panel).toBeVisible()
+      await closeMapsPanel(page)
       await expect(panel).not.toBeVisible()
 
       // Step 2: Click the Maps toggle icon in the left toolbar
@@ -153,10 +166,10 @@ test.describe('Maps Panel', () => {
     })
 
     test('clicking Maps toggle icon again closes the panel', async ({ page }) => {
-      const panel = page.locator('[data-testid="maps-side-panel"]')
+      const panel = page.locator('[data-testid="maps-panel"]')
 
       // Step 1: Open the panel
-      await clickMapsToggle(page)
+      await openMapsPanel(page)
       await expect(panel).toBeVisible()
 
       // Step 2: Click the toggle again to close
@@ -167,9 +180,10 @@ test.describe('Maps Panel', () => {
     })
 
     test('Ctrl+Shift+M keyboard shortcut toggles the panel open', async ({ page }) => {
-      const panel = page.locator('[data-testid="maps-side-panel"]')
+      const panel = page.locator('[data-testid="maps-panel"]')
 
-      // Step 1: Verify panel starts closed
+      // Step 1: Close the panel it boots with, so there is an open to test
+      await closeMapsPanel(page)
       await expect(panel).not.toBeVisible()
 
       // Step 2: Press Ctrl+Shift+M to open
@@ -181,11 +195,10 @@ test.describe('Maps Panel', () => {
     })
 
     test('Ctrl+Shift+M keyboard shortcut toggles the panel closed', async ({ page }) => {
-      const panel = page.locator('[data-testid="maps-side-panel"]')
+      const panel = page.locator('[data-testid="maps-panel"]')
 
       // Step 1: Open the panel first
-      await pressShortcut(page, 'm', { ctrl: true, shift: true })
-      await page.waitForTimeout(300)
+      await openMapsPanel(page)
       await expect(panel).toBeVisible()
 
       // Step 2: Press Ctrl+Shift+M again to close
@@ -201,7 +214,7 @@ test.describe('Maps Panel', () => {
       await openMapsPanel(page)
 
       // Step 2: Verify the "Maps" tab text is visible in the panel
-      const mapsTab = page.locator('[data-testid="maps-side-panel"]').locator('text=Maps')
+      const mapsTab = page.locator('[data-testid="maps-panel"]').locator('text=Maps')
       await expect(mapsTab.first()).toBeVisible()
 
       // Step 3: Verify the "+ New Map" button is visible
@@ -351,12 +364,31 @@ test.describe('Maps Panel', () => {
       // Step 3: Create a new map — triggers fog transition, shows blank canvas
       await clickNewMap(page)
 
-      // Step 4: Verify the new (active) map card shows "1 layer" (fresh default)
+      // Step 4: The new map is blank — its card reports the default layer set,
+      // and the canvas holds no shapes. A fresh map is background + dungeon, so
+      // this reads the count off the store rather than pinning a literal.
       const cards = getMapCards(page)
       const activeCard = cards.filter({ has: page.locator('text=EDITING') })
       const meta = await activeCard.textContent()
-      // The new blank map should have 1 default layer
-      expect(meta).toMatch(/1\s*layer/)
+      const state = await page.evaluate(() => {
+        const s = (
+          window as unknown as {
+            __store: {
+              getState: () => {
+                layers: Array<{ type: string; children?: unknown[] }>
+              }
+            }
+          }
+        ).__store.getState()
+        return {
+          layerCount: s.layers.length,
+          shapes: s.layers
+            .filter((l) => l.type === 'dungeon')
+            .reduce((n, l) => n + (l.children?.length ?? 0), 0),
+        }
+      })
+      expect(state.shapes).toBe(0)
+      expect(meta).toMatch(new RegExp(`${state.layerCount}\\s*layers?`))
     })
 
     test('creating multiple maps increments the card count correctly', async ({ page }) => {
@@ -410,7 +442,8 @@ test.describe('Maps Panel', () => {
 
       // Step 7: Verify the EDITING badge is present on the new active card
       const newActiveText = await newActiveCards.first().textContent()
-      expect(newActiveText).toContain('EDITING')
+      // The badge renders as "Editing", uppercased by CSS — match the text, not the case.
+      expect(newActiveText).toMatch(/editing/i)
     })
 
     test('the previously active map loses its EDITING badge after switch', async ({ page }) => {
@@ -918,9 +951,10 @@ test.describe('Maps Panel', () => {
   test.describe('10. Keyboard Shortcuts', () => {
 
     test('Ctrl+Shift+M toggles the maps panel open and closed', async ({ page }) => {
-      const panel = page.locator('[data-testid="maps-side-panel"]')
+      const panel = page.locator('[data-testid="maps-panel"]')
 
-      // Step 1: Verify panel starts closed
+      // Step 1: Close the panel it boots with
+      await closeMapsPanel(page)
       await expect(panel).not.toBeVisible()
 
       // Step 2: Press Ctrl+Shift+M
@@ -952,9 +986,10 @@ test.describe('Maps Panel', () => {
     })
 
     test('Ctrl+Shift+N auto-opens the panel if it was closed', async ({ page }) => {
-      const panel = page.locator('[data-testid="maps-side-panel"]')
+      const panel = page.locator('[data-testid="maps-panel"]')
 
-      // Step 1: Verify panel starts closed
+      // Step 1: Close the panel the app boots with
+      await closeMapsPanel(page)
       await expect(panel).not.toBeVisible()
 
       // Step 2: Press Ctrl+Shift+N (panel is closed)
@@ -982,7 +1017,7 @@ test.describe('Maps Panel', () => {
       await page.waitForTimeout(300)
 
       // Step 4: Panel should have closed (it was open, now toggled closed)
-      const panel = page.locator('[data-testid="maps-side-panel"]')
+      const panel = page.locator('[data-testid="maps-panel"]')
       await expect(panel).not.toBeVisible()
     })
   })
@@ -1017,7 +1052,10 @@ test.describe('Maps Panel', () => {
     })
 
     test('closing the panel reclaims canvas space (toolbar width decreases)', async ({ page }) => {
-      // Step 1: Get the toolbar right edge when panel is closed
+      // Step 1: Get the toolbar right edge when panel is closed — the app boots
+      // with it open, so close it first.
+      await closeMapsPanel(page)
+      await page.waitForTimeout(400) // wait for transition
       const toolbar = page.locator('[data-testid="left-toolbar"]')
       const toolbarBoxClosed = await toolbar.boundingBox()
       expect(toolbarBoxClosed).not.toBeNull()
@@ -1178,7 +1216,7 @@ test.describe('Maps Panel', () => {
 
       // Step 3: Reload the page
       await page.reload()
-      await page.waitForSelector('[data-clipper-ready="true"]', { timeout: 20000 })
+      await waitForBoot(page)
 
       // Step 4: Open the maps panel again
       await openMapsPanel(page)
@@ -1214,7 +1252,7 @@ test.describe('Maps Panel', () => {
 
       // Step 4: Reload the page
       await page.reload()
-      await page.waitForSelector('[data-clipper-ready="true"]', { timeout: 20000 })
+      await waitForBoot(page)
 
       // Step 5: Open the maps panel
       await openMapsPanel(page)
@@ -1234,7 +1272,10 @@ test.describe('Maps Panel', () => {
   test.describe('14. Panel Layout', () => {
 
     test('panel slides to the LEFT of the toolbar; toolbar stays pinned', async ({ page }) => {
-      // Step 1: Record the toolbar position before opening the panel
+      // Step 1: Record the toolbar position with the panel closed — the app
+      // boots with it open, so close it first.
+      await closeMapsPanel(page)
+      await page.waitForTimeout(400)
       const toolbar = page.locator('[data-testid="left-toolbar"]')
       await expect(toolbar).toBeVisible()
       const toolbarBefore = await toolbar.boundingBox()
@@ -1245,7 +1286,7 @@ test.describe('Maps Panel', () => {
       await page.waitForTimeout(400) // wait for slide animation
 
       // Step 3: Get panel and toolbar positions
-      const panel = page.locator('[data-testid="maps-side-panel"]')
+      const panel = page.locator('[data-testid="maps-panel"]')
       await expect(panel).toBeVisible()
       const panelBox = await panel.boundingBox()
       const toolbarAfter = await toolbar.boundingBox()
@@ -1269,7 +1310,7 @@ test.describe('Maps Panel', () => {
       await openMapsPanel(page)
 
       // Step 2: Measure the panel
-      const panel = page.locator('[data-testid="maps-side-panel"]')
+      const panel = page.locator('[data-testid="maps-panel"]')
       const box = await panel.boundingBox()
       expect(box).not.toBeNull()
 
@@ -1286,7 +1327,7 @@ test.describe('Maps Panel', () => {
       // Step 2: Measure the outer chrome wrapper
       const toolbar = page.locator('[data-testid="left-toolbar"]')
       const toolbarBox = await toolbar.boundingBox()
-      const panel = page.locator('[data-testid="maps-side-panel"]')
+      const panel = page.locator('[data-testid="maps-panel"]')
       const panelBox = await panel.boundingBox()
 
       expect(toolbarBox).not.toBeNull()
@@ -1335,7 +1376,7 @@ test.describe('Maps Panel', () => {
     test('fullscreen focus mode hides the maps panel along with toolbar', async ({ page }) => {
       // Step 1: Open the maps panel
       await openMapsPanel(page)
-      const panel = page.locator('[data-testid="maps-side-panel"]')
+      const panel = page.locator('[data-testid="maps-panel"]')
       await expect(panel).toBeVisible()
 
       // Step 2: Cycle focus mode to fullscreen (backtick x2: auto -> manual -> fullscreen)
@@ -1403,7 +1444,7 @@ test.describe('Maps Panel', () => {
       // Implementation should either reject empty names or revert to previous name
       const nameText = await card.textContent()
       expect(nameText).toBeTruthy()
-      expect(nameText!.replace('EDITING', '').trim().length).toBeGreaterThan(0)
+      expect(nameText!.replace(/editing/i, '').trim().length).toBeGreaterThan(0)
     })
 
     test('panel survives rapid open/close toggling', async ({ page }) => {
@@ -1421,7 +1462,7 @@ test.describe('Maps Panel', () => {
       await expect(canvas).toBeVisible()
 
       // Step 4: Panel should be in a definite state (open or closed, not stuck)
-      const panel = page.locator('[data-testid="maps-side-panel"]')
+      const panel = page.locator('[data-testid="maps-panel"]')
       const isVisible = await panel.isVisible().catch(() => false)
       expect(typeof isVisible).toBe('boolean')
     })

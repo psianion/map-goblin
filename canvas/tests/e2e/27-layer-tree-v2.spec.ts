@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { gotoApp, drawRect, waitFrame, firePointer } from './helpers';
+import { gotoApp, drawRect, waitFrame, firePointer, getPixelColor } from './helpers';
 
 /**
  * Layer Tree v2 — e2e tests for the children-based layer model.
@@ -266,27 +266,13 @@ test.describe('27 - Layer Tree v2', () => {
       const sampleX = Math.round((box!.width / 2) * dpr);
       const sampleY = Math.round((box!.height / 2) * dpr);
 
-      const before = await page.evaluate(({ x, y }) => {
-        const c = document.querySelector('canvas') as HTMLCanvasElement;
-        if (!c) return { r: 0, g: 0, b: 0, a: 0 };
-        const ctx = c.getContext('2d');
-        if (!ctx) return { r: 0, g: 0, b: 0, a: 0 };
-        const d = ctx.getImageData(x, y, 1, 1).data;
-        return { r: d[0], g: d[1], b: d[2], a: d[3] };
-      }, { x: sampleX, y: sampleY });
+      const before = await getPixelColor(page, sampleX, sampleY);
 
       await drawRect(page, cx - 80, cy - 60, cx + 80, cy + 60);
       await page.waitForTimeout(500);
       await waitFrame(page, 5);
 
-      const after = await page.evaluate(({ x, y }) => {
-        const c = document.querySelector('canvas') as HTMLCanvasElement;
-        if (!c) return { r: 0, g: 0, b: 0, a: 0 };
-        const ctx = c.getContext('2d');
-        if (!ctx) return { r: 0, g: 0, b: 0, a: 0 };
-        const d = ctx.getImageData(x, y, 1, 1).data;
-        return { r: d[0], g: d[1], b: d[2], a: d[3] };
-      }, { x: sampleX, y: sampleY });
+      const after = await getPixelColor(page, sampleX, sampleY);
 
       // Pixel should have changed (floor color is different from background)
       const diff = Math.abs(after.r - before.r) + Math.abs(after.g - before.g) + Math.abs(after.b - before.b);
@@ -302,7 +288,13 @@ test.describe('27 - Layer Tree v2', () => {
 
       await expandLayer1(page);
 
+      const box = await page.locator('canvas').boundingBox();
+      const dpr = await page.evaluate(() => window.devicePixelRatio);
+      const sampleX = Math.round((box!.width / 2) * dpr);
+      const sampleY = Math.round((box!.height / 2) * dpr);
+
       // Take screenshot with shape visible
+      const visible = await getPixelColor(page, sampleX, sampleY);
       await page.screenshot({ path: 'test-screenshots/27-13-before-hide.png' });
 
       // Hide the shape
@@ -312,14 +304,26 @@ test.describe('27 - Layer Tree v2', () => {
       await waitFrame(page, 5);
 
       // Take screenshot with shape hidden
+      const hidden = await getPixelColor(page, sampleX, sampleY);
       await page.screenshot({ path: 'test-screenshots/27-13-after-hide.png' });
+
+      const hideDiff =
+        Math.abs(hidden.r - visible.r) + Math.abs(hidden.g - visible.g) + Math.abs(hidden.b - visible.b);
+      expect(hideDiff).toBeGreaterThan(10);
 
       // Unhide
       const showBtn = page.getByRole('button', { name: 'Show' }).first();
       await showBtn.click();
       await page.waitForTimeout(500);
+      await waitFrame(page, 5);
 
+      const shown = await getPixelColor(page, sampleX, sampleY);
       await page.screenshot({ path: 'test-screenshots/27-13-after-show.png' });
+
+      // Showing again puts the same floor pixel back.
+      const showDiff =
+        Math.abs(shown.r - visible.r) + Math.abs(shown.g - visible.g) + Math.abs(shown.b - visible.b);
+      expect(showDiff).toBeLessThan(10);
     });
   });
 
@@ -327,14 +331,28 @@ test.describe('27 - Layer Tree v2', () => {
     test('tool switching via keyboard works', async ({ page }) => {
       await gotoApp(page);
 
-      // Each tool key should activate without errors
-      const keys = ['v', 'r', 'p', 'h', 'd', 'w', 'l'];
-      for (const key of keys) {
+      const activeTool = () =>
+        page.evaluate(
+          () =>
+            (window as Window & { __store?: { getState: () => { tools: { activeTool: string } } } })
+              .__store!.getState().tools.activeTool,
+        );
+
+      const keys: [string, string][] = [
+        ['v', 'select'],
+        ['r', 'rectangle'],
+        ['p', 'polygon'],
+        ['h', 'regularPolygon'],
+        ['d', 'door'],
+        ['w', 'wall'],
+        ['l', 'light'],
+      ];
+      for (const [key, tool] of keys) {
         await page.keyboard.press(key);
         await page.waitForTimeout(100);
+        expect(await activeTool()).toBe(tool);
       }
 
-      // No errors = pass
       await page.screenshot({ path: 'test-screenshots/27-14-tool-shortcuts.png' });
     });
 

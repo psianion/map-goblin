@@ -109,11 +109,15 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
       const scenes = stores.maps.listByCampaign(campaignId).map((map) => ({ id: map.id, name: map.name }))
       return {
         scenes,
-        // Nothing sets `active_scene_id` in S1 — there is no scene-change command yet — so a
-        // session with maps but no explicit choice falls back to the first one. Without this
-        // every client sits on "Waiting for the DM to pick a scene…" forever. The fallback is
-        // computed per snapshot rather than written at upload time so a map uploaded *after*
-        // the session opened still lights up the table.
+        // A session with no explicit choice falls back to the first map rather than leaving
+        // every client on "Waiting for the DM to pick a scene…" forever. The fallback is
+        // computed per snapshot rather than written at upload time so a map uploaded before
+        // anyone opened the table still lights it up.
+        //
+        // It stays the *first* on purpose: an in-session import must not move the table off
+        // the scene being played (D6 — switching scenes is a deliberate `scenes:activate`).
+        // Which map the host wizard set the table up with is not guessed from this order —
+        // the wizard names it, and `openSession` writes it down.
         activeSceneId: stores.sessions.get(id)?.active_scene_id ?? scenes[0]?.id ?? null,
       }
     },
@@ -131,6 +135,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
       stores,
       sessionManager: sessions,
       vision,
+      modules,
     }),
   )
 

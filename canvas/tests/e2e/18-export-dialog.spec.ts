@@ -11,6 +11,7 @@
  * - Cancel button closes the dialog
  * - Escape key closes the dialog
  */
+import { readFileSync } from 'node:fs'
 import { test, expect } from '@playwright/test'
 import { gotoApp, pressShortcut, waitFrame } from './helpers'
 
@@ -99,5 +100,28 @@ test.describe('Export Dialog', () => {
 
     // Preview text includes "Output:" and "px"
     await expect(page.getByText(/Output:.*px/)).toBeVisible()
+  })
+
+  // The only save path that is not Ctrl+S behind a native OS picker.
+  test('Map file option downloads a .mapbuilder container', async ({ page }) => {
+    await gotoApp(page)
+    await pressShortcut(page, 'e', { ctrl: true })
+    await waitFrame(page, 2)
+
+    await page.getByRole('button', { name: 'Map file', exact: true }).click()
+    // Image-only controls step aside for it.
+    await expect(page.getByRole('button', { name: '128' })).toBeHidden()
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Export', exact: true }).click(),
+    ])
+
+    expect(download.suggestedFilename()).toMatch(/\.mapbuilder$/)
+    const path = await download.path()
+    const bytes = readFileSync(path)
+    // MPBLD\0 magic, then the gzip stream — the same container Ctrl+S writes.
+    expect(bytes.subarray(0, 6).toString('binary')).toBe('MPBLD\x00')
+    expect([bytes[6], bytes[7]]).toEqual([0x1f, 0x8b])
   })
 })

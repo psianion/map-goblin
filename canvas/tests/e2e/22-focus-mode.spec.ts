@@ -143,15 +143,22 @@ test.describe('22 - Focus Mode', () => {
 
   // ─── Idle Fade Tests (will fail until Task #4 implements idle timer/fade) ──
 
-  test('toolbar is fully opaque on load in auto mode', async ({ page }) => {
+  // The idle timer starts when App mounts, and a cold Vite boot spends longer
+  // than the 5 s threshold getting to the point where a spec can look — so
+  // "just loaded" is already faded here and says nothing about the feature.
+  // What auto mode actually promises is: chrome is solid while the pointer is
+  // on it, and fades once the pointer leaves. Both rows drive that.
+  test('toolbar is fully opaque while the pointer is on it in auto mode', async ({ page }) => {
     await gotoApp(page)
 
     const mode = await getFocusMode(page)
     expect(mode).toBe('auto')
 
-    // Immediately after load, UI chrome should be visible
     const toolbar = page.locator('[data-testid="left-toolbar"]')
     await expect(toolbar).toBeVisible()
+
+    await toolbar.hover()
+    await waitFrame(page, 3)
 
     const opacity = await toolbar.evaluate((el) =>
       parseFloat(window.getComputedStyle(el).opacity),
@@ -168,10 +175,17 @@ test.describe('22 - Focus Mode', () => {
     const toolbar = page.locator('[data-testid="left-toolbar"]')
     await expect(toolbar).toBeVisible()
 
+    // Hover it solid first, so the fade below is this test's doing.
+    await toolbar.hover()
+    await waitFrame(page, 3)
     const beforeOpacity = await toolbar.evaluate((el) =>
       parseFloat(window.getComputedStyle(el).opacity),
     )
     expect(beforeOpacity).toBeGreaterThan(0.9)
+
+    // Leave the chrome — that is what arms the idle timer.
+    const size = page.viewportSize()!
+    await page.mouse.move(size.width / 2, size.height / 2)
 
     // Wait past idle threshold (5 s + 0.5 s buffer for transition)
     await page.waitForTimeout(5500)

@@ -143,6 +143,12 @@ export function resolveTexture(id: string): Texture {
   const bundled = cache.get(id);
   if (bundled) return bundled;
 
+  // 3b. An imported image. `importImageFile` registers the picture with Pixi
+  // under the asset id as its alias and never touches the map above, so without
+  // this an image the user just dropped on the map came back magenta.
+  const imported = Assets.get<Texture>(id);
+  if (imported) return imported;
+
   // 4. Magenta fallback
   if (!warnedIds.has(id)) {
     warnedIds.add(id);
@@ -157,6 +163,31 @@ export function resolveTexture(id: string): Texture {
     fallbackTexture = Texture.from(canvas);
   }
   return fallbackTexture;
+}
+
+/**
+ * Register a document's `customImages` with Pixi under their asset ids — the alias
+ * `resolveTexture` step 3b looks them up by. Lives here, next to that step, because
+ * every screen that opens a `.mapbuilder` needs it: the editor's own loader and the
+ * table, which had no equivalent and drew every imported picture magenta.
+ *
+ * Must run *before* the document reaches the store: `loadFromFile` builds the scene
+ * graph synchronously and resolves each texture as it goes, so an image registered
+ * afterwards is already a fallback sprite by the time it arrives.
+ *
+ * Per-image failures are swallowed — one unreadable picture must not cost the map.
+ */
+export async function restoreCustomImages(
+  customImages: Record<string, string> | undefined,
+): Promise<void> {
+  for (const [id, dataUrl] of Object.entries(customImages ?? {})) {
+    if (Assets.cache.has(id)) continue;
+    try {
+      await Assets.load({ alias: id, src: dataUrl });
+    } catch (err) {
+      console.warn('[restoreCustomImages] could not load', id, err);
+    }
+  }
 }
 
 let fallbackTexture: Texture | null = null;

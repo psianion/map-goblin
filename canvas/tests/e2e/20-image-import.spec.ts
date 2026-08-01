@@ -28,39 +28,33 @@ const PNG_BYTES = Buffer.from(
 
 const PNG_UINT8 = Array.from(PNG_BYTES)
 
-/** Add an images layer and make it the active layer via store actions. */
+/**
+ * Make a dungeon layer active. There is no 'images' layer type any more —
+ * imports land as asset children on the active dungeon layer.
+ */
 async function addImagesLayerAndActivate(page: import('@playwright/test').Page) {
   await page.evaluate(() => {
-    const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
+    const store = (window as {
+      __store?: {
+        getState: () => { layers: Array<{ id: string; type: string }>; setActiveLayerId: (id: string) => void }
+      }
+    }).__store
     if (!store) return
-    const state = store.getState() as {
-      addLayer: (layer: {
-        id: string
-        name: string
-        type: string
-        visible: boolean
-        locked: boolean
-        opacity: number
-        objects: unknown[]
-      }) => void
-      setActiveLayerId: (id: string) => void
-    }
-    const id = crypto.randomUUID()
-    state.addLayer({ id, name: 'Images 1', type: 'images', visible: true, locked: false, opacity: 1, objects: [] })
-    state.setActiveLayerId(id)
+    const state = store.getState()
+    const dungeon = state.layers.find((l) => l.type === 'dungeon')
+    if (dungeon) state.setActiveLayerId(dungeon.id)
   })
   await waitFrame(page, 3)
 }
 
-/** Get all PlacedObjects across all images layers. */
+/** Get all placed asset children across all layers. */
 async function getPlacedObjects(page: import('@playwright/test').Page) {
   return page.evaluate(() => {
-    const store = (window as { __store?: { getState: () => { layers: Array<{ type: string; objects?: unknown[] }> } } }).__store
+    const store = (window as { __store?: { getState: () => { layers: Array<{ children?: Array<{ id: string; childType: string }> }> } } }).__store
     if (!store) return []
-    const state = store.getState()
-    return state.layers
-      .filter((l) => l.type === 'images')
-      .flatMap((l) => l.objects ?? [])
+    return store.getState().layers
+      .flatMap((l) => l.children ?? [])
+      .filter((c) => c.childType === 'asset')
   })
 }
 
@@ -188,9 +182,23 @@ test.describe('Image Import', () => {
     expect(objectsAfter.length).toBe(objectsBefore.length)
   })
 
-  test('import with wrong active layer (dungeon) shows toast and places nothing', async ({ page }) => {
+  test('import with a non-dungeon layer active shows a toast and places nothing', async ({ page }) => {
     await gotoApp(page)
-    // Do NOT add images layer — default dungeon layer is active
+    // The dungeon layer is the *right* target now, so make the background layer
+    // active to be the wrong one. This row used to leave the dungeon layer
+    // selected and passed only because imports were broken for every layer.
+    await page.evaluate(() => {
+      const store = (window as {
+        __store?: {
+          getState: () => { layers: Array<{ id: string; type: string }>; setActiveLayerId: (id: string) => void }
+        }
+      }).__store
+      if (!store) return
+      const state = store.getState()
+      const other = state.layers.find((l) => l.type !== 'dungeon')
+      if (other) state.setActiveLayerId(other.id)
+    })
+    await waitFrame(page, 3)
 
     const objectsBefore = await getPlacedObjects(page)
 
@@ -248,23 +256,24 @@ test.describe('Image Import', () => {
     // Undo by directly removing the placed object (store API verification)
     // Note: keyboard Ctrl+Z undo not wired in this build; testing store undo mechanism directly
     const placedObj = await page.evaluate(() => {
-      const store = (window as { __store?: { getState: () => { layers: Array<{ type: string; id: string; objects?: Array<{ id: string }> }> } } }).__store
+      const store = (window as { __store?: { getState: () => { layers: Array<{ id: string; children?: Array<{ id: string; childType: string }> }> } } }).__store
       if (!store) return null
-      const state = store.getState()
-      const imgLayer = state.layers.find((l) => l.type === 'images')
-      return imgLayer ? { layerId: imgLayer.id, objId: imgLayer.objects?.[0]?.id } : null
+      for (const layer of store.getState().layers) {
+        const asset = (layer.children ?? []).find((c) => c.childType === 'asset')
+        if (asset) return { layerId: layer.id, objId: asset.id }
+      }
+      return null
     })
 
-    if (placedObj?.layerId && placedObj?.objId) {
-      await page.evaluate(({ layerId, objId }) => {
-        const store = (window as { __store?: { getState: () => { removePlacedObject: (layerId: string, objId: string) => void } } }).__store
-        store?.getState().removePlacedObject(layerId, objId)
-      }, placedObj)
-      await waitFrame(page, 5)
+    expect(placedObj).not.toBeNull()
+    await page.evaluate(({ layerId, objId }) => {
+      const store = (window as { __store?: { getState: () => { removeChild: (layerId: string, childId: string) => void } } }).__store
+      store?.getState().removeChild(layerId, objId)
+    }, placedObj!)
+    await waitFrame(page, 5)
 
-      const objectsAfterUndo = await getPlacedObjects(page)
-      expect(objectsAfterUndo.length).toBeLessThan(objectsAfterPlace.length)
-    }
+    const objectsAfterUndo = await getPlacedObjects(page)
+    expect(objectsAfterUndo.length).toBeLessThan(objectsAfterPlace.length)
   })
 
   test('clipboard paste (outside text input) places a PlacedObject', async ({ page }) => {

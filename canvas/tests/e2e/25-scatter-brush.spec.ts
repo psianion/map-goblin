@@ -14,15 +14,17 @@ async function getActiveTool(page: import('@playwright/test').Page): Promise<str
   })
 }
 
+/** Scattered objects are asset children of the layer they were dropped on. */
 async function getPlacedObjects(page: import('@playwright/test').Page) {
   return page.evaluate(() => {
     const store = (window as Window & { __store?: { getState: () => {
-      layers: Array<{ type: string; objects?: Array<{ id: string; position: { x: number; y: number } }> }>
+      layers: Array<{ children?: Array<{ id: string; childType: string; position?: { x: number; y: number } }> }>
     } } }).__store
     if (!store) return []
     return store.getState().layers
-      .filter((l) => l.type === 'images')
-      .flatMap((l) => l.objects ?? [])
+      .flatMap((l) => l.children ?? [])
+      .filter((c) => c.childType === 'asset')
+      .map((c) => ({ id: c.id, position: c.position! }))
   })
 }
 
@@ -36,6 +38,15 @@ async function activateScatterBrush(page: import('@playwright/test').Page): Prom
   await waitFrame(page, 2)
 }
 
+/**
+ * Arm the brush with an asset it can actually size.
+ *
+ * It has to be a real id: the tool asks the manifest (or a loaded texture) for
+ * the asset's natural size and drops the placement when neither answers, so the
+ * made-up 'test-scatter-asset' this used to inject produced no placements at
+ * all and every row below asserted on an empty layer. 'grass-a-01' is a bundled
+ * manifest entry, so its size is known without waiting on a texture download.
+ */
 async function injectScatterAsset(page: import('@playwright/test').Page): Promise<void> {
   await page.evaluate(() => {
     const store = (window as Window & { __store?: { getState: () => {
@@ -46,9 +57,19 @@ async function injectScatterAsset(page: import('@playwright/test').Page): Promis
     const state = store.getState()
     const current = state.tools.settings.scatterBrush
     state.updateToolSettings({
-      scatterBrush: { ...current, assetIds: ['test-scatter-asset'] },
+      scatterBrush: { ...current, assetIds: ['grass-a-01'] },
     })
   })
+  await waitFrame(page, 1)
+}
+
+async function setStampMode(page: import('@playwright/test').Page, stampMode: boolean): Promise<void> {
+  await page.evaluate((stampMode) => {
+    const store = (window as Window & { __store?: { getState: () => {
+      updateScatterBrushSettings: (patch: Record<string, unknown>) => void
+    } } }).__store
+    store?.getState().updateScatterBrushSettings({ stampMode })
+  }, stampMode)
   await waitFrame(page, 1)
 }
 
@@ -77,6 +98,8 @@ test.describe('Scatter Brush Tool', () => {
 
     const before = await getPlacedObjects(page)
 
+    // The tool builds its placements on pointer move; a bare click commits nothing.
+    await firePointer(page, 'pointermove', cx, cy, 0, 0)
     await firePointer(page, 'pointerdown', cx, cy, 0.5, 1)
     await firePointer(page, 'pointerup', cx, cy, 0, 0)
     await page.waitForTimeout(200)
@@ -90,6 +113,9 @@ test.describe('Scatter Brush Tool', () => {
     await gotoApp(page)
     await activateScatterBrush(page)
     await injectScatterAsset(page)
+    // Stamp mode is the default and drops exactly one object — Poisson spread
+    // is the scatter-mode behaviour, so turn stamp mode off for this one.
+    await setStampMode(page, false)
 
     const canvas = page.locator('canvas')
     const box = await canvas.boundingBox()
@@ -97,22 +123,24 @@ test.describe('Scatter Brush Tool', () => {
     const cx = box!.x + box!.width / 2
     const cy = box!.y + box!.height / 2
 
+    // The tool builds its placements on pointer move; a bare click commits nothing.
+    await firePointer(page, 'pointermove', cx, cy, 0, 0)
     await firePointer(page, 'pointerdown', cx, cy, 0.5, 1)
     await firePointer(page, 'pointerup', cx, cy, 0, 0)
     await page.waitForTimeout(200)
     await waitFrame(page, 5)
 
     const objects = await getPlacedObjects(page)
-    if (objects.length > 1) {
-      const positions = new Set(objects.map((o) => `${o.position.x},${o.position.y}`))
-      expect(positions.size).toBeGreaterThan(1)
-    }
+    expect(objects.length).toBeGreaterThan(1)
+    const positions = new Set(objects.map((o) => `${o.position.x},${o.position.y}`))
+    expect(positions.size).toBe(objects.length)
   })
 
   test('undo removes scattered objects', async ({ page }) => {
     await gotoApp(page)
     await activateScatterBrush(page)
     await injectScatterAsset(page)
+    await setStampMode(page, false)
 
     const canvas = page.locator('canvas')
     const box = await canvas.boundingBox()
@@ -122,6 +150,7 @@ test.describe('Scatter Brush Tool', () => {
 
     const before = await getPlacedObjects(page)
 
+    await firePointer(page, 'pointermove', cx, cy, 0, 0)
     await firePointer(page, 'pointerdown', cx, cy, 0.5, 1)
     await firePointer(page, 'pointerup', cx, cy, 0, 0)
     await page.waitForTimeout(200)
@@ -141,6 +170,9 @@ test.describe('Scatter Brush Tool', () => {
     await gotoApp(page)
     await activateScatterBrush(page)
     await injectScatterAsset(page)
+    // Stamp mode hands the tool back to `select` after one drop, which would
+    // leave the erase click below going to the wrong tool.
+    await setStampMode(page, false)
 
     const canvas = page.locator('canvas')
     const box = await canvas.boundingBox()
@@ -149,6 +181,7 @@ test.describe('Scatter Brush Tool', () => {
     const cy = box!.y + box!.height / 2
 
     // Place objects
+    await firePointer(page, 'pointermove', cx, cy, 0, 0)
     await firePointer(page, 'pointerdown', cx, cy, 0.5, 1)
     await firePointer(page, 'pointerup', cx, cy, 0, 0)
     await page.waitForTimeout(200)
@@ -162,6 +195,7 @@ test.describe('Scatter Brush Tool', () => {
     await waitFrame(page, 2)
 
     // Erase at same location
+    await firePointer(page, 'pointermove', cx, cy, 0, 0)
     await firePointer(page, 'pointerdown', cx, cy, 0.5, 1)
     await firePointer(page, 'pointerup', cx, cy, 0, 0)
     await page.waitForTimeout(200)
@@ -175,6 +209,9 @@ test.describe('Scatter Brush Tool', () => {
     await gotoApp(page)
     await activateScatterBrush(page)
     await injectScatterAsset(page)
+    // Stamp mode drops one object and switches back to `select`, so the second
+    // stroke below would never reach this tool.
+    await setStampMode(page, false)
 
     const canvas = page.locator('canvas')
     const box = await canvas.boundingBox()
@@ -183,6 +220,7 @@ test.describe('Scatter Brush Tool', () => {
     const cy = box!.y + box!.height / 2
 
     // Stroke 1
+    await firePointer(page, 'pointermove', cx - 100, cy, 0, 0)
     await firePointer(page, 'pointerdown', cx - 100, cy, 0.5, 1)
     await firePointer(page, 'pointerup', cx - 100, cy, 0, 0)
     await page.waitForTimeout(200)
@@ -190,6 +228,7 @@ test.describe('Scatter Brush Tool', () => {
     const afterFirst = await getPlacedObjects(page)
 
     // Stroke 2
+    await firePointer(page, 'pointermove', cx + 100, cy, 0, 0)
     await firePointer(page, 'pointerdown', cx + 100, cy, 0.5, 1)
     await firePointer(page, 'pointerup', cx + 100, cy, 0, 0)
     await page.waitForTimeout(200)

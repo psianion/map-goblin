@@ -36,71 +36,123 @@ import { gotoApp, waitFrame, drawRect, firePointer } from './helpers'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Add an images layer, place a 200×150 object at (400,300), select it. Returns the object ID. */
-async function importAndSelectImage(page: import('@playwright/test').Page): Promise<string> {
-  // Add images layer
-  await page.evaluate(() => {
+/**
+ * A child's on-screen box, in client coordinates.
+ *
+ * The gizmo lays its handles out in screen space, so every pointer coordinate in
+ * this file has to come from the live camera rather than from the child's world
+ * position. They used to be the same number — "world coords map roughly 1:1 at
+ * default zoom" — which has not been true since the camera started at zoom 20
+ * centred on the origin. An object at world (400,300) sits eight thousand pixels
+ * off the right edge, so every drag below landed on empty canvas and every
+ * assertion about the object not having moved passed for the wrong reason.
+ */
+async function objectScreenBox(
+  page: import('@playwright/test').Page,
+  objId: string,
+): Promise<{ cx: number; cy: number; w: number; h: number; zoom: number }> {
+  const box = await page.evaluate((id) => {
     const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
-    if (!store) return
-    const state = store.getState() as Record<string, (arg: unknown) => void>
-    const id = crypto.randomUUID()
-    state['addLayer']({
-      id,
-      name: 'Images 1',
-      type: 'images',
-      visible: true,
-      locked: false,
-      opacity: 1,
-      objects: [],
-    })
-    state['setActiveLayerId'](id)
-  })
-  await waitFrame(page, 3)
+    if (!store) return null
+    const state = store.getState() as {
+      layers: Array<{
+        children?: Array<{
+          id: string
+          position: { x: number; y: number }
+          width: number
+          height: number
+        }>
+      }>
+    }
+    const obj = state.layers.flatMap((l) => l.children ?? []).find((c) => c.id === id)
+    if (!obj) return null
+    const app = (
+      window as {
+        __pixiApp?: {
+          stage: { children: Array<{ position: { x: number; y: number }; scale: { x: number } }> }
+        }
+      }
+    ).__pixiApp
+    const world = app?.stage.children[0]
+    const canvas = document.querySelector('canvas')
+    if (!world || !canvas) return null
+    const rect = canvas.getBoundingClientRect()
+    const zoom = world.scale.x
+    return {
+      cx: rect.left + world.position.x + obj.position.x * zoom,
+      cy: rect.top + world.position.y + obj.position.y * zoom,
+      w: obj.width * zoom,
+      h: obj.height * zoom,
+      zoom,
+    }
+  }, objId)
+  if (!box) throw new Error(`no on-screen box for child ${objId}`)
+  return box
+}
 
-  // Place a test object via store (bypasses file picker)
+/**
+ * Place a 4×3 (world units) asset child on the origin of the dungeon layer and
+ * select it. Returns the child ID. There is no 'images' layer type and no
+ * addPlacedObject/setSelectedObjectIds action — assets are layer children.
+ *
+ * Origin-sized on purpose: the camera starts centred there at zoom 20, so the
+ * object lands in the middle of the viewport at a workable 80×60 px.
+ */
+async function importAndSelectImage(page: import('@playwright/test').Page): Promise<string> {
   const objId = await page.evaluate(() => {
     const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
     if (!store) return ''
     const state = store.getState() as Record<string, unknown>
     const layers = state['layers'] as Array<{ id: string; type: string }>
-    const imgLayer = layers.find((l) => l.type === 'images')
-    if (!imgLayer) return ''
+    const layer = layers.find((l) => l.type === 'dungeon')
+    if (!layer) return ''
+    ;(state['setActiveLayerId'] as (id: string) => void)(layer.id)
     const id = crypto.randomUUID()
-    ;(state['addPlacedObject'] as (layerId: string, obj: unknown) => void)(imgLayer.id, {
+    ;(state['addChild'] as (layerId: string, child: unknown) => void)(layer.id, {
       id,
-      layerId: imgLayer.id,
+      name: 'Test Image',
+      childType: 'asset',
+      visible: true,
       objectType: 'image',
       assetId: 'test',
-      position: { x: 400, y: 300 },
+      position: { x: 0, y: 0 },
       rotation: 0,
       scale: 1,
-      width: 200,
-      height: 150,
+      width: 4,
+      height: 3,
       tint: '#ffffff',
-      groupId: null,
       flipX: false,
       flipY: false,
     })
-    ;(state['setSelectedObjectIds'] as (ids: string[]) => void)([id])
+    // The gizmo belongs to the select tool. Without this the pointer lands on
+    // whatever tool booted active, and every drag below draws instead of
+    // transforming.
+    ;(state['setActiveTool'] as (t: string) => void)('select')
     return id
   })
+  await waitFrame(page, 5)
+
+  // Select by clicking it, not by writing `selectedIds`. The select tool builds
+  // its gizmo when *it* makes a selection; a store write leaves the tool IDLE
+  // with no handles to grab, which is why these drags used to do nothing.
+  const { cx, cy } = await objectScreenBox(page, objId)
+  await firePointer(page, 'pointerdown', cx, cy, 0.5, 1)
+  await firePointer(page, 'pointerup', cx, cy, 0, 0)
   await waitFrame(page, 5)
   return objId
 }
 
-/** Read a placed object from the store by ID. */
+/** Read a placed asset child from the store by ID. */
 async function getPlacedObject(page: import('@playwright/test').Page, objId: string) {
   return page.evaluate((id) => {
     const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
     if (!store) return null
     const state = store.getState() as {
-      layers: Array<{ type: string; objects?: Array<{ id: string }> }>
+      layers: Array<{ children?: Array<{ id: string; childType: string }> }>
     }
     for (const layer of state.layers) {
-      if (layer.type === 'images' && layer.objects) {
-        const found = layer.objects.find((o) => o.id === id)
-        if (found) return found
-      }
+      const found = (layer.children ?? []).find((c) => c.id === id && c.childType === 'asset')
+      if (found) return found
     }
     return null
   }, objId)
@@ -121,26 +173,24 @@ test.describe('Transform Controls — PlacedObject', () => {
     const hasSelection = await page.evaluate(() => {
       const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
       if (!store) return false
-      const state = store.getState() as { ui: { selectedObjectIds: string[] } }
-      return state.ui.selectedObjectIds.length > 0
+      const state = store.getState() as { selection: { selectedIds: string[] } }
+      return state.selection.selectedIds.length > 0
     })
     expect(hasSelection).toBe(true)
   })
 
   test('drag SE corner handle increases object width', async ({ page }) => {
+    // A resize scales the child rather than rewriting `width`: an asset carries
+    // one scalar `scale` on top of its authored size (childTransform's 'box'
+    // case), so `width` alone never moves and asserting on it always failed.
     const objId = await importAndSelectImage(page)
     const before = (await getPlacedObject(page, objId)) as Record<string, unknown>
     expect(before).not.toBeNull()
-    const beforeWidth = before['width'] as number
+    const beforeWidth = (before['width'] as number) * (before['scale'] as number)
 
-    const canvas = page.locator('canvas')
-    const box = await canvas.boundingBox()
-    if (!box) return
-
-    // SE corner: object at world (400,300) size 200×150 → bottom-right ~(500,375)
-    // Canvas origin is at box.x/y; world coords map roughly 1:1 at default zoom
-    const seX = box.x + 500
-    const seY = box.y + 375
+    const sb = await objectScreenBox(page, objId)
+    const seX = sb.cx + sb.w / 2
+    const seY = sb.cy + sb.h / 2
 
     await firePointer(page, 'pointerdown', seX, seY, 0.5, 1)
     await firePointer(page, 'pointermove', seX + 60, seY + 45, 0.5, 1)
@@ -149,19 +199,16 @@ test.describe('Transform Controls — PlacedObject', () => {
 
     const after = (await getPlacedObject(page, objId)) as Record<string, unknown>
     expect(after).not.toBeNull()
-    expect(after['width'] as number).toBeGreaterThan(beforeWidth)
+    expect((after['width'] as number) * (after['scale'] as number)).toBeGreaterThan(beforeWidth)
   })
 
   test('escape during drag cancels transform — object unchanged', async ({ page }) => {
     const objId = await importAndSelectImage(page)
     const before = (await getPlacedObject(page, objId)) as Record<string, unknown>
 
-    const canvas = page.locator('canvas')
-    const box = await canvas.boundingBox()
-    if (!box) return
-
-    const seX = box.x + 500
-    const seY = box.y + 375
+    const sb = await objectScreenBox(page, objId)
+    const seX = sb.cx + sb.w / 2
+    const seY = sb.cy + sb.h / 2
 
     // Start drag but don't finish
     await firePointer(page, 'pointerdown', seX, seY, 0.5, 1)
@@ -185,13 +232,8 @@ test.describe('Transform Controls — PlacedObject', () => {
     const before = (await getPlacedObject(page, objId)) as Record<string, unknown>
     const beforeX = (before['position'] as { x: number }).x
 
-    const canvas = page.locator('canvas')
-    const box = await canvas.boundingBox()
-    if (!box) return
-
     // Move the object by dragging its center
-    const cx = box.x + 400
-    const cy = box.y + 300
+    const { cx, cy } = await objectScreenBox(page, objId)
     await firePointer(page, 'pointerdown', cx, cy, 0.5, 1)
     await firePointer(page, 'pointermove', cx + 80, cy + 60, 0.5, 1)
     await firePointer(page, 'pointerup', cx + 80, cy + 60, 0, 0)
@@ -209,21 +251,20 @@ test.describe('Transform Controls — PlacedObject', () => {
   })
 
   test('deselect by clicking empty area clears selectedObjectIds', async ({ page }) => {
-    await importAndSelectImage(page)
+    const objId = await importAndSelectImage(page)
 
-    const canvas = page.locator('canvas')
-    const box = await canvas.boundingBox()
-    if (!box) return
-
-    // Click far from the object (top-left corner)
-    await firePointer(page, 'pointerdown', box.x + 30, box.y + 30, 0.5, 1)
-    await firePointer(page, 'pointerup', box.x + 30, box.y + 30, 0, 0)
+    // Click well clear of the object and its handles
+    const sb = await objectScreenBox(page, objId)
+    const awayX = sb.cx - sb.w * 3
+    const awayY = sb.cy - sb.h * 3
+    await firePointer(page, 'pointerdown', awayX, awayY, 0.5, 1)
+    await firePointer(page, 'pointerup', awayX, awayY, 0, 0)
     await waitFrame(page, 3)
 
     const selected = await page.evaluate(() => {
       const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
       if (!store) return []
-      return (store.getState() as { ui: { selectedObjectIds: string[] } }).ui.selectedObjectIds
+      return (store.getState() as { selection: { selectedIds: string[] } }).selection.selectedIds
     })
     expect(selected).toHaveLength(0)
   })
@@ -233,28 +274,26 @@ test.describe('Transform Controls — PlacedObject', () => {
     const before = (await getPlacedObject(page, objId)) as Record<string, unknown>
     const beforePos = before['position'] as { x: number; y: number }
 
-    const canvas = page.locator('canvas')
-    const box = await canvas.boundingBox()
-    if (!box) return
+    const sb = await objectScreenBox(page, objId)
+    const seX = sb.cx + sb.w / 2
+    const seY = sb.cy + sb.h / 2
 
-    const seX = box.x + 500
-    const seY = box.y + 375
-
-    await page.keyboard.down('Alt')
-    await firePointer(page, 'pointerdown', seX, seY, 0.5, 1)
-    await firePointer(page, 'pointermove', seX + 40, seY + 30, 0.5, 1)
-    await firePointer(page, 'pointerup', seX + 40, seY + 30, 0, 0)
-    await page.keyboard.up('Alt')
+    const alt = { alt: true }
+    await firePointer(page, 'pointerdown', seX, seY, 0.5, 1, alt)
+    await firePointer(page, 'pointermove', seX + 40, seY + 30, 0.5, 1, alt)
+    await firePointer(page, 'pointerup', seX + 40, seY + 30, 0, 0, alt)
     await waitFrame(page, 5)
 
     const after = (await getPlacedObject(page, objId)) as Record<string, unknown>
     expect(after).not.toBeNull()
-    // Width should increase
-    expect(after['width'] as number).toBeGreaterThan(before['width'] as number)
-    // Center position should remain approximately the same (within ±5 world units)
+    // Rendered width should increase — the scale is what a resize moves
+    expect((after['width'] as number) * (after['scale'] as number)).toBeGreaterThan(
+      (before['width'] as number) * (before['scale'] as number),
+    )
+    // Center position should stay put (within a quarter of a world cell)
     const afterPos = after['position'] as { x: number; y: number }
-    expect(Math.abs(afterPos.x - beforePos.x)).toBeLessThan(5)
-    expect(Math.abs(afterPos.y - beforePos.y)).toBeLessThan(5)
+    expect(Math.abs(afterPos.x - beforePos.x)).toBeLessThan(0.25)
+    expect(Math.abs(afterPos.y - beforePos.y)).toBeLessThan(0.25)
   })
 })
 
@@ -274,14 +313,13 @@ test.describe('Transform Controls — Snap Behavior', () => {
     })
 
     const objId = await importAndSelectImage(page)
+    const before = (await getPlacedObject(page, objId)) as Record<string, unknown>
+    const beforeX = (before['position'] as { x: number }).x
 
-    const canvas = page.locator('canvas')
-    const box = await canvas.boundingBox()
-    if (!box) return
-
-    const cx = box.x + 400
-    const cy = box.y + 300
-    // Move by a non-grid-aligned delta (37, 23)
+    const { cx, cy, zoom } = await objectScreenBox(page, objId)
+    // Move by a delta that lands between grid divisions: 37px at zoom 20 is
+    // 1.85 cells.
+    const rawDeltaX = 37 / zoom
     await firePointer(page, 'pointerdown', cx, cy, 0.5, 1)
     await firePointer(page, 'pointermove', cx + 37, cy + 23, 0.5, 1)
     await firePointer(page, 'pointerup', cx + 37, cy + 23, 0, 0)
@@ -289,8 +327,8 @@ test.describe('Transform Controls — Snap Behavior', () => {
 
     const after = (await getPlacedObject(page, objId)) as Record<string, unknown>
     const pos = after['position'] as { x: number; y: number }
-    // Snapped position should NOT equal the raw offset (400+37=437)
-    expect(pos.x).not.toBeCloseTo(437, 0)
+    // Snapped position should NOT be the raw offset
+    expect(Math.abs(pos.x - (beforeX + rawDeltaX))).toBeGreaterThan(0.1)
   })
 
   test('ctrl held during move overrides snap — raw delta applied', async ({ page }) => {
@@ -305,44 +343,34 @@ test.describe('Transform Controls — Snap Behavior', () => {
     const before = (await getPlacedObject(page, objId)) as Record<string, unknown>
     const beforeX = (before['position'] as { x: number }).x
 
-    const canvas = page.locator('canvas')
-    const box = await canvas.boundingBox()
-    if (!box) return
-
-    const cx = box.x + 400
-    const cy = box.y + 300
-    await page.keyboard.down('Control')
-    await firePointer(page, 'pointerdown', cx, cy, 0.5, 1)
-    await firePointer(page, 'pointermove', cx + 37, cy + 23, 0.5, 1)
-    await firePointer(page, 'pointerup', cx + 37, cy + 23, 0, 0)
-    await page.keyboard.up('Control')
+    const { cx, cy, zoom } = await objectScreenBox(page, objId)
+    const rawDeltaX = 37 / zoom
+    const ctrl = { ctrl: true }
+    await firePointer(page, 'pointerdown', cx, cy, 0.5, 1, ctrl)
+    await firePointer(page, 'pointermove', cx + 37, cy + 23, 0.5, 1, ctrl)
+    await firePointer(page, 'pointerup', cx + 37, cy + 23, 0, 0, ctrl)
     await waitFrame(page, 5)
 
     const after = (await getPlacedObject(page, objId)) as Record<string, unknown>
     const pos = after['position'] as { x: number; y: number }
-    // With snap overridden, the position should move by approximately the raw delta
+    // With snap overridden, the position should move by the raw delta
     const delta = pos.x - beforeX
     expect(delta).toBeGreaterThan(0)
-    // Not snapped — should be close to 37 world units (within grid cell)
-    expect(pos.x).toBeCloseTo(beforeX + 37, 0)
+    expect(Math.abs(delta - rawDeltaX)).toBeLessThan(0.1)
   })
 
   test('shift + rotate snaps to 15-degree increments', async ({ page }) => {
     const objId = await importAndSelectImage(page)
 
-    const canvas = page.locator('canvas')
-    const box = await canvas.boundingBox()
-    if (!box) return
+    // Rotation handle sits on a 14px stem above the top edge of the gizmo box.
+    const sb = await objectScreenBox(page, objId)
+    const rotX = sb.cx
+    const rotY = sb.cy - sb.h / 2 - 14
 
-    // Rotation handle is above top-center: object at (400,300) h=150 → top ~y=225, handle ~y=211
-    const rotX = box.x + 400
-    const rotY = box.y + 210
-
-    await page.keyboard.down('Shift')
-    await firePointer(page, 'pointerdown', rotX, rotY, 0.5, 1)
-    await firePointer(page, 'pointermove', rotX + 30, rotY + 10, 0.5, 1)
-    await firePointer(page, 'pointerup', rotX + 30, rotY + 10, 0, 0)
-    await page.keyboard.up('Shift')
+    const shift = { shift: true }
+    await firePointer(page, 'pointerdown', rotX, rotY, 0.5, 1, shift)
+    await firePointer(page, 'pointermove', rotX + 30, rotY + 10, 0.5, 1, shift)
+    await firePointer(page, 'pointerup', rotX + 30, rotY + 10, 0, 0, shift)
     await waitFrame(page, 5)
 
     const after = (await getPlacedObject(page, objId)) as Record<string, unknown>
@@ -372,107 +400,98 @@ test.describe('Transform Controls — Edge Cases', () => {
         layers: Array<{ id: string; type: string }>
         updateLayer: (id: string, patch: Record<string, unknown>) => void
       }
-      const imgLayer = state.layers.find((l) => l.type === 'images')
+      const imgLayer = state.layers.find((l) => l.type === 'dungeon')
       if (imgLayer) state.updateLayer(imgLayer.id, { locked: true })
     })
     await waitFrame(page, 3)
 
     const before = (await getPlacedObject(page, objId)) as Record<string, unknown>
 
-    const canvas = page.locator('canvas')
-    const box = await canvas.boundingBox()
-    if (!box) return
-
     // Attempt to drag the object
-    const cx = box.x + 400
-    const cy = box.y + 300
+    const { cx, cy } = await objectScreenBox(page, objId)
     await firePointer(page, 'pointerdown', cx, cy, 0.5, 1)
     await firePointer(page, 'pointermove', cx + 80, cy + 60, 0.5, 1)
     await firePointer(page, 'pointerup', cx + 80, cy + 60, 0, 0)
     await waitFrame(page, 3)
 
-    // Re-select in case it was cleared
-    const selected = await page.evaluate(() => {
-      const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
-      if (!store) return []
-      return (store.getState() as { ui: { selectedObjectIds: string[] } }).ui.selectedObjectIds
-    })
-
-    // If selection is empty or position is unchanged, either means locked worked
-    if (selected.length > 0) {
-      const after = (await getPlacedObject(page, objId)) as Record<string, unknown>
-      expect((after['position'] as { x: number }).x).toBe(
-        (before['position'] as { x: number }).x,
-      )
-    } else {
-      // Locked objects can't be selected — that's also acceptable
-      expect(selected).toHaveLength(0)
-    }
+    // Whether the drag was refused or the selection was dropped, the object
+    // on a locked layer must not have moved.
+    const after = (await getPlacedObject(page, objId)) as Record<string, unknown>
+    expect((after['position'] as { x: number }).x).toBe(
+      (before['position'] as { x: number }).x,
+    )
   })
 
   test('multi-select move translates both objects by same delta', async ({ page }) => {
     const ids = await page.evaluate(() => {
       const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
       if (!store) return []
-      const state = store.getState() as Record<string, (arg: unknown) => void>
-      const layerId = crypto.randomUUID()
-      state['addLayer']({
-        id: layerId,
-        name: 'Images 1',
-        type: 'images',
-        visible: true,
-        locked: false,
-        opacity: 1,
-        objects: [],
-      })
-      state['setActiveLayerId'](layerId)
+      const s = store.getState() as unknown as Record<string, (...args: unknown[]) => void> & {
+        layers: Array<{ id: string; type: string }>
+      }
+      const layerId = s.layers.find((l) => l.type === 'dungeon')?.id
+      if (!layerId) return []
+      s['setActiveLayerId'](layerId)
       const id1 = crypto.randomUUID()
       const id2 = crypto.randomUUID()
-      state['addPlacedObject'](layerId, {
+      s['addChild'](layerId, {
         id: id1,
-        layerId,
+        name: 'Test Image 1',
+        childType: 'asset',
+        visible: true,
         objectType: 'image',
         assetId: 'test1',
-        position: { x: 200, y: 200 },
+        position: { x: -3, y: -2 },
         rotation: 0,
         scale: 1,
-        width: 100,
-        height: 80,
+        width: 2,
+        height: 1.6,
         tint: '#ffffff',
-        groupId: null,
         flipX: false,
         flipY: false,
       })
-      state['addPlacedObject'](layerId, {
+      s['addChild'](layerId, {
         id: id2,
-        layerId,
+        name: 'Test Image 2',
+        childType: 'asset',
+        visible: true,
         objectType: 'image',
         assetId: 'test2',
-        position: { x: 500, y: 400 },
+        position: { x: 3, y: 2 },
         rotation: 0,
         scale: 1,
-        width: 100,
-        height: 80,
+        width: 2,
+        height: 1.6,
         tint: '#ffffff',
-        groupId: null,
         flipX: false,
         flipY: false,
       })
-      state['setSelectedObjectIds']([id1, id2])
+      s['setActiveTool']('select')
       return [id1, id2]
     })
+    await waitFrame(page, 5)
+
+    // Select both through the tool — click one, shift-click the other — so the
+    // gizmo exists and spans them.
+    const first = await objectScreenBox(page, ids[0])
+    await firePointer(page, 'pointerdown', first.cx, first.cy, 0.5, 1)
+    await firePointer(page, 'pointerup', first.cx, first.cy, 0, 0)
+    await waitFrame(page, 3)
+    const second = await objectScreenBox(page, ids[1])
+    await firePointer(page, 'pointerdown', second.cx, second.cy, 0.5, 1, { shift: true })
+    await firePointer(page, 'pointerup', second.cx, second.cy, 0, 0, { shift: true })
     await waitFrame(page, 5)
 
     const before1 = (await getPlacedObject(page, ids[0])) as Record<string, unknown>
     const before2 = (await getPlacedObject(page, ids[1])) as Record<string, unknown>
 
-    const canvas = page.locator('canvas')
-    const box = await canvas.boundingBox()
-    if (!box) return
-
-    // Drag inside the shared bounding box
-    const cx = box.x + 350
-    const cy = box.y + 300
+    // Drag inside the shared bounding box — the two objects straddle the world
+    // origin, so its midpoint is the centre of the first object's box shifted
+    // halfway to the second.
+    const a = await objectScreenBox(page, ids[0])
+    const b = await objectScreenBox(page, ids[1])
+    const cx = (a.cx + b.cx) / 2
+    const cy = (a.cy + b.cy) / 2
     await firePointer(page, 'pointerdown', cx, cy, 0.5, 1)
     await firePointer(page, 'pointermove', cx + 50, cy + 50, 0.5, 1)
     await firePointer(page, 'pointerup', cx + 50, cy + 50, 0, 0)
@@ -486,8 +505,8 @@ test.describe('Transform Controls — Edge Cases', () => {
 
     expect(delta1x).toBeGreaterThan(0)
     expect(delta2x).toBeGreaterThan(0)
-    // Both objects moved by the same delta (within 5 world units tolerance)
-    expect(Math.abs(delta1x - delta2x)).toBeLessThan(5)
+    // Both objects moved by the same delta
+    expect(Math.abs(delta1x - delta2x)).toBeLessThan(0.1)
   })
 })
 
@@ -512,6 +531,19 @@ test.describe('Transform Controls — Dungeon Shapes', () => {
     await drawRect(page, cx - 80, cy - 60, cx + 80, cy + 60)
     await waitFrame(page, 5)
 
+    const minRingX = await page.evaluate(() => {
+      const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
+      const state = store!.getState() as {
+        layers: Array<{
+          type: string
+          children?: Array<{ childType: string; contours?: [number, number][][] }>
+        }>
+      }
+      const dungeon = state.layers.find((l) => l.type === 'dungeon')
+      const shape = (dungeon?.children ?? []).find((c) => c.childType === 'shape')
+      return Math.min(...(shape?.contours?.[0] ?? [[0, 0]]).map(([x]) => x))
+    })
+
     // Switch to select tool
     await page.keyboard.press('v')
     await waitFrame(page, 2)
@@ -528,18 +560,27 @@ test.describe('Transform Controls — Dungeon Shapes', () => {
     await firePointer(page, 'pointerup', cx + 60, cy + 40, 0, 0)
     await waitFrame(page, 5)
 
-    // Verify shape has a transform or that merged floor changed
-    const hasTransform = await page.evaluate(() => {
+    // A move bakes itself into the rings and clears any stored transform
+    // (childTransform.transformChild), so the rings are what moved. This used to
+    // look for a leftover `transform` record, which is the one thing a completed
+    // move is guaranteed *not* to leave behind.
+    const movedBy = await page.evaluate((x0) => {
       const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
-      if (!store) return false
+      if (!store) return null
       const state = store.getState() as {
-        layers: Array<{ type: string; shapes?: Array<{ transform?: unknown }> }>
+        layers: Array<{
+          type: string
+          children?: Array<{ childType: string; contours?: [number, number][][] }>
+        }>
       }
       const dungeon = state.layers.find((l) => l.type === 'dungeon')
-      const shape = dungeon?.shapes?.[0]
-      return shape?.transform != null
-    })
-    expect(hasTransform).toBe(true)
+      const shape = (dungeon?.children ?? []).find((c) => c.childType === 'shape')
+      const ring = shape?.contours?.[0]
+      if (!ring) return null
+      return Math.min(...ring.map(([x]) => x)) - x0
+    }, minRingX)
+    expect(movedBy).not.toBeNull()
+    expect(movedBy!).toBeGreaterThan(0)
   })
 })
 
@@ -548,14 +589,13 @@ test.describe('Transform Controls — Dungeon Shapes', () => {
 test.describe('Transform Controls — Cursor Behavior', () => {
   test('hover over selected object center shows move cursor', async ({ page }) => {
     await gotoApp(page)
-    await importAndSelectImage(page)
+    const objId = await importAndSelectImage(page)
 
     const canvas = page.locator('canvas')
-    const box = await canvas.boundingBox()
-    if (!box) return
+    const { cx, cy } = await objectScreenBox(page, objId)
 
     // Hover over the object center
-    await page.mouse.move(box.x + 400, box.y + 300)
+    await page.mouse.move(cx, cy)
     await waitFrame(page, 2)
 
     const cursor = await canvas.evaluate((el) => (el as HTMLCanvasElement).style.cursor)
@@ -564,14 +604,13 @@ test.describe('Transform Controls — Cursor Behavior', () => {
 
   test('hover outside selected object shows default cursor', async ({ page }) => {
     await gotoApp(page)
-    await importAndSelectImage(page)
+    const objId = await importAndSelectImage(page)
 
     const canvas = page.locator('canvas')
-    const box = await canvas.boundingBox()
-    if (!box) return
+    const sb = await objectScreenBox(page, objId)
 
-    // Hover far outside object (object is at 400,300)
-    await page.mouse.move(box.x + 50, box.y + 50)
+    // Hover well clear of the object and its handles
+    await page.mouse.move(sb.cx - sb.w * 3, sb.cy - sb.h * 3)
     await waitFrame(page, 2)
 
     const cursor = await canvas.evaluate((el) => (el as HTMLCanvasElement).style.cursor)

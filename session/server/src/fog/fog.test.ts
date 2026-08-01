@@ -227,14 +227,19 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
     expect(ids).toContain('floor-vault')
   })
 
-  it('leaves a layer nobody zoned exactly as it was', () => {
+  it('leaves a layer nobody zoned as it was, less its doors', () => {
     const plain = mapFile()
     const layer = plain.layers[0] as DungeonLayer
     delete layer.rooms
     const stores = createStores(openDb(':memory:'))
     const campaign = stores.campaigns.create('Flat')
     stores.maps.insert('flat', campaign.id, 'Flat', JSON.stringify(plain))
-    expect(createVision(stores).playerMap('flat')).toEqual(plain)
+    // No fog to enforce, so the geometry is untouched — but a door nobody can earn is not
+    // the player's to be shown (see 'hands a map nobody zoned over whole' below).
+    expect(createVision(stores).playerMap('flat')).toEqual({
+      ...plain,
+      layers: [{ ...layer, children: layer.children.filter((c) => c.childType !== 'door') }],
+    })
   })
 })
 
@@ -253,6 +258,18 @@ describe('mapDeltaFor (D5)', () => {
 
   it('still withholds an unrevealed secret door on the room it opens onto', () => {
     expect(JSON.stringify(mapDeltaFor(sceneMap(), SCENE, ['vault'], {}))).not.toContain('door-secret')
+  })
+
+  it('leaves a door bound to the room the party is already standing in', () => {
+    // Revealing `corr` to a party that holds `hall`: the door between them is carried by
+    // the delta and replaces the copy the player had, so nulling `hall` here would take
+    // the near side away and seal the door for their own reachability BFS.
+    const delta = mapDeltaFor(sceneMap(), SCENE, ['corr'], {}, new Set(['hall', 'corr']))
+    const door = delta.layers[0].children.find((c) => c.id === 'door-hall-corr') as DoorChild
+    expect([door.roomA, door.roomB]).toEqual(['hall', 'corr'])
+    // The far side is still unearned: `inner` is nobody's yet, and its id is its centroid.
+    const onward = delta.layers[0].children.find((c) => c.id === 'door-corr-inner') as DoorChild
+    expect([onward.roomA, onward.roomB]).toEqual(['corr', null])
   })
 })
 
@@ -313,6 +330,44 @@ describe('vision (D3/D8)', () => {
     expect(scene.roomAt(100, 100)).toBeNull()
   })
 
+  /**
+   * The half of D8 the refusal needs: `occupiable` says no, this says which door said it.
+   * It went unwired for a release — `visionOf` handed back the two sets and nothing else —
+   * and every move a door refused came back to the player as "You can't move there."
+   */
+  it('hands the refusal the door that shut the room off, so it can be named', () => {
+    const { vision, stores, campaignId } = table()
+    // The party is standing in the corridor, one shut door short of `inner`.
+    set(stores, campaignId, 'tokens', party(12))
+    set(stores, campaignId, 'fog', {
+      byScene: {
+        [SCENE]: fog({
+          rooms: {
+            hall: { status: 'revealed', wasEverRevealed: true },
+            corr: { status: 'revealed', wasEverRevealed: true },
+            inner: { status: 're_hidden', wasEverRevealed: true },
+          },
+        }),
+      },
+    } satisfies FogState)
+    const scene = vision.visionOf(SCENE)!
+    expect(scene.occupiable.has('inner')).toBe(false)
+    expect(scene.blockedEdge!('inner')).toEqual({
+      kind: 'closed-door',
+      doorId: 'door-corr-inner',
+    })
+    // Nothing between the party and where they already stand.
+    expect(scene.blockedEdge!('corr')).toBeNull()
+
+    set(stores, campaignId, 'doors', {
+      byScene: { [SCENE]: { 'door-corr-inner': { open: false, locked: true, revealed: true } } },
+    } satisfies DoorsState)
+    expect(vision.visionOf(SCENE)!.blockedEdge!('inner')).toEqual({
+      kind: 'locked-door',
+      doorId: 'door-corr-inner',
+    })
+  })
+
   it('does not conceal from a table with no claimed token on the map', () => {
     const { vision, stores, campaignId } = table()
     set(stores, campaignId, 'fog', {
@@ -364,30 +419,36 @@ describe('vision (D3/D8)', () => {
   })
 })
 
-// ── the default room (amendment 2026-07-28) ─────────────────────────────────
-// A player-facing scene always has one room in it. `hall`, `inner` and `vault` are all
-// area 100 and none is a pathway, so the tie-break picks `hall` — and picking it is a
-// read-time rule, so nothing below ever writes a fog record.
+// ── nothing is revealed for free ────────────────────────────────────────────
+// The default-room fallback (amendment 2026-07-28) handed a fresh scene its largest
+// non-pathway room — `hall` here, on a three-way area tie broken by id. The fourth browser
+// gate measured what that meant on a real map: a player who had been told nothing was sent
+// the geometry of emberhold-crypt's Torchlit Chamber and rendered it at full brightness,
+// while the DM's own fog panel called all thirteen rooms Unrevealed. It is off on both
+// sides of the wire now — the referee's half is here, the mask's in `FogRenderer`.
 
-describe('the default room, on the server (amendment 2026-07-28)', () => {
+describe('a scene the DM has revealed nothing in', () => {
   const roomsOfMap = (map: SerializedMapData | null) =>
     (map?.layers[0] as DungeonLayer).rooms?.map((r) => r.id).sort()
 
-  it('gives a fresh scene its largest non-pathway room and nothing else', () => {
+  it('sends a player no rooms and shows them nothing, however big the room', () => {
     const { vision, stores, campaignId } = table()
-    expect([...vision.visionOf(SCENE)!.visible]).toEqual(['hall'])
-    expect(roomsOfMap(vision.playerMap(SCENE))).toEqual(['hall'])
-    // Read-time, not a seed: the module's own state is still untouched.
+    expect([...vision.visionOf(SCENE)!.visible]).toEqual([])
+    expect(roomsOfMap(vision.playerMap(SCENE))).toEqual([])
+    // The geometry is withheld, not merely masked: a light baked into `hall` cannot reach a
+    // canvas that was never sent the room (PRODUCT principle 2).
+    expect(JSON.stringify(vision.playerMap(SCENE))).not.toContain('floor-hall')
+    // Still read-time, and still writes nothing: the module's own state is untouched.
     expect(stores.moduleState.get(campaignId, 'fog')).toBeUndefined()
   })
 
-  it('lets a player stand in it, so a fresh table is not a fenced-off map (D8)', () => {
+  it('gives a player nowhere to stand until the DM opens the map (D8)', () => {
     const { vision } = table()
-    expect(vision.visionOf(SCENE)!.occupiable.has('hall')).toBe(true)
+    expect(vision.visionOf(SCENE)!.occupiable.has('hall')).toBe(false)
     expect(vision.visionOf(SCENE)!.occupiable.has('vault')).toBe(false)
   })
 
-  it('gives it up the moment the DM reveals a real room, and retracts its geometry', () => {
+  it('hands over exactly the room the DM reveals, and nothing beside it', () => {
     const { vision, stores, campaignId } = table()
     stores.moduleState.put(campaignId, 'fog', seen('inner'))
     expect([...vision.visionOf(SCENE)!.visible]).toEqual(['inner'])
@@ -395,7 +456,7 @@ describe('the default room, on the server (amendment 2026-07-28)', () => {
     expect(JSON.stringify(vision.playerMap(SCENE))).not.toContain('floor-hall')
   })
 
-  it('falls back again when a Hide All leaves nothing revealed', () => {
+  it('leaves a Hide All every room explored and none of them visible', () => {
     const { vision, stores, campaignId } = table()
     // What `set-bulk` writes for D9's Hide All: everything seen, nothing lit.
     stores.moduleState.put(campaignId, 'fog', {
@@ -409,21 +470,44 @@ describe('the default room, on the server (amendment 2026-07-28)', () => {
         },
       },
     } satisfies FogState)
-    expect([...vision.visionOf(SCENE)!.visible]).toEqual(['hall'])
-    // …and the room they explored keeps its geometry either way (D4).
+    // The regression behind the explored wash reading identical to a live room: the last
+    // room going under used to bring `hall` straight back as visible.
+    expect([...vision.visionOf(SCENE)!.visible]).toEqual([])
+    // …and the rooms they explored keep their geometry either way (D4).
     expect(roomsOfMap(vision.playerMap(SCENE))).toEqual(['hall', 'inner'])
   })
 
-  it('hands a map nobody zoned over whole, doors and all', () => {
+  /**
+   * The fourth browser gate measured three door marks at full brightness (lum 215) on an
+   * otherwise black player canvas. They were the doors of `demo-dungeon.mapbuilder`, which
+   * has no `rooms` at all: the unzoned exemption handed every one of them over, and the
+   * player's marks are drawn above the fog mask precisely because that is not supposed to
+   * be possible. The map still goes over whole — there is no fog on it to enforce — but its
+   * doors are the DM's.
+   */
+  it('hands a map nobody zoned over whole, but keeps its doors from the player', () => {
     const plain = mapFile()
     delete (plain.layers[0] as DungeonLayer).rooms
     const stores = createStores(openDb(':memory:'))
     const campaign = stores.campaigns.create('Flat')
     stores.maps.insert('flat', campaign.id, 'Flat', JSON.stringify(plain))
     const vision = createVision(stores)
-    // No rooms to bind a door to, so the explored-rooms cut would take every one of them.
-    expect([...vision.playerDoors('flat')].sort()).toEqual(DOORS.map((d) => d.id).sort())
-    expect(vision.playerMap('flat')).toEqual(plain)
+
+    expect([...vision.playerDoors('flat')]).toEqual([])
+    const held = vision.playerMap('flat')
+    expect((held?.layers[0] as DungeonLayer).children.filter((c) => c.childType === 'door')).toEqual([])
+    // Everything that is not a door is untouched: the floor is still theirs to draw.
+    expect((held?.layers[0] as DungeonLayer).children.map((c) => c.id)).toEqual(
+      (plain.layers[0] as DungeonLayer).children.filter((c) => c.childType !== 'door').map((c) => c.id),
+    )
+  })
+
+  /** The regression in one line, on the zoned map: nothing revealed, nothing to draw. */
+  it('tells a player about no door at all until a room of one is revealed', () => {
+    const { vision } = table()
+    expect([...vision.playerDoors(SCENE)]).toEqual([])
+    const map = vision.playerMap(SCENE)
+    expect((map?.layers[0] as DungeonLayer).children.filter((c) => c.childType === 'door')).toEqual([])
   })
 })
 
@@ -444,11 +528,10 @@ const seen = (...rooms: string[]): FogState => ({
 })
 
 describe('vision.playerDoors (D4)', () => {
-  it('is the default room’s doors before the party has explored anything, and empty for a scene with no map', () => {
+  it('is empty before the party has explored anything, and for a scene with no map', () => {
     const { vision } = table()
-    // `hall` is the fallback (amendment 2026-07-28), so the door out of it is the one door
-    // a player holds at join — never none at all.
-    expect([...vision.playerDoors(SCENE)]).toEqual(['door-hall-corr'])
+    // A door is bound to a room, and a player holding no room holds no door either.
+    expect([...vision.playerDoors(SCENE)]).toEqual([])
     expect([...vision.playerDoors('no-such-scene')]).toEqual([])
   })
 
@@ -538,9 +621,9 @@ describe('the doors slice on the wire (D4/D4c)', () => {
     // One touch anywhere seeds every door in the scene — this is the leak, in one command.
     expect(run('doors', 'toggle', { sceneId: SCENE, id: 'door-corr-inner' })).toBeNull()
     expect(doorsFor(DM)).toEqual(['door-corr-inner', 'door-hall-corr', 'door-secret'])
-    // Not none: `hall` is the default room until the DM reveals something (amendment
-    // 2026-07-28), so its door is a player's from the first frame.
-    expect(doorsFor(P1)).toEqual(['door-hall-corr'])
+    // None: a player who has explored nothing is bound to no room, so the seeding reaches
+    // them with no door in it at all.
+    expect(doorsFor(P1)).toEqual([])
 
     run('fog', 'reveal', { sceneId: SCENE, roomId: 'hall' })
     expect(doorsFor(P1)).toEqual(['door-hall-corr'])

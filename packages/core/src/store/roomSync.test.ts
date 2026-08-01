@@ -3,8 +3,11 @@ import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '../geometry/Clipper2Engine';
 import { useStore } from './store';
 import { syncRooms } from './roomSync';
+import { undoManager } from './undoManager';
+import { PropertyCommand, UpdateWallCommand } from './commands';
+import { FLOOR_ANCHORED } from '../shared/wallResolve';
 import type { DungeonLayer, SerializedMapData } from './types';
-import type { DoorChild, WallSegment } from '../shared/types';
+import type { DoorChild, Room, WallSegment } from '../shared/types';
 
 /** Same wasm hand-off as roomDetection.test.ts — jsdom can't fetch the .wasm. */
 beforeAll(async () => {
@@ -123,5 +126,156 @@ describe('syncRooms — backfill on load', () => {
     useStore.getState().resetToDefault();
     syncRooms();
     expect(dungeon().rooms).toEqual([]);
+  });
+});
+
+/** The same v3.0 shell, with the layer's geometry swapped in. */
+function mapWith(
+  children: DoorChild[],
+  standaloneWalls: WallSegment[],
+  mergedFloor: [number, number][][],
+): SerializedMapData {
+  const file = fileWithoutRooms();
+  const layer = file.layers[0] as unknown as DungeonLayer;
+  layer.children = children;
+  layer.standaloneWalls = standaloneWalls;
+  layer.mergedFloor = mergedFloor;
+  return file;
+}
+
+function theDoor(): DoorChild {
+  const door = dungeon().children.find((c): c is DoorChild => c.childType === 'door');
+  if (!door) throw new Error('no door');
+  return door;
+}
+
+/** The rooms the door is currently bound to; an exterior side drops out. */
+function boundRooms(): Room[] {
+  const rooms = dungeon().rooms ?? [];
+  const door = theDoor();
+  return [door.roomA, door.roomB]
+    .map((id) => rooms.find((r) => r.id === id))
+    .filter((r): r is Room => r !== undefined);
+}
+
+/**
+ * Rooms are re-detected from geometry, so their ids carry no identity across an
+ * edit — which side of the map they sit on does.
+ */
+function expectBoundTo(side: 'left' | 'right'): void {
+  const bound = boundRooms();
+  expect(bound).toHaveLength(2);
+  for (const room of bound) {
+    if (side === 'left') expect(room.centroid[0]).toBeLessThan(10);
+    else expect(room.centroid[0]).toBeGreaterThan(10);
+  }
+}
+
+describe('door rebinding after a geometry command', () => {
+  beforeEach(() => {
+    undoManager.clear();
+    useStore.getState().resetToDefault();
+  });
+
+  describe('wall node edit', () => {
+    // A 20x10 floor halved by a cross wall at x=10. The door's wall starts as
+    // the left half's divider and is moved to divide the right half instead.
+    const CROSS: WallSegment = { ...DIVIDER, id: 'w2', points: [[10, 0], [10, 10]] };
+    const LEFT_SPAN: [number, number][] = [[0, 5], [10, 5]];
+    const RIGHT_SPAN: [number, number][] = [[10, 5], [20, 5]];
+
+    beforeEach(() => {
+      useStore.getState().loadFromFile(
+        mapWith(
+          [structuredClone(DOOR)],
+          [{ ...structuredClone(DIVIDER), points: LEFT_SPAN }, structuredClone(CROSS)],
+          [[[0, 0], [20, 0], [20, 10], [0, 10]]],
+        ),
+      );
+      syncRooms();
+    });
+
+    function moveWall(): void {
+      undoManager.execute(
+        new UpdateWallCommand(dungeon().id, 'w1', { points: LEFT_SPAN }, { points: RIGHT_SPAN }),
+      );
+    }
+
+    it('starts bound to the two rooms its wall divides', () => {
+      expect(dungeon().rooms).toHaveLength(3);
+      expectBoundTo('left');
+    });
+
+    it('rebinds to the rooms the moved wall now separates', () => {
+      moveWall();
+      expectBoundTo('right');
+    });
+
+    it('undo restores the previous binding with the geometry, redo re-applies both', () => {
+      moveWall();
+
+      undoManager.undo();
+      expect(dungeon().standaloneWalls.find((w) => w.id === 'w1')?.points).toEqual(LEFT_SPAN);
+      expectBoundTo('left');
+
+      undoManager.redo();
+      expect(dungeon().standaloneWalls.find((w) => w.id === 'w1')?.points).toEqual(RIGHT_SPAN);
+      expectBoundTo('right');
+    });
+  });
+
+  describe('floor outline edit', () => {
+    const WHOLE: [number, number][][] = [[[0, 0], [10, 0], [10, 10], [0, 10]]];
+    const SPLIT: [number, number][][] = [
+      [[0, 0], [4, 0], [4, 10], [0, 10]],
+      [[6, 0], [10, 0], [10, 10], [6, 10]],
+    ];
+
+    beforeEach(() => {
+      useStore.getState().loadFromFile(
+        mapWith(
+          [
+            {
+              ...structuredClone(DOOR),
+              wallId: FLOOR_ANCHORED,
+              position: [0, 5],
+              // Deliberately wrong for the vertical edge this door sits on:
+              // the binding has to come from the resolver, not this field.
+              angle: 0,
+            },
+          ],
+          [],
+          WHOLE,
+        ),
+      );
+      syncRooms();
+    });
+
+    function cutFloor(): void {
+      undoManager.execute(
+        new PropertyCommand(
+          'Cut floor',
+          { type: 'layer', layerId: dungeon().id },
+          { mergedFloor: WHOLE },
+          { mergedFloor: SPLIT },
+        ),
+      );
+    }
+
+    it('binds the floor side to a room and the other side to the exterior', () => {
+      const door = theDoor();
+      expect([door.roomA, door.roomB].filter((id) => id !== null)).toHaveLength(1);
+      expect(boundRooms()[0].area).toBeGreaterThan(90);
+    });
+
+    it('rebinds to the room the floor edit left under it, and back on undo', () => {
+      cutFloor();
+      expect(dungeon().rooms).toHaveLength(2);
+      expect(boundRooms()[0].area).toBeLessThan(50);
+
+      undoManager.undo();
+      expect(dungeon().rooms).toHaveLength(1);
+      expect(boundRooms()[0].area).toBeGreaterThan(90);
+    });
   });
 });

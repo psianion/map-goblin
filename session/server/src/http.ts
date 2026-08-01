@@ -16,9 +16,16 @@ import {
   startSession,
   verifyToken,
 } from './auth'
-import { MAX_ASSET_BYTES, MAX_MAP_BYTES, type Identity, type Stores } from './db/stores'
+import {
+  MAX_ASSET_BYTES,
+  MAX_MAP_BYTES,
+  MAX_MAP_JSON_BYTES,
+  type Identity,
+  type Stores,
+} from './db/stores'
 import type { Vision } from './fog/vision'
-import { parseMapFile } from './mapImport'
+import { parseMapFile, unwrapMapFile } from './mapImport'
+import type { ModuleRegistry } from './modules/registry'
 import type { SessionManager } from './ws/SessionManager'
 
 export interface HttpDeps {
@@ -28,6 +35,8 @@ export interface HttpDeps {
   sessionManager: SessionManager
   /** S3 — the map GET's player path goes through it (D4/D5). */
   vision: Vision
+  /** The DM's starting room is a `fog.reveal` like any other — see `openSession`. */
+  modules: ModuleRegistry
 }
 
 /** Everything but a map upload is a handful of fields. */
@@ -112,7 +121,15 @@ async function uploadMap(
   const body = await readBody(req, MAX_MAP_BYTES)
   if (!body.ok) return failBody(req, res, body)
 
-  const text = body.bytes.toString('utf8')
+  // The editor saves gzipped; testdata fixtures are plain JSON. Both are `.mapbuilder`, and
+  // the stored form is the JSON either way — everything downstream reads `maps.data` with a
+  // bare `JSON.parse`, and the DM's map GET hands the row straight back.
+  //
+  // Unpacked against the unpacked cap: a map with imported art gzips to well under the wire
+  // limit and still expands past it (see MAX_MAP_JSON_BYTES).
+  const text = unwrapMapFile(body.bytes, MAX_MAP_JSON_BYTES)
+  if (text === null) return json(res, 400, { error: 'could not read that .mapbuilder file' })
+
   const map = parseMapFile(text)
   if (!map.ok) return json(res, 400, { error: map.error })
 
@@ -245,19 +262,74 @@ async function joinSession(deps: RouteDeps, req: IncomingMessage, res: ServerRes
   })
 }
 
-/** POST /api/sessions — DM starts a session for a campaign and gets its invite code. */
+/**
+ * POST /api/sessions — DM starts a session for a campaign and gets its invite code.
+ *
+ * `startingRoom` is §2.6's optional one: the room the DM picked while setting the table up,
+ * lit before anyone is in the door. It is not a second kind of fog — it is the reveal the DM
+ * would have clicked, run here through the same module, so the stored fog is the only source
+ * of truth and redaction, the DM's panel and every join agree without being told about it.
+ */
 async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
   const body = await readJson(req, res)
   if (!body) return
 
   const campaignId = text(body.campaignId)
   if (!campaignId) return json(res, 400, { error: 'campaignId is required' })
-  if (!requireSession(deps, req, res, { campaignId, role: 'dm' })) return
+  const dm = requireSession(deps, req, res, { campaignId, role: 'dm' })
+  if (!dm) return
+
+  // Checked before anything is started, so a bad pick cannot leave the DM with a table whose
+  // invite code went out in a 400. Scene ids are map ids, and this is the same list the fog
+  // module would validate the reveal against.
+  const named = body.startingRoom as { sceneId?: unknown; roomId?: unknown } | undefined
+  let start: { sceneId: string; roomId: string } | null = null
+  if (named != null) {
+    const sceneId = text(named.sceneId)
+    const roomId = text(named.roomId)
+    if (!sceneId || !roomId) {
+      return json(res, 400, { error: 'startingRoom needs a sceneId and a roomId' })
+    }
+    if (!deps.vision.roomsOf(campaignId, sceneId).includes(roomId)) {
+      return json(res, 400, { error: `no room '${roomId}' in that scene` })
+    }
+    start = { sceneId, roomId }
+  }
+
+  // Which map the table opens on. The wizard names it because it is the one it just
+  // uploaded, and the campaign's map order cannot be asked instead — an older map in the
+  // same campaign is just as plausibly first. A starting room already names one.
+  const scene = text(body.sceneId) ?? start?.sceneId ?? null
+  if (scene && !deps.stores.maps.listByCampaign(campaignId).some((map) => map.id === scene)) {
+    return json(res, 400, { error: `no scene '${scene}' in this campaign` })
+  }
 
   // createSession ends whatever was running; the table it replaced deserves to hear so.
   const replaced = deps.stores.sessions.getActiveByCampaign(campaignId)
   const session = startSession(deps.stores.sessions, campaignId)
   if (replaced) deps.sessionManager.endSession(replaced.id)
+
+  // The scene the wizard set the table up with is the scene the table opens on. Without it
+  // the snapshot falls back to the campaign's *first* map (see `scenes` in index.ts), and on
+  // a campaign holding more than one that is not the map the DM just uploaded: the reveal
+  // was stored against theirs while the fog panel read a scene nothing had been revealed in,
+  // so the DM saw "Unrevealed" and the player joined to full black — with a 201 and no error
+  // on either half to say so.
+  if (scene) deps.stores.sessions.setActiveScene(session.id, scene)
+
+  // Nobody can be at this table yet — the invite code is still in this function — so the
+  // reveal lands before the first join rather than racing it, and the broadcast it would
+  // normally make has no one to make it to.
+  if (start) {
+    deps.modules.dispatch('fog', 'reveal', start, {
+      campaignId,
+      sessionId: session.id,
+      activeSceneId: start.sceneId,
+      sender: { role: 'dm', identityId: dm.id },
+      players: [],
+      broadcast: () => {},
+    })
+  }
 
   json(res, 201, {
     sessionId: session.id,

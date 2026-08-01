@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { DoorsState } from '@dnd/mechanics/doors';
+import type { FogState } from '@dnd/mechanics/fog';
 import type { RollEvent } from '@dnd/mechanics/rolls';
 import { ALL_ROLES, registerPanel } from '../session/panels';
 import { useModuleState, useSessionStore } from '../session/store';
+import { tableLogLines } from '../session/tableLog';
 
 interface Entry {
   key: string;
@@ -28,6 +31,12 @@ export function GameLog() {
   // server already capped every string (§2.2) and this panel only prints them.
   const rolls = useModuleState<{ log?: RollEvent[] }>('rolls');
   const presence = useSessionStore((s) => s.presence);
+  // The doors and fog lines (§2.4.3). They ride their modules' state, so this seat only
+  // ever holds the ones it is allowed to read — there is nothing to filter here.
+  const doors = useModuleState<DoorsState>('doors');
+  const fog = useModuleState<FogState>('fog');
+  const mapData = useSessionStore((s) => s.mapData);
+  const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const [draft, setDraft] = useState('');
   const feedRef = useRef<HTMLOListElement>(null);
 
@@ -54,8 +63,14 @@ export function GameLog() {
       whisper: false,
       presence: true,
     }));
-    return [...rollEntries, ...presenceEntries].sort((a, b) => a.at - b.at);
-  }, [rolls, presence]);
+    // Same quiet register as a join line: what the table did, not what it rolled.
+    const tableEntries = tableLogLines(doors, fog, mapData, sceneId).map((line) => ({
+      ...line,
+      whisper: false,
+      presence: true,
+    }));
+    return [...rollEntries, ...presenceEntries, ...tableEntries].sort((a, b) => a.at - b.at);
+  }, [rolls, presence, doors, fog, mapData, sceneId]);
 
   // Newest at the bottom, so follow it. Not setState — no render loop.
   useEffect(() => {

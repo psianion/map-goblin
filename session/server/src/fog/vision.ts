@@ -9,9 +9,11 @@
 
 import { doorsOfScene, type AuthoredDoor, type DoorLiveState, type DoorsState } from '@dnd/mechanics/doors'
 import {
+  blockedEdge,
   effectiveFog,
   sceneFogOf,
   visibleRooms,
+  type FogRoom,
   type FogState,
   type RoomFog,
   type SceneFog,
@@ -59,6 +61,8 @@ interface Computed {
   visible: Set<string>
   /** Rooms a player token may stand in (D8) — reachable, and not never-revealed. */
   occupiable: Set<string>
+  /** The rooms the party stands in — what `blockedEdge` measures "shut off" against. */
+  party: string[]
   /** Rooms whose geometry the player holds (D4). */
   explored: Set<string>
   /** The doors that geometry contains — the live states a player may be told about. */
@@ -68,6 +72,8 @@ interface Computed {
 }
 
 const NO_FOG: FogState = { byScene: {} }
+/** `effectiveFog`'s default-room fallback, switched off — see its call site below. */
+const NO_ROOMS: readonly FogRoom[] = []
 const NO_DOORS: DoorsState = { byScene: {} }
 const NO_TOKENS: TokensState = { library: {}, byScene: {} }
 const NO_ONES_DOORS: ReadonlySet<string> = new Set()
@@ -97,18 +103,30 @@ export function createVision(stores: Stores): Vision {
       const room = map.roomAt(token.x, token.y)
       if (room !== null && !party.includes(room)) party.push(room)
     }
-    // Everything below reads the *effective* fog, never the stored one: the default-room
-    // fallback and the empty-party concealment rule are read-time corrections, and the
-    // player's renderer applies the same helper to the same inputs (amendment 2026-07-28).
-    const fog = effectiveFog(sceneFogOf(read(campaignId, 'fog', NO_FOG), sceneId), map.rooms, party)
+    // Everything below reads the *effective* fog, never the stored one, and the player's
+    // renderer applies the same helper to the same inputs so the two cannot drift.
+    //
+    // With no rooms to pick from, the one read-time correction left is the empty-party
+    // concealment rule. The other — the default room, which revealed the largest non-pathway
+    // room whenever nothing was stored as revealed (amendment 2026-07-28) — is off: it handed
+    // a player who had been told nothing the geometry of the map's biggest room, which on
+    // emberhold-crypt is the torchlit one, and the fourth browser gate read it at full
+    // brightness on a scene the DM's panel called Unrevealed. Withholding it here is the half
+    // that matters; the mask is only the half the player can see (PRODUCT principle 2).
+    const fog = effectiveFog(sceneFogOf(read(campaignId, 'fog', NO_FOG), sceneId), NO_ROOMS, party)
 
     const explored = exploredRooms(fog)
     // The doors a player may hold — the *same* predicate the map cut uses on the door
     // children themselves, so the live slice and the geometry name one set of doors and not
-    // two (a secret door the DM has not revealed is in neither). A map nobody zoned has no
-    // room to bind a door to and none of its geometry is withheld, so every door on it is
-    // the player's too (amendment 2026-07-28).
-    const held = map.doors.filter((door) => map.rooms.length === 0 || doorKept(door, explored, doors))
+    // two (a secret door the DM has not revealed is in neither).
+    //
+    // A map nobody zoned used to be exempt: with no room to bind a door to, the explored cut
+    // takes every one of them, so the amendment of 2026-07-28 handed them all over instead.
+    // That is the leak the fourth browser gate measured — three marks at full brightness over
+    // a black canvas, disclosing where the doors are. The geometry of an unzoned map is still
+    // handed over whole (`redactMapForViewer`); only the doors on it are the DM's, because a
+    // door nobody can earn is a door no player should be told about.
+    const held = map.doors.filter((door) => doorKept(door, explored, doors))
     // Against nothing on a cold cache, so the first answer after a restart is everything
     // the party has explored rather than nothing at all. Correctness must not depend on
     // whether someone happened to fetch the map first, and a client already holding a
@@ -116,7 +134,7 @@ export function createVision(stores: Stores): Vision {
     const revealed = [...explored].filter((room) => !previous?.explored.has(room))
     // Cut once per mutation, not once per viewer: every player at the table is owed the same
     // rooms, and the slice is the expensive half of a reveal.
-    const roomDelta = revealed.length ? mapDeltaFor(map, sceneId, revealed, doors) : null
+    const roomDelta = revealed.length ? mapDeltaFor(map, sceneId, revealed, doors, explored) : null
     // …and the same question asked of doors, which is how a `reveal-secret` hands over the
     // door child the player's map was cut without (D2). A door that arrives with the room it
     // belongs to is already in `roomDelta`, so this only carries what the rooms did not.
@@ -136,6 +154,7 @@ export function createVision(stores: Stores): Vision {
       // still walk to is somewhere to stand, it is simply dark (D7). Asking `visibleRooms`
       // for a scene where every room they have seen counts as lit answers it exactly.
       occupiable: visibleRooms({ ...fog, rooms: asSeen(fog.rooms) }, doors, map.doors, party),
+      party,
       explored,
       playerDoors: new Set(held.map((door) => door.id)),
       delta: mergeDelta(roomDelta, newDoors.size ? doorDeltaFor(map, sceneId, newDoors, explored) : null),
@@ -162,6 +181,10 @@ export function createVision(stores: Stores): Vision {
         roomAt: computed.map.roomAt,
         visible: computed.visible,
         occupiable: computed.occupiable,
+        // The half of the refusal that was never plugged in: `occupiable` is the BFS's
+        // boolean, and without this the cause it discarded stayed discarded, so every move
+        // a door refused came back as the generic "you can't move there".
+        blockedEdge: (room) => blockedEdge(computed.doors, computed.map.doors, computed.party, room),
       }
     },
 

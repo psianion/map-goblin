@@ -22,9 +22,12 @@ async function getStoreState(page: import('@playwright/test').Page) {
   })
 }
 
+/** Lights are layer children with `childType: 'light'` — there is no top-level `lights` array. */
 async function getLights(page: import('@playwright/test').Page) {
   const state = await getStoreState(page)
-  return (state?.lights ?? []) as Array<{
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const layers = (state?.layers ?? []) as Array<{ children?: any[] }>
+  return layers.flatMap((l) => l.children ?? []).filter((c) => c.childType === 'light') as Array<{
     id: string
     color: string
     radius: number
@@ -33,6 +36,16 @@ async function getLights(page: import('@playwright/test').Page) {
     visible: boolean
     name: string
   }>
+}
+
+/** Id of the layer that owns a given child. */
+async function getOwningLayerId(page: import('@playwright/test').Page, childId: string) {
+  return page.evaluate((id) => {
+    const store = (window as Window & {
+      __store?: { getState: () => { layers: Array<{ id: string; children?: Array<{ id: string }> }> } }
+    }).__store
+    return store!.getState().layers.find((l) => (l.children ?? []).some((c) => c.id === id))?.id ?? null
+  }, childId)
 }
 
 async function getCanvasCenter(page: import('@playwright/test').Page) {
@@ -117,14 +130,9 @@ test.describe('Lighting Engine', () => {
 
   test('light tool icon appears in toolbar', async ({ page }) => {
     await gotoApp(page)
-    // Light tool button should exist in the toolbar
-    const lightBtn = page.locator('[data-tool="light"], [aria-label*="ight"], button:has-text("Light")')
-    // If the button exists, it should be visible; otherwise this is a no-op smoke test
-    const count = await lightBtn.count()
-    if (count > 0) {
-      await expect(lightBtn.first()).toBeVisible()
-    }
-    // At minimum: app loads without crash
+    // Toolbar buttons are icon-only; their accessible name comes from `title`.
+    const lightBtn = page.getByRole('button', { name: 'Light (L)' })
+    await expect(lightBtn).toBeVisible()
     expect(await page.locator('canvas').isVisible()).toBe(true)
   })
 
@@ -168,10 +176,12 @@ test.describe('Lighting Engine', () => {
     expect(lights.length).toBeGreaterThan(0)
 
     const lightId = lights[0].id
-    await page.evaluate((id: string) => {
-      const store = (window as { __store?: { getState: () => { updateLight: (id: string, patch: Record<string, unknown>) => void } } }).__store
-      store!.getState().updateLight(id, { visible: false })
-    }, lightId)
+    const layerId = await getOwningLayerId(page, lightId)
+    expect(layerId).not.toBeNull()
+    await page.evaluate(({ layerId, id }) => {
+      const store = (window as { __store?: { getState: () => { updateChild: (layerId: string, childId: string, patch: Record<string, unknown>) => void } } }).__store
+      store!.getState().updateChild(layerId!, id, { visible: false })
+    }, { layerId, id: lightId })
     await waitFrame(page, 2)
 
     const updated = await getLights(page)

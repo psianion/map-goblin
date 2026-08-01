@@ -31,26 +31,12 @@ import { DM_FOG_LOOK, fogActionFor, roomAt, roomFog, sceneFog, serverRooms } fro
 
 /** Near-black, matching the art guide's dungeon negative space rather than a grey wash. */
 const FOG_TINT = 0x05060a;
-/** Explored mark: warm parchment, quiet enough to sit under a token. */
-const GLYPH_COLOR = 0xd8cfc0;
 /** The hover outline. Full strength on every state — the DM's cursor is never ghosted. */
 const HOVER_STROKE = { width: 0.08, alpha: 0.95 };
 
 /** Where the fog tool sends its clicks. */
 const send = (action: string, payload: unknown): void =>
   useSessionStore.getState().sendCommand('fog', action, payload);
-
-/**
- * A tick that says "you have been here": a check drawn at the room's centroid. Not colour,
- * not brightness — a mark, so "explored" is still legible when both are washed out.
- */
-function drawExploredGlyph(g: Graphics, [cx, cy]: [number, number]): void {
-  const s = 0.34;
-  g.moveTo(cx - s, cy);
-  g.lineTo(cx - s * 0.25, cy + s * 0.62);
-  g.lineTo(cx + s, cy - s * 0.62);
-  g.stroke({ color: GLYPH_COLOR, width: 0.11, alpha: 0.8, cap: 'round', join: 'round' });
-}
 
 function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => void {
   const layer = new Container();
@@ -65,10 +51,10 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   // gate map, hovering a room moved the canvas by 1.1/255, which is the "no highlight at
   // all" the browser gate read as byte-identical.
   //
-  // The tint and the glyph stay in the world on purpose. A darkening wash still darkens
-  // under a multiply, and both have to keep drawing *under* the DM's tokens and doors —
-  // that draw order is PRODUCT principle 3 (`OVERLAY_STACK`), and lifting them over the
-  // composite would lift them over those layers too.
+  // The tint stays in the world on purpose. A darkening wash still darkens under a
+  // multiply, and it has to keep drawing *under* the DM's tokens and doors — that draw
+  // order is PRODUCT principle 3 (`OVERLAY_STACK`), and lifting it over the composite would
+  // lift it over those layers too.
   const cursor = new Container();
   const hover = new Graphics();
   cursor.addChild(hover);
@@ -105,7 +91,6 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
       if (look.tintAlpha > 0) {
         paint.poly(room.boundary.flat()).fill({ color: FOG_TINT, alpha: look.tintAlpha });
       }
-      if (look.glyph) drawExploredGlyph(paint, room.centroid);
     }
 
     // D11 asks the hover to name the room's *state*, not merely its outline, so it is drawn

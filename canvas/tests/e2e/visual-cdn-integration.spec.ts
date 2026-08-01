@@ -1,13 +1,19 @@
 /**
  * visual-cdn-integration.spec.ts
- * Comprehensive E2E tests verifying that assets built in map-assets are
- * correctly fetched and displayed in map-builder via the local CDN.
+ * Comprehensive E2E tests verifying that the built asset packs are correctly
+ * fetched and displayed by the app through its pack CDN.
  *
- * CDN: http://localhost:5174 (map-assets dev server)
- * App: http://localhost:5173 (map-builder dev server)
+ * The CDN origin is whatever `cdnConfig.baseUrl` resolves to, which defaults to
+ * `/packs` — the pack tree the app itself serves (canvas/public/packs, and the
+ * same path nginx serves in the container). `VITE_CDN_BASE_URL` can point that
+ * at a separate host in production, but nothing in this repo does, so these
+ * tests fetch the packs where the app actually fetches them. They used to
+ * hardcode http://localhost:5174, a second dev server from the days when the
+ * assets lived in their own repo; nothing has started that server in a long
+ * time, so every fetch here failed on connection-refused.
  *
  * Coverage:
- * 1. CDN connectivity — index.json reachable, CORS headers present
+ * 1. CDN connectivity — index.json reachable at the configured base
  * 2. Pack loading — dungeon-classic pack manifest downloads and registers
  * 3. Asset browser displays CDN assets — floors, walls, objects, edges in catalog
  * 4. Asset placement from CDN — select and place a CDN asset on canvas
@@ -15,9 +21,10 @@
  * 6. CDN failure resilience — app survives missing CDN, fallback texture is magenta 1x1
  */
 import { test, expect, type Page } from '@playwright/test'
-import { gotoApp, waitFrame, firePointer } from './helpers'
+import { gotoApp, waitFrame, firePointer, getPixelColor } from './helpers'
 
-const CDN_BASE = 'http://localhost:5174'
+/** Must stay in step with `cdnConfig.baseUrl` (src/config/cdnConfig.ts). */
+const CDN_BASE = '/packs'
 const PACK_ID = 'dungeon-classic'
 const PACK_MANIFEST = 'pack-4a9bdbee.json'
 
@@ -46,6 +53,27 @@ async function getInstalledPacks(page: Page) {
   })
 }
 
+/**
+ * Cut the app off from the pack CDN.
+ *
+ * Matched narrowly on purpose: a glob as loose as a bare `packs` wildcard catches
+ * `/src/components/packs/PackListPanel.tsx`, and aborting a source module stops
+ * the app booting at all — which looks exactly like the resilience failure these
+ * rows are supposed to be checking for.
+ */
+async function blockPackCdn(page: Page): Promise<void> {
+  await page.route(/\/packs\/(index\.json|dungeon-classic\/)/, (route) => route.abort())
+}
+
+/** The version the CDN currently publishes for dungeon-classic. */
+async function publishedPackVersion(page: Page): Promise<string> {
+  return page.evaluate(async (cdnBase) => {
+    const res = await fetch(`${cdnBase}/index.json`)
+    const body = (await res.json()) as { packs: Record<string, { version: string }> }
+    return body.packs['dungeon-classic'].version
+  }, CDN_BASE)
+}
+
 /** Install dungeon-classic pack via the store's installPack action */
 async function installDungeonClassic(page: Page): Promise<boolean> {
   const result = await page.evaluate(async () => {
@@ -71,22 +99,17 @@ async function installDungeonClassic(page: Page): Promise<boolean> {
   return result
 }
 
-/** Add an images layer and activate it */
+/**
+ * Activate the dungeon layer. There is no 'images' layer type any more —
+ * imported images become asset children of the active dungeon layer.
+ */
 async function addImagesLayerAndActivate(page: Page) {
   await page.evaluate(() => {
     const store = (
       window as {
         __store?: {
           getState: () => {
-            addLayer: (l: {
-              id: string
-              name: string
-              type: string
-              visible: boolean
-              locked: boolean
-              opacity: number
-              objects: unknown[]
-            }) => void
+            layers: Array<{ id: string; type: string }>
             setActiveLayerId: (id: string) => void
           }
         }
@@ -94,29 +117,20 @@ async function addImagesLayerAndActivate(page: Page) {
     ).__store
     if (!store) return
     const state = store.getState()
-    const id = crypto.randomUUID()
-    state.addLayer({
-      id,
-      name: 'Images CDN',
-      type: 'images',
-      visible: true,
-      locked: false,
-      opacity: 1,
-      objects: [],
-    })
-    state.setActiveLayerId(id)
+    const dungeon = state.layers.find((l) => l.type === 'dungeon')
+    if (dungeon) state.setActiveLayerId(dungeon.id)
   })
   await waitFrame(page, 3)
 }
 
-/** Get all PlacedObjects across all images layers */
+/** Get all placed asset children across all layers */
 async function getPlacedObjects(page: Page) {
   return page.evaluate(() => {
     const store = (
       window as {
         __store?: {
           getState: () => {
-            layers: Array<{ type: string; objects?: unknown[] }>
+            layers: Array<{ children?: Array<{ id: string; childType: string }> }>
           }
         }
       }
@@ -124,8 +138,8 @@ async function getPlacedObjects(page: Page) {
     if (!store) return []
     return store
       .getState()
-      .layers.filter((l) => l.type === 'images')
-      .flatMap((l) => l.objects ?? [])
+      .layers.flatMap((l) => l.children ?? [])
+      .filter((c) => c.childType === 'asset')
   })
 }
 
@@ -153,6 +167,11 @@ test.describe('CDN Connectivity', () => {
   test('index.json contains dungeon-classic pack', async ({ page }) => {
     await gotoApp(page)
 
+    // The version and entry count are cross-checked against the manifest the
+    // index points at rather than pinned to literals. Pinning is what rotted
+    // this file the last time the packs were rebuilt, and it never caught
+    // anything a mismatch between the two files would not catch better: a
+    // half-published pack is an index that disagrees with its own manifest.
     const result = await page.evaluate(async (cdnBase) => {
       const res = await fetch(`${cdnBase}/index.json`)
       const body = (await res.json()) as {
@@ -162,35 +181,51 @@ test.describe('CDN Connectivity', () => {
         >
       }
       const pack = body.packs['dungeon-classic']
+      if (!pack) return { found: false }
+
+      const manRes = await fetch(`${cdnBase}/dungeon-classic/${pack.manifest}`)
+      const manifest = (await manRes.json()) as {
+        version: string
+        entries: Record<string, unknown>
+      }
       return {
-        found: !!pack,
-        version: pack?.version,
-        entryCount: pack?.entryCount,
-        hasManifest: !!pack?.manifest,
+        found: true,
+        version: pack.version,
+        manifestVersion: manifest.version,
+        entryCount: pack.entryCount,
+        manifestEntryCount: Object.keys(manifest.entries ?? {}).length,
       }
     }, CDN_BASE)
 
     expect(result.found).toBe(true)
-    expect(result.version).toBe('1.0.0')
-    expect(result.entryCount).toBe(94)
-    expect(result.hasManifest).toBe(true)
+    expect(result.version).toBe(result.manifestVersion)
+    expect(result.entryCount).toBeGreaterThan(0)
+    expect(result.entryCount).toBe(result.manifestEntryCount)
   })
 
-  test('CDN serves CORS headers for cross-origin fetch (5173 → 5174)', async ({ page }) => {
+  test('the app fetches the pack index from its configured CDN base', async ({ page }) => {
+    // Replaces an old cross-origin CORS check against a 5174 dev server. The
+    // product serves packs from its own origin, so the thing worth pinning is
+    // that the URL the pack manager builds is the one the server answers on.
+    const packIndexRequests: string[] = []
+    page.on('request', (req) => {
+      if (req.url().includes('/packs/index.json')) packIndexRequests.push(req.url())
+    })
+
     await gotoApp(page)
 
-    const result = await page.evaluate(async (cdnBase) => {
-      const res = await fetch(`${cdnBase}/index.json`, {
-        headers: { Origin: 'http://localhost:5173' },
-      })
-      const acao = res.headers.get('access-control-allow-origin')
-      return { ok: res.ok, corsHeader: acao }
-    }, CDN_BASE)
+    const configuredBase = await page.evaluate(async () => {
+      const { cdnConfig } = (await import('/src/config/cdnConfig.ts')) as typeof import(
+        '@/config/cdnConfig'
+      )
+      const res = await fetch(`${cdnConfig.baseUrl}/index.json`)
+      return { baseUrl: cdnConfig.baseUrl, ok: res.ok, status: res.status }
+    })
 
-    expect(result.ok).toBe(true)
-    // CORS header should allow the app origin or be wildcard
-    expect(result.corsHeader).not.toBeNull()
-    expect(['*', 'http://localhost:5173']).toContain(result.corsHeader)
+    expect(configuredBase.baseUrl).toBe(CDN_BASE)
+    expect(configuredBase.ok).toBe(true)
+    expect(configuredBase.status).toBe(200)
+    expect(packIndexRequests.length).toBeGreaterThan(0)
   })
 
   test('pack manifest is fetchable from CDN', async ({ page }) => {
@@ -217,9 +252,9 @@ test.describe('CDN Connectivity', () => {
     )
 
     expect(result.ok).toBe(true)
-    expect(result.version).toBe('1.0.0')
+    expect(result.version).toBe(await publishedPackVersion(page))
     expect(result.name).toBe('dungeon-classic')
-    expect(result.entryCount).toBe(94)
+    expect(result.entryCount).toBe(109)
     expect(result.atlasCount).toBeGreaterThan(0)
   })
 
@@ -287,14 +322,14 @@ test.describe('Pack Loading from CDN', () => {
         const packsAfter = await getInstalledPacks(page)
         const pack = packsAfter.find((p) => p.packId === 'dungeon-classic')
         expect(pack).toBeDefined()
-        expect(pack?.version).toBe('1.0.0')
+        expect(pack?.version).toBe(await publishedPackVersion(page))
         expect(pack?.sizeBytes).toBeGreaterThan(0)
       }
     } else {
       // Already installed — verify it's correctly registered
       const pack = packsBefore.find((p) => p.packId === 'dungeon-classic')
       expect(pack).toBeDefined()
-      expect(pack?.version).toBe('1.0.0')
+      expect(pack?.version).toBe(await publishedPackVersion(page))
     }
   })
 
@@ -304,7 +339,7 @@ test.describe('Pack Loading from CDN', () => {
     const capturedUrls: string[] = []
     page.on('request', (req) => {
       const url = req.url()
-      if (url.includes('5174') && url.includes('dungeon-classic')) {
+      if (url.includes(`${CDN_BASE}/`) && url.includes('dungeon-classic')) {
         capturedUrls.push(url)
       }
     })
@@ -337,7 +372,7 @@ test.describe('Pack Loading from CDN', () => {
       const { AssetPackManager } = (await import(
         '/src/engine/assetPackManager.ts'
       )) as typeof import('@/engine/assetPackManager')
-      const manager = new AssetPackManager({ cdnBaseUrl: 'http://localhost:5174' })
+      const manager = new AssetPackManager({ cdnBaseUrl: '/packs' })
 
       // getTexture must always return a texture (fallback magenta 1x1 for unknown)
       const fallback = manager.getTexture('nonexistent-entry')
@@ -465,10 +500,10 @@ test.describe('Asset Browser Displays CDN Assets', () => {
     )
 
     // Verify known dungeon-classic composition
-    expect(counts.total).toBe(94)
+    expect(counts.total).toBe(109)
     expect(counts.floor).toBe(22)
-    expect(counts.wall).toBe(39)
-    expect(counts.object).toBe(15)
+    expect(counts.wall).toBe(42)
+    expect(counts.object).toBe(21)
     expect(counts.edge).toBe(17)
     expect(counts.scatter).toBe(1)
   })
@@ -541,8 +576,8 @@ test.describe('Asset Placement from CDN', () => {
                   manifest: { categories: unknown[] } | null
                 }
                 setManifest: (m: { categories: unknown[] }) => void
-                layers: Array<{ id: string; type: string; objects?: unknown[] }>
-                addPlacedObject: (layerId: string, obj: unknown) => void
+                layers: Array<{ id: string; type: string }>
+                addChild: (layerId: string, child: unknown) => void
               }
             }
           }
@@ -570,25 +605,28 @@ test.describe('Asset Placement from CDN', () => {
         if (!thumbUrl) return false
 
         const state = store.getState()
-        const imagesLayer = state.layers.find((l) => l.type === 'images')
+        const imagesLayer = state.layers.find((l) => l.type === 'dungeon')
         if (!imagesLayer) return false
 
-        // Directly add a placed object to the images layer (simulates successful placement)
+        // Directly add an asset child (simulates successful placement)
         const objId = crypto.randomUUID()
-        state.addPlacedObject(imagesLayer.id, {
+        state.addChild(imagesLayer.id, {
           id: objId,
+          name: 'CDN Asset',
+          childType: 'asset',
+          visible: true,
+          objectType: 'asset',
           assetId: `${packId}:cobblestone-a-01_1x1_floor_A`,
-          x: 400,
-          y: 300,
+          position: { x: 400, y: 300 },
+          scale: 1,
           width: 64,
           height: 64,
           rotation: 0,
-          opacity: 1,
           flipX: false,
           flipY: false,
           tint: '#ffffff',
-          url: thumbUrl,
         })
+        void thumbUrl
 
         return true
       },
@@ -611,13 +649,13 @@ test.describe('Asset Placement from CDN', () => {
 
     // Place a CDN asset via store injection
     await page.evaluate(
-      async ({ cdnBase, packId }) => {
+      async ({ packId }) => {
         const store = (
           window as {
             __store?: {
               getState: () => {
                 layers: Array<{ id: string; type: string }>
-                addPlacedObject: (layerId: string, obj: unknown) => void
+                addChild: (layerId: string, child: unknown) => void
               }
             }
           }
@@ -625,25 +663,27 @@ test.describe('Asset Placement from CDN', () => {
         if (!store) return
 
         const state = store.getState()
-        const imagesLayer = state.layers.find((l) => l.type === 'images')
+        const imagesLayer = state.layers.find((l) => l.type === 'dungeon')
         if (!imagesLayer) return
 
-        state.addPlacedObject(imagesLayer.id, {
+        state.addChild(imagesLayer.id, {
           id: crypto.randomUUID(),
+          name: 'CDN Asset',
+          childType: 'asset',
+          visible: true,
+          objectType: 'asset',
           assetId: `${packId}:cobblestone-a-01_1x1_floor_A`,
-          x: 400,
-          y: 300,
+          position: { x: 400, y: 300 },
+          scale: 1,
           width: 128,
           height: 128,
           rotation: 0,
-          opacity: 1,
           flipX: false,
           flipY: false,
           tint: '#ffffff',
-          url: `${cdnBase}/${packId}/atlas-floor-060bdb3a.webp`,
         })
       },
-      { cdnBase: CDN_BASE, packId: PACK_ID },
+      { packId: PACK_ID },
     )
 
     await waitFrame(page, 10)
@@ -652,21 +692,6 @@ test.describe('Asset Placement from CDN', () => {
     // Canvas should still be visible and functional after placement
     await expect(page.locator('canvas')).toBeVisible()
 
-    // Check the canvas has rendered something (not 0,0,0,0 everywhere)
-    const pixelResult = await page.evaluate(() => {
-      const canvas = document.querySelector('canvas') as HTMLCanvasElement
-      if (!canvas) return null
-      // Check multiple pixels in the canvas center area
-      const ctx = canvas.getContext('2d')
-      if (ctx) {
-        const d = ctx.getImageData(400, 300, 1, 1).data
-        return { r: d[0], g: d[1], b: d[2], a: d[3], source: '2d' }
-      }
-      return null
-    })
-
-    // Canvas renders something (WebGL canvas may not be readable via 2d ctx)
-    // Just verify the canvas is present and at the right size
     const canvasSize = await page.evaluate(() => {
       const c = document.querySelector('canvas') as HTMLCanvasElement
       return c ? { w: c.width, h: c.height } : null
@@ -675,15 +700,10 @@ test.describe('Asset Placement from CDN', () => {
     expect(canvasSize!.w).toBeGreaterThan(100)
     expect(canvasSize!.h).toBeGreaterThan(100)
 
-    // Pixel check: if canvas is readable via 2d context, verify it's not all zeros
-    if (pixelResult && pixelResult.a !== undefined) {
-      // At minimum the alpha channel must be > 0 at some point in the canvas
-      // (pure 0,0,0,0 means WebGL canvas not readable via 2d — that's acceptable)
-      const isWebGLCanvas = pixelResult.a === 0 && pixelResult.r === 0
-      if (!isWebGLCanvas) {
-        expect(pixelResult.a).toBeGreaterThan(0)
-      }
-    }
+    // Read through the screenshot helper — Pixi holds the WebGL context, so
+    // asking the same element for a 2D one only ever returns nulls.
+    const pixel = await getPixelColor(page, 400, 300)
+    expect(pixel.a).toBeGreaterThan(0)
   })
 
   test('stamp/scatter tool can be activated without crash', async ({ page }) => {
@@ -861,7 +881,7 @@ test.describe('Atlas Textures from CDN', () => {
 test.describe('CDN Failure Resilience', () => {
   test('app loads and renders canvas even when CDN is unreachable', async ({ page }) => {
     // Block all CDN requests
-    await page.route('**/localhost:5174/**', (route) => route.abort())
+    await blockPackCdn(page)
 
     await gotoApp(page)
 
@@ -876,7 +896,7 @@ test.describe('CDN Failure Resilience', () => {
   })
 
   test('app toolbar is still interactive when CDN is blocked', async ({ page }) => {
-    await page.route('**/localhost:5174/**', (route) => route.abort())
+    await blockPackCdn(page)
 
     await gotoApp(page)
 
@@ -892,7 +912,7 @@ test.describe('CDN Failure Resilience', () => {
 
   test('checkForUpdates returns empty array when CDN is unreachable', async ({ page }) => {
     // Block CDN
-    await page.route('**/localhost:5174/**', (route) => route.abort())
+    await blockPackCdn(page)
 
     await gotoApp(page)
 
@@ -907,7 +927,7 @@ test.describe('CDN Failure Resilience', () => {
       ;(manager as any).installedPacks.set('dungeon-classic', {
         packId: 'dungeon-classic',
         version: '1.0.0',
-        entryCount: 94,
+        entryCount: 109,
         themes: [],
         bundleSize: 7000000,
       })
@@ -950,8 +970,8 @@ test.describe('CDN Failure Resilience', () => {
   })
 
   test('installPack rejects gracefully when CDN returns 404', async ({ page }) => {
-    // Route CDN to return 404 for pack manifest
-    await page.route('**/localhost:5174/dungeon-classic/pack.json', (route) =>
+    // Route CDN to return 404 for the pack manifest
+    await page.route('**/packs/dungeon-classic/pack-*.json', (route) =>
       route.fulfill({ status: 404, body: 'Not Found' }),
     )
 
@@ -978,7 +998,7 @@ test.describe('CDN Failure Resilience', () => {
 
   test('drawing tools still work with no CDN packs installed', async ({ page }) => {
     // Block CDN entirely
-    await page.route('**/localhost:5174/**', (route) => route.abort())
+    await blockPackCdn(page)
 
     await gotoApp(page)
 
@@ -995,22 +1015,21 @@ test.describe('CDN Failure Resilience', () => {
     // Canvas should still be visible and the app should not have crashed
     await expect(page.locator('canvas')).toBeVisible()
 
-    // Check that a layer has been modified (floor polygon added)
+    // Check that a layer has been modified (floor polygon added).
+    // The merged floor lives on `mergedFloor`; there is no `floor` object.
     const hasShapes = await page.evaluate(() => {
       const store = (
         window as {
           __store?: {
             getState: () => {
-              layers: Array<{ type: string; floor?: { polygons?: unknown[] } }>
+              layers: Array<{ type: string; mergedFloor?: unknown[] | null }>
             }
           }
         }
       ).__store
       if (!store) return false
-      const state = store.getState()
-      const dungeon = state.layers.find((l) => l.type === 'dungeon')
-      const polygons = (dungeon?.floor as { polygons?: unknown[] } | undefined)?.polygons ?? []
-      return polygons.length > 0
+      const dungeon = store.getState().layers.find((l) => l.type === 'dungeon')
+      return (dungeon?.mergedFloor ?? []).length > 0
     })
 
     expect(hasShapes).toBe(true)

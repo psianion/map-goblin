@@ -340,6 +340,12 @@ export interface Command {
   execute(): void;
   undo(): void;
   readonly label: string;
+  /**
+   * The command changes dungeon geometry, so rooms and door→room bindings are
+   * no longer valid. `undoManager` re-derives both right after execute/undo,
+   * which keeps the binding inside the same undo entry as the geometry.
+   */
+  readonly affectsRooms?: boolean;
 }
 
 // ─── Serialization ────────────────────────────────────────

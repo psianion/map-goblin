@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { gotoApp, drawRect, waitFrame, getPixelColor, pressShortcut } from './helpers';
+import { gotoApp, drawRect, waitFrame, getPixelColor, pressShortcut, shapeCount } from './helpers';
 
 test.describe('11 - Undo/Redo', () => {
   test('Ctrl+Z undoes a rectangle draw', async ({ page }) => {
@@ -13,15 +13,18 @@ test.describe('11 - Undo/Redo', () => {
     const sampleX = Math.round((box!.width / 2 + 15) * dpr);
     const sampleY = Math.round((box!.height / 2 + 15) * dpr);
 
+    const before = await shapeCount(page);
     await drawRect(page, cx - 80, cy - 60, cx + 80, cy + 60);
     await page.waitForTimeout(500);
     await waitFrame(page, 5);
+    expect(await shapeCount(page)).toBe(before + 1);
 
     const afterDraw = await getPixelColor(page, sampleX, sampleY);
 
     await pressShortcut(page, 'z', { ctrl: true });
     await page.waitForTimeout(500);
     await waitFrame(page, 8);
+    expect(await shapeCount(page)).toBe(before);
 
     const afterUndo = await getPixelColor(page, sampleX, sampleY);
     // Undo should change the pixel (floor removed, back to background)
@@ -37,9 +40,11 @@ test.describe('11 - Undo/Redo', () => {
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;
 
+    const before = await shapeCount(page);
     await drawRect(page, cx - 80, cy - 60, cx + 80, cy + 60);
     await page.waitForTimeout(500);
     await waitFrame(page, 5);
+    expect(await shapeCount(page)).toBe(before + 1);
 
     const dpr = await page.evaluate(() => window.devicePixelRatio);
     const sampleX = Math.round((box!.width / 2) * dpr);
@@ -49,12 +54,15 @@ test.describe('11 - Undo/Redo', () => {
     await pressShortcut(page, 'z', { ctrl: true });
     await page.waitForTimeout(300);
     await waitFrame(page, 5);
+    expect(await shapeCount(page)).toBe(before);
 
     await pressShortcut(page, 'z', { ctrl: true, shift: true });
     await page.waitForTimeout(300);
     await waitFrame(page, 5);
+    expect(await shapeCount(page)).toBe(before + 1);
 
     const afterRedo = await getPixelColor(page, sampleX, sampleY);
+    // Redo restores the same shape, so the pixel goes back to what the draw gave.
     const diff = Math.abs(afterRedo.r - afterDraw.r) + Math.abs(afterRedo.g - afterDraw.g) + Math.abs(afterRedo.b - afterDraw.b);
     expect(diff).toBeLessThan(30);
   });

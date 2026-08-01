@@ -4,6 +4,17 @@ import { endpoints } from '../endpoints';
 import { useSessionStore } from './store';
 import { loadSceneMap, mergeMapDelta, type MapDelta } from './loadSceneMap';
 
+// Real `restoreCustomImages` decodes data URLs through Pixi, which needs a GPU jsdom has
+// not got. What matters at this seam is *that* it runs, and that it runs before the
+// document lands — so the spy also records what the store held when it was called.
+vi.mock('@dnd/core/src/assets/textureLoader', () => ({
+  restoreCustomImages: vi.fn(async () => {
+    mapDataDuringRestore = useSessionStore.getState().mapData;
+  }),
+}));
+const { restoreCustomImages } = await import('@dnd/core/src/assets/textureLoader');
+let mapDataDuringRestore: unknown = 'never ran';
+
 // ponytail: the GameRenderer mount itself needs WebGL, so jsdom can only cover
 // the seam below it — fetch → store. Playwright (I2) drives the real Pixi mount.
 /** One dungeon layer holding a secret door, an ordinary door and something that is neither. */
@@ -59,6 +70,22 @@ describe('loadSceneMap', () => {
       headers: { Authorization: 'Bearer tok-abc' },
     });
     expect(useSessionStore.getState().mapData).toEqual(doc);
+  });
+
+  /**
+   * The images the DM imported in the editor travel inside the map file, and the table
+   * registered none of them: `loadFromFile` resolves textures as it builds the scene
+   * graph, so every imported picture rendered as the magenta fallback on both seats.
+   * Ordering is the assertion — registering after the document lands is still too late.
+   */
+  it('registers the document’s imported images before the document lands', async () => {
+    const customImages = { 'asset-1': 'data:image/png;base64,AAA' };
+    stubFetch({ version: '3.0', layers: [], customImages });
+
+    await loadSceneMap('s1', 'tok');
+
+    expect(restoreCustomImages).toHaveBeenCalledWith(customImages);
+    expect(mapDataDuringRestore).toBeNull();
   });
 
   it('strips secret doors before a player can render them', async () => {
@@ -188,6 +215,24 @@ describe('mergeMapDelta', () => {
     expect(layer.children[0].roomB).toBe('r-gallery');
     expect(layer.standaloneWalls.map((w) => w.id)).toEqual(['w1', 'w2']);
     expect(layer.rooms.map((r) => r.id)).toEqual(['r-vestibule', 'r-gallery']);
+  });
+
+  /**
+   * The portcullis that shut on its own. The lighting lane writes the table's live door
+   * state onto the map's own door children (`doorLighting`), and the server's delta carries
+   * the *authored* child — so replacing it wholesale swung an already-open door shut, with
+   * its occlusion, and nobody had touched it.
+   */
+  it('keeps a door the table has open open when a reveal re-sends it', () => {
+    const open = loaded();
+    // What `syncDoorsToLighting` wrote after the party opened it.
+    (open.layers[0] as unknown as { children: { state: string }[] }).children[0].state = 'open';
+
+    const merged = mergeMapDelta(open, delta(), 'player', 'scene-1');
+    const door = layerOf(merged).children[0] as unknown as { state: string; roomB?: string | null };
+    expect(door.state).toBe('open');
+    // …and the delta still wins on everything it is actually authoritative for.
+    expect(door.roomB).toBe('r-gallery');
   });
 
   it('leaves the merged floor for core to rebuild, as the server sent it', () => {

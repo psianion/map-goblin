@@ -2,6 +2,7 @@ import type { AnyChild, DoorChild, Room, WallSegment } from '@dnd/core/src/share
 import type { Role } from '@dnd/core/src/shared/protocol';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
+import { restoreCustomImages } from '@dnd/core/src/assets/textureLoader';
 import { endpoints } from '../endpoints';
 import { useSessionStore } from './store';
 
@@ -87,14 +88,38 @@ const forViewer = (
  * a wall on the boundary between two rooms arrives with *both* of them, so a reveal that
  * opens the second one re-sends geometry the client already holds (§2.3.3).
  */
-function upsertById<T extends { id: string }>(current: readonly T[], incoming: readonly T[]): T[] {
+function upsertById<T extends { id: string }>(
+  current: readonly T[],
+  incoming: readonly T[],
+  merge: (existing: T, next: T) => T = (_existing, next) => next,
+): T[] {
   if (incoming.length === 0) return current as T[];
   const byId = new Map(incoming.map((item) => [item.id, item]));
-  const merged = current.map((item) => byId.get(item.id) ?? item);
+  const merged = current.map((item) => {
+    const next = byId.get(item.id);
+    return next ? merge(item, next) : item;
+  });
   for (const item of incoming) {
     if (!current.some((existing) => existing.id === item.id)) merged.push(item);
   }
   return merged;
+}
+
+/**
+ * A door that was open stays open across a reveal.
+ *
+ * Live door state travels on the `doors` module slice, and the lighting lane writes it back
+ * onto the map's own door children so ClockwiseSweep can treat a shut door as a wall (D12,
+ * `doorLighting`). The server's delta carries the *authored* child — `redactMap` never
+ * stamps the live state onto it — so replacing the child wholesale reset `state` to whatever
+ * the map was saved with. A fog reveal whose delta happened to carry an already-open door
+ * therefore swung it shut, occlusion and all, with nobody touching it: the portcullis the
+ * gate walk saw close on its own. `syncDoorsToLighting` repairs the drift on the next store
+ * pass, which is why it normally reads as a flash and only sometimes sticks.
+ */
+function keepLiveDoorState(existing: AnyChild, next: AnyChild): AnyChild {
+  if (existing.childType !== 'door' || next.childType !== 'door') return next;
+  return { ...next, state: (existing as DoorChild).state };
 }
 
 /**
@@ -127,7 +152,7 @@ export function mergeMapDelta(
       return {
         ...layer,
         rooms: upsertById(layer.rooms ?? [], patch.rooms ?? []),
-        children: upsertById(layer.children, patch.children ?? []),
+        children: upsertById(layer.children, patch.children ?? [], keepLiveDoorState),
         standaloneWalls: upsertById(layer.standaloneWalls, patch.standaloneWalls ?? []),
       };
     }),
@@ -146,6 +171,13 @@ export async function loadSceneMap(sceneId: string, token: string): Promise<void
   });
   if (!res.ok) throw new Error(`Map fetch failed: ${res.status} ${res.statusText}`);
   const data = (await res.json()) as SerializedMapData;
+  // The pictures the DM imported in the editor ride along in `customImages`, and nothing
+  // at the table had ever registered them: `GameRenderer` hands the document straight to
+  // `loadFromFile`, which resolves textures as it builds, so every imported image drew as
+  // the magenta fallback. Registered here rather than there because this is the one place
+  // that is already async — deltas reuse the initial document's images (`mergeMapDelta`
+  // spreads `...current`), so once is enough.
+  await restoreCustomImages(data.customImages);
   const store = useSessionStore.getState();
   store.setMapData(forViewer(data, store.you?.role, sceneId));
 }

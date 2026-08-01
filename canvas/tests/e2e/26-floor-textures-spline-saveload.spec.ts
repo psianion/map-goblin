@@ -28,6 +28,8 @@ import { gotoApp, waitFrame, firePointer, drawRect, pressShortcut } from './help
 
 type ShapeRecord = {
   id: string
+  childType: 'shape'
+  shapeType: string
   textureId?: string
   textureScale: number
   textureTint: string
@@ -40,11 +42,21 @@ type SplinePathRecord = {
   textureId?: string
 }
 
+type RawDungeonLayer = {
+  id: string
+  type: 'dungeon'
+  children: Array<{ id: string; childType: string; shapeType?: string }>
+}
+
+/**
+ * Projected view of the live layer. The v2.0 model has no `shapes`/`paths`
+ * arrays — everything lives in `children` behind a `childType` discriminator,
+ * and spline paths are shape children with `shapeType: 'path'`.
+ */
 type DungeonLayer = {
   id: string
   type: 'dungeon'
   shapes: ShapeRecord[]
-  paths: SplinePathRecord[]
 }
 
 type SerializedMapData = {
@@ -53,9 +65,10 @@ type SerializedMapData = {
 }
 
 type StoreState = {
-  layers: Array<DungeonLayer | { id: string; type: string }>
+  layers: Array<RawDungeonLayer | { id: string; type: string }>
   tools: { activeTool: string }
   ui: { canUndo: boolean; canRedo: boolean }
+  updateChild: (layerId: string, childId: string, patch: Record<string, unknown>) => void
   loadFromFile: (data: SerializedMapData) => void
   getSerializableState: () => SerializedMapData
 }
@@ -71,8 +84,13 @@ async function getDungeonLayer(page: import('@playwright/test').Page): Promise<D
   return page.evaluate(() => {
     const store = (window as StoreWindow).__store
     if (!store) return null
-    const layer = store.getState().layers.find((l) => l.type === 'dungeon') as DungeonLayer | undefined
-    return layer ?? null
+    const layer = store.getState().layers.find((l) => l.type === 'dungeon') as RawDungeonLayer | undefined
+    if (!layer) return null
+    return {
+      id: layer.id,
+      type: 'dungeon' as const,
+      shapes: layer.children.filter((c) => c.childType === 'shape') as unknown as ShapeRecord[],
+    }
   })
 }
 
@@ -80,8 +98,10 @@ async function getSplinePaths(page: import('@playwright/test').Page): Promise<Sp
   return page.evaluate(() => {
     const store = (window as StoreWindow).__store
     if (!store) return []
-    const layer = store.getState().layers.find((l) => l.type === 'dungeon') as DungeonLayer | undefined
-    return layer?.paths ?? []
+    const layer = store.getState().layers.find((l) => l.type === 'dungeon') as RawDungeonLayer | undefined
+    return (layer?.children ?? []).filter(
+      (c) => c.childType === 'shape' && c.shapeType === 'path',
+    ) as unknown as SplinePathRecord[]
   })
 }
 
@@ -105,8 +125,7 @@ test.describe('Floor Textures', () => {
     expect(layer?.shapes.length).toBeGreaterThan(0)
 
     const shape = layer!.shapes[0]
-    // textureId is optional — should be undefined (not set) on a fresh shape
-    expect('textureId' in shape || shape.textureId === undefined).toBe(true)
+    expect(shape.shapeType).toBe('rectangle')
     // textureScale and textureTint must exist with defaults
     expect(shape.textureScale).toBe(1.0)
     expect(shape.textureTint).toBe('#ffffff')
@@ -126,28 +145,19 @@ test.describe('Floor Textures', () => {
     await waitFrame(page, 5)
 
     const layer = await getDungeonLayer(page)
-    const shapeId = layer?.shapes[0]?.id
-    if (!shapeId) { test.skip(); return }
+    expect(layer!.shapes).toHaveLength(1)
+    const shapeId = layer!.shapes[0].id
 
-    // Assign texture directly via store setState (same mechanism as ShapeTextureCommand.execute)
-    await page.evaluate((id) => {
+    // Assign texture via the real child-update action (what ShapeTextureCommand drives)
+    await page.evaluate(({ layerId, id }) => {
       const store = (window as StoreWindow).__store
       if (!store) return
-      store.setState((s) => {
-        const l = s.layers.find((l) => l.type === 'dungeon') as DungeonLayer | undefined
-        const shape = l?.shapes.find((sh) => sh.id === id)
-        if (shape) shape.textureId = 'stone-brick'
-      })
-    }, shapeId)
+      store.getState().updateChild(layerId, id, { textureId: 'stone-brick' })
+    }, { layerId: layer!.id, id: shapeId })
     await waitFrame(page, 3)
 
-    const textureId = await page.evaluate(() => {
-      const store = (window as StoreWindow).__store
-      if (!store) return null
-      const l = store.getState().layers.find((l) => l.type === 'dungeon') as DungeonLayer | undefined
-      return l?.shapes[0]?.textureId ?? null
-    })
-    expect(textureId).toBe('stone-brick')
+    const after = await getDungeonLayer(page)
+    expect(after!.shapes[0].textureId).toBe('stone-brick')
   })
 
   test('TexturePicker section visible in properties panel when shape selected', async ({ page }) => {
@@ -204,89 +214,84 @@ test.describe('Floor Textures', () => {
 // ---------- Spline Path Tests ----------
 
 test.describe('Spline Paths', () => {
-  async function activateSplineTool(page: import('@playwright/test').Page): Promise<boolean> {
-    // Try toolbar button first (label set in Task 13)
-    const btn = page.getByRole('button', { name: /spline\s*(path)?/i })
-    if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await btn.click()
-      await waitFrame(page, 2)
-      return true
-    }
-    // Fallback: keyboard shortcut if registered
-    // (SplinePathTool may use a different key — check toolbar if test fails)
-    await page.keyboard.press('s')
+  /**
+   * Select the tool that draws paths.
+   *
+   * There is no SplinePathTool any more — the v2.0 store dropped
+   * `SplinePathRecord` and `DungeonLayer.paths`, and a path is now an ordinary
+   * shape child drawn by the path tool on 'a'. The rows below used to look for a
+   * "Spline" button, not find one, and skip themselves forever; pointed at the
+   * tool that replaced it they cover the same three things for real.
+   */
+  async function activatePathTool(page: import('@playwright/test').Page): Promise<void> {
+    await page.keyboard.press('a')
     await waitFrame(page, 2)
-
-    const active = await page.evaluate(() => {
-      const store = (window as StoreWindow).__store
-      return store?.getState().tools.activeTool ?? ''
-    })
-    return active.toLowerCase().includes('spline')
   }
 
-  test('SplinePathRecord schema: controlPoints is [number,number][], has closed field', async ({ page }) => {
+  // A path is a `ShapeChild` with `shapeType: 'path'` and closed `contours`, not
+  // the old `SplinePathRecord` with `controlPoints` / `closed`: that record type
+  // and `DungeonLayer.paths` went away with the v2.0 store (see splineRenderer's
+  // stubs). This drew nothing before, because it called an `addPath` action that
+  // no longer exists through an optional-call that swallowed its absence — so it
+  // asserted a schema on a layer that never got a path. It now draws one with the
+  // real path tool and checks the shape that actually reaches a save file.
+  test('a committed path is a shape child with numeric contour rings', async ({ page }) => {
     await gotoApp(page)
 
-    // Inject a path directly to verify schema
-    const layerId = await page.evaluate(() => {
-      const store = (window as StoreWindow).__store
-      if (!store) return null
-      return (store.getState().layers.find((l) => l.type === 'dungeon') as DungeonLayer | undefined)?.id ?? null
-    })
-    if (!layerId) { test.skip(); return }
+    const canvas = page.locator('canvas')
+    const box = await canvas.boundingBox()
+    expect(box).not.toBeNull()
+    const cx = box!.x + box!.width / 2
+    const cy = box!.y + box!.height / 2
 
-    await page.evaluate((lid) => {
-      const store = (window as StoreWindow).__store
-      if (!store) return
-      const state = store.getState()
-      const addPath = (state as unknown as Record<string, unknown>).addPath as
-        | ((layerId: string, path: SplinePathRecord) => void)
-        | undefined
-      addPath?.(lid, {
-        id: crypto.randomUUID(),
-        controlPoints: [[100, 100], [200, 80], [300, 120], [400, 100]],
-        closed: false,
-        textureScale: 1.0,
-        textureTint: '#ffffff',
-        edgeSoftening: false,
-        edgeSofteningWidth: 0.5,
-      } as SplinePathRecord & { textureScale: number; textureTint: string; edgeSoftening: boolean; edgeSofteningWidth: number })
-    }, layerId)
-    await waitFrame(page, 3)
+    await page.keyboard.press('a')
+    await waitFrame(page, 2)
+
+    for (const [px, py] of [
+      [cx - 120, cy],
+      [cx, cy - 60],
+      [cx + 120, cy],
+    ]) {
+      await firePointer(page, 'pointerdown', px, py, 0.5, 1)
+      await firePointer(page, 'pointerup', px, py, 0, 0)
+      await waitFrame(page, 2)
+    }
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(300)
+    await waitFrame(page, 5)
 
     const paths = await getSplinePaths(page)
     expect(paths.length).toBeGreaterThan(0)
 
-    const path = paths[paths.length - 1]
-    // controlPoints must be [number, number][] tuples
-    expect(Array.isArray(path.controlPoints)).toBe(true)
-    expect(path.controlPoints.length).toBe(4)
-    expect(Array.isArray(path.controlPoints[0])).toBe(true)
-    expect(typeof path.controlPoints[0][0]).toBe('number')
-    expect(typeof path.controlPoints[0][1]).toBe('number')
-    // closed field must exist
-    expect(typeof path.closed).toBe('boolean')
+    const path = paths[paths.length - 1] as unknown as {
+      shapeType: string
+      contours: [number, number][][]
+    }
+    expect(path.shapeType).toBe('path')
+    expect(Array.isArray(path.contours)).toBe(true)
+    expect(path.contours.length).toBeGreaterThan(0)
+    const ring = path.contours[0]
+    expect(Array.isArray(ring)).toBe(true)
+    // A corridor offset from a polyline is a closed ring, so at least a triangle.
+    expect(ring.length).toBeGreaterThanOrEqual(3)
+    expect(typeof ring[0][0]).toBe('number')
+    expect(typeof ring[0][1]).toBe('number')
   })
 
-  test('SplinePathTool activates in store', async ({ page }) => {
+  test('the path tool activates in store', async ({ page }) => {
     await gotoApp(page)
-
-    const activated = await activateSplineTool(page)
-    // If tool isn't in toolbar yet, skip gracefully
-    if (!activated) { test.skip(); return }
+    await activatePathTool(page)
 
     const active = await page.evaluate(() => {
       const store = (window as StoreWindow).__store
       return store?.getState().tools.activeTool ?? ''
     })
-    expect(active.toLowerCase()).toContain('spline')
+    expect(active).toBe('path')
   })
 
-  test('4 clicks + double-click creates a path with ≥4 control points', async ({ page }) => {
+  test('4 clicks + double-click commits a path', async ({ page }) => {
     await gotoApp(page)
-
-    const activated = await activateSplineTool(page)
-    if (!activated) { test.skip(); return }
+    await activatePathTool(page)
 
     const canvas = page.locator('canvas')
     const box = await canvas.boundingBox()
@@ -316,20 +321,18 @@ test.describe('Spline Paths', () => {
     const afterPaths = await getSplinePaths(page)
     expect(afterPaths.length).toBeGreaterThan(beforePaths.length)
 
-    const newPath = afterPaths[afterPaths.length - 1]
-    // SplinePathTool may consume the dblclick target point as a finalization signal (not a real
-    // control point), so the committed count can be less than the number of physical clicks.
-    // A minimum of 2 confirms the tool accepted clicks and committed a real path.
-    expect(newPath.controlPoints.length).toBeGreaterThanOrEqual(2)
+    // The double-click finalises rather than adding a vertex, so the committed
+    // corridor comes from the clicks before it.
+    const newPath = afterPaths[afterPaths.length - 1] as unknown as {
+      contours: [number, number][][]
+    }
+    expect(newPath.contours[0].length).toBeGreaterThanOrEqual(3)
   })
 
-  test('undo removes last spline path', async ({ page }) => {
+  test('undo removes the last path', async ({ page }) => {
     await gotoApp(page)
-
-    // Use the actual SplinePathTool so the path goes through CreatePathCommand + undoManager.
-    // Direct addPath() calls bypass undoManager and cannot be undone via Ctrl+Z.
-    const activated = await activateSplineTool(page)
-    if (!activated) { test.skip(); return }
+    // Drawn with the tool, so the path goes through AddChildCommand + undoManager.
+    await activatePathTool(page)
 
     const canvas = page.locator('canvas')
     const box = await canvas.boundingBox()
@@ -339,27 +342,20 @@ test.describe('Spline Paths', () => {
 
     const beforePaths = await getSplinePaths(page)
 
-    // Draw a 3-point spline and finalize with dblclick
+    // Draw a 3-point path and finalize
     for (const [px, py] of [[cx - 100, cy], [cx, cy - 60], [cx + 100, cy]]) {
       await firePointer(page, 'pointerdown', px, py, 0.5, 1)
       await firePointer(page, 'pointerup', px, py, 0, 0)
       await waitFrame(page, 3)
     }
-    // Send dblclick to finalize
-    await page.evaluate(([x, y]) => {
-      const canvas = document.querySelector('canvas')
-      if (!canvas) return
-      canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: x, clientY: y, bubbles: true, pointerId: 1, isPrimary: true, buttons: 1, detail: 2 }))
-      canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: x, clientY: y, bubbles: true, pointerId: 1, isPrimary: true, buttons: 0, detail: 2 }))
-      canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: x, clientY: y, bubbles: true, detail: 2 }))
-    }, [cx + 100, cy])
-    await page.waitForTimeout(200)
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(300)
     await waitFrame(page, 5)
 
     const afterDraw = await getSplinePaths(page)
-    if (afterDraw.length <= beforePaths.length) { test.skip(); return }
+    expect(afterDraw.length).toBeGreaterThan(beforePaths.length)
 
-    // Ctrl+Z should undo the CreatePathCommand
+    // Ctrl+Z should undo the AddChildCommand
     await pressShortcut(page, 'z', { ctrl: true })
     await waitFrame(page, 5)
 
@@ -378,7 +374,7 @@ test.describe('Save / Load Round-trip', () => {
       const store = (window as StoreWindow).__store
       return store?.getState().getSerializableState().version ?? null
     })
-    expect(version).toBe('1.3')
+    expect(version).toBe('3.0')
   })
 
   test('round-trip: save then loadFromFile restores dungeon layer shapes', async ({ page }) => {
@@ -433,55 +429,57 @@ test.describe('Save / Load Round-trip', () => {
     await page.waitForTimeout(300)
     await waitFrame(page, 5)
 
-    // Capture real v1.3 state, then downgrade to v1.2 by stripping texture fields
-    // This guarantees all required fields are present (no schema mismatch).
-    const v12State = await page.evaluate(() => {
+    const shapesBefore = (await getDungeonLayer(page))!.shapes.length
+    expect(shapesBefore).toBeGreaterThan(0)
+
+    // Capture real state, then downgrade to the previous on-disk format ('2.0'):
+    // texture fields stripped from shape children, walls back to `blocksLight`.
+    // Building it from live state guarantees no other field is missing.
+    const oldState = await page.evaluate(() => {
       const store = (window as StoreWindow).__store
       if (!store) return null
       const state = store.getState().getSerializableState()
-      // Simulate v1.2: remove texture fields from shapes + remove paths + edge transition fields
       const layers = state.layers.map((layer) => {
-        if (layer.type !== 'dungeon') return layer
         const dl = layer as unknown as Record<string, unknown>
-        const shapes = ((dl.shapes as Array<Record<string, unknown>>) ?? []).map((sh) => {
-          const { textureId, textureScale, textureOffsetX, textureOffsetY, textureFillRotation, textureTint, ...rest } = sh
+        if (dl.type !== 'dungeon') return layer
+        const children = ((dl.children as Array<Record<string, unknown>>) ?? []).map((c) => {
+          if (c.childType !== 'shape') return c
+          const { textureId, textureScale, textureOffsetX, textureOffsetY, textureFillRotation, textureTint, ...rest } = c
           void textureId; void textureScale; void textureOffsetX; void textureOffsetY; void textureFillRotation; void textureTint
           return rest
         })
-        const style = dl.style as Record<string, unknown>
-        const { edgeTransitionWidth, showEdgeTransitions, ...styleRest } = style
-        void edgeTransitionWidth; void showEdgeTransitions
-        return { ...dl, shapes, paths: undefined, style: styleRest }
+        const walls = ((dl.standaloneWalls as Array<Record<string, unknown>>) ?? []).map((w) => {
+          const { wallType, direction, ...rest } = w
+          void direction
+          return { ...rest, blocksLight: wallType !== 'terrain' }
+        })
+        return { ...dl, children, standaloneWalls: walls }
       })
-      return { ...state, version: '1.2', layers }
+      return { ...state, version: '2.0', layers }
     })
 
-    if (!v12State) { test.skip(); return }
+    expect(oldState).not.toBeNull()
 
     await page.evaluate((state) => {
       const store = (window as StoreWindow).__store
       store?.getState().loadFromFile(state as unknown as SerializedMapData)
-    }, v12State)
+    }, oldState)
 
     await waitFrame(page, 10)
 
     // App must not crash — canvas still visible
     await expect(page.locator('canvas')).toBeVisible()
 
-    // Migrated version should be '1.3'
+    // Migrated state re-serializes at the current version
     const version = await page.evaluate(() => {
       const store = (window as StoreWindow).__store
       return store?.getState().getSerializableState().version ?? null
     })
-    expect(version).toBe('1.3')
+    expect(version).toBe('3.0')
 
-    // Shape should have gained texture defaults via migration
+    // Shape children survive the migration
     const layer = await getDungeonLayer(page)
-    const shape = layer?.shapes[0]
-    if (shape) {
-      // textureId stays undefined (migration doesn't add it — only adds scale/tint/offset)
-      expect(shape.textureScale).toBe(1.0)
-      expect(shape.textureTint).toBe('#ffffff')
-    }
+    expect(layer!.shapes).toHaveLength(shapesBefore)
+    expect(layer!.shapes[0].shapeType).toBe('rectangle')
   })
 })

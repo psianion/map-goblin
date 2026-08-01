@@ -15,7 +15,14 @@ import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { endpoints } from '../../endpoints';
 import { addWorldOverlay, mountWhenEngineReady } from '../../renderer/overlayLayer';
 import { useSessionStore } from '../../session/store';
-import { approach, attachTokenInput, drawOrder, useTokenInteraction, type TokenLayer } from './drag';
+import {
+  SETTLE_MS,
+  approach,
+  attachTokenInput,
+  drawOrder,
+  useTokenInteraction,
+  type TokenLayer,
+} from './drag';
 
 /** D11 — friendly green, neutral yellow, hostile red. */
 export const DISPOSITION_COLOR: Record<Disposition, number> = {
@@ -51,6 +58,16 @@ function activeTokens(): Token[] {
 
 const ownerName = (ownerId: string | null): string | null =>
   useSessionStore.getState().session?.players.find((p) => p.identityId === ownerId)?.name ?? null;
+
+/**
+ * What a token says under it: its own name, and who is playing it when that adds anything.
+ *
+ * A token named for the character and the player who claimed it are routinely the same word
+ * — the DM lays out "Borin" and Borin claims it — and "Borin · Borin" reads as a rendering
+ * bug rather than as ownership.
+ */
+export const tokenLabelText = (name: string, owner: string | null): string =>
+  owner && owner !== name ? `${name} · ${owner}` : name;
 
 // ─── Portrait textures ──────────────────────────────────────
 // GET /api/assets/:id needs the session token in a header, so this is a fetch + decode
@@ -148,7 +165,7 @@ function buildView(token: Token, isDm: boolean): View {
 
   const owner = ownerName(token.ownerId);
   const label = new Text({
-    text: owner ? `${token.name} · ${owner}` : token.name,
+    text: tokenLabelText(token.name, owner),
     style: { fill: 0xe5e5e5, fontFamily: 'sans-serif', fontSize: 32 },
   });
   label.anchor.set(0.5, 0);
@@ -186,14 +203,13 @@ function eyeSlash(r: number): Graphics {
 
 // ─── Mount / unmount ────────────────────────────────────────
 
-/** How long a dropped token waits for the server to agree before rubber-banding (D9). */
-const SETTLE_MS = 600;
-
 function mountTokenLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => void {
   const layer = new Container();
   layer.sortableChildren = true;
-  // Topmost of the session overlays, so fog tint never draws over a token (see
-  // `OVERLAY_STACK` — that ordering is PRODUCT principle 3 as a draw order).
+  // Topmost of the world-space session overlays, so the DM's fog tint never draws over a
+  // token (see `OVERLAY_STACK` — that ordering is PRODUCT principle 3 as a draw order).
+  // Deliberately still under the *player's* mask, which is screen space: a token in a room
+  // the party cannot see is hidden, and that is the mask doing its job.
   addWorldOverlay(sceneGraph, layer, 'tokenLayer');
 
   const views = new Map<string, View>();
@@ -295,6 +311,18 @@ function mountTokenLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
       if (!view) return;
       view.dragging = dragging;
       if (!dragging) view.pending = { x: view.target.x, y: view.target.y, until: Date.now() + SETTLE_MS };
+    },
+    settleAt: (id, x, y) => {
+      const view = views.get(id);
+      if (!view) return;
+      view.dragging = false;
+      view.target.x = x;
+      view.target.y = y;
+      // Held as `pending`, not cleared, for the same reason a drop is: the server still has
+      // the ground the refused gesture's legal hops won, so the next sync would read that
+      // back as truth and drag the sprite forward again. The hold expires the moment the
+      // corrective move echoes — or after SETTLE_MS, which lands on the server's answer.
+      view.pending = { x, y, until: Date.now() + SETTLE_MS };
     },
   };
 

@@ -1,10 +1,14 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { Container } from 'pixi.js';
+import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
+import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import type { DoorChild } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import { useStore } from '@dnd/core/src/store/store';
-import { DOOR_LOCKED, UNKNOWN_DOOR, type DoorsState } from '@dnd/mechanics/doors';
+import { DOOR_CLOSED, DOOR_LOCKED, UNKNOWN_DOOR, type DoorsState } from '@dnd/mechanics/doors';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
+import { frameWorldPoint } from '../../renderer/camera';
 import type { WebSocketClient } from '../../session/WebSocketClient';
 import { useSessionStore } from '../../session/store';
 import { useToasts } from '../../session/toasts';
@@ -18,7 +22,12 @@ import {
   liveDoors,
 } from './doors';
 import { DoorPanel } from './DoorPanel';
+import { mountDoorLayer, trackDoorIds } from './DoorRenderer';
 import { useDoorSelection } from './selection';
+
+// The camera is Pixi's; what the panel owes it is one call with the door's world point.
+vi.mock('../../renderer/camera', () => ({ frameWorldPoint: vi.fn() }));
+const framed = vi.mocked(frameWorldPoint);
 
 const door = (over: Partial<DoorChild> = {}): DoorChild =>
   ({
@@ -76,6 +85,7 @@ function captureCommands(): Sent[] {
 
 beforeEach(() => {
   cleanup();
+  framed.mockClear();
   useSessionStore.setState({ session: null, you: null, client: null, lastError: null });
   useToasts.setState({ toast: null });
   useDoorSelection.getState().select(null);
@@ -104,6 +114,75 @@ describe('live door state', () => {
     expect(liveDoors([], undefined, 'scene-1')).toEqual([]);
     expect(liveDoors(useStore.getState().layers, undefined, null)).toHaveLength(3);
   });
+
+  /**
+   * The fourth browser gate found three door marks at full brightness on a player canvas
+   * with nothing revealed. Marks are drawn above the fog mask on the strength of the server
+   * having already cut the doors a player has not earned, so a redacted document carrying no
+   * door children has to yield no marks — even with a doors slice still naming them.
+   */
+  it('draws nothing for a player whose map was cut of its doors', () => {
+    const redacted: Layer[] = [
+      { ...(useStore.getState().layers[0] as Layer & { children: unknown[] }), children: [] } as Layer,
+    ];
+    const stale: DoorsState = {
+      byScene: { 'scene-1': { d1: { open: true, locked: false, revealed: true } } },
+    };
+    expect(liveDoors(redacted, stale, 'scene-1')).toEqual([]);
+  });
+});
+
+describe('the door art a player is shown', () => {
+  /** Overlay container plus the multiply the screen overlays rank against. */
+  function harness() {
+    const worldContainer = new Container();
+    const layerContainer = new Container();
+    layerContainer.label = 'layerContainer';
+    worldContainer.addChild(layerContainer);
+    const overlayContainer = new Container();
+    const sceneGraph = { worldContainer, layerContainer, overlayContainer } as unknown as SceneGraph;
+    const engine = {
+      canvas: () => document.createElement('canvas'),
+      ticker: () => ({ add: () => {}, remove: () => {} }),
+    } as unknown as RenderEngine;
+    return { sceneGraph, overlayContainer, engine };
+  }
+
+  const artOf = (overlay: Container): Container =>
+    overlay.children.find((c) => String(c.label) === 'doorOverlay')!.children[0] as Container;
+
+  /**
+   * The gate measured 262 warm-wood pixels in a door's box on the DM seat and 0 on the
+   * player's. Core draws door art into the world container, which on a player's screen is
+   * under the fog scrim and the lighting multiply — and the scrim only cuts room polygons,
+   * so the door band between two rooms is never cut out of it. The art is redrawn in the
+   * overlay that already beats the mask, for the doors the server let this seat hold.
+   */
+  it('draws the art above the mask for a player', () => {
+    useSessionStore.setState({ session: session(), you: player });
+    const { sceneGraph, overlayContainer, engine } = harness();
+    const unmount = mountDoorLayer(engine, sceneGraph);
+    expect(artOf(overlayContainer).children.length).toBeGreaterThan(0);
+    unmount();
+  });
+
+  it('leaves the DM’s seat alone, where the world copy is already lit', () => {
+    useSessionStore.setState({ session: session(), you: dm });
+    const { sceneGraph, overlayContainer, engine } = harness();
+    const unmount = mountDoorLayer(engine, sceneGraph);
+    expect(artOf(overlayContainer).children).toEqual([]);
+    unmount();
+  });
+
+  /** A seat holding no doors draws no art — the redaction leak, at the other end. */
+  it('draws nothing at all when the player holds no doors', () => {
+    useStore.setState({ layers: [dungeonLayer([])] });
+    useSessionStore.setState({ session: session(), you: player });
+    const { sceneGraph, overlayContainer, engine } = harness();
+    const unmount = mountDoorLayer(engine, sceneGraph);
+    expect(artOf(overlayContainer).children).toEqual([]);
+    unmount();
+  });
 });
 
 describe('how a door draws (D11 — the DM never loses visibility)', () => {
@@ -126,14 +205,36 @@ describe('how a door draws (D11 — the DM never loses visibility)', () => {
     }
   });
 
-  it('carries state in shape and badge, not colour alone', () => {
+  it('carries open and shut in shape, not colour alone', () => {
     const shut = doorLook(PLAIN, { open: false, locked: false, revealed: true });
     const open = doorLook(PLAIN, { open: true, locked: false, revealed: true });
-    const locked = doorLook(LOCKED, { open: false, locked: true, revealed: true });
     expect(shut.filled).toBe(true);
     expect(open.filled).toBe(false);
-    expect(locked.badge).toBe('locked');
     expect(shut.badge).toBeNull();
+  });
+
+  it('gives a locked door the same neutral mark as any other, on either seat', () => {
+    // No saturated status colour over the door art (PRODUCT principle 1). Locked is said in
+    // the panel row and in the toast a player gets for bumping one — `doorStatusLabel` and
+    // `doorRefusal` below — never by turning the mark red on everyone's canvas.
+    const plain = doorLook(PLAIN, { open: false, locked: false, revealed: true });
+    const locked = doorLook(LOCKED, { open: false, locked: true, revealed: true });
+    expect(locked).toEqual(plain);
+    expect(locked.badge).toBeNull();
+  });
+
+  it('leaves a player’s canvas no state colour at all', () => {
+    // Everything a player can hold: a plain door and a secret one the DM has revealed. An
+    // unrevealed secret is never sent to them (D4), so the gold branch is the DM's alone.
+    const plain = doorLook(PLAIN, { open: false, locked: false, revealed: true });
+    for (const [d, live] of [
+      [PLAIN, { open: true, locked: false, revealed: true }],
+      [LOCKED, { open: false, locked: true, revealed: true }],
+      [SECRET, { open: false, locked: false, revealed: true }],
+    ] as const) {
+      expect(doorLook(d, live).color).toBe(plain.color);
+      expect(doorLook(d, live).badge).toBeNull();
+    }
   });
 
   it('says the state in words too', () => {
@@ -174,7 +275,7 @@ describe('doorAt', () => {
 });
 
 describe('DoorPanel', () => {
-  it('lists the scene’s doors with their live state, and toggles one on click', () => {
+  it('lists the scene’s doors and selects one on click, without touching its state', () => {
     useSessionStore.setState({ session: session(), you: player });
     const sent = captureCommands();
     render(<DoorPanel />);
@@ -185,12 +286,60 @@ describe('DoorPanel', () => {
     expect(rows[2].getAttribute('data-secret')).toBe('true');
 
     fireEvent.click(rows[0].querySelector('button')!);
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ module: 'doors', action: 'toggle', payload: { id: 'd1' } });
+    expect(sent).toHaveLength(0);
     expect(useDoorSelection.getState().selectedId).toBe('d1');
   });
 
-  it('offers lock and reveal-secret to the DM only', () => {
+  it('brings the picked door into view, on this client only', () => {
+    useSessionStore.setState({ session: session(), you: player });
+    const sent = captureCommands();
+    render(<DoorPanel />);
+
+    const rows = screen.getByTestId('door-list').querySelectorAll('li');
+    const row = rows[1].querySelector('button')!;
+    // A real <button>, so Enter and Space reach the same handler the pointer does — the
+    // keyboard route to a door needs no separate key handling.
+    expect(row.tagName).toBe('BUTTON');
+    fireEvent.click(row);
+
+    expect(framed.mock.calls).toEqual([[10, 4]]);
+    // Framing is local: nothing about it goes on the wire, so no other seat moves.
+    expect(sent).toHaveLength(0);
+  });
+
+  it('says a revealed secret door is still closed, until it is opened', () => {
+    const revealed = (open: boolean): DoorsState => ({
+      byScene: { 'scene-1': { d3: { open, locked: false, revealed: true } } },
+    });
+    useSessionStore.setState({ session: session({ doors: revealed(false) }), you: dm });
+    useDoorSelection.getState().select('d3');
+    render(<DoorPanel />);
+    expect(screen.getByTestId('door-status').textContent).toBe('Revealed — still closed');
+
+    // Not once it is open, and never for a door that was never a secret.
+    cleanup();
+    useSessionStore.setState({ session: session({ doors: revealed(true) }) });
+    render(<DoorPanel />);
+    expect(screen.queryByTestId('door-status')).toBeNull();
+
+    cleanup();
+    useDoorSelection.getState().select('d1');
+    render(<DoorPanel />);
+    expect(screen.queryByTestId('door-status')).toBeNull();
+  });
+
+  it('toggles the selected door only via the explicit control', () => {
+    useSessionStore.setState({ session: session(), you: player });
+    useDoorSelection.getState().select('d1');
+    const sent = captureCommands();
+    render(<DoorPanel />);
+
+    fireEvent.click(screen.getByTestId('door-toggle'));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ module: 'doors', action: 'toggle', payload: { id: 'd1' } });
+  });
+
+  it('offers lock and reveal-secret to the DM only, but toggle to anyone', () => {
     useSessionStore.setState({ session: session(), you: dm });
     useDoorSelection.getState().select('d3');
     render(<DoorPanel />);
@@ -200,7 +349,7 @@ describe('DoorPanel', () => {
     cleanup();
     useSessionStore.setState({ you: player });
     render(<DoorPanel />);
-    expect(screen.queryByTestId('door-actions')).toBeNull();
+    expect(screen.getByTestId('door-toggle')).not.toBeNull();
     expect(screen.queryByTestId('door-lock')).toBeNull();
     expect(screen.queryByTestId('door-reveal-secret')).toBeNull();
   });
@@ -218,6 +367,38 @@ describe('DoorPanel', () => {
     expect(screen.queryByTestId('door-reveal-secret')).toBeNull();
   });
 
+  /**
+   * The gate walk's finding: Open on a locked door did nothing a DM could see. The command
+   * is refused server-side whatever the seat, so the button says the state instead of
+   * spending a round trip to be told — Unlock is the next move and sits right beside it.
+   */
+  it('says Locked on the toggle of a locked door, and will not send it', () => {
+    useSessionStore.setState({ session: session(), you: dm });
+    useDoorSelection.getState().select('d2');
+    const sent = captureCommands();
+    render(<DoorPanel />);
+
+    const toggle = screen.getByTestId('door-toggle') as HTMLButtonElement;
+    expect(toggle.textContent).toBe('Locked');
+    expect(toggle.disabled).toBe(true);
+    fireEvent.click(toggle);
+    expect(sent.filter((s) => s.action === 'toggle')).toEqual([]);
+  });
+
+  /** A player keeps the button: rattling a locked door and being told so is the discovery. */
+  it('still lets a player pull a locked door, and be refused for it', () => {
+    useSessionStore.setState({ session: session(), you: player });
+    useDoorSelection.getState().select('d2');
+    const sent = captureCommands();
+    render(<DoorPanel />);
+
+    const toggle = screen.getByTestId('door-toggle') as HTMLButtonElement;
+    expect(toggle.disabled).toBe(false);
+    expect(toggle.textContent).toBe('Open');
+    fireEvent.click(toggle);
+    expect(sent[0]).toMatchObject({ action: 'toggle', payload: { id: 'd2' } });
+  });
+
   it('disables reveal-secret once the secret is out', () => {
     const state: DoorsState = {
       byScene: { 'scene-1': { d3: { open: false, locked: false, revealed: true } } },
@@ -231,11 +412,62 @@ describe('DoorPanel', () => {
   });
 });
 
+describe('the reveal beat — which doors are new enough to fade in', () => {
+  it('fades nothing on a first paint: a fresh mount is not a reveal', () => {
+    expect(trackDoorIds(null, ['d1', 'd2'])).toEqual({
+      arrived: [],
+      known: new Set(['d1', 'd2']),
+    });
+  });
+
+  it('fades only the door that just arrived, not the ones already there', () => {
+    const first = trackDoorIds(null, ['d1', 'd2']);
+    expect(trackDoorIds(first.known, ['d1', 'd2', 'd3']).arrived).toEqual(['d3']);
+  });
+
+  it('does not re-fade the whole map when a delta reloads the document', () => {
+    const known = trackDoorIds(null, ['d1', 'd2']).known;
+    // The reload passes through a frame with no doors in hand; forgetting the set there
+    // would make every door "new" again on the frame after.
+    const empty = trackDoorIds(known, []);
+    expect(empty).toEqual({ arrived: [], known });
+    expect(trackDoorIds(empty.known, ['d1', 'd2']).arrived).toEqual([]);
+  });
+});
+
 describe('a refused door', () => {
+  const held = () => liveDoors(useStore.getState().layers, undefined, 'scene-1');
+
   it('reads the typed prefixes, never the sentence', () => {
     expect(doorRefusal(`${DOOR_LOCKED}: that door is locked`)).toMatch(/locked/i);
     expect(doorRefusal(`${UNKNOWN_DOOR}: no such door in that scene`)).toMatch(/no longer there/i);
     expect(doorRefusal('rooms.r-1.status needs wasEverRevealed')).toBeNull();
+  });
+
+  it('names the door the refusal named', () => {
+    expect(doorRefusal(`${DOOR_LOCKED} d2: that door is locked`, held())).toBe(
+      'Reliquary Door is locked.',
+    );
+    expect(doorRefusal(`${DOOR_CLOSED} d1: that space cannot be occupied`, held())).toBe(
+      'Gallery Door is closed.',
+    );
+  });
+
+  /**
+   * The redactor blanks the name of a door onto a room nobody has entered (it names what is
+   * behind it). "Door 3" would be a worse answer than the nameless sentence, and `undefined`
+   * would be a bug on screen, so both fall back.
+   */
+  it('falls back to the nameless sentence rather than to a number', () => {
+    const blank = liveDoors([dungeonLayer([door({ id: 'd9', name: '' })])], undefined, 'scene-1');
+    expect(doorRefusal(`${DOOR_LOCKED} d9: that door is locked`, blank)).toBe(
+      'The door is locked.',
+    );
+    // A door this seat does not hold at all — a stale id, or one the fog withheld.
+    expect(doorRefusal(`${DOOR_CLOSED} d-gone: that space cannot be occupied`, held())).toBe(
+      'The door is closed.',
+    );
+    expect(doorRefusal(`${DOOR_LOCKED}: that door is locked`, held())).toBe('The door is locked.');
   });
 
   it('toasts the player who pulled a locked door', () => {
@@ -245,12 +477,39 @@ describe('a refused door', () => {
 
     act(() =>
       useSessionStore.setState({
-        lastError: { code: 'invalid-command', message: `${DOOR_LOCKED}: that door is locked`, at: 1 },
+        lastError: {
+          code: 'invalid-command',
+          message: `${DOOR_LOCKED} d2: that door is locked`,
+          at: 1,
+        },
       }),
     );
     expect(useToasts.getState().toast?.message).toMatch(/locked/i);
     // No undo on a refusal — there is nothing to take back.
     expect(useToasts.getState().toast?.action).toBeUndefined();
+  });
+
+  it('gives the player who pulled a locked door exactly one toast, naming that door', () => {
+    useSessionStore.setState({ session: session(), you: player });
+    render(<DoorPanel />);
+
+    const shown: string[] = [];
+    const unsubscribe = useToasts.subscribe((s) => {
+      if (s.toast) shown.push(s.toast.message);
+    });
+    // What the server actually hands back for `doors.toggle` on a locked door
+    // (mechanics/doors/module.ts) — the sender gets it, so a player does too.
+    act(() =>
+      useSessionStore.setState({
+        lastError: {
+          code: 'invalid-command',
+          message: `${DOOR_LOCKED} d2: that door is locked`,
+          at: 7,
+        },
+      }),
+    );
+    unsubscribe();
+    expect(shown).toEqual(['Reliquary Door is locked.']);
   });
 
   it('stays quiet for refusals that are not a door’s', () => {

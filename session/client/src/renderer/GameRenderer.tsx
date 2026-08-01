@@ -12,11 +12,11 @@ import { LightManager } from '@dnd/core/src/engine/lighting';
 import { setTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
 import { destroyWaterAnimation } from '@dnd/core/src/engine/water/waterAnimation';
 import { getAssetPackManager } from '@dnd/core/src/engine/assetPackInstance';
-import { computeMapWorldBounds } from '@dnd/core/src/engine/export/exportPipeline';
 import { ensureBundledPack } from '@dnd/core/src/engine/firstBootInstall';
 import { setClipperModule } from '@dnd/core/src/geometry/Clipper2Engine';
 import { useStore } from '@dnd/core/src/store/store';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
+import { attachCameraInput, fitMap } from './cameraInput';
 import { useSessionStore } from '../session/store';
 import { loadSceneMap } from '../session/loadSceneMap';
 import { syncDoorsToLighting } from '../modules/doors/doorLighting';
@@ -25,11 +25,6 @@ import { mountPlayerFogWhenReady } from '../modules/fog/FogRenderer';
 // ponytail: copied from canvas/src/geometry/initClipper.ts (12 lines). It cannot
 // live in @dnd/core — the `?url` import is a Vite-bundler feature and core is
 // plain TS consumed by a Node server too. Two consumers, two four-line loaders.
-// Same range the editor's zoom slider clamps to, so a scene framed in canvas feels
-// identical here. World units are grid cells, so this is pixels-per-cell.
-const MIN_ZOOM = 10;
-const MAX_ZOOM = 100;
-
 async function initClipper(): Promise<void> {
   const mod = await import('clipper2-wasm/dist/es/clipper2z.js' as string);
   const factory = mod.default as Clipper2ZFactoryFunction;
@@ -37,31 +32,6 @@ async function initClipper(): Promise<void> {
     locateFile: (path: string) => (path.endsWith('.wasm') ? clipper2WasmUrl : path),
   });
   setClipperModule(clipper);
-}
-
-/**
- * Centres the loaded map in the viewport at the largest zoom that still fits it, with a
- * little margin. Same math as the editor's "fit to content" (ZoomSlider), minus the
- * animation — this is the opening view, not a transition from one.
- */
-function frameMap(engine: PixiRenderEngine): void {
-  const bounds = computeMapWorldBounds(useStore.getState().layers);
-  // An empty map has infinite bounds; leave the default camera rather than divide by it.
-  if (!Number.isFinite(bounds.minX) || !Number.isFinite(bounds.maxX)) return;
-
-  const viewport = engine.viewport();
-  // Collinear or single-point content would otherwise demand infinite zoom.
-  const width = Math.max(bounds.maxX - bounds.minX, 1);
-  const height = Math.max(bounds.maxY - bounds.minY, 1);
-  const zoom = Math.min(
-    MAX_ZOOM,
-    Math.max(MIN_ZOOM, Math.min(viewport.width / width, viewport.height / height) * 0.9),
-  );
-
-  const stage = engine.stage();
-  stage.scale.set(zoom);
-  stage.position.x = viewport.width / 2 - ((bounds.minX + bounds.maxX) / 2) * zoom;
-  stage.position.y = viewport.height / 2 - ((bounds.minY + bounds.maxY) / 2) * zoom;
 }
 
 /**
@@ -190,60 +160,10 @@ export function GameRenderer() {
   }, [engine]);
 
   // ── Local pan/zoom ────────────────────────────────────────────────────────
-  // Camera state lives on the world container itself (see renderLoop step 1), so
-  // "camera" is just stage.position/scale. Same factors and clamp as the editor
-  // so a scene framed in canvas feels identical here.
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !engine) return;
-    const stage = engine.stage();
-    let panning = false;
-    let lastX = 0;
-    let lastY = 0;
-
-    const onPointerDown = (e: PointerEvent) => {
-      if (e.button !== 0 && e.button !== 1) return;
-      panning = true;
-      lastX = e.clientX;
-      lastY = e.clientY;
-      container.setPointerCapture(e.pointerId);
-      e.preventDefault();
-    };
-    const onPointerMove = (e: PointerEvent) => {
-      if (!panning) return;
-      stage.position.x += e.clientX - lastX;
-      stage.position.y += e.clientY - lastY;
-      lastX = e.clientX;
-      lastY = e.clientY;
-    };
-    const onPointerUp = (e: PointerEvent) => {
-      panning = false;
-      if (container.hasPointerCapture(e.pointerId)) container.releasePointerCapture(e.pointerId);
-    };
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const rect = container.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      const oldZoom = stage.scale.x;
-      const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, oldZoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
-      stage.position.x = mx - (mx - stage.position.x) * (newZoom / oldZoom);
-      stage.position.y = my - (my - stage.position.y) * (newZoom / oldZoom);
-      stage.scale.set(newZoom);
-    };
-
-    container.addEventListener('pointerdown', onPointerDown);
-    container.addEventListener('pointermove', onPointerMove);
-    container.addEventListener('pointerup', onPointerUp);
-    container.addEventListener('pointercancel', onPointerUp);
-    container.addEventListener('wheel', onWheel, { passive: false });
-    return () => {
-      container.removeEventListener('pointerdown', onPointerDown);
-      container.removeEventListener('pointermove', onPointerMove);
-      container.removeEventListener('pointerup', onPointerUp);
-      container.removeEventListener('pointercancel', onPointerUp);
-      container.removeEventListener('wheel', onWheel);
-    };
+    return attachCameraInput(engine, container);
   }, [engine]);
 
   // ── Map data flow ─────────────────────────────────────────────────────────
@@ -271,25 +191,36 @@ export function GameRenderer() {
     if (!engine || !mapData) return;
     try {
       useStore.getState().loadFromFile(mapData as SerializedMapData);
-      // Nobody at this table chose a camera: the editor's was never sent and there are no
-      // view controls on the page. Without framing, a map drawn away from the origin opens
-      // mostly off-screen and the player has to go looking for it. `loadFromFile` runs the
-      // scene-graph subscribers synchronously, so mergedFloor — what the bounds are
-      // measured from — already exists by the time this line runs.
-      //
-      // Once per scene, though: from S3 the map grows as rooms are revealed (D5), and
-      // re-framing on a reveal would yank the camera out from under whoever is looking at
-      // it. The opening view is an opening view, not a response to every delta.
-      if (framedScene.current !== sceneId) {
-        framedScene.current = sceneId;
-        frameMap(engine);
-      }
     } catch (err) {
       console.error('[GameRenderer] map document rejected by the engine:', err);
       // Terminal error path — one extra render, versus a blank page.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoadFailed(true);
+      return;
     }
+
+    // Nobody at this table chose a camera: the editor's was never sent. Without framing, a
+    // map drawn away from the origin opens mostly off-screen — the default camera is zoom 20
+    // on the origin — and the player has to go looking for it.
+    //
+    // Once per scene, though: from S3 the map grows as rooms are revealed (D5), and
+    // re-framing on a reveal would yank the camera out from under whoever is looking at it.
+    // The opening view is an opening view, not a response to every delta.
+    if (framedScene.current === sceneId) return;
+    if (fitMap(engine)) {
+      framedScene.current = sceneId;
+      return;
+    }
+    // Nothing to frame yet. A player seat is handed a document stripped to what it has
+    // revealed, and the floor union the bounds are measured from is rebuilt a beat after the
+    // document lands — so keep watching rather than leaving the seat parked over empty space
+    // with a click on a door row as its only way back.
+    const stop = useStore.subscribe(() => {
+      if (framedScene.current === sceneId || !fitMap(engine)) return;
+      framedScene.current = sceneId;
+      stop();
+    });
+    return stop;
   }, [engine, mapData, sceneId]);
 
   const status = initFailed

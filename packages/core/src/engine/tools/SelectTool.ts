@@ -155,6 +155,25 @@ export class SelectTool implements DrawingTool {
   onPointerDown(point: Point, event?: PointerEvent): void {
     const store = useStore.getState();
 
+    // If a gizmo exists (object selected), hit-test it first (screen-space).
+    // Ahead of the Alt branch below: Alt on a resize handle means "grow about the
+    // centre", which is what the handle is for, and only Alt *away* from the
+    // gizmo starts a region cut. Testing region-cut first made Alt+handle throw
+    // the selection away instead, so the gizmo's own alt modifier never ran.
+    if (this.gizmo && this.state === 'SELECTED' && event) {
+      const canvasRect = this.engine.canvas().getBoundingClientRect();
+      const sx = event.clientX - canvasRect.left;
+      const sy = event.clientY - canvasRect.top;
+      const handle = this.gizmo.hitTest(sx, sy);
+      if (handle) {
+        this.altDragMode = false;
+        this.gizmo.startDrag(handle, sx, sy);
+        this.state = handle === 'move' ? 'MOVING' : 'TRANSFORMING';
+        this.beginTransformSession(handle, !!event.altKey);
+        return;
+      }
+    }
+
     // Alt+drag → legacy region-cut mode
     if (event?.altKey) {
       this.altDragMode = true;
@@ -168,20 +187,6 @@ export class SelectTool implements DrawingTool {
       return;
     }
     this.altDragMode = false;
-
-    // If a gizmo exists (object selected), hit-test it first (screen-space)
-    if (this.gizmo && this.state === 'SELECTED' && event) {
-      const canvasRect = this.engine.canvas().getBoundingClientRect();
-      const sx = event.clientX - canvasRect.left;
-      const sy = event.clientY - canvasRect.top;
-      const handle = this.gizmo.hitTest(sx, sy);
-      if (handle) {
-        this.gizmo.startDrag(handle, sx, sy);
-        this.state = handle === 'move' ? 'MOVING' : 'TRANSFORMING';
-        this.beginTransformSession(handle);
-        return;
-      }
-    }
 
     // Hit-test children across all visible, unlocked dungeon layers
     const dungeonLayers = store.layers.filter(
@@ -466,7 +471,7 @@ export class SelectTool implements DrawingTool {
     return k === 0 ? 1 : 1 / k;
   }
 
-  private beginTransformSession(handle: HandleType): void {
+  private beginTransformSession(handle: HandleType, fromCenter = false): void {
     const store = useStore.getState();
     const dungeonLayers = store.layers.filter(
       (l): l is DungeonLayer => l.type === 'dungeon' && !l.locked,
@@ -505,7 +510,12 @@ export class SelectTool implements DrawingTool {
     }
 
     const box = unionChildBounds(selected) ?? { x: 0, y: 0, width: 0, height: 0 };
-    this.transformSession = { anchor: anchorForHandle(handle, box), entries };
+    // A resize normally pins the opposite corner. Alt pins the centre instead,
+    // so the box grows away from its middle in both directions.
+    const anchor = fromCenter
+      ? { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+      : anchorForHandle(handle, box);
+    this.transformSession = { anchor, entries };
   }
 
   private applyTransformSession(delta: {

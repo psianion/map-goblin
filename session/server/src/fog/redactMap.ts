@@ -50,8 +50,22 @@ export function redactMapForViewer(
   return {
     ...scene.data,
     layers: scene.data.layers.map((layer) => {
-      // A layer nobody zoned has no fog to enforce — room-granular fog needs rooms (D6).
-      if (!isDungeon(layer) || !layer.rooms?.length) return layer
+      if (!isDungeon(layer)) return layer
+      // A layer nobody zoned has no fog to enforce — room-granular fog needs rooms (D6) — so
+      // its geometry goes over whole.
+      //
+      // Its doors do not. A door with no room to be bound to can never be earned, and the
+      // player's door marks are drawn *above* the fog mask on the strength of a player only
+      // ever holding doors they earned. Handing them over anyway put three marks at full
+      // brightness on a canvas that was otherwise black, which is the door positions
+      // disclosed by exactly the styling PRODUCT principle 2 says must never carry it.
+      if (!layer.rooms?.length) {
+        const kids = childrenOf(layer)
+        const doorless = kids.filter((child) => child.childType !== 'door')
+        // Untouched when there was nothing to take, so a layer with no doors stays the very
+        // object it arrived as rather than growing an empty `children` it never had.
+        return doorless.length === kids.length ? layer : { ...layer, children: doorless }
+      }
       return {
         ...layer,
         ...slice(layer, scene, kept, doors),
@@ -97,19 +111,30 @@ export function doorDeltaFor(
   }
 }
 
-/** The same cut, restricted to the rooms that just became the player's (D5). */
+/**
+ * The same cut, restricted to the rooms that just became the player's (D5).
+ *
+ * `explored` is every room they hold, this reveal included, and it is what the doors are
+ * *faced* against — same rule as `doorDeltaFor`, for a sharper reason. A door's child is
+ * replaced wholesale by the one this delta carries (`mergeMapDelta` upserts by id), so
+ * facing it against the newly-revealed room alone would null the binding to the room the
+ * party is standing in, and the client's own reachability BFS would then read the door as
+ * leading outside — the room would light up on the referee's side and stay a memory on
+ * theirs, forever. Defaulted so the callers that reveal into an empty map need not care.
+ */
 export function mapDeltaFor(
   scene: SceneMap,
   sceneId: string,
   rooms: readonly string[],
   doors: Doors,
+  explored: ReadonlySet<string> = new Set(rooms),
 ): MapDelta {
   const kept = new Set(rooms)
   return {
     sceneId,
     layers: scene.data.layers
       .filter(isDungeon)
-      .map((layer) => ({ id: layer.id, ...slice(layer, scene, kept, doors) }))
+      .map((layer) => ({ id: layer.id, ...slice(layer, scene, kept, doors, explored) }))
       .filter((layer) => layer.rooms.length > 0),
   }
 }
@@ -119,6 +144,7 @@ function slice(
   scene: SceneMap,
   kept: ReadonlySet<string>,
   doors: Doors,
+  facingSet: ReadonlySet<string> = kept,
 ): { rooms: Room[]; children: AnyChild[]; standaloneWalls: WallSegment[] } {
   return {
     rooms: (layer.rooms ?? []).filter((room) => kept.has(room.id)),
@@ -126,7 +152,7 @@ function slice(
       .filter((child) =>
         child.childType === 'door' ? doorKept(child, kept, doors) : childKept(child, scene, kept),
       )
-      .map((child) => (child.childType === 'door' ? facing(child, kept) : child)),
+      .map((child) => (child.childType === 'door' ? facing(child, facingSet) : child)),
     // A wall belongs to the rooms on either side of it, so one shared with a room the
     // player has seen survives — it is that room's own outline either way.
     standaloneWalls: wallsOf(layer).filter((wall) =>

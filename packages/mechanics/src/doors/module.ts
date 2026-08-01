@@ -4,12 +4,14 @@
 // `scenesModule(stores)` already uses.
 
 import { ANY_ROLE, type GameModule, type ModuleContext } from '../contract'
+import { actorOf, logged, type LogAction } from '../log'
 import { ID_MAX, Reject, bad, obj, str } from '../tokens/validate'
 import {
   DOOR_LOCKED,
   UNKNOWN_DOOR,
   doorsOfScene,
   isArchway,
+  refusal,
   type AuthoredDoor,
   type DoorLiveState,
   type DoorsState,
@@ -71,7 +73,17 @@ export function doorsModule(
         }
         byScene[sceneId] = known
       }
-      return { ...state, byScene }
+      // The log is cut by the cut above, not by a second rule: a seat reads the line about
+      // a door exactly when it holds that door. So a secret revealed three rooms away, or
+      // anything at all in a room nobody has entered, is not merely nameless on this wire —
+      // it is absent, and the *count* of what the DM has been doing goes with it.
+      return {
+        ...state,
+        byScene,
+        log: state.log?.filter(
+          (e) => e.targetId !== undefined && byScene[e.sceneId]?.[e.targetId] !== undefined,
+        ),
+      }
     },
   }
 }
@@ -101,15 +113,15 @@ function run(action: string, p: Payload, ctx: Ctx, doorsOf: SceneDoors): void {
 
   switch (action) {
     case 'toggle':
-      if (live.locked) bad(`${DOOR_LOCKED}: that door is locked`)
-      return put(ctx, sceneId, scene, id, { ...live, open: !live.open })
+      if (live.locked) bad(refusal(DOOR_LOCKED, id, 'that door is locked'))
+      return put(ctx, sceneId, scene, id, { ...live, open: !live.open }, live.open ? 'closed' : 'opened')
     case 'lock':
-      return put(ctx, sceneId, scene, id, { ...live, locked: true })
+      return put(ctx, sceneId, scene, id, { ...live, locked: true }, 'locked')
     case 'unlock':
-      return put(ctx, sceneId, scene, id, { ...live, locked: false })
+      return put(ctx, sceneId, scene, id, { ...live, locked: false }, 'unlocked')
     case 'reveal-secret':
       if (!authored.isSecret) bad('that door is not a secret door')
-      return put(ctx, sceneId, scene, id, { ...live, revealed: true })
+      return put(ctx, sceneId, scene, id, { ...live, revealed: true }, 'revealed-secret')
     default:
       bad(`doors has no action '${action}'`)
   }
@@ -125,9 +137,14 @@ function put(
   scene: Record<string, DoorLiveState>,
   id: string,
   next: DoorLiveState,
+  action: LogAction,
 ): void {
   ctx.setState({
     ...ctx.state,
     byScene: { ...ctx.state.byScene, [sceneId]: { ...scene, [id]: next } },
+    // Every write is a line, because every write is something a seat at the table saw a
+    // door do. Minted here rather than at the four call sites so no future action can
+    // change a door quietly.
+    log: logged(ctx.state.log, { actor: actorOf(ctx), action, sceneId, targetId: id }),
   })
 }

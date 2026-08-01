@@ -34,6 +34,14 @@ export default {
         // Accent — achromatic, so colour never becomes the only state encoding.
         'accent-active': '#FFFFFF',
         'accent-dim': '#999999',
+        // Tailwind's own `neutral-500` is #737373, which is 4.07:1 on surface-0 — under
+        // AA for the 12–14px lines it carries everywhere in this chrome ("(you)", the
+        // token meta line, every empty-state placeholder). Lifted here rather than at each
+        // call site, because the shade *is* the token: 27 uses, one definition. #8A8A8A is
+        // 5.59:1 on surface-0 and still reads as the quiet tier next to neutral-400.
+        // Merged into the default scale — every other neutral shade is untouched
+        // (`theme.test.ts` pins both the ratio and the merge).
+        neutral: { 500: '#8A8A8A' },
         // Semantic
         danger: '#C0392B',
         warning: '#D4A017',

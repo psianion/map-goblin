@@ -8,15 +8,27 @@ import * as textureLoader from '../assets/textureLoader';
 import { resolveTexture } from '../assets/textureLoader';
 import { preloadPathTextures } from './splineRenderer';
 import { renderEdgeTransitions } from './edgeTransitions';
-import { renderNodeWalls } from './wallNodeRenderer';
+import { renderNodeWalls, type DoorGap } from './wallNodeRenderer';
 import { renderDoors } from './doorRenderer';
 import { rebuildWaterSublayer } from './water/waterRenderer';
 import { resolveStyle } from './styleResolver';
 import type { DungeonStyle } from '../store/types';
-import type { DoorChild } from '../shared/types';
+import { resolveDoors, resolveWalls, type ResolvedDoor } from '../shared/wallResolve';
 
 function parseColor(hex: string): number {
   return parseInt(hex.replace('#', ''), 16);
+}
+
+/** Stone-gap openings for the doorways. A detached door has no wall to gap. */
+function doorGapsFor(doors: ResolvedDoor[]): DoorGap[] {
+  return doors
+    .filter((d) => d.wall !== null)
+    .map((d) => ({
+      wallId: d.wall!.id,
+      position: d.position,
+      width: d.door.width,
+      ring: d.wall!.ring,
+    }));
 }
 
 /** Signed area of a polygon. Positive = CW in screen-space (outer), negative = CCW (hole). */
@@ -224,6 +236,48 @@ function renderTexturedShape(
 /**
  * Render a single solid-color shape fill.
  */
+/**
+ * Draw one hatch treatment over `area`, using `style` for everything about it.
+ *
+ * Split out so the layer-wide pass and the per-shape pass share a body — the two
+ * differ only in the polygons they are handed and the style they resolve.
+ */
+function renderHatching(hatching: Container, area: Polygon[], style: DungeonStyle): void {
+  if (style.hatchingStyle === 'none' || area.length === 0) return;
+
+  const lineAngle = style.hatchingStyle === 'horizontal' ? 0 : style.hatchingAngle;
+
+  // Hatch region: the whole interior, or a band inset from its edge.
+  let hatchRegion: Polygon[];
+  if (style.hatchingInverted) {
+    hatchRegion = area;
+  } else {
+    const inner = clipper2Engine.inflate(area, -style.hatchingBandWidth);
+    hatchRegion = inner.length > 0 ? clipper2Engine.difference(area, inner) : area;
+  }
+
+  const maskG = new Graphics();
+  fillPolygonsWithHoles(maskG, hatchRegion, { color: 0xffffff });
+
+  const hatchG = new Graphics();
+  hatchG.setStrokeStyle({
+    color: parseColor(style.wallColor),
+    width: style.hatchingLineThickness,
+  });
+  addHatchLines(hatchG, area, lineAngle, style.hatchingLineSpacing);
+  if (style.hatchingStyle === 'crosshatch') {
+    addHatchLines(hatchG, area, lineAngle + Math.PI / 2, style.hatchingLineSpacing);
+  }
+  hatchG.stroke();
+
+  // Wrap in a Container so the mask applies to the lines only
+  const hatchContainer = new Container();
+  hatchContainer.addChild(maskG);
+  hatchContainer.addChild(hatchG);
+  hatchContainer.mask = maskG;
+  hatching.addChild(hatchContainer);
+}
+
 function renderSolidShape(
   parent: Container,
   shape: ShapeChild,
@@ -267,6 +321,82 @@ export function preloadLayerTextures(layer: DungeonLayer): Promise<boolean> {
 }
 
 /**
+ * Redraw only the doors sublayer — for a door STATE flip (open/closed/locked,
+ * isSecret, style) that leaves door geometry (position/width/wallId) alone.
+ * Skips wall-stone re-layout and the Clipper2 floor union entirely: those
+ * only need to run again when `withoutDoorGaps` (wallNodeRenderer.ts) would
+ * cut different gaps, which is a geometry change, not a state change.
+ */
+export function redrawDoors(layer: DungeonLayer, entry: LayerEntry): void {
+  if (!entry.sublayers) return;
+  const { doors: doorsSublayer } = entry.sublayers;
+  for (const child of doorsSublayer.removeChildren()) child.destroy();
+
+  const resolvedWalls = resolveWalls(layer);
+  const doors = resolveDoors(layer, resolvedWalls).filter((d) => d.door.visible);
+  if (doors.length === 0) return;
+  const gridCellSize = useStore.getState().grid.snapDivision || 1;
+  renderDoors(doorsSublayer, doors, layer.style, gridCellSize);
+}
+
+/**
+ * Redraw only the grid sublayer — for the grid visibility toggle, which moves
+ * no geometry at all. Mirror of {@link redrawDoors}: no stone re-layout, no
+ * Clipper2, no floor fill.
+ *
+ * Called from `rebuildDungeonLayer` too, so the two can never drift.
+ */
+export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
+  if (!entry.sublayers) return;
+  const gridSub = entry.sublayers.grid;
+  for (const child of gridSub.removeChildren()) child.destroy();
+
+  const polygons = layer.mergedFloor;
+  if (!polygons || polygons.length === 0) return;
+  if (!useStore.getState().grid.visible) return;
+
+  // Compute bounding box of all floor polygons
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const polygon of polygons) {
+    for (const [x, y] of polygon) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  const gridMinX = Math.floor(minX);
+  const gridMaxX = Math.ceil(maxX);
+  const gridMinY = Math.floor(minY);
+  const gridMaxY = Math.ceil(maxY);
+
+  // Mask to clip grid lines within floor shape
+  const maskG = new Graphics();
+  fillPolygonsWithHoles(maskG, polygons, { color: 0xffffff });
+
+  // Grid lines
+  const gridG = new Graphics();
+  const gridColor = parseColor(layer.style.wallColor);
+  gridG.setStrokeStyle({ color: gridColor, width: 0.02, alpha: 0.25 });
+
+  for (let x = gridMinX; x <= gridMaxX; x++) {
+    gridG.moveTo(x, gridMinY);
+    gridG.lineTo(x, gridMaxY);
+  }
+  for (let y = gridMinY; y <= gridMaxY; y++) {
+    gridG.moveTo(gridMinX, y);
+    gridG.lineTo(gridMaxX, y);
+  }
+  gridG.stroke();
+
+  const gridContainer = new Container();
+  gridContainer.addChild(maskG);
+  gridContainer.addChild(gridG);
+  gridContainer.mask = maskG;
+  gridSub.addChild(gridContainer);
+}
+
+/**
  * Rebuild a dungeon layer's sublayers from store state.
  * Called by subscribeToStore whenever shapes or walls change.
  *
@@ -276,13 +406,17 @@ export function preloadLayerTextures(layer: DungeonLayer): Promise<boolean> {
 export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): void {
   if (!entry.sublayers) return;
 
-  const { floor, hatching, walls } = entry.sublayers;
+  const { floor, hatching, walls, doors: doorsSublayer } = entry.sublayers;
 
   // Clear all sublayers (reset floor mask from prior textured render)
   floor.mask = null;
   for (const child of floor.removeChildren()) child.destroy();
   for (const child of hatching.removeChildren()) child.destroy();
-  for (const child of walls.removeChildren()) child.destroy();
+  // Not the walls: `renderNodeWalls` pools its stone sprites, reassigning the
+  // ones already in the container and trimming the tail itself. Emptying it
+  // here would throw the pool away on every rebuild, which is the allocation
+  // this drag path exists to avoid.
+  for (const child of doorsSublayer.removeChildren()) child.destroy();
 
   // paths sublayer removed in v2.0 model — spline paths are no longer separate
 
@@ -296,20 +430,23 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   // render, and a layer holding only standalone walls used to draw nothing at
   // all because this ran after that return. Z-order is unaffected — walls live
   // in their own sublayer container.
-  const doorChildren = layer.children.filter(
-    (c): c is DoorChild => c.childType === 'door' && c.visible,
-  );
+  // Doors resolve against every wall the engine knows about — standalone
+  // segments and floor-ring edges alike — so a door on a floor edge draws and
+  // gaps the stones exactly like one on a standalone wall, and both follow node
+  // edits because their geometry is derived here rather than read off the child.
+  const resolvedWalls = resolveWalls(layer);
+  const doors = resolveDoors(layer, resolvedWalls).filter((d) => d.door.visible);
   renderNodeWalls(
     walls,
     layer.mergedFloor ?? [],
     layer.standaloneWalls,
     layer.style,
-    doorChildren.map((d) => ({ wallId: d.wallId, position: d.position, width: d.width })),
+    doorGapsFor(doors),
     layer.floorWallEdits ?? {},
   );
-  if (doorChildren.length > 0) {
+  if (doors.length > 0) {
     const gridCellSize = useStore.getState().grid.snapDivision || 1;
-    renderDoors(walls, doorChildren, layer.standaloneWalls, layer.style, gridCellSize);
+    renderDoors(doorsSublayer, doors, layer.style, gridCellSize);
   }
 
   const polygons = layer.mergedFloor;
@@ -317,7 +454,6 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
 
   const s = layer.style;
   const floorColorNum = parseColor(s.floorColor);
-  const wallColorNum  = parseColor(s.wallColor);
 
   // ── Floor fill (per-shape back-to-front) ─────────────────────
   // Render each shape individually: textured shapes get a TilingSprite
@@ -373,93 +509,29 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   renderEdgeTransitions(floor, layer);
 
   // ── Grid sublayer (lines inside shapes) ─────────────────
-  {
-    const gridSub = entry.sublayers.grid;
-    for (const child of gridSub.removeChildren()) child.destroy();
-
-    const gridState = useStore.getState().grid;
-    if (gridState.visible) {
-      // Compute bounding box of all floor polygons
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const polygon of polygons) {
-        for (const [x, y] of polygon) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
-      }
-      const gridMinX = Math.floor(minX);
-      const gridMaxX = Math.ceil(maxX);
-      const gridMinY = Math.floor(minY);
-      const gridMaxY = Math.ceil(maxY);
-
-      // Mask to clip grid lines within floor shape
-      const maskG = new Graphics();
-      fillPolygonsWithHoles(maskG, polygons, { color: 0xffffff });
-
-      // Grid lines
-      const gridG = new Graphics();
-      const gridColor = parseColor(s.wallColor);
-      gridG.setStrokeStyle({ color: gridColor, width: 0.02, alpha: 0.25 });
-
-      for (let x = gridMinX; x <= gridMaxX; x++) {
-        gridG.moveTo(x, gridMinY);
-        gridG.lineTo(x, gridMaxY);
-      }
-      for (let y = gridMinY; y <= gridMaxY; y++) {
-        gridG.moveTo(gridMinX, y);
-        gridG.lineTo(gridMaxX, y);
-      }
-      gridG.stroke();
-
-      const gridContainer = new Container();
-      gridContainer.addChild(maskG);
-      gridContainer.addChild(gridG);
-      gridContainer.mask = maskG;
-      gridSub.addChild(gridContainer);
-    }
-  }
+  redrawGrid(layer, entry);
 
   // ── Hatching sublayer ────────────────────────────────────────
-  // Hatching is a layer-level operation (applied to mergedFloor as a whole),
-  // so we use layer.style directly. Per-shape hatching overrides are not
-  // supported in this release — the merged geometry loses shape boundaries.
-  if (s.hatchingStyle !== 'none') {
-    const lineAngle = s.hatchingStyle === 'horizontal' ? 0 : s.hatchingAngle;
-
-    // Determine hatch region: band = floor minus inflated-inward floor
-    let hatchRegion: Polygon[];
-    if (s.hatchingInverted) {
-      // Fill entire floor interior
-      hatchRegion = polygons;
-    } else {
-      // Fill border band: diff(floor, inward-inflate(floor, bandWidth))
-      const inner = clipper2Engine.inflate(polygons, -s.hatchingBandWidth);
-      hatchRegion = inner.length > 0
-        ? clipper2Engine.difference(polygons, inner)
-        : polygons;
+  // On a plain layer this runs once over the merged floor, which is both the
+  // cheap path and the right look — hatching reads as one treatment of the whole
+  // room, not a per-shape decoration.
+  //
+  // Once any shape carries a style pin it has to run per shape instead. A pin is
+  // what a preset leaves behind so an already-drawn shape keeps the look it was
+  // drawn with (PresetApplyCommand); drawing the hatch from `layer.style` here
+  // ignored those pins, and applying a preset restyled every shape on the map
+  // through the hatch alone.
+  if (hasStyleOverrides) {
+    for (const shape of shapeChildren) {
+      if ((shape.contours[0]?.length ?? 0) < 3) continue;
+      const resolved = resolveStyle(s, shape.styleOverrides as Partial<DungeonStyle> | undefined);
+      // Clip to the merged floor so an erase hole cuts the hatch too.
+      const shapeArea = clipper2Engine.intersection(shape.contours as Polygon[], polygons);
+      if (shapeArea.length === 0) continue;
+      renderHatching(hatching, shapeArea, resolved);
     }
-
-    // Mask Graphics — defines the hatch region
-    const maskG = new Graphics();
-    fillPolygonsWithHoles(maskG, hatchRegion, { color: 0xffffff });
-
-    // Hatch lines Graphics
-    const hatchG = new Graphics();
-    hatchG.setStrokeStyle({ color: wallColorNum, width: s.hatchingLineThickness });
-    addHatchLines(hatchG, polygons, lineAngle, s.hatchingLineSpacing);
-    if (s.hatchingStyle === 'crosshatch') {
-      addHatchLines(hatchG, polygons, lineAngle + Math.PI / 2, s.hatchingLineSpacing);
-    }
-    hatchG.stroke();
-
-    // Wrap in a Container so mask applies to the lines only
-    const hatchContainer = new Container();
-    hatchContainer.addChild(maskG);
-    hatchContainer.addChild(hatchG);
-    hatchContainer.mask = maskG;
-    hatching.addChild(hatchContainer);
+  } else {
+    renderHatching(hatching, polygons, s);
   }
 
   // Walls and doors already rendered above, before the no-floor bail-out.

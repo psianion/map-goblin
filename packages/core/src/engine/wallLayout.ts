@@ -81,11 +81,18 @@ export interface LayoutOptions {
   overlap?: number;
 }
 
+/**
+ * How far a piece tucks under its successor, as a fraction of its own length.
+ * Exported so a run refilled after the fact — `withoutDoorGaps` — lays its
+ * stones with the same grain as the run the layout pass drew.
+ */
+export const DEFAULT_WALL_OVERLAP = 0.12;
+
 const DEFAULTS = {
   elbowTolerance: 15 * (Math.PI / 180),
   // ponytail: tuned by eye against dungeon-classic at play zoom. Per-set values
   // belong in WALL_SET_DEFAULTS if a pack's stones ever sit differently.
-  overlap: 0.12,
+  overlap: DEFAULT_WALL_OVERLAP,
 };
 
 /** Below this turn the vertex is treated as straight-through. */
@@ -185,8 +192,12 @@ const MIN_PIECE_SCALE = 0.45;
  * Fill a straight run with the largest pieces that fit, then absorb the
  * remainder by scaling every chosen piece uniformly. Uniform scaling is why
  * runs never show a gap: the error is spread, not dumped at one end.
+ *
+ * Exported because a door leaves residual runs that this same rule has to fill —
+ * see `withoutDoorGaps`. Picking pieces to suit the run is the whole reason a
+ * short run does not have to squeeze a long stone down to a sliver.
  */
-function fillRun(
+export function fillRun(
   runLength: number,
   straights: WallPieceSpec[],
   wallWidth: number,
@@ -228,8 +239,19 @@ function fillRun(
     return [{ piece, scale: Math.max(fit, MIN_PIECE_SCALE) }];
   }
 
-  const natural = chosen.reduce((s, p) => s + advance(p), 0);
-  const scale = natural > 0 ? runLength / natural : 1;
+  // What the row actually paints, which is not what it advances. Every piece
+  // but the last is tucked under its successor and so only shows `advance`; the
+  // last one has no successor and shows its whole length. Scaling against the
+  // advance sum alone therefore let that untucked tail hang past the run's end —
+  // on stone-slate's longest straight, two thirds of a cell past the wall's own
+  // endpoint, while the run's head stayed flush. That asymmetry was the wall
+  // end-cap overhang.
+  const last = chosen[chosen.length - 1];
+  const painted =
+    chosen.reduce((s, p) => s + advance(p), 0) -
+    advance(last) +
+    pieceWorldLength(last, wallWidth);
+  const scale = painted > 0 ? runLength / painted : 1;
   return chosen.map((piece) => ({ piece, scale: Math.max(scale, MIN_PIECE_SCALE) }));
 }
 

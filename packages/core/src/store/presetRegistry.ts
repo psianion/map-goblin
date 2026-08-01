@@ -3,7 +3,6 @@
 // No store slice — pure data. Import from here wherever presets are needed.
 
 import type { DungeonStyle, ScatterBrushSettings } from './types';
-import type { DoorStyle } from '../shared/types';
 
 // ─── Shared Preset Shape ──────────────────────────────────
 
@@ -13,9 +12,6 @@ export interface MapStylePreset {
   category: string;
   /** Floor, wall, shadow, hatching, edge transition settings */
   dungeonStyle: Partial<DungeonStyle>;
-  /** Door defaults when using this preset */
-  doorStyle?: DoorStyle;
-  doorWidth?: number;
 }
 
 export interface ScatterPreset {
@@ -253,3 +249,20 @@ export const SCATTER_PRESETS: ScatterPreset[] = [
     },
   },
 ];
+
+/**
+ * The preset a layer's style currently matches, or `undefined`.
+ *
+ * Keys a preset leaves `undefined` are ignored — those are exactly the ones
+ * `PresetApplyCommand` declines to write, so comparing them would stop such a
+ * preset from ever reading back as the active one.
+ */
+export function matchPresetId(style: DungeonStyle): string | undefined {
+  return DUNGEON_STYLE_PRESETS.find((p) =>
+    Object.entries(p.dungeonStyle).every(
+      ([k, v]) =>
+        v === undefined ||
+        JSON.stringify(v) === JSON.stringify(style[k as keyof DungeonStyle]),
+    ),
+  )?.id;
+}

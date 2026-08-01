@@ -2,17 +2,23 @@
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      `data:` is in connect-src as well as img-src because an imported image is kept
+      as a data URL in the store, and Pixi loads a texture by *fetching* its source.
+      Without it every image import failed silently: the picture went into the store,
+      the fetch was refused, and no object was ever placed on the map.
+    -->
     <meta http-equiv="Content-Security-Policy"
       content="default-src 'self';
                script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval';
                style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
                font-src 'self' https://fonts.gstatic.com;
                img-src 'self' blob: data: https://cdn.mapbuilder.app http://localhost:*;
-               connect-src 'self' blob: https://cdn.mapbuilder.app http://localhost:*;
+               connect-src 'self' blob: data: https://cdn.mapbuilder.app http://localhost:*;
                worker-src 'self' blob:;" />
-    <title>map-builder-scaffold</title>
+    <title>Good Goblin — editor</title>
   </head>
   <body>
     <div id="root"></div>

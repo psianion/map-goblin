@@ -23,6 +23,14 @@ COPY session/client ./session/client
 # (`/packs/…`, hardcoded in @dnd/core). `vite build` copies publicDir into dist, so
 # this is what puts the pack files in the nginx image.
 COPY canvas/public ./canvas/public
+# Where the *browser* should reach the game server. Empty is the normal case and the one
+# nginx.conf is built for: same origin, /api and /ws reverse-proxied, so `endpoints.ts`
+# derives its bases from window.location and is right. Set it only for a deployment that
+# serves this bundle from an origin with no proxy in front of it, where the derived origin
+# would answer for the page and nothing else.
+ARG VITE_HTTP_BASE=""
+ENV VITE_HTTP_BASE=$VITE_HTTP_BASE
+
 # vite only, not the package's `tsc -b && vite build`: the typecheck gate needs the
 # whole workspace (src tests import server sources), and this stage deliberately
 # copies only the client's slice. Types are enforced locally/CI on the full tree.

@@ -108,8 +108,16 @@ export async function assertMapRendered(page: Page, map: MapUnderTest = DEMO): P
  * `/api/campaigns/:id/maps` exactly as a DM's file picker would. There is no masking step,
  * no fog authoring pass, nothing between the editor's file and a playable table — which is
  * the whole of §2.6's zero-setup row.
+ *
+ * `startingRoomId` is the one optional decision in that flow (§2.6): the room the DM lights
+ * before anyone joins. Left out, the picker stays on "none" and the table starts dark, which
+ * is what every other spec in this repo hosts.
  */
-export async function hostTable(page: Page, map: MapUnderTest = DEMO): Promise<string> {
+export async function hostTable(
+  page: Page,
+  map: MapUnderTest = DEMO,
+  startingRoomId?: string,
+): Promise<string> {
   await page.goto('/')
   await page.getByRole('link', { name: 'Host a game' }).click()
 
@@ -122,6 +130,7 @@ export async function hostTable(page: Page, map: MapUnderTest = DEMO): Promise<s
 
   await page.locator('#map-file').setInputFiles(map.file)
   await expect(page.getByTestId('uploaded-map')).toContainText(map.name)
+  if (startingRoomId) await page.locator('#starting-room').selectOption(startingRoomId)
   await page.getByRole('button', { name: 'Continue' }).click()
 
   await page.getByRole('button', { name: 'Start session' }).click()

@@ -1,10 +1,34 @@
 import { useState } from 'react';
+import type { Room } from '@dnd/core/src/shared/types';
 import { endpoints } from '../endpoints';
+import { serverRooms } from '../modules/fog/fog';
 import { navigate } from '../router';
 import { createCampaignAsDm, startSession, uploadMapFile, type DmSession } from '../session/auth';
+import { readMapFile } from '../session/mapFile';
 import { useSessionStore } from '../session/store';
 
 const STEPS = ['Server', 'Campaign', 'Map', 'Invite'];
+
+/**
+ * The server address is optional, exactly as the field's own helper copy promises: leave it
+ * empty and the server is this page's origin, which in the deployed stack is the right
+ * answer (nginx proxies /api and /ws to the game server). Only something actually typed is
+ * validated — a blank field used to disable Continue, which contradicted the copy directly.
+ *
+ * `setServerUrl` assumes http:// for a bare `host:port`, so the same leniency applies here;
+ * anything that still will not parse is a typo worth naming before a request is fired at it.
+ */
+function serverUrlError(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const { protocol } = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`);
+    if (protocol !== 'http:' && protocol !== 'https:') throw new Error('scheme');
+  } catch {
+    return 'That is not an address the browser can reach — try http://localhost:8787';
+  }
+  return null;
+}
 
 const field =
   'w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none';
@@ -28,7 +52,11 @@ export default function HostSetup() {
   const [adminPass, setAdminPass] = useState('');
   const [campaignName, setCampaignName] = useState('');
   const [dm, setDm] = useState<DmSession | null>(null);
-  const [map, setMap] = useState<{ name: string; sizeBytes: number } | null>(null);
+  const [map, setMap] = useState<{ mapId: string; name: string; sizeBytes: number } | null>(null);
+  /** The uploaded map's own rooms — the same list the fog panel will show at the table. */
+  const [rooms, setRooms] = useState<Room[]>([]);
+  /** '' = none, which is the table starting dark exactly as it did before this picker. */
+  const [startRoomId, setStartRoomId] = useState('');
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,22 +74,37 @@ export default function HostSetup() {
     }
   };
 
+  /** Empty means this page's own origin — the default the field's helper copy describes. */
+  const resolvedServerUrl = serverUrl.trim() || endpoints.httpBase;
+  const serverError = serverUrlError(serverUrl);
+
   const createCampaign = () =>
     run(async () => {
-      setDm(await createCampaignAsDm(serverUrl, adminPass, campaignName || 'Untitled campaign'));
+      setDm(
+        await createCampaignAsDm(resolvedServerUrl, adminPass, campaignName || 'Untitled campaign'),
+      );
       setStep(3);
     });
 
   const uploadMap = (file: File) =>
     run(async () => {
       if (!dm) return;
-      setMap(await uploadMapFile(dm.campaignId, dm.token, await file.text()));
+      // The editor's own save is gzipped (`readMapFile`); a testdata fixture is plain JSON.
+      const text = await readMapFile(file);
+      setMap(await uploadMapFile(dm.campaignId, dm.token, text));
+      // Only reached once the server has accepted the same bytes, so it parses here too.
+      setRooms(serverRooms(JSON.parse(text)));
+      setStartRoomId('');
     });
 
   const openTable = () =>
     run(async () => {
       if (!dm) return;
-      const opened = await startSession(dm.campaignId, dm.token);
+      // A scene *is* a map: the id the upload handed back is the one fog is keyed by, and
+      // the one the table has to open on — a campaign may already hold others.
+      const startingRoom =
+        map && startRoomId ? { sceneId: map.mapId, roomId: startRoomId } : undefined;
+      const opened = await startSession(dm.campaignId, dm.token, startingRoom, map?.mapId);
       setInviteCode(opened.inviteCode);
     });
 
@@ -123,8 +166,24 @@ export default function HostSetup() {
                 className={field}
                 value={serverUrl}
                 onChange={(e) => setServerUrl(e.target.value)}
-                placeholder="http://localhost:8787"
+                placeholder={endpoints.httpBase}
               />
+              {/*
+                The pre-filled value is this page's own origin, and in the deployed stack
+                that is the right answer: nginx reverse-proxies /api and /ws to the game
+                server, so the browser only ever talks to one origin (nginx.conf). The
+                placeholder used to say :8787 while the field held :8090, which read as a
+                wrong default and sent a gate walk hunting for a bug that was not there.
+              */}
+              <p className="mt-1 text-xs text-neutral-500">
+                Optional — pre-filled with this page’s own address, which is where the server
+                answers unless you are running it somewhere else. Empty means the same thing.
+              </p>
+              {serverError && (
+                <p className="mt-1 text-xs text-red-400" data-testid="server-url-error">
+                  {serverError}
+                </p>
+              )}
             </div>
 
             <div>
@@ -144,7 +203,7 @@ export default function HostSetup() {
             <button
               type="button"
               className={primary}
-              disabled={!serverUrl.trim() || !adminPass.trim()}
+              disabled={!adminPass.trim() || serverError !== null}
               onClick={() => setStep(2)}
             >
               Continue
@@ -199,6 +258,36 @@ export default function HostSetup() {
                 Uploaded <span className="font-medium">{map.name}</span>{' '}
                 <span className="text-neutral-500">({(map.sizeBytes / 1024).toFixed(1)} KB)</span>
               </p>
+            )}
+
+            {/*
+              The one thing worth deciding before the table opens. Everything else about fog
+              is a click at the table, but the first room is the one nobody is there to
+              reveal: without it the party's first minute is a black canvas they cannot move
+              a token on. Skipping is the old behaviour, so the default stays "none".
+            */}
+            {map && rooms.length > 0 && (
+              <div>
+                <label className={label} htmlFor="starting-room">
+                  Starting room
+                </label>
+                <select
+                  id="starting-room"
+                  className={field}
+                  value={startRoomId}
+                  onChange={(e) => setStartRoomId(e.target.value)}
+                >
+                  <option value="">None — the map starts dark</option>
+                  {rooms.map((room, i) => (
+                    <option key={room.id} value={room.id}>
+                      {room.name || `Room ${i + 1}`}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-neutral-500">
+                  Revealed when players join. Every other room stays dark until you reveal it.
+                </p>
+              </div>
             )}
 
             <button type="button" className={primary} disabled={!map} onClick={() => setStep(4)}>

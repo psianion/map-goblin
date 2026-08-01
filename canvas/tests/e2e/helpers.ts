@@ -1,9 +1,97 @@
 import { type Page } from '@playwright/test'
 
-/** Navigate to app and wait for canvas + Clipper2 WASM to be ready */
+/**
+ * A minute each rather than the twenty seconds this used to allow: the first page
+ * of a run pays Vite's cold compile, and a boot that lands at 21 seconds is a slow
+ * box, not a broken app. The waits cost nothing when the app is already up.
+ *
+ * Keep the sum under `timeout` in playwright.config.ts, which has to leave room
+ * for a test body on top of the worst-case boot.
+ */
+const CLIPPER_TIMEOUT = 60_000
+const ENGINE_TIMEOUT = 60_000
+
+/**
+ * Wait out the whole boot: Clipper2 WASM, then the engine.
+ *
+ * Both halves, always. `data-clipper-ready` alone was the old bar and it is the
+ * wrong one — it is set well before the engine is up, so a spec that started
+ * driving pointers at that point drew nothing into an empty scene graph and then
+ * asserted on it. Specs that never noticed were the ones whose assertions passed
+ * either way. Waiting for the engine here fixes every caller at once rather than
+ * asking each spec to remember.
+ */
+export async function waitForBoot(page: Page): Promise<void> {
+  // `window.__clipperReady`, not the `data-clipper-ready` attribute. The attribute mirrors
+  // `ui.clipperReady`, and a Strict Mode double-mount race leaves that store flag stuck
+  // false after a perfectly good boot: the superseded first mount finishes its init, sets
+  // the shared flag true, then sees it was destroyed and clears it again. So the attribute
+  // shows up for a moment and then disappears for the rest of the session.
+  //
+  // Waiting on it was the suite's worst flake — miss that window and `waitForSelector`
+  // burns its full timeout on an app that booted fine. The window flag is what CanvasHost
+  // documents for E2E ("avoids React render timing issues") and it stays true.
+  await page.waitForFunction(
+    () => (window as Window & { __clipperReady?: boolean }).__clipperReady === true,
+    undefined,
+    { timeout: CLIPPER_TIMEOUT },
+  )
+  await waitForEngine(page)
+  // `useCanvasInput` attaches its keydown listener from an effect that runs after the
+  // engine reaches React state, so a spec pressing a key the instant the engine appears
+  // can lose it outright — which is why "E toggles erase mode" only ever asserted that
+  // the canvas was still visible. Two frames is one commit plus its effects.
+  // ponytail: no app-side "input wired" signal to wait on; add one if this needs to be
+  // exact rather than merely settled.
+  await waitFrame(page, 2)
+}
+
+/** Navigate to the app and wait for it to finish booting. */
 export async function gotoApp(page: Page): Promise<void> {
   await page.goto('/')
-  await page.waitForSelector('[data-clipper-ready="true"]', { timeout: 20000 })
+  await waitForBoot(page)
+}
+
+/**
+ * Wait until the engine has finished booting — `data-clipper-ready` is set well
+ * before it, while the bundled asset pack is still being installed into a cold
+ * IndexedDB, and until that finishes the canvas is an "Initializing…" overlay
+ * with an empty scene graph. Anything driven by a real pointer has to wait for
+ * this: the overlay sits on top of the canvas, so a click lands on a div.
+ *
+ * `gotoApp` already awaits this. Still exported because specs call it directly
+ * after a reload, and because an explicit call documents the dependency.
+ */
+export async function waitForEngine(page: Page, timeout = ENGINE_TIMEOUT): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const app = (window as Window & { __pixiApp?: { stage: { children: { children: unknown[] }[] } } })
+        .__pixiApp
+      return !!app && app.stage.children.length > 0 && app.stage.children[0].children.length > 0
+    },
+    undefined,
+    { timeout },
+  )
+}
+
+/**
+ * Number of shape children on the dungeon layer.
+ *
+ * The check that makes a drawing test mean something. A spec that draws and then
+ * only asserts the canvas is still visible passes just as happily when the draw
+ * did nothing at all, which is how a boot-overlay regression hid here for so long.
+ * Assert a count delta around the draw instead.
+ */
+export async function shapeCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const store = (window as Window & {
+      __store?: {
+        getState: () => { layers: { type: string; children: { childType: string }[] }[] }
+      }
+    }).__store
+    const layer = store?.getState().layers.find((l) => l.type === 'dungeon')
+    return layer ? layer.children.filter((c) => c.childType === 'shape').length : -1
+  })
 }
 
 /** Wait for n animation frames */
@@ -13,7 +101,14 @@ export async function waitFrame(page: Page, n: number = 1): Promise<void> {
   }
 }
 
-/** Fire a pointer event on the canvas element */
+/**
+ * Fire a pointer event on the canvas element.
+ *
+ * `mods` has to be passed here rather than held down with `keyboard.down`: a
+ * PointerEvent built in the page carries whatever modifier flags its init dict
+ * was given and knows nothing about what the real keyboard is doing, so a tool
+ * reading `event.altKey` saw false no matter which keys the spec was holding.
+ */
 export async function firePointer(
   page: Page,
   type: string,
@@ -21,9 +116,10 @@ export async function firePointer(
   y: number,
   pressure = 0,
   buttons = 0,
+  mods: { ctrl?: boolean; shift?: boolean; alt?: boolean } = {},
 ): Promise<void> {
   await page.evaluate(
-    ({ type, x, y, pressure, buttons }) => {
+    ({ type, x, y, pressure, buttons, mods }) => {
       const canvas = document.querySelector('canvas')
       if (!canvas) return
       canvas.dispatchEvent(
@@ -36,10 +132,13 @@ export async function firePointer(
           cancelable: true,
           pointerId: 1,
           pointerType: 'mouse',
+          ctrlKey: !!mods.ctrl,
+          shiftKey: !!mods.shift,
+          altKey: !!mods.alt,
         }),
       )
     },
-    { type, x, y, pressure, buttons },
+    { type, x, y, pressure, buttons, mods },
   )
 }
 
@@ -73,18 +172,44 @@ export async function drawRect(
   await waitFrame(page, 2)
 }
 
-/** Get pixel color at canvas coordinates */
+/**
+ * Get pixel colour at canvas coordinates, in device pixels.
+ *
+ * Read straight out of the live WebGL drawing buffer. Two wrong ways came before it:
+ *
+ *  - `canvas.getContext('2d')` on Pixi's canvas returns `null`, because the element
+ *    already holds a WebGL context. The helper silently returned `{0,0,0,0}` for every
+ *    pixel of every test, which made `expect(a).toBe(255)` unsatisfiable and
+ *    `expect(diff).toBeGreaterThanOrEqual(0)` unfalsifiable — without ever mentioning
+ *    a canvas in the failure.
+ *  - An element `.screenshot()` decoded in-page reads correctly, but wedges the worker:
+ *    the very next test in the same file then hangs resolving any locator at all. The
+ *    door light rows can afford it (their own file, whole-frame diffs); a helper every
+ *    spec calls cannot.
+ *
+ * `preserveDrawingBuffer: true` (PixiRenderEngine) is what makes the buffer still
+ * readable after the frame is composited.
+ */
 export async function getPixelColor(
   page: Page,
   x: number,
   y: number,
 ): Promise<{ r: number; g: number; b: number; a: number }> {
-  return page.evaluate(({ x, y }) => {
-    const canvas = document.querySelector('canvas') as HTMLCanvasElement
-    if (!canvas) return { r: 0, g: 0, b: 0, a: 0 }
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return { r: 0, g: 0, b: 0, a: 0 }
-    const d = ctx.getImageData(x, y, 1, 1).data
-    return { r: d[0], g: d[1], b: d[2], a: d[3] }
-  }, { x, y })
+  return page.evaluate(
+    ({ x, y }) => {
+      const canvas = document.querySelector('canvas')
+      if (!canvas) return { r: 0, g: 0, b: 0, a: 0 }
+      const gl = (canvas.getContext('webgl2') ?? canvas.getContext('webgl')) as
+        | WebGLRenderingContext
+        | null
+      if (!gl) return { r: 0, g: 0, b: 0, a: 0 }
+      const px = Math.min(Math.max(Math.round(x), 0), canvas.width - 1)
+      // readPixels counts from the bottom-left; every caller counts from the top.
+      const py = Math.min(Math.max(canvas.height - 1 - Math.round(y), 0), canvas.height - 1)
+      const out = new Uint8Array(4)
+      gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out)
+      return { r: out[0], g: out[1], b: out[2], a: out[3] }
+    },
+    { x, y },
+  )
 }

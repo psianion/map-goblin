@@ -109,7 +109,7 @@ const layerNamed = (parent: Container, label: string): Container | undefined =>
 const drawn = (sceneGraph: SceneGraph): string =>
   signature(layerNamed(sceneGraph.overlayContainer, 'fogOverlay')?.children[0] as unknown as Painter);
 
-/** The tint and explored glyph, which stay in the world under the DM's tokens and doors. */
+/** The tint, which stays in the world under the DM's tokens and doors. */
 const tinted = (sceneGraph: SceneGraph): string =>
   signature(layerNamed(sceneGraph.worldContainer, 'fogOverlay')?.children[0] as unknown as Painter);
 
@@ -183,7 +183,7 @@ describe('FogOverlay hover highlight (D11)', () => {
     expect(cursor).toBeGreaterThan(lighting);
     expect(drawn(sceneGraph)).not.toBe('');
 
-    // The tint and glyph stay in the world, under the DM's tokens and doors (principle 3).
+    // The tint stays in the world, under the DM's tokens and doors (principle 3).
     expect(layerNamed(sceneGraph.worldContainer, 'fogOverlay')).toBeDefined();
     expect(tinted(sceneGraph), 'two unrevealed rooms carry the heavier tint').not.toBe('');
   });

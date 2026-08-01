@@ -169,8 +169,14 @@ export function useCanvasInput(
         return;
       }
 
-      // Process coalesced events for smooth high-DPI/stylus input
-      const coalescedEvents = e.getCoalescedEvents?.() ?? [e];
+      // Process coalesced events for smooth high-DPI/stylus input.
+      // An empty list has to mean "just this move", same as the method being
+      // missing: a pointer event that did not come from the real input stack
+      // reports no coalesced history, and dropping it lost the move entirely —
+      // tools that build their state on move (the scatter brush) then saw a
+      // click with nothing behind it.
+      const coalesced = e.getCoalescedEvents?.();
+      const coalescedEvents = coalesced?.length ? coalesced : [e];
       for (const ce of coalescedEvents) {
         const world = engine.screenToWorld(ce.clientX - rect.left, ce.clientY - rect.top);
         const snapped = applyMiddleware(world);

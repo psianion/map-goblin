@@ -14,7 +14,9 @@ import { SIZE_CELLS, snap, type Token, type TokenSize } from '@dnd/mechanics/tok
 import type { Role } from '@dnd/core/src/shared/protocol';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import { useSessionStore } from '../../session/store';
+import { showToast } from '../../session/toasts';
 import { isToolActive } from '../../session/tools';
+import { doorRefusal, type LiveDoor } from '../doors/doors';
 
 /** What the renderer exposes to the input layer. */
 export interface TokenLayer {
@@ -27,6 +29,12 @@ export interface TokenLayer {
    * `false` it starts waiting for the authoritative echo and rubber-bands if none comes.
    */
   setDragging(id: string, dragging: boolean): void;
+  /**
+   * Put a token back at a position the caller is asserting, dropping the optimistic state
+   * of the gesture that led there. The sprite eases rather than cuts, so a refusal reads as
+   * the token being pushed back and not as a teleport.
+   */
+  settleAt(id: string, x: number, y: number): void;
 }
 
 interface TokenInteraction {
@@ -49,6 +57,9 @@ export const useTokenInteraction = create<TokenInteraction>()((set) => ({
 
 /** D9: ~10 Hz while the pointer is down. */
 export const MOVE_INTERVAL_MS = 100;
+
+/** How long a dropped token waits for the server to agree before rubber-banding (D9). */
+export const SETTLE_MS = 600;
 
 /** Leading-edge throttle. `run` fires immediately or drops; nothing is queued. */
 export function createThrottle(intervalMs: number, now: () => number = Date.now) {
@@ -74,6 +85,41 @@ export function createThrottle(intervalMs: number, now: () => number = Date.now)
 export function approach(from: number, to: number, dtMs: number, ms = 150): number {
   if (Math.abs(to - from) < 1e-3) return to;
   return from + (to - from) * (1 - Math.exp((-3 * dtMs) / ms));
+}
+
+/**
+ * The refusal a move hands back, in words a player can act on — or null for anything that
+ * is not this module's business.
+ *
+ * One vocabulary for both lanes: a refusal says why when the server named a why, and falls
+ * back to the bare fact when it did not. The doors lane stamps typed prefixes on its own
+ * refusals (`DOOR_LOCKED`), and a move blocked *by a door* is the same fact arriving through
+ * another command, so it gets the same sentence rather than a vaguer one of its own.
+ *
+ * `doors` is what lets it say *which* door — the caller passes the doors this seat holds and
+ * `doorRefusal` resolves the id the server named. Omit them and the sentence is still
+ * correct, just nameless, which is all a caller using this as a yes/no gate needs.
+ *
+ * ponytail: the sentence is copied from `mechanics/tokens/module.ts`, so a reword there goes
+ * quiet here rather than wrong. The upgrade is an exported constant beside the message.
+ */
+export function tokenRefusal(message: string, doors: readonly LiveDoor[] = []): string | null {
+  if (!message.includes('cannot be occupied')) return null;
+  return doorRefusal(message, doors) ?? "You can't move there.";
+}
+
+/**
+ * Why the pointer cannot move this token — the answer the gate below owes a player.
+ *
+ * A drag the client refuses never reaches the server, so nothing refuses it back and the
+ * refusal-toast path (`useTokenFeedback`, which reads `lastError`) is never on. The gesture
+ * was answered by a 600ms rubber-band and nothing else, which reads as a dropped frame.
+ * These words point at the affordance the panel is already offering beside the token.
+ */
+export function dragRefusal(token: Token): string {
+  return token.ownerId === null
+    ? 'Claim this token to move it.'
+    : 'Another player is holding that token.';
 }
 
 /** D10 client-side gate. The server enforces this too — this only saves a round trip. */
@@ -108,13 +154,73 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
   let drag: { id: string; size: TokenSize; dx: number; dy: number; x: number; y: number; moved: boolean } | null =
     null;
 
+  /**
+   * The whole gesture, kept until the server has answered the drop.
+   *
+   * A drag streams moves at ~10 Hz (D9) and the server judges each one on its own, so a
+   * gesture that ends on a cell it refuses has usually had its earlier, legal hops committed
+   * already. Rubber-banding to "the last position we were told about" therefore lands on the
+   * furthest legal hop rather than on the cell the token was picked up from, and the token
+   * keeps that ground — about a cell per refused drag, which is the creep the gate measured.
+   * The gesture is one move as far as a player is concerned, so a refusal undoes all of it.
+   */
+  let gesture:
+    | { id: string; from: { x: number; y: number }; to: { x: number; y: number }; endedAt: number }
+    | null = null;
+
+  /** Put the token back where the pointer picked it up, on this side and on the server's. */
+  const revert = (): void => {
+    if (!gesture) return;
+    const { id, from } = gesture;
+    gesture = null;
+    layer.settleAt(id, from.x, from.y);
+    // The sprite answers immediately; the server has to be *told*, because the hops it
+    // accepted on the way are real state over there and only a move undoes them. Deferred
+    // one microtask because this runs from a store subscription, and `sendCommand` drops
+    // anything sent while a server message is still being folded in (`applyingRemote`).
+    queueMicrotask(() => send('move', { id, x: from.x, y: from.y }));
+  };
+
+  /**
+   * A refusal is this gesture's verdict only if it could still be about the drop, and only
+   * if the drop did not land after all — an intermediate hop can be refused on the way to a
+   * cell the server is perfectly happy with, and that move must stand.
+   */
+  let seenError = useSessionStore.getState().lastError;
+  const onStoreChange = (): void => {
+    const { lastError } = useSessionStore.getState();
+    if (lastError === seenError) return;
+    seenError = lastError;
+    // Still steering: the pointer is the authority until it lifts, and yanking the sprite
+    // out from under a live drag would read as a stutter rather than as an answer.
+    const g = gesture;
+    if (!lastError || !g || drag || !tokenRefusal(lastError.message)) return;
+    if (lastError.at > g.endedAt + SETTLE_MS) return;
+    const landed = layer.tokens().find((t) => t.id === g.id);
+    if (landed && landed.x === g.to.x && landed.y === g.to.y) {
+      gesture = null; // the drop stands; this refusal was an earlier hop's
+      return;
+    }
+    revert();
+  };
+  const unsubscribe = useSessionStore.subscribe(onStoreChange);
+
   const worldOf = (e: PointerEvent) => {
     const rect = canvas.getBoundingClientRect();
     return engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
   };
-  // Claiming the gesture: the camera pan listener sits on the canvas's parent.
+  /**
+   * Claiming the gesture. The camera pan listener sits on the canvas's parent, so
+   * `stopPropagation` is what tells it "I grabbed a token" — but the door overlay listens
+   * on this very element, and propagation is between *nodes*: a same-element listener runs
+   * regardless. So pressing down on a token standing in a doorway grabbed the token AND
+   * swung the door, and the move that followed walked through the opening the grab had just
+   * made — a door a player never chose to open, logged under their name. Immediate, so the
+   * token really does win the click the way the door overlay already documents (it registers
+   * after this one, on purpose: tokens are dragged, doors are only tapped).
+   */
   const claim = (e: PointerEvent) => {
-    e.stopPropagation();
+    e.stopImmediatePropagation();
     e.preventDefault();
   };
 
@@ -141,8 +247,15 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
     claim(e);
 
     const you = useSessionStore.getState().you;
-    if (!canDrag(token, you?.role, you?.identityId)) return;
+    if (!canDrag(token, you?.role, you?.identityId)) {
+      // `useToasts.show` keeps one toast for repeated words and restarts its window, so
+      // grabbing the token again renews the answer rather than stacking a second one.
+      showToast({ message: dragRefusal(token) });
+      return;
+    }
     drag = { id: token.id, size: token.size, dx: x - token.x, dy: y - token.y, x: token.x, y: token.y, moved: false };
+    // `endedAt: 0` is "the pointer is still down" — nothing can be this gesture's verdict yet.
+    gesture = { id: token.id, from: { x: token.x, y: token.y }, to: { x: token.x, y: token.y }, endedAt: 0 };
     layer.setDragging(token.id, true);
     canvas.setPointerCapture(e.pointerId);
     throttle.reset();
@@ -171,6 +284,13 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
     // The throttle may have dropped the last move — the drop is always sent.
     if (drag.moved) send('move', { id: drag.id, x: drag.x, y: drag.y });
     layer.setDragging(drag.id, false);
+    // A gesture that never moved sent nothing, so there is nothing a refusal could undo.
+    if (gesture && drag.moved) {
+      gesture.to = { x: drag.x, y: drag.y };
+      gesture.endedAt = Date.now();
+    } else {
+      gesture = null;
+    }
     drag = null;
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
   };
@@ -180,6 +300,7 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
   canvas.addEventListener('pointerup', onUp, true);
   canvas.addEventListener('pointercancel', onUp, true);
   return () => {
+    unsubscribe();
     canvas.removeEventListener('pointerdown', onDown, true);
     canvas.removeEventListener('pointermove', onMove, true);
     canvas.removeEventListener('pointerup', onUp, true);

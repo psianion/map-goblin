@@ -96,12 +96,15 @@ test.describe('Asset Pack Integration', () => {
       // getInstalledPacks should return the cached pack
       const packs = manager.getInstalledPacks()
 
-      // checkForUpdates should fail with CDN unreachable (timeout)
-      let checkFailed = false
+      // An unreachable CDN is not an error the user should see: checkForUpdates
+      // logs and returns no updates rather than throwing, so an offline session
+      // keeps working off the cache. (AssetPackManager.checkForUpdates.)
+      let threw = false
+      let updates: unknown[] = []
       try {
-        await manager.checkForUpdates()
+        updates = await manager.checkForUpdates()
       } catch {
-        checkFailed = true
+        threw = true
       }
 
       // Cached packs should survive the CDN failure
@@ -110,7 +113,8 @@ test.describe('Asset Pack Integration', () => {
       return {
         packCount: packs.length,
         packId: packs[0]?.packId,
-        checkFailed,
+        threw,
+        updateCount: updates.length,
         packsAfterFailure: packsAfterFailure.length,
         cacheUsed: usage.used,
       }
@@ -118,7 +122,8 @@ test.describe('Asset Pack Integration', () => {
 
     expect(result.packCount).toBe(1)
     expect(result.packId).toBe('dungeon-classic')
-    expect(result.checkFailed).toBe(true)
+    expect(result.threw).toBe(false)
+    expect(result.updateCount).toBe(0)
     // Packs survive CDN failure
     expect(result.packsAfterFailure).toBe(1)
   })

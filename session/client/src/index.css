@@ -35,7 +35,10 @@ body,
     --border: #252525; /* border-default */
     --input: #252525;
     --ring: #ffffff; /* border-focus */
-    --radius: 0.25rem;
+    /* One radius scale, shared with canvas: 6px buttons, 4px controls, 2px chips */
+    --radius: 0.375rem;
+    --radius-md: 0.25rem;
+    --radius-sm: 0.125rem;
   }
 
   * {

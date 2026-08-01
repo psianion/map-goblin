@@ -55,22 +55,8 @@ const lights = layer.children.filter((c): c is LightChild => c.childType === 'li
 /** The biggest room on the map — the one every latency and fps number is named after. */
 const CHAMBER = [...rooms].sort((a, b) => b.area - a.area)[0]
 
-/**
- * The room a player is handed before the DM reveals anything (amendment 2026-07-28): the
- * largest room that is not a corridor, lowest id breaking a tie. Spelled out rather than
- * imported for the same reason `REVEAL_MS` is — `@dnd/mechanics` publishes an exports map
- * over `.ts` sources and this file runs under Playwright's Node loader. Keep it in step with
- * `defaultRoom` in `packages/mechanics/src/fog/visibility.ts`; the row below asserts it is
- * `CHAMBER` on this map, so a re-authored fixture separating them fails loudly.
- */
-const DEFAULT_ROOM = [...rooms]
-  .filter((r) => !r.isPathway)
-  .sort((a, b) => b.area - a.area || (a.id < b.id ? -1 : 1))[0]
-
-/** The room the zero-setup row reveals: the biggest one the player was *not* lent. */
-const UNLENT = [...rooms]
-  .filter((r) => r.id !== DEFAULT_ROOM.id)
-  .sort((a, b) => b.area - a.area)[0]
+/** The room the zero-setup row reveals: the biggest one that is not the chamber. */
+const UNLENT = [...rooms].filter((r) => r.id !== CHAMBER.id).sort((a, b) => b.area - a.area)[0]
 const SECRET = doors.find((d) => d.isSecret)!
 const roomById = (id: string | null | undefined) => rooms.find((r) => r.id === id)!
 const lightsIn = (room: Room): number =>
@@ -253,6 +239,72 @@ function develop(page: Page, shot: Buffer): Promise<Look> {
 const look = async (page: Page): Promise<Look> => develop(page, await shoot(page))
 const show = (l: Look) => `mean ${l.mean.toFixed(1)}/255, ${(l.lit * 100).toFixed(1)}% drawn`
 
+interface Patch {
+  /** Mean luminance over the sampled pixels, 0–255. */
+  mean: number
+  /** Mean chroma — max channel minus min — over the same pixels, 0–255. */
+  chroma: number
+  /** How many pixels were in the sample, as a fraction of the frame. */
+  covered: number
+}
+
+/**
+ * What one state did to the pixels another state lit.
+ *
+ * The whole-canvas mean cannot answer the question PRODUCT's accessibility clause asks.
+ * Emberhold is a crypt and most of it is black in every state, so a mean over the frame is
+ * mostly a count of how much black there is — the third gate read explored as *brighter*
+ * than lit off exactly that number, and the row below used to decline to assert a direction
+ * because of it. Masking to the pixels the map draws when it is lit throws the black away and
+ * leaves the comparison the art director actually makes: the same floor, twice.
+ *
+ * Chroma comes with it because dimming alone is not the requirement. An explored room has to
+ * read as *stale* — the warm torchlight pulled out of it — and a state that is only darker is
+ * a state carried on one axis, which is what "never rely on colour alone" cuts both ways on.
+ */
+function sample(page: Page, shot: Buffer, mask: Buffer): Promise<Patch> {
+  return page.evaluate(
+    async ([a, b]: string[]) => {
+      const pixels = async (url: string) => {
+        const bitmap = await createImageBitmap(await (await fetch(url)).blob())
+        const surface = new OffscreenCanvas(bitmap.width, bitmap.height)
+        const ctx = surface.getContext('2d')!
+        ctx.drawImage(bitmap, 0, 0)
+        return ctx.getImageData(0, 0, bitmap.width, bitmap.height).data
+      }
+      const [target, reference] = await Promise.all([pixels(a), pixels(b)])
+      const luminance = (d: Uint8ClampedArray, i: number) =>
+        0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]
+      let sum = 0
+      let chroma = 0
+      let counted = 0
+      for (let i = 0; i < target.length; i += 4) {
+        // The same 32/255 floor `develop` uses: "is anything drawn here", asked of the lit
+        // frame, so both samples cover one identical set of pixels.
+        if (luminance(reference, i) <= 32) continue
+        counted++
+        sum += luminance(target, i)
+        chroma +=
+          Math.max(target[i], target[i + 1], target[i + 2]) -
+          Math.min(target[i], target[i + 1], target[i + 2])
+      }
+      return {
+        mean: counted ? sum / counted : 0,
+        chroma: counted ? chroma / counted : 0,
+        covered: counted / (target.length / 4),
+      }
+    },
+    [
+      `data:image/png;base64,${shot.toString('base64')}`,
+      `data:image/png;base64,${mask.toString('base64')}`,
+    ],
+  )
+}
+
+const showPatch = (p: Patch) =>
+  `mean ${p.mean.toFixed(1)}/255, chroma ${p.chroma.toFixed(1)}/255 over ` +
+  `${(p.covered * 100).toFixed(1)}% of the frame`
+
 /**
  * What fraction of the canvas changed between two shots.
  *
@@ -396,6 +448,18 @@ async function statuses(dm: Page): Promise<Record<string, number>> {
 const doorRow = (page: Page, doorId: string) =>
   page.getByTestId('door-list').locator(`[data-door-id="${doorId}"]`)
 
+/**
+ * Select the door row, then swing it with the control beside it.
+ *
+ * Two gestures, not one: the door overhaul split selecting a door from operating it (D10),
+ * so the row's own button only opens the actions beside it. The doors lane has the same
+ * helper — this row was still clicking the row and expecting a swing.
+ */
+async function swingDoor(page: Page, doorId: string): Promise<void> {
+  await doorRow(page, doorId).getByRole('button').click()
+  await page.getByTestId('door-toggle').click()
+}
+
 // ── The table ──────────────────────────────────────────────────────────────
 
 test.describe.serial('@sprint3-fog', () => {
@@ -406,9 +470,9 @@ test.describe.serial('@sprint3-fog', () => {
   let code: string
   /**
    * The one honest "nothing explored" reading in the run, taken before any row touches the
-   * fog: the party has revealed nothing, so the player's canvas is the lent default room
-   * (amendment 2026-07-28) and twelve rooms of black. Every later "not black" claim is
-   * measured against it, because after the first reveal there is no unexplored map left.
+   * fog: the party has revealed nothing, so the player's canvas is thirteen rooms of black.
+   * Every later "not black" claim is measured against it, because after the first reveal
+   * there is no unexplored map left.
    */
   let virgin: Look
   const pageErrors: string[] = []
@@ -418,6 +482,8 @@ test.describe.serial('@sprint3-fog', () => {
     dm = await dmContext.newPage()
     dm.on('pageerror', (e) => pageErrors.push(`[dm] ${e.message}`))
 
+    // Nothing is lent to a player any more, so there is no reveal to wait out and the
+    // canvas below is the black one. `virgin.lit` is the row that says so.
     code = await hostTable(dm, GATE)
     await dm.getByRole('button', { name: 'Enter table' }).click()
     await expect(dm.locator('[data-page="table"]')).toBeVisible()
@@ -427,8 +493,8 @@ test.describe.serial('@sprint3-fog', () => {
     player = await playerContext.newPage()
     player.on('pageerror', (e) => pageErrors.push(`[player] ${e.message}`))
     await joinTable(player, code, 'Borin')
-    // Not `assertMapRendered`: a player holds one room of this map (the default one), so
-    // the floor they union is a fraction of the DM's — the row below is what measures it.
+    // Not `assertMapRendered`: a player holds no room of this map until the DM reveals one,
+    // so there is no floor for them to union — the row below is what measures it.
     await assertMapLoaded(player, GATE)
     await player.waitForTimeout(REVEAL_MS * 4)
     virgin = await look(player)
@@ -456,41 +522,43 @@ test.describe.serial('@sprint3-fog', () => {
    * exactly the default room at join (amendment 2026-07-28), one more room after one reveal.
    */
   test('zero-setup: the editor’s file is a fogged table, no masking step', async () => {
-    // The DM's list is the *stored* fog, and nothing has written to it: the default room is
-    // a read-time rule, not a seeded reveal.
+    // The DM's list is the *stored* fog, and nothing has written to it.
     expect(await statuses(dm)).toEqual({ never_revealed: rooms.length })
-    expect(DEFAULT_ROOM.id, 'the biggest room on this map is not the default room').toBe(
-      CHAMBER.id,
-    )
 
     const dmHas = await scene(dm)
     expect(dmHas.rooms).toBe(rooms.length)
     expect(dmHas.walls).toBe(layer.standaloneWalls.length)
 
     const before = await scene(player)
-    // One room, and it is the one the rule names — never the whole map, never nothing.
-    expect(before.roomIds, `the player was handed ${showScene(before)}`).toEqual([DEFAULT_ROOM.id])
-    expect(before.children).toBeGreaterThan(0)
-    expect(before.walls).toBeGreaterThan(0)
-    expect(before.walls).toBeLessThan(layer.standaloneWalls.length)
+    // No room at all, and above all not the chamber. The fourth browser gate found the
+    // opposite: every room in the DM's list read Unrevealed while the player's canvas showed
+    // the chamber at full brightness, because the default-room fallback lent it to them and
+    // the room's torches are baked into the geometry that came with it. A room the DM never
+    // revealed is black, and it is black because the referee never sent it (principle 2).
+    expect(before.roomIds, `the player was handed ${showScene(before)}`).toEqual([])
+    expect(before.children).toBe(0)
+    expect(before.walls).toBe(0)
+    expect(lightsIn(CHAMBER), 'the chamber has no light to leak in the first place').toBeGreaterThan(
+      0,
+    )
+    // …and the pixels agree: nothing on the player's canvas is above the black floor.
+    expect(virgin.lit, `the player's canvas is drawing ${show(virgin)}`).toBe(0)
 
-    // …and its doors, cut to the one room they hold geometry for.
-    const atJoin = await player.getByTestId('door-list').locator('[data-door-id]').count()
-    expect(atJoin).toBeGreaterThan(0)
-    expect(atJoin).toBeLessThan(doors.length)
+    // No room, no doors either — a door is bound to a room.
+    expect(await player.getByTestId('door-list').locator('[data-door-id]').count()).toBe(0)
 
     await toggleRoom(dm, UNLENT.id, 'revealed')
-    await expect.poll(async () => (await scene(player)).rooms).toBe(2)
+    await expect.poll(async () => (await scene(player)).rooms).toBe(1)
     const after = await scene(player)
 
     record(
       'zero-setup reveal (editor file → fogged table → one room’s geometry)',
-      `DM ${showScene(dmHas)}; player ${showScene(before)} (${DEFAULT_ROOM.name}) → ` +
+      `DM ${showScene(dmHas)}; player ${showScene(before)} at join (${show(virgin)}) → ` +
         `${showScene(after)} after revealing ${UNLENT.name}`,
-      'the player holds the default room at join, then exactly what the reveal carried',
+      'the player holds nothing at join, then exactly what the reveal carried',
     )
     // D5: the geometry rode the same frame as the state, so it is here already.
-    expect(after.roomIds).toEqual([DEFAULT_ROOM.id, UNLENT.id].sort())
+    expect(after.roomIds).toEqual([UNLENT.id])
     expect(after.children).toBeGreaterThan(before.children)
     expect(after.walls).toBeGreaterThan(before.walls)
     expect(after.walls).toBeLessThan(layer.standaloneWalls.length)
@@ -507,7 +575,7 @@ test.describe.serial('@sprint3-fog', () => {
     // what was *sent*. This is the other end of that row, where anything a client cached,
     // merged or rebuilt for itself would show up and a frame capture would not see it.
     const unrevealed = rooms.filter((room) => !after.roomIds.includes(room.id))
-    expect(unrevealed).toHaveLength(rooms.length - 2)
+    expect(unrevealed).toHaveLength(rooms.length - 1)
     const forbidden = [
       ...unrevealed.map((room) => room.id),
       ...unrevealed.map((room) => room.name),
@@ -532,8 +600,8 @@ test.describe.serial('@sprint3-fog', () => {
     expect(memory.hits, 'the player’s tab is holding rooms it has not earned').toEqual([])
 
     // The other half of the row: something *is* in there, or the search above ran over a page
-    // with no map on it. Both rooms the player holds, by id and by name.
-    const earned = [DEFAULT_ROOM.id, DEFAULT_ROOM.name, UNLENT.id, UNLENT.name]
+    // with no map on it. The one room the player holds, by id and by name.
+    const earned = [UNLENT.id, UNLENT.name]
     expect((await dump(player, earned)).hits).toEqual(earned)
 
     record(
@@ -597,12 +665,12 @@ test.describe.serial('@sprint3-fog', () => {
     }
     await expect(doorRow(player, SHUT.door.id)).toHaveAttribute('data-open', 'false')
 
-    await doorRow(dm, SHUT.door.id).getByRole('button').click()
+    await swingDoor(dm, SHUT.door.id)
     await expect(doorRow(dm, SHUT.door.id)).toHaveAttribute('data-open', 'true')
     await expect(doorRow(player, SHUT.door.id)).toHaveAttribute('data-open', 'true')
 
     // …and back, so the row proves a toggle and not a one-way write.
-    await doorRow(dm, SHUT.door.id).getByRole('button').click()
+    await swingDoor(dm, SHUT.door.id)
     await expect(doorRow(player, SHUT.door.id)).toHaveAttribute('data-open', 'false')
   })
 
@@ -666,56 +734,79 @@ test.describe.serial('@sprint3-fog', () => {
    * the whole map re-hidden, then re-hidden *after a reload*. The geometry half is green
    * above; this is the half that needs paint.
    *
-   * Whole-map reveals rather than one room, and the *mean* rather than the lit fraction,
-   * because of what the two numbers actually measure on a dressed map. A room the party can
-   * see but nobody has lit is legitimately black (D7 — visible is not lit), so one room's
-   * toggle moves the mean by a few tenths and can move it either way; and explored memory is
-   * drawn under the black floor this instrument's `lit` counts, so the fraction above 32/255
-   * tracks torchlight only. Reveal-all → hide-all moves the whole canvas, and the mean is
-   * what "dim, but not black" is a claim about.
+   * Measured over the pixels the lit map draws, not over the frame (`sample`). Emberhold is
+   * a crypt: a frame-wide mean is mostly a count of black, which is how the third gate came
+   * away reading explored as *brighter* than lit, and how the fourth found a memory sitting
+   * within 0.35% of the same room live with this row still green. The mask throws the black
+   * away and compares one identical set of floor pixels in the two states.
    *
-   * Not asserted, on purpose, and worth an art pass: on this map the explored wash reads
-   * *brighter* than the same rooms revealed (measured 6.9 vs 5.4 mean). `EXPLORED_TINT` at
-   * 0.62 over black leaves a floor around 18/255 whatever is underneath, and Emberhold is a
-   * crypt — most of it is unlit even when the party can see it. The two looks being clearly
-   * different is the contract; which of them is brighter is a lighting decision, not one
-   * this row should freeze.
+   * The targets are PRODUCT's, not this file's: explored no more than half as bright as the
+   * same pixels live, visibly drained of the torchlight's chroma, and clearly above the black
+   * a never-revealed room renders at — "explored, stale" at a glance on a bad panel, and
+   * three states that are three brightnesses rather than three hues.
    */
-  test('explored memory renders dimmed, not black', async () => {
+  test('explored memory renders dimmed and drained, not black', async () => {
     await armFog(dm)
     await dm.getByTestId('fog-reveal-all').click()
     await expect.poll(async () => (await statuses(dm)).revealed ?? 0).toBe(rooms.length)
     await player.waitForTimeout(REVEAL_MS * 4)
+    const litShot = await shoot(player)
     const lit = await look(player)
+    // The mask, and the live reading, are the same frame read two ways.
+    const live = await sample(player, litShot, litShot)
 
     // Re-hiding takes the light and keeps the memory (D4): every room is now explored.
     await dm.getByTestId('fog-hide-all').click()
     await expect.poll(async () => (await statuses(dm)).re_hidden ?? 0).toBe(rooms.length)
     await player.waitForTimeout(REVEAL_MS * 4)
+    const dimmedShot = await shoot(player)
     const dimmed = await look(player)
+    const memory = await sample(player, dimmedShot, litShot)
 
     await player.reload()
     await assertMapLoaded(player, GATE)
     await player.waitForTimeout(REVEAL_MS * 4)
     const reloaded = await look(player)
+    const remembered = await sample(player, await shoot(player), litShot)
 
     record(
-      'explored look across a player reload',
+      'explored versus live, over the pixels the lit map draws',
+      `live ${showPatch(live)} → explored ${showPatch(memory)} → reloaded ` +
+        `${showPatch(remembered)}; unexplored map ${show(virgin)}`,
+      'explored ≤50% of live luminance, chroma visibly down, and clearly above black',
+    )
+    record(
+      'explored look across a player reload (whole frame)',
       `unexplored ${show(virgin)} → whole map lit ${show(lit)} → explored ${show(dimmed)} → ` +
         `reloaded ${show(reloaded)}`,
       'explored is neither the black map nor the lit one, and survives the reload',
     )
-    expect(
-      Math.abs(dimmed.mean - lit.mean),
-      'explored and visible are the same picture',
-    ).toBeGreaterThan(0.5)
-    expect(dimmed.mean, 'explored rooms drew nothing the unexplored map had not').toBeGreaterThan(
-      virgin.mean,
-    )
-    expect(reloaded.mean, 'explored rooms came back black after the reload').toBeGreaterThan(
-      virgin.mean,
-    )
-    expect(Math.abs(reloaded.mean - dimmed.mean)).toBeLessThan(dimmed.mean * 0.1)
+
+    // A sample of nothing would pass every assertion below it.
+    expect(live.covered, 'the lit map drew almost none of the frame').toBeGreaterThan(0.02)
+    // 50, not the 60 this read for three gates. Nothing about the lit room dimmed: the mask
+    // stopped cropping it. It used to be cut to `room.boundary`, which is the room's *floor*
+    // — so a lit room's own wall stones fell outside the hole and measured as black, below
+    // the 32 floor, and never entered this sample at all. The mask now clears the wall band
+    // and a margin past it (`fogPad`), so the stones are in frame and in the sample, and
+    // stone is darker than a torchlit floor: 60.3 → 57.9 measured, on a wider set of pixels.
+    // The product rows below are ratios against `live` and are unmoved by that; this one is
+    // an absolute, and an absolute over a changed sample has to be restated or it is asserting
+    // about the old crop. Explored lands in the twenties and never-revealed at a true 0, so
+    // there is still daylight under it.
+    expect(live.mean, 'the lit map is not lit').toBeGreaterThan(50)
+
+    // Dimmer: the product target, and the direction the third gate had inverted.
+    expect(memory.mean, `explored read ${memory.mean.toFixed(1)} against live ${live.mean.toFixed(1)}`)
+      .toBeLessThanOrEqual(live.mean * 0.5)
+    // Drained: the same pixels, with the torchlight pulled out of them.
+    expect(memory.chroma, 'explored kept the torch in it').toBeLessThan(live.chroma * 0.7)
+    // …and still a room, not a hole in the map. Never-revealed is the black to beat.
+    expect(memory.mean, 'explored came back as black').toBeGreaterThan(8)
+    expect(virgin.lit, 'the unexplored map was not black to begin with').toBe(0)
+
+    // The reload keeps all of it (D4).
+    expect(Math.abs(remembered.mean - memory.mean)).toBeLessThan(memory.mean * 0.1)
   })
 
   /**
@@ -739,7 +830,7 @@ test.describe.serial('@sprint3-fog', () => {
     const shutAgain = await shoot(player)
     const noise = await changed(player, shut, shutAgain)
 
-    await doorRow(dm, SHUT.door.id).getByRole('button').click()
+    await swingDoor(dm, SHUT.door.id)
     await expect(doorRow(player, SHUT.door.id)).toHaveAttribute('data-open', 'true')
     await player.waitForTimeout(REVEAL_MS * 2)
     const open = await shoot(player)
@@ -1031,5 +1122,79 @@ test.describe.serial('@sprint3-fog', () => {
       midReveal / dmSeat,
       'a whole-map reveal opened a gap against the unmasked DM control',
     ).toBeGreaterThanOrEqual(0.5)
+  })
+})
+
+/**
+ * §2.6 — the starting room the DM picks while setting the table up.
+ *
+ * Its own table, deliberately: the block above is the "nothing is lent to a player" lane and
+ * its `virgin` reading is only honest on a session nobody revealed anything on. This one is
+ * the other half of the same rule — a room is lit for a player at join *because the DM said
+ * so during setup*, not because the server lent it to them. One room, chosen in the host
+ * flow, and the rest of the crypt is as black as it is up there.
+ */
+test.describe.serial('@sprint3-fog starting room', () => {
+  let dmContext: BrowserContext
+  let playerContext: BrowserContext
+  let dm: Page
+  let player: Page
+  let lit: Look
+  const pageErrors: string[] = []
+
+  test.beforeAll(async ({ browser }) => {
+    dmContext = await browser.newContext({ viewport: VIEWPORT })
+    dm = await dmContext.newPage()
+    dm.on('pageerror', (e) => pageErrors.push(`[dm] ${e.message}`))
+
+    // The whole feature is this argument: one extra selection in the host flow.
+    const code = await hostTable(dm, GATE, CHAMBER.id)
+    await dm.getByRole('button', { name: 'Enter table' }).click()
+    await expect(dm.locator('[data-page="table"]')).toBeVisible()
+    await assertMapRendered(dm, GATE)
+
+    playerContext = await browser.newContext({ viewport: VIEWPORT })
+    player = await playerContext.newPage()
+    player.on('pageerror', (e) => pageErrors.push(`[player] ${e.message}`))
+    await joinTable(player, code, 'Borin')
+    await assertMapLoaded(player, GATE)
+    await player.waitForTimeout(REVEAL_MS * 4)
+    lit = await look(player)
+  })
+
+  test.afterAll(async () => {
+    await playerContext?.close()
+    await dmContext?.close()
+    if (pageErrors.length) {
+      console.log(`[finding] ${pageErrors.length} uncaught page error(s) on the started room:`)
+      for (const message of [...new Set(pageErrors)]) console.log(`  ${message}`)
+    }
+  })
+
+  test('the room the DM chose is lit at join, and only that room', async () => {
+    // The DM's panel is the stored fog read back, and it reads the pick as an ordinary
+    // reveal — there is no third status for "started here" because there is no third state.
+    expect(await statuses(dm)).toEqual({ revealed: 1, never_revealed: rooms.length - 1 })
+    await expect(roomRow(dm, CHAMBER.id)).toHaveAttribute('data-fog-status', 'revealed')
+
+    // The player holds exactly the geometry of that room. Every other room is black in the
+    // only way that counts: the referee never sent it (principle 2).
+    const held = await scene(player)
+    expect(held.roomIds, `the player was handed ${showScene(held)}`).toEqual([CHAMBER.id])
+
+    record(
+      'starting room (host flow → stored fog → the player’s first frame)',
+      `DM reads ${CHAMBER.name} Revealed with ${rooms.length - 1} dark; player holds ` +
+        `${showScene(held)} and draws ${show(lit)}`,
+      'exactly the chosen room, lit, at join',
+    )
+
+    // …and the canvas is drawing it. Not the frame mean: `look` averages the whole viewport
+    // and one room of thirteen leaves that in the single digits however bright the room is
+    // (this row asserted mean > 8 once and failed at 4.6 on a room that was plainly lit).
+    // What the reveal actually moves is how much of the frame clears the black floor at all
+    // — the table with no starting room in the block above sits at exactly 0 (`virgin.lit`),
+    // and nothing but the DM's pick puts anything above it.
+    expect(lit.lit, `the player's canvas is drawing ${show(lit)}`).toBeGreaterThan(0.01)
   })
 })

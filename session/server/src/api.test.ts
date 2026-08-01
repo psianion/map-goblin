@@ -7,6 +7,7 @@ import { mkdtempSync } from 'node:fs'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { gzipSync } from 'node:zlib'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import type { ServerMessage } from '@dnd/core/src/shared/protocol'
@@ -278,6 +279,228 @@ describe('the full join flow', () => {
   })
 })
 
+/**
+ * §2.6 — the DM's starting room. Nothing here is a new fog concept: the assertions are all
+ * about the *stored* fog, because that is the one source of truth the DM's panel, the map
+ * redaction and every join already read. If the reveal is in there, none of them had to be
+ * taught anything.
+ */
+describe('the starting room the DM picks while setting up', () => {
+  /** `MAP` with somewhere to stand: rooms are read straight off the dungeon layer. */
+  const ROOMED = {
+    ...MAP,
+    layers: [
+      {
+        ...MAP.layers[0],
+        rooms: [
+          { id: 'r-hall', name: 'Great Hall', boundary: [], centroid: [0, 0], area: 100, isPathway: false },
+          { id: 'r-cell', name: 'Cell', boundary: [], centroid: [9, 9], area: 10, isPathway: false },
+        ],
+      },
+    ],
+  }
+
+  /** Campaign + the roomed map, stopping short of the session the tests open themselves. */
+  async function readyToOpen(base: string, adminPass: string) {
+    const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+    const campaignId = campaign.body.campaignId as string
+    const dmToken = campaign.body.token as string
+    const uploaded = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+      token: dmToken,
+      raw: JSON.stringify(ROOMED),
+    })
+    // A scene id is a map id — which is why the client can name the scene from the upload.
+    return { campaignId, dmToken, mapId: uploaded.body.mapId as string }
+  }
+
+  it('stores it as a plain reveal, and hands it to the first player who joins', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const { campaignId, dmToken, mapId } = await readyToOpen(base, adminPass)
+
+      const started = await api(base, 'POST', '/api/sessions', {
+        token: dmToken,
+        body: { campaignId, startingRoom: { sceneId: mapId, roomId: 'r-hall' } },
+      })
+      expect(started.status).toBe(201)
+
+      // Byte-for-byte what a DM clicking the room in the fog panel would have written, which
+      // is what lets the panel render it as Revealed with no idea where it came from.
+      expect(server.stores.moduleState.get(campaignId, 'fog')).toEqual({
+        byScene: {
+          [mapId]: {
+            rooms: { 'r-hall': { status: 'revealed', wasEverRevealed: true } },
+            concealBehindDoors: true,
+          },
+        },
+      })
+
+      // …and the player is told about that room and no other: redaction did its usual job on
+      // state it was never told was special. The cell is absent whole, not marked hidden.
+      const joined = await api(base, 'POST', '/api/join', {
+        body: { code: started.body.inviteCode as string, name: 'Bob' },
+      })
+      const { socket, state } = await joinSocket(server.port, joined.body.token as string)
+      expect(state.state.modules.fog).toEqual({
+        byScene: {
+          [mapId]: {
+            rooms: { 'r-hall': { status: 'revealed', wasEverRevealed: true } },
+            concealBehindDoors: true,
+          },
+        },
+      })
+      socket.terminate()
+    })
+  })
+
+  it('writes no fog at all when the DM skips it', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const { campaignId, dmToken } = await readyToOpen(base, adminPass)
+
+      const started = await api(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId } })
+      expect(started.status).toBe(201)
+      // Not "an empty scene" — nothing was written, so the table is the black one a fresh
+      // session has always been.
+      expect(server.stores.moduleState.get(campaignId, 'fog')).toBeUndefined()
+    })
+  })
+
+  it('refuses a room the scene does not have, before the table is opened', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const { campaignId, dmToken, mapId } = await readyToOpen(base, adminPass)
+
+      const bad = await api(base, 'POST', '/api/sessions', {
+        token: dmToken,
+        body: { campaignId, startingRoom: { sceneId: mapId, roomId: 'r-nowhere' } },
+      })
+      expect(bad.status).toBe(400)
+      expect(bad.body.error).toContain('r-nowhere')
+
+      const half = await api(base, 'POST', '/api/sessions', {
+        token: dmToken,
+        body: { campaignId, startingRoom: { sceneId: mapId } },
+      })
+      expect(half.status).toBe(400)
+
+      // The refusal cost nothing: no session was started and no fog was written, so the DM
+      // can pick again rather than hunt for a table whose invite code went out in an error.
+      expect(server.stores.sessions.getActiveByCampaign(campaignId)).toBeUndefined()
+      expect(server.stores.moduleState.get(campaignId, 'fog')).toBeUndefined()
+    })
+  })
+
+  /**
+   * The gate walk's failure, which every test above missed by uploading exactly one map: with
+   * a second map in the campaign the reveal landed on the map the wizard had just uploaded
+   * while the table opened on the campaign's *other* one. Both halves answered 201 and the
+   * fog was written correctly — it was simply written about a scene nobody was looking at, so
+   * the DM's panel called the room Unrevealed and the player joined to full black.
+   */
+  it('opens the table on the scene it revealed, not on an older map in the campaign', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+
+      const older = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(ROOMED),
+      })
+      const picked = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(ROOMED),
+      })
+      const olderId = older.body.mapId as string
+      const pickedId = picked.body.mapId as string
+      expect(olderId).not.toBe(pickedId)
+
+      const started = await api(base, 'POST', '/api/sessions', {
+        token: dmToken,
+        body: { campaignId, startingRoom: { sceneId: pickedId, roomId: 'r-hall' } },
+      })
+      expect(started.status).toBe(201)
+
+      const joined = await api(base, 'POST', '/api/join', {
+        body: { code: started.body.inviteCode as string, name: 'Bob' },
+      })
+      const { socket, state } = await joinSocket(server.port, joined.body.token as string)
+
+      // The one assertion that would have caught it: the scene the player is looking at is
+      // the scene the reveal is stored under, so the fog they were handed is about their map.
+      expect(state.state.activeSceneId).toBe(pickedId)
+      expect(state.state.modules.fog).toEqual({
+        byScene: {
+          [pickedId]: {
+            rooms: { 'r-hall': { status: 'revealed', wasEverRevealed: true } },
+            concealBehindDoors: true,
+          },
+        },
+      })
+      socket.terminate()
+    })
+  })
+
+  /**
+   * …and with no room picked either, because the scene is the wizard's to name: the map
+   * order cannot answer it. Not a guess at "the newest map" — an in-session import must
+   * leave the table on the scene being played (D6).
+   */
+  it('opens on the scene the wizard names, with no starting room at all', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+
+      await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, { token: dmToken, raw: JSON.stringify(ROOMED) })
+      const newest = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(ROOMED),
+      })
+
+      const started = await api(base, 'POST', '/api/sessions', {
+        token: dmToken,
+        body: { campaignId, sceneId: newest.body.mapId },
+      })
+      const joined = await api(base, 'POST', '/api/join', {
+        body: { code: started.body.inviteCode as string, name: 'Bob' },
+      })
+      const { socket, state } = await joinSocket(server.port, joined.body.token as string)
+      expect(state.state.activeSceneId).toBe(newest.body.mapId as string)
+      socket.terminate()
+    })
+  })
+
+  it('refuses a scene belonging to somebody else’s campaign', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const { campaignId, dmToken } = await readyToOpen(base, adminPass)
+      const bad = await api(base, 'POST', '/api/sessions', {
+        token: dmToken,
+        body: { campaignId, sceneId: 'not-a-map-here' },
+      })
+      expect(bad.status).toBe(400)
+      expect(server.stores.sessions.getActiveByCampaign(campaignId)).toBeUndefined()
+    })
+  })
+
+  /** An in-session import leaves the table where it is — the DM switches scenes on purpose. */
+  it('does not move the table onto a map uploaded after it opened', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const { campaignId, dmToken, mapId } = await readyToOpen(base, adminPass)
+      const started = await api(base, 'POST', '/api/sessions', {
+        token: dmToken,
+        body: { campaignId, sceneId: mapId },
+      })
+      await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, { token: dmToken, raw: JSON.stringify(ROOMED) })
+
+      const joined = await api(base, 'POST', '/api/join', {
+        body: { code: started.body.inviteCode as string, name: 'Bob' },
+      })
+      const { socket, state } = await joinSocket(server.port, joined.body.token as string)
+      expect(state.state.activeSceneId).toBe(mapId)
+      socket.terminate()
+    })
+  })
+})
+
 /** Just enough of each format for the magic-byte sniff to have something to read. */
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('pixels')])
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('pixels')])
@@ -396,6 +619,42 @@ describe('rejections', () => {
       expect((await post(JSON.stringify({ ...MAP, layers: 'lots' }))).status).toBe(400)
       // JSON.stringify drops the undefined, so this really is a file with no mapSettings.
       expect((await post(JSON.stringify({ ...MAP, mapSettings: undefined }))).status).toBe(400)
+
+      // A container with the right magic and rubbish behind it is not a readable map either.
+      const corrupt = Buffer.concat([Buffer.from('MPBLD\0', 'latin1'), Buffer.from('not gzip')])
+      expect((await api(base, 'POST', path, { token, bytes: corrupt })).status).toBe(400)
+    })
+  })
+
+  /**
+   * The editor's own save, byte for byte: `MPBLD\0` + gzip(JSON) (canvas/src/io/saveLoad.ts).
+   * The table used to `JSON.parse` these bytes raw and refuse every one of them, so no map
+   * authored in the editor had ever been loadable — the format is built here rather than
+   * mocked so the sniff is tested against the thing it has to accept.
+   */
+  it('takes the editor’s gzipped .mapbuilder as readily as plain JSON', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const { body } = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const path = `/api/campaigns/${body.campaignId as string}/maps`
+      const token = body.token as string
+
+      const json = JSON.stringify(MAP)
+      const container = Buffer.concat([Buffer.from('MPBLD\0', 'latin1'), gzipSync(Buffer.from(json, 'utf8'))])
+      expect(container.subarray(0, 6).toString('latin1')).toBe('MPBLD\0')
+
+      const uploaded = await api(base, 'POST', path, { token, bytes: container })
+      expect(uploaded.status).toBe(201)
+      expect(uploaded.body.name).toBe('Cragmaw Hideout')
+
+      // Stored decoded: everything downstream — the scene index, the player redaction, the
+      // DM's own map GET — reads the row with a bare `JSON.parse`.
+      const fetched = await api(base, 'GET', `/api/maps/${uploaded.body.mapId as string}`, { token })
+      expect(fetched.status).toBe(200)
+      expect(JSON.parse(fetched.text)).toEqual(MAP)
+
+      // …and the plain-JSON fixtures keep working unchanged.
+      const plain = await api(base, 'POST', path, { token, raw: json })
+      expect(plain.status).toBe(201)
     })
   })
 

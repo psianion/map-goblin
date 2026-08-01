@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { gotoApp, drawRect, waitFrame } from './helpers';
+import { gotoApp, drawRect, waitFrame, shapeCount } from './helpers';
 
 test.describe('15 - Shadow Visual', () => {
   test('decorative shadow renders without crash', async ({ page }) => {
@@ -10,10 +10,12 @@ test.describe('15 - Shadow Visual', () => {
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;
 
+    const before = await shapeCount(page);
     await drawRect(page, cx - 100, cy - 80, cx + 100, cy + 80);
     await page.waitForTimeout(800);
     await waitFrame(page, 5);
 
+    expect(await shapeCount(page)).toBe(before + 1);
     await expect(canvas).toBeVisible();
   });
 });

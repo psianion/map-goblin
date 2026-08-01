@@ -75,6 +75,25 @@ export function snapToNearestWall(
     for (let i = 0; i < wall.points.length - 1; i++) {
       const start = wall.points[i];
       const end = wall.points[i + 1];
+
+      // A segment whose bounding box, grown by the best distance so far, misses
+      // the point cannot beat it. Four compares instead of a projection and a
+      // sqrt, on the every-segment-of-every-wall walk DoorTool re-runs on each
+      // pointermove. Skipped when the caller wants the nearest point at any
+      // distance (`Infinity`, how wallResolve re-resolves a door's own wall).
+      if (bestDist !== Infinity) {
+        const [px, py] = worldPos;
+        if (
+          px < Math.min(start[0], end[0]) - bestDist ||
+          px > Math.max(start[0], end[0]) + bestDist ||
+          py < Math.min(start[1], end[1]) - bestDist ||
+          py > Math.max(start[1], end[1]) + bestDist
+        ) {
+          travelled += lengths[i];
+          continue;
+        }
+      }
+
       const proj = projectPointOntoLineSegment(worldPos, start, end);
 
       if (proj.distance < bestDist) {

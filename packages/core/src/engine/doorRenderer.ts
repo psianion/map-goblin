@@ -1,36 +1,21 @@
-import { Graphics, Sprite } from 'pixi.js';
+import { Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import type { DoorChild, WallSegment } from '../shared/types';
+import type { DoorChild } from '../shared/types';
+import type { ResolvedDoor } from '../shared/wallResolve';
 import type { DungeonStyle } from '../store/types';
 import { resolveTexture } from '../assets/textureLoader';
 import { getAssetPackManager } from './assetPackInstance';
 
-// State color coding (editor overlay)
-// L3: Brighter colors for secret states — dark magenta was hard to see
-const STATE_COLORS: Record<string, number> = {
-  closed: 0x9b59b6,        // purple
-  open: 0x2ecc71,          // green
-  locked: 0xe74c3c,        // red
-  secret_closed: 0xc77dba, // bright magenta (L3)
-  secret_open: 0x5dde8f,   // bright green (L3)
-};
-
-function getStateColor(door: DoorChild): number {
-  const key = door.isSecret ? `secret_${door.state}` : door.state;
-  return STATE_COLORS[key] ?? STATE_COLORS.closed;
-}
-
-// M7: Guard for zero-length wall segments
-function segmentLength(a: [number, number], b: [number, number]): number {
-  const dx = b[0] - a[0];
-  const dy = b[1] - a[1];
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
+/**
+ * Draw every resolved door. Position and angle come from the resolver — the
+ * copies on the child are authored intent, and a door on a floor-ring edge has
+ * no wall of its own to re-derive them from (H1 used to do that here, off the
+ * hinted standalone wall only; the resolver now does it for both wall kinds,
+ * per-segment rather than end-to-end, so this is the single source).
+ */
 export function renderDoors(
   container: Container,
-  doors: DoorChild[],
-  walls: WallSegment[],
+  doors: ResolvedDoor[],
   style: DungeonStyle,
   _gridCellSize: number,
 ): void {
@@ -38,103 +23,244 @@ export function renderDoors(
   // entire walls sublayer before calling renderTexturedWalls + renderDoors.
   // Do NOT clear the container here — it contains wall texture sprites too.
 
-  const wallMap = new Map(walls.map((w) => [w.id, w]));
-
-  for (const door of doors) {
-    if (!door.visible) continue;
-    const wall = wallMap.get(door.wallId);
-    if (!wall) continue;
-
-    // H1: Always derive angle from wall geometry, never trust door.angle
-    const start = wall.points[0] as [number, number];
-    const end = wall.points[wall.points.length - 1] as [number, number];
-
-    // M7: Skip zero-length walls — atan2(0,0) produces garbage
-    if (segmentLength(start, end) < 0.01) continue;
-
-    const wallAngle = Math.atan2(end[1] - start[1], end[0] - start[0]);
-
-    // Fresh Graphics per door to avoid PixiJS v8 path accumulation
-    const g = new Graphics();
-
-    const cx = door.position[0];
-    const cy = door.position[1];
-    const halfWidth = door.width / 2;
-    const wallColor = parseInt(style.wallColor.replace('#', ''), 16);
-    // A locked door reads as locked at a glance, not only from the state dot.
-    const glyphColor = door.state === 'locked' ? STATE_COLORS.locked : wallColor;
-
-    let drewSprite = false;
-    if (door.style === 'portal' && door.portalTextureId) {
-      renderPortalSprite(container, door, wallAngle);
-      continue;
-    } else if (door.style === 'archway') {
-      renderArchway(g, cx, cy, wallAngle, halfWidth, wallColor);
-    } else if (door.style === 'portcullis') {
-      renderPortcullis(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
-    } else {
-      drewSprite = renderDoorSprite(container, door, wallAngle);
-      if (!drewSprite) {
-        if (door.style === 'double') {
-          renderDoubleDoor(g, cx, cy, wallAngle, halfWidth, glyphColor, door.state);
-        } else {
-          renderSingleDoor(g, cx, cy, wallAngle, halfWidth, glyphColor, door.state, door.isSecret);
-        }
-      }
-    }
-
-    if (drewSprite) {
-      g.destroy();
-    } else {
-      container.addChild(g);
-    }
-
-    // C2: Skip state dot for secret doors that are closed — invisibility is the point
-    // M3: Skip state dot for archways — they are permanent openings, "closed" is meaningless
-    if ((door.isSecret && door.state === 'closed') || door.style === 'archway') {
-      continue;
-    }
-
-    // State indicator dot (separate Graphics to avoid path contamination)
-    const dot = new Graphics();
-    const stateColor = getStateColor(door);
-    dot.circle(cx, cy, 0.1); // 0.1 world units — subtle but scannable
-    dot.fill({ color: stateColor });
-    container.addChild(dot);
+  for (const resolved of doors) {
+    renderResolvedDoor(container, resolved, style);
   }
 }
 
 /**
- * Pack that door sprites are looked up in. Entry IDs are
- * `door-{single|double}-{closed|open}`; locked reuses the closed art and is
- * distinguished by tint.
+ * One door's art into `container`. Split out of `renderDoors` so the door tool's
+ * placement ghost draws through the same path a committed door does — a preview
+ * that reimplemented the glyph dispatch would drift from it on the first style
+ * that changed. Callers wanting a ghost tint or fade set them on the container
+ * they pass, not here.
+ */
+export function renderResolvedDoor(
+  container: Container,
+  resolved: ResolvedDoor,
+  style: DungeonStyle,
+): void {
+  const { door, position, angle: wallAngle } = resolved;
+  if (!door.visible) return;
+
+  // Fresh Graphics per door to avoid PixiJS v8 path accumulation
+  const g = new Graphics();
+
+  const cx = position[0];
+  const cy = position[1];
+  const halfWidth = door.width / 2;
+
+  if (resolved.detached) {
+    renderDetachedMarker(g, cx, cy, wallAngle, halfWidth);
+    container.addChild(g);
+    return;
+  }
+
+  // Door art carries its own state: closed art and open art are different
+  // drawings. Locked used to be painted on top in red and every door wore a
+  // coloured status dot, which meant the map was scattered with editor
+  // symbology that no player-facing view wants. Locked now reads from the
+  // selection's properties panel instead of from the art. Secret keeps a mark —
+  // one badge, not a status dot on every door — because a DM who cannot see
+  // their own secret doors while authoring cannot place them well.
+  const wallColor = parseInt(style.wallColor.replace('#', ''), 16);
+
+  // A portal carries its own authored texture, so it never consults the door
+  // pack. Every other style tries the pack first and falls back to its glyph.
+  if (door.style === 'portal' && door.portalTextureId) {
+    renderPortalSprite(container, door, position, wallAngle);
+    g.destroy();
+    return;
+  }
+
+  // The band the door has to sit in. A standalone wall may carry its own width;
+  // a floor-ring edge has none of its own, so the style's is the wall's. Same
+  // rule `renderNodeWalls` uses to scale the stones, so the door is thick enough
+  // to fill the hole they left.
+  const wallWidth = resolved.wall?.width || style.wallWidth;
+
+  const drewSprite = renderDoorSprite(container, door, position, wallAngle, wallWidth);
+  if (!drewSprite) {
+    if (door.style === 'archway') {
+      renderArchway(g, cx, cy, wallAngle, halfWidth, wallColor);
+    } else if (door.style === 'portcullis') {
+      renderPortcullis(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
+    } else if (door.style === 'double') {
+      renderDoubleDoor(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
+    } else {
+      renderSingleDoor(g, cx, cy, wallAngle, halfWidth, wallColor, door.state);
+    }
+  }
+
+  // The art says what the door is; this says the players have not found it. It
+  // goes on top of whichever art was drawn, sprite or glyph, so the badge is
+  // the only thing that marks a door secret and it marks every style the same
+  // way (PRODUCT principle 3).
+  if (door.isSecret) renderSecretBadge(g, cx, cy, halfWidth);
+
+  if (drewSprite && !door.isSecret) {
+    g.destroy();
+  } else {
+    container.addChild(g);
+  }
+}
+
+/**
+ * Pack that door sprites are looked up in. The full set of entry IDs a pack
+ * must provide to replace the glyphs — this list is the contract, nothing else
+ * is consulted:
+ *
+ *   door-single-closed     door-single-open
+ *   door-double-closed     door-double-open
+ *   door-portcullis-closed door-portcullis-open
+ *   door-archway-open
+ *
+ * No `door-archway-closed`: an archway is a permanent opening (occlusion always
+ * treats it as passable), so a closed archway — which the store does allow —
+ * still renders as the open art. Locked needs no art: it is not drawn at all,
+ * it reads from the properties panel. Secret needs none either — it reuses
+ * whatever its state maps to, at full strength, and wears the badge on top.
+ * Portals are excluded; they carry an authored `portalTextureId` instead.
  *
  * No installed pack ships these yet, so `getTextureOrNull` returns null and
- * every door falls back to the Graphics glyph below. Dropping those four
- * entries into a pack manifest is the whole switch-over — nothing else here
- * changes. (`getTextureOrNull`, not `resolveTexture`: a miss must be a quiet
- * null, not a magenta placeholder plastered over the map.)
+ * every door falls back to the Graphics glyphs below. Dropping the entries into
+ * a pack manifest is the whole switch-over — nothing else here changes.
+ * (`getTextureOrNull`, not `resolveTexture`: a miss must be a quiet null, not a
+ * magenta placeholder plastered over the map.)
  */
 const DOOR_SPRITE_PACK = 'dungeon-classic';
+
+/** Where an entry's paint actually is, and which way round it was drawn. */
+export interface DoorSpriteMeta {
+  /** Opaque content rect, as fractions of the texture's own canvas. */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Extra rotation that puts the content's long axis along the wall. */
+  rotate?: number;
+}
+
+/**
+ * The opaque content of each door entry.
+ *
+ * Door art is authored on a padded grid cell — a single door is 45px of paint in
+ * a 200px square — so measuring the sprite by its texture is measuring mostly
+ * nothing. Fitting the *canvas* to the door's width is what made a default-width
+ * door render as a hairline: the paint was a fifth of what was being scaled.
+ *
+ * Fractions, not pixels, so the table still holds if a pack ships the same art
+ * at a different resolution. It lives here rather than in the manifest because
+ * the pack's `ManifestEntry` has no content-rect field to put it in.
+ *
+ * An entry with no row here is used whole, which is right for art that was
+ * authored tight and is no worse than the alternative for art that was not.
+ */
+const SPRITE_META: Record<string, DoorSpriteMeta> = {
+  // 200x200 canvas, 200x45 of paint at (0,77).
+  'door-single-closed': { x: 0, y: 0.385, w: 1, h: 0.225 },
+  // 400x200, 281x81 at (60,59).
+  'door-single-open': { x: 0.15, y: 0.295, w: 0.7025, h: 0.405 },
+  // 400x200, 400x54 at (0,73).
+  'door-double-closed': { x: 0, y: 0.365, w: 1, h: 0.27 },
+  // 600x200, 481x81 at (60,59).
+  'door-double-open': { x: 0.1, y: 0.295, w: 481 / 600, h: 0.405 },
+  // 400x200, 400x54 at (0,73).
+  'door-portcullis-closed': { x: 0, y: 0.365, w: 1, h: 0.27 },
+  // 200x400, 27x212 at (87,94). Authored as an upright 1x2 arch, so its paint is
+  // a vertical sliver — quarter-turned here so the 212px side runs along the wall.
+  'door-archway-open': { x: 0.435, y: 0.235, w: 0.135, h: 0.53, rotate: Math.PI / 2 },
+};
+
+const WHOLE_CANVAS: DoorSpriteMeta = { x: 0, y: 0, w: 1, h: 1 };
+
+export interface DoorSpriteFit {
+  /** Sub-frame of the texture canvas holding the paint, in px. */
+  frame: { x: number; y: number; w: number; h: number };
+  scaleX: number;
+  scaleY: number;
+  rotate: number;
+}
+
+/**
+ * Trimmed frame and per-axis scale for one door sprite. Pure, so the two rules
+ * that were wrong are checkable without a GPU:
+ *
+ * - along the wall the sprite spans exactly `doorWidth`, measured on the paint
+ *   rather than on the canvas it was authored in;
+ * - across the wall it is never thinner than the wall it plugs. A uniform scale
+ *   tied thickness to width, so narrowing a door thinned it toward nothing;
+ *   here width and thickness are independent and thickness has a floor. It may
+ *   still come out thicker, when the art's own proportions at that length ask
+ *   for it — a wide door is allowed to look like a wide door.
+ */
+export function doorSpriteFit(
+  entryId: string,
+  texW: number,
+  texH: number,
+  doorWidth: number,
+  wallWidth: number,
+): DoorSpriteFit {
+  const meta = SPRITE_META[entryId] ?? WHOLE_CANVAS;
+  const frame = { x: meta.x * texW, y: meta.y * texH, w: meta.w * texW, h: meta.h * texH };
+  const rotate = meta.rotate ?? 0;
+  // Only the quarter turn in the table exists, and it swaps the axes.
+  const turned = rotate !== 0;
+  const alongPx = turned ? frame.h : frame.w;
+  const acrossPx = turned ? frame.w : frame.h;
+  const along = alongPx > 0 ? doorWidth / alongPx : 0;
+  const across = acrossPx > 0 ? Math.max(wallWidth / acrossPx, along) : along;
+  return {
+    frame,
+    scaleX: turned ? across : along,
+    scaleY: turned ? along : across,
+    rotate,
+  };
+}
+
+/**
+ * Trimmed views of the pack's door textures, keyed by full entry id — same
+ * lifetime and same swap-on-pack-reinstall caveat as `textureLoader`'s.
+ */
+const trimmedCache = new Map<string, Texture>();
+
+function trimmed(entryId: string, tex: Texture, frame: DoorSpriteFit['frame']): Texture {
+  const cached = trimmedCache.get(entryId);
+  if (cached) return cached;
+  // Offset by the texture's own frame: an entry packed into an atlas is already
+  // a window onto a larger source, and the content rect is relative to that
+  // window, not to the atlas.
+  const base = tex.frame ?? { x: 0, y: 0 };
+  const sub = new Texture({
+    source: tex.source,
+    frame: new Rectangle(base.x + frame.x, base.y + frame.y, frame.w, frame.h),
+  });
+  trimmedCache.set(entryId, sub);
+  return sub;
+}
 
 function renderDoorSprite(
   container: Container,
   door: DoorChild,
+  position: [number, number],
   wallAngle: number,
+  wallWidth: number,
 ): boolean {
-  const spriteState = door.state === 'open' ? 'open' : 'closed';
-  const tex = getAssetPackManager().getTextureOrNull(
-    `${DOOR_SPRITE_PACK}:door-${door.style}-${spriteState}`,
-  );
+  const spriteState =
+    door.style === 'archway' || door.state === 'open' ? 'open' : 'closed';
+  const entryId = `${DOOR_SPRITE_PACK}:door-${door.style}-${spriteState}`;
+  const tex = getAssetPackManager().getTextureOrNull(entryId);
   if (!tex || tex.width <= 1) return false;
 
-  const sprite = new Sprite(tex);
+  const fit = doorSpriteFit(
+    `door-${door.style}-${spriteState}`, tex.width, tex.height, door.width, wallWidth,
+  );
+
+  const sprite = new Sprite(trimmed(entryId, tex, fit.frame));
   sprite.anchor.set(0.5);
-  sprite.position.set(door.position[0], door.position[1]);
-  sprite.rotation = wallAngle;
-  sprite.scale.set(door.width / tex.width);
-  sprite.tint = door.state === 'locked' ? STATE_COLORS.locked : 0xffffff;
-  sprite.alpha = door.isSecret ? 0.35 : 1;
+  sprite.position.set(position[0], position[1]);
+  sprite.rotation = wallAngle + fit.rotate;
+  sprite.scale.set(fit.scaleX, fit.scaleY);
   container.addChild(sprite);
   return true;
 }
@@ -148,16 +274,8 @@ const OPEN_ARC_COLOR = 0x555555;
 
 function renderSingleDoor(
   g: Graphics, cx: number, cy: number, angle: number,
-  halfWidth: number, color: number, state: string, isSecret: boolean,
+  halfWidth: number, color: number, state: string,
 ): void {
-  if (isSecret && state === 'closed') {
-    // Dashed line matching wall (blends in) — just a faint line
-    g.moveTo(cx - Math.cos(angle) * halfWidth, cy - Math.sin(angle) * halfWidth);
-    g.lineTo(cx + Math.cos(angle) * halfWidth, cy + Math.sin(angle) * halfWidth);
-    g.stroke({ color, width: GLYPH_STROKE, alpha: 0.4 });
-    return;
-  }
-
   if (state === 'open') {
     // L4: Quarter-circle (90°) arc showing door swing — pivot at hinge end
     const pivotX = cx - Math.cos(angle) * halfWidth;
@@ -172,9 +290,11 @@ function renderSingleDoor(
     // L1: Use fixed glyph color, not potentially-dark wallColor
     g.stroke({ color: OPEN_ARC_COLOR, width: GLYPH_STROKE, alpha: 0.7 });
   } else {
-    // Closed: thin rectangle flush with wall
+    // Closed: thin rectangle flush with wall. Floored so a width-1 door does
+    // not anti-alias into invisibility at editor zoom, leaving only the state
+    // dot to read as "a purple circle on the wall".
     const perpAngle = angle + Math.PI / 2;
-    const thickness = halfWidth * 0.12;
+    const thickness = Math.max(halfWidth * 0.12, 0.09);
     const x1 = cx - Math.cos(angle) * halfWidth;
     const y1 = cy - Math.sin(angle) * halfWidth;
     const x2 = cx + Math.cos(angle) * halfWidth;
@@ -187,6 +307,64 @@ function renderSingleDoor(
     g.closePath();
     g.fill({ color, alpha: 0.8 });
   }
+}
+
+// Detached marker: a door whose wall or floor was deleted out from under it.
+// Grey reads as "inert", but grey alone would be one more state colour, so the
+// shape carries the meaning: the bar is broken in the middle and ringed. That
+// silhouette matches no other door glyph (solid bar, arc, two bars, faint line,
+// two caps, portcullis bars), so it survives greyscale and low zoom.
+const DETACHED_COLOR = 0x8a8a8a;
+
+function renderDetachedMarker(
+  g: Graphics, cx: number, cy: number, angle: number, halfWidth: number,
+): void {
+  // Two stubs along the door axis with a gap where the wall should have been.
+  const stub = halfWidth * 0.45;
+  for (const sign of [-1, 1]) {
+    const ex = cx + Math.cos(angle) * halfWidth * sign;
+    const ey = cy + Math.sin(angle) * halfWidth * sign;
+    g.moveTo(ex, ey);
+    g.lineTo(ex - Math.cos(angle) * stub * sign, ey - Math.sin(angle) * stub * sign);
+  }
+  g.stroke({ color: DETACHED_COLOR, width: GLYPH_STROKE, alpha: 0.9 });
+  // Hollow ring in the gap — the badge, not a filled state dot.
+  g.circle(cx, cy, halfWidth * 0.3);
+  g.stroke({ color: DETACHED_COLOR, width: GLYPH_STROKE * 0.8, alpha: 0.9 });
+}
+
+/**
+ * Warm amber, the accent the table's DM seat marks a secret with. Kept off the
+ * saturated primaries the art guide rules out, and off every other glyph colour
+ * here (wall, `OPEN_ARC_COLOR`, `DETACHED_COLOR`) so it reads as a badge rather
+ * than as part of the door.
+ */
+const SECRET_COLOR = 0xe0b252;
+
+/**
+ * The badge that says "there is more here than the map shows".
+ *
+ * A four-point star, the same mark the table's DM seat draws, so one glance
+ * means the same thing whether the DM is authoring or running. Struck on the
+ * world axes rather than the wall's, which keeps it reading as chrome laid over
+ * the art instead of a part of the door that happens to be lit differently.
+ *
+ * This is the whole of what "secret" looks like now. The editor used to fade
+ * secret art to 0.35 alpha, and a secret closed single door threw its art away
+ * for a faint dashed line — so a secret door was hard to find on the DM's own
+ * map and impossible to tell from a plain one at a glance. That is fog
+ * semantics, and the editor is not a fog view: the art now reads at full
+ * strength and this sits on top of it (PRODUCT principle 3).
+ */
+function renderSecretBadge(g: Graphics, cx: number, cy: number, halfWidth: number): void {
+  // Near-constant: a badge is chrome, so it should not grow with the door it
+  // marks, but a pinprick on a one-cell door would not read either.
+  const s = Math.min(halfWidth * 0.45, 0.26);
+  for (const [dx, dy] of [[1, 0], [0, 1]]) {
+    g.moveTo(cx - dx * s, cy - dy * s);
+    g.lineTo(cx + dx * s, cy + dy * s);
+  }
+  g.stroke({ color: SECRET_COLOR, width: GLYPH_STROKE * 0.9, cap: 'round' });
 }
 
 function renderDoubleDoor(
@@ -216,9 +394,9 @@ function renderDoubleDoor(
     // L1: Use fixed glyph color for open arcs
     g.stroke({ color: OPEN_ARC_COLOR, width: GLYPH_STROKE, alpha: 0.7 });
   } else {
-    // Two thin rectangles side by side
+    // Two thin rectangles side by side, thickness floored like the single door
     const perpAngle = angle + Math.PI / 2;
-    const thickness = halfWidth * 0.12;
+    const thickness = Math.max(halfWidth * 0.12, 0.09);
     // M5: Increase gap so two door leaves are visually distinct (was 0.05, now 0.15)
     const gap = halfWidth * 0.15;
     for (const sign of [-1, 1]) {
@@ -298,6 +476,7 @@ function renderArchway(
 function renderPortalSprite(
   container: Container,
   door: DoorChild,
+  position: [number, number],
   wallAngle: number,
 ): void {
   if (!door.portalTextureId) return;
@@ -307,7 +486,7 @@ function renderPortalSprite(
 
   const sprite = new Sprite(tex);
   sprite.anchor.set(0.5);
-  sprite.position.set(door.position[0], door.position[1]);
+  sprite.position.set(position[0], position[1]);
   sprite.rotation = wallAngle;
 
   // Scale sprite to match door width

@@ -1,10 +1,10 @@
-# Map-Goblin
+# Good Goblin
 
-![Map-Goblin](public/readme-goblin.png)
+![Good Goblin](public/readme-goblin.png)
 
 > Who knows dungeon layouts better than a goblin?
 
-**Map-Goblin** is a browser-based dungeon and battle-map editor built for
+**Good Goblin** is a browser-based dungeon and battle-map editor built for
 Dungeon Masters. Scrawl caverns, corridors, ruins, and wilderness maps
 at goblin speed, then export or use them directly in your game — no install,
 no nonsense, just maps.

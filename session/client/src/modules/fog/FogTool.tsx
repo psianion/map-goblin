@@ -4,7 +4,8 @@
 //
 // The room list is not decoration. It is the keyboard path to every room the canvas hover
 // reaches with a pointer, and it is where the fog state is spelled out in words rather than
-// tint — the same reason the "explored" glyph exists.
+// tint — which is the encoding that does not rely on colour, now that no mark is stamped on
+// the map to do it (see `DM_FOG_LOOK`).
 
 import { useEffect, useMemo } from 'react';
 import type { FogState, RoomFog } from '@dnd/mechanics/fog';
