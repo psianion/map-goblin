@@ -11,6 +11,7 @@ import { resumeSeat, useRole } from '../session/store';
 // never learns their names. Module folders (`src/modules/*`) register from their
 // own index; nothing here needs to change for them.
 import '../components/SessionControls';
+import '../components/PlayerScenes';
 import '../components/GameLog';
 import '../modules/rolls/beyond20';
 import '../modules/tokens';
