@@ -143,6 +143,12 @@ export function resolveTexture(id: string): Texture {
   const bundled = cache.get(id);
   if (bundled) return bundled;
 
+  // 3b. An imported image. `importImageFile` registers the picture with Pixi
+  // under the asset id as its alias and never touches the map above, so without
+  // this an image the user just dropped on the map came back magenta.
+  const imported = Assets.get<Texture>(id);
+  if (imported) return imported;
+
   // 4. Magenta fallback
   if (!warnedIds.has(id)) {
     warnedIds.add(id);
