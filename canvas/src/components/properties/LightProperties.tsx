@@ -5,6 +5,7 @@ import { SliderInput } from '@/components/inputs/SliderInput'
 import { ColorField } from '@/components/inputs/ColorField'
 import { ColorChip } from '@/components/inputs/ColorChip'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
+import { ToggleSwitch } from '@/components/ui/toggle-switch'
 import { cn } from '@/lib/utils'
 import { Sun, X } from 'lucide-react'
 import { UpdateChildCommand } from '@/store/commands'
@@ -202,6 +203,50 @@ export function LightProperties({ light, onDeselect, openSections, onToggleSecti
             </button>
           </div>
         </PropertyField>
+
+        <PropertyField label="Flicker">
+          <ToggleSwitch
+            checked={light.flicker ?? false}
+            onChange={(v) =>
+              commitLight('Light flicker', { flicker: light.flicker ?? false }, { flicker: v })
+            }
+            label="Flicker"
+          />
+        </PropertyField>
+
+        {light.flicker && (
+          <>
+            <PropertyField label="Flicker Intensity">
+              <div data-testid="light-flicker-intensity-slider">
+                <SliderInput
+                  value={light.flickerIntensity ?? 0.3}
+                  onChange={(v) => patchLight({ flickerIntensity: v })}
+                  onChangeCommit={(newVal, startVal) =>
+                    commitLight('Light flicker intensity', { flickerIntensity: startVal }, { flickerIntensity: newVal })
+                  }
+                  min={0}
+                  max={1}
+                  step={0.05}
+                />
+              </div>
+            </PropertyField>
+
+            <PropertyField label="Flicker Speed">
+              <div data-testid="light-flicker-speed-slider">
+                <SliderInput
+                  value={light.flickerSpeed ?? 1.5}
+                  onChange={(v) => patchLight({ flickerSpeed: v })}
+                  onChangeCommit={(newVal, startVal) =>
+                    commitLight('Light flicker speed', { flickerSpeed: startVal }, { flickerSpeed: newVal })
+                  }
+                  min={0.2}
+                  max={5}
+                  step={0.1}
+                />
+              </div>
+            </PropertyField>
+          </>
+        )}
       </div>
     </CollapsibleSection>
   )

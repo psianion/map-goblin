@@ -451,6 +451,38 @@ function LightToolContent({ onValueChange }: { onValueChange?: () => void }) {
           ))}
         </div>
       </PropertyField>
+
+      <PropertyField label="Flicker">
+        <ToggleSwitch
+          checked={defaults.flicker}
+          onChange={(v) => patch({ flicker: v })}
+          label="Flicker"
+        />
+      </PropertyField>
+
+      {defaults.flicker && (
+        <>
+          <PropertyField label="Flicker Intensity">
+            <SliderInput
+              value={defaults.flickerIntensity}
+              onChange={(v) => patch({ flickerIntensity: v })}
+              min={0}
+              max={1}
+              step={0.05}
+            />
+          </PropertyField>
+
+          <PropertyField label="Flicker Speed">
+            <SliderInput
+              value={defaults.flickerSpeed}
+              onChange={(v) => patch({ flickerSpeed: v })}
+              min={0.2}
+              max={5}
+              step={0.1}
+            />
+          </PropertyField>
+        </>
+      )}
     </div>
   );
 }
