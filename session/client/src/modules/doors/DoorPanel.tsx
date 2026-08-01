@@ -81,10 +81,20 @@ export function DoorPanel() {
                 door.id === selectedId ? 'bg-surface-3' : ''
               }`}
             >
-              <span title={doorLabel(door, i)} className="min-w-0 flex-1 truncate text-text-primary">
+              {/* Wraps rather than truncates. A door row is read to answer "which door is
+                  that", and "Hidden Pantr…" answers it for no one — the sidebar is narrow
+                  enough that an authored name of ordinary length lost its last word. Two
+                  lines cost the list one row of height and give the name back; the title
+                  still carries the whole string for a name long enough to run past both. */}
+              <span title={doorLabel(door, i)} className="min-w-0 flex-1 break-words text-text-primary">
                 {doorLabel(door, i)}
               </span>
-              <span className="shrink-0 text-text-secondary">{doorStatusLabel(door, live)}</span>
+              <span
+                title={doorStatusLabel(door, live)}
+                className="shrink-0 text-right text-text-secondary"
+              >
+                {doorStatusLabel(door, live)}
+              </span>
             </button>
           </li>
         ))}
