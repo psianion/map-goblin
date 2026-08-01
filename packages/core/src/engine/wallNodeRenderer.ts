@@ -443,6 +443,11 @@ export function withoutDoorGaps(
   }
 }
 
+interface ResolvedSet {
+  specs: WallPieceSpec[];
+  specById: Map<string, WallPieceSpec>;
+}
+
 /**
  * Render walls as composed sprite nodes.
  * No wallTextureSetId means invisible walls, same as before.
@@ -456,43 +461,61 @@ export function renderNodeWalls(
   /** Hand edits for floor rings, keyed by ring index. */
   floorEdits: Record<string, WallEdits> = {},
 ): void {
-  if (!style.wallTextureSetId) {
+  const layerSetId = style.wallTextureSetId as WallCategory | '' | undefined;
+  // A standalone wall may pin its own set — see `WallSegment.textureSetId`. It only
+  // ever does so to hold the look it already had when a preset moved the layer on,
+  // so in practice every run shares one set and this cache is hit every time.
+  const specCache = new Map<string, ResolvedSet | null>();
+  const specsFor = (id: string | undefined): ResolvedSet | null => {
+    if (!id) return null;
+    const hit = specCache.get(id);
+    if (hit !== undefined) return hit;
+    const specs = buildPieceSpecs(id as WallCategory);
+    const resolved = specs.length
+      ? { specs, specById: new Map(specs.map((s) => [s.id, s])) }
+      : null;
+    specCache.set(id, resolved);
+    return resolved;
+  };
+
+  // No set on the layer AND none pinned on a wall means invisible walls, as before.
+  if (!layerSetId && !standaloneWalls.some((w) => w.textureSetId)) {
     trimTo(wallsContainer, 0);
     return;
   }
 
-  const setId = style.wallTextureSetId as WallCategory;
-  const specs = buildPieceSpecs(setId);
-  if (specs.length === 0) {
-    trimTo(wallsContainer, 0);
-    return;
-  }
-
-  const specById = new Map(specs.map((s) => [s.id, s]));
-  const tint = parseInt(style.wallTextureTint.replace('#', ''), 16) || 0xffffff;
+  const tintOf = (hex: string | undefined): number =>
+    parseInt((hex ?? style.wallTextureTint).replace('#', ''), 16) || 0xffffff;
+  const layerSet = specsFor(layerSetId || undefined);
+  const layerTint = tintOf(undefined);
   const wallWidth = style.wallWidth;
 
   let placed = 0;
 
-  for (let i = 0; i < polygons.length; i++) {
-    const poly = polygons[i];
-    if (poly.length < 3) continue;
-    const auto = layoutWall(poly, true, specs, { wallWidth, seed: seedForPoints(poly) });
-    // A floor ring's stones are hand-editable too; its edits live on the layer
-    // because the ring itself is recomputed from the shapes every time.
-    const nodes = applyWallEdits(auto, floorEdits[String(i)]);
-    const gaps = doorGaps.filter((g) => g.ring === i);
-    placed = placeNodes(
-      wallsContainer,
-      withoutDoorGaps(nodes, gaps, specById, wallWidth),
-      specById, wallWidth, tint, placed,
-    );
+  if (layerSet) {
+    for (let i = 0; i < polygons.length; i++) {
+      const poly = polygons[i];
+      if (poly.length < 3) continue;
+      const auto = layoutWall(poly, true, layerSet.specs, { wallWidth, seed: seedForPoints(poly) });
+      // A floor ring's stones are hand-editable too; its edits live on the layer
+      // because the ring itself is recomputed from the shapes every time.
+      const nodes = applyWallEdits(auto, floorEdits[String(i)]);
+      const gaps = doorGaps.filter((g) => g.ring === i);
+      placed = placeNodes(
+        wallsContainer,
+        withoutDoorGaps(nodes, gaps, layerSet.specById, wallWidth),
+        layerSet.specById, wallWidth, layerTint, placed,
+      );
+    }
   }
 
   for (const wall of standaloneWalls) {
     if (wall.points.length < 2) continue;
+    const set = wall.textureSetId ? specsFor(wall.textureSetId) : layerSet;
+    if (!set) continue;
+    const tint = wall.textureTint ? tintOf(wall.textureTint) : layerTint;
     const w = wall.width || wallWidth;
-    const auto = layoutWall(wall.points, false, specs, {
+    const auto = layoutWall(wall.points, false, set.specs, {
       wallWidth: w,
       seed: seedForPoints(wall.points),
     });
@@ -502,11 +525,11 @@ export function renderNodeWalls(
     const gaps = doorGaps.filter((g) => g.wallId === wall.id);
     placed = placeNodes(
       wallsContainer,
-      withoutDoorGaps(nodes, gaps, specById, w, [
+      withoutDoorGaps(nodes, gaps, set.specById, w, [
         wall.points[0],
         wall.points[wall.points.length - 1],
       ]),
-      specById, w, tint, placed,
+      set.specById, w, tint, placed,
     );
   }
 

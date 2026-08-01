@@ -576,6 +576,11 @@ export class PresetApplyCommand implements Command {
   private readonly previousStyle: DungeonStyle;
   /** `styleOverrides` each shape had before the apply, keyed by child id. */
   private readonly previousOverrides = new Map<string, Record<string, unknown> | undefined>();
+  /** The style pins each standalone wall had before the apply, keyed by wall id. */
+  private readonly previousWallPins = new Map<
+    string,
+    { textureSetId?: string; textureTint?: string }
+  >();
 
   constructor(label: string, layerId: string, preset: MapStylePreset, previousStyle: DungeonStyle) {
     this.label = label;
@@ -613,6 +618,27 @@ export class PresetApplyCommand implements Command {
       state.updateChild(this.layerId, child.id, { styleOverrides: pinned });
     }
 
+    // Standalone walls get the same treatment. They are not `LayerChild`ren, so
+    // they carry their own pins rather than a `styleOverrides` bag, but the rule is
+    // identical: a wall already drawn keeps the look it was drawn with, and a pin
+    // the wall already had is its own authored intent.
+    this.previousWallPins.clear();
+    for (const wall of layer.standaloneWalls) {
+      const pin: { textureSetId?: string; textureTint?: string } = {};
+      if ('wallTextureSetId' in this.presetStyle && wall.textureSetId === undefined) {
+        pin.textureSetId = before.wallTextureSetId;
+      }
+      if ('wallTextureTint' in this.presetStyle && wall.textureTint === undefined) {
+        pin.textureTint = before.wallTextureTint;
+      }
+      if (Object.keys(pin).length === 0) continue;
+      this.previousWallPins.set(wall.id, {
+        textureSetId: wall.textureSetId,
+        textureTint: wall.textureTint,
+      });
+      state.updateWall(this.layerId, wall.id, pin);
+    }
+
     state.updateLayer(this.layerId, {
       style: { ...before, ...this.presetStyle },
     } as Partial<DungeonLayer>);
@@ -623,6 +649,12 @@ export class PresetApplyCommand implements Command {
     for (const [childId, overrides] of this.previousOverrides) {
       state.updateChild(this.layerId, childId, {
         styleOverrides: overrides ? structuredClone(overrides) : undefined,
+      });
+    }
+    for (const [wallId, pins] of this.previousWallPins) {
+      state.updateWall(this.layerId, wallId, {
+        textureSetId: pins.textureSetId,
+        textureTint: pins.textureTint,
       });
     }
     state.updateLayer(this.layerId, {

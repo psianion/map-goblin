@@ -182,7 +182,13 @@ function editsDigest(edits: WallEdits): number {
  * `renderNodeWalls`, so both have to reach `renderKey`.
  */
 function wallEditsKeyOf(layer: DungeonLayer): string {
-  const walls = layer.standaloneWalls.map((w) => editsDigest(w)).join(',');
+  // The per-wall style pins ride along here rather than in `wallSignature`, for the
+  // reason the stone edits do: a wall that changes texture set or tint moves no room
+  // boundary and casts no new shadow, so it must re-lay its stones without dragging
+  // room detection and every light's occlusion sweep along with it.
+  const walls = layer.standaloneWalls
+    .map((w) => `${editsDigest(w)}:${w.textureSetId ?? ''}:${w.textureTint ?? ''}`)
+    .join(',');
   const rings = Object.entries(layer.floorWallEdits ?? {})
     .map(([ring, edits]) => `${ring}:${editsDigest(edits)}`)
     .join(',');
