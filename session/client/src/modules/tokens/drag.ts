@@ -15,6 +15,7 @@ import type { Role } from '@dnd/core/src/shared/protocol';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import { useSessionStore } from '../../session/store';
 import { isToolActive } from '../../session/tools';
+import { doorRefusal } from '../doors/doors';
 
 /** What the renderer exposes to the input layer. */
 export interface TokenLayer {
@@ -87,15 +88,25 @@ export function approach(from: number, to: number, dtMs: number, ms = 150): numb
 
 /**
  * The refusal a move hands back, in words a player can act on — or null for anything that
- * is not this module's business. The doors lane matches on typed prefixes (`DOOR_LOCKED`);
- * tokens have none, so this matches the sentence `canOccupy` refuses with.
+ * is not this module's business.
  *
- * ponytail: a string copied from `mechanics/tokens/module.ts`, so a reworded refusal there
- * goes quiet here rather than wrong. The upgrade is an exported constant beside the
- * message, the day a second token refusal needs telling apart from this one.
+ * One vocabulary for both lanes: a refusal says why when the server named a why, and falls
+ * back to the bare fact when it did not. The doors lane stamps typed prefixes on its own
+ * refusals (`DOOR_LOCKED`), and a move blocked *by a door* is the same fact arriving through
+ * another command, so it gets the same sentence rather than a vaguer one of its own.
+ *
+ * `canOccupy` collapses locked door, closed door, unexplored room and unzoned map into a
+ * single boolean today — `occupiable` is a precomputed BFS that discards the edge it refused
+ * to cross — so the server has no cause to stamp on a move yet and this reads as the generic
+ * line every time. Naming it is a change to `visibleRooms`/`canOccupy` in @dnd/mechanics,
+ * beyond this package; the words are waiting for it.
+ *
+ * ponytail: the sentence is copied from `mechanics/tokens/module.ts`, so a reword there goes
+ * quiet here rather than wrong. The upgrade is an exported constant beside the message.
  */
 export function tokenRefusal(message: string): string | null {
-  return message.includes('cannot be occupied') ? "You can't move there." : null;
+  if (!message.includes('cannot be occupied')) return null;
+  return doorRefusal(message) ?? "You can't move there.";
 }
 
 /** D10 client-side gate. The server enforces this too — this only saves a round trip. */

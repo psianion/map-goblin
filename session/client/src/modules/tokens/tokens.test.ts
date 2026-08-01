@@ -413,3 +413,26 @@ describe('tokenLabelText', () => {
     expect(tokenLabelText('Borin', null)).toBe('Borin');
   });
 });
+
+describe('tokenRefusal carries the cause the server named', () => {
+  it('says the bare fact when the refusal names no cause', () => {
+    expect(tokenRefusal('that space cannot be occupied')).toBe("You can't move there.");
+  });
+
+  /**
+   * The unification: a move blocked by a door is the same fact the doors lane already has
+   * words for, so it gets those words rather than a vaguer sentence of its own. Nothing
+   * stamps this prefix on a move yet — `canOccupy` collapses every cause into one boolean —
+   * so this pins the wiring against the day @dnd/mechanics names one.
+   */
+  it('says which door, once a refusal carries the door lane’s prefix', () => {
+    expect(tokenRefusal(`${DOOR_LOCKED}: that space cannot be occupied`)).toBe(
+      'The door is locked.',
+    );
+  });
+
+  it('stays out of refusals that are not about a move', () => {
+    expect(tokenRefusal(`${DOOR_LOCKED}: that door is locked`)).toBeNull();
+    expect(tokenRefusal('no token def "goblin"')).toBeNull();
+  });
+});
