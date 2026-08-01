@@ -236,6 +236,48 @@ function renderTexturedShape(
 /**
  * Render a single solid-color shape fill.
  */
+/**
+ * Draw one hatch treatment over `area`, using `style` for everything about it.
+ *
+ * Split out so the layer-wide pass and the per-shape pass share a body — the two
+ * differ only in the polygons they are handed and the style they resolve.
+ */
+function renderHatching(hatching: Container, area: Polygon[], style: DungeonStyle): void {
+  if (style.hatchingStyle === 'none' || area.length === 0) return;
+
+  const lineAngle = style.hatchingStyle === 'horizontal' ? 0 : style.hatchingAngle;
+
+  // Hatch region: the whole interior, or a band inset from its edge.
+  let hatchRegion: Polygon[];
+  if (style.hatchingInverted) {
+    hatchRegion = area;
+  } else {
+    const inner = clipper2Engine.inflate(area, -style.hatchingBandWidth);
+    hatchRegion = inner.length > 0 ? clipper2Engine.difference(area, inner) : area;
+  }
+
+  const maskG = new Graphics();
+  fillPolygonsWithHoles(maskG, hatchRegion, { color: 0xffffff });
+
+  const hatchG = new Graphics();
+  hatchG.setStrokeStyle({
+    color: parseColor(style.wallColor),
+    width: style.hatchingLineThickness,
+  });
+  addHatchLines(hatchG, area, lineAngle, style.hatchingLineSpacing);
+  if (style.hatchingStyle === 'crosshatch') {
+    addHatchLines(hatchG, area, lineAngle + Math.PI / 2, style.hatchingLineSpacing);
+  }
+  hatchG.stroke();
+
+  // Wrap in a Container so the mask applies to the lines only
+  const hatchContainer = new Container();
+  hatchContainer.addChild(maskG);
+  hatchContainer.addChild(hatchG);
+  hatchContainer.mask = maskG;
+  hatching.addChild(hatchContainer);
+}
+
 function renderSolidShape(
   parent: Container,
   shape: ShapeChild,
@@ -412,7 +454,6 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
 
   const s = layer.style;
   const floorColorNum = parseColor(s.floorColor);
-  const wallColorNum  = parseColor(s.wallColor);
 
   // ── Floor fill (per-shape back-to-front) ─────────────────────
   // Render each shape individually: textured shapes get a TilingSprite
@@ -471,44 +512,26 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
   redrawGrid(layer, entry);
 
   // ── Hatching sublayer ────────────────────────────────────────
-  // Hatching is a layer-level operation (applied to mergedFloor as a whole),
-  // so we use layer.style directly. Per-shape hatching overrides are not
-  // supported in this release — the merged geometry loses shape boundaries.
-  if (s.hatchingStyle !== 'none') {
-    const lineAngle = s.hatchingStyle === 'horizontal' ? 0 : s.hatchingAngle;
-
-    // Determine hatch region: band = floor minus inflated-inward floor
-    let hatchRegion: Polygon[];
-    if (s.hatchingInverted) {
-      // Fill entire floor interior
-      hatchRegion = polygons;
-    } else {
-      // Fill border band: diff(floor, inward-inflate(floor, bandWidth))
-      const inner = clipper2Engine.inflate(polygons, -s.hatchingBandWidth);
-      hatchRegion = inner.length > 0
-        ? clipper2Engine.difference(polygons, inner)
-        : polygons;
+  // On a plain layer this runs once over the merged floor, which is both the
+  // cheap path and the right look — hatching reads as one treatment of the whole
+  // room, not a per-shape decoration.
+  //
+  // Once any shape carries a style pin it has to run per shape instead. A pin is
+  // what a preset leaves behind so an already-drawn shape keeps the look it was
+  // drawn with (PresetApplyCommand); drawing the hatch from `layer.style` here
+  // ignored those pins, and applying a preset restyled every shape on the map
+  // through the hatch alone.
+  if (hasStyleOverrides) {
+    for (const shape of shapeChildren) {
+      if ((shape.contours[0]?.length ?? 0) < 3) continue;
+      const resolved = resolveStyle(s, shape.styleOverrides as Partial<DungeonStyle> | undefined);
+      // Clip to the merged floor so an erase hole cuts the hatch too.
+      const shapeArea = clipper2Engine.intersection(shape.contours as Polygon[], polygons);
+      if (shapeArea.length === 0) continue;
+      renderHatching(hatching, shapeArea, resolved);
     }
-
-    // Mask Graphics — defines the hatch region
-    const maskG = new Graphics();
-    fillPolygonsWithHoles(maskG, hatchRegion, { color: 0xffffff });
-
-    // Hatch lines Graphics
-    const hatchG = new Graphics();
-    hatchG.setStrokeStyle({ color: wallColorNum, width: s.hatchingLineThickness });
-    addHatchLines(hatchG, polygons, lineAngle, s.hatchingLineSpacing);
-    if (s.hatchingStyle === 'crosshatch') {
-      addHatchLines(hatchG, polygons, lineAngle + Math.PI / 2, s.hatchingLineSpacing);
-    }
-    hatchG.stroke();
-
-    // Wrap in a Container so mask applies to the lines only
-    const hatchContainer = new Container();
-    hatchContainer.addChild(maskG);
-    hatchContainer.addChild(hatchG);
-    hatchContainer.mask = maskG;
-    hatching.addChild(hatchContainer);
+  } else {
+    renderHatching(hatching, polygons, s);
   }
 
   // Walls and doors already rendered above, before the no-floor bail-out.

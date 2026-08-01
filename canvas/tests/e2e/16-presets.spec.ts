@@ -66,9 +66,29 @@ test.describe('16 - Style Presets', () => {
     // The preset really landed on the layer...
     const probeAfter = await layerProbe(page);
     expect(probeAfter.floorColor).not.toBe(probeBefore.floorColor);
-    // ...and the shape drawn before it still renders exactly as it did.
+
+    // ...the shape carries a pin holding its old look...
+    const pinned = await page.evaluate(() =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).__store
+        .getState()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .layers.find((l: any) => l.type === 'dungeon')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .children.find((c: any) => c.childType === 'shape').styleOverrides,
+    );
+    expect(pinned.floorColor).toBe(probeBefore.floorColor);
+
+    // ...and it still renders as it did. Within a couple of levels, not bit for
+    // bit: a pinned shape draws through the per-shape path (its own fill, masked
+    // to the merged floor) rather than one merged fill, and that composite lands
+    // a hair lighter. The regression this row exists for was the whole shape
+    // repainting in the preset's colour, which is ~40 levels per channel away.
     const after = await getPixelColor(page, sampleX, sampleY);
-    expect(after).toEqual(before);
+    for (const ch of ['r', 'g', 'b'] as const) {
+      expect(Math.abs(after[ch] - before[ch])).toBeLessThanOrEqual(6);
+    }
+    expect(after.a).toBe(before.a);
   });
 
   test('the preset still becomes the style the next shape is drawn in', async ({ page }) => {
