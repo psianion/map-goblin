@@ -42,6 +42,7 @@ beforeEach(() => {
   });
   vi.mocked(uploadMapFile).mockReset().mockResolvedValue({
     mapId: 'map-1',
+    sceneId: 'map-1',
     name: 'Emberhold Crypt',
     sizeBytes: 2048,
   });
@@ -149,7 +150,7 @@ describe('HostSetup — the starting room', () => {
   });
 
   it('offers no picker for a map nobody zoned', async () => {
-    vi.mocked(uploadMapFile).mockResolvedValue({ mapId: 'map-2', name: 'Bare', sizeBytes: 12 });
+    vi.mocked(uploadMapFile).mockResolvedValue({ mapId: 'map-2', sceneId: 'map-2', name: 'Bare', sizeBytes: 12 });
     render(<HostSetup />);
 
     fireEvent.change(screen.getByLabelText('Server address'), {

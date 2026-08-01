@@ -150,6 +150,109 @@ export class MapStore {
   }
 }
 
+export interface SceneRow {
+  id: string
+  campaign_id: string
+  /** The map row this scene currently renders — the part re-publish repoints. */
+  map_id: string
+  name: string
+  /** Flat drag-order (D4 of #47 — no chapters/acts). Dense per campaign, ascending. */
+  sort_index: number
+  /** SQLite boolean: 0 (default, hidden) until the DM opts a scene into the player list. */
+  visible_to_players: number
+  created_at: number
+  updated_at: number
+}
+
+/**
+ * Scenes (#47): a scene is a published snapshot with its own id, distinct from the map
+ * row backing it. `id` never changes after creation — fog, tokens, doors and
+ * `sessions.active_scene_id` are all keyed by it — only `map_id` moves, which is what
+ * lets a re-publish update a scene in place instead of orphaning it under a fresh id.
+ */
+export class SceneStore {
+  readonly #db
+  readonly #insert
+  readonly #get
+  readonly #list
+  readonly #nextSort
+  readonly #republish
+  readonly #rename
+  readonly #setVisible
+  readonly #setSort
+  readonly #delete
+
+  constructor(db: Database) {
+    this.#db = db
+    this.#insert = db.prepare<[string, string, string, string, number, number, number]>(
+      `INSERT INTO scenes (id, campaign_id, map_id, name, sort_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    this.#get = db.prepare<[string], SceneRow>('SELECT * FROM scenes WHERE id = ?')
+    this.#list = db.prepare<[string], SceneRow>(
+      'SELECT * FROM scenes WHERE campaign_id = ? ORDER BY sort_index',
+    )
+    this.#nextSort = db.prepare<[string], { n: number }>(
+      'SELECT COALESCE(MAX(sort_index), -1) + 1 AS n FROM scenes WHERE campaign_id = ?',
+    )
+    this.#republish = db.prepare<[string, number, string]>(
+      'UPDATE scenes SET map_id = ?, updated_at = ? WHERE id = ?',
+    )
+    this.#rename = db.prepare<[string, number, string]>(
+      'UPDATE scenes SET name = ?, updated_at = ? WHERE id = ?',
+    )
+    this.#setVisible = db.prepare<[number, number, string]>(
+      'UPDATE scenes SET visible_to_players = ?, updated_at = ? WHERE id = ?',
+    )
+    this.#setSort = db.prepare<[number, string]>('UPDATE scenes SET sort_index = ? WHERE id = ?')
+    this.#delete = db.prepare<[string]>('DELETE FROM scenes WHERE id = ?')
+  }
+
+  /**
+   * `id` is the map's own freshly-minted id in the common "upload = publish" path
+   * (http.ts's `uploadMap`), which is what lets an existing sceneId keep meaning the
+   * same thing it always did. A scene published any other way mints its own.
+   */
+  create(id: string, campaignId: string, mapId: string, name: string): SceneRow {
+    const sortIndex = (this.#nextSort.get(campaignId) as { n: number }).n
+    const now = Date.now()
+    this.#insert.run(id, campaignId, mapId, name, sortIndex, now, now)
+    return { id, campaign_id: campaignId, map_id: mapId, name, sort_index: sortIndex, visible_to_players: 0, created_at: now, updated_at: now }
+  }
+
+  get(id: string): SceneRow | undefined {
+    return this.#get.get(id)
+  }
+
+  listByCampaign(campaignId: string): SceneRow[] {
+    return this.#list.all(campaignId)
+  }
+
+  /** Re-publish (#47 D1): repoints at a new map row without moving the scene's own id. */
+  republish(id: string, mapId: string): void {
+    this.#republish.run(mapId, Date.now(), id)
+  }
+
+  rename(id: string, name: string): void {
+    this.#rename.run(name, Date.now(), id)
+  }
+
+  setVisibleToPlayers(id: string, visible: boolean): void {
+    this.#setVisible.run(visible ? 1 : 0, Date.now(), id)
+  }
+
+  /** Bulk flat reorder (#47 D4) — `order` is every scene id for the campaign, in the new order. */
+  reorder(order: readonly string[]): void {
+    this.#db.transaction(() => {
+      order.forEach((id, index) => this.#setSort.run(index, id))
+    })()
+  }
+
+  delete(id: string): void {
+    this.#delete.run(id)
+  }
+}
+
 export class SessionStore {
   readonly #db
   readonly #insert
@@ -157,6 +260,7 @@ export class SessionStore {
   readonly #byCode
   readonly #activeByCampaign
   readonly #setScene
+  readonly #clearScene
   readonly #end
   readonly #endCampaign
 
@@ -174,6 +278,9 @@ export class SessionStore {
     )
     this.#setScene = db.prepare<[string | null, string]>(
       'UPDATE sessions SET active_scene_id = ? WHERE id = ?',
+    )
+    this.#clearScene = db.prepare<[string]>(
+      'UPDATE sessions SET active_scene_id = NULL WHERE active_scene_id = ?',
     )
     this.#end = db.prepare<[string]>('UPDATE sessions SET active = 0 WHERE id = ?')
     this.#endCampaign = db.prepare<[string]>(
@@ -214,6 +321,11 @@ export class SessionStore {
 
   setActiveScene(sessionId: string, sceneId: string | null): void {
     this.#setScene.run(sceneId, sessionId)
+  }
+
+  /** #47 — a deleted scene stops being anyone's active one, in whatever session had it. */
+  clearActiveScene(sceneId: string): void {
+    this.#clearScene.run(sceneId)
   }
 
   endSession(sessionId: string): void {
@@ -376,6 +488,7 @@ export class ModuleStateStore {
 export interface Stores {
   campaigns: CampaignStore
   maps: MapStore
+  scenes: SceneStore
   sessions: SessionStore
   identities: IdentityStore
   passes: PassStore
@@ -388,6 +501,7 @@ export function createStores(db: Database): Stores {
   return {
     campaigns: new CampaignStore(db),
     maps: new MapStore(db),
+    scenes: new SceneStore(db),
     sessions: new SessionStore(db),
     identities: new IdentityStore(db),
     passes: new PassStore(db),

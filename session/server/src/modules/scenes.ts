@@ -16,9 +16,10 @@ export function scenesModule(stores: Stores): GameModule {
       if (typeof sceneId !== 'string') {
         return { code: 'invalid-command', message: 'scenes.activate needs a sceneId' }
       }
-      // A scene id is a map id in this campaign — anything else is either a typo or a
-      // client trying to point the table at somebody else's map.
-      if (!stores.maps.listByCampaign(ctx.campaignId).some((map) => map.id === sceneId)) {
+      // #47 — a scene is its own row now, not a map id. Anything that does not resolve to
+      // one in this campaign is either a typo or a client trying to point the table at
+      // somebody else's scene.
+      if (stores.scenes.get(sceneId)?.campaign_id !== ctx.campaignId) {
         return { code: 'invalid-command', message: `no scene '${sceneId}' in this campaign` }
       }
       stores.sessions.setActiveScene(ctx.sessionId, sceneId)

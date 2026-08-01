@@ -50,6 +50,8 @@ export interface Vision {
   playerMap(sceneId: string): SerializedMapData | null
   /** Rooms whose geometry entered the player view at this mutation, sliced (D5). */
   revealDelta(sceneId: string): MapDelta | null
+  /** #47 — call after a re-publish repoints a scene's map, or its cached answers go stale. */
+  invalidateScene(sceneId: string): void
 }
 
 interface Computed {
@@ -79,7 +81,7 @@ const NO_TOKENS: TokensState = { library: {}, byScene: {} }
 const NO_ONES_DOORS: ReadonlySet<string> = new Set()
 
 export function createVision(stores: Stores): Vision {
-  const sceneMapOf = createSceneMaps(stores)
+  const { sceneMapOf, invalidate: invalidateSceneMap } = createSceneMaps(stores)
   const cache = new Map<string, Computed>()
 
   const read = <S>(campaignId: string, module: string, fallback: S): S =>
@@ -194,6 +196,11 @@ export function createVision(stores: Stores): Vision {
     },
 
     revealDelta: (sceneId) => compute(sceneId)?.delta ?? null,
+
+    invalidateScene: (sceneId) => {
+      invalidateSceneMap(sceneId)
+      cache.delete(sceneId)
+    },
   }
 }
 
