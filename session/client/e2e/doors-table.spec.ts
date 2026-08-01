@@ -254,17 +254,59 @@ test.describe.serial('@doors', () => {
     await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-open', 'false')
   })
 
-  test('a secret floor door does not exist for the player until the DM reveals it', async () => {
+  test('a secret floor door does not exist for the player while it is still secret', async () => {
     // Give the party the room it is in — the room alone must not hand over the door.
     await revealRoom(dm, SECRET.roomA!)
     await expect.poll(() => holds(player, SECRET.roomA!), { timeout: 20_000 }).toBe(true)
     expect(await holds(player, SECRET.id)).toBe(false)
+  })
+
+  /**
+   * Revealing a secret is the one reveal that hands over a door child and no floor geometry
+   * at all, and the player's map is folded and reloaded whole on every delta. That made it
+   * the one delta whose floor key came back byte-identical while the document it arrived in
+   * carried `mergedFloor: null` — so the engine skipped the union, and the player's floors,
+   * walls and every door glued to a floor-ring wall came off the canvas mid-session. The DM
+   * saw none of it, and a reload put it all back, which is how it survived a gate walk.
+   */
+  test('revealing a secret leaves the player their floors and walls', async () => {
+    const rings = (page: Page) =>
+      page.evaluate(() => {
+        const store = (
+          window as unknown as {
+            __STORE__?: { getState(): { layers: { type: string; mergedFloor?: unknown[] | null }[] } }
+          }
+        ).__STORE__
+        const dungeon = store?.getState().layers.find((l) => l.type === 'dungeon')
+        return dungeon?.mergedFloor?.length ?? 0
+      })
+
+    // The player is holding drawn geometry going in, or this row proves nothing.
+    await expect.poll(() => rings(player), { timeout: 20_000 }).toBeGreaterThan(0)
+    await player.waitForTimeout(1500)
+    const before = await shoot(player)
+    const settled = await shoot(player)
+    const noise = await changed(player, before, settled)
 
     await selectDoorAsDm(dm, SECRET.id)
     await dm.getByTestId('door-reveal-secret').click()
-
     await expect(doorRow(player, SECRET.id)).toHaveCount(1, { timeout: 20_000 })
-    // …and once it exists for them, it works for them.
+    await player.waitForTimeout(1500)
+
+    // The union survived the merge — this is the store value the whole wipe came out of.
+    expect(await rings(player), 'the floor the renderer draws from is still there').toBeGreaterThan(0)
+
+    // …and so did the pixels. A wipe took every floor and wall sprite off the canvas at
+    // once; what a reveal is allowed to move is one door mark appearing.
+    const moved = await changed(player, settled, await shoot(player))
+    console.log(
+      `[metric] secret revealed: player canvas moved ${(moved * 100).toFixed(3)}% ` +
+        `(noise ${(noise * 100).toFixed(3)}%)`,
+    )
+    expect(moved, 'the map did not come off the canvas').toBeLessThan(0.05)
+  })
+
+  test('a revealed secret door works for the player it was revealed to', async () => {
     await toggleDoor(player, SECRET.id)
     await expect(doorRow(dm, SECRET.id)).toHaveAttribute('data-open', 'true')
     await toggleDoor(player, SECRET.id)

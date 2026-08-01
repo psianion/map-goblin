@@ -493,7 +493,19 @@ export function subscribeToStore(
           if (prev?.room !== roomKey) geometryChanged = true;
           const renderChanged = prev?.render !== renderKey;
           const doorStateChanged = prev?.doorState !== doorStateKey;
-          if (prev?.floor !== floorKey) {
+          // …or when the layer is holding no union at all. This key is only sound while
+          // this subscriber is the only writer of `mergedFloor`, and `loadFromFile`
+          // replaces `state.layers` wholesale: the map the session server sends a player
+          // ships `mergedFloor: null` on purpose (one union across the layer cannot be cut
+          // per room), so every reveal hands the store a layer with the floor stripped
+          // out. A reveal that carries no floor geometry — `reveal-secret` hands over a
+          // door child and nothing else — leaves `floorKey` byte-identical to the pass
+          // before, and the key alone answered "nothing to do" while the store sat on a
+          // null union: the floors and walls vanished, and `resolveWalls` (which reads the
+          // rings) stopped resolving the floor-ring walls, so the doors glued to them drew
+          // adrift of the room too. The key still guards the *recompute*; an empty union
+          // overrides it, because the key is about change and this is about absence.
+          if (prev?.floor !== floorKey || layer.mergedFloor == null) {
             const newFloor = computeMergedFloor(layer);
             // Write via setState — safe because the subscription equality fn
             // only compares shapeCount/wallCount/shapeKeys, not mergedFloor

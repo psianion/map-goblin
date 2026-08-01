@@ -585,4 +585,37 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
 
     expect(clipper2Engine.union).toHaveBeenCalled();
   });
+
+  /**
+   * The session client folds a reveal into its map and hands the whole document back
+   * through `loadFromFile`, which replaces `state.layers` outright — and a player's copy
+   * ships `mergedFloor: null`, because one union across a layer cannot be cut per room.
+   * `reveal-secret` carries a door child and no floor geometry at all, so the floor key is
+   * byte-identical to the pass before and used to answer "nothing to do" while the store
+   * sat on a null union: the player's floors and walls vanished mid-session, and the doors
+   * glued to floor-ring walls drew adrift of the rooms with them.
+   */
+  it('rebuilds the union when a document arrives with the floor stripped out', () => {
+    const shapes = [shape('s1', 500, 500), shape('s2', 560, 500)];
+    const layerId = seed({
+      children: [...shapes, door('d1', 'w1', 50, 0)],
+      standaloneWalls: [wall('w1', 0, 0, 100, 0)],
+    });
+
+    unsub = start();
+    expect(dungeon().mergedFloor).not.toBeNull();
+    vi.clearAllMocks();
+
+    // The reveal: the same floor shapes, one more door, and no union — exactly the shape
+    // of the document the server sends and `loadFromFile` writes.
+    seed({
+      mergedFloor: null,
+      children: [...shapes, door('d1', 'w1', 50, 0), door('d2', 'w1', 70, 0)],
+    });
+    flushLayerDraws();
+
+    expect(clipper2Engine.union, 'the floor is recomputed rather than left empty').toHaveBeenCalled();
+    expect(dungeon().mergedFloor, 'so the layer has rings to draw and resolve walls from').not.toBeNull();
+    expect(layerId).toBe(dungeon().id);
+  });
 });
