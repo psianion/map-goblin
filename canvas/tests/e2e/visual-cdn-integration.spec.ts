@@ -1,13 +1,19 @@
 /**
  * visual-cdn-integration.spec.ts
- * Comprehensive E2E tests verifying that assets built in map-assets are
- * correctly fetched and displayed in map-builder via the local CDN.
+ * Comprehensive E2E tests verifying that the built asset packs are correctly
+ * fetched and displayed by the app through its pack CDN.
  *
- * CDN: http://localhost:5174 (map-assets dev server)
- * App: http://localhost:5173 (map-builder dev server)
+ * The CDN origin is whatever `cdnConfig.baseUrl` resolves to, which defaults to
+ * `/packs` — the pack tree the app itself serves (canvas/public/packs, and the
+ * same path nginx serves in the container). `VITE_CDN_BASE_URL` can point that
+ * at a separate host in production, but nothing in this repo does, so these
+ * tests fetch the packs where the app actually fetches them. They used to
+ * hardcode http://localhost:5174, a second dev server from the days when the
+ * assets lived in their own repo; nothing has started that server in a long
+ * time, so every fetch here failed on connection-refused.
  *
  * Coverage:
- * 1. CDN connectivity — index.json reachable, CORS headers present
+ * 1. CDN connectivity — index.json reachable at the configured base
  * 2. Pack loading — dungeon-classic pack manifest downloads and registers
  * 3. Asset browser displays CDN assets — floors, walls, objects, edges in catalog
  * 4. Asset placement from CDN — select and place a CDN asset on canvas
@@ -17,7 +23,8 @@
 import { test, expect, type Page } from '@playwright/test'
 import { gotoApp, waitFrame, firePointer, getPixelColor } from './helpers'
 
-const CDN_BASE = 'http://localhost:5174'
+/** Must stay in step with `cdnConfig.baseUrl` (src/config/cdnConfig.ts). */
+const CDN_BASE = '/packs'
 const PACK_ID = 'dungeon-classic'
 const PACK_MANIFEST = 'pack-4a9bdbee.json'
 
@@ -44,6 +51,27 @@ async function getInstalledPacks(page: Page) {
     ).__store
     return store?.getState().packs.installedPacks ?? []
   })
+}
+
+/**
+ * Cut the app off from the pack CDN.
+ *
+ * Matched narrowly on purpose: a glob as loose as `**​/packs/**` also catches
+ * `/src/components/packs/PackListPanel.tsx`, and aborting a source module stops
+ * the app booting at all — which looks exactly like the resilience failure these
+ * rows are supposed to be checking for.
+ */
+async function blockPackCdn(page: Page): Promise<void> {
+  await page.route(/\/packs\/(index\.json|dungeon-classic\/)/, (route) => route.abort())
+}
+
+/** The version the CDN currently publishes for dungeon-classic. */
+async function publishedPackVersion(page: Page): Promise<string> {
+  return page.evaluate(async (cdnBase) => {
+    const res = await fetch(`${cdnBase}/index.json`)
+    const body = (await res.json()) as { packs: Record<string, { version: string }> }
+    return body.packs['dungeon-classic'].version
+  }, CDN_BASE)
 }
 
 /** Install dungeon-classic pack via the store's installPack action */
@@ -139,6 +167,11 @@ test.describe('CDN Connectivity', () => {
   test('index.json contains dungeon-classic pack', async ({ page }) => {
     await gotoApp(page)
 
+    // The version and entry count are cross-checked against the manifest the
+    // index points at rather than pinned to literals. Pinning is what rotted
+    // this file the last time the packs were rebuilt, and it never caught
+    // anything a mismatch between the two files would not catch better: a
+    // half-published pack is an index that disagrees with its own manifest.
     const result = await page.evaluate(async (cdnBase) => {
       const res = await fetch(`${cdnBase}/index.json`)
       const body = (await res.json()) as {
@@ -148,35 +181,51 @@ test.describe('CDN Connectivity', () => {
         >
       }
       const pack = body.packs['dungeon-classic']
+      if (!pack) return { found: false }
+
+      const manRes = await fetch(`${cdnBase}/dungeon-classic/${pack.manifest}`)
+      const manifest = (await manRes.json()) as {
+        version: string
+        entries: Record<string, unknown>
+      }
       return {
-        found: !!pack,
-        version: pack?.version,
-        entryCount: pack?.entryCount,
-        hasManifest: !!pack?.manifest,
+        found: true,
+        version: pack.version,
+        manifestVersion: manifest.version,
+        entryCount: pack.entryCount,
+        manifestEntryCount: Object.keys(manifest.entries ?? {}).length,
       }
     }, CDN_BASE)
 
     expect(result.found).toBe(true)
-    expect(result.version).toBe('1.0.0')
-    expect(result.entryCount).toBe(109)
-    expect(result.hasManifest).toBe(true)
+    expect(result.version).toBe(result.manifestVersion)
+    expect(result.entryCount).toBeGreaterThan(0)
+    expect(result.entryCount).toBe(result.manifestEntryCount)
   })
 
-  test('CDN serves CORS headers for cross-origin fetch (5173 → 5174)', async ({ page }) => {
+  test('the app fetches the pack index from its configured CDN base', async ({ page }) => {
+    // Replaces an old cross-origin CORS check against a 5174 dev server. The
+    // product serves packs from its own origin, so the thing worth pinning is
+    // that the URL the pack manager builds is the one the server answers on.
+    const packIndexRequests: string[] = []
+    page.on('request', (req) => {
+      if (req.url().includes('/packs/index.json')) packIndexRequests.push(req.url())
+    })
+
     await gotoApp(page)
 
-    const result = await page.evaluate(async (cdnBase) => {
-      const res = await fetch(`${cdnBase}/index.json`, {
-        headers: { Origin: 'http://localhost:5173' },
-      })
-      const acao = res.headers.get('access-control-allow-origin')
-      return { ok: res.ok, corsHeader: acao }
-    }, CDN_BASE)
+    const configuredBase = await page.evaluate(async () => {
+      const { cdnConfig } = (await import('/src/config/cdnConfig.ts')) as typeof import(
+        '@/config/cdnConfig'
+      )
+      const res = await fetch(`${cdnConfig.baseUrl}/index.json`)
+      return { baseUrl: cdnConfig.baseUrl, ok: res.ok, status: res.status }
+    })
 
-    expect(result.ok).toBe(true)
-    // CORS header should allow the app origin or be wildcard
-    expect(result.corsHeader).not.toBeNull()
-    expect(['*', 'http://localhost:5173']).toContain(result.corsHeader)
+    expect(configuredBase.baseUrl).toBe(CDN_BASE)
+    expect(configuredBase.ok).toBe(true)
+    expect(configuredBase.status).toBe(200)
+    expect(packIndexRequests.length).toBeGreaterThan(0)
   })
 
   test('pack manifest is fetchable from CDN', async ({ page }) => {
@@ -203,7 +252,7 @@ test.describe('CDN Connectivity', () => {
     )
 
     expect(result.ok).toBe(true)
-    expect(result.version).toBe('1.0.0')
+    expect(result.version).toBe(await publishedPackVersion(page))
     expect(result.name).toBe('dungeon-classic')
     expect(result.entryCount).toBe(109)
     expect(result.atlasCount).toBeGreaterThan(0)
@@ -273,14 +322,14 @@ test.describe('Pack Loading from CDN', () => {
         const packsAfter = await getInstalledPacks(page)
         const pack = packsAfter.find((p) => p.packId === 'dungeon-classic')
         expect(pack).toBeDefined()
-        expect(pack?.version).toBe('1.0.0')
+        expect(pack?.version).toBe(await publishedPackVersion(page))
         expect(pack?.sizeBytes).toBeGreaterThan(0)
       }
     } else {
       // Already installed — verify it's correctly registered
       const pack = packsBefore.find((p) => p.packId === 'dungeon-classic')
       expect(pack).toBeDefined()
-      expect(pack?.version).toBe('1.0.0')
+      expect(pack?.version).toBe(await publishedPackVersion(page))
     }
   })
 
@@ -290,7 +339,7 @@ test.describe('Pack Loading from CDN', () => {
     const capturedUrls: string[] = []
     page.on('request', (req) => {
       const url = req.url()
-      if (url.includes('5174') && url.includes('dungeon-classic')) {
+      if (url.includes(`${CDN_BASE}/`) && url.includes('dungeon-classic')) {
         capturedUrls.push(url)
       }
     })
@@ -323,7 +372,7 @@ test.describe('Pack Loading from CDN', () => {
       const { AssetPackManager } = (await import(
         '/src/engine/assetPackManager.ts'
       )) as typeof import('@/engine/assetPackManager')
-      const manager = new AssetPackManager({ cdnBaseUrl: 'http://localhost:5174' })
+      const manager = new AssetPackManager({ cdnBaseUrl: '/packs' })
 
       // getTexture must always return a texture (fallback magenta 1x1 for unknown)
       const fallback = manager.getTexture('nonexistent-entry')
@@ -832,7 +881,7 @@ test.describe('Atlas Textures from CDN', () => {
 test.describe('CDN Failure Resilience', () => {
   test('app loads and renders canvas even when CDN is unreachable', async ({ page }) => {
     // Block all CDN requests
-    await page.route('**/localhost:5174/**', (route) => route.abort())
+    await blockPackCdn(page)
 
     await gotoApp(page)
 
@@ -847,7 +896,7 @@ test.describe('CDN Failure Resilience', () => {
   })
 
   test('app toolbar is still interactive when CDN is blocked', async ({ page }) => {
-    await page.route('**/localhost:5174/**', (route) => route.abort())
+    await blockPackCdn(page)
 
     await gotoApp(page)
 
@@ -863,7 +912,7 @@ test.describe('CDN Failure Resilience', () => {
 
   test('checkForUpdates returns empty array when CDN is unreachable', async ({ page }) => {
     // Block CDN
-    await page.route('**/localhost:5174/**', (route) => route.abort())
+    await blockPackCdn(page)
 
     await gotoApp(page)
 
@@ -921,8 +970,8 @@ test.describe('CDN Failure Resilience', () => {
   })
 
   test('installPack rejects gracefully when CDN returns 404', async ({ page }) => {
-    // Route CDN to return 404 for pack manifest
-    await page.route('**/localhost:5174/dungeon-classic/pack.json', (route) =>
+    // Route CDN to return 404 for the pack manifest
+    await page.route('**/packs/dungeon-classic/pack-*.json', (route) =>
       route.fulfill({ status: 404, body: 'Not Found' }),
     )
 
@@ -949,7 +998,7 @@ test.describe('CDN Failure Resilience', () => {
 
   test('drawing tools still work with no CDN packs installed', async ({ page }) => {
     // Block CDN entirely
-    await page.route('**/localhost:5174/**', (route) => route.abort())
+    await blockPackCdn(page)
 
     await gotoApp(page)
 
