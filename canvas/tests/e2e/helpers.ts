@@ -22,8 +22,28 @@ const ENGINE_TIMEOUT = 60_000
  * asking each spec to remember.
  */
 export async function waitForBoot(page: Page): Promise<void> {
-  await page.waitForSelector('[data-clipper-ready="true"]', { timeout: CLIPPER_TIMEOUT })
+  // `window.__clipperReady`, not the `data-clipper-ready` attribute. The attribute mirrors
+  // `ui.clipperReady`, and a Strict Mode double-mount race leaves that store flag stuck
+  // false after a perfectly good boot: the superseded first mount finishes its init, sets
+  // the shared flag true, then sees it was destroyed and clears it again. So the attribute
+  // shows up for a moment and then disappears for the rest of the session.
+  //
+  // Waiting on it was the suite's worst flake — miss that window and `waitForSelector`
+  // burns its full timeout on an app that booted fine. The window flag is what CanvasHost
+  // documents for E2E ("avoids React render timing issues") and it stays true.
+  await page.waitForFunction(
+    () => (window as Window & { __clipperReady?: boolean }).__clipperReady === true,
+    undefined,
+    { timeout: CLIPPER_TIMEOUT },
+  )
   await waitForEngine(page)
+  // `useCanvasInput` attaches its keydown listener from an effect that runs after the
+  // engine reaches React state, so a spec pressing a key the instant the engine appears
+  // can lose it outright — which is why "E toggles erase mode" only ever asserted that
+  // the canvas was still visible. Two frames is one commit plus its effects.
+  // ponytail: no app-side "input wired" signal to wait on; add one if this needs to be
+  // exact rather than merely settled.
+  await waitFrame(page, 2)
 }
 
 /** Navigate to the app and wait for it to finish booting. */

@@ -26,7 +26,12 @@ test.describe('01 - Basic Rendering', () => {
 
   test('Clipper2 WASM loads successfully', async ({ page }) => {
     await gotoApp(page);
-    const ready = await page.getAttribute('[data-clipper-ready]', 'data-clipper-ready');
-    expect(ready).toBe('true');
+    // The window flag, not the `data-clipper-ready` attribute: the attribute mirrors
+    // `ui.clipperReady`, which a Strict Mode double-mount race clears again right after
+    // boot, so reading it here asserted nothing about Clipper2 and hung instead.
+    const ready = await page.evaluate(
+      () => (window as Window & { __clipperReady?: boolean }).__clipperReady,
+    );
+    expect(ready).toBe(true);
   });
 });
