@@ -56,7 +56,7 @@ async function getInstalledPacks(page: Page) {
 /**
  * Cut the app off from the pack CDN.
  *
- * Matched narrowly on purpose: a glob as loose as `**​/packs/**` also catches
+ * Matched narrowly on purpose: a glob as loose as a bare `packs` wildcard catches
  * `/src/components/packs/PackListPanel.tsx`, and aborting a source module stops
  * the app booting at all — which looks exactly like the resilience failure these
  * rows are supposed to be checking for.
