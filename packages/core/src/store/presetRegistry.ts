@@ -3,7 +3,6 @@
 // No store slice — pure data. Import from here wherever presets are needed.
 
 import type { DungeonStyle, ScatterBrushSettings } from './types';
-import type { DoorStyle } from '../shared/types';
 
 // ─── Shared Preset Shape ──────────────────────────────────
 
@@ -13,9 +12,6 @@ export interface MapStylePreset {
   category: string;
   /** Floor, wall, shadow, hatching, edge transition settings */
   dungeonStyle: Partial<DungeonStyle>;
-  /** Door defaults when using this preset */
-  doorStyle?: DoorStyle;
-  doorWidth?: number;
 }
 
 export interface ScatterPreset {

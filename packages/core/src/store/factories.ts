@@ -81,7 +81,7 @@ type MapBuilderState = Omit<
   | 'setNodeEditWall' | 'selectNode' | 'setShapeNodeEdit' | 'selectVertex'
   | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
   | 'showModal' | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
-  | 'applyPreset' | 'saveCustomPreset' | 'deleteCustomPreset'
+  | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
   | 'setSelectedIds' | 'setHoveredId' | 'setSelectedRegion'
   | 'setClipboard' | 'setRegionClipboard' | 'setSelectionTransform' | 'bakeSelectionTransform'
