@@ -101,7 +101,14 @@ export async function waitFrame(page: Page, n: number = 1): Promise<void> {
   }
 }
 
-/** Fire a pointer event on the canvas element */
+/**
+ * Fire a pointer event on the canvas element.
+ *
+ * `mods` has to be passed here rather than held down with `keyboard.down`: a
+ * PointerEvent built in the page carries whatever modifier flags its init dict
+ * was given and knows nothing about what the real keyboard is doing, so a tool
+ * reading `event.altKey` saw false no matter which keys the spec was holding.
+ */
 export async function firePointer(
   page: Page,
   type: string,
@@ -109,9 +116,10 @@ export async function firePointer(
   y: number,
   pressure = 0,
   buttons = 0,
+  mods: { ctrl?: boolean; shift?: boolean; alt?: boolean } = {},
 ): Promise<void> {
   await page.evaluate(
-    ({ type, x, y, pressure, buttons }) => {
+    ({ type, x, y, pressure, buttons, mods }) => {
       const canvas = document.querySelector('canvas')
       if (!canvas) return
       canvas.dispatchEvent(
@@ -124,10 +132,13 @@ export async function firePointer(
           cancelable: true,
           pointerId: 1,
           pointerType: 'mouse',
+          ctrlKey: !!mods.ctrl,
+          shiftKey: !!mods.shift,
+          altKey: !!mods.alt,
         }),
       )
     },
-    { type, x, y, pressure, buttons },
+    { type, x, y, pressure, buttons, mods },
   )
 }
 

@@ -24,11 +24,60 @@ async function getFocusMode(page: import('@playwright/test').Page): Promise<stri
 }
 
 /**
- * Place one asset child at (400,300) on the dungeon layer and select it.
+ * A child's on-screen box, in client coordinates.
+ *
+ * The camera starts at zoom 20 centred on the world origin, so a world position
+ * is nowhere near the pixel of the same number — see the same helper in
+ * 23-transform-controls for the full story.
+ */
+async function objectScreenBox(
+  page: import('@playwright/test').Page,
+  objId: string,
+): Promise<{ cx: number; cy: number; w: number; h: number }> {
+  const box = await page.evaluate((id) => {
+    const store = (window as StoreType).__store
+    if (!store) return null
+    const state = store.getState() as unknown as {
+      layers: Array<{
+        children?: Array<{
+          id: string
+          position: { x: number; y: number }
+          width: number
+          height: number
+        }>
+      }>
+    }
+    const obj = state.layers.flatMap((l) => l.children ?? []).find((c) => c.id === id)
+    const app = (
+      window as {
+        __pixiApp?: {
+          stage: { children: Array<{ position: { x: number; y: number }; scale: { x: number } }> }
+        }
+      }
+    ).__pixiApp
+    const world = app?.stage.children[0]
+    const canvas = document.querySelector('canvas')
+    if (!obj || !world || !canvas) return null
+    const rect = canvas.getBoundingClientRect()
+    const zoom = world.scale.x
+    return {
+      cx: rect.left + world.position.x + obj.position.x * zoom,
+      cy: rect.top + world.position.y + obj.position.y * zoom,
+      w: obj.width * zoom,
+      h: obj.height * zoom,
+    }
+  }, objId)
+  if (!box) throw new Error(`no on-screen box for child ${objId}`)
+  return box
+}
+
+/**
+ * Place one 4×3 asset child on the world origin of the dungeon layer and select
+ * it by clicking, which is what makes the select tool build its gizmo.
  * Returns the child ID. There is no 'images' layer type — assets are children.
  */
 async function setupImageAndSelect(page: import('@playwright/test').Page): Promise<string> {
-  return page.evaluate(() => {
+  const objId = await page.evaluate(() => {
     const store = (window as StoreType).__store
     if (!store) return ''
     const state = store.getState() as unknown as Record<string, (...args: unknown[]) => void> & {
@@ -45,18 +94,24 @@ async function setupImageAndSelect(page: import('@playwright/test').Page): Promi
       visible: true,
       objectType: 'image',
       assetId: 'test',
-      position: { x: 400, y: 300 },
+      position: { x: 0, y: 0 },
       rotation: 0,
       scale: 1,
-      width: 200,
-      height: 150,
+      width: 4,
+      height: 3,
       tint: '#ffffff',
       flipX: false,
       flipY: false,
     })
-    state['setSelectedIds']([objId])
+    state['setActiveTool']('select')
     return objId
   })
+  await waitFrame(page, 5)
+  const { cx, cy } = await objectScreenBox(page, objId)
+  await firePointer(page, 'pointerdown', cx, cy, 0.5, 1)
+  await firePointer(page, 'pointerup', cx, cy, 0, 0)
+  await waitFrame(page, 5)
+  return objId
 }
 
 async function getObjectPosition(page: import('@playwright/test').Page, objId: string) {
@@ -110,10 +165,8 @@ test.describe('Integration: Focus Mode + Transforms', () => {
     expect(canvasOpacity).toBe(1)
 
     // Move the object — should still work even though UI is faded
-    const box = await canvas.boundingBox()
-    if (!box) return
-    const cx = box.x + 400
-    const cy = box.y + 300
+    const startPos = await getObjectPosition(page, objId)
+    const { cx, cy } = await objectScreenBox(page, objId)
 
     await firePointer(page, 'pointerdown', cx, cy, 0.5, 1)
     await firePointer(page, 'pointermove', cx + 60, cy + 40, 0.5, 1)
@@ -122,10 +175,10 @@ test.describe('Integration: Focus Mode + Transforms', () => {
 
     const pos = await getObjectPosition(page, objId)
     expect(pos).not.toBeNull()
-    expect(pos!.x).toBeGreaterThan(400)
+    expect(pos!.x).toBeGreaterThan(startPos!.x)
   })
 
-  test('transform works in fullscreen mode — canvas occupies full grid', async ({ page }) => {
+  test('transform works in fullscreen mode — canvas fills the viewport', async ({ page }) => {
     // Cycle to fullscreen: auto → manual → fullscreen
     await page.keyboard.press('`')
     await page.keyboard.press('`')
@@ -134,26 +187,26 @@ test.describe('Integration: Focus Mode + Transforms', () => {
     const mode = await getFocusMode(page)
     expect(mode).toBe('fullscreen')
 
-    // Layout must be 0px 1fr 0px
-    const gridCols = await page
-      .locator('[data-focus-mode]')
-      .first()
-      .evaluate((el) => window.getComputedStyle(el).gridTemplateColumns)
-    const parts = gridCols.trim().split(/\s+/)
-    expect(parts.length).toBe(3)
-    expect(parts[0]).toBe('0px')
-    expect(parts[2]).toBe('0px')
-    expect(parseFloat(parts[1])).toBeGreaterThan(0)
+    // The chrome is unmounted in fullscreen and the canvas covers the viewport.
+    // This used to read `grid-template-columns` off the shell and expect
+    // `0px 1fr 0px`; the shell has not been a grid since the panels became
+    // absolute overlays, so it was measuring a property nothing sets.
+    await expect(page.locator('[data-testid="left-toolbar"]')).toHaveCount(0)
+    await expect(page.locator('[data-testid="maps-panel"]')).toHaveCount(0)
+
+    const canvas = page.locator('canvas')
+    const box = await canvas.boundingBox()
+    expect(box).not.toBeNull()
+    const viewport = page.viewportSize()!
+    expect(box!.width).toBeGreaterThanOrEqual(viewport.width - 1)
+    expect(box!.height).toBeGreaterThanOrEqual(viewport.height - 1)
 
     // Import image and try to move it
     const objId = await setupImageAndSelect(page)
     await waitFrame(page, 5)
 
-    const canvas = page.locator('canvas')
-    const box = await canvas.boundingBox()
-    if (!box) return
-    const cx = box.x + 400
-    const cy = box.y + 300
+    const startPos = await getObjectPosition(page, objId)
+    const { cx, cy } = await objectScreenBox(page, objId)
 
     await firePointer(page, 'pointerdown', cx, cy, 0.5, 1)
     await firePointer(page, 'pointermove', cx + 60, cy + 40, 0.5, 1)
@@ -162,7 +215,7 @@ test.describe('Integration: Focus Mode + Transforms', () => {
 
     const pos = await getObjectPosition(page, objId)
     expect(pos).not.toBeNull()
-    expect(pos!.x).toBeGreaterThan(400)
+    expect(pos!.x).toBeGreaterThan(startPos!.x)
   })
 
   test('focus mode button visible and usable during object selection', async ({ page }) => {
@@ -215,11 +268,8 @@ test.describe('Integration: Focus Mode + Transforms', () => {
     const objId = await setupImageAndSelect(page)
     await waitFrame(page, 5)
 
-    const canvas = page.locator('canvas')
-    const box = await canvas.boundingBox()
-    if (!box) return
-    const cx = box.x + 400
-    const cy = box.y + 300
+    const startPos = await getObjectPosition(page, objId)
+    const { cx, cy } = await objectScreenBox(page, objId)
 
     // Move the object
     await firePointer(page, 'pointerdown', cx, cy, 0.5, 1)
@@ -228,7 +278,7 @@ test.describe('Integration: Focus Mode + Transforms', () => {
     await waitFrame(page, 5)
 
     const movedPos = await getObjectPosition(page, objId)
-    expect(movedPos!.x).toBeGreaterThan(400)
+    expect(movedPos!.x).toBeGreaterThan(startPos!.x)
 
     // Cycle focus mode
     await page.keyboard.press('`') // → manual
@@ -241,7 +291,7 @@ test.describe('Integration: Focus Mode + Transforms', () => {
     await waitFrame(page, 5)
 
     const undonePos = await getObjectPosition(page, objId)
-    expect(undonePos!.x).toBe(400) // restored to original
+    expect(undonePos!.x).toBe(startPos!.x) // restored to original
 
     // Focus mode should still be 'manual' (undo doesn't touch it)
     const focusAfterUndo = await getFocusMode(page)
