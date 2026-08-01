@@ -164,6 +164,12 @@ export interface LightChild extends LayerChild {
   position: { x: number; y: number };
   /** Pack light-mask texture ID — replaces default circular shape with custom mask */
   maskTextureId?: string;
+  /** Animated wobble around `intensity`. Off by default — most lights are static. */
+  flicker?: boolean;
+  /** Wobble amplitude as a fraction of `intensity`, 0..1. Only read when `flicker` is true. */
+  flickerIntensity?: number;
+  /** Wobble frequency, roughly in Hz. Only read when `flicker` is true. */
+  flickerSpeed?: number;
 }
 
 export interface DoorChild extends LayerChild {

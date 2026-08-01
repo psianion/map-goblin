@@ -118,6 +118,9 @@ export interface LightDefaults {
   featherRadius: number;
   intensity: number;
   falloff: 'linear' | 'quadratic';
+  flicker: boolean;
+  flickerIntensity: number;
+  flickerSpeed: number;
 }
 
 export type ToolType =

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 // The composite itself needs a GPU, so the browser gate owns "does it look right". What is
 // checkable here is which frames it runs on at all — so Pixi and the texture loader are
@@ -60,11 +60,20 @@ vi.mock('pixi.js', () => {
     RenderTexture: MockRenderTexture,
   };
 });
+// Mutable so a single test can simulate a mask texture's width changing mid-session —
+// a pack atlas resolves to a 1x1 placeholder until it finishes loading, then swaps in.
+let mockMaskWidth = 1;
 vi.mock('../../assets/textureLoader', () => ({
-  resolveTexture: () => ({ width: 1, height: 1 }),
+  resolveTexture: () => ({ width: mockMaskWidth, height: mockMaskWidth }),
 }));
 
-import { LightingRenderer, lightingSignature } from './LightingRenderer';
+// Mutable for the same reason: tests toggle the OS reduced-motion answer.
+let mockReducedMotion = false;
+vi.mock('../motion', () => ({
+  prefersReducedMotion: () => mockReducedMotion,
+}));
+
+import { LightingRenderer, lightingSignature, flickerFactor, cullLightsByDistance, MAX_RENDERED_LIGHTS } from './LightingRenderer';
 import { LightManager } from './LightManager';
 import type { RenderEngine } from '../RenderEngine';
 import type { LightChild } from '../../store/types';
@@ -100,7 +109,13 @@ const sig = (
   size: [number, number] = [1280, 720],
   ambient = '#0d0e12',
   isDirty: (id: string) => boolean = clean,
-) => lightingSignature(cam[0], cam[1], cam[2], size[0], size[1], ambient, lights, isDirty);
+  nowMs = 0,
+) => lightingSignature(cam[0], cam[1], cam[2], size[0], size[1], ambient, lights, isDirty, nowMs);
+
+beforeEach(() => {
+  mockMaskWidth = 1;
+  mockReducedMotion = false;
+});
 
 describe('lightingSignature', () => {
   it('is stable while nothing moves — the frame the guard skips', () => {
@@ -142,6 +157,93 @@ describe('lightingSignature', () => {
   it('does not confuse a moved light with a moved camera', () => {
     expect(sig([light({ position: { x: 13, y: 20 } })])).not.toBe(sig([light()], [101, 200, 1.5]));
   });
+
+  // A pack atlas resolves to a 1x1 placeholder until it finishes loading; the id alone
+  // never changes, so the width has to be what breaks the guard for a late arrival.
+  it('changes when a mask texture finishes loading (same id, resolved width changes)', () => {
+    const withMask = light({ maskTextureId: 'pack:brazier-mask' });
+    mockMaskWidth = 1;
+    const stillLoading = sig([withMask]);
+    mockMaskWidth = 64;
+    const loaded = sig([withMask]);
+    expect(loaded).not.toBe(stillLoading);
+  });
+
+  it('is stable across frames once the mask texture has settled', () => {
+    const withMask = light({ maskTextureId: 'pack:brazier-mask' });
+    mockMaskWidth = 64;
+    expect(sig([withMask])).toBe(sig([withMask]));
+  });
+
+  it('is unaffected by time for a light with flicker off', () => {
+    expect(sig([light()], undefined, undefined, undefined, undefined, 0)).toBe(
+      sig([light()], undefined, undefined, undefined, undefined, 5000),
+    );
+  });
+
+  it('changes over time for a flickering light', () => {
+    const flickering = light({ flicker: true });
+    expect(sig([flickering], undefined, undefined, undefined, undefined, 0)).not.toBe(
+      sig([flickering], undefined, undefined, undefined, undefined, 500),
+    );
+  });
+
+  it('stays put over time when reduced motion is set, even with flicker on', () => {
+    mockReducedMotion = true;
+    const flickering = light({ flicker: true });
+    expect(sig([flickering], undefined, undefined, undefined, undefined, 0)).toBe(
+      sig([flickering], undefined, undefined, undefined, undefined, 5000),
+    );
+  });
+});
+
+describe('flickerFactor', () => {
+  it('is exactly 1 when the light has flicker off', () => {
+    expect(flickerFactor(light(), 1234)).toBe(1);
+  });
+
+  it('is exactly 1 under reduced motion, regardless of time', () => {
+    mockReducedMotion = true;
+    expect(flickerFactor(light({ flicker: true }), 1234)).toBe(1);
+  });
+
+  it('wobbles within amplitude of the requested flickerIntensity', () => {
+    const amount = 0.4;
+    const flickering = light({ flicker: true, flickerIntensity: amount, flickerSpeed: 2 });
+    for (let t = 0; t < 5000; t += 137) {
+      const factor = flickerFactor(flickering, t);
+      expect(factor).toBeGreaterThanOrEqual(1 - amount - 1e-9);
+      expect(factor).toBeLessThanOrEqual(1 + amount + 1e-9);
+    }
+  });
+
+  it('gives two lights placed at the same moment different phases', () => {
+    const a = flickerFactor(light({ id: 'light-a', flicker: true }), 400);
+    const b = flickerFactor(light({ id: 'light-b', flicker: true }), 400);
+    expect(a).not.toBe(b);
+  });
+});
+
+describe('cullLightsByDistance', () => {
+  const at = (id: string, x: number): LightChild => light({ id, position: { x, y: 0 } });
+
+  it('is a no-op at or under the cap', () => {
+    const lights = [at('a', 0), at('b', 1)];
+    expect(cullLightsByDistance(lights, 0, 0, 5)).toHaveLength(2);
+  });
+
+  it('keeps only the nearest `cap` lights to the camera', () => {
+    const near = at('near', 1);
+    const mid = at('mid', 10);
+    const far = at('far', 100);
+    const kept = cullLightsByDistance([far, mid, near], 0, 0, 2);
+    expect(kept.map((l) => l.id).sort()).toEqual(['mid', 'near']);
+  });
+
+  it('the shipped cap is a small, deliberate number, not "however many fit"', () => {
+    expect(MAX_RENDERED_LIGHTS).toBeGreaterThan(0);
+    expect(MAX_RENDERED_LIGHTS).toBeLessThanOrEqual(64);
+  });
 });
 
 // ── The guard in place ──────────────────────────────────────────────────────
@@ -152,7 +254,7 @@ describe('lightingSignature', () => {
 type FakeTexture = { width: number; height: number; destroy: () => void };
 
 /** A renderer on a fake engine that records the texture every pass drew into. */
-function table() {
+function table(initialLights: LightChild[] = [light()]) {
   const overlay = {
     children: [] as { label: string }[],
     addChild(c: { label: string }) {
@@ -182,7 +284,7 @@ function table() {
   } as unknown as RenderEngine;
 
   const lights = new LightManager();
-  lights.syncFromStore([light()]);
+  lights.syncFromStore(initialLights);
   lights.rebuildIfDirty([]);
 
   const renderer = new LightingRenderer(engine, viewport.width, viewport.height);
@@ -251,6 +353,35 @@ describe('LightingRenderer composite guard', () => {
     t.lights.syncFromStore([light()]);
     t.frame();
     expect(t.drawnInto.length).toBeGreaterThan(dark);
+  });
+});
+
+// ── Light-count perf ─────────────────────────────────────────────────────────
+// Every light in a redrawn frame costs one renderToTexture into perLightRT plus one
+// composite blit into lightFBO — see the frame-cost note on MAX_RENDERED_LIGHTS. A frame
+// with N lights redrawing draws 2N+1 times (the +1 is the ambient fill); this pins that
+// count against the cap instead of the raw light count, which is the whole point of it.
+describe('LightingRenderer light-count perf', () => {
+  const manyLights = (n: number): LightChild[] =>
+    Array.from({ length: n }, (_, i) => light({ id: `light-${i}`, position: { x: i, y: 0 } }));
+
+  it('draws once per light, uncapped, under the budget', () => {
+    const n = 10;
+    const t = table(manyLights(n));
+    const settled = t.drawnInto.length;
+    t.lights.invalidateAll();
+    t.frame();
+    expect(t.drawnInto.length - settled).toBe(2 * n + 1);
+  });
+
+  it('caps the redraw cost at MAX_RENDERED_LIGHTS regardless of how many are placed', () => {
+    const n = MAX_RENDERED_LIGHTS + 40;
+    const t = table(manyLights(n));
+    const settled = t.drawnInto.length;
+    t.lights.invalidateAll();
+    t.frame();
+    // Not 2*n+1: however many are on the table, the redraw cost tops out at the cap.
+    expect(t.drawnInto.length - settled).toBe(2 * MAX_RENDERED_LIGHTS + 1);
   });
 });
 
