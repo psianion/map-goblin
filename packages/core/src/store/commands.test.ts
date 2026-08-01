@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from './store';
-import { PresetApplyCommand, PropertyCommand, ShapeStyleCommand } from './commands';
+import { PresetApplyCommand, PropertyCommand, SetAmbientLightCommand, ShapeStyleCommand } from './commands';
 import { DUNGEON_STYLE_PRESETS } from './presetRegistry';
 import { resolveStyle } from '../engine/styleResolver';
 import type { ShapeChild, WallSegment } from '../shared/types';
@@ -103,6 +103,26 @@ describe('PropertyCommand', () => {
 
     const updated = useStore.getState().layers.find((l) => l.id === layer.id);
     expect(updated?.visible).toBe(false);
+  });
+});
+
+describe('SetAmbientLightCommand', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+  });
+
+  it('execute sets the map ambient color', () => {
+    const before = useStore.getState().mapSettings.ambientLight;
+    new SetAmbientLightCommand(before, '#ff8800').execute();
+    expect(useStore.getState().mapSettings.ambientLight).toBe('#ff8800');
+  });
+
+  it('undo restores the previous ambient color', () => {
+    const before = useStore.getState().mapSettings.ambientLight;
+    const cmd = new SetAmbientLightCommand(before, '#ff8800');
+    cmd.execute();
+    cmd.undo();
+    expect(useStore.getState().mapSettings.ambientLight).toBe(before);
   });
 });
 

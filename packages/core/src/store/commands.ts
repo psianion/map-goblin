@@ -530,6 +530,29 @@ export class CloseAllDoorsCommand implements Command {
 }
 
 /**
+ * Command for the map's ambient light color. Routes through `setAmbientLight` like the
+ * live-drag preview does — undo/redo just replays it with the other color.
+ */
+export class SetAmbientLightCommand implements Command {
+  readonly label = 'Ambient color';
+  private readonly before: string;
+  private readonly after: string;
+
+  constructor(before: string, after: string) {
+    this.before = before;
+    this.after = after;
+  }
+
+  execute(): void {
+    useStore.getState().setAmbientLight(this.after);
+  }
+
+  undo(): void {
+    useStore.getState().setAmbientLight(this.before);
+  }
+}
+
+/**
  * Renames a detected room. The name lives in `roomNameOverrides`, which is
  * what survives re-detection, so undo just writes the previous name back.
  *
