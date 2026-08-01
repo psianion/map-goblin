@@ -11,7 +11,7 @@ import { prefersReducedMotion } from '../session/motion';
 /** Long enough to read as travel, short enough that nobody waits for it (PRODUCT §motion). */
 export const FRAME_MS = 200;
 /** The editor's own zoom ceiling, so the runner never parks somewhere canvas cannot. */
-const MAX_ZOOM = 100;
+export const MAX_ZOOM = 100;
 /** Under this a door mark is a few pixels wide — framing one has to be worth the trip. */
 const CLOSE_ZOOM = 28;
 
