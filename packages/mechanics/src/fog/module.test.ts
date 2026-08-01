@@ -4,7 +4,7 @@ import type { Viewer } from '../contract'
 import type { AuthoredDoor, DoorLiveState } from '../doors/types'
 import { fogModule } from './module'
 import type { FogState, SceneFog } from './types'
-import { defaultRoom, effectiveFog, visibleRooms, type FogRoom } from './visibility'
+import { blockedEdge, defaultRoom, effectiveFog, visibleRooms, type FogRoom } from './visibility'
 
 const DM: Viewer = { role: 'dm', identityId: 'dm-1' }
 const P1: Viewer = { role: 'player', identityId: 'p-1' }
@@ -419,5 +419,65 @@ describe('defaultRoom / effectiveFog (amendment 2026-07-28)', () => {
     const scene = effectiveFog(nothing, [HALL, VAULT], [])
     const shut = [{ id: 'd1', state: 'closed', isSecret: false, roomA: 'hall', roomB: 'vault' } as AuthoredDoor]
     expect([...visibleRooms(scene, {}, shut, [])]).toEqual(['vault'])
+  })
+})
+
+/**
+ * The edge fact the reachability BFS discards. `visibleRooms` answers "can the party get
+ * there"; this answers "what stopped them", which is what a move refusal needs to say
+ * something more useful than "you can't go there".
+ */
+describe('blockedEdge', () => {
+  const d = (over: Partial<AuthoredDoor> = {}): AuthoredDoor => ({
+    id: 'd1',
+    state: 'closed',
+    isSecret: false,
+    roomA: 'hall',
+    roomB: 'vault',
+    ...over,
+  })
+
+  it('names a locked door between the party and the room', () => {
+    expect(blockedEdge({}, [d({ state: 'locked' })], ['hall'], 'vault')).toBe('locked-door')
+  })
+
+  it('names a merely closed door as closed', () => {
+    expect(blockedEdge({}, [d()], ['hall'], 'vault')).toBe('closed-door')
+  })
+
+  it('prefers locked over closed when two doors join the same room', () => {
+    const graph = [d(), d({ id: 'd2', state: 'locked' })]
+    expect(blockedEdge({}, graph, ['hall'], 'vault')).toBe('locked-door')
+  })
+
+  it('reads the live overlay over the authored state', () => {
+    const live: Record<string, DoorLiveState> = {
+      d1: { open: false, locked: true, revealed: true },
+    }
+    expect(blockedEdge(live, [d()], ['hall'], 'vault')).toBe('locked-door')
+  })
+
+  it('explains nothing when the door is open — that room is reachable', () => {
+    expect(blockedEdge({}, [d({ state: 'open' })], ['hall'], 'vault')).toBeNull()
+  })
+
+  it('never names a secret door the party has not found', () => {
+    // A player probing a blank wall must not learn a door is there from the refusal.
+    expect(blockedEdge({}, [d({ isSecret: true, state: 'locked' })], ['hall'], 'vault')).toBeNull()
+  })
+
+  it('names a secret door once it has been revealed', () => {
+    const live: Record<string, DoorLiveState> = {
+      d1: { open: false, locked: true, revealed: true },
+    }
+    expect(blockedEdge(live, [d({ isSecret: true })], ['hall'], 'vault')).toBe('locked-door')
+  })
+
+  it('explains nothing for a room no door joins to the party', () => {
+    expect(blockedEdge({}, [d()], ['hall'], 'elsewhere')).toBeNull()
+  })
+
+  it('ignores a door with an unbound side', () => {
+    expect(blockedEdge({}, [d({ roomB: null })], ['hall'], 'vault')).toBeNull()
   })
 })

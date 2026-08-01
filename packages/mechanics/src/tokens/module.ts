@@ -17,7 +17,7 @@ import {
   SIZES,
   bad,
   bool,
-  canOccupy,
+  occupyRefusal,
   denied,
   num,
   obj,
@@ -205,7 +205,8 @@ function place(p: Payload, ctx: Ctx, visionOf: VisionOf): void {
     ownerId: null,
   }
   const at = { x: token.x, y: token.y }
-  if (!canOccupy(token, at, visionOf(sceneId), ctx.sender.role)) bad('that space cannot be occupied')
+  const refusal = occupyRefusal(token, at, visionOf(sceneId), ctx.sender.role)
+  if (refusal) bad(refusal)
   put(ctx, sceneId, token)
 }
 
@@ -215,7 +216,8 @@ function move(p: Payload, ctx: Ctx, visionOf: VisionOf): void {
     denied('you may only move a token you own')
   }
   const pos = { x: snap(num(p.x, 'x'), token.size), y: snap(num(p.y, 'y'), token.size) }
-  if (!canOccupy(token, pos, visionOf(sceneId), ctx.sender.role)) bad('that space cannot be occupied')
+  const refusal = occupyRefusal(token, pos, visionOf(sceneId), ctx.sender.role)
+  if (refusal) bad(refusal)
   put(ctx, sceneId, { ...token, ...pos })
 }
 

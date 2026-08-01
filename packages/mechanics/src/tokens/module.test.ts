@@ -2,13 +2,16 @@ import { describe, expect, it, vi } from 'vitest'
 
 // D10's fog seam: the stub is mocked so the tests can pin *that it is called* on every
 // place and move, which is the contract S3 will tighten. Everything else in validate.ts
-// stays real.
+// stays real. It is `occupyRefusal` rather than `canOccupy` because the refusal carries
+// the cause now — `canOccupy` is a thin boolean over the same call.
 const { canOccupySpy } = vi.hoisted(() => ({
-  canOccupySpy: vi.fn((_token: unknown, _pos: { x: number; y: number }, _state: unknown) => true),
+  canOccupySpy: vi.fn(
+    (_token: unknown, _pos: { x: number; y: number }, _state: unknown): string | null => null,
+  ),
 }))
 vi.mock('./validate', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./validate')>()),
-  canOccupy: canOccupySpy,
+  occupyRefusal: canOccupySpy,
 }))
 
 import type { Viewer } from '../contract'
@@ -274,8 +277,8 @@ describe('canOccupy seam (D10)', () => {
     expect(canOccupySpy).toHaveBeenCalledTimes(1)
   })
 
-  it('a false verdict refuses the move and leaves state alone', () => {
-    canOccupySpy.mockReturnValueOnce(false)
+  it('a refusal stops the move and leaves state alone', () => {
+    canOccupySpy.mockReturnValueOnce('move-blocked: that space cannot be occupied')
     const state = stateWith(token({ ownerId: 'p-1' }))
     const { error, next } = run(state, P1, 'move', { id: 't1', x: 9, y: 9 })
     expect(error?.code).toBe('invalid-command')

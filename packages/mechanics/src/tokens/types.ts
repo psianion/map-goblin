@@ -65,7 +65,30 @@ export interface SceneVision {
   readonly visible: ReadonlySet<string>
   /** Rooms a player token may stand in (D8): reachable, and not never-revealed. */
   readonly occupiable: ReadonlySet<string>
+  /**
+   * Which door shut `room` off from the party, when one did — `fog/visibility`'s
+   * `blockedEdge`, which the reachability BFS is in a position to answer and the
+   * `occupiable` boolean throws away.
+   *
+   * Optional because a caller that has not wired it still gets a correct refusal, just a
+   * coarser one: without it a blocked room reports as `MOVE_BLOCKED` rather than naming
+   * the locked door.
+   */
+  blockedEdge?(room: string): 'locked-door' | 'closed-door' | null
 }
+
+/**
+ * Why a space refused a token, as a stable prefix on the refusal message.
+ *
+ * The wire's `code` is `invalid-command` for every rejection, so — exactly as the doors
+ * module already does with `door-locked` — the discriminator is a constant at the head of
+ * the text. The sentence after it still reads as English and still contains "cannot be
+ * occupied", which is what the shipped client gates on, so an old client keeps working and
+ * a new one can match the prefix.
+ */
+export const MOVE_BLOCKED = 'move-blocked'
+export const ROOM_UNEXPLORED = 'room-unexplored'
+export const OUTSIDE_MAP = 'outside-map'
 
 /**
  * `null` = that scene's map authors no rooms. Fog is room-granular, so a map nobody zoned

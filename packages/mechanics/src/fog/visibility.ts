@@ -119,3 +119,47 @@ export function visibleRooms(
   for (const roomId of reached) if (revealed.has(roomId)) visible.add(roomId)
   return visible
 }
+
+/** Why a room the party cannot reach is shut off. `null` = no door edge explains it. */
+export type BlockedEdge = 'locked-door' | 'closed-door'
+
+/**
+ * The edge fact `visibleRooms` throws away: of the doors joining `room` to somewhere the
+ * party already stands, why none of them could be crossed.
+ *
+ * `visibleRooms` answers a boolean, and a refusal built on that boolean can only say "you
+ * can't go there". This says which door said no, so a move refusal can name it.
+ *
+ * A secret door the party has not found is deliberately NOT a cause. It reports as no
+ * explanation at all, so the refusal falls back to the generic line and a player probing a
+ * blank wall learns nothing from the wording — the same shrug `doorRefusal` gives an
+ * unknown door id.
+ *
+ * ponytail: adjacency only, one door deep. A room three locked doors away reports nothing
+ * and gets the generic refusal, which is the honest answer anyway — naming a door the
+ * player has never seen would leak the map. Widen to a path search only if a real case
+ * wants it.
+ */
+export function blockedEdge(
+  doors: Record<string, DoorLiveState>,
+  roomGraph: readonly AuthoredDoor[],
+  partyRoomIds: readonly string[],
+  room: string,
+): BlockedEdge | null {
+  const from = new Set(partyRoomIds)
+  let closed: BlockedEdge | null = null
+  for (const door of roomGraph) {
+    const { roomA: a, roomB: b } = door
+    if (!a || !b) continue
+    if (!((a === room && from.has(b)) || (b === room && from.has(a)))) continue
+
+    const live = doors[door.id] ?? seedDoor(door)
+    if (live.open) continue
+    // A door they do not know is there explains nothing they are allowed to hear.
+    if (door.isSecret && !live.revealed) continue
+    // Locked outranks merely closed: it is the one a player cannot fix by pushing.
+    if (live.locked) return 'locked-door'
+    closed = 'closed-door'
+  }
+  return closed
+}
