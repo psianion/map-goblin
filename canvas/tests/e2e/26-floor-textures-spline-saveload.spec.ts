@@ -214,24 +214,18 @@ test.describe('Floor Textures', () => {
 // ---------- Spline Path Tests ----------
 
 test.describe('Spline Paths', () => {
-  async function activateSplineTool(page: import('@playwright/test').Page): Promise<boolean> {
-    // Try toolbar button first (label set in Task 13)
-    const btn = page.getByRole('button', { name: /spline\s*(path)?/i })
-    if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await btn.click()
-      await waitFrame(page, 2)
-      return true
-    }
-    // Fallback: keyboard shortcut if registered
-    // (SplinePathTool may use a different key — check toolbar if test fails)
-    await page.keyboard.press('s')
+  /**
+   * Select the tool that draws paths.
+   *
+   * There is no SplinePathTool any more — the v2.0 store dropped
+   * `SplinePathRecord` and `DungeonLayer.paths`, and a path is now an ordinary
+   * shape child drawn by the path tool on 'a'. The rows below used to look for a
+   * "Spline" button, not find one, and skip themselves forever; pointed at the
+   * tool that replaced it they cover the same three things for real.
+   */
+  async function activatePathTool(page: import('@playwright/test').Page): Promise<void> {
+    await page.keyboard.press('a')
     await waitFrame(page, 2)
-
-    const active = await page.evaluate(() => {
-      const store = (window as StoreWindow).__store
-      return store?.getState().tools.activeTool ?? ''
-    })
-    return active.toLowerCase().includes('spline')
   }
 
   // A path is a `ShapeChild` with `shapeType: 'path'` and closed `contours`, not
@@ -284,25 +278,20 @@ test.describe('Spline Paths', () => {
     expect(typeof ring[0][1]).toBe('number')
   })
 
-  test('SplinePathTool activates in store', async ({ page }) => {
+  test('the path tool activates in store', async ({ page }) => {
     await gotoApp(page)
-
-    const activated = await activateSplineTool(page)
-    // If tool isn't in toolbar yet, skip gracefully
-    if (!activated) { test.skip(); return }
+    await activatePathTool(page)
 
     const active = await page.evaluate(() => {
       const store = (window as StoreWindow).__store
       return store?.getState().tools.activeTool ?? ''
     })
-    expect(active.toLowerCase()).toContain('spline')
+    expect(active).toBe('path')
   })
 
-  test('4 clicks + double-click creates a path with ≥4 control points', async ({ page }) => {
+  test('4 clicks + double-click commits a path', async ({ page }) => {
     await gotoApp(page)
-
-    const activated = await activateSplineTool(page)
-    if (!activated) { test.skip(); return }
+    await activatePathTool(page)
 
     const canvas = page.locator('canvas')
     const box = await canvas.boundingBox()
@@ -332,20 +321,18 @@ test.describe('Spline Paths', () => {
     const afterPaths = await getSplinePaths(page)
     expect(afterPaths.length).toBeGreaterThan(beforePaths.length)
 
-    const newPath = afterPaths[afterPaths.length - 1]
-    // SplinePathTool may consume the dblclick target point as a finalization signal (not a real
-    // control point), so the committed count can be less than the number of physical clicks.
-    // A minimum of 2 confirms the tool accepted clicks and committed a real path.
-    expect(newPath.controlPoints.length).toBeGreaterThanOrEqual(2)
+    // The double-click finalises rather than adding a vertex, so the committed
+    // corridor comes from the clicks before it.
+    const newPath = afterPaths[afterPaths.length - 1] as unknown as {
+      contours: [number, number][][]
+    }
+    expect(newPath.contours[0].length).toBeGreaterThanOrEqual(3)
   })
 
-  test('undo removes last spline path', async ({ page }) => {
+  test('undo removes the last path', async ({ page }) => {
     await gotoApp(page)
-
-    // Use the actual SplinePathTool so the path goes through CreatePathCommand + undoManager.
-    // Direct addPath() calls bypass undoManager and cannot be undone via Ctrl+Z.
-    const activated = await activateSplineTool(page)
-    if (!activated) { test.skip(); return }
+    // Drawn with the tool, so the path goes through AddChildCommand + undoManager.
+    await activatePathTool(page)
 
     const canvas = page.locator('canvas')
     const box = await canvas.boundingBox()
@@ -355,27 +342,20 @@ test.describe('Spline Paths', () => {
 
     const beforePaths = await getSplinePaths(page)
 
-    // Draw a 3-point spline and finalize with dblclick
+    // Draw a 3-point path and finalize
     for (const [px, py] of [[cx - 100, cy], [cx, cy - 60], [cx + 100, cy]]) {
       await firePointer(page, 'pointerdown', px, py, 0.5, 1)
       await firePointer(page, 'pointerup', px, py, 0, 0)
       await waitFrame(page, 3)
     }
-    // Send dblclick to finalize
-    await page.evaluate(([x, y]) => {
-      const canvas = document.querySelector('canvas')
-      if (!canvas) return
-      canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: x, clientY: y, bubbles: true, pointerId: 1, isPrimary: true, buttons: 1, detail: 2 }))
-      canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: x, clientY: y, bubbles: true, pointerId: 1, isPrimary: true, buttons: 0, detail: 2 }))
-      canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: x, clientY: y, bubbles: true, detail: 2 }))
-    }, [cx + 100, cy])
-    await page.waitForTimeout(200)
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(300)
     await waitFrame(page, 5)
 
     const afterDraw = await getSplinePaths(page)
-    if (afterDraw.length <= beforePaths.length) { test.skip(); return }
+    expect(afterDraw.length).toBeGreaterThan(beforePaths.length)
 
-    // Ctrl+Z should undo the CreatePathCommand
+    // Ctrl+Z should undo the AddChildCommand
     await pressShortcut(page, 'z', { ctrl: true })
     await waitFrame(page, 5)
 
