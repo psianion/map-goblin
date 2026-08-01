@@ -125,10 +125,12 @@ describe('HostSetup — the starting room', () => {
 
     // The scene id is the uploaded map's id: fog is stored per scene, and a scene is a map.
     await waitFor(() =>
-      expect(startSession).toHaveBeenCalledWith('c1', 'dm-token', {
-        sceneId: 'map-1',
-        roomId: 'r-vestibule',
-      }),
+      expect(startSession).toHaveBeenCalledWith(
+        'c1',
+        'dm-token',
+        { sceneId: 'map-1', roomId: 'r-vestibule' },
+        'map-1',
+      ),
     );
   });
 
@@ -138,8 +140,10 @@ describe('HostSetup — the starting room', () => {
 
     await startTable();
 
+    // No room, but still the scene: the table has to open on the map just uploaded even
+    // when the DM lights nothing in it, or a campaign with an older map opens on that one.
     await waitFor(() =>
-      expect(startSession).toHaveBeenCalledWith('c1', 'dm-token', undefined),
+      expect(startSession).toHaveBeenCalledWith('c1', 'dm-token', undefined, 'map-1'),
     );
   });
 

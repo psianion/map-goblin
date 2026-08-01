@@ -439,8 +439,12 @@ describe('the starting room the DM picks while setting up', () => {
     })
   })
 
-  /** …and with no pick at all, the table still opens on the map the DM uploaded last. */
-  it('falls back to the most recently uploaded map, not the campaign’s first', async () => {
+  /**
+   * …and with no room picked either, because the scene is the wizard's to name: the map
+   * order cannot answer it. Not a guess at "the newest map" — an in-session import must
+   * leave the table on the scene being played (D6).
+   */
+  it('opens on the scene the wizard names, with no starting room at all', async () => {
     await withServer(async ({ server, base, adminPass }) => {
       const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
       const campaignId = campaign.body.campaignId as string
@@ -452,12 +456,46 @@ describe('the starting room the DM picks while setting up', () => {
         raw: JSON.stringify(ROOMED),
       })
 
-      const started = await api(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId } })
+      const started = await api(base, 'POST', '/api/sessions', {
+        token: dmToken,
+        body: { campaignId, sceneId: newest.body.mapId },
+      })
       const joined = await api(base, 'POST', '/api/join', {
         body: { code: started.body.inviteCode as string, name: 'Bob' },
       })
       const { socket, state } = await joinSocket(server.port, joined.body.token as string)
       expect(state.state.activeSceneId).toBe(newest.body.mapId as string)
+      socket.terminate()
+    })
+  })
+
+  it('refuses a scene belonging to somebody else’s campaign', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const { campaignId, dmToken } = await readyToOpen(base, adminPass)
+      const bad = await api(base, 'POST', '/api/sessions', {
+        token: dmToken,
+        body: { campaignId, sceneId: 'not-a-map-here' },
+      })
+      expect(bad.status).toBe(400)
+      expect(server.stores.sessions.getActiveByCampaign(campaignId)).toBeUndefined()
+    })
+  })
+
+  /** An in-session import leaves the table where it is — the DM switches scenes on purpose. */
+  it('does not move the table onto a map uploaded after it opened', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const { campaignId, dmToken, mapId } = await readyToOpen(base, adminPass)
+      const started = await api(base, 'POST', '/api/sessions', {
+        token: dmToken,
+        body: { campaignId, sceneId: mapId },
+      })
+      await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, { token: dmToken, raw: JSON.stringify(ROOMED) })
+
+      const joined = await api(base, 'POST', '/api/join', {
+        body: { code: started.body.inviteCode as string, name: 'Bob' },
+      })
+      const { socket, state } = await joinSocket(server.port, joined.body.token as string)
+      expect(state.state.activeSceneId).toBe(mapId)
       socket.terminate()
     })
   })

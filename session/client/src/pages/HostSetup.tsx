@@ -73,10 +73,11 @@ export default function HostSetup() {
   const openTable = () =>
     run(async () => {
       if (!dm) return;
-      // A scene *is* a map: the id the upload handed back is the one fog is keyed by.
+      // A scene *is* a map: the id the upload handed back is the one fog is keyed by, and
+      // the one the table has to open on — a campaign may already hold others.
       const startingRoom =
         map && startRoomId ? { sceneId: map.mapId, roomId: startRoomId } : undefined;
-      const opened = await startSession(dm.campaignId, dm.token, startingRoom);
+      const opened = await startSession(dm.campaignId, dm.token, startingRoom, map?.mapId);
       setInviteCode(opened.inviteCode);
     });
 

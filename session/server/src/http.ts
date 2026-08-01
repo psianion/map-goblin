@@ -287,17 +287,26 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
     start = { sceneId, roomId }
   }
 
+  // Which map the table opens on. The wizard names it because it is the one it just
+  // uploaded, and the campaign's map order cannot be asked instead — an older map in the
+  // same campaign is just as plausibly first. A starting room already names one.
+  const scene = text(body.sceneId) ?? start?.sceneId ?? null
+  if (scene && !deps.stores.maps.listByCampaign(campaignId).some((map) => map.id === scene)) {
+    return json(res, 400, { error: `no scene '${scene}' in this campaign` })
+  }
+
   // createSession ends whatever was running; the table it replaced deserves to hear so.
   const replaced = deps.stores.sessions.getActiveByCampaign(campaignId)
   const session = startSession(deps.stores.sessions, campaignId)
   if (replaced) deps.sessionManager.endSession(replaced.id)
 
-  // The scene the DM revealed into is the scene the table opens on. Without this the reveal
-  // is stored against the map the wizard just uploaded while the snapshot falls back to the
-  // campaign's *first* map (see `scenes` in index.ts): on a campaign holding more than one
-  // map the two are different ids, so the fog panel reads a scene nothing was revealed in
-  // and the player joins to full black — with a 201 and no error anywhere to say so.
-  if (start) deps.stores.sessions.setActiveScene(session.id, start.sceneId)
+  // The scene the wizard set the table up with is the scene the table opens on. Without it
+  // the snapshot falls back to the campaign's *first* map (see `scenes` in index.ts), and on
+  // a campaign holding more than one that is not the map the DM just uploaded: the reveal
+  // was stored against theirs while the fog panel read a scene nothing had been revealed in,
+  // so the DM saw "Unrevealed" and the player joined to full black — with a 201 and no error
+  // on either half to say so.
+  if (scene) deps.stores.sessions.setActiveScene(session.id, scene)
 
   // Nobody can be at this table yet — the invite code is still in this function — so the
   // reveal lands before the first join rather than racing it, and the broadcast it would
