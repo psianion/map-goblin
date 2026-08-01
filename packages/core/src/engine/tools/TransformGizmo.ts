@@ -218,10 +218,13 @@ export class TransformGizmo {
       let newWidth = ob.width;
       let newHeight = ob.height;
 
-      if (this.dragHandle.includes('e')) newWidth = ob.width + dx;
-      if (this.dragHandle.includes('w')) newWidth = ob.width - dx;
-      if (this.dragHandle.includes('s')) newHeight = ob.height + dy;
-      if (this.dragHandle.includes('n')) newHeight = ob.height - dy;
+      // Alt grows the box about its centre, so the edge opposite the one being
+      // dragged moves out by the same amount — hence twice the delta.
+      const reach = modifiers.alt ? 2 : 1;
+      if (this.dragHandle.includes('e')) newWidth = ob.width + dx * reach;
+      if (this.dragHandle.includes('w')) newWidth = ob.width - dx * reach;
+      if (this.dragHandle.includes('s')) newHeight = ob.height + dy * reach;
+      if (this.dragHandle.includes('n')) newHeight = ob.height - dy * reach;
 
       // Constrain proportions on corner handles unless Shift held
       const isCorner = ['nw', 'ne', 'sw', 'se'].includes(this.dragHandle);
