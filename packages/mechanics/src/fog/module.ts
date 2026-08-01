@@ -7,6 +7,7 @@
 // the server backs with its map store — the same shape `scenesModule(stores)` uses.
 
 import type { GameModule, ModuleContext } from '../contract'
+import { actorOf, logged, type LogAction, type LogEntry } from '../log'
 import { ID_MAX, Reject, bad, bool, obj, oneOf, str } from '../tokens/validate'
 import {
   ROOM_FOG_STATUSES,
@@ -60,7 +61,17 @@ export function fogModule(roomsOf: SceneRooms): GameModule<FogState> {
         }
         byScene[sceneId] = { ...scene, rooms }
       }
-      return { ...state, byScene }
+      // Same rule as the rooms: a line about a room is readable exactly when the room is,
+      // so a reveal in a wing the party has never entered is not on this wire at all. A
+      // line naming no room (Reveal All, Hide All, reset) is the whole map changing under
+      // everyone at once — there is nothing in it a player cannot already see.
+      return {
+        ...state,
+        byScene,
+        log: state.log?.filter(
+          (e) => !e.targetId || byScene[e.sceneId]?.rooms[e.targetId] !== undefined,
+        ),
+      }
     },
   }
 }
@@ -69,24 +80,36 @@ function run(action: string, p: Payload, ctx: Ctx, roomsOf: SceneRooms): void {
   const sceneId = sceneOf(p, ctx)
   const scene = sceneFogOf(ctx.state, sceneId)
   switch (action) {
-    case 'reveal':
-      return setRooms(ctx, sceneId, scene, {
-        ...scene.rooms,
-        [roomId(p, ctx, sceneId, roomsOf)]: { status: 'revealed', wasEverRevealed: true },
-      })
+    case 'reveal': {
+      const id = roomId(p, ctx, sceneId, roomsOf)
+      return setRooms(
+        ctx,
+        sceneId,
+        scene,
+        { ...scene.rooms, [id]: { status: 'revealed', wasEverRevealed: true } },
+        { action: 'revealed-room', targetId: id },
+      )
+    }
     case 'hide': {
       const id = roomId(p, ctx, sceneId, roomsOf)
       if (!roomFogOf(scene, id).wasEverRevealed) bad('a room nobody has seen cannot be hidden')
-      return setRooms(ctx, sceneId, scene, {
-        ...scene.rooms,
-        [id]: { status: 're_hidden', wasEverRevealed: true },
-      })
+      return setRooms(
+        ctx,
+        sceneId,
+        scene,
+        { ...scene.rooms, [id]: { status: 're_hidden', wasEverRevealed: true } },
+        { action: 'hid-room', targetId: id },
+      )
     }
     case 'reset':
       // A true reset: the latch goes too, so the scene is indistinguishable from a fresh one.
-      return setRooms(ctx, sceneId, scene, {})
-    case 'set-bulk':
-      return setRooms(ctx, sceneId, scene, parseRooms(p.rooms, ctx, sceneId, roomsOf))
+      return setRooms(ctx, sceneId, scene, {}, { action: 'reset-fog' })
+    case 'set-bulk': {
+      const rooms = parseRooms(p.rooms, ctx, sceneId, roomsOf)
+      return setRooms(ctx, sceneId, scene, rooms, {
+        action: bulkAction(rooms, roomsOf(ctx.campaignId, sceneId).length),
+      })
+    }
     case 'set-conceal':
       return setScene(ctx, sceneId, {
         ...scene,
@@ -133,10 +156,34 @@ function parseRooms(
   return rooms
 }
 
-function setRooms(ctx: Ctx, sceneId: string, scene: SceneFog, rooms: Record<string, RoomFog>): void {
-  setScene(ctx, sceneId, { ...scene, rooms })
+/**
+ * Which of D9's two buttons this was. `set-bulk` is the wire form of Reveal All, Hide All
+ * *and* the undo that puts a mixture back, and only the result can tell them apart — the
+ * payload is the same shape for all three.
+ */
+function bulkAction(rooms: Record<string, RoomFog>, total: number): LogAction {
+  const lit = Object.values(rooms).filter((room) => room.status === 'revealed').length
+  if (lit === 0) return 'hid-all'
+  return lit === total ? 'revealed-all' : 'changed-fog'
 }
 
-function setScene(ctx: Ctx, sceneId: string, scene: SceneFog): void {
-  ctx.setState({ ...ctx.state, byScene: { ...ctx.state.byScene, [sceneId]: scene } })
+type Line = Omit<LogEntry, 'id' | 'at' | 'sceneId' | 'actor'>
+
+function setRooms(
+  ctx: Ctx,
+  sceneId: string,
+  scene: SceneFog,
+  rooms: Record<string, RoomFog>,
+  line: Line,
+): void {
+  setScene(ctx, sceneId, { ...scene, rooms }, line)
+}
+
+/** `line` omitted = a change the table has no business reading about (`set-conceal`). */
+function setScene(ctx: Ctx, sceneId: string, scene: SceneFog, line?: Line): void {
+  ctx.setState({
+    ...ctx.state,
+    byScene: { ...ctx.state.byScene, [sceneId]: scene },
+    log: line ? logged(ctx.state.log, { ...line, actor: actorOf(ctx), sceneId }) : ctx.state.log,
+  })
 }

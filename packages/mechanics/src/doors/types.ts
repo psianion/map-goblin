@@ -2,6 +2,8 @@
 // the table plays with — `byScene[sceneId][doorId]`, seeded from the authored data the
 // first time a command touches the scene, so an untouched campaign persists nothing.
 
+import type { Logged } from '../log'
+
 export interface DoorLiveState {
   open: boolean
   locked: boolean
@@ -9,7 +11,7 @@ export interface DoorLiveState {
   revealed: boolean
 }
 
-export interface DoorsState {
+export interface DoorsState extends Logged {
   byScene: Record<string, Record<string, DoorLiveState>>
 }
 

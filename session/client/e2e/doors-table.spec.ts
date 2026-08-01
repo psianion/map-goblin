@@ -326,4 +326,56 @@ test.describe.serial('@doors', () => {
       await player.waitForTimeout(1000)
     }
   })
+
+  /**
+   * §2.4.3 — the log is a per-seat feed, not a broadcast with a filter painted on at the
+   * far end. The row that matters is the negative one: a door in a wing the party has never
+   * walked into moves, and the player's log does not merely decline to name it — it does not
+   * grow. The name and the *count* both stay on the DM's side of the wire.
+   */
+  test('the log names what the table did, and only what a seat could see', async () => {
+    const held = await player
+      .getByTestId('door-list')
+      .locator('[data-door-id]')
+      .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-door-id')))
+
+    // An archway refuses every command by design (D2) and a locked door refuses the swing,
+    // so the unseen door is picked from what the fixture will actually let move.
+    let unseen: DoorChild | undefined
+    for (const door of doors) {
+      if (door.style === 'archway' || door.isSecret || held.includes(door.id)) continue
+      if ((await doorRow(dm, door.id).getAttribute('data-locked')) === 'false') {
+        unseen = door
+        break
+      }
+    }
+    expect(unseen, 'the fixture holds a door the party has not been given').toBeTruthy()
+
+    const playerLog = () => player.getByTestId('game-log').innerText()
+    const before = await playerLog()
+
+    await toggleDoor(dm, unseen!.id)
+    await expect(dm.getByTestId('game-log')).toContainText(`opened ${unseen!.name}`)
+    // Long enough for the frame that would have carried it, had one been sent.
+    await player.waitForTimeout(1000)
+    expect(await playerLog()).toBe(before)
+    expect(await playerLog()).not.toContain(unseen!.name!)
+    await toggleDoor(dm, unseen!.id)
+
+    // A door they do hold reaches both logs, named, with the seat that moved it in front.
+    await toggleDoor(dm, HALLWAY.id)
+    await expect(dm.getByTestId('game-log')).toContainText(`opened ${HALLWAY.name}`)
+    await expect(player.getByTestId('game-log')).toContainText(`opened ${HALLWAY.name}`)
+    await toggleDoor(dm, HALLWAY.id)
+    await expect(player.getByTestId('game-log')).toContainText(`closed ${HALLWAY.name}`)
+
+    // …and the fog moves write lines of their own, named from the same map.
+    const room = layer.rooms!.find((r) => r.id === HALLWAY.roomA)!
+    await armFog(dm)
+    const row = dm.getByTestId('fog-rooms').locator(`[data-room-id="${room.id}"]`)
+    await row.getByRole('button').click()
+    await expect(dm.getByTestId('game-log')).toContainText(`hid ${room.name}`)
+    await row.getByRole('button').click()
+    await expect(dm.getByTestId('game-log')).toContainText(`revealed ${room.name}`)
+  })
 })

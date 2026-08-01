@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
+import type { PlayerInfo } from '@dnd/core/src/shared/protocol'
 import type { Viewer } from '../contract'
 import type { AuthoredDoor, DoorLiveState } from '../doors/types'
 import { fogModule } from './module'
-import type { FogState, SceneFog } from './types'
+import type { FogState, RoomFogStatus, SceneFog } from './types'
 import { blockedEdge, defaultRoom, effectiveFog, visibleRooms, type FogRoom } from './visibility'
 
 const DM: Viewer = { role: 'dm', identityId: 'dm-1' }
@@ -504,5 +505,84 @@ describe('blockedEdge', () => {
 
   it('ignores a door with an unbound side', () => {
     expect(blockedEdge({}, [d({ roomB: null })], ['hall'], 'vault')).toBeNull()
+  })
+})
+
+describe('the table log (§2.4.3)', () => {
+  const ROSTER: PlayerInfo[] = [{ identityId: 'dm-1', name: 'Ilsa', role: 'dm', connected: true }]
+
+  /** `run`, but with a roster — the actor is stamped from it and never from the payload. */
+  function fire(state: FogState, action: string, payload: unknown): FogState {
+    let next = state
+    fog.handler(action, payload, {
+      campaignId: 'c-1',
+      sessionId: 's-1',
+      activeSceneId: SCENE,
+      sender: DM,
+      players: ROSTER,
+      state,
+      setState: (s) => {
+        next = s
+      },
+      broadcast: () => {},
+    })
+    return next
+  }
+
+  const line = (state: FogState) => state.log?.[state.log.length - 1]
+  const all = (status: RoomFogStatus) =>
+    Object.fromEntries(ROOMS.map((id) => [id, { status, wasEverRevealed: status !== 'never_revealed' }]))
+
+  it('records a room reveal and re-hide against the room id', () => {
+    const shown = fire(empty, 'reveal', { roomId: 'crypt' })
+    expect(line(shown)).toMatchObject({
+      actor: 'Ilsa',
+      action: 'revealed-room',
+      sceneId: SCENE,
+      targetId: 'crypt',
+    })
+    expect(line(fire(shown, 'hide', { roomId: 'crypt' }))).toMatchObject({
+      action: 'hid-room',
+      targetId: 'crypt',
+    })
+  })
+
+  // D9's two buttons and the undo behind them arrive as the same command; only the result
+  // tells them apart.
+  it('tells Reveal All, Hide All and a partial restore apart', () => {
+    expect(line(fire(empty, 'set-bulk', { rooms: all('revealed') }))?.action).toBe('revealed-all')
+    expect(line(fire(empty, 'set-bulk', { rooms: all('never_revealed') }))?.action).toBe('hid-all')
+    const mixed = { hall: { status: 'revealed', wasEverRevealed: true } }
+    expect(line(fire(empty, 'set-bulk', { rooms: mixed }))?.action).toBe('changed-fog')
+    expect(line(fire(empty, 'reset', {}))?.action).toBe('reset-fog')
+  })
+
+  it('says nothing about a setting the table cannot see', () => {
+    expect(fire(empty, 'set-conceal', { concealBehindDoors: false }).log ?? []).toEqual([])
+  })
+
+  describe('per-seat cut', () => {
+    const redact = fog.redact!
+
+    it('keeps a room line only for a seat that has seen the room', () => {
+      const state = fire(fire(empty, 'reveal', { roomId: 'crypt' }), 'hide', { roomId: 'crypt' })
+      expect(redact(state, P1).log?.map((e) => e.action)).toEqual(['revealed-room', 'hid-room'])
+      // A wing nobody walked into: the line, the room id and the count all stay behind.
+      const secret = fire(empty, 'reveal', { roomId: 'treasury' })
+      const reset = fire(secret, 'reset', {})
+      expect(redact(reset, P1).log?.filter((e) => e.targetId)).toEqual([])
+      expect(JSON.stringify(redact(reset, P1).log)).not.toContain('treasury')
+    })
+
+    it('keeps the whole-map lines, which every seat watched happen', () => {
+      const state = fire(empty, 'set-bulk', { rooms: all('never_revealed') })
+      expect(redact(state, P1).log?.map((e) => e.action)).toEqual(['hid-all'])
+    })
+
+    it('stays idempotent', () => {
+      const state = fire(empty, 'reveal', { roomId: 'hall' })
+      const once = redact(state, P1)
+      expect(redact(once, P1)).toEqual(once)
+    })
   })
 })

@@ -2,6 +2,8 @@
 // A room absent from the record is `never_revealed`, so a map that grows new rooms needs no
 // migration — and corridors are rooms like any other (D6), nothing here special-cases them.
 
+import type { Logged } from '../log'
+
 export type RoomFogStatus = 'never_revealed' | 'revealed' | 're_hidden'
 
 export const ROOM_FOG_STATUSES: readonly RoomFogStatus[] = [
@@ -23,7 +25,7 @@ export interface SceneFog {
   concealBehindDoors: boolean
 }
 
-export interface FogState {
+export interface FogState extends Logged {
   byScene: Record<string, SceneFog>
 }
 

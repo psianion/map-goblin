@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DoorChild } from '@dnd/core/src/shared/types'
+import type { PlayerInfo } from '@dnd/core/src/shared/protocol'
 import type { Viewer } from '../contract'
+import { MAX_LOG_ENTRIES } from '../log'
 import { doorsModule } from './module'
 import {
   DOOR_LOCKED,
@@ -310,6 +312,89 @@ describe('redact (D4)', () => {
     it('leaves the DM the whole scene and stays idempotent for a player', () => {
       expect(fogged('oak')(played, DM)).toBe(played)
       const once = fogged('oak')(played, P1)
+      expect(fogged('oak')(once, P1)).toEqual(once)
+    })
+  })
+})
+
+describe('the table log (§2.4.3)', () => {
+  const ROSTER: PlayerInfo[] = [
+    { identityId: 'dm-1', name: 'Ilsa', role: 'dm', connected: true },
+    { identityId: 'p-1', name: 'Borin', role: 'player', connected: true },
+  ]
+
+  /** `run`, but with a roster — the actor is stamped from it and never from the payload. */
+  function fire(state: DoorsState, sender: Viewer, action: string, payload: unknown) {
+    let next = state
+    doors.handler(action, payload, {
+      campaignId: 'c-1',
+      sessionId: 's-1',
+      activeSceneId: SCENE,
+      sender,
+      players: ROSTER,
+      state,
+      setState: (s) => {
+        next = s
+      },
+      broadcast: () => {},
+    })
+    return next
+  }
+
+  const line = (state: DoorsState) => state.log?.[state.log.length - 1]
+
+  it('records who did what to which door, by id', () => {
+    const opened = fire(empty, DM, 'toggle', { id: 'oak' })
+    expect(line(opened)).toMatchObject({
+      actor: 'Ilsa',
+      action: 'opened',
+      sceneId: SCENE,
+      targetId: 'oak',
+    })
+    expect(line(fire(opened, P1, 'toggle', { id: 'oak' }))).toMatchObject({
+      actor: 'Borin',
+      action: 'closed',
+    })
+  })
+
+  it('records the DM-only moves under their own verbs', () => {
+    expect(line(fire(empty, DM, 'lock', { id: 'oak' }))?.action).toBe('locked')
+    expect(line(fire(empty, DM, 'unlock', { id: 'iron' }))?.action).toBe('unlocked')
+    expect(line(fire(empty, DM, 'reveal-secret', { id: 'bookcase' }))?.action).toBe(
+      'revealed-secret',
+    )
+  })
+
+  it('never puts an authored name on the wire', () => {
+    expect(JSON.stringify(fire(empty, DM, 'toggle', { id: 'oak' }).log)).not.toContain('Oak Door')
+  })
+
+  it('refuses to grow without bound', () => {
+    let state = empty
+    for (let i = 0; i < MAX_LOG_ENTRIES + 10; i++) state = fire(state, DM, 'toggle', { id: 'oak' })
+    expect(state.log).toHaveLength(MAX_LOG_ENTRIES)
+  })
+
+  describe('per-seat cut', () => {
+    const fogged = (...ids: string[]) => doorsModule(() => AUTHORED, () => new Set(ids)).redact!
+
+    it('keeps a line only for a seat that holds the door it names', () => {
+      const state = fire(fire(empty, DM, 'toggle', { id: 'oak' }), DM, 'lock', { id: 'iron' })
+      expect(fogged('oak')(state, P1).log?.map((e) => e.targetId)).toEqual(['oak'])
+      expect(fogged()(state, P1).log).toEqual([])
+      expect(fogged('oak')(state, DM).log).toHaveLength(2)
+    })
+
+    it('withholds a secret reveal until the seat holds the door', () => {
+      const state = fire(empty, DM, 'reveal-secret', { id: 'bookcase' })
+      // The room is unexplored: the reveal is not merely nameless, it is absent.
+      expect(fogged()(state, P1).log).toEqual([])
+      expect(fogged('bookcase')(state, P1).log?.[0]).toMatchObject({ action: 'revealed-secret' })
+    })
+
+    it('stays idempotent', () => {
+      const state = fire(empty, DM, 'toggle', { id: 'oak' })
+      const once = fogged('oak')(state, P1)
       expect(fogged('oak')(once, P1)).toEqual(once)
     })
   })
