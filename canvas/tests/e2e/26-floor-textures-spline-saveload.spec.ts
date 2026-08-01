@@ -234,48 +234,54 @@ test.describe('Spline Paths', () => {
     return active.toLowerCase().includes('spline')
   }
 
-  test('SplinePathRecord schema: controlPoints is [number,number][], has closed field', async ({ page }) => {
+  // A path is a `ShapeChild` with `shapeType: 'path'` and closed `contours`, not
+  // the old `SplinePathRecord` with `controlPoints` / `closed`: that record type
+  // and `DungeonLayer.paths` went away with the v2.0 store (see splineRenderer's
+  // stubs). This drew nothing before, because it called an `addPath` action that
+  // no longer exists through an optional-call that swallowed its absence — so it
+  // asserted a schema on a layer that never got a path. It now draws one with the
+  // real path tool and checks the shape that actually reaches a save file.
+  test('a committed path is a shape child with numeric contour rings', async ({ page }) => {
     await gotoApp(page)
 
-    // Inject a path directly to verify schema
-    const layerId = await page.evaluate(() => {
-      const store = (window as StoreWindow).__store
-      if (!store) return null
-      return (store.getState().layers.find((l) => l.type === 'dungeon') as DungeonLayer | undefined)?.id ?? null
-    })
-    if (!layerId) { test.skip(); return }
+    const canvas = page.locator('canvas')
+    const box = await canvas.boundingBox()
+    expect(box).not.toBeNull()
+    const cx = box!.x + box!.width / 2
+    const cy = box!.y + box!.height / 2
 
-    await page.evaluate((lid) => {
-      const store = (window as StoreWindow).__store
-      if (!store) return
-      const state = store.getState()
-      const addPath = (state as unknown as Record<string, unknown>).addPath as
-        | ((layerId: string, path: SplinePathRecord) => void)
-        | undefined
-      addPath?.(lid, {
-        id: crypto.randomUUID(),
-        controlPoints: [[100, 100], [200, 80], [300, 120], [400, 100]],
-        closed: false,
-        textureScale: 1.0,
-        textureTint: '#ffffff',
-        edgeSoftening: false,
-        edgeSofteningWidth: 0.5,
-      } as SplinePathRecord & { textureScale: number; textureTint: string; edgeSoftening: boolean; edgeSofteningWidth: number })
-    }, layerId)
-    await waitFrame(page, 3)
+    await page.keyboard.press('a')
+    await waitFrame(page, 2)
+
+    for (const [px, py] of [
+      [cx - 120, cy],
+      [cx, cy - 60],
+      [cx + 120, cy],
+    ]) {
+      await firePointer(page, 'pointerdown', px, py, 0.5, 1)
+      await firePointer(page, 'pointerup', px, py, 0, 0)
+      await waitFrame(page, 2)
+    }
+    await page.keyboard.press('Enter')
+    await page.waitForTimeout(300)
+    await waitFrame(page, 5)
 
     const paths = await getSplinePaths(page)
     expect(paths.length).toBeGreaterThan(0)
 
-    const path = paths[paths.length - 1]
-    // controlPoints must be [number, number][] tuples
-    expect(Array.isArray(path.controlPoints)).toBe(true)
-    expect(path.controlPoints.length).toBe(4)
-    expect(Array.isArray(path.controlPoints[0])).toBe(true)
-    expect(typeof path.controlPoints[0][0]).toBe('number')
-    expect(typeof path.controlPoints[0][1]).toBe('number')
-    // closed field must exist
-    expect(typeof path.closed).toBe('boolean')
+    const path = paths[paths.length - 1] as unknown as {
+      shapeType: string
+      contours: [number, number][][]
+    }
+    expect(path.shapeType).toBe('path')
+    expect(Array.isArray(path.contours)).toBe(true)
+    expect(path.contours.length).toBeGreaterThan(0)
+    const ring = path.contours[0]
+    expect(Array.isArray(ring)).toBe(true)
+    // A corridor offset from a polyline is a closed ring, so at least a triangle.
+    expect(ring.length).toBeGreaterThanOrEqual(3)
+    expect(typeof ring[0][0]).toBe('number')
+    expect(typeof ring[0][1]).toBe('number')
   })
 
   test('SplinePathTool activates in store', async ({ page }) => {

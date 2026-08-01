@@ -91,6 +91,15 @@ test.describe('Asset Browser Panel', () => {
     await page.getByRole('button', { name: /assets/i }).click()
     await waitFrame(page, 2)
 
+    // The category sub-tabs only list the categories that survive the type
+    // filter above them, and that filter starts on whatever the active tool
+    // implies — not on "All". Picking `categories[0]` out of the store and
+    // clicking it therefore waited forever on a Wall tab that the Floor filter
+    // was never going to render. Switch to All first, the way a user browsing
+    // everything would.
+    await page.getByRole('button', { name: 'All', exact: true }).click()
+    await waitFrame(page, 2)
+
     // Get manifest from store to find real category IDs
     const categories = await page.evaluate(() => {
       const store = (window as { __store?: { getState: () => { assets: { manifest: { categories: Array<{ label: string }> } | null } } } }).__store
@@ -100,7 +109,7 @@ test.describe('Asset Browser Panel', () => {
     if (categories.length > 0) {
       // Click first real category tab
       const firstLabel = categories[0].label
-      await page.getByRole('button', { name: firstLabel }).click()
+      await page.getByRole('button', { name: firstLabel, exact: true }).click()
       await waitFrame(page, 2)
 
       // Panel still visible (no crash)

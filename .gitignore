@@ -2,6 +2,8 @@ node_modules
 dist
 test-results
 *.png
+# …except the tiny image fixtures the e2e suite feeds to the import pipeline.
+!canvas/tests/e2e/fixtures/*.png
 test-screenshots
 .playwright-mcp
 .superpowers

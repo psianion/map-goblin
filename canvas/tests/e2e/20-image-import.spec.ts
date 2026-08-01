@@ -182,9 +182,23 @@ test.describe('Image Import', () => {
     expect(objectsAfter.length).toBe(objectsBefore.length)
   })
 
-  test('import with wrong active layer (dungeon) shows toast and places nothing', async ({ page }) => {
+  test('import with a non-dungeon layer active shows a toast and places nothing', async ({ page }) => {
     await gotoApp(page)
-    // Do NOT add images layer — default dungeon layer is active
+    // The dungeon layer is the *right* target now, so make the background layer
+    // active to be the wrong one. This row used to leave the dungeon layer
+    // selected and passed only because imports were broken for every layer.
+    await page.evaluate(() => {
+      const store = (window as {
+        __store?: {
+          getState: () => { layers: Array<{ id: string; type: string }>; setActiveLayerId: (id: string) => void }
+        }
+      }).__store
+      if (!store) return
+      const state = store.getState()
+      const other = state.layers.find((l) => l.type !== 'dungeon')
+      if (other) state.setActiveLayerId(other.id)
+    })
+    await waitFrame(page, 3)
 
     const objectsBefore = await getPlacedObjects(page)
 
