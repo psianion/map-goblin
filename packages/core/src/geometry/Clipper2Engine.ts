@@ -29,12 +29,19 @@ function getClipper(): MainModule {
   return _clipper;
 }
 
-/** Convert our Polygon[] to Clipper2 PathsD. Caller must delete() the result. */
-function toPathsD(polygons: Polygon[]): PathsD {
+/**
+ * Convert our Polygon[] to Clipper2 PathsD. Caller must delete() the result.
+ *
+ * `minPoints` is 3 for the closed-ring operations, where anything shorter is a
+ * degenerate zero-area ring. Open polylines are the exception and must pass 2:
+ * a straight two-click path is the ordinary case for the path and water tools,
+ * and dropping it here is why they silently drew nothing.
+ */
+function toPathsD(polygons: Polygon[], minPoints = 3): PathsD {
   const C = getClipper();
   const paths = new C.PathsD();
   for (const poly of polygons) {
-    if (poly.length < 3) continue;
+    if (poly.length < minPoints) continue;
     const flat: number[] = [];
     for (const [x, y] of poly) {
       flat.push(x, y);
@@ -127,7 +134,7 @@ class Clipper2EngineImpl {
   inflateOpen(paths: Polygon[], delta: number): Polygon[] {
     if (!_clipper) return paths;
     const C = _clipper;
-    const input = toPathsD(paths);
+    const input = toPathsD(paths, 2);
     const result = C.InflatePathsD(
       input, delta,
       C.JoinType.Round, C.EndType.Round,

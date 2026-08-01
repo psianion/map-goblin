@@ -3,6 +3,11 @@ import { gotoApp, firePointer, waitFrame, shapeCount } from './helpers';
 
 // 'a' is the path tool — 'd' is the door tool.
 test.describe('09 - Path Tool', () => {
+  // This row was long dead: it pressed 'd' (the DOOR tool) and then only asserted the
+  // canvas was still visible, so it passed without ever drawing a path. Pointed at the
+  // real tool it failed, and not for a synthetic-event reason — `toPathsD` dropped every
+  // polyline shorter than three points, so a two-click path offset to nothing and no
+  // shape was ever committed. See Clipper2Engine.toPathsD.
   test('click segments then Enter to finalize path', async ({ page }) => {
     await gotoApp(page);
     await page.keyboard.press('a');
