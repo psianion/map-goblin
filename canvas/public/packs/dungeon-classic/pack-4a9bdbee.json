@@ -1,6 +1,6 @@
 {
   "name": "dungeon-classic",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Foundation pack — classic dungeon tileset. Ships with map-builder as the zero-install experience.",
   "theme": [
     "dungeon",

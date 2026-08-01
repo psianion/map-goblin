@@ -13,6 +13,28 @@ const FETCH_CONCURRENCY = 8;
 const BUNDLED_PACK_PATH = '/packs/dungeon-classic/pack-4a9bdbee.json';
 
 /**
+ * A manifest's content, as one comparable string: its version, every entry id, and
+ * every atlas/file checksum.
+ *
+ * Version-and-entry-count was the old staleness test and it is not enough. Swapping
+ * the art behind an existing entry — same id, same file name, new bytes — moves
+ * neither number, so every browser that had already installed the pack kept serving
+ * the old blob out of IndexedDB forever, and only a profile wipe fixed it. The file
+ * checksums are already in the manifest and they move whenever the bytes do, so
+ * folding them in makes any future art swap invalidate on its own.
+ *
+ * Sorted, because object key order is not a contract.
+ */
+function contentKey(manifest: PackManifest): string {
+  const entries = Object.keys(manifest.entries).sort().join(',');
+  const files = [...Object.entries(manifest.atlases), ...Object.entries(manifest.files)]
+    .map(([name, ref]) => `${name}@${ref.checksum}`)
+    .sort()
+    .join(',');
+  return `${manifest.version}|${entries}|${files}`;
+}
+
+/**
  * Check if the bundled pack needs to be installed and install it if so.
  * Called after rehydrate() during boot.
  *
@@ -40,19 +62,26 @@ export async function ensureBundledPack(packManager: AssetPackManager): Promise<
     return false;
   }
 
-  // Installed and matching the bundled manifest — nothing to do. Compared on
-  // version AND entry count so a content update ships even if a version bump
-  // was forgotten.
+  // Installed and byte-for-byte the bundled content — nothing to do. Compared on
+  // the full content key, not version and entry count, so an art swap that forgot
+  // a version bump still ships. The installed manifest is the one already in
+  // IndexedDB, put back into the cache by rehydrate; hashing that is why no extra
+  // field has to be persisted alongside the install.
   const bundledEntryCount = Object.keys(manifest.entries).length;
-  if (current && current.version === manifest.version && current.entryCount === bundledEntryCount) {
+  const installedManifest = packManager
+    .getPackManifests()
+    .find((p) => p.packId === BUNDLED_PACK_ID)?.manifest;
+  if (current && installedManifest && contentKey(installedManifest) === contentKey(manifest)) {
     return false;
   }
 
   // Outdated copy: drop it so the reinstall below starts clean — no stale
   // textures lingering under keys the new manifest no longer declares.
   if (current) {
+    // A copy with no cached manifest predates this check; reinstalling once is
+    // the cheap way to get it onto a known content key.
     console.info(
-      `[firstBootInstall] Bundled pack outdated (installed ${current.version}/${current.entryCount} entries, bundled ${manifest.version}/${bundledEntryCount}) — reinstalling`,
+      `[firstBootInstall] Bundled pack outdated (installed ${current.version}/${current.entryCount} entries, bundled ${manifest.version}/${bundledEntryCount}${installedManifest ? '' : ', no cached manifest'}) — reinstalling`,
     );
     await packManager.uninstallPack(BUNDLED_PACK_ID);
   }
