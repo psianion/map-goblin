@@ -49,7 +49,7 @@ export function SessionControls() {
     }
   };
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- one fetch, on mount only.
+  // One fetch, on mount only — every mutation below refetches itself via `run`.
   useEffect(() => void refresh(), []);
 
   /** Every mutating call is the same three lines around the request that differs. */
