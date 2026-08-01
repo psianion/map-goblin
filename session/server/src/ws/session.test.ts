@@ -427,12 +427,19 @@ describe('module contract v2 (§2.2)', () => {
 })
 
 describe('scenes module (D6)', () => {
-  /** A campaign needs maps before it has scenes to switch between. */
+  /**
+   * A campaign needs scenes before it has scenes to switch between. #47 — a scene is its
+   * own row now; these are seeded visible-to-players too, because the snapshot a `Late`
+   * joiner gets below is read as the *player* role it defaults to (D5 would otherwise hide
+   * a freshly-seeded scene from exactly the assertion checking it arrived).
+   */
   function seedMaps(server: RunningServer, session: string, count: number): string[] {
     const campaignId = table(server, session).campaign_id
     return Array.from({ length: count }, (_, i) => {
       const id = `${session}-map-${i}`
       server.stores.maps.insert(id, campaignId, `Map ${i}`, '{}')
+      server.stores.scenes.create(id, campaignId, id, `Map ${i}`)
+      server.stores.scenes.setVisibleToPlayers(id, true)
       return id
     })
   }
@@ -464,6 +471,7 @@ describe('scenes module (D6)', () => {
       const [mine] = seedMaps(server, 'SR', 1)
       const elsewhere = server.stores.campaigns.create('Someone else')
       server.stores.maps.insert('their-map', elsewhere.id, 'Theirs', '{}')
+      server.stores.scenes.create('their-map', elsewhere.id, 'their-map', 'Theirs')
       const [dm, player] = await joinedPair(server, 'SR')
 
       sendCommand(dm, 'scenes', 'activate', { sceneId: 'their-map' })

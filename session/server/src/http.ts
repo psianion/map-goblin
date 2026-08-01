@@ -67,16 +67,22 @@ export function createRequestHandler(deps: HttpDeps) {
 }
 
 async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const path = new URL(req.url ?? '/', 'http://localhost').pathname
-  const [api, resource, id, sub] = path.split('/').filter(Boolean)
+  const [api, resource, id, sub, sub2] = new URL(req.url ?? '/', 'http://localhost').pathname
+    .split('/')
+    .filter(Boolean)
   const method = req.method ?? 'GET'
   if (api !== 'api') return json(res, 404, { error: 'not found' })
 
+  if (method === 'GET' && resource === 'campaigns' && !id) return listCampaigns(deps, req, res)
   if (method === 'POST' && resource === 'campaigns' && !id) return createCampaign(deps, req, res)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'maps')
     return uploadMap(deps, req, res, id)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'assets')
     return uploadAsset(deps, req, res, id)
+  if (method === 'PUT' && resource === 'campaigns' && id && sub === 'scenes' && sub2 === 'order')
+    return reorderScenes(deps, req, res, id)
+  if (method === 'GET' && resource === 'campaigns' && id && sub === 'scenes' && !sub2)
+    return listScenes(deps, req, res, id)
   if (method === 'GET' && resource === 'maps' && id && !sub) return getMap(deps, req, res, id)
   if (method === 'GET' && resource === 'assets' && id && !sub) return getAsset(deps, req, res, id)
   if (method === 'GET' && resource === 'resolve' && id) return resolveCode(deps, req, res, id)
@@ -86,11 +92,37 @@ async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse)
     return banIdentity(deps, req, res, id)
   if (resource === 'sessions' && id && (method === 'DELETE' || (method === 'POST' && sub === 'end')))
     return closeSession(deps, req, res, id)
+  if (method === 'PUT' && resource === 'scenes' && id && sub === 'publish')
+    return publishScene(deps, req, res, id)
+  if (method === 'PATCH' && resource === 'scenes' && id && !sub) return patchScene(deps, req, res, id)
+  if (method === 'DELETE' && resource === 'scenes' && id && !sub) return deleteScene(deps, req, res, id)
 
   return json(res, 404, { error: 'not found' })
 }
 
 // ─── Routes ───────────────────────────────────────────────
+
+/**
+ * GET /api/campaigns — admin pass in, every campaign on this server out (#47 D3).
+ *
+ * There is no per-DM account in this auth model (D6: admin pass / invite code / session
+ * token, and a DM token is minted once per campaign and never lists anything). The admin
+ * pass is the one credential that already means "whoever can create a campaign here" —
+ * the same gate `createCampaign` uses — so it is also the one that means "whoever may
+ * come back and see what they created". A self-hosted table has exactly one such person.
+ */
+function listCampaigns(deps: HttpDeps, req: IncomingMessage, res: ServerResponse): void {
+  if (!isAdminPass(deps.stores.passes, credential(req))) {
+    return json(res, 401, { error: 'invalid admin pass' })
+  }
+  const campaigns = deps.stores.campaigns.list().map((c) => ({
+    id: c.id,
+    name: c.name,
+    createdAt: c.created_at,
+    updatedAt: c.updated_at,
+  }))
+  json(res, 200, { campaigns })
+}
 
 /** POST /api/campaigns — admin pass in, campaign + DM session token out. */
 async function createCampaign(deps: HttpDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -109,7 +141,15 @@ async function createCampaign(deps: HttpDeps, req: IncomingMessage, res: ServerR
   })
 }
 
-/** POST /api/campaigns/:id/maps — the raw `.mapbuilder` JSON, ≤ 20MB (D7). */
+/**
+ * POST /api/campaigns/:id/maps — the raw `.mapbuilder` JSON, ≤ 20MB (D7).
+ *
+ * #47 — upload doubles as first publish: it mints the map row *and* the scene that
+ * renders it, with the scene's id set to the map's own. That keeps the wizard's "upload
+ * a file, get something you can open the table on" flow exactly as it was; re-publishing
+ * an *existing* scene from a new file is a different, explicit call (`publishScene`)
+ * because that is the one that has to preserve a scene's id rather than mint one.
+ */
 async function uploadMap(
   deps: HttpDeps,
   req: IncomingMessage,
@@ -135,8 +175,161 @@ async function uploadMap(
 
   // Stored verbatim: the bytes the editor wrote are the bytes the renderer gets back.
   const row = deps.stores.maps.insert(randomUUID(), campaignId, map.name, text)
+  const scene = deps.stores.scenes.create(row.id, campaignId, row.id, map.name)
   deps.stores.campaigns.touch(campaignId)
-  json(res, 201, { mapId: row.id, name: row.name, sizeBytes: row.size_bytes })
+  json(res, 201, {
+    mapId: row.id,
+    sceneId: scene.id,
+    name: row.name,
+    sizeBytes: row.size_bytes,
+  })
+}
+
+/** GET /api/campaigns/:id/scenes — the DM's own full library, in drag order (#47). */
+function listScenes(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, campaignId: string): void {
+  if (!requireSession(deps, req, res, { campaignId, role: 'dm' })) return
+  const scenes = deps.stores.scenes.listByCampaign(campaignId).map((scene) => ({
+    id: scene.id,
+    name: scene.name,
+    sortIndex: scene.sort_index,
+    visibleToPlayers: scene.visible_to_players === 1,
+    mapId: scene.map_id,
+    updatedAt: scene.updated_at,
+  }))
+  json(res, 200, { scenes })
+}
+
+/** PUT /api/campaigns/:id/scenes/order — `{order: [sceneId, ...]}`, every scene once (#47 D4). */
+async function reorderScenes(
+  deps: HttpDeps,
+  req: IncomingMessage,
+  res: ServerResponse,
+  campaignId: string,
+): Promise<void> {
+  if (!requireSession(deps, req, res, { campaignId, role: 'dm' })) return
+  const body = await readJson(req, res)
+  if (!body) return
+
+  const order = Array.isArray(body.order) ? body.order : null
+  if (!order || !order.every((id): id is string => typeof id === 'string')) {
+    return json(res, 400, { error: 'order must be an array of scene ids' })
+  }
+  const owned = deps.stores.scenes.listByCampaign(campaignId).map((s) => s.id)
+  // Every scene named once, nothing left out and nothing foreign — a partial list would
+  // leave the missing scenes with whatever sort_index they last had, silently interleaved.
+  if (order.length !== owned.length || new Set(order).size !== owned.length) {
+    return json(res, 400, { error: 'order must name every scene in this campaign exactly once' })
+  }
+  const known = new Set(owned)
+  if (!order.every((id) => known.has(id))) {
+    return json(res, 400, { error: 'order names a scene from another campaign' })
+  }
+
+  deps.stores.scenes.reorder(order)
+  json(res, 200, { order })
+}
+
+/**
+ * PATCH /api/scenes/:id — rename and/or the D5 visibility flag, DM only.
+ *
+ * Authentication first, existence second (as `closeSession`/`banIdentity` do): a scene
+ * that belongs to someone else's campaign answers exactly like one that does not exist,
+ * so probing scene ids cannot tell the two apart.
+ */
+async function patchScene(
+  deps: HttpDeps,
+  req: IncomingMessage,
+  res: ServerResponse,
+  sceneId: string,
+): Promise<void> {
+  const identity = requireSession(deps, req, res)
+  if (!identity) return
+  const scene = deps.stores.scenes.get(sceneId)
+  if (!scene || scene.campaign_id !== identity.campaign_id) {
+    return json(res, 404, { error: 'no such scene' })
+  }
+  if (identity.role !== 'dm') return json(res, 403, { error: 'dm only' })
+
+  const body = await readJson(req, res)
+  if (!body) return
+  if (body.name === undefined && body.visibleToPlayers === undefined) {
+    return json(res, 400, { error: 'patch needs a name and/or visibleToPlayers' })
+  }
+
+  const name = text(body.name)
+  if (body.name !== undefined) {
+    if (!name) return json(res, 400, { error: 'name cannot be blank' })
+    deps.stores.scenes.rename(sceneId, name)
+  }
+  if (body.visibleToPlayers !== undefined) {
+    if (typeof body.visibleToPlayers !== 'boolean') {
+      return json(res, 400, { error: 'visibleToPlayers must be a boolean' })
+    }
+    deps.stores.scenes.setVisibleToPlayers(sceneId, body.visibleToPlayers)
+  }
+  const updated = deps.stores.scenes.get(sceneId)!
+  json(res, 200, {
+    id: updated.id,
+    name: updated.name,
+    visibleToPlayers: updated.visible_to_players === 1,
+  })
+}
+
+/**
+ * PUT /api/scenes/:id/publish — re-publish (#47 D1). A fresh `.mapbuilder` upload, same
+ * shape as `uploadMap`, but repoints an *existing* scene's `map_id` instead of minting a
+ * new scene — which is the whole fix: fog, tokens and doors are keyed on the scene's id,
+ * never its map, so nothing tied to this scene moves when its map does.
+ */
+async function publishScene(
+  deps: HttpDeps,
+  req: IncomingMessage,
+  res: ServerResponse,
+  sceneId: string,
+): Promise<void> {
+  const identity = requireSession(deps, req, res)
+  if (!identity) return
+  const scene = deps.stores.scenes.get(sceneId)
+  if (!scene || scene.campaign_id !== identity.campaign_id) {
+    return json(res, 404, { error: 'no such scene' })
+  }
+  if (identity.role !== 'dm') return json(res, 403, { error: 'dm only' })
+
+  const body = await readBody(req, MAX_MAP_BYTES)
+  if (!body.ok) return failBody(req, res, body)
+
+  const raw = unwrapMapFile(body.bytes, MAX_MAP_JSON_BYTES)
+  if (raw === null) return json(res, 400, { error: 'could not read that .mapbuilder file' })
+  const map = parseMapFile(raw)
+  if (!map.ok) return json(res, 400, { error: map.error })
+
+  const row = deps.stores.maps.insert(randomUUID(), scene.campaign_id, map.name, raw)
+  deps.stores.scenes.republish(sceneId, row.id)
+  // The cached geometry `sceneMapOf`/`vision` hold for this id was read off the map row
+  // this scene *used* to point at — without this a republish would answer fog, doors and
+  // the player's own map GET with the scene's old geometry until something else evicted it.
+  deps.vision.invalidateScene(sceneId)
+  deps.stores.campaigns.touch(scene.campaign_id)
+  json(res, 200, { sceneId, mapId: row.id, name: row.name, sizeBytes: row.size_bytes })
+}
+
+/** DELETE /api/scenes/:id — DM only. */
+function deleteScene(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, sceneId: string): void {
+  const identity = requireSession(deps, req, res)
+  if (!identity) return
+  const scene = deps.stores.scenes.get(sceneId)
+  if (!scene || scene.campaign_id !== identity.campaign_id) {
+    return json(res, 404, { error: 'no such scene' })
+  }
+  if (identity.role !== 'dm') return json(res, 403, { error: 'dm only' })
+
+  deps.stores.scenes.delete(sceneId)
+  // A session that had this scene active does not keep pointing at a scene that no longer
+  // exists — `scenesModule`/`sceneMapOf` would both refuse it anyway, but a live table is
+  // better told than left silently stuck.
+  deps.stores.sessions.clearActiveScene(sceneId)
+  deps.vision.invalidateScene(sceneId)
+  json(res, 200, { sceneId, deleted: true })
 }
 
 /** POST /api/campaigns/:id/assets — DM, ≤ 2MB, raw image bytes (D11). */
@@ -191,13 +384,20 @@ function sniffImage(bytes: Buffer): string | null {
   return null
 }
 
-/** GET /api/maps/:id — any valid token for the campaign that owns it. */
-function getMap(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, mapId: string): void {
+/**
+ * GET /api/maps/:id — any valid token for the campaign that owns it. `:id` is a scene id
+ * (#47): the client only ever holds one from `activeSceneId`/`scenes`, and resolving
+ * through the scene rather than a bare map row is what makes a re-published scene answer
+ * with its *current* map — a raw map id would keep serving whatever the scene pointed at
+ * when this route was still named for what it fetched.
+ */
+function getMap(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, sceneId: string): void {
   const identity = requireSession(deps, req, res)
   if (!identity) return
 
-  const map = deps.stores.maps.get(mapId)
-  // Another campaign's map is not "forbidden", it is none of this token's business.
+  const scene = deps.stores.scenes.get(sceneId)
+  const map = scene ? deps.stores.maps.get(scene.map_id) : undefined
+  // Another campaign's scene is not "forbidden", it is none of this token's business.
   if (!map || map.campaign_id !== identity.campaign_id) {
     return json(res, 404, { error: 'no such map' })
   }
@@ -206,7 +406,7 @@ function getMap(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, mapId
   // because it is the only route the map data travels.
   let body = map.data
   if (identity.role !== 'dm') {
-    const player = deps.vision.playerMap(mapId)
+    const player = deps.vision.playerMap(sceneId)
     // Unredactable is unsendable: a map the server cannot read is one it cannot fence.
     if (!player) return json(res, 500, { error: 'map could not be read' })
     body = JSON.stringify(player)
@@ -280,8 +480,8 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
   if (!dm) return
 
   // Checked before anything is started, so a bad pick cannot leave the DM with a table whose
-  // invite code went out in a 400. Scene ids are map ids, and this is the same list the fog
-  // module would validate the reveal against.
+  // invite code went out in a 400. `vision.roomsOf` resolves the scene the same way every
+  // other fog-backed answer does (#47 — through the scenes table, not a bare map id).
   const named = body.startingRoom as { sceneId?: unknown; roomId?: unknown } | undefined
   let start: { sceneId: string; roomId: string } | null = null
   if (named != null) {
@@ -296,11 +496,11 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
     start = { sceneId, roomId }
   }
 
-  // Which map the table opens on. The wizard names it because it is the one it just
-  // uploaded, and the campaign's map order cannot be asked instead — an older map in the
-  // same campaign is just as plausibly first. A starting room already names one.
+  // Which scene the table opens on. The wizard names it because it is the one it just
+  // published, and the campaign's scene order cannot be asked instead — an older scene in
+  // the same campaign is just as plausibly first. A starting room already names one.
   const scene = text(body.sceneId) ?? start?.sceneId ?? null
-  if (scene && !deps.stores.maps.listByCampaign(campaignId).some((map) => map.id === scene)) {
+  if (scene && deps.stores.scenes.get(scene)?.campaign_id !== campaignId) {
     return json(res, 400, { error: `no scene '${scene}' in this campaign` })
   }
 
@@ -310,9 +510,9 @@ async function openSession(deps: HttpDeps, req: IncomingMessage, res: ServerResp
   if (replaced) deps.sessionManager.endSession(replaced.id)
 
   // The scene the wizard set the table up with is the scene the table opens on. Without it
-  // the snapshot falls back to the campaign's *first* map (see `scenes` in index.ts), and on
-  // a campaign holding more than one that is not the map the DM just uploaded: the reveal
-  // was stored against theirs while the fog panel read a scene nothing had been revealed in,
+  // the snapshot falls back to the campaign's *first* scene (see `scenes` in index.ts), and
+  // on a campaign holding more than one that is not the scene the DM just published: the
+  // reveal was stored against theirs while the fog panel read a scene nothing had been revealed in,
   // so the DM saw "Unrevealed" and the player joined to full black — with a 201 and no error
   // on either half to say so.
   if (scene) deps.stores.sessions.setActiveScene(session.id, scene)
@@ -596,7 +796,7 @@ function json(res: ServerResponse, status: number, body: unknown): void {
  */
 function cors(res: ServerResponse): void {
   res.setHeader('access-control-allow-origin', '*')
-  res.setHeader('access-control-allow-methods', 'GET, POST, DELETE, OPTIONS')
+  res.setHeader('access-control-allow-methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS')
   res.setHeader('access-control-allow-headers', 'authorization, content-type')
 }
 

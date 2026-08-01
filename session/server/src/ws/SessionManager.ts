@@ -19,11 +19,18 @@ interface Session {
   dmSeen: boolean
 }
 
-/** Where a snapshot's scene list comes from — boot backs it with MapStore/SessionStore. */
+/** One entry of a `SceneSource` list — `visibleToPlayers` never reaches the wire itself (#47 D5); `snapshot` reads it to decide who gets told the scene exists at all. */
+export interface SceneEntry {
+  id: string
+  name: string
+  visibleToPlayers: boolean
+}
+
+/** Where a snapshot's scene list comes from — boot backs it with SceneStore/SessionStore. */
 export type SceneSource = (session: {
   id: string
   campaignId: string
-}) => Pick<SessionState, 'scenes' | 'activeSceneId'>
+}) => { scenes: readonly SceneEntry[]; activeSceneId: SessionState['activeSceneId'] }
 
 export interface SessionManagerOptions {
   /** Ping period. Default 15s (§2.5). */
@@ -253,11 +260,19 @@ export class SessionManager {
 
   /** Scenes and the active one are read fresh: an upload between joins must show up. */
   private snapshot(session: Session, viewer: Viewer): SessionState {
+    const { scenes, activeSceneId } = this.scenes(session)
     return {
       protocolVersion: PROTOCOL_VERSION,
       sessionId: session.id,
       campaignId: session.campaignId,
-      ...this.scenes(session),
+      // #47 D5 — the DM sees the whole library; a player sees only what has been
+      // published/made visible to them. The currently active scene still loads either
+      // way (fog and door redaction are what actually gate its content) — this only
+      // gates which *other* scenes a player can tell exist before the DM switches to one.
+      scenes: (viewer.role === 'dm' ? scenes : scenes.filter((s) => s.visibleToPlayers)).map(
+        ({ id, name }) => ({ id, name }),
+      ),
+      activeSceneId,
       players: [...session.players.values()],
       modules: this.modules.snapshotModules(session.campaignId, viewer),
     }
