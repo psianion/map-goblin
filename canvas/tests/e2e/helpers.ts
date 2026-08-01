@@ -144,32 +144,41 @@ export async function drawRect(
 /**
  * Get pixel colour at canvas coordinates, in device pixels.
  *
- * Via a screenshot, not `getContext('2d')`. The app's canvas is Pixi's, and it
- * already holds a WebGL context — asking the same element for a 2D one returns
- * `null`, so the old version of this helper silently returned `{0,0,0,0}` for
- * every pixel of every test. That made `expect(a).toBe(255)` unsatisfiable and
- * `expect(diff).toBeGreaterThanOrEqual(0)` unfalsifiable, in both cases without
- * ever mentioning a canvas. Same screenshot → `createImageBitmap` → 2D surface
- * route the door light rows use; `preserveDrawingBuffer` is on for it.
+ * Read straight out of the live WebGL drawing buffer. Two wrong ways came before it:
+ *
+ *  - `canvas.getContext('2d')` on Pixi's canvas returns `null`, because the element
+ *    already holds a WebGL context. The helper silently returned `{0,0,0,0}` for every
+ *    pixel of every test, which made `expect(a).toBe(255)` unsatisfiable and
+ *    `expect(diff).toBeGreaterThanOrEqual(0)` unfalsifiable — without ever mentioning
+ *    a canvas in the failure.
+ *  - An element `.screenshot()` decoded in-page reads correctly, but wedges the worker:
+ *    the very next test in the same file then hangs resolving any locator at all. The
+ *    door light rows can afford it (their own file, whole-frame diffs); a helper every
+ *    spec calls cannot.
+ *
+ * `preserveDrawingBuffer: true` (PixiRenderEngine) is what makes the buffer still
+ * readable after the frame is composited.
  */
 export async function getPixelColor(
   page: Page,
   x: number,
   y: number,
 ): Promise<{ r: number; g: number; b: number; a: number }> {
-  const shot = await page.locator('canvas').first().screenshot()
   return page.evaluate(
-    async ({ b64, x, y }) => {
-      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
-      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
-      const surface = new OffscreenCanvas(bitmap.width, bitmap.height)
-      const ctx = surface.getContext('2d')!
-      ctx.drawImage(bitmap, 0, 0)
-      const px = Math.min(Math.max(Math.round(x), 0), bitmap.width - 1)
-      const py = Math.min(Math.max(Math.round(y), 0), bitmap.height - 1)
-      const d = ctx.getImageData(px, py, 1, 1).data
-      return { r: d[0], g: d[1], b: d[2], a: d[3] }
+    ({ x, y }) => {
+      const canvas = document.querySelector('canvas')
+      if (!canvas) return { r: 0, g: 0, b: 0, a: 0 }
+      const gl = (canvas.getContext('webgl2') ?? canvas.getContext('webgl')) as
+        | WebGLRenderingContext
+        | null
+      if (!gl) return { r: 0, g: 0, b: 0, a: 0 }
+      const px = Math.min(Math.max(Math.round(x), 0), canvas.width - 1)
+      // readPixels counts from the bottom-left; every caller counts from the top.
+      const py = Math.min(Math.max(canvas.height - 1 - Math.round(y), 0), canvas.height - 1)
+      const out = new Uint8Array(4)
+      gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out)
+      return { r: out[0], g: out[1], b: out[2], a: out[3] }
     },
-    { b64: shot.toString('base64'), x, y },
+    { x, y },
   )
 }
