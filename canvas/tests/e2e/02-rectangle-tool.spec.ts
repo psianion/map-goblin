@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { gotoApp, drawRect, waitFrame, getPixelColor } from './helpers';
+import { gotoApp, drawRect, waitFrame, getPixelColor, shapeCount } from './helpers';
 
 test.describe('02 - Rectangle Tool', () => {
   test('draws a rectangle that changes canvas pixels', async ({ page }) => {
@@ -14,15 +14,17 @@ test.describe('02 - Rectangle Tool', () => {
     const sampleX = Math.round((box!.width / 2) * dpr);
     const sampleY = Math.round((box!.height / 2) * dpr);
 
+    const shapesBefore = await shapeCount(page);
     const before = await getPixelColor(page, sampleX, sampleY);
     await drawRect(page, cx - 80, cy - 60, cx + 80, cy + 60);
     await page.waitForTimeout(500);
     await waitFrame(page, 5);
     const after = await getPixelColor(page, sampleX, sampleY);
 
+    expect(await shapeCount(page)).toBe(shapesBefore + 1);
     expect(after.a).toBe(255);
     const diff = Math.abs(after.r - before.r) + Math.abs(after.g - before.g) + Math.abs(after.b - before.b);
-    expect(diff).toBeGreaterThanOrEqual(0);
+    expect(diff).toBeGreaterThan(10);
   });
 
   test('drawing two overlapping rectangles unions them', async ({ page }) => {
@@ -33,11 +35,15 @@ test.describe('02 - Rectangle Tool', () => {
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;
 
+    const shapesBefore = await shapeCount(page);
     await drawRect(page, cx - 100, cy - 50, cx, cy + 50);
     await page.waitForTimeout(300);
     await drawRect(page, cx - 30, cy - 50, cx + 100, cy + 50);
     await page.waitForTimeout(500);
     await waitFrame(page, 5);
+
+    // Each drag is its own child; the union happens downstream in mergedFloor.
+    expect(await shapeCount(page)).toBe(shapesBefore + 2);
 
     const dpr = await page.evaluate(() => window.devicePixelRatio);
     const pixel = await getPixelColor(page, Math.round((box!.width / 2) * dpr), Math.round((box!.height / 2) * dpr));

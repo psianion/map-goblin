@@ -1,13 +1,25 @@
 import { test, expect } from '@playwright/test';
-import { gotoApp, drawRect, waitFrame, getPixelColor } from './helpers';
+import { gotoApp, drawRect, waitFrame, getPixelColor, shapeCount } from './helpers';
 
 test.describe('03 - Erase Mode', () => {
   test('erase mode toggle via E key', async ({ page }) => {
     await gotoApp(page);
+    const eraseMode = () =>
+      page.evaluate(
+        () =>
+          (window as Window & { __store?: { getState: () => { tools: { eraseMode: boolean } } } })
+            .__store!.getState().tools.eraseMode,
+      );
+
+    expect(await eraseMode()).toBe(false);
+
     await page.keyboard.press('e');
     await waitFrame(page, 2);
+    expect(await eraseMode()).toBe(true);
+
     await page.keyboard.press('e');
     await waitFrame(page, 2);
+    expect(await eraseMode()).toBe(false);
   });
 
   test('erasing removes floor pixels', async ({ page }) => {
@@ -18,9 +30,11 @@ test.describe('03 - Erase Mode', () => {
     const cx = box!.x + box!.width / 2;
     const cy = box!.y + box!.height / 2;
 
+    const shapesBefore = await shapeCount(page);
     await drawRect(page, cx - 100, cy - 80, cx + 100, cy + 80);
     await page.waitForTimeout(500);
     await waitFrame(page, 5);
+    expect(await shapeCount(page)).toBe(shapesBefore + 1);
 
     const dpr = await page.evaluate(() => window.devicePixelRatio);
     const sampleX = Math.round((box!.width / 2) * dpr);

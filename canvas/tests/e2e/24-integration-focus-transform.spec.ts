@@ -23,27 +23,26 @@ async function getFocusMode(page: import('@playwright/test').Page): Promise<stri
   })
 }
 
-/** Add an images layer with one placed object at (400,300), select it. Returns object ID. */
+/**
+ * Place one asset child at (400,300) on the dungeon layer and select it.
+ * Returns the child ID. There is no 'images' layer type — assets are children.
+ */
 async function setupImageAndSelect(page: import('@playwright/test').Page): Promise<string> {
   return page.evaluate(() => {
     const store = (window as StoreType).__store
     if (!store) return ''
-    const state = store.getState() as Record<string, (arg: unknown) => void>
-    const layerId = crypto.randomUUID()
-    state['addLayer']({
-      id: layerId,
-      name: 'Images 1',
-      type: 'images',
-      visible: true,
-      locked: false,
-      opacity: 1,
-      objects: [],
-    })
+    const state = store.getState() as unknown as Record<string, (...args: unknown[]) => void> & {
+      layers: Array<{ id: string; type: string }>
+    }
+    const layerId = state.layers.find((l) => l.type === 'dungeon')?.id
+    if (!layerId) return ''
     state['setActiveLayerId'](layerId)
     const objId = crypto.randomUUID()
-    state['addPlacedObject'](layerId, {
+    state['addChild'](layerId, {
       id: objId,
-      layerId,
+      name: 'Test Image',
+      childType: 'asset',
+      visible: true,
       objectType: 'image',
       assetId: 'test',
       position: { x: 400, y: 300 },
@@ -52,11 +51,10 @@ async function setupImageAndSelect(page: import('@playwright/test').Page): Promi
       width: 200,
       height: 150,
       tint: '#ffffff',
-      groupId: null,
       flipX: false,
       flipY: false,
     })
-    state['setSelectedObjectIds']([objId])
+    state['setSelectedIds']([objId])
     return objId
   })
 }
@@ -66,13 +64,11 @@ async function getObjectPosition(page: import('@playwright/test').Page, objId: s
     const store = (window as StoreType).__store
     if (!store) return null
     const state = store.getState() as {
-      layers: Array<{ type: string; objects?: Array<{ id: string; position: { x: number; y: number } }> }>
+      layers: Array<{ children?: Array<{ id: string; childType: string; position: { x: number; y: number } }> }>
     }
     for (const layer of state.layers) {
-      if (layer.type === 'images' && layer.objects) {
-        const obj = layer.objects.find((o) => o.id === id)
-        if (obj) return obj.position
-      }
+      const obj = (layer.children ?? []).find((c) => c.id === id && c.childType === 'asset')
+      if (obj) return obj.position
     }
     return null
   }, objId)
@@ -189,8 +185,8 @@ test.describe('Integration: Focus Mode + Transforms', () => {
     // Object should still be selected after cycling focus mode
     const selected = await page.evaluate(() => {
       const store = (window as StoreType).__store
-      return (store?.getState() as { ui: { selectedObjectIds: string[] } } | undefined)?.ui
-        .selectedObjectIds ?? []
+      return (store?.getState() as { selection: { selectedIds: string[] } } | undefined)?.selection
+        .selectedIds ?? []
     })
     expect(selected.length).toBeGreaterThan(0)
   })

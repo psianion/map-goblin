@@ -28,6 +28,8 @@ import { gotoApp, waitFrame, firePointer, drawRect, pressShortcut } from './help
 
 type ShapeRecord = {
   id: string
+  childType: 'shape'
+  shapeType: string
   textureId?: string
   textureScale: number
   textureTint: string
@@ -40,11 +42,21 @@ type SplinePathRecord = {
   textureId?: string
 }
 
+type RawDungeonLayer = {
+  id: string
+  type: 'dungeon'
+  children: Array<{ id: string; childType: string; shapeType?: string }>
+}
+
+/**
+ * Projected view of the live layer. The v2.0 model has no `shapes`/`paths`
+ * arrays — everything lives in `children` behind a `childType` discriminator,
+ * and spline paths are shape children with `shapeType: 'path'`.
+ */
 type DungeonLayer = {
   id: string
   type: 'dungeon'
   shapes: ShapeRecord[]
-  paths: SplinePathRecord[]
 }
 
 type SerializedMapData = {
@@ -53,9 +65,10 @@ type SerializedMapData = {
 }
 
 type StoreState = {
-  layers: Array<DungeonLayer | { id: string; type: string }>
+  layers: Array<RawDungeonLayer | { id: string; type: string }>
   tools: { activeTool: string }
   ui: { canUndo: boolean; canRedo: boolean }
+  updateChild: (layerId: string, childId: string, patch: Record<string, unknown>) => void
   loadFromFile: (data: SerializedMapData) => void
   getSerializableState: () => SerializedMapData
 }
@@ -71,8 +84,13 @@ async function getDungeonLayer(page: import('@playwright/test').Page): Promise<D
   return page.evaluate(() => {
     const store = (window as StoreWindow).__store
     if (!store) return null
-    const layer = store.getState().layers.find((l) => l.type === 'dungeon') as DungeonLayer | undefined
-    return layer ?? null
+    const layer = store.getState().layers.find((l) => l.type === 'dungeon') as RawDungeonLayer | undefined
+    if (!layer) return null
+    return {
+      id: layer.id,
+      type: 'dungeon' as const,
+      shapes: layer.children.filter((c) => c.childType === 'shape') as unknown as ShapeRecord[],
+    }
   })
 }
 
@@ -80,8 +98,10 @@ async function getSplinePaths(page: import('@playwright/test').Page): Promise<Sp
   return page.evaluate(() => {
     const store = (window as StoreWindow).__store
     if (!store) return []
-    const layer = store.getState().layers.find((l) => l.type === 'dungeon') as DungeonLayer | undefined
-    return layer?.paths ?? []
+    const layer = store.getState().layers.find((l) => l.type === 'dungeon') as RawDungeonLayer | undefined
+    return (layer?.children ?? []).filter(
+      (c) => c.childType === 'shape' && c.shapeType === 'path',
+    ) as unknown as SplinePathRecord[]
   })
 }
 
@@ -105,8 +125,7 @@ test.describe('Floor Textures', () => {
     expect(layer?.shapes.length).toBeGreaterThan(0)
 
     const shape = layer!.shapes[0]
-    // textureId is optional — should be undefined (not set) on a fresh shape
-    expect('textureId' in shape || shape.textureId === undefined).toBe(true)
+    expect(shape.shapeType).toBe('rectangle')
     // textureScale and textureTint must exist with defaults
     expect(shape.textureScale).toBe(1.0)
     expect(shape.textureTint).toBe('#ffffff')
@@ -126,28 +145,19 @@ test.describe('Floor Textures', () => {
     await waitFrame(page, 5)
 
     const layer = await getDungeonLayer(page)
-    const shapeId = layer?.shapes[0]?.id
-    if (!shapeId) { test.skip(); return }
+    expect(layer!.shapes).toHaveLength(1)
+    const shapeId = layer!.shapes[0].id
 
-    // Assign texture directly via store setState (same mechanism as ShapeTextureCommand.execute)
-    await page.evaluate((id) => {
+    // Assign texture via the real child-update action (what ShapeTextureCommand drives)
+    await page.evaluate(({ layerId, id }) => {
       const store = (window as StoreWindow).__store
       if (!store) return
-      store.setState((s) => {
-        const l = s.layers.find((l) => l.type === 'dungeon') as DungeonLayer | undefined
-        const shape = l?.shapes.find((sh) => sh.id === id)
-        if (shape) shape.textureId = 'stone-brick'
-      })
-    }, shapeId)
+      store.getState().updateChild(layerId, id, { textureId: 'stone-brick' })
+    }, { layerId: layer!.id, id: shapeId })
     await waitFrame(page, 3)
 
-    const textureId = await page.evaluate(() => {
-      const store = (window as StoreWindow).__store
-      if (!store) return null
-      const l = store.getState().layers.find((l) => l.type === 'dungeon') as DungeonLayer | undefined
-      return l?.shapes[0]?.textureId ?? null
-    })
-    expect(textureId).toBe('stone-brick')
+    const after = await getDungeonLayer(page)
+    expect(after!.shapes[0].textureId).toBe('stone-brick')
   })
 
   test('TexturePicker section visible in properties panel when shape selected', async ({ page }) => {
@@ -378,7 +388,7 @@ test.describe('Save / Load Round-trip', () => {
       const store = (window as StoreWindow).__store
       return store?.getState().getSerializableState().version ?? null
     })
-    expect(version).toBe('1.3')
+    expect(version).toBe('3.0')
   })
 
   test('round-trip: save then loadFromFile restores dungeon layer shapes', async ({ page }) => {
@@ -433,55 +443,57 @@ test.describe('Save / Load Round-trip', () => {
     await page.waitForTimeout(300)
     await waitFrame(page, 5)
 
-    // Capture real v1.3 state, then downgrade to v1.2 by stripping texture fields
-    // This guarantees all required fields are present (no schema mismatch).
-    const v12State = await page.evaluate(() => {
+    const shapesBefore = (await getDungeonLayer(page))!.shapes.length
+    expect(shapesBefore).toBeGreaterThan(0)
+
+    // Capture real state, then downgrade to the previous on-disk format ('2.0'):
+    // texture fields stripped from shape children, walls back to `blocksLight`.
+    // Building it from live state guarantees no other field is missing.
+    const oldState = await page.evaluate(() => {
       const store = (window as StoreWindow).__store
       if (!store) return null
       const state = store.getState().getSerializableState()
-      // Simulate v1.2: remove texture fields from shapes + remove paths + edge transition fields
       const layers = state.layers.map((layer) => {
-        if (layer.type !== 'dungeon') return layer
         const dl = layer as unknown as Record<string, unknown>
-        const shapes = ((dl.shapes as Array<Record<string, unknown>>) ?? []).map((sh) => {
-          const { textureId, textureScale, textureOffsetX, textureOffsetY, textureFillRotation, textureTint, ...rest } = sh
+        if (dl.type !== 'dungeon') return layer
+        const children = ((dl.children as Array<Record<string, unknown>>) ?? []).map((c) => {
+          if (c.childType !== 'shape') return c
+          const { textureId, textureScale, textureOffsetX, textureOffsetY, textureFillRotation, textureTint, ...rest } = c
           void textureId; void textureScale; void textureOffsetX; void textureOffsetY; void textureFillRotation; void textureTint
           return rest
         })
-        const style = dl.style as Record<string, unknown>
-        const { edgeTransitionWidth, showEdgeTransitions, ...styleRest } = style
-        void edgeTransitionWidth; void showEdgeTransitions
-        return { ...dl, shapes, paths: undefined, style: styleRest }
+        const walls = ((dl.standaloneWalls as Array<Record<string, unknown>>) ?? []).map((w) => {
+          const { wallType, direction, ...rest } = w
+          void direction
+          return { ...rest, blocksLight: wallType !== 'terrain' }
+        })
+        return { ...dl, children, standaloneWalls: walls }
       })
-      return { ...state, version: '1.2', layers }
+      return { ...state, version: '2.0', layers }
     })
 
-    if (!v12State) { test.skip(); return }
+    expect(oldState).not.toBeNull()
 
     await page.evaluate((state) => {
       const store = (window as StoreWindow).__store
       store?.getState().loadFromFile(state as unknown as SerializedMapData)
-    }, v12State)
+    }, oldState)
 
     await waitFrame(page, 10)
 
     // App must not crash — canvas still visible
     await expect(page.locator('canvas')).toBeVisible()
 
-    // Migrated version should be '1.3'
+    // Migrated state re-serializes at the current version
     const version = await page.evaluate(() => {
       const store = (window as StoreWindow).__store
       return store?.getState().getSerializableState().version ?? null
     })
-    expect(version).toBe('1.3')
+    expect(version).toBe('3.0')
 
-    // Shape should have gained texture defaults via migration
+    // Shape children survive the migration
     const layer = await getDungeonLayer(page)
-    const shape = layer?.shapes[0]
-    if (shape) {
-      // textureId stays undefined (migration doesn't add it — only adds scale/tint/offset)
-      expect(shape.textureScale).toBe(1.0)
-      expect(shape.textureTint).toBe('#ffffff')
-    }
+    expect(layer!.shapes).toHaveLength(shapesBefore)
+    expect(layer!.shapes[0].shapeType).toBe('rectangle')
   })
 })

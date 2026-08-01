@@ -36,39 +36,26 @@ import { gotoApp, waitFrame, drawRect, firePointer } from './helpers'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Add an images layer, place a 200×150 object at (400,300), select it. Returns the object ID. */
+/**
+ * Place a 200×150 asset child at (400,300) on the dungeon layer and select it.
+ * Returns the child ID. There is no 'images' layer type and no
+ * addPlacedObject/setSelectedObjectIds action — assets are layer children.
+ */
 async function importAndSelectImage(page: import('@playwright/test').Page): Promise<string> {
-  // Add images layer
-  await page.evaluate(() => {
-    const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
-    if (!store) return
-    const state = store.getState() as Record<string, (arg: unknown) => void>
-    const id = crypto.randomUUID()
-    state['addLayer']({
-      id,
-      name: 'Images 1',
-      type: 'images',
-      visible: true,
-      locked: false,
-      opacity: 1,
-      objects: [],
-    })
-    state['setActiveLayerId'](id)
-  })
-  await waitFrame(page, 3)
-
-  // Place a test object via store (bypasses file picker)
   const objId = await page.evaluate(() => {
     const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
     if (!store) return ''
     const state = store.getState() as Record<string, unknown>
     const layers = state['layers'] as Array<{ id: string; type: string }>
-    const imgLayer = layers.find((l) => l.type === 'images')
-    if (!imgLayer) return ''
+    const layer = layers.find((l) => l.type === 'dungeon')
+    if (!layer) return ''
+    ;(state['setActiveLayerId'] as (id: string) => void)(layer.id)
     const id = crypto.randomUUID()
-    ;(state['addPlacedObject'] as (layerId: string, obj: unknown) => void)(imgLayer.id, {
+    ;(state['addChild'] as (layerId: string, child: unknown) => void)(layer.id, {
       id,
-      layerId: imgLayer.id,
+      name: 'Test Image',
+      childType: 'asset',
+      visible: true,
       objectType: 'image',
       assetId: 'test',
       position: { x: 400, y: 300 },
@@ -77,30 +64,27 @@ async function importAndSelectImage(page: import('@playwright/test').Page): Prom
       width: 200,
       height: 150,
       tint: '#ffffff',
-      groupId: null,
       flipX: false,
       flipY: false,
     })
-    ;(state['setSelectedObjectIds'] as (ids: string[]) => void)([id])
+    ;(state['setSelectedIds'] as (ids: string[]) => void)([id])
     return id
   })
   await waitFrame(page, 5)
   return objId
 }
 
-/** Read a placed object from the store by ID. */
+/** Read a placed asset child from the store by ID. */
 async function getPlacedObject(page: import('@playwright/test').Page, objId: string) {
   return page.evaluate((id) => {
     const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
     if (!store) return null
     const state = store.getState() as {
-      layers: Array<{ type: string; objects?: Array<{ id: string }> }>
+      layers: Array<{ children?: Array<{ id: string; childType: string }> }>
     }
     for (const layer of state.layers) {
-      if (layer.type === 'images' && layer.objects) {
-        const found = layer.objects.find((o) => o.id === id)
-        if (found) return found
-      }
+      const found = (layer.children ?? []).find((c) => c.id === id && c.childType === 'asset')
+      if (found) return found
     }
     return null
   }, objId)
@@ -121,8 +105,8 @@ test.describe('Transform Controls — PlacedObject', () => {
     const hasSelection = await page.evaluate(() => {
       const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
       if (!store) return false
-      const state = store.getState() as { ui: { selectedObjectIds: string[] } }
-      return state.ui.selectedObjectIds.length > 0
+      const state = store.getState() as { selection: { selectedIds: string[] } }
+      return state.selection.selectedIds.length > 0
     })
     expect(hasSelection).toBe(true)
   })
@@ -223,7 +207,7 @@ test.describe('Transform Controls — PlacedObject', () => {
     const selected = await page.evaluate(() => {
       const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
       if (!store) return []
-      return (store.getState() as { ui: { selectedObjectIds: string[] } }).ui.selectedObjectIds
+      return (store.getState() as { selection: { selectedIds: string[] } }).selection.selectedIds
     })
     expect(selected).toHaveLength(0)
   })
@@ -372,7 +356,7 @@ test.describe('Transform Controls — Edge Cases', () => {
         layers: Array<{ id: string; type: string }>
         updateLayer: (id: string, patch: Record<string, unknown>) => void
       }
-      const imgLayer = state.layers.find((l) => l.type === 'images')
+      const imgLayer = state.layers.find((l) => l.type === 'dungeon')
       if (imgLayer) state.updateLayer(imgLayer.id, { locked: true })
     })
     await waitFrame(page, 3)
@@ -391,46 +375,31 @@ test.describe('Transform Controls — Edge Cases', () => {
     await firePointer(page, 'pointerup', cx + 80, cy + 60, 0, 0)
     await waitFrame(page, 3)
 
-    // Re-select in case it was cleared
-    const selected = await page.evaluate(() => {
-      const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
-      if (!store) return []
-      return (store.getState() as { ui: { selectedObjectIds: string[] } }).ui.selectedObjectIds
-    })
-
-    // If selection is empty or position is unchanged, either means locked worked
-    if (selected.length > 0) {
-      const after = (await getPlacedObject(page, objId)) as Record<string, unknown>
-      expect((after['position'] as { x: number }).x).toBe(
-        (before['position'] as { x: number }).x,
-      )
-    } else {
-      // Locked objects can't be selected — that's also acceptable
-      expect(selected).toHaveLength(0)
-    }
+    // Whether the drag was refused or the selection was dropped, the object
+    // on a locked layer must not have moved.
+    const after = (await getPlacedObject(page, objId)) as Record<string, unknown>
+    expect((after['position'] as { x: number }).x).toBe(
+      (before['position'] as { x: number }).x,
+    )
   })
 
   test('multi-select move translates both objects by same delta', async ({ page }) => {
     const ids = await page.evaluate(() => {
       const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
       if (!store) return []
-      const state = store.getState() as Record<string, (arg: unknown) => void>
-      const layerId = crypto.randomUUID()
-      state['addLayer']({
-        id: layerId,
-        name: 'Images 1',
-        type: 'images',
-        visible: true,
-        locked: false,
-        opacity: 1,
-        objects: [],
-      })
-      state['setActiveLayerId'](layerId)
+      const s = store.getState() as unknown as Record<string, (...args: unknown[]) => void> & {
+        layers: Array<{ id: string; type: string }>
+      }
+      const layerId = s.layers.find((l) => l.type === 'dungeon')?.id
+      if (!layerId) return []
+      s['setActiveLayerId'](layerId)
       const id1 = crypto.randomUUID()
       const id2 = crypto.randomUUID()
-      state['addPlacedObject'](layerId, {
+      s['addChild'](layerId, {
         id: id1,
-        layerId,
+        name: 'Test Image 1',
+        childType: 'asset',
+        visible: true,
         objectType: 'image',
         assetId: 'test1',
         position: { x: 200, y: 200 },
@@ -439,13 +408,14 @@ test.describe('Transform Controls — Edge Cases', () => {
         width: 100,
         height: 80,
         tint: '#ffffff',
-        groupId: null,
         flipX: false,
         flipY: false,
       })
-      state['addPlacedObject'](layerId, {
+      s['addChild'](layerId, {
         id: id2,
-        layerId,
+        name: 'Test Image 2',
+        childType: 'asset',
+        visible: true,
         objectType: 'image',
         assetId: 'test2',
         position: { x: 500, y: 400 },
@@ -454,11 +424,10 @@ test.describe('Transform Controls — Edge Cases', () => {
         width: 100,
         height: 80,
         tint: '#ffffff',
-        groupId: null,
         flipX: false,
         flipY: false,
       })
-      state['setSelectedObjectIds']([id1, id2])
+      s['setSelectedIds']([id1, id2])
       return [id1, id2]
     })
     await waitFrame(page, 5)
@@ -533,10 +502,10 @@ test.describe('Transform Controls — Dungeon Shapes', () => {
       const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
       if (!store) return false
       const state = store.getState() as {
-        layers: Array<{ type: string; shapes?: Array<{ transform?: unknown }> }>
+        layers: Array<{ type: string; children?: Array<{ childType: string; transform?: unknown }> }>
       }
       const dungeon = state.layers.find((l) => l.type === 'dungeon')
-      const shape = dungeon?.shapes?.[0]
+      const shape = (dungeon?.children ?? []).find((c) => c.childType === 'shape')
       return shape?.transform != null
     })
     expect(hasTransform).toBe(true)

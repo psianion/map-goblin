@@ -4,10 +4,10 @@
  *
  * Tests:
  * - Clicking an asset thumbnail updates recentlyUsed in store
- * - Placing an asset on canvas creates a PlacedObject in the images layer
+ * - Placing an asset on canvas creates an asset child on the dungeon layer
  * - Pressing Escape after selecting an asset cancels placement (no object on next click)
  * - Undo removes a placed asset object
- * - Wrong layer (dungeon active) shows toast and places nothing
+ * - Wrong layer (background active) shows toast and places nothing
  * - Search filter with no matches shows empty state text without crash
  * - recentlyUsed tracks multiple asset placements
  *
@@ -26,39 +26,34 @@ const PNG_UINT8 = Array.from(
   ),
 )
 
-/** Add an images layer and make it the active layer. */
-async function addImagesLayerAndActivate(page: import('@playwright/test').Page) {
+/**
+ * Make a dungeon layer active. Images used to need their own 'images' layer;
+ * there is no such layer type now — imports land as asset children on the
+ * active dungeon layer, and anything else is rejected with a toast.
+ */
+async function activateDungeonLayer(page: import('@playwright/test').Page) {
   await page.evaluate(() => {
-    const store = (window as { __store?: { getState: () => Record<string, unknown> } }).__store
+    const store = (window as {
+      __store?: {
+        getState: () => { layers: Array<{ id: string; type: string }>; setActiveLayerId: (id: string) => void }
+      }
+    }).__store
     if (!store) return
-    const state = store.getState() as {
-      addLayer: (layer: {
-        id: string
-        name: string
-        type: string
-        visible: boolean
-        locked: boolean
-        opacity: number
-        objects: unknown[]
-      }) => void
-      setActiveLayerId: (id: string) => void
-    }
-    const id = crypto.randomUUID()
-    state.addLayer({ id, name: 'Images 1', type: 'images', visible: true, locked: false, opacity: 1, objects: [] })
-    state.setActiveLayerId(id)
+    const state = store.getState()
+    const dungeon = state.layers.find((l) => l.type === 'dungeon')
+    if (dungeon) state.setActiveLayerId(dungeon.id)
   })
   await waitFrame(page, 3)
 }
 
-/** Get all PlacedObjects across all images layers. */
+/** Get all placed asset children across all layers. */
 async function getPlacedObjects(page: import('@playwright/test').Page) {
   return page.evaluate(() => {
-    const store = (window as { __store?: { getState: () => { layers: Array<{ type: string; objects?: unknown[] }> } } }).__store
+    const store = (window as { __store?: { getState: () => { layers: Array<{ children?: Array<{ id: string; childType: string }> }> } } }).__store
     if (!store) return []
-    const state = store.getState()
-    return state.layers
-      .filter((l) => l.type === 'images')
-      .flatMap((l) => l.objects ?? [])
+    return store.getState().layers
+      .flatMap((l) => l.children ?? [])
+      .filter((c) => c.childType === 'asset')
   })
 }
 
@@ -156,7 +151,7 @@ async function injectAssetViaImport(page: import('@playwright/test').Page): Prom
 test.describe('Asset Placement', () => {
   test('clicking asset thumbnail sets pendingPlacement and updates recentlyUsed', async ({ page }) => {
     await gotoApp(page)
-    await addImagesLayerAndActivate(page)
+    await activateDungeonLayer(page)
 
     const assetId = await injectAssetViaImport(page)
     if (!assetId) {
@@ -210,7 +205,7 @@ test.describe('Asset Placement', () => {
     // StampScatterTool handles asset placement now (registered in registerAllTools),
     // but we also test via the drag-drop import pipeline which calls PlaceObjectCommand directly.
     await gotoApp(page)
-    await addImagesLayerAndActivate(page)
+    await activateDungeonLayer(page)
 
     const objectsBefore = await getPlacedObjects(page)
 
@@ -235,7 +230,7 @@ test.describe('Asset Placement', () => {
   test('clicking thumbnail twice clears pendingPlacement (toggle)', async ({ page }) => {
     // AssetBrowserPanel.handleSelect toggles: click once = set pending, click again = clear
     await gotoApp(page)
-    await addImagesLayerAndActivate(page)
+    await activateDungeonLayer(page)
 
     const assetId = await injectAssetViaImport(page)
     if (!assetId) {
@@ -282,7 +277,7 @@ test.describe('Asset Placement', () => {
     // Tests PlaceObjectCommand.undo() mechanism via store.removePlacedObject
     // Note: keyboard Ctrl+Z undo not yet wired in this build
     await gotoApp(page)
-    await addImagesLayerAndActivate(page)
+    await activateDungeonLayer(page)
 
     // Place an object via drag-drop import
     await page.evaluate((pngBytes) => {
@@ -308,50 +303,46 @@ test.describe('Asset Placement', () => {
     })
     expect(canUndo).toBe(true)
 
-    // Remove via store (equivalent to PlaceObjectCommand.undo())
+    // Remove via store (equivalent to AddChildCommand.undo())
     const latestObj = await page.evaluate(() => {
-      const store = (window as { __store?: { getState: () => { layers: Array<{ type: string; id: string; objects?: Array<{ id: string }> }> } } }).__store
+      const store = (window as { __store?: { getState: () => { layers: Array<{ id: string; children?: Array<{ id: string; childType: string }> }> } } }).__store
       if (!store) return null
-      const state = store.getState()
-      const layers = state.layers.filter((l) => l.type === 'images')
-      const allObjs = layers.flatMap((l) => l.objects ?? [])
-      const last = allObjs[allObjs.length - 1]
-      const layer = layers.find((l) => (l.objects ?? []).some((o) => o.id === last?.id))
-      return last && layer ? { layerId: layer.id, objId: last.id } : null
+      for (const layer of [...store.getState().layers].reverse()) {
+        const assets = (layer.children ?? []).filter((c) => c.childType === 'asset')
+        if (assets.length > 0) return { layerId: layer.id, objId: assets[assets.length - 1].id }
+      }
+      return null
     })
 
-    if (latestObj?.layerId && latestObj?.objId) {
-      await page.evaluate(({ layerId, objId }) => {
-        const store = (window as { __store?: { getState: () => { removePlacedObject: (layerId: string, objId: string) => void } } }).__store
-        store?.getState().removePlacedObject(layerId, objId)
-      }, latestObj)
-      await waitFrame(page, 5)
+    expect(latestObj).not.toBeNull()
+    await page.evaluate(({ layerId, objId }) => {
+      const store = (window as { __store?: { getState: () => { removeChild: (layerId: string, childId: string) => void } } }).__store
+      store?.getState().removeChild(layerId, objId)
+    }, latestObj!)
+    await waitFrame(page, 5)
 
-      const objectsAfterRemove = await getPlacedObjects(page)
-      expect(objectsAfterRemove.length).toBeLessThan(objectsAfterPlace.length)
-    }
+    const objectsAfterRemove = await getPlacedObjects(page)
+    expect(objectsAfterRemove.length).toBeLessThan(objectsAfterPlace.length)
   })
 
   test('placing asset with dungeon layer active shows toast and places nothing', async ({ page }) => {
     await gotoApp(page)
-    // Do NOT add images layer — dungeon layer is active by default
 
-    // We still need to inject an asset to test with (uses dungeon layer, but import
-    // requires images layer — so we temporarily switch for the inject, then switch back)
-    await addImagesLayerAndActivate(page)
+    // Inject on the dungeon layer (the only layer imports accept), then move to
+    // the background layer — that is the "wrong layer" in the current model.
+    await activateDungeonLayer(page)
     const assetId = await injectAssetViaImport(page)
     if (!assetId) {
       test.skip()
       return
     }
 
-    // Switch back to a dungeon layer
     await page.evaluate(() => {
       const store = (window as { __store?: { getState: () => { layers: Array<{ id: string; type: string }>; setActiveLayerId: (id: string) => void } } }).__store
       if (!store) return
       const state = store.getState()
-      const dungeon = state.layers.find((l) => l.type === 'dungeon')
-      if (dungeon) state.setActiveLayerId(dungeon.id)
+      const background = state.layers.find((l) => l.type === 'background')
+      if (background) state.setActiveLayerId(background.id)
     })
     await waitFrame(page, 2)
 
@@ -407,7 +398,7 @@ test.describe('Asset Placement', () => {
 
   test('recentlyUsed tracks multiple asset placements', async ({ page }) => {
     await gotoApp(page)
-    await addImagesLayerAndActivate(page)
+    await activateDungeonLayer(page)
 
     // Import two PNG files via drag-drop to get two distinct asset IDs
     const id1 = await injectAssetViaImport(page)

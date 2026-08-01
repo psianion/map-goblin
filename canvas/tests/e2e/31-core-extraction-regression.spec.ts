@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { gotoApp, waitFrame } from './helpers'
+import { gotoApp, waitFrame, shapeCount } from './helpers'
 
 test.describe('Core extraction regression', () => {
   test('canvas loads and renders', async ({ page }) => {
@@ -22,6 +22,8 @@ test.describe('Core extraction regression', () => {
     const cx = box.x + box.width / 2
     const cy = box.y + box.height / 2
 
+    const before = await shapeCount(page)
+
     // Draw a rectangle on the canvas
     await page.mouse.move(cx - 50, cy - 50)
     await page.mouse.down()
@@ -29,9 +31,13 @@ test.describe('Core extraction regression', () => {
     await page.mouse.up()
     await waitFrame(page, 3)
 
+    expect(await shapeCount(page)).toBe(before + 1)
+
     // Verify undo works — confirms the tool created a shape via core engine
     await page.keyboard.press('Control+z')
     await waitFrame(page, 2)
+
+    expect(await shapeCount(page)).toBe(before)
   })
 
   test('toolbar renders with all tools', async ({ page }) => {

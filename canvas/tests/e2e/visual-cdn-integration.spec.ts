@@ -15,7 +15,7 @@
  * 6. CDN failure resilience — app survives missing CDN, fallback texture is magenta 1x1
  */
 import { test, expect, type Page } from '@playwright/test'
-import { gotoApp, waitFrame, firePointer } from './helpers'
+import { gotoApp, waitFrame, firePointer, getPixelColor } from './helpers'
 
 const CDN_BASE = 'http://localhost:5174'
 const PACK_ID = 'dungeon-classic'
@@ -71,22 +71,17 @@ async function installDungeonClassic(page: Page): Promise<boolean> {
   return result
 }
 
-/** Add an images layer and activate it */
+/**
+ * Activate the dungeon layer. There is no 'images' layer type any more —
+ * imported images become asset children of the active dungeon layer.
+ */
 async function addImagesLayerAndActivate(page: Page) {
   await page.evaluate(() => {
     const store = (
       window as {
         __store?: {
           getState: () => {
-            addLayer: (l: {
-              id: string
-              name: string
-              type: string
-              visible: boolean
-              locked: boolean
-              opacity: number
-              objects: unknown[]
-            }) => void
+            layers: Array<{ id: string; type: string }>
             setActiveLayerId: (id: string) => void
           }
         }
@@ -94,29 +89,20 @@ async function addImagesLayerAndActivate(page: Page) {
     ).__store
     if (!store) return
     const state = store.getState()
-    const id = crypto.randomUUID()
-    state.addLayer({
-      id,
-      name: 'Images CDN',
-      type: 'images',
-      visible: true,
-      locked: false,
-      opacity: 1,
-      objects: [],
-    })
-    state.setActiveLayerId(id)
+    const dungeon = state.layers.find((l) => l.type === 'dungeon')
+    if (dungeon) state.setActiveLayerId(dungeon.id)
   })
   await waitFrame(page, 3)
 }
 
-/** Get all PlacedObjects across all images layers */
+/** Get all placed asset children across all layers */
 async function getPlacedObjects(page: Page) {
   return page.evaluate(() => {
     const store = (
       window as {
         __store?: {
           getState: () => {
-            layers: Array<{ type: string; objects?: unknown[] }>
+            layers: Array<{ children?: Array<{ id: string; childType: string }> }>
           }
         }
       }
@@ -124,8 +110,8 @@ async function getPlacedObjects(page: Page) {
     if (!store) return []
     return store
       .getState()
-      .layers.filter((l) => l.type === 'images')
-      .flatMap((l) => l.objects ?? [])
+      .layers.flatMap((l) => l.children ?? [])
+      .filter((c) => c.childType === 'asset')
   })
 }
 
@@ -541,8 +527,8 @@ test.describe('Asset Placement from CDN', () => {
                   manifest: { categories: unknown[] } | null
                 }
                 setManifest: (m: { categories: unknown[] }) => void
-                layers: Array<{ id: string; type: string; objects?: unknown[] }>
-                addPlacedObject: (layerId: string, obj: unknown) => void
+                layers: Array<{ id: string; type: string }>
+                addChild: (layerId: string, child: unknown) => void
               }
             }
           }
@@ -570,25 +556,28 @@ test.describe('Asset Placement from CDN', () => {
         if (!thumbUrl) return false
 
         const state = store.getState()
-        const imagesLayer = state.layers.find((l) => l.type === 'images')
+        const imagesLayer = state.layers.find((l) => l.type === 'dungeon')
         if (!imagesLayer) return false
 
-        // Directly add a placed object to the images layer (simulates successful placement)
+        // Directly add an asset child (simulates successful placement)
         const objId = crypto.randomUUID()
-        state.addPlacedObject(imagesLayer.id, {
+        state.addChild(imagesLayer.id, {
           id: objId,
+          name: 'CDN Asset',
+          childType: 'asset',
+          visible: true,
+          objectType: 'asset',
           assetId: `${packId}:cobblestone-a-01_1x1_floor_A`,
-          x: 400,
-          y: 300,
+          position: { x: 400, y: 300 },
+          scale: 1,
           width: 64,
           height: 64,
           rotation: 0,
-          opacity: 1,
           flipX: false,
           flipY: false,
           tint: '#ffffff',
-          url: thumbUrl,
         })
+        void thumbUrl
 
         return true
       },
@@ -611,13 +600,13 @@ test.describe('Asset Placement from CDN', () => {
 
     // Place a CDN asset via store injection
     await page.evaluate(
-      async ({ cdnBase, packId }) => {
+      async ({ packId }) => {
         const store = (
           window as {
             __store?: {
               getState: () => {
                 layers: Array<{ id: string; type: string }>
-                addPlacedObject: (layerId: string, obj: unknown) => void
+                addChild: (layerId: string, child: unknown) => void
               }
             }
           }
@@ -625,25 +614,27 @@ test.describe('Asset Placement from CDN', () => {
         if (!store) return
 
         const state = store.getState()
-        const imagesLayer = state.layers.find((l) => l.type === 'images')
+        const imagesLayer = state.layers.find((l) => l.type === 'dungeon')
         if (!imagesLayer) return
 
-        state.addPlacedObject(imagesLayer.id, {
+        state.addChild(imagesLayer.id, {
           id: crypto.randomUUID(),
+          name: 'CDN Asset',
+          childType: 'asset',
+          visible: true,
+          objectType: 'asset',
           assetId: `${packId}:cobblestone-a-01_1x1_floor_A`,
-          x: 400,
-          y: 300,
+          position: { x: 400, y: 300 },
+          scale: 1,
           width: 128,
           height: 128,
           rotation: 0,
-          opacity: 1,
           flipX: false,
           flipY: false,
           tint: '#ffffff',
-          url: `${cdnBase}/${packId}/atlas-floor-060bdb3a.webp`,
         })
       },
-      { cdnBase: CDN_BASE, packId: PACK_ID },
+      { packId: PACK_ID },
     )
 
     await waitFrame(page, 10)
@@ -652,21 +643,6 @@ test.describe('Asset Placement from CDN', () => {
     // Canvas should still be visible and functional after placement
     await expect(page.locator('canvas')).toBeVisible()
 
-    // Check the canvas has rendered something (not 0,0,0,0 everywhere)
-    const pixelResult = await page.evaluate(() => {
-      const canvas = document.querySelector('canvas') as HTMLCanvasElement
-      if (!canvas) return null
-      // Check multiple pixels in the canvas center area
-      const ctx = canvas.getContext('2d')
-      if (ctx) {
-        const d = ctx.getImageData(400, 300, 1, 1).data
-        return { r: d[0], g: d[1], b: d[2], a: d[3], source: '2d' }
-      }
-      return null
-    })
-
-    // Canvas renders something (WebGL canvas may not be readable via 2d ctx)
-    // Just verify the canvas is present and at the right size
     const canvasSize = await page.evaluate(() => {
       const c = document.querySelector('canvas') as HTMLCanvasElement
       return c ? { w: c.width, h: c.height } : null
@@ -675,15 +651,10 @@ test.describe('Asset Placement from CDN', () => {
     expect(canvasSize!.w).toBeGreaterThan(100)
     expect(canvasSize!.h).toBeGreaterThan(100)
 
-    // Pixel check: if canvas is readable via 2d context, verify it's not all zeros
-    if (pixelResult && pixelResult.a !== undefined) {
-      // At minimum the alpha channel must be > 0 at some point in the canvas
-      // (pure 0,0,0,0 means WebGL canvas not readable via 2d — that's acceptable)
-      const isWebGLCanvas = pixelResult.a === 0 && pixelResult.r === 0
-      if (!isWebGLCanvas) {
-        expect(pixelResult.a).toBeGreaterThan(0)
-      }
-    }
+    // Read through the screenshot helper — Pixi holds the WebGL context, so
+    // asking the same element for a 2D one only ever returns nulls.
+    const pixel = await getPixelColor(page, 400, 300)
+    expect(pixel.a).toBeGreaterThan(0)
   })
 
   test('stamp/scatter tool can be activated without crash', async ({ page }) => {
@@ -995,22 +966,21 @@ test.describe('CDN Failure Resilience', () => {
     // Canvas should still be visible and the app should not have crashed
     await expect(page.locator('canvas')).toBeVisible()
 
-    // Check that a layer has been modified (floor polygon added)
+    // Check that a layer has been modified (floor polygon added).
+    // The merged floor lives on `mergedFloor`; there is no `floor` object.
     const hasShapes = await page.evaluate(() => {
       const store = (
         window as {
           __store?: {
             getState: () => {
-              layers: Array<{ type: string; floor?: { polygons?: unknown[] } }>
+              layers: Array<{ type: string; mergedFloor?: unknown[] | null }>
             }
           }
         }
       ).__store
       if (!store) return false
-      const state = store.getState()
-      const dungeon = state.layers.find((l) => l.type === 'dungeon')
-      const polygons = (dungeon?.floor as { polygons?: unknown[] } | undefined)?.polygons ?? []
-      return polygons.length > 0
+      const dungeon = store.getState().layers.find((l) => l.type === 'dungeon')
+      return (dungeon?.mergedFloor ?? []).length > 0
     })
 
     expect(hasShapes).toBe(true)
