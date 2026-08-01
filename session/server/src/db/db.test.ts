@@ -12,6 +12,7 @@ import {
   CampaignStore,
   IdentityStore,
   MAX_MAP_BYTES,
+  MAX_MAP_JSON_BYTES,
   MapStore,
   ModuleStateStore,
   PassStore,
@@ -98,15 +99,18 @@ describe('MapStore', () => {
     expect(maps.listByCampaign('other-campaign')).toEqual([])
   })
 
-  it('rejects anything over the 20MB cap without writing it', () => {
+  it('rejects anything over the unpacked cap without writing it', () => {
     const campaign = new CampaignStore(db).create('C')
     const maps = new MapStore(db)
 
-    expect(() => maps.insert('huge', campaign.id, 'Huge', 'x'.repeat(MAX_MAP_BYTES + 1))).toThrow(
-      /too large/,
-    )
+    expect(() =>
+      maps.insert('huge', campaign.id, 'Huge', 'x'.repeat(MAX_MAP_JSON_BYTES + 1)),
+    ).toThrow(/too large/)
     expect(maps.get('huge')).toBeUndefined()
-    expect(() => maps.insert('edge', campaign.id, 'Edge', 'x'.repeat(MAX_MAP_BYTES))).not.toThrow()
+    // A document bigger than the *wire* cap is fine here: gzip is why it fit on the wire.
+    expect(() =>
+      maps.insert('embedded-art', campaign.id, 'Art', 'x'.repeat(MAX_MAP_BYTES + 1)),
+    ).not.toThrow()
   })
 })
 

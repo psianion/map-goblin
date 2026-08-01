@@ -5,8 +5,20 @@ import { randomUUID } from 'node:crypto'
 import type { Role } from '@dnd/core/src/shared/protocol'
 import type { Database } from './db'
 
-/** D7 — `.mapbuilder` files reach 20MB; anything past that is not a map we accept. */
+/** D7 — `.mapbuilder` files reach 20MB on the wire; anything past that we do not accept. */
 export const MAX_MAP_BYTES = 20 * 1024 * 1024
+
+/**
+ * The same map *unpacked*, which is the form we store and hand back.
+ *
+ * A `.mapbuilder` carries the DM's imported pictures base64'd inside its JSON, and base64
+ * of already-compressed PNG bytes gzips back down to roughly what it started as — so the
+ * decompressed document runs well over the wire cap while the upload itself is comfortably
+ * under it. Held at 20MB, three imported images were enough to have a perfectly good map
+ * refused as unreadable. 3.2x the wire cap: room for the art, still a bounded expansion
+ * ratio rather than an open invitation to a zip bomb.
+ */
+export const MAX_MAP_JSON_BYTES = 64 * 1024 * 1024
 
 /** D11 — a token portrait, not a wallpaper. */
 export const MAX_ASSET_BYTES = 2 * 1024 * 1024
@@ -111,14 +123,17 @@ export class MapStore {
   }
 
   /**
-   * @throws if `data` exceeds {@link MAX_MAP_BYTES}. The size is measured here rather
-   * than trusted from the caller — a caller-supplied count is a cap you can lie past,
-   * and it would also let `size_bytes` disagree with what is actually stored.
+   * @throws if `data` exceeds {@link MAX_MAP_JSON_BYTES}. `data` is the unpacked JSON, so
+   * this is the unpacked cap, not the wire one. The size is measured here rather than
+   * trusted from the caller — a caller-supplied count is a cap you can lie past, and it
+   * would also let `size_bytes` disagree with what is actually stored.
    */
   insert(id: string, campaignId: string, name: string, data: string): MapRow {
     const size_bytes = Buffer.byteLength(data, 'utf8')
-    if (size_bytes > MAX_MAP_BYTES) {
-      throw new Error(`map too large: ${size_bytes} bytes exceeds the ${MAX_MAP_BYTES} byte limit`)
+    if (size_bytes > MAX_MAP_JSON_BYTES) {
+      throw new Error(
+        `map too large: ${size_bytes} bytes exceeds the ${MAX_MAP_JSON_BYTES} byte limit`,
+      )
     }
     const row: MapRow = { id, campaign_id: campaignId, name, data, size_bytes, imported_at: Date.now() }
     this.#insert.run(row.id, row.campaign_id, row.name, row.data, row.size_bytes, row.imported_at)

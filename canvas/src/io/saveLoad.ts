@@ -236,7 +236,7 @@ export async function loadMap(): Promise<boolean> {
   // Restore custom images into PIXI.Assets before loading state
   if (data.customImages && Object.keys(data.customImages).length > 0) {
     try {
-      const { restoreCustomImages } = await import('./imageEmbed');
+      const { restoreCustomImages } = await import('@/assets/textureLoader');
       await restoreCustomImages(data.customImages);
     } catch (err) {
       console.warn('[loadMap] restoreCustomImages failed:', err);

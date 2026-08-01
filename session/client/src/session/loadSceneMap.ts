@@ -2,6 +2,7 @@ import type { AnyChild, DoorChild, Room, WallSegment } from '@dnd/core/src/share
 import type { Role } from '@dnd/core/src/shared/protocol';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
+import { restoreCustomImages } from '@dnd/core/src/assets/textureLoader';
 import { endpoints } from '../endpoints';
 import { useSessionStore } from './store';
 
@@ -170,6 +171,13 @@ export async function loadSceneMap(sceneId: string, token: string): Promise<void
   });
   if (!res.ok) throw new Error(`Map fetch failed: ${res.status} ${res.statusText}`);
   const data = (await res.json()) as SerializedMapData;
+  // The pictures the DM imported in the editor ride along in `customImages`, and nothing
+  // at the table had ever registered them: `GameRenderer` hands the document straight to
+  // `loadFromFile`, which resolves textures as it builds, so every imported image drew as
+  // the magenta fallback. Registered here rather than there because this is the one place
+  // that is already async — deltas reuse the initial document's images (`mergeMapDelta`
+  // spreads `...current`), so once is enough.
+  await restoreCustomImages(data.customImages);
   const store = useSessionStore.getState();
   store.setMapData(forViewer(data, store.you?.role, sceneId));
 }

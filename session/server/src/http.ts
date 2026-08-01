@@ -16,7 +16,13 @@ import {
   startSession,
   verifyToken,
 } from './auth'
-import { MAX_ASSET_BYTES, MAX_MAP_BYTES, type Identity, type Stores } from './db/stores'
+import {
+  MAX_ASSET_BYTES,
+  MAX_MAP_BYTES,
+  MAX_MAP_JSON_BYTES,
+  type Identity,
+  type Stores,
+} from './db/stores'
 import type { Vision } from './fog/vision'
 import { parseMapFile, unwrapMapFile } from './mapImport'
 import type { ModuleRegistry } from './modules/registry'
@@ -118,7 +124,10 @@ async function uploadMap(
   // The editor saves gzipped; testdata fixtures are plain JSON. Both are `.mapbuilder`, and
   // the stored form is the JSON either way — everything downstream reads `maps.data` with a
   // bare `JSON.parse`, and the DM's map GET hands the row straight back.
-  const text = unwrapMapFile(body.bytes, MAX_MAP_BYTES)
+  //
+  // Unpacked against the unpacked cap: a map with imported art gzips to well under the wire
+  // limit and still expands past it (see MAX_MAP_JSON_BYTES).
+  const text = unwrapMapFile(body.bytes, MAX_MAP_JSON_BYTES)
   if (text === null) return json(res, 400, { error: 'could not read that .mapbuilder file' })
 
   const map = parseMapFile(text)
