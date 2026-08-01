@@ -6,6 +6,7 @@
 import { gzipSync } from 'node:zlib';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { endpoints } from '../endpoints';
 import HostSetup from './HostSetup';
 
 vi.mock('../session/auth', () => ({
@@ -168,5 +169,39 @@ describe('HostSetup — the starting room', () => {
     await screen.findByTestId('uploaded-map');
 
     expect(screen.queryByLabelText('Starting room')).toBeNull();
+  });
+});
+
+/**
+ * The field says it is already pointing at this page's own address, and then a cleared field
+ * disabled Continue — the copy and the button disagreed, and the DM believed the button.
+ */
+describe('HostSetup — the server address is optional', () => {
+  const advance = (serverUrl: string) => {
+    render(<HostSetup />);
+    fireEvent.change(screen.getByLabelText('Server address'), { target: { value: serverUrl } });
+    fireEvent.change(screen.getByLabelText('Admin pass'), { target: { value: 'hunter2' } });
+    return screen.getByRole<HTMLButtonElement>('button', { name: 'Continue' });
+  };
+
+  it('lets an empty address through and falls back to this page’s origin', async () => {
+    expect(advance('').disabled).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.change(screen.getByLabelText('Campaign name'), { target: { value: 'Cragmaw' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }));
+    await screen.findByLabelText('Map file');
+
+    expect(vi.mocked(createCampaignAsDm).mock.calls[0][0]).toBe(endpoints.httpBase);
+  });
+
+  it('still refuses an address that was typed and cannot be reached', () => {
+    expect(advance('http://').disabled).toBe(true);
+    expect(screen.queryByTestId('server-url-error')).not.toBeNull();
+  });
+
+  it('takes a bare host:port, the way the address bar does', () => {
+    expect(advance('localhost:8787').disabled).toBe(false);
+    expect(screen.queryByTestId('server-url-error')).toBeNull();
   });
 });

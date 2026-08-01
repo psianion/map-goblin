@@ -9,6 +9,27 @@ import { useSessionStore } from '../session/store';
 
 const STEPS = ['Server', 'Campaign', 'Map', 'Invite'];
 
+/**
+ * The server address is optional, exactly as the field's own helper copy promises: leave it
+ * empty and the server is this page's origin, which in the deployed stack is the right
+ * answer (nginx proxies /api and /ws to the game server). Only something actually typed is
+ * validated — a blank field used to disable Continue, which contradicted the copy directly.
+ *
+ * `setServerUrl` assumes http:// for a bare `host:port`, so the same leniency applies here;
+ * anything that still will not parse is a typo worth naming before a request is fired at it.
+ */
+function serverUrlError(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const { protocol } = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`);
+    if (protocol !== 'http:' && protocol !== 'https:') throw new Error('scheme');
+  } catch {
+    return 'That is not an address the browser can reach — try http://localhost:8787';
+  }
+  return null;
+}
+
 const field =
   'w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none';
 const label = 'mb-1 block text-xs font-semibold uppercase tracking-wide text-neutral-500';
@@ -53,9 +74,15 @@ export default function HostSetup() {
     }
   };
 
+  /** Empty means this page's own origin — the default the field's helper copy describes. */
+  const resolvedServerUrl = serverUrl.trim() || endpoints.httpBase;
+  const serverError = serverUrlError(serverUrl);
+
   const createCampaign = () =>
     run(async () => {
-      setDm(await createCampaignAsDm(serverUrl, adminPass, campaignName || 'Untitled campaign'));
+      setDm(
+        await createCampaignAsDm(resolvedServerUrl, adminPass, campaignName || 'Untitled campaign'),
+      );
       setStep(3);
     });
 
@@ -149,9 +176,14 @@ export default function HostSetup() {
                 wrong default and sent a gate walk hunting for a bug that was not there.
               */}
               <p className="mt-1 text-xs text-neutral-500">
-                Already pointing at this page’s own address, which is where the server
-                answers unless you are running it somewhere else.
+                Optional — pre-filled with this page’s own address, which is where the server
+                answers unless you are running it somewhere else. Empty means the same thing.
               </p>
+              {serverError && (
+                <p className="mt-1 text-xs text-red-400" data-testid="server-url-error">
+                  {serverError}
+                </p>
+              )}
             </div>
 
             <div>
@@ -171,7 +203,7 @@ export default function HostSetup() {
             <button
               type="button"
               className={primary}
-              disabled={!serverUrl.trim() || !adminPass.trim()}
+              disabled={!adminPass.trim() || serverError !== null}
               onClick={() => setStep(2)}
             >
               Continue
