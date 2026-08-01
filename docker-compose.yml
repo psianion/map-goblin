@@ -27,6 +27,11 @@ services:
     build:
       context: .
       dockerfile: session/client/Dockerfile
+      args:
+        # Empty here on purpose: nginx proxies /api and /ws, so this origin *is* the
+        # server's as far as the browser is concerned. Set GAME_SERVER_URL only when
+        # serving the bundle from somewhere without that proxy.
+        VITE_HTTP_BASE: "${GAME_SERVER_URL:-}"
     image: map-goblin-session-client:dev
     ports:
       - "8090:80"

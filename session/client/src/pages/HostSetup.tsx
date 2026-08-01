@@ -138,8 +138,19 @@ export default function HostSetup() {
                 className={field}
                 value={serverUrl}
                 onChange={(e) => setServerUrl(e.target.value)}
-                placeholder="http://localhost:8787"
+                placeholder={endpoints.httpBase}
               />
+              {/*
+                The pre-filled value is this page's own origin, and in the deployed stack
+                that is the right answer: nginx reverse-proxies /api and /ws to the game
+                server, so the browser only ever talks to one origin (nginx.conf). The
+                placeholder used to say :8787 while the field held :8090, which read as a
+                wrong default and sent a gate walk hunting for a bug that was not there.
+              */}
+              <p className="mt-1 text-xs text-neutral-500">
+                Already pointing at this page’s own address, which is where the server
+                answers unless you are running it somewhere else.
+              </p>
             </div>
 
             <div>
