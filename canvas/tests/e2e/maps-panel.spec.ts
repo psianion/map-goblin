@@ -25,7 +25,7 @@
  */
 
 import { test, expect, type Page } from '@playwright/test'
-import { gotoApp, waitFrame, drawRect, pressShortcut } from './helpers'
+import { gotoApp, waitForBoot, waitFrame, drawRect, pressShortcut } from './helpers'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -1178,7 +1178,7 @@ test.describe('Maps Panel', () => {
 
       // Step 3: Reload the page
       await page.reload()
-      await page.waitForSelector('[data-clipper-ready="true"]', { timeout: 20000 })
+      await waitForBoot(page)
 
       // Step 4: Open the maps panel again
       await openMapsPanel(page)
@@ -1214,7 +1214,7 @@ test.describe('Maps Panel', () => {
 
       // Step 4: Reload the page
       await page.reload()
-      await page.waitForSelector('[data-clipper-ready="true"]', { timeout: 20000 })
+      await waitForBoot(page)
 
       // Step 5: Open the maps panel
       await openMapsPanel(page)

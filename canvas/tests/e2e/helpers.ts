@@ -1,15 +1,35 @@
 import { type Page } from '@playwright/test'
 
 /**
- * Navigate to app and wait for canvas + Clipper2 WASM to be ready.
+ * A minute each rather than the twenty seconds this used to allow: the first page
+ * of a run pays Vite's cold compile, and a boot that lands at 21 seconds is a slow
+ * box, not a broken app. The waits cost nothing when the app is already up.
  *
- * A minute rather than the twenty seconds this used to allow: the first page of a
- * run pays Vite's cold compile, and a boot that lands at 21 seconds is a slow box,
- * not a broken app. The wait costs nothing when the app is up.
+ * Keep the sum under `timeout` in playwright.config.ts, which has to leave room
+ * for a test body on top of the worst-case boot.
  */
+const CLIPPER_TIMEOUT = 60_000
+const ENGINE_TIMEOUT = 60_000
+
+/**
+ * Wait out the whole boot: Clipper2 WASM, then the engine.
+ *
+ * Both halves, always. `data-clipper-ready` alone was the old bar and it is the
+ * wrong one — it is set well before the engine is up, so a spec that started
+ * driving pointers at that point drew nothing into an empty scene graph and then
+ * asserted on it. Specs that never noticed were the ones whose assertions passed
+ * either way. Waiting for the engine here fixes every caller at once rather than
+ * asking each spec to remember.
+ */
+export async function waitForBoot(page: Page): Promise<void> {
+  await page.waitForSelector('[data-clipper-ready="true"]', { timeout: CLIPPER_TIMEOUT })
+  await waitForEngine(page)
+}
+
+/** Navigate to the app and wait for it to finish booting. */
 export async function gotoApp(page: Page): Promise<void> {
   await page.goto('/')
-  await page.waitForSelector('[data-clipper-ready="true"]', { timeout: 60_000 })
+  await waitForBoot(page)
 }
 
 /**
@@ -18,8 +38,11 @@ export async function gotoApp(page: Page): Promise<void> {
  * IndexedDB, and until that finishes the canvas is an "Initializing…" overlay
  * with an empty scene graph. Anything driven by a real pointer has to wait for
  * this: the overlay sits on top of the canvas, so a click lands on a div.
+ *
+ * `gotoApp` already awaits this. Still exported because specs call it directly
+ * after a reload, and because an explicit call documents the dependency.
  */
-export async function waitForEngine(page: Page, timeout = 120_000): Promise<void> {
+export async function waitForEngine(page: Page, timeout = ENGINE_TIMEOUT): Promise<void> {
   await page.waitForFunction(
     () => {
       const app = (window as Window & { __pixiApp?: { stage: { children: { children: unknown[] }[] } } })
@@ -29,6 +52,26 @@ export async function waitForEngine(page: Page, timeout = 120_000): Promise<void
     undefined,
     { timeout },
   )
+}
+
+/**
+ * Number of shape children on the dungeon layer.
+ *
+ * The check that makes a drawing test mean something. A spec that draws and then
+ * only asserts the canvas is still visible passes just as happily when the draw
+ * did nothing at all, which is how a boot-overlay regression hid here for so long.
+ * Assert a count delta around the draw instead.
+ */
+export async function shapeCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const store = (window as Window & {
+      __store?: {
+        getState: () => { layers: { type: string; children: { childType: string }[] }[] }
+      }
+    }).__store
+    const layer = store?.getState().layers.find((l) => l.type === 'dungeon')
+    return layer ? layer.children.filter((c) => c.childType === 'shape').length : -1
+  })
 }
 
 /** Wait for n animation frames */
@@ -98,18 +141,35 @@ export async function drawRect(
   await waitFrame(page, 2)
 }
 
-/** Get pixel color at canvas coordinates */
+/**
+ * Get pixel colour at canvas coordinates, in device pixels.
+ *
+ * Via a screenshot, not `getContext('2d')`. The app's canvas is Pixi's, and it
+ * already holds a WebGL context — asking the same element for a 2D one returns
+ * `null`, so the old version of this helper silently returned `{0,0,0,0}` for
+ * every pixel of every test. That made `expect(a).toBe(255)` unsatisfiable and
+ * `expect(diff).toBeGreaterThanOrEqual(0)` unfalsifiable, in both cases without
+ * ever mentioning a canvas. Same screenshot → `createImageBitmap` → 2D surface
+ * route the door light rows use; `preserveDrawingBuffer` is on for it.
+ */
 export async function getPixelColor(
   page: Page,
   x: number,
   y: number,
 ): Promise<{ r: number; g: number; b: number; a: number }> {
-  return page.evaluate(({ x, y }) => {
-    const canvas = document.querySelector('canvas') as HTMLCanvasElement
-    if (!canvas) return { r: 0, g: 0, b: 0, a: 0 }
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return { r: 0, g: 0, b: 0, a: 0 }
-    const d = ctx.getImageData(x, y, 1, 1).data
-    return { r: d[0], g: d[1], b: d[2], a: d[3] }
-  }, { x, y })
+  const shot = await page.locator('canvas').first().screenshot()
+  return page.evaluate(
+    async ({ b64, x, y }) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+      const surface = new OffscreenCanvas(bitmap.width, bitmap.height)
+      const ctx = surface.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0)
+      const px = Math.min(Math.max(Math.round(x), 0), bitmap.width - 1)
+      const py = Math.min(Math.max(Math.round(y), 0), bitmap.height - 1)
+      const d = ctx.getImageData(px, py, 1, 1).data
+      return { r: d[0], g: d[1], b: d[2], a: d[3] }
+    },
+    { b64: shot.toString('base64'), x, y },
+  )
 }
