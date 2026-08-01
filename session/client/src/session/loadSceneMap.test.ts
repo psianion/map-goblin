@@ -202,7 +202,7 @@ describe('mergeMapDelta', () => {
     (open.layers[0] as unknown as { children: { state: string }[] }).children[0].state = 'open';
 
     const merged = mergeMapDelta(open, delta(), 'player', 'scene-1');
-    const door = layerOf(merged).children[0] as { state: string; roomB?: string | null };
+    const door = layerOf(merged).children[0] as unknown as { state: string; roomB?: string | null };
     expect(door.state).toBe('open');
     // …and the delta still wins on everything it is actually authoritative for.
     expect(door.roomB).toBe('r-gallery');
