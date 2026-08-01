@@ -131,6 +131,25 @@ export const createMapsSlice: StateCreator<
     set((s) => {
       s.mapIndex = s.mapIndex.filter((m) => m.id !== id);
     });
+
+    // Deleting the map you were editing used to leave `activeMapId` pointing at a
+    // row that no longer exists: no card carried the editing badge, and the next
+    // autosave wrote the open canvas back under a deleted id. Move to the next
+    // most recent instead, and if that was the last map, start a fresh one —
+    // there is no screen in this app that means anything with zero maps.
+    if (get().activeMapId !== id) return;
+
+    const next = get().mapIndex[0];
+    if (next) {
+      await get().loadMap(next.id);
+      return;
+    }
+    // Clear first: createNewMap saves the active map before switching away, and
+    // the active map here is the one just deleted.
+    set((s) => {
+      s.activeMapId = null;
+    });
+    await get().createNewMap();
   },
 
   async renameMap(id: string, name: string) {
