@@ -15,7 +15,7 @@ import type { Role } from '@dnd/core/src/shared/protocol';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import { useSessionStore } from '../../session/store';
 import { isToolActive } from '../../session/tools';
-import { doorRefusal } from '../doors/doors';
+import { doorRefusal, type LiveDoor } from '../doors/doors';
 
 /** What the renderer exposes to the input layer. */
 export interface TokenLayer {
@@ -95,18 +95,16 @@ export function approach(from: number, to: number, dtMs: number, ms = 150): numb
  * refusals (`DOOR_LOCKED`), and a move blocked *by a door* is the same fact arriving through
  * another command, so it gets the same sentence rather than a vaguer one of its own.
  *
- * `canOccupy` collapses locked door, closed door, unexplored room and unzoned map into a
- * single boolean today — `occupiable` is a precomputed BFS that discards the edge it refused
- * to cross — so the server has no cause to stamp on a move yet and this reads as the generic
- * line every time. Naming it is a change to `visibleRooms`/`canOccupy` in @dnd/mechanics,
- * beyond this package; the words are waiting for it.
+ * `doors` is what lets it say *which* door — the caller passes the doors this seat holds and
+ * `doorRefusal` resolves the id the server named. Omit them and the sentence is still
+ * correct, just nameless, which is all a caller using this as a yes/no gate needs.
  *
  * ponytail: the sentence is copied from `mechanics/tokens/module.ts`, so a reword there goes
  * quiet here rather than wrong. The upgrade is an exported constant beside the message.
  */
-export function tokenRefusal(message: string): string | null {
+export function tokenRefusal(message: string, doors: readonly LiveDoor[] = []): string | null {
   if (!message.includes('cannot be occupied')) return null;
-  return doorRefusal(message) ?? "You can't move there.";
+  return doorRefusal(message, doors) ?? "You can't move there.";
 }
 
 /** D10 client-side gate. The server enforces this too — this only saves a round trip. */

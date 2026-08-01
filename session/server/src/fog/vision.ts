@@ -9,6 +9,7 @@
 
 import { doorsOfScene, type AuthoredDoor, type DoorLiveState, type DoorsState } from '@dnd/mechanics/doors'
 import {
+  blockedEdge,
   effectiveFog,
   sceneFogOf,
   visibleRooms,
@@ -60,6 +61,8 @@ interface Computed {
   visible: Set<string>
   /** Rooms a player token may stand in (D8) — reachable, and not never-revealed. */
   occupiable: Set<string>
+  /** The rooms the party stands in — what `blockedEdge` measures "shut off" against. */
+  party: string[]
   /** Rooms whose geometry the player holds (D4). */
   explored: Set<string>
   /** The doors that geometry contains — the live states a player may be told about. */
@@ -151,6 +154,7 @@ export function createVision(stores: Stores): Vision {
       // still walk to is somewhere to stand, it is simply dark (D7). Asking `visibleRooms`
       // for a scene where every room they have seen counts as lit answers it exactly.
       occupiable: visibleRooms({ ...fog, rooms: asSeen(fog.rooms) }, doors, map.doors, party),
+      party,
       explored,
       playerDoors: new Set(held.map((door) => door.id)),
       delta: mergeDelta(roomDelta, newDoors.size ? doorDeltaFor(map, sceneId, newDoors, explored) : null),
@@ -177,6 +181,10 @@ export function createVision(stores: Stores): Vision {
         roomAt: computed.map.roomAt,
         visible: computed.visible,
         occupiable: computed.occupiable,
+        // The half of the refusal that was never plugged in: `occupiable` is the BFS's
+        // boolean, and without this the cause it discarded stayed discarded, so every move
+        // a door refused came back as the generic "you can't move there".
+        blockedEdge: (room) => blockedEdge(computed.doors, computed.map.doors, computed.party, room),
       }
     },
 

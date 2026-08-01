@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest'
 import type { DoorChild } from '@dnd/core/src/shared/types'
 import type { Viewer } from '../contract'
 import { doorsModule } from './module'
-import { DOOR_LOCKED, UNKNOWN_DOOR, type AuthoredDoor, type DoorsState } from './types'
+import {
+  DOOR_LOCKED,
+  UNKNOWN_DOOR,
+  refusalSubject,
+  type AuthoredDoor,
+  type DoorsState,
+} from './types'
 
 const DM: Viewer = { role: 'dm', identityId: 'dm-1' }
 const P1: Viewer = { role: 'player', identityId: 'p-1' }
@@ -132,10 +138,13 @@ describe('toggle', () => {
     expect(scene(run(opened, P1, 'toggle', { id: 'oak' }).next).oak.open).toBe(false)
   })
 
-  it('refuses a locked door and leaves it shut', () => {
+  it('refuses a locked door, names which one, and leaves it shut', () => {
     const { error, next } = run(empty, P1, 'toggle', { id: 'iron' })
     expect(error?.code).toBe('invalid-command')
     expect(error?.message).toContain(DOOR_LOCKED)
+    // The id, not the name: the client turns it into the name that seat is allowed to
+    // read, so "The door is locked." can become "Reliquary Door is locked."
+    expect(refusalSubject(error!.message)).toBe('iron')
     expect(next).toBe(empty)
   })
 

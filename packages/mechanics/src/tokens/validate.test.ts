@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { canOccupy, occupyRefusal, snap } from './validate'
-import { DOOR_LOCKED } from '../doors/types'
+import { DOOR_CLOSED, DOOR_LOCKED, refusalSubject } from '../doors/types'
 import { MOVE_BLOCKED, OUTSIDE_MAP, ROOM_UNEXPLORED, type SceneVision, type Token } from './types'
 
 /**
@@ -74,15 +74,29 @@ describe('occupyRefusal — why a space refused', () => {
     expect(why(35.5)).toContain(OUTSIDE_MAP)
   })
 
-  it('names a locked door when one shut the room off', () => {
-    const withDoor: SceneVision = { ...scene, blockedEdge: () => 'locked-door' }
+  it('names a locked door when one shut the room off, and which door it was', () => {
+    const withDoor: SceneVision = {
+      ...scene,
+      blockedEdge: () => ({ kind: 'locked-door', doorId: 'door-vault' }),
+    }
     // Reuses the doors module's own constant, so the shipped client already has words.
     expect(why(25.5, withDoor)).toContain(DOOR_LOCKED)
+    // The id, never the name: what a player may read of a door's name is the map
+    // redactor's call, and the client resolves it against the doors it was handed.
+    expect(refusalSubject(why(25.5, withDoor)!)).toBe('door-vault')
   })
 
-  it('names a closed door as blocked rather than unexplored', () => {
-    const withDoor: SceneVision = { ...scene, blockedEdge: () => 'closed-door' }
-    expect(why(25.5, withDoor)).toContain(MOVE_BLOCKED)
+  it('names a closed door as a closed door, not as a bare block', () => {
+    const withDoor: SceneVision = {
+      ...scene,
+      blockedEdge: () => ({ kind: 'closed-door', doorId: 'door-gallery' }),
+    }
+    expect(why(25.5, withDoor)).toContain(DOOR_CLOSED)
+    expect(refusalSubject(why(25.5, withDoor)!)).toBe('door-gallery')
+  })
+
+  it('names no subject when no door explains the refusal', () => {
+    expect(refusalSubject(why(25.5)!)).toBeNull()
   })
 
   it('calls a seen-but-unreachable room blocked even with no door to name', () => {

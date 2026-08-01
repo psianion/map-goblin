@@ -14,20 +14,23 @@ import { frameWorldPoint } from '../../renderer/camera';
 import { ALL_ROLES, registerPanel } from '../../session/panels';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { showToast } from '../../session/toasts';
-import { doorLabel, doorRefusal, doorStatusLabel, liveDoors } from './doors';
+import { doorLabel, doorRefusal, doorStatusLabel, liveDoors, type LiveDoor } from './doors';
 import { mountDoorLayerWhenReady } from './DoorRenderer';
 import { useDoorSelection } from './selection';
 
 const send = (action: string, payload: unknown): void =>
   useSessionStore.getState().sendCommand('doors', action, payload);
 
-/** Turns the server's refusal into the one toast the table has. */
-function useDoorFeedback(): void {
+/** Turns the server's refusal into the one toast the table has, naming the door it names. */
+function useDoorFeedback(doors: readonly LiveDoor[]): void {
   const lastError = useSessionStore((s) => s.lastError);
   useEffect(() => {
     if (!lastError) return;
-    const message = doorRefusal(lastError.message);
+    const message = doorRefusal(lastError.message, doors);
     if (message) showToast({ message });
+    // The doors are read for the name only: a door list arriving a beat later must not
+    // re-toast a refusal the player has already been given.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastError]);
 }
 
@@ -40,12 +43,12 @@ export function DoorPanel() {
   const select = useDoorSelection((s) => s.select);
 
   useEffect(() => mountDoorLayerWhenReady(), []);
-  useDoorFeedback();
 
   const doors = useMemo(
     () => liveDoors(layers, doorsState, sceneId),
     [layers, doorsState, sceneId],
   );
+  useDoorFeedback(doors);
   const selected = doors.find((d) => d.door.id === selectedId);
 
   // Selecting a door also brings it into view — the panel is the keyboard route to a door

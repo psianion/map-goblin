@@ -8,6 +8,7 @@ import type { TokensState } from '@dnd/mechanics/tokens';
 import { ALL_ROLES, registerPanel } from '../../session/panels';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { showToast, useToasts } from '../../session/toasts';
+import { liveSceneDoors } from '../doors/DoorRenderer';
 import { tokenRefusal, useTokenInteraction } from './drag';
 import { mountTokenLayerWhenReady, tokensOf } from './TokenRenderer';
 
@@ -27,7 +28,9 @@ function useTokenFeedback(): void {
   const lastError = useSessionStore((s) => s.lastError);
   useEffect(() => {
     if (!lastError) return;
-    const message = tokenRefusal(lastError.message);
+    // The doors this seat holds, read at refusal time rather than subscribed to: the name
+    // is wanted once, for the sentence, and a door list is not a reason to re-toast.
+    const message = tokenRefusal(lastError.message, liveSceneDoors());
     // One toast per rejected drop, not one per refused message: a drag across a wall is
     // refused at ~10 Hz on the way and again on the drop, and the last throttled move can
     // land after the pointer is already up. While the same words are still on screen there

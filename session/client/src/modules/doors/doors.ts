@@ -8,9 +8,11 @@
 import type { DoorChild } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import {
+  DOOR_CLOSED,
   DOOR_LOCKED,
   UNKNOWN_DOOR,
   doorsOfScene,
+  refusalSubject,
   type DoorLiveState,
   type DoorsState,
 } from '@dnd/mechanics/doors';
@@ -88,11 +90,21 @@ export const doorLabel = (door: DoorChild, index: number): string =>
  * wire's `code` is `invalid-command` for every rejection, so the constant at the head of
  * the message is the real discriminator.
  *
- * `unknown-door` is deliberately the same shrug as a stale id. A player probing for the
- * secret door the DM has not revealed must learn nothing from the wording either.
+ * The refusal carries the door's *id*; the name comes from `doors` — the same list this
+ * seat's panel and canvas are drawing, already cut by the server's redactor. So a door the
+ * player has earned the name of is named, and one whose name was withheld (or that this
+ * seat does not hold at all) falls back to the nameless sentence rather than to the "Door 3"
+ * of `doorLabel`, which would be a worse answer than saying nothing.
+ *
+ * `unknown-door` is deliberately the same shrug as a stale id, and stays nameless for the
+ * same reason. A player probing for the secret door the DM has not revealed must learn
+ * nothing from the wording either.
  */
-export function doorRefusal(message: string): string | null {
-  if (message.startsWith(DOOR_LOCKED)) return 'The door is locked.';
+export function doorRefusal(message: string, doors: readonly LiveDoor[] = []): string | null {
+  const id = refusalSubject(message);
+  const named = doors.find((entry) => entry.door.id === id)?.door.name?.trim();
+  if (message.startsWith(DOOR_LOCKED)) return named ? `${named} is locked.` : 'The door is locked.';
+  if (message.startsWith(DOOR_CLOSED)) return named ? `${named} is closed.` : 'The door is closed.';
   if (message.startsWith(UNKNOWN_DOOR)) return 'That door is no longer there.';
   return null;
 }

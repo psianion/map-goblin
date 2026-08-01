@@ -2,7 +2,7 @@
 // over the rooms-and-doors graph. Pure on purpose; the caller recomputes on fog/door/
 // token-room mutations and caches the result, so this never runs per frame or per message.
 
-import { seedDoor, type AuthoredDoor, type DoorLiveState } from '../doors/types'
+import { seedDoor, type AuthoredDoor, type BlockedEdge, type DoorLiveState } from '../doors/types'
 import type { RoomFog, SceneFog } from './types'
 
 /**
@@ -120,8 +120,7 @@ export function visibleRooms(
   return visible
 }
 
-/** Why a room the party cannot reach is shut off. `null` = no door edge explains it. */
-export type BlockedEdge = 'locked-door' | 'closed-door'
+export type { BlockedEdge } from '../doors/types'
 
 /**
  * The edge fact `visibleRooms` throws away: of the doors joining `room` to somewhere the
@@ -158,8 +157,10 @@ export function blockedEdge(
     // A door they do not know is there explains nothing they are allowed to hear.
     if (door.isSecret && !live.revealed) continue
     // Locked outranks merely closed: it is the one a player cannot fix by pushing.
-    if (live.locked) return 'locked-door'
-    closed = 'closed-door'
+    if (live.locked) return { kind: 'locked-door', doorId: door.id }
+    // First one wins, so two shut doors onto the same room name the same one every time —
+    // a refusal that alternates between them reads as two different answers.
+    closed ??= { kind: 'closed-door', doorId: door.id }
   }
   return closed
 }

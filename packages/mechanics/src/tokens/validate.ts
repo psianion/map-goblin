@@ -3,7 +3,7 @@
 // and the `canOccupy` seam S3's fog tightens.
 
 import type { CommandError, Viewer } from '../contract'
-import { DOOR_LOCKED } from '../doors/types'
+import { DOOR_CLOSED, DOOR_LOCKED, refusal } from '../doors/types'
 import {
   MOVE_BLOCKED,
   OUTSIDE_MAP,
@@ -132,18 +132,19 @@ export function occupyRefusal(
 ): string | null {
   if (role === 'dm' || !scene) return null
   const room = scene.roomAt(pos.x, pos.y)
-  const say = (code: string): string => `${code}: that space cannot be occupied`
+  const say = (code: string, subjectId: string | null = null): string =>
+    refusal(code, subjectId, 'that space cannot be occupied')
 
   // Off every authored room. Unzoned map is the DM's alone (D6).
   if (room === null) return say(OUTSIDE_MAP)
   if (scene.occupiable.has(room)) return null
 
-  // A door the party could name is the most useful thing to say. `door-locked` is the
-  // doors module's own constant on purpose: a move stopped by a locked door is the same
-  // fact as a toggle stopped by one, and the client already has words for it.
+  // A door the party could name is the most useful thing to say, so the door's id rides
+  // along and the client turns it into the name it holds. `door-locked` is the doors
+  // module's own constant on purpose: a move stopped by a locked door is the same fact as a
+  // toggle stopped by one, and the client already has words for it.
   const edge = scene.blockedEdge?.(room)
-  if (edge === 'locked-door') return say(DOOR_LOCKED)
-  if (edge === 'closed-door') return say(MOVE_BLOCKED)
+  if (edge) return say(edge.kind === 'locked-door' ? DOOR_LOCKED : DOOR_CLOSED, edge.doorId)
 
   // No door explains it. Somewhere they have seen but cannot reach is blocked; somewhere
   // they have never seen is not a place they know to walk into.

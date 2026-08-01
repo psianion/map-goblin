@@ -3,6 +3,8 @@
 // place time and keeps `defId` only as provenance, so deleting a def never orphans a
 // token that is already on the table.
 
+import type { BlockedEdge } from '../doors/types'
+
 export type TokenSize = 'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'gargantuan'
 
 /** Width in grid cells — 1 world unit == 1 cell (D13). */
@@ -74,7 +76,7 @@ export interface SceneVision {
    * coarser one: without it a blocked room reports as `MOVE_BLOCKED` rather than naming
    * the locked door.
    */
-  blockedEdge?(room: string): 'locked-door' | 'closed-door' | null
+  blockedEdge?(room: string): BlockedEdge | null
 }
 
 /**

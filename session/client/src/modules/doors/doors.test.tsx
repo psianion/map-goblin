@@ -6,7 +6,7 @@ import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import type { DoorChild } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import { useStore } from '@dnd/core/src/store/store';
-import { DOOR_LOCKED, UNKNOWN_DOOR, type DoorsState } from '@dnd/mechanics/doors';
+import { DOOR_CLOSED, DOOR_LOCKED, UNKNOWN_DOOR, type DoorsState } from '@dnd/mechanics/doors';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import { frameWorldPoint } from '../../renderer/camera';
 import type { WebSocketClient } from '../../session/WebSocketClient';
@@ -436,10 +436,38 @@ describe('the reveal beat — which doors are new enough to fade in', () => {
 });
 
 describe('a refused door', () => {
+  const held = () => liveDoors(useStore.getState().layers, undefined, 'scene-1');
+
   it('reads the typed prefixes, never the sentence', () => {
     expect(doorRefusal(`${DOOR_LOCKED}: that door is locked`)).toMatch(/locked/i);
     expect(doorRefusal(`${UNKNOWN_DOOR}: no such door in that scene`)).toMatch(/no longer there/i);
     expect(doorRefusal('rooms.r-1.status needs wasEverRevealed')).toBeNull();
+  });
+
+  it('names the door the refusal named', () => {
+    expect(doorRefusal(`${DOOR_LOCKED} d2: that door is locked`, held())).toBe(
+      'Reliquary Door is locked.',
+    );
+    expect(doorRefusal(`${DOOR_CLOSED} d1: that space cannot be occupied`, held())).toBe(
+      'Gallery Door is closed.',
+    );
+  });
+
+  /**
+   * The redactor blanks the name of a door onto a room nobody has entered (it names what is
+   * behind it). "Door 3" would be a worse answer than the nameless sentence, and `undefined`
+   * would be a bug on screen, so both fall back.
+   */
+  it('falls back to the nameless sentence rather than to a number', () => {
+    const blank = liveDoors([dungeonLayer([door({ id: 'd9', name: '' })])], undefined, 'scene-1');
+    expect(doorRefusal(`${DOOR_LOCKED} d9: that door is locked`, blank)).toBe(
+      'The door is locked.',
+    );
+    // A door this seat does not hold at all — a stale id, or one the fog withheld.
+    expect(doorRefusal(`${DOOR_CLOSED} d-gone: that space cannot be occupied`, held())).toBe(
+      'The door is closed.',
+    );
+    expect(doorRefusal(`${DOOR_LOCKED}: that door is locked`, held())).toBe('The door is locked.');
   });
 
   it('toasts the player who pulled a locked door', () => {
@@ -449,7 +477,11 @@ describe('a refused door', () => {
 
     act(() =>
       useSessionStore.setState({
-        lastError: { code: 'invalid-command', message: `${DOOR_LOCKED}: that door is locked`, at: 1 },
+        lastError: {
+          code: 'invalid-command',
+          message: `${DOOR_LOCKED} d2: that door is locked`,
+          at: 1,
+        },
       }),
     );
     expect(useToasts.getState().toast?.message).toMatch(/locked/i);
@@ -457,7 +489,7 @@ describe('a refused door', () => {
     expect(useToasts.getState().toast?.action).toBeUndefined();
   });
 
-  it('gives the player who pulled a locked door exactly one toast, in plain words', () => {
+  it('gives the player who pulled a locked door exactly one toast, naming that door', () => {
     useSessionStore.setState({ session: session(), you: player });
     render(<DoorPanel />);
 
@@ -471,13 +503,13 @@ describe('a refused door', () => {
       useSessionStore.setState({
         lastError: {
           code: 'invalid-command',
-          message: `${DOOR_LOCKED}: that door is locked`,
+          message: `${DOOR_LOCKED} d2: that door is locked`,
           at: 7,
         },
       }),
     );
     unsubscribe();
-    expect(shown).toEqual(['The door is locked.']);
+    expect(shown).toEqual(['Reliquary Door is locked.']);
   });
 
   it('stays quiet for refusals that are not a door’s', () => {

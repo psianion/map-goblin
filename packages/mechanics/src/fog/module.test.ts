@@ -438,23 +438,45 @@ describe('blockedEdge', () => {
   })
 
   it('names a locked door between the party and the room', () => {
-    expect(blockedEdge({}, [d({ state: 'locked' })], ['hall'], 'vault')).toBe('locked-door')
+    expect(blockedEdge({}, [d({ state: 'locked' })], ['hall'], 'vault')).toEqual({
+      kind: 'locked-door',
+      doorId: 'd1',
+    })
   })
 
   it('names a merely closed door as closed', () => {
-    expect(blockedEdge({}, [d()], ['hall'], 'vault')).toBe('closed-door')
+    expect(blockedEdge({}, [d()], ['hall'], 'vault')).toEqual({
+      kind: 'closed-door',
+      doorId: 'd1',
+    })
   })
 
   it('prefers locked over closed when two doors join the same room', () => {
     const graph = [d(), d({ id: 'd2', state: 'locked' })]
-    expect(blockedEdge({}, graph, ['hall'], 'vault')).toBe('locked-door')
+    expect(blockedEdge({}, graph, ['hall'], 'vault')).toEqual({
+      kind: 'locked-door',
+      doorId: 'd2',
+    })
+  })
+
+  // The refusal names a door out loud, so two shut doors onto the same room must not have
+  // it alternate between them — the first is the answer every time.
+  it('names the same shut door every time two of them join the room', () => {
+    const graph = [d(), d({ id: 'd2' })]
+    expect(blockedEdge({}, graph, ['hall'], 'vault')).toEqual({
+      kind: 'closed-door',
+      doorId: 'd1',
+    })
   })
 
   it('reads the live overlay over the authored state', () => {
     const live: Record<string, DoorLiveState> = {
       d1: { open: false, locked: true, revealed: true },
     }
-    expect(blockedEdge(live, [d()], ['hall'], 'vault')).toBe('locked-door')
+    expect(blockedEdge(live, [d()], ['hall'], 'vault')).toEqual({
+      kind: 'locked-door',
+      doorId: 'd1',
+    })
   })
 
   it('explains nothing when the door is open — that room is reachable', () => {
@@ -470,7 +492,10 @@ describe('blockedEdge', () => {
     const live: Record<string, DoorLiveState> = {
       d1: { open: false, locked: true, revealed: true },
     }
-    expect(blockedEdge(live, [d({ isSecret: true })], ['hall'], 'vault')).toBe('locked-door')
+    expect(blockedEdge(live, [d({ isSecret: true })], ['hall'], 'vault')).toEqual({
+      kind: 'locked-door',
+      doorId: 'd1',
+    })
   })
 
   it('explains nothing for a room no door joins to the party', () => {

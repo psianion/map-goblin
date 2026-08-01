@@ -1,9 +1,11 @@
 import { createElement } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
-import { DOOR_LOCKED } from '@dnd/mechanics/doors';
+import { DOOR_CLOSED, DOOR_LOCKED } from '@dnd/mechanics/doors';
 import type { Token } from '@dnd/mechanics/tokens';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
+import type { Layer } from '@dnd/core/src/store/types';
+import { liveDoors } from '../doors/doors';
 import { useSessionStore } from '../../session/store';
 import { useToasts } from '../../session/toasts';
 import { tokenLabelText } from './TokenRenderer';
@@ -421,13 +423,52 @@ describe('tokenRefusal carries the cause the server named', () => {
 
   /**
    * The unification: a move blocked by a door is the same fact the doors lane already has
-   * words for, so it gets those words rather than a vaguer sentence of its own. Nothing
-   * stamps this prefix on a move yet — `canOccupy` collapses every cause into one boolean —
-   * so this pins the wiring against the day @dnd/mechanics names one.
+   * words for, so it gets those words rather than a vaguer sentence of its own.
    */
   it('says which door, once a refusal carries the door lane’s prefix', () => {
     expect(tokenRefusal(`${DOOR_LOCKED}: that space cannot be occupied`)).toBe(
       'The door is locked.',
+    );
+    expect(tokenRefusal(`${DOOR_CLOSED}: that space cannot be occupied`)).toBe(
+      'The door is closed.',
+    );
+  });
+
+  /** …and by name, when this seat holds the door the server named. */
+  it('names the door out of the ones this seat holds', () => {
+    const doors = liveDoors(
+      [
+        {
+          id: 'l1',
+          type: 'dungeon',
+          rooms: [],
+          standaloneWalls: [],
+          children: [
+            {
+              id: 'door-sump',
+              name: 'Sump Portcullis',
+              childType: 'door',
+              visible: true,
+              wallId: 'w1',
+              position: [4, 4],
+              angle: 0,
+              width: 1.6,
+              style: 'portcullis',
+              state: 'closed',
+              isSecret: false,
+            },
+          ],
+        } as unknown as Layer,
+      ],
+      undefined,
+      'scene-1',
+    );
+    expect(tokenRefusal(`${DOOR_CLOSED} door-sump: that space cannot be occupied`, doors)).toBe(
+      'Sump Portcullis is closed.',
+    );
+    // A door this seat was not handed keeps the nameless sentence — never "Door 1".
+    expect(tokenRefusal(`${DOOR_CLOSED} door-elsewhere: that space cannot be occupied`, doors)).toBe(
+      'The door is closed.',
     );
   });
 

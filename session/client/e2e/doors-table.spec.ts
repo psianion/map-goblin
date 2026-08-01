@@ -238,7 +238,9 @@ test.describe.serial('@doors', () => {
     await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-locked', 'true')
 
     await toggleDoor(player, FLOOR.id)
-    await expect(player.getByTestId('toast')).toContainText(/locked/i)
+    // By name: the player is standing in the room this door is in, holds its name in the
+    // list beside the toast, and "The door is locked." leaves them matching one to the other.
+    await expect(player.getByTestId('toast')).toContainText(`${FLOOR.name} is locked.`)
     // The refusal is the server's: the door did not move on either seat.
     await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-open', 'false')
     await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-open', 'false')

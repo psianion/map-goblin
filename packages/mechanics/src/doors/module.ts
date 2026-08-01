@@ -10,6 +10,7 @@ import {
   UNKNOWN_DOOR,
   doorsOfScene,
   isArchway,
+  refusal,
   type AuthoredDoor,
   type DoorLiveState,
   type DoorsState,
@@ -101,7 +102,7 @@ function run(action: string, p: Payload, ctx: Ctx, doorsOf: SceneDoors): void {
 
   switch (action) {
     case 'toggle':
-      if (live.locked) bad(`${DOOR_LOCKED}: that door is locked`)
+      if (live.locked) bad(refusal(DOOR_LOCKED, id, 'that door is locked'))
       return put(ctx, sceneId, scene, id, { ...live, open: !live.open })
     case 'lock':
       return put(ctx, sceneId, scene, id, { ...live, locked: true })

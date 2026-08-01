@@ -330,6 +330,44 @@ describe('vision (D3/D8)', () => {
     expect(scene.roomAt(100, 100)).toBeNull()
   })
 
+  /**
+   * The half of D8 the refusal needs: `occupiable` says no, this says which door said it.
+   * It went unwired for a release — `visionOf` handed back the two sets and nothing else —
+   * and every move a door refused came back to the player as "You can't move there."
+   */
+  it('hands the refusal the door that shut the room off, so it can be named', () => {
+    const { vision, stores, campaignId } = table()
+    // The party is standing in the corridor, one shut door short of `inner`.
+    set(stores, campaignId, 'tokens', party(12))
+    set(stores, campaignId, 'fog', {
+      byScene: {
+        [SCENE]: fog({
+          rooms: {
+            hall: { status: 'revealed', wasEverRevealed: true },
+            corr: { status: 'revealed', wasEverRevealed: true },
+            inner: { status: 're_hidden', wasEverRevealed: true },
+          },
+        }),
+      },
+    } satisfies FogState)
+    const scene = vision.visionOf(SCENE)!
+    expect(scene.occupiable.has('inner')).toBe(false)
+    expect(scene.blockedEdge!('inner')).toEqual({
+      kind: 'closed-door',
+      doorId: 'door-corr-inner',
+    })
+    // Nothing between the party and where they already stand.
+    expect(scene.blockedEdge!('corr')).toBeNull()
+
+    set(stores, campaignId, 'doors', {
+      byScene: { [SCENE]: { 'door-corr-inner': { open: false, locked: true, revealed: true } } },
+    } satisfies DoorsState)
+    expect(vision.visionOf(SCENE)!.blockedEdge!('inner')).toEqual({
+      kind: 'locked-door',
+      doorId: 'door-corr-inner',
+    })
+  })
+
   it('does not conceal from a table with no claimed token on the map', () => {
     const { vision, stores, campaignId } = table()
     set(stores, campaignId, 'fog', {

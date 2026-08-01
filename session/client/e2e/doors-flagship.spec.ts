@@ -299,7 +299,10 @@ test.describe.serial('@doors flagship', () => {
   test('a step through the shut door is refused, and the refusal says so', async () => {
     await sendMove(player, tokenId, BEYOND)
 
-    await expect(player.getByTestId('toast')).toContainText("You can't move there.")
+    // Named, not generic: the whole point of the refusal is that the player can act on it,
+    // and "a door" is not something you can go and open. `door-gallery-hatch` joins the same
+    // pair and is shut too, so the door named is the first one on the map's own list.
+    await expect(player.getByTestId('toast')).toContainText(`${DOOR.name} is closed.`)
     // The refusal is the server's: the token is still where it stood, on both seats.
     await expect.poll(() => tokenPositions(player).then((p) => p[tokenId])).toEqual(START)
     expect((await tokenPositions(dm))[tokenId]).toEqual(START)
