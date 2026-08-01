@@ -385,6 +385,20 @@ describe('DoorPanel', () => {
     expect(sent.filter((s) => s.action === 'toggle')).toEqual([]);
   });
 
+  /** A player keeps the button: rattling a locked door and being told so is the discovery. */
+  it('still lets a player pull a locked door, and be refused for it', () => {
+    useSessionStore.setState({ session: session(), you: player });
+    useDoorSelection.getState().select('d2');
+    const sent = captureCommands();
+    render(<DoorPanel />);
+
+    const toggle = screen.getByTestId('door-toggle') as HTMLButtonElement;
+    expect(toggle.disabled).toBe(false);
+    expect(toggle.textContent).toBe('Open');
+    fireEvent.click(toggle);
+    expect(sent[0]).toMatchObject({ action: 'toggle', payload: { id: 'd2' } });
+  });
+
   it('disables reveal-secret once the secret is out', () => {
     const state: DoorsState = {
       byScene: { 'scene-1': { d3: { open: false, locked: false, revealed: true } } },

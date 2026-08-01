@@ -103,17 +103,23 @@ export function DoorPanel() {
               Revealed — still closed
             </p>
           )}
-          {/* A locked door refuses every toggle, so the button says so instead of spending a
-              round trip to be told. The lock is the DM's own doing and `door-lock` is right
-              beside it, which is the "unlock first" the refusal toast would have had to say. */}
+          {/*
+            The DM only. A locked door refuses every toggle, and the DM is the one holding
+            the key — `door-lock` is the next control along — so Open spending a round trip
+            to be told "locked" is a no-op they can see coming. It says the state instead.
+
+            A player keeps a live button on purpose: rattling a locked door and being told it
+            is locked is the discovery, not a mis-click. That refusal is the server's and
+            arrives as a toast.
+          */}
           <button
             type="button"
             data-testid="door-toggle"
-            disabled={selected.live.locked}
+            disabled={isDm && selected.live.locked}
             onClick={() => send('toggle', { id: selected.door.id })}
             className="rounded border border-border-default bg-surface-2 px-2 py-0.5 text-xs text-text-primary transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 disabled:cursor-not-allowed disabled:text-text-muted disabled:hover:bg-surface-2 motion-reduce:transition-none"
           >
-            {selected.live.locked ? 'Locked' : selected.live.open ? 'Close' : 'Open'}
+            {isDm && selected.live.locked ? 'Locked' : selected.live.open ? 'Close' : 'Open'}
           </button>
           {isDm && (
             <button
