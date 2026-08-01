@@ -14,7 +14,7 @@ import { SIZE_CELLS, snap, type Token, type TokenSize } from '@dnd/mechanics/tok
 import type { Role } from '@dnd/core/src/shared/protocol';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import { useSessionStore } from '../../session/store';
-import { showToast, useToasts } from '../../session/toasts';
+import { showToast } from '../../session/toasts';
 import { isToolActive } from '../../session/tools';
 import { doorRefusal, type LiveDoor } from '../doors/doors';
 
@@ -248,10 +248,9 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
 
     const you = useSessionStore.getState().you;
     if (!canDrag(token, you?.role, you?.identityId)) {
-      // Deduped the way `useTokenFeedback` dedupes a refusal: while the same words are
-      // still on screen, grabbing the token again has nothing to add.
-      const message = dragRefusal(token);
-      if (useToasts.getState().toast?.message !== message) showToast({ message });
+      // `useToasts.show` keeps one toast for repeated words and restarts its window, so
+      // grabbing the token again renews the answer rather than stacking a second one.
+      showToast({ message: dragRefusal(token) });
       return;
     }
     drag = { id: token.id, size: token.size, dx: x - token.x, dy: y - token.y, x: token.x, y: token.y, moved: false };

@@ -7,7 +7,7 @@ import { useEffect, useMemo } from 'react';
 import type { TokensState } from '@dnd/mechanics/tokens';
 import { ALL_ROLES, registerPanel } from '../../session/panels';
 import { useModuleState, useSessionStore } from '../../session/store';
-import { showToast, useToasts } from '../../session/toasts';
+import { showToast } from '../../session/toasts';
 import { liveSceneDoors } from '../doors/DoorRenderer';
 import { tokenRefusal, useTokenInteraction } from './drag';
 import { mountTokenLayerWhenReady, tokensOf } from './TokenRenderer';
@@ -33,13 +33,13 @@ function useTokenFeedback(): void {
     const message = tokenRefusal(lastError.message, liveSceneDoors());
     // One toast per rejected drop, not one per refused message: a drag across a wall is
     // refused at ~10 Hz on the way and again on the drop, and the last throttled move can
-    // land after the pointer is already up. While the same words are still on screen there
-    // is nothing to add — and an accepted move raises no error at all, so a slow echo
-    // (the case the rubber-band also fires on) stays silent.
-    // ponytail: a second refused drop inside the toast's 4s window rides the standing toast
-    // instead of restarting it; key it on the drag gesture the day that reads as a missed
-    // beat rather than as one continuous refusal.
-    if (!message || useToasts.getState().toast?.message === message) return;
+    // land after the pointer is already up. An accepted move raises no error at all, so a
+    // slow echo (the case the rubber-band also fires on) stays silent.
+    //
+    // The de-duplication is `useToasts.show`'s, not this hook's: it keeps the one toast but
+    // restarts its window, so the refusal a player reads on the drop is not one already
+    // most of the way through its life because the drag tripped it seconds earlier.
+    if (!message) return;
     showToast({ message });
   }, [lastError]);
 }

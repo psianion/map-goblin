@@ -7,7 +7,7 @@ import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import type { Layer } from '@dnd/core/src/store/types';
 import { liveDoors } from '../doors/doors';
 import { useSessionStore } from '../../session/store';
-import { useToasts } from '../../session/toasts';
+import { useToasts, type Toast } from '../../session/toasts';
 import { tokenLabelText } from './TokenRenderer';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import {
@@ -199,9 +199,9 @@ describe('a refused move (the rubber-band on its own says nothing)', () => {
   it('toasts the player who dropped a token where it may not stand, once per drop', () => {
     render(createElement(TokenPanel));
 
-    const shown: string[] = [];
+    const shown: Toast[] = [];
     const unsubscribe = useToasts.subscribe((s) => {
-      if (s.toast) shown.push(s.toast.message);
+      if (s.toast) shown.push(s.toast);
     });
     // A drag across a wall is refused on the way at ~10 Hz and again on the drop; the
     // player is owed one answer, not one per message.
@@ -209,7 +209,16 @@ describe('a refused move (the rubber-band on its own says nothing)', () => {
     act(() => useSessionStore.setState({ lastError: refused(2) }));
     unsubscribe();
 
-    expect(shown).toEqual(["You can't move there."]);
+    // One toast — the same id throughout, never a second one stacked behind it.
+    expect(new Set(shown.map((t) => t.id)).size).toBe(1);
+    expect(shown.map((t) => t.message)).toEqual([
+      "You can't move there.",
+      "You can't move there.",
+    ]);
+    // …but re-set on the later refusal, which is what restarts its dismissal window. The
+    // drop is what the player actually looks up from; a clock started by the first refusal
+    // mid-drag had all but run out by then.
+    expect(shown[1]).not.toBe(shown[0]);
   });
 
   it('says nothing when the move was taken — a slow echo is not a refusal', () => {

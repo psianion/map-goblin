@@ -8,6 +8,9 @@ import { create } from 'zustand';
  * Two callers so far: the undo window after a bulk fog change, and the refusal when
  * somebody pulls a locked door. Both go through this, never a modal — a dialog mid-play
  * stops the game to ask a question nobody wanted asked.
+ *
+ * Repeating the message already on screen is not a second toast; it renews the one that is
+ * there. That belongs here rather than in each caller — see `show`.
  */
 
 export interface ToastAction {
@@ -16,7 +19,11 @@ export interface ToastAction {
 }
 
 export interface Toast {
-  /** Monotonic; also the dismissal key, so a stale timer cannot close a newer toast. */
+  /**
+   * The dismissal key, so a stale timer cannot close a newer toast. Monotonic across
+   * *distinct* toasts; a repeat of the same message keeps its id, because it is the same
+   * toast standing for longer rather than a second one.
+   */
   id: number;
   message: string;
   action?: ToastAction;
@@ -27,8 +34,8 @@ export interface Toast {
 export type ToastSpec = Omit<Toast, 'id' | 'durationMs'> & { durationMs?: number };
 
 /** Long enough to read a refusal, short enough not to sit on the map. */
-export const DEFAULT_TOAST_MS = 4000;
-/** D9 — the undo window after Reveal All / Hide All. */
+export const DEFAULT_TOAST_MS = 5000;
+/** D9 — the undo window after Reveal All / Hide All. Spec'd separately; do not fold in. */
 export const UNDO_TOAST_MS = 5000;
 
 interface ToastStore {
@@ -43,7 +50,15 @@ let nextId = 0;
 export const useToasts = create<ToastStore>()((set, get) => ({
   toast: null,
   show: (spec) => {
-    const id = (nextId += 1);
+    // Repeating the words already on screen keeps the same toast — but *refreshes* it, and
+    // that is the whole point. A refused drag is refused at ~10 Hz on the way across and
+    // again on the drop, and the callers used to drop the repeats on the floor. So the
+    // clock started at the first refusal, fired mid-gesture while the player was still
+    // looking at their pointer: by the time they let go and read the map, the toast had a
+    // second left on it, or had already gone. Re-setting it restarts the timer in `ToastHost`
+    // (which keys on the object), so the window runs from the refusal the player saw.
+    const current = get().toast;
+    const id = current?.message === spec.message ? current.id : (nextId += 1);
     set({ toast: { durationMs: DEFAULT_TOAST_MS, ...spec, id } });
     return id;
   },
