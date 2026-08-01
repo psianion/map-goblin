@@ -296,8 +296,28 @@ test.describe.serial('@doors', () => {
     // The union survived the merge — this is the store value the whole wipe came out of.
     expect(await rings(player), 'the floor the renderer draws from is still there').toBeGreaterThan(0)
 
-    // …and so did the pixels. A wipe took every floor and wall sprite off the canvas at
-    // once; what a reveal is allowed to move is one door mark appearing.
+    // …and the door the DM just handed over is in the map, not only in the panel. The two
+    // halves of a reveal travel in different frames — the doors slice names the door, the
+    // fog re-send carries its child (`RETRACTS`, D2/D5) — and the canvas draws from the map
+    // alone, so a door that arrives as a row with no child is a row pointing at nothing.
+    //
+    // Asserted on the document rather than on pixels: the mark lands wherever the seat's
+    // camera happens to be, and this is the one door the player could not hold a moment ago,
+    // so there is no row to frame it with before the reveal and no honest baseline to
+    // measure against. The document is the thing the renderer is a function of.
+    const inMap = await player.evaluate(
+      (id: string) =>
+        (
+          (window as unknown as {
+            __sessionStore?: { getState(): { mapData?: { layers?: { children?: { id: string }[] }[] } | null } }
+          }).__sessionStore?.getState().mapData?.layers ?? []
+        ).some((l) => (l.children ?? []).some((c) => c.id === id)),
+      SECRET.id,
+    )
+    expect(inMap, 'the revealed door reached the map the canvas draws from').toBe(true)
+
+    // The pixels are bounded above only: a wipe took every floor and wall sprite off the
+    // canvas at once and measured tens of percent.
     const moved = await changed(player, settled, await shoot(player))
     console.log(
       `[metric] secret revealed: player canvas moved ${(moved * 100).toFixed(3)}% ` +
@@ -307,8 +327,32 @@ test.describe.serial('@doors', () => {
   })
 
   test('a revealed secret door works for the player it was revealed to', async () => {
+    // Framed first, on this seat's own "take me to it" (D8, `DoorPanel.pick`) — the row above
+    // could not do this, because the door it is about is one the player did not hold yet. Now
+    // that they do, the mark is on screen and the swing below is measurable, which is what
+    // turns "the child reached the map" into "the art reached the canvas".
+    await doorRow(player, SECRET.id).getByRole('button').click()
+    await player.waitForTimeout(1500)
+    const shut = await shoot(player)
+    const shutAgain = await shoot(player)
+    const noise = await changed(player, shut, shutAgain)
+
     await toggleDoor(player, SECRET.id)
     await expect(doorRow(dm, SECRET.id)).toHaveAttribute('data-open', 'true')
+    await player.waitForTimeout(1500)
+
+    const moved = await changed(player, shutAgain, await shoot(player))
+    console.log(
+      `[metric] revealed secret swung: player canvas moved ${(moved * 100).toFixed(3)}% ` +
+        `(noise ${(noise * 100).toFixed(3)}%)`,
+    )
+    // Same reading and the same floor as the two floor-ring doors below: a mark drawn above
+    // the player's mask is the whole of what moves. Zero here is the door's art missing from
+    // the canvas, which is what a reveal that handed over a row and no child would look like.
+    expect(moved, 'the revealed door is drawn on the player canvas').toBeGreaterThan(
+      Math.max(noise * 4, 0.00002),
+    )
+
     await toggleDoor(player, SECRET.id)
     await expect(doorRow(dm, SECRET.id)).toHaveAttribute('data-open', 'false')
   })
