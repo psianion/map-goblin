@@ -506,6 +506,63 @@ describe('blockedEdge', () => {
   it('ignores a door with an unbound side', () => {
     expect(blockedEdge({}, [d({ roomB: null })], ['hall'], 'vault')).toBeNull()
   })
+
+  /**
+   * The same shut door, asked about from further off. A player two rooms away used to get
+   * the generic refusal for the door that named itself the moment they stepped up to it.
+   */
+  describe('a room further off than the door that shuts it', () => {
+    // hall —(open d1)— gallery —(shut d2)— vault —(open d3)— annexe
+    const chain = (over: Partial<AuthoredDoor> = {}): AuthoredDoor[] => [
+      d({ id: 'd1', state: 'open', roomA: 'hall', roomB: 'gallery' }),
+      d({ id: 'd2', roomA: 'gallery', roomB: 'vault', ...over }),
+      d({ id: 'd3', state: 'open', roomA: 'vault', roomB: 'annexe' }),
+    ]
+
+    it('names the shut door on the way, not the room it stopped short of', () => {
+      expect(blockedEdge({}, chain(), ['hall'], 'vault')).toEqual({
+        kind: 'closed-door',
+        doorId: 'd2',
+      })
+    })
+
+    it('still names it for a room another open door beyond that', () => {
+      expect(blockedEdge({}, chain(), ['hall'], 'annexe')).toEqual({
+        kind: 'closed-door',
+        doorId: 'd2',
+      })
+    })
+
+    it('keeps locked and closed apart at a distance', () => {
+      expect(blockedEdge({}, chain({ state: 'locked' }), ['hall'], 'annexe')).toEqual({
+        kind: 'locked-door',
+        doorId: 'd2',
+      })
+    })
+
+    it('names the first door shut against them, not the last', () => {
+      // gallery —(shut d2)— vault —(shut d4)— annexe: the one they would meet first.
+      const graph = [...chain(), d({ id: 'd4', roomA: 'vault', roomB: 'annexe' })]
+      expect(blockedEdge({}, graph.filter((door) => door.id !== 'd3'), ['hall'], 'annexe')).toEqual({
+        kind: 'closed-door',
+        doorId: 'd2',
+      })
+    })
+
+    it('says nothing when the way round is open after all', () => {
+      // The long way is open, so nothing is shutting `vault` off and no door is to blame.
+      const graph = [...chain(), d({ id: 'd5', state: 'open', roomA: 'hall', roomB: 'vault' })]
+      expect(blockedEdge({}, graph, ['hall'], 'vault')).toBeNull()
+    })
+
+    it('never routes the path through a secret door they have not found', () => {
+      const graph = [
+        d({ id: 'd1', state: 'open', roomA: 'hall', roomB: 'gallery' }),
+        d({ id: 'd2', isSecret: true, roomA: 'gallery', roomB: 'vault' }),
+      ]
+      expect(blockedEdge({}, graph, ['hall'], 'vault')).toBeNull()
+    })
+  })
 })
 
 describe('the table log (§2.4.3)', () => {
