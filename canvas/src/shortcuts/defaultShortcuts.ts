@@ -123,6 +123,12 @@ const toolKeyMap: Record<string, () => void | false> = {
     s.setRoughMode(next);
     notify.subtle(next ? 'Rough mode' : 'Smooth mode', { icon: 'tool' });
   },
+  c: () => {
+    const s = useStore.getState();
+    const next = !s.tools.curveMode;
+    s.setCurveMode(next);
+    notify.subtle(next ? 'Curve mode' : 'Straight mode', { icon: 'tool' });
+  },
   // Undo / redo
   'ctrl+z': () => {
     if (!undoManager.canUndo()) {
@@ -369,6 +375,7 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'tool.light',          keys: 'l',           category: 'Tools', label: 'Light' },
     { id: 'mode.erase',          keys: 'e',           category: 'Tools', label: 'Toggle Erase' },
     { id: 'mode.rough',          keys: 'x',           category: 'Tools', label: 'Toggle Rough' },
+    { id: 'mode.curve',          keys: 'c',           category: 'Tools', label: 'Toggle Curve' },
     { id: 'edit.undo',           keys: 'ctrl+z',      category: 'Edit',  label: 'Undo' },
     { id: 'edit.redo',           keys: 'ctrl+y',      category: 'Edit',  label: 'Redo' },
     { id: 'edit.redoAlt',        keys: 'ctrl+shift+z', category: 'Edit', label: 'Redo (Alt)' },

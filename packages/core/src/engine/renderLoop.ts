@@ -74,7 +74,7 @@ export function setupRenderLoop(
       );
       const bgColor = hasLights
         ? currentState.mapSettings.ambientLight
-        : (bgLayer && bgLayer.type === 'background' ? bgLayer.backgroundColor : '#2d2d2d');
+        : (bgLayer && bgLayer.type === 'background' ? bgLayer.backgroundColor : '#0f100e');
 
       if (
         camX !== lastBgCamX ||

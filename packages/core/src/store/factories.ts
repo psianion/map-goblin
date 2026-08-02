@@ -70,8 +70,8 @@ type MapBuilderState = Omit<
   | 'addChild' | 'removeChild' | 'reorderChild' | 'updateChild' | 'recomputeMergedFloor'
   | 'addWall' | 'removeWall' | 'updateWall' | 'setFloorWallEdits' | 'closeAllDoors'
   | 'setRooms' | 'renameRoom'
-  | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'updateToolSettings' | 'addRecentAsset' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings' | 'updateWaterSettings'
-  | 'setNodeEditWall' | 'selectNode' | 'setShapeNodeEdit' | 'selectVertex'
+  | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'setCurveMode' | 'updateToolSettings' | 'addRecentAsset' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings' | 'updateWaterSettings'
+  | 'setNodeEditWall' | 'selectNode' | 'toggleNodeSelection' | 'setShapeNodeEdit' | 'selectVertex'
   | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
   | 'showModal' | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
   | 'saveCustomPreset' | 'deleteCustomPreset'
@@ -106,6 +106,7 @@ export function createDefaultState(): MapBuilderState {
       activeTool: 'rectangle',
       eraseMode: false,
       roughMode: false,
+      curveMode: false,
       settings: {
         brushRadius: 0.5,
         regularPolygon: { sides: 4 },
@@ -151,6 +152,7 @@ export function createDefaultState(): MapBuilderState {
       recentAssets: [],
       nodeEditWallId: null,
       selectedNodeT: null,
+      selectedNodeTs: [],
       shapeNodeEditId: null,
       selectedVertex: null,
     },

@@ -17,6 +17,7 @@ import {
 import {
   layoutWall,
   applyWallEdits,
+  withoutNodeOffsets,
   fillRun,
   nodeSpriteScale,
   pieceWorldLength,
@@ -498,8 +499,13 @@ export function renderNodeWalls(
       if (poly.length < 3) continue;
       const auto = layoutWall(poly, true, layerSet.specs, { wallWidth, seed: seedForPoints(poly) });
       // A floor ring's stones are hand-editable too; its edits live on the layer
-      // because the ring itself is recomputed from the shapes every time.
-      const nodes = applyWallEdits(auto, floorEdits[String(i)]);
+      // because the ring itself is recomputed from the shapes every time. Only
+      // the cosmetic ones: a ring stone is moved by moving the outline it
+      // stands on, so an offset here could only be a leftover.
+      const nodes = applyWallEdits(auto, withoutNodeOffsets(floorEdits[String(i)]), undefined, {
+        pieces: layerSet.specs,
+        wallWidth,
+      });
       const gaps = doorGaps.filter((g) => g.ring === i);
       placed = placeNodes(
         wallsContainer,
@@ -521,7 +527,7 @@ export function renderNodeWalls(
     });
     // Auto-layout first, then the DM's manual adjustments on top. Walls with no
     // edits — the common case — pass straight through.
-    const nodes = applyWallEdits(auto, wall);
+    const nodes = applyWallEdits(auto, wall, undefined, { pieces: set.specs, wallWidth: w });
     const gaps = doorGaps.filter((g) => g.wallId === wall.id);
     placed = placeNodes(
       wallsContainer,

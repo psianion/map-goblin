@@ -181,6 +181,8 @@ export interface ToolsSlice {
   activeTool: ToolType;
   eraseMode: boolean;
   roughMode: boolean;
+  /** Wall/path chains commit as Catmull-Rom curves through the clicked anchors. */
+  curveMode: boolean;
   settings: ToolSettings;
   recentAssets: string[];
   /**
@@ -189,8 +191,17 @@ export interface ToolsSlice {
    * tool, not something to trip over while drawing.
    */
   nodeEditWallId: string | null;
-  /** Node within that wall currently selected, keyed by spine position. */
+  /**
+   * Primary selected node within that wall, keyed by spine position. Keyboard
+   * adjustments act on this one.
+   */
   selectedNodeT: number | null;
+  /**
+   * Every node in the selection, including the primary. Shift-click adds and
+   * removes; dragging any of them moves the whole set by the same delta.
+   * Empty exactly when `selectedNodeT` is null.
+   */
+  selectedNodeTs: number[];
   /**
    * Shape whose floor outline is exposed for vertex editing. Handles are drawn
    * on the MERGED outline this shape belongs to, not on the shape's own ring,
@@ -414,6 +425,7 @@ export interface MapBuilderStore {
   setActiveTool: (tool: ToolType) => void;
   setEraseMode: (enabled: boolean) => void;
   setRoughMode: (enabled: boolean) => void;
+  setCurveMode: (enabled: boolean) => void;
   updateToolSettings: (patch: Partial<ToolSettings>) => void;
   addRecentAsset: (assetId: string) => void;
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;
@@ -422,6 +434,7 @@ export interface MapBuilderStore {
   updateWaterSettings: (patch: Partial<WaterToolSettings>) => void;
   setNodeEditWall: (wallId: string | null) => void;
   selectNode: (t: number | null) => void;
+  toggleNodeSelection: (t: number) => void;
   setShapeNodeEdit: (shapeId: string | null) => void;
   selectVertex: (index: number | null) => void;
 

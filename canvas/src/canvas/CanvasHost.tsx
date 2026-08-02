@@ -11,13 +11,14 @@ import { LightManager } from '@dnd/core/src/engine/lighting/index';
 import { setTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
 import { destroyWaterAnimation } from '@dnd/core/src/engine/water/waterAnimation';
 import { useCanvasResize } from './useCanvasResize';
-import { useCanvasInput, registerInputMiddleware, setToolManager, setSnapIndicator } from './useCanvasInput';
+import { useCanvasInput, registerInputMiddleware, setToolManager, setSnapIndicator, setDimensionHud } from './useCanvasInput';
 import { listenDprChanges } from '@/engine/camera';
 import { gridSnap } from './gridSnap';
 import { wallEndpointSnap } from './wallEndpointSnap';
 import { initClipper } from '@/geometry/initClipper';
 import { registerAllTools } from '@/engine/tools/registerTools';
 import { SnapIndicator } from './snapIndicator';
+import { DimensionHud } from './dimensionHud';
 import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
@@ -138,6 +139,10 @@ export function CanvasHost() {
       const snapIndicator = new SnapIndicator(sceneGraph.overlayContainer);
       setSnapIndicator(snapIndicator);
 
+      // Dimension readout next to the cursor while drawing
+      const dimensionHud = new DimensionHud(sceneGraph.overlayContainer);
+      setDimensionHud(dimensionHud);
+
       // Wire fog transition resize to engine resize events
       const unregFogResize = pixiEngine.onResize((w, h) => {
         sceneGraph.fogTransition.resize(w, h);
@@ -160,6 +165,8 @@ export function CanvasHost() {
         setToolManager(null);
         setSnapIndicator(null);
         snapIndicator.destroy();
+        setDimensionHud(null);
+        dimensionHud.destroy();
         sceneGraph.toolManager.destroy();
         sceneGraph.lightingRenderer.destroy();
         sceneGraph.fogTransition.destroy();
@@ -218,7 +225,7 @@ export function CanvasHost() {
             gap: 12,
             color: '#ccc',
             font: '14px system-ui, sans-serif',
-            background: '#1a1a1a',
+            background: '#0f100e',
           }}
         >
           {initError ? (

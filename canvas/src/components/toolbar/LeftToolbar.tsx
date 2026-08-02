@@ -18,6 +18,7 @@ import {
   Droplets,
   Ruler,
   Type,
+  Spline,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useStore } from '@/store/store';
@@ -69,10 +70,12 @@ export function LeftToolbar() {
   const activeTool = useStore((s) => s.tools.activeTool);
   const eraseMode = useStore((s) => s.tools.eraseMode);
   const roughMode = useStore((s) => s.tools.roughMode);
+  const curveMode = useStore((s) => s.tools.curveMode);
   const leftPanelOpen = useStore((s) => s.ui.leftPanelOpen);
   const setActiveTool = useStore((s) => s.setActiveTool);
   const setEraseMode = useStore((s) => s.setEraseMode);
   const setRoughMode = useStore((s) => s.setRoughMode);
+  const setCurveMode = useStore((s) => s.setCurveMode);
   const togglePanel = useStore((s) => s.togglePanel);
 
   const [popoverOpen, setPopoverOpen] = useState(false);
@@ -144,7 +147,7 @@ export function LeftToolbar() {
   };
 
   return (
-    <div className="relative w-12 h-full flex flex-col items-center py-2 gap-0.5 bg-surface-1 border-r border-border-default shrink-0">
+    <div className="gg-grain relative w-12 h-full flex flex-col items-center py-2 gap-0.5 bg-surface-1 border-r border-border-structure shrink-0">
       {/* Maps panel toggle */}
       <button
         data-toolbar-button
@@ -206,6 +209,16 @@ export function LeftToolbar() {
         className={roughMode ? ACTIVE_BTN : INACTIVE_BTN}
       >
         <Waves size={18} strokeWidth={1.75} />
+      </button>
+
+      {/* Curve mode toggle — wall/path chains commit as smooth curves */}
+      <button
+        data-toolbar-button
+        title="Curve mode (C)"
+        onClick={() => setCurveMode(!curveMode)}
+        className={curveMode ? ACTIVE_BTN : INACTIVE_BTN}
+      >
+        <Spline size={18} strokeWidth={1.75} />
       </button>
 
       {/* Tool Popover */}

@@ -376,6 +376,8 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     renderDoors(doorsSublayer, doors, layer.style, gridCellSize);
   }
 
+  // The authored boundary itself. A ring's stones stand on it, and dragging one
+  // moves it (see ringStoneDrag), so there is nothing here to bend to match.
   const polygons = layer.mergedFloor;
   if (!polygons || polygons.length === 0) return;
 

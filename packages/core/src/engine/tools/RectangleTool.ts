@@ -25,17 +25,27 @@ export class RectangleTool implements DrawingTool {
     this.drawing = true;
   }
 
-  onPointerMove(point: Point): void {
+  onPointerMove(point: Point, event?: PointerEvent): void {
     if (!this.drawing) return;
-    this.currentPoint = point;
+    this.currentPoint = this.constrain(point, event);
   }
 
-  onPointerUp(point: Point): void {
+  /** Shift constrains the rectangle to a square (larger axis wins). */
+  private constrain(point: Point, event?: PointerEvent): Point {
+    const s = this.startPoint;
+    if (!event?.shiftKey || !s) return point;
+    const dx = point.x - s.x;
+    const dy = point.y - s.y;
+    const side = Math.max(Math.abs(dx), Math.abs(dy));
+    return { x: s.x + Math.sign(dx || 1) * side, y: s.y + Math.sign(dy || 1) * side };
+  }
+
+  onPointerUp(point: Point, event?: PointerEvent): void {
     if (!this.drawing || !this.startPoint) return;
     this.drawing = false;
 
     const start = this.startPoint;
-    const end = point;
+    const end = this.constrain(point, event);
     this.startPoint = null;
     this.currentPoint = null;
 
