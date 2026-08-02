@@ -43,12 +43,19 @@ export function joinAsPlayer(code: string, playerName: string): Promise<PlayerSe
 
 // ─── The DM's setup calls (same fetch, no token minted) ──────
 
-/** Raw `.mapbuilder` JSON, not multipart — see the server's approved §2.3 deviation. */
+/**
+ * Raw `.mapbuilder` JSON, not multipart — see the server's approved §2.3 deviation.
+ *
+ * #47 — this doubles as first publish: the server mints the scene alongside the map row,
+ * with the scene's own id set to the map's (`sceneId === mapId` here, always). Re-publishing
+ * an *existing* scene from a new file is {@link publishScene}, a different call — the one
+ * that has to keep the scene's id rather than mint one.
+ */
 export function uploadMapFile(
   campaignId: string,
   token: string,
   mapFileText: string,
-): Promise<{ mapId: string; name: string; sizeBytes: number }> {
+): Promise<{ mapId: string; sceneId: string; name: string; sizeBytes: number }> {
   return request(
     `/api/campaigns/${encodeURIComponent(campaignId)}/maps`,
     { method: 'POST', headers: { 'content-type': 'application/json' }, body: mapFileText },
@@ -85,6 +92,66 @@ export function startSession(
 /** Public code check — JoinSession calls it before asking for a name (§2.3). */
 export function resolveInviteCode(code: string): Promise<{ campaignId: string; sessionId: string }> {
   return request(`/api/resolve/${encodeURIComponent(code)}`, { method: 'GET' });
+}
+
+// ─── Scene management (#47) — the DM's own library, not the wire snapshot ────
+
+export interface SceneMeta {
+  id: string;
+  name: string;
+  sortIndex: number;
+  visibleToPlayers: boolean;
+  mapId: string;
+  updatedAt: number;
+}
+
+/** GET /api/campaigns/:id/scenes — the full library, in drag order. DM only. */
+export function listScenes(campaignId: string, token: string): Promise<{ scenes: SceneMeta[] }> {
+  return request(`/api/campaigns/${encodeURIComponent(campaignId)}/scenes`, { method: 'GET' }, token);
+}
+
+/** PATCH /api/scenes/:id — rename and/or the D5 visibility flag. */
+export function patchScene(
+  sceneId: string,
+  token: string,
+  patch: { name?: string; visibleToPlayers?: boolean },
+): Promise<{ id: string; name: string; visibleToPlayers: boolean }> {
+  return request(
+    `/api/scenes/${encodeURIComponent(sceneId)}`,
+    { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch) },
+    token,
+  );
+}
+
+/** PUT /api/scenes/:id/publish — re-publish (D1): a fresh file, same scene id. */
+export function publishScene(
+  sceneId: string,
+  token: string,
+  mapFileText: string,
+): Promise<{ sceneId: string; mapId: string; name: string; sizeBytes: number }> {
+  return request(
+    `/api/scenes/${encodeURIComponent(sceneId)}/publish`,
+    { method: 'PUT', headers: { 'content-type': 'application/json' }, body: mapFileText },
+    token,
+  );
+}
+
+/** DELETE /api/scenes/:id. */
+export function deleteScene(sceneId: string, token: string): Promise<{ sceneId: string; deleted: true }> {
+  return request(`/api/scenes/${encodeURIComponent(sceneId)}`, { method: 'DELETE' }, token);
+}
+
+/** PUT /api/campaigns/:id/scenes/order — every scene id, in the new order (D4). */
+export function reorderScenes(
+  campaignId: string,
+  token: string,
+  order: readonly string[],
+): Promise<{ order: string[] }> {
+  return request(
+    `/api/campaigns/${encodeURIComponent(campaignId)}/scenes/order`,
+    { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ order }) },
+    token,
+  );
 }
 
 // ─── Plumbing ───────────────────────────────────────────────

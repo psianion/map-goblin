@@ -63,12 +63,6 @@
           "y": 0.45
         },
         "shadowIntensity": 0.45,
-        "hatchingStyle": "crosshatch",
-        "hatchingBandWidth": 1.2,
-        "hatchingLineSpacing": 0.28,
-        "hatchingLineThickness": 0.025,
-        "hatchingAngle": 38,
-        "hatchingInverted": false,
         "roughnessAmplitude": 0,
         "lineWidth": 0.04,
         "defaultTextureId": "dungeon-classic:large-flagstone-a-01_1x1_floor_A",
@@ -79,7 +73,6 @@
       "sublayerVisibility": {
         "floor": true,
         "grid": true,
-        "hatching": true,
         "walls": true
       },
       "standaloneWalls": [

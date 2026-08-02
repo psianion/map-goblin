@@ -234,6 +234,15 @@ describe('the full join flow', () => {
       expect(uploaded.status).toBe(201)
       expect(uploaded.body.name).toBe('Cragmaw Hideout')
       const mapId = uploaded.body.mapId as string
+      const sceneId = uploaded.body.sceneId as string
+      expect(sceneId).toBe(mapId) // upload doubles as first publish (#47) — same id
+
+      // #47 D5 — hidden from players by default; the DM opts a scene into their list.
+      const shown = await api(base, 'PATCH', `/api/scenes/${sceneId}`, {
+        token: dmToken,
+        body: { visibleToPlayers: true },
+      })
+      expect(shown.status).toBe(200)
 
       const started = await api(base, 'POST', '/api/sessions', {
         token: dmToken,
@@ -517,6 +526,259 @@ async function seatedTable(base: string, adminPass: string) {
   })
   return { campaignId, dmToken, playerToken: joined.body.token as string }
 }
+
+describe('scenes (#47)', () => {
+  it('publishes a scene on upload, lists it for the DM, and keeps it off the player’s list', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+
+      const uploaded = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(MAP),
+      })
+      const sceneId = uploaded.body.sceneId as string
+      // Upload doubles as first publish (D1) — same id, not a second thing to track.
+      expect(sceneId).toBe(uploaded.body.mapId)
+
+      const list = await api(base, 'GET', `/api/campaigns/${campaignId}/scenes`, { token: dmToken })
+      expect(list.status).toBe(200)
+      expect(list.body.scenes).toEqual([
+        {
+          id: sceneId,
+          name: 'Cragmaw Hideout',
+          sortIndex: 0,
+          visibleToPlayers: false, // D5 — hidden until the DM opts in
+          mapId: uploaded.body.mapId,
+          updatedAt: expect.any(Number),
+        },
+      ])
+
+      // The DM's own library, not a player's to browse.
+      const { playerToken } = await seatedTable(base, adminPass)
+      expect(
+        (await api(base, 'GET', `/api/campaigns/${campaignId}/scenes`, { token: playerToken })).status,
+      ).toBe(403)
+    })
+  })
+
+  it('renames and toggles visibility, refusing a blank name and a scene from someone else’s campaign', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+      const uploaded = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(MAP),
+      })
+      const sceneId = uploaded.body.sceneId as string
+
+      const patch = (body: unknown, token = dmToken) =>
+        api(base, 'PATCH', `/api/scenes/${sceneId}`, { token, body })
+
+      const renamed = await patch({ name: 'The Hideout' })
+      expect(renamed.status).toBe(200)
+      expect(renamed.body).toEqual({ id: sceneId, name: 'The Hideout', visibleToPlayers: false })
+
+      const shown = await patch({ visibleToPlayers: true })
+      expect(shown.body.visibleToPlayers).toBe(true)
+
+      expect((await patch({})).status).toBe(400) // neither field
+      expect((await patch({ name: '   ' })).status).toBe(400) // blank
+      expect((await patch({ visibleToPlayers: 'yes' })).status).toBe(400) // not a boolean
+
+      // Someone else's campaign gets 404, same as a scene that never existed (no oracle).
+      const other = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const foreignToken = other.body.token as string
+      expect((await patch({ name: 'Stolen' }, foreignToken)).status).toBe(404)
+      expect((await api(base, 'PATCH', '/api/scenes/no-such-scene', { token: dmToken, body: { name: 'x' } })).status).toBe(404)
+
+      // A player, even one seated at the right table, cannot edit the library.
+      const started = await api(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId } })
+      const joined = await api(base, 'POST', '/api/join', {
+        body: { code: started.body.inviteCode as string, name: 'Bob' },
+      })
+      expect((await patch({ name: 'Mine now' }, joined.body.token as string)).status).toBe(403)
+    })
+  })
+
+  it('reorders the flat list, refusing a partial, duplicate or foreign order (D4)', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+      const a = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, { token: dmToken, raw: JSON.stringify(MAP) })
+      const b = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, { token: dmToken, raw: JSON.stringify(MAP) })
+      const [sceneA, sceneB] = [a.body.sceneId as string, b.body.sceneId as string]
+
+      const reorder = (order: unknown) =>
+        api(base, 'PUT', `/api/campaigns/${campaignId}/scenes/order`, { token: dmToken, body: { order } })
+
+      expect((await reorder('not-an-array')).status).toBe(400)
+      expect((await reorder([sceneA])).status).toBe(400) // partial — missing sceneB
+      expect((await reorder([sceneA, sceneA])).status).toBe(400) // duplicate
+      expect((await reorder([sceneA, 'not-a-scene-here'])).status).toBe(400) // foreign/unknown
+
+      const ok = await reorder([sceneB, sceneA])
+      expect(ok.status).toBe(200)
+      const list = await api(base, 'GET', `/api/campaigns/${campaignId}/scenes`, { token: dmToken })
+      expect((list.body.scenes as { id: string }[]).map((s) => s.id)).toEqual([sceneB, sceneA])
+    })
+  })
+
+  it('deletes a scene, clearing it from any session that had it active', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+      const uploaded = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(MAP),
+      })
+      const sceneId = uploaded.body.sceneId as string
+
+      const started = await api(base, 'POST', '/api/sessions', {
+        token: dmToken,
+        body: { campaignId, sceneId },
+      })
+      const sessionId = started.body.sessionId as string
+      expect(server.stores.sessions.get(sessionId)?.active_scene_id).toBe(sceneId)
+
+      const deleted = await api(base, 'DELETE', `/api/scenes/${sceneId}`, { token: dmToken })
+      expect(deleted.status).toBe(200)
+      expect(server.stores.scenes.get(sceneId)).toBeUndefined()
+      // The session that had it active is not left pointing at a ghost.
+      expect(server.stores.sessions.get(sessionId)?.active_scene_id).toBeNull()
+
+      expect((await api(base, 'DELETE', `/api/scenes/${sceneId}`, { token: dmToken })).status).toBe(404)
+    })
+  })
+
+  /**
+   * The whole point of #47 D1: re-publishing a scene from a fresh file must not orphan
+   * whatever fog and tokens already remember about it. The scene's own id is what those
+   * are keyed on, and re-publish is the one write that must never move it.
+   */
+  it('re-publishes a scene in place, preserving its id and the fog/token state keyed on it', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+
+      const first = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(MAP),
+      })
+      const sceneId = first.body.sceneId as string
+      const originalMapId = first.body.mapId as string
+
+      // A table mid-session: fog revealed and a token placed, both keyed on `sceneId`.
+      server.stores.moduleState.put(campaignId, 'fog', {
+        byScene: { [sceneId]: { rooms: { hall: { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: true } },
+      })
+      server.stores.moduleState.put(campaignId, 'tokens', {
+        library: {},
+        byScene: { [sceneId]: { t1: { id: 't1', x: 1, y: 1, ownerId: null, hidden: false } } },
+      })
+
+      const RENAMED = { ...MAP, mapSettings: { ...MAP.mapSettings, name: 'Cragmaw Hideout (redrawn)' } }
+      const republished = await api(base, 'PUT', `/api/scenes/${sceneId}/publish`, {
+        token: dmToken,
+        raw: JSON.stringify(RENAMED),
+      })
+      expect(republished.status).toBe(200)
+      expect(republished.body.sceneId).toBe(sceneId) // never moves
+      expect(republished.body.name).toBe('Cragmaw Hideout (redrawn)')
+      const newMapId = republished.body.mapId as string
+      expect(newMapId).not.toBe(originalMapId) // a fresh, immutable map row underneath
+
+      // The scene row now points at the new map, same id as always.
+      const scene = server.stores.scenes.get(sceneId)!
+      expect(scene.id).toBe(sceneId)
+      expect(scene.map_id).toBe(newMapId)
+
+      // The map GET (keyed by scene id, D1) answers with the *new* content — not the cache
+      // of whatever the scene used to point at.
+      const fetched = await api(base, 'GET', `/api/maps/${sceneId}`, { token: dmToken })
+      expect(fetched.status).toBe(200)
+      expect((JSON.parse(fetched.text).mapSettings as { name: string }).name).toBe('Cragmaw Hideout (redrawn)')
+
+      // …and nothing tied to the scene moved: same key, same fog, same token.
+      expect(server.stores.moduleState.get(campaignId, 'fog')).toEqual({
+        byScene: { [sceneId]: { rooms: { hall: { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: true } },
+      })
+      expect(server.stores.moduleState.get(campaignId, 'tokens')).toEqual({
+        library: {},
+        byScene: { [sceneId]: { t1: { id: 't1', x: 1, y: 1, ownerId: null, hidden: false } } },
+      })
+
+      // A player's own view of the map is redacted fresh off the *new* file too.
+      const started = await api(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId, sceneId } })
+      const joined = await api(base, 'POST', '/api/join', {
+        body: { code: started.body.inviteCode as string, name: 'Bob' },
+      })
+      const playerMap = await api(base, 'GET', `/api/maps/${sceneId}`, { token: joined.body.token as string })
+      expect(playerMap.status).toBe(200)
+
+      // Republishing is a DM act, campaign-scoped like the others.
+      const outsider = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      expect(
+        (
+          await api(base, 'PUT', `/api/scenes/${sceneId}/publish`, {
+            token: outsider.body.token as string,
+            raw: JSON.stringify(MAP),
+          })
+        ).status,
+      ).toBe(404)
+      expect((await api(base, 'PUT', '/api/scenes/no-such-scene/publish', { token: dmToken, raw: JSON.stringify(MAP) })).status).toBe(404)
+    })
+  })
+
+  it('lists every campaign for the admin pass, and refuses anyone else', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const mine = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: { name: 'Lost Mine' } })
+      const other = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: { name: 'Wave Echo' } })
+
+      const list = await api(base, 'GET', '/api/campaigns', { token: adminPass })
+      expect(list.status).toBe(200)
+      const ids = (list.body.campaigns as { id: string }[]).map((c) => c.id)
+      expect(ids).toContain(mine.body.campaignId)
+      expect(ids).toContain(other.body.campaignId)
+
+      // A DM token is scoped to its one campaign, not a login — it does not get to list.
+      expect((await api(base, 'GET', '/api/campaigns', { token: mine.body.token as string })).status).toBe(401)
+      expect((await api(base, 'GET', '/api/campaigns')).status).toBe(401)
+      expect((await api(base, 'GET', '/api/campaigns', { token: 'hunter2' })).status).toBe(401)
+    })
+  })
+
+  it('shows a player only what the DM has made visible, but still loads the active scene either way (D5)', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+
+      const shown = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, { token: dmToken, raw: JSON.stringify(MAP) })
+      const hidden = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, { token: dmToken, raw: JSON.stringify(MAP) })
+      const shownId = shown.body.sceneId as string
+      const hiddenId = hidden.body.sceneId as string
+      await api(base, 'PATCH', `/api/scenes/${shownId}`, { token: dmToken, body: { visibleToPlayers: true } })
+      // hiddenId stays at the D5 default (false) — never opted in.
+
+      // The DM opens the table on the *hidden* scene — the flag gates the browsing list,
+      // never the table's own currently-active content (fog/door redaction do that job).
+      const started = await api(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId, sceneId: hiddenId } })
+      const joined = await api(base, 'POST', '/api/join', {
+        body: { code: started.body.inviteCode as string, name: 'Bob' },
+      })
+      const { socket, state } = await joinSocket(server.port, joined.body.token as string)
+      expect(state.state.activeSceneId).toBe(hiddenId) // still loads
+      expect(state.state.scenes).toEqual([{ id: shownId, name: 'Cragmaw Hideout' }]) // hiddenId absent
+      socket.terminate()
+    })
+  })
+})
 
 describe('assets (D11)', () => {
   it('takes png/jpeg/webp from the DM and serves them back to the table, cached forever', async () => {

@@ -71,7 +71,7 @@ function fileWithoutRooms(): SerializedMapData {
         standaloneWalls: [structuredClone(DIVIDER)],
         mergedFloor: [[[0, 0], [10, 0], [10, 10], [0, 10]]],
         style: {},
-        sublayerVisibility: { floor: true, grid: true, hatching: true, walls: true },
+        sublayerVisibility: { floor: true, grid: true, walls: true },
       },
     ],
   } as unknown as SerializedMapData;

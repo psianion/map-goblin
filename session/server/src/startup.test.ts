@@ -222,6 +222,13 @@ describe('campaign persistence (Sprint 1 metric)', () => {
         expect(upload.status).toBe(201)
         mapId = upload.body.mapId as string
 
+        // #47 D5 — hidden from players by default; make it visible so the player snapshot
+        // below (and after the restart) still lists it, which is what this test is about.
+        expect(
+          (await api(first.base, 'PATCH', `/api/scenes/${mapId}`, { token: dmToken, body: { visibleToPlayers: true } }))
+            .status,
+        ).toBe(200)
+
         const session = await api(first.base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId } })
         expect(session.status).toBe(201)
         inviteCode = session.body.inviteCode as string

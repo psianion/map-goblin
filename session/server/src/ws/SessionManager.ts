@@ -19,11 +19,18 @@ interface Session {
   dmSeen: boolean
 }
 
-/** Where a snapshot's scene list comes from — boot backs it with MapStore/SessionStore. */
+/** One entry of a `SceneSource` list — `visibleToPlayers` never reaches the wire itself (#47 D5); `snapshot` reads it to decide who gets told the scene exists at all. */
+export interface SceneEntry {
+  id: string
+  name: string
+  visibleToPlayers: boolean
+}
+
+/** Where a snapshot's scene list comes from — boot backs it with SceneStore/SessionStore. */
 export type SceneSource = (session: {
   id: string
   campaignId: string
-}) => Pick<SessionState, 'scenes' | 'activeSceneId'>
+}) => { scenes: readonly SceneEntry[]; activeSceneId: SessionState['activeSceneId'] }
 
 export interface SessionManagerOptions {
   /** Ping period. Default 15s (§2.5). */
@@ -235,6 +242,36 @@ export class SessionManager {
     if (session.clients.size === 0) this.sessions.delete(session.id)
   }
 
+  /**
+   * #47 — REST scene mutations (rename, visibility, publish, reorder, delete, upload) land
+   * here so a live table hears about them without anyone rejoining: every connected client
+   * gets a fresh role-filtered snapshot, exactly what a re-`join` would have answered.
+   * `changedSceneId` names a scene whose *map content* changed (re-publish); a session
+   * currently playing it is also told `scene-changed`, which is what makes clients drop
+   * their map and refetch it.
+   *
+   * ponytail: deleting the scene being played leaves canvases on the dead map until the DM
+   * activates another — the snapshot's activeSceneId fallback keeps the list right, and a
+   * DM deleting the live scene is about to switch anyway.
+   */
+  refreshScenes(campaignId: string, changedSceneId?: string): void {
+    for (const session of this.sessions.values()) {
+      if (session.campaignId !== campaignId) continue
+      for (const conn of session.clients) {
+        const player = session.players.get(conn.identity.identityId)
+        if (!player) continue
+        this.broadcaster.sendTo(conn, {
+          type: 'session-state',
+          state: this.snapshot(session, conn.identity),
+          you: player,
+        })
+      }
+      if (changedSceneId && this.scenes(session).activeSceneId === changedSceneId) {
+        this.broadcaster.broadcast(session.id, { type: 'scene-changed', sceneId: changedSceneId })
+      }
+    }
+  }
+
   private heartbeat(): void {
     for (const conn of this.connections) {
       if (conn.missedPongs >= this.missedPongLimit) conn.terminate()
@@ -253,11 +290,19 @@ export class SessionManager {
 
   /** Scenes and the active one are read fresh: an upload between joins must show up. */
   private snapshot(session: Session, viewer: Viewer): SessionState {
+    const { scenes, activeSceneId } = this.scenes(session)
     return {
       protocolVersion: PROTOCOL_VERSION,
       sessionId: session.id,
       campaignId: session.campaignId,
-      ...this.scenes(session),
+      // #47 D5 — the DM sees the whole library; a player sees only what has been
+      // published/made visible to them. The currently active scene still loads either
+      // way (fog and door redaction are what actually gate its content) — this only
+      // gates which *other* scenes a player can tell exist before the DM switches to one.
+      scenes: (viewer.role === 'dm' ? scenes : scenes.filter((s) => s.visibleToPlayers)).map(
+        ({ id, name }) => ({ id, name }),
+      ),
+      activeSceneId,
       players: [...session.players.values()],
       modules: this.modules.snapshotModules(session.campaignId, viewer),
     }

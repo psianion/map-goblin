@@ -34,7 +34,6 @@ vi.mock('./sceneGraph', () => {
     sublayers: {
       floor: { visible: true },
       grid: { visible: true },
-      hatching: { visible: true },
       walls: { visible: true },
       doors: { visible: true },
     },

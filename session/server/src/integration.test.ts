@@ -63,7 +63,10 @@ function table(server: RunningServer, name: string, data = '{}'): SessionRow {
     const campaign = server.stores.campaigns.create(name)
     // Tokens are scene-scoped and `sceneId` defaults to the active scene (§2.2), so every
     // table here needs a scene for the commands to land the way a real client sends them.
-    server.stores.maps.insert(`${name}-map`, campaign.id, `${name} Map`, data)
+    // #47 — a scene is its own row now; the map's own id doubles as the scene's, same as
+    // the auto-published path http.ts's `uploadMap` takes.
+    const map = server.stores.maps.insert(`${name}-map`, campaign.id, `${name} Map`, data)
+    server.stores.scenes.create(map.id, campaign.id, map.id, map.name)
     row = startSession(server.stores.sessions, campaign.id)
     byName.set(name, row)
   }

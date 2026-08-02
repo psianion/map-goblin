@@ -427,12 +427,19 @@ describe('module contract v2 (§2.2)', () => {
 })
 
 describe('scenes module (D6)', () => {
-  /** A campaign needs maps before it has scenes to switch between. */
+  /**
+   * A campaign needs scenes before it has scenes to switch between. #47 — a scene is its
+   * own row now; these are seeded visible-to-players too, because the snapshot a `Late`
+   * joiner gets below is read as the *player* role it defaults to (D5 would otherwise hide
+   * a freshly-seeded scene from exactly the assertion checking it arrived).
+   */
   function seedMaps(server: RunningServer, session: string, count: number): string[] {
     const campaignId = table(server, session).campaign_id
     return Array.from({ length: count }, (_, i) => {
       const id = `${session}-map-${i}`
       server.stores.maps.insert(id, campaignId, `Map ${i}`, '{}')
+      server.stores.scenes.create(id, campaignId, id, `Map ${i}`)
+      server.stores.scenes.setVisibleToPlayers(id, true)
       return id
     })
   }
@@ -459,11 +466,41 @@ describe('scenes module (D6)', () => {
     })
   })
 
+  it('pushes scene list changes to a live table without a rejoin (#47)', async () => {
+    await withServer({}, async (server) => {
+      const [first] = seedMaps(server, 'SP', 1)
+      const [dm, player] = await joinedPair(server, 'SP')
+      const campaignId = table(server, 'SP').campaign_id
+
+      // A rename lands as a fresh snapshot on both seats…
+      server.stores.scenes.rename(first, 'Renamed')
+      const onDm = next(dm, 'session-state')
+      const onPlayer = next(player, 'session-state')
+      server.sessions.refreshScenes(campaignId)
+      expect((await onDm).state.scenes.map((s) => s.name)).toEqual(['Renamed'])
+      expect((await onPlayer).state.scenes.map((s) => s.name)).toEqual(['Renamed'])
+
+      // …hiding the scene drops it from the player's copy only…
+      server.stores.scenes.setVisibleToPlayers(first, false)
+      const dmAgain = next(dm, 'session-state')
+      const playerAgain = next(player, 'session-state')
+      server.sessions.refreshScenes(campaignId)
+      expect((await dmAgain).state.scenes).toHaveLength(1)
+      expect((await playerAgain).state.scenes).toHaveLength(0)
+
+      // …and re-publishing the scene the table is on tells everyone to reload its map.
+      const onReload = next(player, 'scene-changed')
+      server.sessions.refreshScenes(campaignId, first)
+      expect((await onReload).sceneId).toBe(first)
+    })
+  })
+
   it('refuses a scene that is not this campaign’s, and a player asking at all', async () => {
     await withServer({}, async (server) => {
       const [mine] = seedMaps(server, 'SR', 1)
       const elsewhere = server.stores.campaigns.create('Someone else')
       server.stores.maps.insert('their-map', elsewhere.id, 'Theirs', '{}')
+      server.stores.scenes.create('their-map', elsewhere.id, 'their-map', 'Theirs')
       const [dm, player] = await joinedPair(server, 'SR')
 
       sendCommand(dm, 'scenes', 'activate', { sceneId: 'their-map' })

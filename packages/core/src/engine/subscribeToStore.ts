@@ -641,7 +641,6 @@ export function subscribeToStore(
         if (!entry?.sublayers) continue;
         entry.sublayers.floor.visible = vis.floor;
         entry.sublayers.grid.visible = vis.grid;
-        entry.sublayers.hatching.visible = vis.hatching;
         entry.sublayers.walls.visible = vis.walls;
         // Doors have their own sublayer now (see sceneGraph.ts) but still
         // follow the "walls" visibility toggle — same as when they lived

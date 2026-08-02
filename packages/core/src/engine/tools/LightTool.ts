@@ -35,6 +35,9 @@ export class LightTool implements DrawingTool {
       intensity: defaults.intensity,
       falloff: defaults.falloff,
       position: { x: point.x, y: point.y },
+      flicker: defaults.flicker,
+      flickerIntensity: defaults.flickerIntensity,
+      flickerSpeed: defaults.flickerSpeed,
     };
 
     undoManager.execute(new AddChildCommand('Place light', activeLayerId, child));

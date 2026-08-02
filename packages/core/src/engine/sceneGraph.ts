@@ -28,7 +28,6 @@ export interface DungeonSublayers {
   water: Container;
   floor: Container;
   grid: Container;
-  hatching: Container;
   walls: Container;
   /**
    * Doors draw here, not into `walls`. A door state flip (open/closed,
@@ -169,14 +168,13 @@ export function addLayerToScene(
     const water = new Container(); water.label = 'sublayer-water';
     const floor = new Container(); floor.label = 'sublayer-floor';
     const grid = new Container(); grid.label = 'sublayer-grid';
-    const hatching = new Container(); hatching.label = 'sublayer-hatching';
     const walls = new Container(); walls.label = 'sublayer-walls';
     const doors = new Container(); doors.label = 'sublayer-doors';
-    container.addChild(water, floor, grid, hatching, walls, doors);
+    container.addChild(water, floor, grid, walls, doors);
     // Shared ripple displacement over all water in this layer
     const waterFilter = getWaterFilter();
     if (waterFilter) water.filters = [waterFilter];
-    sublayers = { water, floor, grid, hatching, walls, doors };
+    sublayers = { water, floor, grid, walls, doors };
   }
 
   const renderTexture: RenderTexture | null = null;

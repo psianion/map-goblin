@@ -49,7 +49,6 @@ interface BaseLayer {
 export interface SublayerVisibility {
   floor: boolean;
   grid: boolean;
-  hatching: boolean;
   walls: boolean;
 }
 
@@ -61,12 +60,6 @@ export interface DungeonStyle {
   shadowColor: string;
   shadowOffset: { x: number; y: number };
   shadowIntensity: number;
-  hatchingStyle: 'none' | 'crosshatch' | 'lines' | 'horizontal';
-  hatchingBandWidth: number;
-  hatchingLineSpacing: number;
-  hatchingLineThickness: number;
-  hatchingAngle: number;
-  hatchingInverted: boolean;
   roughnessAmplitude: number;
   lineWidth: number;
   defaultTextureId?: string;
@@ -118,6 +111,9 @@ export interface LightDefaults {
   featherRadius: number;
   intensity: number;
   falloff: 'linear' | 'quadratic';
+  flicker: boolean;
+  flickerIntensity: number;
+  flickerSpeed: number;
 }
 
 export type ToolType =

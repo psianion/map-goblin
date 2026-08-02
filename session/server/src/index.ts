@@ -104,19 +104,24 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
 
   const sessions = new SessionManager(modules, {
     vision,
-    // Scene metadata is whatever the campaign has uploaded; the active one is session state.
+    // Scene metadata is whatever the campaign has published; the active one is session state.
     scenes: ({ id, campaignId }) => {
-      const scenes = stores.maps.listByCampaign(campaignId).map((map) => ({ id: map.id, name: map.name }))
+      // #47 — flat drag-order (D4): `sort_index` is the whole ordering rule.
+      const scenes = stores.scenes.listByCampaign(campaignId).map((scene) => ({
+        id: scene.id,
+        name: scene.name,
+        visibleToPlayers: scene.visible_to_players === 1,
+      }))
       return {
         scenes,
-        // A session with no explicit choice falls back to the first map rather than leaving
-        // every client on "Waiting for the DM to pick a scene…" forever. The fallback is
-        // computed per snapshot rather than written at upload time so a map uploaded before
-        // anyone opened the table still lights it up.
+        // A session with no explicit choice falls back to the first scene rather than
+        // leaving every client on "Waiting for the DM to pick a scene…" forever. The
+        // fallback is computed per snapshot rather than written at upload time so a scene
+        // published before anyone opened the table still lights it up.
         //
         // It stays the *first* on purpose: an in-session import must not move the table off
         // the scene being played (D6 — switching scenes is a deliberate `scenes:activate`).
-        // Which map the host wizard set the table up with is not guessed from this order —
+        // Which scene the host wizard set the table up with is not guessed from this order —
         // the wizard names it, and `openSession` writes it down.
         activeSceneId: stores.sessions.get(id)?.active_scene_id ?? scenes[0]?.id ?? null,
       }

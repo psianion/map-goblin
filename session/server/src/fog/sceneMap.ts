@@ -38,16 +38,33 @@ export interface SceneMap {
 /** Reads a scene's map, or null when the id is unknown or the stored file will not parse. */
 export type SceneMapOf = (sceneId: string) => SceneMap | null
 
-export function createSceneMaps(stores: Stores): SceneMapOf {
+/**
+ * #47 — a scene's `map_id` can move (re-publish repoints it without changing the
+ * scene's own id), so the row this cache keys on is no longer immutable by
+ * construction. `invalidate` is the one door back open: http.ts's publish route calls
+ * it the moment `scenes.republish` runs, so nothing here is served stale.
+ */
+export interface SceneMaps {
+  sceneMapOf: SceneMapOf
+  invalidate(sceneId: string): void
+}
+
+export function createSceneMaps(stores: Stores): SceneMaps {
   const cache = new Map<string, SceneMap | null>()
-  return (sceneId) => {
-    if (cache.has(sceneId)) return cache.get(sceneId) ?? null
-    const row = stores.maps.get(sceneId)
-    const parsed = row ? validateMapData(JSON.parse(row.data) as unknown) : null
-    const scene = row && parsed?.ok ? index(row.campaign_id, parsed.data) : null
-    if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value as string)
-    cache.set(sceneId, scene)
-    return scene
+  return {
+    sceneMapOf: (sceneId) => {
+      if (cache.has(sceneId)) return cache.get(sceneId) ?? null
+      const scene = stores.scenes.get(sceneId)
+      const row = scene ? stores.maps.get(scene.map_id) : undefined
+      const parsed = row ? validateMapData(JSON.parse(row.data) as unknown) : null
+      const result = row && parsed?.ok ? index(row.campaign_id, parsed.data) : null
+      if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value as string)
+      cache.set(sceneId, result)
+      return result
+    },
+    invalidate: (sceneId) => {
+      cache.delete(sceneId)
+    },
   }
 }
 

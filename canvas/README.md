@@ -22,7 +22,7 @@ no nonsense, just maps.
 
 ### Paint the Mood
 - **Multi-layer dungeons** — stack and reorder with drag-and-drop
-- **5 sublayers** — shadow, floor, grid, hatching, walls per layer
+- **4 sublayers** — shadow, floor, grid, walls per layer
 - **8 style presets** — one-click looks: from clean parchment to gritty stone
 - **Per-layer colors** — floor, wall, shadow — all yours to tweak
 - **Background layer** — solid fill, always at the bottom of the pile

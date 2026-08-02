@@ -138,7 +138,7 @@ function mapFile(): SerializedMapData {
     standaloneWalls: [wall('wall-hall', 0, 0, 10, 0), wall('wall-vault', 30, 0, 40, 0)],
     mergedFloor: [rect(0, 0, 40, 10)],
     style: {} as DungeonLayer['style'],
-    sublayerVisibility: { floor: true, grid: true, hatching: true, walls: true },
+    sublayerVisibility: { floor: true, grid: true, walls: true },
     rooms: ROOMS,
     roomNameOverrides: Object.fromEntries(ROOMS.map((r) => [r.id, r.name])),
   }
@@ -167,10 +167,13 @@ function table(): { stores: Stores; campaignId: string; vision: ReturnType<typeo
   const stores = createStores(openDb(':memory:'))
   const campaign = stores.campaigns.create('Crypt')
   stores.maps.insert(SCENE, campaign.id, 'Crypt', JSON.stringify(mapFile()))
+  // #47 — a scene is its own row now; SCENE is both the map's id and the scene's, same as
+  // the auto-published path http.ts's `uploadMap` takes.
+  stores.scenes.create(SCENE, campaign.id, SCENE, 'Crypt')
   return { stores, campaignId: campaign.id, vision: createVision(stores) }
 }
 
-const sceneMap = () => createSceneMaps(table().stores)(SCENE)!
+const sceneMap = () => createSceneMaps(table().stores).sceneMapOf(SCENE)!
 
 // ── redactMapForViewer ──────────────────────────────────────────────────────
 
@@ -234,6 +237,7 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
     const stores = createStores(openDb(':memory:'))
     const campaign = stores.campaigns.create('Flat')
     stores.maps.insert('flat', campaign.id, 'Flat', JSON.stringify(plain))
+    stores.scenes.create('flat', campaign.id, 'flat', 'Flat')
     // No fog to enforce, so the geometry is untouched — but a door nobody can earn is not
     // the player's to be shown (see 'hands a map nobody zoned over whole' below).
     expect(createVision(stores).playerMap('flat')).toEqual({
@@ -383,6 +387,7 @@ describe('vision (D3/D8)', () => {
     const stores = createStores(openDb(':memory:'))
     const campaign = stores.campaigns.create('Flat')
     stores.maps.insert('flat', campaign.id, 'Flat', JSON.stringify(plain))
+    stores.scenes.create('flat', campaign.id, 'flat', 'Flat')
     expect(createVision(stores).visionOf('flat')).toBeNull()
   })
 
@@ -491,6 +496,7 @@ describe('a scene the DM has revealed nothing in', () => {
     const stores = createStores(openDb(':memory:'))
     const campaign = stores.campaigns.create('Flat')
     stores.maps.insert('flat', campaign.id, 'Flat', JSON.stringify(plain))
+    stores.scenes.create('flat', campaign.id, 'flat', 'Flat')
     const vision = createVision(stores)
 
     expect([...vision.playerDoors('flat')]).toEqual([])
@@ -646,6 +652,8 @@ describe('the scene a mapDelta belongs to, with more than one in play (§2.1, D5
     const campaign = stores.campaigns.create('Crypt')
     stores.maps.insert(OTHER, campaign.id, 'Crypt', JSON.stringify(mapFile()))
     stores.maps.insert(SCENE, campaign.id, 'Crypt', JSON.stringify(mapFile()))
+    stores.scenes.create(OTHER, campaign.id, OTHER, 'Crypt')
+    stores.scenes.create(SCENE, campaign.id, SCENE, 'Crypt')
     const vision = createVision(stores)
     const registry = new ModuleRegistry(stores.moduleState)
     registry.register(fogModule(vision.roomsOf))

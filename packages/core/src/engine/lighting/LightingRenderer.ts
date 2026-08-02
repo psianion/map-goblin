@@ -3,6 +3,7 @@ import type { RenderEngine } from '../RenderEngine'
 import type { LightChild } from '../../store/types'
 import type { LightManager } from './LightManager'
 import { resolveTexture } from '../../assets/textureLoader'
+import { prefersReducedMotion } from '../motion'
 
 /**
  * Everything the composite below is a function of, as one comparable string.
@@ -16,9 +17,14 @@ import { resolveTexture } from '../../assets/textureLoader'
  * `LightingRenderer.test.ts` pins field by field. The light positions are *screen* space by
  * the time they are drawn, so the camera belongs in the signature as much as the lights do.
  *
- * ponytail: `maskTextureId` goes in by id, not by whether its texture has finished loading —
- * nothing in the app writes that field today. If a light ever gets a mask, add the resolved
- * texture's width so a late-arriving one is not held out by a stale signature.
+ * `maskTextureId` goes in by id *and* by the resolved texture's width: a mask that hasn't
+ * finished loading resolves to a 1x1 placeholder, and the id alone doesn't change when the
+ * real texture lands — that used to leave a late-loading mask stuck on the fallback gradient
+ * until something else invalidated the frame.
+ *
+ * `nowMs` only moves the string for a light with `flicker` on — `flickerFactor` answers a
+ * constant 1 for everything else (and for any light when reduced-motion is set), so an idle
+ * table with no flickering lights still settles onto the cached frame.
  */
 export function lightingSignature(
   camX: number,
@@ -29,9 +35,11 @@ export function lightingSignature(
   ambientColor: string,
   lights: LightChild[],
   isDirty: (lightId: string) => boolean,
+  nowMs: number,
 ): string {
   const parts = [camX, camY, zoom, width, height, ambientColor]
   for (const l of lights) {
+    const maskWidth = l.maskTextureId ? resolveTexture(l.maskTextureId).width : 0
     parts.push(
       l.id,
       l.position.x,
@@ -42,10 +50,63 @@ export function lightingSignature(
       l.falloff,
       l.featherRadius ?? 0,
       l.maskTextureId ?? '',
+      maskWidth,
       isDirty(l.id) ? 'dirty' : '',
+      l.flicker ? flickerFactor(l, nowMs).toFixed(3) : '',
     )
   }
   return parts.join('|')
+}
+
+/**
+ * Deterministic per-light wobble around 1.0, applied to `intensity` at draw time — never
+ * written back to the light. Two out-of-phase sine waves keep it from reading like a strobe;
+ * the id-derived seed keeps a room full of torches from flickering in lockstep.
+ *
+ * Answers a flat 1 (no wobble) when the light has flicker off, or when the OS asks for
+ * reduced motion — same switch the fog reveal fade respects.
+ */
+export function flickerFactor(light: LightChild, nowMs: number): number {
+  if (!light.flicker || prefersReducedMotion()) return 1
+  const speed = light.flickerSpeed ?? 1.5
+  const amount = Math.min(1, Math.max(0, light.flickerIntensity ?? 0.3))
+  const seed = seedFromId(light.id)
+  const t = (nowMs / 1000) * speed
+  const wobble = Math.sin(t * 2.3 + seed) * 0.6 + Math.sin(t * 5.7 + seed * 2.1) * 0.4
+  return 1 + wobble * amount
+}
+
+function seedFromId(id: string): number {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0
+  return ((h >>> 0) % 1000 / 1000) * Math.PI * 2
+}
+
+/**
+ * Hard cap on lights composited in one frame. Each one costs a full-viewport render-target
+ * pass plus a full-viewport additive composite — measured at ~0.5-0.75ms apiece on the dressed
+ * gate map (see `LightingRenderer.test.ts` perf notes), so an uncapped table full of torches
+ * turns into tens of milliseconds of GPU time no scheduler fixes without changing the picture.
+ * Beyond the cap, the lights nearest the camera win; the rest stay placed and lit up again the
+ * moment the table scrolls back to them or another one is hidden.
+ */
+export const MAX_RENDERED_LIGHTS = 24
+
+/** The `cap` nearest lights to (camX, camY), in world space. A no-op under the cap. */
+export function cullLightsByDistance(
+  lights: LightChild[],
+  camX: number,
+  camY: number,
+  cap: number,
+): LightChild[] {
+  if (lights.length <= cap) return lights
+  return [...lights]
+    .sort((a, b) => {
+      const da = (a.position.x - camX) ** 2 + (a.position.y - camY) ** 2
+      const db = (b.position.x - camX) ** 2 + (b.position.y - camY) ** 2
+      return da - db
+    })
+    .slice(0, cap)
 }
 
 /**
@@ -182,7 +243,14 @@ export class LightingRenderer {
       this.resize(vp.width, vp.height)
     }
 
-    const visibleLights = lightManager.getVisibleLights()
+    // Cap first: a table with more lights than the budget still owes a picture, just not
+    // one drawn from all of them. Everything below only ever sees the culled set.
+    const visibleLights = cullLightsByDistance(
+      lightManager.getVisibleLights(),
+      camX,
+      camY,
+      MAX_RENDERED_LIGHTS,
+    )
 
     if (visibleLights.length === 0) {
       this.compositingSprite.visible = false
@@ -191,6 +259,7 @@ export class LightingRenderer {
     }
     this.compositingSprite.visible = true
 
+    const now = performance.now()
     const signature = lightingSignature(
       camX,
       camY,
@@ -200,6 +269,7 @@ export class LightingRenderer {
       ambientColor,
       visibleLights,
       (id) => lightManager.isDirty(id),
+      now,
     )
     if (signature === this.lastSignature) return
     this.lastSignature = signature
@@ -238,7 +308,7 @@ export class LightingRenderer {
       const lr = (lightHex >> 16) & 0xff
       const lg = (lightHex >> 8) & 0xff
       const lb = lightHex & 0xff
-      const alpha = Math.min(1, light.intensity)
+      const alpha = Math.min(1, Math.max(0, light.intensity * flickerFactor(light, now)))
       const toRgba = (a: number): string => `rgba(${lr},${lg},${lb},${a.toFixed(4)})`
 
       const screenFeather = (light.featherRadius ?? 0) * zoom

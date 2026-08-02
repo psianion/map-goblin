@@ -5,8 +5,10 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import Sqlite from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { migrate, openDb, type Database } from './db'
+import { MIGRATIONS } from './migrations'
 import {
   AssetStore,
   CampaignStore,
@@ -16,6 +18,7 @@ import {
   MapStore,
   ModuleStateStore,
   PassStore,
+  SceneStore,
   SessionStore,
 } from './stores'
 
@@ -47,6 +50,7 @@ describe('migrations', () => {
       'migrations',
       'module_state',
       'passes',
+      'scenes',
       'sessions',
     ])
   })
@@ -114,6 +118,116 @@ describe('MapStore', () => {
   })
 })
 
+describe('SceneStore (#47)', () => {
+  it('creates in drag order, republishes in place, renames, hides/shows and reorders', () => {
+    const campaign = new CampaignStore(db).create('C')
+    const maps = new MapStore(db)
+    const scenes = new SceneStore(db)
+    const mapA = maps.insert('map-a', campaign.id, 'A', '{}')
+    const mapB = maps.insert('map-b', campaign.id, 'B', '{}')
+    const mapC = maps.insert('map-c', campaign.id, 'C-replacement', '{}')
+
+    const first = scenes.create('scene-1', campaign.id, mapA.id, 'Hall')
+    expect(first.sort_index).toBe(0)
+    expect(first.visible_to_players).toBe(0) // hidden by default (D5)
+    const second = scenes.create('scene-2', campaign.id, mapB.id, 'Crypt')
+    expect(second.sort_index).toBe(1)
+
+    expect(scenes.get('scene-1')).toEqual(first)
+    expect(scenes.get('nope')).toBeUndefined()
+    expect(scenes.listByCampaign(campaign.id).map((s) => s.name)).toEqual(['Hall', 'Crypt'])
+
+    // Re-publish (D1's fix): the id — what fog/tokens/doors and active_scene_id key on —
+    // never moves. Only the map it points at does.
+    scenes.republish('scene-1', mapC.id)
+    const republished = scenes.get('scene-1')!
+    expect(republished.id).toBe('scene-1')
+    expect(republished.map_id).toBe(mapC.id)
+    expect(republished.updated_at).toBeGreaterThanOrEqual(first.updated_at)
+
+    scenes.rename('scene-1', 'Great Hall')
+    expect(scenes.get('scene-1')?.name).toBe('Great Hall')
+
+    scenes.setVisibleToPlayers('scene-1', true)
+    expect(scenes.get('scene-1')?.visible_to_players).toBe(1)
+    scenes.setVisibleToPlayers('scene-1', false)
+    expect(scenes.get('scene-1')?.visible_to_players).toBe(0)
+
+    scenes.reorder(['scene-2', 'scene-1'])
+    expect(scenes.listByCampaign(campaign.id).map((s) => s.id)).toEqual(['scene-2', 'scene-1'])
+
+    scenes.delete('scene-2')
+    expect(scenes.get('scene-2')).toBeUndefined()
+    expect(scenes.listByCampaign(campaign.id)).toHaveLength(1)
+  })
+
+  it('keeps campaigns apart and rejects an orphan map', () => {
+    const campaigns = new CampaignStore(db)
+    const maps = new MapStore(db)
+    const scenes = new SceneStore(db)
+    const mine = campaigns.create('Mine')
+    const yours = campaigns.create('Yours')
+    scenes.create('s-mine', mine.id, maps.insert('m1', mine.id, 'M', '{}').id, 'Mine')
+    scenes.create('s-yours', yours.id, maps.insert('m2', yours.id, 'M', '{}').id, 'Yours')
+
+    expect(scenes.listByCampaign(mine.id).map((s) => s.id)).toEqual(['s-mine'])
+    expect(scenes.listByCampaign(yours.id).map((s) => s.id)).toEqual(['s-yours'])
+    expect(() => scenes.create('orphan', mine.id, 'no-such-map', 'Orphan')).toThrow(/FOREIGN KEY/i)
+  })
+
+  it('refuses two scenes pointing at the same map row', () => {
+    const campaign = new CampaignStore(db).create('C')
+    const map = new MapStore(db).insert('shared-map', campaign.id, 'M', '{}')
+    const scenes = new SceneStore(db)
+    scenes.create('s1', campaign.id, map.id, 'First')
+    expect(() => scenes.create('s2', campaign.id, map.id, 'Second')).toThrow(/UNIQUE/i)
+  })
+})
+
+describe('scenes migration (#47)', () => {
+  /**
+   * Simulates a database that predates migration 003: applies only migrations 1-2 by
+   * hand (`openDb`/`migrate` always run every migration this build carries), seeds maps
+   * the way a pre-#47 server would have, then runs the scenes migration on top and checks
+   * every existing map came back as a scene with a *matching* id — the part that matters,
+   * because that is what keeps `active_scene_id` and every `byScene` key resolving.
+   */
+  it('wraps every existing map row as a scene with the same id, hidden by default', () => {
+    const raw = new Sqlite(':memory:')
+    raw.pragma('foreign_keys = ON')
+    raw.exec(MIGRATIONS[0]!) // campaigns, maps, sessions, identities, passes, module_state
+    raw.exec(MIGRATIONS[1]!) // assets
+
+    const campaigns = new CampaignStore(raw)
+    const maps = new MapStore(raw)
+    const cragmaw = campaigns.create('Cragmaw Hideout')
+    const other = campaigns.create('Other')
+    const first = maps.insert('legacy-map-1', cragmaw.id, 'Cragmaw Hideout', '{}')
+    const secondMap = maps.insert('legacy-map-2', cragmaw.id, 'Wave Echo Cave', '{}')
+    const theirs = maps.insert('their-map', other.id, 'Theirs', '{}')
+
+    raw.exec(MIGRATIONS[2]!) // the scenes table + backfill
+
+    const scenes = new SceneStore(raw)
+    // Same id as the map it wraps — a live server's `active_scene_id` or module state
+    // naming `legacy-map-1` still resolves to exactly the map it always did.
+    expect(scenes.get(first.id)).toMatchObject({
+      id: first.id,
+      map_id: first.id,
+      name: 'Cragmaw Hideout',
+      visible_to_players: 0,
+    })
+    expect(scenes.get(secondMap.id)?.map_id).toBe(secondMap.id)
+    expect(scenes.get(theirs.id)).toMatchObject({ id: theirs.id, campaign_id: other.id })
+
+    // Ordered, and kept apart by campaign — imported_at order becomes drag order.
+    expect(scenes.listByCampaign(cragmaw.id).map((s) => s.id)).toEqual([first.id, secondMap.id])
+    expect(scenes.listByCampaign(other.id).map((s) => s.id)).toEqual([theirs.id])
+
+    raw.close()
+  })
+})
+
 describe('SessionStore', () => {
   it('resolves an invite code only while the session is active', () => {
     const campaign = new CampaignStore(db).create('C')
@@ -165,6 +279,23 @@ describe('SessionStore', () => {
     expect(sessions.getActiveByCampaign(campaign.id)?.active_scene_id).toBe('map-1')
     sessions.setActiveScene(session.id, null)
     expect(sessions.getActiveByCampaign(campaign.id)?.active_scene_id).toBeNull()
+  })
+
+  it('clears the active scene wherever it was set, and leaves other scenes/sessions alone', () => {
+    const campaign = new CampaignStore(db).create('C')
+    const sessions = new SessionStore(db)
+    const a = sessions.createSession(campaign.id, 'SCN002')
+    sessions.setActiveScene(a.id, 'scene-doomed')
+    expect(sessions.getActiveByCampaign(campaign.id)?.active_scene_id).toBe('scene-doomed')
+
+    // #47 — a deleted scene stops being anyone's active one.
+    sessions.clearActiveScene('scene-doomed')
+    expect(sessions.getActiveByCampaign(campaign.id)?.active_scene_id).toBeNull()
+
+    // Clearing a scene nobody had active is a no-op, not an error.
+    sessions.setActiveScene(a.id, 'scene-kept')
+    sessions.clearActiveScene('scene-never-active')
+    expect(sessions.getActiveByCampaign(campaign.id)?.active_scene_id).toBe('scene-kept')
   })
 })
 
