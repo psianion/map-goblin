@@ -15,6 +15,7 @@ import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import { computeMapWorldBounds } from '@dnd/core/src/engine/export/exportPipeline';
 import { useStore } from '@dnd/core/src/store/store';
 import type { DungeonLayer, Layer } from '@dnd/core/src/store/types';
+import { useSessionStore } from '../session/store';
 import { MAX_ZOOM } from './camera';
 
 /** The editor's zoom floor, and the floor here too when the map is small enough to clear it. */
@@ -42,7 +43,7 @@ interface Extent {
  * actually is. The three sources are the three that function measures.
  */
 function hasGeometry(layers: Layer[]): boolean {
-  if (useStore.getState().mapSettings.terrain?.bounds) return true;
+  if (!isPlayerSeat() && useStore.getState().mapSettings.terrain?.bounds) return true;
   return layers.some((layer) => {
     if (layer.type !== 'dungeon') return false;
     const dl = layer as DungeonLayer;
@@ -51,13 +52,21 @@ function hasGeometry(layers: Layer[]): boolean {
   });
 }
 
+/**
+ * A player's camera frames what they have revealed, nothing more. Their layers are already
+ * the server's cut, but `mapSettings.terrain.bounds` rides the document unredacted (the
+ * splat bitmap needs it to draw the terrain inside revealed rooms) — so it must not feed a
+ * player's fit, or one painted hill leaks the whole map's extent into their zoom floor.
+ */
+const isPlayerSeat = (): boolean => useSessionStore.getState().you?.role !== 'dm';
+
 // ponytail: the bounds are recomputed per gesture rather than cached — a walk over
 // mergedFloor's points, microseconds beside the frame it precedes, and a cache would have to
 // be invalidated on every reveal. Cache it the day a map makes this show up in a profile.
 function mapExtent(): Extent | null {
   const { layers } = useStore.getState();
   if (!hasGeometry(layers)) return null;
-  const b = computeMapWorldBounds(layers);
+  const b = computeMapWorldBounds(layers, isPlayerSeat() ? null : undefined);
   if (!Number.isFinite(b.minX) || !Number.isFinite(b.maxX)) return null;
   return {
     cx: (b.minX + b.maxX) / 2,

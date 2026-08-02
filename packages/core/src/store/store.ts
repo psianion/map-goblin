@@ -57,7 +57,6 @@ export const useStore = create<MapBuilderStore>()(
             ...state.grid,
             visible: data.grid.visible,
             snapDivision: data.grid.snapDivision,
-            style: data.grid.style,
             snapEnabled: true,
           };
           state.layers = data.layers;
@@ -96,7 +95,6 @@ export const useStore = create<MapBuilderStore>()(
           grid: {
             visible: s.grid.visible,
             snapDivision: s.grid.snapDivision,
-            style: s.grid.style,
           },
           // Strip mergedFloor from dungeon layers (derived cache, recomputed on load)
           layers: s.layers.map((layer) => {

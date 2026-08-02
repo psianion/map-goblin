@@ -37,7 +37,7 @@ const SAMPLE_DATA: SerializedMapData = {
     cellScale: { value: 5, unit: 'ft' },
     ambientLight: '#000000',
   },
-  grid: { visible: true, snapDivision: 2, style: 'clean' },
+  grid: { visible: true, snapDivision: 2 },
   layers: [],
   customImages: {},
 };
@@ -145,7 +145,7 @@ describe('IndexedDB autosave', () => {
     const staleData = {
       version: '1.4',
       mapSettings: { name: 'Old Map', gridType: 'square', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000' },
-      grid: { visible: true, snapDivision: 2, style: 'clean' },
+      grid: { visible: true, snapDivision: 2 },
       layers: [],
       lights: [],
       placedObjects: [],

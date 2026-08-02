@@ -67,3 +67,37 @@ body,
     scroll-behavior: auto !important;
   }
 }
+
+/* Minimal Precision slider - same control as the editor's ZoomSlider (canvas/src/index.css) */
+.slider-minimal {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--foreground) var(--slider-fill, 0%),
+    var(--border) var(--slider-fill, 0%)
+  );
+  outline: none;
+  cursor: pointer;
+}
+
+.slider-minimal::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--foreground);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.slider-minimal::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--foreground);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}

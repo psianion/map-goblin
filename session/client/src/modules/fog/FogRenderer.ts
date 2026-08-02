@@ -1,14 +1,13 @@
 // §2.4.1 / D10 — the *player's* fog. One mask over the whole map, rebuilt only when the
 // fog, the doors or the party's rooms move.
 //
-// Three states, and the art guide decides what each looks like. A room nobody has entered
-// — and every scrap of unzoned map (D6) — is pure black: the guide's dungeon negative
-// space, not a grey wash, and black is also the only colour that survives the lighting
-// pass unchanged, so a never-revealed room cannot be teased out by turning a monitor up.
-// A room the party has seen but cannot see now is a memory: the same room, desaturated and
-// dimmed to well under what it reads at live, so the state carries on brightness rather
-// than on colour and survives a bad panel in a dim room. A room they can see is simply not
-// drawn on.
+// Three states. A room nobody has entered — and every scrap of unzoned map (D6) — is
+// painted as the *void*: the background's own colour and dot grid, pre-multiplied by the
+// player's lighting strength (`VoidStyle`), so hidden map and empty background are one
+// indistinguishable surface and the map's edge is not a tell. A room the party has seen
+// but cannot see now is a memory: the same room, desaturated and dimmed to well under what
+// it reads at live, so the state carries on brightness rather than on colour and survives
+// a bad panel in a dim room. A room they can see is simply not drawn on.
 //
 // Where this sits is load-bearing. The engine composites lighting as a screen-space
 // multiply *after* the world container (LightingRenderer adds its sprite to
@@ -38,7 +37,7 @@
 import { Container, Graphics } from 'pixi.js';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import type { Room } from '@dnd/core/src/shared/types';
-import type { Layer } from '@dnd/core/src/store/types';
+import type { BackgroundLayer, Layer, SerializedMapData } from '@dnd/core/src/store/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { useStore } from '@dnd/core/src/store/store';
@@ -75,8 +74,6 @@ export type RoomView = 'visible' | 'explored' | 'dark';
 /** D10 — the one deliberately slow beat in the product. A play beat, not decoration. */
 export const REVEAL_MS = 300;
 
-/** Art guide §5: dungeon negative space is pure black, never a grey wash. */
-export const FOG_BLACK = 0x000000;
 /**
  * Cold near-black: the desaturating half of the explored look, pulling warm torchlight out.
  *
@@ -162,6 +159,25 @@ export interface Bounds {
   maxY: number;
 }
 
+/**
+ * What the void looks like where the fog has to imitate it.
+ *
+ * Hidden map is drawn as the background — its colour and its dot grid — rather than as
+ * black, so a player cannot tell fogged map from empty void at all. This layer sits *above*
+ * the lighting composite, so the colours are pre-multiplied by the same strength the real
+ * void renders under; the imitation and the real thing then land on the same pixel values
+ * (dot alpha commutes through the multiply, so dots match too).
+ */
+export interface VoidStyle {
+  /** The background layer's colour, through the player lighting multiply. */
+  fill: number;
+  /** GridRenderer's dot colour (0x888888), through the same multiply. */
+  dot: number;
+  dotAlpha: number;
+  /** Mirrors the map's grid.visible — no dots in the void, no dots in the fog. */
+  dotsVisible: boolean;
+}
+
 export interface FogScene {
   rooms: Room[];
   views: Map<string, RoomView>;
@@ -172,6 +188,7 @@ export interface FogScene {
   sceneId: string | null;
   /** The DM keeps full lighting and no mask (PRODUCT principle 3). Unknown role ⇒ masked. */
   isPlayer: boolean;
+  void: VoidStyle;
 }
 
 /**
@@ -339,8 +356,21 @@ const holdsUnzonedMap = (layers: readonly Layer[]): boolean =>
  * still the guard against blacking out a 10x10 square of empty canvas while the map is in
  * flight, because core's bounds fall back to one rather than reporting nothing.
  */
-export function fogBounds(layers: readonly Layer[], rooms: readonly Room[]): Bounds | null {
-  if (rooms.length === 0) return holdsUnzonedMap(layers) ? null : EVERYTHING;
+export function fogBounds(
+  layers: readonly Layer[],
+  rooms: readonly Room[],
+  frame: Bounds | null = null,
+): Bounds | null {
+  // Unzoned map carries no fog at all (D6) — frame or no frame.
+  if (rooms.length === 0 && holdsUnzonedMap(layers)) return null;
+
+  // The frame the server measured off the full document at redaction. It is the fog's whole
+  // territory: outside it is the dotted void, which is nobody's secret and never fogged —
+  // and it is also what makes fog *finite* for a player who has revealed nothing, instead
+  // of the EVERYTHING rect blacking the void out to the horizon.
+  if (frame) return frame;
+
+  if (rooms.length === 0) return EVERYTHING;
 
   // A player's copy has no mergedFloor until core rebuilds it (redactMap ships it null), so
   // the room polygons are the only bounds that exist on the first frame after a reveal.
@@ -361,6 +391,42 @@ export function fogBounds(layers: readonly Layer[], rooms: readonly Room[]): Bou
     minY: Math.min(minY, map.minY) - BOUNDS_PAD,
     maxX: Math.max(maxX, map.maxX) + BOUNDS_PAD,
     maxY: Math.max(maxY, map.maxY) + BOUNDS_PAD,
+  };
+}
+
+/** '#rrggbb' → [r, g, b]; anything unparseable answers as the default surface. */
+const channels = (hex: string): [number, number, number] => {
+  const n = /^#([0-9a-f]{6})$/i.exec(hex)?.[1];
+  const v = n ? parseInt(n, 16) : 0x2d2d2d;
+  return [(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
+};
+
+/**
+ * A colour as it lands after the player's lighting multiply: `c · lerp(1, ambient, s)` per
+ * channel — the same arithmetic LightingRenderer's composite performs on the real void
+ * (its sprite alpha is set to LIGHTING_STRENGTH.player on every rebuild below).
+ */
+const lit = (hex: string, ambient: [number, number, number], s: number): number => {
+  const [r, g, b] = channels(hex);
+  const mul = (c: number, a: number): number => Math.round(c * (1 - s * (1 - a / 255)));
+  return (mul(r, ambient[0]) << 16) | (mul(g, ambient[1]) << 8) | mul(b, ambient[2]);
+};
+
+/**
+ * The void's look, off the same store the real background renders from. `strength` is how
+ * hard the lighting composite is actually biting — LIGHTING_STRENGTH.player on a lit map,
+ * 0 on a map with no lights (LightingRenderer leaves its sprite invisible there and the
+ * real void renders unmultiplied; the mount checks which is true at rebuild).
+ */
+export function voidStyle(strength: number = LIGHTING_STRENGTH.player): VoidStyle {
+  const { layers, mapSettings, grid } = useStore.getState();
+  const bg = layers.find((l): l is BackgroundLayer => l.type === 'background');
+  const ambient = channels(mapSettings.ambientLight);
+  return {
+    fill: lit(bg?.backgroundColor ?? '#2d2d2d', ambient, strength),
+    dot: lit('#888888', ambient, strength),
+    dotAlpha: 0.45,
+    dotsVisible: grid.visible,
   };
 }
 
@@ -389,12 +455,15 @@ export function fogScene(): FogScene {
     // No document, no statement: until the referee has sent one there is nothing to be
     // right or wrong about, and covering the canvas on the strength of an empty store would
     // black out the DM's own first frame of a map that is merely still in flight.
-    bounds: mapData ? fogBounds(layers, rooms) : null,
+    bounds: mapData
+      ? fogBounds(layers, rooms, (mapData as SerializedMapData).frame ?? null)
+      : null,
     // Off the referee's document, like the rooms it pads: the wall band a player's mask has
     // to clear is the one the referee sent them, not whatever core relaid underneath.
     pad: fogPad(serverLayers(mapData)),
     sceneId,
     isPlayer: you?.role !== 'dm',
+    void: voidStyle(),
   };
 }
 
@@ -427,6 +496,9 @@ export function subscribeFogScene(onChange: () => void): () => void {
       // merged reveal delta, so identity is the whole test here too.
       mapData,
       useStore.getState().layers,
+      // The void look the fog imitates — background colour, ambient, grid toggle.
+      useStore.getState().mapSettings.ambientLight,
+      useStore.getState().grid.visible,
     ];
     if (next.length === last.length && next.every((v, i) => v === last[i])) return false;
     last = next;
@@ -464,11 +536,11 @@ export function subscribeFogScene(onChange: () => void): () => void {
  * band's share of the way to solid. Colour is uniform, so the order they are drawn in does
  * not matter.
  */
-function featherEdge(g: Graphics, ring: Polygon): void {
+function featherEdge(g: Graphics, ring: Polygon, color: number): void {
   const path = ring.flat();
   for (let step = 1; step <= FEATHER_STEPS; step++) {
     g.poly(path).stroke({
-      color: FOG_BLACK,
+      color,
       alpha: 1 / step,
       width: (FOG_FEATHER * step) / FEATHER_STEPS,
       alignment: 1,
@@ -487,11 +559,11 @@ function featherEdge(g: Graphics, ring: Polygon): void {
  * nothing over the shape it is covering, and a rim that never sits still is not one anybody
  * can read.
  */
-function paintRoom(g: Graphics, room: Room, view: RoomView, pad: number): void {
+function paintRoom(g: Graphics, room: Room, view: RoomView, pad: number, voidFill: number): void {
   if (room.boundary.length < 3 || view === 'visible') return;
   const style =
     view === 'dark'
-      ? { color: FOG_BLACK, alpha: 1 }
+      ? { color: voidFill, alpha: 1 }
       : { color: EXPLORED_TINT, alpha: EXPLORED_TINT_ALPHA };
   for (const ring of fogRegion([room.boundary], [], pad, FOG_FEATHER).reach) {
     g.poly(ring.flat()).fill(style);
@@ -514,12 +586,26 @@ function paintRoom(g: Graphics, room: Room, view: RoomView, pad: number): void {
  * and the wash are two colours passed to `fill`, and swapping them for an animated treatment
  * touches neither.
  */
-export function drawFog(scrim: Graphics, scene: FogScene): void {
+export function drawFog(scrim: Graphics, scene: FogScene, dotsMask?: Graphics): void {
   scrim.clear();
+  dotsMask?.clear();
   if (!scene.isPlayer || !scene.bounds) return;
 
-  const { minX, minY, maxX, maxY } = scene.bounds;
-  scrim.rect(minX, minY, maxX - minX, maxY - minY).fill({ color: FOG_BLACK, alpha: 1 });
+  const voidFill = scene.void.fill;
+  // Drawn one pad + feather wider than the frame: a hole that crosses the filled rect's
+  // outer contour is dropped whole by the triangulator, and the frame is content-tight
+  // (one square of air) while a room's padded reach can poke past it. The overhang is
+  // invisible — the fill imitates the void it overpaints.
+  const grow = scene.pad + FOG_FEATHER;
+  const minX = scene.bounds.minX - grow;
+  const minY = scene.bounds.minY - grow;
+  const w = scene.bounds.maxX - scene.bounds.minX + 2 * grow;
+  const h = scene.bounds.maxY - scene.bounds.minY + 2 * grow;
+  scrim.rect(minX, minY, w, h).fill({ color: voidFill, alpha: 1 });
+  // The dots mask is the never-revealed region — the same shapes the scrim keeps covered.
+  // The dot layer above clips to it, so the imitation void gets the background's dot grid
+  // and nothing the player has earned does.
+  dotsMask?.rect(minX, minY, w, h).fill(0xffffff);
 
   const floorsOf = (view: RoomView): Polygon[] =>
     scene.rooms
@@ -534,13 +620,20 @@ export function drawFog(scrim: Graphics, scene: FogScene): void {
   const earned = ringsWithHoles(seen.reach);
   for (const { outline } of earned) scrim.poly(outline.flat());
   if (earned.length > 0) scrim.cut();
+  if (dotsMask && earned.length > 0) {
+    for (const { outline } of earned) dotsMask.poly(outline.flat());
+    dotsMask.cut();
+  }
 
   // Fog the region has closed all the way around — an unrevealed pocket walled in by revealed
-  // rooms. Put back as solid black: it is inside the hole, so nothing else is covering it.
+  // rooms. Put back as solid void: it is inside the hole, so nothing else is covering it.
   // ponytail: hard-edged. `featherEdge` thickens fog towards a rim from the inside, and a
   // pocket wants the opposite; it takes a closed ring of revealed rooms to make one.
   for (const { holes } of earned) {
-    for (const hole of holes) scrim.poly(hole.flat()).fill({ color: FOG_BLACK, alpha: 1 });
+    for (const hole of holes) {
+      scrim.poly(hole.flat()).fill({ color: voidFill, alpha: 1 });
+      dotsMask?.poly(hole.flat()).fill(0xffffff);
+    }
   }
 
   // D10's memory tier, on the same padded footprint at its own darkness. It stops at a live
@@ -554,7 +647,7 @@ export function drawFog(scrim: Graphics, scene: FogScene): void {
     if (holes.length > 0) scrim.cut();
   }
 
-  for (const { outline } of earned) featherEdge(scrim, outline);
+  for (const { outline } of earned) featherEdge(scrim, outline, voidFill);
 }
 
 interface Fade {
@@ -565,8 +658,14 @@ interface Fade {
 function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => void {
   const layer = new Container();
   const scrim = new Graphics();
+  // The imitation void's dot grid: its own layer clipped to the never-revealed region
+  // (the mask is rebuilt with the scrim), redrawn from the tick when the visible cell
+  // range moves — dot radius is ~1.5 *screen* pixels, so zoom changes its world size.
+  const dots = new Graphics();
+  const dotsMask = new Graphics();
+  dots.mask = dotsMask;
   const fadeLayer = new Container();
-  layer.addChild(scrim, fadeLayer);
+  layer.addChild(scrim, dots, dotsMask, fadeLayer);
   // Nothing here is clickable; the fog tool and the doors read the DOM canvas directly.
   layer.eventMode = 'none';
   addScreenOverlay(sceneGraph, layer, 'playerFog');
@@ -581,6 +680,44 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   const fades: Fade[] = [];
   let views: Map<string, RoomView> | null = null;
   let sceneId: string | null = null;
+  let voidLook: VoidStyle = { fill: 0, dot: 0, dotAlpha: 0.45, dotsVisible: false };
+
+  // GridRenderer's redraw discipline, transplanted: only when the visible cell range
+  // shifts by a full cell (which any zoom worth redrawing for causes) or a rebuild
+  // invalidates the range. Dots are drawn across the visible range and clipped to the
+  // never-revealed region by the mask.
+  let lastDots = { minX: NaN, maxX: NaN, minY: NaN, maxY: NaN };
+  const redrawDots = (force: boolean): void => {
+    const vp = engine.viewport();
+    const tl = engine.screenToWorld(0, 0);
+    const br = engine.screenToWorld(vp.width, vp.height);
+    const pad = 2;
+    const minX = Math.floor(tl.x) - pad;
+    const maxX = Math.ceil(br.x) + pad;
+    const minY = Math.floor(tl.y) - pad;
+    const maxY = Math.ceil(br.y) + pad;
+    if (
+      !force &&
+      Math.abs(minX - lastDots.minX) < 1 &&
+      Math.abs(maxX - lastDots.maxX) < 1 &&
+      Math.abs(minY - lastDots.minY) < 1 &&
+      Math.abs(maxY - lastDots.maxY) < 1
+    ) {
+      return;
+    }
+    lastDots = { minX, maxX, minY, maxY };
+
+    dots.clear();
+    if (!voidLook.dotsVisible) return;
+    const zoomPx = world.scale.x;
+    const dotR = Math.max(0.02, 1.5 / Math.max(1, zoomPx));
+    for (let x = minX; x <= maxX; x++) {
+      for (let y = minY; y <= maxY; y++) {
+        dots.circle(x, y, dotR);
+      }
+    }
+    dots.fill({ color: voidLook.dot, alpha: voidLook.dotAlpha });
+  };
 
   const clearFades = (): void => {
     for (const fade of fades) fade.graphic.destroy();
@@ -598,12 +735,18 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     }
 
     layer.visible = scene.isPlayer;
-    drawFog(scrim, scene);
 
     // Set every rebuild rather than once at mount: the seat is not known until the join
     // snapshot lands, and the composite itself is created asynchronously with the engine.
     const lit = composite();
     if (lit) lit.alpha = scene.isPlayer ? LIGHTING_STRENGTH.player : LIGHTING_STRENGTH.dm;
+
+    // The imitation has to match the void as it actually renders: an unlit map never
+    // composites (the sprite stays invisible), so its void is the raw background colour.
+    const drawn = lit?.visible ? scene : { ...scene, void: voidStyle(0) };
+    voidLook = drawn.void;
+    drawFog(scrim, drawn, dotsMask);
+    redrawDots(true);
 
     // Reduced motion cuts instead of fading, so it simply never starts one.
     if (scene.isPlayer && revealDurationMs() > 0) {
@@ -612,7 +755,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
         const room = roomById.get(roomId);
         if (!room) continue;
         const graphic = new Graphics();
-        paintRoom(graphic, room, before, scene.pad);
+        paintRoom(graphic, room, before, scene.pad, drawn.void.fill);
         fadeLayer.addChild(graphic);
         fades.push({ graphic, startedAt: performance.now() });
       }
@@ -626,6 +769,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   const tick = (): void => {
     layer.position.copyFrom(world.position);
     layer.scale.copyFrom(world.scale);
+    if (layer.visible) redrawDots(false);
     if (fades.length === 0) return;
     const now = performance.now();
     for (let i = fades.length - 1; i >= 0; i--) {

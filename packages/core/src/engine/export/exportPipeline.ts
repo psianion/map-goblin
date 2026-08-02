@@ -2,9 +2,10 @@ import { RenderTexture, type Renderer } from 'pixi.js';
 import type { RenderEngine } from '../RenderEngine';
 import type { SceneGraph } from '../sceneGraph';
 import { getLayerEntry } from '../sceneGraph';
-import type { Layer, DungeonLayer } from '../../store/types';
+import type { Layer } from '../../store/types';
 import { useStore } from '../../store/store';
 import { computeExportDimensions, buildExportFilename, worldBoundsToCells } from './exportMath';
+import { computeContentBounds } from '../../shared/mapBounds';
 
 export interface ExportOptions {
   format: 'png' | 'jpeg';
@@ -15,7 +16,9 @@ export interface ExportOptions {
 
 /**
  * Compute the axis-aligned bounding box of all dungeon layer floor geometry,
- * in world space (world units = grid cells).
+ * in world space (world units = grid cells). The walk itself lives in
+ * shared/mapBounds (pixi-free, so the session server can use it); this keeps
+ * the store-fed terrain default and the 10x10 export default.
  */
 export function computeMapWorldBounds(
   layers: Layer[],
@@ -26,65 +29,9 @@ export function computeMapWorldBounds(
   maxX: number;
   maxY: number;
 } {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-
-  for (const layer of layers) {
-    if (layer.type !== 'dungeon') continue;
-    const dl = layer as DungeonLayer;
-    if (dl.mergedFloor) {
-      for (const polygon of dl.mergedFloor) {
-        for (const [x, y] of polygon) {
-          if (x < minX) minX = x;
-          if (y < minY) minY = y;
-          if (x > maxX) maxX = x;
-          if (y > maxY) maxY = y;
-        }
-      }
-    }
-    // Water bodies extend the map even without floor geometry
-    for (const child of dl.children) {
-      if (child.childType !== 'water' || !child.visible) continue;
-      for (const [x, y] of child.contours[0] ?? []) {
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-      }
-    }
-  }
-
-  // Painted terrain extends the map too
-  if (terrainBounds) {
-    minX = Math.min(minX, terrainBounds.minX);
-    minY = Math.min(minY, terrainBounds.minY);
-    maxX = Math.max(maxX, terrainBounds.maxX);
-    maxY = Math.max(maxY, terrainBounds.maxY);
-  }
-
-  // Default to a 10x10 grid if no geometry
-  if (!isFinite(minX)) return { minX: -5, minY: -5, maxX: 5, maxY: 5 };
-
-  // Pad bounds to capture wall strokes and shadows that extend beyond floor geometry
-  let pad = 0;
-  for (const layer of layers) {
-    if (layer.type !== 'dungeon') continue;
-    const dl = layer as DungeonLayer;
-    const s = dl.style;
-    // Wall strokes are centered on the polygon edge — half extends outward
-    pad = Math.max(pad, s.wallWidth / 2);
-    // Shadow is offset from the floor
-    if (s.shadowEnabled) {
-      pad = Math.max(pad, Math.abs(s.shadowOffset.x) + s.wallWidth / 2);
-      pad = Math.max(pad, Math.abs(s.shadowOffset.y) + s.wallWidth / 2);
-    }
-  }
-  // Add a small extra margin for anti-aliasing
-  pad += 0.05;
-
-  return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
+  return (
+    computeContentBounds(layers, terrainBounds) ?? { minX: -5, minY: -5, maxX: 5, maxY: 5 }
+  );
 }
 
 /**

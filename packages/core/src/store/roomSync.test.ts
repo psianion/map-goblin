@@ -58,7 +58,7 @@ function fileWithoutRooms(): SerializedMapData {
       cellScale: { value: 5, unit: 'ft' },
       ambientLight: '#2d2d44',
     },
-    grid: { visible: true, snapDivision: 2, style: 'dotted' },
+    grid: { visible: true, snapDivision: 2 },
     layers: [
       {
         id: 'layer-1',

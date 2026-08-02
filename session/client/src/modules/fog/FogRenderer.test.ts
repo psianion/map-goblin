@@ -26,7 +26,6 @@ import { FOG_MARGIN, fogPad, fogRegion, ringsWithHoles } from './fog';
 import {
   EXPLORED_TINT,
   EXPLORED_TINT_ALPHA,
-  FOG_BLACK,
   FOG_FEATHER,
   LIGHTING_STRENGTH,
   PARTY_ROOM_UNKNOWN,
@@ -43,7 +42,11 @@ import {
   subscribeFogScene,
   type FogScene,
   type RoomView,
+  type VoidStyle,
 } from './FogRenderer';
+
+/** A fixed void look for fixtures — drawFog paints hidden map with `fill`, not black. */
+const VOID: VoidStyle = { fill: 0x131316, dot: 0x3a3a3a, dotAlpha: 0.45, dotsVisible: true };
 
 /**
  * The mask's padding is Clipper2 offsets, so the geometry half of this file needs the real
@@ -276,11 +279,12 @@ describe('roomViews — what each room is doing', () => {
       pad: fogPad([]),
       sceneId: 's1',
       isPlayer: true,
+      void: VOID,
     });
 
     const fills = fillsOf(scrim);
     expect(fills).toHaveLength(1);
-    expect(fills[0].style.color).toBe(FOG_BLACK);
+    expect(fills[0].style.color).toBe(VOID.fill);
     expect(fills[0].style.alpha).toBe(1);
     expect(fills[0].hole).toBeUndefined();
   });
@@ -295,6 +299,7 @@ describe('roomViews — what each room is doing', () => {
       pad: fogPad([]),
       sceneId: 's1',
       isPlayer: true,
+      void: VOID,
     });
 
     expect(fillsOf(scrim)[0].hole).toBeDefined();
@@ -607,6 +612,7 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     pad: fogPad([]),
     sceneId: 's1',
     isPlayer: true,
+    void: VOID,
   });
 
   const strokesOf = (g: Graphics) =>
@@ -620,9 +626,9 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     const scrim = new Graphics();
     drawFog(scrim, scene({ [WEST.id]: 'visible', [EAST.id]: 'dark' }));
 
-    // One black fill for the map, with the earned region taken out of it.
+    // One void-coloured fill for the map, with the earned region taken out of it.
     const fills = fillsOf(scrim);
-    expect(fills[0].style.color).toBe(FOG_BLACK);
+    expect(fills[0].style.color).toBe(VOID.fill);
     expect(fills[0].hole).toBeDefined();
 
     // The falloff: nested strokes laid inside the reach, thickening towards its rim. Alpha
@@ -921,7 +927,13 @@ describe('the lighting composite each seat is mounted with', () => {
     });
     useStore.setState({ layers: [dungeon(ROOMS)] });
     setEngineSingleton(
-      { ticker: () => ticker, canvas: () => document.createElement('canvas') } as unknown as RenderEngine,
+      {
+        ticker: () => ticker,
+        canvas: () => document.createElement('canvas'),
+        // The dot pass measures the visible cell range off these on every rebuild.
+        viewport: () => ({ width: 800, height: 600 }),
+        screenToWorld: (x: number, y: number) => ({ x: x / 20, y: y / 20 }),
+      } as unknown as RenderEngine,
       sceneGraph,
     );
     const stop = mountPlayerFogWhenReady();

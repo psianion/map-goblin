@@ -20,6 +20,10 @@ export default tseslint.config(
         {
           patterns: [
             {
+              // One deliberate exception, waived inline where it happens (a gitignore-style
+              // negation cannot re-include under an excluded parent): shared/mapBounds is
+              // pure bounds math, kept pixi-free precisely so the server can measure a
+              // map's frame at redaction (redactMap.ts).
               group: ['@dnd/core', '@dnd/core/*'],
               allowTypeImports: true,
               message:

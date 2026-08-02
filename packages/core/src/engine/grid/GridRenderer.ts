@@ -3,11 +3,16 @@ import type { RenderEngine } from '../RenderEngine';
 import { useStore } from '../../store/store';
 
 /**
- * Renders the background grid in world space.
+ * Renders the background grid in world space: dots, everywhere, and nothing else.
  *
- * Positioned inside worldContainer so grid lines automatically track
- * camera pan. Only redraws when zoom level changes enough to alter the
- * visible cell range, or when grid config changes.
+ * Line grid over the map itself is not drawn here — each dungeon layer draws its
+ * own line grid clipped to its floor shapes (floorWallRenderer's grid sublayer),
+ * so lines always mean "the built map" and dots always mean "the void", in the
+ * editor and at the table alike.
+ *
+ * Positioned inside worldContainer so the grid automatically tracks camera pan.
+ * Only redraws when zoom level changes enough to alter the visible cell range,
+ * or when grid config changes (dirty flag).
  */
 export class GridRenderer {
   readonly container: Container;
@@ -66,47 +71,11 @@ export class GridRenderer {
     this.lastMaxY = maxY;
     this._dirty = false;
 
-    // Compute line width in world units for ~1 screen pixel
     const zoomPx = engine.worldToScreen(1, 0).x - engine.worldToScreen(0, 0).x;
-    const lineWidth = Math.max(0.01, 0.8 / Math.max(1, zoomPx));
-
-    this.graphics.clear();
-
-    if (grid.style === 'dotted') {
-      this.drawDots(minX, maxX, minY, maxY, zoomPx);
-    } else {
-      this.drawLines(minX, maxX, minY, maxY, lineWidth);
-    }
-  }
-
-  private drawLines(
-    minX: number, maxX: number,
-    minY: number, maxY: number,
-    lineWidth: number,
-  ): void {
-    this.graphics.setStrokeStyle({ color: 0x888888, width: lineWidth, alpha: 0.4 });
-
-    // Vertical lines
-    for (let x = minX; x <= maxX; x++) {
-      this.graphics.moveTo(x, minY);
-      this.graphics.lineTo(x, maxY);
-    }
-    // Horizontal lines
-    for (let y = minY; y <= maxY; y++) {
-      this.graphics.moveTo(minX, y);
-      this.graphics.lineTo(maxX, y);
-    }
-    this.graphics.stroke();
-  }
-
-  private drawDots(
-    minX: number, maxX: number,
-    minY: number, maxY: number,
-    zoomPx: number,
-  ): void {
     // Dot radius: ~1.5 screen pixels in world units
     const dotR = Math.max(0.02, 1.5 / Math.max(1, zoomPx));
 
+    this.graphics.clear();
     for (let x = minX; x <= maxX; x++) {
       for (let y = minY; y <= maxY; y++) {
         this.graphics.circle(x, y, dotR);

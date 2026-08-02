@@ -65,7 +65,7 @@ export function createBackgroundLayer(): BackgroundLayer {
 type MapBuilderState = Omit<
   MapBuilderStore,
   | 'setMapName' | 'setGridType' | 'setAmbientLight' | 'setTerrainData'
-  | 'setGridVisible' | 'setSnapEnabled' | 'setSnapDivision' | 'setGridStyle'
+  | 'setGridVisible' | 'setSnapEnabled' | 'setSnapDivision'
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
   | 'addChild' | 'removeChild' | 'reorderChild' | 'updateChild' | 'recomputeMergedFloor'
   | 'addWall' | 'removeWall' | 'updateWall' | 'setFloorWallEdits' | 'closeAllDoors'
@@ -100,7 +100,6 @@ export function createDefaultState(): MapBuilderState {
       visible: true,
       snapEnabled: true,
       snapDivision: 2,
-      style: 'dotted',
     },
     layers: [bgLayer, dungeonLayer],
     tools: {
