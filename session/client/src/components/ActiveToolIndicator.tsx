@@ -20,7 +20,7 @@ export function ActiveToolIndicator() {
     <div
       data-testid="active-tool"
       data-tool={activeTool ?? 'none'}
-      className="pointer-events-none absolute bottom-3 left-3 z-toolbar flex items-center gap-2 rounded border border-border-default bg-surface-1/95 px-2.5 py-1.5 text-xs"
+      className="pointer-events-none absolute bottom-10 left-3 z-toolbar flex items-center gap-2 rounded border border-border-default bg-surface-1/95 px-2.5 py-1.5 text-xs"
     >
       <span className="text-text-secondary">Tool</span>
       {activeTool ? (
