@@ -1,35 +1,7 @@
 import { useSessionStore } from '../session/store';
 
-const LABELS = {
-  connecting: 'Connecting',
-  open: 'Connected',
-  reconnecting: 'Reconnecting',
-  closed: 'Disconnected',
-} as const;
-
-const DOTS = {
-  connecting: 'bg-amber-400',
-  open: 'bg-emerald-400',
-  reconnecting: 'bg-amber-400 animate-pulse',
-  closed: 'bg-red-500',
-} as const;
-
-/** Dot + label + round-trip time. */
-export function ConnectionStatus() {
-  const connection = useSessionStore((s) => s.connection);
-  const latencyMs = useSessionStore((s) => s.latencyMs);
-  const sessionEnded = useSessionStore((s) => s.sessionEnded);
-
-  return (
-    <div className="flex items-center gap-2 text-sm text-text-primary" data-testid="connection-status">
-      <span className={`h-2 w-2 shrink-0 rounded-full ${DOTS[connection]}`} aria-hidden />
-      <span>{sessionEnded ? 'Session ended' : LABELS[connection]}</span>
-      {connection === 'open' && latencyMs !== null && (
-        <span className="text-text-secondary">{Math.round(latencyMs)} ms</span>
-      )}
-    </div>
-  );
-}
+// The dot + label + round-trip display moved into the table's status bar
+// (TableStatusBar) when the sidebar block was retired — only the banner lives here now.
 
 /**
  * Non-blocking reconnect banner — an overlay strip, never a modal: the last

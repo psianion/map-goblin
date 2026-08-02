@@ -5,7 +5,8 @@ import { useSessionStore } from '../session/store';
 import { DEFAULT_TOAST_MS, useToasts } from '../session/toasts';
 import { useActiveTool } from '../session/tools';
 import { ActiveToolIndicator } from './ActiveToolIndicator';
-import { ConnectionStatus, ReconnectingBanner } from './ConnectionStatus';
+import { ReconnectingBanner } from './ConnectionStatus';
+import { TableStatusBar } from './TableStatusBar';
 import { GameLog } from './GameLog';
 import { PlayerList } from './PlayerList';
 import { InviteCodeChip } from './InviteCodeChip';
@@ -60,7 +61,7 @@ describe('GameLog', () => {
   });
 });
 
-describe('ConnectionStatus', () => {
+describe('TableStatusBar connection readout', () => {
   it('labels each connection state', () => {
     for (const [state, label] of [
       ['connecting', 'Connecting'],
@@ -70,19 +71,19 @@ describe('ConnectionStatus', () => {
     ] as const) {
       cleanup();
       useSessionStore.setState({ connection: state });
-      render(<ConnectionStatus />);
+      render(<TableStatusBar />);
       expect(screen.getByTestId('connection-status').textContent).toContain(label);
     }
   });
 
   it('shows latency only while open', () => {
     useSessionStore.setState({ connection: 'open', latencyMs: 42.4 });
-    render(<ConnectionStatus />);
+    render(<TableStatusBar />);
     expect(screen.getByTestId('connection-status').textContent).toContain('42 ms');
 
     cleanup();
     useSessionStore.setState({ connection: 'reconnecting' });
-    render(<ConnectionStatus />);
+    render(<TableStatusBar />);
     expect(screen.getByTestId('connection-status').textContent).not.toContain('42 ms');
   });
 

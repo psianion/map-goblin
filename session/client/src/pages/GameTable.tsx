@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
 import { ActiveToolIndicator } from '../components/ActiveToolIndicator';
-import { ConnectionStatus, ReconnectingBanner } from '../components/ConnectionStatus';
+import { ReconnectingBanner } from '../components/ConnectionStatus';
 import { ToastHost } from '../components/Toast';
 import { GameRenderer } from '../renderer/GameRenderer';
-import { ZoomControls } from '../components/ZoomControls';
+import { FitScreenButton, TableStatusBar } from '../components/TableStatusBar';
 import { usePanels } from '../session/panels';
 import { resumeSeat, useRole } from '../session/store';
 
@@ -43,7 +43,8 @@ export default function GameTable() {
         <ReconnectingBanner />
         <GameRenderer />
         <ActiveToolIndicator />
-        <ZoomControls />
+        <FitScreenButton />
+        <TableStatusBar />
         <ToastHost />
       </main>
 
@@ -59,9 +60,6 @@ export default function GameTable() {
           </section>
         ))}
 
-        <div className="mt-auto border-t border-border-default pt-3">
-          <ConnectionStatus />
-        </div>
       </aside>
     </div>
   );
