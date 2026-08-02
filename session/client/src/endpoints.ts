@@ -22,9 +22,13 @@ export interface Endpoints {
 
 /** Mutable on purpose: HostSetup/JoinSession (C2) point this at a typed-in server. */
 export const endpoints: Endpoints = {
-  httpBase: env.VITE_HTTP_BASE ?? origin,
-  wsBase: env.VITE_WS_BASE ?? `${wsOrigin}/ws`,
-  assetBase: env.VITE_ASSET_BASE ?? origin,
+  // `||`, not `??`: the Docker build passes VITE_HTTP_BASE as an empty string on
+  // purpose (nginx proxies /api and /ws, so this page's own origin IS the server).
+  // Empty means same-origin, never a literal '' base — that made setServerUrl('')
+  // throw and broke every DM setup call on the deployed stack.
+  httpBase: env.VITE_HTTP_BASE || origin,
+  wsBase: env.VITE_WS_BASE || `${wsOrigin}/ws`,
+  assetBase: env.VITE_ASSET_BASE || origin,
 };
 
 /**
