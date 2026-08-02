@@ -27,7 +27,7 @@ const SAMPLE_DATA: SerializedMapData = {
     cellScale: { value: 5, unit: 'ft' },
     ambientLight: '#1a1a2e',
   },
-  grid: { visible: true, snapDivision: 2, style: 'clean' },
+  grid: { visible: true, snapDivision: 2 },
   layers: [],
   customImages: {},
 };
@@ -53,7 +53,7 @@ describe('saveLoad — serializeToBytes / deserializeFromBytes', () => {
     const oldData = {
       version: '1.4',
       mapSettings: { name: 'Old Map', gridType: 'square', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#000' },
-      grid: { visible: true, snapDivision: 2, style: 'clean' },
+      grid: { visible: true, snapDivision: 2 },
       layers: [],
       lights: [],
       placedObjects: [],

@@ -38,7 +38,7 @@
 import { Container, Graphics } from 'pixi.js';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import type { Room } from '@dnd/core/src/shared/types';
-import type { Layer } from '@dnd/core/src/store/types';
+import type { Layer, SerializedMapData } from '@dnd/core/src/store/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { useStore } from '@dnd/core/src/store/store';
@@ -339,8 +339,21 @@ const holdsUnzonedMap = (layers: readonly Layer[]): boolean =>
  * still the guard against blacking out a 10x10 square of empty canvas while the map is in
  * flight, because core's bounds fall back to one rather than reporting nothing.
  */
-export function fogBounds(layers: readonly Layer[], rooms: readonly Room[]): Bounds | null {
-  if (rooms.length === 0) return holdsUnzonedMap(layers) ? null : EVERYTHING;
+export function fogBounds(
+  layers: readonly Layer[],
+  rooms: readonly Room[],
+  frame: Bounds | null = null,
+): Bounds | null {
+  // Unzoned map carries no fog at all (D6) — frame or no frame.
+  if (rooms.length === 0 && holdsUnzonedMap(layers)) return null;
+
+  // The frame the server measured off the full document at redaction. It is the fog's whole
+  // territory: outside it is the dotted void, which is nobody's secret and never fogged —
+  // and it is also what makes fog *finite* for a player who has revealed nothing, instead
+  // of the EVERYTHING rect blacking the void out to the horizon.
+  if (frame) return frame;
+
+  if (rooms.length === 0) return EVERYTHING;
 
   // A player's copy has no mergedFloor until core rebuilds it (redactMap ships it null), so
   // the room polygons are the only bounds that exist on the first frame after a reveal.
@@ -389,7 +402,9 @@ export function fogScene(): FogScene {
     // No document, no statement: until the referee has sent one there is nothing to be
     // right or wrong about, and covering the canvas on the strength of an empty store would
     // black out the DM's own first frame of a map that is merely still in flight.
-    bounds: mapData ? fogBounds(layers, rooms) : null,
+    bounds: mapData
+      ? fogBounds(layers, rooms, (mapData as SerializedMapData).frame ?? null)
+      : null,
     // Off the referee's document, like the rooms it pads: the wall band a player's mask has
     // to clear is the one the referee sent them, not whatever core relaid underneath.
     pad: fogPad(serverLayers(mapData)),

@@ -5,7 +5,6 @@ export interface GridActions {
   setGridVisible: (visible: boolean) => void;
   setSnapEnabled: (enabled: boolean) => void;
   setSnapDivision: (division: GridConfig['snapDivision']) => void;
-  setGridStyle: (style: GridConfig['style']) => void;
 }
 
 export const createGridSlice: StateCreator<
@@ -25,9 +24,5 @@ export const createGridSlice: StateCreator<
   setSnapDivision: (division) =>
     set((state) => {
       state.grid.snapDivision = division;
-    }),
-  setGridStyle: (style) =>
-    set((state) => {
-      state.grid.style = style;
     }),
 });

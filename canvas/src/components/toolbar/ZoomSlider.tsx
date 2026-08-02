@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback, type CSSProperties } from 're
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { computeMapWorldBounds } from '@/engine/export/exportPipeline';
 import { useStore } from '@/store/store';
-import { zoomToFitRef, cancelZoomAnimationRef } from './zoomToFitRef';
+import { zoomToFitRef, cancelZoomAnimationRef, viewportInsetsRef } from './zoomToFitRef';
 
 const MIN_ZOOM = 10;
 const MAX_ZOOM = 100;
@@ -83,13 +83,16 @@ export function ZoomSlider() {
     const centerX = (bounds.minX + bounds.maxX) / 2;
     const centerY = (bounds.minY + bounds.maxY) / 2;
 
-    const vpWidth = vp.width;
-    const vpHeight = vp.height;
+    // Fit into the gap the overlaid panels leave, not the full window — otherwise the map
+    // centres behind the sidebars and opens half-hidden.
+    const insets = viewportInsetsRef.current;
+    const vpWidth = Math.max(1, vp.width - insets.left - insets.right);
+    const vpHeight = Math.max(1, vp.height - insets.bottom);
 
     const requiredZoom = Math.min(vpWidth / worldWidth, vpHeight / worldHeight) * 0.9;
     const newZoom = Math.min(Math.max(requiredZoom, MIN_ZOOM), MAX_ZOOM);
 
-    const targetX = vpWidth / 2 - centerX * newZoom;
+    const targetX = insets.left + vpWidth / 2 - centerX * newZoom;
     const targetY = vpHeight / 2 - centerY * newZoom;
 
     // Animate to the target position

@@ -41,11 +41,11 @@ interface SectionControl {
 
 // Grid settings — wired directly to store actions (no undo — unlike Ambient below, these
 // are cheap display toggles users flip freely rather than authored map state).
-// ponytail: renderer only draws square grids and varies by `style`; mapSettings.gridType (hex/iso) is dead-letter, so no shape selector here.
+// ponytail: renderer only draws square grids in one look (dots in the void, lines on the
+// map); mapSettings.gridType (hex/iso) is dead-letter, so no shape or style selector here.
 function GridSection({ openSections, onToggleSection }: SectionControl) {
   const grid = useStore(useShallow((s) => s.grid))
   const setGridVisible = useStore((s) => s.setGridVisible)
-  const setGridStyle = useStore((s) => s.setGridStyle)
   const setSnapEnabled = useStore((s) => s.setSnapEnabled)
   const setSnapDivision = useStore((s) => s.setSnapDivision)
 
@@ -64,17 +64,6 @@ function GridSection({ openSections, onToggleSection }: SectionControl) {
       }
     >
       <div className="flex flex-col gap-2 pt-2">
-        <PropertyField label="Style">
-          <SelectInput
-            value={grid.style}
-            onChange={(v) => setGridStyle(v as GridConfig['style'])}
-            options={[
-              { value: 'clean', label: 'Clean' },
-              { value: 'dotted', label: 'Dotted' },
-              { value: 'rough', label: 'Rough' },
-            ]}
-          />
-        </PropertyField>
         <div className="flex items-center justify-between">
           <span className="font-mono text-panel-label uppercase text-text-muted">Snap to Grid</span>
           <ToggleSwitch checked={grid.snapEnabled} onChange={setSnapEnabled} label="Snap to grid" />

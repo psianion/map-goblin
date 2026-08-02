@@ -16,7 +16,7 @@ import { getEngineSingleton } from '@/engine/engineSingleton';
 import { handleImageImport } from '@/canvas/importImage';
 import { importImageRef } from '@/shortcuts/defaultShortcuts';
 import { ShortcutHelpDialog } from '@/components/shared/ShortcutHelpDialog';
-import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
+import { zoomToFitRef, viewportInsetsRef } from '@/components/toolbar/zoomToFitRef';
 import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
 import './index.css';
@@ -215,6 +215,19 @@ export default function App() {
   }, []);
 
   const showPanels = focusMode !== 'fullscreen';
+
+  // Zoom-to-fit centres in the gap the overlaid chrome leaves. Widths mirror the inline
+  // styles below: maps panel 260 + toolbar 48 (w-12) on the left, right panel 300 open /
+  // 48 collapsed, status bar 28 (h-7) along the bottom.
+  useEffect(() => {
+    viewportInsetsRef.current = showPanels
+      ? {
+          left: (leftPanelOpen ? 260 : 0) + 48,
+          right: rightPanelOpen ? 300 : 48,
+          bottom: 28,
+        }
+      : { left: 0, right: 0, bottom: 0 };
+  }, [showPanels, leftPanelOpen, rightPanelOpen]);
 
   return (
     <>

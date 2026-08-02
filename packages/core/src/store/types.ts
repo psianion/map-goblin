@@ -26,7 +26,6 @@ export interface GridConfig {
   visible: boolean;
   snapEnabled: boolean;
   snapDivision: 1 | 2 | 3 | 4 | 6 | 8;
-  style: 'clean' | 'dotted' | 'rough';
 }
 
 // ─── Layer Children — re-exported from @/shared/types ─────
@@ -348,9 +347,16 @@ export interface Command {
 export interface SerializedMapData {
   version: '2.0' | '3.0';
   mapSettings: MapSettings;
-  grid: Pick<GridConfig, 'visible' | 'snapDivision' | 'style'>;
+  grid: Pick<GridConfig, 'visible' | 'snapDivision'>;
   layers: Layer[];
   customImages: Record<string, string>;
+  /**
+   * The map's confining rectangle (shared/mapBounds.computeMapFrame), stamped on by the
+   * session server when it redacts a document for a player: the fog has to cover the
+   * *full* map's frame, and a player's layers no longer measure it. Absent on authored
+   * files and on the DM's copy — both can measure their own.
+   */
+  frame?: { minX: number; minY: number; maxX: number; maxY: number } | null;
 }
 
 // ─── Top-Level Store ──────────────────────────────────────
@@ -379,7 +385,6 @@ export interface MapBuilderStore {
   setGridVisible: (visible: boolean) => void;
   setSnapEnabled: (enabled: boolean) => void;
   setSnapDivision: (division: GridConfig['snapDivision']) => void;
-  setGridStyle: (style: GridConfig['style']) => void;
 
   // layer actions
   addLayer: (layer: Layer) => void;
