@@ -47,9 +47,9 @@ export function RightPanel() {
   }, []);
 
   return (
-    <div className="flex flex-col h-full bg-surface-1 border-l border-border-default overflow-hidden">
+    <div className="gg-grain flex flex-col h-full bg-surface-1 border-l border-border-structure overflow-hidden">
       {/* Tab bar — 36px */}
-      <div className="flex items-center border-b border-border-default bg-surface-0 shrink-0 h-9">
+      <div className="flex items-center border-b border-border-structure bg-surface-0 shrink-0 h-9">
         {TABS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}

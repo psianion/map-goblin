@@ -1,77 +1,192 @@
 @import "tw-animate-css";
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Raleway:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400..600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Moss — the Good Goblin chrome palette.
+ *
+ * Values are raw RGB channels, not hex, so Tailwind's `/opacity` modifier works on
+ * every token (`bg-surface-1/80`, `ring-ring/50`). Raw CSS reads them as `rgb(var(--x))`.
+ *
+ * Two token vocabularies point at ONE set of values: the Tailwind names components
+ * actually use (surface-*, text-*, border-*, accent-*) and the shadcn names that
+ * button.tsx and friends use (background, muted, ring, ...). Before this, the shadcn
+ * half was never declared in the Tailwind theme, so `bg-muted`, `bg-primary`,
+ * `ring-ring` and `border-border` compiled to nothing — dead hovers and no focus rings.
+ *
+ * Colour strategy is RESTRAINED, which is the floor for product UI: the surfaces are
+ * tinted greys (8-10% saturation — green as a cast, not a colour), and moss is the only
+ * saturated thing on screen. The accent is spent on the active tool, the current
+ * selection, the primary action and live state; never on ambient fill. That is what
+ * makes a green mean something when it appears.
+ *
+ * Night is the default (`<html class="dark">`); `:root` below is day, reached by
+ * dropping that class. Every text token clears 4.5:1 on all four surfaces in both
+ * modes, including surface-3, which is where selected rows put text.
+ */
 @layer base {
   :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.58 0.22 27);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.809 0.105 251.813);
-    --chart-2: oklch(0.623 0.214 259.815);
-    --chart-3: oklch(0.546 0.245 262.881);
-    --chart-4: oklch(0.488 0.243 264.376);
-    --chart-5: oklch(0.424 0.199 265.638);
+    /* — surfaces: tinted greys, ~8-10% saturation. Green is a cast here, not a colour;
+         the neutrals do the work and the accent stays the only saturated thing. — */
+    --surface-0: 223 227 222;
+    --surface-1: 239 241 238;
+    --surface-2: 213 218 211;
+    --surface-3: 200 206 197;
+    /* — text — */
+    --text-primary: 27 31 26;
+    --text-secondary: 67 74 63;
+    --text-muted: 72 80 68;
+    /* — ink weights: heavier on structure, lighter on clutter — */
+    --border-structure: 139 153 133;
+    --border-default: 179 188 174;
+    --border-subtle: 213 218 211;
+    --border-focus: 52 91 37;
+    /* — accent: the ONLY saturated colour. Active tool, selection, primary action,
+         live state — nothing decorative, nothing ambient. — */
+    --accent-active: 52 91 37;
+    --accent-dim: 100 129 86;
+    --on-accent: 244 247 243;
+    /* — semantic: distinct hues, used only to carry meaning — */
+    --danger: 136 42 32;
+    --warning: 104 77 13;
+    --success: 52 91 37;
+    --info: 33 75 105;
+
+    /* shadcn vocabulary, mapped onto the same values */
+    --background: var(--surface-0);
+    --foreground: var(--text-primary);
+    --card: var(--surface-1);
+    --card-foreground: var(--text-primary);
+    --popover: var(--surface-1);
+    --popover-foreground: var(--text-primary);
+    --primary: var(--accent-active);
+    --primary-foreground: var(--on-accent);
+    --secondary: var(--surface-2);
+    --secondary-foreground: var(--text-primary);
+    --muted: var(--surface-2);
+    --muted-foreground: var(--text-muted);
+    --accent: var(--surface-3);
+    --accent-foreground: var(--text-primary);
+    --destructive: var(--danger);
+    --border: var(--border-default);
+    --input: var(--border-default);
+    --ring: var(--border-focus);
+
     /* One radius scale, both modes: 6px buttons, 4px controls, 2px chips */
     --radius: 0.375rem;
     --radius-md: 0.25rem;
     --radius-sm: 0.125rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0)
+
+    /*
+     * Hover reads differently per mode on purpose. Glow only works on a dark ground;
+     * on paper it looks like a printing error, so day gets a flat tint instead.
+     */
+    --hover-tint: rgb(var(--accent-active) / 0.09);
+    --hover-glow: none;
+    /* Grain sits on panel fills — day only; see `.gg-grain`. */
+    --panel-shadow: 0 6px 16px -10px rgb(40 50 35 / 0.5);
   }
-  .dark {
-    --background: #0E0E0E;        /* surface-0 */
-    --foreground: #E8E8E8;        /* text-primary */
-    --card: #141414;              /* surface-1 */
-    --card-foreground: #E8E8E8;
-    --popover: #141414;           /* surface-1 */
-    --popover-foreground: #E8E8E8;
-    --primary: #E8E8E8;
-    --primary-foreground: #0E0E0E;
-    --secondary: #1E1E1E;         /* surface-2 */
-    --secondary-foreground: #E8E8E8;
-    --muted: #1E1E1E;
-    --muted-foreground: #666666;  /* text-muted */
-    --accent: #282828;            /* surface-3 */
-    --accent-foreground: #E8E8E8;
-    --destructive: #C0392B;       /* danger */
-    --border: #252525;            /* border-default */
-    --input: #252525;
-    --ring: #FFFFFF;              /* border-focus / accent-active */
-  }
+
+  /* night tokens live outside this layer — see below */
+}
+
+/*
+ * Night — the default (`<html class="dark">`). A DM runs a session in a dim room with
+ * the map carrying every bright pixel, so the chrome goes dark and stays there.
+ *
+ * Deliberately NOT inside `@layer base`: Tailwind tree-shakes layer rules whose selector
+ * never appears in scanned content, and the theme toggle applies `.dark` at runtime.
+ *
+ * The steps between surfaces are wider here than in day. On a near-black ground, equal
+ * hex steps read as one flat sheet — panels stop looking like panels and the whole
+ * chrome turns to mud. Each surface is a visible step up from the one below it, and the
+ * frame ink is light enough to actually draw an edge.
+ */
+.dark {
+    --surface-0: 15 16 14;
+    --surface-1: 24 26 23;
+    --surface-2: 35 37 34;
+    --surface-3: 48 51 46;
+    --text-primary: 234 236 233;
+    --text-secondary: 182 188 179;
+    --text-muted: 151 158 148;
+    --border-structure: 77 84 74;
+    --border-default: 58 62 56;
+    --border-subtle: 35 37 34;
+    --border-focus: 145 196 100;
+    --accent-active: 145 196 100;
+    --accent-dim: 102 139 75;
+    --on-accent: 15 17 14;
+    --danger: 224 133 123;
+    --warning: 212 174 84;
+    --success: 145 196 100;
+    --info: 114 165 202;
+
+    --hover-tint: transparent;
+    --hover-glow: radial-gradient(
+      120% 160% at 50% 120%,
+      rgb(var(--accent-active) / 0.18) 0%,
+      transparent 70%
+    );
+    --panel-shadow: 0 10px 26px -14px rgb(0 0 0 / 0.9);
+}
+
+@layer base {
   * {
-    border-color: var(--border);
-    outline-color: color-mix(in oklch, var(--ring) 50%, transparent);
+    border-color: rgb(var(--border));
+    outline-color: rgb(var(--ring) / 0.5);
   }
   body {
-    background-color: var(--background);
-    color: var(--foreground);
+    background-color: rgb(var(--background));
+    color: rgb(var(--foreground));
   }
   html {
-    font-family: 'Raleway', sans-serif;
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  }
+  /* Coordinates, latency, zoom — numbers that must not jitter as they tick. */
+  .font-mono,
+  [class*='tabular'] {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /*
+   * Ink & grain. Panel frames take the heavy ink, dividers take the hairline —
+   * the same weight hierarchy the map art uses (heavier on structure, lighter on
+   * ground clutter). Grain is one inline SVG turbulence, no image request.
+   */
+  /*
+   * Grain blends into the element's OWN background rather than sitting on a pseudo
+   * element above it — an overlay would lay a veil over every label in the panel.
+   * `multiply` bites into paper, `screen` lifts at night; the alpha is baked into the
+   * SVG so there is no second knob to keep in sync.
+   */
+  .gg-grain {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='2.2' numOctaves='4'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.1'/%3E%3C/svg%3E");
+    background-blend-mode: multiply;
+  }
+  /*
+   * No grain at night. A lightening blend on a near-black panel doesn't read as paper
+   * tooth, it reads as dirt on the screen — and the dark chrome is the surface a DM
+   * stares past for four hours. Texture is a daylight affordance here.
+   */
+  .dark .gg-grain {
+    background-image: none;
+  }
+  /* List rows: flat tint by day, light rising from below at night. */
+  .gg-row {
+    position: relative;
+    background-image: none;
+    transition:
+      background-color 160ms cubic-bezier(0.16, 1, 0.3, 1),
+      background-image 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .gg-row:hover {
+    background-color: var(--hover-tint);
+    background-image: var(--hover-glow);
   }
 }
 
@@ -97,24 +212,26 @@
   height: 16px !important;
 }
 
-/* ── Compact pill toasts ── */
+/* ── Compact pill toasts ──
+   Sonner's shape and radius kept; its colours now come from tokens, so toasts stop
+   being the one surface in the app painted from a private blue-grey palette. */
 [data-sonner-toaster] {
-  --normal-bg: rgba(19, 19, 26, 0.85);
-  --normal-border: rgba(42, 42, 58, 0.5);
-  --normal-text: #B0B0C0;
-  font-family: 'Raleway', sans-serif !important;
+  --normal-bg: rgb(var(--surface-1) / 0.88);
+  --normal-border: rgb(var(--border-structure) / 0.6);
+  --normal-text: rgb(var(--text-secondary));
+  font-family: 'IBM Plex Sans', system-ui, sans-serif !important;
 }
 
 [data-sonner-toast] {
-  background: rgba(19, 19, 26, 0.88) !important;
+  background: rgb(var(--surface-1) / 0.9) !important;
   backdrop-filter: blur(12px) !important;
   -webkit-backdrop-filter: blur(12px) !important;
-  border: 1px solid rgba(42, 42, 58, 0.5) !important;
+  border: 1px solid rgb(var(--border-structure) / 0.6) !important;
   border-radius: 9999px !important;
-  color: #B0B0C0 !important;
+  color: rgb(var(--text-secondary)) !important;
   font-size: 12px !important;
   line-height: 1 !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+  box-shadow: var(--panel-shadow) !important;
   padding: 7px 14px 7px 10px !important;
   gap: 8px !important;
   max-width: 260px !important;
@@ -128,23 +245,23 @@
 
 /* Type-specific subtle border tints */
 [data-sonner-toast][data-type="success"] {
-  border-color: rgba(34, 197, 94, 0.25) !important;
+  border-color: rgb(var(--success) / 0.4) !important;
 }
 [data-sonner-toast][data-type="error"] {
-  border-color: rgba(239, 68, 68, 0.3) !important;
+  border-color: rgb(var(--danger) / 0.45) !important;
 }
 [data-sonner-toast][data-type="warning"] {
-  border-color: rgba(245, 158, 11, 0.3) !important;
+  border-color: rgb(var(--warning) / 0.45) !important;
 }
 [data-sonner-toast][data-type="info"] {
-  border-color: rgba(59, 130, 246, 0.25) !important;
+  border-color: rgb(var(--info) / 0.4) !important;
 }
 
 /* Icon semantic colors */
-[data-sonner-toast][data-type="success"] [data-icon] { color: #22C55E !important; }
-[data-sonner-toast][data-type="error"]   [data-icon] { color: #EF4444 !important; }
-[data-sonner-toast][data-type="warning"] [data-icon] { color: #F59E0B !important; }
-[data-sonner-toast][data-type="info"]    [data-icon] { color: #3B82F6 !important; }
+[data-sonner-toast][data-type="success"] [data-icon] { color: rgb(var(--success)) !important; }
+[data-sonner-toast][data-type="error"]   [data-icon] { color: rgb(var(--danger)) !important; }
+[data-sonner-toast][data-type="warning"] [data-icon] { color: rgb(var(--warning)) !important; }
+[data-sonner-toast][data-type="info"]    [data-icon] { color: rgb(var(--info)) !important; }
 
 /* Icon sizing */
 [data-sonner-toast] [data-icon] {
@@ -156,11 +273,11 @@
 
 /* Action button — compact pill style */
 [data-sonner-toast] [data-button] {
-  background: rgba(59, 130, 246, 0.12) !important;
-  border: 1px solid rgba(59, 130, 246, 0.25) !important;
+  background: rgb(var(--accent-active) / 0.12) !important;
+  border: 1px solid rgb(var(--accent-active) / 0.3) !important;
   border-radius: 9999px !important;
-  color: #3B82F6 !important;
-  font-family: 'Space Mono', monospace !important;
+  color: rgb(var(--accent-active)) !important;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace !important;
   font-size: 10px !important;
   padding: 2px 8px !important;
   margin-left: auto !important;
@@ -183,53 +300,52 @@
   60% { transform: rotate(-8deg); }
   80% { transform: rotate(4deg); }
 }
-.ti-trash { animation: ti-wiggle 400ms ease-out; color: #EF4444; }
+.ti-trash { animation: ti-wiggle 400ms ease-out; color: rgb(var(--danger)); }
 
-/* Check / save — scale bounce in */
-@keyframes ti-bounce-in {
-  0% { transform: scale(0); opacity: 0; }
-  60% { transform: scale(1.15); opacity: 1; }
-  100% { transform: scale(1); }
+/* Check / save — scale in, settling rather than overshooting */
+@keyframes ti-scale-in {
+  0% { transform: scale(0.8); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
 }
-.ti-check { animation: ti-bounce-in 350ms ease-out; color: #22C55E; }
+.ti-check { animation: ti-scale-in 350ms ease-out; color: rgb(var(--success)); }
 
 /* Undo — counter-clockwise rotate */
 @keyframes ti-ccw {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(-360deg); }
 }
-.ti-undo { animation: ti-ccw 400ms ease-out; color: #3B82F6; }
+.ti-undo { animation: ti-ccw 400ms ease-out; color: rgb(var(--info)); }
 
 /* Redo — clockwise rotate */
 @keyframes ti-cw {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
-.ti-redo { animation: ti-cw 400ms ease-out; color: #3B82F6; }
+.ti-redo { animation: ti-cw 400ms ease-out; color: rgb(var(--info)); }
 
 /* Copy — slide right */
 @keyframes ti-slide-r {
   0% { transform: translateX(-4px); opacity: 0; }
   100% { transform: translateX(0); opacity: 1; }
 }
-.ti-copy { animation: ti-slide-r 250ms ease-out; color: #3B82F6; }
+.ti-copy { animation: ti-slide-r 250ms ease-out; color: rgb(var(--info)); }
 
 /* Paste — slide down */
 @keyframes ti-slide-d {
   0% { transform: translateY(-4px); opacity: 0; }
   100% { transform: translateY(0); opacity: 1; }
 }
-.ti-paste { animation: ti-slide-d 250ms ease-out; color: #3B82F6; }
+.ti-paste { animation: ti-slide-d 250ms ease-out; color: rgb(var(--info)); }
 
-/* Plus — scale bounce */
-.ti-plus { animation: ti-bounce-in 300ms ease-out; color: #22C55E; }
+/* Plus — scale in */
+.ti-plus { animation: ti-scale-in 300ms ease-out; color: rgb(var(--success)); }
 
 /* Minus — fade + fall */
 @keyframes ti-fade-fall {
   0% { transform: translateY(0); opacity: 1; }
   100% { transform: translateY(3px); opacity: 0.5; }
 }
-.ti-minus { animation: ti-fade-fall 300ms ease-out forwards; color: #EF4444; }
+.ti-minus { animation: ti-fade-fall 300ms ease-out forwards; color: rgb(var(--danger)); }
 
 /* Error X — shake */
 @keyframes ti-shake {
@@ -240,40 +356,52 @@
   60% { transform: translateX(2px); }
   75% { transform: translateX(-1px); }
 }
-.ti-error { animation: ti-shake 400ms ease-out; color: #EF4444; }
+.ti-error { animation: ti-shake 400ms ease-out; color: rgb(var(--danger)); }
 
 /* Warning — pulse breathe */
 @keyframes ti-pulse {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.15); }
 }
-.ti-warning { animation: ti-pulse 600ms ease-in-out; color: #F59E0B; }
+.ti-warning { animation: ti-pulse 600ms ease-in-out; color: rgb(var(--warning)); }
 
-/* Download — bounce down */
-@keyframes ti-bounce-d {
-  0% { transform: translateY(-3px); }
-  50% { transform: translateY(2px); }
-  100% { transform: translateY(0); }
+/* Download — drop into place */
+@keyframes ti-drop {
+  0% { transform: translateY(-3px); opacity: 0.5; }
+  100% { transform: translateY(0); opacity: 1; }
 }
-.ti-download { animation: ti-bounce-d 300ms ease-out; color: #22C55E; }
+.ti-download { animation: ti-drop 300ms ease-out; color: rgb(var(--success)); }
 
 /* Loading — continuous spin */
 @keyframes ti-spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
-.ti-loading { animation: ti-spin 1s linear infinite; color: #3B82F6; }
+.ti-loading { animation: ti-spin 1s linear infinite; color: rgb(var(--info)); }
 
-/* Info — subtle bounce */
-.ti-info { animation: ti-bounce-in 300ms ease-out; color: #3B82F6; }
+/* Info — subtle scale in */
+.ti-info { animation: ti-scale-in 300ms ease-out; color: rgb(var(--info)); }
 
 /* Tool switch — quick pop */
 @keyframes ti-pop {
   0% { transform: scale(0.7); opacity: 0.5; }
-  60% { transform: scale(1.05); }
   100% { transform: scale(1); opacity: 1; }
 }
-.ti-tool { animation: ti-pop 200ms ease-out; color: #8B8BA0; }
+.ti-tool { animation: ti-pop 200ms ease-out; color: rgb(var(--text-muted)); }
+
+/* Motion is decoration on all of the above — honour the OS setting. The
+   loading spinner keeps its duration: at 0.01ms an infinite spin strobes. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+  .ti-loading {
+    animation-duration: 1s !important;
+  }
+}
 
 /* Minimal Precision slider — uses CSS vars from .dark theme */
 .slider-minimal {
@@ -283,8 +411,8 @@
   border-radius: 2px;
   background: linear-gradient(
     to right,
-    var(--foreground) var(--slider-fill, 0%),
-    var(--border) var(--slider-fill, 0%)
+    rgb(var(--text-secondary)) var(--slider-fill, 0%),
+    rgb(var(--border-default)) var(--slider-fill, 0%)
   );
   outline: none;
   cursor: pointer;
@@ -295,8 +423,8 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--foreground);
-  border: 1px solid var(--border);
+  background: rgb(var(--text-primary));
+  border: 1px solid rgb(var(--surface-1));
   cursor: pointer;
 }
 
@@ -304,8 +432,8 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--foreground);
-  border: 1px solid var(--border);
+  background: rgb(var(--text-primary));
+  border: 1px solid rgb(var(--surface-1));
   cursor: pointer;
 }
 
@@ -316,10 +444,10 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--foreground);
+  background: rgb(var(--text-primary));
   cursor: pointer;
   pointer-events: auto;
-  border: 2px solid var(--border);
+  border: 2px solid rgb(var(--surface-1));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
@@ -327,9 +455,9 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--foreground);
+  background: rgb(var(--text-primary));
   cursor: pointer;
   pointer-events: auto;
-  border: 2px solid var(--border);
+  border: 2px solid rgb(var(--surface-1));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }

@@ -23,7 +23,7 @@ export function PresetStrip({ presets, activeId, onSelect }: PresetStripProps) {
             flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-mono
             whitespace-nowrap cursor-pointer transition-colors
             ${p.id === activeId
-              ? 'bg-surface-3 text-text-primary border border-white/30'
+              ? 'bg-surface-3 text-text-primary border border-border-focus'
               : 'bg-surface-2 text-text-muted border border-transparent hover:bg-surface-3'
             }
           `}

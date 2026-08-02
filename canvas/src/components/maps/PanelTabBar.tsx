@@ -15,7 +15,7 @@ const TABS: { id: PanelTab; label: string; icon: typeof Map; disabled?: boolean 
 
 export function PanelTabBar({ activeTab, onTabChange }: PanelTabBarProps) {
   return (
-    <div className="flex items-center border-b border-border-default bg-surface-0 shrink-0 h-9">
+    <div className="flex items-center border-b border-border-structure bg-surface-0 shrink-0 h-9">
       {TABS.map(({ id, label, icon: Icon, disabled }) => (
         <button
           key={id}
