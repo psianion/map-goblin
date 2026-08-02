@@ -36,11 +36,11 @@ describe('computeMapFrame', () => {
     expect(computeMapFrame([layerWith(null)], null)).toBeNull();
   });
 
-  it('snaps content bounds out to whole cells plus one cell of air', () => {
+  it('snaps content bounds out to the enclosing whole cells', () => {
     const frame = computeMapFrame([layerWith([[[2, 2], [7, 2], [7, 5], [2, 5]]])], null);
-    // Content bounds carry sub-cell padding (wall stroke + AA), so the frame is the
-    // enclosing integer box grown by one: floor(2 - pad) - 1 and ceil(7 + pad) + 1.
-    expect(frame).toEqual({ minX: 0, minY: 0, maxX: 9, maxY: 7 });
+    // Content bounds carry sub-cell padding (wall stroke + shadow + AA, 0.7 with the
+    // default style), so the frame is the enclosing integer box: floor(2 - 0.7) = 1.
+    expect(frame).toEqual({ minX: 1, minY: 1, maxX: 8, maxY: 6 });
   });
 
   it('measures floor shape children when mergedFloor is null — the server case', () => {
@@ -55,7 +55,7 @@ describe('computeMapFrame', () => {
       contours: [[[2, 2], [7, 2], [7, 5], [2, 5]]],
     };
     const layer = { ...layerWith(null), children: [shape] } as unknown as Layer;
-    expect(computeMapFrame([layer], null)).toEqual({ minX: 0, minY: 0, maxX: 9, maxY: 7 });
+    expect(computeMapFrame([layer], null)).toEqual({ minX: 1, minY: 1, maxX: 8, maxY: 6 });
   });
 
   it('includes painted terrain in the frame', () => {

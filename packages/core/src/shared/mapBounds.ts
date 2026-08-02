@@ -85,10 +85,10 @@ export function computeContentBounds(
 }
 
 /**
- * The map's confining rectangle: content bounds snapped out to whole cells plus one cell
- * of air. The line-grid fills it and the player fog covers it, so the two always agree on
- * where the map ends and the dotted void begins. Null while nothing is drawn — an empty
- * map is all void, no frame.
+ * The map's confining rectangle: content bounds snapped out to the enclosing whole cells —
+ * at most one square of air past the walls. The player fog covers exactly this, so where
+ * the map ends and the dotted void begins is one agreed-upon line. Null while nothing is
+ * drawn — an empty map is all void, no frame.
  */
 export function computeMapFrame(
   layers: readonly Layer[],
@@ -97,9 +97,9 @@ export function computeMapFrame(
   const b = computeContentBounds(layers, terrainBounds);
   if (!b) return null;
   return {
-    minX: Math.floor(b.minX) - 1,
-    minY: Math.floor(b.minY) - 1,
-    maxX: Math.ceil(b.maxX) + 1,
-    maxY: Math.ceil(b.maxY) + 1,
+    minX: Math.floor(b.minX),
+    minY: Math.floor(b.minY),
+    maxX: Math.ceil(b.maxX),
+    maxY: Math.ceil(b.maxY),
   };
 }

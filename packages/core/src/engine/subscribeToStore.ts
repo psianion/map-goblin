@@ -613,18 +613,6 @@ export function subscribeToStore(
   );
   unsubscribers.push(unsubGrid);
 
-  // ─── Map geometry moves the grid's frame ──────────────
-  // The line-grid fills the map frame (computeMapFrame), which follows drawn
-  // content — so any layer or terrain change can move where lines end and
-  // dots begin. A grid redraw is one pass over the visible cells; cheap
-  // enough to just mark on every geometry change.
-  const unsubGridFrame = useStore.subscribe(
-    (state) => [state.layers, state.mapSettings.terrain?.bounds] as const,
-    () => sceneGraph.gridRenderer.markDirty(),
-    { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] },
-  );
-  unsubscribers.push(unsubGridFrame);
-
   // ─── Background color changes ─────────────────────────
   const unsubBg = useStore.subscribe(
     (state) => {
