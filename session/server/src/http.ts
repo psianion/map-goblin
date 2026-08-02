@@ -177,6 +177,7 @@ async function uploadMap(
   const row = deps.stores.maps.insert(randomUUID(), campaignId, map.name, text)
   const scene = deps.stores.scenes.create(row.id, campaignId, row.id, map.name)
   deps.stores.campaigns.touch(campaignId)
+  deps.sessionManager.refreshScenes(campaignId)
   json(res, 201, {
     mapId: row.id,
     sceneId: scene.id,
@@ -226,6 +227,7 @@ async function reorderScenes(
   }
 
   deps.stores.scenes.reorder(order)
+  deps.sessionManager.refreshScenes(campaignId)
   json(res, 200, { order })
 }
 
@@ -268,6 +270,7 @@ async function patchScene(
     deps.stores.scenes.setVisibleToPlayers(sceneId, body.visibleToPlayers)
   }
   const updated = deps.stores.scenes.get(sceneId)!
+  deps.sessionManager.refreshScenes(scene.campaign_id)
   json(res, 200, {
     id: updated.id,
     name: updated.name,
@@ -310,6 +313,9 @@ async function publishScene(
   // the player's own map GET with the scene's old geometry until something else evicted it.
   deps.vision.invalidateScene(sceneId)
   deps.stores.campaigns.touch(scene.campaign_id)
+  // The re-published map is live state for anyone at the table — `changedSceneId` is what
+  // tells a session playing this scene to drop its map and refetch (see refreshScenes).
+  deps.sessionManager.refreshScenes(scene.campaign_id, sceneId)
   json(res, 200, { sceneId, mapId: row.id, name: row.name, sizeBytes: row.size_bytes })
 }
 
@@ -329,6 +335,7 @@ function deleteScene(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, 
   // better told than left silently stuck.
   deps.stores.sessions.clearActiveScene(sceneId)
   deps.vision.invalidateScene(sceneId)
+  deps.sessionManager.refreshScenes(scene.campaign_id)
   json(res, 200, { sceneId, deleted: true })
 }
 

@@ -242,6 +242,36 @@ export class SessionManager {
     if (session.clients.size === 0) this.sessions.delete(session.id)
   }
 
+  /**
+   * #47 — REST scene mutations (rename, visibility, publish, reorder, delete, upload) land
+   * here so a live table hears about them without anyone rejoining: every connected client
+   * gets a fresh role-filtered snapshot, exactly what a re-`join` would have answered.
+   * `changedSceneId` names a scene whose *map content* changed (re-publish); a session
+   * currently playing it is also told `scene-changed`, which is what makes clients drop
+   * their map and refetch it.
+   *
+   * ponytail: deleting the scene being played leaves canvases on the dead map until the DM
+   * activates another — the snapshot's activeSceneId fallback keeps the list right, and a
+   * DM deleting the live scene is about to switch anyway.
+   */
+  refreshScenes(campaignId: string, changedSceneId?: string): void {
+    for (const session of this.sessions.values()) {
+      if (session.campaignId !== campaignId) continue
+      for (const conn of session.clients) {
+        const player = session.players.get(conn.identity.identityId)
+        if (!player) continue
+        this.broadcaster.sendTo(conn, {
+          type: 'session-state',
+          state: this.snapshot(session, conn.identity),
+          you: player,
+        })
+      }
+      if (changedSceneId && this.scenes(session).activeSceneId === changedSceneId) {
+        this.broadcaster.broadcast(session.id, { type: 'scene-changed', sceneId: changedSceneId })
+      }
+    }
+  }
+
   private heartbeat(): void {
     for (const conn of this.connections) {
       if (conn.missedPongs >= this.missedPongLimit) conn.terminate()
