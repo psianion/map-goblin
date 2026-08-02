@@ -71,6 +71,28 @@ export interface OutlineTarget {
    * a static overlay. Only the write paths call it.
    */
   contributors: () => ShapeChild[];
+  /**
+   * Index into `holes` when the ring being edited is one of them rather than
+   * the outer boundary. A hole's stones are wall the DM can see and grab just
+   * like any other, so they have to be draggable — and dragging one edits that
+   * hole while the outer ring stays put.
+   */
+  hole?: number;
+}
+
+/** The ring `target` actually edits: its outer boundary, or one of its holes. */
+export function editedRing(target: OutlineTarget): Polygon {
+  return target.hole === undefined ? target.outline : target.holes[target.hole];
+}
+
+/** The full contour list for a shape whose edited ring became `next`. */
+function contoursWith(
+  target: Pick<OutlineTarget, 'outline' | 'holes' | 'hole'>,
+  next: Polygon,
+): Polygon[] {
+  return target.hole === undefined
+    ? [next, ...target.holes]
+    : [target.outline, ...target.holes.map((h, i) => (i === target.hole ? next : h))];
 }
 
 /**
@@ -91,7 +113,6 @@ export function resolveOutline(shapeId: string): OutlineTarget | null {
 
   const rings = layer.mergedFloor ?? [];
   const outers = rings.filter((r) => r.length >= 3 && signedArea(r) >= 0);
-  const holeRings = rings.filter((r) => r.length >= 3 && signedArea(r) < 0);
 
   // The outer ring this shape sits in. Its own centroid can fall in a hole or,
   // for an L-shape, outside the ring entirely, so fall back to any vertex.
@@ -103,8 +124,41 @@ export function resolveOutline(shapeId: string): OutlineTarget | null {
     outers.find((r) => own.some((p) => pointInPolygon(p, r))) ??
     null;
   if (!outline) return null;
+  return targetFor(layer, outline);
+}
 
-  const holes = holeRings.filter((h) => pointInPolygon(centroid(h), outline));
+/**
+ * The same target, addressed by index into `mergedFloor` rather than by shape.
+ *
+ * A wall derived from a floor ring is identified that way — `floor:<index>` —
+ * and has no shape id of its own to resolve from, so dragging one of its stones
+ * needs this door into the outline editor.
+ *
+ * Holes are not editable this way: a hole ring is the inside of an erase, and
+ * `commitOutline` writes the outer ring plus its holes, so there is nothing
+ * sensible to hand it.
+ */
+export function resolveRingOutline(layer: DungeonLayer, ring: number): OutlineTarget | null {
+  const poly = layer.mergedFloor?.[ring];
+  if (!poly || poly.length < 3) return null;
+  if (signedArea(poly) >= 0) return targetFor(layer, poly);
+
+  // A hole. Its edit is written against the outer ring it sits in, so find that
+  // first and then say which of its holes this is.
+  const probe = centroid(poly);
+  const outer = (layer.mergedFloor ?? []).find(
+    (r) => r !== poly && r.length >= 3 && signedArea(r) >= 0 && pointInPolygon(probe, r),
+  );
+  if (!outer) return null;
+  const target = targetFor(layer, outer);
+  const hole = target.holes.indexOf(poly);
+  return hole < 0 ? null : { ...target, hole };
+}
+
+function targetFor(layer: DungeonLayer, outline: Polygon): OutlineTarget {
+  const holes = (layer.mergedFloor ?? []).filter(
+    (r) => r.length >= 3 && signedArea(r) < 0 && pointInPolygon(centroid(r), outline),
+  );
 
   const contributors = () =>
     layer.children.filter((c): c is ShapeChild => {
@@ -184,7 +238,8 @@ export function commitOutline(
   next: Polygon,
   label: string,
 ): string | null {
-  const { layer, holes } = target;
+  const { layer } = target;
+  const contours = contoursWith(target, next);
   const contributors = target.contributors();
   if (contributors.length === 0) return null;
 
@@ -196,13 +251,13 @@ export function commitOutline(
         layer.id,
         only.id,
         { contours: only.contours, transform: only.transform } as Partial<AnyChild>,
-        { contours: [next, ...holes], transform: undefined } as Partial<AnyChild>,
+        { contours, transform: undefined } as Partial<AnyChild>,
       ),
     );
     return only.id;
   }
 
-  const merged = makePolygonShape(contributors[0].name, [next, ...holes], contributors[0]);
+  const merged = makePolygonShape(contributors[0].name, contours, contributors[0]);
   undoManager.execute(
     new CompositeCommand(label, [
       ...contributors.map((c) => new RemoveChildCommand(label, layer.id, c.id)),
@@ -258,13 +313,21 @@ interface DragSession {
    * The shape edit mode pointed at before any collapse. The rewind puts the
    * original children back, at which point the collapsed shape's id refers to
    * nothing — resolving against it silently dropped the whole edit.
+   *
+   * Null for a stone drag on a floor ring, which is addressed by `ringIndex`
+   * and never puts the layer into shape-node-edit mode at all.
    */
-  originalShapeId: string;
-  /** Outline at the moment the drag began; every frame re-derives from this. */
+  originalShapeId: string | null;
+  /** Ring the drag came in through, for a stone drag. */
+  ringIndex: number | null;
+  /** The edited ring at the moment the drag began; every frame re-derives it. */
   base: Polygon;
-  holes: Polygon[];
-  kind: 'vertex' | 'edge';
+  /** The rest of the shape, so a preview frame can write whole contours. */
+  rings: Pick<OutlineTarget, 'outline' | 'holes' | 'hole'>;
+  kind: 'vertex' | 'edge' | 'group';
   index: number;
+  /** Vertices a group drag displaces together. */
+  indices: number[];
   /** Shape carrying the outline during the preview. */
   ownerId: string;
   collapsed: boolean;
@@ -286,12 +349,52 @@ export function isDraggingOutline(): boolean {
 
 /** Start dragging a vertex or an edge. Returns false if there is nothing to drag. */
 export function beginOutlineDrag(kind: 'vertex' | 'edge', index: number): boolean {
-  const state = useStore.getState();
-  const shapeId = state.tools.shapeNodeEditId;
+  const shapeId = useStore.getState().tools.shapeNodeEditId;
   if (!shapeId) return false;
   const target = resolveOutline(shapeId);
   if (!target) return false;
+  return startDrag(target, {
+    shapeId,
+    ringIndex: null,
+    base: target.outline,
+    kind,
+    index,
+    indices: [],
+  });
+}
 
+/**
+ * Start a drag that displaces a set of outline vertices together.
+ *
+ * `base` is the outline the caller wants edited, which for a stone drag has
+ * anchor vertices in it that `target.outline` does not — see `planRingDrag`.
+ * Materialising them costs nothing until the drag actually moves something,
+ * because a gesture that ends where it began commits no outline at all.
+ */
+export function beginGroupOutlineDrag(
+  target: OutlineTarget,
+  base: Polygon,
+  indices: number[],
+  ringIndex: number,
+): boolean {
+  if (indices.length === 0) return false;
+  return startDrag(target, {
+    shapeId: null,
+    ringIndex,
+    base,
+    kind: 'group',
+    index: indices[0],
+    indices,
+  });
+}
+
+function startDrag(
+  target: OutlineTarget,
+  session: Pick<DragSession, 'ringIndex' | 'kind' | 'index' | 'indices'> & {
+    shapeId: string | null;
+    base: Polygon;
+  },
+): boolean {
   const beforeChildren = structuredClone(target.layer.children) as AnyChild[];
   const contributors = target.contributors();
   let ownerId = contributors[0]?.id;
@@ -312,17 +415,19 @@ export function beginOutlineDrag(kind: 'vertex' | 'edge', index: number): boolea
     setChildren(target.layer.id, [...keep, merged]);
     ownerId = merged.id;
     collapsed = true;
-    useStore.getState().setShapeNodeEdit(merged.id);
+    if (session.shapeId) useStore.getState().setShapeNodeEdit(merged.id);
   }
 
   drag = {
     layerId: target.layer.id,
     beforeChildren,
-    originalShapeId: shapeId,
-    base: target.outline.map(([x, y]): [number, number] => [x, y]),
-    holes: target.holes,
-    kind,
-    index,
+    originalShapeId: session.shapeId,
+    ringIndex: session.ringIndex,
+    base: session.base.map(([x, y]): [number, number] => [x, y]),
+    rings: { outline: target.outline, holes: target.holes, hole: target.hole },
+    kind: session.kind,
+    index: session.index,
+    indices: session.indices,
     ownerId,
     collapsed,
     latest: null,
@@ -338,17 +443,28 @@ export function beginOutlineDrag(kind: 'vertex' | 'edge', index: number): boolea
  */
 export function updateOutlineDrag(world: Point, delta: Point): void {
   if (!drag) return;
-  const edit: OutlineEdit =
-    drag.kind === 'vertex'
-      ? { kind: 'move', index: drag.index, x: world.x, y: world.y }
-      : { kind: 'moveEdge', index: drag.index, dx: delta.x, dy: delta.y };
-  const next = editedOutline(drag.base, edit);
+  let next: Polygon | null;
+  if (drag.kind === 'group') {
+    // Unsnapped on purpose: the anchors sit wherever the stones happened to
+    // stand, so snapping them to the grid would shear the bulge sideways.
+    const moved = new Set(drag.indices);
+    next = drag.base.map(([x, y], i): [number, number] =>
+      moved.has(i) ? [x + delta.x, y + delta.y] : [x, y],
+    );
+  } else {
+    next = editedOutline(
+      drag.base,
+      drag.kind === 'vertex'
+        ? { kind: 'move', index: drag.index, x: world.x, y: world.y }
+        : { kind: 'moveEdge', index: drag.index, dx: delta.x, dy: delta.y },
+    );
+  }
   if (!next) return;
   drag.latest = next;
   useStore
     .getState()
     .updateChild(drag.layerId, drag.ownerId, {
-      contours: [next, ...drag.holes],
+      contours: contoursWith(drag.rings, next),
     } as Partial<AnyChild>);
 }
 
@@ -361,14 +477,26 @@ export function endOutlineDrag(): void {
   const final = session.latest;
   setChildren(session.layerId, session.beforeChildren);
   // Always back to the pre-collapse shape: the merged id is gone now.
-  useStore.getState().setShapeNodeEdit(session.originalShapeId);
+  if (session.originalShapeId) useStore.getState().setShapeNodeEdit(session.originalShapeId);
 
   if (!final || samePolygon(final, session.base)) return;
 
-  const target = resolveOutline(session.originalShapeId);
+  const target = reresolve(session);
   if (!target) return;
-  const ownerId = commitOutline(target, final, session.kind === 'edge' ? 'Move edge' : 'Move vertex');
-  if (ownerId) useStore.getState().setShapeNodeEdit(ownerId);
+  const label =
+    session.kind === 'group' ? 'Move wall' : session.kind === 'edge' ? 'Move edge' : 'Move vertex';
+  const ownerId = commitOutline(target, final, label);
+  if (ownerId && session.originalShapeId) useStore.getState().setShapeNodeEdit(ownerId);
+}
+
+/** The target again, after the rewind put the original children back. */
+function reresolve(session: DragSession): OutlineTarget | null {
+  if (session.originalShapeId) return resolveOutline(session.originalShapeId);
+  const layer = useStore
+    .getState()
+    .layers.find((l): l is DungeonLayer => l.type === 'dungeon' && l.id === session.layerId);
+  if (!layer || session.ringIndex === null) return null;
+  return resolveRingOutline(layer, session.ringIndex);
 }
 
 export function cancelOutlineDrag(): void {
@@ -376,7 +504,7 @@ export function cancelOutlineDrag(): void {
   drag = null;
   if (!session) return;
   setChildren(session.layerId, session.beforeChildren);
-  useStore.getState().setShapeNodeEdit(session.originalShapeId);
+  if (session.originalShapeId) useStore.getState().setShapeNodeEdit(session.originalShapeId);
 }
 
 function samePolygon(a: Polygon, b: Polygon): boolean {

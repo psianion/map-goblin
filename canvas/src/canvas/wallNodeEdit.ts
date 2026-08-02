@@ -1,18 +1,32 @@
 import { useStore } from '@/store/store';
 import { UpdateWallCommand, UpdateFloorWallEditsCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
-import { mergeNodeEdit, mergeSpanEdit } from '@/engine/wallLayout';
-import { buildPieceSpecs } from '@/engine/wallNodeRenderer';
+import {
+  mergeNodeEdit,
+  mergeSpanEdit,
+  layoutWall,
+  applyWallEdits,
+  type WallNode,
+} from '@/engine/wallLayout';
+import { buildPieceSpecs, seedForPoints } from '@/engine/wallNodeRenderer';
 import {
   currentWallNodes,
   activeEditableRun,
   floorRingIndex,
   FLOOR_WALL_PREFIX,
+  type EditableRun,
 } from '@/engine/wallNodeOverlay';
+import {
+  beginRingStoneDrag,
+  updateRingStoneDrag,
+  endRingStoneDrag,
+  cancelRingStoneDrag,
+  isDraggingRingStone,
+} from '@/engine/ringStoneDrag';
 import type { WallCategory } from '@/assets/textureManifest';
 import { snapToNearestWall } from '@/shared/wallSnap';
 import type { DungeonLayer } from '@/store/types';
-import type { WallNodeEdit, WallEdits } from '@/shared/types';
+import type { WallNodeEdit, WallNodeInsert, WallEdits } from '@/shared/types';
 import type { Point } from '@/types/geometry';
 
 /** Max distance, in world units, for a double-click to claim a wall. */
@@ -82,25 +96,90 @@ export function exitNodeEdit(): void {
 function writeEdits(patch: Partial<WallEdits>): void {
   const run = activeEditableRun();
   if (!run) return;
-  const ring = floorRingIndex(run.id);
   const before: WallEdits = {
     nodeEdits: run.edits?.nodeEdits,
     spanEdits: run.edits?.spanEdits,
     nodeInserts: run.edits?.nodeInserts,
   };
+  commitEdits(run, before, { ...before, ...patch });
+}
+
+/**
+ * Write one before/after pair of edit lists as a single undoable step, giving
+ * any stone the change derives a record of its own first.
+ */
+function commitEdits(run: EditableRun, before: WallEdits, after: WallEdits): void {
+  const settled = { ...after, nodeInserts: materialisedInserts(run, after) };
+  const ring = floorRingIndex(run.id);
   if (ring !== null) {
+    // `run.edits`, not the spelled-out `before`: a ring with no edits at all
+    // must undo back to having none rather than to an empty husk of a record.
     undoManager.execute(
-      new UpdateFloorWallEditsCommand(run.layer.id, String(ring), run.edits, {
-        ...before,
-        ...patch,
-      }),
+      new UpdateFloorWallEditsCommand(run.layer.id, String(ring), run.edits, settled),
     );
     return;
   }
-  const key = Object.keys(patch)[0] as keyof WallEdits;
-  undoManager.execute(
-    new UpdateWallCommand(run.layer.id, run.id, { [key]: before[key] }, patch),
+  undoManager.execute(new UpdateWallCommand(run.layer.id, run.id, before, settled));
+}
+
+/**
+ * Persist the stones an edit derived, so each one becomes a node in its own
+ * right.
+ *
+ * `fillNodeGaps` bridges a seam an edit tore open by cloning the leading stone.
+ * Those clones are recomputed every frame and have no record behind them, so
+ * every hand edit aimed at one fell through to the stone it was cloned from —
+ * Tab on any of them swapped the donor, and the whole run of bridge stones
+ * changed together. Writing them out as ordinary inserts gives each its own `t`,
+ * which is the anchor every edit is keyed to.
+ *
+ * Rotation is measured rather than derived: an insert's angle is interpolated
+ * from its neighbours, so the correction is whatever closes the gap between that
+ * and the angle the bridge was actually drawn at. Re-running the layout to read
+ * it back keeps this honest if the interpolation rule ever changes.
+ */
+function materialisedInserts(run: EditableRun, edits: WallEdits): WallNodeInsert[] | undefined {
+  const setId = run.layer.style.wallTextureSetId as WallCategory | undefined;
+  if (!setId) return edits.nodeInserts;
+  const pieces = buildPieceSpecs(setId);
+  if (pieces.length === 0) return edits.nodeInserts;
+
+  const fill = { pieces, wallWidth: run.width };
+  const lay = (e: WallEdits): WallNode[] =>
+    applyWallEdits(
+      layoutWall(run.points, run.closed, pieces, {
+        wallWidth: run.width,
+        seed: seedForPoints(run.points),
+      }),
+      e,
+      undefined,
+      fill,
+    );
+
+  const known = edits.nodeInserts ?? [];
+  const derived = lay(edits).filter(
+    (n) => n.kind === 'inserted' && !known.some((i) => Math.abs(i.t - n.t) < 1e-9),
   );
+  if (derived.length === 0) return edits.nodeInserts;
+
+  const withNew: WallEdits = {
+    ...edits,
+    nodeInserts: [
+      ...known,
+      ...derived.map((n) => ({ t: n.t, pieceId: n.pieceId, scale: n.sizeScale })),
+    ],
+  };
+  // Second pass: the inserts are in place now, so any angle they came out at
+  // that differs from the bridge's own is exactly the rotation to store.
+  const placed = lay(withNew);
+  return withNew.nodeInserts!.map((ins) => {
+    const want = derived.find((n) => Math.abs(n.t - ins.t) < 1e-9);
+    if (!want) return ins;
+    const got = placed.find((n) => n.kind === 'inserted' && Math.abs(n.t - ins.t) < 1e-9);
+    if (!got) return ins;
+    const rotate = Math.atan2(Math.sin(want.angle - got.angle), Math.cos(want.angle - got.angle));
+    return Math.abs(rotate) < 1e-6 ? ins : { ...ins, rotate };
+  });
 }
 
 /**
@@ -273,27 +352,42 @@ export function handleNodeKey(key: string, t: number): boolean {
 let dragBefore: WallNodeEdit[] | undefined;
 let dragWallId: string | null = null;
 
-export function beginNodeDrag(): void {
+/**
+ * @param ts Stones the gesture will move. On a floor ring the drag is not a
+ *   cosmetic offset at all — the stones stand on the outline, so it becomes an
+ *   edit of the outline itself and these say which stretch of it moves.
+ */
+export function beginNodeDrag(ts: number[] = []): void {
   const run = activeEditableRun();
   if (!run) return;
   dragWallId = run.id;
+  const ring = floorRingIndex(run.id);
+  if (ring !== null) {
+    beginRingStoneDrag(run.layer, ring, ts);
+    return;
+  }
   // Snapshot, not a reference — the store's copy is about to change underneath.
   dragBefore = run.edits?.nodeEdits?.map((e) => ({ ...e }));
 }
 
-/** Live nudge during a drag. Deliberately bypasses the undo stack. */
-export function nudgeWallNode(t: number, dx: number, dy: number): void {
+/**
+ * Live nudge during a drag. Deliberately bypasses the undo stack.
+ *
+ * Takes the whole selection rather than one node so a group move is one write:
+ * merging them one at a time would read `run.edits` back from a store that the
+ * previous merge in the same frame had already moved on from.
+ */
+export function nudgeWallNode(ts: number[], dx: number, dy: number): void {
   if (dx === 0 && dy === 0) return;
-  const run = activeEditableRun();
-  if (!run) return;
-  const nodeEdits = mergeNodeEdit(run.edits?.nodeEdits, { t, dx, dy });
-  const ring = floorRingIndex(run.id);
-  if (ring !== null) {
-    useStore
-      .getState()
-      .setFloorWallEdits(run.layer.id, String(ring), { ...run.edits, nodeEdits });
+  if (isDraggingRingStone()) {
+    updateRingStoneDrag(dx, dy);
     return;
   }
+  if (ts.length === 0) return;
+  const run = activeEditableRun();
+  if (!run || floorRingIndex(run.id) !== null) return;
+  let nodeEdits = run.edits?.nodeEdits;
+  for (const t of ts) nodeEdits = mergeNodeEdit(nodeEdits, { t, dx, dy });
   useStore.getState().updateWall(run.layer.id, run.id, { nodeEdits });
 }
 
@@ -314,6 +408,10 @@ export function cancelNodeDrag(): void {
   const before = dragBefore;
   dragWallId = null;
   dragBefore = undefined;
+  if (isDraggingRingStone()) {
+    cancelRingStoneDrag();
+    return;
+  }
   if (!wallId) return;
 
   const state = useStore.getState();
@@ -321,47 +419,32 @@ export function cancelNodeDrag(): void {
     (l): l is DungeonLayer => l.type === 'dungeon' && l.id === state.ui.activeLayerId,
   );
   if (!layer) return;
-  const ring = floorRingIndex(wallId);
-  if (ring !== null) {
-    const edits = layer.floorWallEdits?.[String(ring)];
-    const restored: WallEdits = { ...edits, nodeEdits: before };
-    state.setFloorWallEdits(
-      layer.id,
-      String(ring),
-      before === undefined && !edits?.spanEdits && !edits?.nodeInserts ? undefined : restored,
-    );
-    return;
-  }
   state.updateWall(layer.id, wallId, { nodeEdits: before });
 }
 
 /** Record the whole gesture as one undoable step. */
 export function endNodeDrag(): void {
-  const run = activeEditableRun();
   const wallId = dragWallId;
   dragWallId = null;
   const before = dragBefore;
   dragBefore = undefined;
-  if (!run || run.id !== wallId) return;
+  if (isDraggingRingStone()) {
+    // The outline editor owns this gesture and lands it as one command of its
+    // own — geometry and relaid stones together.
+    endRingStoneDrag();
+    return;
+  }
 
+  const run = activeEditableRun();
+  if (!run || run.id !== wallId) return;
   const after = run.edits?.nodeEdits;
   if (JSON.stringify(before ?? null) === JSON.stringify(after ?? null)) return;
 
-  // State already equals `after`; execute() re-applying it is a harmless no-op
-  // and keeps the command's own contract intact.
-  const ring = floorRingIndex(run.id);
-  if (ring !== null) {
-    undoManager.execute(
-      new UpdateFloorWallEditsCommand(
-        run.layer.id,
-        String(ring),
-        { ...run.edits, nodeEdits: before },
-        { ...run.edits, nodeEdits: after },
-      ),
-    );
-    return;
-  }
-  undoManager.execute(
-    new UpdateWallCommand(run.layer.id, run.id, { nodeEdits: before }, { nodeEdits: after }),
+  // State already equals `after` bar the stones the drag derived; execute()
+  // re-applying it is what writes those out.
+  commitEdits(
+    run,
+    { nodeEdits: before, spanEdits: run.edits?.spanEdits, nodeInserts: run.edits?.nodeInserts },
+    { nodeEdits: after, spanEdits: run.edits?.spanEdits, nodeInserts: run.edits?.nodeInserts },
   );
 }

@@ -107,7 +107,7 @@ export function ToolPopover({ tool, anchorY, onClose }: ToolPopoverProps) {
   return (
     <div
       ref={panelRef}
-      className="absolute z-50 w-[200px] bg-surface-1 border border-border-default rounded shadow-lg p-3"
+      className="gg-grain absolute z-50 w-[200px] bg-surface-1 border border-border-structure rounded shadow-panel p-3"
       style={{ left: 52, top: anchorY }}
     >
       {isDrawingTool && <DrawingToolContent tool={tool} onValueChange={triggerPreview} />}
@@ -589,7 +589,7 @@ function ScatterBrushContent() {
             className={cn(
               'flex-1 text-xs py-1.5 rounded-md transition-colors',
               settings.stampMode
-                ? 'bg-accent text-white font-semibold'
+                ? 'bg-accent-active text-on-accent font-semibold'
                 : 'text-text-secondary hover:text-text-primary',
             )}
             onClick={() => patch({ stampMode: true })}
@@ -600,7 +600,7 @@ function ScatterBrushContent() {
             className={cn(
               'flex-1 text-xs py-1.5 rounded-md transition-colors',
               !settings.stampMode
-                ? 'bg-accent text-white font-semibold'
+                ? 'bg-accent-active text-on-accent font-semibold'
                 : 'text-text-secondary hover:text-text-primary',
             )}
             onClick={() => patch({ stampMode: false })}
@@ -804,7 +804,7 @@ function WaterToolContent() {
           className={cn(
             'flex-1 text-xs py-1.5 rounded-md transition-colors',
             settings.mode === 'river'
-              ? 'bg-accent text-white font-semibold'
+              ? 'bg-accent-active text-on-accent font-semibold'
               : 'text-text-secondary hover:text-text-primary',
           )}
           onClick={() => updateSettings({ mode: 'river' })}
@@ -815,7 +815,7 @@ function WaterToolContent() {
           className={cn(
             'flex-1 text-xs py-1.5 rounded-md transition-colors',
             settings.mode === 'lake'
-              ? 'bg-accent text-white font-semibold'
+              ? 'bg-accent-active text-on-accent font-semibold'
               : 'text-text-secondary hover:text-text-primary',
           )}
           onClick={() => updateSettings({ mode: 'lake' })}

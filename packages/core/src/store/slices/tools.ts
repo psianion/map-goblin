@@ -20,6 +20,7 @@ export interface ToolActions {
   setActiveTool: (tool: ToolType) => void;
   setEraseMode: (enabled: boolean) => void;
   setRoughMode: (enabled: boolean) => void;
+  setCurveMode: (enabled: boolean) => void;
   updateToolSettings: (patch: Partial<ToolSettings>) => void;
   addRecentAsset: (assetId: string) => void;
   updateLightDefaults: (patch: Partial<LightDefaults>) => void;
@@ -29,6 +30,8 @@ export interface ToolActions {
   /** Expose a wall's sprite nodes for hand-editing, or null to hide them. */
   setNodeEditWall: (wallId: string | null) => void;
   selectNode: (t: number | null) => void;
+  /** Shift-click: add a node to the selection, or drop it if already in. */
+  toggleNodeSelection: (t: number) => void;
   /** Expose a floor outline's vertices for editing, or null to hide them. */
   setShapeNodeEdit: (shapeId: string | null) => void;
   selectVertex: (index: number | null) => void;
@@ -47,6 +50,7 @@ export const createToolsSlice: StateCreator<
       // the DM reaches for next — switching tools drops out of edit mode.
       state.tools.nodeEditWallId = null;
       state.tools.selectedNodeT = null;
+      state.tools.selectedNodeTs = [];
       state.tools.shapeNodeEditId = null;
       state.tools.selectedVertex = null;
     }),
@@ -54,9 +58,29 @@ export const createToolsSlice: StateCreator<
     set((state) => {
       state.tools.nodeEditWallId = wallId;
       state.tools.selectedNodeT = null;
+      state.tools.selectedNodeTs = [];
     }),
   selectNode: (t) =>
     set((state) => {
+      // A plain click replaces the selection, so the two stay in step: the
+      // primary is always a member, and an empty set always means nothing
+      // selected. Everything that reads selectedNodeT keeps working unchanged.
+      state.tools.selectedNodeT = t;
+      state.tools.selectedNodeTs = t === null ? [] : [t];
+    }),
+  toggleNodeSelection: (t) =>
+    set((state) => {
+      const at = state.tools.selectedNodeTs.findIndex((v) => Math.abs(v - t) < 1e-9);
+      if (at >= 0) {
+        state.tools.selectedNodeTs.splice(at, 1);
+        // Dropping the primary hands the role to whatever is left, so the
+        // keyboard adjustments never point at a stone that is no longer picked.
+        if (Math.abs((state.tools.selectedNodeT ?? NaN) - t) < 1e-9) {
+          state.tools.selectedNodeT = state.tools.selectedNodeTs.at(-1) ?? null;
+        }
+        return;
+      }
+      state.tools.selectedNodeTs.push(t);
       state.tools.selectedNodeT = t;
     }),
   setShapeNodeEdit: (shapeId) =>
@@ -79,6 +103,10 @@ export const createToolsSlice: StateCreator<
   setRoughMode: (enabled) =>
     set((state) => {
       state.tools.roughMode = enabled;
+    }),
+  setCurveMode: (enabled) =>
+    set((state) => {
+      state.tools.curveMode = enabled;
     }),
   updateToolSettings: (patch) =>
     set((state) => {

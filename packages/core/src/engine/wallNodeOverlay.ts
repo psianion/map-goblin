@@ -9,7 +9,7 @@ import { useStore } from '../store/store';
 import type { DungeonLayer } from '../store/types';
 import type { WallEdits } from '../shared/types';
 import type { Point } from '../types/geometry';
-import { layoutWall, applyWallEdits, type WallNode } from './wallLayout';
+import { layoutWall, applyWallEdits, withoutNodeOffsets, type WallNode } from './wallLayout';
 import { buildPieceSpecs, seedForPoints } from './wallNodeRenderer';
 import type { WallCategory } from '../assets/textureManifest';
 
@@ -83,7 +83,10 @@ function activeWall(): EditableRun | null {
       points: poly.map(([x, y]): [number, number] => [x, y]),
       closed: true,
       width: layer.style.wallWidth,
-      edits: layer.floorWallEdits?.[String(ring)],
+      // Same view the renderer takes: a ring stone's position comes from the
+      // outline, so any offset stored against one is dead weight from before
+      // that was true, and the handles must not honour it either.
+      edits: withoutNodeOffsets(layer.floorWallEdits?.[String(ring)]),
     };
   }
 
@@ -116,7 +119,9 @@ export function currentWallNodes(): WallNode[] {
     wallWidth: run.width,
     seed: seedForPoints(run.points),
   });
-  return applyWallEdits(auto, run.edits);
+  // The same fill the renderer applies, or the handles would not sit on the
+  // stones the wall actually shows.
+  return applyWallEdits(auto, run.edits, undefined, { pieces: specs, wallWidth: run.width });
 }
 
 /**
@@ -133,6 +138,7 @@ export function renderWallNodeHandles(zoom: number): void {
     ? [
         found.id,
         state.tools.selectedNodeT ?? '',
+        state.tools.selectedNodeTs.join(','),
         // Coordinates, not just the count: a floor ring is relaid whenever a
         // vertex moves, and the handles have to follow it.
         found.points.map(([x, y]) => `${x.toFixed(4)},${y.toFixed(4)}`).join(';'),
@@ -158,16 +164,28 @@ export function renderWallNodeHandles(zoom: number): void {
   const safeZoom = zoom > 0 ? zoom : 1;
   const r = HANDLE_RADIUS_PX / safeZoom;
   const selectedT = state.tools.selectedNodeT;
+  const group = state.tools.selectedNodeTs;
 
   // The spine itself, so the run reads as one object while being picked apart.
   overlay.poly(found.points.flat(), found.closed);
   overlay.stroke({ color: HANDLE_COLOR, width: r * 0.25, alpha: 0.5 });
 
   for (const node of nodes) {
-    const selected = selectedT !== null && Math.abs(node.t - selectedT) < 1e-9;
-    overlay.circle(node.x, node.y, selected ? r * 1.35 : r);
-    overlay.fill({ color: selected ? SELECTED_COLOR : HANDLE_COLOR, alpha: selected ? 0.9 : 0.55 });
-    overlay.stroke({ color: 0x0b1220, width: r * 0.18, alpha: 0.8 });
+    const primary = selectedT !== null && Math.abs(node.t - selectedT) < 1e-9;
+    // Three states, one hue ramp rather than a third colour: unpicked is a small
+    // translucent dot, a group member is the same amber but hollow, and the
+    // primary — the one the keys act on — is filled and largest.
+    const inGroup = !primary && group.some((t) => Math.abs(node.t - t) < 1e-9);
+    overlay.circle(node.x, node.y, primary ? r * 1.35 : inGroup ? r * 1.2 : r);
+    overlay.fill({
+      color: primary || inGroup ? SELECTED_COLOR : HANDLE_COLOR,
+      alpha: primary ? 0.9 : inGroup ? 0.25 : 0.55,
+    });
+    overlay.stroke(
+      inGroup
+        ? { color: SELECTED_COLOR, width: r * 0.3, alpha: 0.95 }
+        : { color: 0x0b1220, width: r * 0.18, alpha: 0.8 },
+    );
   }
 }
 

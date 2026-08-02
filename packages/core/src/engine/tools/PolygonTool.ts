@@ -1,4 +1,5 @@
 import type { Point } from '../../types/geometry';
+import { snapToAngle } from '../../geometry/drawAssist';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
 import { AddChildCommand, RemoveChildCommand, UpdateChildCommand, CompositeCommand } from '../../store/commands';
@@ -20,7 +21,7 @@ export class PolygonTool implements DrawingTool {
   private vertices: Point[] = [];
   private currentPoint: Point | null = null;
 
-  onPointerDown(point: Point): void {
+  onPointerDown(point: Point, event?: PointerEvent): void {
     if (this.vertices.length >= 3) {
       const first = this.vertices[0];
       const dx = point.x - first.x;
@@ -30,12 +31,19 @@ export class PolygonTool implements DrawingTool {
         return;
       }
     }
+    point = this.constrain(point, event);
     this.vertices.push(point);
     this.currentPoint = point;
   }
 
-  onPointerMove(point: Point): void {
-    this.currentPoint = point;
+  onPointerMove(point: Point, event?: PointerEvent): void {
+    this.currentPoint = this.constrain(point, event);
+  }
+
+  /** Shift constrains the pending segment to 15° multiples off the last anchor. */
+  private constrain(point: Point, event?: PointerEvent): Point {
+    const anchor = this.vertices[this.vertices.length - 1];
+    return event?.shiftKey && anchor ? snapToAngle(anchor, point) : point;
   }
 
   onPointerUp(_point: Point): void {}

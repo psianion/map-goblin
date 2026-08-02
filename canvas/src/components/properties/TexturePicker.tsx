@@ -90,7 +90,7 @@ export function TexturePicker({ value, onChange }: TexturePickerProps) {
             zIndex: 9999,
             width: 264,
           }}
-          className="rounded border border-border-default bg-surface-1 shadow-lg overflow-hidden"
+          className="gg-grain rounded border border-border-structure bg-surface-1 shadow-panel overflow-hidden"
         >
           {/* Category tabs */}
           <div className="flex flex-wrap gap-1 p-2 border-b border-border-subtle">
@@ -102,7 +102,7 @@ export function TexturePicker({ value, onChange }: TexturePickerProps) {
                 className={`
                   px-1.5 py-0.5 rounded text-[10px] font-mono uppercase transition-colors
                   ${activeCategory === cat
-                    ? 'bg-surface-3 text-text-primary border border-white/20'
+                    ? 'bg-surface-3 text-text-primary border border-accent-active/40'
                     : 'text-text-muted hover:bg-surface-2 hover:text-text-secondary'}
                 `}
               >
@@ -122,8 +122,8 @@ export function TexturePicker({ value, onChange }: TexturePickerProps) {
                   aspect-square rounded flex items-center justify-center text-[9px] font-mono uppercase
                   border transition-colors
                   ${!value
-                    ? 'border-white bg-surface-3 text-text-primary'
-                    : 'border-border-default bg-surface-2 text-text-muted hover:bg-surface-3 hover:border-white/30'}
+                    ? 'border-accent-active bg-surface-3 text-text-primary'
+                    : 'border-border-default bg-surface-2 text-text-muted hover:bg-surface-3 hover:border-border-focus'}
                 `}
               >
                 None
@@ -139,8 +139,8 @@ export function TexturePicker({ value, onChange }: TexturePickerProps) {
                   className={`
                     aspect-square rounded overflow-hidden border transition-colors
                     ${value === entry.id
-                      ? 'border-white'
-                      : 'border-border-default hover:border-white/30'}
+                      ? 'border-accent-active'
+                      : 'border-border-default hover:border-border-focus'}
                   `}
                 >
                   <PackThumbnailCanvas textureId={entry.id} />
@@ -159,7 +159,7 @@ export function TexturePicker({ value, onChange }: TexturePickerProps) {
         ref={triggerRef}
         type="button"
         onClick={handleOpen}
-        className="flex items-center gap-2 w-full h-7 px-2 rounded border border-border-default bg-surface-2 hover:border-white/30 transition-colors cursor-pointer"
+        className="flex items-center gap-2 w-full h-7 px-2 rounded border border-border-default bg-surface-2 hover:border-border-focus transition-colors cursor-pointer"
         aria-label="Pick texture"
       >
         {selectedEntry ? (

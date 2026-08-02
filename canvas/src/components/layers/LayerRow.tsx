@@ -113,8 +113,10 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
       <div
         data-testid="layer-row"
         className={cn(
-          'flex items-center gap-1 px-1 py-1.5 cursor-pointer transition-colors border-l-2',
-          isActive ? 'bg-surface-3 border-l-accent-active' : 'border-l-transparent hover:bg-surface-2',
+          // Selection reads as a raised surface, not an accent side-stripe: `gg-row`
+          // carries the mode-correct hover (flat tint by day, glow from below at night).
+          'gg-row flex items-center gap-1 px-1 py-1.5 cursor-pointer',
+          isActive && 'bg-surface-3',
           !layer.visible && 'opacity-50',
         )}
         onClick={handleLayerClick}

@@ -57,7 +57,7 @@ export function DualRangeSlider({
           style={{
             left: `${loPercent}%`,
             width: `${hiPercent - loPercent}%`,
-            background: 'var(--foreground)',
+            background: 'rgb(var(--text-secondary))',
           }}
         />
         {/* Low thumb */}

@@ -115,10 +115,10 @@ export function MapsSidePanel() {
   return (
     <div
       data-testid="maps-panel"
-      className="flex flex-col h-full w-[260px] bg-surface-1 border-r border-border-default shrink-0 overflow-hidden"
+      className="gg-grain flex flex-col h-full w-[260px] bg-surface-1 border-r border-border-structure shrink-0 overflow-hidden"
     >
       {/* Header with close button */}
-      <div className="flex items-center justify-between px-3 h-9 border-b border-border-default bg-surface-0 shrink-0">
+      <div className="flex items-center justify-between px-3 h-9 border-b border-border-structure bg-surface-0 shrink-0">
         <span className="font-display text-tab-label uppercase tracking-wider text-text-primary">
           Maps
         </span>

@@ -45,6 +45,36 @@ function edits() {
   return layer().floorWallEdits?.['0'];
 }
 
+/**
+ * A standalone wall in edit mode, with a stone away from the end caps picked.
+ *
+ * Stone drags on a floor RING are not stored as offsets at all — the stones
+ * stand on the outline, so a drag there is an edit of the floor itself and goes
+ * through the outline editor (see ringStoneDrag). A drawn wall has no floor
+ * behind it, so its stones do float free, and that is what these cover.
+ */
+function seedWall(): { id: string; t: number } {
+  const l = seed();
+  useStore.getState().addWall(l.id, {
+    id: 'w1',
+    points: [[0, 12], [10, 12]],
+    wallType: 'normal',
+    direction: 'both',
+    color: '#000000',
+    width: 0.5,
+    roughness: 0,
+  });
+  useStore.getState().setNodeEditWall('w1');
+  const nodes = currentWallNodes();
+  const t = nodes[Math.floor(nodes.length / 2)].t;
+  useStore.getState().selectNode(t);
+  return { id: 'w1', t };
+}
+
+function wallEdits() {
+  return layer().standaloneWalls.find((w) => w.id === 'w1');
+}
+
 /** Enter edit mode on the ring and select a stone away from the corners. */
 function selectMidStone(): number {
   useStore.getState().setNodeEditWall('floor:0');
@@ -230,28 +260,28 @@ describe('undo', () => {
   });
 
   it('a whole drag is one undo step', () => {
-    seed();
-    const t = selectMidStone();
-    beginNodeDrag();
+    const { t } = seedWall();
+    beginNodeDrag([t]);
     // A drag emits a move every few pixels; each one writes straight to the
     // store so undo does not have to walk the gesture back a fraction at a time.
-    nudgeWallNode(t, 0.1, 0);
-    nudgeWallNode(t, 0.1, 0);
-    nudgeWallNode(t, 0.1, 0.2);
+    nudgeWallNode([t], 0.1, 0);
+    nudgeWallNode([t], 0.1, 0);
+    nudgeWallNode([t], 0.1, 0.2);
     endNodeDrag();
 
-    const moved = edits()!.nodeEdits![0];
+    const moved = wallEdits()!.nodeEdits!.find((e) => e.dx !== undefined)!;
     expect(moved.dx).toBeCloseTo(0.3, 10);
     expect(moved.dy).toBeCloseTo(0.2, 10);
 
     undoManager.undo();
-    expect(edits()?.nodeEdits ?? []).toHaveLength(0);
+    expect(wallEdits()?.nodeEdits ?? []).toHaveLength(0);
+    // The stones the drag derived go back with it, in the same step.
+    expect(wallEdits()?.nodeInserts ?? []).toHaveLength(0);
   });
 
   it('a drag that moved nothing records no step', () => {
-    seed();
-    selectMidStone();
-    beginNodeDrag();
+    const { t } = seedWall();
+    beginNodeDrag([t]);
     endNodeDrag();
     expect(useStore.getState().ui.canUndo).toBe(false);
   });
@@ -259,55 +289,29 @@ describe('undo', () => {
 
 describe('cancelNodeDrag', () => {
   it('puts the stone back and records nothing', () => {
-    seed();
-    const t = selectMidStone();
-    beginNodeDrag();
-    nudgeWallNode(t, 0.4, 0.3);
-    expect(edits()?.nodeEdits).toHaveLength(1);
+    const { t } = seedWall();
+    beginNodeDrag([t]);
+    nudgeWallNode([t], 0.4, 0.3);
+    expect(wallEdits()?.nodeEdits).toHaveLength(1);
 
     cancelNodeDrag();
     // The drag writes straight to the store, so abandoning it has to unwind
     // the mutation itself — there is no command on the stack to undo.
-    expect(edits()).toBeUndefined();
+    expect(wallEdits()?.nodeEdits ?? []).toHaveLength(0);
     expect(useStore.getState().ui.canUndo).toBe(false);
     expect(isDraggingNode()).toBe(false);
   });
 
   it('restores the edits the stone already had, rather than clearing them', () => {
-    seed();
-    const t = selectMidStone();
+    const { t } = seedWall();
     handleNodeKey(']', t);
-    const settled = structuredClone(edits());
+    const settled = structuredClone(wallEdits()?.nodeEdits);
 
-    beginNodeDrag();
-    nudgeWallNode(useStore.getState().tools.selectedNodeT!, 0.4, 0.3);
+    beginNodeDrag([useStore.getState().tools.selectedNodeT!]);
+    nudgeWallNode([useStore.getState().tools.selectedNodeT!], 0.4, 0.3);
     cancelNodeDrag();
 
-    expect(edits()).toEqual(settled);
-  });
-
-  it('leaves a wall segment alone the same way', () => {
-    const l = seed();
-    useStore.getState().addWall(l.id, {
-      id: 'w1',
-      points: [[0, 12], [10, 12]],
-      wallType: 'normal',
-      direction: 'both',
-      color: '#000000',
-      width: 0.5,
-      roughness: 0,
-    });
-    useStore.getState().setNodeEditWall('w1');
-    const t = currentWallNodes()[1].t;
-    useStore.getState().selectNode(t);
-
-    beginNodeDrag();
-    nudgeWallNode(t, 0.4, 0.3);
-    cancelNodeDrag();
-
-    const wall = layer().standaloneWalls.find((w) => w.id === 'w1');
-    expect(wall?.nodeEdits ?? []).toHaveLength(0);
-    expect(useStore.getState().ui.canUndo).toBe(false);
+    expect(wallEdits()?.nodeEdits).toEqual(settled);
   });
 
   it('does nothing when no drag is in flight', () => {
@@ -315,5 +319,197 @@ describe('cancelNodeDrag', () => {
     selectMidStone();
     expect(() => cancelNodeDrag()).not.toThrow();
     expect(edits()).toBeUndefined();
+  });
+});
+
+describe('a stone on a floor ring', () => {
+  it('is never given an offset of its own — the outline moves instead', () => {
+    seed();
+    useStore.getState().setNodeEditWall('floor:0');
+    const nodes = currentWallNodes();
+    const ts = nodes.slice(3, 7).map((n) => n.t);
+    for (const t of ts) useStore.getState().toggleNodeSelection(t);
+
+    beginNodeDrag(useStore.getState().tools.selectedNodeTs);
+    nudgeWallNode(useStore.getState().tools.selectedNodeTs, 0.4, -0.2);
+    endNodeDrag();
+
+    // A ring's stones stand ON the floor boundary. Sliding one off it with a
+    // dx/dy was what left the fill behind the band and, on a curve, tore the
+    // deformed contour into self-intersecting wedges.
+    expect((edits()?.nodeEdits ?? []).some((e) => e.dx || e.dy)).toBe(false);
+  });
+
+  it('ignores an offset a previous version of the editor left behind', () => {
+    const l = seed();
+    useStore.getState().setNodeEditWall('floor:0');
+    const before = currentWallNodes();
+    const target = before[4];
+    useStore
+      .getState()
+      .setFloorWallEdits(l.id, '0', { nodeEdits: [{ t: target.t, dx: 3, dy: 3, rotate: 0.2 }] });
+
+    const after = currentWallNodes().find((n) => Math.abs(n.t - target.t) < 1e-9)!;
+    expect(after.x).toBeCloseTo(target.x, 10);
+    expect(after.y).toBeCloseTo(target.y, 10);
+    // The cosmetic half of the same edit still lands.
+    expect(after.angle).toBeCloseTo(target.angle + 0.2, 10);
+  });
+});
+
+describe('group drag', () => {
+  it('moves every picked stone by the same delta, as one undo step', () => {
+    seedWall();
+    const nodes = currentWallNodes();
+    // Four neighbouring stones away from the wall's end caps.
+    const picked = nodes.slice(1, 5);
+    useStore.getState().selectNode(null);
+    for (const n of picked) useStore.getState().toggleNodeSelection(n.t);
+    const ts = useStore.getState().tools.selectedNodeTs;
+    expect(ts).toHaveLength(4);
+
+    beginNodeDrag(ts);
+    nudgeWallNode(ts, 0.2, -0.1);
+    nudgeWallNode(ts, 0.2, -0.1);
+    endNodeDrag();
+
+    const moved = wallEdits()!.nodeEdits!.filter((e) => e.dx !== undefined);
+    expect(moved).toHaveLength(4);
+    for (const e of moved) {
+      expect(e.dx).toBeCloseTo(0.4, 10);
+      expect(e.dy).toBeCloseTo(-0.2, 10);
+    }
+
+    undoManager.undo();
+    expect(wallEdits()?.nodeEdits ?? []).toHaveLength(0);
+  });
+
+  it('shift-click drops a stone back out of the selection', () => {
+    seed();
+    useStore.getState().setNodeEditWall('floor:0');
+    const nodes = currentWallNodes();
+    const [a, b] = [nodes[3], nodes[4]];
+    useStore.getState().toggleNodeSelection(a.t);
+    useStore.getState().toggleNodeSelection(b.t);
+    expect(useStore.getState().tools.selectedNodeT).toBe(b.t);
+
+    useStore.getState().toggleNodeSelection(b.t);
+    expect(useStore.getState().tools.selectedNodeTs).toEqual([a.t]);
+    // The primary never points at a stone that is no longer picked.
+    expect(useStore.getState().tools.selectedNodeT).toBe(a.t);
+  });
+
+  it('a plain click replaces the selection, leaving single-stone editing as it was', () => {
+    seed();
+    useStore.getState().setNodeEditWall('floor:0');
+    const nodes = currentWallNodes();
+    useStore.getState().toggleNodeSelection(nodes[3].t);
+    useStore.getState().toggleNodeSelection(nodes[4].t);
+    useStore.getState().selectNode(nodes[7].t);
+    expect(useStore.getState().tools.selectedNodeTs).toEqual([nodes[7].t]);
+    useStore.getState().selectNode(null);
+    expect(useStore.getState().tools.selectedNodeTs).toEqual([]);
+  });
+});
+
+// A drag tears the run open and the layout bridges the seam by cloning the
+// leading stone. Those clones used to be recomputed every frame with nothing
+// behind them, so every edit aimed at one fell through to the stone it was
+// cloned from — Tab on any of them swapped all of them at once.
+describe('bridge stones a drag creates', () => {
+  /** Drag one stone far enough sideways that the seam has to be bridged. */
+  function dragOpenASeam(t: number): number {
+    beginNodeDrag([t]);
+    nudgeWallNode([t], 0, -1.2);
+    endNodeDrag();
+    return t;
+  }
+
+  it('each become a node of their own, in the same undo step as the drag', () => {
+    dragOpenASeam(seedWall().t);
+    const inserts = wallEdits()!.nodeInserts!;
+    expect(inserts.length).toBeGreaterThan(1);
+    // Distinct anchors, or two of them would answer to one edit.
+    expect(new Set(inserts.map((i) => i.t)).size).toBe(inserts.length);
+    expect(useStore.getState().ui.canUndo).toBe(true);
+
+    undoManager.undo();
+    expect(wallEdits()?.nodeInserts ?? []).toHaveLength(0);
+    expect(wallEdits()?.nodeEdits ?? []).toHaveLength(0);
+    expect(useStore.getState().ui.canUndo).toBe(false);
+  });
+
+  it('are laid exactly where the derived stones were', () => {
+    const { id, t } = seedWall();
+    // The same seam, bridged the old way: written straight to the store so the
+    // layout derives the bridges and nothing persists them.
+    useStore.getState().updateWall(layer().id, id, { nodeEdits: [{ t, dx: 0, dy: -1.2 }] });
+    const derived = currentWallNodes().filter((n) => n.kind === 'inserted');
+    expect(derived.length).toBeGreaterThan(1);
+    useStore.getState().updateWall(layer().id, id, { nodeEdits: undefined });
+
+    dragOpenASeam(t);
+    const real = currentWallNodes().filter((n) => n.kind === 'inserted');
+    expect(real).toHaveLength(derived.length);
+    for (let i = 0; i < real.length; i++) {
+      expect(real[i].pieceId).toBe(derived[i].pieceId);
+      expect(real[i].x).toBeCloseTo(derived[i].x, 6);
+      expect(real[i].y).toBeCloseTo(derived[i].y, 6);
+      // The angle is the one that needs correcting: an insert's comes from its
+      // neighbours, a bridge's from the seam it spans.
+      expect(real[i].angle).toBeCloseTo(derived[i].angle, 6);
+      expect(real[i].sizeScale).toBeCloseTo(derived[i].sizeScale, 6);
+    }
+  });
+
+  it('take a piece swap one at a time', () => {
+    dragOpenASeam(seedWall().t);
+    const bridges = currentWallNodes().filter((n) => n.kind === 'inserted');
+    const target = bridges[0];
+    const others = bridges.slice(1).map((n) => n.pieceId);
+
+    handleNodeKey('Tab', target.t);
+
+    const after = currentWallNodes().filter((n) => n.kind === 'inserted');
+    expect(after.find((n) => Math.abs(n.t - target.t) < 1e-9)!.pieceId).not.toBe(target.pieceId);
+    expect(after.slice(1).map((n) => n.pieceId)).toEqual(others);
+  });
+
+  it('take a delete one at a time, and are not bridged straight back', () => {
+    dragOpenASeam(seedWall().t);
+    const before = currentWallNodes().filter((n) => n.kind === 'inserted');
+    handleNodeKey('Delete', before[0].t);
+    const after = currentWallNodes().filter((n) => n.kind === 'inserted');
+    expect(after).toHaveLength(before.length - 1);
+  });
+
+  it('are written out once, not again on every later edit', () => {
+    const t = dragOpenASeam(seedWall().t);
+    const first = wallEdits()!.nodeInserts!.length;
+    editWallNode({ t, rotate: 0.05 });
+    editWallNode({ t: useStore.getState().tools.selectedNodeT!, scale: 1.1 });
+    expect(wallEdits()!.nodeInserts).toHaveLength(first);
+  });
+
+  it('leaves a wall whose stones still touch without any', () => {
+    const { t } = seedWall();
+    beginNodeDrag([t]);
+    nudgeWallNode([t], 0.01, 0);
+    endNodeDrag();
+    expect(wallEdits()?.nodeInserts ?? []).toHaveLength(0);
+  });
+});
+
+describe('selection plumbing', () => {
+  it('a plain click replaces the selection, leaving single-stone editing as it was', () => {
+    seed();
+    useStore.getState().setNodeEditWall('floor:0');
+    const nodes = currentWallNodes();
+    useStore.getState().toggleNodeSelection(nodes[3].t);
+    useStore.getState().toggleNodeSelection(nodes[4].t);
+    useStore.getState().selectNode(nodes[7].t);
+    expect(useStore.getState().tools.selectedNodeTs).toEqual([nodes[7].t]);
+    useStore.getState().selectNode(null);
+    expect(useStore.getState().tools.selectedNodeTs).toEqual([]);
   });
 });

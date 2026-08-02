@@ -302,11 +302,13 @@ export default function App() {
         <div
           data-testid="left-toolbar"
           data-chrome
-          className="absolute top-0 bottom-0 z-20"
+          className="absolute left-0 top-0 bottom-0 z-20"
           style={{
-            left: leftPanelOpen ? '260px' : '0px',
+            // Slid, not re-positioned: `left` would relayout the toolbar and
+            // its popovers every frame of the 200ms, on top of the canvas.
+            transform: leftPanelOpen ? 'translateX(260px)' : 'none',
             opacity: fade.faded ? 0.4 : 1,
-            transition: 'left 200ms ease-out, opacity 200ms ease',
+            transition: 'transform 200ms ease-out, opacity 200ms ease',
           }}
         >
           <LeftToolbar />
@@ -316,12 +318,16 @@ export default function App() {
       {/* Right panel — absolute overlay on top of canvas */}
       {showPanels && (
         <div
-          data-chrome
+          data-chrome="right"
           className="absolute right-0 top-0 bottom-0 z-20 overflow-hidden"
           style={{
-            width: rightPanelOpen ? '300px' : '48px',
+            // Full width always, slid off to leave the 48px strip showing.
+            // Animating the width instead relaid out the whole panel subtree
+            // every frame, next to a canvas that wants those frames.
+            width: '300px',
+            transform: rightPanelOpen ? 'none' : 'translateX(252px)',
             opacity: fade.faded ? 0.4 : 1,
-            transition: 'width 200ms ease-out, opacity 200ms ease',
+            transition: 'transform 200ms ease-out, opacity 200ms ease',
           }}
         >
           {rightPanelOpen

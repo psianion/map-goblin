@@ -147,7 +147,7 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
             top: popoverPos.y,
             zIndex: 9999,
           }}
-          className="rounded border border-border-default bg-surface-1 p-3 shadow-lg"
+          className="gg-grain rounded border border-border-structure bg-surface-1 p-3 shadow-panel"
         >
           <HexColorPicker color={value} onChange={handlePickerChange} />
           <input
@@ -175,10 +175,12 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
         ref={triggerRef}
         type="button"
         onClick={handleOpen}
-        className="flex items-center gap-1.5 rounded border border-white/[0.08] px-2 h-7 cursor-pointer hover:border-border-focus transition-colors"
+        className="flex items-center gap-1.5 rounded border border-border-default px-2 h-7 cursor-pointer hover:border-border-focus transition-colors"
         style={{ backgroundColor: value }}
         aria-label="Pick color"
       >
+        {/* Pure white under `difference` inverts whatever swatch colour sits behind it,
+            so the hex stays legible on any user-picked fill. A theme token would not. */}
         <span className="font-mono text-[11px] text-white mix-blend-difference">
           {value.toUpperCase()}
         </span>

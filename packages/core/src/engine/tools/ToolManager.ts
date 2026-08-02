@@ -58,6 +58,12 @@ export class ToolManager {
     return this.tools.get(type);
   }
 
+  /** Active tool's live preview shape (world coords), for overlays like the dimension HUD. */
+  getActivePreview(): { toolType: string; preview: PreviewShape } | null {
+    const preview = this.activeTool?.getPreview();
+    return this.activeTool && preview ? { toolType: this.activeTool.type, preview } : null;
+  }
+
   /** Returns CSS cursor for gizmo handle hover, or null. */
   getHoverCursor(sx: number, sy: number): string | null {
     return this.activeTool?.getHoverCursor?.(sx, sy) ?? null;

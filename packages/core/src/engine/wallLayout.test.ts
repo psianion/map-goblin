@@ -6,7 +6,9 @@ import {
   mergeSpanEdit,
   pieceWorldLength,
   nodeSpriteScale,
+  withoutNodeOffsets,
   type WallPieceSpec,
+  type WallNode,
 } from './wallLayout';
 
 // Mirrors the real stone-slate set: lengths and band thicknesses are the
@@ -368,6 +370,51 @@ describe('applyWallEdits', () => {
     expect(added.x).toBeGreaterThan(nodes[2].x);
     expect(added.x).toBeLessThan(nodes[3].x);
     expect(out.map((n) => n.t)).toEqual([...out.map((n) => n.t)].sort((a, b) => a - b));
+  });
+
+  it('brackets each insert by t, not by the order they were written', () => {
+    const nodes = base();
+    const early = (nodes[1].t + nodes[2].t) / 2;
+    const late = (nodes[4].t + nodes[5].t) / 2;
+    // Written earliest-first, which is what put every later insert between the
+    // previous one and its own successor rather than between its real neighbours.
+    const out = applyWallEdits(nodes, {
+      nodeInserts: [
+        { t: early, pieceId: 'rock-d' },
+        { t: late, pieceId: 'rock-d' },
+      ],
+    });
+    const alone = applyWallEdits(nodes, { nodeInserts: [{ t: late, pieceId: 'rock-d' }] });
+    const both = out.find((n) => n.kind === 'inserted' && Math.abs(n.t - late) < 1e-9)!;
+    const only = alone.find((n) => n.kind === 'inserted')!;
+    expect(both.x).toBeCloseTo(only.x, 9);
+    expect(both.y).toBeCloseTo(only.y, 9);
+  });
+
+  it('lands an edit on the inserted stone it names, not on its neighbour', () => {
+    const nodes = base();
+    const t = (nodes[2].t + nodes[3].t) / 2;
+    const out = applyWallEdits(nodes, {
+      nodeInserts: [{ t, pieceId: 'rock-d' }],
+      nodeEdits: [{ t, pieceId: 'rock-b', rotate: 0.5 }],
+    });
+    const added = out.find((n) => n.kind === 'inserted')!;
+    expect(added.pieceId).toBe('rock-b');
+    // Everything the insert was interpolated from is exactly as it was — the
+    // aliasing this guards against changed the donor and every clone of it.
+    expect(out.find((n) => n.t === nodes[2].t)!.pieceId).toBe(nodes[2].pieceId);
+    expect(out.find((n) => n.t === nodes[3].t)!.pieceId).toBe(nodes[3].pieceId);
+  });
+
+  it('removes an inserted stone by its own anchor', () => {
+    const nodes = base();
+    const t = (nodes[2].t + nodes[3].t) / 2;
+    const out = applyWallEdits(nodes, {
+      nodeInserts: [{ t, pieceId: 'rock-d' }],
+      nodeEdits: [{ t, removed: true }],
+    });
+    expect(out).toHaveLength(nodes.length);
+    expect(out.some((n) => n.kind === 'inserted')).toBe(false);
   });
 });
 
@@ -775,5 +822,248 @@ describe('layoutWall — ends and determinism', () => {
     expect(layoutWall([[1, 1]], false, STONE, { wallWidth: WIDTH })).toEqual([]);
     expect(layoutWall([[0, 0], [0, 0]], false, STONE, { wallWidth: WIDTH })).toEqual([]);
     expect(layoutWall([[0, 0], [5, 0]], false, [], { wallWidth: WIDTH })).toEqual([]);
+  });
+});
+
+// A curve-mode wall arrives as dozens of Catmull-Rom samples, each shorter than
+// the shortest stone. Laid per edge, every one of them squeezed in a stone of
+// its own alongside its neighbours' — the doubled strand of masonry on curves.
+describe('layoutWall — dense polylines', () => {
+  /** Circular arc sampled far finer than the band can resolve. */
+  const arc = (r: number, sweep: number, n: number): [number, number][] =>
+    Array.from({ length: n }, (_, i) => {
+      const a = (i / (n - 1)) * sweep;
+      return [r * Math.cos(a), r * Math.sin(a)] as [number, number];
+    });
+
+  /** Distance from a point to the spine polyline. */
+  const offSpine = (p: { x: number; y: number }, pts: [number, number][]): number => {
+    let best = Infinity;
+    for (let i = 1; i < pts.length; i++) {
+      const [ax, ay] = pts[i - 1];
+      const [bx, by] = pts[i];
+      const dx = bx - ax;
+      const dy = by - ay;
+      const l2 = dx * dx + dy * dy || 1e-12;
+      const u = Math.max(0, Math.min(1, ((p.x - ax) * dx + (p.y - ay) * dy) / l2));
+      best = Math.min(best, Math.hypot(p.x - (ax + dx * u), p.y - (ay + dy * u)));
+    }
+    return best;
+  };
+
+  it('lays one run of stones along a densely sampled arc', () => {
+    const pts = arc(8, Math.PI / 2, 60);
+    const nodes = layoutWall(pts, false, STONE, { wallWidth: WIDTH, seed: 3 });
+    const spine = (8 * Math.PI) / 2;
+
+    // One row: the stones a run needs to cover the spine, not one per sample.
+    const shortest = pieceWorldLength(STONE[3], WIDTH);
+    expect(nodes.length).toBeLessThan(spine / shortest + 4);
+
+    // And no two stones stacked on the same spot.
+    for (let i = 1; i < nodes.length; i++) {
+      const d = Math.hypot(nodes[i].x - nodes[i - 1].x, nodes[i].y - nodes[i - 1].y);
+      expect(d).toBeGreaterThan(WIDTH * 0.2);
+    }
+  });
+
+  it('keeps every stone on a dense arc within a quarter band of the spine', () => {
+    const pts = arc(4, Math.PI, 80);
+    for (const n of layoutWall(pts, false, STONE, { wallWidth: WIDTH, seed: 3 })) {
+      expect(offSpine(n, pts)).toBeLessThanOrEqual(WIDTH * 0.3);
+    }
+  });
+
+  it('leaves no seam along a dense arc', () => {
+    const pts = arc(6, Math.PI / 2, 50);
+    const nodes = layoutWall(pts, false, STONE, { wallWidth: WIDTH, seed: 5 })
+      .filter((n) => n.kind !== 'ending');
+    for (let i = 1; i < nodes.length; i++) {
+      const a = nodes[i - 1];
+      const b = nodes[i];
+      const dir = Math.atan2(b.y - a.y, b.x - a.x);
+      const gap =
+        Math.hypot(b.x - a.x, b.y - a.y) - reachToward(a, dir) - reachToward(b, dir + Math.PI);
+      expect(gap).toBeLessThanOrEqual(0);
+    }
+  });
+
+  it('lays a straight run exactly as before — the fix is not curve-only', () => {
+    const nodes = layoutWall([[0, 0], [12, 0]], false, STONE, { wallWidth: WIDTH, seed: 3 });
+    for (const n of nodes) expect(n.y).toBeCloseTo(0, 9);
+  });
+});
+
+describe('applyWallEdits — gap refill', () => {
+  const fill = { pieces: STONE, wallWidth: WIDTH };
+  const straightRun = () =>
+    layoutWall([[0, 0], [12, 0]], false, STONE, { wallWidth: WIDTH, seed: 3 });
+
+  it('bridges the seam a dragged node opens', () => {
+    const nodes = straightRun();
+    const target = nodes.find((n) => n.kind === 'straight')!;
+    const edits = { nodeEdits: [{ t: target.t, dx: 0, dy: 2 }] };
+
+    const bare = applyWallEdits(nodes, edits);
+    const filled = applyWallEdits(nodes, edits, undefined, fill);
+    expect(filled.length).toBeGreaterThan(bare.length);
+
+    for (let i = 1; i < filled.length; i++) {
+      const a = filled[i - 1];
+      const b = filled[i];
+      const dir = Math.atan2(b.y - a.y, b.x - a.x);
+      const gap =
+        Math.hypot(b.x - a.x, b.y - a.y) - reachToward(a, dir) - reachToward(b, dir + Math.PI);
+      expect(gap).toBeLessThanOrEqual(WIDTH * 0.1);
+    }
+  });
+
+  it('bridges with the piece the neighbour was swapped to', () => {
+    const nodes = straightRun();
+    const straights = nodes.filter((n) => n.kind === 'straight');
+    const target = straights[2];
+    const filled = applyWallEdits(
+      nodes,
+      { nodeEdits: [{ t: straights[1].t, pieceId: 'rock-b' }, { t: target.t, dx: 0, dy: 1.5 }] },
+      undefined,
+      fill,
+    );
+    const added = filled.filter((n) => n.kind === 'inserted');
+    expect(added.length).toBeGreaterThan(0);
+    expect(added.some((n) => n.pieceId === 'rock-b')).toBe(true);
+  });
+
+  it('adds nothing to a wall whose stones still touch', () => {
+    const nodes = straightRun();
+    const edits = { nodeEdits: [{ t: nodes[1].t, rotate: 0.05 }] };
+    expect(applyWallEdits(nodes, edits, undefined, fill)).toHaveLength(
+      applyWallEdits(nodes, edits).length,
+    );
+  });
+
+  it('leaves the nodes alone when no pieces are supplied', () => {
+    const nodes = straightRun();
+    const edits = { nodeEdits: [{ t: nodes[2].t, dx: 0, dy: 3 }] };
+    expect(applyWallEdits(nodes, edits)).toHaveLength(nodes.length);
+    expect(applyWallEdits(nodes, edits, undefined, fill).length).toBeGreaterThan(nodes.length);
+  });
+
+  it('closes a seam torn in a floor-style closed ring too', () => {
+    const pts = ngon(0, 0, 6, 6);
+    const nodes = layoutWall(pts, true, STONE, { wallWidth: WIDTH, seed: 3 });
+    const target = nodes.filter((n) => n.kind === 'straight')[3];
+    const filled = applyWallEdits(
+      nodes, { nodeEdits: [{ t: target.t, dx: 1.2, dy: 1.2 }] }, undefined, fill,
+    );
+    expect(filled.filter((n) => n.kind === 'inserted').length).toBeGreaterThan(0);
+  });
+});
+
+describe('withoutNodeOffsets — a ring stone has no offset of its own', () => {
+  it('passes edits with no offsets through untouched', () => {
+    const edits = { nodeEdits: [{ t: 0.2, rotate: 0.4 }] };
+    expect(withoutNodeOffsets(edits)).toBe(edits);
+    expect(withoutNodeOffsets(undefined)).toBeUndefined();
+  });
+
+  it('strips a leftover offset but keeps the cosmetic edit around it', () => {
+    const out = withoutNodeOffsets({
+      nodeEdits: [{ t: 0.2, dx: 1, dy: 2, rotate: 0.4, pieceId: 'rock-a' }],
+      spanEdits: [{ t: 0.5, gap: 0.1 }],
+    });
+    expect(out?.nodeEdits).toEqual([{ t: 0.2, rotate: 0.4, pieceId: 'rock-a' }]);
+    expect(out?.spanEdits).toEqual([{ t: 0.5, gap: 0.1 }]);
+  });
+
+  it('drops an edit that was nothing but an offset', () => {
+    const out = withoutNodeOffsets({ nodeEdits: [{ t: 0.2, dx: 1, dy: 2 }, { t: 0.6, scale: 2 }] });
+    expect(out?.nodeEdits).toEqual([{ t: 0.6, scale: 2 }]);
+  });
+});
+
+describe('applyWallEdits — corners made by a drag', () => {
+  const fill = { pieces: STONE, wallWidth: WIDTH };
+
+  /** A straight run, plus its third stone and the two either side of it. */
+  function straightRunNodes(pieces = STONE) {
+    const nodes = layoutWall([[0, 0], [12, 0]], false, pieces, { wallWidth: WIDTH, seed: 5 });
+    const target = nodes.filter((n) => n.kind === 'straight')[2];
+    const i = nodes.indexOf(target);
+    return { nodes, target, prev: nodes[i - 1], next: nodes[i + 1] };
+  }
+
+  /**
+   * Where the stone has to land for the band to turn `turn` radians through it:
+   * the apex of an isoceles triangle standing on its two neighbours. Computed
+   * rather than eyeballed, so the test asserts the threshold and not a guess.
+   */
+  function apexDelta(prev: WallNode, next: WallNode, target: WallNode, turn: number) {
+    const mx = (prev.x + next.x) / 2;
+    const my = (prev.y + next.y) / 2;
+    const chord = Math.hypot(next.x - prev.x, next.y - prev.y);
+    const off = (chord / 2) / Math.tan((Math.PI - turn) / 2);
+    return {
+      dx: mx - ((next.y - prev.y) / chord) * off - target.x,
+      dy: my + ((next.x - prev.x) / chord) * off - target.y,
+    };
+  }
+
+  it('drops an authored elbow in when the drag makes a right angle', () => {
+    const { nodes, target, prev, next } = straightRunNodes();
+    const out = applyWallEdits(
+      nodes,
+      { nodeEdits: [{ t: target.t, ...apexDelta(prev, next, target, Math.PI / 2) }] },
+      undefined,
+      fill,
+    );
+    const at = out.find((n) => Math.abs(n.t - target.t) < 1e-9)!;
+    expect(at.kind).toBe('corner');
+    expect(at.pieceId).toBe('corner-a-1x1');
+  });
+
+  it('leaves a gentle bend as the run it is', () => {
+    const { nodes, target, prev, next } = straightRunNodes();
+    const out = applyWallEdits(
+      nodes,
+      { nodeEdits: [{ t: target.t, ...apexDelta(prev, next, target, 0.35) }] },
+      undefined,
+      fill,
+    );
+    const at = out.find((n) => Math.abs(n.t - target.t) < 1e-9)!;
+    expect(at.kind).not.toBe('corner');
+    expect(at.pieceId).toBe(target.pieceId);
+  });
+
+  it('the corner piece wins at the corner, and a Tab swap survives elsewhere', () => {
+    const { nodes, target, prev, next } = straightRunNodes();
+    const elsewhere = nodes.filter((n) => n.kind === 'straight').at(-1)!;
+    const out = applyWallEdits(
+      nodes,
+      {
+        nodeEdits: [
+          { t: target.t, pieceId: 'rock-b', ...apexDelta(prev, next, target, Math.PI / 2) },
+          { t: elsewhere.t, pieceId: 'rock-b' },
+        ],
+      },
+      undefined,
+      fill,
+    );
+    expect(out.find((n) => Math.abs(n.t - target.t) < 1e-9)!.pieceId).toBe('corner-a-1x1');
+    expect(out.find((n) => Math.abs(n.t - elsewhere.t) < 1e-9)!.pieceId).toBe('rock-b');
+  });
+
+  it('turns the cornerstone across the point when no authored piece fits the turn', () => {
+    const noElbows = STONE.filter((p) => p.role !== 'corner');
+    const { nodes, target, prev, next } = straightRunNodes(noElbows);
+    const out = applyWallEdits(
+      nodes,
+      { nodeEdits: [{ t: target.t, ...apexDelta(prev, next, target, Math.PI / 2) }] },
+      undefined,
+      { pieces: noElbows, wallWidth: WIDTH },
+    );
+    const at = out.find((n) => Math.abs(n.t - target.t) < 1e-9)!;
+    expect(at.kind).toBe('corner');
+    expect(at.pieceId).toBe(target.pieceId);
+    expect(at.angle).not.toBeCloseTo(target.angle, 3);
   });
 });

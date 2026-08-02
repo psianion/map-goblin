@@ -2,6 +2,7 @@ import { useEffect, type RefObject } from 'react';
 import type { RenderEngine } from '../engine/RenderEngine';
 import type { ToolManager } from '../engine/tools/ToolManager';
 import type { SnapIndicator } from './snapIndicator';
+import type { DimensionHud } from './dimensionHud';
 import type { Point } from '../types/geometry';
 import { handleImageImport } from './importImage';
 import { handleShortcut } from '@/shortcuts/defaultShortcuts';
@@ -53,6 +54,12 @@ export function setSnapIndicator(indicator: SnapIndicator | null): void {
   _snapIndicator = indicator;
 }
 
+let _dimensionHud: DimensionHud | null = null;
+
+export function setDimensionHud(hud: DimensionHud | null): void {
+  _dimensionHud = hud;
+}
+
 function applyMiddleware(point: Point): Point {
   let p = point;
   for (const fn of middlewareStack) {
@@ -63,7 +70,8 @@ function applyMiddleware(point: Point): Point {
 
 function isTextInput(el: Element | null): boolean {
   if (!el) return false;
-  const tag = el.tagName.toLowerCase();
+  // A synthetic event can target `document`, which has no tagName.
+  const tag = el.tagName?.toLowerCase();
   return tag === 'input' || tag === 'textarea' || (el as HTMLElement).isContentEditable;
 }
 
@@ -83,10 +91,39 @@ export function useCanvasInput(
     // Wall node handle drag — intercepted ahead of the tool manager, the same
     // way pan-tool dragging is below. Node editing is a mode on a selected wall
     // rather than its own tool, so there is no DrawingTool to route it through.
-    let draggingNodeT: number | null = null;
+    /**
+     * The nodes this gesture is moving — the whole selection when the stone
+     * grabbed was part of one, otherwise just that stone. Captured on press so
+     * the set cannot change under a drag in flight.
+     */
+    let draggingNodeTs: number[] = [];
     let nodeDragLast: Point | null = null;
     /** Where an outline vertex/edge drag began, for the edge-drag offset. */
     let outlineDragStart: Point | null = null;
+
+    /**
+     * Push the dimension readout at the last known cursor. Called after every
+     * input the tools see, not just moves: a chain commits on Enter or a
+     * double-click and cancels on Escape, none of which move the pointer, and
+     * the readout has to go away with the preview it was measuring.
+     */
+    const syncHud = (): void => {
+      const active = _toolManager?.getActivePreview() ?? null;
+      const world = cursorWorldPosition.current;
+      if (!active || !world) {
+        _dimensionHud?.hide();
+        return;
+      }
+      // The canvas runs the full window width and the side panels float on
+      // top of it, so the usable right edge is the panel's, not the canvas's.
+      const panel = document.querySelector('[data-chrome="right"]');
+      _dimensionHud?.update(
+        active.toolType,
+        active.preview,
+        engine.worldToScreen(world.x, world.y),
+        panel?.getBoundingClientRect().left ?? canvasEl.clientWidth,
+      );
+    };
 
     const onPointerDown = (e: PointerEvent) => {
       canvasEl.setPointerCapture(e.pointerId);
@@ -106,10 +143,20 @@ export function useCanvasInput(
         // grid snap would drag the pick off a node sitting between divisions.
         const hit = wallNodeAt(rawWorld, engine.stage().scale.x);
         if (hit) {
-          draggingNodeT = hit.t;
+          // Shift picks stones for a group move; it never starts one, so the
+          // selection can be built up without nudging anything.
+          if (e.shiftKey) {
+            useStore.getState().toggleNodeSelection(hit.t);
+            return;
+          }
+          const picked = useStore.getState().tools.selectedNodeTs;
+          const inGroup = picked.some((t) => Math.abs(t - hit.t) < 1e-9);
+          // Grabbing a stone outside the selection replaces it, which is what
+          // keeps single-stone editing exactly as it was.
+          if (!inGroup) useStore.getState().selectNode(hit.t);
+          draggingNodeTs = inGroup ? [...picked] : [hit.t];
           nodeDragLast = rawWorld;
-          useStore.getState().selectNode(hit.t);
-          beginNodeDrag();
+          beginNodeDrag(draggingNodeTs);
           return;
         }
         // Clicking away from any handle clears the selection but stays in mode.
@@ -136,7 +183,9 @@ export function useCanvasInput(
       }
 
       const snapped = applyMiddleware(rawWorld);
+      cursorWorldPosition.current = snapped;
       _toolManager?.onPointerDown(snapped, e);
+      syncHud();
     };
 
     const onPointerMove = (e: PointerEvent) => {
@@ -155,9 +204,10 @@ export function useCanvasInput(
       const rect = canvasEl.getBoundingClientRect();
 
       // Node handle drag — accumulate the delta as a nudge on that node.
-      if (draggingNodeT !== null && nodeDragLast) {
+      if (draggingNodeTs.length > 0 && nodeDragLast) {
         const w = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
-        nudgeWallNode(draggingNodeT, w.x - nodeDragLast.x, w.y - nodeDragLast.y);
+        // One delta for every picked stone, so a group keeps its shape.
+        nudgeWallNode(draggingNodeTs, w.x - nodeDragLast.x, w.y - nodeDragLast.y);
         nodeDragLast = w;
         return;
       }
@@ -188,6 +238,9 @@ export function useCanvasInput(
       cursorWorldPosition.current = snapped;
       _snapIndicator?.show(engine.worldToScreen(snapped.x, snapped.y));
 
+      // Dimension readout while a drawing tool has a live preview.
+      syncHud();
+
       // Update cursor for gizmo handle hover (non-pan tools only)
       if (useStore.getState().tools.activeTool !== 'pan') {
         const sx = e.clientX - rect.left;
@@ -203,8 +256,8 @@ export function useCanvasInput(
         canvasEl.style.cursor = 'grab';
         return;
       }
-      if (draggingNodeT !== null) {
-        draggingNodeT = null;
+      if (draggingNodeTs.length > 0) {
+        draggingNodeTs = [];
         nodeDragLast = null;
         endNodeDrag();
         return;
@@ -217,7 +270,9 @@ export function useCanvasInput(
       const rect = canvasEl.getBoundingClientRect();
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
       const snapped = applyMiddleware(world);
+      cursorWorldPosition.current = snapped;
       _toolManager?.onPointerUp(snapped, e);
+      syncHud();
     };
 
     // A touch or stylus gesture can be taken away mid-drag. Both node drags
@@ -225,8 +280,8 @@ export function useCanvasInput(
     // contributing shapes for the preview — without this the layer is left in
     // that half-finished state with no undo entry that reaches it.
     const onPointerCancel = () => {
-      if (draggingNodeT !== null) {
-        draggingNodeT = null;
+      if (draggingNodeTs.length > 0) {
+        draggingNodeTs = [];
         nodeDragLast = null;
         cancelNodeDrag();
       }
@@ -245,7 +300,14 @@ export function useCanvasInput(
       if (toggleNodeEditAt(world) || toggleShapeNodeEditAt(world)) e.preventDefault();
     };
 
+    // Enter commits a chain, Escape cancels it, and a tool shortcut switches
+    // away from it — all of them retire the preview the readout is measuring.
     const onKeyDown = (e: KeyboardEvent) => {
+      handleKeyDown(e);
+      syncHud();
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
       // Skip shortcuts when focus is in a text input (e.g. hex color field)
       // Exception: allow Ctrl/Cmd combos (Ctrl+S, Ctrl+Z, etc.) to still work
       if (isTextInput(e.target as Element) && !e.ctrlKey && !e.metaKey) return;
@@ -258,7 +320,7 @@ export function useCanvasInput(
         // stone: the drag writes straight to the store, and endNodeDrag can no
         // longer resolve the run once edit mode is gone.
         if (isDraggingNode()) {
-          draggingNodeT = null;
+          draggingNodeTs = [];
           nodeDragLast = null;
           cancelNodeDrag();
         } else {
@@ -420,6 +482,7 @@ export function useCanvasInput(
     const containerEl = containerRef.current;
     const onPointerLeave = () => {
       cursorWorldPosition.current = null;
+      _dimensionHud?.hide();
     };
 
     canvasEl.addEventListener('dblclick', onDoubleClick);

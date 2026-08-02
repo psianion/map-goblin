@@ -21,7 +21,9 @@ export class PixiRenderEngine implements RenderEngine {
       resolution: dpr,
       autoDensity: true,
       antialias: true,
-      backgroundColor: 0x2d2d2d,
+      // Moss surface-0 — the void around the map matches the chrome's deepest ground,
+      // so the map reads as the stage instead of a lighter grey hole punched in it.
+      backgroundColor: 0x0f100e,
       // Required for E2E pixel-sampling tests (ctx.drawImage on WebGL canvas)
       preserveDrawingBuffer: true,
       // Every pointer, wheel and click path in the app is a DOM listener on the

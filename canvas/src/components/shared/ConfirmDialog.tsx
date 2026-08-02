@@ -44,7 +44,7 @@ export function ConfirmDialog({
               type="button"
               autoFocus
               onClick={() => onOpenChange(false)}
-              className="px-3 py-1.5 text-sm rounded bg-surface-2 text-text-muted hover:text-white transition-colors"
+              className="px-3 py-1.5 text-sm rounded bg-surface-2 text-text-muted hover:text-text-primary transition-colors"
             >
               {cancelLabel}
             </button>
@@ -55,8 +55,10 @@ export function ConfirmDialog({
                 onOpenChange(false);
               }}
               className={cn(
-                'px-3 py-1.5 text-sm rounded text-white transition-colors',
-                destructive ? 'bg-danger hover:bg-danger/80' : 'bg-accent hover:bg-accent/80',
+                'px-3 py-1.5 text-sm rounded text-on-accent transition-colors',
+                destructive
+                  ? 'bg-danger hover:bg-danger/85'
+                  : 'bg-accent-active hover:bg-accent-active/85',
               )}
             >
               {confirmLabel}

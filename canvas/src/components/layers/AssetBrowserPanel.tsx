@@ -257,7 +257,7 @@ export function AssetBrowserPanel() {
             onClick={() => handleTypeFilterChange(tab.id)}
             className={cn(
               'shrink-0 rounded px-2 py-1 text-xs transition-colors whitespace-nowrap',
-              'font-[Cinzel,serif]',
+              'font-display',
               typeFilter === tab.id
                 ? 'bg-accent text-accent-foreground'
                 : 'text-muted-foreground hover:bg-muted hover:text-foreground',

@@ -93,10 +93,8 @@ export const ChildRow = memo(function ChildRow({ child, layerId }: ChildRowProps
   return (
     <div
       className={cn(
-        'flex items-center gap-1 pl-8 pr-1 py-1 cursor-pointer transition-colors border-l-2',
-        isSelected
-          ? 'bg-surface-3 border-l-accent-active'
-          : 'border-l-transparent hover:bg-surface-2',
+        'gg-row flex items-center gap-1 pl-8 pr-1 py-1 cursor-pointer',
+        isSelected && 'bg-surface-3',
         !child.visible && 'opacity-50',
       )}
       onClick={handleClick}

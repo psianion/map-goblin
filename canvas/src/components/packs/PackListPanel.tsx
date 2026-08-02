@@ -32,7 +32,7 @@ export function PackListPanel() {
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-3 py-2 shrink-0">
-        <span className="text-xs font-medium text-foreground uppercase tracking-wider font-[Cinzel,serif]">
+        <span className="text-xs font-medium text-foreground uppercase tracking-wider font-display">
           Installed Packs
         </span>
         <button

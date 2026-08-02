@@ -156,20 +156,20 @@ export function MapCard({
       {menuOpen && menuPos && (
         <div
           ref={menuRef}
-          className="fixed z-50 min-w-[140px] bg-surface-1 border border-border-default rounded-md shadow-lg py-1"
+          className="gg-grain fixed z-50 min-w-[140px] bg-surface-1 border border-border-structure rounded-md shadow-panel py-1"
           style={{ left: menuPos.x, top: menuPos.y }}
         >
           <button
             type="button"
             onClick={() => handleMenuAction('rename')}
-            className="w-full text-left px-3 py-1.5 text-sm text-text-primary hover:bg-surface-2 transition-colors"
+            className="w-full text-left px-3 py-1.5 text-sm text-text-primary gg-row"
           >
             Rename
           </button>
           <button
             type="button"
             onClick={() => handleMenuAction('duplicate')}
-            className="w-full text-left px-3 py-1.5 text-sm text-text-primary hover:bg-surface-2 transition-colors"
+            className="w-full text-left px-3 py-1.5 text-sm text-text-primary gg-row"
           >
             Duplicate
           </button>
@@ -177,7 +177,7 @@ export function MapCard({
           <button
             type="button"
             onClick={() => handleMenuAction('delete')}
-            className="w-full text-left px-3 py-1.5 text-sm text-danger hover:bg-surface-2 transition-colors"
+            className="w-full text-left px-3 py-1.5 text-sm text-danger gg-row"
           >
             Delete
           </button>

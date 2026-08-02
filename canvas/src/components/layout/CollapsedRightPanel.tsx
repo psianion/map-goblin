@@ -48,7 +48,7 @@ export function CollapsedRightPanel({ onExpand }: CollapsedRightPanelProps) {
   else items = [{ icon: Lightbulb, label: 'Ambient' }]
 
   return (
-    <div className="flex flex-col items-center w-12 h-full bg-surface-1 border-l border-border-default py-2">
+    <div className="gg-grain flex flex-col items-center w-12 h-full bg-surface-1 border-l border-border-structure py-2">
       {/* Expand button */}
       <button
         type="button"

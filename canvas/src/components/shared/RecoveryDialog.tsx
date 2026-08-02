@@ -57,27 +57,27 @@ export function RecoveryDialog({ onDismiss }: RecoveryDialogProps) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
     >
       <div className="bg-surface-1 border border-border-subtle rounded-lg p-6 max-w-sm w-full shadow-2xl">
-        <h2 id="recovery-title" className="text-base font-semibold text-white mb-2">
+        <h2 id="recovery-title" className="text-base font-semibold text-text-primary mb-2">
           Recover Unsaved Changes?
         </h2>
         <p className="text-sm text-text-muted mb-1">
           The previous session ended without saving.
         </p>
         <p className="text-xs text-text-muted mb-4">
-          Autosave from: <span className="text-white">{savedAtStr}</span>
+          Autosave from: <span className="text-text-primary">{savedAtStr}</span>
           {' — '}
-          <span className="text-white">{entry.data.mapSettings.name}</span>
+          <span className="text-text-primary">{entry.data.mapSettings.name}</span>
         </p>
         <div className="flex gap-3 justify-end">
           <button
             onClick={handleDiscard}
-            className="px-3 py-1.5 text-sm rounded bg-surface-2 text-text-muted hover:text-white transition-colors"
+            className="px-3 py-1.5 text-sm rounded bg-surface-2 text-text-muted hover:text-text-primary transition-colors"
           >
             Discard
           </button>
           <button
             onClick={handleRestore}
-            className="px-3 py-1.5 text-sm rounded bg-accent text-white hover:bg-accent/80 transition-colors"
+            className="px-3 py-1.5 text-sm rounded bg-accent-active text-on-accent hover:bg-accent-active/85 transition-colors"
           >
             Restore
           </button>

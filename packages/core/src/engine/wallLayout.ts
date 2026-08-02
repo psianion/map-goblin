@@ -95,8 +95,24 @@ const DEFAULTS = {
   overlap: DEFAULT_WALL_OVERLAP,
 };
 
-/** Below this turn the vertex is treated as straight-through. */
-const STRAIGHT_EPS = 4 * (Math.PI / 180);
+/**
+ * Below this turn the vertex is treated as straight-through: no junction, and
+ * the run simply bends through it.
+ *
+ * Set well above a tessellation step on purpose. Curve-mode walls arrive as
+ * dozens of Catmull-Rom samples a third of a cell apart, each turning 5-20°.
+ * At the old 4° every one of those earned its own cover stone AND cut the
+ * spine into micro-edges that each force-fitted a stone of their own — two
+ * strands of masonry tracing one wave. Anything gentler than this is inside
+ * what a run of stones can follow; anything sharper is a real corner.
+ */
+const STRAIGHT_EPS = 20 * (Math.PI / 180);
+
+/**
+ * How far a rigid piece may bow off a curving spine before the run has to use
+ * shorter pieces, as a fraction of the band's own thickness.
+ */
+const MAX_CHORD_SAG = 0.25;
 
 /**
  * Below this turn a vertex is carried by the cover stone alone; at or above it
@@ -274,6 +290,165 @@ function nearestNode(nodes: WallNode[], t: number, tolerance: number): number {
 }
 
 /**
+ * Widest seam left alone, as a fraction of the band's thickness. Stones are
+ * irregular, so a hairline between two of them reads as mortar rather than a
+ * hole; anything wider than this is floor showing through a wall.
+ */
+const GAP_TOLERANCE = 0.1;
+
+/** How far a node's painted stone reaches from its centre toward `dir`. */
+function nodeReach(node: WallNode, spec: WallPieceSpec, wallWidth: number, dir: number): number {
+  const [sx, sy] = nodeSpriteScale(node, spec, wallWidth);
+  return extentToward((spec.lengthPx * sx) / 2, (spec.thicknessPx * sy) / 2, node.angle, dir);
+}
+
+/**
+ * Close any seam an edit has torn open, by laying more of the same stone.
+ *
+ * Dragging a node stretches its two seams; nothing downstream re-runs the fit,
+ * so the wall used to end up with floor showing through it. Rather than plumb
+ * an insert into the drag, the seams are simply measured here and filled — so
+ * a stone dragged, nudged, resized, removed or seam-adjusted all close the same
+ * way, and none of it is stored, so the drag stays one undo step.
+ *
+ * The filler is the leading stone's own piece, which is what makes a Tab swap
+ * on either neighbour carry into the stones that bridge to it.
+ */
+function fillNodeGaps(
+  nodes: WallNode[],
+  /**
+   * Nodes the DM dragged. Only their seams are filled: a stone deleted, or a
+   * seam widened with the gap keys, was opened on purpose and must stay open.
+   */
+  dragged: Set<WallNode>,
+  /**
+   * Spine positions of stones the DM deleted. A seam straddling one of them is
+   * a hole that was asked for, so it is left alone even when a dragged stone
+   * flanks it — otherwise Delete on a bridged stone bridged it straight back.
+   */
+  removedTs: number[],
+  specs: Map<string, WallPieceSpec>,
+  wallWidth: number,
+  overlap: number,
+): WallNode[] {
+  const out: WallNode[] = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const a = nodes[i];
+    out.push(a);
+    const b = nodes[i + 1];
+    if (!b) continue;
+    if (!dragged.has(a) && !dragged.has(b)) continue;
+    if (removedTs.some((t) => t >= Math.min(a.t, b.t) && t <= Math.max(a.t, b.t))) continue;
+    const specA = specs.get(a.pieceId);
+    const specB = specs.get(b.pieceId);
+    if (!specA || !specB) continue;
+
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const d = Math.hypot(dx, dy);
+    if (d < 1e-9) continue;
+    const dir = Math.atan2(dy, dx);
+    const gap =
+      d - nodeReach(a, specA, wallWidth, dir) - nodeReach(b, specB, wallWidth, dir + Math.PI);
+    if (gap <= wallWidth * GAP_TOLERANCE) continue;
+
+    // Bridge with the leading stone's piece, at its size. End caps and corners
+    // are placed for a role, so a seam next to one borrows the other side.
+    const donor = a.kind === 'ending' || a.kind === 'corner' ? b : a;
+    const spec = donor === a ? specA : specB;
+    const len = pieceWorldLength(spec, wallWidth) * donor.sizeScale;
+    if (len <= 0) continue;
+    const step = len * (1 - overlap);
+    const count = Math.min(Math.ceil(gap / step), 64);
+    const start = d - nodeReach(b, specB, wallWidth, dir + Math.PI) - gap;
+    for (let k = 0; k < count; k++) {
+      const along = start + ((k + 0.5) * gap) / count;
+      out.push({
+        t: a.t + ((b.t - a.t) * along) / d,
+        x: a.x + Math.cos(dir) * along,
+        y: a.y + Math.sin(dir) * along,
+        angle: dir,
+        pieceId: donor.pieceId,
+        scale: 1,
+        sizeScale: donor.sizeScale,
+        kind: 'inserted',
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Re-piece the stones a drag has bent into a real corner.
+ *
+ * Auto-layout decides cornerstones from the spine's own vertices, which a hand
+ * drag never touches — so a stone pulled out of line left two straights meeting
+ * at an angle with nothing sitting in the elbow. This asks the same question of
+ * the *resolved* run: what turn does the band actually make at this stone now?
+ * The answer is fed through the very rules the layout pass uses — an authored
+ * elbow when the turn is close to what one was drawn for, otherwise the layout's
+ * own cornerstone rotation from `capAngleFor`.
+ *
+ * The dragged stones and their immediate neighbours are all asked, because a
+ * drag bends the band at the stones either side of it just as much as at the one
+ * under the pointer.
+ *
+ * Precedence: at a stone that now sits in a corner the corner piece wins over a
+ * hand-picked one. Anywhere else the run is left exactly as edited, so a Tab
+ * swap on a stone that is merely near the bend survives.
+ */
+function applyCornerPieces(
+  nodes: WallNode[],
+  dragged: Set<WallNode>,
+  pieces: WallPieceSpec[],
+  elbowTol: number,
+): void {
+  const elbows = pieces.filter((p) => p.role === 'corner');
+  const affected = new Set<number>();
+  for (let i = 0; i < nodes.length; i++) {
+    if (dragged.has(nodes[i])) {
+      affected.add(i - 1);
+      affected.add(i);
+      affected.add(i + 1);
+    }
+  }
+
+  for (const i of affected) {
+    const node = nodes[i];
+    const prev = nodes[i - 1];
+    const next = nodes[i + 1];
+    if (!node || !prev || !next) continue;
+
+    const inAng = Math.atan2(node.y - prev.y, node.x - prev.x);
+    const outAng = Math.atan2(next.y - node.y, next.x - node.x);
+    const turn = norm(outAng - inAng);
+    // Below this the band simply bends through the stone — the same judgement
+    // capAngleFor makes about a drawn vertex, so a gentle drag reads as a curve
+    // rather than sprouting cornerstones along it.
+    if (Math.abs(turn) < ARM_TURN_MIN) continue;
+
+    const elbow = elbows.find(
+      (p) => Math.abs(Math.abs(turn) - (p.authoredTurn ?? Math.PI / 2)) <= elbowTol,
+    );
+    if (elbow) {
+      // Same arm-picking rule as the layout pass: rotating by the incoming angle
+      // puts an arm on the wrong side half the time.
+      const back = norm(inAng + Math.PI);
+      node.pieceId = elbow.id;
+      node.angle = norm(outAng - back) > 0 ? back : outAng;
+    } else {
+      const bx = Math.cos(inAng) + Math.cos(outAng);
+      const by = Math.sin(inAng) + Math.sin(outAng);
+      const through = Math.hypot(bx, by) < 1e-9 ? inAng : Math.atan2(by, bx);
+      node.angle = capAngleFor(through, turn);
+    }
+    // Kind, not just the piece: fillNodeGaps refuses to bridge with a corner's
+    // stone, which is what keeps the seams either side using the straights.
+    node.kind = 'corner';
+  }
+}
+
+/**
  * Overlay the DM's manual adjustments on an auto-generated node run.
  *
  * Pure, and separate from layoutWall on purpose: auto-layout stays the same
@@ -288,18 +463,27 @@ export function applyWallEdits(
   nodes: WallNode[],
   edits: WallEdits | undefined,
   tolerance = EDIT_REATTACH_TOLERANCE,
+  /**
+   * Pieces of the wall's set. Given them, an edit that opens a seam wider than
+   * the stones can cover is bridged with more of the same — see fillNodeGaps.
+   * Omitted, the nodes come back exactly as edited.
+   */
+  fill?: {
+    pieces: WallPieceSpec[];
+    wallWidth: number;
+    overlap?: number;
+    elbowTolerance?: number;
+  },
 ): WallNode[] {
   if (!edits) return nodes;
   const { nodeEdits, spanEdits, nodeInserts } = edits;
   if (!nodeEdits?.length && !spanEdits?.length && !nodeInserts?.length) return nodes;
 
   let out = nodes.map((n) => ({ ...n }));
+  const dragged = new Set<WallNode>();
 
-  for (const edit of nodeEdits ?? []) {
-    const i = nearestNode(out, edit.t, tolerance);
-    if (i < 0) continue;
-    const node = out[i];
-    if (edit.removed) { node.removed = true; continue; }
+  const apply = (node: WallNode, edit: WallNodeEdit): void => {
+    if (edit.removed) { node.removed = true; return; }
     if (edit.pieceId !== undefined) node.pieceId = edit.pieceId;
     if (edit.rotate !== undefined) node.angle += edit.rotate;
     // Onto sizeScale, not scale: a resize must not be mistaken for the run's
@@ -307,6 +491,24 @@ export function applyWallEdits(
     if (edit.scale !== undefined) node.sizeScale *= edit.scale;
     if (edit.dx !== undefined) node.x += edit.dx;
     if (edit.dy !== undefined) node.y += edit.dy;
+    if (edit.dx || edit.dy) dragged.add(node);
+  };
+
+  /**
+   * An edit anchored exactly on an insert belongs to that inserted stone, not
+   * to whichever auto stone happens to be nearest. Inserts do not exist yet in
+   * this pass, so those edits are held back and applied once they do — without
+   * that, a Tab on an inserted stone landed on its neighbour and every stone
+   * derived from that neighbour changed with it.
+   */
+  const ownedByInsert = (t: number): boolean =>
+    (nodeInserts ?? []).some((ins) => Math.abs(ins.t - t) < 1e-9);
+
+  for (const edit of nodeEdits ?? []) {
+    if (ownedByInsert(edit.t)) continue;
+    const i = nearestNode(out, edit.t, tolerance);
+    if (i < 0) continue;
+    apply(out[i], edit);
   }
 
   for (const span of spanEdits ?? []) {
@@ -324,10 +526,22 @@ export function applyWallEdits(
   out = out.filter((n) => !n.removed);
 
   for (const ins of nodeInserts ?? []) {
-    // Position and angle are interpolated from whichever auto nodes bracket t,
-    // so an inserted stone lands on the spine rather than at the origin.
-    const before = [...out].reverse().find((n) => n.t <= ins.t) ?? out[0];
-    const after = out.find((n) => n.t >= ins.t) ?? out[out.length - 1];
+    // Position and angle are interpolated from whichever nodes bracket t, so an
+    // inserted stone lands on the spine rather than at the origin.
+    //
+    // Chosen by t rather than by position in the array: each insert is appended
+    // to the end, so the obvious `[...out].reverse().find(t <= ins.t)` picked
+    // the previous insert whatever its t, and a second stone inserted anywhere
+    // downstream was then interpolated from the wrong pair and landed off the
+    // wall.
+    let before: WallNode | undefined;
+    let after: WallNode | undefined;
+    for (const n of out) {
+      if (n.t <= ins.t && (!before || n.t > before.t)) before = n;
+      if (n.t >= ins.t && (!after || n.t < after.t)) after = n;
+    }
+    before ??= out[0];
+    after ??= out[out.length - 1];
     if (!before || !after) continue;
     const span = after.t - before.t;
     const f = span > 1e-9 ? (ins.t - before.t) / span : 0;
@@ -344,7 +558,57 @@ export function applyWallEdits(
     });
   }
 
-  return out.sort((a, b) => a.t - b.t);
+  // Now that the inserted stones exist, the edits keyed to them can land.
+  for (const edit of nodeEdits ?? []) {
+    if (!ownedByInsert(edit.t)) continue;
+    const node = out.find((n) => n.kind === 'inserted' && Math.abs(n.t - edit.t) < 1e-9);
+    if (node) apply(node, edit);
+  }
+  out = out.filter((n) => !n.removed);
+
+  out.sort((a, b) => a.t - b.t);
+  if (!fill || dragged.size === 0) return out;
+  // Before the bridging pass, so a seam next to a freshly-made corner is filled
+  // from the straight beside it rather than from the cornerstone.
+  applyCornerPieces(out, dragged, fill.pieces, fill.elbowTolerance ?? DEFAULTS.elbowTolerance);
+  return fillNodeGaps(
+    out,
+    dragged,
+    (nodeEdits ?? []).filter((e) => e.removed).map((e) => e.t),
+    new Map(fill.pieces.map((p) => [p.id, p])),
+    fill.wallWidth,
+    fill.overlap ?? DEFAULT_WALL_OVERLAP,
+  );
+}
+
+/**
+ * A floor ring's edits as the engine should read them: cosmetic only.
+ *
+ * A stone on a floor-derived ring stands ON the outline, so moving it is a
+ * change to the floor's own geometry and is written as one — see
+ * `ringStoneDrag`. A dx/dy on a ring can therefore only be left over from
+ * before that rework, where it slid the stone off the boundary it edges while
+ * the boundary stayed put. Rotation, resize, piece choice and removal are
+ * genuinely cosmetic and survive untouched.
+ */
+export function withoutNodeOffsets(edits: WallEdits | undefined): WallEdits | undefined {
+  const nodeEdits = edits?.nodeEdits;
+  if (!nodeEdits?.some((e) => e.dx || e.dy)) return edits;
+  const kept: WallNodeEdit[] = [];
+  for (const e of nodeEdits) {
+    const rest: WallNodeEdit = { ...e };
+    delete rest.dx;
+    delete rest.dy;
+    if (
+      rest.pieceId !== undefined ||
+      rest.removed ||
+      (rest.rotate ?? 0) !== 0 ||
+      (rest.scale ?? 1) !== 1
+    ) {
+      kept.push(rest);
+    }
+  }
+  return { ...edits, nodeEdits: kept };
 }
 
 /**
@@ -558,7 +822,15 @@ export function layoutWall(
   }
   if (edges.length === 0) return [];
 
-  const total = edges.reduce((s, e) => s + e.len, 0);
+  // Arc-length index of the spine. Runs are laid out against this rather than
+  // per edge, so a chain of short edges is one continuous row of stones.
+  const edgeStart: number[] = [];
+  let acc = 0;
+  for (const e of edges) {
+    edgeStart.push(acc);
+    acc += e.len;
+  }
+  const total = acc;
 
   // ── Junction pass ──
   // A vertex joins edge i-1 to edge i. Closed walls have one per edge; open
@@ -647,7 +919,6 @@ export function layoutWall(
   }
 
   const nodes: WallNode[] = [];
-  let travelled = 0;
 
   const push = (
     x: number, y: number, angle: number, pieceId: string, scale: number,
@@ -662,83 +933,168 @@ export function layoutWall(
     push(e.a.x, e.a.y, e.ang + Math.PI, endings[0].id, 1, 'ending', 0);
   }
 
-  for (let i = 0; i < edges.length; i++) {
+  // ── Vertex pieces ──
+  for (const [i, j] of junctions) {
     const e = edges[i];
-    const startJ = junctions.get(i);
-    const endJ = junctions.get((i + 1) % edges.length);
+    const travelled = edgeStart[i];
+    const vx = e.a.x;
+    const vy = e.a.y;
+    if (j.elbow) {
+      // Authored elbows are drawn with arms at 0° and +90°. The two
+      // directions the arms must cover are: back along the incoming edge, and
+      // forward along the outgoing edge. Rotating by the incoming angle (the
+      // obvious guess) puts an arm on the wrong side half the time — which
+      // way round depends on the turn's sign, so pick the arm that lands the
+      // other one 90° away.
+      const prev = edges[(i - 1 + edges.length) % edges.length];
+      const back = norm(prev.ang + Math.PI);
+      const fwd = e.ang;
+      const rot = norm(fwd - back) > 0 ? back : fwd;
+      push(vx, vy, rot, j.elbow.id, 1, 'corner', travelled);
+    } else if (j.fan) {
+      // One cover stone on the vertex, one angled stone along each arm.
+      // Everything is placed at natural size: the earlier approach fitted
+      // several pieces to a fillet arc and scaled them to fit, which squashed
+      // the stones badly once the turn got acute and the arc got short.
+      // Pushed in spatial order (in-arm, cap, out-arm) so downstream code can
+      // treat the node list as a walk along the wall.
+      const { cap, armIn, armOut, capAngle, dIn, dOut } = j.fan;
+      const prev = edges[(i - 1 + edges.length) % edges.length];
 
-    // Reserve the vertex regions at both ends of this edge. This edge leaves
-    // the junction at its head and arrives at the junction at its tail, so it
-    // takes the outgoing reserve of one and the incoming reserve of the other.
-    const headReserve = startJ ? startJ.reachOut : 0;
-    const tailReserve =
-      endJ && (closed || i + 1 < edges.length) ? endJ.reachIn : 0;
-
-    // ── Vertex at the head of this edge ──
-    if (startJ) {
-      const vx = e.a.x;
-      const vy = e.a.y;
-      if (startJ.elbow) {
-        // Authored elbows are drawn with arms at 0° and +90°. The two
-        // directions the arms must cover are: back along the incoming edge, and
-        // forward along the outgoing edge. Rotating by the incoming angle (the
-        // obvious guess) puts an arm on the wrong side half the time — which
-        // way round depends on the turn's sign, so pick the arm that lands the
-        // other one 90° away.
-        const prev = edges[(i - 1 + edges.length) % edges.length];
-        const back = norm(prev.ang + Math.PI);
-        const fwd = e.ang;
-        const rot = norm(fwd - back) > 0 ? back : fwd;
-        push(vx, vy, rot, startJ.elbow.id, 1, 'corner', travelled);
-      } else if (startJ.fan) {
-        // One cover stone on the vertex, one angled stone along each arm.
-        // Everything is placed at natural size: the earlier approach fitted
-        // several pieces to a fillet arc and scaled them to fit, which squashed
-        // the stones badly once the turn got acute and the arc got short.
-        // Pushed in spatial order (in-arm, cap, out-arm) so downstream code can
-        // treat the node list as a walk along the wall.
-        const { cap, armIn, armOut, capAngle, dIn, dOut } = startJ.fan;
-        const prev = edges[(i - 1 + edges.length) % edges.length];
-
-        // Each stone gets the spine position it actually occupies, so the three
-        // carry DISTINCT t values. Giving all three the vertex's t made them
-        // indistinguishable to edit lookup, which keys on t — every drag landed
-        // on whichever one came first, so two of the three could never be moved.
-        // The in-arm sits before the vertex, which is behind the start of this
-        // edge; on a closed wall that wraps onto the last edge.
-        if (armIn) {
-          const atIn = closed
-            ? (travelled - dIn + total) % total
-            : Math.max(0, travelled - dIn);
-          push(
-            vx - Math.cos(prev.ang) * dIn, vy - Math.sin(prev.ang) * dIn,
-            prev.ang, armIn.id, 1, 'fan', atIn,
-          );
-        }
-        // Natural size, so it matches the grain of the stones either side of it.
-        push(vx, vy, capAngle, cap.id, 1, 'fan', travelled);
-        if (armOut) {
-          push(
-            vx + Math.cos(e.ang) * dOut, vy + Math.sin(e.ang) * dOut,
-            e.ang, armOut.id, 1, 'fan', travelled + dOut,
-          );
-        }
+      // Each stone gets the spine position it actually occupies, so the three
+      // carry DISTINCT t values. Giving all three the vertex's t made them
+      // indistinguishable to edit lookup, which keys on t — every drag landed
+      // on whichever one came first, so two of the three could never be moved.
+      // The in-arm sits before the vertex, which is behind the start of this
+      // edge; on a closed wall that wraps onto the last edge.
+      if (armIn) {
+        const atIn = closed
+          ? (travelled - dIn + total) % total
+          : Math.max(0, travelled - dIn);
+        push(
+          vx - Math.cos(prev.ang) * dIn, vy - Math.sin(prev.ang) * dIn,
+          prev.ang, armIn.id, 1, 'fan', atIn,
+        );
+      }
+      // Natural size, so it matches the grain of the stones either side of it.
+      push(vx, vy, capAngle, cap.id, 1, 'fan', travelled);
+      if (armOut) {
+        push(
+          vx + Math.cos(e.ang) * dOut, vy + Math.sin(e.ang) * dOut,
+          e.ang, armOut.id, 1, 'fan', travelled + dOut,
+        );
       }
     }
+  }
 
-    // ── Straight run between the two reserved vertex regions ──
-    const runLength = e.len - headReserve - tailReserve;
-    const filled = fillRun(runLength, straights, wallWidth, overlap, seed, i * 1013);
-    let along = headReserve;
+  // ── Straight runs ──
+  //
+  // A run spans everything between two reserved vertex regions, crossing as
+  // many edges as it likes. Laying one run per edge instead was what doubled
+  // curve-mode walls: every tessellation edge is shorter than the shortest
+  // stone, so each one squeezed in a piece of its own on top of its
+  // neighbours' — and each piece pointed along its own edge, so the overrun
+  // fanned off the curve as a second strand.
+
+  const wrap = (s: number) =>
+    closed ? ((s % total) + total) % total : Math.min(Math.max(s, 0), total);
+
+  /** Point on the spine at arc length `s`. */
+  const pointAt = (sIn: number): Point => {
+    const s = wrap(sIn);
+    let i = edges.length - 1;
+    while (i > 0 && edgeStart[i] > s) i--;
+    const e = edges[i];
+    const u = Math.min(Math.max(s - edgeStart[i], 0), e.len);
+    return { x: e.a.x + Math.cos(e.ang) * u, y: e.a.y + Math.sin(e.ang) * u };
+  };
+
+  const turnAt = (i: number) =>
+    Math.abs(norm(edges[i].ang - edges[(i - 1 + edges.length) % edges.length].ang));
+
+  /**
+   * Longest piece a run can use without bowing off its own spine.
+   *
+   * Two estimates, whichever is tighter: the run's average curvature (sagitta
+   * of a chord across a circular arc), and its sharpest single kink. A run
+   * with no interior vertices is straight and gets no limit at all, so square
+   * rooms lay exactly the stones they always did.
+   *
+   * ponytail: one limit for the whole run, so a long straight stretch that
+   * ends in a bend uses the bend's stone size throughout. Split the run at
+   * curvature changes if that ever reads as too fussy.
+   */
+  const pieceLimit = (s0: number, len: number): number => {
+    let sum = 0;
+    let peak = 0;
+    for (let i = closed ? 0 : 1; i < edges.length; i++) {
+      const at = closed && edgeStart[i] < s0 ? edgeStart[i] + total : edgeStart[i];
+      if (at <= s0 + 1e-9 || at >= s0 + len - 1e-9) continue;
+      const t = turnAt(i);
+      sum += t;
+      peak = Math.max(peak, t);
+    }
+    const sag = wallWidth * MAX_CHORD_SAG;
+    const byArc = sum > 1e-6 ? Math.sqrt((8 * sag * len) / sum) : Infinity;
+    const byKink = peak > 1e-6 ? (2 * sag) / Math.sin(peak / 2) : Infinity;
+    return Math.min(byArc, byKink);
+  };
+
+  const runs: { s0: number; len: number }[] = [];
+  const js = [...junctions.entries()].sort((a, b) => a[0] - b[0]);
+  if (js.length === 0) {
+    runs.push({ s0: 0, len: total });
+  } else if (closed) {
+    for (let k = 0; k < js.length; k++) {
+      const [i, j] = js[k];
+      const [ni, nj] = js[(k + 1) % js.length];
+      const s0 = edgeStart[i] + j.reachOut;
+      const end = (k + 1 < js.length ? edgeStart[ni] : edgeStart[js[0][0]] + total) - nj.reachIn;
+      runs.push({ s0, len: end - s0 });
+    }
+  } else {
+    let cursor = 0;
+    for (const [i, j] of js) {
+      runs.push({ s0: cursor, len: edgeStart[i] - j.reachIn - cursor });
+      cursor = edgeStart[i] + j.reachOut;
+    }
+    runs.push({ s0: cursor, len: total - cursor });
+  }
+
+  const shortestStraight = [...straights].sort(
+    (a, b) => pieceWorldLength(a, wallWidth) - pieceWorldLength(b, wallWidth),
+  )[0];
+
+  for (let r = 0; r < runs.length; r++) {
+    const { s0, len } = runs[r];
+    if (len <= 0) continue;
+    const limit = pieceLimit(s0, len);
+    const usable = straights.filter((p) => pieceWorldLength(p, wallWidth) <= limit);
+    const filled = fillRun(
+      len,
+      usable.length > 0 ? usable : [shortestStraight],
+      wallWidth, overlap, seed, r * 1013,
+    );
+    let along = 0;
     for (const { piece, scale } of filled) {
       const wl = pieceWorldLength(piece, wallWidth) * scale;
-      const cx = e.a.x + Math.cos(e.ang) * (along + wl / 2);
-      const cy = e.a.y + Math.sin(e.ang) * (along + wl / 2);
-      push(cx, cy, e.ang, piece.id, scale, 'straight', travelled + along + wl / 2);
+      // Placed on the chord between the two spine points it spans, so a piece
+      // that crosses a gentle bend sits on the wall instead of shooting off it.
+      const p0 = pointAt(s0 + along);
+      const p1 = pointAt(s0 + along + wl);
+      const chord = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+      const mid = pointAt(s0 + along + wl / 2);
+      const angle =
+        chord > wl * 0.2
+          ? Math.atan2(p1.y - p0.y, p1.x - p0.x)
+          : Math.atan2(mid.y - p0.y, mid.x - p0.x);
+      push(
+        chord > wl * 0.2 ? (p0.x + p1.x) / 2 : mid.x,
+        chord > wl * 0.2 ? (p0.y + p1.y) / 2 : mid.y,
+        angle, piece.id, scale, 'straight', wrap(s0 + along + wl / 2),
+      );
       along += wl * (1 - overlap);
     }
-
-    travelled += e.len;
   }
 
   // ── Closing end cap ──
@@ -747,5 +1103,7 @@ export function layoutWall(
     push(e.b.x, e.b.y, e.ang, endings[0].id, 1, 'ending', total);
   }
 
-  return nodes;
+  // Vertex pieces and runs are pushed in separate passes, so put the list back
+  // into spine order — downstream treats it as a walk along the wall.
+  return nodes.sort((a, b) => a.t - b.t);
 }

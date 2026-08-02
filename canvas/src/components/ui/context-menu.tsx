@@ -53,7 +53,7 @@ export function ContextMenu({
     <div
       ref={ref}
       role="menu"
-      className="fixed z-50 min-w-[160px] bg-surface-1 border border-border-default rounded-md shadow-lg py-1"
+      className="gg-grain fixed z-50 min-w-[160px] bg-surface-1 border border-border-structure rounded-md shadow-panel py-1"
       style={{ left: pos.x, top: pos.y }}
     >
       {items.map((item, i) => (
@@ -67,7 +67,7 @@ export function ContextMenu({
               item.onSelect()
             }}
             className={cn(
-              'w-full text-left px-3 py-1.5 text-sm hover:bg-surface-2 transition-colors',
+              'w-full text-left px-3 py-1.5 text-sm gg-row',
               item.danger ? 'text-danger' : 'text-text-primary',
             )}
           >
