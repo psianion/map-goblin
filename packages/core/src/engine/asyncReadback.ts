@@ -59,7 +59,15 @@ async function readRaw(
   width: number,
   height: number,
 ): Promise<Uint8Array> {
-  renderer.renderTarget.bind(rt);
+  // Bind the READ framebuffer exactly the way Pixi's own GlTextureSystem
+  // .getPixels does. renderTarget.bind() is the *rendering* path — it can
+  // clear the surface, which turns this readback into all-zeros.
+  const targetSystem = renderer.renderTarget as unknown as {
+    getRenderTarget(t: RenderTexture): unknown;
+    getGpuRenderTarget(t: unknown): { resolveTargetFramebuffer: WebGLFramebuffer };
+  };
+  const glTarget = targetSystem.getGpuRenderTarget(targetSystem.getRenderTarget(rt));
+  gl.bindFramebuffer(gl.FRAMEBUFFER, glTarget.resolveTargetFramebuffer);
   const buf = gl.createBuffer();
   if (!buf) throw new Error('createBuffer failed');
   gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buf);
