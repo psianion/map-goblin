@@ -14,19 +14,18 @@ import { useStore } from '../../store/store';
 import { DEFAULT_TERRAIN_PALETTE } from '../../store/slices/mapSettings';
 import * as textureLoader from '../../assets/textureLoader';
 import { getTextureEntry } from '../../assets/textureManifest';
+import { readPixelsAsync, warmupReadback } from '../asyncReadback';
+import {
+  SPLAT_SIZE,
+  TERRAIN_EXTENT_HALF,
+  TERRAIN_SLOTS,
+  TEXELS_PER_CELL,
+  WORLD_SIZE,
+  splatRegionsEqual,
+} from './terrainShared';
+import { SplatWorkerClient } from './splatWorkerClient';
 
-/** Half-extent of the paintable terrain region in world units (grid cells). */
-export const TERRAIN_EXTENT_HALF = 64;
-/** Splatmap resolution — 2048 texels over 128 cells = 16 texels/cell. */
-export const SPLAT_SIZE = 2048;
-/** Number of paintable terrain slots (2 splatmaps × RGB channels). */
-export const TERRAIN_SLOTS = 6;
-
-/** customImages keys the splat bitmaps persist under (ride the existing save/embed pipeline). */
-export const SPLAT_IMAGE_KEYS = ['__terrain-splat-0__', '__terrain-splat-1__'] as const;
-
-const WORLD_SIZE = TERRAIN_EXTENT_HALF * 2;
-const TEXELS_PER_CELL = SPLAT_SIZE / WORLD_SIZE;
+export { SPLAT_IMAGE_KEYS, SPLAT_SIZE, TERRAIN_EXTENT_HALF, TERRAIN_SLOTS } from './terrainShared';
 /** Max size for extracted palette tile textures (memory cap). */
 const MAX_TILE_EXTRACT = 1024;
 /** Channel tints for additive single-channel painting. */
@@ -152,13 +151,15 @@ export class TerrainRenderer {
   private loadedPaletteKey = '';
   /** Bumped per loadPalette() call so a slow load can tell it has been superseded. */
   private paletteToken = 0;
-  /** Bumped per restoreFromDataUrl() call, per splat, for the same reason. */
-  private restoreTokens = [0, 0];
-  /** Which splats changed since the last persist — clean ones skip the PNG encode. */
-  private splatDirty = [false, false];
+  /** Bumped per restoreFromStore() call so a slow decode can tell it has been superseded. */
+  private restoreToken = 0;
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Data URLs we wrote to the store — used to tell our own writes from map loads. */
-  private lastPersisted: (string | null)[] = [null, null];
+  /** In-flight worker flush — save paths await it; a new flush queues behind it. */
+  private flushChain: Promise<void> = Promise.resolve();
+  /** True while we write terrainSplats ourselves — the store watcher skips those. */
+  private ownSplatsWrite = false;
+  /** Lazy — a map that never paints terrain never spawns the worker. */
+  private splatWorker: SplatWorkerClient | null = null;
   private unsubscribers: (() => void)[] = [];
   private destroyed = false;
 
@@ -169,6 +170,18 @@ export class TerrainRenderer {
 
     this.buildMesh();
     this.watchStore();
+    // Probe readback orientation now so endStroke() can issue its GPU reads
+    // synchronously before the stroke backup is reused.
+    try {
+      warmupReadback(this.engine.renderer());
+    } catch {
+      // Renderer not ready — the first endStroke calibrates instead.
+    }
+  }
+
+  private worker(): SplatWorkerClient {
+    if (!this.splatWorker) this.splatWorker = new SplatWorkerClient();
+    return this.splatWorker;
   }
 
   /** Allocate the splatmaps on first use and bind them to the shader. */
@@ -401,8 +414,12 @@ export class TerrainRenderer {
     this.strokeDirty = d;
   }
 
-  /** Snapshot the stroke's dirty region from backup (before) and live (after) RTs. */
-  endStroke(): StrokeRegionSnapshot[] {
+  /**
+   * Snapshot the stroke's dirty region from backup (before) and live (after)
+   * RTs. All four GPU reads are *issued* synchronously here (so the backup RT
+   * can be safely reused by the next stroke); only the copy-back is awaited.
+   */
+  async endStroke(): Promise<StrokeRegionSnapshot[]> {
     const d = this.strokeDirty;
     this.strokeDirty = null;
     if (!d) return [];
@@ -417,21 +434,34 @@ export class TerrainRenderer {
 
     const rect = { x, y, width, height };
     const frame = new Rectangle(x, y, width, height);
-    const snapshots: StrokeRegionSnapshot[] = [];
 
+    // Issue every read before awaiting any of them.
+    const reads: Promise<Uint8Array>[] = [];
     for (const rtIndex of [0, 1] as const) {
       // "before" pixels come from the backup copied at beginStroke —
       // the backup is double-height: rt0 at y=0, rt1 at y=SPLAT_SIZE.
       const backupFrame = new Rectangle(x, y + rtIndex * SPLAT_SIZE, width, height);
-      const before = this.extractRegion(this.strokeBackup!, backupFrame);
-      const after = this.extractRegion(this.splats()[rtIndex], frame);
-      if (!this.regionsEqual(before, after)) {
+      reads.push(this.extractRegion(this.strokeBackup!, backupFrame));
+      reads.push(this.extractRegion(this.splats()[rtIndex], frame));
+    }
+    const [before0, after0, before1, after1] = await Promise.all(reads);
+    if (this.destroyed) return [];
+
+    const snapshots: StrokeRegionSnapshot[] = [];
+    const pairs: [0 | 1, Uint8Array, Uint8Array][] = [
+      [0, before0, after0],
+      [1, before1, after1],
+    ];
+    for (const [rtIndex, before, after] of pairs) {
+      if (!splatRegionsEqual(before, after)) {
         snapshots.push({ rtIndex, rect, before, after });
-        this.splatDirty[rtIndex] = true;
+        this.worker().patch(rtIndex, rect, after);
       }
     }
 
-    this.schedulePersist();
+    // Scheduled only after the patches are posted — the worker's message queue
+    // then guarantees the flush sees them.
+    if (snapshots.length > 0) this.schedulePersist();
     return snapshots;
   }
 
@@ -456,10 +486,12 @@ export class TerrainRenderer {
   }
 
   /**
-   * Read back an RT region. extract.pixels' `frame` option is unreliable for
-   * RenderTextures, so blit the region into a small temp RT and extract that.
+   * Read back an RT region without stalling the GPU pipeline. extract.pixels'
+   * `frame` option is unreliable for RenderTextures, so blit the region into
+   * a small temp RT first; the blit and the readback *issue* are synchronous,
+   * the wait for the bytes is not.
    */
-  private extractRegion(rt: RenderTexture, frame: Rectangle): Uint8Array {
+  private async extractRegion(rt: RenderTexture, frame: Rectangle): Promise<Uint8Array> {
     const temp = RenderTexture.create({ width: frame.width, height: frame.height, resolution: 1 });
     const regionTex = new Texture({ source: rt.source, frame });
     const sprite = new Sprite(regionTex);
@@ -469,24 +501,11 @@ export class TerrainRenderer {
     this.engine.renderToTexture(holder, temp, true);
     holder.destroy({ children: true });
     regionTex.destroy();
-    const { pixels, width, height } = this.engine.renderer().extract.pixels({ target: temp });
-    temp.destroy(true);
-    const out = new Uint8Array(width * height * 4);
-    out.set(pixels.subarray(0, out.length));
-    return out;
-  }
-
-  /**
-   * RGB-only compare: the shader reads .rgb and ignores alpha, and every paint
-   * stamp writes alpha to both splatmaps even where it changes no weights —
-   * comparing alpha would snapshot (and persist) the untouched map every stroke.
-   */
-  private regionsEqual(a: Uint8Array, b: Uint8Array): boolean {
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      if (i % 4 !== 3 && a[i] !== b[i]) return false;
+    try {
+      return await readPixelsAsync(this.engine.renderer(), temp, frame.width, frame.height);
+    } finally {
+      temp.destroy(true);
     }
-    return true;
   }
 
   /** Write raw RGBA pixels back into a splatmap region (undo/redo restore). */
@@ -506,7 +525,8 @@ export class TerrainRenderer {
     this.engine.renderToTexture(holder, this.splats()[rtIndex], false);
     holder.destroy({ children: true });
     texture.destroy(true);
-    this.splatDirty[rtIndex] = true;
+    // Undo/redo already has the pixels — mirror them into the worker copy.
+    this.worker().patch(rtIndex, rect, pixels);
     this.schedulePersist();
   }
 
@@ -527,116 +547,107 @@ export class TerrainRenderer {
     this.strokeDirty = null;
   }
 
-  /**
-   * Non-empty AABB of a splat readback, in world units, or null if it's blank.
-   * Matches the shader's `rgb sum < 0.004` cutoff so bounds track what's drawn.
-   */
-  private splatBounds(pixels: Uint8Array, size: number) {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (let i = 0, p = 0; i < pixels.length; i += 4, p++) {
-      if (pixels[i] + pixels[i + 1] + pixels[i + 2] < 1) continue;
-      const x = p % size;
-      const y = (p / size) | 0;
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-    }
-    if (!isFinite(minX)) return null;
-    const toWorld = (t: number) => t / TEXELS_PER_CELL - TERRAIN_EXTENT_HALF;
-    return {
-      minX: toWorld(minX),
-      minY: toWorld(minY),
-      maxX: toWorld(maxX + 1),
-      maxY: toWorld(maxY + 1),
-    };
-  }
-
   // ─── Persistence ─────────────────────────────────────────
 
-  /** Debounced: encode splat RTs to PNG data URLs into assets.customImages. */
+  /**
+   * Debounced: flush the worker's splat copy — bounds scan and PNG encode
+   * both happen in the worker; the main thread only posts a message and
+   * stores the resulting Blobs.
+   */
   schedulePersist(): void {
     if (this.persistTimer) clearTimeout(this.persistTimer);
     this.persistTimer = setTimeout(() => {
       this.persistTimer = null;
-      void this.persistNow();
+      this.flushChain = this.flushChain.then(() => this.flushPersist());
     }, 1200);
   }
 
-  private async persistNow(): Promise<void> {
-    if (this.destroyed || !this.splatRTs) return;
-    const store = useStore.getState();
-
-    // Recompute painted bounds from the pixels themselves so erase and undo
-    // shrink them again — an accumulated AABB could only ever grow.
-    let bounds: { minX: number; minY: number; maxX: number; maxY: number } | null = null;
-    for (const rtIndex of [0, 1] as const) {
-      const { pixels, width } = this.engine.renderer().extract.pixels({ target: this.splatRTs[rtIndex] });
-      const b = this.splatBounds(pixels as unknown as Uint8Array, width);
-      if (!b) continue;
-      bounds = bounds
-        ? {
-            minX: Math.min(bounds.minX, b.minX),
-            minY: Math.min(bounds.minY, b.minY),
-            maxX: Math.max(bounds.maxX, b.maxX),
-            maxY: Math.max(bounds.maxY, b.maxY),
-          }
-        : b;
+  /**
+   * Save paths call this to get an up-to-date store before serializing:
+   * cancels the pending debounce and awaits any in-flight flush.
+   */
+  flushPersistNow(): Promise<void> {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+      this.flushChain = this.flushChain.then(() => this.flushPersist());
     }
-    store.setTerrainData({ bounds });
+    return this.flushChain;
+  }
 
-    for (const rtIndex of [0, 1] as const) {
-      if (!this.splatDirty[rtIndex]) continue;
-      try {
-        const url = await this.engine.renderer().extract.base64({
-          target: this.splatRTs[rtIndex],
-          format: 'png',
-        });
-        if (this.destroyed) return;
-        this.splatDirty[rtIndex] = false;
-        this.lastPersisted[rtIndex] = url;
-        store.addCustomImage(SPLAT_IMAGE_KEYS[rtIndex], url);
-      } catch (err) {
-        console.error('[terrain] splatmap persist failed:', err);
+  private async flushPersist(): Promise<void> {
+    if (this.destroyed || !this.splatWorker) return;
+    try {
+      const { bounds, pngs } = await this.splatWorker.flush();
+      if (this.destroyed) return;
+      const store = useStore.getState();
+      store.setTerrainData({ bounds });
+      if (pngs.length > 0) {
+        const next = [...store.terrainSplats.pngs] as [Blob | null, Blob | null];
+        for (const { rtIndex, png } of pngs) {
+          next[rtIndex] = new Blob([png], { type: 'image/png' });
+        }
+        this.ownSplatsWrite = true;
+        try {
+          store.setTerrainSplats(next);
+        } finally {
+          this.ownSplatsWrite = false;
+        }
       }
+    } catch (err) {
+      console.error('[terrain] splatmap persist failed:', err);
     }
   }
 
-  /** Blit a loaded splat image into a splat RT (map load / restore). */
-  private async restoreFromDataUrl(rtIndex: 0 | 1, url: string | null): Promise<void> {
+  /** Blit loaded splat PNGs into the splat RTs and seed the worker (map load / switch). */
+  private async restoreFromStore(pngs: [Blob | null, Blob | null]): Promise<void> {
     // An incoming bitmap supersedes anything we were about to write back, and
-    // any earlier restore still waiting on decode().
-    const token = ++this.restoreTokens[rtIndex];
+    // any earlier restore still waiting on decode.
+    const token = ++this.restoreToken;
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
     }
-    this.splatDirty[rtIndex] = false;
 
-    if (!url) {
-      if (!this.splatRTs) return; // nothing allocated = already blank
-      const empty = new Container();
-      this.engine.renderToTexture(empty, this.splatRTs[rtIndex], true);
-      empty.destroy();
-      return;
+    // Seed the worker's canonical copy (it decodes the PNG itself, off-thread).
+    // Skipped entirely for a blank map that never spawned the worker.
+    if (this.splatWorker || pngs.some(Boolean)) {
+      const w = this.worker();
+      for (const rtIndex of [0, 1] as const) {
+        const blob = pngs[rtIndex];
+        void (blob ? blob.arrayBuffer().then((buf) => w.seed(rtIndex, buf)) : w.seed(rtIndex, null));
+      }
     }
-    try {
-      const img = new Image();
-      img.src = url;
-      await img.decode();
-      if (this.destroyed || this.restoreTokens[rtIndex] !== token) return;
-      const tex = Texture.from(img);
-      const sprite = new Sprite(tex);
-      sprite.width = SPLAT_SIZE;
-      sprite.height = SPLAT_SIZE;
-      sprite.blendMode = 'none';
-      const holder = new Container();
-      holder.addChild(sprite);
-      this.engine.renderToTexture(holder, this.splats()[rtIndex], true);
-      holder.destroy({ children: true });
-      tex.destroy(true);
-    } catch (err) {
-      this.fail('splatmap restore', err);
+
+    for (const rtIndex of [0, 1] as const) {
+      const blob = pngs[rtIndex];
+      if (!blob) {
+        if (!this.splatRTs) continue; // nothing allocated = already blank
+        const empty = new Container();
+        this.engine.renderToTexture(empty, this.splatRTs[rtIndex], true);
+        empty.destroy();
+        continue;
+      }
+      try {
+        // createImageBitmap decodes off the main thread.
+        const bitmap = await createImageBitmap(blob);
+        if (this.destroyed || this.restoreToken !== token) {
+          bitmap.close();
+          return;
+        }
+        const tex = Texture.from(bitmap);
+        const sprite = new Sprite(tex);
+        sprite.width = SPLAT_SIZE;
+        sprite.height = SPLAT_SIZE;
+        sprite.blendMode = 'none';
+        const holder = new Container();
+        holder.addChild(sprite);
+        this.engine.renderToTexture(holder, this.splats()[rtIndex], true);
+        holder.destroy({ children: true });
+        tex.destroy(true);
+      } catch (err) {
+        this.fail('splatmap restore', err);
+      }
     }
   }
 
@@ -656,20 +667,18 @@ export class TerrainRenderer {
 
   private watchStore(): void {
     // Splat bitmap changes from outside (map load/switch/new map)
-    for (const rtIndex of [0, 1] as const) {
-      const unsub = useStore.subscribe(
-        (s) => s.assets.customImages[SPLAT_IMAGE_KEYS[rtIndex]] ?? null,
-        (url) => {
-          if (url === this.lastPersisted[rtIndex]) return; // our own write
-          this.lastPersisted[rtIndex] = url;
-          // Fire-and-forget: an unhandled rejection here reaches no boundary (the hosts'
-          // try/catch around loadFromFile is long gone by the time it settles).
-          this.restoreFromDataUrl(rtIndex, url).catch((err) => this.fail('splatmap restore', err));
-        },
-        { fireImmediately: true },
-      );
-      this.unsubscribers.push(unsub);
-    }
+    const unsubSplats = useStore.subscribe(
+      (s) => s.terrainSplats.rev,
+      () => {
+        if (this.ownSplatsWrite) return; // our own persist write
+        const pngs = useStore.getState().terrainSplats.pngs;
+        // Fire-and-forget: an unhandled rejection here reaches no boundary (the hosts'
+        // try/catch around loadFromFile is long gone by the time it settles).
+        this.restoreFromStore(pngs).catch((err) => this.fail('splatmap restore', err));
+      },
+      { fireImmediately: true },
+    );
+    this.unsubscribers.push(unsubSplats);
 
     // Palette changes → reload tile textures
     const unsubPalette = useStore.subscribe(
@@ -683,6 +692,8 @@ export class TerrainRenderer {
   destroy(): void {
     this.destroyed = true;
     if (this.persistTimer) clearTimeout(this.persistTimer);
+    this.splatWorker?.destroy();
+    this.splatWorker = null;
     for (const unsub of this.unsubscribers) unsub();
     this.unsubscribers = [];
     // Floor quads live in layer containers, which can outlive this renderer —

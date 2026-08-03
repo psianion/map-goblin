@@ -2,7 +2,8 @@ import type { AnyChild, DoorChild, Room, WallSegment } from '@dnd/core/src/share
 import type { Role } from '@dnd/core/src/shared/protocol';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
-import { restoreCustomImages } from '@dnd/core/src/assets/textureLoader';
+import { restoreCustomImages, registerImageBlob } from '@dnd/core/src/assets/textureLoader';
+import { SPLAT_IMAGE_KEYS } from '@dnd/core/src/engine/terrain/terrainShared';
 import { endpoints } from '../endpoints';
 import { useSessionStore } from './store';
 
@@ -166,18 +167,43 @@ export function mergeMapDelta(
  * lock on the same door.
  */
 export async function loadSceneMap(sceneId: string, token: string): Promise<void> {
-  const res = await fetch(`${endpoints.httpBase}/api/maps/${encodeURIComponent(sceneId)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const headers = { Authorization: `Bearer ${token}` };
+  // `images=external` asks the server to leave the images out of the JSON and
+  // list their keys instead — megabytes of base64 stop riding the document.
+  const res = await fetch(
+    `${endpoints.httpBase}/api/maps/${encodeURIComponent(sceneId)}?images=external`,
+    { headers },
+  );
   if (!res.ok) throw new Error(`Map fetch failed: ${res.status} ${res.statusText}`);
   const data = (await res.json()) as SerializedMapData;
-  // The pictures the DM imported in the editor ride along in `customImages`, and nothing
-  // at the table had ever registered them: `GameRenderer` hands the document straight to
-  // `loadFromFile`, which resolves textures as it builds, so every imported image drew as
-  // the magenta fallback. Registered here rather than there because this is the one place
-  // that is already async — deltas reuse the initial document's images (`mergeMapDelta`
-  // spreads `...current`), so once is enough.
-  await restoreCustomImages(data.customImages);
+
+  const splatPngs: [Blob | null, Blob | null] = [null, null];
+  if (data.imageKeys?.length) {
+    // Binary, in parallel: splat bitmaps become Blobs for core's terrainSplats;
+    // imported pictures register with Pixi so the document resolves them as it
+    // builds (deltas reuse the initial document's images — once is enough).
+    // Per-image failures cost that image, not the map.
+    await Promise.all(
+      data.imageKeys.map(async (key) => {
+        const r = await fetch(
+          `${endpoints.httpBase}/api/maps/${encodeURIComponent(sceneId)}/images/${encodeURIComponent(key)}`,
+          { headers },
+        );
+        if (!r.ok) {
+          console.warn('[loadSceneMap] image fetch failed:', key, r.status);
+          return;
+        }
+        const blob = await r.blob();
+        const splatIndex = SPLAT_IMAGE_KEYS.indexOf(key as (typeof SPLAT_IMAGE_KEYS)[number]);
+        if (splatIndex >= 0) splatPngs[splatIndex as 0 | 1] = blob;
+        else await registerImageBlob(key, blob);
+      }),
+    );
+  } else {
+    // A server still answering with inline data URLs (or a map with none).
+    await restoreCustomImages(data.customImages);
+  }
+
   const store = useSessionStore.getState();
-  store.setMapData(forViewer(data, store.you?.role, sceneId));
+  store.setMapData(forViewer(data, store.you?.role, sceneId), splatPngs);
 }

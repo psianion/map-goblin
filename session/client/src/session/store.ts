@@ -52,6 +52,12 @@ export interface SessionStore {
   /** Roster changes seen this tab's lifetime, oldest first, capped. */
   presence: PresenceEvent[];
   mapData: unknown | null;
+  /**
+   * Splat PNG blobs fetched over the binary image endpoint alongside `mapData`
+   * — the document itself no longer carries them as base64. Handed to core's
+   * `loadFromFile` with the document so they land in the same store pass.
+   */
+  splatPngs: [Blob | null, Blob | null];
   /** Most recent server refusal; modules interpret it (see `useDoorFeedback`). */
   lastError: ServerError | null;
   latencyMs: number | null;
@@ -63,7 +69,7 @@ export interface SessionStore {
 
   connect: (token: string, url?: string) => void;
   disconnect: () => void;
-  setMapData: (data: unknown) => void;
+  setMapData: (data: unknown, splatPngs?: [Blob | null, Blob | null]) => void;
   setInviteCode: (code: string | null) => void;
   applyServerMessage: (msg: ServerMessage) => void;
   sendCommand: (module: string, action: string, payload: unknown) => void;
@@ -102,6 +108,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
   session: null,
   presence: [],
   mapData: null,
+  splatPngs: [null, null],
   lastError: null,
   latencyMs: null,
   client: null,
@@ -128,7 +135,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
     set({ client: null, token: null, connection: 'closed' });
   },
 
-  setMapData: (mapData) => set({ mapData }),
+  setMapData: (mapData, splatPngs) => set(splatPngs ? { mapData, splatPngs } : { mapData }),
 
   setInviteCode: (inviteCode) => set({ inviteCode }),
 
@@ -169,7 +176,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
         case 'scene-changed': {
           const session = get().session;
           if (!session) break;
-          set({ session: { ...session, activeSceneId: msg.sceneId }, mapData: null });
+          set({ session: { ...session, activeSceneId: msg.sceneId }, mapData: null, splatPngs: [null, null] });
           break;
         }
 

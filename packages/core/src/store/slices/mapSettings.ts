@@ -6,6 +6,7 @@ export interface MapSettingsActions {
   setGridType: (type: MapSettings['gridType']) => void;
   setAmbientLight: (color: string) => void;
   setTerrainData: (patch: Partial<TerrainData>) => void;
+  setTerrainSplats: (pngs: [Blob | null, Blob | null]) => void;
 }
 
 export const createMapSettingsSlice: StateCreator<
@@ -32,6 +33,11 @@ export const createMapSettingsSlice: StateCreator<
         state.mapSettings.terrain = { palette: DEFAULT_TERRAIN_PALETTE.slice(), bounds: null };
       }
       Object.assign(state.mapSettings.terrain, patch);
+    }),
+  setTerrainSplats: (pngs) =>
+    set((state) => {
+      state.terrainSplats.pngs = pngs;
+      state.terrainSplats.rev++;
     }),
 });
 

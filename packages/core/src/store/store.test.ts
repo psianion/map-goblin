@@ -90,6 +90,34 @@ describe('MapBuilderStore', () => {
     expect(useStore.getState().mapSettings.name).toBe('Loaded Map');
   });
 
+  it('loadFromFile splits inline splat data URLs into binary terrainSplats', () => {
+    const data = structuredClone(useStore.getState().getSerializableState());
+    // 1×1 transparent PNG
+    const url =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+    data.customImages = { [`__terrain-splat-0__`]: url, pic: 'data:image/png;base64,aGk=' };
+    const revBefore = useStore.getState().terrainSplats.rev;
+    useStore.getState().loadFromFile(data);
+    const s = useStore.getState();
+    // Splat left customImages, became a Blob; the ordinary picture stayed.
+    expect(s.assets.customImages['__terrain-splat-0__']).toBeUndefined();
+    expect(s.assets.customImages.pic).toBeDefined();
+    expect(s.terrainSplats.pngs[0]).toBeInstanceOf(Blob);
+    expect(s.terrainSplats.pngs[1]).toBeNull();
+    expect(s.terrainSplats.rev).toBe(revBefore + 1);
+  });
+
+  it('loadFromFile prefers caller-provided binary splats over inline entries', () => {
+    const data = structuredClone(useStore.getState().getSerializableState());
+    data.customImages = { [`__terrain-splat-0__`]: 'data:image/png;base64,aGk=' };
+    const provided: [Blob | null, Blob | null] = [null, new Blob(['x'], { type: 'image/png' })];
+    useStore.getState().loadFromFile(data, provided);
+    const s = useStore.getState();
+    expect(s.terrainSplats.pngs[0]).toBeNull();
+    expect(s.terrainSplats.pngs[1]).toBe(provided[1]);
+    expect(s.assets.customImages['__terrain-splat-0__']).toBeUndefined();
+  });
+
   it('loadFromFile v2.0 round-trips all data correctly', () => {
     const original = structuredClone(useStore.getState().getSerializableState());
     original.mapSettings.name = 'Round-Trip Map';

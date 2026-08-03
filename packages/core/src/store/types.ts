@@ -4,7 +4,7 @@ import type { Polygon } from '../types/geometry';
 
 // ─── Map Settings ─────────────────────────────────────────
 
-/** Per-map terrain paint state (splatmap metadata — bitmaps live in assets.customImages). */
+/** Per-map terrain paint state (splatmap metadata — bitmaps live in store.terrainSplats as binary). */
 export interface TerrainData {
   /** Texture ids assigned to splat slots (up to 6). null = unassigned slot. */
   palette: (string | null)[];
@@ -294,6 +294,19 @@ export interface AssetsSlice {
   customImages: Record<string, string>;
 }
 
+// ─── Terrain splat bitmaps ───────────────────────────────
+/**
+ * PNG-encoded splat bitmaps, held as binary Blobs outside the serialized
+ * document. Base64 for the .mapbuilder format is produced in the save worker
+ * at save time — data URLs of the splats never exist on the main thread.
+ */
+export interface TerrainSplatsSlice {
+  /** Index = splatmap. null = blank/never painted. */
+  pngs: [Blob | null, Blob | null];
+  /** Bumped on every write — change detection for autosave and the renderer. */
+  rev: number;
+}
+
 // ─── Packs (Asset Pack Management) ───────────────────────
 export interface PackSummary {
   packId: string;
@@ -368,6 +381,12 @@ export interface SerializedMapData {
    * files and on the DM's copy — both can measure their own.
    */
   frame?: { minX: number; minY: number; maxX: number; maxY: number } | null;
+  /**
+   * Stamped by the session server when the client asks for `?images=external`:
+   * the keys of the images it left out of `customImages`, each fetchable as
+   * binary from `GET /api/maps/:sceneId/images/:key`. Never present in files.
+   */
+  imageKeys?: string[];
 }
 
 // ─── Top-Level Store ──────────────────────────────────────
@@ -380,6 +399,7 @@ export interface MapBuilderStore {
   assets: AssetsSlice;
   selection: SelectionSlice;
   packs: PacksSlice;
+  terrainSplats: TerrainSplatsSlice;
 
   // maps state
   mapIndex: MapMeta[];
@@ -391,6 +411,7 @@ export interface MapBuilderStore {
   setGridType: (type: MapSettings['gridType']) => void;
   setAmbientLight: (color: string) => void;
   setTerrainData: (patch: Partial<TerrainData>) => void;
+  setTerrainSplats: (pngs: [Blob | null, Blob | null]) => void;
 
   // grid actions
   setGridVisible: (visible: boolean) => void;
@@ -492,7 +513,7 @@ export interface MapBuilderStore {
   duplicateMap: (id: string) => Promise<string>;
 
   // bulk / serialization
-  loadFromFile: (data: SerializedMapData) => void;
+  loadFromFile: (data: SerializedMapData, splatPngs?: [Blob | null, Blob | null]) => void;
   getSerializableState: () => SerializedMapData;
   resetToDefault: () => void;
 }

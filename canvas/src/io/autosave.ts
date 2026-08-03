@@ -66,6 +66,8 @@ interface DocumentSlices {
   grid: unknown;
   layers: readonly object[];
   assets: { customImages: unknown };
+  /** Splat bitmaps live outside customImages now — their rev is the change signal. */
+  terrainSplats: { rev: number };
 }
 
 /**
@@ -106,6 +108,7 @@ export function isDocumentChange(next: DocumentSlices, prev: DocumentSlices): bo
   if (next.mapSettings !== prev.mapSettings) return true;
   if (next.grid !== prev.grid) return true;
   if (next.assets.customImages !== prev.assets.customImages) return true;
+  if (next.terrainSplats.rev !== prev.terrainSplats.rev) return true;
   return layersDiffer(next.layers, prev.layers);
 }
 

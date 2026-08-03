@@ -7,7 +7,13 @@ import { describe, it, expect, vi } from 'vitest';
 // Mock the store to avoid loading the full Zustand chain (layers slice
 // imports commands.ts which may not exist in all branch states).
 vi.mock('@/store/store', () => ({
-  useStore: { getState: vi.fn(() => ({ getSerializableState: vi.fn(), assets: { customUploads: [] } })) },
+  useStore: {
+    getState: vi.fn(() => ({
+      getSerializableState: vi.fn(),
+      assets: { customUploads: [] },
+      terrainSplats: { pngs: [null, null], rev: 0 },
+    })),
+  },
 }));
 
 import {
@@ -92,6 +98,7 @@ describe('saveLoad — downloadMapFile', () => {
   async function captureDownload(data: SerializedMapData) {
     vi.mocked(useStore.getState).mockReturnValue({
       getSerializableState: () => data,
+      terrainSplats: { pngs: [null, null], rev: 0 },
     } as unknown as ReturnType<typeof useStore.getState>);
 
     let blob: Blob | undefined;

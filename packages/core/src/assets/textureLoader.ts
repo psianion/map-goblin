@@ -2,6 +2,7 @@ import { Assets, Rectangle, Texture } from 'pixi.js';
 import { getTextureEntry } from './textureManifest';
 import { resolveLegacyId } from '../engine/legacyAssetMapping';
 import { getAssetPackManager } from '../engine/assetPackInstance';
+import { SPLAT_IMAGE_KEYS } from '../engine/terrain/terrainShared';
 
 /**
  * Thin wrapper around PIXI.Assets with:
@@ -180,13 +181,35 @@ export function resolveTexture(id: string): Texture {
 export async function restoreCustomImages(
   customImages: Record<string, string> | undefined,
 ): Promise<void> {
-  for (const [id, dataUrl] of Object.entries(customImages ?? {})) {
-    if (Assets.cache.has(id)) continue;
-    try {
-      await Assets.load({ alias: id, src: dataUrl });
-    } catch (err) {
-      console.warn('[restoreCustomImages] could not load', id, err);
-    }
+  // Parallel: N sequential decode round-trips serialized the map-load critical
+  // path. Splat bitmaps are not sprite textures — TerrainRenderer owns them.
+  await Promise.all(
+    Object.entries(customImages ?? {}).map(async ([id, dataUrl]) => {
+      if (Assets.cache.has(id) || SPLAT_IMAGE_KEYS.includes(id as (typeof SPLAT_IMAGE_KEYS)[number])) return;
+      try {
+        await Assets.load({ alias: id, src: dataUrl });
+      } catch (err) {
+        console.warn('[restoreCustomImages] could not load', id, err);
+      }
+    }),
+  );
+}
+
+/**
+ * Register one image from binary (session binary asset fetch). Object URL over
+ * data URL: no base64 anywhere. `loadParser` is pinned because a blob: URL has
+ * no extension for the loader to sniff.
+ */
+export async function registerImageBlob(id: string, blob: Blob): Promise<void> {
+  if (Assets.cache.has(id)) return;
+  const url = URL.createObjectURL(blob);
+  try {
+    await Assets.load({ alias: id, src: url, loadParser: 'loadTextures' });
+  } catch (err) {
+    console.warn('[registerImageBlob] could not load', id, err);
+  } finally {
+    // The texture is decoded and uploaded by now — the URL has done its job.
+    URL.revokeObjectURL(url);
   }
 }
 

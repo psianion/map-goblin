@@ -83,6 +83,7 @@ describe('isDocumentChange', () => {
       grid: { visible: true },
       layers: [layer],
       assets: { customImages: {} },
+      terrainSplats: { rev: 0 },
     };
   };
 
@@ -111,6 +112,11 @@ describe('isDocumentChange', () => {
     expect(isDocumentChange({ ...prev, mapSettings: { name: 'b' } }, prev)).toBe(true);
     expect(isDocumentChange({ ...prev, grid: { visible: false } }, prev)).toBe(true);
     expect(isDocumentChange({ ...prev, assets: { customImages: { a: 'b' } } }, prev)).toBe(true);
+  });
+
+  it('is true when the terrain splat rev moves', () => {
+    const prev = base();
+    expect(isDocumentChange({ ...prev, terrainSplats: { rev: 1 } }, prev)).toBe(true);
   });
 
   it('is true when a layer is added or removed', () => {

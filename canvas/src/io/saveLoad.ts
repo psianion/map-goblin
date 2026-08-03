@@ -11,14 +11,13 @@
 // The FSA file handle is stored in module state (not serialized).
 // Ctrl+S reuses the handle for silent overwrite after first explicit save.
 
-import { gzip, gunzip, strToU8, strFromU8 } from 'fflate';
 import type { SerializedMapData } from '@/store/types';
 import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
+import { getTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
+import { encodeMapFile, decodeMapFile, MAGIC_HEADER } from './mapFormat';
 
-// Magic bytes to identify .mapbuilder files — "MPBLD\x00"
-export const MAGIC_HEADER = 'MPBLD\x00';
-const MAGIC_BYTES = new TextEncoder().encode(MAGIC_HEADER);
+export { MAGIC_HEADER };
 
 // In-memory FSA file handles — keyed by mapId, survive the session but not a page reload
 const fileHandles = new Map<string, FileSystemFileHandle>();
@@ -44,65 +43,79 @@ export function getCurrentFileHandle(): FileSystemFileHandle | null {
 
 // ─── Serialization ────────────────────────────────────────────────────────────
 
-/**
- * Serialize `SerializedMapData` to a compressed Uint8Array with magic header.
- * Pure function — no side effects.
- */
-export async function serializeToBytes(data: SerializedMapData): Promise<Uint8Array> {
-  const json = JSON.stringify(data);
-  const jsonBytes = strToU8(json);
+// ─── Save worker plumbing ─────────────────────────────────────────────────────
+// The stringify/base64/gzip of a document that can carry megabytes of images
+// used to run on the main thread on every autosave and map switch. It now
+// runs in a worker; jsdom (vitest) has no Worker, so those fall through to
+// the same pure functions inline.
 
+let saveWorker: Worker | null = null;
+let nextRequestId = 1;
+const pendingRequests = new Map<
+  number,
+  { resolve: (r: { bytes?: ArrayBuffer; data?: SerializedMapData }) => void; reject: (e: Error) => void }
+>();
+
+function getSaveWorker(): Worker | null {
+  if (typeof Worker === 'undefined') return null;
+  if (!saveWorker) {
+    saveWorker = new Worker(new URL('./saveWorker.ts', import.meta.url), { type: 'module' });
+    saveWorker.onmessage = (
+      e: MessageEvent<{ id: number; bytes?: ArrayBuffer; data?: SerializedMapData; error?: string }>,
+    ) => {
+      const pending = pendingRequests.get(e.data.id);
+      if (!pending) return;
+      pendingRequests.delete(e.data.id);
+      if (e.data.error) pending.reject(new Error(e.data.error));
+      else pending.resolve(e.data);
+    };
+  }
+  return saveWorker;
+}
+
+function callSaveWorker(
+  worker: Worker,
+  msg: Record<string, unknown>,
+  transfer: Transferable[],
+): Promise<{ bytes?: ArrayBuffer; data?: SerializedMapData }> {
+  const id = nextRequestId++;
   return new Promise((resolve, reject) => {
-    gzip(jsonBytes, (err, compressed) => {
-      if (err) {
-        reject(new Error(`gzip failed: ${err.message}`));
-        return;
-      }
-      const result = new Uint8Array(MAGIC_BYTES.length + compressed.length);
-      result.set(MAGIC_BYTES, 0);
-      result.set(compressed, MAGIC_BYTES.length);
-      resolve(result);
-    });
+    pendingRequests.set(id, { resolve, reject });
+    worker.postMessage({ id, ...msg }, transfer);
   });
 }
 
 /**
+ * Serialize `SerializedMapData` to a compressed Uint8Array with magic header.
+ * Splat bitmaps are read from the store (as binary Blobs) and injected as
+ * data URLs inside the worker — the format on disk is unchanged.
+ */
+export async function serializeToBytes(data: SerializedMapData): Promise<Uint8Array> {
+  // Make sure a just-finished stroke's pixels have landed in the store.
+  await getTerrainRenderer()?.flushPersistNow();
+  const pngs = useStore.getState().terrainSplats.pngs;
+  const splats = await Promise.all(pngs.map((b) => (b ? b.arrayBuffer() : Promise.resolve(null))));
+
+  const worker = getSaveWorker();
+  if (!worker) {
+    return encodeMapFile(data, splats.map((b) => (b ? new Uint8Array(b) : null)));
+  }
+  const reply = await callSaveWorker(worker, { op: 'encode', data, splats }, splats.filter(Boolean) as ArrayBuffer[]);
+  return new Uint8Array(reply.bytes!);
+}
+
+/**
  * Deserialize a Uint8Array produced by `serializeToBytes` back to `SerializedMapData`.
- * Validates the magic header before decompressing.
+ * Validates the magic header before decompressing. Splat entries stay inside
+ * `customImages` here — `loadFromFile` splits them into binary terrainSplats.
  */
 export async function deserializeFromBytes(bytes: Uint8Array): Promise<SerializedMapData> {
-  // Validate magic header
-  const headerBytes = bytes.slice(0, MAGIC_BYTES.length);
-  const header = new TextDecoder().decode(headerBytes);
-  if (header !== MAGIC_HEADER) {
-    throw new Error('Invalid .mapbuilder file — unrecognized header bytes');
-  }
-
-  const compressed = bytes.slice(MAGIC_BYTES.length);
-
-  return new Promise((resolve, reject) => {
-    gunzip(compressed, (err, decompressed) => {
-      if (err) {
-        reject(new Error(`ungzip failed: ${err.message}`));
-        return;
-      }
-      try {
-        const json = strFromU8(decompressed);
-        const data = JSON.parse(json) as SerializedMapData;
-        if (data.version !== '2.0' && data.version !== '3.0') {
-          reject(
-            new Error(
-              `Incompatible file version "${String((data as { version?: unknown }).version)}". This app requires v2.0 or v3.0 format.`,
-            ),
-          );
-          return;
-        }
-        resolve(data);
-      } catch (parseErr) {
-        reject(new Error(`JSON parse failed: ${String(parseErr)}`));
-      }
-    });
-  });
+  const worker = getSaveWorker();
+  if (!worker) return decodeMapFile(bytes);
+  // Copy: callers may reuse their buffer, and transfer detaches it.
+  const buf = bytes.slice().buffer;
+  const reply = await callSaveWorker(worker, { op: 'decode', bytes: buf }, [buf]);
+  return reply.data!;
 }
 
 // ─── Save ─────────────────────────────────────────────────────────────────────
