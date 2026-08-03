@@ -60,6 +60,13 @@ export function ToolPopover({ tool, anchorY, onClose }: ToolPopoverProps) {
       }
     } else if (tool === 'light') {
       settings.lightDefaults = state.tools.settings.lightDefaults;
+    } else if (tool === 'terrain') {
+      const brush = state.tools.settings.terrainBrush;
+      settings.terrainBrush = {
+        radius: brush.radius,
+        slot: brush.slot,
+        erase: state.tools.eraseMode,
+      };
     }
 
     showToolPreview(settings);
@@ -115,7 +122,7 @@ export function ToolPopover({ tool, anchorY, onClose }: ToolPopoverProps) {
       {tool === 'door' && <DoorToolContent onValueChange={triggerPreview} />}
       {tool === 'light' && <LightToolContent onValueChange={triggerPreview} />}
       {tool === 'scatterBrush' && <ScatterBrushContent />}
-      {tool === 'terrain' && <TerrainBrushContent />}
+      {tool === 'terrain' && <TerrainBrushContent onValueChange={triggerPreview} />}
       {tool === 'water' && <WaterToolContent />}
     </div>
   );
@@ -713,13 +720,19 @@ function ScatterBrushContent() {
 
 // \u2500\u2500\u2500 Terrain Brush Tool \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
-function TerrainBrushContent() {
+function TerrainBrushContent({ onValueChange }: { onValueChange: () => void }) {
   const settings = useStore(useShallow((s) => s.tools.settings.terrainBrush));
   const eraseMode = useStore((s) => s.tools.eraseMode);
   const palette = useStore(
     useShallow((s) => s.mapSettings.terrain?.palette ?? DEFAULT_TERRAIN_PALETTE),
   );
-  const updateSettings = useStore((s) => s.updateTerrainBrushSettings);
+  const setSettings = useStore((s) => s.updateTerrainBrushSettings);
+  // Every brush control feeds the ghost — size and material are both invisible
+  // until you have a disc on the canvas showing them.
+  const updateSettings = (patch: Partial<typeof settings>) => {
+    setSettings(patch);
+    onValueChange();
+  };
 
   return (
     <div className="flex flex-col gap-3">

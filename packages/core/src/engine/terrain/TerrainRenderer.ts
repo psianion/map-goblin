@@ -118,7 +118,10 @@ function createBrushTexture(): Texture {
   const ctx = canvas.getContext('2d')!;
   const g = ctx.createRadialGradient(size / 2, size / 2, size * 0.15, size / 2, size / 2, size / 2);
   g.addColorStop(0, 'rgba(255,255,255,1)');
-  g.addColorStop(0.6, 'rgba(255,255,255,0.55)');
+  // Full weight out to ~0.8r, then a short fade. The old 0.6→0.55 ramp meant a
+  // stamp only read as solid to ~0.7 of its radius, so every stroke landed
+  // visibly smaller than the size the brush ring promised.
+  g.addColorStop(0.8, 'rgba(255,255,255,0.9)');
   g.addColorStop(1, 'rgba(255,255,255,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
@@ -128,8 +131,16 @@ function createBrushTexture(): Texture {
 export class TerrainRenderer {
   readonly container: Container;
   private engine: RenderEngine;
+  private geometry: MeshGeometry | null = null;
   private mesh: Mesh<MeshGeometry, Shader> | null = null;
   private shader: Shader | null = null;
+  /**
+   * Extra quads drawing the same paint over each layer's floor fill. A floor is
+   * just ground with walls around it, so terrain reads across the boundary —
+   * the quads are clipped to the floor union, and the base mesh below covers
+   * everything else, so each painted texel still shows exactly once.
+   */
+  private floorMeshes: Mesh<MeshGeometry, Shader>[] = [];
   /** Allocated on first paint/restore — 32MB of VRAM maps that never paint don't need. */
   private splatRTs: [RenderTexture, RenderTexture] | null = null;
   private tileRTs: (RenderTexture | null)[] = new Array(TERRAIN_SLOTS).fill(null);
@@ -178,11 +189,14 @@ export class TerrainRenderer {
   private buildMesh(): void {
     const min = -TERRAIN_EXTENT_HALF;
     const max = TERRAIN_EXTENT_HALF;
+    // One geometry and one shader for every quad — they cover the same extent
+    // and read the same splatmaps; only their place in the scene differs.
     const geometry = new MeshGeometry({
       positions: new Float32Array([min, min, max, min, max, max, min, max]),
       uvs: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]),
       indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
     });
+    this.geometry = geometry;
 
     const white = Texture.WHITE.source;
     const tiles: Record<string, { value: Float32Array; type: string }> = {};
@@ -214,6 +228,23 @@ export class TerrainRenderer {
     this.mesh = new Mesh({ geometry, shader: this.shader });
     this.mesh.label = 'terrainMesh';
     this.container.addChild(this.mesh);
+  }
+
+  /**
+   * A terrain quad for a layer's floor sublayer. The caller adds it above the
+   * floor fill and clips it to that layer's floor union.
+   *
+   * A fresh Mesh per call: layer rebuilds destroy their children, and
+   * Mesh.destroy() leaves the shared geometry and shader alone.
+   */
+  createFloorMesh(): Mesh<MeshGeometry, Shader> | null {
+    if (this.destroyed || !this.geometry || !this.shader) return null;
+    this.floorMeshes = this.floorMeshes.filter((m) => !m.destroyed);
+    const mesh = new Mesh({ geometry: this.geometry, shader: this.shader });
+    mesh.label = 'terrainFloorMesh';
+    mesh.visible = this.container.visible;
+    this.floorMeshes.push(mesh);
+    return mesh;
   }
 
   // ─── Palette ─────────────────────────────────────────────
@@ -616,6 +647,8 @@ export class TerrainRenderer {
    */
   private fail(what: string, err: unknown): void {
     this.container.visible = false;
+    // The floor quads sit in layer containers, outside this subtree.
+    for (const mesh of this.floorMeshes) if (!mesh.destroyed) mesh.visible = false;
     console.error(`[terrain] ${what} failed — terrain layer hidden:`, err);
   }
 
@@ -652,12 +685,20 @@ export class TerrainRenderer {
     if (this.persistTimer) clearTimeout(this.persistTimer);
     for (const unsub of this.unsubscribers) unsub();
     this.unsubscribers = [];
+    // Floor quads live in layer containers, which can outlive this renderer —
+    // drop them before their shader goes, or the next frame renders a dead one.
+    for (const mesh of this.floorMeshes) {
+      if (mesh.destroyed) continue;
+      mesh.parent?.removeChild(mesh);
+      mesh.destroy();
+    }
+    this.floorMeshes = [];
     // Mesh.destroy() only nulls its geometry/shader refs — the GPU buffers and
     // the compiled shader survive unless they're destroyed explicitly.
-    const geometry = this.mesh?.geometry;
     this.container.destroy({ children: true });
-    geometry?.destroy();
+    this.geometry?.destroy();
     this.shader?.destroy();
+    this.geometry = null;
     this.mesh = null;
     this.shader = null;
     this.splatRTs?.[0].destroy(true);

@@ -13,6 +13,7 @@ import { rebuildWaterSublayer } from './water/waterRenderer';
 import { resolveStyle } from './styleResolver';
 import type { DungeonStyle } from '../store/types';
 import { resolveDoors, resolveWalls, type ResolvedDoor } from '../shared/wallResolve';
+import { getTerrainRenderer } from './terrain/TerrainRenderer';
 
 function parseColor(hex: string): number {
   return parseInt(hex.replace('#', ''), 16);
@@ -421,12 +422,6 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
         renderSolidShape(floor, shape, shapeFloorColor);
       }
     }
-
-    // Clip the entire floor container to mergedFloor (handles erase holes)
-    const floorMask = new Graphics();
-    fillPolygonsWithHoles(floorMask, polygons, { color: 0xffffff });
-    floor.addChild(floorMask);
-    floor.mask = floorMask;
   } else {
     // No textured shapes, no style overrides — use original merged floor fill (faster)
     const floorG = new Graphics();
@@ -434,8 +429,23 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
     floor.addChild(floorG);
   }
 
+  // Clip the whole floor container to mergedFloor: it handles erase holes in the
+  // per-shape fills, and it is what keeps the terrain quad below on the floor.
+  const floorMask = new Graphics();
+  fillPolygonsWithHoles(floorMask, polygons, { color: 0xffffff });
+  floor.addChild(floorMask);
+  floor.mask = floorMask;
+
   // ── Edge transitions (between differently-textured shapes) ───
   renderEdgeTransitions(floor, layer);
+
+  // ── Painted terrain over the floor ──────────────────────────
+  // A floor is ground with walls around it, so a stroke runs across the boundary
+  // instead of stopping at it. Above the fill and the transitions, below
+  // grid/walls/doors; the floor mask keeps it from double-painting the ground
+  // quad that already covers everything outside this floor.
+  const terrainMesh = getTerrainRenderer()?.createFloorMesh();
+  if (terrainMesh) floor.addChild(terrainMesh);
 
   // ── Grid sublayer (lines inside shapes) ─────────────────
   redrawGrid(layer, entry);
