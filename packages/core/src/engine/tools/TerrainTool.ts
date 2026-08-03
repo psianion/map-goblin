@@ -6,6 +6,7 @@ import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
 import { getTerrainRenderer, TERRAIN_EXTENT_HALF } from '../terrain/TerrainRenderer';
 import { TerrainStrokeCommand } from '../terrain/terrainCommands';
+import { drawTerrainBrushDisc } from '../terrain/terrainBrushPreview';
 
 /** Stamp spacing along a drag, as a fraction of brush radius. */
 const STAMP_SPACING = 0.35;
@@ -103,17 +104,24 @@ export class TerrainTool implements DrawingTool {
   private drawBrushPreview(p: Point): void {
     const s = this.settings();
     const zoom = this.engine.stage().scale.x;
-    const strokeWidth = 1.5 / zoom;
     const erase = this.isErase();
-    const color = erase ? 0xff4444 : 0x4a9eff;
     const outOfBounds =
       Math.abs(p.x) > TERRAIN_EXTENT_HALF || Math.abs(p.y) > TERRAIN_EXTENT_HALF;
 
     this.brushCircle.clear();
-    this.brushCircle.circle(p.x, p.y, s.radius);
-    this.brushCircle.fill({ color, alpha: 0.06 });
-    this.brushCircle.circle(p.x, p.y, s.radius);
-    this.brushCircle.stroke({ width: strokeWidth, color: outOfBounds ? 0x888888 : color, alpha: 0.7 });
+    // Ghosted so the map still reads through it, but solid enough that the size
+    // is legible — a 6% flat disc was invisible on anything but white.
+    drawTerrainBrushDisc(
+      this.brushCircle,
+      p.x,
+      p.y,
+      s.radius,
+      s.slot,
+      erase,
+      0.5,
+      1.5 / zoom,
+      outOfBounds ? 0x888888 : undefined,
+    );
   }
 
   getPreview(): PreviewShape | null {

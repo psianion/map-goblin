@@ -1,11 +1,14 @@
 import { Graphics } from 'pixi.js';
 import type { ToolType, DungeonStyle, LightDefaults } from '../store/types';
+import { drawTerrainBrushDisc } from './terrain/terrainBrushPreview';
 
 export interface PreviewSettings {
   tool: ToolType;
   style?: DungeonStyle;
   sides?: number;
   lightDefaults?: LightDefaults;
+  /** Terrain brush: the size and slot the sliders are currently on. */
+  terrainBrush?: { radius: number; slot: number; erase: boolean };
 }
 
 let previewGraphics: Graphics | null = null;
@@ -58,7 +61,12 @@ export function renderToolPreview(
   const s = currentSettings;
   const worldSize = SCREEN_SIZE_PX / zoom;
 
-  if (s.tool === 'light' && s.lightDefaults) {
+  if (s.tool === 'terrain' && s.terrainBrush) {
+    const t = s.terrainBrush;
+    // Same disc the cursor draws, so dragging the size slider previews the exact
+    // brush you are about to paint with rather than nothing at all.
+    drawTerrainBrushDisc(previewGraphics, centerX, centerY, t.radius, t.slot, t.erase, 0.9, 2 / zoom);
+  } else if (s.tool === 'light' && s.lightDefaults) {
     renderLightPreview(previewGraphics, centerX, centerY, s.lightDefaults);
   } else if (s.tool === 'wall' && s.style) {
     renderWallPreview(previewGraphics, centerX, centerY, worldSize, s.style);
