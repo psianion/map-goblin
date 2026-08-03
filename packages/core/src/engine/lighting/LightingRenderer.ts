@@ -123,6 +123,15 @@ export function cullLightsByDistance(
  * polygon only affects its own gradient. A single shared perLightRT is
  * reused (cleared per light) to avoid allocating multiple RenderTextures.
  */
+/**
+ * Lightmaps are smooth gradients, so they survive upscaling that geometry
+ * never could: the FBOs render at half linear resolution (quarter the pixels)
+ * and the composite sprite's linear filter stretches them back. Full-res
+ * FBOs re-rendered on every camera move were 60-100ms/frame on integrated
+ * GPUs — the single biggest pan/zoom cost in the editor.
+ */
+const LIGHT_FBO_SCALE = 0.5
+
 export class LightingRenderer {
   private engine: RenderEngine
   private lightFBO: RenderTexture
@@ -142,8 +151,14 @@ export class LightingRenderer {
     this.width = width
     this.height = height
 
-    this.lightFBO = engine.createRenderTexture(width, height)
-    this.perLightRT = engine.createRenderTexture(width, height)
+    this.lightFBO = engine.createRenderTexture(
+      Math.max(1, Math.ceil(width * LIGHT_FBO_SCALE)),
+      Math.max(1, Math.ceil(height * LIGHT_FBO_SCALE)),
+    )
+    this.perLightRT = engine.createRenderTexture(
+      Math.max(1, Math.ceil(width * LIGHT_FBO_SCALE)),
+      Math.max(1, Math.ceil(height * LIGHT_FBO_SCALE)),
+    )
 
     this.perLightContainer = new Container()
     this.perLightContainer.label = 'perLightContainer'
@@ -280,18 +295,21 @@ export class LightingRenderer {
     const ambientB = ambientHex & 0xff
     const ambientColorNum = (ambientR << 16) | (ambientG << 8) | ambientB
 
+    // Everything below draws in FBO pixels — screen coords scaled by the FBO's
+    // resolution factor. The composite sprite stretches the result back out.
+    const S = LIGHT_FBO_SCALE
+
     // ── Step 1: Fill lightFBO with ambient color ──
     this.ambientContainer.removeChildren()
     const ambientG2 = new Graphics()
-    ambientG2.rect(0, 0, this.width, this.height)
+    ambientG2.rect(0, 0, Math.ceil(this.width * S), Math.ceil(this.height * S))
     ambientG2.fill({ color: ambientColorNum, alpha: 1 })
     this.ambientContainer.addChild(ambientG2)
     this.engine.renderToTexture(this.ambientContainer, this.lightFBO, true)
 
-    // Sprite used to composite each per-light RT into lightFBO
+    // Sprite used to composite each per-light RT into lightFBO — natural size,
+    // both RTs share the same scaled dimensions.
     const blitSprite = new Sprite(this.perLightRT)
-    blitSprite.width = this.width
-    blitSprite.height = this.height
     blitSprite.blendMode = 'add'
     const blitContainer = new Container()
     blitContainer.addChild(blitSprite)
@@ -302,8 +320,9 @@ export class LightingRenderer {
       const visibilityVerts = lightManager.getOrComputePolygon(light)
       if (!visibilityVerts || visibilityVerts.length < 3) continue
 
-      const screenCenter = this.engine.worldToScreen(light.position.x, light.position.y)
-      const screenRadius = Math.max(1, light.radius * zoom)
+      const rawCenter = this.engine.worldToScreen(light.position.x, light.position.y)
+      const screenCenter = { x: rawCenter.x * S, y: rawCenter.y * S }
+      const screenRadius = Math.max(1, light.radius * zoom * S)
       const lightHex = parseInt(light.color.replace('#', ''), 16)
       const lr = (lightHex >> 16) & 0xff
       const lg = (lightHex >> 8) & 0xff
@@ -311,7 +330,7 @@ export class LightingRenderer {
       const alpha = Math.min(1, Math.max(0, light.intensity * flickerFactor(light, now)))
       const toRgba = (a: number): string => `rgba(${lr},${lg},${lb},${a.toFixed(4)})`
 
-      const screenFeather = (light.featherRadius ?? 0) * zoom
+      const screenFeather = (light.featherRadius ?? 0) * zoom * S
       const feather = Math.min(screenFeather, screenRadius * 0.99)
       const featherOffset = screenRadius > 0 ? feather / screenRadius : 0
 
@@ -365,7 +384,7 @@ export class LightingRenderer {
           // Mask texture not loaded — fall back to gradient
           const screenPoly: [number, number][] = visibilityVerts.map((v) => {
             const sp = this.engine.worldToScreen(v.point[0], v.point[1])
-            return [sp.x, sp.y] as [number, number]
+            return [sp.x * S, sp.y * S] as [number, number]
           })
           const gradG = new Graphics()
           tracePolyTuple(gradG, screenPoly)
@@ -376,7 +395,7 @@ export class LightingRenderer {
         // Default: Draw visibility polygon with gradient fill
         const screenPoly: [number, number][] = visibilityVerts.map((v) => {
           const sp = this.engine.worldToScreen(v.point[0], v.point[1])
-          return [sp.x, sp.y] as [number, number]
+          return [sp.x * S, sp.y * S] as [number, number]
         })
 
         const gradG = new Graphics()
@@ -404,14 +423,16 @@ export class LightingRenderer {
     this.width = width
     this.height = height
 
+    const fw = Math.max(1, Math.ceil(width * LIGHT_FBO_SCALE))
+    const fh = Math.max(1, Math.ceil(height * LIGHT_FBO_SCALE))
     this.lightFBO.destroy(true)
-    this.lightFBO = this.engine.createRenderTexture(width, height)
+    this.lightFBO = this.engine.createRenderTexture(fw, fh)
     this.compositingSprite.texture = this.lightFBO
     this.compositingSprite.width = width
     this.compositingSprite.height = height
 
     this.perLightRT.destroy(true)
-    this.perLightRT = this.engine.createRenderTexture(width, height)
+    this.perLightRT = this.engine.createRenderTexture(fw, fh)
   }
 
   destroy(): void {

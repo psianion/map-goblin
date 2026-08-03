@@ -31,6 +31,20 @@ const MAX_TILE_EXTRACT = 1024;
 /** Channel tints for additive single-channel painting. */
 const CHANNEL_TINTS = [0xff0000, 0x00ff00, 0x0000ff];
 
+/**
+ * Terrain bake resolution — 32 texels/cell over the 128-cell extent = 4096².
+ * The splat-blend shader below is 8 samples + 6 pow() per pixel; on integrated
+ * GPUs that is 60-250ms per full-screen frame. So it never runs per frame:
+ * edits render it into this world-space cache (only the touched rect), and the
+ * per-frame cost is one plain textured quad.
+ * ponytail: fixed full-extent cache. If 32px/cell reads soft at deep zoom,
+ * re-bake the visible window at higher density on zoom-settle.
+ */
+const BAKE_TEXELS_PER_CELL = 32;
+const BAKE_SIZE = WORLD_SIZE * BAKE_TEXELS_PER_CELL;
+/** Splat texel → bake texel scale. */
+const BAKE_SCALE = BAKE_TEXELS_PER_CELL / TEXELS_PER_CELL;
+
 const VERTEX_SRC = `
   in vec2 aPosition;
   in vec2 aUV;
@@ -101,6 +115,16 @@ const FRAGMENT_SRC = `
   }
 `;
 
+/** What the meshes actually draw every frame: the baked cache, one sample per pixel. */
+const DISPLAY_FRAGMENT_SRC = `
+  in vec2 vUV;
+  out vec4 finalColor;
+  uniform sampler2D uBake;
+  void main() {
+    finalColor = texture(uBake, vUV);
+  }
+`;
+
 export interface StrokeRegionSnapshot {
   rtIndex: 0 | 1;
   rect: { x: number; y: number; width: number; height: number };
@@ -142,6 +166,13 @@ export class TerrainRenderer {
   private floorMeshes: Mesh<MeshGeometry, Shader>[] = [];
   /** Allocated on first paint/restore — 32MB of VRAM maps that never paint don't need. */
   private splatRTs: [RenderTexture, RenderTexture] | null = null;
+  /** World-space baked terrain (see BAKE_TEXELS_PER_CELL) — what the meshes sample per frame. */
+  private bakeRT: RenderTexture | null = null;
+  /** Cheap display shader on every mesh; `shader` (the heavy blend) only runs in bake passes. */
+  private displayShader: Shader | null = null;
+  /** Reusable scratch quad for region bakes — buffers updated in place per call. */
+  private bakeGeometry: MeshGeometry | null = null;
+  private bakeHolder: Container | null = null;
   private tileRTs: (RenderTexture | null)[] = new Array(TERRAIN_SLOTS).fill(null);
   private brushTexture: Texture | null = null;
   private stampSprite: Sprite | null = null;
@@ -238,9 +269,92 @@ export class TerrainRenderer {
       },
     });
 
-    this.mesh = new Mesh({ geometry, shader: this.shader });
+    this.displayShader = Shader.from({
+      gl: { vertex: VERTEX_SRC, fragment: DISPLAY_FRAGMENT_SRC },
+      resources: {
+        // Empty until the bake RT exists — samples to 0 alpha, renders nothing.
+        uBake: Texture.EMPTY.source,
+      },
+    });
+
+    this.mesh = new Mesh({ geometry, shader: this.displayShader });
     this.mesh.label = 'terrainMesh';
     this.container.addChild(this.mesh);
+  }
+
+  // ─── Bake cache ──────────────────────────────────────────
+
+  /** Allocate the bake RT + scratch quad on first use and bind to the display shader. */
+  private ensureBake(): RenderTexture {
+    if (!this.bakeRT) {
+      this.bakeRT = RenderTexture.create({ width: BAKE_SIZE, height: BAKE_SIZE, resolution: 1 });
+      const empty = new Container();
+      this.engine.renderToTexture(empty, this.bakeRT, true);
+      empty.destroy();
+      if (this.displayShader) this.displayShader.resources.uBake = this.bakeRT.source;
+
+      this.bakeGeometry = new MeshGeometry({
+        positions: new Float32Array(8),
+        uvs: new Float32Array(8),
+        indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
+      });
+      const bakeMesh = new Mesh({ geometry: this.bakeGeometry, shader: this.shader! });
+      bakeMesh.blendMode = 'none';
+      this.bakeHolder = new Container();
+      this.bakeHolder.addChild(bakeMesh);
+    }
+    return this.bakeRT;
+  }
+
+  /**
+   * Re-render the heavy splat blend into the bake cache, restricted to a splat
+   * texel rect. Brush stamps pass their own small rect, so a stroke costs
+   * brush-area pixels — not the screen, not the extent.
+   */
+  private bakeRegion(minX: number, minY: number, maxX: number, maxY: number): void {
+    const x = Math.max(0, Math.floor(minX));
+    const y = Math.max(0, Math.floor(minY));
+    const x2 = Math.min(SPLAT_SIZE, Math.ceil(maxX));
+    const y2 = Math.min(SPLAT_SIZE, Math.ceil(maxY));
+    if (x2 <= x || y2 <= y) return;
+    const rt = this.ensureBake();
+
+    const positions = this.bakeGeometry!.getBuffer('aPosition');
+    const uvs = this.bakeGeometry!.getBuffer('aUV');
+    const p = positions.data as Float32Array;
+    const u = uvs.data as Float32Array;
+    const bx = x * BAKE_SCALE;
+    const by = y * BAKE_SCALE;
+    const bx2 = x2 * BAKE_SCALE;
+    const by2 = y2 * BAKE_SCALE;
+    p.set([bx, by, bx2, by, bx2, by2, bx, by2]);
+    const ux = x / SPLAT_SIZE;
+    const uy = y / SPLAT_SIZE;
+    const ux2 = x2 / SPLAT_SIZE;
+    const uy2 = y2 / SPLAT_SIZE;
+    u.set([ux, uy, ux2, uy, ux2, uy2, ux, uy2]);
+    positions.update();
+    uvs.update();
+
+    this.engine.renderToTexture(this.bakeHolder!, rt, false);
+  }
+
+  /** Bake the painted bounds (world units) — or clear the cache when there are none. */
+  private bakeBounds(bounds: { minX: number; minY: number; maxX: number; maxY: number } | null): void {
+    if (!bounds) {
+      if (!this.bakeRT) return;
+      const empty = new Container();
+      this.engine.renderToTexture(empty, this.bakeRT, true);
+      empty.destroy();
+      return;
+    }
+    const pad = TEXELS_PER_CELL;
+    this.bakeRegion(
+      (bounds.minX + TERRAIN_EXTENT_HALF) * TEXELS_PER_CELL - pad,
+      (bounds.minY + TERRAIN_EXTENT_HALF) * TEXELS_PER_CELL - pad,
+      (bounds.maxX + TERRAIN_EXTENT_HALF) * TEXELS_PER_CELL + pad,
+      (bounds.maxY + TERRAIN_EXTENT_HALF) * TEXELS_PER_CELL + pad,
+    );
   }
 
   /**
@@ -251,9 +365,9 @@ export class TerrainRenderer {
    * Mesh.destroy() leaves the shared geometry and shader alone.
    */
   createFloorMesh(): Mesh<MeshGeometry, Shader> | null {
-    if (this.destroyed || !this.geometry || !this.shader) return null;
+    if (this.destroyed || !this.geometry || !this.displayShader) return null;
     this.floorMeshes = this.floorMeshes.filter((m) => !m.destroyed);
-    const mesh = new Mesh({ geometry: this.geometry, shader: this.shader });
+    const mesh = new Mesh({ geometry: this.geometry, shader: this.displayShader });
     mesh.label = 'terrainFloorMesh';
     mesh.visible = this.container.visible;
     this.floorMeshes.push(mesh);
@@ -336,6 +450,12 @@ export class TerrainRenderer {
     }
 
     if (complete) this.loadedPaletteKey = key;
+
+    // New tile textures change what every painted texel looks like — refresh
+    // the cache. No-ops for a map that never allocated one.
+    if (this.bakeRT) {
+      this.bakeBounds(useStore.getState().mapSettings.terrain?.bounds ?? null);
+    }
   }
 
   // ─── Painting ────────────────────────────────────────────
@@ -412,6 +532,9 @@ export class TerrainRenderer {
     d.maxX = Math.max(d.maxX, t.x + pad);
     d.maxY = Math.max(d.maxY, t.y + pad);
     this.strokeDirty = d;
+
+    // Live feedback: refresh the bake cache under the stamp only.
+    this.bakeRegion(t.x - pad, t.y - pad, t.x + pad, t.y + pad);
   }
 
   /**
@@ -525,6 +648,7 @@ export class TerrainRenderer {
     this.engine.renderToTexture(holder, this.splats()[rtIndex], false);
     holder.destroy({ children: true });
     texture.destroy(true);
+    this.bakeRegion(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height);
     // Undo/redo already has the pixels — mirror them into the worker copy.
     this.worker().patch(rtIndex, rect, pixels);
     this.schedulePersist();
@@ -533,6 +657,7 @@ export class TerrainRenderer {
   /** Cancel an in-flight stroke: restore both splat RTs from the backup. */
   cancelStroke(): void {
     if (!this.strokeBackup) return;
+    const d = this.strokeDirty;
     for (const rtIndex of [0, 1] as const) {
       const frame = new Rectangle(0, rtIndex * SPLAT_SIZE, SPLAT_SIZE, SPLAT_SIZE);
       const tex = new Texture({ source: this.strokeBackup.source, frame });
@@ -544,6 +669,8 @@ export class TerrainRenderer {
       holder.destroy({ children: true });
       tex.destroy();
     }
+    // Un-paint the cancelled stamps from the bake cache too.
+    if (d) this.bakeRegion(d.minX, d.minY, d.maxX, d.maxY);
     this.strokeDirty = null;
   }
 
@@ -649,6 +776,17 @@ export class TerrainRenderer {
         this.fail('splatmap restore', err);
       }
     }
+
+    // Loaded splats → bake cache. Bounds landed in the same store pass as the
+    // blobs, so this covers exactly the painted area (or clears a blank map).
+    if (pngs.some(Boolean)) {
+      const bounds = useStore.getState().mapSettings.terrain?.bounds;
+      // Pre-bounds save: no recorded bounds but real paint — bake everything once.
+      if (bounds) this.bakeBounds(bounds);
+      else this.bakeRegion(0, 0, SPLAT_SIZE, SPLAT_SIZE);
+    } else {
+      this.bakeBounds(null);
+    }
   }
 
   /**
@@ -707,14 +845,23 @@ export class TerrainRenderer {
     // Mesh.destroy() only nulls its geometry/shader refs — the GPU buffers and
     // the compiled shader survive unless they're destroyed explicitly.
     this.container.destroy({ children: true });
+    this.bakeHolder?.destroy({ children: true });
+    this.bakeHolder = null;
+    // Mesh.destroy() leaves its geometry alone — free the scratch quad explicitly.
+    this.bakeGeometry?.destroy();
+    this.bakeGeometry = null;
     this.geometry?.destroy();
     this.shader?.destroy();
+    this.displayShader?.destroy();
+    this.displayShader = null;
     this.geometry = null;
     this.mesh = null;
     this.shader = null;
     this.splatRTs?.[0].destroy(true);
     this.splatRTs?.[1].destroy(true);
     this.splatRTs = null;
+    this.bakeRT?.destroy(true);
+    this.bakeRT = null;
     this.strokeBackup?.destroy(true);
     this.strokeBackup = null;
     for (const rt of this.tileRTs) rt?.destroy(true);
