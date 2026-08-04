@@ -353,6 +353,9 @@ export function handleNodeKey(key: string, t: number): boolean {
 
 let dragBefore: WallNodeEdit[] | undefined;
 let dragWallId: string | null = null;
+/** The layer the drag began on — rewindDrag resolves against this, not
+ *  whatever the active layer happens to be at cancel/release time. */
+let dragLayerId: string | null = null;
 
 /**
  * @param ts Stones the gesture will move. On a floor ring the drag is not a
@@ -363,6 +366,7 @@ export function beginNodeDrag(ts: number[] = []): void {
   const run = activeEditableRun();
   if (!run) return;
   dragWallId = run.id;
+  dragLayerId = run.layer.id;
   const ring = floorRingIndex(run.id);
   if (ring !== null) {
     beginRingStoneDrag(run.layer, ring, ts);
@@ -405,11 +409,15 @@ export function isDraggingNode(): boolean {
  * or hidden mid-drag, or an edit made just before locking becomes stuck
  * with no way to undo it. So no lock/visible check here — only that the
  * layer still exists to write the rewind into.
+ *
+ * Resolves against the layer id the drag actually began on, not
+ * `ui.activeLayerId`: switching the active layer mid-drag must not make the
+ * rewind silently miss the layer the live nudge was written into.
  */
-function rewindDrag(wallId: string, before: WallNodeEdit[] | undefined): void {
+function rewindDrag(layerId: string, wallId: string, before: WallNodeEdit[] | undefined): void {
   const state = useStore.getState();
   const layer = state.layers.find(
-    (l): l is DungeonLayer => l.type === 'dungeon' && l.id === state.ui.activeLayerId,
+    (l): l is DungeonLayer => l.type === 'dungeon' && l.id === layerId,
   );
   if (!layer) return;
   state.updateWall(layer.id, wallId, { nodeEdits: before });
@@ -424,21 +432,25 @@ function rewindDrag(wallId: string, before: WallNodeEdit[] | undefined): void {
  */
 export function cancelNodeDrag(): void {
   const wallId = dragWallId;
+  const layerId = dragLayerId;
   const before = dragBefore;
   dragWallId = null;
+  dragLayerId = null;
   dragBefore = undefined;
   if (isDraggingRingStone()) {
     cancelRingStoneDrag();
     return;
   }
-  if (!wallId) return;
-  rewindDrag(wallId, before);
+  if (!wallId || !layerId) return;
+  rewindDrag(layerId, wallId, before);
 }
 
 /** Record the whole gesture as one undoable step. */
 export function endNodeDrag(): void {
   const wallId = dragWallId;
+  const layerId = dragLayerId;
   dragWallId = null;
+  dragLayerId = null;
   const before = dragBefore;
   dragBefore = undefined;
   if (isDraggingRingStone()) {
@@ -459,10 +471,11 @@ export function endNodeDrag(): void {
 
   const run = activeEditableRun();
   if (!run || run.id !== wallId) {
-    // Blocked mid-drag (the layer locked or hid between the last nudge and
-    // pointer-up): the live nudge already landed in the store with no undo
-    // entry behind it. Put it back rather than leave it stuck.
-    if (wallId) rewindDrag(wallId, before);
+    // Blocked mid-drag (the layer locked or hid, or the active layer switched
+    // away, between the last nudge and pointer-up): the live nudge already
+    // landed in the store with no undo entry behind it. Put it back rather
+    // than leave it stuck.
+    if (wallId && layerId) rewindDrag(layerId, wallId, before);
     return;
   }
   const after = run.edits?.nodeEdits;

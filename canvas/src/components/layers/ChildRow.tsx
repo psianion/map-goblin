@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { notify } from '@/lib/toast'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
+import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard'
 
 interface ChildRowProps {
   child: AnyChild
@@ -55,15 +56,10 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
   // Delete/Duplicate are destructive edits and go through the same owning-layer
   // gate the layers-panel delete shortcut uses (X1) — the row's own visibility
   // toggle stays exempt, matching the layer row's eye still working when locked.
-  const blockedReason = (): string | null => {
-    if (layer.locked) return 'Layer is locked'
-    if (!layer.visible) return 'Layer is hidden'
-    return null
-  }
 
   // Clone with a fresh id and slight offset — same shape as the copy/paste path.
   const duplicate = () => {
-    const reason = blockedReason()
+    const reason = blockedLayerReason(layer)
     if (reason) {
       notify.warning(reason)
       return
@@ -82,7 +78,7 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
   }
 
   const remove = () => {
-    const reason = blockedReason()
+    const reason = blockedLayerReason(layer)
     if (reason) {
       notify.warning(reason)
       return

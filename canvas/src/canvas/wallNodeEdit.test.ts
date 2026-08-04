@@ -10,6 +10,7 @@ import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { setNotify } from '@dnd/core/src/store/notify';
 import { currentWallNodes } from '@/engine/wallNodeOverlay';
+import { createDungeonLayer } from '@/store/factories';
 import {
   toggleNodeEditAt,
   exitNodeEdit,
@@ -320,6 +321,23 @@ describe('cancelNodeDrag', () => {
     selectMidStone();
     expect(() => cancelNodeDrag()).not.toThrow();
     expect(edits()).toBeUndefined();
+  });
+
+  // rewindDrag used to resolve the layer via ui.activeLayerId, so switching
+  // the active layer mid-drag pointed the rewind at the wrong (or wall-less)
+  // layer and left the live-written nudge stuck with no undo entry behind it.
+  it('rewinds against the layer the drag began on, even after the active layer switches mid-drag', () => {
+    const { t } = seedWall();
+    beginNodeDrag([t]);
+    nudgeWallNode([t], 0.4, 0.3);
+    expect(wallEdits()?.nodeEdits).toHaveLength(1);
+
+    const other = createDungeonLayer('Layer 2');
+    useStore.getState().addLayer(other);
+    useStore.getState().setActiveLayerId(other.id);
+
+    cancelNodeDrag();
+    expect(wallEdits()?.nodeEdits ?? []).toHaveLength(0);
   });
 });
 
