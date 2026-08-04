@@ -114,4 +114,17 @@ describe('delete / ctrl+x — owning-layer validation (X1)', () => {
     expect(layer().children).toHaveLength(1);
     expect(toast.warning).toHaveBeenCalledWith('Layer is locked', expect.anything());
   });
+
+  it('deletes on an unlocked, visible owning layer', () => {
+    handleShortcut('delete');
+    expect(layer().children).toHaveLength(0);
+    expect(toast.warning).not.toHaveBeenCalled();
+  });
+
+  it('backspace delegates to the same owning-layer guard as delete', () => {
+    useStore.getState().updateLayer(layer().id, { locked: true });
+    handleShortcut('backspace');
+    expect(layer().children).toHaveLength(1);
+    expect(toast.warning).toHaveBeenCalledWith('Layer is locked', expect.anything());
+  });
 });
