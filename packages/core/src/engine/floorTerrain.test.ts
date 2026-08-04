@@ -30,6 +30,8 @@ function makeEntry(): LayerEntry {
       grid: new Container(),
       walls: new Container(),
       doors: new Container(),
+      objects: new Container(),
+      labels: new Container(),
     },
     renderTexture: null,
     textureSprite: null,

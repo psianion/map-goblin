@@ -36,6 +36,10 @@ export interface DungeonSublayers {
    * `withoutDoorGaps` (wallNodeRenderer.ts) cuts stone gaps from it.
    */
   doors: Container;
+  /** Asset sprites. Codifies the pre-existing draw order (assets always drew above walls/doors). */
+  objects: Container;
+  /** Text labels — always the topmost sublayer. */
+  labels: Container;
 }
 
 export interface LayerEntry {
@@ -170,11 +174,17 @@ export function addLayerToScene(
     const grid = new Container(); grid.label = 'sublayer-grid';
     const walls = new Container(); walls.label = 'sublayer-walls';
     const doors = new Container(); doors.label = 'sublayer-doors';
-    container.addChild(water, floor, grid, walls, doors);
+    const objects = new Container(); objects.label = 'sublayer-objects';
+    const labels = new Container(); labels.label = 'sublayer-labels';
+    // Per-child draw order only means anything within objects/labels — see
+    // subscribeToAssets.ts / subscribeToTextLabels.ts, which assign zIndex.
+    objects.sortableChildren = true;
+    labels.sortableChildren = true;
+    container.addChild(water, floor, grid, walls, doors, objects, labels);
     // Shared ripple displacement over all water in this layer
     const waterFilter = getWaterFilter();
     if (waterFilter) water.filters = [waterFilter];
-    sublayers = { water, floor, grid, walls, doors };
+    sublayers = { water, floor, grid, walls, doors, objects, labels };
   }
 
   const renderTexture: RenderTexture | null = null;

@@ -36,6 +36,8 @@ vi.mock('./sceneGraph', () => {
       grid: { visible: true },
       walls: { visible: true },
       doors: { visible: true },
+      objects: { visible: true },
+      labels: { visible: true },
     },
   };
   return {
