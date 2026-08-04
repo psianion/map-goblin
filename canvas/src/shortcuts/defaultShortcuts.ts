@@ -443,6 +443,20 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'view.toggleMaps',     keys: 'ctrl+shift+m', category: 'View', label: 'Toggle Maps Panel' },
     { id: 'file.newMap',         keys: 'ctrl+shift+n', category: 'File', label: 'New Map' },
     { id: 'view.shortcuts',      keys: '?',           category: 'View',  label: 'Shortcut Reference' },
+    // Layers panel — documentation-only, like file.export above: these live
+    // as row-level keydown handling / dnd-kit sensors in the panel
+    // components, not in toolKeyMap, so they're listed here purely for the
+    // reference dialog.
+    { id: 'layers.navigate',     keys: 'ArrowUp+ArrowDown', category: 'Layers', label: 'Navigate Panel' },
+    { id: 'layers.select',       keys: 'enter',       category: 'Layers', label: 'Select' },
+    { id: 'layers.rename',       keys: 'f2',           category: 'Layers', label: 'Rename (or double-click)' },
+    { id: 'layers.toggleVisible', keys: 'space',       category: 'Layers', label: 'Show/Hide' },
+    { id: 'layers.delete',       keys: 'Delete',       category: 'Layers', label: 'Delete' },
+    { id: 'layers.solo',         keys: 'alt+click',    category: 'Layers', label: 'Solo Layer' },
+    { id: 'layers.exitSolo',     keys: 'escape',       category: 'Layers', label: 'Exit Solo' },
+    { id: 'layers.selectChildren', keys: 'ctrl+click', category: 'Layers', label: 'Select All Children' },
+    { id: 'layers.rowMenu',      keys: 'shift+f10',    category: 'Layers', label: 'Row Menu' },
+    { id: 'layers.reorder',      keys: 'enter+space',  category: 'Layers', label: 'Reorder (Grip/Arrows)' },
   ];
 }
 
