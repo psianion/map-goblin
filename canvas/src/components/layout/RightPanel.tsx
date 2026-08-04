@@ -20,8 +20,12 @@ const LS_TAB_KEY = 'rp-tab';
 const TAB_IDS: RightTab[] = ['layers', 'assets', 'packs'];
 
 function loadTab(): RightTab {
-  const saved = localStorage.getItem(LS_TAB_KEY);
-  return (TAB_IDS as string[]).includes(saved ?? '') ? (saved as RightTab) : 'layers';
+  try {
+    const saved = localStorage.getItem(LS_TAB_KEY);
+    return (TAB_IDS as string[]).includes(saved ?? '') ? (saved as RightTab) : 'layers';
+  } catch {
+    return 'layers';
+  }
 }
 
 // Sections whose `defaultOpen` should actually take effect on first load —

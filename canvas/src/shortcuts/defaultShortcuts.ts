@@ -447,7 +447,12 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     // as row-level keydown handling / dnd-kit sensors in the panel
     // components, not in toolKeyMap, so they're listed here purely for the
     // reference dialog.
-    { id: 'layers.navigate',     keys: 'ArrowUp+ArrowDown', category: 'Layers', label: 'Navigate Panel' },
+    // L2: 'ArrowUp+ArrowDown' and 'enter+space' below used to be single
+    // entries — formatKeyCombo only knows how to split on '+' and render a
+    // chord ("press both at once"), which is wrong for keys that are
+    // alternatives. Split into one entry per key instead.
+    { id: 'layers.navigateDown', keys: 'ArrowDown',   category: 'Layers', label: 'Navigate Panel' },
+    { id: 'layers.navigateUp',   keys: 'ArrowUp',      category: 'Layers', label: 'Navigate Panel' },
     { id: 'layers.select',       keys: 'enter',       category: 'Layers', label: 'Select' },
     { id: 'layers.rename',       keys: 'f2',           category: 'Layers', label: 'Rename (or double-click)' },
     { id: 'layers.toggleVisible', keys: 'space',       category: 'Layers', label: 'Show/Hide' },
@@ -456,7 +461,8 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'layers.exitSolo',     keys: 'escape',       category: 'Layers', label: 'Exit Solo' },
     { id: 'layers.selectChildren', keys: 'ctrl+click', category: 'Layers', label: 'Select All Children' },
     { id: 'layers.rowMenu',      keys: 'shift+f10',    category: 'Layers', label: 'Row Menu' },
-    { id: 'layers.reorder',      keys: 'enter+space',  category: 'Layers', label: 'Reorder (Grip/Arrows)' },
+    { id: 'layers.reorderEnter', keys: 'enter',       category: 'Layers', label: 'Grab/Drop Reorder (on grip)' },
+    { id: 'layers.reorderSpace', keys: 'space',       category: 'Layers', label: 'Grab/Drop Reorder (on grip)' },
   ];
 }
 
