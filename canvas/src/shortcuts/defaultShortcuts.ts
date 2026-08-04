@@ -212,6 +212,25 @@ const toolKeyMap: Record<string, () => void | false> = {
     // Object-based paste: duplicate children with new IDs
     if (store.selection.clipboard && store.selection.clipboard.children.length > 0) {
       const activeLayerId = store.ui.activeLayerId;
+      // Same exists/dungeon/unlocked/visible check the canvas guards
+      // pointerDown with — paste is a canvas-triggered mutation too, and had
+      // none of it. Duplicated here rather than imported: the core helper's
+      // notify channel and this file's @/lib/toast are wired separately.
+      const activeLayer = store.layers.find(
+        (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
+      );
+      if (!activeLayer) {
+        notify.warning('Select a layer first');
+        return;
+      }
+      if (activeLayer.locked) {
+        notify.warning('Layer is locked');
+        return;
+      }
+      if (!activeLayer.visible) {
+        notify.warning('Layer is hidden');
+        return;
+      }
       const cmds = store.selection.clipboard.children.map((child) => {
         const newChild = structuredClone(child);
         newChild.id = crypto.randomUUID();
