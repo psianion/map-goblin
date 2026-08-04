@@ -541,8 +541,14 @@ test.describe.serial('@sprint3-fog', () => {
     expect(lightsIn(CHAMBER), 'the chamber has no light to leak in the first place').toBeGreaterThan(
       0,
     )
-    // …and the pixels agree: nothing on the player's canvas is above the black floor.
-    expect(virgin.lit, `the player's canvas is drawing ${show(virgin)}`).toBe(0)
+    // …and the pixels agree: nothing on the player's canvas is map. Not `toBe(0)` since
+    // #51 (d59d965): the void deliberately shows the background's own dot lattice so a
+    // hidden map and an empty table are one indistinguishable surface, and with zero
+    // visible lights the lighting multiply is off, so those dots (and the status-bar
+    // chrome this region screenshot also catches) measure ~1.3% at luminance ~66. A leaked
+    // room is a different universe — the smallest one ever caught here drew 16.7% — so 2%
+    // still convicts structure while acquitting the lattice.
+    expect(virgin.lit, `the player's canvas is drawing ${show(virgin)}`).toBeLessThan(0.02)
 
     // No room, no doors either — a door is bound to a room.
     expect(await player.getByTestId('door-list').locator('[data-door-id]').count()).toBe(0)
