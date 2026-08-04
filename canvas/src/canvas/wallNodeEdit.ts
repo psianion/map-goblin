@@ -399,6 +399,23 @@ export function isDraggingNode(): boolean {
 }
 
 /**
+ * Put a standalone wall's live-written nodeEdits back to `before`.
+ *
+ * A rewind, not an edit: this has to succeed even if the layer went locked
+ * or hidden mid-drag, or an edit made just before locking becomes stuck
+ * with no way to undo it. So no lock/visible check here — only that the
+ * layer still exists to write the rewind into.
+ */
+function rewindDrag(wallId: string, before: WallNodeEdit[] | undefined): void {
+  const state = useStore.getState();
+  const layer = state.layers.find(
+    (l): l is DungeonLayer => l.type === 'dungeon' && l.id === state.ui.activeLayerId,
+  );
+  if (!layer) return;
+  state.updateWall(layer.id, wallId, { nodeEdits: before });
+}
+
+/**
  * Abandon the gesture and put the run back the way it was.
  *
  * Needed because the drag writes straight to the store: leaving edit mode
@@ -415,17 +432,7 @@ export function cancelNodeDrag(): void {
     return;
   }
   if (!wallId) return;
-
-  // A rewind, not an edit: this has to succeed even if the layer went locked
-  // or hidden mid-drag, or an edit made just before locking becomes stuck
-  // with no way to undo it. So no lock/visible check here — only that the
-  // layer still exists to write the rewind into.
-  const state = useStore.getState();
-  const layer = state.layers.find(
-    (l): l is DungeonLayer => l.type === 'dungeon' && l.id === state.ui.activeLayerId,
-  );
-  if (!layer) return;
-  state.updateWall(layer.id, wallId, { nodeEdits: before });
+  rewindDrag(wallId, before);
 }
 
 /** Record the whole gesture as one undoable step. */
@@ -435,6 +442,15 @@ export function endNodeDrag(): void {
   const before = dragBefore;
   dragBefore = undefined;
   if (isDraggingRingStone()) {
+    // Re-check here too: beginNodeDrag gated entry, but the layer can have
+    // locked or hidden in the time between the last nudge and release. Ring
+    // stones have no dx/dy of their own to rewind — the drag lives entirely
+    // in the outline editor's own before/after — so blocked here means
+    // cancelling that session instead of landing it.
+    if (!activeEditableRun()) {
+      cancelRingStoneDrag();
+      return;
+    }
     // The outline editor owns this gesture and lands it as one command of its
     // own — geometry and relaid stones together.
     endRingStoneDrag();
@@ -442,7 +458,13 @@ export function endNodeDrag(): void {
   }
 
   const run = activeEditableRun();
-  if (!run || run.id !== wallId) return;
+  if (!run || run.id !== wallId) {
+    // Blocked mid-drag (the layer locked or hid between the last nudge and
+    // pointer-up): the live nudge already landed in the store with no undo
+    // entry behind it. Put it back rather than leave it stuck.
+    if (wallId) rewindDrag(wallId, before);
+    return;
+  }
   const after = run.edits?.nodeEdits;
   if (JSON.stringify(before ?? null) === JSON.stringify(after ?? null)) return;
 

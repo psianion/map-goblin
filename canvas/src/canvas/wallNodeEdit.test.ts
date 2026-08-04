@@ -575,7 +575,7 @@ describe('locked/hidden layer blocks node edits (F6)', () => {
       expect(isDraggingNode()).toBe(false);
     });
 
-    it('endNodeDrag refuses to commit once the layer locks mid-drag', () => {
+    it('endNodeDrag refuses to commit once the layer locks mid-drag, and reverts the nudge', () => {
       const { t } = seedWall();
       beginNodeDrag([t]);
       nudgeWallNode([t], 0.4, 0.3);
@@ -588,6 +588,9 @@ describe('locked/hidden layer blocks node edits (F6)', () => {
       // Nothing landed on the undo stack — the commit never happened.
       expect(useStore.getState().ui.canUndo).toBe(false);
       expect(warning).toHaveBeenCalledWith('Layer is locked');
+      // And the live-written nudge — which had no undo entry behind it — is
+      // put back rather than left stuck in the store.
+      expect(wallEdits()?.nodeEdits ?? []).toHaveLength(0);
     });
 
     it('beginNodeDrag refuses and warns on a hidden layer', () => {
@@ -612,6 +615,26 @@ describe('locked/hidden layer blocks node edits (F6)', () => {
     useStore.getState().updateLayer(layer().id, { locked: true });
     cancelNodeDrag();
     expect(wallEdits()?.nodeEdits ?? []).toHaveLength(0);
+  });
+
+  // beginNodeDrag gates entry to a ring drag through activeEditableRun(), but
+  // the ring branch of endNodeDrag called endRingStoneDrag() with no re-check
+  // — so a ring drag released after a mid-drag lock still committed the
+  // relaid outline (X4). Same shape as the standalone-wall case above: blocked
+  // at release must cancel the outline-editor session, not land it.
+  it('endNodeDrag reverts a ring stone drag instead of committing once the layer locks mid-drag', () => {
+    const l = seed();
+    const t = selectMidStone();
+    const before = structuredClone(layer().children);
+
+    beginNodeDrag([t]);
+    nudgeWallNode([t], 0.4, -0.2);
+
+    useStore.getState().updateLayer(l.id, { locked: true });
+    endNodeDrag();
+
+    expect(useStore.getState().ui.canUndo).toBe(false);
+    expect(layer().children).toEqual(before);
   });
 });
 
