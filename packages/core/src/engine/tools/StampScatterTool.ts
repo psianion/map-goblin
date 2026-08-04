@@ -3,7 +3,6 @@ import type { DrawingTool, PreviewShape } from './DrawingTool';
 import type { Point } from '../../types/geometry';
 import type { AssetChild, DungeonLayer, ScatterBrushSettings } from '../../store/types';
 import { useStore } from '../../store/store';
-import { notify } from '../../shared/notify';
 import { getTextureEntry, GRID_CELL_PX } from '../../assets/textureManifest';
 import { resolveTexture } from '../../assets/textureLoader';
 import { poissonDiskSample } from '../../geometry/poissonDisk';
@@ -103,10 +102,6 @@ export class StampScatterTool implements DrawingTool {
 
   private isEraseMode(): boolean {
     return useStore.getState().tools.eraseMode;
-  }
-
-  private showLayerWarning(message: string): void {
-    notify.warning(message);
   }
 
   // ─── Preview ───
@@ -305,10 +300,9 @@ export class StampScatterTool implements DrawingTool {
 
     const state = useStore.getState();
     const layer = state.layers.find((l) => l.id === layerId);
-    if (!layer || layer.type !== 'dungeon') {
-      this.showLayerWarning('Select a dungeon layer to place assets');
-      return;
-    }
+    // The manager's editsActiveLayer guard already fired before onPointerDown
+    // reached this — dead by construction, but the type still needs narrowing.
+    if (!layer || layer.type !== 'dungeon') return;
 
     if (this.pendingPlacements.length === 0) return;
 
@@ -357,10 +351,9 @@ export class StampScatterTool implements DrawingTool {
 
     const state = useStore.getState();
     const layer = state.layers.find((l) => l.id === layerId);
-    if (!layer || layer.type !== 'dungeon') {
-      this.showLayerWarning('Select a dungeon layer to erase assets');
-      return;
-    }
+    // Same dead-by-construction narrowing as commitPlacements — the manager
+    // guard already refused a locked/hidden/missing layer.
+    if (!layer || layer.type !== 'dungeon') return;
 
     const settings = this.getSettings();
     const radius = settings.stampMode ? 0.5 : settings.brushRadius;
