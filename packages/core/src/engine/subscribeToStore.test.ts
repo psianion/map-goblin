@@ -58,6 +58,7 @@ import { useStore } from '../store/store';
 import { LightManager, extractWallSegments } from './lighting';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { rebuildDungeonLayer, redrawDoors } from './floorWallRenderer';
+import { getLayerEntry } from './sceneGraph';
 import { scheduleRoomSync } from '../store/roomSync';
 import type { RenderEngine } from './RenderEngine';
 import type { SceneGraph } from './sceneGraph';
@@ -616,5 +617,100 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
     expect(clipper2Engine.union, 'the floor is recomputed rather than left empty').toHaveBeenCalled();
     expect(dungeon().mergedFloor, 'so the layer has rings to draw and resolve walls from').not.toBeNull();
     expect(layerId).toBe(dungeon().id);
+  });
+});
+
+describe('subscribeToStore — lights respect layer visibility', () => {
+  let unsub: () => void;
+  let lightManager: LightManager;
+
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    flushLayerDraws();
+    vi.clearAllMocks();
+    lightManager = new LightManager();
+  });
+
+  afterEach(() => {
+    unsub?.();
+    flushLayerDraws();
+  });
+
+  function start(): () => void {
+    const stop = subscribeToStore(engine, sceneGraph, lightManager);
+    flushLayerDraws();
+    return stop;
+  }
+
+  it('excludes lights on a hidden dungeon layer, and re-includes them once shown', () => {
+    const layerId = seed({ children: [light('l1', 10, 10)] });
+
+    unsub = start();
+    expect(lightManager.getLights().map((l) => l.id)).toEqual(['l1']);
+
+    useStore.getState().updateLayer(layerId, { visible: false });
+    expect(lightManager.getLights()).toHaveLength(0);
+
+    useStore.getState().updateLayer(layerId, { visible: true });
+    expect(lightManager.getLights().map((l) => l.id)).toEqual(['l1']);
+  });
+});
+
+describe('subscribeToStore — grid visibility is a container flip, not a rebuild', () => {
+  let unsub: () => void;
+  let lightManager: LightManager;
+
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    flushLayerDraws();
+    vi.clearAllMocks();
+    lightManager = new LightManager();
+  });
+
+  afterEach(() => {
+    unsub?.();
+    flushLayerDraws();
+  });
+
+  function start(): () => void {
+    const stop = subscribeToStore(engine, sceneGraph, lightManager);
+    flushLayerDraws();
+    return stop;
+  }
+
+  it('toggling the global grid flag flips the sublayer flag without a floor rebuild', () => {
+    const layerId = seed({ children: [shape('s1', 0, 0)] });
+    useStore.getState().setSublayerVisibility(layerId, 'grid', true);
+    useStore.getState().setGridVisible(true);
+
+    unsub = start();
+    const entry = getLayerEntry(layerId)!;
+    expect(entry.sublayers!.grid.visible).toBe(true);
+    vi.clearAllMocks();
+
+    useStore.getState().setGridVisible(false);
+    expect(entry.sublayers!.grid.visible).toBe(false);
+
+    useStore.getState().setGridVisible(true);
+    expect(entry.sublayers!.grid.visible).toBe(true);
+
+    // No geometry re-layout — the toggle is a flag flip, nothing else.
+    expect(rebuildDungeonLayer).not.toHaveBeenCalled();
+  });
+
+  it('effective visibility is global AND per-layer', () => {
+    const layerId = seed({ children: [shape('s1', 0, 0)] });
+    unsub = start();
+    const entry = getLayerEntry(layerId)!;
+
+    useStore.getState().setGridVisible(true);
+    useStore.getState().setSublayerVisibility(layerId, 'grid', false);
+    expect(entry.sublayers!.grid.visible).toBe(false);
+
+    useStore.getState().setSublayerVisibility(layerId, 'grid', true);
+    expect(entry.sublayers!.grid.visible).toBe(true);
+
+    useStore.getState().setGridVisible(false);
+    expect(entry.sublayers!.grid.visible).toBe(false);
   });
 });
