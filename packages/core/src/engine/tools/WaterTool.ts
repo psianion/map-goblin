@@ -7,8 +7,8 @@ import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
 import { AddChildCommand, RemoveChildCommand } from '../../store/commands';
 import { clipper2Engine } from '../../geometry/Clipper2Engine';
-import { notify } from '../../shared/notify';
 import { pointInPolygon } from '../hitTest';
+import { resolveEditableLayer } from './layerGuard';
 
 /** Min distance between collected river stroke points (world units). */
 const RIVER_POINT_SPACING = 0.3;
@@ -16,6 +16,7 @@ const RIVER_POINT_SPACING = 0.3;
 export class WaterTool implements DrawingTool {
   readonly type = 'water' as const;
   readonly cursor = 'crosshair';
+  readonly editsActiveLayer = true;
 
   private engine: RenderEngine;
   // river mode: freehand drag
@@ -25,6 +26,12 @@ export class WaterTool implements DrawingTool {
   private lakeVertices: Point[] = [];
   private currentPoint: Point | null = null;
   private lastClick: { point: Point; time: number } | null = null;
+  /**
+   * The active layer when the current stroke/chain started — captured so a
+   * lock/hide/switch mid-gesture can't smuggle a commit onto a layer the
+   * guard never checked. See WallTool for the same pattern.
+   */
+  private chainLayerId: string | null = null;
 
   constructor(engine: RenderEngine) {
     this.engine = engine;
@@ -59,6 +66,7 @@ export class WaterTool implements DrawingTool {
     }
 
     if (this.settings().mode === 'river') {
+      this.chainLayerId = store.ui.activeLayerId;
       this.dragging = true;
       this.riverPoints = [this.rawWorld(point, event)];
       return;
@@ -70,6 +78,9 @@ export class WaterTool implements DrawingTool {
       this.finalizeLake();
       this.lastClick = null;
       return;
+    }
+    if (this.lakeVertices.length === 0) {
+      this.chainLayerId = store.ui.activeLayerId;
     }
     this.lastClick = { point, time: now };
     this.lakeVertices.push(point);
@@ -120,6 +131,7 @@ export class WaterTool implements DrawingTool {
     this.lakeVertices = [];
     this.currentPoint = null;
     this.lastClick = null;
+    this.chainLayerId = null;
   }
 
   isActive(): boolean {
@@ -155,13 +167,13 @@ export class WaterTool implements DrawingTool {
   private finalizeRiver(): void {
     const pts = this.riverPoints;
     this.riverPoints = [];
-    if (pts.length < 2) return;
+    const layerId = this.chainLayerId;
+    this.chainLayerId = null;
+    if (pts.length < 2 || !layerId) return;
 
-    const layer = this.activeDungeonLayer();
-    if (!layer) {
-      notify.warning('Select a dungeon layer to draw water');
-      return;
-    }
+    // Validated against the layer the stroke started on — see WallTool.
+    const layer = resolveEditableLayer(layerId);
+    if (!layer) return;
 
     const s = this.settings();
     const path: [number, number][] = pts.map((p) => [p.x, p.y]);
@@ -182,13 +194,13 @@ export class WaterTool implements DrawingTool {
     const verts = this.lakeVertices;
     this.lakeVertices = [];
     this.currentPoint = null;
-    if (verts.length < 3) return;
+    const layerId = this.chainLayerId;
+    this.chainLayerId = null;
+    if (verts.length < 3 || !layerId) return;
 
-    const layer = this.activeDungeonLayer();
-    if (!layer) {
-      notify.warning('Select a dungeon layer to draw water');
-      return;
-    }
+    // Validated against the layer the chain started on — see WallTool.
+    const layer = resolveEditableLayer(layerId);
+    if (!layer) return;
 
     const contour: [number, number][] = verts.map((p) => [p.x, p.y]);
     // Normalize winding via clipper union so bank normals face the right way

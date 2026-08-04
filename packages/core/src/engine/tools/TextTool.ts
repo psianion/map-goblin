@@ -25,6 +25,7 @@ function countLabels(layer: DungeonLayer): number {
 export class TextTool implements DrawingTool {
   readonly type = 'text' as const;
   readonly cursor = 'crosshair';
+  readonly editsActiveLayer = true;
   private cursorPoint: Point | null = null;
 
   onPointerDown(point: Point): void {

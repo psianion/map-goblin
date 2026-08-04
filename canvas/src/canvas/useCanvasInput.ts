@@ -289,6 +289,10 @@ export function useCanvasInput(
         outlineDragStart = null;
         cancelOutlineDrag();
       }
+      // The tool manager never heard about this gesture ending — without this
+      // an active drawing tool (chain, drag, freehand stroke) is left mid-flight,
+      // and an unguarded onPointerUp downstream could commit it.
+      _toolManager?.cancelActive();
     };
 
     // Double-click with the select tool to expose nodes: a wall's sprite nodes

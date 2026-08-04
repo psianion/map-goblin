@@ -40,7 +40,8 @@ const PICK_RADIUS = 0.6;
 export function toggleNodeEditAt(world: Point): boolean {
   const state = useStore.getState();
   const layer = state.layers.find(
-    (l): l is DungeonLayer => l.type === 'dungeon' && l.id === state.ui.activeLayerId,
+    (l): l is DungeonLayer =>
+      l.type === 'dungeon' && l.id === state.ui.activeLayerId && l.visible && !l.locked,
   );
   if (!layer) return false;
 
@@ -270,7 +271,8 @@ function cyclePiece(t: number, direction: number): void {
 
   const state = useStore.getState();
   const layer = state.layers.find(
-    (l): l is DungeonLayer => l.type === 'dungeon' && l.id === state.ui.activeLayerId,
+    (l): l is DungeonLayer =>
+      l.type === 'dungeon' && l.id === state.ui.activeLayerId && l.visible && !l.locked,
   );
   const setId = layer?.style.wallTextureSetId as WallCategory | undefined;
   if (!setId) return;
@@ -351,6 +353,9 @@ export function handleNodeKey(key: string, t: number): boolean {
 
 let dragBefore: WallNodeEdit[] | undefined;
 let dragWallId: string | null = null;
+/** The layer the drag began on — rewindDrag resolves against this, not
+ *  whatever the active layer happens to be at cancel/release time. */
+let dragLayerId: string | null = null;
 
 /**
  * @param ts Stones the gesture will move. On a floor ring the drag is not a
@@ -361,6 +366,7 @@ export function beginNodeDrag(ts: number[] = []): void {
   const run = activeEditableRun();
   if (!run) return;
   dragWallId = run.id;
+  dragLayerId = run.layer.id;
   const ring = floorRingIndex(run.id);
   if (ring !== null) {
     beginRingStoneDrag(run.layer, ring, ts);
@@ -397,6 +403,27 @@ export function isDraggingNode(): boolean {
 }
 
 /**
+ * Put a standalone wall's live-written nodeEdits back to `before`.
+ *
+ * A rewind, not an edit: this has to succeed even if the layer went locked
+ * or hidden mid-drag, or an edit made just before locking becomes stuck
+ * with no way to undo it. So no lock/visible check here — only that the
+ * layer still exists to write the rewind into.
+ *
+ * Resolves against the layer id the drag actually began on, not
+ * `ui.activeLayerId`: switching the active layer mid-drag must not make the
+ * rewind silently miss the layer the live nudge was written into.
+ */
+function rewindDrag(layerId: string, wallId: string, before: WallNodeEdit[] | undefined): void {
+  const state = useStore.getState();
+  const layer = state.layers.find(
+    (l): l is DungeonLayer => l.type === 'dungeon' && l.id === layerId,
+  );
+  if (!layer) return;
+  state.updateWall(layer.id, wallId, { nodeEdits: before });
+}
+
+/**
  * Abandon the gesture and put the run back the way it was.
  *
  * Needed because the drag writes straight to the store: leaving edit mode
@@ -405,30 +432,37 @@ export function isDraggingNode(): boolean {
  */
 export function cancelNodeDrag(): void {
   const wallId = dragWallId;
+  const layerId = dragLayerId;
   const before = dragBefore;
   dragWallId = null;
+  dragLayerId = null;
   dragBefore = undefined;
   if (isDraggingRingStone()) {
     cancelRingStoneDrag();
     return;
   }
-  if (!wallId) return;
-
-  const state = useStore.getState();
-  const layer = state.layers.find(
-    (l): l is DungeonLayer => l.type === 'dungeon' && l.id === state.ui.activeLayerId,
-  );
-  if (!layer) return;
-  state.updateWall(layer.id, wallId, { nodeEdits: before });
+  if (!wallId || !layerId) return;
+  rewindDrag(layerId, wallId, before);
 }
 
 /** Record the whole gesture as one undoable step. */
 export function endNodeDrag(): void {
   const wallId = dragWallId;
+  const layerId = dragLayerId;
   dragWallId = null;
+  dragLayerId = null;
   const before = dragBefore;
   dragBefore = undefined;
   if (isDraggingRingStone()) {
+    // Re-check here too: beginNodeDrag gated entry, but the layer can have
+    // locked or hidden in the time between the last nudge and release. Ring
+    // stones have no dx/dy of their own to rewind — the drag lives entirely
+    // in the outline editor's own before/after — so blocked here means
+    // cancelling that session instead of landing it.
+    if (!activeEditableRun()) {
+      cancelRingStoneDrag();
+      return;
+    }
     // The outline editor owns this gesture and lands it as one command of its
     // own — geometry and relaid stones together.
     endRingStoneDrag();
@@ -436,7 +470,14 @@ export function endNodeDrag(): void {
   }
 
   const run = activeEditableRun();
-  if (!run || run.id !== wallId) return;
+  if (!run || run.id !== wallId) {
+    // Blocked mid-drag (the layer locked or hid, or the active layer switched
+    // away, between the last nudge and pointer-up): the live nudge already
+    // landed in the store with no undo entry behind it. Put it back rather
+    // than leave it stuck.
+    if (wallId && layerId) rewindDrag(layerId, wallId, before);
+    return;
+  }
   const after = run.edits?.nodeEdits;
   if (JSON.stringify(before ?? null) === JSON.stringify(after ?? null)) return;
 

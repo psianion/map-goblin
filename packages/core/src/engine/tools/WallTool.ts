@@ -4,7 +4,7 @@ import { isDoubleClick, type DrawingTool, type PreviewShape } from './DrawingToo
 import { useStore } from '../../store/store';
 import { AddWallCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
-import type { DungeonLayer } from '../../store/types';
+import { resolveEditableLayer } from './layerGuard';
 
 /** Two points closer than this are the same point. */
 const MIN_SEGMENT = 0.01;
@@ -23,15 +23,24 @@ const MIN_SEGMENT = 0.01;
 export class WallTool implements DrawingTool {
   readonly type = 'wall' as const;
   readonly cursor = 'crosshair';
+  readonly editsActiveLayer = true;
   private vertices: Point[] = [];
   private currentPoint: Point | null = null;
   private lastClick: { point: Point; time: number } | null = null;
+  /**
+   * The active layer when the chain started, captured so a lock/hide/switch
+   * mid-chain can't smuggle a commit onto a layer the guard never checked.
+   */
+  private chainLayerId: string | null = null;
 
   onPointerDown(point: Point, event?: PointerEvent): void {
     const now = Date.now();
     if (this.vertices.length >= 2 && isDoubleClick(this.lastClick, point, now)) {
       this.finalize();
       return;
+    }
+    if (this.vertices.length === 0) {
+      this.chainLayerId = useStore.getState().ui.activeLayerId;
     }
     point = this.constrain(point, event);
     this.lastClick = { point, time: now };
@@ -74,6 +83,7 @@ export class WallTool implements DrawingTool {
     this.vertices = [];
     this.currentPoint = null;
     this.lastClick = null;
+    this.chainLayerId = null;
   }
 
   isActive(): boolean {
@@ -85,17 +95,19 @@ export class WallTool implements DrawingTool {
     this.vertices = [];
     this.currentPoint = null;
     this.lastClick = null;
+    const activeLayerId = this.chainLayerId;
+    this.chainLayerId = null;
 
-    if (verts.length < 2) return;
+    if (verts.length < 2 || !activeLayerId) return;
 
     const store = useStore.getState();
     // Curve mode bakes the smoothed polyline into the segment — downstream
     // (layout engine, node editing, serialization) sees ordinary points.
     if (store.tools.curveMode) verts = smoothChain(verts);
-    const activeLayerId = store.ui.activeLayerId;
-    const activeLayer = store.layers.find(
-      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
-    );
+    // Validated against the layer the chain started on, not whatever is
+    // active now — locking it, hiding it, or switching away mid-chain must
+    // not let Enter commit somewhere the guard never checked.
+    const activeLayer = resolveEditableLayer(activeLayerId);
     if (!activeLayer) return;
 
     // Drop repeats — endpoint snapping makes exact duplicates easy to produce,

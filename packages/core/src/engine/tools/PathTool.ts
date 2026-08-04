@@ -6,6 +6,7 @@ import { AddChildCommand, RemoveChildCommand, UpdateChildCommand, CompositeComma
 import { undoManager } from '../../store/undoManager';
 import { clipper2Engine } from '../../geometry/Clipper2Engine';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
+import { resolveEditableLayer } from './layerGuard';
 
 function countShapesOfType(layer: DungeonLayer, shapeType: string): number {
   return layer.children.filter(
@@ -16,9 +17,12 @@ function countShapesOfType(layer: DungeonLayer, shapeType: string): number {
 export class PathTool implements DrawingTool {
   readonly type = 'path' as const;
   readonly cursor = 'crosshair';
+  readonly editsActiveLayer = true;
   private vertices: Point[] = [];
   private currentPoint: Point | null = null;
   private lastClick: { point: Point; time: number } | null = null;
+  /** The active layer when the chain started — see WallTool for why. */
+  private chainLayerId: string | null = null;
 
   onPointerDown(point: Point, event?: PointerEvent): void {
     const now = Date.now();
@@ -26,6 +30,9 @@ export class PathTool implements DrawingTool {
       this.finalize();
       this.lastClick = null;
       return;
+    }
+    if (this.vertices.length === 0) {
+      this.chainLayerId = useStore.getState().ui.activeLayerId;
     }
     point = this.constrain(point, event);
     this.lastClick = { point, time: now };
@@ -68,6 +75,7 @@ export class PathTool implements DrawingTool {
     this.vertices = [];
     this.currentPoint = null;
     this.lastClick = null;
+    this.chainLayerId = null;
   }
 
   isActive(): boolean {
@@ -79,16 +87,16 @@ export class PathTool implements DrawingTool {
     this.vertices = [];
     this.currentPoint = null;
     this.lastClick = null;
+    const activeLayerId = this.chainLayerId;
+    this.chainLayerId = null;
 
-    if (verts.length < 2) return;
+    if (verts.length < 2 || !activeLayerId) return;
 
     const store = useStore.getState();
     // Curve mode smooths the centerline before it is inflated into a corridor.
     if (store.tools.curveMode) verts = smoothChain(verts);
-    const activeLayerId = store.ui.activeLayerId;
-    const activeLayer = store.layers.find(
-      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
-    );
+    // Validated against the layer the chain started on — see WallTool.
+    const activeLayer = resolveEditableLayer(activeLayerId);
     if (!activeLayer) return;
 
     const pathPoints: [number, number][] = verts.map((v) => [v.x, v.y]);

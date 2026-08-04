@@ -269,11 +269,10 @@ export function redrawDoors(layer: DungeonLayer, entry: LayerEntry): void {
 }
 
 /**
- * Redraw only the grid sublayer — for the grid visibility toggle, which moves
- * no geometry at all. Mirror of {@link redrawDoors}: no stone re-layout, no
- * Clipper2, no floor fill.
- *
- * Called from `rebuildDungeonLayer` too, so the two can never drift.
+ * Redraw only the grid sublayer. Draws geometry unconditionally — visibility
+ * is controlled purely by the `grid` sublayer container's `visible` flag
+ * (subscribeToStore's grid subscriptions), so a hidden→shown toggle never
+ * needs to come back through here to have up-to-date lines.
  */
 export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
   if (!entry.sublayers) return;
@@ -282,7 +281,6 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
 
   const polygons = layer.mergedFloor;
   if (!polygons || polygons.length === 0) return;
-  if (!useStore.getState().grid.visible) return;
 
   // Compute bounding box of all floor polygons
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;

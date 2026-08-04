@@ -10,6 +10,8 @@ export interface TerrainData {
   palette: (string | null)[];
   /** World-space AABB of painted terrain, for export bounds. null = nothing painted. */
   bounds: { minX: number; minY: number; maxX: number; maxY: number } | null;
+  /** Global terrain show/hide. Absent = true; a later PR adds the toggle UI. */
+  visible?: boolean;
 }
 
 export interface MapSettings {
@@ -239,7 +241,7 @@ export interface SelectionSlice {
 // ─── UI ───────────────────────────────────────────────────
 
 export interface ModalState {
-  type: 'confirm' | 'export' | 'save' | 'shortcutReference' | 'layerDelete';
+  type: 'confirm' | 'export' | 'save' | 'shortcutReference';
   props: Record<string, unknown>;
 }
 

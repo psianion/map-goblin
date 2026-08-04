@@ -2,6 +2,7 @@ import { Container, Graphics } from 'pixi.js';
 import type { Point } from '../../types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
+import { notify } from '../../shared/notify';
 
 /**
  * Manages drawing tools — registration, activation, and input forwarding.
@@ -32,7 +33,30 @@ export class ToolManager {
   onPointerDown(point: Point, event: PointerEvent): void {
     const type = useStore.getState().tools.activeTool;
     if (this.activeTool?.type !== type) this.switchTool(type);
+    if (this.activeTool?.editsActiveLayer && !this.canEditActiveLayer()) return;
     this.activeTool?.onPointerDown(point, event);
+  }
+
+  /**
+   * Chain tools (wall/polygon/path) can't start or extend a chain without a
+   * pointerDown, so gating this one call covers their commit paths too.
+   */
+  private canEditActiveLayer(): boolean {
+    const state = useStore.getState();
+    const layer = state.layers.find((l) => l.id === state.ui.activeLayerId);
+    if (!layer || layer.type !== 'dungeon') {
+      notify.warning('Select a layer first');
+      return false;
+    }
+    if (layer.locked) {
+      notify.warning('Layer is locked');
+      return false;
+    }
+    if (!layer.visible) {
+      notify.warning('Layer is hidden');
+      return false;
+    }
+    return true;
   }
 
   onPointerMove(point: Point, event: PointerEvent): void {
@@ -43,6 +67,16 @@ export class ToolManager {
 
   onPointerUp(point: Point, event: PointerEvent): void {
     this.activeTool?.onPointerUp(point, event);
+  }
+
+  /**
+   * External hard-cancel — an OS pointercancel mid-draw (touch/stylus gesture
+   * taken away) never reaches onPointerUp, so the active tool would otherwise
+   * be left in a live-chain/live-drag state that the next unguarded
+   * onPointerUp could commit.
+   */
+  cancelActive(): void {
+    this.activeTool?.cancel();
   }
 
   onKeyDown(event: KeyboardEvent): void {

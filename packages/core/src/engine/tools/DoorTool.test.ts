@@ -45,6 +45,7 @@ import { DoorTool, clampDoorWidth } from './DoorTool';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
 import { createWallRemovalCommand } from '../../store/commands';
+import { setNotify } from '../../store/notify';
 import type { DoorChild, WallSegment } from '../../shared/types';
 import type { DungeonLayer } from '../../store/types';
 
@@ -499,6 +500,92 @@ describe('DoorTool', () => {
     undoManager.undo();
     expect(doors()).toHaveLength(1);
     expect(layer().standaloneWalls).toHaveLength(1);
+  });
+});
+
+describe('DoorTool — locked layer (DR10 carve-out, F4/F2)', () => {
+  let tool: DoorTool;
+  let warning: ReturnType<typeof vi.fn<(msg: string) => void>>;
+
+  beforeEach(() => {
+    undoManager.clear();
+    useStore.getState().resetToDefault();
+    useStore.getState().addWall(layer().id, structuredClone(WALL));
+    const preview = new Container();
+    tool = new DoorTool(preview);
+    warning = vi.fn();
+    setNotify({ warning, error: vi.fn(), success: vi.fn(), info: vi.fn() });
+  });
+
+  it('still selects a door for inspection on a locked layer (DR10)', () => {
+    click(tool, 5, 5.1);
+    const placed = doors()[0];
+    useStore.getState().updateLayer(layer().id, { locked: true });
+
+    click(tool, 5, 5.1);
+    expect(selectedIds()).toEqual([placed.id]);
+    expect(doors()[0].state).toBe('closed');
+    expect(warning).not.toHaveBeenCalled();
+  });
+
+  it('blocks cycling a door on a locked layer', () => {
+    click(tool, 5, 5.1);
+    useStore.getState().updateLayer(layer().id, { locked: true });
+
+    doubleClick(tool, 5, 5.1);
+    expect(doors()[0].state).toBe('closed');
+    expect(warning).toHaveBeenCalledWith('Layer is locked');
+  });
+
+  it('blocks placing a new door on a locked layer', () => {
+    useStore.getState().updateLayer(layer().id, { locked: true });
+    click(tool, 8, 5.1);
+    expect(doors()).toHaveLength(0);
+    expect(warning).toHaveBeenCalledWith('Layer is locked');
+  });
+
+  it('blocks dragging a selected door on a locked layer, warning once the drag starts', () => {
+    click(tool, 5, 5.1);
+    useStore.getState().updateLayer(layer().id, { locked: true });
+    // The press itself is a select (allowed); crossing DRAG_SLOP is what a
+    // locked layer refuses.
+    drag(tool, [5, 5], [8, 5.1]);
+    expect(doors()[0].position[0]).toBeCloseTo(5);
+    expect(warning).toHaveBeenCalledWith('Layer is locked');
+  });
+
+  it('refuses placement and selection on a hidden layer', () => {
+    click(tool, 5, 5.1);
+    const before = doors()[0];
+    useStore.getState().setSelectedIds([]);
+    useStore.getState().updateLayer(layer().id, { visible: false });
+
+    click(tool, 5, 5.1);
+    // Nothing to inspect if the layer isn't even drawn — selection is refused too.
+    expect(selectedIds()).toEqual([]);
+    expect(doors()).toEqual([before]);
+    expect(warning).toHaveBeenCalledWith('Layer is hidden');
+  });
+
+  it('blocks deleting the selected door on a locked layer (F2)', () => {
+    click(tool, 5, 5.1);
+    click(tool, 5, 5.1); // select
+    useStore.getState().updateLayer(layer().id, { locked: true });
+
+    tool.onKeyDown(new KeyboardEvent('keydown', { key: 'Delete' }));
+    expect(doors()).toHaveLength(1);
+    expect(warning).toHaveBeenCalledWith('Layer is locked');
+  });
+
+  it('blocks deleting the hovered door on a hidden layer (F2)', () => {
+    click(tool, 5, 5.1);
+    useStore.getState().setSelectedIds([]);
+    tool.onPointerMove({ x: 5, y: 5.1 });
+    useStore.getState().updateLayer(layer().id, { visible: false });
+
+    tool.onKeyDown(new KeyboardEvent('keydown', { key: 'Delete' }));
+    expect(doors()).toHaveLength(1);
+    expect(warning).toHaveBeenCalledWith('Layer is hidden');
   });
 });
 

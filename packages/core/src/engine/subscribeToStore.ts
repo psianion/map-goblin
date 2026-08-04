@@ -1,7 +1,7 @@
 import { Assets, Texture, TilingSprite } from 'pixi.js';
 import { useStore } from '../store/store';
 import { notify } from '../shared/notify';
-import type { SceneGraph } from './sceneGraph';
+import type { SceneGraph, LayerEntry } from './sceneGraph';
 import {
   addLayerToScene,
   removeLayerFromScene,
@@ -11,7 +11,7 @@ import {
 } from './sceneGraph';
 import type { RenderEngine } from './RenderEngine';
 import { markDirty as markRenderCacheDirty } from './renderCache';
-import { rebuildDungeonLayer, redrawDoors, redrawGrid, preloadLayerTextures } from './floorWallRenderer';
+import { rebuildDungeonLayer, redrawDoors, preloadLayerTextures } from './floorWallRenderer';
 import { preloadWallTextures } from './wallNodeRenderer';
 import type { DungeonLayer, LightChild, ShapeChild } from '../store/types';
 import type { WallEdits, WallSegment } from '../shared/types';
@@ -309,6 +309,16 @@ function scheduleRedrawDoors(layerId: string): void {
 }
 
 /**
+ * Effective grid visibility is global × per-layer. Flips the container flag
+ * directly — no stone re-layout, no redrawGrid call — so the toggle is O(1)
+ * per layer instead of a full grid rebuild.
+ */
+function applyGridVisibility(entry: LayerEntry, perLayerGridVisible: boolean, globalVisible: boolean): void {
+  if (!entry.sublayers) return;
+  entry.sublayers.grid.visible = globalVisible && perLayerGridVisible;
+}
+
+/**
  * Subscribe to Zustand store changes and sync PixiJS scene graph.
  * This runs outside of React's render cycle.
  * Returns a cleanup function to unsubscribe.
@@ -586,7 +596,7 @@ export function subscribeToStore(
   const unsubLights = useStore.subscribe(
     (state) =>
       state.layers
-        .filter((l): l is DungeonLayer => l.type === 'dungeon')
+        .filter((l): l is DungeonLayer => l.type === 'dungeon' && l.visible)
         .flatMap((l) => l.children.filter((c): c is LightChild => c.childType === 'light')),
     (lights) => {
       lightManager.syncFromStore(lights);
@@ -636,11 +646,12 @@ export function subscribeToStore(
         .filter((l): l is DungeonLayer => l.type === 'dungeon')
         .map((l) => ({ id: l.id, vis: l.sublayerVisibility })),
     (layerVis) => {
+      const globalGridVisible = useStore.getState().grid.visible;
       for (const { id, vis } of layerVis) {
         const entry = getLayerEntry(id);
         if (!entry?.sublayers) continue;
         entry.sublayers.floor.visible = vis.floor;
-        entry.sublayers.grid.visible = vis.grid;
+        applyGridVisibility(entry, vis.grid, globalGridVisible);
         entry.sublayers.walls.visible = vis.walls;
         // Doors have their own sublayer now (see sceneGraph.ts) but still
         // follow the "walls" visibility toggle — same as when they lived
@@ -703,7 +714,7 @@ export function subscribeToStore(
   // ─── Grid config changes → rebuild dungeon grid sublayers ─
   const unsubGridVis = useStore.subscribe(
     (state) => state.grid.visible,
-    () => {
+    (visible) => {
       const dungeonLayers = useStore.getState().layers.filter(
         (l): l is DungeonLayer => l.type === 'dungeon',
       );
@@ -711,8 +722,9 @@ export function subscribeToStore(
         const entry = getLayerEntry(layer.id);
         if (entry) {
           // Grid lines are their own sublayer and nothing else reads
-          // grid.visible, so the toggle has no business re-laying every stone.
-          redrawGrid(layer, entry);
+          // grid.visible, so the toggle has no business re-laying every stone —
+          // flip the container flag, geometry is already there.
+          applyGridVisibility(entry, layer.sublayerVisibility.grid, visible);
           markRenderCacheDirty(layer.id);
         }
       }

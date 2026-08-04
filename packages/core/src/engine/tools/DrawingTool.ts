@@ -51,6 +51,8 @@ export interface DrawingTool {
   readonly type: ToolType;
   /** CSS cursor for this tool when idle (default: 'default'). Gizmo hover overrides via getHoverCursor. */
   readonly cursor?: string;
+  /** True when the tool draws into the active dungeon layer — gates pointerDown on layer selection/lock/visibility (ToolManager). */
+  readonly editsActiveLayer?: boolean;
   onPointerDown(point: Point, event?: PointerEvent): void;
   onPointerMove(point: Point, event?: PointerEvent): void;
   onPointerUp(point: Point, event?: PointerEvent): void;

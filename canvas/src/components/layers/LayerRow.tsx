@@ -193,7 +193,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
       {isDungeon && isExpanded && dungeonLayer && dungeonLayer.children.length > 0 && (
         <div>
           {dungeonLayer.children.map((child) => (
-            <ChildRow key={child.id} child={child} layerId={layer.id} />
+            <ChildRow key={child.id} child={child} layer={dungeonLayer} />
           ))}
         </div>
       )}

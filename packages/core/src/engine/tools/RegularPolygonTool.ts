@@ -29,6 +29,7 @@ function countShapesOfType(layer: DungeonLayer, shapeType: string): number {
 export class RegularPolygonTool implements DrawingTool {
   readonly type = 'regularPolygon' as const;
   readonly cursor = 'crosshair';
+  readonly editsActiveLayer = true;
   private center: Point | null = null;
   private currentPoint: Point | null = null;
   private drawing = false;
