@@ -48,7 +48,9 @@ export async function waitForBoot(page: Page): Promise<void> {
 
 /** Navigate to the app and wait for it to finish booting. */
 export async function gotoApp(page: Page): Promise<void> {
-  await page.goto('/')
+  // ?e2e=1 opts into PixiRenderEngine's preserveDrawingBuffer, which getPixelColor below
+  // (and any WebGL readback) needs — off by default so real users don't pay for it.
+  await page.goto('/?e2e=1')
   await waitForBoot(page)
 }
 
