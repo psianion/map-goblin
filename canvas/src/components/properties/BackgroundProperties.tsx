@@ -31,6 +31,16 @@ export function BackgroundProperties({ layer, openSections, onToggleSection }: B
     ))
   }
 
+  const commitColor = (newColor: string, startColor: string) => {
+    if (newColor === startColor) return
+    undoManager.execute(new PropertyCommand(
+      'Background color',
+      { type: 'layer', layerId: layer.id },
+      { backgroundColor: startColor },
+      { backgroundColor: newColor },
+    ))
+  }
+
   return (
     <CollapsibleSection
       id="bg"
@@ -50,6 +60,7 @@ export function BackgroundProperties({ layer, openSections, onToggleSection }: B
             onChange={(c) =>
               updateLayer(layer.id, { backgroundColor: c } as Partial<BackgroundLayer>)
             }
+            onChangeCommit={commitColor}
           />
         </PropertyField>
         <PropertyField label="Opacity">
@@ -61,6 +72,7 @@ export function BackgroundProperties({ layer, openSections, onToggleSection }: B
             step={1}
             onChange={(pct) => updateLayer(layer.id, { opacity: pct / 100 })}
             onChangeCommit={commitOpacity}
+            unit="%"
           />
         </PropertyField>
       </div>

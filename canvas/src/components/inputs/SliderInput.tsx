@@ -15,6 +15,8 @@ interface SliderInputProps {
   min?: number
   max?: number
   step?: number
+  /** Appended to the displayed value, e.g. "%" for opacity. */
+  unit?: string
 }
 
 export function SliderInput({
@@ -25,6 +27,7 @@ export function SliderInput({
   min = 0,
   max = 1,
   step = 0.01,
+  unit,
 }: SliderInputProps) {
   const startRef = useRef(rawValue ?? value)
 
@@ -57,8 +60,8 @@ export function SliderInput({
         // startRef to the settled value, so a blur right after sees no change.
         onBlur={(e) => commitIfChanged(Number((e.target as HTMLInputElement).value))}
       />
-      <span className="font-mono text-panel-small text-text-muted w-8 text-right tabular-nums">
-        {display}
+      <span className="font-mono text-panel-small text-text-muted w-10 text-right tabular-nums">
+        {display}{unit}
       </span>
     </div>
   )

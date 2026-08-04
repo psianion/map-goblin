@@ -53,6 +53,7 @@ export function TerrainProperties({ openSections, onToggleSection }: SectionCont
             step={1}
             onChange={(pct) => setTerrainData({ opacity: pct / 100 })}
             onChangeCommit={commitOpacity}
+            unit="%"
           />
         </PropertyField>
       </div>

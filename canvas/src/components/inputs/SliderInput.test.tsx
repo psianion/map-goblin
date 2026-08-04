@@ -50,6 +50,13 @@ describe('SliderInput', () => {
     expect(onChangeCommit).toHaveBeenCalledTimes(1) // unchanged since the drag's commit — no second entry
   })
 
+  // D6: opacity sliders displayed "100" instead of "100%" — an optional unit
+  // suffix instead of hardcoding one, so non-percent sliders are unaffected.
+  it('appends the unit suffix to the displayed value when given one', () => {
+    render(<SliderInput value={100} min={0} max={100} step={1} onChange={() => {}} unit="%" />)
+    expect(screen.getByText('100%')).toBeDefined()
+  })
+
   it('does not commit on blur when the value never changed', () => {
     const onChangeCommit = vi.fn()
     render(<SliderInput value={5} min={0} max={10} step={1} onChange={() => {}} onChangeCommit={onChangeCommit} />)
