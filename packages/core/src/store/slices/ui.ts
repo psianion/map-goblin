@@ -61,41 +61,16 @@ export const createUISlice: StateCreator<
   // Direct state mutation, same tier as setActiveLayerId — not routed through
   // undoManager. Soloing is a view convenience (like expanding a layer row),
   // not an authored edit worth an undo entry.
+  //
+  // Render-only: this never writes a layer's `visible` flag. Every consumer
+  // that cares whether a layer is showing reads `isLayerEffectivelyVisible`
+  // (store/selectors.ts) instead, so solo can never leak into autosave and
+  // never fights an undo/redo done while it was on.
   toggleSoloLayer: (id) =>
     set((state) => {
       const target = state.layers.find((l) => l.id === id);
       if (!target || target.type !== 'dungeon') return;
-
-      const current = state.ui.solo;
-
-      // Same layer again: restore what solo hid and clear it.
-      if (current && current.layerId === id) {
-        for (const layer of state.layers) {
-          if (layer.type === 'dungeon' && layer.id in current.prevVisibility) {
-            layer.visible = current.prevVisibility[layer.id];
-          }
-        }
-        state.ui.solo = null;
-        return;
-      }
-
-      // A different layer was soloed: restore it first so the fresh snapshot
-      // below is taken from the pre-solo state, not the soloed-away one.
-      if (current) {
-        for (const layer of state.layers) {
-          if (layer.type === 'dungeon' && layer.id in current.prevVisibility) {
-            layer.visible = current.prevVisibility[layer.id];
-          }
-        }
-      }
-
-      const prevVisibility: Record<string, boolean> = {};
-      for (const layer of state.layers) {
-        if (layer.type !== 'dungeon') continue; // background is left untouched
-        prevVisibility[layer.id] = layer.visible;
-        layer.visible = layer.id === id;
-      }
-      state.ui.solo = { layerId: id, prevVisibility };
+      state.ui.solo = state.ui.solo?.layerId === id ? null : { layerId: id };
     }),
   clearSolo: () =>
     set((state) => {

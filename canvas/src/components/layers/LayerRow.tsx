@@ -6,7 +6,7 @@ import type { Layer, DungeonLayer } from '@/store/types'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
-import { selectSelectedIds } from '@/store/selectors'
+import { selectSelectedIds, isLayerEffectivelyVisible } from '@/store/selectors'
 import { undoManager } from '@/store/undoManager'
 import { PropertyCommand, RemoveLayerCommand } from '@/store/commands'
 import { Button } from '@/components/ui/button'
@@ -31,6 +31,9 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
   const toggleSoloLayer = useStore((s) => s.toggleSoloLayer)
   const clearSolo = useStore((s) => s.clearSolo)
   const isSoloed = soloLayerId === layer.id
+  // What the row shows — layer.visible narrowed by solo, so a layer another
+  // row soloed away reads (and looks) hidden here too, not just on canvas.
+  const effectivelyVisible = useStore((s) => isLayerEffectivelyVisible(s, layer))
 
   const [editingName, setEditingName] = useState(false)
 
@@ -139,7 +142,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           // carries the mode-correct hover (flat tint by day, glow from below at night).
           'gg-row flex items-center gap-1 px-1 py-1.5 cursor-pointer',
           isActive && 'bg-surface-3',
-          !layer.visible && 'opacity-50',
+          !effectivelyVisible && 'opacity-50',
         )}
         onClick={handleLayerClick}
         onContextMenu={menu.open}
@@ -204,7 +207,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           variant="ghost"
           size="icon-xs"
           data-testid="layer-visibility-toggle"
-          data-visible={layer.visible}
+          data-visible={effectivelyVisible}
           data-soloed={isSoloed}
           onClick={(e) => {
             e.stopPropagation()
@@ -223,7 +226,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
               : `${layer.visible ? 'Hide layer' : 'Show layer'} (Alt-click to solo)`
           }
         >
-          {layer.visible ? <Eye size={14} /> : <EyeOff size={14} />}
+          {effectivelyVisible ? <Eye size={14} /> : <EyeOff size={14} />}
         </Button>
       </div>
 

@@ -1,17 +1,21 @@
 import { useStore } from '../../store/store';
 import { notify } from '../../shared/notify';
+import { isLayerEffectivelyVisible } from '../../store/selectors';
 import type { DungeonLayer } from '../../store/types';
 
 /**
  * Null when `layer` may be edited; otherwise the warning that belongs to why
  * not. Shared by every write path that already holds a resolved layer (a
- * delete, mostly) so a lock or hide applied after the layer was picked up
- * still gets caught right before the mutation.
+ * delete, mostly) so a lock, hide, or solo applied after the layer was
+ * picked up still gets caught right before the mutation. Reads solo off the
+ * store rather than taking it as a parameter — every caller already has a
+ * layer in hand and nothing else, and this keeps the rule in one place
+ * instead of forking it per call site.
  */
 export function blockedLayerReason(layer: DungeonLayer | null | undefined): string | null {
   if (!layer) return 'Layer was removed';
   if (layer.locked) return 'Layer is locked';
-  if (!layer.visible) return 'Layer is hidden';
+  if (!isLayerEffectivelyVisible(useStore.getState(), layer)) return 'Layer is hidden';
   return null;
 }
 

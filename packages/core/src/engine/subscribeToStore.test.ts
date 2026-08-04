@@ -655,6 +655,28 @@ describe('subscribeToStore — lights respect layer visibility', () => {
     useStore.getState().updateLayer(layerId, { visible: true });
     expect(lightManager.getLights().map((l) => l.id)).toEqual(['l1']);
   });
+
+  // F1 (HIGH-1/2): solo is a render-only override — it never writes
+  // `layer.visible` — so the light sync has to key off effective visibility
+  // (isLayerEffectivelyVisible), or soloing one layer would leave every
+  // other layer's lights (and their glow) lit.
+  it('excludes lights of non-soloed layers while soloed, without touching layer.visible', () => {
+    const layerId = seed({ children: [light('l1', 10, 10)] });
+    const otherLayer = { ...dungeon(), id: 'other', name: 'Other', children: [light('l2', 20, 20)] };
+    useStore.setState((s) => {
+      s.layers.push(otherLayer);
+    });
+
+    unsub = start();
+    expect(lightManager.getLights().map((l) => l.id).sort()).toEqual(['l1', 'l2']);
+
+    useStore.getState().toggleSoloLayer(otherLayer.id);
+    expect(useStore.getState().layers.find((l) => l.id === layerId)?.visible).toBe(true);
+    expect(lightManager.getLights().map((l) => l.id)).toEqual(['l2']);
+
+    useStore.getState().toggleSoloLayer(otherLayer.id); // un-solo
+    expect(lightManager.getLights().map((l) => l.id).sort()).toEqual(['l1', 'l2']);
+  });
 });
 
 describe('subscribeToStore — grid visibility is a container flip, not a rebuild', () => {
@@ -748,16 +770,65 @@ describe('subscribeToStore — terrain appearance mirrors mapSettings.terrain', 
     unsub = start();
     (sceneGraph.terrainRenderer.setAppearance as import('vitest').Mock).mockClear();
 
-    useStore.getState().setTerrainAppearance({ visible: false });
+    useStore.getState().setTerrainData({ visible: false });
     expect(sceneGraph.terrainRenderer.setAppearance).toHaveBeenLastCalledWith(false, 1);
 
-    useStore.getState().setTerrainAppearance({ visible: true });
+    useStore.getState().setTerrainData({ visible: true });
     expect(sceneGraph.terrainRenderer.setAppearance).toHaveBeenLastCalledWith(true, 1);
   });
 
   it('opacity changes are mirrored to the renderer', () => {
     unsub = start();
-    useStore.getState().setTerrainAppearance({ opacity: 0.4 });
+    useStore.getState().setTerrainData({ opacity: 0.4 });
     expect(sceneGraph.terrainRenderer.setAppearance).toHaveBeenLastCalledWith(true, 0.4);
+  });
+});
+
+// F2 (MEDIUM-3): background pixels render via bgFill/bgTilingSprite under
+// sceneGraph.backgroundLayer, not the background layer's own entry
+// container — the layer-visibility/opacity subscriptions used to only touch
+// the (unused, for background) entry, so the panel's toggle and slider did
+// nothing.
+describe('subscribeToStore — background layer visibility/opacity reach sceneGraph.backgroundLayer', () => {
+  let unsub: () => void;
+  let lightManager: LightManager;
+
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    flushLayerDraws();
+    vi.clearAllMocks();
+    lightManager = new LightManager();
+  });
+
+  afterEach(() => {
+    unsub?.();
+    flushLayerDraws();
+  });
+
+  function start(): () => void {
+    const stop = subscribeToStore(engine, sceneGraph, lightManager);
+    flushLayerDraws();
+    return stop;
+  }
+
+  function bgLayerId(): string {
+    return useStore.getState().layers.find((l) => l.type === 'background')!.id;
+  }
+
+  it('hiding/showing the background layer flips sceneGraph.backgroundLayer.visible', () => {
+    unsub = start();
+    expect(sceneGraph.backgroundLayer.visible).toBe(true);
+
+    useStore.getState().updateLayer(bgLayerId(), { visible: false });
+    expect(sceneGraph.backgroundLayer.visible).toBe(false);
+
+    useStore.getState().updateLayer(bgLayerId(), { visible: true });
+    expect(sceneGraph.backgroundLayer.visible).toBe(true);
+  });
+
+  it('the background opacity slider reaches sceneGraph.backgroundLayer.alpha', () => {
+    unsub = start();
+    useStore.getState().updateLayer(bgLayerId(), { opacity: 0.42 });
+    expect(sceneGraph.backgroundLayer.alpha).toBe(0.42);
   });
 });

@@ -14,6 +14,7 @@
 import type { Point, Polygon } from '../types/geometry';
 import type { DungeonLayer, ShapeChild, AnyChild } from '../store/types';
 import { useStore } from '../store/store';
+import { isLayerEffectivelyVisible } from '../store/selectors';
 import { undoManager } from '../store/undoManager';
 import {
   AddChildCommand,
@@ -279,7 +280,7 @@ export function toggleShapeNodeEditAt(world: Point): boolean {
   }
   const layer = state.layers.find(
     (l): l is DungeonLayer =>
-      l.type === 'dungeon' && l.visible && !l.locked && l.id === state.ui.activeLayerId,
+      l.type === 'dungeon' && !l.locked && l.id === state.ui.activeLayerId && isLayerEffectivelyVisible(state, l),
   );
   if (!layer) return false;
   // Topmost first, matching how selection picks.

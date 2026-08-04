@@ -3,6 +3,7 @@ import type { Point } from '../../types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
 import { notify } from '../../shared/notify';
+import { blockedLayerReason } from './layerGuard';
 
 /**
  * Manages drawing tools — registration, activation, and input forwarding.
@@ -48,12 +49,9 @@ export class ToolManager {
       notify.warning('Select a layer first');
       return false;
     }
-    if (layer.locked) {
-      notify.warning('Layer is locked');
-      return false;
-    }
-    if (!layer.visible) {
-      notify.warning('Layer is hidden');
+    const reason = blockedLayerReason(layer);
+    if (reason) {
+      notify.warning(reason);
       return false;
     }
     return true;

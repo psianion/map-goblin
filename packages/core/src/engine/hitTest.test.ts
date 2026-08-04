@@ -1,12 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   pointInPolygon,
   pointInShape,
   pointInAsset,
   hitTestChildren,
+  hitTestAllLayers,
   getChildBounds,
   boundsIntersect,
 } from './hitTest';
+import { useStore } from '../store/store';
+import { createDungeonLayer } from '../store/factories';
 import type { ShapeChild, AssetChild, LightChild } from '../store/types';
 import type { DoorChild, WaterChild } from '../shared/types';
 
@@ -270,6 +273,41 @@ describe('hitTestChildren', () => {
   it('skips invisible doors', () => {
     const door = makeDoor([5, 5], { visible: false });
     expect(hitTestChildren([door], [5, 5])).toBeNull();
+  });
+});
+
+// ─── hitTestAllLayers — solo (render-only override) ───────
+
+describe('hitTestAllLayers respects solo', () => {
+  const square: [number, number][] = [[0, 0], [10, 0], [10, 10], [0, 10]];
+
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+  });
+
+  it('a layer effectively hidden by another layer being soloed is skipped, even though its own `visible` is true', () => {
+    const soloed = createDungeonLayer('Soloed');
+    const other = createDungeonLayer('Other');
+    other.children = [makeShape(square, { id: 'other-shape' })];
+    expect(other.visible).toBe(true); // authored flag never touched by solo
+
+    useStore.setState((s) => {
+      s.ui.solo = { layerId: soloed.id };
+    });
+
+    expect(hitTestAllLayers([other], [5, 5])).toBeNull();
+    expect(hitTestAllLayers([soloed, other], [5, 5])).toBeNull();
+  });
+
+  it('the soloed layer itself still hit-tests normally', () => {
+    const soloed = createDungeonLayer('Soloed');
+    soloed.children = [makeShape(square, { id: 'soloed-shape' })];
+
+    useStore.setState((s) => {
+      s.ui.solo = { layerId: soloed.id };
+    });
+
+    expect(hitTestAllLayers([soloed], [5, 5])?.child.id).toBe('soloed-shape');
   });
 });
 

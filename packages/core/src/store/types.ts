@@ -265,11 +265,11 @@ export interface UISlice {
   highlightedRoomId: string | null;
   /**
    * Alt-click-eye "solo" state — not persisted, not undoable (same tier as
-   * activeLayerId). `prevVisibility` is the snapshot of every dungeon layer's
-   * `visible` taken the moment solo turned on, so toggling off (or retargeting)
-   * restores exactly what the user had before, for layers that still exist.
+   * activeLayerId). A render-only override: it never writes a layer's own
+   * `visible` flag. Consumers gate on `isLayerEffectivelyVisible` (see
+   * store/selectors.ts) instead of reading `layer.visible` directly.
    */
-  solo: { layerId: string; prevVisibility: Record<string, boolean> } | null;
+  solo: { layerId: string } | null;
 }
 
 // ─── Assets ───────────────────────────────────────────────
