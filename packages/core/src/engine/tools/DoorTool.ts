@@ -18,6 +18,8 @@ import { DOOR_MIN_HIT_RADIUS as MIN_HIT_RADIUS } from '../hitTest';
 import { AddChildCommand, RemoveChildCommand, UpdateChildCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
 import { useStore } from '../../store/store';
+import { notify } from '../../shared/notify';
+import { blockedLayerReason } from './layerGuard';
 
 /** Click-to-cycle order. Archways can't lock, so they skip straight back. */
 const NEXT_STATE: Record<DoorState, DoorState> = {
@@ -180,7 +182,10 @@ function activeDungeonLayer(): DungeonLayer | undefined {
 export class DoorTool implements DrawingTool {
   readonly type = 'door' as const;
   readonly cursor = 'crosshair';
-  readonly editsActiveLayer = true;
+  // No editsActiveLayer: DR10 requires single-click door *selection* to keep
+  // working on a locked layer (the properties panel keys off it), which the
+  // manager's blanket pointerDown guard can't distinguish from placement or a
+  // drag. This tool enforces the split itself — see onPointerDown.
   snapResult: WallSnapResult | null = null;
   /** Door under the cursor — the Delete target when nothing is selected. */
   hoveredDoorId: string | null = null;
@@ -207,13 +212,27 @@ export class DoorTool implements DrawingTool {
     const store = useStore.getState();
     const activeLayerId = store.ui.activeLayerId;
     const activeLayer = activeDungeonLayer();
-    if (!activeLayer) return;
+    if (!activeLayer) {
+      notify.warning('Select a layer first');
+      return;
+    }
+    if (!activeLayer.visible) {
+      // Nothing to inspect if the layer isn't drawn — a door tool with a
+      // hidden layer active has nothing on screen to click.
+      notify.warning('Layer is hidden');
+      return;
+    }
+    const locked = activeLayer.locked;
 
     const hit = doorAt(point, activeLayer);
     if (hit) {
       // Second click of a double cycles the state; the first already selected the
       // door, and selection is idempotent, so nothing fires twice.
       if (isDoubleClick(this.lastClick, point, Date.now())) {
+        if (locked) {
+          notify.warning('Layer is locked');
+          return;
+        }
         this.lastClick = null;
         this.pressedDoorId = null;
         this.pressPoint = null;
@@ -229,11 +248,22 @@ export class DoorTool implements DrawingTool {
         return;
       }
       // Single click selects — the properties panel keys off the selection, so a
-      // door can now be inspected without being mutated (DR10).
+      // door can now be inspected without being mutated (DR10). This has to work
+      // on a locked layer too: DR10's whole point is that inspecting a door is
+      // not editing it, so a lock — which exists to stop edits — must not stop it.
+      // Press/drag tracking still arms here even when locked: the press is a
+      // select either way, and onPointerMove is what tells select and
+      // drag-start apart (the DRAG_SLOP crossing) — that is where a locked
+      // layer has to refuse and say so, not here.
       store.setSelectedIds([hit.id]);
       this.lastClick = { point, time: Date.now() };
       this.pressedDoorId = hit.id;
       this.pressPoint = point;
+      return;
+    }
+
+    if (locked) {
+      notify.warning('Layer is locked');
       return;
     }
 
@@ -371,7 +401,9 @@ export class DoorTool implements DrawingTool {
     // slide the door itself is tracking the cursor: either way a placement
     // ghost would be a lie.
     const plan =
-      this.hoveredDoorId || this.dragFrom ? null : this.plan(layer, resolveWalls(layer));
+      this.hoveredDoorId || this.dragFrom || layer.locked
+        ? null
+        : this.plan(layer, resolveWalls(layer));
     if (!plan) {
       this.clearGhost();
       return;
@@ -412,6 +444,15 @@ export class DoorTool implements DrawingTool {
     if (this.pressedDoorId && this.pressPoint) {
       const moved = Math.hypot(point.x - this.pressPoint.x, point.y - this.pressPoint.y);
       if (this.dragFrom || moved > DRAG_SLOP) {
+        if (activeLayer.locked) {
+          // The press crossed from "select" into "drag" — the moment a locked
+          // layer actually has to refuse. Stop tracking so this doesn't warn
+          // again on every subsequent move frame of the same gesture.
+          notify.warning('Layer is locked');
+          this.pressedDoorId = null;
+          this.pressPoint = null;
+          return;
+        }
         this.clearGhost();
         this.slideTo(point, activeLayer);
         return;
@@ -502,6 +543,14 @@ export class DoorTool implements DrawingTool {
     );
     const target = selected ?? this.hoveredDoorId;
     if (!target) return;
+    // Hover is set by an unguarded onPointerMove and the keydown listener is
+    // document-level, so neither path already checked the layer — do it here,
+    // right before the mutation.
+    const reason = blockedLayerReason(layer);
+    if (reason) {
+      notify.warning(reason);
+      return;
+    }
     undoManager.execute(new RemoveChildCommand('Delete door', layer.id, target));
     if (selected) store.setSelectedIds([]);
     this.hoveredDoorId = null;
