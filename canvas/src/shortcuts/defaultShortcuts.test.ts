@@ -78,3 +78,40 @@ describe('ctrl+v paste — active-layer validation (F5)', () => {
     expect(toast.warning).toHaveBeenCalledWith('Select a layer first', expect.anything());
   });
 });
+
+// delete/ctrl+x used to build RemoveChildCommands straight off
+// selectLayerForChild with no lock/visible check on the OWNING layer — the
+// real path for a child selected via the layers panel, since ChildRow sets
+// activeTool 'select' + selection directly rather than going through the
+// canvas SelectTool (which no-ops for objects) (X1).
+describe('delete / ctrl+x — owning-layer validation (X1)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    undoManager.clear();
+    useStore.getState().resetToDefault();
+    useStore.getState().addChild(layer().id, makeShape());
+    useStore.getState().setSelectedIds(['shape-1']);
+  });
+
+  it('blocks delete and warns when the owning layer is locked', () => {
+    useStore.getState().updateLayer(layer().id, { locked: true });
+    handleShortcut('delete');
+    expect(layer().children).toHaveLength(1);
+    expect(toast.warning).toHaveBeenCalledWith('Layer is locked', expect.anything());
+  });
+
+  it('blocks delete and warns when the owning layer is hidden', () => {
+    useStore.getState().updateLayer(layer().id, { visible: false });
+    handleShortcut('delete');
+    expect(layer().children).toHaveLength(1);
+    expect(toast.warning).toHaveBeenCalledWith('Layer is hidden', expect.anything());
+  });
+
+  it('blocks ctrl+x and warns when the owning layer is locked', () => {
+    useStore.getState().setActiveTool('select');
+    useStore.getState().updateLayer(layer().id, { locked: true });
+    handleShortcut('ctrl+x');
+    expect(layer().children).toHaveLength(1);
+    expect(toast.warning).toHaveBeenCalledWith('Layer is locked', expect.anything());
+  });
+});

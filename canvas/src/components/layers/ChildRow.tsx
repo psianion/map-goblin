@@ -5,7 +5,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { selectSelectedIds } from '@/store/selectors'
 import { undoManager } from '@/store/undoManager'
 import { PropertyCommand, AddChildCommand, RemoveChildCommand } from '@/store/commands'
-import type { AnyChild } from '@/store/types'
+import type { AnyChild, DungeonLayer } from '@/store/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { notify } from '@/lib/toast'
@@ -13,7 +13,7 @@ import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/
 
 interface ChildRowProps {
   child: AnyChild
-  layerId: string
+  layer: DungeonLayer
 }
 
 function childIcon(childType: AnyChild['childType']) {
@@ -33,7 +33,8 @@ function childIcon(childType: AnyChild['childType']) {
   }
 }
 
-export const ChildRow = memo(function ChildRow({ child, layerId }: ChildRowProps) {
+export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) {
+  const layerId = layer.id
   const selectedIds = useStore(useShallow(selectSelectedIds))
   const setSelectedIds = useStore((s) => s.setSelectedIds)
   const setActiveTool = useStore((s) => s.setActiveTool)
@@ -51,8 +52,22 @@ export const ChildRow = memo(function ChildRow({ child, layerId }: ChildRowProps
     ))
   }
 
+  // Delete/Duplicate are destructive edits and go through the same owning-layer
+  // gate the layers-panel delete shortcut uses (X1) — the row's own visibility
+  // toggle stays exempt, matching the layer row's eye still working when locked.
+  const blockedReason = (): string | null => {
+    if (layer.locked) return 'Layer is locked'
+    if (!layer.visible) return 'Layer is hidden'
+    return null
+  }
+
   // Clone with a fresh id and slight offset — same shape as the copy/paste path.
   const duplicate = () => {
+    const reason = blockedReason()
+    if (reason) {
+      notify.warning(reason)
+      return
+    }
     const clone = structuredClone(child)
     clone.id = crypto.randomUUID()
     clone.name = `${child.name} (copy)`
@@ -67,6 +82,11 @@ export const ChildRow = memo(function ChildRow({ child, layerId }: ChildRowProps
   }
 
   const remove = () => {
+    const reason = blockedReason()
+    if (reason) {
+      notify.warning(reason)
+      return
+    }
     undoManager.execute(new RemoveChildCommand('Delete', layerId, child.id))
     notify.action('Deleted', { label: 'Undo', onClick: () => undoManager.undo(), icon: 'trash' })
     setSelectedIds(selectedIds.filter((id) => id !== child.id))

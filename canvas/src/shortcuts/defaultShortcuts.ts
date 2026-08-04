@@ -14,6 +14,24 @@ import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
 /** Set by App.tsx so the shortcut system can trigger the file picker */
 export const importImageRef: { current: (() => void) | null } = { current: null };
 
+/**
+ * Delete/cut via the layers panel selection go through `selectLayerForChild`
+ * rather than a canvas pointer that already sat on a resolved, editable
+ * layer — so nothing had checked the OWNING layer's lock/visible state before
+ * this. Blocks the whole batch on the first offender rather than filtering:
+ * a delete that silently drops some of what was selected is more surprising
+ * than one that refuses outright.
+ */
+function blockedChildrenLayerReason(store: ReturnType<typeof useStore.getState>, ids: string[]): string | null {
+  for (const id of ids) {
+    const layer = selectLayerForChild(store, id);
+    if (!layer) continue;
+    if (layer.locked) return 'Layer is locked';
+    if (!layer.visible) return 'Layer is hidden';
+  }
+  return null;
+}
+
 // Keyed by key-combo string (e.g. 'ctrl+s') to match what onKeyDown builds.
 const toolKeyMap: Record<string, () => void | false> = {
   // Tool selection
@@ -306,6 +324,12 @@ const toolKeyMap: Record<string, () => void | false> = {
 
     // Object-based cut: copy then delete
     if (store.selection.selectedIds.length > 0) {
+      const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
+      if (reason) {
+        notify.warning(reason);
+        return;
+      }
+
       // Copy first
       const children = store.selection.selectedIds
         .map((id) => {
@@ -353,6 +377,12 @@ const toolKeyMap: Record<string, () => void | false> = {
   'delete': (): void | false => {
     const store = useStore.getState();
     if (store.selection.selectedIds.length === 0) return false;
+
+    const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
+    if (reason) {
+      notify.warning(reason);
+      return;
+    }
 
     const delCount = store.selection.selectedIds.length;
     const delCmds = store.selection.selectedIds.map((id) => {
