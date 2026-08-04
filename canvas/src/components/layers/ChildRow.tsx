@@ -137,12 +137,57 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
     }
   }
 
+  // K1/K3: same row keyboard contract as LayerRow — see its
+  // handleRowKeyDown for the target-vs-currentTarget guard rationale
+  // (grip/eye button are nested interactive elements whose native
+  // activation would otherwise double-fire these on bubble).
+  const handleRowKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return
+    switch (e.key) {
+      case 'Enter':
+        e.preventDefault()
+        setActiveTool('select')
+        setActiveLayerId(layerId)
+        setSelectedIds([child.id])
+        break
+      case 'F2':
+        e.preventDefault()
+        setEditingName(true)
+        break
+      case ' ':
+        e.preventDefault()
+        toggleVisibility()
+        break
+      case 'Delete':
+        e.preventDefault()
+        remove()
+        break
+      case 'ContextMenu':
+        e.preventDefault()
+        menu.openAt(e.currentTarget.getBoundingClientRect().left + 8, e.currentTarget.getBoundingClientRect().bottom)
+        break
+      case 'F10':
+        if (e.shiftKey) {
+          e.preventDefault()
+          menu.openAt(e.currentTarget.getBoundingClientRect().left + 8, e.currentTarget.getBoundingClientRect().bottom)
+        }
+        break
+      default:
+        break
+    }
+  }
+
   return (
     <div
       ref={setNodeRef}
       style={dragStyle}
+      role="treeitem"
+      aria-selected={isSelected}
+      tabIndex={isSelected ? 0 : -1}
       className={cn(
         'gg-row flex items-center gap-1 pl-4 pr-1 py-1 cursor-pointer',
+        // K1: same ring treatment as Button/LayerRow, focus-visible only.
+        'border border-transparent focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50',
         isSelected && 'bg-surface-3',
         // opacity-80, matching LayerRow — opacity-50 on text-primary content
         // fails 4.5:1 (see index.css's --text-dim comment).
@@ -151,15 +196,17 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
       )}
       onClick={handleClick}
       onContextMenu={menu.open}
+      onKeyDown={handleRowKeyDown}
       data-testid="child-row"
     >
-      {/* drag handle — only for childTypes where reorder actually draws differently */}
+      {/* drag handle — only for childTypes where reorder actually draws differently.
+          Own tab stop (K2) — see LayerRow's grip comment. */}
       {isReorderable ? (
         <span
           {...attributes}
           {...listeners}
           aria-label={`Reorder ${child.name}`}
-          className="text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing"
+          className="text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing rounded-sm focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50 border border-transparent"
           onClick={(e) => e.stopPropagation()}
         >
           <GripVertical size={12} />
@@ -181,10 +228,12 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
         displayClassName="text-panel-body text-text-secondary"
       />
 
-      {/* visibility toggle */}
+      {/* visibility toggle — tabIndex=-1: reachable via the row's Space
+          (see handleRowKeyDown) or the row menu, not a separate tab stop. */}
       <Button
         variant="ghost"
         size="icon-xs"
+        tabIndex={-1}
         onClick={(e) => {
           e.stopPropagation()
           toggleVisibility()

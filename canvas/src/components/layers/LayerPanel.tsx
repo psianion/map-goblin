@@ -1,10 +1,17 @@
+import { useRef } from 'react'
 import {
   DndContext,
   closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type Announcements,
   type DragEndEvent,
 } from '@dnd-kit/core'
 import {
   SortableContext,
+  sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
@@ -46,6 +53,16 @@ function TerrainRow({ isActive }: { isActive: boolean }) {
     ))
   }
 
+  const selectTerrain = () => {
+    // Remember what was active so Escape can put it back (D5b) — only on
+    // the transition into terrain, so re-clicking terrain while already
+    // on it doesn't overwrite the layer to restore to with itself.
+    const current = useStore.getState().ui.activeLayerId
+    if (current !== TERRAIN_PANEL_ID) priorActiveLayerRef.current = current
+    setActiveLayerId(TERRAIN_PANEL_ID)
+    setSelectedIds([])
+  }
+
   const resetOpacity = () => {
     if (terrainOpacity === 1) return
     undoManager.execute(new TerrainAppearanceCommand(
@@ -59,24 +76,39 @@ function TerrainRow({ isActive }: { isActive: boolean }) {
     { label: 'Reset opacity', onSelect: resetOpacity, disabled: terrainOpacity === 1 },
   ]
 
+  // K1/K3: same row keyboard contract as LayerRow (see its handleRowKeyDown
+  // for the target-vs-currentTarget guard rationale) — Terrain has no
+  // rename/delete/expand, just select, toggle, and the row menu opener.
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      selectTerrain()
+    } else if (e.key === ' ') {
+      e.preventDefault()
+      setTerrainVisible(!terrainVisible)
+    } else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+      e.preventDefault()
+      const rect = e.currentTarget.getBoundingClientRect()
+      menu.openAt(rect.left + 8, rect.bottom)
+    }
+  }
+
   return (
     <div
       data-testid="terrain-row"
+      role="treeitem"
+      aria-selected={isActive}
+      tabIndex={isActive ? 0 : -1}
       className={cn(
         'gg-row flex items-center gap-1 px-1 py-1.5 cursor-pointer',
+        'border border-transparent focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50',
         isActive && 'bg-surface-3',
         // opacity-80, matching LayerRow — see index.css's --text-dim comment.
         !terrainVisible && 'opacity-80',
       )}
-      onClick={() => {
-        // Remember what was active so Escape can put it back (D5b) — only on
-        // the transition into terrain, so re-clicking terrain while already
-        // on it doesn't overwrite the layer to restore to with itself.
-        const current = useStore.getState().ui.activeLayerId
-        if (current !== TERRAIN_PANEL_ID) priorActiveLayerRef.current = current
-        setActiveLayerId(TERRAIN_PANEL_ID)
-        setSelectedIds([])
-      }}
+      onClick={selectTerrain}
+      onKeyDown={handleKeyDown}
       onContextMenu={menu.open}
     >
       <span className="w-[14px]" />
@@ -87,6 +119,7 @@ function TerrainRow({ isActive }: { isActive: boolean }) {
       <Button
         variant="ghost"
         size="icon-xs"
+        tabIndex={-1}
         data-testid="layer-visibility-toggle"
         data-visible={terrainVisible}
         onClick={(e) => {
@@ -105,14 +138,55 @@ function TerrainRow({ isActive }: { isActive: boolean }) {
   )
 }
 
+// Standard roving-tabindex arrow navigation for the tree (WAI-ARIA APG
+// treeview "Managing Focus"): query the rendered treeitems in DOM order —
+// this naturally reflects only VISIBLE rows, since a collapsed layer's
+// children simply aren't in the DOM — and move native focus directly.
+// tabIndex on each row is derived from its own active/selected state
+// (see LayerRow/ChildRow/TerrainRow), so this only ever has to move focus,
+// never track "last focused" itself.
+function handleTreeKeyDown(e: React.KeyboardEvent<HTMLDivElement>, container: HTMLDivElement | null) {
+  if (!container) return
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
+  const items = Array.from(container.querySelectorAll<HTMLElement>('[role="treeitem"]'))
+  if (items.length === 0) return
+  const current = items.indexOf(document.activeElement as HTMLElement)
+  // Focus isn't on a row (e.g. the rename <input> is focused) — don't steal
+  // it, arrow keys belong to whatever's actually focused in that case.
+  if (current < 0) return
+  e.preventDefault()
+  if (e.key === 'ArrowDown') items[Math.min(current + 1, items.length - 1)]?.focus()
+  else if (e.key === 'ArrowUp') items[Math.max(current - 1, 0)]?.focus()
+  else if (e.key === 'Home') items[0]?.focus()
+  else if (e.key === 'End') items[items.length - 1]?.focus()
+}
+
 export function LayerPanel() {
   const layers = useStore(useShallow(selectLayers))
   const activeLayerId = useStore(selectActiveLayerId)
+  const treeRef = useRef<HTMLDivElement>(null)
 
   // Background is pinned at index 0 — separate it
   const backgroundLayer = layers.find((l) => l.type === 'background')
   // User layers in reverse (top = last in array = first visually)
   const userLayers = layers.filter((l) => l.type !== 'background').reverse()
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  const layerName = (id: string) => layers.find((l) => l.id === id)?.name ?? 'layer'
+  const announcements: Announcements = {
+    onDragStart: ({ active }) => `Picked up ${layerName(String(active.id))}.`,
+    onDragOver: ({ active, over }) =>
+      over ? `${layerName(String(active.id))} is over ${layerName(String(over.id))}.` : undefined,
+    onDragEnd: ({ active, over }) =>
+      over
+        ? `${layerName(String(active.id))} was moved next to ${layerName(String(over.id))}.`
+        : `${layerName(String(active.id))} was dropped.`,
+    onDragCancel: ({ active }) => `Reordering ${layerName(String(active.id))} was cancelled.`,
+  }
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
@@ -131,43 +205,52 @@ export function LayerPanel() {
       <LayerHeader />
       <hr className="border-border-subtle mx-2" />
 
-      <DndContext
-        collisionDetection={closestCenter}
-        modifiers={[restrictToVerticalAxis]}
-        onDragEnd={handleDragEnd}
+      <div
+        ref={treeRef}
+        role="tree"
+        aria-label="Layers"
+        onKeyDown={(e) => handleTreeKeyDown(e, treeRef.current)}
       >
-        <SortableContext
-          items={userLayers.map((l) => l.id)}
-          strategy={verticalListSortingStrategy}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          modifiers={[restrictToVerticalAxis]}
+          onDragEnd={handleDragEnd}
+          accessibility={{ announcements }}
         >
-          {userLayers.map((layer) => (
+          <SortableContext
+            items={userLayers.map((l) => l.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            {userLayers.map((layer) => (
+              <LayerRow
+                key={layer.id}
+                layer={layer}
+                isActive={layer.id === activeLayerId}
+              />
+            ))}
+          </SortableContext>
+        </DndContext>
+
+        {userLayers.length === 0 && (
+          <p className="px-3 py-2 text-panel-body text-text-muted">
+            No layers yet — add one to start drawing.
+          </p>
+        )}
+
+        <hr className="border-border-subtle mx-2" />
+        <TerrainRow isActive={activeLayerId === TERRAIN_PANEL_ID} />
+
+        {backgroundLayer && (
+          <>
+            <hr className="border-border-subtle mx-2" />
             <LayerRow
-              key={layer.id}
-              layer={layer}
-              isActive={layer.id === activeLayerId}
+              layer={backgroundLayer}
+              isActive={backgroundLayer.id === activeLayerId}
             />
-          ))}
-        </SortableContext>
-      </DndContext>
-
-      {userLayers.length === 0 && (
-        <p className="px-3 py-2 text-panel-body text-text-muted">
-          No layers yet — add one to start drawing.
-        </p>
-      )}
-
-      <hr className="border-border-subtle mx-2" />
-      <TerrainRow isActive={activeLayerId === TERRAIN_PANEL_ID} />
-
-      {backgroundLayer && (
-        <>
-          <hr className="border-border-subtle mx-2" />
-          <LayerRow
-            layer={backgroundLayer}
-            isActive={backgroundLayer.id === activeLayerId}
-          />
-        </>
-      )}
+          </>
+        )}
+      </div>
     </div>
   )
 }

@@ -157,3 +157,102 @@ describe('LayerRow — locked layer delete guard (D2)', () => {
     expect(useStore.getState().layers.some((l) => l.id === layer2.id)).toBe(false)
   })
 })
+
+// K1: row keyboard contract — Enter/F2/Space/Delete on the focused row div.
+// Guarded on target===currentTarget in the handler, so these fire the keydown
+// directly on the row element (as focus + a real keypress would put it),
+// not via fireEvent bubbling from a nested button.
+describe('LayerRow — row keyboard contract (K1)', () => {
+  beforeEach(() => {
+    undoManager.clear()
+    useStore.getState().resetToDefault()
+  })
+
+  it('is a treeitem, roving-tabbable only when active', () => {
+    const [layer1] = dungeonLayers()
+    renderRow(layer1)
+    const row = screen.getByTestId('layer-row')
+    expect(row.getAttribute('role')).toBe('treeitem')
+    expect(row.getAttribute('aria-selected')).toBe('false')
+    expect(row.getAttribute('tabindex')).toBe('-1')
+  })
+
+  it('is tabIndex 0 and aria-selected when active', () => {
+    const [layer1] = dungeonLayers()
+    render(
+      <DndContext>
+        <SortableContext items={[layer1.id]}>
+          <LayerRow layer={layer1} isActive={true} />
+        </SortableContext>
+      </DndContext>,
+    )
+    const row = screen.getByTestId('layer-row')
+    expect(row.getAttribute('aria-selected')).toBe('true')
+    expect(row.getAttribute('tabindex')).toBe('0')
+  })
+
+  it('Enter selects the layer', () => {
+    const layer2 = createDungeonLayer('Layer 2')
+    useStore.getState().addLayer(layer2)
+    renderRow(layer2)
+    fireEvent.keyDown(screen.getByTestId('layer-row'), { key: 'Enter' })
+    expect(useStore.getState().ui.activeLayerId).toBe(layer2.id)
+  })
+
+  it('F2 starts rename — the row switches to the editable name input', () => {
+    const [layer1] = dungeonLayers()
+    renderRow(layer1)
+    fireEvent.keyDown(screen.getByTestId('layer-row'), { key: 'F2' })
+    expect(screen.getByLabelText(`Rename ${layer1.name}`)).toBeTruthy()
+  })
+
+  it('Space toggles visibility', () => {
+    const [layer1] = dungeonLayers()
+    renderRow(layer1)
+    fireEvent.keyDown(screen.getByTestId('layer-row'), { key: ' ' })
+    expect(useStore.getState().layers.find((l) => l.id === layer1.id)?.visible).toBe(false)
+  })
+
+  it('Delete removes an unlocked layer', () => {
+    const [layer1] = dungeonLayers()
+    renderRow(layer1)
+    fireEvent.keyDown(screen.getByTestId('layer-row'), { key: 'Delete' })
+    expect(useStore.getState().layers.some((l) => l.id === layer1.id)).toBe(false)
+  })
+
+  it('Delete is a no-op on the background row', () => {
+    const bg = useStore.getState().layers.find((l) => l.type === 'background')!
+    renderRow(bg)
+    fireEvent.keyDown(screen.getByTestId('layer-row'), { key: 'Delete' })
+    expect(useStore.getState().layers.some((l) => l.id === bg.id)).toBe(true)
+  })
+
+  // Guard: a keydown bubbling up from a nested control (e.g. the eye button,
+  // which is itself focusable by click) must not re-trigger the row's own
+  // shortcut — that's the exact double-fire shape ToggleSwitch had (K4).
+  it('ignores keys that bubble up from a nested control, not the row itself', () => {
+    const [layer1] = dungeonLayers()
+    renderRow(layer1)
+    const eyeButton = screen.getByTestId('layer-visibility-toggle')
+    fireEvent.keyDown(eyeButton, { key: ' ' })
+    // toggleVisibility only fired via the row handler if target===currentTarget
+    // failed to guard — it shouldn't have fired at all here (no click, no
+    // native activation simulated by fireEvent).
+    expect(useStore.getState().layers.find((l) => l.id === layer1.id)?.visible).toBe(true)
+  })
+
+  it('ArrowRight expands a dungeon layer with children, ArrowLeft collapses it', () => {
+    const layer = createDungeonLayer('Layer 2')
+    layer.children = [{
+      id: 'c1', name: 'c1', childType: 'shape', visible: true, geometry: [], style: {} as never,
+    } as never]
+    useStore.getState().addLayer(layer)
+    renderRow(useStore.getState().layers.find((l) => l.id === layer.id) as DungeonLayer)
+
+    const row = screen.getByTestId('layer-row')
+    fireEvent.keyDown(row, { key: 'ArrowRight' })
+    expect(useStore.getState().ui.expandedLayerIds).toContain(layer.id)
+    fireEvent.keyDown(row, { key: 'ArrowLeft' })
+    expect(useStore.getState().ui.expandedLayerIds).not.toContain(layer.id)
+  })
+})

@@ -62,8 +62,19 @@ export function InlineEditableName({
         onBlur={commit}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') commit()
-          if (e.key === 'Escape') onCancel()
+          // K1: this Escape is consumed here (cancels the edit) — it must not
+          // also reach the global Escape chain (solo exit, etc. in
+          // useCanvasInput's document listener) the way an unhandled Escape
+          // from a row is meant to. Same for Enter, which commits rather than
+          // falling through to the row's own Enter (select).
+          if (e.key === 'Enter') {
+            e.stopPropagation()
+            commit()
+          }
+          if (e.key === 'Escape') {
+            e.stopPropagation()
+            onCancel()
+          }
         }}
         className="min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1 text-text-primary outline-none"
       />

@@ -124,3 +124,97 @@ describe('ChildRow', () => {
     warn.mockRestore()
   })
 })
+
+// K1: row keyboard contract, same shape as LayerRow's.
+describe('ChildRow — row keyboard contract (K1)', () => {
+  beforeEach(() => {
+    undoManager.clear()
+    useStore.getState().resetToDefault()
+  })
+
+  it('is a treeitem, roving-tabbable only when selected', () => {
+    const layer = createDungeonLayer('Layer 1')
+    const a = asset('asset-1')
+    layer.children = [a]
+    useStore.getState().addLayer(layer)
+
+    renderChild(a, findDungeonLayer(layer.id))
+    const row = screen.getByTestId('child-row')
+    expect(row.getAttribute('role')).toBe('treeitem')
+    expect(row.getAttribute('aria-selected')).toBe('false')
+    expect(row.getAttribute('tabindex')).toBe('-1')
+  })
+
+  it('Enter selects the child', () => {
+    const layer = createDungeonLayer('Layer 1')
+    const a = asset('asset-1')
+    layer.children = [a]
+    useStore.getState().addLayer(layer)
+
+    renderChild(a, findDungeonLayer(layer.id))
+    fireEvent.keyDown(screen.getByTestId('child-row'), { key: 'Enter' })
+    expect(useStore.getState().selection.selectedIds).toEqual([a.id])
+  })
+
+  it('F2 starts rename', () => {
+    const layer = createDungeonLayer('Layer 1')
+    const a = asset('asset-1')
+    layer.children = [a]
+    useStore.getState().addLayer(layer)
+
+    renderChild(a, findDungeonLayer(layer.id))
+    fireEvent.keyDown(screen.getByTestId('child-row'), { key: 'F2' })
+    expect(screen.getByLabelText(`Rename ${a.name}`)).toBeTruthy()
+  })
+
+  it('Space toggles visibility', () => {
+    const layer = createDungeonLayer('Layer 1')
+    const a = asset('asset-1')
+    layer.children = [a]
+    useStore.getState().addLayer(layer)
+
+    renderChild(a, findDungeonLayer(layer.id))
+    fireEvent.keyDown(screen.getByTestId('child-row'), { key: ' ' })
+    expect(findDungeonLayer(layer.id).children[0].visible).toBe(false)
+  })
+
+  it('Delete removes an unlocked child', () => {
+    const layer = createDungeonLayer('Layer 1')
+    const a = asset('asset-1')
+    layer.children = [a]
+    useStore.getState().addLayer(layer)
+
+    renderChild(a, findDungeonLayer(layer.id))
+    fireEvent.keyDown(screen.getByTestId('child-row'), { key: 'Delete' })
+    expect(findDungeonLayer(layer.id).children).toHaveLength(0)
+  })
+
+  it('Delete is blocked on a locked layer, same as the menu path', () => {
+    const layer = createDungeonLayer('Layer 1')
+    const a = asset('asset-1')
+    layer.children = [a]
+    useStore.getState().addLayer(layer)
+    useStore.getState().updateLayer(layer.id, { locked: true })
+    const warn = vi.spyOn(notify, 'warning').mockImplementation(() => {})
+
+    renderChild(a, findDungeonLayer(layer.id))
+    fireEvent.keyDown(screen.getByTestId('child-row'), { key: 'Delete' })
+    expect(findDungeonLayer(layer.id).children).toHaveLength(1)
+    expect(warn).toHaveBeenCalledWith('Layer is locked')
+
+    warn.mockRestore()
+  })
+
+  // Same nested-control guard as LayerRow — see its test for why this matters.
+  it('ignores keys that bubble up from the eye button, not the row itself', () => {
+    const layer = createDungeonLayer('Layer 1')
+    const a = asset('asset-1')
+    layer.children = [a]
+    useStore.getState().addLayer(layer)
+
+    renderChild(a, findDungeonLayer(layer.id))
+    const eyeButton = screen.getAllByRole('button').find((b) => b.getAttribute('aria-label') === `Hide ${a.name}`)!
+    fireEvent.keyDown(eyeButton, { key: ' ' })
+    expect(findDungeonLayer(layer.id).children[0].visible).toBe(true)
+  })
+})

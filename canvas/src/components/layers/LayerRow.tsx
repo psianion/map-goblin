@@ -3,10 +3,16 @@ import { Eye, EyeOff, Lock, Unlock, GripVertical, ChevronRight, ChevronDown } fr
 import {
   DndContext,
   closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type Announcements,
   type DragEndEvent,
 } from '@dnd-kit/core'
 import {
   SortableContext,
+  sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
@@ -62,6 +68,24 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
   const dungeonLayer = isDungeon ? (layer as DungeonLayer) : null
   const isExpanded = expandedLayerIds.includes(layer.id)
   const hasChildren = isDungeon && (dungeonLayer?.children.length ?? 0) > 0
+
+  // K2: keyboard reorder for this layer's children list — same sensors as
+  // the top-level layer list in LayerPanel.
+  const childSensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+  const childName = (id: string) => dungeonLayer?.children.find((c) => c.id === id)?.name ?? 'item'
+  const childAnnouncements: Announcements = {
+    onDragStart: ({ active }) => `Picked up ${childName(String(active.id))}.`,
+    onDragOver: ({ active, over }) =>
+      over ? `${childName(String(active.id))} is over ${childName(String(over.id))}.` : undefined,
+    onDragEnd: ({ active, over }) =>
+      over
+        ? `${childName(String(active.id))} was moved next to ${childName(String(over.id))}.`
+        : `${childName(String(active.id))} was dropped.`,
+    onDragCancel: ({ active }) => `Reordering ${childName(String(active.id))} was cancelled.`,
+  }
 
   const handleLayerClick = (e: React.MouseEvent) => {
     setActiveLayerId(layer.id)
@@ -164,6 +188,61 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
     })
   }
 
+  // K1/K3: row keyboard contract (WAI-ARIA APG treeview). Guarded on
+  // target === currentTarget so it only fires when the ROW ITSELF is
+  // focused — the grip, chevron, lock and eye button are all nested
+  // interactive elements whose own native activation would otherwise
+  // double-fire these same actions when a keydown bubbles up from them
+  // (see ToggleSwitch's very similar bug this PR also fixed).
+  const handleRowKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return
+    switch (e.key) {
+      case 'Enter':
+        e.preventDefault()
+        setActiveLayerId(layer.id)
+        setSelectedIds([])
+        break
+      case 'F2':
+        e.preventDefault()
+        setEditingName(true)
+        break
+      case ' ':
+        e.preventDefault()
+        toggleVisibility()
+        break
+      case 'Delete':
+        if (layer.type !== 'background') {
+          e.preventDefault()
+          deleteLayer()
+        }
+        break
+      case 'ArrowRight':
+        if (isDungeon && hasChildren && !isExpanded) {
+          e.preventDefault()
+          toggleExpandedLayerId(layer.id)
+        }
+        break
+      case 'ArrowLeft':
+        if (isDungeon && isExpanded) {
+          e.preventDefault()
+          toggleExpandedLayerId(layer.id)
+        }
+        break
+      case 'ContextMenu':
+        e.preventDefault()
+        menu.openAt(e.currentTarget.getBoundingClientRect().left + 8, e.currentTarget.getBoundingClientRect().bottom)
+        break
+      case 'F10':
+        if (e.shiftKey) {
+          e.preventDefault()
+          menu.openAt(e.currentTarget.getBoundingClientRect().left + 8, e.currentTarget.getBoundingClientRect().bottom)
+        }
+        break
+      default:
+        break
+    }
+  }
+
   // Menu items mirror the row toolbar; delete only offered for non-background layers
   // (removeLayer refuses to remove the background layer). Delete is greyed out when
   // locked specifically (the common, expected case) — deleteLayer's own guard above
@@ -188,10 +267,18 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
       {/* Layer row */}
       <div
         data-testid="layer-row"
+        role="treeitem"
+        aria-selected={isActive}
+        aria-expanded={isDungeon && hasChildren ? isExpanded : undefined}
+        tabIndex={isActive ? 0 : -1}
         className={cn(
           // Selection reads as a raised surface, not an accent side-stripe: `gg-row`
           // carries the mode-correct hover (flat tint by day, glow from below at night).
           'gg-row flex items-center gap-1 px-1 py-1.5 cursor-pointer',
+          // K1: same ring treatment as Button, applied only via focus-visible
+          // so a mouse click never paints it — border is always-present-but-
+          // transparent so the ring doesn't shift row height on focus.
+          'border border-transparent focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50',
           isActive && 'bg-surface-3',
           // opacity-80 (not 50): row text sits at text-primary, which only
           // clears 4.5:1 against surface-1/3 in both themes down to ~75%
@@ -200,15 +287,19 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
         )}
         onClick={handleLayerClick}
         onContextMenu={menu.open}
+        onKeyDown={handleRowKeyDown}
       >
-        {/* drag handle */}
+        {/* drag handle — a deliberate second tab stop per row (K2): dnd-kit's
+            keyboard sensor lifts/drops on Enter/Space ON THE HANDLE itself,
+            so it keeps its own native tabIndex from `attributes` rather than
+            folding into the row's roving tabindex above. */}
         {layer.type !== 'background' ? (
           <span
             {...attributes}
             {...listeners}
             role="button"
             aria-label={`Reorder ${layer.name}`}
-            className="text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing"
+            className="text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing rounded-sm focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50 border border-transparent"
             onClick={(e) => e.stopPropagation()}
           >
             <GripVertical size={14} />
@@ -217,15 +308,19 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           <span className="w-[14px]" />
         )}
 
-        {/* expand/collapse chevron — only for dungeon layers */}
+        {/* expand/collapse chevron — only for dungeon layers. tabIndex=-1:
+            reachable via the row's own ArrowRight/ArrowLeft instead of a
+            separate tab stop (see handleRowKeyDown). */}
         {isDungeon ? (
           <button
             type="button"
+            tabIndex={-1}
             className={cn(
               'flex items-center justify-center w-4 h-4 shrink-0 transition-colors',
               // text-dim instead of text-muted + opacity-30: text-muted only
               // clears 4.5:1 at full alpha, so fading it further broke contrast.
               hasChildren ? 'text-text-muted hover:text-text-primary' : 'text-text-dim pointer-events-none',
+              'focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50 border border-transparent rounded-sm',
             )}
             onClick={handleChevronClick}
             title={isExpanded ? 'Collapse' : 'Expand'}
@@ -247,10 +342,12 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           displayClassName="text-panel-body text-text-primary"
         />
 
-        {/* lock toggle */}
+        {/* lock toggle — tabIndex=-1: reachable via the row menu (Shift+F10),
+            like the eye button below (Space handles that one directly). */}
         <Button
           variant="ghost"
           size="icon-xs"
+          tabIndex={-1}
           onClick={(e) => {
             e.stopPropagation()
             toggleLock()
@@ -271,6 +368,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
         <Button
           variant="ghost"
           size="icon-xs"
+          tabIndex={-1}
           data-testid="layer-visibility-toggle"
           data-visible={layer.visible}
           data-effective={effectivelyVisible}
@@ -314,15 +412,17 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           draws first/bottom, so panel-top must show the last (topmost) child. */}
       {isDungeon && isExpanded && dungeonLayer && dungeonLayer.children.length > 0 && (
         <DndContext
+          sensors={childSensors}
           collisionDetection={closestCenter}
           modifiers={[restrictToVerticalAxis]}
           onDragEnd={handleChildDragEnd}
+          accessibility={{ announcements: childAnnouncements }}
         >
           <SortableContext
             items={[...dungeonLayer.children].reverse().map((c) => c.id)}
             strategy={verticalListSortingStrategy}
           >
-            <div>
+            <div role="group" aria-label={`${layer.name} children`}>
               {[...dungeonLayer.children].reverse().map((child) => (
                 <ChildRow key={child.id} child={child} layer={dungeonLayer} />
               ))}
