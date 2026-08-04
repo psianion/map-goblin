@@ -426,8 +426,6 @@ export interface MapBuilderStore {
   setAmbientLight: (color: string) => void;
   setTerrainData: (patch: Partial<TerrainData>) => void;
   setTerrainSplats: (pngs: [Blob | null, Blob | null]) => void;
-  /** Raw appearance write, not undoable — commands drive undo via this. */
-  setTerrainAppearance: (patch: { visible?: boolean; opacity?: number }) => void;
 
   // grid actions
   setGridVisible: (visible: boolean) => void;

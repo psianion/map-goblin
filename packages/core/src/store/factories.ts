@@ -64,7 +64,7 @@ export function createBackgroundLayer(): BackgroundLayer {
 
 type MapBuilderState = Omit<
   MapBuilderStore,
-  | 'setMapName' | 'setGridType' | 'setAmbientLight' | 'setTerrainData' | 'setTerrainSplats' | 'setTerrainAppearance'
+  | 'setMapName' | 'setGridType' | 'setAmbientLight' | 'setTerrainData' | 'setTerrainSplats'
   | 'setGridVisible' | 'setSnapEnabled' | 'setSnapDivision'
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
   | 'addChild' | 'removeChild' | 'reorderChild' | 'updateChild' | 'recomputeMergedFloor'

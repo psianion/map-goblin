@@ -16,7 +16,7 @@ interface SectionControl {
 export function TerrainProperties({ openSections, onToggleSection }: SectionControl) {
   const visible = useStore((s) => s.mapSettings.terrain?.visible ?? true)
   const opacity = useStore((s) => s.mapSettings.terrain?.opacity ?? 1)
-  const setTerrainAppearance = useStore((s) => s.setTerrainAppearance)
+  const setTerrainData = useStore((s) => s.setTerrainData)
 
   const commitOpacity = (newPct: number, startPct: number) => {
     const newVal = newPct / 100
@@ -47,10 +47,11 @@ export function TerrainProperties({ openSections, onToggleSection }: SectionCont
         <PropertyField label="Opacity">
           <SliderInput
             value={Math.round(opacity * 100)}
+            rawValue={opacity * 100}
             min={0}
             max={100}
             step={1}
-            onChange={(pct) => setTerrainAppearance({ opacity: pct / 100 })}
+            onChange={(pct) => setTerrainData({ opacity: pct / 100 })}
             onChangeCommit={commitOpacity}
           />
         </PropertyField>

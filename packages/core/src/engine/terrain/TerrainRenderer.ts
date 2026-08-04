@@ -230,6 +230,8 @@ export class TerrainRenderer {
   private splatWorker: SplatWorkerClient | null = null;
   private unsubscribers: (() => void)[] = [];
   private destroyed = false;
+  /** Set once by {@link fail} — terrain is permanently hidden after a GL death, see setAppearance. */
+  private failed = false;
   /** Current global terrain alpha — applied to floor-clipped quads too, see setAppearance. */
   private terrainOpacity = 1;
 
@@ -628,6 +630,10 @@ export class TerrainRenderer {
    * O(dungeon layer count), not a rebuild.
    */
   setAppearance(visible: boolean, opacity: number): void {
+    // A GL-death guard already hid this subtree for good (see fail()) — a
+    // later appearance change (map load, opacity slider) must not resurrect
+    // a container sitting on a dead shader.
+    if (this.failed) return;
     this.container.visible = visible;
     this.container.alpha = opacity;
     this.terrainOpacity = opacity;
@@ -1065,6 +1071,7 @@ export class TerrainRenderer {
    * layer and one log line instead of the whole canvas — pixi skips a hidden subtree.
    */
   private fail(what: string, err: unknown): void {
+    this.failed = true;
     this.container.visible = false;
     // The floor quads sit in layer containers, outside this subtree.
     for (const mesh of this.floorMeshes) if (!mesh.destroyed) mesh.visible = false;

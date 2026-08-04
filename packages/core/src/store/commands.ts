@@ -732,14 +732,24 @@ export class LayerStyleChangeCommand implements Command {
 /**
  * Command for the map's global terrain visible/opacity. PropertyCommand can't
  * address `mapSettings` (it only targets layers/children), so this is the
- * small equivalent for terrain appearance — routes through
- * `setTerrainAppearance`, which lazily creates `mapSettings.terrain` the same
- * way `setTerrainData` does.
+ * small equivalent for terrain appearance — routes through `setTerrainData`,
+ * which lazily creates `mapSettings.terrain` (visible/opacity can be set
+ * before any paint).
  */
 export class TerrainAppearanceCommand implements Command {
   readonly label = 'Terrain appearance';
   private readonly before: { visible?: boolean; opacity?: number };
   private readonly after: { visible?: boolean; opacity?: number };
+  /**
+   * Whether `mapSettings.terrain` existed before this command's first
+   * execute. Set lazily there (not in the constructor — construction and
+   * first execute aren't always the same instant) and reused for every
+   * later undo/redo. When it was absent, this command is what created the
+   * record, so undoing it drops the whole thing rather than patching it back
+   * to `before` — otherwise a visible/opacity toggle on a never-painted map
+   * left a stray terrain record behind after undo.
+   */
+  private hadTerrain: boolean | null = null;
 
   constructor(
     before: { visible?: boolean; opacity?: number },
@@ -750,11 +760,20 @@ export class TerrainAppearanceCommand implements Command {
   }
 
   execute(): void {
-    useStore.getState().setTerrainAppearance(this.after);
+    if (this.hadTerrain === null) {
+      this.hadTerrain = useStore.getState().mapSettings.terrain !== undefined;
+    }
+    useStore.getState().setTerrainData(this.after);
   }
 
   undo(): void {
-    useStore.getState().setTerrainAppearance(this.before);
+    if (!this.hadTerrain) {
+      useStore.setState((state) => {
+        state.mapSettings.terrain = undefined;
+      });
+      return;
+    }
+    useStore.getState().setTerrainData(this.before);
   }
 }
 

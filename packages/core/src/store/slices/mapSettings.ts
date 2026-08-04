@@ -7,7 +7,6 @@ export interface MapSettingsActions {
   setAmbientLight: (color: string) => void;
   setTerrainData: (patch: Partial<TerrainData>) => void;
   setTerrainSplats: (pngs: [Blob | null, Blob | null]) => void;
-  setTerrainAppearance: (patch: { visible?: boolean; opacity?: number }) => void;
 }
 
 export const createMapSettingsSlice: StateCreator<
@@ -39,15 +38,6 @@ export const createMapSettingsSlice: StateCreator<
     set((state) => {
       state.terrainSplats.pngs = pngs;
       state.terrainSplats.rev++;
-    }),
-  // Raw write backing TerrainAppearanceCommand — same lazy-create-on-first-use
-  // shape as setTerrainData, since visible/opacity can be set before any paint.
-  setTerrainAppearance: (patch) =>
-    set((state) => {
-      if (!state.mapSettings.terrain) {
-        state.mapSettings.terrain = { palette: DEFAULT_TERRAIN_PALETTE.slice(), bounds: null };
-      }
-      Object.assign(state.mapSettings.terrain, patch);
     }),
 });
 
