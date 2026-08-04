@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import { cursorWorldPosition } from '@/canvas/cursorPosition';
 import { fpsMetrics } from '@/engine/fpsMetrics';
 import { rulerMeasurement } from '@/engine/rulerMeasurement';
@@ -26,6 +27,8 @@ export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarPro
   const [fpsColor, setFpsColor] = useState<string>('text-text-muted');
   const [rulerStr, setRulerStr] = useState<string>('');
   const cellScale = useStore((s) => s.mapSettings.cellScale);
+  const soloLayerId = useStore((s) => s.ui.solo?.layerId ?? null);
+  const soloLayerName = useStore((s) => s.layers.find((l) => l.id === s.ui.solo?.layerId)?.name ?? null);
   const rafRef = useRef<number>(0);
   const frameCountRef = useRef<number>(0);
   // Read inside the frame loop without making it a dependency, so the loop is
@@ -104,9 +107,26 @@ export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarPro
         <span className="text-text-muted">{ftStr}ms</span>
       </div>
 
-      {/* Middle: live ruler reading, absent unless measuring */}
+      {/* Middle: live ruler reading, absent unless measuring — a live
+          measurement and solo are unlikely to overlap, but the ruler wins
+          the shared slot since it is the more transient of the two. */}
       <div className="flex-1 flex justify-center">
-        {rulerStr && <span className="text-text-primary tabular-nums">{rulerStr}</span>}
+        {rulerStr ? (
+          <span className="text-text-primary tabular-nums">{rulerStr}</span>
+        ) : soloLayerId && soloLayerName ? (
+          <button
+            type="button"
+            onClick={() => useStore.getState().clearSolo()}
+            className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-surface-2 border border-border-default text-text-secondary hover:text-text-primary hover:border-border-focus transition-colors"
+            title="Exit solo (Esc)"
+            aria-label={`Soloing ${soloLayerName} — click to exit solo`}
+          >
+            <span>
+              Soloing <span className="text-accent-active">{soloLayerName}</span>
+            </span>
+            <X size={10} />
+          </button>
+        ) : null}
       </div>
 
       {/* Right: Zoom controls */}
