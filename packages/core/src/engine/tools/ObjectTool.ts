@@ -5,6 +5,8 @@ import { useStore } from '../../store/store';
 import { UpdateChildCommand, RemoveChildCommand, CompositeCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
 import type { AssetChild, DungeonLayer } from '../../store/types';
+import { notify } from '../../shared/notify';
+import { blockedLayerReason } from './layerGuard';
 
 type ObjectToolState = 'IDLE' | 'MOVING';
 
@@ -136,6 +138,14 @@ export class ObjectTool implements DrawingTool {
       (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
     );
     if (!activeLayer) return;
+    // The layers panel can select a child on a locked layer (ChildRow has no
+    // lock check of its own), and this runs off a document-level keydown that
+    // never went through the manager's pointerDown guard — check here.
+    const reason = blockedLayerReason(activeLayer);
+    if (reason) {
+      notify.warning(reason);
+      return;
+    }
 
     const commands = selectedIds
       .filter((id) => activeLayer.children.some((c) => c.id === id))
