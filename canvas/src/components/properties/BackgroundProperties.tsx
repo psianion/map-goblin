@@ -55,6 +55,7 @@ export function BackgroundProperties({ layer, openSections, onToggleSection }: B
         <PropertyField label="Opacity">
           <SliderInput
             value={Math.round(layer.opacity * 100)}
+            rawValue={layer.opacity * 100}
             min={0}
             max={100}
             step={1}

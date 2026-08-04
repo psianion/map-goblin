@@ -1,5 +1,6 @@
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
+import { cn } from '@/lib/utils'
 import type { DungeonLayer, DungeonStyle, SublayerVisibility } from '@/store/types'
 import type { AnyChild } from '@/shared/types'
 import { PropertyField } from './PropertyField'
@@ -51,6 +52,9 @@ function isMixed<T>(values: T[]): boolean {
 
 export function LayerProperties({ layer, openSections, onToggleSection }: LayerPropertiesProps) {
   const updateLayer = useStore((s) => s.updateLayer)
+  // The per-layer grid toggle renders global && perLayer — muted here (not
+  // disabled: still worth setting ahead of turning the global grid back on).
+  const globalGridVisible = useStore((s) => s.grid.visible)
   // Derived, not remembered — a local copy would keep highlighting a preset
   // that undo had already taken back off the layer.
   const activePresetId = matchPresetId(layer.style)
@@ -240,6 +244,7 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
           <PropertyField label="Opacity">
             <SliderInput
               value={Math.round(layer.opacity * 100)}
+              rawValue={layer.opacity * 100}
               min={0}
               max={100}
               step={1}
@@ -266,23 +271,30 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
               ['grid', 'Grid'],
               ['walls', 'Walls & Doors'],
             ] as [keyof SublayerVisibility, string][]
-          ).map(([key, label]) => (
-            <div key={key} className="flex items-center justify-between">
-              <span className="font-mono text-panel-label uppercase text-text-muted">{label}</span>
-              <ToggleSwitch
-                checked={layer.sublayerVisibility[key]}
-                onChange={(v) =>
-                  undoManager.execute(new PropertyCommand(
-                    `${layer.sublayerVisibility[key] ? 'Hide' : 'Show'} ${label.toLowerCase()}`,
-                    { type: 'layer', layerId: layer.id },
-                    { sublayerVisibility: { ...layer.sublayerVisibility } },
-                    { sublayerVisibility: { ...layer.sublayerVisibility, [key]: v } },
-                  ))
-                }
-                label={label}
-              />
-            </div>
-          ))}
+          ).map(([key, label]) => {
+            const globallyMuted = key === 'grid' && !globalGridVisible
+            return (
+              <div
+                key={key}
+                className={cn('flex items-center justify-between', globallyMuted && 'opacity-50')}
+                title={globallyMuted ? 'Grid is off globally' : undefined}
+              >
+                <span className="font-mono text-panel-label uppercase text-text-muted">{label}</span>
+                <ToggleSwitch
+                  checked={layer.sublayerVisibility[key]}
+                  onChange={(v) =>
+                    undoManager.execute(new PropertyCommand(
+                      `${layer.sublayerVisibility[key] ? 'Hide' : 'Show'} ${label.toLowerCase()}`,
+                      { type: 'layer', layerId: layer.id },
+                      { sublayerVisibility: { ...layer.sublayerVisibility } },
+                      { sublayerVisibility: { ...layer.sublayerVisibility, [key]: v } },
+                    ))
+                  }
+                  label={label}
+                />
+              </div>
+            )
+          })}
         </div>
       </CollapsibleSection>
 

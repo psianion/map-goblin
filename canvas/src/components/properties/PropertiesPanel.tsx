@@ -156,8 +156,10 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
 
   // Terrain row selected — selectActiveLayer finds nothing for the sentinel
   // (harmless: no layer has that id), so it's checked explicitly, after every
-  // hook above has run unconditionally.
-  if (activeLayerId === TERRAIN_PANEL_ID) {
+  // hook above has run unconditionally. Gated on no selection: picking a
+  // door/light/shape on canvas while the Terrain row is still "active" must
+  // fall through to the selection branches below, not pin Terrain forever.
+  if (activeLayerId === TERRAIN_PANEL_ID && selectedIds.length === 0) {
     return (
       <div className="flex flex-col pt-2">
         <TerrainProperties openSections={openSections} onToggleSection={onToggleSection} />
