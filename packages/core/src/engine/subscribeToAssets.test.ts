@@ -85,7 +85,20 @@ describe('subscribeToAssets', () => {
     const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
     layerId = layer.id;
     objects = new MockContainer();
-    vi.mocked(getLayerEntry).mockReturnValue({ sublayers: { objects } } as never);
+    // All seven sublayers, not just the one this file cares about — a
+    // regression that reads the wrong sublayer should fail loudly (undefined
+    // access) instead of silently passing because the fake only had `objects`.
+    vi.mocked(getLayerEntry).mockReturnValue({
+      sublayers: {
+        water: new MockContainer(),
+        floor: new MockContainer(),
+        grid: new MockContainer(),
+        walls: new MockContainer(),
+        doors: new MockContainer(),
+        objects,
+        labels: new MockContainer(),
+      },
+    } as never);
   });
 
   afterEach(() => {
