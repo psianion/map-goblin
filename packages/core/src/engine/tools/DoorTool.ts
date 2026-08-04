@@ -180,6 +180,7 @@ function activeDungeonLayer(): DungeonLayer | undefined {
 export class DoorTool implements DrawingTool {
   readonly type = 'door' as const;
   readonly cursor = 'crosshair';
+  readonly editsActiveLayer = true;
   snapResult: WallSnapResult | null = null;
   /** Door under the cursor — the Delete target when nothing is selected. */
   hoveredDoorId: string | null = null;

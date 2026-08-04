@@ -7,6 +7,7 @@ import { undoManager } from '../../store/undoManager';
 import { getTerrainRenderer, TERRAIN_EXTENT_HALF } from '../terrain/TerrainRenderer';
 import { TerrainStrokeCommand } from '../terrain/terrainCommands';
 import { drawTerrainBrushDisc } from '../terrain/terrainBrushPreview';
+import { notify } from '../../shared/notify';
 
 /** Stamp spacing along a drag, as a fraction of brush radius. */
 const STAMP_SPACING = 0.35;
@@ -46,6 +47,12 @@ export class TerrainTool implements DrawingTool {
 
   onPointerDown(point: Point, event?: PointerEvent): void {
     if (event && event.button !== 0) return;
+    // Terrain is global, not layer-scoped — it gets its own visibility check
+    // rather than editsActiveLayer.
+    if (useStore.getState().mapSettings.terrain?.visible === false) {
+      notify.warning('Terrain is hidden');
+      return;
+    }
     const renderer = getTerrainRenderer();
     if (!renderer) return;
     const p = this.rawWorld(point, event);

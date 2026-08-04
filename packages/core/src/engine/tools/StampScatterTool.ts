@@ -29,6 +29,7 @@ interface PlacementPoint {
 export class StampScatterTool implements DrawingTool {
   readonly type = 'scatterBrush' as const;
   readonly cursor = 'crosshair';
+  readonly editsActiveLayer = true;
 
   private previewContainer: Container;
   private previewSprites: Sprite[] = [];
@@ -308,10 +309,6 @@ export class StampScatterTool implements DrawingTool {
       this.showLayerWarning('Select a dungeon layer to place assets');
       return;
     }
-    if (layer.locked) {
-      this.showLayerWarning('Layer is locked');
-      return;
-    }
 
     if (this.pendingPlacements.length === 0) return;
 
@@ -362,10 +359,6 @@ export class StampScatterTool implements DrawingTool {
     const layer = state.layers.find((l) => l.id === layerId);
     if (!layer || layer.type !== 'dungeon') {
       this.showLayerWarning('Select a dungeon layer to erase assets');
-      return;
-    }
-    if (layer.locked) {
-      this.showLayerWarning('Layer is locked');
       return;
     }
 

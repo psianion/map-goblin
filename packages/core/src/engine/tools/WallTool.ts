@@ -23,6 +23,7 @@ const MIN_SEGMENT = 0.01;
 export class WallTool implements DrawingTool {
   readonly type = 'wall' as const;
   readonly cursor = 'crosshair';
+  readonly editsActiveLayer = true;
   private vertices: Point[] = [];
   private currentPoint: Point | null = null;
   private lastClick: { point: Point; time: number } | null = null;

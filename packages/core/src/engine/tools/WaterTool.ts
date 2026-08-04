@@ -16,6 +16,7 @@ const RIVER_POINT_SPACING = 0.3;
 export class WaterTool implements DrawingTool {
   readonly type = 'water' as const;
   readonly cursor = 'crosshair';
+  readonly editsActiveLayer = true;
 
   private engine: RenderEngine;
   // river mode: freehand drag
