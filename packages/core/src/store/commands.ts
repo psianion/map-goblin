@@ -730,6 +730,35 @@ export class LayerStyleChangeCommand implements Command {
 }
 
 /**
+ * Command for the map's global terrain visible/opacity. PropertyCommand can't
+ * address `mapSettings` (it only targets layers/children), so this is the
+ * small equivalent for terrain appearance — routes through
+ * `setTerrainAppearance`, which lazily creates `mapSettings.terrain` the same
+ * way `setTerrainData` does.
+ */
+export class TerrainAppearanceCommand implements Command {
+  readonly label = 'Terrain appearance';
+  private readonly before: { visible?: boolean; opacity?: number };
+  private readonly after: { visible?: boolean; opacity?: number };
+
+  constructor(
+    before: { visible?: boolean; opacity?: number },
+    after: { visible?: boolean; opacity?: number },
+  ) {
+    this.before = structuredClone(before);
+    this.after = structuredClone(after);
+  }
+
+  execute(): void {
+    useStore.getState().setTerrainAppearance(this.after);
+  }
+
+  undo(): void {
+    useStore.getState().setTerrainAppearance(this.before);
+  }
+}
+
+/**
  * Command for per-shape style overrides.
  * Uses updateChild — never directly mutates child objects.
  */

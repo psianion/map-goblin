@@ -230,6 +230,8 @@ export class TerrainRenderer {
   private splatWorker: SplatWorkerClient | null = null;
   private unsubscribers: (() => void)[] = [];
   private destroyed = false;
+  /** Current global terrain alpha — applied to floor-clipped quads too, see setAppearance. */
+  private terrainOpacity = 1;
 
   constructor(engine: RenderEngine) {
     this.engine = engine;
@@ -598,6 +600,7 @@ export class TerrainRenderer {
     const mesh = new Mesh({ geometry: this.geometry, shader: this.displayShader });
     mesh.label = 'terrainFloorMesh';
     mesh.visible = this.container.visible && !windowVisible;
+    mesh.alpha = this.terrainOpacity;
     this.floorMeshes.push(mesh);
 
     const wrapper = new Container();
@@ -608,11 +611,37 @@ export class TerrainRenderer {
       const windowMesh = new Mesh({ geometry: this.windowGeometry, shader: this.windowShader });
       windowMesh.label = 'terrainFloorWindowMesh';
       windowMesh.visible = this.container.visible && windowVisible;
+      windowMesh.alpha = this.terrainOpacity;
       this.floorWindowMeshes.push(windowMesh);
       wrapper.addChild(windowMesh);
     }
 
     return wrapper;
+  }
+
+  /**
+   * Global show/hide + opacity (mapSettings.terrain.visible/opacity), driven by
+   * a subscribeToStore subscription. `container.alpha` alone would miss the
+   * floor-clipped quads {@link createFloorMesh} hands to each dungeon layer —
+   * they live in that layer's own container tree, not under `this.container` —
+   * so both the visibility flip and the opacity are mirrored onto them here too.
+   * O(dungeon layer count), not a rebuild.
+   */
+  setAppearance(visible: boolean, opacity: number): void {
+    this.container.visible = visible;
+    this.container.alpha = opacity;
+    this.terrainOpacity = opacity;
+    const windowVisible = this.windowMesh?.visible ?? false;
+    for (const m of this.floorMeshes) {
+      if (m.destroyed) continue;
+      m.visible = visible && !windowVisible;
+      m.alpha = opacity;
+    }
+    for (const m of this.floorWindowMeshes) {
+      if (m.destroyed) continue;
+      m.visible = visible && windowVisible;
+      m.alpha = opacity;
+    }
   }
 
   // ─── Palette ─────────────────────────────────────────────

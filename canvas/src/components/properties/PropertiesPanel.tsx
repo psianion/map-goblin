@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { selectActiveLayer, selectSelectedIds, selectChildById } from '@/store/selectors'
 import { LayerProperties } from './LayerProperties'
 import { BackgroundProperties } from './BackgroundProperties'
+import { TerrainProperties } from './TerrainProperties'
 import { LightProperties } from './LightProperties'
 import { DoorProperties } from './DoorProperties'
 import { ShapeTextureProperties } from './ShapeTextureProperties'
@@ -18,6 +19,7 @@ import { Lightbulb, Grid3x3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { undoManager } from '@/store/undoManager'
 import { SetAmbientLightCommand } from '@/store/commands'
+import { TERRAIN_PANEL_ID } from '@/store/types'
 import type { DungeonLayer, BackgroundLayer, LightChild, TextChild, GridConfig } from '@/store/types'
 
 /**
@@ -142,6 +144,7 @@ function AmbientSection({ openSections, onToggleSection }: SectionControl) {
 }
 
 export function PropertiesPanel({ openSections, onToggleSection }: SectionControl) {
+  const activeLayerId = useStore((s) => s.ui.activeLayerId)
   const activeLayer = useStore(selectActiveLayer)
   const selectedIds = useStore(useShallow(selectSelectedIds))
 
@@ -150,6 +153,19 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
   const selectedChild = useStore((s) =>
     firstSelectedId ? selectChildById(s, firstSelectedId) : undefined,
   )
+
+  // Terrain row selected — selectActiveLayer finds nothing for the sentinel
+  // (harmless: no layer has that id), so it's checked explicitly, after every
+  // hook above has run unconditionally.
+  if (activeLayerId === TERRAIN_PANEL_ID) {
+    return (
+      <div className="flex flex-col pt-2">
+        <TerrainProperties openSections={openSections} onToggleSection={onToggleSection} />
+        <GridSection openSections={openSections} onToggleSection={onToggleSection} />
+        <AmbientSection openSections={openSections} onToggleSection={onToggleSection} />
+      </div>
+    )
+  }
 
   // If first selected child is a door, show door properties
   if (selectedChild?.childType === 'door' && activeLayer) {

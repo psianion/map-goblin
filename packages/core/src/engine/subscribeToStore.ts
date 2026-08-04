@@ -613,6 +613,25 @@ export function subscribeToStore(
   );
   unsubscribers.push(unsubLights);
 
+  // ─── Terrain appearance (visible/opacity) ─────────────
+  // Absent settings.terrain (never painted) reads as visible=true, opacity=1 —
+  // same defaults TerrainTool's paint-gate and the palette selector already
+  // assume. O(1) flag flip on the renderer, no rebuild.
+  const unsubTerrainAppearance = useStore.subscribe(
+    (state) => ({
+      visible: state.mapSettings.terrain?.visible ?? true,
+      opacity: state.mapSettings.terrain?.opacity ?? 1,
+    }),
+    ({ visible, opacity }) => {
+      sceneGraph.terrainRenderer.setAppearance(visible, opacity);
+    },
+    {
+      fireImmediately: true,
+      equalityFn: (a, b) => a.visible === b.visible && a.opacity === b.opacity,
+    },
+  );
+  unsubscribers.push(unsubTerrainAppearance);
+
   // ─── Grid visibility changes ─────────────────────────
   const unsubGrid = useStore.subscribe(
     (state) => state.grid.visible,

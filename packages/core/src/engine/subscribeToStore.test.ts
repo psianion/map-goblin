@@ -129,6 +129,7 @@ const engine = {} as RenderEngine;
 const sceneGraph = {
   gridRenderer: { markDirty: vi.fn() },
   backgroundLayer: { addChild: vi.fn(), removeChild: vi.fn() },
+  terrainRenderer: { setAppearance: vi.fn() },
 } as unknown as SceneGraph;
 
 function dungeon(): DungeonLayer {
@@ -712,5 +713,51 @@ describe('subscribeToStore — grid visibility is a container flip, not a rebuil
 
     useStore.getState().setGridVisible(false);
     expect(entry.sublayers!.grid.visible).toBe(false);
+  });
+});
+
+describe('subscribeToStore — terrain appearance mirrors mapSettings.terrain', () => {
+  let unsub: () => void;
+  let lightManager: LightManager;
+
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    flushLayerDraws();
+    vi.clearAllMocks();
+    lightManager = new LightManager();
+  });
+
+  afterEach(() => {
+    unsub?.();
+    flushLayerDraws();
+  });
+
+  function start(): () => void {
+    const stop = subscribeToStore(engine, sceneGraph, lightManager);
+    flushLayerDraws();
+    return stop;
+  }
+
+  it('defaults to visible=true, opacity=1 when mapSettings.terrain is absent', () => {
+    expect(useStore.getState().mapSettings.terrain).toBeUndefined();
+    unsub = start();
+    expect(sceneGraph.terrainRenderer.setAppearance).toHaveBeenCalledWith(true, 1);
+  });
+
+  it('hiding terrain flips the renderer invisible immediately, showing it again restores it', () => {
+    unsub = start();
+    (sceneGraph.terrainRenderer.setAppearance as import('vitest').Mock).mockClear();
+
+    useStore.getState().setTerrainAppearance({ visible: false });
+    expect(sceneGraph.terrainRenderer.setAppearance).toHaveBeenLastCalledWith(false, 1);
+
+    useStore.getState().setTerrainAppearance({ visible: true });
+    expect(sceneGraph.terrainRenderer.setAppearance).toHaveBeenLastCalledWith(true, 1);
+  });
+
+  it('opacity changes are mirrored to the renderer', () => {
+    unsub = start();
+    useStore.getState().setTerrainAppearance({ opacity: 0.4 });
+    expect(sceneGraph.terrainRenderer.setAppearance).toHaveBeenLastCalledWith(true, 0.4);
   });
 });
