@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { PlayerInfo, Role, ServerMessage, SessionState } from '@dnd/core/src/shared/protocol';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
-import { mergeMapDelta, type MapDelta } from './loadSceneMap';
+import { mergeMapDelta, invalidateSceneDocs, type MapDelta } from './loadSceneMap';
 import { WebSocketClient } from './WebSocketClient';
 import type { ConnectionStatus } from './WebSocketClient';
 
@@ -53,6 +53,13 @@ export interface SessionStore {
   presence: PresenceEvent[];
   mapData: unknown | null;
   /**
+   * Which scene (and which published map of it) `mapData` actually belongs to. The active
+   * scene can run ahead of this — `scene-changed` flips `activeSceneId` immediately, the
+   * document follows once `swapSceneMap` lands it — so anything folding geometry into
+   * `mapData` must key on this, never on `activeSceneId` (the F2 race).
+   */
+  loadedScene: { sceneId: string; mapId: string } | null;
+  /**
    * Splat PNG blobs fetched over the binary image endpoint alongside `mapData`
    * — the document itself no longer carries them as base64. Handed to core's
    * `loadFromFile` with the document so they land in the same store pass.
@@ -69,7 +76,11 @@ export interface SessionStore {
 
   connect: (token: string, url?: string) => void;
   disconnect: () => void;
-  setMapData: (data: unknown, splatPngs?: [Blob | null, Blob | null]) => void;
+  setMapData: (
+    data: unknown,
+    splatPngs?: [Blob | null, Blob | null],
+    loadedScene?: { sceneId: string; mapId: string },
+  ) => void;
   setInviteCode: (code: string | null) => void;
   applyServerMessage: (msg: ServerMessage) => void;
   sendCommand: (module: string, action: string, payload: unknown) => void;
@@ -108,6 +119,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
   session: null,
   presence: [],
   mapData: null,
+  loadedScene: null,
   splatPngs: [null, null],
   lastError: null,
   latencyMs: null,
@@ -135,7 +147,12 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
     set({ client: null, token: null, connection: 'closed' });
   },
 
-  setMapData: (mapData, splatPngs) => set(splatPngs ? { mapData, splatPngs } : { mapData }),
+  setMapData: (mapData, splatPngs, loadedScene) =>
+    set({
+      mapData,
+      ...(splatPngs ? { splatPngs } : {}),
+      ...(loadedScene ? { loadedScene } : {}),
+    }),
 
   setInviteCode: (inviteCode) => set({ inviteCode }),
 
@@ -154,13 +171,21 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
           // D5: a fog update that reveals rooms carries their geometry in the same message,
           // so there is no frame in which this client knows a room is revealed and has
           // nothing to draw for it. One `set`, because that atomicity *is* the guarantee.
+          //
+          // Keyed on `loadedScene`, not `activeSceneId`: during a scene switch the active id
+          // has already flipped while the *outgoing* document is still in hand, and a delta
+          // for the incoming scene must not merge into it (F2). The dropped delta costs
+          // nothing — the swap's fetch answers with the post-reveal document anyway. It does
+          // make any *cached* copy of that scene stale, so the cache entry goes too.
           const delta = (msg as { mapDelta?: MapDelta }).mapDelta;
+          const loadedSceneId = get().loadedScene?.sceneId ?? null;
+          if (delta && delta.sceneId !== loadedSceneId) invalidateSceneDocs(delta.sceneId);
           const mapData = delta
             ? mergeMapDelta(
                 get().mapData as SerializedMapData | null,
                 delta,
                 get().you?.role,
-                session.activeSceneId,
+                loadedSceneId,
               )
             : get().mapData;
           set({
@@ -176,7 +201,13 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
         case 'scene-changed': {
           const session = get().session;
           if (!session) break;
-          set({ session: { ...session, activeSceneId: msg.sceneId }, mapData: null, splatPngs: [null, null] });
+          // The held document stays: GameRenderer sees active ≠ loaded and swaps to the new
+          // scene's document without ever rendering nothing (F1). `mapId` keeps the scene
+          // list honest when the change is a republish of the scene being played.
+          const scenes = session.scenes.map((s) =>
+            s.id === msg.sceneId ? { ...s, mapId: msg.mapId } : s,
+          );
+          set({ session: { ...session, activeSceneId: msg.sceneId, scenes } });
           break;
         }
 

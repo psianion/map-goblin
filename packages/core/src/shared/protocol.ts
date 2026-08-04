@@ -21,8 +21,8 @@ export interface SessionState {
   sessionId: string;
   campaignId: string;
   activeSceneId: string | null;
-  /** Metadata only — map data fetched via HTTP. */
-  scenes: { id: string; name: string }[];
+  /** Metadata only — map data fetched via HTTP. `mapId` changes when a scene is republished. */
+  scenes: { id: string; name: string; mapId: string }[];
   players: PlayerInfo[];
   /** Per-module slices, redacted for the viewer receiving them (S2, D4). */
   modules: Record<string, unknown>;
@@ -38,7 +38,9 @@ export type ServerMessage =
   // Full snapshot (join/reconnect).
   | { type: 'session-state'; state: SessionState; you: PlayerInfo }
   | { type: 'state-update'; module: string; state: unknown }
-  | { type: 'scene-changed'; sceneId: string }
+  // `mapId` lets a client key its map cache on (sceneId, mapId): a republish of the
+  // active scene re-broadcasts the same sceneId with a new mapId.
+  | { type: 'scene-changed'; sceneId: string; mapId: string }
   | { type: 'player-joined' | 'player-left'; player: PlayerInfo }
   | { type: 'dm-disconnected' }
   | { type: 'dm-reconnected' }

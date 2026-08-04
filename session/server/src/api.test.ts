@@ -264,7 +264,7 @@ describe('the full join flow', () => {
       const { socket, state } = await joinSocket(server.port, playerToken)
       expect(state.you).toMatchObject({ name: 'Bob', role: 'player', connected: true })
       expect(state.state.sessionId).toBe(started.body.sessionId)
-      expect(state.state.scenes).toEqual([{ id: mapId, name: 'Cragmaw Hideout' }])
+      expect(state.state.scenes).toEqual([{ id: mapId, name: 'Cragmaw Hideout', mapId }])
       // Nothing sets `active_scene_id` in S1, so the campaign's first map is the active
       // scene by default. It used to be null here, which meant a table that had just
       // uploaded a map still rendered "Waiting for the DM to pick a scene…" forever.
@@ -774,7 +774,7 @@ describe('scenes (#47)', () => {
       })
       const { socket, state } = await joinSocket(server.port, joined.body.token as string)
       expect(state.state.activeSceneId).toBe(hiddenId) // still loads
-      expect(state.state.scenes).toEqual([{ id: shownId, name: 'Cragmaw Hideout' }]) // hiddenId absent
+      expect(state.state.scenes).toEqual([{ id: shownId, name: 'Cragmaw Hideout', mapId: shownId }]) // hiddenId absent
       socket.terminate()
     })
   })

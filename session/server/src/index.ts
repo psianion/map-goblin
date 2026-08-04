@@ -110,6 +110,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
       const scenes = stores.scenes.listByCampaign(campaignId).map((scene) => ({
         id: scene.id,
         name: scene.name,
+        mapId: scene.map_id,
         visibleToPlayers: scene.visible_to_players === 1,
       }))
       return {

@@ -170,7 +170,7 @@ describe('a refused move (the rubber-band on its own says nothing)', () => {
     sessionId: 's1',
     campaignId: 'c1',
     activeSceneId: 'scene-1',
-    scenes: [{ id: 'scene-1', name: 'Crypt' }],
+    scenes: [{ id: 'scene-1', name: 'Crypt', mapId: 'scene-1' }],
     players: [player],
     modules: {
       tokens: { library: {}, byScene: { 'scene-1': Object.fromEntries(tokens.map((t) => [t.id, t])) } },
@@ -237,7 +237,7 @@ describe('a refused drag rubber-bands to where the pointer picked the token up',
     sessionId: 's1',
     campaignId: 'c1',
     activeSceneId: 'scene-1',
-    scenes: [{ id: 'scene-1', name: 'Crypt' }],
+    scenes: [{ id: 'scene-1', name: 'Crypt', mapId: 'scene-1' }],
     players: [player],
     modules: {
       tokens: { library: {}, byScene: { 'scene-1': Object.fromEntries(tokens.map((t) => [t.id, t])) } },

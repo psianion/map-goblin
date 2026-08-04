@@ -2,7 +2,12 @@ import { describe, expect, it, beforeEach, vi, afterEach } from 'vitest';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import { endpoints } from '../endpoints';
 import { useSessionStore } from './store';
-import { loadSceneMap, mergeMapDelta, type MapDelta } from './loadSceneMap';
+import {
+  swapSceneMap,
+  invalidateSceneDocs,
+  mergeMapDelta,
+  type MapDelta,
+} from './loadSceneMap';
 
 // Real `restoreCustomImages` decodes data URLs through Pixi, which needs a GPU jsdom has
 // not got. What matters at this seam is *that* it runs, and that it runs before the
@@ -12,6 +17,11 @@ vi.mock('@dnd/core/src/assets/textureLoader', () => ({
     mapDataDuringRestore = useSessionStore.getState().mapData;
   }),
   registerImageBlob: vi.fn(async () => {}),
+}));
+// Texture warm-up walks the asset packs, which live behind IndexedDB — out of jsdom's
+// reach and beside the point at this seam (swapSceneMap treats a preload failure as soft).
+vi.mock('@dnd/core/src/engine/floorWallRenderer', () => ({
+  preloadLayerTextures: vi.fn(async () => false),
 }));
 const { restoreCustomImages, registerImageBlob } = await import(
   '@dnd/core/src/assets/textureLoader'
@@ -59,21 +69,72 @@ const secretRevealed = (revealed: boolean) =>
     },
   }) as never;
 
-describe('loadSceneMap', () => {
-  beforeEach(() => useSessionStore.setState({ mapData: null, you: null, session: null }));
+describe('swapSceneMap', () => {
+  beforeEach(() => {
+    useSessionStore.setState({ mapData: null, loadedScene: null, you: null, session: null });
+    // The doc cache outlives a test the way it outlives a scene switch — flush it, or a
+    // later test's fetch stub never runs and it quietly asserts against this test's doc.
+    for (const id of ['s1', 'scene 1', 'sA', 'sB']) invalidateSceneDocs(id);
+  });
   afterEach(() => vi.unstubAllGlobals());
 
   it('fetches the scene with the session token and stores the document', async () => {
     const doc = { version: '3.0', layers: [] };
     const fetchMock = stubFetch(doc);
 
-    await loadSceneMap('scene 1', 'tok-abc');
+    await swapSceneMap('scene 1', 'm1', 'tok-abc');
 
     expect(fetchMock).toHaveBeenCalledWith(
       `${endpoints.httpBase}/api/maps/scene%201?images=external`,
       { headers: { Authorization: 'Bearer tok-abc' } },
     );
     expect(useSessionStore.getState().mapData).toEqual(doc);
+    expect(useSessionStore.getState().loadedScene).toEqual({ sceneId: 'scene 1', mapId: 'm1' });
+  });
+
+  it('serves a scene the table already visited from cache, without a refetch', async () => {
+    const docA = { version: '3.0', layers: [], name: 'A' };
+    const docB = { version: '3.0', layers: [], name: 'B' };
+    const fetchMock = vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () => (url.includes('sA') ? docA : docB),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await swapSceneMap('sA', 'mA', 'tok');
+    await swapSceneMap('sB', 'mB', 'tok');
+    const fetches = fetchMock.mock.calls.length;
+
+    await swapSceneMap('sA', 'mA', 'tok'); // back again — the visit that must be instant
+
+    expect(fetchMock.mock.calls.length).toBe(fetches);
+    expect((useSessionStore.getState().mapData as { name: string }).name).toBe('A');
+    // …while a republish (same scene, new map id) is a miss on purpose.
+    await swapSceneMap('sA', 'mA2', 'tok');
+    expect(fetchMock.mock.calls.length).toBe(fetches + 1);
+  });
+
+  it('lets a newer switch supersede a slower one mid-flight', async () => {
+    const docA = { version: '3.0', layers: [], name: 'A' };
+    const docB = { version: '3.0', layers: [], name: 'B' };
+    let releaseA!: () => void;
+    const gateA = new Promise<void>((resolve) => { releaseA = resolve; });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('sA')) await gateA; // sA's fetch is the slow one
+        return { ok: true, json: async () => (url.includes('sA') ? docA : docB) };
+      }),
+    );
+
+    const slow = swapSceneMap('sA', 'mA', 'tok');
+    await swapSceneMap('sB', 'mB', 'tok'); // the DM already moved on
+    releaseA();
+    await slow;
+
+    // The stale result must not clobber the scene the table actually shows.
+    expect((useSessionStore.getState().mapData as { name: string }).name).toBe('B');
+    expect(useSessionStore.getState().loadedScene).toEqual({ sceneId: 'sB', mapId: 'mB' });
   });
 
   it('fetches externalized images as binary — splats to the store, pictures to Pixi', async () => {
@@ -94,7 +155,7 @@ describe('loadSceneMap', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    await loadSceneMap('s1', 'tok');
+    await swapSceneMap('s1', 'm1', 'tok');
 
     expect(fetchMock).toHaveBeenCalledWith(
       `${endpoints.httpBase}/api/maps/s1/images/__terrain-splat-0__`,
@@ -116,7 +177,7 @@ describe('loadSceneMap', () => {
     const customImages = { 'asset-1': 'data:image/png;base64,AAA' };
     stubFetch({ version: '3.0', layers: [], customImages });
 
-    await loadSceneMap('s1', 'tok');
+    await swapSceneMap('s1', 'm1', 'tok');
 
     expect(restoreCustomImages).toHaveBeenCalledWith(customImages);
     expect(mapDataDuringRestore).toBeNull();
@@ -128,7 +189,7 @@ describe('loadSceneMap', () => {
       you: { identityId: 'p1', name: 'Bob', role: 'player', connected: true },
     });
 
-    await loadSceneMap('s1', 'tok');
+    await swapSceneMap('s1', 'm1', 'tok');
 
     // The secret door is gone; the ordinary door and the non-door child are untouched.
     expect(childIds()).toEqual(['d2', 'o1']);
@@ -140,7 +201,7 @@ describe('loadSceneMap', () => {
       you: { identityId: 'dm1', name: 'Ann', role: 'dm', connected: true },
     });
 
-    await loadSceneMap('s1', 'tok');
+    await swapSceneMap('s1', 'm1', 'tok');
 
     expect(childIds()).toEqual(['d1', 'd2', 'o1']);
   });
@@ -158,7 +219,7 @@ describe('loadSceneMap', () => {
       session: secretRevealed(true),
     });
 
-    await loadSceneMap('s1', 'tok');
+    await swapSceneMap('s1', 'm1', 'tok');
 
     expect(childIds()).toEqual(['d1', 'd2', 'o1']);
   });
@@ -170,7 +231,7 @@ describe('loadSceneMap', () => {
       session: secretRevealed(false),
     });
 
-    await loadSceneMap('s1', 'tok');
+    await swapSceneMap('s1', 'm1', 'tok');
 
     expect(childIds()).toEqual(['d2', 'o1']);
   });
@@ -178,7 +239,7 @@ describe('loadSceneMap', () => {
   it('strips secret doors when the role is not known yet', async () => {
     stubFetch(docWithSecretDoor());
 
-    await loadSceneMap('s1', 'tok');
+    await swapSceneMap('s1', 'm1', 'tok');
 
     expect(childIds()).toEqual(['d2', 'o1']);
   });
@@ -189,7 +250,7 @@ describe('loadSceneMap', () => {
       vi.fn().mockResolvedValue({ ok: false, status: 403, statusText: 'Forbidden' }),
     );
 
-    await expect(loadSceneMap('s1', 'tok')).rejects.toThrow('403');
+    await expect(swapSceneMap('s1', 'm1', 'tok')).rejects.toThrow('403');
     expect(useSessionStore.getState().mapData).toBeNull();
   });
 });
@@ -363,6 +424,31 @@ describe('state-update carrying a mapDelta', () => {
     const layer = layerOf(state.mapData as SerializedMapData);
     expect(layer.rooms.map((r) => r.id)).toContain('r-gallery');
     expect(state.session!.modules.fog).toBeTruthy();
+  });
+
+  /**
+   * The F2 race. `scene-changed` flips `activeSceneId` immediately; the outgoing document
+   * stays in hand until the swap lands. A reveal delta for the *incoming* scene arriving in
+   * that window must not merge into the outgoing map — the swap's own fetch answers with
+   * the post-reveal document, so dropping it costs nothing.
+   */
+  it('drops a delta for the scene being switched to while the old document is still held', () => {
+    const current = loaded();
+    useSessionStore.setState({
+      session: { ...session, activeSceneId: 'scene-2' } as never, // already flipped
+      you: { identityId: 'p1', name: 'Ayla', role: 'player', connected: true },
+      mapData: current,
+      loadedScene: { sceneId: 'scene-1', mapId: 'm1' }, // still holding the old scene
+    });
+
+    useSessionStore.getState().applyServerMessage({
+      type: 'state-update',
+      module: 'fog',
+      state: { byScene: {} },
+      mapDelta: delta({ sceneId: 'scene-2' }),
+    } as never);
+
+    expect(useSessionStore.getState().mapData).toBe(current);
   });
 
   it('leaves the map alone on a state-update that carries no delta', () => {

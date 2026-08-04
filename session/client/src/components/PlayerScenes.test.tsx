@@ -38,8 +38,8 @@ describe('PlayerScenes', () => {
       session: session({
         activeSceneId: 'sc-2',
         scenes: [
-          { id: 'sc-1', name: 'Great Hall' },
-          { id: 'sc-2', name: 'Crypt' },
+          { id: 'sc-1', name: 'Great Hall', mapId: 'sc-1' },
+          { id: 'sc-2', name: 'Crypt', mapId: 'sc-2' },
         ],
       }),
     });
@@ -56,8 +56,8 @@ describe('PlayerScenes', () => {
       session: session({
         activeSceneId: 'sc-2',
         scenes: [
-          { id: 'sc-1', name: 'Great Hall' },
-          { id: 'sc-2', name: 'Crypt' },
+          { id: 'sc-1', name: 'Great Hall', mapId: 'sc-1' },
+          { id: 'sc-2', name: 'Crypt', mapId: 'sc-2' },
         ],
       }),
     });

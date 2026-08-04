@@ -18,7 +18,7 @@ import { useStore } from '@dnd/core/src/store/store';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import { attachCameraInput, fitMap } from './cameraInput';
 import { useSessionStore } from '../session/store';
-import { loadSceneMap } from '../session/loadSceneMap';
+import { swapSceneMap } from '../session/loadSceneMap';
 import { syncDoorsToLighting } from '../modules/doors/doorLighting';
 import { mountPlayerFogWhenReady } from '../modules/fog/FogRenderer';
 
@@ -54,6 +54,14 @@ export function GameRenderer() {
   const [fetchError, setFetchError] = useState<string | null>(null);
 
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
+  // Which publish of the scene to load; falls back to the scene id itself for a server
+  // that predates `mapId` on the wire (upload mints the first scene with the map row's id).
+  const mapId = useSessionStore((s) => {
+    const id = s.session?.activeSceneId;
+    if (!id) return null;
+    return s.session?.scenes.find((scene) => scene.id === id)?.mapId ?? id;
+  });
+  const loadedScene = useSessionStore((s) => s.loadedScene);
   const mapData = useSessionStore((s) => s.mapData);
   const token = useSessionStore((s) => s.token);
 
@@ -167,10 +175,15 @@ export function GameRenderer() {
   }, [engine]);
 
   // ── Map data flow ─────────────────────────────────────────────────────────
+  // Runs whenever the scene the table should show differs from the one in hand — first
+  // load (nothing loaded yet), a scene switch, or a republish of the active scene (same
+  // sceneId, new mapId). The held document stays on screen for the whole swap (F1);
+  // `swapSceneMap` itself drops a stale result if a newer switch supersedes it.
   useEffect(() => {
-    if (!sceneId || mapData || !token) return;
+    if (!sceneId || !mapId || !token) return;
+    if (loadedScene?.sceneId === sceneId && loadedScene.mapId === mapId) return;
     let cancelled = false;
-    loadSceneMap(sceneId, token).then(
+    swapSceneMap(sceneId, mapId, token).then(
       () => {
         if (!cancelled) setFetchError(null);
       },
@@ -181,7 +194,7 @@ export function GameRenderer() {
     return () => {
       cancelled = true;
     };
-  }, [sceneId, mapData, token]);
+  }, [sceneId, mapId, token, loadedScene]);
 
   // Deserialized document → core store → scene graph, via core's own loader.
   // Guarded: `loadFromFile` runs the scene-graph subscribers synchronously, so a
