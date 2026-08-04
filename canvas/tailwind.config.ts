@@ -31,6 +31,7 @@ export default {
         'text-primary':   token('text-primary'),
         'text-secondary': token('text-secondary'),
         'text-muted':     token('text-muted'),
+        'text-dim':       token('text-dim'),
         // Ink weights — heavier on structure, lighter on ground clutter
         'border-structure': token('border-structure'),
         'border-default':   token('border-default'),

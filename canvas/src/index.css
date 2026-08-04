@@ -38,6 +38,16 @@
     --text-primary: 27 31 26;
     --text-secondary: 67 74 63;
     --text-muted: 72 80 68;
+    /* Dim/disabled text — for content shown at reduced opacity (hidden layer
+       rows, disabled controls). text-muted only just clears 4.5:1 at FULL
+       opacity (4.66:1 on surface-3 at night — see the panel `opacity-50`
+       postmortem in LayerRow), so fading it further broke contrast outright.
+       text-dim is deliberately closer to text-primary: computed so that at
+       opacity-80 (the row-dimming class) it still clears 4.5:1 against both
+       surface-1 and surface-3, in both themes — worst case day/surface-3 at
+       0.75 alpha is 4.58, 0.8 alpha is 5.19. Verified with a WCAG relative
+       luminance script, not eyeballed. */
+    --text-dim: 43 48 41;
     /* — ink weights: heavier on structure, lighter on clutter — */
     --border-structure: 139 153 133;
     --border-default: 179 188 174;
@@ -112,6 +122,9 @@
     --text-primary: 234 236 233;
     --text-secondary: 182 188 179;
     --text-muted: 151 158 148;
+    /* See the day-mode comment above. Night worst case is day-mode's mirror:
+       0.75 alpha vs surface-3 is 5.80, 0.8 alpha is 6.36 — comfortable. */
+    --text-dim: 213 217 211;
     --border-structure: 77 84 74;
     --border-default: 58 62 56;
     --border-subtle: 35 37 34;
