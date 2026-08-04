@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from './store';
-import { PresetApplyCommand, PropertyCommand, SetAmbientLightCommand, ShapeStyleCommand } from './commands';
+import { PresetApplyCommand, PropertyCommand, SetAmbientLightCommand, ShapeStyleCommand, UpdateChildCommand } from './commands';
+import { undoManager } from './undoManager';
 import { DUNGEON_STYLE_PRESETS } from './presetRegistry';
 import { resolveStyle } from '../engine/styleResolver';
 import type { ShapeChild, WallSegment } from '../shared/types';
@@ -484,5 +485,99 @@ describe('PropertyCommand mergedFloor (region move/cut undo-redo)', () => {
     expect(mergedFloor(id)).toEqual(floorA);
     cmd.execute(); // redo
     expect(mergedFloor(id)).toEqual(empty);
+  });
+});
+
+describe('Rename via PropertyCommand/UpdateChildCommand', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    undoManager.clear();
+  });
+
+  it('PropertyCommand round-trips a layer rename', () => {
+    const layer = useStore.getState().layers.find((l) => l.type === 'dungeon')!;
+    const cmd = new PropertyCommand(
+      'Rename layer',
+      { type: 'layer', layerId: layer.id },
+      { name: layer.name },
+      { name: 'Dungeon Level 2' },
+    );
+    undoManager.execute(cmd);
+    expect(useStore.getState().layers.find((l) => l.id === layer.id)?.name).toBe('Dungeon Level 2');
+    undoManager.undo();
+    expect(useStore.getState().layers.find((l) => l.id === layer.id)?.name).toBe(layer.name);
+  });
+
+  it('UpdateChildCommand round-trips a child rename', () => {
+    const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    const shape: ShapeChild = {
+      id: 'rename-test-child',
+      name: 'Original',
+      childType: 'shape',
+      visible: true,
+      shapeType: 'rectangle',
+      contours: [[[0, 0], [1, 0], [1, 1], [0, 1]]],
+      roughnessEnabled: false,
+      textureScale: 1,
+      textureOffsetX: 0,
+      textureOffsetY: 0,
+      textureFillRotation: 0,
+      textureTint: '#ffffff',
+    };
+    useStore.getState().addChild(layer.id, shape);
+
+    const cmd = new UpdateChildCommand('Rename', layer.id, shape.id, { name: 'Original' }, { name: 'Renamed' });
+    undoManager.execute(cmd);
+    expect(
+      (useStore.getState().layers.find((l) => l.id === layer.id) as DungeonLayer).children.find((c) => c.id === shape.id)?.name,
+    ).toBe('Renamed');
+    undoManager.undo();
+    expect(
+      (useStore.getState().layers.find((l) => l.id === layer.id) as DungeonLayer).children.find((c) => c.id === shape.id)?.name,
+    ).toBe('Original');
+  });
+});
+
+describe('Opacity via PropertyCommand (B1 drag-commit pattern)', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    undoManager.clear();
+  });
+
+  it('round-trips layer opacity', () => {
+    const layer = useStore.getState().layers.find((l) => l.type === 'dungeon')!;
+    const cmd = new PropertyCommand(
+      'Layer opacity',
+      { type: 'layer', layerId: layer.id },
+      { opacity: 1 },
+      { opacity: 0.5 },
+    );
+    undoManager.execute(cmd);
+    expect(useStore.getState().layers.find((l) => l.id === layer.id)?.opacity).toBe(0.5);
+    undoManager.undo();
+    expect(useStore.getState().layers.find((l) => l.id === layer.id)?.opacity).toBe(1);
+  });
+
+  it('a live-preview drag (many raw updateLayer writes) plus one commit is exactly one undo entry', () => {
+    const layer = useStore.getState().layers.find((l) => l.type === 'dungeon')!;
+    // Live-preview writes, same as SliderInput's onChange during a drag —
+    // these never touch undoManager.
+    useStore.getState().updateLayer(layer.id, { opacity: 0.8 });
+    useStore.getState().updateLayer(layer.id, { opacity: 0.6 });
+    useStore.getState().updateLayer(layer.id, { opacity: 0.42 });
+    expect(undoManager.canUndo()).toBe(false);
+
+    // Release: the one undoable commit, start value to final value.
+    undoManager.execute(new PropertyCommand(
+      'Layer opacity',
+      { type: 'layer', layerId: layer.id },
+      { opacity: 1 },
+      { opacity: 0.42 },
+    ));
+    expect(useStore.getState().layers.find((l) => l.id === layer.id)?.opacity).toBeCloseTo(0.42);
+
+    undoManager.undo();
+    expect(useStore.getState().layers.find((l) => l.id === layer.id)?.opacity).toBe(1);
+    expect(undoManager.canUndo()).toBe(false); // exactly one entry existed
   });
 });

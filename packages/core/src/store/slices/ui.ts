@@ -10,6 +10,8 @@ export interface UIActions {
   setClipperReady: (ready: boolean) => void;
   setFocusMode: (mode: UISlice['focusMode']) => void;
   setHighlightedRoomId: (roomId: string | null) => void;
+  toggleSoloLayer: (id: string) => void;
+  clearSolo: () => void;
 }
 
 export const createUISlice: StateCreator<
@@ -55,5 +57,48 @@ export const createUISlice: StateCreator<
   setHighlightedRoomId: (roomId) =>
     set((state) => {
       state.ui.highlightedRoomId = roomId;
+    }),
+  // Direct state mutation, same tier as setActiveLayerId — not routed through
+  // undoManager. Soloing is a view convenience (like expanding a layer row),
+  // not an authored edit worth an undo entry.
+  toggleSoloLayer: (id) =>
+    set((state) => {
+      const target = state.layers.find((l) => l.id === id);
+      if (!target || target.type !== 'dungeon') return;
+
+      const current = state.ui.solo;
+
+      // Same layer again: restore what solo hid and clear it.
+      if (current && current.layerId === id) {
+        for (const layer of state.layers) {
+          if (layer.type === 'dungeon' && layer.id in current.prevVisibility) {
+            layer.visible = current.prevVisibility[layer.id];
+          }
+        }
+        state.ui.solo = null;
+        return;
+      }
+
+      // A different layer was soloed: restore it first so the fresh snapshot
+      // below is taken from the pre-solo state, not the soloed-away one.
+      if (current) {
+        for (const layer of state.layers) {
+          if (layer.type === 'dungeon' && layer.id in current.prevVisibility) {
+            layer.visible = current.prevVisibility[layer.id];
+          }
+        }
+      }
+
+      const prevVisibility: Record<string, boolean> = {};
+      for (const layer of state.layers) {
+        if (layer.type !== 'dungeon') continue; // background is left untouched
+        prevVisibility[layer.id] = layer.visible;
+        layer.visible = layer.id === id;
+      }
+      state.ui.solo = { layerId: id, prevVisibility };
+    }),
+  clearSolo: () =>
+    set((state) => {
+      state.ui.solo = null;
     }),
 });

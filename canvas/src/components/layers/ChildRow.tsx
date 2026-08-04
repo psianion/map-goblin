@@ -1,13 +1,14 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type } from 'lucide-react'
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
 import { selectSelectedIds } from '@/store/selectors'
 import { undoManager } from '@/store/undoManager'
-import { PropertyCommand, AddChildCommand, RemoveChildCommand } from '@/store/commands'
+import { PropertyCommand, AddChildCommand, RemoveChildCommand, UpdateChildCommand } from '@/store/commands'
 import type { AnyChild, DungeonLayer } from '@/store/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { InlineEditableName } from './InlineEditableName'
 import { notify } from '@/lib/toast'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard'
@@ -43,6 +44,18 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
 
   const menu = useContextMenu()
   const isSelected = selectedIds.includes(child.id)
+  const [editingName, setEditingName] = useState(false)
+
+  const commitRename = (newName: string) => {
+    undoManager.execute(new UpdateChildCommand(
+      'Rename',
+      layerId,
+      child.id,
+      { name: child.name },
+      { name: newName },
+    ))
+    setEditingName(false)
+  }
 
   const toggleVisibility = () => {
     undoManager.execute(new PropertyCommand(
@@ -89,6 +102,7 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
   }
 
   const menuItems: ContextMenuItem[] = [
+    { label: 'Rename', onSelect: () => setEditingName(true) },
     { label: 'Duplicate', onSelect: duplicate },
     { label: child.visible ? 'Hide' : 'Show', onSelect: toggleVisibility },
     { label: 'Delete', onSelect: remove, danger: true, separatorBefore: true },
@@ -125,9 +139,14 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
       <span className="text-text-muted shrink-0">{childIcon(child.childType)}</span>
 
       {/* name */}
-      <span className="flex-1 min-w-0 truncate text-panel-body text-text-secondary">
-        {child.name}
-      </span>
+      <InlineEditableName
+        value={child.name}
+        editing={editingName}
+        onStartEdit={() => setEditingName(true)}
+        onCommit={commitRename}
+        onCancel={() => setEditingName(false)}
+        displayClassName="text-panel-body text-text-secondary"
+      />
 
       {/* visibility toggle */}
       <Button

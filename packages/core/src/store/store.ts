@@ -89,6 +89,7 @@ export const useStore = create<MapBuilderStore>()(
           state.ui.canUndo = false;
           state.ui.canRedo = false;
           state.ui.modalState = null;
+          state.ui.solo = null;
           state.tools.activeTool = 'rectangle';
           state.tools.eraseMode = false;
           state.tools.roughMode = false;

@@ -1,6 +1,6 @@
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
-import type { DungeonLayer, DungeonStyle } from '@/store/types'
+import type { DungeonLayer, DungeonStyle, SublayerVisibility } from '@/store/types'
 import type { AnyChild } from '@/shared/types'
 import { PropertyField } from './PropertyField'
 import { ColorField } from '@/components/inputs/ColorField'
@@ -8,12 +8,12 @@ import { ColorChip } from '@/components/inputs/ColorChip'
 import { SliderInput } from '@/components/inputs/SliderInput'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { ToggleSwitch } from '@/components/ui/toggle-switch'
-import { Palette, Minus, Waves, Blend, Sparkles, RotateCcw } from 'lucide-react'
+import { Palette, Minus, Waves, Blend, Sparkles, RotateCcw, Layers, Eye } from 'lucide-react'
 import { getWallSetDefaults, type WallCategory } from '@/assets/textureManifest'
 import { PresetStrip } from '@/components/shared/PresetStrip'
 import { DUNGEON_STYLE_PRESETS, matchPresetId } from '@/store/presetRegistry'
 import { resolveStyle } from '@/engine/styleResolver'
-import { ShapeStyleCommand, CompositeCommand, PresetApplyCommand } from '@/store/commands'
+import { ShapeStyleCommand, CompositeCommand, PresetApplyCommand, PropertyCommand } from '@/store/commands'
 import { undoManager } from '@/store/undoManager'
 import { selectActiveLayer, selectSelectedIds } from '@/store/selectors'
 import { notify } from '@/lib/toast'
@@ -212,8 +212,80 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
       }
     : layer.style
 
+  // ── Opacity — live preview via the raw action, one undo entry on release ──
+  const commitOpacity = (newPct: number, startPct: number) => {
+    const newVal = newPct / 100
+    const startVal = startPct / 100
+    if (newVal === startVal) return
+    undoManager.execute(new PropertyCommand(
+      'Layer opacity',
+      { type: 'layer', layerId: layer.id },
+      { opacity: startVal },
+      { opacity: newVal },
+    ))
+  }
+
   return (
     <div className="flex flex-col pt-2">
+      {/* ── Layer (opacity) ── */}
+      <CollapsibleSection
+        id="layer"
+        title="Layer"
+        icon={Layers}
+        defaultOpen={true}
+        isOpen={openSections?.has('layer')}
+        onToggle={onToggleSection}
+      >
+        <div className="pt-2">
+          <PropertyField label="Opacity">
+            <SliderInput
+              value={Math.round(layer.opacity * 100)}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(pct) => updateLayer(layer.id, { opacity: pct / 100 })}
+              onChangeCommit={commitOpacity}
+            />
+          </PropertyField>
+        </div>
+      </CollapsibleSection>
+
+      {/* ── Sublayers ── */}
+      <CollapsibleSection
+        id="sublayers"
+        title="Sublayers"
+        icon={Eye}
+        defaultOpen={false}
+        isOpen={openSections?.has('sublayers')}
+        onToggle={onToggleSection}
+      >
+        <div className="flex flex-col gap-2 pt-2">
+          {(
+            [
+              ['floor', 'Floor'],
+              ['grid', 'Grid'],
+              ['walls', 'Walls & Doors'],
+            ] as [keyof SublayerVisibility, string][]
+          ).map(([key, label]) => (
+            <div key={key} className="flex items-center justify-between">
+              <span className="font-mono text-panel-label uppercase text-text-muted">{label}</span>
+              <ToggleSwitch
+                checked={layer.sublayerVisibility[key]}
+                onChange={(v) =>
+                  undoManager.execute(new PropertyCommand(
+                    `${layer.sublayerVisibility[key] ? 'Hide' : 'Show'} ${label.toLowerCase()}`,
+                    { type: 'layer', layerId: layer.id },
+                    { sublayerVisibility: { ...layer.sublayerVisibility } },
+                    { sublayerVisibility: { ...layer.sublayerVisibility, [key]: v } },
+                  ))
+                }
+                label={label}
+              />
+            </div>
+          ))}
+        </div>
+      </CollapsibleSection>
+
       {/* ── Shape Selection Banner ── */}
       {hasSelection && (
         <div className="mx-3 mb-2 px-2 py-1.5 bg-surface-2 border border-border-subtle rounded text-panel-label text-text-muted flex items-center justify-between">

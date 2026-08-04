@@ -39,6 +39,19 @@ export const createLayersSlice: StateCreator<
     set((state) => {
       const idx = state.layers.findIndex((l) => l.id === id);
       if (idx <= 0) return;
+      // Solo bookkeeping for a layer about to disappear would dangle — restore
+      // what it hid on the remaining layers and drop it, right here rather
+      // than in the ui slice, since this is the one place that knows the
+      // layer is about to go.
+      if (state.ui.solo?.layerId === id) {
+        const { prevVisibility } = state.ui.solo;
+        for (const layer of state.layers) {
+          if (layer.type === 'dungeon' && layer.id in prevVisibility) {
+            layer.visible = prevVisibility[layer.id];
+          }
+        }
+        state.ui.solo = null;
+      }
       state.layers.splice(idx, 1);
       if (state.ui.activeLayerId === id) {
         const nextIdx = Math.min(idx, state.layers.length - 1);

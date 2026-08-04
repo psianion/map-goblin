@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import { Eye, EyeOff, Lock, Unlock, GripVertical, ChevronRight, ChevronDown } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -11,6 +11,7 @@ import { undoManager } from '@/store/undoManager'
 import { PropertyCommand, RemoveLayerCommand } from '@/store/commands'
 import { Button } from '@/components/ui/button'
 import { ChildRow } from './ChildRow'
+import { InlineEditableName } from './InlineEditableName'
 import { notify } from '@/lib/toast'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 
@@ -26,6 +27,12 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
   const activeTool = useStore((s) => s.tools.activeTool)
   const selectedIds = useStore(useShallow(selectSelectedIds))
   const setSelectedIds = useStore((s) => s.setSelectedIds)
+  const soloLayerId = useStore((s) => s.ui.solo?.layerId ?? null)
+  const toggleSoloLayer = useStore((s) => s.toggleSoloLayer)
+  const clearSolo = useStore((s) => s.clearSolo)
+  const isSoloed = soloLayerId === layer.id
+
+  const [editingName, setEditingName] = useState(false)
 
   const menu = useContextMenu()
 
@@ -78,6 +85,10 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
   }
 
   const toggleVisibility = () => {
+    // A manual visibility edit is the user taking back control — drop solo
+    // bookkeeping without touching any layer's visible flag (the edit itself
+    // is the only visibility change that should happen here).
+    if (useStore.getState().ui.solo) clearSolo()
     const wasVisible = layer.visible
     undoManager.execute(new PropertyCommand(
       wasVisible ? 'Hide layer' : 'Show layer',
@@ -86,6 +97,16 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
       { visible: !wasVisible },
     ))
     notify.subtle(wasVisible ? 'Layer hidden' : 'Layer visible', { icon: wasVisible ? 'eyeOff' : 'eye' })
+  }
+
+  const commitRename = (newName: string) => {
+    undoManager.execute(new PropertyCommand(
+      'Rename layer',
+      { type: 'layer', layerId: layer.id },
+      { name: layer.name },
+      { name: newName },
+    ))
+    setEditingName(false)
   }
 
   const deleteLayer = () => {
@@ -100,6 +121,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
   // Menu items mirror the row toolbar; delete only offered for non-background layers
   // (removeLayer refuses to remove the background layer).
   const menuItems: ContextMenuItem[] = [
+    { label: 'Rename', onSelect: () => setEditingName(true) },
     { label: layer.locked ? 'Unlock' : 'Lock', onSelect: toggleLock },
     { label: layer.visible ? 'Hide' : 'Show', onSelect: toggleVisibility },
     ...(layer.type !== 'background'
@@ -154,9 +176,14 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
         )}
 
         {/* name */}
-        <span className="flex-1 min-w-0 truncate text-panel-body text-text-primary">
-          {layer.name}
-        </span>
+        <InlineEditableName
+          value={layer.name}
+          editing={editingName}
+          onStartEdit={() => setEditingName(true)}
+          onCommit={commitRename}
+          onCancel={() => setEditingName(false)}
+          displayClassName="text-panel-body text-text-primary"
+        />
 
         {/* lock toggle */}
         <Button
@@ -172,18 +199,29 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           {layer.locked ? <Lock size={14} /> : <Unlock size={14} />}
         </Button>
 
-        {/* visibility toggle */}
+        {/* visibility toggle — alt-click solos this layer instead of hiding it */}
         <Button
           variant="ghost"
           size="icon-xs"
           data-testid="layer-visibility-toggle"
           data-visible={layer.visible}
+          data-soloed={isSoloed}
           onClick={(e) => {
             e.stopPropagation()
-            toggleVisibility()
+            if (e.altKey && layer.type !== 'background') {
+              toggleSoloLayer(layer.id)
+            } else {
+              toggleVisibility()
+            }
           }}
-          className="text-text-muted hover:text-text-primary"
-          title={layer.visible ? 'Hide layer' : 'Show layer'}
+          className={cn(
+            isSoloed ? 'text-accent-active hover:text-accent-active' : 'text-text-muted hover:text-text-primary',
+          )}
+          title={
+            layer.type === 'background'
+              ? (layer.visible ? 'Hide layer' : 'Show layer')
+              : `${layer.visible ? 'Hide layer' : 'Show layer'} (Alt-click to solo)`
+          }
         >
           {layer.visible ? <Eye size={14} /> : <EyeOff size={14} />}
         </Button>
