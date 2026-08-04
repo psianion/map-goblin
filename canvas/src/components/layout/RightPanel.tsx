@@ -20,7 +20,7 @@ const LS_KEY = 'rp-sections';
 // Sections whose `defaultOpen` should actually take effect on first load —
 // CollapsibleSection treats a defined `openSections` set as controlled, so an
 // id absent from here reads as closed regardless of its own `defaultOpen`.
-const INITIALLY_OPEN = ['colors', 'layer', 'terrain'];
+const INITIALLY_OPEN = ['colors', 'layer', 'terrain', 'sublayers'];
 
 function loadSections(): Set<string> {
   try {

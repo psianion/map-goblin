@@ -6,7 +6,12 @@
 import { getNotify } from '../store/notify';
 
 export const notify = {
-  subtle(message: string, _opts?: { icon?: string }): void {
+  // No icon option: NotifyFn (above) has no slot for one — the injected
+  // implementation (canvas's toast bridge) only ever sees the message string,
+  // so an icon passed in here could never reach anything. Previously
+  // accepted-and-silently-dropped; removed rather than wired through, since
+  // wiring it means widening NotifyFn itself for a feature nothing here uses.
+  subtle(message: string): void {
     getNotify().info(message);
   },
   warning(message: string): void {
