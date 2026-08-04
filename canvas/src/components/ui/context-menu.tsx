@@ -12,7 +12,12 @@ export interface ContextMenuItem {
   disabled?: boolean
 }
 
-/** Tracks right-click position; open() opens the menu at the cursor, close() dismisses it. */
+/**
+ * Tracks right-click position; open() opens the menu at the cursor,
+ * openAt() opens it at an explicit point (e.g. a row's bounding rect, for
+ * the keyboard-triggered Shift+F10 / ContextMenu-key opener), close()
+ * dismisses it.
+ */
 // eslint-disable-next-line react-refresh/only-export-components
 export function useContextMenu() {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
@@ -21,14 +26,21 @@ export function useContextMenu() {
     e.stopPropagation()
     setPos({ x: e.clientX, y: e.clientY })
   }, [])
+  const openAt = useCallback((x: number, y: number) => setPos({ x, y }), [])
   const close = useCallback(() => setPos(null), [])
-  return { pos, open, close }
+  return { pos, open, openAt, close }
 }
 
 /**
  * Right-click context menu. Reuses the MapCard menu look-and-feel.
  * Portaled to <body> so it isn't clipped by the layer panel's scroll container.
  */
+/** All enabled, focusable menuitem buttons inside a menu container, in DOM order. */
+function menuItemEls(container: HTMLElement | null): HTMLButtonElement[] {
+  if (!container) return []
+  return Array.from(container.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)'))
+}
+
 export function ContextMenu({
   pos,
   onClose,
@@ -39,6 +51,16 @@ export function ContextMenu({
   items: ContextMenuItem[]
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  // Element focused before the menu opened — Escape returns focus here
+  // rather than leaving it stranded on a now-unmounted menuitem.
+  const returnFocusRef = useRef<HTMLElement | null>(null)
+
+  // Move focus into the menu (first enabled item) the moment it opens.
+  useEffect(() => {
+    if (!pos) return
+    returnFocusRef.current = document.activeElement as HTMLElement | null
+    menuItemEls(ref.current)[0]?.focus()
+  }, [pos])
 
   useEffect(() => {
     if (!pos) return
@@ -46,7 +68,33 @@ export function ContextMenu({
       if (ref.current && !ref.current.contains(e.target as Node)) onClose()
     }
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        onClose()
+        returnFocusRef.current?.focus()
+        return
+      }
+      // Tab isn't trapped — it closes the menu and lets focus continue
+      // its normal course to whatever's next in the document.
+      if (e.key === 'Tab') {
+        onClose()
+        return
+      }
+      const els = menuItemEls(ref.current)
+      if (els.length === 0) return
+      const current = els.indexOf(document.activeElement as HTMLButtonElement)
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        els[(current + 1 + els.length) % els.length]?.focus()
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        els[(current - 1 + els.length) % els.length]?.focus()
+      } else if (e.key === 'Home') {
+        e.preventDefault()
+        els[0]?.focus()
+      } else if (e.key === 'End') {
+        e.preventDefault()
+        els[els.length - 1]?.focus()
+      }
     }
     document.addEventListener('mousedown', onClickOutside)
     document.addEventListener('keydown', onKeyDown)
@@ -62,6 +110,7 @@ export function ContextMenu({
     <div
       ref={ref}
       role="menu"
+      aria-orientation="vertical"
       className="gg-grain fixed z-50 min-w-[160px] bg-surface-1 border border-border-structure rounded-md shadow-panel py-1"
       style={{ left: pos.x, top: pos.y }}
     >
@@ -80,6 +129,7 @@ export function ContextMenu({
             }}
             className={cn(
               'w-full text-left px-3 py-1.5 text-sm gg-row',
+              'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-border-focus/50',
               item.danger ? 'text-danger' : 'text-text-primary',
               item.disabled && 'opacity-50 cursor-not-allowed pointer-events-none',
             )}
