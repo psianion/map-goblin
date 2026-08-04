@@ -48,6 +48,30 @@ describe('PropertyCommand', () => {
     expect(restored?.locked).toBe(false);
   });
 
+  // F10 (NIT-11): renaming stays allowed on a locked layer — it's metadata,
+  // not geometry, matching Hide/Show (also unguarded) on a locked layer.
+  // LayerRow/ChildRow's rename path goes straight through PropertyCommand/
+  // UpdateChildCommand with no blockedLayerReason check, unlike delete and
+  // duplicate — this documents that as a deliberate decision, not a gap.
+  it('renaming a locked layer succeeds — rename is metadata, not a geometry edit', () => {
+    const state = useStore.getState();
+    const layer = state.layers.find((l) => l.type === 'dungeon');
+    if (!layer) throw new Error('No dungeon layer');
+    state.updateLayer(layer.id, { locked: true });
+
+    const cmd = new PropertyCommand(
+      'Rename layer',
+      { type: 'layer', layerId: layer.id },
+      { name: layer.name },
+      { name: 'New name' },
+    );
+    cmd.execute();
+
+    const renamed = useStore.getState().layers.find((l) => l.id === layer.id);
+    expect(renamed?.locked).toBe(true);
+    expect(renamed?.name).toBe('New name');
+  });
+
   it('execute/undo with type child uses updateChild', () => {
     const state = useStore.getState();
     const layer = state.layers.find((l) => l.type === 'dungeon');

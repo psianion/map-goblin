@@ -30,9 +30,17 @@ export function InlineEditableName({
   // render" pattern (react.dev/learn/you-might-not-need-an-effect), not an
   // effect, so entering edit mode never costs an extra render.
   const [prevEditing, setPrevEditing] = useState(editing)
+  const [prevValue, setPrevValue] = useState(value)
   if (editing !== prevEditing) {
     setPrevEditing(editing)
+    setPrevValue(value)
     if (editing) setDraft(value)
+  } else if (editing && value !== prevValue) {
+    // The committed value moved out from under an open edit (undo/redo, a
+    // remote change) — resync so a commit doesn't clobber it with a draft
+    // that's now stale.
+    setPrevValue(value)
+    setDraft(value)
   }
 
   const commit = () => {
