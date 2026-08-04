@@ -86,10 +86,16 @@ export const createLayersSlice: StateCreator<
   reorderChild: (layerId, fromIndex, toIndex) =>
     set((state) => {
       const layer = state.layers.find((l) => l.id === layerId);
-      if (layer && layer.type === 'dungeon') {
-        const [child] = layer.children.splice(fromIndex, 1);
-        if (child) layer.children.splice(toIndex, 0, child);
+      if (!layer || layer.type !== 'dungeon') return;
+      const len = layer.children.length;
+      if (
+        !Number.isInteger(fromIndex) || !Number.isInteger(toIndex) ||
+        fromIndex < 0 || fromIndex >= len || toIndex < 0 || toIndex >= len
+      ) {
+        return;
       }
+      const [child] = layer.children.splice(fromIndex, 1);
+      if (child) layer.children.splice(toIndex, 0, child);
     }),
   updateChild: (layerId, childId, patch) =>
     set((state) => {

@@ -67,7 +67,7 @@ export function subscribeToTextLabels(): () => void {
         if (!currentLayerIds.has(layerId)) {
           const entry = getLayerEntry(layerId);
           for (const label of labelMap.values()) {
-            entry?.container.removeChild(label);
+            entry?.sublayers?.labels.removeChild(label);
             label.destroy();
           }
           labelMaps.delete(layerId);
@@ -76,7 +76,8 @@ export function subscribeToTextLabels(): () => void {
 
       for (const layer of dungeonLayers) {
         const entry = getLayerEntry(layer.id);
-        if (!entry) continue;
+        if (!entry?.sublayers) continue;
+        const labelsLayer = entry.sublayers.labels;
 
         if (!labelMaps.has(layer.id)) labelMaps.set(layer.id, new Map());
         const labelMap = labelMaps.get(layer.id)!;
@@ -84,16 +85,19 @@ export function subscribeToTextLabels(): () => void {
 
         for (const [id, label] of labelMap.entries()) {
           if (!currentIds.has(id)) {
-            entry.container.removeChild(label);
+            labelsLayer.removeChild(label);
             label.destroy();
             labelMap.delete(id);
           }
         }
 
-        for (const child of layer.labels) {
+        // Index within `layer.labels` becomes zIndex — see subscribeToAssets.ts.
+        for (let i = 0; i < layer.labels.length; i++) {
+          const child = layer.labels[i];
           const existing = labelMap.get(child.id);
           if (existing) {
             syncLabel(existing, child);
+            existing.zIndex = i;
           } else {
             const label = new Text({
               text: child.text,
@@ -103,7 +107,8 @@ export function subscribeToTextLabels(): () => void {
             label.anchor.set(0.5);
             label.label = 'label-' + child.id;
             syncLabel(label, child);
-            entry.container.addChild(label);
+            label.zIndex = i;
+            labelsLayer.addChild(label);
             labelMap.set(child.id, label);
           }
         }
@@ -117,7 +122,7 @@ export function subscribeToTextLabels(): () => void {
     for (const [layerId, labelMap] of labelMaps.entries()) {
       const entry = getLayerEntry(layerId);
       for (const label of labelMap.values()) {
-        entry?.container.removeChild(label);
+        entry?.sublayers?.labels.removeChild(label);
         label.destroy();
       }
     }

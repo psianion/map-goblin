@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from '../store';
-import type { DungeonLayer, Room } from '../types';
+import type { AnyChild, DungeonLayer, Room } from '../types';
 
 function dungeonLayer(): DungeonLayer {
   const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon');
@@ -49,5 +49,46 @@ describe('room store actions', () => {
     // The override is the durable record — re-detection reads it back.
     useStore.getState().renameRoom(dungeonLayer().id, 'room-xyz', 'Goblin Den');
     expect(dungeonLayer().roomNameOverrides?.['room-xyz']).toBe('Goblin Den');
+  });
+});
+
+describe('reorderChild bounds guard', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+  });
+
+  function makeShape(id: string): AnyChild {
+    return {
+      id,
+      name: id,
+      childType: 'shape',
+      visible: true,
+      shapeType: 'rectangle',
+      contours: [[[0, 0], [4, 0], [4, 4], [0, 4]]],
+      roughnessEnabled: false,
+      textureScale: 1,
+      textureOffsetX: 0,
+      textureOffsetY: 0,
+      textureFillRotation: 0,
+      textureTint: '#ffffff',
+    } as AnyChild;
+  }
+
+  it.each([
+    [-1, 0],
+    [0, -1],
+    [0, 5],
+    [5, 0],
+    [1.5, 0],
+    [0, 1.5],
+  ])('is a no-op for out-of-range indices (%i -> %i)', (fromIndex, toIndex) => {
+    const layer = dungeonLayer();
+    useStore.getState().addChild(layer.id, makeShape('c1'));
+    useStore.getState().addChild(layer.id, makeShape('c2'));
+    const before = dungeonLayer().children.map((c) => c.id);
+
+    useStore.getState().reorderChild(layer.id, fromIndex, toIndex);
+
+    expect(dungeonLayer().children.map((c) => c.id)).toEqual(before);
   });
 });

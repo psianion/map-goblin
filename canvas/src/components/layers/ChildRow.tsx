@@ -1,5 +1,7 @@
 import { memo, useState } from 'react'
-import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type } from 'lucide-react'
+import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical } from 'lucide-react'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
 import { selectSelectedIds } from '@/store/selectors'
@@ -11,7 +13,6 @@ import { Button } from '@/components/ui/button'
 import { InlineEditableName } from './InlineEditableName'
 import { notify } from '@/lib/toast'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
-import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard'
 
 interface ChildRowProps {
   child: AnyChild
@@ -57,6 +58,19 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
     setEditingName(false)
   }
 
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: child.id })
+  const dragStyle = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
+  // Reorder only actually changes anything on screen for assets and text —
+  // doors/lights/shapes/water draw from their own pipelines that ignore
+  // array order, so their rows get no drag handle rather than a control that
+  // silently does nothing.
+  const isReorderable = child.childType === 'asset' || child.childType === 'text'
+
   const toggleVisibility = () => {
     undoManager.execute(new PropertyCommand(
       child.visible ? 'Hide child' : 'Show child',
@@ -66,15 +80,15 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
     ))
   }
 
-  // Delete/Duplicate are destructive edits and go through the same owning-layer
-  // gate the layers-panel delete shortcut uses (X1) — the row's own visibility
-  // toggle stays exempt, matching the layer row's eye still working when locked.
+  // Delete/Duplicate are destructive-but-undoable panel ops, like layer delete
+  // (see LayerRow's deleteLayer) — locked blocks them, but a layer hidden via
+  // solo (or its own visibility) is not a reason to refuse editing rows the
+  // user can still see and click in the panel.
 
   // Clone with a fresh id and slight offset — same shape as the copy/paste path.
   const duplicate = () => {
-    const reason = blockedLayerReason(layer)
-    if (reason) {
-      notify.warning(reason)
+    if (layer.locked) {
+      notify.warning('Layer is locked')
       return
     }
     const clone = structuredClone(child)
@@ -91,9 +105,8 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
   }
 
   const remove = () => {
-    const reason = blockedLayerReason(layer)
-    if (reason) {
-      notify.warning(reason)
+    if (layer.locked) {
+      notify.warning('Layer is locked')
       return
     }
     undoManager.execute(new RemoveChildCommand('Delete', layerId, child.id))
@@ -126,17 +139,35 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
 
   return (
     <div
+      ref={setNodeRef}
+      style={dragStyle}
       className={cn(
-        'gg-row flex items-center gap-1 pl-8 pr-1 py-1 cursor-pointer',
+        'gg-row flex items-center gap-1 pl-4 pr-1 py-1 cursor-pointer',
         isSelected && 'bg-surface-3',
         // opacity-80, matching LayerRow — opacity-50 on text-primary content
         // fails 4.5:1 (see index.css's --text-dim comment).
         !child.visible && 'opacity-80',
+        isDragging && 'opacity-75 z-50',
       )}
       onClick={handleClick}
       onContextMenu={menu.open}
       data-testid="child-row"
     >
+      {/* drag handle — only for childTypes where reorder actually draws differently */}
+      {isReorderable ? (
+        <span
+          {...attributes}
+          {...listeners}
+          aria-label={`Reorder ${child.name}`}
+          className="text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <GripVertical size={12} />
+        </span>
+      ) : (
+        <span className="w-3" />
+      )}
+
       {/* type icon */}
       <span className="text-text-muted shrink-0">{childIcon(child.childType)}</span>
 

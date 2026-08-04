@@ -83,7 +83,7 @@ export function subscribeToAssets(): () => void {
         if (!currentLayerIds.has(layerId)) {
           const entry = getLayerEntry(layerId);
           for (const sprite of spriteMap.values()) {
-            entry?.container.removeChild(sprite);
+            entry?.sublayers?.objects.removeChild(sprite);
             sprite.destroy();
           }
           spriteMaps.delete(layerId);
@@ -93,7 +93,8 @@ export function subscribeToAssets(): () => void {
       // ── Sync each dungeon layer's asset children ──────────────────────
       for (const layer of dungeonLayers) {
         const entry = getLayerEntry(layer.id);
-        if (!entry) continue; // scene graph not ready yet for this layer
+        if (!entry?.sublayers) continue; // scene graph not ready yet for this layer
+        const objectsLayer = entry.sublayers.objects;
 
         // Ensure a sprite map exists for this layer
         if (!spriteMaps.has(layer.id)) {
@@ -105,18 +106,23 @@ export function subscribeToAssets(): () => void {
         // Remove sprites for deleted children
         for (const [objId, sprite] of spriteMap.entries()) {
           if (!currentObjectIds.has(objId)) {
-            entry.container.removeChild(sprite);
+            objectsLayer.removeChild(sprite);
             sprite.destroy();
             spriteMap.delete(objId);
           }
         }
 
-        // Add / update sprites for current asset children
-        for (const obj of layer.assets) {
+        // Add / update sprites for current asset children. Index within
+        // `layer.assets` (filter preserves relative order from layer.children)
+        // becomes zIndex — objects.sortableChildren draws by it. Shapes/walls
+        // stay union-rendered (Clipper2), so no per-child order applies there.
+        for (let i = 0; i < layer.assets.length; i++) {
+          const obj = layer.assets[i];
           if (spriteMap.has(obj.id)) {
             // Update existing sprite transform
             const sprite = spriteMap.get(obj.id)!;
             syncSprite(sprite, obj);
+            sprite.zIndex = i;
           } else {
             // Create new sprite — try unified resolver first (handles pack + legacy + bundled)
             const isCustomImage = obj.assetId.startsWith('data:') || obj.assetId.startsWith('blob:');
@@ -141,7 +147,8 @@ export function subscribeToAssets(): () => void {
             sprite.anchor.set(0.5, 0.5);
             sprite.label = 'placed-' + obj.id;
             syncSprite(sprite, obj);
-            entry.container.addChild(sprite);
+            sprite.zIndex = i;
+            objectsLayer.addChild(sprite);
             spriteMap.set(obj.id, sprite);
 
             // Async load only for custom images not yet cached
