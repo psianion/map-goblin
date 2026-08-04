@@ -69,6 +69,16 @@ export class ToolManager {
     this.activeTool?.onPointerUp(point, event);
   }
 
+  /**
+   * External hard-cancel — an OS pointercancel mid-draw (touch/stylus gesture
+   * taken away) never reaches onPointerUp, so the active tool would otherwise
+   * be left in a live-chain/live-drag state that the next unguarded
+   * onPointerUp could commit.
+   */
+  cancelActive(): void {
+    this.activeTool?.cancel();
+  }
+
   onKeyDown(event: KeyboardEvent): void {
     this.activeTool?.onKeyDown(event);
   }
