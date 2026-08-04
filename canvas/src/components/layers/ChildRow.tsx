@@ -13,7 +13,6 @@ import { Button } from '@/components/ui/button'
 import { InlineEditableName } from './InlineEditableName'
 import { notify } from '@/lib/toast'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
-import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard'
 
 interface ChildRowProps {
   child: AnyChild
@@ -81,15 +80,15 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
     ))
   }
 
-  // Delete/Duplicate are destructive edits and go through the same owning-layer
-  // gate the layers-panel delete shortcut uses (X1) — the row's own visibility
-  // toggle stays exempt, matching the layer row's eye still working when locked.
+  // Delete/Duplicate are destructive-but-undoable panel ops, like layer delete
+  // (see LayerRow's deleteLayer) — locked blocks them, but a layer hidden via
+  // solo (or its own visibility) is not a reason to refuse editing rows the
+  // user can still see and click in the panel.
 
   // Clone with a fresh id and slight offset — same shape as the copy/paste path.
   const duplicate = () => {
-    const reason = blockedLayerReason(layer)
-    if (reason) {
-      notify.warning(reason)
+    if (layer.locked) {
+      notify.warning('Layer is locked')
       return
     }
     const clone = structuredClone(child)
@@ -106,9 +105,8 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
   }
 
   const remove = () => {
-    const reason = blockedLayerReason(layer)
-    if (reason) {
-      notify.warning(reason)
+    if (layer.locked) {
+      notify.warning('Layer is locked')
       return
     }
     undoManager.execute(new RemoveChildCommand('Delete', layerId, child.id))
@@ -160,6 +158,7 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
         <span
           {...attributes}
           {...listeners}
+          aria-label={`Reorder ${child.name}`}
           className="text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing"
           onClick={(e) => e.stopPropagation()}
         >
