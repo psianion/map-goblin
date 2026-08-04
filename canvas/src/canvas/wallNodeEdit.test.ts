@@ -537,10 +537,36 @@ describe('locked/hidden layer blocks node edits (F6)', () => {
     expect(useStore.getState().tools.nodeEditWallId).toBeNull();
   });
 
+  // F1: the layer lookup used to gate on the raw `visible` flag, which solo
+  // never touches (see selectors.ts's isLayerEffectivelyVisible) — soloing
+  // another layer left this one's walls editable even though the panel and
+  // canvas both show it hidden.
+  it('toggleNodeEditAt refuses to enter edit mode on a layer effectively hidden by solo', () => {
+    seed();
+    const other = createDungeonLayer('Layer 2');
+    useStore.getState().addLayer(other);
+    useStore.getState().toggleSoloLayer(other.id); // seeded layer is now effectively hidden
+
+    expect(toggleNodeEditAt({ x: 6, y: 0 })).toBe(false);
+    expect(useStore.getState().tools.nodeEditWallId).toBeNull();
+  });
+
   it('Tab (cyclePiece) does nothing once the layer is locked mid-edit', () => {
     const { t } = seedWall();
     const before = currentWallNodes().find((n) => Math.abs(n.t - t) < 1e-9)?.pieceId;
     useStore.getState().updateLayer(layer().id, { locked: true });
+
+    expect(handleNodeKey('Tab', t)).toBe(true); // still claims the key
+    const after = currentWallNodes().find((n) => Math.abs(n.t - t) < 1e-9)?.pieceId;
+    expect(after).toBe(before);
+  });
+
+  it('Tab (cyclePiece) does nothing once the layer is effectively hidden by solo mid-edit', () => {
+    const { t } = seedWall();
+    const before = currentWallNodes().find((n) => Math.abs(n.t - t) < 1e-9)?.pieceId;
+    const other = createDungeonLayer('Layer 2');
+    useStore.getState().addLayer(other);
+    useStore.getState().toggleSoloLayer(other.id); // active layer is now effectively hidden
 
     expect(handleNodeKey('Tab', t)).toBe(true); // still claims the key
     const after = currentWallNodes().find((n) => Math.abs(n.t - t) < 1e-9)?.pieceId;

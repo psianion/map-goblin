@@ -77,8 +77,17 @@ export class ToolManager {
     this.activeTool?.cancel();
   }
 
-  onKeyDown(event: KeyboardEvent): void {
+  /**
+   * Returns true when the active tool was mid-gesture (isActive()) before
+   * this key was handled — e.g. Escape cancelling an in-progress chain.
+   * Callers use this to tell an Escape that consumed a live gesture from an
+   * idle one, so a single Escape doesn't also fall through to view-level
+   * effects (clearing solo, leaving Terrain) that belong to the idle case.
+   */
+  onKeyDown(event: KeyboardEvent): boolean {
+    const wasActive = this.activeTool?.isActive() ?? false;
     this.activeTool?.onKeyDown(event);
+    return wasActive;
   }
 
   updatePreview(): void {

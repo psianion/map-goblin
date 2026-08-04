@@ -45,6 +45,7 @@ import { DoorTool, clampDoorWidth } from './DoorTool';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
 import { createWallRemovalCommand } from '../../store/commands';
+import { createDungeonLayer } from '../../store/factories';
 import { setNotify } from '../../store/notify';
 import type { DoorChild, WallSegment } from '../../shared/types';
 import type { DungeonLayer } from '../../store/types';
@@ -585,6 +586,45 @@ describe('DoorTool — locked layer (DR10 carve-out, F4/F2)', () => {
 
     tool.onKeyDown(new KeyboardEvent('keydown', { key: 'Delete' }));
     expect(doors()).toHaveLength(1);
+    expect(warning).toHaveBeenCalledWith('Layer is hidden');
+  });
+});
+
+describe('DoorTool — effective visibility under solo (F1)', () => {
+  let tool: DoorTool;
+  let warning: ReturnType<typeof vi.fn<(msg: string) => void>>;
+
+  beforeEach(() => {
+    undoManager.clear();
+    useStore.getState().resetToDefault();
+    useStore.getState().addWall(layer().id, structuredClone(WALL));
+    const preview = new Container();
+    tool = new DoorTool(preview);
+    warning = vi.fn();
+    setNotify({ warning, error: vi.fn(), success: vi.fn(), info: vi.fn() });
+  });
+
+  // The gate used to read the raw `visible` flag, which solo never touches —
+  // soloing a different layer left the active-but-unsoloed one editable even
+  // though the panel and canvas both show it hidden.
+  it('blocks placing a new door once another layer is soloed', () => {
+    const other = createDungeonLayer('Layer 2');
+    useStore.getState().addLayer(other);
+    useStore.getState().toggleSoloLayer(other.id); // active layer is now effectively hidden
+
+    click(tool, 8, 5.1);
+    expect(doors()).toHaveLength(0);
+    expect(warning).toHaveBeenCalledWith('Layer is hidden');
+  });
+
+  it('blocks cycling a door once another layer is soloed', () => {
+    click(tool, 5, 5.1);
+    const other = createDungeonLayer('Layer 2');
+    useStore.getState().addLayer(other);
+    useStore.getState().toggleSoloLayer(other.id);
+
+    doubleClick(tool, 5, 5.1);
+    expect(doors()[0].state).toBe('closed');
     expect(warning).toHaveBeenCalledWith('Layer is hidden');
   });
 });

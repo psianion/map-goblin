@@ -397,7 +397,7 @@ export function useCanvasInput(
         e.preventDefault();
         return;
       }
-      _toolManager?.onKeyDown(e);
+      const consumedGesture = _toolManager?.onKeyDown(e);
 
       // Escape also exits solo (D1) and, if the Terrain row was active,
       // restores the dungeon layer that was active before it (D5b). Placed
@@ -406,7 +406,9 @@ export function useCanvasInput(
       // did — a wall/polygon/path chain cancels itself there) — solo and
       // terrain selection are view-level state, not something with any claim
       // to pre-empt an in-progress drawing gesture's own Escape handling.
-      if (e.key === 'Escape') {
+      // Skipped when that Escape just cancelled a live gesture (consumedGesture)
+      // so cancelling a chain and clearing solo don't both fire off one press.
+      if (e.key === 'Escape' && !consumedGesture) {
         const state = useStore.getState();
         if (state.ui.solo) state.clearSolo();
         if (state.ui.activeLayerId === TERRAIN_PANEL_ID) {

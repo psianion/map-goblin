@@ -216,13 +216,19 @@ export class DoorTool implements DrawingTool {
       notify.warning(noEditableLayerMessage());
       return;
     }
-    if (!activeLayer.visible) {
+    // blockedLayerReason folds solo into "hidden" (isLayerEffectivelyVisible),
+    // where the raw activeLayer.visible check this replaced did not — soloing
+    // another layer left this one clickable even though the panel and canvas
+    // both show it hidden. Locked is handled specially: it still permits the
+    // single-click select branch below (DR10), so only hidden blocks here.
+    const reason = blockedLayerReason(activeLayer);
+    if (reason === 'Layer is hidden') {
       // Nothing to inspect if the layer isn't drawn — a door tool with a
       // hidden layer active has nothing on screen to click.
-      notify.warning('Layer is hidden');
+      notify.warning(reason);
       return;
     }
-    const locked = activeLayer.locked;
+    const locked = reason === 'Layer is locked';
 
     const hit = doorAt(point, activeLayer);
     if (hit) {

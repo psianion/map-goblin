@@ -171,3 +171,39 @@ describe('ToolManager.onPointerDown — editsActiveLayer guard', () => {
     expect(warning).not.toHaveBeenCalled();
   });
 });
+
+// F2: Escape used to both cancel an in-progress chain (the tool's own
+// onKeyDown) and clear solo (useCanvasInput, downstream of this call) in the
+// same press. onKeyDown now reports whether the tool was mid-gesture
+// (isActive()) *before* handling the key, so a caller can tell an Escape
+// that consumed a live gesture from an idle one and skip the view-level
+// fallout (solo-clear, Terrain exit) for the former.
+describe('ToolManager.onKeyDown — consumed-gesture contract (F2)', () => {
+  it('reports true when the active tool was mid-gesture before the key was handled', () => {
+    const tm = new ToolManager(new Container() as never);
+    const tool = fakeTool('wall');
+    tool.isActive = () => true; // e.g. an in-progress wall chain
+    tm.registerTool(tool);
+    tm.switchTool('wall');
+
+    const consumed = tm.onKeyDown(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+    expect(consumed).toBe(true);
+    expect(tool.onKeyDown).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports false when the active tool was idle', () => {
+    const tm = new ToolManager(new Container() as never);
+    const tool = fakeTool('wall');
+    tool.isActive = () => false;
+    tm.registerTool(tool);
+    tm.switchTool('wall');
+
+    expect(tm.onKeyDown(new KeyboardEvent('keydown', { key: 'Escape' }))).toBe(false);
+  });
+
+  it('reports false when no tool is active', () => {
+    const tm = new ToolManager(new Container() as never);
+    expect(tm.onKeyDown(new KeyboardEvent('keydown', { key: 'Escape' }))).toBe(false);
+  });
+});
