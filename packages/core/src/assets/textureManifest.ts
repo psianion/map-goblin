@@ -119,7 +119,12 @@ const FLOORS: TextureEntry[] = [
   { id: 'wood-flooring-walnut', path: '/textures/floors/wood/Wooden_Flooring_E_Walnut.jpg', type: 'floor', category: 'wood', naturalWidth: 1000, naturalHeight: 1000, label: 'Wood Flooring Walnut', tags: ['indoor', 'building'] },
 
   // Water
-  { id: 'water-opaque-a-03', path: '/textures/floors/water/Water_Opaque_A_03.jpg', type: 'floor', category: 'water', naturalWidth: 1000, naturalHeight: 1000, label: 'Water Opaque A 03', tags: ['water', 'outdoor'] },
+  // naturalWidth corrected 1000→1200 (2026-08-04): the shipped dungeon-classic pack
+  // asset is 1200×1200 (atlas-floor-d326408b.json, Water_Opaque_A_03_6x6_floor_A);
+  // the stale 1000 made legacyAssetMapping derive a "5x5" pack id that doesn't
+  // exist, so this texture silently missed the pack and fell back to a
+  // nonexistent bundled file.
+  { id: 'water-opaque-a-03', path: '/textures/floors/water/Water_Opaque_A_03.jpg', type: 'floor', category: 'water', naturalWidth: 1200, naturalHeight: 1200, label: 'Water Opaque A 03', tags: ['water', 'outdoor'] },
   { id: 'water-still-a-01', path: '/textures/floors/water/Water_Still_A_01.jpg', type: 'floor', category: 'water', naturalWidth: 1400, naturalHeight: 1400, label: 'Water Still A 01', tags: ['water', 'outdoor'] },
 
   // Scatter path textures (transparent PNGs for natural blending along paths)

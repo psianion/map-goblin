@@ -120,6 +120,10 @@ export function setupRenderLoop(
     // (4) Grid update — redraws only when viewport range changes
     sceneGraph.gridRenderer.update(engine);
 
+    // (4b) Terrain crisp-window settle check — re-bakes the viewport window
+    // only once the camera (or a paint stroke) has been still for a beat.
+    sceneGraph.terrainRenderer.update(engine);
+
     // (5) Tool preview update
     sceneGraph.toolManager.updatePreview();
 

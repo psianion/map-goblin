@@ -4,6 +4,7 @@ import {
   TERRAIN_EXTENT_HALF,
   TEXELS_PER_CELL,
   applySplatPatch,
+  planWindowBake,
   splatBounds,
   splatRegionsEqual,
   unionBounds,
@@ -59,6 +60,33 @@ describe('unionBounds', () => {
     expect(unionBounds(a, null)).toEqual(a);
     expect(unionBounds(null, b)).toEqual(b);
     expect(unionBounds(a, b)).toEqual({ minX: -1, minY: 0, maxX: 2, maxY: 3 });
+  });
+});
+
+describe('planWindowBake', () => {
+  it('is inactive at or below the base bake density', () => {
+    expect(planWindowBake(32, 32, 200, 4096, 20, 15)).toBeNull();
+    expect(planWindowBake(20, 32, 200, 4096, 20, 15)).toBeNull();
+  });
+
+  it('sizes the RT to world span × zoom density once above the base density', () => {
+    const plan = planWindowBake(64, 32, 200, 4096, 20, 10);
+    expect(plan).toEqual({ width: 1280, height: 640 });
+  });
+
+  it('caps density at the splat/texture native resolution', () => {
+    // 500 px/cell requested, capped to 200 — width tracks the cap, not the request.
+    const plan = planWindowBake(500, 32, 200, 4096, 10, 10);
+    expect(plan).toEqual({ width: 2000, height: 2000 });
+  });
+
+  it('caps the RT dimension so a huge viewport cannot blow the VRAM budget', () => {
+    const plan = planWindowBake(200, 32, 200, 4096, 100, 5);
+    expect(plan).toEqual({ width: 4096, height: 1000 });
+  });
+
+  it('rejects a degenerate (zero-area) span', () => {
+    expect(planWindowBake(64, 32, 200, 4096, 0, 10)).toBeNull();
   });
 });
 

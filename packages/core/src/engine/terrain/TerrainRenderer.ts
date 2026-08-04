@@ -13,7 +13,6 @@ import type { RenderEngine } from '../RenderEngine';
 import { useStore } from '../../store/store';
 import { DEFAULT_TERRAIN_PALETTE } from '../../store/slices/mapSettings';
 import * as textureLoader from '../../assets/textureLoader';
-import { getTextureEntry } from '../../assets/textureManifest';
 import { readPixelsAsync, warmupReadback } from '../asyncReadback';
 import {
   SPLAT_SIZE,
@@ -21,6 +20,7 @@ import {
   TERRAIN_SLOTS,
   TEXELS_PER_CELL,
   WORLD_SIZE,
+  planWindowBake,
   splatRegionsEqual,
 } from './terrainShared';
 import { SplatWorkerClient } from './splatWorkerClient';
@@ -37,13 +37,27 @@ const CHANNEL_TINTS = [0xff0000, 0x00ff00, 0x0000ff];
  * GPUs that is 60-250ms per full-screen frame. So it never runs per frame:
  * edits render it into this world-space cache (only the touched rect), and the
  * per-frame cost is one plain textured quad.
- * ponytail: fixed full-extent cache. If 32px/cell reads soft at deep zoom,
- * re-bake the visible window at higher density on zoom-settle.
+ * ponytail: fixed full-extent cache, plus a viewport-sized crisp window
+ * re-baked on zoom-settle when display density exceeds it (see WINDOW_* below).
  */
 const BAKE_TEXELS_PER_CELL = 32;
 const BAKE_SIZE = WORLD_SIZE * BAKE_TEXELS_PER_CELL;
 /** Splat texel → bake texel scale. */
 const BAKE_SCALE = BAKE_TEXELS_PER_CELL / TEXELS_PER_CELL;
+
+/**
+ * Crisp viewport window: a second, smaller RT re-baked at display density over
+ * just the visible region, so deep zoom reads as sharp as the old live
+ * 200px/cell splat shader without paying that shader's per-frame cost anywhere
+ * else. Caps at 200 — the splat/texture native density; more would upsample
+ * nothing. Triggered on camera-settle (same pattern as GridRenderer), never on
+ * the movement path itself.
+ */
+const WINDOW_MAX_TEXELS_PER_CELL = 200;
+/** Sane VRAM/perf cap on the window RT's largest side. */
+const WINDOW_MAX_RT_DIM = 4096;
+/** Same settle threshold GridRenderer uses; also doubles as the paint-invalidation debounce. */
+const WINDOW_SETTLE_MS = 120;
 
 const VERTEX_SRC = `
   in vec2 aPosition;
@@ -115,7 +129,11 @@ const FRAGMENT_SRC = `
   }
 `;
 
-/** What the meshes actually draw every frame: the baked cache, one sample per pixel. */
+/**
+ * What the meshes actually draw every frame: the baked cache, one sample per
+ * pixel. Shared by the base/floor meshes (32 texel/cell bake) and the crisp
+ * window mesh (viewport-density bake) — only which RT is bound differs.
+ */
 const DISPLAY_FRAGMENT_SRC = `
   in vec2 vUV;
   out vec4 finalColor;
@@ -164,6 +182,8 @@ export class TerrainRenderer {
    * everything else, so each painted texel still shows exactly once.
    */
   private floorMeshes: Mesh<MeshGeometry, Shader>[] = [];
+  /** Crisp-window counterpart of `floorMeshes`, one per floor mesh once the window shader exists. */
+  private floorWindowMeshes: Mesh<MeshGeometry, Shader>[] = [];
   /** Allocated on first paint/restore — 32MB of VRAM maps that never paint don't need. */
   private splatRTs: [RenderTexture, RenderTexture] | null = null;
   /** World-space baked terrain (see BAKE_TEXELS_PER_CELL) — what the meshes sample per frame. */
@@ -173,6 +193,23 @@ export class TerrainRenderer {
   /** Reusable scratch quad for region bakes — buffers updated in place per call. */
   private bakeGeometry: MeshGeometry | null = null;
   private bakeHolder: Container | null = null;
+  /** Crisp viewport-window bake — see WINDOW_* constants. Null until the first settle. */
+  private windowRT: RenderTexture | null = null;
+  private windowMesh: Mesh<MeshGeometry, Shader> | null = null;
+  private windowShader: Shader | null = null;
+  private windowGeometry: MeshGeometry | null = null;
+  /** Splat-texel rect the window RT currently holds — used to detect paint overlap. */
+  private windowSplatRect: { x: number; y: number; x2: number; y2: number } | null = null;
+  /** Identifies "the view this window was baked for" — world rect + RT size. */
+  private windowBakedKey = '';
+  // Frame-to-frame camera tracking, same settle pattern as GridRenderer.
+  private lastViewMinX = NaN;
+  private lastViewMinY = NaN;
+  private lastViewMaxX = NaN;
+  private lastViewMaxY = NaN;
+  private lastZoomPx = NaN;
+  /** Last time the camera moved OR a paint stroke invalidated the window — settle timer for both. */
+  private lastDisturbanceTime = 0;
   private tileRTs: (RenderTexture | null)[] = new Array(TERRAIN_SLOTS).fill(null);
   private brushTexture: Texture | null = null;
   private stampSprite: Sprite | null = null;
@@ -307,6 +344,45 @@ export class TerrainRenderer {
   }
 
   /**
+   * Run the heavy splat-blend pass for a splat-texel rect into an arbitrary
+   * target RT, `scale` texels-per-splat-texel, offset so (originX, originY)
+   * lands at target (0,0). bakeRegion is this with the base bake's fixed
+   * scale/origin; bakeWindow is the same pass at a different RT, scale and
+   * origin — no duplicated shader/geometry wiring between the two.
+   */
+  private paintBake(
+    rt: RenderTexture,
+    x: number,
+    y: number,
+    x2: number,
+    y2: number,
+    scaleX: number,
+    scaleY: number,
+    originX: number,
+    originY: number,
+    clear: boolean,
+  ): void {
+    const positions = this.bakeGeometry!.getBuffer('aPosition');
+    const uvs = this.bakeGeometry!.getBuffer('aUV');
+    const p = positions.data as Float32Array;
+    const u = uvs.data as Float32Array;
+    const tx = (x - originX) * scaleX;
+    const ty = (y - originY) * scaleY;
+    const tx2 = (x2 - originX) * scaleX;
+    const ty2 = (y2 - originY) * scaleY;
+    p.set([tx, ty, tx2, ty, tx2, ty2, tx, ty2]);
+    const ux = x / SPLAT_SIZE;
+    const uy = y / SPLAT_SIZE;
+    const ux2 = x2 / SPLAT_SIZE;
+    const uy2 = y2 / SPLAT_SIZE;
+    u.set([ux, uy, ux2, uy, ux2, uy2, ux, uy2]);
+    positions.update();
+    uvs.update();
+
+    this.engine.renderToTexture(this.bakeHolder!, rt, clear);
+  }
+
+  /**
    * Re-render the heavy splat blend into the bake cache, restricted to a splat
    * texel rect. Brush stamps pass their own small rect, so a stroke costs
    * brush-area pixels — not the screen, not the extent.
@@ -318,25 +394,10 @@ export class TerrainRenderer {
     const y2 = Math.min(SPLAT_SIZE, Math.ceil(maxY));
     if (x2 <= x || y2 <= y) return;
     const rt = this.ensureBake();
-
-    const positions = this.bakeGeometry!.getBuffer('aPosition');
-    const uvs = this.bakeGeometry!.getBuffer('aUV');
-    const p = positions.data as Float32Array;
-    const u = uvs.data as Float32Array;
-    const bx = x * BAKE_SCALE;
-    const by = y * BAKE_SCALE;
-    const bx2 = x2 * BAKE_SCALE;
-    const by2 = y2 * BAKE_SCALE;
-    p.set([bx, by, bx2, by, bx2, by2, bx, by2]);
-    const ux = x / SPLAT_SIZE;
-    const uy = y / SPLAT_SIZE;
-    const ux2 = x2 / SPLAT_SIZE;
-    const uy2 = y2 / SPLAT_SIZE;
-    u.set([ux, uy, ux2, uy, ux2, uy2, ux, uy2]);
-    positions.update();
-    uvs.update();
-
-    this.engine.renderToTexture(this.bakeHolder!, rt, false);
+    this.paintBake(rt, x, y, x2, y2, BAKE_SCALE, BAKE_SCALE, 0, 0, false);
+    // Fresh paint under a stale crisp window would look missing/blurry until
+    // the next settle — hide it and let the settle timer re-bake it.
+    this.invalidateWindowIfOverlaps(x, y, x2, y2);
   }
 
   /** Bake the painted bounds (world units) — or clear the cache when there are none. */
@@ -346,6 +407,7 @@ export class TerrainRenderer {
       const empty = new Container();
       this.engine.renderToTexture(empty, this.bakeRT, true);
       empty.destroy();
+      this.clearWindow();
       return;
     }
     const pad = TEXELS_PER_CELL;
@@ -357,21 +419,200 @@ export class TerrainRenderer {
     );
   }
 
+  // ─── Crisp viewport window ───────────────────────────────
+
   /**
-   * A terrain quad for a layer's floor sublayer. The caller adds it above the
-   * floor fill and clips it to that layer's floor union.
+   * The window is always covered by the base/floor meshes with identical
+   * content at higher res, so it never composites over them — it swaps for
+   * them. Exactly one of {base+floor meshes, window+floor-window meshes} is
+   * visible at a time. Every site that changes window visibility routes
+   * through here so the swap can never drift out of lockstep.
+   */
+  private setWindowVisible(visible: boolean): void {
+    if (this.windowMesh) this.windowMesh.visible = visible;
+    if (this.mesh) this.mesh.visible = !visible;
+    // fail() already hid these and nothing should re-show them afterward —
+    // update()'s own destroyed/container.visible guard covers the common
+    // path, but bake/invalidate calls can still land via a paint stroke.
+    if (this.container.visible) {
+      for (const m of this.floorMeshes) if (!m.destroyed) m.visible = !visible;
+      for (const m of this.floorWindowMeshes) if (!m.destroyed) m.visible = visible;
+    }
+  }
+
+  /** Allocate the window RT + mesh on first use; resize the RT in place on later settles. */
+  private ensureWindowRT(width: number, height: number): RenderTexture {
+    if (!this.windowRT) {
+      this.windowRT = RenderTexture.create({ width, height, resolution: 1, dynamic: true });
+      this.windowGeometry = new MeshGeometry({
+        positions: new Float32Array(8),
+        // Constant — the window RT always exactly spans the world rect it was baked for.
+        uvs: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]),
+        indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
+      });
+      this.windowShader = Shader.from({
+        gl: { vertex: VERTEX_SRC, fragment: DISPLAY_FRAGMENT_SRC },
+        resources: { uBake: this.windowRT.source },
+      });
+      this.windowMesh = new Mesh({ geometry: this.windowGeometry, shader: this.windowShader });
+      this.windowMesh.label = 'terrainWindowMesh';
+      this.container.addChild(this.windowMesh);
+
+      // Floor meshes created before the first window bake never got a paired
+      // window mesh — windowShader/windowGeometry didn't exist yet. Backfill
+      // them now, above their base mesh in the same clipped per-layer container.
+      for (const mesh of this.floorMeshes) {
+        if (mesh.destroyed || !mesh.parent) continue;
+        const floorWindowMesh = new Mesh({ geometry: this.windowGeometry, shader: this.windowShader });
+        floorWindowMesh.label = 'terrainFloorWindowMesh';
+        mesh.parent.addChild(floorWindowMesh);
+        this.floorWindowMeshes.push(floorWindowMesh);
+      }
+
+      this.setWindowVisible(false);
+    } else if (this.windowRT.width !== width || this.windowRT.height !== height) {
+      this.windowRT.resize(width, height);
+    }
+    return this.windowRT;
+  }
+
+  /** Re-bake the crisp window for the given (already extent-clamped) world rect. */
+  private bakeWindow(minX: number, minY: number, maxX: number, maxY: number, plan: { width: number; height: number }): void {
+    const rt = this.ensureWindowRT(plan.width, plan.height);
+
+    const x = (minX + TERRAIN_EXTENT_HALF) * TEXELS_PER_CELL;
+    const y = (minY + TERRAIN_EXTENT_HALF) * TEXELS_PER_CELL;
+    const x2 = (maxX + TERRAIN_EXTENT_HALF) * TEXELS_PER_CELL;
+    const y2 = (maxY + TERRAIN_EXTENT_HALF) * TEXELS_PER_CELL;
+    this.paintBake(rt, x, y, x2, y2, plan.width / (x2 - x), plan.height / (y2 - y), x, y, true);
+    this.windowSplatRect = { x, y, x2, y2 };
+
+    const positions = this.windowGeometry!.getBuffer('aPosition');
+    (positions.data as Float32Array).set([minX, minY, maxX, minY, maxX, maxY, minX, maxY]);
+    positions.update();
+
+    this.setWindowVisible(true);
+  }
+
+  /** A base-bake write landed inside the window's coverage — it's stale now. */
+  private invalidateWindowIfOverlaps(x: number, y: number, x2: number, y2: number): void {
+    const w = this.windowSplatRect;
+    if (!w) return;
+    if (x2 <= w.x || x >= w.x2 || y2 <= w.y || y >= w.y2) return;
+    this.setWindowVisible(false);
+    this.windowBakedKey = '';
+    // Reuses the settle timer: a stroke that keeps landing inside the window
+    // keeps pushing the re-bake out, same as it does for camera movement.
+    this.lastDisturbanceTime = performance.now();
+  }
+
+  /** Drop the window entirely — map clear/reset, nothing left worth sharpening. */
+  private clearWindow(): void {
+    this.setWindowVisible(false);
+    this.windowBakedKey = '';
+    this.windowSplatRect = null;
+  }
+
+  /**
+   * Per-frame: settle-triggered re-bake of the crisp viewport window. Mirrors
+   * GridRenderer's camera-settle pattern — called from renderLoop every tick.
+   * No-ops entirely (skips even the screenToWorld calls) once zoom is low
+   * enough that the base bake already meets display density.
+   */
+  update(engine: RenderEngine): void {
+    if (this.destroyed || !this.container.visible) return;
+    // DPR-aware: worldToScreen deltas are CSS px, but the bake density that
+    // matters is device texels — a 2x-DPR screen needs the window at 2x the
+    // CSS-px zoom would suggest, or it stays soft on retina/high-DPI displays.
+    const zoomPx = (engine.worldToScreen(1, 0).x - engine.worldToScreen(0, 0).x) * engine.viewport().dpr;
+    if (!this.bakeRT || zoomPx <= BAKE_TEXELS_PER_CELL) {
+      this.clearWindow();
+      return;
+    }
+
+    const vp = engine.viewport();
+    const tl = engine.screenToWorld(0, 0);
+    const br = engine.screenToWorld(vp.width, vp.height);
+    const now = performance.now();
+
+    if (
+      tl.x !== this.lastViewMinX ||
+      tl.y !== this.lastViewMinY ||
+      br.x !== this.lastViewMaxX ||
+      br.y !== this.lastViewMaxY ||
+      zoomPx !== this.lastZoomPx
+    ) {
+      this.lastViewMinX = tl.x;
+      this.lastViewMinY = tl.y;
+      this.lastViewMaxX = br.x;
+      this.lastViewMaxY = br.y;
+      this.lastZoomPx = zoomPx;
+      this.lastDisturbanceTime = now;
+      // Moving again — the base bake carries the picture until it rests.
+      this.setWindowVisible(false);
+    }
+
+    if (now - this.lastDisturbanceTime < WINDOW_SETTLE_MS) return;
+
+    const minX = Math.max(tl.x, -TERRAIN_EXTENT_HALF);
+    const minY = Math.max(tl.y, -TERRAIN_EXTENT_HALF);
+    const maxX = Math.min(br.x, TERRAIN_EXTENT_HALF);
+    const maxY = Math.min(br.y, TERRAIN_EXTENT_HALF);
+    const plan = planWindowBake(zoomPx, BAKE_TEXELS_PER_CELL, WINDOW_MAX_TEXELS_PER_CELL, WINDOW_MAX_RT_DIM, maxX - minX, maxY - minY);
+
+    if (!plan) {
+      this.clearWindow();
+      return;
+    }
+
+    const key = `${minX},${minY},${maxX},${maxY},${plan.width},${plan.height}`;
+    if (key !== this.windowBakedKey) {
+      this.bakeWindow(minX, minY, maxX, maxY, plan);
+      this.windowBakedKey = key;
+    } else if (this.windowMesh && !this.windowMesh.visible) {
+      // Same view was already baked and is still current — reached when the
+      // camera moved away and settled back onto it (the move hid the window
+      // without clearing the key) rather than via paint invalidation, which
+      // always clears windowBakedKey and so re-bakes through the branch above.
+      this.setWindowVisible(true);
+    }
+  }
+
+  /**
+   * A terrain quad for a layer's floor sublayer, plus its crisp-window
+   * counterpart when the window shader already exists (or lazily backfilled
+   * in {@link ensureWindowRT} on first window activation otherwise). The
+   * caller adds the returned wrapper above the floor fill and clips it to
+   * that layer's floor union; the window mesh sits above the floor mesh
+   * inside it so FIX2's mesh swap applies unchanged per layer.
    *
-   * A fresh Mesh per call: layer rebuilds destroy their children, and
+   * Fresh Meshes per call: layer rebuilds destroy their children, and
    * Mesh.destroy() leaves the shared geometry and shader alone.
    */
-  createFloorMesh(): Mesh<MeshGeometry, Shader> | null {
+  createFloorMesh(): Container | null {
     if (this.destroyed || !this.geometry || !this.displayShader) return null;
     this.floorMeshes = this.floorMeshes.filter((m) => !m.destroyed);
+    this.floorWindowMeshes = this.floorWindowMeshes.filter((m) => !m.destroyed);
+
+    const windowVisible = this.windowMesh?.visible ?? false;
     const mesh = new Mesh({ geometry: this.geometry, shader: this.displayShader });
     mesh.label = 'terrainFloorMesh';
-    mesh.visible = this.container.visible;
+    mesh.visible = this.container.visible && !windowVisible;
     this.floorMeshes.push(mesh);
-    return mesh;
+
+    const wrapper = new Container();
+    wrapper.label = 'terrainFloorMeshWrapper';
+    wrapper.addChild(mesh);
+
+    if (this.windowShader && this.windowGeometry) {
+      const windowMesh = new Mesh({ geometry: this.windowGeometry, shader: this.windowShader });
+      windowMesh.label = 'terrainFloorWindowMesh';
+      windowMesh.visible = this.container.visible && windowVisible;
+      this.floorWindowMeshes.push(windowMesh);
+      wrapper.addChild(windowMesh);
+    }
+
+    return wrapper;
   }
 
   // ─── Palette ─────────────────────────────────────────────
@@ -415,16 +656,19 @@ export class TerrainRenderer {
       }
       if (this.destroyed || this.paletteToken !== token) return;
 
-      const tex = textureLoader.resolveTexture(id);
-      if (tex.width <= 1) {
+      // unitTexture: the tile to extract (whole texture, unless the manifest
+      // marks a sub-rect for a variant sheet) plus its true px-per-cell size —
+      // one source of truth so the RT content and uTile can never disagree.
+      const unit = textureLoader.unitTexture(id);
+      if (unit.texture.width <= 1) {
         complete = false;
         continue;
       }
 
-      const w = Math.min(tex.width, MAX_TILE_EXTRACT);
-      const h = Math.min(tex.height, MAX_TILE_EXTRACT);
+      const w = Math.min(unit.texture.width, MAX_TILE_EXTRACT);
+      const h = Math.min(unit.texture.height, MAX_TILE_EXTRACT);
       const rt = RenderTexture.create({ width: w, height: h, resolution: 1 });
-      const sprite = new Sprite(tex);
+      const sprite = new Sprite(unit.texture);
       sprite.width = w;
       sprite.height = h;
       const holder = new Container();
@@ -438,13 +682,10 @@ export class TerrainRenderer {
 
       if (this.shader) {
         this.shader.resources[`uTex${slot}`] = rt.source;
-        // Tile size in world units: natural texture pixels / 200 px-per-cell.
-        const entry = getTextureEntry(id);
-        const naturalW = entry?.naturalWidth ?? tex.width;
-        const naturalH = entry?.naturalHeight ?? tex.height;
+        // Tile size in world units — same unit rect the RT above was extracted from.
         const tile = this.shader.resources.terrainUniforms.uniforms[`uTile${slot}`] as Float32Array;
-        tile[0] = naturalW / 200;
-        tile[1] = naturalH / 200;
+        tile[0] = unit.cellsWide;
+        tile[1] = unit.cellsHigh;
       }
       previous?.destroy(true);
     }
@@ -798,6 +1039,7 @@ export class TerrainRenderer {
     this.container.visible = false;
     // The floor quads sit in layer containers, outside this subtree.
     for (const mesh of this.floorMeshes) if (!mesh.destroyed) mesh.visible = false;
+    for (const mesh of this.floorWindowMeshes) if (!mesh.destroyed) mesh.visible = false;
     console.error(`[terrain] ${what} failed — terrain layer hidden:`, err);
   }
 
@@ -842,6 +1084,12 @@ export class TerrainRenderer {
       mesh.destroy();
     }
     this.floorMeshes = [];
+    for (const mesh of this.floorWindowMeshes) {
+      if (mesh.destroyed) continue;
+      mesh.parent?.removeChild(mesh);
+      mesh.destroy();
+    }
+    this.floorWindowMeshes = [];
     // Mesh.destroy() only nulls its geometry/shader refs — the GPU buffers and
     // the compiled shader survive unless they're destroyed explicitly.
     this.container.destroy({ children: true });
@@ -862,6 +1110,16 @@ export class TerrainRenderer {
     this.splatRTs = null;
     this.bakeRT?.destroy(true);
     this.bakeRT = null;
+    // Same story as the base mesh: container.destroy() above already nulled
+    // windowMesh's own refs, but the geometry/shader/RT it pointed at survive
+    // unless destroyed here too.
+    this.windowGeometry?.destroy();
+    this.windowGeometry = null;
+    this.windowShader?.destroy();
+    this.windowShader = null;
+    this.windowMesh = null;
+    this.windowRT?.destroy(true);
+    this.windowRT = null;
     this.strokeBackup?.destroy(true);
     this.strokeBackup = null;
     for (const rt of this.tileRTs) rt?.destroy(true);

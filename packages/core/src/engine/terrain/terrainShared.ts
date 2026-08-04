@@ -72,6 +72,34 @@ export function splatBounds(pixels: Uint8Array, size: number = SPLAT_SIZE): Terr
   };
 }
 
+export interface WindowBakePlan {
+  width: number;
+  height: number;
+}
+
+/**
+ * Decide whether the crisp viewport-window bake is worth doing, and at what RT
+ * size, for the current zoom and an (already extent-clamped) world-space span.
+ * Null means the base bake already meets or exceeds display density — the
+ * window stays inactive and nothing bakes. Shared by TerrainRenderer (GPU path,
+ * untested here) and this pure math (pinned below).
+ */
+export function planWindowBake(
+  zoomPxPerCell: number,
+  baseTexelsPerCell: number,
+  maxTexelsPerCell: number,
+  maxRtDim: number,
+  worldWidth: number,
+  worldHeight: number,
+): WindowBakePlan | null {
+  if (zoomPxPerCell <= baseTexelsPerCell || worldWidth <= 0 || worldHeight <= 0) return null;
+  const density = Math.min(zoomPxPerCell, maxTexelsPerCell);
+  return {
+    width: Math.min(maxRtDim, Math.max(1, Math.ceil(worldWidth * density))),
+    height: Math.min(maxRtDim, Math.max(1, Math.ceil(worldHeight * density))),
+  };
+}
+
 /** Union of two optional bounds. */
 export function unionBounds(a: TerrainBounds | null, b: TerrainBounds | null): TerrainBounds | null {
   if (!a) return b;

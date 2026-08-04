@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-vi.mock('../assets/textureLoader', () => ({
-  resolveTexture: (id: string) => ({ id, width: id === 'missing' ? 1 : 200, height: 200 }),
-}));
+vi.mock('../assets/textureLoader', () => {
+  const resolveTexture = (id: string) => ({ id, width: id === 'missing' ? 1 : 200, height: 200 });
+  return {
+    resolveTexture,
+    unitTexture: (id: string) => ({ texture: resolveTexture(id), cellsWide: 1, cellsHigh: 1 }),
+  };
+});
 
 import { initToolPreview, showToolPreview, hideToolPreview, renderToolPreview } from './toolPreview';
 import { terrainSlotTexture } from './terrain/terrainBrushPreview';

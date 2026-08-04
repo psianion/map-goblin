@@ -4,7 +4,7 @@ import type { LayerEntry } from './sceneGraph';
 import type { Polygon } from '../types/geometry';
 import { useStore } from '../store/store';
 import * as textureLoader from '../assets/textureLoader';
-import { resolveTexture } from '../assets/textureLoader';
+import { unitTexture } from '../assets/textureLoader';
 import { preloadPathTextures } from './splineRenderer';
 import { renderEdgeTransitions } from './edgeTransitions';
 import { renderNodeWalls, type DoorGap } from './wallNodeRenderer';
@@ -410,7 +410,9 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
       const shapeFloorColor = parseColor(resolved.floorColor);
 
       if (shape.textureId) {
-        const texture = resolveTexture(shape.textureId);
+        // unitTexture, not resolveTexture: a variant-sheet source file must fill
+        // with just its one unit — keeps the fill in scale with the palette/brush.
+        const texture = unitTexture(shape.textureId).texture;
         if (texture.width > 0) {
           renderTexturedShape(floor, shape, texture);
         } else {
