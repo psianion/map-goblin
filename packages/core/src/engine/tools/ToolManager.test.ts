@@ -19,6 +19,7 @@ import { ToolManager } from './ToolManager';
 import type { DrawingTool, ToolType } from './DrawingTool';
 import { useStore } from '../../store/store';
 import { setNotify } from '../../store/notify';
+import { TERRAIN_PANEL_ID } from '../../store/types';
 
 function fakeTool(type: ToolType, cursor?: string, editsActiveLayer?: boolean): DrawingTool {
   return {
@@ -125,6 +126,21 @@ describe('ToolManager.onPointerDown — editsActiveLayer guard', () => {
 
     expect(tool.onPointerDown).not.toHaveBeenCalled();
     expect(warning).toHaveBeenCalledWith('Select a layer first');
+  });
+
+  // D5(a): "Select a layer first" reads as a bug when the Terrain row is
+  // visibly selected in the panel — same no-editable-layer case, worded for it.
+  it('warns with the terrain-aware message when the Terrain row is active', () => {
+    useStore.getState().setActiveLayerId(TERRAIN_PANEL_ID);
+    useStore.getState().setActiveTool('rectangle');
+    const tm = new ToolManager(new Container() as never);
+    const tool = fakeTool('rectangle', 'crosshair', true);
+    tm.registerTool(tool);
+
+    tm.onPointerDown({ x: 0, y: 0 }, {} as PointerEvent);
+
+    expect(tool.onPointerDown).not.toHaveBeenCalled();
+    expect(warning).toHaveBeenCalledWith('Terrain is selected — pick a layer to draw on');
   });
 
   it('blocks and warns when the active layer is the background layer', () => {

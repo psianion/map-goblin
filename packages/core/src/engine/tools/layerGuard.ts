@@ -1,7 +1,20 @@
 import { useStore } from '../../store/store';
 import { notify } from '../../shared/notify';
 import { isLayerEffectivelyVisible } from '../../store/selectors';
-import type { DungeonLayer } from '../../store/types';
+import { TERRAIN_PANEL_ID, type DungeonLayer } from '../../store/types';
+
+/**
+ * The "nothing to draw on" warning, worded for whichever pinned row is
+ * actually active — the plain "Select a layer first" reads as a bug when the
+ * Terrain row is visibly selected in the panel. Shared by every drawing-tool
+ * entry point that can hit this state (ToolManager.canEditActiveLayer,
+ * DoorTool.onPointerDown) instead of forking the string per call site.
+ */
+export function noEditableLayerMessage(): string {
+  return useStore.getState().ui.activeLayerId === TERRAIN_PANEL_ID
+    ? 'Terrain is selected — pick a layer to draw on'
+    : 'Select a layer first';
+}
 
 /**
  * Null when `layer` may be edited; otherwise the warning that belongs to why

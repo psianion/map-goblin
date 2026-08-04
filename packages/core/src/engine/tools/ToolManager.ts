@@ -3,7 +3,7 @@ import type { Point } from '../../types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
 import { notify } from '../../shared/notify';
-import { blockedLayerReason } from './layerGuard';
+import { blockedLayerReason, noEditableLayerMessage } from './layerGuard';
 
 /**
  * Manages drawing tools — registration, activation, and input forwarding.
@@ -46,7 +46,7 @@ export class ToolManager {
     const state = useStore.getState();
     const layer = state.layers.find((l) => l.id === state.ui.activeLayerId);
     if (!layer || layer.type !== 'dungeon') {
-      notify.warning('Select a layer first');
+      notify.warning(noEditableLayerMessage());
       return false;
     }
     const reason = blockedLayerReason(layer);

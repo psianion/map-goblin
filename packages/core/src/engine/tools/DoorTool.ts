@@ -19,7 +19,7 @@ import { AddChildCommand, RemoveChildCommand, UpdateChildCommand } from '../../s
 import { undoManager } from '../../store/undoManager';
 import { useStore } from '../../store/store';
 import { notify } from '../../shared/notify';
-import { blockedLayerReason } from './layerGuard';
+import { blockedLayerReason, noEditableLayerMessage } from './layerGuard';
 
 /** Click-to-cycle order. Archways can't lock, so they skip straight back. */
 const NEXT_STATE: Record<DoorState, DoorState> = {
@@ -213,7 +213,7 @@ export class DoorTool implements DrawingTool {
     const activeLayerId = store.ui.activeLayerId;
     const activeLayer = activeDungeonLayer();
     if (!activeLayer) {
-      notify.warning('Select a layer first');
+      notify.warning(noEditableLayerMessage());
       return;
     }
     if (!activeLayer.visible) {

@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from '../../store/store';
 import { createDungeonLayer } from '../../store/factories';
-import { blockedLayerReason } from './layerGuard';
+import { TERRAIN_PANEL_ID } from '../../store/types';
+import { blockedLayerReason, noEditableLayerMessage } from './layerGuard';
 
 describe('blockedLayerReason', () => {
   beforeEach(() => {
@@ -46,5 +47,23 @@ describe('blockedLayerReason', () => {
       s.ui.solo = { layerId: layer.id };
     });
     expect(blockedLayerReason(layer)).toBeNull();
+  });
+});
+
+// D5(a): "Select a layer first" reads as a bug when the Terrain row is
+// visibly selected in the panel.
+describe('noEditableLayerMessage', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+  });
+
+  it('is the plain message when no layer (or a non-terrain sentinel) is active', () => {
+    useStore.getState().setActiveLayerId('not-a-real-layer-id');
+    expect(noEditableLayerMessage()).toBe('Select a layer first');
+  });
+
+  it('is terrain-aware when the Terrain row is active', () => {
+    useStore.getState().setActiveLayerId(TERRAIN_PANEL_ID);
+    expect(noEditableLayerMessage()).toBe('Terrain is selected — pick a layer to draw on');
   });
 });
