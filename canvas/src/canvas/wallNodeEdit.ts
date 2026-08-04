@@ -40,7 +40,8 @@ const PICK_RADIUS = 0.6;
 export function toggleNodeEditAt(world: Point): boolean {
   const state = useStore.getState();
   const layer = state.layers.find(
-    (l): l is DungeonLayer => l.type === 'dungeon' && l.id === state.ui.activeLayerId,
+    (l): l is DungeonLayer =>
+      l.type === 'dungeon' && l.id === state.ui.activeLayerId && l.visible && !l.locked,
   );
   if (!layer) return false;
 
@@ -270,7 +271,8 @@ function cyclePiece(t: number, direction: number): void {
 
   const state = useStore.getState();
   const layer = state.layers.find(
-    (l): l is DungeonLayer => l.type === 'dungeon' && l.id === state.ui.activeLayerId,
+    (l): l is DungeonLayer =>
+      l.type === 'dungeon' && l.id === state.ui.activeLayerId && l.visible && !l.locked,
   );
   const setId = layer?.style.wallTextureSetId as WallCategory | undefined;
   if (!setId) return;
@@ -416,7 +418,8 @@ export function cancelNodeDrag(): void {
 
   const state = useStore.getState();
   const layer = state.layers.find(
-    (l): l is DungeonLayer => l.type === 'dungeon' && l.id === state.ui.activeLayerId,
+    (l): l is DungeonLayer =>
+      l.type === 'dungeon' && l.id === state.ui.activeLayerId && l.visible && !l.locked,
   );
   if (!layer) return;
   state.updateWall(layer.id, wallId, { nodeEdits: before });

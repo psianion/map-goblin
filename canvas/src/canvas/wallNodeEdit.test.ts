@@ -500,6 +500,49 @@ describe('bridge stones a drag creates', () => {
   });
 });
 
+// A layer resolution that only checked type + active-layer id let node editing
+// reach into a locked or hidden layer — matching shapeNodeEdit.ts's own
+// exists/visible/!locked check closes the same hole here.
+describe('locked/hidden layer blocks node edits (F6)', () => {
+  it('toggleNodeEditAt refuses to enter edit mode on a locked layer', () => {
+    const l = seed();
+    useStore.getState().updateLayer(l.id, { locked: true });
+    expect(toggleNodeEditAt({ x: 6, y: 0 })).toBe(false);
+    expect(useStore.getState().tools.nodeEditWallId).toBeNull();
+  });
+
+  it('toggleNodeEditAt refuses to enter edit mode on a hidden layer', () => {
+    const l = seed();
+    useStore.getState().updateLayer(l.id, { visible: false });
+    expect(toggleNodeEditAt({ x: 6, y: 0 })).toBe(false);
+    expect(useStore.getState().tools.nodeEditWallId).toBeNull();
+  });
+
+  it('Tab (cyclePiece) does nothing once the layer is locked mid-edit', () => {
+    const { t } = seedWall();
+    const before = currentWallNodes().find((n) => Math.abs(n.t - t) < 1e-9)?.pieceId;
+    useStore.getState().updateLayer(layer().id, { locked: true });
+
+    expect(handleNodeKey('Tab', t)).toBe(true); // still claims the key
+    const after = currentWallNodes().find((n) => Math.abs(n.t - t) < 1e-9)?.pieceId;
+    expect(after).toBe(before);
+  });
+
+  it('cancelNodeDrag leaves the live nudge in place once the layer is locked mid-drag', () => {
+    const { t } = seedWall();
+    beginNodeDrag([t]);
+    nudgeWallNode([t], 0.4, 0.3);
+    expect(wallEdits()?.nodeEdits).toHaveLength(1);
+
+    // Locked between the nudge and the cancel: cancelNodeDrag's own layer
+    // resolution now refuses to write the rewind, so the uncommitted nudge
+    // is what's left sitting in the store rather than being rolled back.
+    useStore.getState().updateLayer(layer().id, { locked: true });
+    cancelNodeDrag();
+    expect(wallEdits()?.nodeEdits).toHaveLength(1);
+  });
+});
+
 describe('selection plumbing', () => {
   it('a plain click replaces the selection, leaving single-stone editing as it was', () => {
     seed();
