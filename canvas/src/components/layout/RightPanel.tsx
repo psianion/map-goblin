@@ -16,6 +16,17 @@ const TABS: { id: RightTab; label: string; icon: typeof Layers }[] = [
 ];
 
 const LS_KEY = 'rp-sections';
+const LS_TAB_KEY = 'rp-tab';
+const TAB_IDS: RightTab[] = ['layers', 'assets', 'packs'];
+
+function loadTab(): RightTab {
+  try {
+    const saved = localStorage.getItem(LS_TAB_KEY);
+    return (TAB_IDS as string[]).includes(saved ?? '') ? (saved as RightTab) : 'layers';
+  } catch {
+    return 'layers';
+  }
+}
 
 // Sections whose `defaultOpen` should actually take effect on first load —
 // CollapsibleSection treats a defined `openSections` set as controlled, so an
@@ -36,7 +47,11 @@ function persistSections(sections: Set<string>) {
 }
 
 export function RightPanel() {
-  const [tab, setTab] = useState<RightTab>('layers');
+  const [tab, setTabState] = useState<RightTab>(loadTab);
+  const setTab = useCallback((next: RightTab) => {
+    setTabState(next);
+    localStorage.setItem(LS_TAB_KEY, next);
+  }, []);
   const togglePanel = useStore((s) => s.togglePanel);
   const hasUpdates = useStore((s) => s.packs.availableUpdates.length > 0);
   const [openSections, setOpenSections] = useState<Set<string>>(loadSections);

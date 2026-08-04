@@ -1,19 +1,13 @@
-import { type KeyboardEvent } from 'react'
-
 interface ToggleSwitchProps {
   checked: boolean
   onChange: (value: boolean) => void
   label?: string
 }
 
+// ponytail: no onKeyDown here — it's a native <button>, which already
+// activates on Enter/Space and fires onClick itself. A manual handler
+// alongside that double-fired the change (native click + manual call).
 export function ToggleSwitch({ checked, onChange, label }: ToggleSwitchProps) {
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      onChange(!checked)
-    }
-  }
-
   return (
     <button
       type="button"
@@ -21,7 +15,6 @@ export function ToggleSwitch({ checked, onChange, label }: ToggleSwitchProps) {
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      onKeyDown={handleKeyDown}
       className={`
         relative inline-flex h-[18px] w-[32px] shrink-0 cursor-pointer
         rounded-full border border-border-default

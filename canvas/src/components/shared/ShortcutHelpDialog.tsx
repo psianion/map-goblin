@@ -18,7 +18,7 @@ interface ShortcutHelpDialogProps {
 const isMac =
   typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
 
-const CATEGORY_ORDER = ['Tools', 'Edit', 'File', 'View'] as const;
+const CATEGORY_ORDER = ['Tools', 'Edit', 'File', 'View', 'Layers'] as const;
 
 /** Split a key combo like "ctrl+shift+z" into display parts ["Ctrl", "Shift", "Z"]. */
 function formatKeyCombo(keys: string): string[] {
@@ -98,7 +98,7 @@ export function ShortcutHelpDialog({
     (c) => c === 'Tools' || c === 'Edit',
   );
   const rightCategories = CATEGORY_ORDER.filter(
-    (c) => c === 'File' || c === 'View',
+    (c) => c === 'File' || c === 'View' || c === 'Layers',
   );
 
   return (
