@@ -89,10 +89,17 @@ export class TerrainTool implements DrawingTool {
     this.lastStamp = null;
     const renderer = getTerrainRenderer();
     if (!renderer) return;
-    const snapshots = renderer.endStroke();
-    if (snapshots.length > 0) {
-      undoManager.execute(new TerrainStrokeCommand(snapshots));
-    }
+    // The GPU reads are issued synchronously inside endStroke; only the
+    // copy-back is awaited, so the undo entry lands a frame or two after
+    // mouse-up — well before any human-scale next action.
+    void renderer
+      .endStroke()
+      .then((snapshots) => {
+        if (snapshots.length > 0) {
+          undoManager.execute(new TerrainStrokeCommand(snapshots));
+        }
+      })
+      .catch((err) => console.error('[terrain] stroke snapshot failed:', err));
   }
 
   onKeyDown(event: KeyboardEvent): void {

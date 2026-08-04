@@ -118,7 +118,10 @@ export async function hostTable(
   map: MapUnderTest = DEMO,
   startingRoomId?: string,
 ): Promise<string> {
-  await page.goto('/')
+  // ?e2e=1 opts into PixiRenderEngine's preserveDrawingBuffer, which specs that
+  // pixel-sample the canvas (drawImage/getImageData) need — off by default so real
+  // players don't pay a present-copy every frame for it.
+  await page.goto('/?e2e=1')
   await page.getByRole('link', { name: 'Host a game' }).click()
 
   await page.locator('#server-url').fill(SERVER_URL)
@@ -163,7 +166,7 @@ export function measureFps(page: Page, ms = 2000): Promise<number> {
 
 /** `/join/CODE` → a seat at the table. Returns when the table page is mounted. */
 export async function joinTable(page: Page, code: string, name: string): Promise<void> {
-  await page.goto(`/join/${code}`)
+  await page.goto(`/join/${code}?e2e=1`)
   await expect(page.getByText('Table found')).toBeVisible()
   await page.locator('#player-name').fill(name)
   await page.getByRole('button', { name: 'Join' }).click()

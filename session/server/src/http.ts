@@ -25,6 +25,7 @@ import {
 } from './db/stores'
 import type { Vision } from './fog/vision'
 import { parseMapFile, unwrapMapFile } from './mapImport'
+import type { SerializedMapData } from '@dnd/core/src/store/types'
 import type { ModuleRegistry } from './modules/registry'
 import type { SessionManager } from './ws/SessionManager'
 
@@ -84,6 +85,8 @@ async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse)
   if (method === 'GET' && resource === 'campaigns' && id && sub === 'scenes' && !sub2)
     return listScenes(deps, req, res, id)
   if (method === 'GET' && resource === 'maps' && id && !sub) return getMap(deps, req, res, id)
+  if (method === 'GET' && resource === 'maps' && id && sub === 'images' && sub2)
+    return getMapImage(deps, req, res, id, sub2)
   if (method === 'GET' && resource === 'assets' && id && !sub) return getAsset(deps, req, res, id)
   if (method === 'GET' && resource === 'resolve' && id) return resolveCode(deps, req, res, id)
   if (method === 'POST' && resource === 'join' && !id) return joinSession(deps, req, res)
@@ -408,6 +411,11 @@ function getMap(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, scene
   if (!map || map.campaign_id !== identity.campaign_id) {
     return json(res, 404, { error: 'no such map' })
   }
+  // `?images=external`: the document goes out without its embedded images — their keys
+  // ride in `imageKeys` and the bytes come from `getMapImage`, binary. Megabytes of
+  // base64 stop transiting (and being JSON.parsed) with every map fetch.
+  const external =
+    new URL(req.url ?? '/', 'http://localhost').searchParams.get('images') === 'external'
   // D4/D5 — the DM gets the file as uploaded, byte for byte. A player gets the rooms the
   // party has seen and nothing else: this is where the anti-Owlbear guarantee is kept,
   // because it is the only route the map data travels.
@@ -416,13 +424,75 @@ function getMap(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, scene
     const player = deps.vision.playerMap(sceneId)
     // Unredactable is unsendable: a map the server cannot read is one it cannot fence.
     if (!player) return json(res, 500, { error: 'map could not be read' })
-    body = JSON.stringify(player)
+    body = JSON.stringify(external ? externalizeImages(player) : player)
+  } else if (external) {
+    try {
+      body = JSON.stringify(externalizeImages(JSON.parse(map.data) as SerializedMapData))
+    } catch {
+      return json(res, 500, { error: 'map could not be read' })
+    }
   }
   res.writeHead(200, {
     'content-type': 'application/json',
     'content-length': Buffer.byteLength(body),
   })
   res.end(body)
+}
+
+/** Swap embedded data URLs for a key list — the binary image route serves the bytes. */
+function externalizeImages(doc: SerializedMapData): SerializedMapData {
+  return { ...doc, customImages: {}, imageKeys: Object.keys(doc.customImages ?? {}) }
+}
+
+// One-entry memo: a map load fans out into one image request per key, all against the
+// same immutable map row (a republish mints a new row id, so staleness cannot happen).
+// ponytail: last-row memo, swap for an LRU if concurrent tables thrash it.
+let cachedImagesRowId: string | null = null
+let cachedImages: Record<string, string> = {}
+
+/**
+ * GET /api/maps/:sceneId/images/:key — one embedded image, as binary. Same auth as
+ * `getMap`. Deliberately role-blind: images are not redacted per room — the whole-map
+ * splat going to players is a documented decision (see integration.test.ts §4), and this
+ * route changes its encoding, not its reach.
+ */
+function getMapImage(
+  deps: HttpDeps,
+  req: IncomingMessage,
+  res: ServerResponse,
+  sceneId: string,
+  rawKey: string,
+): void {
+  const identity = requireSession(deps, req, res)
+  if (!identity) return
+
+  const scene = deps.stores.scenes.get(sceneId)
+  const map = scene ? deps.stores.maps.get(scene.map_id) : undefined
+  if (!map || map.campaign_id !== identity.campaign_id) {
+    return json(res, 404, { error: 'no such map' })
+  }
+
+  if (cachedImagesRowId !== map.id) {
+    try {
+      cachedImages =
+        ((JSON.parse(map.data) as { customImages?: Record<string, string> }).customImages ?? {})
+    } catch {
+      cachedImages = {}
+    }
+    cachedImagesRowId = map.id
+  }
+
+  const dataUrl = cachedImages[decodeURIComponent(rawKey)]
+  const comma = dataUrl?.indexOf(',') ?? -1
+  if (!dataUrl || comma < 0) return json(res, 404, { error: 'no such image' })
+  const meta = dataUrl.slice(0, comma)
+  const mime = meta.startsWith('data:') ? meta.slice(5, meta.indexOf(';')) : ''
+  const bytes = Buffer.from(dataUrl.slice(comma + 1), 'base64')
+  res.writeHead(200, {
+    'content-type': mime || 'application/octet-stream',
+    'content-length': bytes.length,
+  })
+  res.end(bytes)
 }
 
 /** GET /api/resolve/:code — public; the join page calls it before asking for a name. */

@@ -308,14 +308,17 @@ describe('LightingRenderer composite guard', () => {
     expect(t.drawnInto.length).toBe(settled);
   });
 
-  it('recomposites at the new size when only the viewport resized', () => {
+  // FBOs render at half linear resolution (LIGHT_FBO_SCALE) — gradients
+  // upscale for free, and full-res re-render per camera move was the biggest
+  // pan cost on integrated GPUs. The composite sprite still spans the viewport.
+  it('recomposites at the new (half-res) size when only the viewport resized', () => {
     const t = table();
     const settled = t.drawnInto.length;
     t.viewport.width = 1600;
     t.viewport.height = 900;
     t.frame();
     expect(t.drawnInto.length).toBeGreaterThan(settled);
-    expect(t.drawnInto.at(-1)).toMatchObject({ width: 1600, height: 900 });
+    expect(t.drawnInto.at(-1)).toMatchObject({ width: 800, height: 450 });
   });
 
   it('recomposites when the resize came from outside the render loop', () => {
@@ -326,7 +329,7 @@ describe('LightingRenderer composite guard', () => {
     const settled = t.drawnInto.length;
     t.frame();
     expect(t.drawnInto.length).toBeGreaterThan(settled);
-    expect(t.drawnInto.at(-1)).toMatchObject({ width: 1600, height: 900 });
+    expect(t.drawnInto.at(-1)).toMatchObject({ width: 800, height: 450 });
   });
 
   it('recomposites when a door swing invalidates the light polygons', () => {

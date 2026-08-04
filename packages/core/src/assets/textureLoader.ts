@@ -1,7 +1,8 @@
 import { Assets, Rectangle, Texture } from 'pixi.js';
-import { getTextureEntry } from './textureManifest';
+import { getTextureEntry, GRID_CELL_PX } from './textureManifest';
 import { resolveLegacyId } from '../engine/legacyAssetMapping';
 import { getAssetPackManager } from '../engine/assetPackInstance';
+import { SPLAT_IMAGE_KEYS } from '../engine/terrain/terrainShared';
 
 /**
  * Thin wrapper around PIXI.Assets with:
@@ -93,6 +94,7 @@ export function release(textureId: string): void {
       Assets.unload(entry.path);
     }
     cache.delete(textureId);
+    // unitCache is self-invalidating (see unitTexture) — nothing to clear here.
   } else {
     refCounts.set(textureId, current - 1);
   }
@@ -113,6 +115,7 @@ export function reset(): void {
   }
   cache.clear();
   refCounts.clear();
+  // unitCache is self-invalidating (see unitTexture) — nothing to clear here.
 }
 
 /**
@@ -165,6 +168,47 @@ export function resolveTexture(id: string): Texture {
   return fallbackTexture;
 }
 
+export interface UnitTexture {
+  /** The one tileable unit — the whole resolved texture. */
+  texture: Texture;
+  /** Unit size in grid cells (GRID_CELL_PX = 200px/cell), for tileScale/uTile math. */
+  cellsWide: number;
+  cellsHigh: number;
+}
+
+// Keyed on id, but validity is keyed on resolved Texture identity (`src`) — resolveTexture
+// is deliberately live (pack installs/updates swap the texture an id resolves to), so an
+// id-only cache would go stale. release()/reset() don't need to touch this: the next call
+// for a released/reset id resolves to a different Texture and naturally misses.
+const unitCache = new Map<string, { unit: UnitTexture; src: Texture }>();
+
+/**
+ * The single tileable unit for a texture id, plus its true px-per-cell size.
+ * Every terrain/floor/water consumer that tiles a texture at "200px = 1 cell"
+ * (splat palette, brush preview, floor fill, water banks) goes through this
+ * instead of assuming the resolved texture IS the tile. The whole resolved
+ * texture is the unit, sized from the manifest's naturalWidth/Height when
+ * present, else the resolved texture's own pixel size (pack frames are
+ * already cropped to one material, so this is never a whole atlas).
+ *
+ * Not cached until the texture actually resolves (width > 1) — an id that
+ * hasn't loaded yet must not lock in the 1×1 fallback's bogus cell size.
+ */
+export function unitTexture(id: string): UnitTexture {
+  const tex = resolveTexture(id);
+  const cached = unitCache.get(id);
+  if (cached && cached.src === tex) return cached.unit;
+  if (tex.width <= 1) return { texture: tex, cellsWide: 1, cellsHigh: 1 };
+
+  const entry = getTextureEntry(id);
+  const pxW = entry?.naturalWidth ?? tex.width;
+  const pxH = entry?.naturalHeight ?? tex.height;
+
+  const unit: UnitTexture = { texture: tex, cellsWide: pxW / GRID_CELL_PX, cellsHigh: pxH / GRID_CELL_PX };
+  unitCache.set(id, { unit, src: tex });
+  return unit;
+}
+
 /**
  * Register a document's `customImages` with Pixi under their asset ids — the alias
  * `resolveTexture` step 3b looks them up by. Lives here, next to that step, because
@@ -180,13 +224,35 @@ export function resolveTexture(id: string): Texture {
 export async function restoreCustomImages(
   customImages: Record<string, string> | undefined,
 ): Promise<void> {
-  for (const [id, dataUrl] of Object.entries(customImages ?? {})) {
-    if (Assets.cache.has(id)) continue;
-    try {
-      await Assets.load({ alias: id, src: dataUrl });
-    } catch (err) {
-      console.warn('[restoreCustomImages] could not load', id, err);
-    }
+  // Parallel: N sequential decode round-trips serialized the map-load critical
+  // path. Splat bitmaps are not sprite textures — TerrainRenderer owns them.
+  await Promise.all(
+    Object.entries(customImages ?? {}).map(async ([id, dataUrl]) => {
+      if (Assets.cache.has(id) || SPLAT_IMAGE_KEYS.includes(id as (typeof SPLAT_IMAGE_KEYS)[number])) return;
+      try {
+        await Assets.load({ alias: id, src: dataUrl });
+      } catch (err) {
+        console.warn('[restoreCustomImages] could not load', id, err);
+      }
+    }),
+  );
+}
+
+/**
+ * Register one image from binary (session binary asset fetch). Object URL over
+ * data URL: no base64 anywhere. `loadParser` is pinned because a blob: URL has
+ * no extension for the loader to sniff.
+ */
+export async function registerImageBlob(id: string, blob: Blob): Promise<void> {
+  if (Assets.cache.has(id)) return;
+  const url = URL.createObjectURL(blob);
+  try {
+    await Assets.load({ alias: id, src: url, loadParser: 'loadTextures' });
+  } catch (err) {
+    console.warn('[registerImageBlob] could not load', id, err);
+  } finally {
+    // The texture is decoded and uploaded by now — the URL has done its job.
+    URL.revokeObjectURL(url);
   }
 }
 

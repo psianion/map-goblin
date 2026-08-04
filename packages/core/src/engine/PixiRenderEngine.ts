@@ -4,6 +4,11 @@ import type { Point, Viewport } from '../types/geometry';
 import { registerManifestBundles, getManifest } from './assetManifest';
 import { useStore } from '../store/store';
 
+/** True when the page was opened with ?e2e=1 — opts into the perf costs E2E pixel-sampling needs. */
+function isE2E(): boolean {
+  return typeof location !== 'undefined' && new URLSearchParams(location.search).get('e2e') === '1';
+}
+
 export class PixiRenderEngine implements RenderEngine {
   private app: Application | null = null;
   private worldContainer = new Container();
@@ -24,8 +29,14 @@ export class PixiRenderEngine implements RenderEngine {
       // Moss surface-0 — the void around the map matches the chrome's deepest ground,
       // so the map reads as the stage instead of a lighter grey hole punched in it.
       backgroundColor: 0x0f100e,
-      // Required for E2E pixel-sampling tests (ctx.drawImage on WebGL canvas)
-      preserveDrawingBuffer: true,
+      // preserveDrawingBuffer costs a present-copy every frame — real users never pay
+      // it. E2E specs that pixel-sample the canvas (ctx.drawImage on WebGL canvas) opt
+      // in by navigating with ?e2e=1; see canvas/tests/e2e/helpers.ts (gotoApp) and
+      // session/client/e2e/table.ts (hostTable/joinTable).
+      preserveDrawingBuffer: isE2E(),
+      // Dual-GPU laptops default new WebGL contexts to the integrated GPU unless asked
+      // for the discrete one explicitly.
+      powerPreference: 'high-performance',
       // Every pointer, wheel and click path in the app is a DOM listener on the
       // canvas element (useCanvasInput, tokens/drag, DoorRenderer, FogOverlay) —
       // nothing sets eventMode or subscribes to a Pixi federated event. Left on,

@@ -190,7 +190,11 @@ export function GameRenderer() {
   useEffect(() => {
     if (!engine || !mapData) return;
     try {
-      useStore.getState().loadFromFile(mapData as SerializedMapData);
+      // splatPngs travels beside mapData (set in the same store pass by
+      // loadSceneMap) — read here, not subscribed, so the effect keys stay.
+      useStore
+        .getState()
+        .loadFromFile(mapData as SerializedMapData, useSessionStore.getState().splatPngs);
     } catch (err) {
       console.error('[GameRenderer] map document rejected by the engine:', err);
       // Terminal error path — one extra render, versus a blank page.

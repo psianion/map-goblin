@@ -11,8 +11,11 @@ vi.mock('@dnd/core/src/assets/textureLoader', () => ({
   restoreCustomImages: vi.fn(async () => {
     mapDataDuringRestore = useSessionStore.getState().mapData;
   }),
+  registerImageBlob: vi.fn(async () => {}),
 }));
-const { restoreCustomImages } = await import('@dnd/core/src/assets/textureLoader');
+const { restoreCustomImages, registerImageBlob } = await import(
+  '@dnd/core/src/assets/textureLoader'
+);
 let mapDataDuringRestore: unknown = 'never ran';
 
 // ponytail: the GameRenderer mount itself needs WebGL, so jsdom can only cover
@@ -66,10 +69,41 @@ describe('loadSceneMap', () => {
 
     await loadSceneMap('scene 1', 'tok-abc');
 
-    expect(fetchMock).toHaveBeenCalledWith(`${endpoints.httpBase}/api/maps/scene%201`, {
-      headers: { Authorization: 'Bearer tok-abc' },
-    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${endpoints.httpBase}/api/maps/scene%201?images=external`,
+      { headers: { Authorization: 'Bearer tok-abc' } },
+    );
     expect(useSessionStore.getState().mapData).toEqual(doc);
+  });
+
+  it('fetches externalized images as binary — splats to the store, pictures to Pixi', async () => {
+    const doc = {
+      version: '3.0',
+      layers: [],
+      customImages: {},
+      imageKeys: ['__terrain-splat-0__', 'asset-1'],
+    };
+    const splatBlob = new Blob(['s'], { type: 'image/png' });
+    const picBlob = new Blob(['p'], { type: 'image/png' });
+    const restoresBefore = vi.mocked(restoreCustomImages).mock.calls.length;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/images/')) {
+        return { ok: true, blob: async () => (url.includes('splat') ? splatBlob : picBlob) };
+      }
+      return { ok: true, json: async () => doc };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await loadSceneMap('s1', 'tok');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${endpoints.httpBase}/api/maps/s1/images/__terrain-splat-0__`,
+      { headers: { Authorization: 'Bearer tok' } },
+    );
+    expect(registerImageBlob).toHaveBeenCalledWith('asset-1', picBlob);
+    expect(useSessionStore.getState().splatPngs).toEqual([splatBlob, null]);
+    // The document itself no longer carries image payloads.
+    expect(vi.mocked(restoreCustomImages).mock.calls.length).toBe(restoresBefore);
   });
 
   /**

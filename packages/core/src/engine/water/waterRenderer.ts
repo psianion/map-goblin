@@ -2,7 +2,7 @@ import { Container, Graphics, TilingSprite } from 'pixi.js';
 import type { DungeonLayer } from '../../store/types';
 import type { WaterChild } from '../../shared/types';
 import type { Polygon } from '../../types/geometry';
-import { resolveTexture } from '../../assets/textureLoader';
+import { unitTexture } from '../../assets/textureLoader';
 import { registerFlowSprite, unregisterFlowSpritesIn } from './waterAnimation';
 
 const PX_PER_GRID_CELL = 200;
@@ -79,9 +79,11 @@ function renderWaterChild(parent: Container, water: WaterChild): void {
   const outer = water.contours[0];
   if (!outer || outer.length < 3) return;
 
-  const texture = resolveTexture(water.textureId);
-  // resolveTexture hands back a 1x1 magenta placeholder when the id can't be
-  // resolved — tiling that would paint the whole body solid magenta.
+  // unitTexture, not resolveTexture: a variant-sheet source file must fill with
+  // just its one unit, matching the palette/brush/floor-fill scale.
+  const texture = unitTexture(water.textureId).texture;
+  // A 1x1 magenta placeholder means the id can't be resolved — tiling that
+  // would paint the whole body solid magenta.
   if (texture.width <= 1) return;
 
   // Clipper can return several same-winding rings for one self-crossing stroke;
@@ -133,7 +135,7 @@ function renderWaterChild(parent: Container, water: WaterChild): void {
 
   // ── Bank strips along the outer shoreline ──
   if (water.bankTextureId) {
-    const bankTex = resolveTexture(water.bankTextureId);
+    const bankTex = unitTexture(water.bankTextureId).texture;
     if (bankTex.width > 1) {
       const banks = new Container();
       banks.label = 'water-banks';

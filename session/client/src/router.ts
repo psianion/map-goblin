@@ -18,7 +18,9 @@ export function usePath(): string {
 }
 
 export function navigate(to: string): void {
-  window.history.pushState(null, '', to);
+  // Preserve the query string (e.g. e2e helpers' ?e2e=1) — a bare-path pushState
+  // drops it before the table route mounts and creates the Pixi engine.
+  window.history.pushState(null, '', to + window.location.search);
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 

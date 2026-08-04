@@ -1,5 +1,5 @@
 import { Graphics, Matrix } from 'pixi.js';
-import { resolveTexture } from '../../assets/textureLoader';
+import { unitTexture } from '../../assets/textureLoader';
 import { useStore } from '../../store/store';
 import { DEFAULT_TERRAIN_PALETTE } from '../../store/slices/mapSettings';
 
@@ -32,7 +32,9 @@ export function drawTerrainBrushDisc(
 ): void {
   const color = erase ? 0xff4444 : 0x4a9eff;
   const id = erase ? null : terrainSlotTexture(slot);
-  const texture = id ? resolveTexture(id) : null;
+  // unitTexture, not resolveTexture: a texture whose file bundles several tile
+  // variants must fill with just its one unit, matching what loadPalette bakes.
+  const texture = id ? unitTexture(id).texture : null;
 
   g.circle(cx, cy, radius);
   if (texture && texture.width > 1) {

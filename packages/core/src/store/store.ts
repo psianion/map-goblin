@@ -5,6 +5,8 @@ import type { DungeonLayer, MapBuilderStore, SerializedMapData } from './types';
 import { getNotify } from './notify';
 import { createDefaultState } from './factories';
 import { migrateToLatest } from './migration';
+import { dataUrlToBlob } from '../assets/dataUrl';
+import { SPLAT_IMAGE_KEYS } from '../engine/terrain/terrainShared';
 import { createMapSettingsSlice } from './slices/mapSettings';
 import { createGridSlice } from './slices/grid';
 import { createLayersSlice } from './slices/layers';
@@ -34,7 +36,7 @@ export const useStore = create<MapBuilderStore>()(
       ...createPacksSlice(set, get, api),
 
       // Bulk / serialization actions
-      loadFromFile: (data: SerializedMapData) => {
+      loadFromFile: (data: SerializedMapData, splatPngs?: [Blob | null, Blob | null]) => {
         if (!data.version) {
           console.warn('loadFromFile: missing version field, aborting load');
           return;
@@ -51,6 +53,21 @@ export const useStore = create<MapBuilderStore>()(
           data = migrateToLatest(data);
         }
 
+        // Splat bitmaps ride inside customImages in the file format; hold them
+        // as binary Blobs in terrainSplats so no splat base64 lives in the
+        // store (autosave/serialize would re-stringify it on every pass).
+        // A caller that already fetched them as binary (session client) passes
+        // Blobs directly and wins over any inline entries.
+        const images = { ...(data.customImages ?? {}) };
+        const pngs: [Blob | null, Blob | null] = splatPngs ?? [null, null];
+        for (const [i, key] of SPLAT_IMAGE_KEYS.entries()) {
+          const url = images[key];
+          if (url) {
+            if (!splatPngs) pngs[i as 0 | 1] = dataUrlToBlob(url);
+            delete images[key];
+          }
+        }
+
         set((state) => {
           state.mapSettings = data.mapSettings;
           state.grid = {
@@ -60,7 +77,11 @@ export const useStore = create<MapBuilderStore>()(
             snapEnabled: true,
           };
           state.layers = data.layers;
-          state.assets.customImages = data.customImages ?? {};
+          state.assets.customImages = images;
+          // Always write (even [null, null]) — loading a terrain-less map over
+          // a painted one must clear the renderer's splats.
+          state.terrainSplats.pngs = pngs;
+          state.terrainSplats.rev++;
 
           state.ui.activeLayerId =
             data.layers.find((l) => l.type === 'dungeon')?.id ?? '';
@@ -122,6 +143,8 @@ export const useStore = create<MapBuilderStore>()(
           state.assets = defaults.assets;
           state.selection = defaults.selection;
           state.packs = defaults.packs;
+          state.terrainSplats.pngs = [null, null];
+          state.terrainSplats.rev++;
         }),
     })),
     { name: 'MapBuilderStore' }

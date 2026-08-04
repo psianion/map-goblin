@@ -1133,3 +1133,76 @@ describe('brute force', () => {
     })
   })
 })
+
+describe('map images — externalized JSON and the binary image route', () => {
+  // A 1×1 PNG, enough to be real bytes with a real mime.
+  const PNG_B64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+  const MAP_WITH_IMAGES = {
+    ...MAP,
+    customImages: {
+      '__terrain-splat-0__': `data:image/png;base64,${PNG_B64}`,
+      'asset-1': `data:image/png;base64,${PNG_B64}`,
+    },
+  }
+
+  async function uploadedScene(base: string, adminPass: string) {
+    const created = await api(base, 'POST', '/api/campaigns', {
+      token: adminPass,
+      body: { name: 'C' },
+    })
+    const campaignId = created.body.campaignId as string
+    const dmToken = created.body.token as string
+    const uploaded = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+      token: dmToken,
+      raw: JSON.stringify(MAP_WITH_IMAGES),
+    })
+    return { campaignId, dmToken, sceneId: uploaded.body.sceneId as string }
+  }
+
+  it('?images=external strips the payloads and lists the keys; binary route serves the bytes', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const { dmToken, sceneId } = await uploadedScene(base, adminPass)
+
+      // Without the flag: byte-for-byte as uploaded — the old contract holds.
+      const inline = await api(base, 'GET', `/api/maps/${sceneId}`, { token: dmToken })
+      expect(JSON.parse(inline.text)).toEqual(MAP_WITH_IMAGES)
+
+      const external = await api(base, 'GET', `/api/maps/${sceneId}?images=external`, {
+        token: dmToken,
+      })
+      expect(external.status).toBe(200)
+      const doc = JSON.parse(external.text) as Record<string, unknown>
+      expect(doc.customImages).toEqual({})
+      expect((doc.imageKeys as string[]).sort()).toEqual(['__terrain-splat-0__', 'asset-1'])
+
+      const image = await fetch(`${base}/api/maps/${sceneId}/images/__terrain-splat-0__`, {
+        headers: { authorization: `Bearer ${dmToken}` },
+      })
+      expect(image.status).toBe(200)
+      expect(image.headers.get('content-type')).toBe('image/png')
+      const bytes = Buffer.from(await image.arrayBuffer())
+      expect(bytes.equals(Buffer.from(PNG_B64, 'base64'))).toBe(true)
+    })
+  })
+
+  it('answers 404 for unknown keys and refuses tokens from another campaign', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const { dmToken, sceneId } = await uploadedScene(base, adminPass)
+
+      const missing = await api(base, 'GET', `/api/maps/${sceneId}/images/nope`, {
+        token: dmToken,
+      })
+      expect(missing.status).toBe(404)
+
+      const other = await api(base, 'POST', '/api/campaigns', {
+        token: adminPass,
+        body: { name: 'Other' },
+      })
+      const outsider = await api(base, 'GET', `/api/maps/${sceneId}/images/asset-1`, {
+        token: other.body.token as string,
+      })
+      expect(outsider.status).toBe(404)
+    })
+  })
+})
