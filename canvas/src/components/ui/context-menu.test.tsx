@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { ContextMenu, type ContextMenuItem } from './context-menu'
+import { ContextMenu, clampMenuPosition, type ContextMenuItem } from './context-menu'
 
 describe('ContextMenu', () => {
   const items: ContextMenuItem[] = [
@@ -126,6 +126,59 @@ describe('ContextMenu', () => {
     it('has aria-orientation="vertical"', () => {
       render(<ContextMenu pos={{ x: 0, y: 0 }} onClose={() => {}} items={items} />)
       expect(screen.getByRole('menu').getAttribute('aria-orientation')).toBe('vertical')
+    })
+
+    // H1: activation used to close the menu without restoring focus — only
+    // Escape did. An item that doesn't itself move focus should still send
+    // it back to whatever opened the menu.
+    it('activating an item restores focus to the invoker, same as Escape', () => {
+      const onClose = vi.fn()
+      const onSelect = vi.fn()
+      function Harness({ open }: { open: boolean }) {
+        return (
+          <div>
+            <button type="button">Invoker</button>
+            <ContextMenu
+              pos={open ? { x: 0, y: 0 } : null}
+              onClose={onClose}
+              items={[{ label: 'Duplicate', onSelect }]}
+            />
+          </div>
+        )
+      }
+      const { rerender } = render(<Harness open={false} />)
+      const invoker = screen.getByText('Invoker')
+      invoker.focus()
+      rerender(<Harness open={true} />)
+
+      fireEvent.click(screen.getByText('Duplicate'))
+      expect(onSelect).toHaveBeenCalledOnce()
+      expect(onClose).toHaveBeenCalledOnce()
+      expect(document.activeElement).toBe(invoker)
+    })
+  })
+
+  // L3: neither the mouse nor the keyboard opener clamped the menu's
+  // position — it could render partly off-screen.
+  describe('clampMenuPosition (L3)', () => {
+    it('leaves an on-screen position untouched', () => {
+      const result = clampMenuPosition({ x: 10, y: 20 }, { width: 160, height: 100 }, { width: 1024, height: 768 })
+      expect(result).toEqual({ left: 10, top: 20 })
+    })
+
+    it('pulls the left edge in so the menu fits before the right viewport edge', () => {
+      const result = clampMenuPosition({ x: 900, y: 20 }, { width: 200, height: 100 }, { width: 1024, height: 768 })
+      expect(result.left).toBe(1024 - 200)
+    })
+
+    it('pulls the top edge in so the menu fits before the bottom viewport edge', () => {
+      const result = clampMenuPosition({ x: 10, y: 700 }, { width: 160, height: 300 }, { width: 1024, height: 768 })
+      expect(result.top).toBe(768 - 300)
+    })
+
+    it('never goes negative when the menu is bigger than the viewport', () => {
+      const result = clampMenuPosition({ x: 0, y: 0 }, { width: 2000, height: 2000 }, { width: 1024, height: 768 })
+      expect(result).toEqual({ left: 0, top: 0 })
     })
   })
 })

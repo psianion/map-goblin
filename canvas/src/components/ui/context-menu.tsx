@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 
@@ -41,6 +41,24 @@ function menuItemEls(container: HTMLElement | null): HTMLButtonElement[] {
   return Array.from(container.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)'))
 }
 
+/**
+ * L3: clamp a menu's top-left so it stays fully inside the viewport, on both
+ * axes — the same cheap clamp covers both the mouse opener (open) and the
+ * keyboard opener (openAt), since neither picks a position with the menu's
+ * own size in mind.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function clampMenuPosition(
+  pos: { x: number; y: number },
+  size: { width: number; height: number },
+  viewport: { width: number; height: number },
+): { left: number; top: number } {
+  return {
+    left: Math.max(0, Math.min(pos.x, viewport.width - size.width)),
+    top: Math.max(0, Math.min(pos.y, viewport.height - size.height)),
+  }
+}
+
 export function ContextMenu({
   pos,
   onClose,
@@ -60,6 +78,22 @@ export function ContextMenu({
     if (!pos) return
     returnFocusRef.current = document.activeElement as HTMLElement | null
     menuItemEls(ref.current)[0]?.focus()
+  }, [pos])
+
+  // L3: mutates the portaled node's style directly, post-layout, instead of
+  // round-tripping through state — offsetWidth/Height are 0 in jsdom, so
+  // this degrades to a no-op there (see clampMenuPosition's own test for the
+  // actual math, exercised with real sizes).
+  useLayoutEffect(() => {
+    if (!pos || !ref.current) return
+    const el = ref.current
+    const { left, top } = clampMenuPosition(
+      pos,
+      { width: el.offsetWidth, height: el.offsetHeight },
+      { width: window.innerWidth, height: window.innerHeight },
+    )
+    el.style.left = `${left}px`
+    el.style.top = `${top}px`
   }, [pos])
 
   useEffect(() => {
@@ -122,9 +156,20 @@ export function ContextMenu({
             role="menuitem"
             disabled={item.disabled}
             aria-disabled={item.disabled}
-            onClick={() => {
+            onClick={(e) => {
+              // L4: this button lives in the row's React tree even though its
+              // DOM is portaled to <body> — React bubbles synthetic events
+              // through the component tree, not the real DOM, so an
+              // un-stopped click here still reaches the row's own onClick
+              // (e.g. re-selecting a child this same click just deleted).
+              e.stopPropagation()
               if (item.disabled) return
               onClose()
+              // H1: restore focus to the invoking row first — if the item
+              // itself moves focus (Rename's autofocus input), that happens
+              // after and wins the race; if it doesn't, this is where focus
+              // was always meant to land.
+              returnFocusRef.current?.focus()
               item.onSelect()
             }}
             className={cn(
