@@ -32,10 +32,14 @@ export function resolveEditableLayer(
   const layer = useStore.getState().layers.find(
     (l): l is DungeonLayer => l.id === layerId && l.type === 'dungeon',
   );
-  const reason = layer ? blockedLayerReason(layer) : missingMessage;
+  if (!layer) {
+    notify.warning(missingMessage);
+    return null;
+  }
+  const reason = blockedLayerReason(layer);
   if (reason) {
     notify.warning(reason);
     return null;
   }
-  return layer!;
+  return layer;
 }
