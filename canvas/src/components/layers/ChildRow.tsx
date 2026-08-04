@@ -1,5 +1,7 @@
 import { memo, useState } from 'react'
-import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type } from 'lucide-react'
+import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical } from 'lucide-react'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
 import { selectSelectedIds } from '@/store/selectors'
@@ -55,6 +57,13 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
       { name: newName },
     ))
     setEditingName(false)
+  }
+
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: child.id })
+  const dragStyle = {
+    transform: CSS.Transform.toString(transform),
+    transition,
   }
 
   const toggleVisibility = () => {
@@ -126,17 +135,30 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
 
   return (
     <div
+      ref={setNodeRef}
+      style={dragStyle}
       className={cn(
-        'gg-row flex items-center gap-1 pl-8 pr-1 py-1 cursor-pointer',
+        'gg-row flex items-center gap-1 pl-4 pr-1 py-1 cursor-pointer',
         isSelected && 'bg-surface-3',
         // opacity-80, matching LayerRow — opacity-50 on text-primary content
         // fails 4.5:1 (see index.css's --text-dim comment).
         !child.visible && 'opacity-80',
+        isDragging && 'opacity-75 z-50',
       )}
       onClick={handleClick}
       onContextMenu={menu.open}
       data-testid="child-row"
     >
+      {/* drag handle */}
+      <span
+        {...attributes}
+        {...listeners}
+        className="text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <GripVertical size={12} />
+      </span>
+
       {/* type icon */}
       <span className="text-text-muted shrink-0">{childIcon(child.childType)}</span>
 

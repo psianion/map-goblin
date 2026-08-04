@@ -1,6 +1,16 @@
 import { memo, useState } from 'react'
 import { Eye, EyeOff, Lock, Unlock, GripVertical, ChevronRight, ChevronDown } from 'lucide-react'
-import { useSortable } from '@dnd-kit/sortable'
+import {
+  DndContext,
+  closestCenter,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { CSS } from '@dnd-kit/utilities'
 import type { Layer, DungeonLayer } from '@/store/types'
 import { cn } from '@/lib/utils'
@@ -8,7 +18,7 @@ import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
 import { selectSelectedIds, isLayerEffectivelyVisible } from '@/store/selectors'
 import { undoManager } from '@/store/undoManager'
-import { PropertyCommand, RemoveLayerCommand } from '@/store/commands'
+import { PropertyCommand, ReorderChildCommand, RemoveLayerCommand } from '@/store/commands'
 import { Button } from '@/components/ui/button'
 import { ChildRow } from './ChildRow'
 import { InlineEditableName } from './InlineEditableName'
@@ -112,6 +122,28 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
       { name: newName },
     ))
     setEditingName(false)
+  }
+
+  const handleChildDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id || !dungeonLayer) return
+
+    // Reorder is a destructive-but-undoable panel op, like layer delete
+    // (see deleteLayer below) — locked blocks it, but a layer hidden via
+    // solo (or its own visibility) is not a reason to refuse reordering
+    // rows you can still see and edit in the panel.
+    if (dungeonLayer.locked) {
+      notify.warning('Layer is locked')
+      return
+    }
+
+    // Children render in array order (unlike layers, which render reversed) —
+    // no visual-to-array index flip needed here.
+    const fromIndex = dungeonLayer.children.findIndex((c) => c.id === active.id)
+    const toIndex = dungeonLayer.children.findIndex((c) => c.id === over.id)
+    if (fromIndex === -1 || toIndex === -1) return
+
+    undoManager.execute(new ReorderChildCommand('Reorder child', layer.id, fromIndex, toIndex))
   }
 
   const deleteLayer = () => {
@@ -281,11 +313,22 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
 
       {/* Children rows — only when dungeon layer is expanded */}
       {isDungeon && isExpanded && dungeonLayer && dungeonLayer.children.length > 0 && (
-        <div>
-          {dungeonLayer.children.map((child) => (
-            <ChildRow key={child.id} child={child} layer={dungeonLayer} />
-          ))}
-        </div>
+        <DndContext
+          collisionDetection={closestCenter}
+          modifiers={[restrictToVerticalAxis]}
+          onDragEnd={handleChildDragEnd}
+        >
+          <SortableContext
+            items={dungeonLayer.children.map((c) => c.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div>
+              {dungeonLayer.children.map((child) => (
+                <ChildRow key={child.id} child={child} layer={dungeonLayer} />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
 
       <ContextMenu pos={menu.pos} onClose={menu.close} items={menuItems} />
