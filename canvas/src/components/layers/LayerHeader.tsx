@@ -4,12 +4,23 @@ import { createDungeonLayer } from '@/store/factories';
 import { AddLayerCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { notify } from '@/lib/toast';
+import type { Layer } from '@/store/types';
+
+// Deletes can leave gaps (e.g. "Layer 2" removed) — deriving from the count
+// of surviving layers reused names ("Layer 2" again). Deriving from the
+// highest existing "Layer N" suffix instead means a name is only ever
+// reused if nothing else took it.
+function nextLayerName(layers: Layer[]): string {
+  const maxSuffix = layers.reduce((max, l) => {
+    const m = l.type === 'dungeon' ? /^Layer (\d+)$/.exec(l.name) : null;
+    return m ? Math.max(max, Number(m[1])) : max;
+  }, 0);
+  return `Layer ${maxSuffix + 1}`;
+}
 
 export function LayerHeader() {
-  const layerCount = useStore((s) => s.layers.filter((l) => l.type === 'dungeon').length);
-
   const handleAddLayer = () => {
-    const layer = createDungeonLayer(`Layer ${layerCount + 1}`);
+    const layer = createDungeonLayer(nextLayerName(useStore.getState().layers));
     undoManager.execute(new AddLayerCommand('Add layer', layer));
     useStore.getState().setActiveLayerId(layer.id);
     notify.subtle('Layer added', { icon: 'plus' });
