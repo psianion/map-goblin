@@ -6,6 +6,7 @@ import { AddChildCommand, RemoveChildCommand, UpdateChildCommand, CompositeComma
 import { undoManager } from '../../store/undoManager';
 import { clipper2Engine } from '../../geometry/Clipper2Engine';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
+import { resolveEditableLayer } from './layerGuard';
 
 const CLOSE_THRESHOLD = 0.2;
 
@@ -21,6 +22,8 @@ export class PolygonTool implements DrawingTool {
   readonly editsActiveLayer = true;
   private vertices: Point[] = [];
   private currentPoint: Point | null = null;
+  /** The active layer when the chain started — see WallTool for why. */
+  private chainLayerId: string | null = null;
 
   onPointerDown(point: Point, event?: PointerEvent): void {
     if (this.vertices.length >= 3) {
@@ -31,6 +34,9 @@ export class PolygonTool implements DrawingTool {
         this.finalize();
         return;
       }
+    }
+    if (this.vertices.length === 0) {
+      this.chainLayerId = useStore.getState().ui.activeLayerId;
     }
     point = this.constrain(point, event);
     this.vertices.push(point);
@@ -69,6 +75,7 @@ export class PolygonTool implements DrawingTool {
   cancel(): void {
     this.vertices = [];
     this.currentPoint = null;
+    this.chainLayerId = null;
   }
 
   isActive(): boolean {
@@ -79,14 +86,14 @@ export class PolygonTool implements DrawingTool {
     const verts = this.vertices;
     this.vertices = [];
     this.currentPoint = null;
+    const activeLayerId = this.chainLayerId;
+    this.chainLayerId = null;
 
-    if (verts.length < 3) return;
+    if (verts.length < 3 || !activeLayerId) return;
 
     const store = useStore.getState();
-    const activeLayerId = store.ui.activeLayerId;
-    const activeLayer = store.layers.find(
-      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
-    );
+    // Validated against the layer the chain started on — see WallTool.
+    const activeLayer = resolveEditableLayer(activeLayerId);
     if (!activeLayer) return;
 
     const polyPoints: [number, number][] = verts.map((v) => [v.x, v.y]);

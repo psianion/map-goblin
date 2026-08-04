@@ -248,7 +248,10 @@ describe('WaterTool — layer handling', () => {
     dragRiver(tool, [[0, 0], [5, 0]]);
 
     expect(waterChildren()).toHaveLength(0);
-    expect(warnings).toContain('Select a dungeon layer to draw water');
+    // The chain/stroke is validated at finalize against the layer id captured
+    // when it started (F1) — a non-dungeon layer at that point resolves the
+    // same way a deleted one would.
+    expect(warnings).toContain('Layer was removed');
   });
 
   it('names bodies by kind and running count within the layer', () => {
