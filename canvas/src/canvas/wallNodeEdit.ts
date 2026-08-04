@@ -416,10 +416,13 @@ export function cancelNodeDrag(): void {
   }
   if (!wallId) return;
 
+  // A rewind, not an edit: this has to succeed even if the layer went locked
+  // or hidden mid-drag, or an edit made just before locking becomes stuck
+  // with no way to undo it. So no lock/visible check here — only that the
+  // layer still exists to write the rewind into.
   const state = useStore.getState();
   const layer = state.layers.find(
-    (l): l is DungeonLayer =>
-      l.type === 'dungeon' && l.id === state.ui.activeLayerId && l.visible && !l.locked,
+    (l): l is DungeonLayer => l.type === 'dungeon' && l.id === state.ui.activeLayerId,
   );
   if (!layer) return;
   state.updateWall(layer.id, wallId, { nodeEdits: before });

@@ -12,6 +12,8 @@ import type { Point } from '../types/geometry';
 import { layoutWall, applyWallEdits, withoutNodeOffsets, type WallNode } from './wallLayout';
 import { buildPieceSpecs, seedForPoints } from './wallNodeRenderer';
 import type { WallCategory } from '../assets/textureManifest';
+import { blockedLayerReason } from './tools/layerGuard';
+import { notify } from '../shared/notify';
 
 const HANDLE_COLOR = 0x38bdf8;
 const SELECTED_COLOR = 0xfbbf24;
@@ -102,9 +104,24 @@ function activeWall(): EditableRun | null {
   };
 }
 
-/** The run currently in edit mode, or null. Exported for the edit operations. */
+/**
+ * The run currently in edit mode, guarded for writing: null (with a warning)
+ * once the layer has gone locked or hidden, even if that happened after node
+ * edit mode was entered. Every edit — drag begin/nudge/commit, keyboard
+ * edits, span/insert — routes through this one function, so guarding it here
+ * closes the hole for all of them at once. Restoring a cancelled drag does
+ * NOT go through this: it must succeed even on a blocked layer, so it reads
+ * the layer straight off the store instead (see wallNodeEdit.ts).
+ */
 export function activeEditableRun(): EditableRun | null {
-  return activeWall();
+  const run = activeWall();
+  if (!run) return null;
+  const reason = blockedLayerReason(run.layer);
+  if (reason) {
+    notify.warning(reason);
+    return null;
+  }
+  return run;
 }
 
 /** Nodes of the wall currently in edit mode, auto-layout plus manual edits. */
@@ -132,7 +149,11 @@ export function currentWallNodes(): WallNode[] {
 export function renderWallNodeHandles(zoom: number): void {
   if (!overlay) return;
   const state = useStore.getState();
-  const found = activeWall();
+  // Draw-time read, not activeEditableRun(): that warns on every call, and a
+  // locked layer showing handles that refuse to drag is bad UX but doesn't
+  // need a toast every frame — clearing the drawing is enough.
+  const run = activeWall();
+  const found = run && !blockedLayerReason(run.layer) ? run : null;
 
   const signature = found
     ? [

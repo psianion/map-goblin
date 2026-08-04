@@ -5,9 +5,10 @@
 // operations against a ring: picking one, rotating and resizing a stone,
 // inserting a neighbour, and undoing the lot.
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
+import { setNotify } from '@dnd/core/src/store/notify';
 import { currentWallNodes } from '@/engine/wallNodeOverlay';
 import {
   toggleNodeEditAt,
@@ -528,18 +529,89 @@ describe('locked/hidden layer blocks node edits (F6)', () => {
     expect(after).toBe(before);
   });
 
-  it('cancelNodeDrag leaves the live nudge in place once the layer is locked mid-drag', () => {
+  // activeWall() only ever checked type + active-layer id, with no lock or
+  // visibility check at all — so a layer locked AFTER node-edit mode was
+  // entered could still have its stones dragged, nudged and committed.
+  // activeEditableRun() is the one function every write path routes through,
+  // so guarding it there closes drag begin/nudge/commit in one place.
+  describe('locked mid-edit blocks the drag itself, not just cancel', () => {
+    let warning: ReturnType<typeof vi.fn<(msg: string) => void>>;
+
+    beforeEach(() => {
+      warning = vi.fn();
+      setNotify({ warning, error: vi.fn(), success: vi.fn(), info: vi.fn() });
+    });
+
+    it('beginNodeDrag refuses and warns once the layer is locked before the press', () => {
+      const { t } = seedWall();
+      useStore.getState().updateLayer(layer().id, { locked: true });
+
+      beginNodeDrag([t]);
+      expect(isDraggingNode()).toBe(false);
+      expect(warning).toHaveBeenCalledWith('Layer is locked');
+
+      nudgeWallNode([t], 0.4, 0.3);
+      expect(wallEdits()?.nodeEdits ?? []).toHaveLength(0);
+    });
+
+    it('nudgeWallNode stops writing once the layer locks mid-drag', () => {
+      const { t } = seedWall();
+      beginNodeDrag([t]);
+      nudgeWallNode([t], 0.1, 0);
+      expect(wallEdits()?.nodeEdits).toHaveLength(1);
+      const midDrag = structuredClone(wallEdits()!.nodeEdits);
+
+      useStore.getState().updateLayer(layer().id, { locked: true });
+      warning.mockClear();
+      nudgeWallNode([t], 0.4, 0.3);
+
+      // No further write past the lock, and the caller was told why.
+      expect(wallEdits()!.nodeEdits).toEqual(midDrag);
+      expect(warning).toHaveBeenCalledWith('Layer is locked');
+
+      // Rewind is always allowed, lock or not — leaves the module's drag
+      // state clean instead of leaking a stale gesture into later tests.
+      cancelNodeDrag();
+      expect(isDraggingNode()).toBe(false);
+    });
+
+    it('endNodeDrag refuses to commit once the layer locks mid-drag', () => {
+      const { t } = seedWall();
+      beginNodeDrag([t]);
+      nudgeWallNode([t], 0.4, 0.3);
+      expect(wallEdits()?.nodeEdits).toHaveLength(1);
+
+      useStore.getState().updateLayer(layer().id, { locked: true });
+      warning.mockClear();
+      endNodeDrag();
+
+      // Nothing landed on the undo stack — the commit never happened.
+      expect(useStore.getState().ui.canUndo).toBe(false);
+      expect(warning).toHaveBeenCalledWith('Layer is locked');
+    });
+
+    it('beginNodeDrag refuses and warns on a hidden layer', () => {
+      const { t } = seedWall();
+      useStore.getState().updateLayer(layer().id, { visible: false });
+
+      beginNodeDrag([t]);
+      expect(isDraggingNode()).toBe(false);
+      expect(warning).toHaveBeenCalledWith('Layer is hidden');
+    });
+  });
+
+  it('cancelNodeDrag still restores the rewind once the layer is locked mid-drag', () => {
     const { t } = seedWall();
     beginNodeDrag([t]);
     nudgeWallNode([t], 0.4, 0.3);
     expect(wallEdits()?.nodeEdits).toHaveLength(1);
 
-    // Locked between the nudge and the cancel: cancelNodeDrag's own layer
-    // resolution now refuses to write the rewind, so the uncommitted nudge
-    // is what's left sitting in the store rather than being rolled back.
+    // Locked between the nudge and the cancel: a rewind is not an edit, so it
+    // has to go through regardless — otherwise a drag caught by a lock that
+    // lands mid-gesture becomes un-cancellable.
     useStore.getState().updateLayer(layer().id, { locked: true });
     cancelNodeDrag();
-    expect(wallEdits()?.nodeEdits).toHaveLength(1);
+    expect(wallEdits()?.nodeEdits ?? []).toHaveLength(0);
   });
 });
 
