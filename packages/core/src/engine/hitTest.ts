@@ -78,6 +78,24 @@ export function pointInLight(light: LightChild, point: [number, number]): boolea
   return dx * dx + dy * dy <= hitRadius * hitRadius;
 }
 
+/**
+ * Orders children for hit-testing to match draw order: sublayers stack
+ * floor < walls < doors < objects(assets) < labels, so the topmost picks
+ * must be labels, then assets, then doors, then everything else (shapes,
+ * water, lights) — the flat children array only reflects relative order
+ * *within* one of those buckets, not across them.
+ */
+function bucketChildrenForHitTest(children: AnyChild[]): AnyChild[] {
+  const reversed = [...children].reverse();
+  const labels = reversed.filter((c) => c.childType === 'text');
+  const assets = reversed.filter((c) => c.childType === 'asset');
+  const doors = reversed.filter((c) => c.childType === 'door');
+  const rest = reversed.filter(
+    (c) => c.childType !== 'text' && c.childType !== 'asset' && c.childType !== 'door',
+  );
+  return [...labels, ...assets, ...doors, ...rest];
+}
+
 export function hitTestChildren(
   children: AnyChild[],
   point: [number, number],
@@ -88,8 +106,7 @@ export function hitTestChildren(
   // layer. Resolved lazily, once, only when a door child is actually reached;
   // without a layer the authored position is the best available approximation.
   let doorPositions: Map<string, [number, number]> | null = null;
-  for (let i = children.length - 1; i >= 0; i--) {
-    const child = children[i];
+  for (const child of bucketChildrenForHitTest(children)) {
     if (!child.visible) continue;
     switch (child.childType) {
       case 'shape':

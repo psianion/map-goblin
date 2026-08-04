@@ -11,7 +11,7 @@ import {
 import { useStore } from '../store/store';
 import { createDungeonLayer } from '../store/factories';
 import type { ShapeChild, AssetChild, LightChild } from '../store/types';
-import type { DoorChild, WaterChild } from '../shared/types';
+import type { DoorChild, TextChild, WaterChild } from '../shared/types';
 
 // ─── Helpers ──────────────────────────────────────────────
 
@@ -59,6 +59,29 @@ function makeAsset(
     tint: '#ffffff',
     flipX: false,
     flipY: false,
+    ...overrides,
+  };
+}
+
+function makeText(
+  position: { x: number; y: number },
+  width: number,
+  height: number,
+  overrides?: Partial<TextChild>,
+): TextChild {
+  return {
+    id: 'text-1',
+    name: 'Text',
+    childType: 'text',
+    visible: true,
+    text: 'Label',
+    position,
+    rotation: 0,
+    scale: 1,
+    fontSize: 1,
+    color: '#ffffff',
+    width,
+    height,
     ...overrides,
   };
 }
@@ -273,6 +296,23 @@ describe('hitTestChildren', () => {
   it('skips invisible doors', () => {
     const door = makeDoor([5, 5], { visible: false });
     expect(hitTestChildren([door], [5, 5])).toBeNull();
+  });
+
+  it('prefers an overlapping asset over a shape, regardless of array order', () => {
+    // Draw order buckets objects above floor shapes even when the shape is
+    // later in the children array (would win under a flat reverse scan).
+    const shape = makeShape(square, { id: 'shape-1' });
+    const asset = makeAsset({ x: 5, y: 5 }, 4, 4, 1, 0, { id: 'asset-1' });
+    expect(hitTestChildren([asset, shape], [5, 5])?.id).toBe('asset-1');
+    expect(hitTestChildren([shape, asset], [5, 5])?.id).toBe('asset-1');
+  });
+
+  it('prefers an overlapping text label over an asset, regardless of array order', () => {
+    // Labels always draw above objects.
+    const asset = makeAsset({ x: 5, y: 5 }, 4, 4, 1, 0, { id: 'asset-1' });
+    const label = makeText({ x: 5, y: 5 }, 4, 4, { id: 'label-1' });
+    expect(hitTestChildren([label, asset], [5, 5])?.id).toBe('label-1');
+    expect(hitTestChildren([asset, label], [5, 5])?.id).toBe('label-1');
   });
 });
 
