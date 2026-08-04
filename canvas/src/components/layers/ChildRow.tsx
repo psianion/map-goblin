@@ -66,6 +66,12 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
     transition,
   }
 
+  // Reorder only actually changes anything on screen for assets and text —
+  // doors/lights/shapes/water draw from their own pipelines that ignore
+  // array order, so their rows get no drag handle rather than a control that
+  // silently does nothing.
+  const isReorderable = child.childType === 'asset' || child.childType === 'text'
+
   const toggleVisibility = () => {
     undoManager.execute(new PropertyCommand(
       child.visible ? 'Hide child' : 'Show child',
@@ -149,15 +155,19 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
       onContextMenu={menu.open}
       data-testid="child-row"
     >
-      {/* drag handle */}
-      <span
-        {...attributes}
-        {...listeners}
-        className="text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <GripVertical size={12} />
-      </span>
+      {/* drag handle — only for childTypes where reorder actually draws differently */}
+      {isReorderable ? (
+        <span
+          {...attributes}
+          {...listeners}
+          className="text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <GripVertical size={12} />
+        </span>
+      ) : (
+        <span className="w-3" />
+      )}
 
       {/* type icon */}
       <span className="text-text-muted shrink-0">{childIcon(child.childType)}</span>
