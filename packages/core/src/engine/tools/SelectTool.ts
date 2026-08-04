@@ -6,6 +6,7 @@ import { undoManager } from '../../store/undoManager';
 import { CompositeCommand, PropertyCommand, UpdateChildCommand } from '../../store/commands';
 import { clipper2Engine } from '../../geometry/Clipper2Engine';
 import type { AnyChild, DungeonLayer } from '../../store/types';
+import { isLayerEffectivelyVisible } from '../../store/selectors';
 import type { RenderEngine } from '../RenderEngine';
 import { TransformGizmo, type HandleType } from './TransformGizmo';
 import { computeBoundingBox } from './transformMath';
@@ -190,7 +191,7 @@ export class SelectTool implements DrawingTool {
 
     // Hit-test children across all visible, unlocked dungeon layers
     const dungeonLayers = store.layers.filter(
-      (l): l is DungeonLayer => l.type === 'dungeon' && l.visible && !l.locked,
+      (l): l is DungeonLayer => l.type === 'dungeon' && isLayerEffectivelyVisible(store, l) && !l.locked,
     );
     const worldPt: [number, number] = [point.x, point.y];
     const hit = hitTestAllLayers(dungeonLayers, worldPt);
@@ -591,7 +592,7 @@ export class SelectTool implements DrawingTool {
   private updateHover(worldPoint: Point): void {
     const store = useStore.getState();
     const dungeonLayers = store.layers.filter(
-      (l): l is DungeonLayer => l.type === 'dungeon' && l.visible && !l.locked,
+      (l): l is DungeonLayer => l.type === 'dungeon' && isLayerEffectivelyVisible(store, l) && !l.locked,
     );
     const pt: [number, number] = [worldPoint.x, worldPoint.y];
     const hit = hitTestAllLayers(dungeonLayers, pt);
@@ -690,7 +691,7 @@ export class SelectTool implements DrawingTool {
 
     const store = useStore.getState();
     const dungeonLayers = store.layers.filter(
-      (l): l is DungeonLayer => l.type === 'dungeon' && l.visible && !l.locked,
+      (l): l is DungeonLayer => l.type === 'dungeon' && isLayerEffectivelyVisible(store, l) && !l.locked,
     );
 
     // Tiny drag → treat as click

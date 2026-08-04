@@ -8,6 +8,7 @@ import { notify, notifyCoalesce } from '@/lib/toast';
 import { AddChildCommand, RemoveChildCommand, CompositeCommand } from '@/store/commands';
 import type { AnyChild, DungeonLayer } from '@/store/types';
 import { selectLayerForChild } from '@/store/selectors';
+import { noEditableLayerMessage } from '@dnd/core/src/engine/tools/layerGuard';
 import { togglePopoverRef } from '@/components/toolbar/toolConstants';
 import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
 
@@ -238,7 +239,7 @@ const toolKeyMap: Record<string, () => void | false> = {
         (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
       );
       if (!activeLayer) {
-        notify.warning('Select a layer first');
+        notify.warning(noEditableLayerMessage());
         return;
       }
       if (activeLayer.locked) {

@@ -19,6 +19,7 @@ import { ToolManager } from './ToolManager';
 import type { DrawingTool, ToolType } from './DrawingTool';
 import { useStore } from '../../store/store';
 import { setNotify } from '../../store/notify';
+import { TERRAIN_PANEL_ID } from '../../store/types';
 
 function fakeTool(type: ToolType, cursor?: string, editsActiveLayer?: boolean): DrawingTool {
   return {
@@ -127,6 +128,21 @@ describe('ToolManager.onPointerDown — editsActiveLayer guard', () => {
     expect(warning).toHaveBeenCalledWith('Select a layer first');
   });
 
+  // D5(a): "Select a layer first" reads as a bug when the Terrain row is
+  // visibly selected in the panel — same no-editable-layer case, worded for it.
+  it('warns with the terrain-aware message when the Terrain row is active', () => {
+    useStore.getState().setActiveLayerId(TERRAIN_PANEL_ID);
+    useStore.getState().setActiveTool('rectangle');
+    const tm = new ToolManager(new Container() as never);
+    const tool = fakeTool('rectangle', 'crosshair', true);
+    tm.registerTool(tool);
+
+    tm.onPointerDown({ x: 0, y: 0 }, {} as PointerEvent);
+
+    expect(tool.onPointerDown).not.toHaveBeenCalled();
+    expect(warning).toHaveBeenCalledWith('Terrain is selected — pick a layer to draw on');
+  });
+
   it('blocks and warns when the active layer is the background layer', () => {
     const bg = useStore.getState().layers.find((l) => l.type === 'background');
     if (!bg) throw new Error('default state has no background layer');
@@ -153,5 +169,41 @@ describe('ToolManager.onPointerDown — editsActiveLayer guard', () => {
 
     expect(tool.onPointerDown).toHaveBeenCalledTimes(1);
     expect(warning).not.toHaveBeenCalled();
+  });
+});
+
+// F2: Escape used to both cancel an in-progress chain (the tool's own
+// onKeyDown) and clear solo (useCanvasInput, downstream of this call) in the
+// same press. onKeyDown now reports whether the tool was mid-gesture
+// (isActive()) *before* handling the key, so a caller can tell an Escape
+// that consumed a live gesture from an idle one and skip the view-level
+// fallout (solo-clear, Terrain exit) for the former.
+describe('ToolManager.onKeyDown — consumed-gesture contract (F2)', () => {
+  it('reports true when the active tool was mid-gesture before the key was handled', () => {
+    const tm = new ToolManager(new Container() as never);
+    const tool = fakeTool('wall');
+    tool.isActive = () => true; // e.g. an in-progress wall chain
+    tm.registerTool(tool);
+    tm.switchTool('wall');
+
+    const consumed = tm.onKeyDown(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+    expect(consumed).toBe(true);
+    expect(tool.onKeyDown).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports false when the active tool was idle', () => {
+    const tm = new ToolManager(new Container() as never);
+    const tool = fakeTool('wall');
+    tool.isActive = () => false;
+    tm.registerTool(tool);
+    tm.switchTool('wall');
+
+    expect(tm.onKeyDown(new KeyboardEvent('keydown', { key: 'Escape' }))).toBe(false);
+  });
+
+  it('reports false when no tool is active', () => {
+    const tm = new ToolManager(new Container() as never);
+    expect(tm.onKeyDown(new KeyboardEvent('keydown', { key: 'Escape' }))).toBe(false);
   });
 });

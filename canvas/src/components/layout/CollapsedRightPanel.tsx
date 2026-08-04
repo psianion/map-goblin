@@ -1,7 +1,8 @@
-import { Palette, Minus, Sun, Grid3x3, Waves, Lightbulb, Package, PaintBucket, PanelRightOpen } from 'lucide-react'
+import { Palette, Minus, Sun, Grid3x3, Waves, Lightbulb, Package, PaintBucket, PanelRightOpen, Mountain } from 'lucide-react'
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
 import { selectActiveLayer, selectSelectedIds, selectChildById } from '@/store/selectors'
+import { TERRAIN_PANEL_ID } from '@/store/types'
 import type { LucideIcon } from 'lucide-react'
 
 interface StripItem {
@@ -28,11 +29,18 @@ const LIGHT_ITEMS: StripItem[] = [
   { icon: Lightbulb, label: 'Ambient' },
 ]
 
+const TERRAIN_ITEMS: StripItem[] = [
+  { icon: Mountain, label: 'Terrain' },
+  { icon: Grid3x3, label: 'Grid' },
+  { icon: Lightbulb, label: 'Ambient' },
+]
+
 interface CollapsedRightPanelProps {
   onExpand: (sectionId?: string) => void
 }
 
 export function CollapsedRightPanel({ onExpand }: CollapsedRightPanelProps) {
+  const activeLayerId = useStore((s) => s.ui.activeLayerId)
   const activeLayer = useStore(selectActiveLayer)
   const selectedIds = useStore(useShallow(selectSelectedIds))
   const firstSelectedChild = useStore((s) =>
@@ -41,8 +49,12 @@ export function CollapsedRightPanel({ onExpand }: CollapsedRightPanelProps) {
 
   const hasSelectedLight = firstSelectedChild?.childType === 'light'
 
+  // selectActiveLayer finds nothing for the pinned Terrain row's sentinel id
+  // (no layer has it), so without this check it fell through to the bare
+  // "Ambient only" branch below and the terrain affordance disappeared.
   let items: StripItem[]
   if (hasSelectedLight) items = LIGHT_ITEMS
+  else if (activeLayerId === TERRAIN_PANEL_ID) items = TERRAIN_ITEMS
   else if (activeLayer?.type === 'dungeon') items = DUNGEON_ITEMS
   else if (activeLayer?.type === 'background') items = BG_ITEMS
   else items = [{ icon: Lightbulb, label: 'Ambient' }]

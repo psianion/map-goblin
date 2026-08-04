@@ -19,7 +19,7 @@ import { AddChildCommand, RemoveChildCommand, UpdateChildCommand } from '../../s
 import { undoManager } from '../../store/undoManager';
 import { useStore } from '../../store/store';
 import { notify } from '../../shared/notify';
-import { blockedLayerReason } from './layerGuard';
+import { blockedLayerReason, noEditableLayerMessage } from './layerGuard';
 
 /** Click-to-cycle order. Archways can't lock, so they skip straight back. */
 const NEXT_STATE: Record<DoorState, DoorState> = {
@@ -213,16 +213,22 @@ export class DoorTool implements DrawingTool {
     const activeLayerId = store.ui.activeLayerId;
     const activeLayer = activeDungeonLayer();
     if (!activeLayer) {
-      notify.warning('Select a layer first');
+      notify.warning(noEditableLayerMessage());
       return;
     }
-    if (!activeLayer.visible) {
+    // blockedLayerReason folds solo into "hidden" (isLayerEffectivelyVisible),
+    // where the raw activeLayer.visible check this replaced did not — soloing
+    // another layer left this one clickable even though the panel and canvas
+    // both show it hidden. Locked is handled specially: it still permits the
+    // single-click select branch below (DR10), so only hidden blocks here.
+    const reason = blockedLayerReason(activeLayer);
+    if (reason === 'Layer is hidden') {
       // Nothing to inspect if the layer isn't drawn — a door tool with a
       // hidden layer active has nothing on screen to click.
-      notify.warning('Layer is hidden');
+      notify.warning(reason);
       return;
     }
-    const locked = activeLayer.locked;
+    const locked = reason === 'Layer is locked';
 
     const hit = doorAt(point, activeLayer);
     if (hit) {

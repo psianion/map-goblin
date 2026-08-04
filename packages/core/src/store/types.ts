@@ -10,9 +10,14 @@ export interface TerrainData {
   palette: (string | null)[];
   /** World-space AABB of painted terrain, for export bounds. null = nothing painted. */
   bounds: { minX: number; minY: number; maxX: number; maxY: number } | null;
-  /** Global terrain show/hide. Absent = true; a later PR adds the toggle UI. */
+  /** Global terrain show/hide. Absent = true. */
   visible?: boolean;
+  /** Global terrain opacity, 0-1. Absent = 1. */
+  opacity?: number;
 }
+
+/** Sentinel activeLayerId for the pinned Terrain row — never a real layer id. */
+export const TERRAIN_PANEL_ID = '__terrain__';
 
 export interface MapSettings {
   name: string;
@@ -258,6 +263,13 @@ export interface UISlice {
   focusMode: 'auto' | 'manual' | 'fullscreen';
   /** Room whose boundary is drawn highlighted on the canvas (RoomPanel hover/select). */
   highlightedRoomId: string | null;
+  /**
+   * Alt-click-eye "solo" state — not persisted, not undoable (same tier as
+   * activeLayerId). A render-only override: it never writes a layer's own
+   * `visible` flag. Consumers gate on `isLayerEffectivelyVisible` (see
+   * store/selectors.ts) instead of reading `layer.visible` directly.
+   */
+  solo: { layerId: string } | null;
 }
 
 // ─── Assets ───────────────────────────────────────────────
@@ -470,6 +482,9 @@ export interface MapBuilderStore {
   setClipperReady: (ready: boolean) => void;
   setFocusMode: (mode: UISlice['focusMode']) => void;
   setHighlightedRoomId: (roomId: string | null) => void;
+  toggleSoloLayer: (id: string) => void;
+  /** Drops solo bookkeeping without touching any layer's visibility. */
+  clearSolo: () => void;
 
   // asset actions
   toggleFavorite: (assetId: string) => void;

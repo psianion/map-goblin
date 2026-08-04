@@ -1,6 +1,7 @@
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
-import type { DungeonLayer, DungeonStyle } from '@/store/types'
+import { cn } from '@/lib/utils'
+import type { DungeonLayer, DungeonStyle, SublayerVisibility } from '@/store/types'
 import type { AnyChild } from '@/shared/types'
 import { PropertyField } from './PropertyField'
 import { ColorField } from '@/components/inputs/ColorField'
@@ -8,12 +9,12 @@ import { ColorChip } from '@/components/inputs/ColorChip'
 import { SliderInput } from '@/components/inputs/SliderInput'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { ToggleSwitch } from '@/components/ui/toggle-switch'
-import { Palette, Minus, Waves, Blend, Sparkles, RotateCcw } from 'lucide-react'
+import { Palette, Minus, Waves, Blend, Sparkles, RotateCcw, Layers, Eye } from 'lucide-react'
 import { getWallSetDefaults, type WallCategory } from '@/assets/textureManifest'
 import { PresetStrip } from '@/components/shared/PresetStrip'
 import { DUNGEON_STYLE_PRESETS, matchPresetId } from '@/store/presetRegistry'
 import { resolveStyle } from '@/engine/styleResolver'
-import { ShapeStyleCommand, CompositeCommand, PresetApplyCommand } from '@/store/commands'
+import { ShapeStyleCommand, CompositeCommand, PresetApplyCommand, PropertyCommand } from '@/store/commands'
 import { undoManager } from '@/store/undoManager'
 import { selectActiveLayer, selectSelectedIds } from '@/store/selectors'
 import { notify } from '@/lib/toast'
@@ -51,6 +52,9 @@ function isMixed<T>(values: T[]): boolean {
 
 export function LayerProperties({ layer, openSections, onToggleSection }: LayerPropertiesProps) {
   const updateLayer = useStore((s) => s.updateLayer)
+  // The per-layer grid toggle renders global && perLayer — muted here (not
+  // disabled: still worth setting ahead of turning the global grid back on).
+  const globalGridVisible = useStore((s) => s.grid.visible)
   // Derived, not remembered — a local copy would keep highlighting a preset
   // that undo had already taken back off the layer.
   const activePresetId = matchPresetId(layer.style)
@@ -212,25 +216,144 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
       }
     : layer.style
 
+  // ── Opacity — live preview via the raw action, one undo entry on release ──
+  const commitOpacity = (newPct: number, startPct: number) => {
+    const newVal = newPct / 100
+    const startVal = startPct / 100
+    if (newVal === startVal) return
+    undoManager.execute(new PropertyCommand(
+      'Layer opacity',
+      { type: 'layer', layerId: layer.id },
+      { opacity: startVal },
+      { opacity: newVal },
+    ))
+  }
+
+  // ── Layer-style fields (Floor Color, Wall Width/Tint, Edge Transition
+  // width, Roughness amplitude) — same live-patch/commit-on-release split as
+  // opacity above. `patch()` keeps driving the live drag/picker preview;
+  // this fires once when the drag/picker session ends, same PropertyCommand
+  // vehicle as opacity (a `{ style: {...} }` patch is just Partial<Layer>),
+  // so no new command class was needed. Per-shape override paths already go
+  // through ShapeStyleCommand on every change and are untouched.
+  function commitStyleField<K extends keyof DungeonStyle>(
+    field: K,
+    newValue: DungeonStyle[K],
+    startValue: DungeonStyle[K],
+  ) {
+    if (newValue === startValue) return
+    undoManager.execute(new PropertyCommand(
+      `Layer ${field}`,
+      { type: 'layer', layerId: layer.id },
+      { style: { ...layer.style, [field]: startValue } },
+      { style: { ...layer.style, [field]: newValue } },
+    ))
+  }
+
   return (
     <div className="flex flex-col pt-2">
-      {/* ── Shape Selection Banner ── */}
+      {/* ── Layer (opacity) ── */}
+      <CollapsibleSection
+        id="layer"
+        title="Layer"
+        icon={Layers}
+        defaultOpen={true}
+        isOpen={openSections?.has('layer')}
+        onToggle={onToggleSection}
+      >
+        <div className="pt-2">
+          <PropertyField label="Opacity">
+            <SliderInput
+              value={Math.round(layer.opacity * 100)}
+              rawValue={layer.opacity * 100}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(pct) => updateLayer(layer.id, { opacity: pct / 100 })}
+              onChangeCommit={commitOpacity}
+              unit="%"
+            />
+          </PropertyField>
+        </div>
+      </CollapsibleSection>
+
+      {/* ── Sublayers ── */}
+      <CollapsibleSection
+        id="sublayers"
+        title="Sublayers"
+        icon={Eye}
+        defaultOpen={false}
+        isOpen={openSections?.has('sublayers')}
+        onToggle={onToggleSection}
+      >
+        <div className="flex flex-col gap-2 pt-2">
+          {(
+            [
+              ['floor', 'Floor'],
+              ['grid', 'Grid'],
+              ['walls', 'Walls & Doors'],
+            ] as [keyof SublayerVisibility, string][]
+          ).map(([key, label]) => {
+            const globallyMuted = key === 'grid' && !globalGridVisible
+            return (
+              <div
+                key={key}
+                // opacity-80 + text-dim, not opacity-50 on text-muted — see
+                // index.css's --text-dim comment (opacity-50 on text-muted
+                // fails 4.5:1 in both themes).
+                className={cn('flex items-center justify-between', globallyMuted && 'opacity-80')}
+                title={globallyMuted ? 'Grid is off globally' : undefined}
+              >
+                <span
+                  className={cn(
+                    'font-mono text-panel-label uppercase',
+                    globallyMuted ? 'text-text-dim' : 'text-text-muted',
+                  )}
+                >
+                  {label}
+                </span>
+                <ToggleSwitch
+                  checked={layer.sublayerVisibility[key]}
+                  onChange={(v) =>
+                    undoManager.execute(new PropertyCommand(
+                      `${layer.sublayerVisibility[key] ? 'Hide' : 'Show'} ${label.toLowerCase()}`,
+                      { type: 'layer', layerId: layer.id },
+                      { sublayerVisibility: { ...layer.sublayerVisibility } },
+                      { sublayerVisibility: { ...layer.sublayerVisibility, [key]: v } },
+                    ))
+                  }
+                  label={label}
+                />
+              </div>
+            )
+          })}
+        </div>
+      </CollapsibleSection>
+
+      {/* ── Shape Selection Banner ──
+          Style Presets applies to the whole layer, not a shape selection, so
+          the section itself just doesn't render below (quieter than showing
+          it visible-but-disabled) — a one-line note here is what tells the
+          user where it went instead. */}
       {hasSelection && (
-        <div className="mx-3 mb-2 px-2 py-1.5 bg-surface-2 border border-border-subtle rounded text-panel-label text-text-muted flex items-center justify-between">
-          <span>
-            {selectedChildren.length === 1 ? '1 shape selected' : `${selectedChildren.length} shapes selected`}
-          </span>
-          {anyShapeHasOverrides && (
-            <button
-              type="button"
-              onClick={resetShapesToLayerDefaults}
-              className="flex items-center gap-1 text-[10px] text-text-muted hover:text-text-primary transition-colors"
-              title="Reset all overrides to layer defaults"
-            >
-              <RotateCcw size={10} />
-              Reset
-            </button>
-          )}
+        <div className="mx-3 mb-2 px-2 py-1.5 bg-surface-2 border border-border-subtle rounded text-panel-label text-text-muted flex flex-col gap-1">
+          <div className="flex items-center justify-between">
+            <span>
+              {selectedChildren.length === 1 ? '1 shape selected' : `${selectedChildren.length} shapes selected`}
+            </span>
+            {anyShapeHasOverrides && (
+              <button
+                type="button"
+                onClick={resetShapesToLayerDefaults}
+                className="flex items-center gap-1 text-[10px] text-text-muted hover:text-text-primary transition-colors"
+                title="Reset all overrides to layer defaults"
+              >
+                <RotateCcw size={10} />
+                Reset
+              </button>
+            )}
+          </div>
+          <span className="text-[10px]">Presets apply to the whole layer.</span>
         </div>
       )}
 
@@ -292,6 +415,9 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
                 onChange={(c) =>
                   hasSelection ? applyShapeOverride('floorColor', c) : patch({ floorColor: c })
                 }
+                onChangeCommit={(c, start) => {
+                  if (!hasSelection) commitStyleField('floorColor', c, start)
+                }}
               />
             )}
           </PropertyField>
@@ -313,13 +439,23 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
               <select
                 value={layer.style.wallTextureSetId ?? 'none'}
                 onChange={(e) => {
+                  // Discrete control, no live-drag phase — commit straight to
+                  // one PropertyCommand rather than the live `patch()` every
+                  // other field here uses for its drag preview.
                   const val = e.target.value === 'none' ? undefined : e.target.value
-                  if (val) {
-                    const defaults = getWallSetDefaults(val as WallCategory)
-                    patch({ wallTextureSetId: val, wallWidth: defaults.defaultWidth })
-                  } else {
-                    patch({ wallTextureSetId: val })
-                  }
+                  const newStyle: DungeonStyle = val
+                    ? {
+                        ...layer.style,
+                        wallTextureSetId: val,
+                        wallWidth: getWallSetDefaults(val as WallCategory).defaultWidth,
+                      }
+                    : { ...layer.style, wallTextureSetId: val }
+                  undoManager.execute(new PropertyCommand(
+                    'Layer wall texture',
+                    { type: 'layer', layerId: layer.id },
+                    { style: layer.style },
+                    { style: newStyle },
+                  ))
                 }}
                 className="w-full h-7 px-2 bg-surface-2 text-panel-body text-text-primary rounded border border-border-default focus:border-border-focus focus:outline-none"
               >
@@ -330,7 +466,7 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
             </PropertyField>
           )}
 
-          {(hasSelection ? layer.style.wallTextureSetId : layer.style.wallTextureSetId) &&
+          {layer.style.wallTextureSetId &&
             (() => {
               const textureId = layer.style.wallTextureSetId
               if (!textureId) return null
@@ -353,6 +489,9 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
                       onChange={(v) =>
                         hasSelection ? applyShapeOverride('wallWidth', v) : patch({ wallWidth: v })
                       }
+                      onChangeCommit={(v, start) => {
+                        if (!hasSelection) commitStyleField('wallWidth', v, start)
+                      }}
                       min={wd.minWidth}
                       max={wd.maxWidth}
                       step={0.05}
@@ -373,6 +512,9 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
                           ? applyShapeOverride('wallTextureTint', c)
                           : patch({ wallTextureTint: c })
                       }
+                      onChangeCommit={(c, start) => {
+                        if (!hasSelection) commitStyleField('wallTextureTint', c, start)
+                      }}
                     />
                   </PropertyField>
                 </>
@@ -396,7 +538,14 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
               if (hasSelection) {
                 applyShapeOverride('showEdgeTransitions', v)
               } else {
-                patch({ showEdgeTransitions: v })
+                // Discrete control, no live-drag phase — one PropertyCommand
+                // per click, same treatment as the wall texture select above.
+                undoManager.execute(new PropertyCommand(
+                  v ? 'Enable edge transitions' : 'Disable edge transitions',
+                  { type: 'layer', layerId: layer.id },
+                  { style: layer.style },
+                  { style: { ...layer.style, showEdgeTransitions: v } },
+                ))
               }
             }}
             label="Enable edge transitions"
@@ -420,6 +569,9 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
                     ? applyShapeOverride('edgeTransitionWidth', v)
                     : patch({ edgeTransitionWidth: v })
                 }
+                onChangeCommit={(v, start) => {
+                  if (!hasSelection) commitStyleField('edgeTransitionWidth', v, start)
+                }}
                 min={0.05}
                 max={2}
                 step={0.05}
@@ -456,6 +608,9 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
                   ? applyShapeOverride('roughnessAmplitude', v)
                   : patch({ roughnessAmplitude: v })
               }
+              onChangeCommit={(v, start) => {
+                if (!hasSelection) commitStyleField('roughnessAmplitude', v, start)
+              }}
               min={0}
               max={0.5}
               step={0.01}

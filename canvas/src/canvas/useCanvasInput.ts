@@ -8,7 +8,9 @@ import { handleImageImport } from './importImage';
 import { handleShortcut } from '@/shortcuts/defaultShortcuts';
 import { cursorWorldPosition } from './cursorPosition';
 import { useStore } from '../store/store';
+import { TERRAIN_PANEL_ID } from '@/store/types';
 import { cancelZoomAnimationRef } from '@/components/toolbar/zoomToFitRef';
+import { priorActiveLayerRef } from '@/components/toolbar/toolConstants';
 import { wallNodeAt } from '@/engine/wallNodeOverlay';
 import {
   beginNodeDrag,
@@ -395,7 +397,28 @@ export function useCanvasInput(
         e.preventDefault();
         return;
       }
-      _toolManager?.onKeyDown(e);
+      const consumedGesture = _toolManager?.onKeyDown(e);
+
+      // Escape also exits solo (D1) and, if the Terrain row was active,
+      // restores the dungeon layer that was active before it (D5b). Placed
+      // last, after every tool-specific Escape consumer above (node-edit,
+      // shape-node-edit, and whatever the active tool's own onKeyDown just
+      // did — a wall/polygon/path chain cancels itself there) — solo and
+      // terrain selection are view-level state, not something with any claim
+      // to pre-empt an in-progress drawing gesture's own Escape handling.
+      // Skipped when that Escape just cancelled a live gesture (consumedGesture)
+      // so cancelling a chain and clearing solo don't both fire off one press.
+      if (e.key === 'Escape' && !consumedGesture) {
+        const state = useStore.getState();
+        if (state.ui.solo) state.clearSolo();
+        if (state.ui.activeLayerId === TERRAIN_PANEL_ID) {
+          const prior = priorActiveLayerRef.current;
+          if (prior && state.layers.some((l) => l.id === prior)) {
+            state.setActiveLayerId(prior);
+          }
+          priorActiveLayerRef.current = null;
+        }
+      }
     };
 
     // ─── Pan and zoom ─────────────────────────────────────────

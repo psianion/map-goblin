@@ -8,6 +8,8 @@ export interface ContextMenuItem {
   danger?: boolean
   /** Render a divider above this item. */
   separatorBefore?: boolean
+  /** Greyed out and inert — e.g. Delete on a locked layer. */
+  disabled?: boolean
 }
 
 /** Tracks right-click position; open() opens the menu at the cursor, close() dismisses it. */
@@ -43,8 +45,15 @@ export function ContextMenu({
     const onClickOutside = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose()
     }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
     document.addEventListener('mousedown', onClickOutside)
-    return () => document.removeEventListener('mousedown', onClickOutside)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onClickOutside)
+      document.removeEventListener('keydown', onKeyDown)
+    }
   }, [pos, onClose])
 
   if (!pos) return null
@@ -62,13 +71,17 @@ export function ContextMenu({
           <button
             type="button"
             role="menuitem"
+            disabled={item.disabled}
+            aria-disabled={item.disabled}
             onClick={() => {
+              if (item.disabled) return
               onClose()
               item.onSelect()
             }}
             className={cn(
               'w-full text-left px-3 py-1.5 text-sm gg-row',
               item.danger ? 'text-danger' : 'text-text-primary',
+              item.disabled && 'opacity-50 cursor-not-allowed pointer-events-none',
             )}
           >
             {item.label}

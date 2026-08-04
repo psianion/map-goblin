@@ -3,6 +3,7 @@ import type { Point } from '../../types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
 import { notify } from '../../shared/notify';
+import { blockedLayerReason, noEditableLayerMessage } from './layerGuard';
 
 /**
  * Manages drawing tools — registration, activation, and input forwarding.
@@ -45,15 +46,12 @@ export class ToolManager {
     const state = useStore.getState();
     const layer = state.layers.find((l) => l.id === state.ui.activeLayerId);
     if (!layer || layer.type !== 'dungeon') {
-      notify.warning('Select a layer first');
+      notify.warning(noEditableLayerMessage());
       return false;
     }
-    if (layer.locked) {
-      notify.warning('Layer is locked');
-      return false;
-    }
-    if (!layer.visible) {
-      notify.warning('Layer is hidden');
+    const reason = blockedLayerReason(layer);
+    if (reason) {
+      notify.warning(reason);
       return false;
     }
     return true;
@@ -79,8 +77,17 @@ export class ToolManager {
     this.activeTool?.cancel();
   }
 
-  onKeyDown(event: KeyboardEvent): void {
+  /**
+   * Returns true when the active tool was mid-gesture (isActive()) before
+   * this key was handled — e.g. Escape cancelling an in-progress chain.
+   * Callers use this to tell an Escape that consumed a live gesture from an
+   * idle one, so a single Escape doesn't also fall through to view-level
+   * effects (clearing solo, leaving Terrain) that belong to the idle case.
+   */
+  onKeyDown(event: KeyboardEvent): boolean {
+    const wasActive = this.activeTool?.isActive() ?? false;
     this.activeTool?.onKeyDown(event);
+    return wasActive;
   }
 
   updatePreview(): void {

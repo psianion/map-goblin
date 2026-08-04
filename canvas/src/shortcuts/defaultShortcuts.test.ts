@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { handleShortcut } from './defaultShortcuts';
+import { TERRAIN_PANEL_ID } from '@/store/types';
 import type { DungeonLayer, ShapeChild } from '@/store/types';
 
 function layer(): DungeonLayer {
@@ -76,6 +77,18 @@ describe('ctrl+v paste — active-layer validation (F5)', () => {
     handleShortcut('ctrl+v');
     expect(layer().children).toHaveLength(0);
     expect(toast.warning).toHaveBeenCalledWith('Select a layer first', expect.anything());
+  });
+
+  // D5(a): the Terrain row resolves to no dungeon layer too, but the plain
+  // "Select a layer first" reads as a bug when Terrain is visibly selected.
+  it('warns with the terrain-aware message when the Terrain row is active', () => {
+    useStore.getState().setActiveLayerId(TERRAIN_PANEL_ID);
+    handleShortcut('ctrl+v');
+    expect(layer().children).toHaveLength(0);
+    expect(toast.warning).toHaveBeenCalledWith(
+      'Terrain is selected — pick a layer to draw on',
+      expect.anything(),
+    );
   });
 });
 

@@ -25,6 +25,7 @@ import {
 } from '@/engine/ringStoneDrag';
 import type { WallCategory } from '@/assets/textureManifest';
 import { snapToNearestWall } from '@/shared/wallSnap';
+import { isLayerEffectivelyVisible } from '@/store/selectors';
 import type { DungeonLayer } from '@/store/types';
 import type { WallNodeEdit, WallNodeInsert, WallEdits } from '@/shared/types';
 import type { Point } from '@/types/geometry';
@@ -41,7 +42,10 @@ export function toggleNodeEditAt(world: Point): boolean {
   const state = useStore.getState();
   const layer = state.layers.find(
     (l): l is DungeonLayer =>
-      l.type === 'dungeon' && l.id === state.ui.activeLayerId && l.visible && !l.locked,
+      l.type === 'dungeon' &&
+      l.id === state.ui.activeLayerId &&
+      isLayerEffectivelyVisible(state, l) &&
+      !l.locked,
   );
   if (!layer) return false;
 
@@ -272,7 +276,10 @@ function cyclePiece(t: number, direction: number): void {
   const state = useStore.getState();
   const layer = state.layers.find(
     (l): l is DungeonLayer =>
-      l.type === 'dungeon' && l.id === state.ui.activeLayerId && l.visible && !l.locked,
+      l.type === 'dungeon' &&
+      l.id === state.ui.activeLayerId &&
+      isLayerEffectivelyVisible(state, l) &&
+      !l.locked,
   );
   const setId = layer?.style.wallTextureSetId as WallCategory | undefined;
   if (!setId) return;

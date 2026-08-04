@@ -17,12 +17,17 @@ const TABS: { id: RightTab; label: string; icon: typeof Layers }[] = [
 
 const LS_KEY = 'rp-sections';
 
+// Sections whose `defaultOpen` should actually take effect on first load —
+// CollapsibleSection treats a defined `openSections` set as controlled, so an
+// id absent from here reads as closed regardless of its own `defaultOpen`.
+const INITIALLY_OPEN = ['colors', 'layer', 'terrain', 'sublayers'];
+
 function loadSections(): Set<string> {
   try {
     const saved = localStorage.getItem(LS_KEY);
-    return saved ? new Set(JSON.parse(saved) as string[]) : new Set(['colors']);
+    return saved ? new Set(JSON.parse(saved) as string[]) : new Set(INITIALLY_OPEN);
   } catch {
-    return new Set(['colors']);
+    return new Set(INITIALLY_OPEN);
   }
 }
 

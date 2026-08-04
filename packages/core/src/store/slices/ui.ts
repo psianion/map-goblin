@@ -10,6 +10,8 @@ export interface UIActions {
   setClipperReady: (ready: boolean) => void;
   setFocusMode: (mode: UISlice['focusMode']) => void;
   setHighlightedRoomId: (roomId: string | null) => void;
+  toggleSoloLayer: (id: string) => void;
+  clearSolo: () => void;
 }
 
 export const createUISlice: StateCreator<
@@ -55,5 +57,23 @@ export const createUISlice: StateCreator<
   setHighlightedRoomId: (roomId) =>
     set((state) => {
       state.ui.highlightedRoomId = roomId;
+    }),
+  // Direct state mutation, same tier as setActiveLayerId — not routed through
+  // undoManager. Soloing is a view convenience (like expanding a layer row),
+  // not an authored edit worth an undo entry.
+  //
+  // Render-only: this never writes a layer's `visible` flag. Every consumer
+  // that cares whether a layer is showing reads `isLayerEffectivelyVisible`
+  // (store/selectors.ts) instead, so solo can never leak into autosave and
+  // never fights an undo/redo done while it was on.
+  toggleSoloLayer: (id) =>
+    set((state) => {
+      const target = state.layers.find((l) => l.id === id);
+      if (!target || target.type !== 'dungeon') return;
+      state.ui.solo = state.ui.solo?.layerId === id ? null : { layerId: id };
+    }),
+  clearSolo: () =>
+    set((state) => {
+      state.ui.solo = null;
     }),
 });

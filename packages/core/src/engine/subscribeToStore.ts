@@ -14,6 +14,7 @@ import { markDirty as markRenderCacheDirty } from './renderCache';
 import { rebuildDungeonLayer, redrawDoors, preloadLayerTextures } from './floorWallRenderer';
 import { preloadWallTextures } from './wallNodeRenderer';
 import type { DungeonLayer, LightChild, ShapeChild } from '../store/types';
+import { isLayerEffectivelyVisible } from '../store/selectors';
 import type { WallEdits, WallSegment } from '../shared/types';
 import { LightManager } from './lighting';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
@@ -369,14 +370,26 @@ export function subscribeToStore(
   unsubscribers.push(unsubLayers);
 
   // ─── Layer visibility changes ─────────────────────────
+  // Reads effective visibility (own flag narrowed by solo — see
+  // isLayerEffectivelyVisible), not the raw flag: soloing never writes
+  // `layer.visible` (render-only override), so this is the only thing that
+  // makes solo actually hide the other layers on screen. The selector's
+  // output changes whenever solo does, even though `state.layers` itself
+  // does not, which is what re-fires this on a solo toggle.
   const unsubVisibility = useStore.subscribe(
-    (state) => state.layers.map((l) => ({ id: l.id, visible: l.visible })),
+    (state) =>
+      state.layers.map((l) => ({ id: l.id, type: l.type, visible: isLayerEffectivelyVisible(state, l) })),
     (layerVisibility) => {
-      for (const { id, visible } of layerVisibility) {
+      for (const { id, type, visible } of layerVisibility) {
         const entry = getLayerEntry(id);
-        if (!entry) continue;
-        const displayObj = entry.textureSprite ?? entry.container;
-        displayObj.visible = visible;
+        if (entry) {
+          const displayObj = entry.textureSprite ?? entry.container;
+          displayObj.visible = visible;
+        }
+        // Background pixels render via bgFill/bgTilingSprite under
+        // sceneGraph.backgroundLayer, not this layer's own entry container —
+        // the entry above does nothing for the background layer.
+        if (type === 'background') sceneGraph.backgroundLayer.visible = visible;
       }
     },
     {
@@ -389,14 +402,18 @@ export function subscribeToStore(
   unsubscribers.push(unsubVisibility);
 
   // ─── Layer opacity changes ────────────────────────────
+  // Opacity isn't affected by solo (only visibility is), so this still reads
+  // the raw flag — but background still needs the same extra mirror as above.
   const unsubOpacity = useStore.subscribe(
-    (state) => state.layers.map((l) => ({ id: l.id, opacity: l.opacity })),
+    (state) => state.layers.map((l) => ({ id: l.id, type: l.type, opacity: l.opacity })),
     (layerOpacities) => {
-      for (const { id, opacity } of layerOpacities) {
+      for (const { id, type, opacity } of layerOpacities) {
         const entry = getLayerEntry(id);
-        if (!entry) continue;
-        const displayObj = entry.textureSprite ?? entry.container;
-        displayObj.alpha = opacity;
+        if (entry) {
+          const displayObj = entry.textureSprite ?? entry.container;
+          displayObj.alpha = opacity;
+        }
+        if (type === 'background') sceneGraph.backgroundLayer.alpha = opacity;
       }
     },
     {
@@ -593,10 +610,12 @@ export function subscribeToStore(
   unsubscribers.push(unsubShapes);
 
   // ─── Light changes → LightManager sync ───────────────────
+  // Effective visibility, so soloing one layer excludes every other layer's
+  // lights (and their glow) the same way it excludes their walls and floors.
   const unsubLights = useStore.subscribe(
     (state) =>
       state.layers
-        .filter((l): l is DungeonLayer => l.type === 'dungeon' && l.visible)
+        .filter((l): l is DungeonLayer => l.type === 'dungeon' && isLayerEffectivelyVisible(state, l))
         .flatMap((l) => l.children.filter((c): c is LightChild => c.childType === 'light')),
     (lights) => {
       lightManager.syncFromStore(lights);
@@ -613,12 +632,31 @@ export function subscribeToStore(
   );
   unsubscribers.push(unsubLights);
 
+  // ─── Terrain appearance (visible/opacity) ─────────────
+  // Absent settings.terrain (never painted) reads as visible=true, opacity=1 —
+  // same defaults TerrainTool's paint-gate and the palette selector already
+  // assume. O(1) flag flip on the renderer, no rebuild.
+  const unsubTerrainAppearance = useStore.subscribe(
+    (state) => ({
+      visible: state.mapSettings.terrain?.visible ?? true,
+      opacity: state.mapSettings.terrain?.opacity ?? 1,
+    }),
+    ({ visible, opacity }) => {
+      sceneGraph.terrainRenderer.setAppearance(visible, opacity);
+    },
+    {
+      fireImmediately: true,
+      equalityFn: (a, b) => a.visible === b.visible && a.opacity === b.opacity,
+    },
+  );
+  unsubscribers.push(unsubTerrainAppearance);
+
   // ─── Grid visibility changes ─────────────────────────
   const unsubGrid = useStore.subscribe(
     (state) => state.grid.visible,
     (visible) => {
       sceneGraph.gridRenderer.markDirty();
-      notify.subtle(`Grid: ${visible ? 'ON' : 'OFF'}`, { icon: 'grid' });
+      notify.subtle(`Grid: ${visible ? 'ON' : 'OFF'}`);
     },
   );
   unsubscribers.push(unsubGrid);

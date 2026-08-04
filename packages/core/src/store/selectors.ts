@@ -10,6 +10,19 @@ export function selectActiveLayer(state: MapBuilderStore): Layer | undefined {
   return state.layers.find((l) => l.id === activeLayerId);
 }
 
+/**
+ * Whether `layer` should render/be interactive right now — its own authored
+ * `visible` flag, narrowed by solo. Solo never writes `layer.visible` (see
+ * ui.ts's `toggleSoloLayer`): it is a render-only override, so every
+ * consumer that used to read `layer.visible` alone for a rendering or
+ * interaction gate must go through this instead, or a soloed map draws (or
+ * lets you edit) layers the panel shows as hidden.
+ */
+export function isLayerEffectivelyVisible(state: MapBuilderStore, layer: Layer): boolean {
+  const { solo } = state.ui;
+  return layer.visible && (solo == null || layer.type === 'background' || layer.id === solo.layerId);
+}
+
 export function selectAllLights(s: MapBuilderStore): LightChild[] {
   return s.layers
     .filter((l): l is DungeonLayer => l.type === 'dungeon')

@@ -3,7 +3,8 @@ import type { RenderEngine } from './RenderEngine';
 import type { SceneGraph } from './sceneGraph';
 import { getLayerEntries } from './sceneGraph';
 import { useStore } from '../store/store';
-import type { DungeonLayer, Layer, LightChild } from '../store/types';
+import { isLayerEffectivelyVisible } from '../store/selectors';
+import type { DungeonLayer, Layer, LightChild, UISlice } from '../store/types';
 import { LightManager } from './lighting';
 import { renderToolPreview } from './toolPreview';
 import { renderRoomHighlight } from './roomHighlight';
@@ -45,8 +46,13 @@ export function setupRenderLoop(
   let lastBgW = NaN;
   let lastBgH = NaN;
 
-  // Cached dungeon layer filter — avoids re-allocating array every frame
+  // Cached dungeon layer filter — avoids re-allocating array every frame.
+  // Keyed on both the layers array and solo: solo toggling never touches
+  // `layers` (see ui.ts's `toggleSoloLayer`), so without the second key a
+  // solo/un-solo would never bust this cache and occlusion would keep
+  // casting against a soloed-away layer's walls.
   let cachedLayersRef: Layer[] | null = null;
+  let cachedSoloRef: UISlice['solo'] | null = null;
   let cachedDungeonLayers: DungeonLayer[] = [];
 
   // Access the PixiJS Ticker through the app
@@ -146,10 +152,11 @@ export function setupRenderLoop(
 
     // (6) Lighting — rebuild wall segments if dirty, update FBO
     const storeState = useStore.getState();
-    if (storeState.layers !== cachedLayersRef) {
+    if (storeState.layers !== cachedLayersRef || storeState.ui.solo !== cachedSoloRef) {
       cachedLayersRef = storeState.layers;
+      cachedSoloRef = storeState.ui.solo;
       cachedDungeonLayers = storeState.layers.filter(
-        (l): l is DungeonLayer => l.type === 'dungeon' && l.visible,
+        (l): l is DungeonLayer => l.type === 'dungeon' && isLayerEffectivelyVisible(storeState, l),
       );
     }
     lightManager.rebuildIfDirty(cachedDungeonLayers);

@@ -1,5 +1,7 @@
 import type { AnyChild, ShapeChild, LightChild, DungeonLayer } from '../store/types';
 import { resolveDoors, resolveWalls } from '../shared/wallResolve';
+import { useStore } from '../store/store';
+import { isLayerEffectivelyVisible } from '../store/selectors';
 
 /**
  * Narrow doors stay clickable: a width-1 door's half-width is only 0.5 world
@@ -123,9 +125,10 @@ export function hitTestAllLayers(
   layers: DungeonLayer[],
   point: [number, number],
 ): { child: AnyChild; layerId: string } | null {
+  const state = useStore.getState();
   for (let i = layers.length - 1; i >= 0; i--) {
     const layer = layers[i];
-    if (!layer.visible || layer.locked) continue;
+    if (!isLayerEffectivelyVisible(state, layer) || layer.locked) continue;
     const hit = hitTestChildren(layer.children, point, layer);
     if (hit) return { child: hit, layerId: layer.id };
   }
