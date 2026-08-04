@@ -62,3 +62,46 @@ describe('LayerProperties — layer-style undo (D4)', () => {
     expect(undoManager.canUndo()).toBe(false)
   })
 })
+
+// F4: the Wall Texture <select> and the "Enable edge transitions" toggle were
+// the last two layer-style controls still writing straight through the
+// no-undo patch() — both are discrete (no drag phase), so each click commits
+// one PropertyCommand directly instead of needing a live/commit split.
+describe('LayerProperties — discrete-control undo (F4)', () => {
+  beforeEach(() => {
+    undoManager.clear()
+    useStore.getState().resetToDefault()
+  })
+
+  it('changing the Wall Texture select commits one undo entry and sets the set-default width', () => {
+    render(
+      <LayerProperties layer={dungeon()} openSections={new Set(['walls'])} onToggleSection={() => {}} />,
+    )
+    const select = screen.getByRole('combobox')
+    expect(undoManager.canUndo()).toBe(false)
+
+    fireEvent.change(select, { target: { value: 'wood-ashen' } })
+
+    expect(dungeon().style.wallTextureSetId).toBe('wood-ashen')
+    expect(undoManager.canUndo()).toBe(true)
+
+    undoManager.undo()
+    expect(dungeon().style.wallTextureSetId).not.toBe('wood-ashen')
+  })
+
+  it('toggling "Enable edge transitions" commits one undo entry', () => {
+    render(
+      <LayerProperties layer={dungeon()} openSections={new Set()} onToggleSection={() => {}} />,
+    )
+    const toggle = screen.getByRole('switch', { name: 'Enable edge transitions' })
+    const start = dungeon().style.showEdgeTransitions
+
+    fireEvent.click(toggle)
+
+    expect(dungeon().style.showEdgeTransitions).toBe(!start)
+    expect(undoManager.canUndo()).toBe(true)
+
+    undoManager.undo()
+    expect(dungeon().style.showEdgeTransitions).toBe(start)
+  })
+})

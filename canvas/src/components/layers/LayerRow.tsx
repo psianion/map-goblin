@@ -14,7 +14,6 @@ import { ChildRow } from './ChildRow'
 import { InlineEditableName } from './InlineEditableName'
 import { notify } from '@/lib/toast'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
-import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard'
 
 interface LayerRowProps {
   layer: Layer
@@ -119,14 +118,13 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
     // Delete only ever reaches a dungeon layer (background is excluded from
     // the menu below), but re-check here too: the row toolbar has no
     // delete button, so this guard only fires from the context menu, which
-    // can still be opened and clicked on a layer that got locked/hidden
-    // since it rendered.
-    if (dungeonLayer) {
-      const reason = blockedLayerReason(dungeonLayer)
-      if (reason) {
-        notify.warning(reason)
-        return
-      }
+    // can still be opened and clicked on a layer that got locked since it
+    // rendered. Locked is the only thing that blocks a delete — not being
+    // soloed (or hidden) is not a reason to refuse deleting a layer you
+    // aren't currently looking at, and the action is undoable regardless.
+    if (layer.locked) {
+      notify.warning('Layer is locked')
+      return
     }
     undoManager.execute(new RemoveLayerCommand('Delete layer', layer.id))
     notify.action('Layer deleted', {
@@ -257,7 +255,10 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
             // layer's own visibility — clicking any row's eye (soloed one
             // included) exits solo and writes nothing. Alt-click above is the
             // only way to change which layer is soloed while solo is active.
-            if (soloLayerId) {
+            // Background is exempt from solo (always effectively visible), so
+            // its eye keeps toggling its own visibility even while soloing,
+            // rather than reading as a solo control it has no part in.
+            if (soloLayerId && layer.type !== 'background') {
               clearSolo()
               return
             }

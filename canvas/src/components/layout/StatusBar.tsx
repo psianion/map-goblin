@@ -28,7 +28,13 @@ export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarPro
   const [rulerStr, setRulerStr] = useState<string>('');
   const cellScale = useStore((s) => s.mapSettings.cellScale);
   const soloLayerId = useStore((s) => s.ui.solo?.layerId ?? null);
-  const soloLayerName = useStore((s) => s.layers.find((l) => l.id === s.ui.solo?.layerId)?.name ?? null);
+  // Falls back to a placeholder rather than the raw (possibly empty) name:
+  // an empty-named soloed layer must still render the chip, or solo has no
+  // exit affordance in the status bar.
+  const soloLayerName = useStore((s) => {
+    const layer = s.layers.find((l) => l.id === s.ui.solo?.layerId);
+    return layer ? layer.name || 'Unnamed layer' : null;
+  });
   const rafRef = useRef<number>(0);
   const frameCountRef = useRef<number>(0);
   // Read inside the frame loop without making it a dependency, so the loop is

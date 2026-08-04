@@ -6,13 +6,13 @@ import { LayerRow } from './LayerRow'
 import { useStore } from '@/store/store'
 import { undoManager } from '@/store/undoManager'
 import { createDungeonLayer } from '@/store/factories'
-import type { DungeonLayer } from '@/store/types'
+import type { DungeonLayer, Layer } from '@/store/types'
 
 function dungeonLayers(): DungeonLayer[] {
   return useStore.getState().layers.filter((l): l is DungeonLayer => l.type === 'dungeon')
 }
 
-function renderRow(layer: DungeonLayer) {
+function renderRow(layer: Layer) {
   return render(
     <DndContext>
       <SortableContext items={[layer.id]}>
@@ -86,6 +86,25 @@ describe('LayerRow — solo eye semantics (D1)', () => {
     fireEvent.click(screen.getByTestId('layer-visibility-toggle'))
     expect(useStore.getState().layers.find((l) => l.id === layer1.id)?.visible).toBe(false)
   })
+
+  // F5: background is exempt from solo (always effectively visible), so its
+  // eye must keep toggling its own visibility during solo instead of reading
+  // as a solo control — the clearSolo-and-return branch only applies to
+  // dungeon layers.
+  it('clicking the background eye during solo toggles its own visibility, not just solo', () => {
+    const [layer1] = dungeonLayers()
+    useStore.getState().toggleSoloLayer(layer1.id)
+    const bg = useStore.getState().layers.find((l) => l.type === 'background')!
+
+    renderRow(bg)
+    fireEvent.click(screen.getByTestId('layer-visibility-toggle'))
+
+    // toggleVisibility() is an explicit visibility edit — it drops solo as a
+    // side effect the same way it does everywhere else (see toggleVisibility's
+    // own comment), the fix here is only that background's visibility itself
+    // actually flips instead of the click being swallowed as a solo-exit.
+    expect(useStore.getState().layers.find((l) => l.id === bg.id)?.visible).toBe(false)
+  })
 })
 
 // D2: deleteLayer used to have no guard at all — a locked layer could be
@@ -118,5 +137,23 @@ describe('LayerRow — locked layer delete guard (D2)', () => {
     fireEvent.click(screen.getByText('Delete Layer'))
 
     expect(useStore.getState().layers.some((l) => l.id === layer1.id)).toBe(false)
+  })
+
+  // F3: delete used to route through blockedLayerReason, which also refuses
+  // an effectively-hidden (non-soloed) layer with "Layer is hidden" — but
+  // deleting a layer you aren't currently looking at is legitimate and
+  // undoable, so only a lock should stop it.
+  it('deletes a non-soloed (effectively hidden) unlocked layer', () => {
+    const layer2 = createDungeonLayer('Layer 2')
+    useStore.getState().addLayer(layer2)
+    const [layer1] = dungeonLayers()
+    useStore.getState().toggleSoloLayer(layer1.id) // layer2 is now effectively hidden
+
+    renderRow(useStore.getState().layers.find((l) => l.id === layer2.id) as DungeonLayer)
+
+    fireEvent.contextMenu(screen.getByTestId('layer-row'))
+    fireEvent.click(screen.getByText('Delete Layer'))
+
+    expect(useStore.getState().layers.some((l) => l.id === layer2.id)).toBe(false)
   })
 })

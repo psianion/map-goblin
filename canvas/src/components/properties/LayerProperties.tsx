@@ -439,13 +439,23 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
               <select
                 value={layer.style.wallTextureSetId ?? 'none'}
                 onChange={(e) => {
+                  // Discrete control, no live-drag phase — commit straight to
+                  // one PropertyCommand rather than the live `patch()` every
+                  // other field here uses for its drag preview.
                   const val = e.target.value === 'none' ? undefined : e.target.value
-                  if (val) {
-                    const defaults = getWallSetDefaults(val as WallCategory)
-                    patch({ wallTextureSetId: val, wallWidth: defaults.defaultWidth })
-                  } else {
-                    patch({ wallTextureSetId: val })
-                  }
+                  const newStyle: DungeonStyle = val
+                    ? {
+                        ...layer.style,
+                        wallTextureSetId: val,
+                        wallWidth: getWallSetDefaults(val as WallCategory).defaultWidth,
+                      }
+                    : { ...layer.style, wallTextureSetId: val }
+                  undoManager.execute(new PropertyCommand(
+                    'Layer wall texture',
+                    { type: 'layer', layerId: layer.id },
+                    { style: layer.style },
+                    { style: newStyle },
+                  ))
                 }}
                 className="w-full h-7 px-2 bg-surface-2 text-panel-body text-text-primary rounded border border-border-default focus:border-border-focus focus:outline-none"
               >
@@ -528,7 +538,14 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
               if (hasSelection) {
                 applyShapeOverride('showEdgeTransitions', v)
               } else {
-                patch({ showEdgeTransitions: v })
+                // Discrete control, no live-drag phase — one PropertyCommand
+                // per click, same treatment as the wall texture select above.
+                undoManager.execute(new PropertyCommand(
+                  v ? 'Enable edge transitions' : 'Disable edge transitions',
+                  { type: 'layer', layerId: layer.id },
+                  { style: layer.style },
+                  { style: { ...layer.style, showEdgeTransitions: v } },
+                ))
               }
             }}
             label="Enable edge transitions"
