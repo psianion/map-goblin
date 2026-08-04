@@ -34,4 +34,29 @@ describe('ContextMenu', () => {
     expect(onSelect).toHaveBeenCalledOnce()
     expect(onClose).toHaveBeenCalledOnce()
   })
+
+  // D2: Delete Layer needs to render greyed out and inert when the layer is
+  // locked, matching the disabled item's onSelect/onClose contract.
+  it('a disabled item is inert — no onSelect, no onClose', () => {
+    const onClose = vi.fn()
+    const onSelect = vi.fn()
+    render(
+      <ContextMenu
+        pos={{ x: 0, y: 0 }}
+        onClose={onClose}
+        items={[{ label: 'Delete Layer', onSelect, disabled: true }]}
+      />,
+    )
+    fireEvent.click(screen.getByText('Delete Layer'))
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  // D6: Escape is table-stakes keyboard support even before the full contract.
+  it('closes on Escape', () => {
+    const onClose = vi.fn()
+    render(<ContextMenu pos={{ x: 0, y: 0 }} onClose={onClose} items={items} />)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledOnce()
+  })
 })
