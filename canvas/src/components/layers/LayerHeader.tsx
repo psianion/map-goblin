@@ -20,6 +20,7 @@ export function LayerHeader() {
       <span className="font-display text-tab-label uppercase tracking-wider text-text-muted">Layers</span>
       <button
         title="Add layer"
+        aria-label="Add layer"
         onClick={handleAddLayer}
         className="w-7 h-7 rounded-sm flex items-center justify-center bg-transparent hover:bg-surface-2 text-text-muted hover:text-text-primary border border-transparent hover:border-border-default transition-colors"
       >

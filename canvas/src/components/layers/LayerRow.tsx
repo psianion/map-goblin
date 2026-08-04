@@ -14,6 +14,7 @@ import { ChildRow } from './ChildRow'
 import { InlineEditableName } from './InlineEditableName'
 import { notify } from '@/lib/toast'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
+import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard'
 
 interface LayerRowProps {
   layer: Layer
@@ -90,7 +91,9 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
   const toggleVisibility = () => {
     // A manual visibility edit is the user taking back control — drop solo
     // bookkeeping without touching any layer's visible flag (the edit itself
-    // is the only visibility change that should happen here).
+    // is the only visibility change that should happen here). Used by the
+    // context menu's Hide/Show item, which is an explicit request and stays
+    // exempt from the eye button's solo-exit-only branch below.
     if (useStore.getState().ui.solo) clearSolo()
     const wasVisible = layer.visible
     undoManager.execute(new PropertyCommand(
@@ -113,6 +116,18 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
   }
 
   const deleteLayer = () => {
+    // Delete only ever reaches a dungeon layer (background is excluded from
+    // the menu below), but re-check here too: the row toolbar has no
+    // delete button, so this guard only fires from the context menu, which
+    // can still be opened and clicked on a layer that got locked/hidden
+    // since it rendered.
+    if (dungeonLayer) {
+      const reason = blockedLayerReason(dungeonLayer)
+      if (reason) {
+        notify.warning(reason)
+        return
+      }
+    }
     undoManager.execute(new RemoveLayerCommand('Delete layer', layer.id))
     notify.action('Layer deleted', {
       label: 'Undo',
@@ -122,13 +137,21 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
   }
 
   // Menu items mirror the row toolbar; delete only offered for non-background layers
-  // (removeLayer refuses to remove the background layer).
+  // (removeLayer refuses to remove the background layer). Delete is greyed out when
+  // locked specifically (the common, expected case) — deleteLayer's own guard above
+  // also catches the rarer hidden-via-solo edge case at click time.
   const menuItems: ContextMenuItem[] = [
     { label: 'Rename', onSelect: () => setEditingName(true) },
     { label: layer.locked ? 'Unlock' : 'Lock', onSelect: toggleLock },
     { label: layer.visible ? 'Hide' : 'Show', onSelect: toggleVisibility },
     ...(layer.type !== 'background'
-      ? [{ label: 'Delete Layer', onSelect: deleteLayer, danger: true, separatorBefore: true } as ContextMenuItem]
+      ? [{
+          label: 'Delete Layer',
+          onSelect: deleteLayer,
+          danger: true,
+          separatorBefore: true,
+          disabled: layer.locked,
+        } as ContextMenuItem]
       : []),
   ]
 
@@ -142,7 +165,10 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           // carries the mode-correct hover (flat tint by day, glow from below at night).
           'gg-row flex items-center gap-1 px-1 py-1.5 cursor-pointer',
           isActive && 'bg-surface-3',
-          !effectivelyVisible && 'opacity-50',
+          // opacity-80 (not 50): row text sits at text-primary, which only
+          // clears 4.5:1 against surface-1/3 in both themes down to ~75%
+          // alpha (see index.css token comment) — 80 keeps a safety margin.
+          !effectivelyVisible && 'opacity-80',
         )}
         onClick={handleLayerClick}
         onContextMenu={menu.open}
@@ -152,6 +178,8 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           <span
             {...attributes}
             {...listeners}
+            role="button"
+            aria-label={`Reorder ${layer.name}`}
             className="text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing"
             onClick={(e) => e.stopPropagation()}
           >
@@ -166,11 +194,14 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           <button
             type="button"
             className={cn(
-              'flex items-center justify-center w-4 h-4 shrink-0 text-text-muted hover:text-text-primary transition-colors',
-              !hasChildren && 'opacity-30 pointer-events-none',
+              'flex items-center justify-center w-4 h-4 shrink-0 transition-colors',
+              // text-dim instead of text-muted + opacity-30: text-muted only
+              // clears 4.5:1 at full alpha, so fading it further broke contrast.
+              hasChildren ? 'text-text-muted hover:text-text-primary' : 'text-text-dim pointer-events-none',
             )}
             onClick={handleChevronClick}
             title={isExpanded ? 'Collapse' : 'Expand'}
+            aria-label={isExpanded ? `Collapse ${layer.name}` : `Expand ${layer.name}`}
           >
             {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           </button>
@@ -198,24 +229,39 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           }}
           className="text-text-muted hover:text-text-primary"
           title={layer.locked ? 'Unlock layer' : 'Lock layer'}
+          aria-label={layer.locked ? `Unlock ${layer.name}` : `Lock ${layer.name}`}
+          aria-pressed={layer.locked}
         >
           {layer.locked ? <Lock size={14} /> : <Unlock size={14} />}
         </Button>
 
-        {/* visibility toggle — alt-click solos this layer instead of hiding it */}
+        {/* visibility toggle — alt-click solos this layer instead of hiding it.
+            Icon/title read the AUTHORED layer.visible, never the effective one:
+            a row another row soloed away still shows its own true state here,
+            and the row's opacity (above, driven by effectivelyVisible) is what
+            carries the "soloed away" read instead. */}
         <Button
           variant="ghost"
           size="icon-xs"
           data-testid="layer-visibility-toggle"
-          data-visible={effectivelyVisible}
+          data-visible={layer.visible}
+          data-effective={effectivelyVisible}
           data-soloed={isSoloed}
           onClick={(e) => {
             e.stopPropagation()
             if (e.altKey && layer.type !== 'background') {
               toggleSoloLayer(layer.id)
-            } else {
-              toggleVisibility()
+              return
             }
+            // Solo is active: the eye is reporting/controlling solo, not this
+            // layer's own visibility — clicking any row's eye (soloed one
+            // included) exits solo and writes nothing. Alt-click above is the
+            // only way to change which layer is soloed while solo is active.
+            if (soloLayerId) {
+              clearSolo()
+              return
+            }
+            toggleVisibility()
           }}
           className={cn(
             isSoloed ? 'text-accent-active hover:text-accent-active' : 'text-text-muted hover:text-text-primary',
@@ -225,8 +271,10 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
               ? (layer.visible ? 'Hide layer' : 'Show layer')
               : `${layer.visible ? 'Hide layer' : 'Show layer'} (Alt-click to solo)`
           }
+          aria-label={layer.visible ? `Hide ${layer.name}` : `Show ${layer.name}`}
+          aria-pressed={layer.visible}
         >
-          {effectivelyVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+          {layer.visible ? <Eye size={14} /> : <EyeOff size={14} />}
         </Button>
       </div>
 

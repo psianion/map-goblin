@@ -129,7 +129,9 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
       className={cn(
         'gg-row flex items-center gap-1 pl-8 pr-1 py-1 cursor-pointer',
         isSelected && 'bg-surface-3',
-        !child.visible && 'opacity-50',
+        // opacity-80, matching LayerRow — opacity-50 on text-primary content
+        // fails 4.5:1 (see index.css's --text-dim comment).
+        !child.visible && 'opacity-80',
       )}
       onClick={handleClick}
       onContextMenu={menu.open}
@@ -158,6 +160,8 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
         }}
         className="text-text-muted hover:text-text-primary"
         title={child.visible ? 'Hide' : 'Show'}
+        aria-label={child.visible ? `Hide ${child.name}` : `Show ${child.name}`}
+        aria-pressed={child.visible}
       >
         {child.visible ? <Eye size={12} /> : <EyeOff size={12} />}
       </Button>
