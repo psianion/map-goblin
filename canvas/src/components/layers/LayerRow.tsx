@@ -22,6 +22,7 @@ import { PropertyCommand, ReorderChildCommand, RemoveLayerCommand } from '@/stor
 import { Button } from '@/components/ui/button'
 import { ChildRow } from './ChildRow'
 import { InlineEditableName } from './InlineEditableName'
+import { computeChildDragReorder } from './childReorder'
 import { notify } from '@/lib/toast'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 
@@ -126,7 +127,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
 
   const handleChildDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
-    if (!over || active.id === over.id || !dungeonLayer) return
+    if (!over || !dungeonLayer) return
 
     // Reorder is a destructive-but-undoable panel op, like layer delete
     // (see deleteLayer below) — locked blocks it, but a layer hidden via
@@ -137,13 +138,10 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
       return
     }
 
-    // Children render in array order (unlike layers, which render reversed) —
-    // no visual-to-array index flip needed here.
-    const fromIndex = dungeonLayer.children.findIndex((c) => c.id === active.id)
-    const toIndex = dungeonLayer.children.findIndex((c) => c.id === over.id)
-    if (fromIndex === -1 || toIndex === -1) return
+    const result = computeChildDragReorder(dungeonLayer.children, String(active.id), String(over.id))
+    if (!result) return
 
-    undoManager.execute(new ReorderChildCommand('Reorder child', layer.id, fromIndex, toIndex))
+    undoManager.execute(new ReorderChildCommand('Reorder child', layer.id, result.fromIndex, result.toIndex))
   }
 
   const deleteLayer = () => {
@@ -311,7 +309,9 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
         </Button>
       </div>
 
-      {/* Children rows — only when dungeon layer is expanded */}
+      {/* Children rows — only when dungeon layer is expanded.
+          Rendered reversed, same as LayerPanel does for layers: array index 0
+          draws first/bottom, so panel-top must show the last (topmost) child. */}
       {isDungeon && isExpanded && dungeonLayer && dungeonLayer.children.length > 0 && (
         <DndContext
           collisionDetection={closestCenter}
@@ -319,11 +319,11 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           onDragEnd={handleChildDragEnd}
         >
           <SortableContext
-            items={dungeonLayer.children.map((c) => c.id)}
+            items={[...dungeonLayer.children].reverse().map((c) => c.id)}
             strategy={verticalListSortingStrategy}
           >
             <div>
-              {dungeonLayer.children.map((child) => (
+              {[...dungeonLayer.children].reverse().map((child) => (
                 <ChildRow key={child.id} child={child} layer={dungeonLayer} />
               ))}
             </div>
