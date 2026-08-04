@@ -1,4 +1,4 @@
-import { memo, useState } from 'react'
+import { memo, useRef, useState } from 'react'
 import { Eye, EyeOff, Lock, Unlock, GripVertical, ChevronRight, ChevronDown } from 'lucide-react'
 import {
   DndContext,
@@ -31,13 +31,17 @@ import { InlineEditableName } from './InlineEditableName'
 import { computeChildDragReorder } from './childReorder'
 import { notify } from '@/lib/toast'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
+import { captureNeighborFocus } from './treeFocus'
 
 interface LayerRowProps {
   layer: Layer
   isActive: boolean
+  /** H3: position/count among this row's tree-level siblings (aria-posinset/aria-setsize). Defaults suit a row rendered standalone (e.g. in tests). */
+  posInSet?: number
+  setSize?: number
 }
 
-export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProps) {
+export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, setSize = 1 }: LayerRowProps) {
   const setActiveLayerId = useStore((s) => s.setActiveLayerId)
   const expandedLayerIds = useStore(useShallow((s) => s.ui.expandedLayerIds))
   const toggleExpandedLayerId = useStore((s) => s.toggleExpandedLayerId)
@@ -53,6 +57,10 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
   const effectivelyVisible = useStore((s) => isLayerEffectivelyVisible(s, layer))
 
   const [editingName, setEditingName] = useState(false)
+  // H1: the treeitem row itself — outlives the rename input/menu, so it's a
+  // stable focus target for both the delete-neighbor handoff and the rename
+  // exit restore.
+  const rowRef = useRef<HTMLDivElement>(null)
 
   const menu = useContextMenu()
 
@@ -180,12 +188,16 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
       notify.warning('Layer is locked')
       return
     }
+    // H1: capture the neighbor to focus BEFORE this row is removed from the
+    // DOM by the delete below.
+    const focusNeighbor = captureNeighborFocus(rowRef.current)
     undoManager.execute(new RemoveLayerCommand('Delete layer', layer.id))
     notify.action('Layer deleted', {
       label: 'Undo',
       onClick: () => undoManager.undo(),
       icon: 'trash',
     })
+    focusNeighbor()
   }
 
   // K1/K3: row keyboard contract (WAI-ARIA APG treeview). Guarded on
@@ -266,10 +278,25 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
     <div ref={setNodeRef} style={style} className={cn(isDragging && 'opacity-75 z-50')}>
       {/* Layer row */}
       <div
+        ref={rowRef}
         data-testid="layer-row"
         role="treeitem"
         aria-selected={isActive}
         aria-expanded={isDungeon && hasChildren ? isExpanded : undefined}
+        // L1: just the name, so AT reads "Corridor, tree item" instead of
+        // concatenating the nested buttons' own aria-labels.
+        aria-label={layer.name}
+        // H3: the children <div role="group"> below is a DOM sibling (inside
+        // a roleless wrapper), not a DOM descendant — restructuring it inside
+        // this row would break the row's own flex layout (icon/name/buttons
+        // in a horizontal line vs. a block list below). aria-owns is the
+        // standard-compliant way to keep the tree relationship explicit
+        // without moving markup; aria-level/posinset/setsize complete the
+        // APG treeview contract for this node.
+        aria-owns={isDungeon && hasChildren && isExpanded ? `${layer.id}-children` : undefined}
+        aria-level={1}
+        aria-posinset={posInSet}
+        aria-setsize={setSize}
         tabIndex={isActive ? 0 : -1}
         className={cn(
           // Selection reads as a raised surface, not an accent side-stripe: `gg-row`
@@ -297,6 +324,10 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           <span
             {...attributes}
             {...listeners}
+            // H2: attributes spreads dnd-kit's own tabIndex=0, which would
+            // add a second permanent tab stop per row (N+1 total). Override
+            // it after the spread so the grip roves with its row instead.
+            tabIndex={isActive ? 0 : -1}
             role="button"
             aria-label={`Reorder ${layer.name}`}
             className="text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing rounded-sm focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50 border border-transparent"
@@ -340,6 +371,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
           onCommit={commitRename}
           onCancel={() => setEditingName(false)}
           displayClassName="text-panel-body text-text-primary"
+          restoreFocusRef={rowRef}
         />
 
         {/* lock toggle — tabIndex=-1: reachable via the row menu (Shift+F10),
@@ -422,9 +454,15 @@ export const LayerRow = memo(function LayerRow({ layer, isActive }: LayerRowProp
             items={[...dungeonLayer.children].reverse().map((c) => c.id)}
             strategy={verticalListSortingStrategy}
           >
-            <div role="group" aria-label={`${layer.name} children`}>
-              {[...dungeonLayer.children].reverse().map((child) => (
-                <ChildRow key={child.id} child={child} layer={dungeonLayer} />
+            <div id={`${layer.id}-children`} role="group" aria-label={`${layer.name} children`}>
+              {[...dungeonLayer.children].reverse().map((child, i) => (
+                <ChildRow
+                  key={child.id}
+                  child={child}
+                  layer={dungeonLayer}
+                  posInSet={i + 1}
+                  setSize={dungeonLayer.children.length}
+                />
               ))}
             </div>
           </SortableContext>

@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { InlineEditableName } from './InlineEditableName'
@@ -58,5 +59,48 @@ describe('InlineEditableName', () => {
       />,
     )
     expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('Layer 1 renamed')
+  })
+})
+
+// H1: focus used to drop to <body> once Escape/Enter unmounted the input —
+// restoreFocusRef gives the caller a way to hand focus back to the row.
+describe('InlineEditableName — focus restore on exit (H1)', () => {
+  function Harness({ editing, onCancel }: { editing: boolean; onCancel: () => void }) {
+    const rowRef = useRef<HTMLDivElement>(null)
+    return (
+      <div ref={rowRef} tabIndex={-1} data-testid="row">
+        <InlineEditableName
+          value="Layer 1"
+          editing={editing}
+          onStartEdit={() => {}}
+          onCommit={() => {}}
+          onCancel={onCancel}
+          restoreFocusRef={rowRef}
+        />
+      </div>
+    )
+  }
+
+  it('restores focus to the row after Escape cancels', () => {
+    let editing = true
+    const onCancel = vi.fn(() => { editing = false })
+    const { rerender } = render(<Harness editing={editing} onCancel={onCancel} />)
+
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' })
+    rerender(<Harness editing={editing} onCancel={onCancel} />)
+
+    expect(document.activeElement).toBe(screen.getByTestId('row'))
+  })
+
+  it('does not force focus onto the row on a plain blur (click/tab away, not Enter/Escape)', () => {
+    let editing = true
+    const onCancel = vi.fn(() => { editing = false })
+    const { rerender } = render(<Harness editing={editing} onCancel={onCancel} />)
+
+    fireEvent.blur(screen.getByRole('textbox'))
+    editing = false
+    rerender(<Harness editing={editing} onCancel={onCancel} />)
+
+    expect(document.activeElement).not.toBe(screen.getByTestId('row'))
   })
 })

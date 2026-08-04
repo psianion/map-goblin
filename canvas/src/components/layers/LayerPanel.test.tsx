@@ -97,3 +97,56 @@ describe('LayerPanel — Terrain row context menu (D5c)', () => {
     expect(useStore.getState().mapSettings.terrain?.opacity).toBe(1)
   })
 })
+
+describe('LayerPanel — arrow navigation (K1)', () => {
+  beforeEach(() => {
+    undoManager.clear()
+    useStore.getState().resetToDefault()
+  })
+
+  it('ArrowDown/ArrowUp/Home/End traverse reversed layers, then Terrain, then Background', () => {
+    // Store order is [background, layer1, layer2] — the panel shows user
+    // layers reversed (layer2 on top, visually and in the DOM), then the
+    // pinned Terrain row, then the pinned Background row.
+    const layer2 = createDungeonLayer('Layer 2')
+    useStore.getState().addLayer(layer2)
+    render(<LayerPanel />)
+
+    const tree = screen.getByRole('tree')
+    const rows = Array.from(tree.querySelectorAll<HTMLElement>('[role="treeitem"]'))
+    expect(rows.map((r) => r.getAttribute('aria-label'))).toEqual([
+      'Layer 2', 'Layer 1', 'Terrain', 'Background',
+    ])
+
+    rows[0].focus()
+    for (let i = 1; i < rows.length; i++) {
+      fireEvent.keyDown(tree, { key: 'ArrowDown' })
+      expect(document.activeElement).toBe(rows[i])
+    }
+    // Clamps at the end — one more ArrowDown stays put on Background.
+    fireEvent.keyDown(tree, { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(rows[3])
+
+    fireEvent.keyDown(tree, { key: 'Home' })
+    expect(document.activeElement).toBe(rows[0])
+    fireEvent.keyDown(tree, { key: 'End' })
+    expect(document.activeElement).toBe(rows[3])
+    fireEvent.keyDown(tree, { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(rows[2])
+  })
+
+  // handleTreeKeyDown bails when document.activeElement isn't one of the
+  // treeitems it tracks (current < 0) — the rename <input> is exactly that
+  // case, and arrow keys there belong to text-cursor movement, not the tree.
+  it('does not steal ArrowDown from a focused rename input', () => {
+    const [layer1] = dungeonLayers()
+    render(<LayerPanel />)
+    const row = screen.getAllByTestId('layer-row').find((r) => r.getAttribute('aria-label') === layer1.name)!
+    fireEvent.keyDown(row, { key: 'F2' })
+
+    const input = screen.getByLabelText(`Rename ${layer1.name}`)
+    expect(document.activeElement).toBe(input)
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(input)
+  })
+})

@@ -218,3 +218,85 @@ describe('ChildRow — row keyboard contract (K1)', () => {
     expect(findDungeonLayer(layer.id).children[0].visible).toBe(true)
   })
 })
+
+// H1: delete used to leave focus nowhere once the row unmounted. Needs a
+// real role="tree" ancestor to find a neighbor in (same as LayerRow's H1
+// tests). This static list doesn't reactively drop the deleted row from the
+// DOM the way a real expanded LayerRow would (it isn't subscribed to the
+// store), so assertions target the captured neighbor element itself rather
+// than a single-match query.
+describe('ChildRow — delete focus handoff (H1)', () => {
+  beforeEach(() => {
+    undoManager.clear()
+    useStore.getState().resetToDefault()
+  })
+
+  function renderTree(children: AssetChild[], layer: DungeonLayer) {
+    return render(
+      <div role="tree">
+        <DndContext>
+          <SortableContext items={children.map((c) => c.id)}>
+            {children.map((c) => (
+              <ChildRow key={c.id} child={c} layer={layer} />
+            ))}
+          </SortableContext>
+        </DndContext>
+      </div>,
+    )
+  }
+
+  it('focuses the next row after deleting a row that has one', () => {
+    const layer = createDungeonLayer('Layer 1')
+    const a1 = asset('asset-1')
+    const a2 = asset('asset-2')
+    layer.children = [a1, a2]
+    useStore.getState().addLayer(layer)
+
+    renderTree([a1, a2], findDungeonLayer(layer.id))
+    const rows = screen.getAllByTestId('child-row')
+    fireEvent.keyDown(rows[0], { key: 'Delete' })
+
+    expect(findDungeonLayer(layer.id).children).toHaveLength(1)
+    expect(document.activeElement).toBe(rows[1])
+  })
+
+  it('falls back to the previous row when deleting the last row', () => {
+    const layer = createDungeonLayer('Layer 1')
+    const a1 = asset('asset-1')
+    const a2 = asset('asset-2')
+    layer.children = [a1, a2]
+    useStore.getState().addLayer(layer)
+
+    renderTree([a1, a2], findDungeonLayer(layer.id))
+    const rows = screen.getAllByTestId('child-row')
+    fireEvent.keyDown(rows[1], { key: 'Delete' })
+
+    expect(findDungeonLayer(layer.id).children).toHaveLength(1)
+    expect(document.activeElement).toBe(rows[0])
+  })
+})
+
+// L4: the context menu portal sits inside the row's React tree, so an
+// un-stopped click on a menu item bubbled up to the row's own onClick —
+// clicking Delete removed the child, then the row's handleClick re-added
+// its (now-deleted) id to selectedIds.
+describe('ChildRow — menu click does not bubble to the row (L4)', () => {
+  beforeEach(() => {
+    undoManager.clear()
+    useStore.getState().resetToDefault()
+  })
+
+  it('menu Delete leaves selectedIds without the deleted id', () => {
+    const layer = createDungeonLayer('Layer 1')
+    const a = asset('asset-1')
+    layer.children = [a]
+    useStore.getState().addLayer(layer)
+    useStore.getState().setSelectedIds([a.id])
+
+    renderChild(a, findDungeonLayer(layer.id))
+    fireEvent.contextMenu(screen.getByTestId('child-row'))
+    fireEvent.click(screen.getByText('Delete'))
+
+    expect(useStore.getState().selection.selectedIds).not.toContain(a.id)
+  })
+})

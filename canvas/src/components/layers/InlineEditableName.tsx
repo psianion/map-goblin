@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 interface InlineEditableNameProps {
@@ -10,6 +10,13 @@ interface InlineEditableNameProps {
   onCommit: (newName: string) => void
   onCancel: () => void
   displayClassName?: string
+  /**
+   * The row this name lives in — focus is restored here after an
+   * Enter/Escape exit unmounts the input (H1), so keyboard rename never
+   * drops focus to <body>. Not used for a blur-away exit (clicking or
+   * tabbing elsewhere already sent focus somewhere on purpose).
+   */
+  restoreFocusRef?: React.RefObject<HTMLElement | null>
 }
 
 /**
@@ -24,8 +31,21 @@ export function InlineEditableName({
   onCommit,
   onCancel,
   displayClassName,
+  restoreFocusRef,
 }: InlineEditableNameProps) {
   const [draft, setDraft] = useState(value)
+  // H1: restore focus to the row once the input actually unmounts (after
+  // Enter/Escape), not a plain blur-away — a ref flag set by the keydown
+  // handlers below, consumed by this effect on the next true→false edit.
+  const restoreOnExit = useRef(false)
+  const wasEditing = useRef(editing)
+  useEffect(() => {
+    if (wasEditing.current && !editing && restoreOnExit.current) {
+      restoreOnExit.current = false
+      restoreFocusRef?.current?.focus()
+    }
+    wasEditing.current = editing
+  }, [editing, restoreFocusRef])
   // Seed the draft the moment edit mode turns on — the "adjust state during
   // render" pattern (react.dev/learn/you-might-not-need-an-effect), not an
   // effect, so entering edit mode never costs an extra render.
@@ -69,10 +89,12 @@ export function InlineEditableName({
           // falling through to the row's own Enter (select).
           if (e.key === 'Enter') {
             e.stopPropagation()
+            restoreOnExit.current = true
             commit()
           }
           if (e.key === 'Escape') {
             e.stopPropagation()
+            restoreOnExit.current = true
             onCancel()
           }
         }}

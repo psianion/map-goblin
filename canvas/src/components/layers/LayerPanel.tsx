@@ -39,7 +39,7 @@ const selectActiveLayerId = (s: { ui: { activeLayerId: string } }) => s.ui.activ
  * shape as the pinned Background row below it: name column padded out to the
  * same width the drag-handle/chevron/lock spacers give every other row.
  */
-function TerrainRow({ isActive }: { isActive: boolean }) {
+function TerrainRow({ isActive, posInSet, setSize }: { isActive: boolean; posInSet: number; setSize: number }) {
   const setActiveLayerId = useStore((s) => s.setActiveLayerId)
   const setSelectedIds = useStore((s) => s.setSelectedIds)
   const terrainVisible = useStore((s) => s.mapSettings.terrain?.visible ?? true)
@@ -99,6 +99,10 @@ function TerrainRow({ isActive }: { isActive: boolean }) {
       data-testid="terrain-row"
       role="treeitem"
       aria-selected={isActive}
+      aria-label="Terrain"
+      aria-level={1}
+      aria-posinset={posInSet}
+      aria-setsize={setSize}
       tabIndex={isActive ? 0 : -1}
       className={cn(
         'gg-row flex items-center gap-1 px-1 py-1.5 cursor-pointer',
@@ -171,6 +175,11 @@ export function LayerPanel() {
   // User layers in reverse (top = last in array = first visually)
   const userLayers = layers.filter((l) => l.type !== 'background').reverse()
 
+  // H3: level-1 siblings are the user layers, the pinned Terrain row, and the
+  // pinned Background row (in that DOM/visual order) — aria-posinset/setsize
+  // cover the whole set, not just the draggable layers.
+  const topLevelCount = userLayers.length + 1 + (backgroundLayer ? 1 : 0)
+
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -222,31 +231,41 @@ export function LayerPanel() {
             items={userLayers.map((l) => l.id)}
             strategy={verticalListSortingStrategy}
           >
-            {userLayers.map((layer) => (
+            {userLayers.map((layer, i) => (
               <LayerRow
                 key={layer.id}
                 layer={layer}
                 isActive={layer.id === activeLayerId}
+                posInSet={i + 1}
+                setSize={topLevelCount}
               />
             ))}
           </SortableContext>
         </DndContext>
 
         {userLayers.length === 0 && (
-          <p className="px-3 py-2 text-panel-body text-text-muted">
+          // M2: an empty-state message, not a tree node — role="presentation"
+          // keeps it out of the accessibility tree's child list for role="tree".
+          <p role="presentation" className="px-3 py-2 text-panel-body text-text-muted">
             No layers yet — add one to start drawing.
           </p>
         )}
 
-        <hr className="border-border-subtle mx-2" />
-        <TerrainRow isActive={activeLayerId === TERRAIN_PANEL_ID} />
+        <hr role="presentation" className="border-border-subtle mx-2" />
+        <TerrainRow
+          isActive={activeLayerId === TERRAIN_PANEL_ID}
+          posInSet={userLayers.length + 1}
+          setSize={topLevelCount}
+        />
 
         {backgroundLayer && (
           <>
-            <hr className="border-border-subtle mx-2" />
+            <hr role="presentation" className="border-border-subtle mx-2" />
             <LayerRow
               layer={backgroundLayer}
               isActive={backgroundLayer.id === activeLayerId}
+              posInSet={userLayers.length + 2}
+              setSize={topLevelCount}
             />
           </>
         )}

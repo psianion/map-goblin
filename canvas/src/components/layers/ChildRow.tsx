@@ -1,4 +1,4 @@
-import { memo, useState } from 'react'
+import { memo, useRef, useState } from 'react'
 import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -13,10 +13,14 @@ import { Button } from '@/components/ui/button'
 import { InlineEditableName } from './InlineEditableName'
 import { notify } from '@/lib/toast'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
+import { captureNeighborFocus } from './treeFocus'
 
 interface ChildRowProps {
   child: AnyChild
   layer: DungeonLayer
+  /** H3: position/count among this row's tree-level siblings (aria-posinset/aria-setsize). Defaults suit a row rendered standalone (e.g. in tests). */
+  posInSet?: number
+  setSize?: number
 }
 
 function childIcon(childType: AnyChild['childType']) {
@@ -36,7 +40,7 @@ function childIcon(childType: AnyChild['childType']) {
   }
 }
 
-export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) {
+export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, setSize = 1 }: ChildRowProps) {
   const layerId = layer.id
   const selectedIds = useStore(useShallow(selectSelectedIds))
   const setSelectedIds = useStore((s) => s.setSelectedIds)
@@ -45,7 +49,15 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
 
   const menu = useContextMenu()
   const isSelected = selectedIds.includes(child.id)
+  // M1: multi-select would otherwise make every isSelected row its own tab
+  // stop — rove on exactly one, the first selected id, same as the row's own
+  // tabIndex and its grip's below.
+  const isRovingTarget = isSelected && selectedIds[0] === child.id
   const [editingName, setEditingName] = useState(false)
+  // H1: the treeitem row itself — stable across the rename-input/menu
+  // lifecycle, used for both the delete-neighbor handoff and rename-exit
+  // focus restore.
+  const rowRef = useRef<HTMLDivElement>(null)
 
   const commitRename = (newName: string) => {
     undoManager.execute(new UpdateChildCommand(
@@ -60,6 +72,12 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: child.id })
+  // dnd-kit owns the ref via setNodeRef; rowRef needs the same DOM node for
+  // focus management, so compose both into one callback ref.
+  const setRefs = (el: HTMLDivElement | null) => {
+    setNodeRef(el)
+    rowRef.current = el
+  }
   const dragStyle = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -109,9 +127,12 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
       notify.warning('Layer is locked')
       return
     }
+    // H1: capture the neighbor to focus BEFORE this row is removed from the DOM.
+    const focusNeighbor = captureNeighborFocus(rowRef.current)
     undoManager.execute(new RemoveChildCommand('Delete', layerId, child.id))
     notify.action('Deleted', { label: 'Undo', onClick: () => undoManager.undo(), icon: 'trash' })
     setSelectedIds(selectedIds.filter((id) => id !== child.id))
+    focusNeighbor()
   }
 
   const menuItems: ContextMenuItem[] = [
@@ -162,6 +183,18 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
         e.preventDefault()
         remove()
         break
+      case 'ArrowLeft': {
+        // M3 (APG treeview contract): ArrowLeft on a child moves focus up to
+        // its parent layer row. The children <div role="group"> is a DOM
+        // sibling of the parent LayerRow's treeitem (see LayerRow's H3
+        // comment for why it's not a descendant) — walk up to that group,
+        // then back one sibling to the treeitem that owns it.
+        e.preventDefault()
+        const group = e.currentTarget.closest('[role="group"]')
+        const parentRow = group?.previousElementSibling as HTMLElement | null
+        parentRow?.focus()
+        break
+      }
       case 'ContextMenu':
         e.preventDefault()
         menu.openAt(e.currentTarget.getBoundingClientRect().left + 8, e.currentTarget.getBoundingClientRect().bottom)
@@ -179,11 +212,21 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
 
   return (
     <div
-      ref={setNodeRef}
+      ref={setRefs}
       style={dragStyle}
       role="treeitem"
       aria-selected={isSelected}
-      tabIndex={isSelected ? 0 : -1}
+      // L1: just the name, so AT reads "Torch, tree item" instead of
+      // concatenating the nested buttons' own aria-labels.
+      aria-label={child.name}
+      // H3: level 2 (a child of a layer), plus this row's position among its
+      // own layer's children — see LayerRow's aria-owns comment for why the
+      // group->treeitem relationship is expressed this way instead of by DOM
+      // nesting.
+      aria-level={2}
+      aria-posinset={posInSet}
+      aria-setsize={setSize}
+      tabIndex={isRovingTarget ? 0 : -1}
       className={cn(
         'gg-row flex items-center gap-1 pl-4 pr-1 py-1 cursor-pointer',
         // K1: same ring treatment as Button/LayerRow, focus-visible only.
@@ -205,6 +248,9 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
         <span
           {...attributes}
           {...listeners}
+          // H2: override the tabIndex=0 the attributes spread hardcodes —
+          // the grip roves with its row, same as LayerRow's.
+          tabIndex={isRovingTarget ? 0 : -1}
           aria-label={`Reorder ${child.name}`}
           className="text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing rounded-sm focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50 border border-transparent"
           onClick={(e) => e.stopPropagation()}
@@ -226,6 +272,7 @@ export const ChildRow = memo(function ChildRow({ child, layer }: ChildRowProps) 
         onCommit={commitRename}
         onCancel={() => setEditingName(false)}
         displayClassName="text-panel-body text-text-secondary"
+        restoreFocusRef={rowRef}
       />
 
       {/* visibility toggle — tabIndex=-1: reachable via the row's Space
