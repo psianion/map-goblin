@@ -180,6 +180,22 @@ describe('ReorderChildCommand', () => {
     const after = useStore.getState().layers.find((l) => l.id === layer.id) as DungeonLayer;
     expect(after.children.map((c) => c.id)).toEqual(['c1', 'c2', 'c3']);
   });
+
+  it('redo (execute after undo) reapplies the reorder', () => {
+    const state = useStore.getState();
+    const layer = state.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    state.addChild(layer.id, makeShape('c1'));
+    state.addChild(layer.id, makeShape('c2'));
+    state.addChild(layer.id, makeShape('c3'));
+
+    const cmd = new ReorderChildCommand('Reorder', layer.id, 0, 2);
+    cmd.execute();
+    cmd.undo();
+    cmd.execute();
+
+    const after = useStore.getState().layers.find((l) => l.id === layer.id) as DungeonLayer;
+    expect(after.children.map((c) => c.id)).toEqual(['c2', 'c3', 'c1']);
+  });
 });
 
 describe('SetAmbientLightCommand', () => {
