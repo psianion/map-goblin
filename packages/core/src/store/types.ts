@@ -241,7 +241,7 @@ export interface SelectionSlice {
 // ─── UI ───────────────────────────────────────────────────
 
 export interface ModalState {
-  type: 'confirm' | 'export' | 'save' | 'shortcutReference' | 'layerDelete';
+  type: 'confirm' | 'export' | 'save' | 'shortcutReference';
   props: Record<string, unknown>;
 }
 

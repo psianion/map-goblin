@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen } from 'lucide-react'
+import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type } from 'lucide-react'
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
 import { selectSelectedIds } from '@/store/selectors'
@@ -26,6 +26,10 @@ function childIcon(childType: AnyChild['childType']) {
       return <Flame size={12} />
     case 'door':
       return <DoorOpen size={12} />
+    case 'water':
+      return <Waves size={12} />
+    case 'text':
+      return <Type size={12} />
   }
 }
 
