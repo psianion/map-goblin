@@ -9,6 +9,7 @@ import { useStore } from '../../store/store';
 import { notify } from '../../shared/notify';
 import { getChildBounds } from '../hitTest';
 import { blockedLayerReason, noEditableLayerMessage, resolveEditableLayer } from './layerGuard';
+import { isLayerEffectivelyVisible } from '../../store/selectors';
 
 /** Circle placement never collapses to a dot — a click with no drag still reads as a zone. */
 const MIN_CIRCLE_RADIUS = 0.5;
@@ -143,12 +144,13 @@ export class ZoneTool implements DrawingTool {
       notify.warning(noEditableLayerMessage());
       return;
     }
-    const reason = blockedLayerReason(activeLayer);
-    if (reason === 'Layer is hidden') {
-      notify.warning(reason);
+    // Hidden first, explicitly: blockedLayerReason reports locked before hidden,
+    // so a locked+hidden layer would otherwise stay clickable while invisible.
+    if (!isLayerEffectivelyVisible(useStore.getState(), activeLayer)) {
+      notify.warning('Layer is hidden');
       return;
     }
-    const locked = reason === 'Layer is locked';
+    const locked = activeLayer.locked;
 
     const hit = zoneAt(point, activeLayer);
     if (hit) {
@@ -190,8 +192,10 @@ export class ZoneTool implements DrawingTool {
       if (this.dragFrom || moved > DRAG_SLOP) {
         if (activeLayer.locked) {
           notify.warning('Layer is locked');
-          this.pressedZoneId = null;
-          this.pressPoint = null;
+          // Full cancel, not just a field reset: a drag may already be live
+          // (dragFrom set), and leaving it stranded pins isActive()/the cursor
+          // and abandons the un-undoable live position.
+          this.cancel();
           return;
         }
         this.dragTo(point, activeLayer);
@@ -297,6 +301,15 @@ export class ZoneTool implements DrawingTool {
     if (reason) {
       notify.warning(reason);
       return;
+    }
+    // Triggers keyed to this zone become unreachable from every screen while
+    // still riding along in saves/publishes — say so, since prep edits sit
+    // outside the undo stack even though the zone itself comes back on undo.
+    const orphaned = store.prep?.triggers.filter((t) => t.when.zoneId === selected).length ?? 0;
+    if (orphaned > 0) {
+      notify.warning(
+        `Zone deleted — ${orphaned} trigger${orphaned === 1 ? '' : 's'} now reference nothing (undo restores the zone)`,
+      );
     }
     undoManager.execute(new RemoveChildCommand('Delete zone', layer.id, selected));
     store.setSelectedIds([]);

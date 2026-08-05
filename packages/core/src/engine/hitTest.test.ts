@@ -314,6 +314,22 @@ describe('hitTestChildren', () => {
     expect(hitTestChildren([label, asset], [5, 5])?.id).toBe('label-1');
     expect(hitTestChildren([asset, label], [5, 5])?.id).toBe('label-1');
   });
+
+  it('never hits a zone — the Select tool must not grab prep markers', () => {
+    // Deliberate: zones have no case here; ZoneTool owns all zone interaction.
+    // If someone adds a 'zone' case, this locks the conversation, not just the code.
+    const zone: import('../shared/types').ZoneChild = {
+      id: 'zone-1',
+      name: 'Zone 1',
+      childType: 'zone',
+      visible: true,
+      shape: { kind: 'rect', x: 0, y: 0, width: 10, height: 10 },
+    };
+    expect(hitTestChildren([zone], [5, 5])).toBeNull();
+    // …and it does not shadow anything underneath it either.
+    const shape = makeShape(square, { id: 'floor' });
+    expect(hitTestChildren([zone, shape], [5, 5])?.id).toBe('floor');
+  });
 });
 
 // ─── hitTestAllLayers — solo (render-only override) ───────

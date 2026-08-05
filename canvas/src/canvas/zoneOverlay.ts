@@ -11,14 +11,18 @@ import type { ZoneShape } from '@dnd/core/src/shared/types';
  * table-facing, so this file living in the canvas package rather than core
  * is the whole guarantee: it is never imported by session/client.
  *
- * Redraws on any store change (see subscribeToAssets.ts for the same
- * subscribe shape) rather than joining `subscribeToStore`'s digest cache —
- * that cache is shared with the table client and deliberately excludes
- * zones.
+ * Subscribes on a string digest of the visible zones (+ their selection
+ * state) rather than joining `subscribeToStore`'s digest cache — that cache
+ * is shared with the table client and deliberately excludes zones. The
+ * digest matters: an equality-less subscribe fires on every store write, and
+ * an unconditional `graphics.clear()` dirties the render group on every
+ * pointermove of every other tool.
  */
 
-const MUTED_COLOR = 0x94a3b8;
-const ACCENT_COLOR = 0x6c63ff;
+// Mirrors index.css's night-theme --text-muted/--accent-active — Pixi can't
+// read CSS vars, so siblings (e.g. the selection outline) hardcode the same way.
+const MUTED_COLOR = 0x979e94;
+const ACCENT_COLOR = 0x91c464;
 
 function drawZone(g: Graphics, shape: ZoneShape, selected: boolean): void {
   const color = selected ? ACCENT_COLOR : MUTED_COLOR;
@@ -123,22 +127,32 @@ function dashedRect(g: Graphics, x: number, y: number, w: number, h: number, col
   );
 }
 
-interface ZoneSnapshot {
-  layerId: string;
-  zones: ZoneChild[];
+type StoreState = ReturnType<typeof useStore.getState>;
+
+function visibleZones(state: StoreState): { zone: ZoneChild; selected: boolean }[] {
+  const out: { zone: ZoneChild; selected: boolean }[] = [];
+  for (const l of state.layers) {
+    if (l.type !== 'dungeon' || !isLayerEffectivelyVisible(state, l as DungeonLayer)) continue;
+    for (const c of (l as DungeonLayer).children) {
+      if (c.childType !== 'zone' || !c.visible) continue;
+      out.push({ zone: c, selected: state.selection.selectedIds.includes(c.id) });
+    }
+  }
+  return out;
 }
 
-function snapshot(): { layers: ZoneSnapshot[]; selectedIds: string[] } {
-  const state = useStore.getState();
-  return {
-    layers: state.layers
-      .filter((l): l is DungeonLayer => l.type === 'dungeon' && isLayerEffectivelyVisible(state, l))
-      .map((l) => ({
-        layerId: l.id,
-        zones: l.children.filter((c): c is ZoneChild => c.childType === 'zone' && c.visible),
-      })),
-    selectedIds: state.selection.selectedIds,
-  };
+/** Primitive digest so zustand's default Object.is skips redraws on unrelated writes. */
+function zoneDigest(state: StoreState): string {
+  let key = '';
+  for (const { zone, selected } of visibleZones(state)) {
+    const s = zone.shape;
+    key += zone.id + (selected ? '!' : '.');
+    key +=
+      s.kind === 'rect'
+        ? `r${s.x},${s.y},${s.width},${s.height};`
+        : `${s.kind === 'circle' ? `c` : 'p'}${s.position.x},${s.position.y}${s.kind === 'circle' ? `,${s.radius}` : ''};`;
+  }
+  return key;
 }
 
 /**
@@ -150,16 +164,14 @@ export function mountZoneOverlay(worldContainer: Container): () => void {
   graphics.label = 'zoneOverlay';
   worldContainer.addChild(graphics);
 
-  const redraw = ({ layers, selectedIds }: ReturnType<typeof snapshot>) => {
+  const redraw = () => {
     graphics.clear();
-    for (const { zones } of layers) {
-      for (const zone of zones) {
-        drawZone(graphics, zone.shape, selectedIds.includes(zone.id));
-      }
+    for (const { zone, selected } of visibleZones(useStore.getState())) {
+      drawZone(graphics, zone.shape, selected);
     }
   };
 
-  const unsubscribe = useStore.subscribe(snapshot, redraw, { fireImmediately: true });
+  const unsubscribe = useStore.subscribe(zoneDigest, redraw, { fireImmediately: true });
 
   return () => {
     unsubscribe();

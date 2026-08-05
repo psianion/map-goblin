@@ -811,6 +811,10 @@ export class SelectTool implements DrawingTool {
     for (const layer of dungeonLayers) {
       for (const child of layer.children) {
         if (!child.visible) continue;
+        // Zones are prep markers owned by ZoneTool — the marquee must not grab
+        // them (bakeSelectionTransform would move everything else and silently
+        // leave the trap anchor behind).
+        if (child.childType === 'zone') continue;
         const bounds = getChildBounds(child);
         if (boundsIntersect(bounds, dragRect)) {
           collected.push(child.id);

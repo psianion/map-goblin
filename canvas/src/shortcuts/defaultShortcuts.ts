@@ -450,6 +450,15 @@ const toolKeyMap: Record<string, () => void | false> = {
             newChild.transform.translate[0] + 1,
             newChild.transform.translate[1] + 1,
           ];
+        } else if (newChild.childType === 'zone') {
+          // Zones keep their position inside `shape` — without this a pasted
+          // zone lands exactly on top of the original.
+          newChild.shape = newChild.shape.kind === 'rect'
+            ? { ...newChild.shape, x: newChild.shape.x + 1, y: newChild.shape.y + 1 }
+            : {
+                ...newChild.shape,
+                position: { x: newChild.shape.position.x + 1, y: newChild.shape.position.y + 1 },
+              };
         } else if ('contours' in newChild) {
           // Shapes and water carry their geometry in rings, not a position —
           // without this branch they pasted exactly on top of the original.

@@ -8,6 +8,7 @@ interface NumberInputProps {
   step?: number;
   className?: string;
   disabled?: boolean;
+  'aria-label'?: string;
 }
 
 export function NumberInput({
@@ -18,6 +19,7 @@ export function NumberInput({
   step = 1,
   className,
   disabled,
+  'aria-label': ariaLabel,
 }: NumberInputProps) {
   return (
     <input
@@ -27,6 +29,7 @@ export function NumberInput({
       max={max}
       step={step}
       disabled={disabled}
+      aria-label={ariaLabel}
       onChange={(e) => {
         const v = parseFloat(e.target.value);
         if (!isNaN(v)) onChange(v);

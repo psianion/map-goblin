@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '@/store/store'
 import { PropertyField } from './PropertyField'
@@ -82,6 +82,18 @@ const ACTION_KIND_OPTIONS: { value: TriggerAction['kind']; label: string }[] = [
   { value: 'environment', label: 'Environment' },
 ]
 
+// Flat label lookups for the raw kebab-case `kind` enums, so collapsed rows
+// and headers can show "Enter region" / "Ability check" instead of the enum
+// itself.
+const CONDITION_LABELS: Record<string, string> = Object.fromEntries(
+  Object.values(CONDITION_OPTIONS)
+    .flat()
+    .map((o) => [o.value, o.label]),
+)
+const ACTION_KIND_LABELS: Record<string, string> = Object.fromEntries(
+  ACTION_KIND_OPTIONS.map((o) => [o.value, o.label]),
+)
+
 const TIME_OPTIONS: { value: TimeOfDay; label: string }[] = [
   { value: 'dawn', label: 'Dawn' },
   { value: 'day', label: 'Day' },
@@ -117,6 +129,19 @@ function defaultAction(kind: TriggerAction['kind'], firstLightId: string): Trigg
   }
 }
 
+// Converts an action to a different kind in place. Only `text` carries over
+// (same field, same meaning — freeform narration/description — everywhere it
+// appears); every other field resets to that kind's defaults.
+function changeActionKind(
+  action: TriggerAction,
+  kind: TriggerAction['kind'],
+  firstLightId: string,
+): TriggerAction {
+  const next = defaultAction(kind, firstLightId)
+  const text = (action as { text?: string }).text
+  return text && 'text' in next ? { ...next, text } : next
+}
+
 const fieldInputClass =
   'min-w-0 w-full rounded border border-border-default bg-surface-1 px-1.5 py-1 text-panel-body text-text-primary outline-none focus:border-border-focus'
 
@@ -145,6 +170,22 @@ export function ZoneProperties({ layerId, childId }: ZonePropertiesProps) {
   // DoorProperties' name field.
   const [nameDraft, setNameDraft] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  // Two-step delete: first click arms the row, second click within the
+  // window deletes. Prep edits sit outside the undo stack, so a stray click
+  // must not be permanent.
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const pendingDeleteTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const armDelete = (id: string) => {
+    if (pendingDeleteTimeout.current) clearTimeout(pendingDeleteTimeout.current)
+    setPendingDeleteId(id)
+    pendingDeleteTimeout.current = setTimeout(() => setPendingDeleteId(null), 4000)
+  }
+  const confirmDelete = (id: string) => {
+    if (pendingDeleteTimeout.current) clearTimeout(pendingDeleteTimeout.current)
+    setPendingDeleteId(null)
+    removeTrigger(id)
+  }
 
   if (!zone || !layer) return null
 
@@ -236,21 +277,33 @@ export function ZoneProperties({ layerId, childId }: ZonePropertiesProps) {
                     {t.name}
                   </button>
                   <span className="shrink-0 font-mono text-panel-label uppercase text-text-muted">
-                    {t.when.kind}
+                    {CONDITION_LABELS[t.when.kind] ?? t.when.kind}
                   </span>
                   <ToggleSwitch
                     checked={t.enabled}
                     onChange={(v) => upsertTrigger({ ...t, enabled: v })}
                     label={`Enable ${t.name}`}
                   />
-                  <button
-                    type="button"
-                    aria-label={`Delete ${t.name}`}
-                    onClick={() => removeTrigger(t.id)}
-                    className="shrink-0 text-text-muted hover:text-danger"
-                  >
-                    <X size={12} />
-                  </button>
+                  {pendingDeleteId === t.id ? (
+                    <button
+                      type="button"
+                      aria-label={`Confirm delete ${t.name}`}
+                      onClick={() => confirmDelete(t.id)}
+                      onBlur={() => setPendingDeleteId(null)}
+                      className="shrink-0 rounded bg-danger/10 px-1 font-mono text-panel-small text-danger"
+                    >
+                      Delete?
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label={`Delete ${t.name}`}
+                      onClick={() => armDelete(t.id)}
+                      className="shrink-0 text-text-muted hover:text-danger"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
                 </div>
                 {expandedId === t.id && (
                   <TriggerEditor trigger={t} shapeKind={shape.kind} layer={layer} onChange={upsertTrigger} />
@@ -277,9 +330,8 @@ function TriggerEditor({ trigger, shapeKind, layer, onChange }: TriggerEditorPro
 
   const patch = (p: Partial<TriggerDef>) => onChange({ ...trigger, ...p })
 
-  const addAction = (kind: TriggerAction['kind'] | '') => {
-    if (!kind) return
-    patch({ actions: [...trigger.actions, defaultAction(kind, lights[0]?.id ?? '')] })
+  const addAction = () => {
+    patch({ actions: [...trigger.actions, defaultAction('show-text', lights[0]?.id ?? '')] })
   }
   const updateAction = (i: number, action: TriggerAction) => {
     const actions = trigger.actions.slice()
@@ -333,11 +385,13 @@ function TriggerEditor({ trigger, shapeKind, layer, onChange }: TriggerEditorPro
             onRemove={() => removeAction(i)}
           />
         ))}
-        <SelectInput
-          value=""
-          options={[{ value: '', label: 'Add action…' }, ...ACTION_KIND_OPTIONS]}
-          onChange={(v) => addAction(v as TriggerAction['kind'] | '')}
-        />
+        <button
+          type="button"
+          onClick={addAction}
+          className="self-start rounded border border-border-default px-1.5 py-0.5 text-panel-small text-text-secondary hover:bg-surface-3"
+        >
+          Add action
+        </button>
       </div>
     </div>
   )
@@ -351,10 +405,14 @@ interface ActionEditorProps {
 }
 
 function ActionEditor({ action, lights, onChange, onRemove }: ActionEditorProps) {
+  const firstLightId = lights[0]?.id ?? ''
+
   return (
     <div className="flex flex-col gap-1.5 rounded border border-border-subtle bg-surface-1 px-2 py-1.5">
       <div className="flex items-center justify-between">
-        <span className="font-mono text-panel-label uppercase text-text-muted">{action.kind}</span>
+        <span className="font-mono text-panel-label uppercase text-text-muted">
+          {ACTION_KIND_LABELS[action.kind] ?? action.kind}
+        </span>
         <button
           type="button"
           aria-label="Remove action"
@@ -365,15 +423,26 @@ function ActionEditor({ action, lights, onChange, onRemove }: ActionEditorProps)
         </button>
       </div>
 
+      <PropertyField label="Kind">
+        <SelectInput
+          value={action.kind}
+          options={ACTION_KIND_OPTIONS}
+          aria-label="Kind"
+          onChange={(v) => onChange(changeActionKind(action, v as TriggerAction['kind'], firstLightId))}
+        />
+      </PropertyField>
+
       {action.kind === 'show-text' && (
         <>
-          <textarea
-            value={action.text}
-            rows={2}
-            aria-label="Text"
-            onChange={(e) => onChange({ ...action, text: e.target.value })}
-            className={cn(fieldInputClass, 'resize-y')}
-          />
+          <PropertyField label="Text">
+            <textarea
+              value={action.text}
+              rows={2}
+              aria-label="Text"
+              onChange={(e) => onChange({ ...action, text: e.target.value })}
+              className={cn(fieldInputClass, 'resize-y')}
+            />
+          </PropertyField>
           <ToggleSwitch
             checked={action.toPlayers}
             onChange={(v) => onChange({ ...action, toPlayers: v })}
@@ -384,17 +453,23 @@ function ActionEditor({ action, lights, onChange, onRemove }: ActionEditorProps)
 
       {action.kind === 'light' && (
         <>
-          <SelectInput
-            value={action.lightId}
-            options={
-              lights.length > 0
-                ? lights.map((l) => ({ value: l.id, label: l.name }))
-                : [{ value: action.lightId, label: 'No lights on this layer' }]
-            }
-            onChange={(v) => onChange({ ...action, lightId: v })}
-          />
-          {action.lightId && !lights.some((l) => l.id === action.lightId) && (
-            <span className="text-panel-small text-warning">Light not found — trigger is inert</span>
+          <PropertyField label="Light">
+            <SelectInput
+              value={action.lightId}
+              options={
+                lights.length > 0
+                  ? lights.map((l) => ({ value: l.id, label: l.name }))
+                  : [{ value: action.lightId, label: 'No lights on this layer' }]
+              }
+              aria-label="Light"
+              onChange={(v) => onChange({ ...action, lightId: v })}
+            />
+          </PropertyField>
+          {/* No truthiness guard: an empty lightId (layer had no lights) is just as inert. */}
+          {!lights.some((l) => l.id === action.lightId) && (
+            <span className="shrink-0 rounded bg-warning/10 px-1 font-mono text-panel-label uppercase text-warning">
+              Light not found — trigger is inert
+            </span>
           )}
           <ToggleSwitch
             checked={action.on}
@@ -408,32 +483,48 @@ function ActionEditor({ action, lights, onChange, onRemove }: ActionEditorProps)
 
       {action.kind === 'ability-check' && (
         <>
-          <SelectInput
-            value={action.ability}
-            options={ABILITY_OPTIONS}
-            onChange={(v) => onChange({ ...action, ability: v as Ability })}
-          />
-          <NumberInput value={action.dc} min={1} max={30} onChange={(v) => onChange({ ...action, dc: v })} />
-          <textarea
-            value={action.text}
-            rows={2}
-            aria-label="Text"
-            onChange={(e) => onChange({ ...action, text: e.target.value })}
-            className={cn(fieldInputClass, 'resize-y')}
-          />
+          <PropertyField label="Ability">
+            <SelectInput
+              value={action.ability}
+              options={ABILITY_OPTIONS}
+              aria-label="Ability"
+              onChange={(v) => onChange({ ...action, ability: v as Ability })}
+            />
+          </PropertyField>
+          <PropertyField label="DC">
+            <NumberInput
+              value={action.dc}
+              min={1}
+              max={30}
+              aria-label="DC"
+              onChange={(v) => onChange({ ...action, dc: v })}
+            />
+          </PropertyField>
+          <PropertyField label="Text">
+            <textarea
+              value={action.text}
+              rows={2}
+              aria-label="Text"
+              onChange={(e) => onChange({ ...action, text: e.target.value })}
+              className={cn(fieldInputClass, 'resize-y')}
+            />
+          </PropertyField>
         </>
       )}
 
       {action.kind === 'prompt' && (
         <>
-          <SelectInput
-            value={action.prompt}
-            options={[
-              { value: 'initiative', label: 'Initiative' },
-              { value: 'attack', label: 'Attack' },
-            ]}
-            onChange={(v) => onChange({ ...action, prompt: v as 'initiative' | 'attack' })}
-          />
+          <PropertyField label="Prompt">
+            <SelectInput
+              value={action.prompt}
+              options={[
+                { value: 'initiative', label: 'Initiative' },
+                { value: 'attack', label: 'Attack' },
+              ]}
+              aria-label="Prompt"
+              onChange={(v) => onChange({ ...action, prompt: v as 'initiative' | 'attack' })}
+            />
+          </PropertyField>
           <input
             type="text"
             value={action.text ?? ''}
@@ -447,16 +538,22 @@ function ActionEditor({ action, lights, onChange, onRemove }: ActionEditorProps)
 
       {action.kind === 'environment' && (
         <>
-          <SelectInput
-            value={action.time ?? ''}
-            options={[{ value: '', label: 'Time — unchanged' }, ...TIME_OPTIONS]}
-            onChange={(v) => onChange({ ...action, time: (v || undefined) as TimeOfDay | undefined })}
-          />
-          <SelectInput
-            value={action.weather ?? ''}
-            options={[{ value: '', label: 'Weather — unchanged' }, ...WEATHER_OPTIONS]}
-            onChange={(v) => onChange({ ...action, weather: (v || undefined) as Weather | undefined })}
-          />
+          <PropertyField label="Time">
+            <SelectInput
+              value={action.time ?? ''}
+              options={[{ value: '', label: 'Time — unchanged' }, ...TIME_OPTIONS]}
+              aria-label="Time"
+              onChange={(v) => onChange({ ...action, time: (v || undefined) as TimeOfDay | undefined })}
+            />
+          </PropertyField>
+          <PropertyField label="Weather">
+            <SelectInput
+              value={action.weather ?? ''}
+              options={[{ value: '', label: 'Weather — unchanged' }, ...WEATHER_OPTIONS]}
+              aria-label="Weather"
+              onChange={(v) => onChange({ ...action, weather: (v || undefined) as Weather | undefined })}
+            />
+          </PropertyField>
         </>
       )}
     </div>
@@ -471,58 +568,75 @@ function TrapActionFields({
   onChange: (action: TriggerAction) => void
 }) {
   const [damageDraft, setDamageDraft] = useState(action.damage ?? '')
+  // ActionEditor is keyed by index, so deleting a sibling trap re-binds this
+  // mounted editor to a different action — without this reseed, blurring
+  // would write the OLD trap's draft onto the survivor.
+  const [seenDamage, setSeenDamage] = useState(action.damage)
+  if (action.damage !== seenDamage) {
+    setSeenDamage(action.damage)
+    setDamageDraft(action.damage ?? '')
+  }
   const damageValid = damageDraft.trim() === '' || DICE_RE.test(damageDraft.trim())
 
   return (
     <>
-      <textarea
-        value={action.text}
-        rows={2}
-        aria-label="Text"
-        onChange={(e) => onChange({ ...action, text: e.target.value })}
-        className={cn(fieldInputClass, 'resize-y')}
-      />
+      <PropertyField label="Text">
+        <textarea
+          value={action.text}
+          rows={2}
+          aria-label="Text"
+          onChange={(e) => onChange({ ...action, text: e.target.value })}
+          className={cn(fieldInputClass, 'resize-y')}
+        />
+      </PropertyField>
 
-      <label className="flex items-center gap-1.5 text-panel-small text-text-muted">
+      <PropertyField label="Save">
         <ToggleSwitch
           checked={!!action.save}
           onChange={(v) => onChange({ ...action, save: v ? { ability: 'str', dc: 10 } : undefined })}
           label="Save"
         />
-        Save
-      </label>
+      </PropertyField>
       {action.save && (
         <div className="flex items-center gap-1.5">
-          <SelectInput
-            value={action.save.ability}
-            options={ABILITY_OPTIONS}
-            onChange={(v) => onChange({ ...action, save: { ...action.save!, ability: v as Ability } })}
-          />
-          <NumberInput
-            value={action.save.dc}
-            min={1}
-            max={30}
-            onChange={(v) => onChange({ ...action, save: { ...action.save!, dc: v } })}
-          />
+          <PropertyField label="Ability">
+            <SelectInput
+              value={action.save.ability}
+              options={ABILITY_OPTIONS}
+              aria-label="Ability"
+              onChange={(v) => onChange({ ...action, save: { ...action.save!, ability: v as Ability } })}
+            />
+          </PropertyField>
+          <PropertyField label="DC">
+            <NumberInput
+              value={action.save.dc}
+              min={1}
+              max={30}
+              aria-label="DC"
+              onChange={(v) => onChange({ ...action, save: { ...action.save!, dc: v } })}
+            />
+          </PropertyField>
         </div>
       )}
 
-      <div className="flex flex-col gap-0.5">
-        <input
-          type="text"
-          value={damageDraft}
-          placeholder="2d6+1"
-          aria-label="Damage"
-          onChange={(e) => setDamageDraft(e.target.value)}
-          onBlur={() =>
-            onChange({ ...action, damage: damageDraft.trim() === '' ? undefined : damageDraft.trim() })
-          }
-          className={cn(fieldInputClass, damageValid ? '' : 'border-danger')}
-        />
-        {!damageValid && (
-          <span className="text-panel-small text-danger">Format: NdM or NdM±K, e.g. 2d6+1</span>
-        )}
-      </div>
+      <PropertyField label="Damage">
+        <div className="flex flex-col gap-0.5">
+          <input
+            type="text"
+            value={damageDraft}
+            placeholder="2d6+1"
+            aria-label="Damage"
+            onChange={(e) => setDamageDraft(e.target.value)}
+            onBlur={() =>
+              onChange({ ...action, damage: damageDraft.trim() === '' ? undefined : damageDraft.trim() })
+            }
+            className={cn(fieldInputClass, damageValid ? '' : 'border-danger')}
+          />
+          {!damageValid && (
+            <span className="text-panel-small text-danger">Format: NdM or NdM±K, e.g. 2d6+1</span>
+          )}
+        </div>
+      </PropertyField>
     </>
   )
 }
