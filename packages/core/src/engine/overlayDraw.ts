@@ -114,6 +114,31 @@ export function drawNodeHandle(
   }
 }
 
+/**
+ * A bezier tangent handle: hairline arm from the anchor to the handle point,
+ * tipped with a small round grab target. Ink-under-white like everything else,
+ * thinner than the rope dash so the arm never reads as geometry.
+ */
+export function drawTangentArm(
+  g: Graphics,
+  ax: number,
+  ay: number,
+  tx: number,
+  ty: number,
+  zoom: number,
+): void {
+  const z = zoom > 0 ? zoom : 1;
+  g.moveTo(ax, ay);
+  g.lineTo(tx, ty);
+  g.stroke({ color: OVERLAY_INK, width: 2.5 / z, alpha: OVERLAY_INK_ALPHA });
+  g.moveTo(ax, ay);
+  g.lineTo(tx, ty);
+  g.stroke({ color: OVERLAY_WHITE, width: 1 / z, alpha: 1 });
+  g.circle(tx, ty, 3.5 / z);
+  g.fill({ color: OVERLAY_WHITE, alpha: 1 });
+  g.stroke({ color: OVERLAY_INK, width: 1.25 / z, alpha: HANDLE_BORDER_ALPHA });
+}
+
 /** Small "+" puck marking an insert point on a hovered/idle edge. */
 export function drawInsertPuck(g: Graphics, x: number, y: number, zoom: number): void {
   const z = zoom > 0 ? zoom : 1;

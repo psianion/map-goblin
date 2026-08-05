@@ -109,6 +109,28 @@ export function ringHasCurves(tangents: RingTangents | undefined): boolean {
   return !!tangents?.some((t) => t && (t.tin || t.tout));
 }
 
+/** True when the edge leaving vertex a (toward b) is bent by either end. */
+export function edgeIsCurved(
+  ta: VertexTangents | null | undefined,
+  tb: VertexTangents | null | undefined,
+): boolean {
+  return !!(ta?.tout || tb?.tin);
+}
+
+/**
+ * The cubic's control points for the edge a→b. A missing tangent collapses
+ * onto its endpoint — the same degenerate cubic `flattenRing` uses, so a curve
+ * picked here lands exactly where it renders.
+ */
+export function edgeControls(
+  a: Vec2,
+  b: Vec2,
+  ta: VertexTangents | null | undefined,
+  tb: VertexTangents | null | undefined,
+): [Vec2, Vec2] {
+  return [ta?.tout ?? a, tb?.tin ?? b];
+}
+
 /**
  * The straight ring a curved ring flattens to. Edges with no tangents on
  * either end pass through untouched, so a ring with no curves round-trips to
@@ -133,6 +155,29 @@ export function flattenRing(
     out.push(...flattenCubic(a, tout ?? a, tin ?? b, b, tolerance));
   }
   return out;
+}
+
+/**
+ * A child's whole tangent set translated by (dx, dy) — for duplicate, paste
+ * and every other path that slides rings without reshaping them. Handles are
+ * absolute points, so a moved ring must move them too.
+ */
+export function translateTangents(
+  tangents: RingTangents[] | undefined,
+  dx: number,
+  dy: number,
+): RingTangents[] | undefined {
+  if (!tangents) return undefined;
+  return tangents.map((ring) =>
+    (ring ?? []).map((vt) =>
+      vt
+        ? {
+            ...(vt.tin ? { tin: [vt.tin[0] + dx, vt.tin[1] + dy] as Vec2 } : {}),
+            ...(vt.tout ? { tout: [vt.tout[0] + dx, vt.tout[1] + dy] as Vec2 } : {}),
+          }
+        : vt,
+    ),
+  );
 }
 
 /**

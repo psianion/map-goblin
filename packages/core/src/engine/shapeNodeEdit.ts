@@ -25,6 +25,17 @@ import {
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { pointInPolygon } from './hitTest';
 import { notify } from '../shared/notify';
+import {
+  edgeControls,
+  edgeIsCurved,
+  flattenRing,
+  projectToCubic,
+  ringHasCurves,
+  splitCubic,
+  type RingTangents,
+  type Vec2,
+  type VertexTangents,
+} from '../shared/bezier';
 
 /** Signed area; positive and negative distinguish outer rings from holes. */
 function signedArea(poly: Polygon): number {
@@ -48,6 +59,38 @@ function ringOf(shape: ShapeChild): Polygon {
   });
 }
 
+/**
+ * The shape's outer-ring tangents in the same space as `ringOf` — the optional
+ * baked-in transform moves handle points exactly like ring points, or a
+ * transformed shape's curves would bend toward where it used to stand.
+ */
+function ringTangentsOf(shape: ShapeChild): RingTangents | undefined {
+  const raw = shape.tangents?.[0];
+  if (!ringHasCurves(raw)) return undefined;
+  const t = shape.transform;
+  if (!t) return raw;
+  const cos = Math.cos(t.rotate);
+  const sin = Math.sin(t.rotate);
+  const map = ([px, py]: Vec2): Vec2 => {
+    const sx = px * t.scale[0];
+    const sy = py * t.scale[1];
+    return [cos * sx - sin * sy + t.translate[0], sin * sx + cos * sy + t.translate[1]];
+  };
+  return (raw ?? []).map((vt) =>
+    vt
+      ? {
+          ...(vt.tin ? { tin: map(vt.tin) } : {}),
+          ...(vt.tout ? { tout: map(vt.tout) } : {}),
+        }
+      : vt,
+  );
+}
+
+/** The shape's outer ring as downstream geometry sees it: baked, then flattened. */
+function flatRingOf(shape: ShapeChild): Polygon {
+  return flattenRing(ringOf(shape), ringTangentsOf(shape));
+}
+
 function centroid(poly: Polygon): [number, number] {
   let x = 0;
   let y = 0;
@@ -56,6 +99,31 @@ function centroid(poly: Polygon): [number, number] {
     y += py;
   }
   return [x / poly.length, y / poly.length];
+}
+
+interface Bounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+function ringBounds(poly: Polygon): Bounds {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of poly) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+function boundsOverlap(a: Bounds, b: Bounds): boolean {
+  return a.minX <= b.maxX && a.maxX >= b.minX && a.minY <= b.maxY && a.maxY >= b.minY;
 }
 
 export interface OutlineTarget {
@@ -80,6 +148,15 @@ export interface OutlineTarget {
    * hole while the outer ring stays put.
    */
   hole?: number;
+  /**
+   * Curve basis. Present exactly when the outline is one shape's authored ring
+   * (sole contributor): `outline` is then the authored anchors — not the merged
+   * flattened polygon — and this list carries their tangents, empty for a ring
+   * with no curves yet. Absent means the outline came out of a union: edits on
+   * it collapse to a straight polygon first, and curves can be authored on the
+   * result.
+   */
+  tangents?: RingTangents;
 }
 
 /** The ring `target` actually edits: its outer boundary, or one of its holes. */
@@ -126,7 +203,31 @@ export function resolveOutline(shapeId: string): OutlineTarget | null {
     outers.find((r) => own.some((p) => pointInPolygon(p, r))) ??
     null;
   if (!outline) return null;
-  return targetFor(layer, outline);
+  const target = targetFor(layer, outline);
+
+  // Sole contributor: hand back the authored ring so its anchors — and any
+  // curves on them — are what the editor shows and writes. The overlay resolves
+  // every frame, so soleness is cached on the children array's identity; immer
+  // replaces the array whenever any child changes.
+  if (isSoleContributor(layer, shape.id, target)) {
+    return { ...target, outline: ringOf(shape), tangents: ringTangentsOf(shape) ?? [] };
+  }
+  return target;
+}
+
+const soleCache = new WeakMap<object, Map<string, boolean>>();
+
+function isSoleContributor(layer: DungeonLayer, shapeId: string, target: OutlineTarget): boolean {
+  let byShape = soleCache.get(layer.children);
+  if (!byShape) {
+    byShape = new Map();
+    soleCache.set(layer.children, byShape);
+  }
+  const hit = byShape.get(shapeId);
+  if (hit !== undefined) return hit;
+  const sole = target.contributors().length === 1;
+  byShape.set(shapeId, sole);
+  return sole;
 }
 
 /**
@@ -162,12 +263,17 @@ function targetFor(layer: DungeonLayer, outline: Polygon): OutlineTarget {
     (r) => r.length >= 3 && signedArea(r) < 0 && pointInPolygon(centroid(r), outline),
   );
 
+  const bounds = ringBounds(outline);
   const contributors = () =>
     layer.children.filter((c): c is ShapeChild => {
       if (c.childType !== 'shape' || !c.visible) return false;
-      const r = ringOf(c);
+      // Curves contribute their flattened extent, so overlap is tested on the
+      // same ring the union saw — the authored anchors of a bowed edge can sit
+      // entirely inside a neighbour they do not actually touch.
+      const r = flatRingOf(c);
       if (r.length < 3) return false;
-      // Overlaps the outline, so it helped form it.
+      // Disjoint boxes cannot overlap; skip the WASM round trip for them.
+      if (!boundsOverlap(bounds, ringBounds(r))) return false;
       const hit = clipper2Engine.intersection([r], [outline]) as Polygon[];
       return hit.length > 0 && hit.some((p) => p.length >= 3);
     });
@@ -187,7 +293,8 @@ export type OutlineEdit =
   | { kind: 'move'; index: number; x: number; y: number }
   | { kind: 'moveEdge'; index: number; dx: number; dy: number }
   | { kind: 'insert'; index: number; x: number; y: number }
-  | { kind: 'delete'; index: number };
+  | { kind: 'delete'; index: number }
+  | { kind: 'toggleSmooth'; index: number };
 
 /** The outline that results from applying `edit`, or null if it is not legal. */
 export function editedOutline(outline: Polygon, edit: OutlineEdit): Polygon | null {
@@ -214,10 +321,151 @@ export function editedOutline(outline: Polygon, edit: OutlineEdit): Polygon | nu
       if (pts.length <= 3) return null;
       pts.splice(edit.index, 1);
       return pts;
+    case 'toggleSmooth':
+      // Meaningless without tangents; the curved variant below owns it.
+      return null;
   }
 }
 
-function makePolygonShape(name: string, contours: Polygon[], from: ShapeChild): ShapeChild {
+// ─── Curved edits ───────────────────────────────────────────────────────────
+
+/** A ring plus its per-vertex tangents, always index-aligned. */
+export interface CurvedRing {
+  ring: Polygon;
+  tangents: RingTangents;
+}
+
+function padTangents(tangents: RingTangents | undefined, n: number): RingTangents {
+  return Array.from({ length: n }, (_, i) => tangents?.[i] ?? null);
+}
+
+function shifted(
+  vt: VertexTangents | null,
+  dx: number,
+  dy: number,
+): VertexTangents | null {
+  if (!vt || (!vt.tin && !vt.tout)) return vt;
+  return {
+    ...(vt.tin ? { tin: [vt.tin[0] + dx, vt.tin[1] + dy] as Vec2 } : {}),
+    ...(vt.tout ? { tout: [vt.tout[0] + dx, vt.tout[1] + dy] as Vec2 } : {}),
+  };
+}
+
+/** A split control that landed on its own anchor is no curve at all. */
+function cleanControl(c: Vec2, anchor: Vec2): Vec2 | undefined {
+  return Math.hypot(c[0] - anchor[0], c[1] - anchor[1]) < 1e-6 ? undefined : c;
+}
+
+function normalizeVertex(vt: VertexTangents): VertexTangents | null {
+  return vt.tin || vt.tout ? vt : null;
+}
+
+/**
+ * `editedOutline`, curve-aware: tangents ride every splice and every move, so
+ * they never drift out of alignment with their anchors. Same null-on-illegal
+ * contract.
+ */
+export function editedCurvedRing(
+  ring: Polygon,
+  tangents: RingTangents | undefined,
+  edit: OutlineEdit,
+): CurvedRing | null {
+  const pts = ring.map(([x, y]): [number, number] => [x, y]);
+  const tans = padTangents(tangents, pts.length);
+  const n = pts.length;
+
+  switch (edit.kind) {
+    case 'move': {
+      if (edit.index < 0 || edit.index >= n) return null;
+      const [ox, oy] = pts[edit.index];
+      const next: [number, number] = [snap(edit.x), snap(edit.y)];
+      pts[edit.index] = next;
+      // Handles travel with their anchor by the anchor's own (snapped) delta,
+      // so the curve keeps its shape instead of bending toward the old spot.
+      tans[edit.index] = shifted(tans[edit.index], next[0] - ox, next[1] - oy);
+      return { ring: pts, tangents: tans };
+    }
+    case 'moveEdge': {
+      const a = edit.index % n;
+      const b = (edit.index + 1) % n;
+      for (const i of [a, b]) {
+        const [ox, oy] = pts[i];
+        pts[i] = [snap(ox + edit.dx), snap(oy + edit.dy)];
+        tans[i] = shifted(tans[i], pts[i][0] - ox, pts[i][1] - oy);
+      }
+      return { ring: pts, tangents: tans };
+    }
+    case 'insert': {
+      const i = edit.index % n;
+      const j = (i + 1) % n;
+      if (!edgeIsCurved(tans[i], tans[j])) {
+        pts.splice(i + 1, 0, [snap(edit.x), snap(edit.y)]);
+        tans.splice(i + 1, 0, null);
+        return { ring: pts, tangents: tans };
+      }
+      // Splitting the cubic keeps the drawn curve identical: the new anchor
+      // lands ON it, unsnapped — the grid would kink the very line the DM is
+      // trying to refine.
+      const [c1, c2] = edgeControls(pts[i], pts[j], tans[i], tans[j]);
+      const t = projectToCubic(pts[i], c1, c2, pts[j], [edit.x, edit.y]);
+      if (t <= 0.001 || t >= 0.999) return null;
+      const { left, right } = splitCubic(pts[i], c1, c2, pts[j], t);
+      tans[i] = normalizeVertex({ ...tans[i], tout: cleanControl(left[1], left[0]) });
+      tans[j] = normalizeVertex({ ...tans[j], tin: cleanControl(right[2], right[3]) });
+      const s = left[3];
+      pts.splice(i + 1, 0, [s[0], s[1]]);
+      tans.splice(
+        i + 1,
+        0,
+        normalizeVertex({
+          tin: cleanControl(left[2], s),
+          tout: cleanControl(right[1], s),
+        }),
+      );
+      return { ring: pts, tangents: tans };
+    }
+    case 'delete': {
+      if (n <= 3) return null;
+      pts.splice(edit.index, 1);
+      tans.splice(edit.index, 1);
+      return { ring: pts, tangents: tans };
+    }
+    case 'toggleSmooth': {
+      const i = edit.index;
+      if (i < 0 || i >= n) return null;
+      const vt = tans[i];
+      if (vt && (vt.tin || vt.tout)) {
+        tans[i] = null;
+        return { ring: pts, tangents: tans };
+      }
+      // Auto-smooth: handles along the prev→next chord, a third of each
+      // adjacent edge long — the standard pen-tool smoothing.
+      const p = pts[i];
+      const prev = pts[(i - 1 + n) % n];
+      const next = pts[(i + 1) % n];
+      const dx = next[0] - prev[0];
+      const dy = next[1] - prev[1];
+      const len = Math.hypot(dx, dy);
+      if (len < 1e-9) return null;
+      const ux = dx / len;
+      const uy = dy / len;
+      const lin = Math.hypot(p[0] - prev[0], p[1] - prev[1]) / 3;
+      const lout = Math.hypot(next[0] - p[0], next[1] - p[1]) / 3;
+      tans[i] = {
+        tin: [p[0] - ux * lin, p[1] - uy * lin],
+        tout: [p[0] + ux * lout, p[1] + uy * lout],
+      };
+      return { ring: pts, tangents: tans };
+    }
+  }
+}
+
+function makePolygonShape(
+  name: string,
+  contours: Polygon[],
+  from: ShapeChild,
+  tangents?: RingTangents,
+): ShapeChild {
   return {
     ...from,
     id: crypto.randomUUID(),
@@ -225,6 +473,9 @@ function makePolygonShape(name: string, contours: Polygon[], from: ShapeChild): 
     childType: 'shape',
     shapeType: 'polygon',
     contours: contours.map((r) => r.map(([x, y]): [number, number] => [x, y])),
+    // Explicit even when absent: `from`'s own tangents describe `from`'s ring,
+    // not these contours, and the spread above would carry them across.
+    tangents: tangents && ringHasCurves(tangents) ? [tangents] : undefined,
     // Baked into the rings above; leaving it would apply the offset twice.
     transform: undefined,
   };
@@ -239,11 +490,26 @@ export function commitOutline(
   target: OutlineTarget,
   next: Polygon,
   label: string,
+  nextTangents?: RingTangents,
 ): string | null {
   const { layer } = target;
   const contours = contoursWith(target, next);
   const contributors = target.contributors();
   if (contributors.length === 0) return null;
+
+  // Only an outer-ring edit on the authored basis carries curves forward; a
+  // stone drag or a union collapse rewrites the ring as flattened points, and
+  // stale tangents on those would bend the wrong edges entirely.
+  const ringT =
+    target.hole === undefined && nextTangents && ringHasCurves(nextTangents)
+      ? nextTangents
+      : undefined;
+  if (
+    target.tangents === undefined &&
+    contributors.some((c) => c.tangents?.some((rt) => ringHasCurves(rt)))
+  ) {
+    notify.info('Curved edges were flattened into straight segments');
+  }
 
   if (contributors.length === 1) {
     const only = contributors[0];
@@ -252,14 +518,22 @@ export function commitOutline(
         label,
         layer.id,
         only.id,
-        { contours: only.contours, transform: only.transform } as Partial<AnyChild>,
-        { contours, transform: undefined } as Partial<AnyChild>,
+        {
+          contours: only.contours,
+          tangents: only.tangents,
+          transform: only.transform,
+        } as Partial<AnyChild>,
+        {
+          contours,
+          tangents: ringT ? [ringT] : undefined,
+          transform: undefined,
+        } as Partial<AnyChild>,
       ),
     );
     return only.id;
   }
 
-  const merged = makePolygonShape(contributors[0].name, contours, contributors[0]);
+  const merged = makePolygonShape(contributors[0].name, contours, contributors[0], ringT);
   undoManager.execute(
     new CompositeCommand(label, [
       ...contributors.map((c) => new RemoveChildCommand(label, layer.id, c.id)),
@@ -324,16 +598,24 @@ interface DragSession {
   ringIndex: number | null;
   /** The edited ring at the moment the drag began; every frame re-derives it. */
   base: Polygon;
+  /** `base`'s tangents, padded to its length. All null on a flattened basis. */
+  baseTangents: RingTangents;
+  /** True when `base` is an authored ring whose curves survive the commit. */
+  authored: boolean;
   /** The rest of the shape, so a preview frame can write whole contours. */
   rings: Pick<OutlineTarget, 'outline' | 'holes' | 'hole'>;
-  kind: 'vertex' | 'edge' | 'group';
+  kind: 'vertex' | 'edge' | 'group' | 'tangents' | 'bow';
   index: number;
   /** Vertices a group drag displaces together. */
   indices: number[];
+  /** Side of the anchor a tangent drag grabbed. */
+  which: 'in' | 'out' | null;
+  /** Keep the tangent pair mirrored; Alt mid-drag breaks it for the gesture. */
+  mirror: boolean;
   /** Shape carrying the outline during the preview. */
   ownerId: string;
   collapsed: boolean;
-  latest: Polygon | null;
+  latest: CurvedRing | null;
 }
 
 let drag: DragSession | null = null;
@@ -349,12 +631,34 @@ export function isDraggingOutline(): boolean {
   return drag !== null;
 }
 
-/** Start dragging a vertex or an edge. Returns false if there is nothing to drag. */
-export function beginOutlineDrag(kind: 'vertex' | 'edge', index: number): boolean {
+/**
+ * Start dragging a vertex, an edge, a tangent handle, or a bow gesture.
+ * Returns false if there is nothing to drag.
+ */
+export function beginOutlineDrag(
+  kind: 'vertex' | 'edge' | 'tangents' | 'bow',
+  index: number,
+  opts?: { which?: 'in' | 'out'; forceMirror?: boolean },
+): boolean {
   const shapeId = useStore.getState().tools.shapeNodeEditId;
   if (!shapeId) return false;
   const target = resolveOutline(shapeId);
   if (!target) return false;
+
+  // A tangent pair stays mirrored while it IS a mirror — matching what the DM
+  // sees — and when the gesture is creating one from scratch (Alt-drag out of
+  // an anchor). A pair already broken stays broken.
+  let mirror = opts?.forceMirror ?? false;
+  if (kind === 'tangents' && !mirror) {
+    const vt = target.tangents?.[index];
+    if (!vt || (!vt.tin && !vt.tout)) mirror = true;
+    else if (vt.tin && vt.tout) {
+      const p = target.outline[index];
+      mirror =
+        Math.hypot(vt.tin[0] + vt.tout[0] - 2 * p[0], vt.tin[1] + vt.tout[1] - 2 * p[1]) < 1e-6;
+    }
+  }
+
   return startDrag(target, {
     shapeId,
     ringIndex: null,
@@ -362,6 +666,8 @@ export function beginOutlineDrag(kind: 'vertex' | 'edge', index: number): boolea
     kind,
     index,
     indices: [],
+    which: opts?.which ?? null,
+    mirror,
   });
 }
 
@@ -387,12 +693,14 @@ export function beginGroupOutlineDrag(
     kind: 'group',
     index: indices[0],
     indices,
+    which: null,
+    mirror: false,
   });
 }
 
 function startDrag(
   target: OutlineTarget,
-  session: Pick<DragSession, 'ringIndex' | 'kind' | 'index' | 'indices'> & {
+  session: Pick<DragSession, 'ringIndex' | 'kind' | 'index' | 'indices' | 'which' | 'mirror'> & {
     shapeId: string | null;
     base: Polygon;
   },
@@ -426,10 +734,17 @@ function startDrag(
     originalShapeId: session.shapeId,
     ringIndex: session.ringIndex,
     base: session.base.map(([x, y]): [number, number] => [x, y]),
+    // A group drag's base has anchor vertices the authored ring never had, so
+    // its tangent slots are all null by construction (resolveRingOutline never
+    // hands out the authored basis).
+    baseTangents: padTangents(target.tangents, session.base.length),
+    authored: target.tangents !== undefined,
     rings: { outline: target.outline, holes: target.holes, hole: target.hole },
     kind: session.kind,
     index: session.index,
     indices: session.indices,
+    which: session.which,
+    mirror: session.mirror,
     ownerId,
     collapsed,
     latest: null,
@@ -443,31 +758,105 @@ function startDrag(
  * @param world Cursor position, for a vertex drag.
  * @param delta Offset from where the drag started, for an edge drag.
  */
-export function updateOutlineDrag(world: Point, delta: Point): void {
+export function updateOutlineDrag(
+  world: Point,
+  delta: Point,
+  opts?: { alt?: boolean },
+): void {
   if (!drag) return;
-  let next: Polygon | null;
-  if (drag.kind === 'group') {
-    // Unsnapped on purpose: the anchors sit wherever the stones happened to
-    // stand, so snapping them to the grid would shear the bulge sideways.
-    const moved = new Set(drag.indices);
-    next = drag.base.map(([x, y], i): [number, number] =>
-      moved.has(i) ? [x + delta.x, y + delta.y] : [x, y],
-    );
-  } else {
-    next = editedOutline(
-      drag.base,
-      drag.kind === 'vertex'
-        ? { kind: 'move', index: drag.index, x: world.x, y: world.y }
-        : { kind: 'moveEdge', index: drag.index, dx: delta.x, dy: delta.y },
-    );
+  if (opts?.alt && drag.kind === 'tangents') drag.mirror = false;
+
+  let next: CurvedRing | null;
+  switch (drag.kind) {
+    case 'group': {
+      // Unsnapped on purpose: the anchors sit wherever the stones happened to
+      // stand, so snapping them to the grid would shear the bulge sideways.
+      const moved = new Set(drag.indices);
+      next = {
+        ring: drag.base.map(([x, y], i): [number, number] =>
+          moved.has(i) ? [x + delta.x, y + delta.y] : [x, y],
+        ),
+        tangents: drag.baseTangents,
+      };
+      break;
+    }
+    case 'vertex':
+      next = editedCurvedRing(drag.base, drag.baseTangents, {
+        kind: 'move',
+        index: drag.index,
+        x: world.x,
+        y: world.y,
+      });
+      break;
+    case 'edge':
+      next = editedCurvedRing(drag.base, drag.baseTangents, {
+        kind: 'moveEdge',
+        index: drag.index,
+        dx: delta.x,
+        dy: delta.y,
+      });
+      break;
+    case 'tangents': {
+      // Handles are freeform: snapping them to the grid would quantise the
+      // curve the DM is shaping by eye.
+      const i = drag.index;
+      const p = drag.base[i];
+      const grabbed: Vec2 = [world.x, world.y];
+      const vt: VertexTangents = { ...drag.baseTangents[i] };
+      if (drag.which === 'in') vt.tin = grabbed;
+      else vt.tout = grabbed;
+      if (drag.mirror) {
+        const mirrored: Vec2 = [2 * p[0] - grabbed[0], 2 * p[1] - grabbed[1]];
+        if (drag.which === 'in') vt.tout = mirrored;
+        else vt.tin = mirrored;
+      }
+      const tans = [...drag.baseTangents];
+      tans[i] = normalizeVertex(vt);
+      next = { ring: drag.base, tangents: tans };
+      break;
+    }
+    case 'bow': {
+      // Displacing both controls by 4/3·delta moves the curve's midpoint by
+      // exactly delta, so a straight edge's belly tracks the cursor 1:1.
+      const i = drag.index;
+      const j = (i + 1) % drag.base.length;
+      const a = drag.base[i];
+      const b = drag.base[j];
+      const cx = (delta.x * 4) / 3;
+      const cy = (delta.y * 4) / 3;
+      const baseOut = drag.baseTangents[i]?.tout ?? [
+        a[0] + (b[0] - a[0]) / 3,
+        a[1] + (b[1] - a[1]) / 3,
+      ];
+      const baseIn = drag.baseTangents[j]?.tin ?? [
+        b[0] - (b[0] - a[0]) / 3,
+        b[1] - (b[1] - a[1]) / 3,
+      ];
+      const tans = [...drag.baseTangents];
+      tans[i] = normalizeVertex({
+        ...tans[i],
+        tout: [baseOut[0] + cx, baseOut[1] + cy],
+      });
+      tans[j] = normalizeVertex({
+        ...tans[j],
+        tin: [baseIn[0] + cx, baseIn[1] + cy],
+      });
+      next = { ring: drag.base, tangents: tans };
+      break;
+    }
   }
   if (!next) return;
   drag.latest = next;
-  useStore
-    .getState()
-    .updateChild(drag.layerId, drag.ownerId, {
-      contours: contoursWith(drag.rings, next),
-    } as Partial<AnyChild>);
+  useStore.getState().updateChild(drag.layerId, drag.ownerId, {
+    contours: contoursWith(drag.rings, next.ring),
+    // An unauthored basis (union collapse, stone drag) writes flattened
+    // points; the owner's old tangents describe a ring that no longer exists
+    // and must not survive into the preview.
+    tangents:
+      drag.rings.hole === undefined && ringHasCurves(next.tangents)
+        ? [next.tangents]
+        : undefined,
+  } as Partial<AnyChild>);
 }
 
 /** Rewind the preview and, if anything actually moved, replay it as one command. */
@@ -481,13 +870,27 @@ export function endOutlineDrag(): void {
   // Always back to the pre-collapse shape: the merged id is gone now.
   if (session.originalShapeId) useStore.getState().setShapeNodeEdit(session.originalShapeId);
 
-  if (!final || samePolygon(final, session.base)) return;
+  if (
+    !final ||
+    (samePolygon(final.ring, session.base) &&
+      sameTangents(final.tangents, session.baseTangents))
+  ) {
+    return;
+  }
 
   const target = reresolve(session);
   if (!target) return;
   const label =
-    session.kind === 'group' ? 'Move wall' : session.kind === 'edge' ? 'Move edge' : 'Move vertex';
-  const ownerId = commitOutline(target, final, label);
+    session.kind === 'group'
+      ? 'Move wall'
+      : session.kind === 'edge'
+        ? 'Move edge'
+        : session.kind === 'tangents'
+          ? 'Bend curve'
+          : session.kind === 'bow'
+            ? 'Bend edge'
+            : 'Move vertex';
+  const ownerId = commitOutline(target, final.ring, label, final.tangents);
   if (ownerId && session.originalShapeId) useStore.getState().setShapeNodeEdit(ownerId);
 }
 
@@ -514,6 +917,19 @@ function samePolygon(a: Polygon, b: Polygon): boolean {
   return a.every((p, i) => Math.abs(p[0] - b[i][0]) < 1e-9 && Math.abs(p[1] - b[i][1]) < 1e-9);
 }
 
+function sameVec(a: Vec2 | undefined, b: Vec2 | undefined): boolean {
+  if (!a || !b) return !a && !b;
+  return Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9;
+}
+
+function sameTangents(a: RingTangents, b: RingTangents): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((vt, i) => {
+    const other = b[i];
+    return sameVec(vt?.tin, other?.tin) && sameVec(vt?.tout, other?.tout);
+  });
+}
+
 /** Apply an edit to whichever outline is in edit mode. */
 export function applyOutlineEdit(edit: OutlineEdit, label: string): void {
   const state = useStore.getState();
@@ -521,14 +937,14 @@ export function applyOutlineEdit(edit: OutlineEdit, label: string): void {
   if (!shapeId) return;
   const target = resolveOutline(shapeId);
   if (!target) return;
-  const next = editedOutline(target.outline, edit);
+  const next = editedCurvedRing(target.outline, target.tangents, edit);
   if (!next) {
     // The one refusal a user actually runs into: deleting below three corners.
     // Refusing silently read as "delete is broken".
     if (edit.kind === 'delete') notify.warning('A room needs at least three corners');
     return;
   }
-  const ownerId = commitOutline(target, next, label);
+  const ownerId = commitOutline(target, next.ring, label, next.tangents);
   if (ownerId && ownerId !== shapeId) {
     // The collapse replaced the shape; keep editing the outline, not a ghost.
     useStore.getState().setShapeNodeEdit(ownerId);
