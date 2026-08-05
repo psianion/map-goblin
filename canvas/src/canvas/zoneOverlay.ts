@@ -19,49 +19,72 @@ import type { ZoneShape } from '@dnd/core/src/shared/types';
  * pointermove of every other tool.
  */
 
-// Mirrors index.css's night-theme --text-muted/--accent-active — Pixi can't
-// read CSS vars, so siblings (e.g. the selection outline) hardcode the same way.
-const MUTED_COLOR = 0x979e94;
-const ACCENT_COLOR = 0x91c464;
+// Canvas overlays are theme-free white + ink: the app accent is a theme (and
+// will be user-customizable), and an accent-colored marker can vanish on
+// same-hue map art (green on grass). White strokes over a near-black
+// under-stroke read on every biome; selected zones get a second white ring.
+const WHITE = 0xffffff;
+const INK = 0x191b16;
+/** Outset of the second ring drawn around a selected zone, world units. */
+const SELECT_RING = 0.1;
 
 function drawZone(g: Graphics, shape: ZoneShape, selected: boolean): void {
-  const color = selected ? ACCENT_COLOR : MUTED_COLOR;
-  const fillAlpha = selected ? 0.2 : 0.08;
-  const strokeAlpha = selected ? 0.95 : 0.6;
+  const fillAlpha = selected ? 0.15 : 0.08;
+  const strokeAlpha = selected ? 0.95 : 0.65;
   const strokeWidth = selected ? 0.06 : 0.04;
+  const inkWidth = strokeWidth + 0.03;
 
   switch (shape.kind) {
     case 'point': {
       const { x, y } = shape.position;
       const r = selected ? 0.16 : 0.13;
-      g.moveTo(x - r * 1.8, y).lineTo(x + r * 1.8, y);
-      g.moveTo(x, y - r * 1.8).lineTo(x, y + r * 1.8);
-      g.stroke({ color, width: strokeWidth, alpha: strokeAlpha });
-      g.circle(x, y, r).fill({ color, alpha: selected ? 0.55 : 0.35 });
-      break;
-    }
-    case 'circle':
-      g.circle(shape.position.x, shape.position.y, shape.radius).fill({ color, alpha: fillAlpha });
+      const crosshair = () => {
+        g.moveTo(x - r * 1.8, y).lineTo(x + r * 1.8, y);
+        g.moveTo(x, y - r * 1.8).lineTo(x, y + r * 1.8);
+      };
+      crosshair();
+      g.stroke({ color: INK, width: inkWidth, alpha: 0.7 });
+      crosshair();
+      g.stroke({ color: WHITE, width: strokeWidth, alpha: strokeAlpha });
+      g.circle(x, y, r).fill({ color: WHITE, alpha: selected ? 0.95 : 0.7 });
+      g.circle(x, y, r).stroke({ color: INK, width: 0.03, alpha: 0.85 });
       if (selected) {
-        g.circle(shape.position.x, shape.position.y, shape.radius).stroke({
-          color,
-          width: strokeWidth,
-          alpha: strokeAlpha,
-        });
-      } else {
-        dashedCircle(g, shape.position.x, shape.position.y, shape.radius, color, strokeWidth, strokeAlpha);
+        g.circle(x, y, r + SELECT_RING).stroke({ color: WHITE, width: 0.03, alpha: 0.9 });
       }
       break;
-    case 'rect':
-      g.rect(shape.x, shape.y, shape.width, shape.height).fill({ color, alpha: fillAlpha });
+    }
+    case 'circle': {
+      const { x, y } = shape.position;
+      const r = shape.radius;
+      g.circle(x, y, r).fill({ color: INK, alpha: fillAlpha });
       if (selected) {
+        g.circle(x, y, r).stroke({ color: INK, width: inkWidth, alpha: 0.7 });
+        g.circle(x, y, r).stroke({ color: WHITE, width: strokeWidth, alpha: strokeAlpha });
+        g.circle(x, y, r + SELECT_RING).stroke({ color: WHITE, width: 0.03, alpha: 0.9 });
+      } else {
+        dashedCircle(g, x, y, r, INK, inkWidth, 0.5);
+        dashedCircle(g, x, y, r, WHITE, strokeWidth, strokeAlpha);
+      }
+      break;
+    }
+    case 'rect':
+      g.rect(shape.x, shape.y, shape.width, shape.height).fill({ color: INK, alpha: fillAlpha });
+      if (selected) {
+        g.rect(shape.x, shape.y, shape.width, shape.height).stroke({ color: INK, width: inkWidth, alpha: 0.7 });
         g.rect(shape.x, shape.y, shape.width, shape.height).stroke({
-          color,
+          color: WHITE,
           width: strokeWidth,
           alpha: strokeAlpha,
         });
+        g.rect(
+          shape.x - SELECT_RING,
+          shape.y - SELECT_RING,
+          shape.width + SELECT_RING * 2,
+          shape.height + SELECT_RING * 2,
+        ).stroke({ color: WHITE, width: 0.03, alpha: 0.9 });
       } else {
-        dashedRect(g, shape.x, shape.y, shape.width, shape.height, color, strokeWidth, strokeAlpha);
+        dashedRect(g, shape.x, shape.y, shape.width, shape.height, INK, inkWidth, 0.5);
+        dashedRect(g, shape.x, shape.y, shape.width, shape.height, WHITE, strokeWidth, strokeAlpha);
       }
       break;
   }
