@@ -54,8 +54,11 @@ export function redactMapForViewer(
   // leaks only the map's overall size — never where inside it anything is. Only stamped
   // when the map has fog to enforce (rooms); an unzoned map goes over whole and untouched.
   const zoned = scene.data.layers.some((l) => isDungeon(l) && (l.rooms?.length ?? 0) > 0)
+  // Scene prep is the DM's notes — trigger definitions, trap DCs, the lot. It never
+  // reaches a player in any form, revealed or not.
+  const { prep: _prep, ...docSansPrep } = scene.data
   return {
-    ...scene.data,
+    ...docSansPrep,
     ...(zoned
       ? {
           frame: computeMapFrame(
@@ -74,12 +77,14 @@ export function redactMapForViewer(
       // ever holding doors they earned. Handing them over anyway put three marks at full
       // brightness on a canvas that was otherwise black, which is the door positions
       // disclosed by exactly the styling PRODUCT principle 2 says must never carry it.
+      // Zones are trigger anchors (prep), stripped with the same severity: a zone's
+      // position IS where the trap is.
       if (!layer.rooms?.length) {
         const kids = childrenOf(layer)
-        const doorless = kids.filter((child) => child.childType !== 'door')
+        const cut = kids.filter((child) => child.childType !== 'door' && child.childType !== 'zone')
         // Untouched when there was nothing to take, so a layer with no doors stays the very
         // object it arrived as rather than growing an empty `children` it never had.
-        return doorless.length === kids.length ? layer : { ...layer, children: doorless }
+        return cut.length === kids.length ? layer : { ...layer, children: cut }
       }
       return {
         ...layer,
@@ -164,9 +169,11 @@ function slice(
   return {
     rooms: (layer.rooms ?? []).filter((room) => kept.has(room.id)),
     children: childrenOf(layer)
-      .filter((child) =>
-        child.childType === 'door' ? doorKept(child, kept, doors) : childKept(child, scene, kept),
-      )
+      .filter((child) => {
+        // Prep never travels: a zone in a revealed room is still the DM's trap marker.
+        if (child.childType === 'zone') return false
+        return child.childType === 'door' ? doorKept(child, kept, doors) : childKept(child, scene, kept)
+      })
       .map((child) => (child.childType === 'door' ? facing(child, facingSet) : child)),
     // A wall belongs to the rooms on either side of it, so one shared with a room the
     // player has seen survives — it is that room's own outline either way.

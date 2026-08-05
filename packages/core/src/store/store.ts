@@ -4,7 +4,7 @@ import { immer } from 'zustand/middleware/immer';
 import type { DungeonLayer, MapBuilderStore, SerializedMapData } from './types';
 import { getNotify } from './notify';
 import { createDefaultState } from './factories';
-import { migrateToLatest } from './migration';
+import { CURRENT_VERSION, isSupportedVersion, migrateToLatest } from './migration';
 import { dataUrlToBlob } from '../assets/dataUrl';
 import { SPLAT_IMAGE_KEYS } from '../engine/terrain/terrainShared';
 import { createMapSettingsSlice } from './slices/mapSettings';
@@ -16,6 +16,7 @@ import { createAssetsSlice } from './slices/assets';
 import { createSelectionSlice } from './slices/selection';
 import { createMapsSlice } from './slices/maps';
 import { createPacksSlice } from './slices/packs';
+import { createPrepSlice } from './slices/prep';
 import { undoManager } from './undoManager';
 
 export const useStore = create<MapBuilderStore>()(
@@ -34,6 +35,7 @@ export const useStore = create<MapBuilderStore>()(
       ...createSelectionSlice(set, get, api),
       ...createMapsSlice(set, get, api),
       ...createPacksSlice(set, get, api),
+      ...createPrepSlice(set, get, api),
 
       // Bulk / serialization actions
       loadFromFile: (data: SerializedMapData, splatPngs?: [Blob | null, Blob | null]) => {
@@ -42,7 +44,7 @@ export const useStore = create<MapBuilderStore>()(
           return;
         }
 
-        if (data.version !== '2.0' && data.version !== '3.0') {
+        if (!isSupportedVersion(data.version)) {
           console.warn('loadFromFile: incompatible version', data.version);
           getNotify().error('This file was created with an incompatible version and cannot be opened.');
           return;
@@ -77,6 +79,7 @@ export const useStore = create<MapBuilderStore>()(
             snapEnabled: true,
           };
           state.layers = data.layers;
+          state.prep = data.prep ?? null;
           state.assets.customImages = images;
           // Always write (even [null, null]) — loading a terrain-less map over
           // a painted one must clear the renderer's splats.
@@ -114,7 +117,7 @@ export const useStore = create<MapBuilderStore>()(
       getSerializableState: (): SerializedMapData => {
         const s = get();
         return {
-          version: '3.0',
+          version: CURRENT_VERSION,
           mapSettings: s.mapSettings,
           grid: {
             visible: s.grid.visible,
@@ -130,6 +133,9 @@ export const useStore = create<MapBuilderStore>()(
             return layer;
           }),
           customImages: s.assets.customImages,
+          // undefined (not null) when unauthored: JSON.stringify drops the key,
+          // and an absent prep leaves the server's stored prep alone on republish.
+          prep: s.prep ?? undefined,
         };
       },
 
@@ -139,6 +145,7 @@ export const useStore = create<MapBuilderStore>()(
           state.mapSettings = defaults.mapSettings;
           state.grid = defaults.grid;
           state.layers = defaults.layers;
+          state.prep = defaults.prep;
           state.tools = defaults.tools;
           state.ui = defaults.ui;
           state.assets = defaults.assets;

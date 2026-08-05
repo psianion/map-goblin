@@ -252,6 +252,24 @@ export function getChildBounds(child: AnyChild): {
       }
       return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
     }
+    case 'zone': {
+      const shape = child.shape;
+      switch (shape.kind) {
+        case 'point':
+          // A point has no extent; give it half a cell so marquee/frame logic
+          // treats it like the marker the editor overlay draws.
+          return { x: shape.position.x - 0.25, y: shape.position.y - 0.25, width: 0.5, height: 0.5 };
+        case 'circle':
+          return {
+            x: shape.position.x - shape.radius,
+            y: shape.position.y - shape.radius,
+            width: shape.radius * 2,
+            height: shape.radius * 2,
+          };
+        case 'rect':
+          return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
+      }
+    }
   }
 }
 

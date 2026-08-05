@@ -118,6 +118,12 @@ export function centreOf(child: AnyChild): [number, number] {
       return [child.position.x, child.position.y]
     case 'door':
       return child.position
+    case 'zone':
+      // A zone's own centre — rect zones have no contours, and a point zone's
+      // position IS the point the DM aimed at a room.
+      return child.shape.kind === 'rect'
+        ? [child.shape.x + child.shape.width / 2, child.shape.y + child.shape.height / 2]
+        : [child.shape.position.x, child.shape.position.y]
     default: {
       let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity]
       for (const [x, y] of child.contours[0] ?? []) {

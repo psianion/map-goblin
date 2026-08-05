@@ -105,7 +105,7 @@ export interface MaskData {
 }
 
 // ---- Child Types ----
-export type ChildType = 'shape' | 'asset' | 'light' | 'door' | 'water' | 'text';
+export type ChildType = 'shape' | 'asset' | 'light' | 'door' | 'water' | 'text' | 'zone';
 
 export interface LayerChild {
   id: string;
@@ -254,7 +254,35 @@ export interface TextChild extends LayerChild {
   height: number;
 }
 
-export type AnyChild = ShapeChild | AssetChild | LightChild | DoorChild | WaterChild | TextChild;
+/** Where a zone sits, in world units (grid cells). */
+export type ZoneShape =
+  | { kind: 'point'; position: Point }
+  | { kind: 'circle'; position: Point; radius: number }
+  | { kind: 'rect'; x: number; y: number; width: number; height: number };
+
+/**
+ * A DM-authored trigger anchor (scene prep). Zones exist so triggers never
+ * reference derived room ids: the id here is a real uuid that survives
+ * republish, and the server resolves a point zone to its containing room at
+ * prep-load time.
+ *
+ * Zones are prep, not scenery: drawn only as an editor overlay, never rendered
+ * on the game table, stripped from every player-bound document, invisible to
+ * fog/lighting, and ignored by room detection.
+ */
+export interface ZoneChild extends LayerChild {
+  childType: 'zone';
+  shape: ZoneShape;
+}
+
+export type AnyChild =
+  | ShapeChild
+  | AssetChild
+  | LightChild
+  | DoorChild
+  | WaterChild
+  | TextChild
+  | ZoneChild;
 
 // ---- Room Types ----
 /**

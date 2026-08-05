@@ -7,6 +7,7 @@
 import { gzipSync, gunzipSync, strToU8, strFromU8 } from 'fflate';
 import type { SerializedMapData } from '@/store/types';
 import { SPLAT_IMAGE_KEYS } from '@dnd/core/src/engine/terrain/terrainShared';
+import { SUPPORTED_VERSIONS, isSupportedVersion } from '@dnd/core/src/store/migration';
 
 export const MAGIC_HEADER = 'MPBLD\x00';
 const MAGIC_BYTES = new TextEncoder().encode(MAGIC_HEADER);
@@ -55,9 +56,9 @@ export function decodeMapFile(bytes: Uint8Array): SerializedMapData {
   }
   const decompressed = gunzipSync(bytes.slice(MAGIC_BYTES.length));
   const data = JSON.parse(strFromU8(decompressed)) as SerializedMapData;
-  if (data.version !== '2.0' && data.version !== '3.0') {
+  if (!isSupportedVersion(data.version)) {
     throw new Error(
-      `Incompatible file version "${String((data as { version?: unknown }).version)}". This app requires v2.0 or v3.0 format.`,
+      `Incompatible file version "${String((data as { version?: unknown }).version)}". This app requires one of: ${SUPPORTED_VERSIONS.join(', ')}.`,
     );
   }
   return data;

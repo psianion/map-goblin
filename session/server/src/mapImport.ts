@@ -4,9 +4,9 @@
 
 import { gunzipSync } from 'node:zlib'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
-
-/** Everything `SerializedMapData['version']` allows. Widen it when core widens. */
-const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0']
+// The one shared version list. A value import, but still no core *behavior* on the
+// server (D3): migration.ts is constants + a pure function over plain JSON.
+import { SUPPORTED_VERSIONS } from '@dnd/core/src/store/migration'
 
 /**
  * The editor writes a `.mapbuilder` as `MPBLD\0` + gzip(UTF-8 JSON) — canvas/src/io/saveLoad.ts

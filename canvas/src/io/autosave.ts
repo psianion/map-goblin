@@ -9,6 +9,7 @@
 // Recovery check: on app mount, if dirty flag is set, prompt user to restore.
 
 import type { SerializedMapData } from '@/store/types';
+import { isSupportedVersion } from '@dnd/core/src/store/migration';
 import { notify } from '@/lib/toast';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -157,8 +158,8 @@ export async function saveToIndexedDB(data: SerializedMapData): Promise<void> {
 
 /**
  * Load the autosave entry from IndexedDB.
- * Returns null if no autosave exists or if the saved data is not v2.0.
- * Stale v1.x autosaves are discarded and the entry is cleared.
+ * Returns null if no autosave exists or its version is unsupported.
+ * Unsupported autosaves are discarded and the entry is cleared.
  */
 export async function loadFromIndexedDB(): Promise<AutosaveEntry | null> {
   const db = await openDB();
@@ -173,10 +174,12 @@ export async function loadFromIndexedDB(): Promise<AutosaveEntry | null> {
         db.close();
         return;
       }
-      // Discard autosaves from older format versions
-      if (result.data.version !== '2.0') {
+      // Discard autosaves from format versions no reader accepts. This gate was
+      // `!== '2.0'` until schema 3.1 — silently discarding every autosave written
+      // since the format moved to 3.0.
+      if (!isSupportedVersion(result.data.version)) {
         console.warn(
-          `[autosave] Discarding stale autosave (version "${String((result.data as { version?: unknown }).version)}" is not v2.0)`,
+          `[autosave] Discarding stale autosave (unsupported version "${String((result.data as { version?: unknown }).version)}")`,
         );
         // Best-effort delete — do not block on it
         try {

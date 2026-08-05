@@ -1,5 +1,7 @@
 export * from '../shared/types';
+export * from '../shared/prep';
 import type { AnyChild, WallSegment, WallEdits, WallType, WallDirection, DoorStyle, MaskData, Room } from '../shared/types';
+import type { ScenePrep, TriggerDef } from '../shared/prep';
 import type { Polygon } from '../types/geometry';
 
 // ─── Map Settings ─────────────────────────────────────────
@@ -383,11 +385,18 @@ export interface Command {
 
 // ─── Serialization ────────────────────────────────────────
 export interface SerializedMapData {
-  version: '2.0' | '3.0';
+  version: '2.0' | '3.0' | '3.1';
   mapSettings: MapSettings;
   grid: Pick<GridConfig, 'visible' | 'snapDivision'>;
   layers: Layer[];
   customImages: Record<string, string>;
+  /**
+   * DM-authored scene prep (triggers). Absent until the DM authors some — a
+   * prep-less document leaves the server's stored prep untouched on republish,
+   * while `{ triggers: [] }` explicitly clears it. Stripped from every
+   * player-bound document by the session server.
+   */
+  prep?: ScenePrep;
   /**
    * The map's confining rectangle (shared/mapBounds.computeMapFrame), stamped on by the
    * session server when it redacts a document for a player: the fog has to cover the
@@ -419,6 +428,9 @@ export interface MapBuilderStore {
   mapIndex: MapMeta[];
   activeMapId: string | null;
   isMapSwitching: boolean;
+
+  /** Scene prep for the open map. null until the DM authors some (see SerializedMapData.prep). */
+  prep: ScenePrep | null;
 
   // mapSettings actions
   setMapName: (name: string) => void;
@@ -528,6 +540,10 @@ export interface MapBuilderStore {
   deleteMap: (id: string) => Promise<void>;
   renameMap: (id: string, name: string) => Promise<void>;
   duplicateMap: (id: string) => Promise<string>;
+
+  // prep actions
+  upsertTrigger: (trigger: TriggerDef) => void;
+  removeTrigger: (triggerId: string) => void;
 
   // bulk / serialization
   loadFromFile: (data: SerializedMapData, splatPngs?: [Blob | null, Blob | null]) => void;

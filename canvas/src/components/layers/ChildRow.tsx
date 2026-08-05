@@ -1,5 +1,5 @@
 import { memo, useRef, useState } from 'react'
-import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical } from 'lucide-react'
+import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical, Crosshair } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '@/store/store'
@@ -37,6 +37,8 @@ function childIcon(childType: AnyChild['childType']) {
       return <Waves size={12} />
     case 'text':
       return <Type size={12} />
+    case 'zone':
+      return <Crosshair size={12} />
   }
 }
 
