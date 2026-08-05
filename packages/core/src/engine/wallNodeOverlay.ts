@@ -214,7 +214,8 @@ export function renderWallNodeHandles(
   const group = state.tools.selectedNodeTs;
 
   // Everything else steps back 15% so the run being edited carries the light.
-  if (view) drawEditDim(overlay, view);
+  // A closed ring spares its own floor; an open chain has no interior.
+  if (view) drawEditDim(overlay, view, found.closed ? found.points : undefined);
 
   // The spine as a rope dash: provisional, being worked on — not geometry yet.
   strokeRopeDash(overlay, found.points, found.closed, zoom);

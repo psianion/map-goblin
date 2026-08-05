@@ -71,7 +71,7 @@ export function renderShapeNodeHandles(
   const selected = state.tools.selectedVertex;
 
   // Everything else steps back 15% so the ring being edited carries the light.
-  if (view) drawEditDim(overlay, view);
+  if (view) drawEditDim(overlay, view, outline);
 
   // The outline as a rope dash: provisional, being worked on — not geometry yet.
   strokeRopeDash(overlay, outline, true, zoom);

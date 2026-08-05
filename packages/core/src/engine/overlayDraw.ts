@@ -132,12 +132,20 @@ export function drawInsertPuck(g: Graphics, x: number, y: number, zoom: number):
 /**
  * Dim everything outside the edit so the ring being worked on carries the
  * light. `view` is the camera's world rect; drawn first so handles and dashes
- * land on top.
+ * land on top. A closed `hole` ring (the floor being edited) stays undimmed;
+ * an open wall chain has no interior to spare.
  */
 export function drawEditDim(
   g: Graphics,
   view: { x: number; y: number; width: number; height: number },
+  hole?: [number, number][],
 ): void {
+  // Fill first, then cut — the same order the region overlay uses; cut()
+  // punches out of the previously filled geometry.
   g.rect(view.x, view.y, view.width, view.height);
   g.fill({ color: OVERLAY_INK, alpha: 0.15 });
+  if (hole && hole.length >= 3) {
+    g.poly(hole.flat(), true);
+    g.cut();
+  }
 }
