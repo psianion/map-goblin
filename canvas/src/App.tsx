@@ -7,6 +7,7 @@ import { MapsSidePanel } from '@/components/maps/MapsSidePanel';
 import { RightPanel } from '@/components/layout/RightPanel';
 import { CollapsedRightPanel } from '@/components/layout/CollapsedRightPanel';
 import { StatusBar } from '@/components/layout/StatusBar';
+import { FloatingActionBar } from '@/components/canvas/FloatingActionBar';
 import { ExportDialog } from '@/components/shared/ExportDialog';
 import { RecoveryDialog } from '@/components/shared/RecoveryDialog';
 import { startAutosave, isDirtyFlagSet, isDocumentChange, clearDirtyFlag } from '@/io/autosave';
@@ -238,6 +239,7 @@ export default function App() {
       {/* Canvas — fills full viewport beneath all overlays */}
       <div className="absolute inset-0">
         <CanvasHost />
+        <FloatingActionBar />
         {/* Top-right: Import / Export / Focus buttons — offset right to avoid overlapping the right panel */}
         <div
           data-chrome

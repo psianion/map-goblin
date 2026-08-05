@@ -8,6 +8,7 @@ import { LightProperties } from './LightProperties'
 import { DoorProperties } from './DoorProperties'
 import { ShapeTextureProperties } from './ShapeTextureProperties'
 import { TextProperties } from './TextProperties'
+import { TransformSection } from './TransformSection'
 import { RoomPanel } from './RoomPanel'
 import { PropertyField } from './PropertyField'
 import { ColorField } from '@/components/inputs/ColorField'
@@ -204,6 +205,26 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
         <TextProperties
           label={selectedChild as TextChild}
           onDeselect={() => useStore.getState().setSelectedIds([])}
+          openSections={openSections}
+          onToggleSection={onToggleSection}
+        />
+        <TransformSection
+          child={selectedChild as TextChild}
+          openSections={openSections}
+          onToggleSection={onToggleSection}
+        />
+        <GridSection openSections={openSections} onToggleSection={onToggleSection} />
+        <AmbientSection openSections={openSections} onToggleSection={onToggleSection} />
+      </div>
+    )
+  }
+
+  // Assets had no properties at all — numeric transform is their panel.
+  if (selectedChild?.childType === 'asset') {
+    return (
+      <div className="flex flex-col pt-2">
+        <TransformSection
+          child={selectedChild}
           openSections={openSections}
           onToggleSection={onToggleSection}
         />
