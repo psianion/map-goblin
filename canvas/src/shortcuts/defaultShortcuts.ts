@@ -5,10 +5,11 @@ import { saveMap } from '@/io/saveLoad';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { notify, notifyCoalesce } from '@/lib/toast';
-import { AddChildCommand, RemoveChildCommand, CompositeCommand } from '@/store/commands';
+import { AddChildCommand, RemoveChildCommand, CompositeCommand, UpdateChildCommand } from '@/store/commands';
 import type { AnyChild, DungeonLayer } from '@/store/types';
 import { selectLayerForChild } from '@/store/selectors';
 import { noEditableLayerMessage } from '@dnd/core/src/engine/tools/layerGuard';
+import { snapshotChild, transformChild } from '@dnd/core/src/engine/tools/childTransform';
 import { togglePopoverRef } from '@/components/toolbar/toolConstants';
 import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
 
@@ -31,6 +32,171 @@ function blockedChildrenLayerReason(store: ReturnType<typeof useStore.getState>,
     if (!layer.visible) return 'Layer is hidden';
   }
   return null;
+}
+
+/**
+ * Selection-scoped shortcuts (duplicate, flip, nudge) only make sense with the
+ * select tool active, something selected, and no node-edit session claiming
+ * the keyboard — arrows while editing a wall's nodes must not shove the whole
+ * shape around.
+ */
+function selectionShortcutsApply(store: ReturnType<typeof useStore.getState>): boolean {
+  return (
+    store.tools.activeTool === 'select' &&
+    store.selection.selectedIds.length > 0 &&
+    !store.tools.nodeEditWallId &&
+    !store.tools.shapeNodeEditId
+  );
+}
+
+/** Selected children paired with their owning layer, in selection order. */
+function selectedChildEntries(
+  store: ReturnType<typeof useStore.getState>,
+): { layer: DungeonLayer; child: AnyChild }[] {
+  const out: { layer: DungeonLayer; child: AnyChild }[] = [];
+  for (const id of store.selection.selectedIds) {
+    const layer = selectLayerForChild(store, id);
+    if (!layer) continue;
+    const child = layer.children.find((c) => c.id === id);
+    if (child) out.push({ layer, child });
+  }
+  return out;
+}
+
+/**
+ * Move every selected child by (dx, dy) world squares as one undo entry.
+ * Goes through childTransform so shapes bake their pending transform the same
+ * way a gizmo drag does. Returns false when nothing was nudged, so the key
+ * event can fall through to whoever wants arrows next.
+ */
+function nudgeSelection(dx: number, dy: number): void | false {
+  const store = useStore.getState();
+  if (!selectionShortcutsApply(store)) return false;
+  const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
+  if (reason) {
+    notify.warning(reason);
+    return;
+  }
+  const t = {
+    translateX: dx, translateY: dy, scaleX: 1, scaleY: 1, rotation: 0, anchorX: 0, anchorY: 0,
+  };
+  const cmds = selectedChildEntries(store)
+    .map(({ layer, child }) => {
+      const snap = snapshotChild(child);
+      if (snap.kind === 'none') return null;
+      const after = transformChild(snap, t);
+      const before: Partial<AnyChild> = {};
+      for (const key of Object.keys(after)) {
+        (before as Record<string, unknown>)[key] = structuredClone(
+          (child as unknown as Record<string, unknown>)[key],
+        );
+      }
+      return new UpdateChildCommand('Nudge', layer.id, child.id, before, after);
+    })
+    .filter((c): c is UpdateChildCommand => c !== null);
+  if (cmds.length === 0) return false;
+  undoManager.execute(cmds.length === 1 ? cmds[0] : new CompositeCommand('Nudge', cmds));
+}
+
+/**
+ * Flip selected children in place. Assets toggle flipX/flipY (the sprite
+ * mirrors, bounds don't change); shapes and water mirror their rings about
+ * their own bbox centre, order reversed so winding survives. Text and lights
+ * have nothing to mirror and pass through unchanged.
+ */
+function flipSelection(axis: 'h' | 'v'): void | false {
+  const store = useStore.getState();
+  if (!selectionShortcutsApply(store)) return false;
+  const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
+  if (reason) {
+    notify.warning(reason);
+    return;
+  }
+  const label = axis === 'h' ? 'Flip horizontal' : 'Flip vertical';
+  const cmds: UpdateChildCommand[] = [];
+  for (const { layer, child } of selectedChildEntries(store)) {
+    if (child.childType === 'asset') {
+      const key = axis === 'h' ? 'flipX' : 'flipY';
+      cmds.push(
+        new UpdateChildCommand(label, layer.id, child.id, { [key]: child[key] } as Partial<AnyChild>, {
+          [key]: !child[key],
+        } as Partial<AnyChild>),
+      );
+    } else if (child.childType === 'shape' || child.childType === 'water') {
+      // Mirror the baked rings about the child's own centre.
+      const snap = snapshotChild(child);
+      if (snap.kind !== 'rings') continue;
+      const pts = snap.contours.flat();
+      if (pts.length === 0) continue;
+      const xs = pts.map((p) => p[0]);
+      const ys = pts.map((p) => p[1]);
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const mirrored = snap.contours.map((ring) =>
+        ring
+          .map(([x, y]): [number, number] =>
+            axis === 'h' ? [2 * cx - x, y] : [x, 2 * cy - y],
+          )
+          .reverse(),
+      );
+      // Only shapes carry an optional baked-in transform; snapshotChild folded
+      // it into the rings above, so the patch must clear it on shapes only.
+      const before = (child.childType === 'shape'
+        ? { contours: structuredClone(child.contours), transform: child.transform }
+        : { contours: structuredClone(child.contours) }) as Partial<AnyChild>;
+      const after = (child.childType === 'shape'
+        ? { contours: mirrored, transform: undefined }
+        : { contours: mirrored }) as Partial<AnyChild>;
+      cmds.push(new UpdateChildCommand(label, layer.id, child.id, before, after));
+    }
+  }
+  if (cmds.length === 0) return false;
+  undoManager.execute(cmds.length === 1 ? cmds[0] : new CompositeCommand(label, cmds));
+  notify.subtle(label, { icon: 'tool' });
+}
+
+/**
+ * Rotate the selection a quarter turn clockwise, each child about its own
+ * centre. Exported for the floating action bar — it has no key binding.
+ */
+export function rotateSelection90(): void | false {
+  const store = useStore.getState();
+  if (!selectionShortcutsApply(store)) return false;
+  const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
+  if (reason) {
+    notify.warning(reason);
+    return;
+  }
+  const cmds: UpdateChildCommand[] = [];
+  for (const { layer, child } of selectedChildEntries(store)) {
+    const snap = snapshotChild(child);
+    if (snap.kind === 'none' || snap.kind === 'radius') continue; // lights have no orientation
+    let anchorX = 0;
+    let anchorY = 0;
+    if (snap.kind === 'rings') {
+      const pts = snap.contours.flat();
+      if (pts.length === 0) continue;
+      const xs = pts.map((p) => p[0]);
+      const ys = pts.map((p) => p[1]);
+      anchorX = (Math.min(...xs) + Math.max(...xs)) / 2;
+      anchorY = (Math.min(...ys) + Math.max(...ys)) / 2;
+    } else {
+      anchorX = snap.position.x;
+      anchorY = snap.position.y;
+    }
+    const after = transformChild(snap, {
+      translateX: 0, translateY: 0, scaleX: 1, scaleY: 1, rotation: Math.PI / 2, anchorX, anchorY,
+    });
+    const before: Partial<AnyChild> = {};
+    for (const key of Object.keys(after)) {
+      (before as Record<string, unknown>)[key] = structuredClone(
+        (child as unknown as Record<string, unknown>)[key],
+      );
+    }
+    cmds.push(new UpdateChildCommand('Rotate 90°', layer.id, child.id, before, after));
+  }
+  if (cmds.length === 0) return false;
+  undoManager.execute(cmds.length === 1 ? cmds[0] : new CompositeCommand('Rotate 90°', cmds));
 }
 
 // Keyed by key-combo string (e.g. 'ctrl+s') to match what onKeyDown builds.
@@ -280,6 +446,51 @@ const toolKeyMap: Record<string, () => void | false> = {
     // Region-based paste not implemented in v2.0
     return false;
   },
+  'ctrl+d': (): void | false => {
+    const store = useStore.getState();
+    if (!selectionShortcutsApply(store)) return false;
+    const reason = blockedChildrenLayerReason(store, store.selection.selectedIds);
+    if (reason) {
+      notify.warning(reason);
+      return;
+    }
+    // Duplicate into each child's own layer — unlike paste, which targets the
+    // active layer — offset one square like paste so the copy is visible.
+    const newIds: string[] = [];
+    const cmds = selectedChildEntries(store).map(({ layer, child }) => {
+      const copy = structuredClone(child);
+      copy.id = crypto.randomUUID();
+      copy.name = `${child.name} (copy)`;
+      if ('position' in copy && !Array.isArray(copy.position)) {
+        copy.position = { x: copy.position.x + 1, y: copy.position.y + 1 };
+      } else if ('position' in copy && Array.isArray(copy.position)) {
+        copy.position = [copy.position[0] + 1, copy.position[1] + 1];
+      } else if ('transform' in copy && copy.transform) {
+        copy.transform.translate = [copy.transform.translate[0] + 1, copy.transform.translate[1] + 1];
+      } else if ('contours' in copy) {
+        copy.contours = copy.contours.map((ring) =>
+          ring.map(([x, y]): [number, number] => [x + 1, y + 1]),
+        );
+      }
+      newIds.push(copy.id);
+      return new AddChildCommand('Duplicate child', layer.id, copy);
+    });
+    if (cmds.length === 0) return false;
+    undoManager.execute(cmds.length === 1 ? cmds[0] : new CompositeCommand('Duplicate', cmds));
+    // Selection follows the copies, so Ctrl+D, drag, Ctrl+D chains work.
+    store.setSelectedIds(newIds);
+    notify.subtle(cmds.length === 1 ? 'Duplicated' : `Duplicated ${cmds.length} items`, { icon: 'copy' });
+  },
+  'shift+h': () => flipSelection('h'),
+  'shift+v': () => flipSelection('v'),
+  'arrowleft': () => nudgeSelection(-1, 0),
+  'arrowright': () => nudgeSelection(1, 0),
+  'arrowup': () => nudgeSelection(0, -1),
+  'arrowdown': () => nudgeSelection(0, 1),
+  'shift+arrowleft': () => nudgeSelection(-0.25, 0),
+  'shift+arrowright': () => nudgeSelection(0.25, 0),
+  'shift+arrowup': () => nudgeSelection(0, -0.25),
+  'shift+arrowdown': () => nudgeSelection(0, 0.25),
   'ctrl+i': () => {
     importImageRef.current?.();
   },
@@ -438,6 +649,11 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'edit.paste',          keys: 'ctrl+v',      category: 'Edit',  label: 'Paste' },
     { id: 'edit.cut',            keys: 'ctrl+x',      category: 'Edit',  label: 'Cut' },
     { id: 'edit.delete',         keys: 'Delete',      category: 'Edit',  label: 'Delete' },
+    { id: 'edit.duplicate',      keys: 'ctrl+d',      category: 'Edit',  label: 'Duplicate' },
+    { id: 'edit.flipH',          keys: 'shift+h',     category: 'Edit',  label: 'Flip Horizontal' },
+    { id: 'edit.flipV',          keys: 'shift+v',     category: 'Edit',  label: 'Flip Vertical' },
+    { id: 'edit.nudge',          keys: 'ArrowLeft',   category: 'Edit',  label: 'Nudge 1 square (arrows)' },
+    { id: 'edit.nudgeFine',      keys: 'shift+ArrowLeft', category: 'Edit', label: 'Nudge ¼ square' },
     { id: 'view.fitToContent',   keys: 'ctrl+0',      category: 'View',  label: 'Fit to Content' },
     { id: 'view.focusMode',      keys: '`',           category: 'View',  label: 'Cycle Focus Mode' },
     { id: 'view.toggleMaps',     keys: 'ctrl+shift+m', category: 'View', label: 'Toggle Maps Panel' },
