@@ -29,7 +29,7 @@ import {
   exploredRooms,
   type MapDelta,
 } from './redactMap'
-import { CACHE_MAX, createSceneMaps, type SceneMap } from './sceneMap'
+import { CACHE_MAX, createSceneMaps, type SceneMap, type SceneMapOf } from './sceneMap'
 
 /** Everything the rest of the server asks the fog. One implementation, wired at boot. */
 export interface Vision {
@@ -48,6 +48,9 @@ export interface Vision {
   visionOf(sceneId: string): SceneVision | null
   /** The map GET's player path (D4). Null when the map is unknown or will not parse. */
   playerMap(sceneId: string): SerializedMapData | null
+  /** The scene's parsed map, raw — triggers' prep resolver (M4) reuses this cache rather
+   *  than parsing the map doc a second time. */
+  sceneMapOf: SceneMapOf
   /** Rooms whose geometry entered the player view at this mutation, sliced (D5). */
   revealDelta(sceneId: string): MapDelta | null
   /** #47 — call after a re-publish repoints a scene's map, or its cached answers go stale. */
@@ -171,6 +174,7 @@ export function createVision(stores: Stores): Vision {
   }
 
   return {
+    sceneMapOf,
     roomsOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.rooms.map((room) => room.id) ?? [],
     doorsOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.doors ?? [],
     playerDoors: (sceneId) => compute(sceneId)?.playerDoors ?? NO_ONES_DOORS,

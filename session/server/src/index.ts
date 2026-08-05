@@ -7,6 +7,7 @@ import { doorsModule } from '@dnd/mechanics/doors'
 import { fogModule } from '@dnd/mechanics/fog'
 import { rollsModule } from '@dnd/mechanics/rolls'
 import { tokensModule } from '@dnd/mechanics/tokens'
+import { triggersModule } from '@dnd/mechanics/triggers'
 import { WebSocketServer } from 'ws'
 import { ensureAdminPass, verifyToken } from './auth'
 import { loadConfig, type Config } from './config'
@@ -17,6 +18,7 @@ import { createRequestHandler } from './http'
 import { pingModule } from './modules/ping'
 import { ModuleRegistry } from './modules/registry'
 import { scenesModule } from './modules/scenes'
+import { createTriggerDeps } from './triggers/prepResolver'
 import { ClientConnection, type Identity } from './ws/ClientConnection'
 import { SessionManager, type SessionManagerOptions } from './ws/SessionManager'
 
@@ -100,6 +102,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   modules.register(tokensModule(vision.visionOf))
   modules.register(fogModule(vision.roomsOf))
   modules.register(doorsModule(vision.doorsOf, vision.playerDoors))
+  modules.register(triggersModule(createTriggerDeps(stores, vision.sceneMapOf)))
   for (const module of options.modules ?? []) modules.register(module)
 
   const sessions = new SessionManager(modules, {

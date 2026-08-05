@@ -5,7 +5,7 @@
 // immutable — an upload mints a new id and never rewrites one — which makes the row id its
 // own version, and the cache needs no invalidation at all.
 
-import type { AnyChild, DoorChild, Room, WallSegment } from '@dnd/core/src/shared/types'
+import type { AnyChild, DoorChild, Room, WallSegment, ZoneChild } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, Layer, SerializedMapData } from '@dnd/core/src/store/types'
 import type { Stores } from '../db/stores'
 import { validateMapData } from '../mapImport'
@@ -29,6 +29,10 @@ export interface SceneMap {
   /** Every dungeon layer's rooms, corridors included: they are rooms like any other (D6). */
   rooms: readonly Room[]
   doors: readonly DoorChild[]
+  /** DM-authored trigger anchors (M4) — never rendered, never sent to a player (prep.ts). */
+  zones: readonly ZoneChild[]
+  /** ids of every authored light — how a trigger's `light` action is checked for staleness. */
+  lightIds: ReadonlySet<string>
   /** The room whose polygon contains the point, or null if it is on unzoned map (D6). */
   roomAt(x: number, y: number): string | null
   /** The rooms a wall segment borders — both sides of a shared wall. */
@@ -83,11 +87,19 @@ function index(campaignId: string, data: SerializedMapData): SceneMap {
   const doors = layers.flatMap((layer) =>
     childrenOf(layer).filter((child): child is DoorChild => child.childType === 'door'),
   )
+  const zones = layers.flatMap((layer) =>
+    childrenOf(layer).filter((child): child is ZoneChild => child.childType === 'zone'),
+  )
+  const lightIds = new Set(
+    layers.flatMap((layer) => childrenOf(layer).filter((child) => child.childType === 'light').map((c) => c.id)),
+  )
   return {
     campaignId,
     data,
     rooms,
     doors,
+    zones,
+    lightIds,
     roomAt: (x, y) => rooms.find((room) => contains(room, x, y))?.id ?? null,
     roomsAlong: (wall) => {
       const [ax, ay] = wall.points[0]

@@ -138,7 +138,7 @@ async function seat(base: string, token: string) {
   await once(socket, 'open')
   const rejoin = async (): Promise<SessionState> => {
     const answered = waitFor(socket, (m) => m.type === 'session-state')
-    socket.send(JSON.stringify({ type: 'join', protocolVersion: 3 }))
+    socket.send(JSON.stringify({ type: 'join', protocolVersion: 4 }))
     return (await answered as Extract<ServerMessage, { type: 'session-state' }>).state
   }
   return {

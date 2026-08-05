@@ -9,6 +9,10 @@
 
 import type { Ability, TimeOfDay, TriggerDef, Weather } from '@dnd/core/src/shared/prep'
 
+// Consumers of the module (server wiring, table client) get the shared prep vocabulary from
+// here rather than deep-importing @dnd/core themselves.
+export type { Ability, TimeOfDay, TriggerDef, Weather }
+
 export interface ResolvedTrigger {
   def: TriggerDef
   /** room-revealed only: the zone's containing room, resolved server-side. */

@@ -128,8 +128,9 @@ describe('enter-region / within-radius arming', () => {
   it('fires on the rising edge, not while already armed, then re-arms on leaving', () => {
     currentX = 100
     let state = fireEvent(mod, empty, { sceneId: SCENE, source: { module: 'tokens', action: 'move' } })
-    expect(sceneOf(state).fired.er1).toBeUndefined()
-    expect(sceneOf(state).armed.er1).toBe(false)
+    // Nothing to arm or fire — a no-op cascade skips setState entirely (every token drag
+    // step lands here; writing identical state would double the table's broadcast traffic).
+    expect(state).toBe(empty)
 
     currentX = 0 // inside
     state = fireEvent(mod, state, { sceneId: SCENE, source: { module: 'tokens', action: 'move' } })
@@ -137,9 +138,9 @@ describe('enter-region / within-radius arming', () => {
     expect(sceneOf(state).armed.er1).toBe(true)
     expect(sceneOf(state).log).toHaveLength(1)
 
-    // still inside — no refire, latch holds
-    state = fireEvent(mod, state, { sceneId: SCENE, source: { module: 'tokens', action: 'move' } })
-    expect(sceneOf(state).log).toHaveLength(1)
+    // still inside — no refire, latch holds, and the no-op skips setState
+    const held = fireEvent(mod, state, { sceneId: SCENE, source: { module: 'tokens', action: 'move' } })
+    expect(held).toBe(state)
 
     currentX = 100 // leaves
     state = fireEvent(mod, state, { sceneId: SCENE, source: { module: 'tokens', action: 'move' } })
@@ -174,7 +175,8 @@ describe('enter-region / within-radius arming', () => {
     })
     const m = triggersModule(d)
     const state = fireEvent(m, empty, { sceneId: SCENE, source: { module: 'tokens', action: 'move' } })
-    expect(sceneOf(state).fired.er1).toBeUndefined()
+    // Hidden tokens change nothing, so the whole event is a skipped no-op.
+    expect(state).toBe(empty)
   })
 })
 

@@ -147,7 +147,7 @@ function nextState<S>(socket: WebSocket, module: string, where: (state: S) => bo
   })
 }
 
-function sendJoin(socket: WebSocket, protocolVersion = 3): void {
+function sendJoin(socket: WebSocket, protocolVersion = 4): void {
   socket.send(JSON.stringify({ type: 'join', protocolVersion }))
 }
 

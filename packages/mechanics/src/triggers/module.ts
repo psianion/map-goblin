@@ -277,11 +277,19 @@ function event(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
   const scene = cloneScene(sceneTriggersOf(ctx.state, sceneId))
   const now = (deps.now ?? Date.now)()
 
+  // Most cascades change nothing (every token drag step lands here) — skip the setState
+  // entirely then, or every move would double the table's broadcast traffic with an
+  // identical triggers state-update.
+  let changed = false
+
   // A true fog reset re-arms room-revealed triggers only — a sprung trap stays sprung, the
   // room just goes dark again and can be walked into a second time.
   if (source.module === 'fog' && source.action === 'reset') {
     for (const t of prep.triggers) {
-      if (t.def.when.kind === 'room-revealed') delete scene.fired[t.def.id]
+      if (t.def.when.kind === 'room-revealed' && t.def.id in scene.fired) {
+        delete scene.fired[t.def.id]
+        changed = true
+      }
     }
   }
 
@@ -296,6 +304,7 @@ function event(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
     if (t.def.when.kind === 'room-revealed') {
       if (t.roomId && explored.includes(t.roomId) && !scene.fired[t.def.id]) {
         fireTrigger(scene, t, null, deps, now)
+        changed = true
       }
       continue
     }
@@ -309,17 +318,21 @@ function event(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
       const insideToken = shape ? tokens.find((tok) => insideShape(tok, shape)) : undefined
       const wasArmed = !!scene.armed[t.def.id]
       if (insideToken) {
-        if (!wasArmed && !(t.def.once && scene.fired[t.def.id])) {
-          fireTrigger(scene, t, insideToken, deps, now)
+        if (!wasArmed) {
+          if (!(t.def.once && scene.fired[t.def.id])) {
+            fireTrigger(scene, t, insideToken, deps, now)
+          }
+          scene.armed[t.def.id] = true
+          changed = true
         }
-        scene.armed[t.def.id] = true
-      } else {
+      } else if (wasArmed) {
         scene.armed[t.def.id] = false
+        changed = true
       }
     }
   }
 
-  setScene(ctx, sceneId, scene)
+  if (changed) setScene(ctx, sceneId, scene)
 }
 
 function insideShape(token: TriggerToken, shape: NonNullable<ResolvedTrigger['shape']>): boolean {

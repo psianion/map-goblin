@@ -2,10 +2,12 @@ import { useEffect } from 'react';
 import { ActiveToolIndicator } from '../components/ActiveToolIndicator';
 import { ReconnectingBanner } from '../components/ConnectionStatus';
 import { ToastHost } from '../components/Toast';
+import { TriggerPrompts } from '../components/TriggerPrompts';
 import { GameRenderer } from '../renderer/GameRenderer';
 import { FitScreenButton, TableStatusBar } from '../components/TableStatusBar';
 import { usePanels } from '../session/panels';
 import { resumeSeat, useRole } from '../session/store';
+import { useTriggerToasts } from '../session/useTriggerToasts';
 
 // Side-effect imports: each of these calls `registerPanel` at module scope. This
 // list is the only thing a new module adds to the shell (D8) — the sidebar below
@@ -18,6 +20,7 @@ import '../modules/rolls/beyond20';
 import '../modules/tokens';
 import '../modules/doors';
 import '../modules/fog';
+import '../modules/triggers';
 
 /**
  * §2.6 — the table. Renderer takes the room, sidebar carries the registered panels.
@@ -33,6 +36,11 @@ export default function GameTable() {
     resumeSeat();
   }, []);
 
+  // The table's ear for trigger narration (§useTriggerToasts) — mounted once here rather
+  // than inside a panel, because it has to run whether or not the triggers panel (DM-only)
+  // or any panel at all is on screen.
+  useTriggerToasts();
+
   return (
     <div data-page="table" className="flex h-full flex-col bg-surface-0 text-text-primary md:flex-row">
       {/* min-w-0/min-h-0: without them the canvas's intrinsic size pins this flex
@@ -46,6 +54,7 @@ export default function GameTable() {
         <FitScreenButton />
         <TableStatusBar />
         <ToastHost />
+        <TriggerPrompts />
       </main>
 
       <aside className="flex shrink-0 flex-col gap-4 border-border-default p-3 max-md:border-t md:w-64 md:overflow-y-auto md:border-l">
