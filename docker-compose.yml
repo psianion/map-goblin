@@ -4,8 +4,8 @@ services:
     image: map-goblin:dev
     ports:
       - "8080:80"
-    # nginx.conf proxy_pass to game-server is resolved at container start —
-    # without the upstream, the editor container fails to boot.
+    # The editor's /api proxy targets game-server; resolution is per-request
+    # (see nginx.conf), so this is boot ordering, not a hard requirement.
     depends_on:
       - game-server
     restart: unless-stopped
