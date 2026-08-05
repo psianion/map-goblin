@@ -308,7 +308,7 @@ export class ZoneTool implements DrawingTool {
     const orphaned = store.prep?.triggers.filter((t) => t.when.zoneId === selected).length ?? 0;
     if (orphaned > 0) {
       notify.warning(
-        `Zone deleted — ${orphaned} trigger${orphaned === 1 ? '' : 's'} now reference nothing (undo restores the zone)`,
+        `Zone deleted — ${orphaned} trigger${orphaned === 1 ? ' now references' : 's now reference'} nothing (undo restores the zone)`,
       );
     }
     undoManager.execute(new RemoveChildCommand('Delete zone', layer.id, selected));

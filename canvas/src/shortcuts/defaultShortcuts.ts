@@ -595,6 +595,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       }
 
       // Delete selected
+      warnOrphanedTriggers(store, store.selection.selectedIds);
       const commands = store.selection.selectedIds.map((id) => {
         const layer = selectLayerForChild(store, id);
         return new RemoveChildCommand('Cut', layer?.id ?? '', id);
@@ -633,6 +634,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       return;
     }
 
+    warnOrphanedTriggers(store, store.selection.selectedIds);
     const delCount = store.selection.selectedIds.length;
     const delCmds = store.selection.selectedIds.map((id) => {
       const layer = selectLayerForChild(store, id);
@@ -650,6 +652,26 @@ const toolKeyMap: Record<string, () => void | false> = {
     return toolKeyMap['delete']?.() ?? false;
   },
 };
+
+/**
+ * Triggers keyed to a removed zone become unreachable from every screen while
+ * still riding along in saves/publishes — say so before the zone goes, since
+ * prep edits sit outside the undo stack even though the zone itself comes
+ * back on undo. ZoneTool's own delete path carries the same warning; this
+ * covers the global Delete/Backspace/Cut shortcuts, which bypass the tool.
+ */
+function warnOrphanedTriggers(
+  store: ReturnType<typeof useStore.getState>,
+  removedIds: string[],
+): void {
+  const removed = new Set(removedIds);
+  const orphaned = store.prep?.triggers.filter((t) => removed.has(t.when.zoneId)).length ?? 0;
+  if (orphaned > 0) {
+    notify.warning(
+      `Zone deleted — ${orphaned} trigger${orphaned === 1 ? ' now references' : 's now reference'} nothing (undo restores the zone)`,
+    );
+  }
+}
 
 export interface ShortcutDefinition {
   id: string;
