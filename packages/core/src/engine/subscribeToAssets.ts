@@ -20,8 +20,11 @@ function syncSprite(sprite: Sprite, obj: AssetChild): void {
   sprite.visible = obj.visible;
   sprite.position.set(obj.position.x, obj.position.y);
   sprite.rotation = obj.rotation;
-  sprite.width = obj.width;
-  sprite.height = obj.height;
+  // `scale` multiplies width/height everywhere else (bounds, hit-testing) but
+  // was dropped here, so scaling a child grew its gizmo box while the art
+  // stayed put. Gizmo resizes write width/height; scale is the legacy multiplier.
+  sprite.width = obj.width * obj.scale;
+  sprite.height = obj.height * obj.scale;
   if (obj.flipX) sprite.scale.x *= -1;
   if (obj.flipY) sprite.scale.y *= -1;
   sprite.tint = parseInt(obj.tint.replace('#', ''), 16);

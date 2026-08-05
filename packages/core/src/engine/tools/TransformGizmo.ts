@@ -1,4 +1,4 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Text, TextStyle } from 'pixi.js';
 import type { BoundingBox } from './transformMath';
 import {
   snapValueToGrid,
@@ -8,6 +8,20 @@ import {
 } from './transformMath';
 import type { AnyChild } from '../../store/types';
 import { getChildBounds, unionChildBounds } from '../hitTest';
+import {
+  OVERLAY_WHITE,
+  OVERLAY_INK,
+  OVERLAY_INK_ALPHA,
+  HANDLE_BORDER_ALPHA,
+  HANDLE_SIZE,
+  PILL_LENGTH,
+  PILL_THICKNESS,
+  ROTATE_DIAMETER,
+  ROTATE_STEM,
+  HANDLE_HIT_HALF,
+  LINE_WHITE,
+  LINE_INK,
+} from '../overlayPalette';
 
 export type HandleType =
   | 'nw' | 'n' | 'ne'
@@ -20,23 +34,41 @@ interface HandleZone {
   type: HandleType;
   x: number;
   y: number;
-  size: number;
+  /** Half-width and half-height of the hit zone, not the drawn size. */
+  hitHalfX: number;
+  hitHalfY: number;
 }
 
-const CORNER_SIZE = 10;
-const MID_SIZE = 6;
-const ROTATION_STEM = 14;
-const ROTATION_RADIUS = 5;
-const ACCENT_COLOR = 0x6c63ff;
-const HANDLE_FILL = 0xffffff;
 const MIN_EDGE_PX = 40; // only show mid-edge handles if dimension > this
+
+/** What the gizmo offers for the current selection. */
+export interface GizmoConfig {
+  /** Rotation stem — off for children with no rotation (lights). */
+  showRotate: boolean;
+  /** Measurement chip content; null hides the chip. */
+  chip: string | null;
+}
+
+// Built lazily: TextStyle touches canvas text metrics at construction, which
+// the node test environment doesn't have — module import must stay side-effect
+// free for anything that imports SelectTool.
+function chipStyle(): TextStyle {
+  return new TextStyle({
+    fontFamily: 'IBM Plex Mono, Consolas, monospace',
+    fontSize: 11,
+    fill: OVERLAY_WHITE,
+  });
+}
 
 export class TransformGizmo {
   readonly container = new Container();
   private graphics = new Graphics();
+  private chipText: Text;
+  private chipBg = new Graphics();
   private handles: HandleZone[] = [];
   private bbox: BoundingBox = { x: 0, y: 0, width: 0, height: 0 };
   private objectRotation = 0;
+  private config: GizmoConfig = { showRotate: true, chip: null };
 
   // Drag state
   private dragging = false;
@@ -61,15 +93,19 @@ export class TransformGizmo {
   constructor() {
     this.container.label = 'transformGizmo';
     this.container.addChild(this.graphics);
+    this.chipText = new Text({ text: '', style: chipStyle(), resolution: 2 });
+    this.container.addChild(this.chipBg);
+    this.container.addChild(this.chipText);
   }
 
   /**
    * Update the gizmo position/size based on the object's screen-space bounding box.
    * Called every frame from the render loop when an object is selected.
    */
-  update(screenBBox: BoundingBox, rotation: number): void {
+  update(screenBBox: BoundingBox, rotation: number, config?: Partial<GizmoConfig>): void {
     this.bbox = screenBBox;
     this.objectRotation = rotation;
+    if (config) this.config = { ...this.config, ...config };
     this.draw();
   }
 
@@ -80,77 +116,133 @@ export class TransformGizmo {
 
     const { x, y, width, height } = this.bbox;
     const cx = x + width / 2;
-    const cy = y + height / 2;
 
-    // Bounding box outline
-    g.setStrokeStyle({ color: ACCENT_COLOR, width: 1.5 });
+    // Bounding box: white line carried by an ink underlay so it reads on any art.
+    g.setStrokeStyle({ color: OVERLAY_INK, width: LINE_INK, alpha: OVERLAY_INK_ALPHA });
+    g.rect(x, y, width, height);
+    g.stroke();
+    g.setStrokeStyle({ color: OVERLAY_WHITE, width: LINE_WHITE });
     g.rect(x, y, width, height);
     g.stroke();
 
     // Corner handles
-    this.drawHandle(g, x, y, CORNER_SIZE, 'nw');
-    this.drawHandle(g, x + width, y, CORNER_SIZE, 'ne');
-    this.drawHandle(g, x, y + height, CORNER_SIZE, 'sw');
-    this.drawHandle(g, x + width, y + height, CORNER_SIZE, 'se');
+    this.drawSquare(g, x, y, 'nw');
+    this.drawSquare(g, x + width, y, 'ne');
+    this.drawSquare(g, x, y + height, 'sw');
+    this.drawSquare(g, x + width, y + height, 'se');
 
-    // Mid-edge handles (only if dimension is large enough)
+    // Mid-edge pills (only if the edge is long enough to leave room)
+    const cy = y + height / 2;
     if (width > MIN_EDGE_PX) {
-      this.drawHandle(g, cx, y, MID_SIZE, 'n');
-      this.drawHandle(g, cx, y + height, MID_SIZE, 's');
+      this.drawPill(g, cx, y, true, 'n');
+      this.drawPill(g, cx, y + height, true, 's');
     }
     if (height > MIN_EDGE_PX) {
-      this.drawHandle(g, x, cy, MID_SIZE, 'w');
-      this.drawHandle(g, x + width, cy, MID_SIZE, 'e');
+      this.drawPill(g, x, cy, false, 'w');
+      this.drawPill(g, x + width, cy, false, 'e');
     }
 
     // Rotation handle stem + circle
-    const rotY = y - ROTATION_STEM;
-    g.setStrokeStyle({ color: ACCENT_COLOR, width: 1.5 });
-    g.moveTo(cx, y);
-    g.lineTo(cx, rotY);
-    g.stroke();
-    g.circle(cx, rotY, ROTATION_RADIUS);
-    g.fill(HANDLE_FILL);
-    g.setStrokeStyle({ color: ACCENT_COLOR, width: 2 });
-    g.stroke();
-    this.handles.push({ type: 'rotate', x: cx, y: rotY, size: ROTATION_RADIUS * 2 });
+    if (this.config.showRotate) {
+      const rotY = y - ROTATE_STEM - ROTATE_DIAMETER / 2;
+      g.setStrokeStyle({ color: OVERLAY_INK, width: LINE_INK, alpha: OVERLAY_INK_ALPHA });
+      g.moveTo(cx, y);
+      g.lineTo(cx, y - ROTATE_STEM);
+      g.stroke();
+      g.setStrokeStyle({ color: OVERLAY_WHITE, width: LINE_WHITE });
+      g.moveTo(cx, y);
+      g.lineTo(cx, y - ROTATE_STEM);
+      g.stroke();
+      g.circle(cx, rotY, ROTATE_DIAMETER / 2);
+      g.fill(OVERLAY_WHITE);
+      g.setStrokeStyle({ color: OVERLAY_INK, width: LINE_WHITE, alpha: HANDLE_BORDER_ALPHA });
+      g.stroke();
+      this.handles.push({
+        type: 'rotate',
+        x: cx,
+        y: rotY,
+        hitHalfX: HANDLE_HIT_HALF,
+        hitHalfY: HANDLE_HIT_HALF,
+      });
+    }
+
+    this.drawChip();
   }
 
-  private drawHandle(g: Graphics, x: number, y: number, size: number, type: HandleType): void {
-    const half = size / 2;
-    g.rect(x - half, y - half, size, size);
-    g.fill(HANDLE_FILL);
-    g.setStrokeStyle({
-      color: ACCENT_COLOR,
-      width: type === 'nw' || type === 'ne' || type === 'sw' || type === 'se' ? 2 : 1.5,
-    });
+  private drawSquare(g: Graphics, x: number, y: number, type: HandleType): void {
+    const half = HANDLE_SIZE / 2;
+    g.rect(x - half, y - half, HANDLE_SIZE, HANDLE_SIZE);
+    g.fill(OVERLAY_WHITE);
+    g.setStrokeStyle({ color: OVERLAY_INK, width: LINE_WHITE, alpha: HANDLE_BORDER_ALPHA });
     g.stroke();
-    this.handles.push({ type, x, y, size });
+    this.handles.push({ type, x, y, hitHalfX: HANDLE_HIT_HALF, hitHalfY: HANDLE_HIT_HALF });
+  }
+
+  private drawPill(g: Graphics, x: number, y: number, horizontal: boolean, type: HandleType): void {
+    const w = horizontal ? PILL_LENGTH : PILL_THICKNESS;
+    const h = horizontal ? PILL_THICKNESS : PILL_LENGTH;
+    g.roundRect(x - w / 2, y - h / 2, w, h, Math.min(w, h) / 2);
+    g.fill(OVERLAY_WHITE);
+    g.setStrokeStyle({ color: OVERLAY_INK, width: LINE_WHITE, alpha: HANDLE_BORDER_ALPHA });
+    g.stroke();
+    this.handles.push({
+      type,
+      x,
+      y,
+      hitHalfX: Math.max(w / 2, HANDLE_HIT_HALF),
+      hitHalfY: Math.max(h / 2, HANDLE_HIT_HALF),
+    });
+  }
+
+  /** Measurement chip centred under the box: "4.0 × 2.5 sq · 15°". */
+  private drawChip(): void {
+    const text = this.config.chip;
+    this.chipText.visible = this.chipBg.visible = text !== null;
+    this.chipBg.clear();
+    if (text === null) return;
+
+    if (this.chipText.text !== text) this.chipText.text = text;
+    const { x, y, width, height } = this.bbox;
+    const pad = 5;
+    const tw = this.chipText.width;
+    const th = this.chipText.height;
+    const chipX = x + width / 2 - tw / 2;
+    const chipY = y + height + 10;
+    this.chipText.position.set(chipX, chipY);
+    this.chipBg.roundRect(chipX - pad, chipY - 2, tw + pad * 2, th + 4, 4);
+    this.chipBg.fill({ color: OVERLAY_INK, alpha: 0.78 });
   }
 
   /**
    * Hit-test a screen-space point against handle zones.
-   * Returns the handle type or null.
+   *
+   * Deliberately handles-only: a point inside the box that misses every handle
+   * returns null, so SelectTool re-hit-tests the actual children under the
+   * cursor. The old whole-box 'move' fallback made every near-miss silently
+   * drag the object, and a big selected child (a radius-6 light) an
+   * unclickable-through trap covering half the room. `bboxIsMove` restores the
+   * old behavior for the legacy region-cut overlay, whose selection has no
+   * children to re-hit-test.
    */
-  hitTest(screenX: number, screenY: number): HandleType | null {
+  hitTest(screenX: number, screenY: number, opts?: { bboxIsMove?: boolean }): HandleType | null {
     // Check handles in reverse (top-drawn = highest priority)
     for (let i = this.handles.length - 1; i >= 0; i--) {
       const h = this.handles[i];
-      const half = Math.max(h.size / 2, 6); // min 6px hit area
       if (
-        screenX >= h.x - half &&
-        screenX <= h.x + half &&
-        screenY >= h.y - half &&
-        screenY <= h.y + half
+        screenX >= h.x - h.hitHalfX &&
+        screenX <= h.x + h.hitHalfX &&
+        screenY >= h.y - h.hitHalfY &&
+        screenY <= h.y + h.hitHalfY
       ) {
         return h.type;
       }
     }
 
-    // Check if inside bounding box (move)
-    const { x, y, width, height } = this.bbox;
-    if (screenX >= x && screenX <= x + width && screenY >= y && screenY <= y + height) {
-      return 'move';
+    if (opts?.bboxIsMove) {
+      const { x, y, width, height } = this.bbox;
+      if (screenX >= x && screenX <= x + width && screenY >= y && screenY <= y + height) {
+        return 'move';
+      }
     }
 
     return null;
@@ -287,6 +379,8 @@ export class TransformGizmo {
   destroy(): void {
     this.container.removeFromParent();
     this.graphics.destroy();
+    this.chipText.destroy();
+    this.chipBg.destroy();
     this.container.destroy();
   }
 }

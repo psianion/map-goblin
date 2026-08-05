@@ -77,8 +77,20 @@ function effectiveContours(shape: ShapeChild): [number, number][][] {
  */
 export type ChildSnapshot =
   | { kind: 'rings'; contours: [number, number][][] }
-  | { kind: 'box'; position: { x: number; y: number }; rotation: number; scale: number }
-  | { kind: 'point'; position: { x: number; y: number } }
+  | {
+      kind: 'box';
+      position: { x: number; y: number };
+      rotation: number;
+      scale: number;
+      width: number;
+      height: number;
+      /**
+       * Text scales through fontSize × scale, so its size is inherently one
+       * number; assets resize width/height independently.
+       */
+      uniform: boolean;
+    }
+  | { kind: 'radius'; position: { x: number; y: number }; radius: number }
   | { kind: 'none' };
 
 export function snapshotChild(child: AnyChild): ChildSnapshot {
@@ -97,9 +109,12 @@ export function snapshotChild(child: AnyChild): ChildSnapshot {
         position: { ...child.position },
         rotation: child.rotation,
         scale: child.scale,
+        width: child.width,
+        height: child.height,
+        uniform: child.childType === 'text',
       };
     case 'light':
-      return { kind: 'point', position: { ...child.position } };
+      return { kind: 'radius', position: { ...child.position }, radius: child.radius };
     // Doors live on a wall; moving one by gizmo would detach it from its host.
     default:
       return { kind: 'none' };
@@ -124,18 +139,35 @@ export function transformChild(snap: ChildSnapshot, t: WorldTransform): Partial<
       } as Partial<AnyChild>;
     case 'box': {
       const [x, y] = mapPoint(snap.position.x, snap.position.y, t);
-      // One scalar scale, so a non-uniform drag has to pick: the larger factor
-      // keeps a corner drag feeling like it tracks the cursor.
-      const factor = Math.abs(t.scaleX) > Math.abs(t.scaleY) ? t.scaleX : t.scaleY;
+      if (snap.uniform) {
+        // Text: one size number. The larger factor keeps a corner drag feeling
+        // like it tracks the cursor.
+        const factor = Math.abs(t.scaleX) > Math.abs(t.scaleY) ? t.scaleX : t.scaleY;
+        return {
+          position: { x, y },
+          rotation: snap.rotation + t.rotation,
+          scale: Math.max(snap.scale * Math.abs(factor), 0.01),
+        } as Partial<AnyChild>;
+      }
+      // Assets resize width/height directly — that is what the renderer draws —
+      // so edge drags are non-uniform for free. Legacy `scale` stays a
+      // multiplier on top and is left untouched.
       return {
         position: { x, y },
         rotation: snap.rotation + t.rotation,
-        scale: Math.max(snap.scale * Math.abs(factor), 0.01),
+        width: Math.max(snap.width * Math.abs(t.scaleX), 0.01),
+        height: Math.max(snap.height * Math.abs(t.scaleY), 0.01),
       } as Partial<AnyChild>;
     }
-    case 'point': {
+    case 'radius': {
       const [x, y] = mapPoint(snap.position.x, snap.position.y, t);
-      return { position: { x, y } } as Partial<AnyChild>;
+      // Lights have no orientation: rotation is ignored, scale resizes the
+      // radius by the dominant factor.
+      const factor = Math.max(Math.abs(t.scaleX), Math.abs(t.scaleY));
+      return {
+        position: { x, y },
+        radius: Math.max(snap.radius * factor, 0.1),
+      } as Partial<AnyChild>;
     }
     case 'none':
       return {};

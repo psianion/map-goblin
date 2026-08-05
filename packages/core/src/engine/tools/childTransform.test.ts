@@ -89,6 +89,73 @@ describe('transformChild', () => {
     expect(snapshotChild(door).kind).toBe('none');
     expect(transformChild(snapshotChild(door), identity({ translateX: 5 }))).toEqual({});
   });
+
+  const asset = (): AnyChild =>
+    ({
+      id: 'a1',
+      name: 'Asset',
+      childType: 'asset',
+      visible: true,
+      position: { x: 4, y: 6 },
+      rotation: 0,
+      scale: 1.5,
+      width: 2,
+      height: 2,
+      flipX: false,
+      flipY: false,
+    }) as AnyChild;
+
+  it('resizes an asset through width/height, non-uniformly', () => {
+    // Width/height are what the renderer draws — scale is a legacy multiplier
+    // and must pass through untouched.
+    const t = identity({ scaleX: 2, scaleY: 0.5, anchorX: 4, anchorY: 6 });
+    const patch = transformChild(snapshotChild(asset()), t) as {
+      width: number; height: number; scale?: number; position: { x: number; y: number };
+    };
+    expect(patch.width).toBe(4);
+    expect(patch.height).toBe(1);
+    expect(patch.scale).toBeUndefined();
+    expect(patch.position).toEqual({ x: 4, y: 6 }); // anchored at its own centre
+  });
+
+  it('clamps asset size instead of collapsing through zero', () => {
+    const t = identity({ scaleX: 0, scaleY: 0 });
+    const patch = transformChild(snapshotChild(asset()), t) as { width: number; height: number };
+    expect(patch.width).toBeGreaterThan(0);
+    expect(patch.height).toBeGreaterThan(0);
+  });
+
+  it('scales text uniformly through scale, leaving width/height estimates alone', () => {
+    const text = {
+      childType: 'text',
+      position: { x: 0, y: 0 },
+      rotation: 0,
+      scale: 1,
+      width: 2.2,
+      height: 0.96,
+    } as AnyChild;
+    const t = identity({ scaleX: 2, scaleY: 1.2 });
+    const patch = transformChild(snapshotChild(text), t) as {
+      scale: number; width?: number; height?: number;
+    };
+    expect(patch.scale).toBe(2); // dominant factor wins
+    expect(patch.width).toBeUndefined();
+    expect(patch.height).toBeUndefined();
+  });
+
+  it('scales a light radius and ignores rotation', () => {
+    const light = {
+      childType: 'light',
+      position: { x: 1, y: 1 },
+      radius: 6,
+    } as AnyChild;
+    const snap = snapshotChild(light);
+    expect(snap.kind).toBe('radius');
+    const t = identity({ scaleX: 1.5, scaleY: 1, rotation: Math.PI / 2, anchorX: 1, anchorY: 1 });
+    const patch = transformChild(snap, t) as { radius: number; rotation?: number };
+    expect(patch.radius).toBe(9);
+    expect(patch.rotation).toBeUndefined();
+  });
 });
 
 describe('isIdentity', () => {

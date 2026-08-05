@@ -161,16 +161,27 @@ export class SelectTool implements DrawingTool {
     // centre", which is what the handle is for, and only Alt *away* from the
     // gizmo starts a region cut. Testing region-cut first made Alt+handle throw
     // the selection away instead, so the gizmo's own alt modifier never ran.
+    //
+    // Handles only: a click inside the box that misses every handle falls
+    // through to the child hit-test below, so a big selected child (a radius-6
+    // light) no longer swallows every click across its bounds. The legacy
+    // region overlay has no children to fall through to, so there the whole
+    // box still means move.
     if (this.gizmo && this.state === 'SELECTED' && event) {
       const canvasRect = this.engine.canvas().getBoundingClientRect();
       const sx = event.clientX - canvasRect.left;
       const sy = event.clientY - canvasRect.top;
-      const handle = this.gizmo.hitTest(sx, sy);
+      const handle = this.gizmo.hitTest(sx, sy, { bboxIsMove: this.altDragMode });
       if (handle) {
-        this.altDragMode = false;
+        if (!this.altDragMode) {
+          this.gizmo.startDrag(handle, sx, sy);
+          this.state = handle === 'move' ? 'MOVING' : 'TRANSFORMING';
+          this.beginTransformSession(handle, !!event.altKey);
+          return;
+        }
         this.gizmo.startDrag(handle, sx, sy);
         this.state = handle === 'move' ? 'MOVING' : 'TRANSFORMING';
-        this.beginTransformSession(handle, !!event.altKey);
+        this.transformBaseRegion = structuredClone(store.selection.selectedRegion) ?? null;
         return;
       }
     }
@@ -219,8 +230,10 @@ export class SelectTool implements DrawingTool {
               : [...new Set([...current, ...layerIds])],
           );
         }
-      } else {
-        // Plain click: select only this child
+      } else if (!store.selection.selectedIds.includes(hit.child.id)) {
+        // Plain click on an unselected child: select only it. A click on a
+        // child already in the selection keeps the whole selection, so the
+        // move below drags the group, not just the child under the cursor.
         store.setSelectedIds([hit.child.id]);
         store.setActiveLayerId(hit.layerId);
       }
@@ -233,6 +246,17 @@ export class SelectTool implements DrawingTool {
       if (useStore.getState().selection.selectedIds.length > 0) {
         this.state = 'SELECTED';
         this.createGizmo();
+        // Select-and-drag in one gesture: a plain press on a child arms a move
+        // immediately. If the pointer never travels, the commit sees an
+        // identity transform and writes no undo entry.
+        if (this.gizmo && event && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+          const canvasRect = this.engine.canvas().getBoundingClientRect();
+          const sx = event.clientX - canvasRect.left;
+          const sy = event.clientY - canvasRect.top;
+          this.gizmo.startDrag('move', sx, sy);
+          this.state = 'MOVING';
+          this.beginTransformSession('move', false);
+        }
       }
       return;
     }
@@ -415,6 +439,11 @@ export class SelectTool implements DrawingTool {
     return this.state !== 'IDLE';
   }
 
+  /** True while a handle or move drag is in flight — overlay chrome hides itself then. */
+  isGizmoDragging(): boolean {
+    return this.gizmo?.isDragging() ?? false;
+  }
+
   /** Called every frame — syncs gizmo to current screen-space bbox of selected children. */
   updateGizmo(): void {
     if (!this.gizmo || this.state === 'IDLE' || this.state === 'SELECTING') return;
@@ -443,25 +472,45 @@ export class SelectTool implements DrawingTool {
       (l): l is DungeonLayer => l.type === 'dungeon',
     );
     const children = this.resolveSelectedChildren(selectedIds, dungeonLayers);
-    if (children.length === 0) return;
+
+    // Selection may change under a live gizmo (the layer panel writes
+    // selectedIds directly). A selection with nothing transformable — doors —
+    // must not keep stale chrome on screen. Mirrors snapshotChild's 'none'
+    // kind; a per-frame full snapshot would re-bake shape contours for nothing.
+    const transformable = children.filter((c) => c.childType !== 'door');
+    if (transformable.length === 0) {
+      this.destroyGizmo();
+      return;
+    }
 
     // Union world-space bounds, then project corners to screen
-    const worldCorners: [number, number][] = [];
-    for (const child of children) {
-      const b = getChildBounds(child);
-      worldCorners.push(
-        [b.x, b.y],
-        [b.x + b.width, b.y],
-        [b.x, b.y + b.height],
-        [b.x + b.width, b.y + b.height],
-      );
-    }
+    const worldBox = unionChildBounds(transformable);
+    if (!worldBox) return;
+    const worldCorners: [number, number][] = [
+      [worldBox.x, worldBox.y],
+      [worldBox.x + worldBox.width, worldBox.y],
+      [worldBox.x, worldBox.y + worldBox.height],
+      [worldBox.x + worldBox.width, worldBox.y + worldBox.height],
+    ];
     const screenPoints = worldCorners.map(([wx, wy]): [number, number] => {
       const sp = this.engine.worldToScreen(wx, wy);
       return [sp.x, sp.y];
     });
     const screenBBox = computeBoundingBox(screenPoints);
-    this.gizmo.update(screenBBox, 0);
+
+    // Lights have no orientation — hide the stem when nothing else is selected
+    // rather than draw an affordance that does nothing.
+    const showRotate = transformable.some((c) => c.childType !== 'light');
+    // "4.0 × 2.5 sq · 15°" — world units are grid squares. Angle only when a
+    // single oriented child is selected; a union box has no one rotation.
+    const only = transformable.length === 1 ? transformable[0] : null;
+    const deg =
+      only && (only.childType === 'asset' || only.childType === 'text') && only.rotation !== 0
+        ? ` · ${Math.round((only.rotation * 180) / Math.PI)}°`
+        : '';
+    const chip = `${worldBox.width.toFixed(1)} × ${worldBox.height.toFixed(1)} sq${deg}`;
+
+    this.gizmo.update(screenBBox, 0, { showRotate, chip });
   }
 
   // ─── Gizmo transform ──────────────────────────────────────────────────────
@@ -499,8 +548,16 @@ export class SelectTool implements DrawingTool {
                 transform: (child as { transform?: unknown }).transform,
               } as Partial<AnyChild>)
             : snap.kind === 'box'
-              ? ({ position: snap.position, rotation: snap.rotation, scale: snap.scale } as Partial<AnyChild>)
-              : ({ position: snap.position } as Partial<AnyChild>);
+              ? ({
+                  position: snap.position,
+                  rotation: snap.rotation,
+                  scale: snap.scale,
+                  width: snap.width,
+                  height: snap.height,
+                } as Partial<AnyChild>)
+              : snap.kind === 'radius'
+                ? ({ position: snap.position, radius: snap.radius } as Partial<AnyChild>)
+                : ({} as Partial<AnyChild>);
         entries.push({ layerId: layer.id, childId: child.id, snap, before });
       }
     }
@@ -579,7 +636,7 @@ export class SelectTool implements DrawingTool {
   /** Returns CSS cursor when hovering a gizmo handle, or null. */
   getHoverCursor(sx: number, sy: number): string | null {
     if (!this.gizmo || this.state !== 'SELECTED') return null;
-    const handle = this.gizmo.hitTest(sx, sy);
+    const handle = this.gizmo.hitTest(sx, sy, { bboxIsMove: this.altDragMode });
     return handle ? this.gizmo.getCursor(handle) : null;
   }
 
