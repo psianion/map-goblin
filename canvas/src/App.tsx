@@ -8,6 +8,7 @@ import { RightPanel } from '@/components/layout/RightPanel';
 import { CollapsedRightPanel } from '@/components/layout/CollapsedRightPanel';
 import { StatusBar } from '@/components/layout/StatusBar';
 import { FloatingActionBar } from '@/components/canvas/FloatingActionBar';
+import { CanvasContextMenu } from '@/components/canvas/CanvasContextMenu';
 import { ExportDialog } from '@/components/shared/ExportDialog';
 import { RecoveryDialog } from '@/components/shared/RecoveryDialog';
 import { startAutosave, isDirtyFlagSet, isDocumentChange, clearDirtyFlag } from '@/io/autosave';
@@ -240,6 +241,7 @@ export default function App() {
       <div className="absolute inset-0">
         <CanvasHost />
         <FloatingActionBar />
+        <CanvasContextMenu />
         {/* Top-right: Import / Export / Focus buttons — offset right to avoid overlapping the right panel */}
         <div
           data-chrome
