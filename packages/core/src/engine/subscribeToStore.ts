@@ -19,6 +19,7 @@ import type { WallEdits, WallSegment } from '../shared/types';
 import { LightManager } from './lighting';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { flattenRing } from '../shared/bezier';
+import { remapFloorWallEdits } from './ringEditRemap';
 import { scheduleRoomSync } from '../store/roomSync';
 import type { Polygon } from '../types/geometry';
 
@@ -90,6 +91,17 @@ function geometryDigest(shape: ShapeChild): number {
     for (const [x, y] of ring) {
       mix(x);
       mix(y);
+    }
+  }
+  // Curve handles reshape the flattened ring without moving any contour point,
+  // so they must move the digest too — or bending an edge redraws nothing.
+  for (const ring of shape.tangents ?? []) {
+    mix(ring?.length ?? -1);
+    for (const vt of ring ?? []) {
+      mix(vt?.tin?.[0] ?? -1);
+      mix(vt?.tin?.[1] ?? -1);
+      mix(vt?.tout?.[0] ?? -1);
+      mix(vt?.tout?.[1] ?? -1);
     }
   }
   const t = shape.transform;
@@ -542,7 +554,18 @@ export function subscribeToStore(
             // only compares shapeCount/wallCount/shapeKeys, not mergedFloor
             useStore.setState((s) => {
               const l = s.layers.find((la) => la.id === id);
-              if (l && l.type === 'dungeon') l.mergedFloor = newFloor;
+              if (l && l.type === 'dungeon') {
+                // Ring-index keys follow their ring across the recompute; see
+                // ringEditRemap.ts. Old rings must be read BEFORE the write.
+                if (l.floorWallEdits && l.mergedFloor && newFloor) {
+                  l.floorWallEdits = remapFloorWallEdits(
+                    l.mergedFloor,
+                    newFloor,
+                    l.floorWallEdits,
+                  );
+                }
+                l.mergedFloor = newFloor;
+              }
             });
           }
           prevGeometryKeys.set(id, { floor: floorKey, room: roomKey, render: renderKey, doorState: doorStateKey });

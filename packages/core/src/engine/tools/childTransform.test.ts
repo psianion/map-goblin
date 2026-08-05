@@ -57,6 +57,28 @@ describe('transformChild', () => {
     expect(out[0]).toEqual([[3, -2], [13, -2], [13, 2], [3, 2]]);
   });
 
+  // Handle points are absolute, so any ring transform that leaves them behind
+  // bends the room's curves toward where it used to stand.
+  it('maps curve tangents with the same transform as the ring', () => {
+    const s = square();
+    s.tangents = [[{ tout: [2, -3] }, { tin: [8, -3] }, null, null]];
+    const t = identity({ rotation: Math.PI / 2, translateX: 1, translateY: 0 });
+    const patch = transformChild(snapshotChild(s), t) as Partial<ShapeChild>;
+    const vt = patch.tangents![0];
+    // (2,-3) rotated 90° about origin → (3,2), then +1 in x.
+    expect(vt[0]?.tout?.[0]).toBeCloseTo(4, 9);
+    expect(vt[0]?.tout?.[1]).toBeCloseTo(2, 9);
+    expect(vt[1]?.tin?.[0]).toBeCloseTo(4, 9);
+    expect(vt[1]?.tin?.[1]).toBeCloseTo(8, 9);
+    expect(vt[2]).toBeNull();
+  });
+
+  it('leaves the tangents field written-but-undefined for straight shapes', () => {
+    const patch = transformChild(snapshotChild(square()), identity({ translateX: 1 })) as Partial<ShapeChild>;
+    expect('tangents' in patch).toBe(true);
+    expect(patch.tangents).toBeUndefined();
+  });
+
   it('scales about the anchor, leaving it fixed', () => {
     const t = identity({ scaleX: 2, scaleY: 1, anchorX: 0, anchorY: 0 });
     const out = rings(transformChild(snapshotChild(square()), t));

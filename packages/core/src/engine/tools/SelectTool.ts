@@ -546,6 +546,7 @@ export class SelectTool implements DrawingTool {
               // as well would apply it a second time on restore.
               ({
                 contours: structuredClone((child as { contours: [number, number][][] }).contours),
+                tangents: structuredClone((child as { tangents?: unknown }).tangents),
                 transform: (child as { transform?: unknown }).transform,
               } as Partial<AnyChild>)
             : snap.kind === 'box'

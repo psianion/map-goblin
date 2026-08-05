@@ -13,6 +13,7 @@ import { rebuildWaterSublayer } from './water/waterRenderer';
 import { resolveStyle } from './styleResolver';
 import type { DungeonStyle } from '../store/types';
 import { resolveDoors, resolveWalls, type ResolvedDoor } from '../shared/wallResolve';
+import { flattenRing } from '../shared/bezier';
 import { getTerrainRenderer } from './terrain/TerrainRenderer';
 
 function parseColor(hex: string): number {
@@ -160,7 +161,9 @@ function renderTexturedShape(
   shape: ShapeChild,
   texture: Texture,
 ): void {
-  const { minX, minY, maxX, maxY } = polygonBounds(shape.contours[0]);
+  // Curved rooms mask their fill to the drawn curve, not the anchor chords.
+  const ring = flattenRing(shape.contours[0], shape.tangents?.[0]);
+  const { minX, minY, maxX, maxY } = polygonBounds(ring);
   const width = maxX - minX;
   const height = maxY - minY;
   if (width <= 0 || height <= 0) return;
@@ -194,7 +197,7 @@ function renderTexturedShape(
 
   // Mask to shape polygon (coordinates in world space, mask relative to parent)
   const mask = new Graphics();
-  traceSinglePolygon(mask, shape.contours[0]);
+  traceSinglePolygon(mask, ring);
   mask.fill({ color: 0xffffff });
 
   const container = new Container();
@@ -213,7 +216,7 @@ function renderSolidShape(
   color: number,
 ): void {
   const g = new Graphics();
-  traceSinglePolygon(g, shape.contours[0]);
+  traceSinglePolygon(g, flattenRing(shape.contours[0], shape.tangents?.[0]));
   g.fill({ color });
   parent.addChild(g);
 }

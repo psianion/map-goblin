@@ -8,6 +8,7 @@ import { undoManager } from '../../store/undoManager';
 import { AddChildCommand, RemoveChildCommand } from '../../store/commands';
 import { clipper2Engine } from '../../geometry/Clipper2Engine';
 import { pointInPolygon } from '../hitTest';
+import { flattenRing } from '../../shared/bezier';
 import { resolveEditableLayer } from './layerGuard';
 
 /** Min distance between collected river stroke points (world units). */
@@ -221,9 +222,16 @@ export class WaterTool implements DrawingTool {
     const p: [number, number] = [point.x, point.y];
     for (let i = waters.length - 1; i >= 0; i--) {
       const contours = waters[i].contours;
-      if (!pointInPolygon(p, contours[0])) continue;
+      const tangents = waters[i].tangents;
+      if (!pointInPolygon(p, flattenRing(contours[0], tangents?.[0]))) continue;
       // A click inside a hole lands where no water is drawn — not a hit.
-      if (contours.slice(1).some((hole) => pointInPolygon(p, hole))) continue;
+      if (
+        contours
+          .slice(1)
+          .some((hole, k) => pointInPolygon(p, flattenRing(hole, tangents?.[k + 1])))
+      ) {
+        continue;
+      }
       undoManager.execute(new RemoveChildCommand('Remove water', layer.id, waters[i].id));
       return;
     }

@@ -5,6 +5,7 @@
 // is the missing half.
 
 import type { AnyChild, ShapeChild } from '../../store/types';
+import type { RingTangents, Vec2 } from '../../shared/bezier';
 import type { HandleType } from './TransformGizmo';
 
 /** A similarity transform in world units, about a point that stays fixed. */
@@ -71,12 +72,47 @@ function effectiveContours(shape: ShapeChild): [number, number][][] {
 }
 
 /**
+ * Curve handle points live in the same space as ring points, so every path
+ * that maps a ring must map its tangents with the same function — a moved room
+ * whose handles stayed behind bends its walls toward where it used to stand.
+ */
+function mapTangents(
+  tangents: RingTangents[] | undefined,
+  map: (p: Vec2) => Vec2,
+): RingTangents[] | undefined {
+  if (!tangents) return undefined;
+  return tangents.map((ring) =>
+    (ring ?? []).map((vt) =>
+      vt
+        ? {
+            ...(vt.tin ? { tin: map(vt.tin) } : {}),
+            ...(vt.tout ? { tout: map(vt.tout) } : {}),
+          }
+        : vt,
+    ),
+  );
+}
+
+/** The shape's tangents with its optional baked-in transform applied. */
+function effectiveTangents(shape: ShapeChild): RingTangents[] | undefined {
+  const t = shape.transform;
+  if (!t) return shape.tangents ? structuredClone(shape.tangents) : undefined;
+  const cos = Math.cos(t.rotate);
+  const sin = Math.sin(t.rotate);
+  return mapTangents(shape.tangents, ([px, py]) => {
+    const sx = px * t.scale[0];
+    const sy = py * t.scale[1];
+    return [cos * sx - sin * sy + t.translate[0], sin * sx + cos * sy + t.translate[1]];
+  });
+}
+
+/**
  * What a child looked like before the drag. Held for the whole gesture and
  * re-transformed from scratch each frame, so dragging never compounds rounding
  * and one undo entry covers the whole gesture.
  */
 export type ChildSnapshot =
-  | { kind: 'rings'; contours: [number, number][][] }
+  | { kind: 'rings'; contours: [number, number][][]; tangents?: RingTangents[] }
   | {
       kind: 'box';
       position: { x: number; y: number };
@@ -96,11 +132,12 @@ export type ChildSnapshot =
 export function snapshotChild(child: AnyChild): ChildSnapshot {
   switch (child.childType) {
     case 'shape':
-      return { kind: 'rings', contours: effectiveContours(child) };
+      return { kind: 'rings', contours: effectiveContours(child), tangents: effectiveTangents(child) };
     case 'water':
       return {
         kind: 'rings',
         contours: child.contours.map((r) => r.map(([x, y]): [number, number] => [x, y])),
+        tangents: child.tangents ? structuredClone(child.tangents) : undefined,
       };
     case 'asset':
     case 'text':
@@ -134,6 +171,9 @@ export function transformChild(snap: ChildSnapshot, t: WorldTransform): Partial<
     case 'rings':
       return {
         contours: snap.contours.map((ring) => ring.map(([x, y]) => mapPoint(x, y, t))),
+        // Always written, even as undefined: the patch's `before` capture keys
+        // off these fields, and curves must move with their ring.
+        tangents: mapTangents(snap.tangents, ([x, y]) => mapPoint(x, y, t)),
         // The rings now carry the whole transform; a leftover one would apply twice.
         transform: undefined,
       } as Partial<AnyChild>;
