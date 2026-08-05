@@ -4,6 +4,10 @@ services:
     image: map-goblin:dev
     ports:
       - "8080:80"
+    # nginx.conf proxy_pass to game-server is resolved at container start —
+    # without the upstream, the editor container fails to boot.
+    depends_on:
+      - game-server
     restart: unless-stopped
 
   # `docker compose up game-server` — the command HostSetup hands the DM (D4).

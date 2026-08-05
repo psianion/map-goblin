@@ -8,7 +8,9 @@ import { endpoints, setServerUrl } from '../endpoints';
 
 export interface DmSession {
   campaignId: string;
-  identityId: string;
+  // `mintDmToken` (an existing campaign) doesn't hand this back — only `createCampaignAsDm`
+  // does — and nothing downstream in the client reads it either way.
+  identityId?: string;
   token: string;
 }
 
@@ -34,6 +36,48 @@ export async function createCampaignAsDm(
     throw new Error(`"${serverUrl}" is not a server address. Try http://localhost:8787`);
   }
   return request('/api/campaigns', postJson({ name }), adminPass);
+}
+
+export interface CampaignSummary {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Admin pass → every campaign already on this server (M3: hosting an existing campaign
+ * starts from its library, not a fresh one). Also retargets `endpoints`, same as
+ * {@link createCampaignAsDm} — this is the first authenticated call the wizard makes.
+ */
+export function listCampaignsAsAdmin(
+  serverUrl: string,
+  adminPass: string,
+): Promise<{ campaigns: CampaignSummary[] }> {
+  try {
+    setServerUrl(serverUrl);
+  } catch {
+    throw new Error(`"${serverUrl}" is not a server address. Try http://localhost:8787`);
+  }
+  return request('/api/campaigns', { method: 'GET' }, adminPass);
+}
+
+/** Admin pass → a fresh DM token for a campaign the admin pass already owns (M3). */
+export function mintDmToken(
+  serverUrl: string,
+  adminPass: string,
+  campaignId: string,
+): Promise<DmSession & { name: string }> {
+  try {
+    setServerUrl(serverUrl);
+  } catch {
+    throw new Error(`"${serverUrl}" is not a server address. Try http://localhost:8787`);
+  }
+  return request(
+    `/api/campaigns/${encodeURIComponent(campaignId)}/dm-token`,
+    { method: 'POST' },
+    adminPass,
+  );
 }
 
 /** Invite code + a name → a player token. No credential: the code is the credential. */

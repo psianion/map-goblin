@@ -11,10 +11,14 @@ import HostSetup from './HostSetup';
 
 vi.mock('../session/auth', () => ({
   createCampaignAsDm: vi.fn(),
+  listCampaignsAsAdmin: vi.fn(),
+  listScenes: vi.fn(),
+  mintDmToken: vi.fn(),
   uploadMapFile: vi.fn(),
   startSession: vi.fn(),
 }));
-const { createCampaignAsDm, uploadMapFile, startSession } = await import('../session/auth');
+const { createCampaignAsDm, listCampaignsAsAdmin, listScenes, uploadMapFile, startSession } =
+  await import('../session/auth');
 
 /** Two rooms, one of them unnamed — the label fallback has to have something to fall to. */
 const MAP = {
@@ -40,6 +44,10 @@ beforeEach(() => {
     identityId: 'dm-1',
     token: 'dm-token',
   });
+  // A fresh server has no campaigns yet — the same "create only" step this suite exercises.
+  vi.mocked(listCampaignsAsAdmin).mockReset().mockResolvedValue({ campaigns: [] });
+  // A freshly created campaign has no scenes yet — upload stays the only option on step 3.
+  vi.mocked(listScenes).mockReset().mockResolvedValue({ scenes: [] });
   vi.mocked(uploadMapFile).mockReset().mockResolvedValue({
     mapId: 'map-1',
     sceneId: 'map-1',
@@ -63,7 +71,7 @@ async function walkToMap(): Promise<void> {
   fireEvent.change(screen.getByLabelText('Admin pass'), { target: { value: 'hunter2' } });
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
-  fireEvent.change(screen.getByLabelText('Campaign name'), { target: { value: 'Cragmaw' } });
+  fireEvent.change(await screen.findByLabelText('Campaign name'), { target: { value: 'Cragmaw' } });
   fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }));
   await screen.findByLabelText('Map file');
 
@@ -92,6 +100,7 @@ describe('HostSetup — the map file', () => {
     });
     fireEvent.change(screen.getByLabelText('Admin pass'), { target: { value: 'hunter2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await screen.findByLabelText('Campaign name');
     fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }));
     await screen.findByLabelText('Map file');
 
@@ -158,6 +167,7 @@ describe('HostSetup — the starting room', () => {
     });
     fireEvent.change(screen.getByLabelText('Admin pass'), { target: { value: 'hunter2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await screen.findByLabelText('Campaign name');
     fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }));
     await screen.findByLabelText('Map file');
 
@@ -189,7 +199,7 @@ describe('HostSetup — the server address is optional', () => {
     expect(advance('').disabled).toBe(false);
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    fireEvent.change(screen.getByLabelText('Campaign name'), { target: { value: 'Cragmaw' } });
+    fireEvent.change(await screen.findByLabelText('Campaign name'), { target: { value: 'Cragmaw' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create campaign' }));
     await screen.findByLabelText('Map file');
 

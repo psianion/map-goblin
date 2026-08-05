@@ -123,6 +123,37 @@ describe('MapIndexDB', () => {
     });
   });
 
+  describe('publish state', () => {
+    it('is null until set', async () => {
+      const id = await db.createMap('Test', new Uint8Array([1]), { width: 10, height: 10 }, 1);
+      expect(await db.getPublishState(id)).toBeNull();
+    });
+
+    it('round-trips campaignId/sceneId/mapHash', async () => {
+      const id = await db.createMap('Test', new Uint8Array([1]), { width: 10, height: 10 }, 1);
+      const publish = { campaignId: 'camp-1', sceneId: 'scene-1', mapHash: 'abc123' };
+      await db.setPublishState(id, publish);
+      expect(await db.getPublishState(id)).toEqual(publish);
+    });
+
+    it('overwrites without touching the map blob', async () => {
+      const blob = new Uint8Array([9, 9, 9]);
+      const id = await db.createMap('Test', blob, { width: 10, height: 10 }, 1);
+      await db.setPublishState(id, { campaignId: 'a', sceneId: 'b', mapHash: 'h1' });
+      await db.setPublishState(id, { campaignId: 'a', sceneId: 'b', mapHash: 'h2' });
+
+      expect(await db.getPublishState(id)).toEqual({ campaignId: 'a', sceneId: 'b', mapHash: 'h2' });
+      expect(Array.from((await db.getMapBlob(id))!)).toEqual(Array.from(blob));
+    });
+
+    it('nonexistent id is a no-op', async () => {
+      await expect(
+        db.setPublishState('nonexistent', { campaignId: 'a', sceneId: 'b', mapHash: 'h' }),
+      ).resolves.not.toThrow();
+      expect(await db.getPublishState('nonexistent')).toBeNull();
+    });
+  });
+
   describe('duplicateMap', () => {
     it('creates new entry with new ID, same data, name = "Copy of X"', async () => {
       const blob = new Uint8Array([1, 2, 3]);

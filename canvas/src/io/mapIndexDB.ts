@@ -7,12 +7,23 @@ export interface MapMeta {
   layerCount: number;
 }
 
+/** Where this map last landed in the library, and what was published. */
+export interface PublishState {
+  campaignId: string;
+  sceneId: string;
+  mapHash: string;
+}
+
 interface MapEntry extends MapMeta {
   data: Uint8Array;
+  /** Absent until the map has been published once. */
+  publish?: PublishState;
 }
 
 const DB_NAME = 'mapbuilder-maps';
 const STORE_NAME = 'maps';
+// `publish` is an optional property on an existing store's values, not a new store or
+// index — IndexedDB needs no upgrade transaction for that, so this stays at 1.
 const DB_VERSION = 1;
 
 export class MapIndexDB {
@@ -129,6 +140,18 @@ export class MapIndexDB {
       updatedAt: now,
     });
     return newId;
+  }
+
+  async getPublishState(id: string): Promise<PublishState | null> {
+    const entry = await this.get(id);
+    return entry?.publish ?? null;
+  }
+
+  async setPublishState(id: string, publish: PublishState): Promise<void> {
+    const entry = await this.get(id);
+    if (!entry) return;
+    entry.publish = publish;
+    await this.put(entry);
   }
 
   private async get(id: string): Promise<MapEntry | null> {

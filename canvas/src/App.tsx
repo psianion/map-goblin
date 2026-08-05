@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Toaster } from 'sonner';
-import { Eye, EyeOff, Maximize, Scan, ImageDown, Upload } from 'lucide-react';
+import { Eye, EyeOff, Maximize, Scan, ImageDown, Upload, CloudUpload } from 'lucide-react';
 import { CanvasHost } from '@/canvas/CanvasHost';
 import { LeftToolbar } from '@/components/toolbar/LeftToolbar';
 import { MapsSidePanel } from '@/components/maps/MapsSidePanel';
@@ -10,6 +10,7 @@ import { StatusBar } from '@/components/layout/StatusBar';
 import { FloatingActionBar } from '@/components/canvas/FloatingActionBar';
 import { CanvasContextMenu } from '@/components/canvas/CanvasContextMenu';
 import { ExportDialog } from '@/components/shared/ExportDialog';
+import { PublishDialog } from '@/components/shared/PublishDialog';
 import { RecoveryDialog } from '@/components/shared/RecoveryDialog';
 import { startAutosave, isDirtyFlagSet, isDocumentChange, clearDirtyFlag } from '@/io/autosave';
 import { migrateAutosave } from '@/io/mapMigration';
@@ -75,6 +76,7 @@ function usePanelFade(active: boolean) {
 
 export default function App() {
   const [exportOpen, setExportOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
   const [showRecovery, setShowRecovery] = useState(() => isDirtyFlagSet());
   const leftPanelOpen = useStore((s) => s.ui.leftPanelOpen);
   const rightPanelOpen = useStore((s) => s.ui.rightPanelOpen);
@@ -267,6 +269,14 @@ export default function App() {
             <ImageDown size={15} strokeWidth={2} />
           </button>
           <button
+            title="Publish to library"
+            aria-label="Publish to library"
+            onClick={() => setPublishOpen(true)}
+            className="flex items-center justify-center w-8 h-8 rounded-md bg-surface-1/80 backdrop-blur border border-border-subtle text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors"
+          >
+            <CloudUpload size={15} strokeWidth={2} />
+          </button>
+          <button
             title="Fit to content (Ctrl+0)"
             aria-label="Fit to content"
             onClick={() => zoomToFitRef.current?.()}
@@ -354,6 +364,7 @@ export default function App() {
     {/* Modals + overlays outside the layout so they never clip */}
     {showRecovery && <RecoveryDialog onDismiss={() => setShowRecovery(false)} />}
     <ExportDialog open={exportOpen} onOpenChange={setExportOpen} />
+    <PublishDialog open={publishOpen} onOpenChange={setPublishOpen} />
     <ShortcutHelpDialog
       open={modalState?.type === 'shortcutReference'}
       onOpenChange={(open) => { if (!open) showModal(null); }}

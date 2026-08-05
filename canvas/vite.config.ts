@@ -10,4 +10,13 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  server: {
+    // Same-origin `/api/...` in dev too — prod nginx does this for real.
+    proxy: {
+      '/api': {
+        target: process.env.VITE_API_PROXY ?? 'http://localhost:8787',
+        changeOrigin: true,
+      },
+    },
+  },
 })
