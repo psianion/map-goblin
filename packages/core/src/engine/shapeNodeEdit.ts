@@ -24,6 +24,7 @@ import {
 } from '../store/commands';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
 import { pointInPolygon } from './hitTest';
+import { notify } from '../shared/notify';
 
 /** Signed area; positive and negative distinguish outer rings from holes. */
 function signedArea(poly: Polygon): number {
@@ -521,7 +522,12 @@ export function applyOutlineEdit(edit: OutlineEdit, label: string): void {
   const target = resolveOutline(shapeId);
   if (!target) return;
   const next = editedOutline(target.outline, edit);
-  if (!next) return;
+  if (!next) {
+    // The one refusal a user actually runs into: deleting below three corners.
+    // Refusing silently read as "delete is broken".
+    if (edit.kind === 'delete') notify.warning('A room needs at least three corners');
+    return;
+  }
   const ownerId = commitOutline(target, next, label);
   if (ownerId && ownerId !== shapeId) {
     // The collapse replaced the shape; keep editing the outline, not a ghost.

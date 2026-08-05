@@ -8,19 +8,14 @@ import type { Graphics } from 'pixi.js';
 import { useStore } from '../store/store';
 import type { Point, Polygon } from '../types/geometry';
 import { resolveOutline } from './shapeNodeEdit';
-
-const OUTLINE_COLOR = 0x6c63ff;
-const HANDLE_COLOR = 0x38bdf8;
-const SELECTED_COLOR = 0xfbbf24;
-const INSERT_COLOR = 0x94a3b8;
+import { strokeRopeDash, drawNodeHandle, drawInsertPuck, drawEditDim } from './overlayDraw';
 
 /**
- * Sizes in SCREEN pixels, converted per draw. World-sized handles shrink with
+ * Sizes in SCREEN pixels, converted per pick. World-sized handles shrink with
  * the map and become uncatchable when zoomed out — the same trap the wall node
- * handles fell into.
+ * handles fell into. Visual sizes live in overlayDraw.ts, shared with the wall
+ * node handles.
  */
-const HANDLE_RADIUS_PX = 5;
-const INSERT_RADIUS_PX = 3.2;
 const PICK_RADIUS_PX = 11;
 /** An edge must be at least this long on screen to be worth an insert marker. */
 const MIN_EDGE_FOR_INSERT_PX = 26;
@@ -45,7 +40,10 @@ function midpoint(a: [number, number], b: [number, number]): [number, number] {
   return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
 }
 
-export function renderShapeNodeHandles(zoom: number): void {
+export function renderShapeNodeHandles(
+  zoom: number,
+  view?: { x: number; y: number; width: number; height: number },
+): void {
   if (!overlay) return;
   const state = useStore.getState();
   const outline = currentOutline();
@@ -56,6 +54,8 @@ export function renderShapeNodeHandles(zoom: number): void {
         state.tools.selectedVertex ?? '',
         zoom.toFixed(3),
         outline.length,
+        // The dim quad covers the camera rect, so panning must redraw it.
+        view ? `${view.x.toFixed(2)},${view.y.toFixed(2)}` : '',
         // Coordinates, or dragging a vertex would not redraw its handle.
         outline.map(([x, y]) => `${x.toFixed(4)},${y.toFixed(4)}`).join(';'),
       ].join('|')
@@ -67,14 +67,14 @@ export function renderShapeNodeHandles(zoom: number): void {
   if (!outline || outline.length < 3) return;
 
   const safeZoom = zoom > 0 ? zoom : 1;
-  const r = HANDLE_RADIUS_PX / safeZoom;
-  const ri = INSERT_RADIUS_PX / safeZoom;
   const minEdge = MIN_EDGE_FOR_INSERT_PX / safeZoom;
   const selected = state.tools.selectedVertex;
 
-  // The outline itself, so the run reads as one object while being picked apart.
-  overlay.poly(outline.flat(), true);
-  overlay.stroke({ color: OUTLINE_COLOR, width: r * 0.3, alpha: 0.9 });
+  // Everything else steps back 15% so the ring being edited carries the light.
+  if (view) drawEditDim(overlay, view);
+
+  // The outline as a rope dash: provisional, being worked on — not geometry yet.
+  strokeRopeDash(overlay, outline, true, zoom);
 
   // Insert markers first, so a vertex handle always wins the visual overlap.
   for (let i = 0; i < outline.length; i++) {
@@ -82,15 +82,12 @@ export function renderShapeNodeHandles(zoom: number): void {
     const b = outline[(i + 1) % outline.length];
     if (Math.hypot(b[0] - a[0], b[1] - a[1]) < minEdge) continue;
     const [mx, my] = midpoint(a, b);
-    overlay.circle(mx, my, ri);
-    overlay.fill({ color: INSERT_COLOR, alpha: 0.7 });
+    drawInsertPuck(overlay, mx, my, zoom);
   }
 
+  // Vertices are square anchors — corners, in the pen-tool vocabulary.
   for (let i = 0; i < outline.length; i++) {
-    const isSel = selected === i;
-    overlay.circle(outline[i][0], outline[i][1], isSel ? r * 1.35 : r);
-    overlay.fill({ color: isSel ? SELECTED_COLOR : HANDLE_COLOR, alpha: isSel ? 0.95 : 0.7 });
-    overlay.stroke({ color: 0x0b1220, width: r * 0.18, alpha: 0.85 });
+    drawNodeHandle(overlay, outline[i][0], outline[i][1], zoom, { selected: selected === i });
   }
 }
 

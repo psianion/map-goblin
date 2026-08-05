@@ -145,10 +145,20 @@ export function setupRenderLoop(
     // (5c) Room highlight — no-ops unless the highlighted room changed
     renderRoomHighlight();
 
-    // (5d) Wall node handles — no-ops unless the edited wall, selection or zoom
-    // changed. Zoom matters: handles are drawn at a constant screen size.
-    renderWallNodeHandles(stage.scale.x);
-    renderShapeNodeHandles(stage.scale.x);
+    // (5d) Wall node handles — no-ops unless the edited wall, selection, zoom
+    // or camera changed. Zoom matters: handles are drawn at a constant screen
+    // size. Camera matters: edit mode dims the rest of the view with a quad
+    // covering the camera's world rect.
+    const nodeVp = engine.viewport();
+    const nodeZoom = stage.scale.x;
+    const nodeView = {
+      x: -stage.position.x / nodeZoom,
+      y: -stage.position.y / nodeZoom,
+      width: nodeVp.width / nodeZoom,
+      height: nodeVp.height / nodeZoom,
+    };
+    renderWallNodeHandles(nodeZoom, nodeView);
+    renderShapeNodeHandles(nodeZoom, nodeView);
 
     // (6) Lighting — rebuild wall segments if dirty, update FBO
     const storeState = useStore.getState();

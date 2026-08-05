@@ -27,6 +27,9 @@ export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarPro
   const [fpsColor, setFpsColor] = useState<string>('text-text-muted');
   const [rulerStr, setRulerStr] = useState<string>('');
   const cellScale = useStore((s) => s.mapSettings.cellScale);
+  const nodeEditWallId = useStore((s) => s.tools.nodeEditWallId);
+  const shapeNodeEditId = useStore((s) => s.tools.shapeNodeEditId);
+  const wallNodeSelected = useStore((s) => s.tools.selectedNodeT !== null || s.tools.selectedNodeTs.length > 0);
   const soloLayerId = useStore((s) => s.ui.solo?.layerId ?? null);
   // Falls back to a placeholder rather than the raw (possibly empty) name:
   // an empty-named soloed layer must still render the chip, or solo has no
@@ -113,12 +116,29 @@ export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarPro
         <span className="text-text-muted">{ftStr}ms</span>
       </div>
 
-      {/* Middle: live ruler reading, absent unless measuring — a live
-          measurement and solo are unlikely to overlap, but the ruler wins
-          the shared slot since it is the more transient of the two. */}
+      {/* Middle: one shared slot, most transient first — a live ruler
+          reading, then node-edit mode + its key map, then the solo chip.
+          The key map is why node editing stopped being a secret: the
+          keyboard was always the fast path and nothing said so. */}
       <div className="flex-1 flex justify-center">
         {rulerStr ? (
           <span className="text-text-primary tabular-nums">{rulerStr}</span>
+        ) : nodeEditWallId ? (
+          <span className="truncate">
+            <span className="text-text-primary">Editing wall</span>
+            <span className="text-text-muted">
+              {wallNodeSelected
+                ? ' · [ ] rotate · - + size · , . gap · Tab piece · { } insert · Del remove · Esc done'
+                : ' · click a stone · Shift+click groups · double-click elsewhere exits'}
+            </span>
+          </span>
+        ) : shapeNodeEditId ? (
+          <span className="truncate">
+            <span className="text-text-primary">Editing outline</span>
+            <span className="text-text-muted">
+              {' · drag corners · + adds on an edge · Del removes · Esc done'}
+            </span>
+          </span>
         ) : soloLayerId && soloLayerName ? (
           <button
             type="button"
