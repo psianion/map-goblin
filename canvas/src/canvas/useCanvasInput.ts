@@ -12,6 +12,10 @@ import { TERRAIN_PANEL_ID } from '@/store/types';
 import { cancelZoomAnimationRef } from '@/components/toolbar/zoomToFitRef';
 import { priorActiveLayerRef } from '@/components/toolbar/toolConstants';
 import { wallNodeAt } from '@/engine/wallNodeOverlay';
+import { openCanvasMenuRef } from '@/components/canvas/CanvasContextMenu';
+import { hitTestChildren } from '@dnd/core/src/engine/hitTest';
+import { isLayerEffectivelyVisible } from '@dnd/core/src/store/selectors';
+import type { DungeonLayer } from '@/store/types';
 import {
   beginNodeDrag,
   nudgeWallNode,
@@ -129,6 +133,13 @@ export function useCanvasInput(
 
     const onPointerDown = (e: PointerEvent) => {
       canvasEl.setPointerCapture(e.pointerId);
+
+      // Tools never see button 2 — the contextmenu handler below owns it. It
+      // fires after this click's pointerdown AND mousedown, which matters: a
+      // menu opened here would be closed again by the same click's trailing
+      // mousedown once the menu's own click-outside listener attaches.
+      if (e.button === 2) return;
+
       // Pan tool: left-click starts panning
       if (e.button === 0 && useStore.getState().tools.activeTool === 'pan') {
         isPanToolDragging = true;
@@ -512,6 +523,50 @@ export function useCanvasInput(
       _dimensionHud?.hide();
     };
 
+    // Right-click, captured ahead of every tool: hit-test → adjust selection
+    // → open our menu instead of the browser's. Runs on contextmenu (the last
+    // event of the click) so nothing from the same click can close it.
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      const rect = canvasEl.getBoundingClientRect();
+      const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+      const store = useStore.getState();
+      // Locked layers stay right-clickable — their menus render disabled,
+      // mirroring the layer panel — so only visibility filters here.
+      const layers = store.layers.filter(
+        (l): l is DungeonLayer => l.type === 'dungeon' && isLayerEffectivelyVisible(store, l),
+      );
+      let hit: { child: { id: string }; layer: DungeonLayer } | null = null;
+      for (let i = layers.length - 1; i >= 0; i--) {
+        const h = hitTestChildren(layers[i].children, [world.x, world.y], layers[i]);
+        if (h) {
+          hit = { child: h, layer: layers[i] };
+          break;
+        }
+      }
+      if (hit) {
+        // Select, then menu — clicking into a multi-selection keeps it, so
+        // the menu can act on the group.
+        if (!store.selection.selectedIds.includes(hit.child.id)) {
+          store.setSelectedIds([hit.child.id]);
+          store.setActiveLayerId(hit.layer.id);
+        }
+        const selected = useStore.getState().selection.selectedIds;
+        openCanvasMenuRef.current?.({
+          x: e.clientX,
+          y: e.clientY,
+          world,
+          target:
+            selected.length > 1
+              ? { kind: 'multi', count: selected.length }
+              : { kind: 'child', childId: hit.child.id },
+        });
+      } else {
+        openCanvasMenuRef.current?.({ x: e.clientX, y: e.clientY, world, target: { kind: 'canvas' } });
+      }
+    };
+
+    canvasEl.addEventListener('contextmenu', onContextMenu);
     canvasEl.addEventListener('dblclick', onDoubleClick);
     canvasEl.addEventListener('pointerdown', onPointerDown);
     canvasEl.addEventListener('pointermove', onPointerMove);
@@ -530,6 +585,7 @@ export function useCanvasInput(
     return () => {
       unsubToolSwitch();
       canvasEl.style.cursor = '';
+      canvasEl.removeEventListener('contextmenu', onContextMenu);
       canvasEl.removeEventListener('dblclick', onDoubleClick);
       canvasEl.removeEventListener('pointerdown', onPointerDown);
       canvasEl.removeEventListener('pointermove', onPointerMove);
