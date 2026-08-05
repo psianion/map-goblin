@@ -4,6 +4,7 @@
 // while replacing globalThis.Event, so undici dispatches a jsdom Event into a
 // Node EventTarget and throws. Node 22's WebSocket is the same WHATWG API this
 // client uses in the browser, so the node env tests the real thing.
+import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer } from 'ws';
 import type { WebSocket as WsSocket } from 'ws';
@@ -14,7 +15,7 @@ import { resumeSeat, useSessionStore } from './store';
 const ME: PlayerInfo = { identityId: 'i1', name: 'Rue', role: 'dm', connected: true };
 
 const SNAPSHOT: SessionState = {
-  protocolVersion: 2,
+  protocolVersion: PROTOCOL_VERSION,
   sessionId: 's1',
   campaignId: 'c1',
   activeSceneId: null,

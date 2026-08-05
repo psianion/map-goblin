@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Container } from 'pixi.js';
@@ -59,7 +60,7 @@ const player: PlayerInfo = { identityId: 'p-2', name: 'Borin', role: 'player', c
 
 function session(modules: Record<string, unknown> = {}): SessionState {
   return {
-    protocolVersion: 3,
+    protocolVersion: PROTOCOL_VERSION,
     sessionId: 's1',
     campaignId: 'c1',
     activeSceneId: 'scene-1',

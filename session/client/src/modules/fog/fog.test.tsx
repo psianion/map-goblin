@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { Room } from '@dnd/core/src/shared/types';
@@ -46,7 +47,7 @@ const dm: PlayerInfo = { identityId: 'dm-1', name: 'Ayla', role: 'dm', connected
 
 function session(modules: Record<string, unknown> = {}): SessionState {
   return {
-    protocolVersion: 3,
+    protocolVersion: PROTOCOL_VERSION,
     sessionId: 's1',
     campaignId: 'c1',
     activeSceneId: 'scene-1',

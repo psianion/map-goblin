@@ -8,6 +8,7 @@
 // appearing or leaving never reflows the map or the sidebar next to it — "reserve via fixed
 // positioning" is what this already is, not an extra layout to add.
 
+import { useState } from 'react';
 import type { TriggersState } from '@dnd/mechanics/triggers';
 import { prefersReducedMotion } from '../session/motion';
 import { useModuleState, useSessionStore } from '../session/store';
@@ -21,6 +22,9 @@ export function TriggerPrompts() {
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const isDm = useSessionStore((s) => s.you?.role === 'dm');
   const prompts = visiblePrompts(state, sceneId);
+  // Roll is in flight until the server's state-update removes the card — disabling on click
+  // spares the user a spurious refusal from a double-click racing the resolution.
+  const [rolling, setRolling] = useState<string | null>(null);
 
   if (prompts.length === 0) return null;
 
@@ -54,10 +58,14 @@ export function TriggerPrompts() {
             <button
               type="button"
               aria-label={`Roll: ${prompt.text}`}
-              onClick={() => send('roll-prompt', { promptId: prompt.id })}
-              className="shrink-0 rounded-chip border border-border-default px-2 py-1 text-xs font-medium text-text-primary transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 motion-reduce:transition-none"
+              disabled={rolling === prompt.id}
+              onClick={() => {
+                setRolling(prompt.id);
+                send('roll-prompt', { promptId: prompt.id });
+              }}
+              className="shrink-0 rounded-chip border border-border-default px-2 py-1 text-xs font-medium text-text-primary transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 disabled:opacity-60 motion-reduce:transition-none"
             >
-              Roll
+              {rolling === prompt.id ? 'Rolling…' : 'Roll'}
             </button>
             {isDm && (
               <button

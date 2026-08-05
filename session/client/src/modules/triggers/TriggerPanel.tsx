@@ -26,7 +26,9 @@ const CONDITION_LABEL: Record<TriggerCondition['kind'], string> = {
 
 /** A fetch result tagged with the scene it answers — so a slow response for a scene the DM
  *  has already switched away from is never shown as this one's. */
-type PrepFetch = { sceneId: string; prep: ScenePrep | null } | { sceneId: string; error: string };
+type PrepFetch =
+  | { sceneId: string; prep: ScenePrep | null; inertById: Record<string, string> }
+  | { sceneId: string; error: string };
 
 export function TriggerPanel() {
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
@@ -40,12 +42,17 @@ export function TriggerPanel() {
     const { token } = useSessionStore.getState();
     if (!token) return;
     getScenePrep(sceneId, token)
-      .then((res) => setFetched({ sceneId, prep: res.prep }))
+      .then((res) => {
+        const inertById: Record<string, string> = {};
+        for (const r of res.resolved) if (r.inert) inertById[r.id] = r.inert;
+        setFetched({ sceneId, prep: res.prep, inertById });
+      })
       .catch((e) => setFetched({ sceneId, error: e instanceof Error ? e.message : String(e) }));
   }, [sceneId]);
 
   const current = fetched?.sceneId === sceneId ? fetched : null;
   const prep = current && 'prep' in current ? current.prep : null;
+  const inertById = current && 'inertById' in current ? current.inertById : {};
   const error = current && 'error' in current ? current.error : null;
 
   const scene = sceneId && state ? sceneTriggersOf(state, sceneId) : undefined;
@@ -54,22 +61,23 @@ export function TriggerPanel() {
   // about reading right now.
   const log = useMemo(() => (scene ? [...scene.log].reverse().slice(0, 50) : []), [scene]);
 
-  if (error) {
-    return (
-      <p role="alert" className="text-xs text-danger">
-        {error}
-      </p>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-3 text-sm">
-      {!prep || prep.triggers.length === 0 ? (
+      {/* The trigger log below comes over WS and is unaffected by a REST failure — an error
+          renders inline instead of blanking the whole panel until the next scene switch. */}
+      {error && (
+        <p role="alert" className="text-xs text-danger">
+          Couldn't load this scene's triggers: {error}
+        </p>
+      )}
+      {!error && (!prep || prep.triggers.length === 0) && (
         <p className="text-text-secondary">No triggers authored for this scene.</p>
-      ) : (
+      )}
+      {prep && prep.triggers.length > 0 && (
         <ul data-testid="trigger-list" className="flex flex-col gap-1">
           {prep.triggers.map((t) => {
             const fired = scene?.fired[t.id] !== undefined;
+            const inert = inertById[t.id];
             // "Enabled" as the table is actually playing it: authored on, and not switched
             // off at the table this session. A trigger authored off has nothing for the
             // toggle to turn on — `set-enabled` is a runtime override of prep, not a rewrite
@@ -79,6 +87,14 @@ export function TriggerPanel() {
               <li key={t.id} className="rounded bg-surface-2 px-2 py-1">
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-text-primary">{t.name}</span>
+                  {inert && (
+                    <span
+                      className="shrink-0 rounded-chip bg-surface-3 px-1 text-xs text-danger"
+                      title={inert}
+                    >
+                      Inert — {inert}
+                    </span>
+                  )}
                   {fired && (
                     <span className="shrink-0 rounded-chip bg-surface-3 px-1 text-xs text-text-secondary">
                       Fired

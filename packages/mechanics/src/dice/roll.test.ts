@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { roll } from './roll'
+import { isValidFormula, roll } from './roll'
 
 /** Feeds `values` to `rng()` one draw at a time, so each die's face is pinned exactly. */
 function queue(values: number[]): () => number {
@@ -79,6 +79,17 @@ describe('roll', () => {
   it('rejects malformed formulas', () => {
     for (const bad of ['', 'd', '1d', 'foo', '1d6*2', '1d6++1', '1.5d6']) {
       expect(() => roll(bad)).toThrow()
+    }
+  })
+})
+
+describe('isValidFormula', () => {
+  it('agrees with roll(): true for whatever it accepts, false for whatever it throws on', () => {
+    for (const good of ['3d6+2', '1d20-3', 'd8', ' 2D6 + 1 ']) {
+      expect(isValidFormula(good)).toBe(true)
+    }
+    for (const bad of ['', 'd', '1d', 'foo', '1d6*2', '0d6', '101d6', '1d1', '1d1001', '1d6+1001']) {
+      expect(isValidFormula(bad)).toBe(false)
     }
   })
 })

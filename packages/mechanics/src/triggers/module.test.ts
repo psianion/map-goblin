@@ -300,6 +300,62 @@ describe('trap and ability-check prompts', () => {
   })
 })
 
+describe('a malformed damage formula never crashes the module (F1)', () => {
+  it('failed-save damage: the save outcome still lands, damage is skipped, DM sees why', () => {
+    const badTrap = trigger(
+      {
+        id: 'trap-bad',
+        when: { kind: 'enter-region', zoneId: 'z1' },
+        actions: [{ kind: 'trap', text: 'Spikes!', save: { ability: 'dex', dc: 13 }, damage: 'nope' }],
+      },
+      { shape: { kind: 'circle', x: 0, y: 0, radius: 5 } },
+    )
+    const deps = makeDeps({
+      prepOf: () => ({ triggers: [badTrap] }),
+      tokensOf: () => ({ tok1: { id: 'tok1', x: 0, y: 0, ownerId: 'p-1' } }),
+      rollFn: (formula: string) => {
+        if (formula === 'nope') throw new Error('malformed dice formula')
+        return { formula, rolls: [5], modifier: 0, total: 5 } // fails DC 13
+      },
+    })
+    const mod = triggersModule(deps)
+    const state = fireEvent(mod, empty, { sceneId: SCENE, source: { module: 'tokens', action: 'move' } })
+    const prompt = sceneOf(state).prompts[0]
+
+    const { next, error } = run(mod, state, P1, 'roll-prompt', { promptId: prompt.id })
+    expect(error).toBeNull()
+    const lines = sceneOf(next).log
+    const outcome = lines.find((l) => l.kind === 'roll-outcome')!
+    expect(outcome.detail).toMatchObject({ success: false })
+    expect(outcome.detail).not.toHaveProperty('damage')
+    const err = lines.find((l) => l.kind === 'error')!
+    expect(err.toPlayers).toBe(false)
+    expect(err.text).toContain('nope')
+  })
+
+  it('no-save immediate trap: still fires, damage is skipped, DM sees why', () => {
+    const badTrap = trigger(
+      { id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'trap', text: 'Boom', damage: 'nope' }] },
+      { roomId: 'r1' },
+    )
+    const mod = triggersModule(
+      makeDeps({
+        prepOf: () => ({ triggers: [badTrap] }),
+        rollFn: (formula: string) => {
+          if (formula === 'nope') throw new Error('malformed dice formula')
+          return { formula, rolls: [1], modifier: 0, total: 1 }
+        },
+      }),
+    )
+    const { next, error } = run(mod, empty, DM, 'fire', { triggerId: 'x' })
+    expect(error).toBeNull()
+    expect(sceneOf(next).fired.x).toBe(1000)
+    const err = sceneOf(next).log.find((l) => l.kind === 'error')!
+    expect(err.toPlayers).toBe(false)
+    expect(err.text).toContain('nope')
+  })
+})
+
 describe('inert and disabled triggers never fire', () => {
   const shape = { kind: 'circle' as const, x: 0, y: 0, radius: 5 }
   const tokens = () => ({ tok1: { id: 'tok1', x: 0, y: 0, ownerId: null } })

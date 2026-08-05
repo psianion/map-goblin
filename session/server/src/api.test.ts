@@ -855,7 +855,9 @@ describe('scene prep (M3)', () => {
       const sceneWithPrep = withPrep.body.sceneId as string
       expect(
         (await api(base, 'GET', `/api/scenes/${sceneWithPrep}/prep`, { token: dmToken })).body,
-      ).toEqual({ prep: PREP })
+        // F3/M4 — the fixture MAP has no zones at all, so PREP's trigger (zoneId 'z1') is
+        // exactly the inert case: a reference to a zone that was never (or no longer) there.
+      ).toEqual({ prep: PREP, resolved: [{ id: 't1', inert: 'zone was deleted' }] })
 
       const withoutPrep = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
         token: dmToken,
@@ -864,7 +866,7 @@ describe('scene prep (M3)', () => {
       const sceneWithoutPrep = withoutPrep.body.sceneId as string
       expect(
         (await api(base, 'GET', `/api/scenes/${sceneWithoutPrep}/prep`, { token: dmToken })).body,
-      ).toEqual({ prep: null })
+      ).toEqual({ prep: null, resolved: [] })
     })
   })
 
@@ -883,7 +885,7 @@ describe('scene prep (M3)', () => {
 
       // No `prep` key at all — the DM never opened prep in this save, so it survives.
       await api(base, 'PUT', `/api/scenes/${sceneId}/publish`, { token: dmToken, raw: JSON.stringify(MAP) })
-      expect(await getPrep()).toEqual({ prep: PREP })
+      expect(await getPrep()).toEqual({ prep: PREP, resolved: [{ id: 't1', inert: 'zone was deleted' }] })
 
       // An explicit prep overwrites whatever was there.
       const OTHER_PREP = { version: 1, triggers: [{ ...PREP.triggers[0], id: 't2' }] }
@@ -891,14 +893,14 @@ describe('scene prep (M3)', () => {
         token: dmToken,
         raw: JSON.stringify({ ...MAP, prep: OTHER_PREP }),
       })
-      expect(await getPrep()).toEqual({ prep: OTHER_PREP })
+      expect(await getPrep()).toEqual({ prep: OTHER_PREP, resolved: [{ id: 't2', inert: 'zone was deleted' }] })
 
       // An explicit *empty* prep still overwrites — distinct from "never touched".
       await api(base, 'PUT', `/api/scenes/${sceneId}/publish`, {
         token: dmToken,
         raw: JSON.stringify({ ...MAP, prep: EMPTY_PREP }),
       })
-      expect(await getPrep()).toEqual({ prep: EMPTY_PREP })
+      expect(await getPrep()).toEqual({ prep: EMPTY_PREP, resolved: [] })
     })
   })
 
@@ -919,7 +921,7 @@ describe('scene prep (M3)', () => {
       expect(put.body).toEqual({ prep: PREP })
       expect(
         (await api(base, 'GET', `/api/scenes/${sceneId}/prep`, { token: dmToken })).body,
-      ).toEqual({ prep: PREP })
+      ).toEqual({ prep: PREP, resolved: [{ id: 't1', inert: 'zone was deleted' }] })
 
       // A prep edit never touches the scene's map — it is not a republish in disguise.
       const scenes = await api(base, 'GET', `/api/campaigns/${campaignId}/scenes`, { token: dmToken })
@@ -982,7 +984,7 @@ describe('scene prep (M3)', () => {
       const sceneId = uploaded.body.sceneId as string
       expect(
         (await api(base, 'GET', `/api/scenes/${sceneId}/prep`, { token: dmToken })).body,
-      ).toEqual({ prep: null })
+      ).toEqual({ prep: null, resolved: [] })
       expect(server.stores.scenes.get(sceneId)?.prep).toBeNull()
 
       // publishScene's explicit-clear path: give it prep, then explicitly null it back out.

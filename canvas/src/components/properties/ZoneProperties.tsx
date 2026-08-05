@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { isValidFormula } from '@dnd/core/src/shared/dice-format'
 import { useStore } from '@/store/store'
 import { PropertyField } from './PropertyField'
 import { SelectInput } from '@/components/inputs/SelectInput'
@@ -108,9 +109,6 @@ const WEATHER_OPTIONS: { value: Weather; label: string }[] = [
   { value: 'fog', label: 'Fog' },
   { value: 'snow', label: 'Snow' },
 ]
-
-// `NdM` or `NdM±K` — the format the schema's `damage` field documents.
-const DICE_RE = /^\d+d\d+([+-]\d+)?$/i
 
 function defaultAction(kind: TriggerAction['kind'], firstLightId: string): TriggerAction {
   switch (kind) {
@@ -576,7 +574,7 @@ function TrapActionFields({
     setSeenDamage(action.damage)
     setDamageDraft(action.damage ?? '')
   }
-  const damageValid = damageDraft.trim() === '' || DICE_RE.test(damageDraft.trim())
+  const damageValid = damageDraft.trim() === '' || isValidFormula(damageDraft.trim())
 
   return (
     <>
@@ -627,9 +625,13 @@ function TrapActionFields({
             placeholder="2d6+1"
             aria-label="Damage"
             onChange={(e) => setDamageDraft(e.target.value)}
-            onBlur={() =>
-              onChange({ ...action, damage: damageDraft.trim() === '' ? undefined : damageDraft.trim() })
-            }
+            onBlur={() => {
+              // An invalid draft is never committed — the field stays showing it, still
+              // marked invalid, instead of writing a formula the roller would reject.
+              if (!damageValid) return
+              const trimmed = damageDraft.trim()
+              onChange({ ...action, damage: trimmed === '' ? undefined : trimmed })
+            }}
             className={cn(fieldInputClass, damageValid ? '' : 'border-danger')}
           />
           {!damageValid && (

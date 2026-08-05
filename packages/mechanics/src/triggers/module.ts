@@ -208,7 +208,16 @@ function rollPrompt(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
   const save = rollFn('1d20')
   const success = save.total >= dc
   let damage: RollResult | undefined
-  if (!success && prompt.kind === 'trap' && prompt.damage) damage = rollFn(prompt.damage)
+  // A malformed formula must not crash the roll a player just asked to make: the save
+  // outcome still lands, damage is simply skipped, and the DM's log carries why.
+  let malformedDamage: string | undefined
+  if (!success && prompt.kind === 'trap' && prompt.damage) {
+    try {
+      damage = rollFn(prompt.damage)
+    } catch {
+      malformedDamage = prompt.damage
+    }
+  }
 
   const next = cloneScene(scene)
   next.prompts = next.prompts.filter((pr) => pr.id !== promptId)
@@ -224,6 +233,18 @@ function rollPrompt(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
     },
     now,
   )
+  if (malformedDamage !== undefined) {
+    pushLog(
+      next,
+      {
+        triggerId: prompt.triggerId,
+        kind: 'error',
+        text: `Trap damage formula '${malformedDamage}' is malformed — no damage rolled`,
+        toPlayers: false,
+      },
+      now,
+    )
+  }
   setScene(ctx, sceneId, next)
 }
 
@@ -392,14 +413,15 @@ function runFireAction(
 
     case 'light':
       scene.lightOverrides[action.lightId] = action.on
-      // A light changing is world-visible — everyone at the table sees it happen.
+      // toPlayers: false — a raw light-child UUID means nothing to a player. Player-facing
+      // wording lands in M5 with the actual client-side relight.
       pushLog(
         scene,
         {
           triggerId: t.def.id,
           kind: 'light',
           text: `Light ${action.lightId} turned ${action.on ? 'on' : 'off'}`,
-          toPlayers: true,
+          toPlayers: false,
         },
         now,
       )
@@ -411,19 +433,35 @@ function runFireAction(
       // save becomes a `TriggerPrompt` a player answers.
       if (!action.save) {
         if (action.damage) {
-          const dmg = (deps.rollFn ?? roll)(action.damage)
-          pushLog(
-            scene,
-            {
-              triggerId: t.def.id,
-              kind: 'trap',
-              text: `${action.text} — ${dmg.total} damage`,
-              toPlayers: false,
-              forIdentityId: targetIdentityId ?? undefined,
-              detail: { damage: dmg },
-            },
-            now,
-          )
+          // A malformed authored formula must not crash the cascade a token's own move
+          // kicked off — the trigger still fires (fireTrigger marks it below), only the
+          // damage roll is skipped, and the DM's log carries why.
+          try {
+            const dmg = (deps.rollFn ?? roll)(action.damage)
+            pushLog(
+              scene,
+              {
+                triggerId: t.def.id,
+                kind: 'trap',
+                text: `${action.text} — ${dmg.total} damage`,
+                toPlayers: false,
+                forIdentityId: targetIdentityId ?? undefined,
+                detail: { damage: dmg },
+              },
+              now,
+            )
+          } catch {
+            pushLog(
+              scene,
+              {
+                triggerId: t.def.id,
+                kind: 'error',
+                text: `Trap damage formula '${action.damage}' is malformed — ${action.text}`,
+                toPlayers: false,
+              },
+              now,
+            )
+          }
         } else {
           pushLog(scene, { triggerId: t.def.id, kind: 'trap', text: action.text, toPlayers: false }, now)
         }

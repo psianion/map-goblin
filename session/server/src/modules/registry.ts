@@ -94,6 +94,9 @@ export class ModuleRegistry {
    * way `event` deliberately is — stays permanently unreachable from a socket no matter what
    * a client sends. That absence *is* the access control; this method is the one place
    * allowed to step around it.
+   *
+   * @internal Only `cascade` (below) and `registry.test.ts` call this. `CommandRouter` must
+   * never reach for it — `dispatch` is the only entry a socket gets, on purpose (see above).
    */
   dispatchInternal(
     module: string,

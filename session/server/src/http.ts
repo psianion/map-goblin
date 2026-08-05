@@ -23,6 +23,7 @@ import {
   type Identity,
   type Stores,
 } from './db/stores'
+import type { TriggerDeps } from '@dnd/mechanics/triggers'
 import type { Vision } from './fog/vision'
 import { parseMapFile, unwrapMapFile } from './mapImport'
 import type { ScenePrep, SerializedMapData } from '@dnd/core/src/store/types'
@@ -38,6 +39,9 @@ export interface HttpDeps {
   vision: Vision
   /** The DM's starting room is a `fog.reveal` like any other — see `openSession`. */
   modules: ModuleRegistry
+  /** F3 — the same resolver `triggersModule` runs against, reused so GET .../prep can report
+   *  which triggers are inert without a second resolution path to drift from the first. */
+  triggerDeps: Pick<TriggerDeps, 'prepOf'>
 }
 
 /** Everything but a map upload is a handful of fields. */
@@ -398,7 +402,12 @@ function deleteScene(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, 
   json(res, 200, { sceneId, deleted: true })
 }
 
-/** GET /api/scenes/:id/prep — DM only, campaign-scoped (M3). */
+/**
+ * GET /api/scenes/:id/prep — DM only, campaign-scoped (M3). `prep` is the raw authored
+ * document, untouched (M3 clients still read it that way); `resolved` (M4/F3) is what the
+ * same trigger runtime actually makes of it — one entry per authored trigger, `inert` set
+ * when a reference it named (a zone, a light) no longer resolves.
+ */
 function getScenePrep(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, sceneId: string): void {
   const identity = requireSession(deps, req, res)
   if (!identity) return
@@ -408,7 +417,11 @@ function getScenePrep(deps: HttpDeps, req: IncomingMessage, res: ServerResponse,
   }
   if (identity.role !== 'dm') return json(res, 403, { error: 'dm only' })
 
-  json(res, 200, { prep: scene.prep ? (JSON.parse(scene.prep) as ScenePrep) : null })
+  const resolvedPrep = deps.triggerDeps.prepOf(identity.campaign_id, sceneId)
+  const resolved = (resolvedPrep?.triggers ?? []).map((t) =>
+    t.inert ? { id: t.def.id, inert: t.inert } : { id: t.def.id },
+  )
+  json(res, 200, { prep: scene.prep ? (JSON.parse(scene.prep) as ScenePrep) : null, resolved })
 }
 
 /**

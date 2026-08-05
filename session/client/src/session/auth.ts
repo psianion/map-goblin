@@ -198,12 +198,15 @@ export function deleteScene(sceneId: string, token: string): Promise<{ sceneId: 
 
 /**
  * GET /api/scenes/:id/prep — DM only (M4). The DM's authored trigger defs for this scene,
- * raw as written in the editor — `null` if the DM never opened prep on it. This is not the
- * server's resolved view (room/shape/inert are computed at fire time and never persisted),
- * so a trigger's `inert` reason has no source here; the triggers panel renders what prep and
- * the runtime module state actually carry and leaves it at that.
+ * raw as written in the editor — `null` if the DM never opened prep on it — plus the
+ * server's resolution verdict per trigger: an `inert` reason means the runtime will never
+ * fire it (zone deleted, light gone, malformed damage formula), which is exactly what the
+ * triggers panel needs to warn about.
  */
-export function getScenePrep(sceneId: string, token: string): Promise<{ prep: ScenePrep | null }> {
+export function getScenePrep(
+  sceneId: string,
+  token: string,
+): Promise<{ prep: ScenePrep | null; resolved: { id: string; inert?: string }[] }> {
   return request(`/api/scenes/${encodeURIComponent(sceneId)}/prep`, { method: 'GET' }, token);
 }
 

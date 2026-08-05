@@ -14,6 +14,7 @@
 // Pixi's display objects need no GPU: `Graphics` records instructions into a context and
 // only the renderer needs WebGL, so the draw is inspectable in jsdom.
 
+import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 import { Container, Ticker } from 'pixi.js';
 import type { Room } from '@dnd/core/src/shared/types';
@@ -55,7 +56,7 @@ const fogWith = (rooms: FogState['byScene'][string]['rooms']): FogState => ({
 });
 
 const session = (modules: Record<string, unknown> = {}): SessionState => ({
-  protocolVersion: 3,
+  protocolVersion: PROTOCOL_VERSION,
   sessionId: 's1',
   campaignId: 'c1',
   activeSceneId: 'scene-1',

@@ -3,6 +3,7 @@
 // than markup. The click-to-activate half is unchanged from before #47 and stays covered by
 // existing wiring; this file is additive.
 
+import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { SessionState } from '@dnd/core/src/shared/protocol';
@@ -22,7 +23,7 @@ const { listScenes, patchScene, deleteScene, reorderScenes, publishScene } =
 
 function session(activeSceneId: string | null): SessionState {
   return {
-    protocolVersion: 3,
+    protocolVersion: PROTOCOL_VERSION,
     sessionId: 's1',
     campaignId: 'c1',
     activeSceneId,

@@ -2,6 +2,7 @@
 // live door state → the core store's door children → core's occlusion pass, so the last
 // assertion is made with the same `buildOcclusionSegments` the editor lights with.
 
+import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { buildOcclusionSegments } from '@dnd/core/src/shared/occlusion';
 import type { DoorChild, WallSegment } from '@dnd/core/src/shared/types';
@@ -56,7 +57,7 @@ const dm: PlayerInfo = { identityId: 'dm1', name: 'Ann', role: 'dm', connected: 
 
 const session = (doors: Record<string, unknown>): SessionState =>
   ({
-    protocolVersion: 3,
+    protocolVersion: PROTOCOL_VERSION,
     sessionId: 's1',
     campaignId: 'c1',
     activeSceneId: 'scene-1',

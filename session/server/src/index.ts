@@ -102,7 +102,10 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   modules.register(tokensModule(vision.visionOf))
   modules.register(fogModule(vision.roomsOf))
   modules.register(doorsModule(vision.doorsOf, vision.playerDoors))
-  modules.register(triggersModule(createTriggerDeps(stores, vision.sceneMapOf)))
+  // Shared with http.ts's GET .../prep (F3): one memoized instance so the DM's prep panel
+  // and the live cascade resolve the same scene's triggers off the same cache.
+  const triggerDeps = createTriggerDeps(stores, vision.sceneMapOf)
+  modules.register(triggersModule(triggerDeps))
   for (const module of options.modules ?? []) modules.register(module)
 
   const sessions = new SessionManager(modules, {
@@ -145,6 +148,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
       sessionManager: sessions,
       vision,
       modules,
+      triggerDeps,
     }),
   )
 

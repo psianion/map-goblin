@@ -3,9 +3,11 @@
 // answers the module's other two questions — who is on the scene, and what has it explored
 // — from the same stores fog/vision already read.
 //
-// Deliberately thin: every read here is fresh (`stores`/`sceneMapOf` are the sources of
-// truth already used elsewhere), so this module caches nothing of its own.
+// Deliberately thin: `tokensOf`/`exploredOf` read fresh every call (`stores`/`sceneMapOf` are
+// the sources of truth already used elsewhere). `prepOf` alone memoizes its own output (N1,
+// below) — resolving is real work and a token drag calls it at ~10Hz.
 
+import { isValidFormula } from '@dnd/mechanics/dice'
 import { sceneFogOf, type FogState } from '@dnd/mechanics/fog'
 import type { TokensState } from '@dnd/mechanics/tokens'
 import type { ResolvedTrigger, TriggerDeps, TriggerToken } from '@dnd/mechanics/triggers'
@@ -17,20 +19,40 @@ import type { SceneMap, SceneMapOf } from '../fog/sceneMap'
 const NO_FOG: FogState = { byScene: {} }
 const NO_TOKENS: TokensState = { library: {}, byScene: {} }
 
+/** ponytail: same spirit as sceneMap's CACHE_MAX — a DM working two or three scenes at once
+ *  is normal, a fourth resident entry is a leak. */
+const PREP_CACHE_MAX = 3
+
 /** Wires `triggersModule`'s three dependencies against the server's own stores. */
 export function createTriggerDeps(
   stores: Stores,
   sceneMapOf: SceneMapOf,
 ): Pick<TriggerDeps, 'prepOf' | 'tokensOf' | 'exploredOf'> {
+  // N1 — a token drag re-evaluates every trigger at ~10Hz, and every step re-reads this same
+  // scene's prep. `resolveTrigger` only ever changes when the stored prep JSON or the map it
+  // resolves against changes, so keyed on both (string equality on the former, object
+  // identity on the latter, since sceneMapOf itself already caches by revision) the resolved
+  // result is safe to reuse across calls in between.
+  const cache = new Map<string, { rawPrep: string; map: SceneMap | null; triggers: ResolvedTrigger[] }>()
+
   return {
-    // Fresh every call, per TriggerDeps' contract: prep PUTs are quiet (http.ts), so there
-    // is no revision to cache against.
     prepOf(campaignId, sceneId) {
       const scene = stores.scenes.get(sceneId)
       if (!scene || scene.campaign_id !== campaignId || !scene.prep) return null
-      const prep = JSON.parse(scene.prep) as ScenePrep
       const map = sceneMapOf(sceneId)
-      return { triggers: prep.triggers.map((def) => resolveTrigger(def, map)) }
+
+      const cached = cache.get(sceneId)
+      if (cached && cached.rawPrep === scene.prep && cached.map === map) {
+        return { triggers: cached.triggers }
+      }
+
+      const prep = JSON.parse(scene.prep) as ScenePrep
+      const triggers = prep.triggers.map((def) => resolveTrigger(def, map))
+      if (!cache.has(sceneId) && cache.size >= PREP_CACHE_MAX) {
+        cache.delete(cache.keys().next().value as string)
+      }
+      cache.set(sceneId, { rawPrep: scene.prep, map, triggers })
+      return { triggers }
     },
 
     tokensOf(campaignId, sceneId) {
@@ -86,6 +108,9 @@ function resolveTrigger(def: TriggerDef, map: SceneMap | null): ResolvedTrigger 
   for (const action of def.actions) {
     if (action.kind === 'light' && !map!.lightIds.has(action.lightId)) {
       return { ...resolved, inert: 'light no longer exists' }
+    }
+    if (action.kind === 'trap' && action.damage !== undefined && !isValidFormula(action.damage)) {
+      return { ...resolved, inert: 'malformed damage formula' }
     }
   }
   return resolved

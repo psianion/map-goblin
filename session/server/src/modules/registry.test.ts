@@ -4,6 +4,8 @@
 // prompts, fire actions) is triggers/module.ts's own test surface; this file is the
 // registry's contract with it.
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ANY_ROLE, type GameModule, type Viewer } from '@dnd/mechanics/contract'
 import { tokensModule, type TokensState } from '@dnd/mechanics/tokens'
@@ -79,6 +81,15 @@ describe('dispatch vs dispatchInternal (M4)', () => {
     )
     expect(error).toBeNull()
     expect(seen).toEqual([{ sceneId: SCENE, source: { module: 'tokens', action: 'move' } }])
+  })
+
+  // N8 — `dispatchInternal` stays public only because this file's test above needs to call
+  // it directly; that must not become a second door a socket can walk through. A grep-level
+  // guard is cheap and catches the one thing that actually matters: nobody in ws/CommandRouter
+  // ever writes `.dispatchInternal(`.
+  it('CommandRouter never calls dispatchInternal — dispatch is its only door in', () => {
+    const source = readFileSync(join(__dirname, '../ws/CommandRouter.ts'), 'utf8')
+    expect(source).not.toContain('.dispatchInternal(')
   })
 })
 
