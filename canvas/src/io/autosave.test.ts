@@ -147,6 +147,29 @@ describe('IndexedDB autosave', () => {
     expect(typeof result?.savedAt).toBe('number');
   });
 
+  it('loadFromIndexedDB accepts a 3.0 autosave entry', async () => {
+    await saveToIndexedDB({ ...SAMPLE_DATA, version: '3.0' });
+    const result = await loadFromIndexedDB();
+    expect(result).not.toBeNull();
+    expect(result?.data.version).toBe('3.0');
+  });
+
+  // Regression lock: the version gate was `!== '2.0'` until schema 3.1 shipped,
+  // which silently discarded every autosave written since the format moved to
+  // 3.0 — see the comment on the gate in autosave.ts.
+  it('loadFromIndexedDB accepts a 3.1 autosave entry', async () => {
+    await saveToIndexedDB({ ...SAMPLE_DATA, version: '3.1' });
+    const result = await loadFromIndexedDB();
+    expect(result).not.toBeNull();
+    expect(result?.data.version).toBe('3.1');
+  });
+
+  it('loadFromIndexedDB discards a 9.9 autosave and returns null', async () => {
+    await saveToIndexedDB({ ...SAMPLE_DATA, version: '9.9' } as unknown as SerializedMapData);
+    const result = await loadFromIndexedDB();
+    expect(result).toBeNull();
+  });
+
   it('loadFromIndexedDB discards stale v1.x autosaves and returns null', async () => {
     const staleData = {
       version: '1.4',

@@ -15,7 +15,8 @@ export type ToolType =
   | 'scatterBrush'
   | 'terrain'
   | 'water'
-  | 'text';
+  | 'text'
+  | 'zone';
 
 export interface PreviewShape {
   type: 'polygon' | 'rectangle' | 'circle' | 'line';

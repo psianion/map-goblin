@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from './store';
-import { PresetApplyCommand, PropertyCommand, ReorderChildCommand, SetAmbientLightCommand, ShapeStyleCommand, UpdateChildCommand } from './commands';
+import { AddChildCommand, PresetApplyCommand, PropertyCommand, RemoveChildCommand, ReorderChildCommand, SetAmbientLightCommand, ShapeStyleCommand, UpdateChildCommand } from './commands';
 import { undoManager } from './undoManager';
 import { DUNGEON_STYLE_PRESETS } from './presetRegistry';
 import { resolveStyle } from '../engine/styleResolver';
-import type { ShapeChild, WallSegment } from '../shared/types';
+import type { DoorChild, ShapeChild, WallSegment, ZoneChild } from '../shared/types';
 import type { DungeonLayer, DungeonStyle } from './types';
 
 describe('PropertyCommand', () => {
@@ -670,5 +670,56 @@ describe('Opacity via PropertyCommand (B1 drag-commit pattern)', () => {
     undoManager.undo();
     expect(useStore.getState().layers.find((l) => l.id === layer.id)?.opacity).toBe(1);
     expect(undoManager.canUndo()).toBe(false); // exactly one entry existed
+  });
+});
+
+// A zone is prep, not scenery — it must never trigger a room re-detection,
+// same as a light or a label. Only shapes (what mergedFloor unions from) and
+// doors (which need a roomA/B the moment they appear) do.
+describe('AddChildCommand/RemoveChildCommand.affectsRooms — zones are inert', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+  });
+
+  const ZONE: ZoneChild = {
+    id: 'zone-1',
+    name: 'Zone',
+    childType: 'zone',
+    visible: true,
+    shape: { kind: 'point', position: { x: 1, y: 1 } },
+  };
+
+  const DOOR: DoorChild = {
+    id: 'door-1',
+    name: 'Door',
+    childType: 'door',
+    visible: true,
+    wallId: '',
+    position: [1, 1],
+    angle: 0,
+    width: 1,
+    style: 'single',
+    state: 'closed',
+    isSecret: false,
+  };
+
+  it('adding a zone child does not affect rooms; adding a door does', () => {
+    const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    expect(new AddChildCommand('Add zone', layer.id, ZONE).affectsRooms).toBe(false);
+    expect(new AddChildCommand('Add door', layer.id, DOOR).affectsRooms).toBe(true);
+  });
+
+  it('removing a zone child does not affect rooms; removing a door does', () => {
+    const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    useStore.getState().addChild(layer.id, ZONE);
+    useStore.getState().addChild(layer.id, DOOR);
+
+    const removeZone = new RemoveChildCommand('Remove zone', layer.id, ZONE.id);
+    removeZone.execute();
+    expect(removeZone.affectsRooms).toBe(false);
+
+    const removeDoor = new RemoveChildCommand('Remove door', layer.id, DOOR.id);
+    removeDoor.execute();
+    expect(removeDoor.affectsRooms).toBe(true);
   });
 });

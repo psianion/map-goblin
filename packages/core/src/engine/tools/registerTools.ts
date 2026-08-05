@@ -15,6 +15,7 @@ import { StampScatterTool } from './StampScatterTool';
 import { DoorTool } from './DoorTool';
 import { TerrainTool } from './TerrainTool';
 import { WaterTool } from './WaterTool';
+import { ZoneTool } from './ZoneTool';
 export function registerAllTools(manager: ToolManager, worldContainer: Container, engine: RenderEngine, previewContainer: Container): void {
   const selectTool = new SelectTool(engine);
   selectTool.overlay.setWorldToScreen((wx, wy) => engine.worldToScreen(wx, wy));
@@ -38,4 +39,5 @@ export function registerAllTools(manager: ToolManager, worldContainer: Container
   manager.registerTool(new StampScatterTool(previewContainer));
   manager.registerTool(new TerrainTool(engine, previewContainer));
   manager.registerTool(new WaterTool(engine));
+  manager.registerTool(new ZoneTool(previewContainer));
 }

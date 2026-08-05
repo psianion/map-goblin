@@ -56,6 +56,7 @@ export function redactMapForViewer(
   const zoned = scene.data.layers.some((l) => isDungeon(l) && (l.rooms?.length ?? 0) > 0)
   // Scene prep is the DM's notes — trigger definitions, trap DCs, the lot. It never
   // reaches a player in any form, revealed or not.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured away on purpose
   const { prep: _prep, ...docSansPrep } = scene.data
   return {
     ...docSansPrep,

@@ -140,7 +140,8 @@ export type ToolType =
   | 'scatterBrush'
   | 'terrain'
   | 'water'
-  | 'text';
+  | 'text'
+  | 'zone';
 
 export interface TerrainBrushSettings {
   /** Active palette slot index (0-5). */
@@ -158,6 +159,10 @@ export interface WaterToolSettings {
   textureId: string;
   bankTextureId: string;
   flowSpeed: number;
+}
+
+export interface ZoneToolSettings {
+  mode: 'point' | 'circle' | 'rect';
 }
 
 export interface ScatterBrushSettings {
@@ -184,6 +189,7 @@ export interface ToolSettings {
   doorWidth: number;
   terrainBrush: TerrainBrushSettings;
   water: WaterToolSettings;
+  zone: ZoneToolSettings;
 }
 
 export interface ToolsSlice {

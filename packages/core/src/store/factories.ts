@@ -150,6 +150,9 @@ export function createDefaultState(): MapBuilderState {
           bankTextureId: 'bank-grassy-01-a1',
           flowSpeed: 0.15,
         },
+        zone: {
+          mode: 'point' as const,
+        },
       },
       recentAssets: [],
       nodeEditWallId: null,

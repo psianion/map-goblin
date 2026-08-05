@@ -4,8 +4,7 @@
 
 import { gunzipSync } from 'node:zlib'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
-// The one shared version list. A value import, but still no core *behavior* on the
-// server (D3): migration.ts is constants + a pure function over plain JSON.
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- D3 waiver, same as shared/mapBounds: store/migration is the shared version list + pure JSON migration, pixi-free by design
 import { SUPPORTED_VERSIONS } from '@dnd/core/src/store/migration'
 
 /**

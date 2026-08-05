@@ -306,6 +306,15 @@ const toolKeyMap: Record<string, () => void | false> = {
     useStore.getState().setActiveTool('text');
     notify.subtle('Label', { icon: 'tool' });
   },
+  z: () => {
+    const s = useStore.getState();
+    if (s.tools.activeTool === 'zone') {
+      togglePopoverRef.current?.();
+    } else {
+      s.setActiveTool('zone');
+      notify.subtle('Zone', { icon: 'tool' });
+    }
+  },
   // Mode toggles
   e: () => {
     const s = useStore.getState();
@@ -653,6 +662,7 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'tool.text',           keys: 'n',           category: 'Tools', label: 'Label' },
     { id: 'tool.door',           keys: 'd',           category: 'Tools', label: 'Door' },
     { id: 'tool.light',          keys: 'l',           category: 'Tools', label: 'Light' },
+    { id: 'tool.zone',           keys: 'z',           category: 'Tools', label: 'Zone' },
     { id: 'mode.erase',          keys: 'e',           category: 'Tools', label: 'Toggle Erase' },
     { id: 'mode.rough',          keys: 'x',           category: 'Tools', label: 'Toggle Rough' },
     { id: 'mode.curve',          keys: 'c',           category: 'Tools', label: 'Toggle Curve' },
