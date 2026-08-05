@@ -18,6 +18,7 @@ import { isLayerEffectivelyVisible } from '../store/selectors';
 import type { WallEdits, WallSegment } from '../shared/types';
 import { LightManager } from './lighting';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
+import { flattenRing } from '../shared/bezier';
 import { scheduleRoomSync } from '../store/roomSync';
 import type { Polygon } from '../types/geometry';
 
@@ -209,7 +210,10 @@ function computeMergedFloor(layer: DungeonLayer): Polygon[] | null {
 
   for (const shape of shapeChildren) {
     for (let i = 0; i < shape.contours.length; i++) {
-      let pts = shape.contours[i];
+      // Curved edges flatten here, before anything downstream sees the ring —
+      // walls, fog, rooms and hit tests all read mergedFloor. Straight rings
+      // (no tangents) pass through untouched.
+      let pts = flattenRing(shape.contours[i], shape.tangents?.[i]);
       if (shape.transform) {
         pts = applyTransformToPoints(pts, shape.transform);
       }
