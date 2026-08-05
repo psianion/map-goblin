@@ -7,27 +7,7 @@ import {
   buildMultiMenu,
   buildCanvasMenu,
 } from '@/canvas/menuRegistry'
-
-export interface CanvasMenuPayload {
-  /** Viewport position of the click, for the menu's top-left. */
-  x: number
-  y: number
-  /** Where the click landed in world squares. */
-  world: { x: number; y: number }
-  target:
-    | { kind: 'child'; childId: string }
-    | { kind: 'multi'; count: number }
-    | { kind: 'canvas' }
-}
-
-/**
- * Set by CanvasContextMenu on mount; useCanvasInput calls it on button-2.
- * Same module-ref pattern as importImageRef / zoomToFitRef — pointer handling
- * lives outside React and needs a bridge into it.
- */
-export const openCanvasMenuRef: { current: ((payload: CanvasMenuPayload) => void) | null } = {
-  current: null,
-}
+import { openCanvasMenuRef, type CanvasMenuPayload } from './canvasMenuRef'
 
 export function CanvasContextMenu() {
   const [payload, setPayload] = useState<CanvasMenuPayload | null>(null)

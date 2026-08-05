@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useStore } from '@/store/store'
 import type { AnyChild, AssetChild, TextChild } from '@/store/types'
 import { PropertyField } from './PropertyField'
@@ -27,8 +27,13 @@ function CommitNumberField({
   label: string
 }) {
   const [draft, setDraft] = useState(String(value))
-  // External changes (gizmo drag, undo) win over a stale draft.
-  useEffect(() => setDraft(String(value)), [value])
+  // External changes (gizmo drag, undo) win over a stale draft. Adjusted
+  // during render rather than in an effect — no extra committed frame.
+  const [lastValue, setLastValue] = useState(value)
+  if (value !== lastValue) {
+    setLastValue(value)
+    setDraft(String(value))
+  }
 
   const commit = () => {
     const v = parseFloat(draft)
