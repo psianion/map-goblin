@@ -5,11 +5,13 @@
   "type": "module",
   "exports": {
     "./contract": "./src/contract.ts",
+    "./dice": "./src/dice/roll.ts",
     "./doors": "./src/doors/module.ts",
     "./fog": "./src/fog/module.ts",
     "./log": "./src/log.ts",
     "./rolls": "./src/rolls/module.ts",
-    "./tokens": "./src/tokens/module.ts"
+    "./tokens": "./src/tokens/module.ts",
+    "./triggers": "./src/triggers/module.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",
