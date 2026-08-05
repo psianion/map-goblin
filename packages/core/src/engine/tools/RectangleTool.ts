@@ -5,6 +5,7 @@ import { AddChildCommand, RemoveChildCommand, UpdateChildCommand, CompositeComma
 import { undoManager } from '../../store/undoManager';
 import { clipper2Engine } from '../../geometry/Clipper2Engine';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
+import { resolveEditableLayer } from './layerGuard';
 
 function countShapesOfType(layer: DungeonLayer, shapeType: string): number {
   return layer.children.filter(
@@ -19,11 +20,18 @@ export class RectangleTool implements DrawingTool {
   private startPoint: Point | null = null;
   private currentPoint: Point | null = null;
   private drawing = false;
+  /**
+   * The active layer when the drag started, captured so a lock/hide/switch
+   * between press and release can't smuggle a commit onto a layer the guard
+   * never checked, or silently drop it. See WallTool for the same pattern.
+   */
+  private startLayerId: string | null = null;
 
   onPointerDown(point: Point): void {
     this.startPoint = point;
     this.currentPoint = point;
     this.drawing = true;
+    this.startLayerId = useStore.getState().ui.activeLayerId;
   }
 
   onPointerMove(point: Point, event?: PointerEvent): void {
@@ -49,16 +57,20 @@ export class RectangleTool implements DrawingTool {
     const end = this.constrain(point, event);
     this.startPoint = null;
     this.currentPoint = null;
+    const activeLayerId = this.startLayerId;
+    this.startLayerId = null;
 
     // Ignore zero-size rectangles
     if (Math.abs(end.x - start.x) < 0.01 || Math.abs(end.y - start.y) < 0.01) return;
+    if (!activeLayerId) return;
+
+    // Validated against the layer the drag started on, not whatever is active
+    // now — locking it, hiding it, or switching away mid-drag must not let
+    // release commit somewhere the guard never checked.
+    const activeLayer = resolveEditableLayer(activeLayerId);
+    if (!activeLayer) return;
 
     const store = useStore.getState();
-    const activeLayerId = store.ui.activeLayerId;
-    const activeLayer = store.layers.find(
-      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
-    );
-    if (!activeLayer) return;
 
     const rectPoly: [number, number][] = [
       [start.x, start.y],
@@ -149,6 +161,7 @@ export class RectangleTool implements DrawingTool {
     this.startPoint = null;
     this.currentPoint = null;
     this.drawing = false;
+    this.startLayerId = null;
   }
 
   isActive(): boolean {

@@ -6,7 +6,7 @@ import { UpdateChildCommand, RemoveChildCommand, CompositeCommand } from '../../
 import { undoManager } from '../../store/undoManager';
 import type { AssetChild, DungeonLayer } from '../../store/types';
 import { notify } from '../../shared/notify';
-import { blockedLayerReason } from './layerGuard';
+import { blockedLayerReason, resolveEditableLayer } from './layerGuard';
 
 type ObjectToolState = 'IDLE' | 'MOVING';
 
@@ -33,6 +33,12 @@ export class ObjectTool implements DrawingTool {
   private state: ObjectToolState = 'IDLE';
   private moveStart: Point | null = null;
   private movingChildIds: string[] = [];
+  /**
+   * The active layer when the move started, captured so a lock/hide/switch
+   * mid-drag can't smuggle a commit onto a layer the guard never checked, or
+   * silently drop it. See RectangleTool/WallTool for the same pattern.
+   */
+  private moveLayerId: string | null = null;
 
   onPointerDown(point: Point, event?: PointerEvent): void {
     const store = useStore.getState();
@@ -63,6 +69,7 @@ export class ObjectTool implements DrawingTool {
 
       this.state = 'MOVING';
       this.moveStart = point;
+      this.moveLayerId = activeLayerId;
       this.movingChildIds = store.selection.selectedIds.includes(hitChild.id)
         ? [...store.selection.selectedIds]
         : [hitChild.id];
@@ -77,46 +84,46 @@ export class ObjectTool implements DrawingTool {
   }
 
   onPointerUp(point: Point): void {
-    if (this.state === 'MOVING' && this.moveStart) {
+    const moveLayerId = this.moveLayerId;
+    if (this.state === 'MOVING' && this.moveStart && moveLayerId) {
       const dx = point.x - this.moveStart.x;
       const dy = point.y - this.moveStart.y;
 
       if (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001) {
-        const store = useStore.getState();
-        const activeLayerId = store.ui.activeLayerId;
-        const activeLayer = store.layers.find(
-          (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
-        );
-        if (!activeLayer) return;
+        // Validated against the layer the move started on, not whatever is
+        // active now — see RectangleTool.
+        const activeLayer = resolveEditableLayer(moveLayerId);
+        if (activeLayer) {
+          const commands = this.movingChildIds.flatMap((childId) => {
+            const child = activeLayer.children.find(
+              (c): c is AssetChild => c.id === childId && c.childType === 'asset',
+            );
+            if (!child) return [];
+            const oldPos = { ...child.position };
+            const newPos = { x: child.position.x + dx, y: child.position.y + dy };
+            return [
+              new UpdateChildCommand(
+                'Move asset',
+                moveLayerId,
+                childId,
+                { position: oldPos },
+                { position: newPos },
+              ),
+            ];
+          });
 
-        const commands = this.movingChildIds.flatMap((childId) => {
-          const child = activeLayer.children.find(
-            (c): c is AssetChild => c.id === childId && c.childType === 'asset',
-          );
-          if (!child) return [];
-          const oldPos = { ...child.position };
-          const newPos = { x: child.position.x + dx, y: child.position.y + dy };
-          return [
-            new UpdateChildCommand(
-              'Move asset',
-              activeLayerId,
-              childId,
-              { position: oldPos },
-              { position: newPos },
-            ),
-          ];
-        });
-
-        if (commands.length === 1) {
-          undoManager.execute(commands[0]);
-        } else if (commands.length > 1) {
-          undoManager.execute(new CompositeCommand('Move assets', commands));
+          if (commands.length === 1) {
+            undoManager.execute(commands[0]);
+          } else if (commands.length > 1) {
+            undoManager.execute(new CompositeCommand('Move assets', commands));
+          }
         }
       }
     }
 
     this.state = 'IDLE';
     this.moveStart = null;
+    this.moveLayerId = null;
     this.movingChildIds = [];
   }
 
@@ -169,6 +176,7 @@ export class ObjectTool implements DrawingTool {
   cancel(): void {
     this.state = 'IDLE';
     this.moveStart = null;
+    this.moveLayerId = null;
     this.movingChildIds = [];
     useStore.getState().setSelectedIds([]);
   }

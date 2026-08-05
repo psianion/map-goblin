@@ -5,6 +5,7 @@ import { AddChildCommand, RemoveChildCommand, UpdateChildCommand, CompositeComma
 import { undoManager } from '../../store/undoManager';
 import { clipper2Engine } from '../../geometry/Clipper2Engine';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
+import { resolveEditableLayer } from './layerGuard';
 
 function generateRegularPolygon(
   cx: number,
@@ -33,11 +34,17 @@ export class RegularPolygonTool implements DrawingTool {
   private center: Point | null = null;
   private currentPoint: Point | null = null;
   private drawing = false;
+  /**
+   * The active layer when the drag started — see RectangleTool/WallTool for
+   * why release re-reading the live active layer is not safe.
+   */
+  private startLayerId: string | null = null;
 
   onPointerDown(point: Point): void {
     this.center = point;
     this.currentPoint = point;
     this.drawing = true;
+    this.startLayerId = useStore.getState().ui.activeLayerId;
   }
 
   onPointerMove(point: Point): void {
@@ -52,20 +59,21 @@ export class RegularPolygonTool implements DrawingTool {
     const center = this.center;
     this.center = null;
     this.currentPoint = null;
+    const activeLayerId = this.startLayerId;
+    this.startLayerId = null;
 
     const dx = point.x - center.x;
     const dy = point.y - center.y;
     const radius = Math.sqrt(dx * dx + dy * dy);
     if (radius < 0.01) return;
+    if (!activeLayerId) return;
+
+    // Validated against the layer the drag started on — see RectangleTool.
+    const activeLayer = resolveEditableLayer(activeLayerId);
+    if (!activeLayer) return;
 
     const store = useStore.getState();
     const sides = store.tools.settings.regularPolygon.sides;
-    const activeLayerId = store.ui.activeLayerId;
-    const activeLayer = store.layers.find(
-      (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
-    );
-    if (!activeLayer) return;
-
     const polyPoints = generateRegularPolygon(center.x, center.y, radius, sides);
     const isErase = store.tools.eraseMode;
 
@@ -138,6 +146,7 @@ export class RegularPolygonTool implements DrawingTool {
     this.center = null;
     this.currentPoint = null;
     this.drawing = false;
+    this.startLayerId = null;
   }
 
   isActive(): boolean {
