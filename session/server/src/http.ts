@@ -119,7 +119,8 @@ async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse)
  * the same gate `createCampaign` uses — so it is also the one that means "whoever may
  * come back and see what they created". A self-hosted table has exactly one such person.
  */
-function listCampaigns(deps: HttpDeps, req: IncomingMessage, res: ServerResponse): void {
+function listCampaigns(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): void {
+  if (rateLimited(deps, req, res)) return
   if (!isAdminPass(deps.stores.passes, credential(req))) {
     return json(res, 401, { error: 'invalid admin pass' })
   }
@@ -133,7 +134,8 @@ function listCampaigns(deps: HttpDeps, req: IncomingMessage, res: ServerResponse
 }
 
 /** POST /api/campaigns — admin pass in, campaign + DM session token out. */
-async function createCampaign(deps: HttpDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function createCampaign(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (rateLimited(deps, req, res)) return
   if (!isAdminPass(deps.stores.passes, credential(req))) {
     return json(res, 401, { error: 'invalid admin pass' })
   }
@@ -156,18 +158,23 @@ async function createCampaign(deps: HttpDeps, req: IncomingMessage, res: ServerR
  * unbound to any session for the same reason theirs is (see auth.ts's `TokenClaims`).
  */
 function mintDmToken(
-  deps: HttpDeps,
+  deps: RouteDeps,
   req: IncomingMessage,
   res: ServerResponse,
   campaignId: string,
 ): void {
+  if (rateLimited(deps, req, res)) return
   if (!isAdminPass(deps.stores.passes, credential(req))) {
     return json(res, 401, { error: 'invalid admin pass' })
   }
   const campaign = deps.stores.campaigns.get(campaignId)
   if (!campaign) return json(res, 404, { error: 'no such campaign' })
 
-  const dm = deps.stores.identities.mint(randomUUID(), campaignId, 'DM', 'dm')
+  // Reuse the campaign's existing DM identity when one exists (N10) — every dialog open or
+  // host-existing used to mint a brand new, permanent DM credential.
+  const dm =
+    deps.stores.identities.findByCampaignAndRole(campaignId, 'dm') ??
+    deps.stores.identities.mint(randomUUID(), campaignId, 'DM', 'dm')
   json(res, 200, {
     token: issueToken(deps.hmacSecret, dm.id, campaignId, 'dm'),
     campaignId,
@@ -356,7 +363,9 @@ async function publishScene(
   // already stored survives untouched; an explicit prep (including an emptied-out one)
   // overwrites it. Canvas's own serialization is what makes "absent" and "empty" distinct.
   if (map.data.prep !== undefined) {
-    deps.stores.scenes.setPrep(sceneId, JSON.stringify(map.data.prep))
+    // null/falsy stores SQL NULL rather than the string 'null' (N4); {version:1,triggers:[]}
+    // is truthy, so an explicit clear still stores the empty block.
+    deps.stores.scenes.setPrep(sceneId, map.data.prep ? JSON.stringify(map.data.prep) : null)
   }
   // The cached geometry `sceneMapOf`/`vision` hold for this id was read off the map row
   // this scene *used* to point at — without this a republish would answer fog, doors and
@@ -426,8 +435,11 @@ async function putScenePrep(
   if (!body) return
   if (!isScenePrep(body)) return json(res, 400, { error: 'prep must be {version: 1, triggers: [...]}' })
 
-  deps.stores.scenes.setPrep(sceneId, JSON.stringify(body))
-  json(res, 200, { prep: body })
+  // Only the declared shape is persisted — an extra top-level key or a malformed trigger
+  // riding along in the body would otherwise be stored verbatim (N3); per-trigger validation
+  // is M4's runtime concern, not this endpoint's.
+  deps.stores.scenes.setPrep(sceneId, JSON.stringify({ version: 1, triggers: body.triggers }))
+  json(res, 200, { prep: { version: 1, triggers: body.triggers } })
 }
 
 /** Just enough shape-checking that a bad body 400s instead of corrupting the stored JSON. */

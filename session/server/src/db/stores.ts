@@ -359,6 +359,8 @@ export class IdentityStore {
   readonly #get
   readonly #ban
   readonly #touch
+  readonly #byCampaignAndRole
+  readonly #list
 
   constructor(db: Database) {
     this.#insert = db.prepare<[string, string, string, string]>(
@@ -367,6 +369,12 @@ export class IdentityStore {
     this.#get = db.prepare<[string], Identity>('SELECT * FROM identities WHERE id = ?')
     this.#ban = db.prepare<[string]>('UPDATE identities SET banned = 1 WHERE id = ?')
     this.#touch = db.prepare<[number, string]>('UPDATE identities SET last_seen = ? WHERE id = ?')
+    // A banned DM identity is not a candidate to reuse — its token would just be refused
+    // the moment it was spent (N10, see `requireSession`'s banned check).
+    this.#byCampaignAndRole = db.prepare<[string, string], Identity>(
+      'SELECT * FROM identities WHERE campaign_id = ? AND role = ? AND banned = 0 LIMIT 1',
+    )
+    this.#list = db.prepare<[string], Identity>('SELECT * FROM identities WHERE campaign_id = ?')
   }
 
   /** `id` comes from the caller because A4 signs it into the session token as it mints one. */
@@ -377,6 +385,15 @@ export class IdentityStore {
 
   get(id: string): Identity | undefined {
     return this.#get.get(id)
+  }
+
+  /** The campaign's existing, unbanned holder of this role, if any (N10 — dm-token reuse). */
+  findByCampaignAndRole(campaignId: string, role: Role): Identity | undefined {
+    return this.#byCampaignAndRole.get(campaignId, role)
+  }
+
+  listByCampaign(campaignId: string): Identity[] {
+    return this.#list.all(campaignId)
   }
 
   ban(id: string): void {

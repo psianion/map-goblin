@@ -12,23 +12,52 @@ import type { ScenePrep, SerializedMapData } from '@/store/types';
 
 // ─── Map hash ─────────────────────────────────────────────────────────────
 
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  // Same ArrayBuffer-vs-ArrayBufferLike lib gap as uploadMap's Blob below — copy onto a
+  // fresh ArrayBuffer-backed array so this satisfies BufferSource regardless of caller.
+  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes));
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 /**
  * A content hash for "has this map changed since the last publish".
  *
  * `prep` is stripped before hashing: a prep-only edit must not look like a map change,
  * or the cheap prep-only PUT path (publishScene vs. putScenePrep) never fires and every
- * trigger tweak re-uploads the whole map. Hashing the pre-gzip JSON — not
- * `serializeToBytes`'s compressed output — also sidesteps any nondeterminism a
- * compressor could introduce between two runs of the same document.
+ * trigger tweak re-uploads the whole map. Prep changes are tracked separately by
+ * `hashPrep`. Hashing the pre-gzip JSON — not `serializeToBytes`'s compressed output —
+ * also sidesteps any nondeterminism a compressor could introduce between two runs of
+ * the same document.
+ *
+ * `splats` are the map's terrain splat PNGs (store.terrainSplats.pngs — same source
+ * serializeToBytes reads). They ride outside `getSerializableState()` and only get
+ * folded into `customImages` at encode time (mapFormat.ts), so a paint stroke that
+ * doesn't touch any other field must still change this hash — otherwise the dialog
+ * reports "no changes" while the table keeps stale terrain forever.
  */
-export async function hashMapForPublish(data: SerializedMapData): Promise<string> {
+export async function hashMapForPublish(
+  data: SerializedMapData,
+  splats: (Blob | null)[] = [],
+): Promise<string> {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { prep: _prep, ...withoutPrep } = data;
-  const bytes = new TextEncoder().encode(JSON.stringify(withoutPrep));
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  const docBytes = new TextEncoder().encode(JSON.stringify(withoutPrep));
+  const splatBuffers = await Promise.all(splats.map((png) => (png ? png.arrayBuffer() : null)));
+  const parts = [docBytes, ...splatBuffers.filter((b): b is ArrayBuffer => b !== null)];
+  const combined = new Uint8Array(parts.reduce((n, p) => n + p.byteLength, 0));
+  let offset = 0;
+  for (const part of parts) {
+    combined.set(new Uint8Array(part), offset);
+    offset += part.byteLength;
+  }
+  return sha256Hex(combined);
+}
+
+/** A content hash for "has scene prep changed since the last publish". */
+export async function hashPrep(prep: ScenePrep | undefined): Promise<string> {
+  return sha256Hex(new TextEncoder().encode(JSON.stringify(prep ?? null)));
 }
 
 // ─── DM token storage ───────────────────────────────────────────────────────
@@ -115,9 +144,11 @@ export function uploadMap(
   return api(`/campaigns/${campaignId}/maps`, {
     method: 'POST',
     headers: { authorization: `Bearer ${dmToken}`, 'content-type': 'application/octet-stream' },
-    // Same cast as saveLoad's downloadBytes — serializeToBytes returns a tight
-    // array, and tsconfig.app.json's lib rejects Uint8Array<ArrayBufferLike> as BodyInit.
-    body: new Blob([bytes.buffer as ArrayBuffer]),
+    // `new Uint8Array(bytes)` copies onto a fresh ArrayBuffer-backed array — correct for
+    // any byteOffset, unlike `bytes.buffer` which assumes a byteOffset-0 view — and
+    // satisfies BlobPart under tsconfig.app.json's lib, which rejects the plain
+    // Uint8Array<ArrayBufferLike> type serializeToBytes returns.
+    body: new Blob([new Uint8Array(bytes)]),
   });
 }
 
@@ -129,9 +160,9 @@ export function republishScene(
   return api(`/scenes/${sceneId}/publish`, {
     method: 'PUT',
     headers: { authorization: `Bearer ${dmToken}`, 'content-type': 'application/octet-stream' },
-    // Same cast as saveLoad's downloadBytes — serializeToBytes returns a tight
-    // array, and tsconfig.app.json's lib rejects Uint8Array<ArrayBufferLike> as BodyInit.
-    body: new Blob([bytes.buffer as ArrayBuffer]),
+    // See uploadMap above — copy onto a fresh ArrayBuffer-backed array rather than
+    // trusting bytes.buffer, which is only correct for a byteOffset-0 view.
+    body: new Blob([new Uint8Array(bytes)]),
   });
 }
 

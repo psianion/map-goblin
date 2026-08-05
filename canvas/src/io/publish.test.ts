@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   hashMapForPublish,
+  hashPrep,
   getPublishToken,
   setPublishToken,
   clearPublishToken,
@@ -44,6 +45,49 @@ describe('hashMapForPublish', () => {
   it('produces a 64-char hex sha-256 digest', async () => {
     const hash = await hashMapForPublish(BASE_DATA);
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('changes when a splat paint stroke changes the splat bytes', async () => {
+    const before = await hashMapForPublish(BASE_DATA, [null, null]);
+    const paintedSplat = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'image/png' });
+    const after = await hashMapForPublish(BASE_DATA, [paintedSplat, null]);
+    expect(before).not.toBe(after);
+  });
+
+  it('is stable across prep-only changes even with splats present', async () => {
+    const splat = new Blob([new Uint8Array([5, 6, 7])], { type: 'image/png' });
+    const hashA = await hashMapForPublish(BASE_DATA, [splat, null]);
+    const hashB = await hashMapForPublish(
+      { ...BASE_DATA, prep: { version: 1, triggers: [] } },
+      [splat, null],
+    );
+    expect(hashA).toBe(hashB);
+  });
+});
+
+describe('hashPrep', () => {
+  it('is stable when prep is absent, regardless of undefined vs. missing', async () => {
+    const hashA = await hashPrep(undefined);
+    const hashB = await hashPrep(undefined);
+    expect(hashA).toBe(hashB);
+  });
+
+  it('changes when a trigger is added', async () => {
+    const before = await hashPrep({ version: 1, triggers: [] });
+    const after = await hashPrep({
+      version: 1,
+      triggers: [
+        {
+          id: 't1',
+          name: 'Trap',
+          when: { kind: 'enter-region', zoneId: 'z1' },
+          actions: [],
+          once: true,
+          enabled: true,
+        },
+      ],
+    });
+    expect(before).not.toBe(after);
   });
 });
 

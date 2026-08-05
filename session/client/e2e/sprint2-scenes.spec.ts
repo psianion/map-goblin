@@ -75,8 +75,11 @@ async function tableWithTwoScenes(browser: Browser): Promise<{ context: BrowserC
   // D6: an in-session import is the existing upload endpoint plus a snapshot refetch, so
   // the second scene appears in the list without a server round of its own.
   await dm.getByTestId('scene-upload').setInputFiles(secondMap())
-  // Rows, not buttons: a scene row has grown rename/reorder/delete chrome since (#50).
-  await expect(dm.getByTestId('scene-list').locator('li')).toHaveCount(2, { timeout: 30_000 })
+  // `getByRole('button')` also catches each row's move/rename/delete controls (5 per row) —
+  // `data-scene-id` is unique to the activate button, so this counts scenes, not buttons.
+  await expect(dm.getByTestId('scene-list').locator('button[data-scene-id]')).toHaveCount(2, {
+    timeout: 30_000,
+  })
   await expect(sceneButton(dm, 'Demo Dungeon')).toHaveAttribute('aria-current', 'true')
   return { context, dm }
 }

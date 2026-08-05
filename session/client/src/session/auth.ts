@@ -154,6 +154,16 @@ export function listScenes(campaignId: string, token: string): Promise<{ scenes:
   return request(`/api/campaigns/${encodeURIComponent(campaignId)}/scenes`, { method: 'GET' }, token);
 }
 
+/**
+ * GET /api/maps/:id — the map document a library scene points at, for deriving its rooms
+ * (M3: the host wizard's starting-room picker has to work for a scene picked from the
+ * library, not only one just uploaded in this tab). `images=external` is the same leniency
+ * `loadSceneMap` uses — the picker only reads `layers`, so the images never need fetching.
+ */
+export function fetchMapDoc(sceneId: string, token: string): Promise<unknown> {
+  return request(`/api/maps/${encodeURIComponent(sceneId)}?images=external`, { method: 'GET' }, token);
+}
+
 /** PATCH /api/scenes/:id — rename and/or the D5 visibility flag. */
 export function patchScene(
   sceneId: string,

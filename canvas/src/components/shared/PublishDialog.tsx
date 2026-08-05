@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useStore } from '@/store/store';
 import { getMapDB } from '@/store/slices/maps';
-import type { MapIndexDB, PublishState } from '@/io/mapIndexDB';
+import type { MapIndexDB, PublishRecord, PublishState } from '@/io/mapIndexDB';
 import { serializeToBytes } from '@/io/saveLoad';
 import {
   hashMapForPublish,
+  hashPrep,
   getPublishToken,
   setPublishToken,
   clearPublishToken,
@@ -58,7 +59,7 @@ export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const [publishState, setPublishStateLocal] = useState<PublishState | null>(null);
+  const [publishState, setPublishStateLocal] = useState<PublishRecord | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
 
   // Never persisted — lives only as long as the dialog needs it to mint a token.
@@ -97,23 +98,30 @@ export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
         return;
       }
       const db = await getDb();
-      const ps = await db.getPublishState(activeMapId);
+      const record = await db.getPublishState(activeMapId);
       if (cancelled) return;
-      setPublishStateLocal(ps);
+      setPublishStateLocal(record);
 
-      const token = ps ? getPublishToken(ps.campaignId) : null;
-      if (!ps || !token) {
+      // A map may have been published to more than one campaign — pick whichever
+      // slot still has a live token; the rest surface once that one's re-published
+      // or the user connects fresh via the campaign picker.
+      const entry = record
+        ? Object.entries(record).find(([campaignId]) => getPublishToken(campaignId))
+        : undefined;
+      if (!entry) {
         setMode('password');
         return;
       }
+      const [campaignId, ps] = entry;
 
       const data = useStore.getState().getSerializableState();
-      const hash = await hashMapForPublish(data);
+      const pngs = useStore.getState().terrainSplats.pngs;
+      const [hash, prepHash] = await Promise.all([hashMapForPublish(data, pngs), hashPrep(data.prep)]);
       if (cancelled) return;
-      const changed: Changed = hash !== ps.mapHash ? 'map' : data.prep ? 'prep' : 'none';
+      const changed: Changed = hash !== ps.mapHash ? 'map' : prepHash !== ps.prepHash ? 'prep' : 'none';
       setSummary({
-        campaignId: ps.campaignId,
-        campaignLabel: labelFor(ps.campaignId),
+        campaignId,
+        campaignLabel: labelFor(campaignId),
         sceneId: ps.sceneId,
         changed,
       });
@@ -138,30 +146,33 @@ export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
     async (campaignId: string, token: string, campaignLabel: string) => {
       if (!activeMapId) throw new Error('No active map to publish.');
       const data = useStore.getState().getSerializableState();
-      const hash = await hashMapForPublish(data);
-      const target = publishState?.campaignId === campaignId ? publishState : null;
+      const pngs = useStore.getState().terrainSplats.pngs;
+      const [hash, prepHash] = await Promise.all([hashMapForPublish(data, pngs), hashPrep(data.prep)]);
+      const target = publishState?.[campaignId] ?? null;
       const db = await getDb();
       const mapName = data.mapSettings.name || 'Untitled map';
+
+      const remember = async (next: PublishState) => {
+        await db.setPublishState(activeMapId, campaignId, next);
+        setPublishStateLocal((prev) => ({ ...prev, [campaignId]: next }));
+      };
 
       if (!target) {
         setBusyLabel('Publishing…');
         const bytes = await serializeToBytes(data);
         const result = await uploadMap(token, campaignId, bytes);
-        const next: PublishState = { campaignId, sceneId: result.sceneId, mapHash: hash };
-        await db.setPublishState(activeMapId, next);
-        setPublishStateLocal(next);
+        await remember({ sceneId: result.sceneId, mapHash: hash, prepHash });
         notify.success(`Published "${mapName}" to ${campaignLabel} — first publish`);
       } else if (hash !== target.mapHash) {
         setBusyLabel('Publishing…');
         const bytes = await serializeToBytes(data);
         await republishScene(token, target.sceneId, bytes);
-        const next: PublishState = { ...target, mapHash: hash };
-        await db.setPublishState(activeMapId, next);
-        setPublishStateLocal(next);
+        await remember({ ...target, mapHash: hash, prepHash });
         notify.success(`Republished "${mapName}" to ${campaignLabel} — map updated`);
-      } else if (data.prep) {
+      } else if (prepHash !== target.prepHash) {
         setBusyLabel('Updating prep…');
-        await putScenePrep(token, target.sceneId, data.prep);
+        await putScenePrep(token, target.sceneId, data.prep ?? { version: 1, triggers: [] });
+        await remember({ ...target, prepHash });
         notify.success(`Updated prep for "${mapName}" in ${campaignLabel}`);
       } else {
         setNotice('No changes since your last publish.');
@@ -235,15 +246,19 @@ export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
         setAdminPass('');
         await runPublish(campaign.id, token, campaign.name);
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Could not connect.';
-        setError(message);
-        notify.error(message);
+        if (err instanceof PublishAuthError) {
+          handleAuthError(campaign.id);
+        } else {
+          const message = err instanceof Error ? err.message : 'Could not connect.';
+          setError(message);
+          notify.error(message);
+        }
       } finally {
         setBusy(false);
         setBusyLabel('');
       }
     },
-    [adminPass, runPublish],
+    [adminPass, runPublish, handleAuthError],
   );
 
   const handleCreateCampaign = useCallback(
@@ -254,22 +269,32 @@ export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
       setBusy(true);
       setError(null);
       setBusyLabel('Creating…');
+      // Only set once createCampaign resolves — a 401 on that call itself has no
+      // campaign to drop a token for, so it's reported as an invalid admin pass instead.
+      let campaignId: string | undefined;
       try {
         const created = await createCampaign(adminPass, name);
+        campaignId = created.campaignId;
         setPublishToken(created.campaignId, created.token);
         setCampaignNames((prev) => ({ ...prev, [created.campaignId]: name }));
         setAdminPass('');
         await runPublish(created.campaignId, created.token, name);
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Could not create campaign.';
-        setError(message);
-        notify.error(message);
+        if (err instanceof PublishAuthError && campaignId) {
+          handleAuthError(campaignId);
+        } else if (err instanceof PublishAuthError) {
+          setError('Invalid admin pass.');
+        } else {
+          const message = err instanceof Error ? err.message : 'Could not create campaign.';
+          setError(message);
+          notify.error(message);
+        }
       } finally {
         setBusy(false);
         setBusyLabel('');
       }
     },
-    [adminPass, newCampaignName, runPublish],
+    [adminPass, newCampaignName, runPublish, handleAuthError],
   );
 
   const changedLabel: Record<Changed, string> = {

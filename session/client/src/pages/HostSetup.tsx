@@ -5,6 +5,7 @@ import { serverRooms } from '../modules/fog/fog';
 import { navigate } from '../router';
 import {
   createCampaignAsDm,
+  fetchMapDoc,
   listCampaignsAsAdmin,
   listScenes,
   mintDmToken,
@@ -63,7 +64,12 @@ export default function HostSetup() {
   const [campaignName, setCampaignName] = useState('');
   const [campaigns, setCampaigns] = useState<CampaignSummary[]>([]);
   const [dm, setDm] = useState<DmSession | null>(null);
-  const [map, setMap] = useState<{ mapId: string; name: string; sizeBytes: number } | null>(null);
+  const [map, setMap] = useState<{
+    mapId: string;
+    sceneId: string;
+    name: string;
+    sizeBytes: number;
+  } | null>(null);
   /** The campaign's published library, fetched once its DM token is in hand (M3). */
   const [scenes, setScenes] = useState<SceneMeta[]>([]);
   /** A library scene picked instead of uploading — mutually exclusive with `map`. */
@@ -101,9 +107,8 @@ export default function HostSetup() {
       setStep(2);
     });
 
-  /** Shared tail of both campaign paths: a DM token in hand, its library fetched next. */
-  const enterMapStep = async (session: DmSession): Promise<void> => {
-    setDm(session);
+  /** Shared tail of both campaign paths and the N2 retry: a token in hand, its library fetched. */
+  const fetchScenesAndAdvance = async (session: DmSession): Promise<void> => {
     setScenes((await listScenes(session.campaignId, session.token)).scenes);
     setStep(3);
   };
@@ -115,22 +120,45 @@ export default function HostSetup() {
         adminPass,
         campaignName || 'Untitled campaign',
       );
-      await enterMapStep(session);
+      setDm(session);
+      await fetchScenesAndAdvance(session);
     });
 
   const hostExisting = (campaign: CampaignSummary) =>
     run(async () => {
-      await enterMapStep(await mintDmToken(resolvedServerUrl, adminPass, campaign.id));
+      const session = await mintDmToken(resolvedServerUrl, adminPass, campaign.id);
+      setDm(session);
+      await fetchScenesAndAdvance(session);
     });
 
-  const pickScene = (sceneId: string) => {
-    setSelectedSceneId(sceneId);
-    // Uploading and picking from the library are mutually exclusive — whichever was
-    // chosen last is the one that opens the table.
-    setMap(null);
-    setRooms([]);
-    setStartRoomId('');
-  };
+  /**
+   * N2 — `dm` already holds a live token once `createCampaign`/`hostExisting` minted one; if
+   * the library fetch that follows throws, the wizard is stuck on step 2 with "Create
+   * campaign" as the only visible retry, which mints a duplicate campaign instead of just
+   * trying the fetch again. This re-runs the fetch against the token already in hand.
+   */
+  const retryMapStep = () =>
+    run(async () => {
+      if (!dm) return;
+      await fetchScenesAndAdvance(dm);
+    });
+
+  /**
+   * F2 — a library scene is a map too: its starting room needs the same room list an
+   * upload gets, fetched from the doc the scene already points at rather than a file the
+   * DM would have to hunt down again.
+   */
+  const pickScene = (sceneId: string) =>
+    run(async () => {
+      setSelectedSceneId(sceneId);
+      // Uploading and picking from the library are mutually exclusive — whichever was
+      // chosen last is the one that opens the table.
+      setMap(null);
+      setRooms([]);
+      setStartRoomId('');
+      if (!dm) return;
+      setRooms(serverRooms(await fetchMapDoc(sceneId, dm.token)));
+    });
 
   const uploadMap = (file: File) =>
     run(async () => {
@@ -150,9 +178,8 @@ export default function HostSetup() {
       // A scene *is* a map: the id the upload handed back (or the library scene picked
       // instead) is the one fog is keyed by, and the one the table has to open on — a
       // campaign may already hold others.
-      const sceneId = selectedSceneId || map?.mapId;
-      const startingRoom =
-        map && startRoomId ? { sceneId: map.mapId, roomId: startRoomId } : undefined;
+      const sceneId = selectedSceneId || map?.sceneId;
+      const startingRoom = sceneId && startRoomId ? { sceneId, roomId: startRoomId } : undefined;
       const opened = await startSession(dm.campaignId, dm.token, startingRoom, sceneId);
       setInviteCode(opened.inviteCode);
     });
@@ -307,8 +334,18 @@ export default function HostSetup() {
                 placeholder="Untitled campaign"
               />
             </div>
-            <button type="button" className={primary} disabled={busy} onClick={createCampaign}>
-              {busy ? 'Creating…' : 'Create campaign'}
+            {/*
+              N2 — a token already minted (`dm` set) means a prior library fetch on this
+              same campaign failed; retrying it is the fix, not minting a second campaign
+              via this same button.
+            */}
+            <button
+              type="button"
+              className={primary}
+              disabled={busy}
+              onClick={dm ? retryMapStep : createCampaign}
+            >
+              {dm ? (busy ? 'Retrying…' : 'Retry') : busy ? 'Creating…' : 'Create campaign'}
             </button>
           </section>
         )}
@@ -339,7 +376,8 @@ export default function HostSetup() {
                         name="library-scene"
                         value={scene.id}
                         checked={selectedSceneId === scene.id}
-                        onChange={() => pickScene(scene.id)}
+                        disabled={busy}
+                        onChange={() => void pickScene(scene.id)}
                       />
                       <span className="min-w-0 flex-1 truncate">{scene.name}</span>
                       {!scene.visibleToPlayers && (
@@ -393,7 +431,7 @@ export default function HostSetup() {
               reveal: without it the party's first minute is a black canvas they cannot move
               a token on. Skipping is the old behaviour, so the default stays "none".
             */}
-            {map && rooms.length > 0 && (
+            {rooms.length > 0 && (
               <div>
                 <label className={label} htmlFor="starting-room">
                   Starting room

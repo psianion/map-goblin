@@ -129,28 +129,68 @@ describe('MapIndexDB', () => {
       expect(await db.getPublishState(id)).toBeNull();
     });
 
-    it('round-trips campaignId/sceneId/mapHash', async () => {
+    it('round-trips sceneId/mapHash/prepHash keyed by campaign', async () => {
       const id = await db.createMap('Test', new Uint8Array([1]), { width: 10, height: 10 }, 1);
-      const publish = { campaignId: 'camp-1', sceneId: 'scene-1', mapHash: 'abc123' };
-      await db.setPublishState(id, publish);
-      expect(await db.getPublishState(id)).toEqual(publish);
+      const publish = { sceneId: 'scene-1', mapHash: 'abc123', prepHash: 'def456' };
+      await db.setPublishState(id, 'camp-1', publish);
+      expect(await db.getPublishState(id)).toEqual({ 'camp-1': publish });
     });
 
-    it('overwrites without touching the map blob', async () => {
+    it('keeps two campaigns as separate slots on the same map', async () => {
+      const id = await db.createMap('Test', new Uint8Array([1]), { width: 10, height: 10 }, 1);
+      await db.setPublishState(id, 'camp-1', { sceneId: 's1', mapHash: 'h1', prepHash: 'p1' });
+      await db.setPublishState(id, 'camp-2', { sceneId: 's2', mapHash: 'h2', prepHash: 'p2' });
+
+      expect(await db.getPublishState(id)).toEqual({
+        'camp-1': { sceneId: 's1', mapHash: 'h1', prepHash: 'p1' },
+        'camp-2': { sceneId: 's2', mapHash: 'h2', prepHash: 'p2' },
+      });
+    });
+
+    it('overwrites one campaign slot without touching another or the map blob', async () => {
       const blob = new Uint8Array([9, 9, 9]);
       const id = await db.createMap('Test', blob, { width: 10, height: 10 }, 1);
-      await db.setPublishState(id, { campaignId: 'a', sceneId: 'b', mapHash: 'h1' });
-      await db.setPublishState(id, { campaignId: 'a', sceneId: 'b', mapHash: 'h2' });
+      await db.setPublishState(id, 'a', { sceneId: 'b', mapHash: 'h1', prepHash: 'p1' });
+      await db.setPublishState(id, 'other', { sceneId: 'x', mapHash: 'hx', prepHash: 'px' });
+      await db.setPublishState(id, 'a', { sceneId: 'b', mapHash: 'h2', prepHash: 'p1' });
 
-      expect(await db.getPublishState(id)).toEqual({ campaignId: 'a', sceneId: 'b', mapHash: 'h2' });
+      expect(await db.getPublishState(id)).toEqual({
+        a: { sceneId: 'b', mapHash: 'h2', prepHash: 'p1' },
+        other: { sceneId: 'x', mapHash: 'hx', prepHash: 'px' },
+      });
       expect(Array.from((await db.getMapBlob(id))!)).toEqual(Array.from(blob));
     });
 
     it('nonexistent id is a no-op', async () => {
       await expect(
-        db.setPublishState('nonexistent', { campaignId: 'a', sceneId: 'b', mapHash: 'h' }),
+        db.setPublishState('nonexistent', 'a', { sceneId: 'b', mapHash: 'h', prepHash: 'p' }),
       ).resolves.not.toThrow();
       expect(await db.getPublishState('nonexistent')).toBeNull();
+    });
+
+    it('discards a legacy single-object publish shape from the pre-record schema', async () => {
+      const id = await db.createMap('Test', new Uint8Array([1]), { width: 10, height: 10 }, 1);
+      // Simulate an entry written by this branch's earlier single-slot shape, before
+      // it became a per-campaign record — written directly to bypass the typed API.
+      await new Promise<void>((resolve, reject) => {
+        const req = indexedDB.open('mapbuilder-maps', 1);
+        req.onsuccess = () => {
+          const tx = req.result.transaction('maps', 'readwrite');
+          const store = tx.objectStore('maps');
+          const getReq = store.get(id);
+          getReq.onsuccess = () => {
+            const entry = getReq.result;
+            entry.publish = { campaignId: 'legacy', sceneId: 'scene-legacy', mapHash: 'h' };
+            const putReq = store.put(entry);
+            putReq.onsuccess = () => resolve();
+            putReq.onerror = () => reject(putReq.error);
+          };
+          getReq.onerror = () => reject(getReq.error);
+        };
+        req.onerror = () => reject(req.error);
+      });
+
+      expect(await db.getPublishState(id)).toBeNull();
     });
   });
 
