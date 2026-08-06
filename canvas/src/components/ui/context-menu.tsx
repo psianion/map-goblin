@@ -49,6 +49,7 @@ export interface MenuSliderRow {
   /** One undoable step from the value the drag started at. */
   onCommit: (next: number, start: number) => void
   separatorBefore?: boolean
+  disabled?: boolean
 }
 
 export interface MenuSwatchesRow {
@@ -58,6 +59,7 @@ export interface MenuSwatchesRow {
   options: string[]
   onPick: (color: string) => void
   separatorBefore?: boolean
+  disabled?: boolean
 }
 
 export interface MenuThumbStripRow {
@@ -68,6 +70,7 @@ export interface MenuThumbStripRow {
   /** Optional trailing verb, e.g. "More…" into the full browser. */
   trailing?: { label: string; onSelect: () => void }
   separatorBefore?: boolean
+  disabled?: boolean
 }
 
 /** Expands inline below its row rather than flying out — clamps and keyboard nav stay trivial. */
@@ -77,6 +80,7 @@ export interface MenuSubmenuRow {
   icon?: ReactNode
   rows: MenuRow[]
   separatorBefore?: boolean
+  disabled?: boolean
 }
 
 export type MenuRow =
@@ -116,7 +120,7 @@ function menuItemEls(container: HTMLElement | null): HTMLElement[] {
   if (!container) return []
   return Array.from(
     container.querySelectorAll<HTMLElement>(
-      '[data-menu-focusable]:not(:disabled), input[type="range"]',
+      '[data-menu-focusable]:not(:disabled), input[type="range"]:not(:disabled)',
     ),
   )
 }
@@ -171,7 +175,9 @@ function ActionRow({ item, onClose, returnFocus }: {
         'flex w-full items-center gap-2 text-left px-3 py-1.5 text-sm gg-row',
         'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-border-focus/50',
         item.danger ? 'text-danger' : 'text-text-primary',
-        item.disabled && 'opacity-50 cursor-not-allowed pointer-events-none',
+        // 60%, not 50: composited on surface-1 the danger/muted inks fell to
+        // ~2.6:1 at half opacity — dim enough to read disabled, not illegible.
+        item.disabled && 'opacity-60 cursor-not-allowed pointer-events-none',
       )}
     >
       {item.icon || item.kbd ? (
@@ -231,7 +237,7 @@ function Row({ row, onClose, returnFocus }: {
           className={cn(
             'flex w-full items-center justify-between px-3 py-1.5 text-sm gg-row text-text-primary',
             'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-border-focus/50',
-            r.disabled && 'opacity-50 pointer-events-none',
+            r.disabled && 'opacity-60 pointer-events-none',
           )}
         >
           <span>{r.label}</span>
@@ -255,7 +261,7 @@ function Row({ row, onClose, returnFocus }: {
     case 'slider': {
       const r = row as MenuSliderRow
       return (
-        <div className="px-3 py-1.5">
+        <div className={cn('px-3 py-1.5', r.disabled && 'opacity-60')}>
           <div className="mb-1 font-mono text-panel-label uppercase text-text-muted">{r.label}</div>
           <SliderInput
             value={r.value}
@@ -264,6 +270,7 @@ function Row({ row, onClose, returnFocus }: {
             step={r.step}
             onChange={r.onChange}
             onChangeCommit={r.onCommit}
+            disabled={r.disabled}
           />
         </div>
       )
@@ -271,7 +278,7 @@ function Row({ row, onClose, returnFocus }: {
     case 'swatches': {
       const r = row as MenuSwatchesRow
       return (
-        <div className="px-3 py-1.5">
+        <div className={cn('px-3 py-1.5', r.disabled && 'opacity-60')}>
           <div className="mb-1 font-mono text-panel-label uppercase text-text-muted">{r.label}</div>
           <div className="flex gap-1.5" role="group" aria-label={r.label}>
             {r.options.map((color) => {
@@ -284,6 +291,7 @@ function Row({ row, onClose, returnFocus }: {
                   title={color}
                   aria-label={color}
                   aria-pressed={active}
+                  disabled={r.disabled}
                   onClick={(e) => {
                     e.stopPropagation()
                     r.onPick(color)
@@ -304,7 +312,7 @@ function Row({ row, onClose, returnFocus }: {
     case 'thumbStrip': {
       const r = row as MenuThumbStripRow
       return (
-        <div className="px-3 py-1.5">
+        <div className={cn('px-3 py-1.5', r.disabled && 'opacity-60')}>
           <div className="mb-1 font-mono text-panel-label uppercase text-text-muted">{r.label}</div>
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
             {r.items.map((it) => (
@@ -315,6 +323,7 @@ function Row({ row, onClose, returnFocus }: {
                 title={it.title}
                 aria-label={it.title}
                 aria-pressed={it.active}
+                disabled={r.disabled}
                 onClick={(e) => {
                   e.stopPropagation()
                   r.onPick(it.id)
@@ -332,6 +341,7 @@ function Row({ row, onClose, returnFocus }: {
               <button
                 type="button"
                 data-menu-focusable
+                disabled={r.disabled}
                 onClick={(e) => {
                   e.stopPropagation()
                   onClose()
@@ -356,6 +366,8 @@ function Row({ row, onClose, returnFocus }: {
             role="menuitem"
             aria-expanded={expanded}
             data-menu-focusable
+            disabled={r.disabled}
+            aria-disabled={r.disabled}
             onClick={(e) => {
               e.stopPropagation()
               setExpanded((v) => !v)
@@ -363,6 +375,7 @@ function Row({ row, onClose, returnFocus }: {
             className={cn(
               'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm gg-row text-text-primary',
               'focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-border-focus/50',
+              r.disabled && 'opacity-60 cursor-not-allowed pointer-events-none',
             )}
           >
             {r.icon && <span className="shrink-0 text-text-muted">{r.icon}</span>}

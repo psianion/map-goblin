@@ -17,6 +17,8 @@ interface SliderInputProps {
   step?: number
   /** Appended to the displayed value, e.g. "%" for opacity. */
   unit?: string
+  /** Inert and dimmed — e.g. a light's radius on a locked layer. */
+  disabled?: boolean
 }
 
 export function SliderInput({
@@ -28,6 +30,7 @@ export function SliderInput({
   max = 1,
   step = 0.01,
   unit,
+  disabled,
 }: SliderInputProps) {
   const startRef = useRef(rawValue ?? value)
 
@@ -40,7 +43,7 @@ export function SliderInput({
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className={`flex items-center gap-2${disabled ? ' opacity-60' : ''}`}>
       <input
         type="range"
         className="flex-1 slider-minimal"
@@ -49,6 +52,7 @@ export function SliderInput({
         max={max}
         step={step}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
         onFocus={() => { startRef.current = rawValue ?? value }}
         onPointerDown={() => { startRef.current = rawValue ?? value }}

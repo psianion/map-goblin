@@ -113,14 +113,41 @@ describe('buildChildMenu', () => {
     expect(labels(rows)).not.toContain('Duplicate');
   });
 
-  it('disables interactive rows on a locked layer, mirroring the panel', () => {
+  it('disables EVERY interactive row on a locked layer, sliders and swatches included', () => {
     const light = makeLight();
     useStore.getState().addChild(layer().id, light);
     useStore.getState().updateLayer(layer().id, { locked: true });
     const rows = buildChildMenu(ctx(light));
-    for (const r of rows) {
-      if ('onSelect' in r) expect(r.disabled).toBe(true);
+    // The gate walk proved 'onSelect' in r alone let sliders, swatches and
+    // thumb strips write through the lock — assert every non-header row.
+    const flat = (rs: MenuRow[]): MenuRow[] =>
+      rs.flatMap((r) => ('type' in r && r.type === 'submenu' ? [r, ...flat(r.rows)] : [r]));
+    for (const r of flat(rows)) {
+      if ('type' in r && r.type === 'header') continue;
+      expect((r as { disabled?: boolean }).disabled, JSON.stringify(r).slice(0, 80)).toBe(true);
     }
+    // The header explains the grey instead of leaving it silent.
+    const header = rows[0];
+    expect('sublabel' in header && header.sublabel).toBe('Layer is locked');
+  });
+
+  it('locked-layer callbacks refuse instead of writing — the seam backstop', () => {
+    const light = makeLight();
+    useStore.getState().addChild(layer().id, light);
+    useStore.getState().updateLayer(layer().id, { locked: true });
+    const rows = buildChildMenu(ctx(light));
+    const slider = rows.find((r) => 'type' in r && r.type === 'slider');
+    const swatches = rows.find((r) => 'type' in r && r.type === 'swatches');
+    if (!slider || !('onCommit' in slider) || !swatches || !('onPick' in swatches)) {
+      throw new Error('light menu missing slider/swatches');
+    }
+    slider.onChange(11.5);
+    slider.onCommit(11.5, 6);
+    swatches.onPick('#ff7a5e');
+    const after = layer().children.find((c) => c.id === 'light-1') as LightChild;
+    expect(after.radius).toBe(6);
+    expect(after.color).toBe('#ffdd88');
+    expect(undoManager.canUndo()).toBe(false);
   });
 
   it('falls back to header + shared verbs for an unregistered kind', () => {

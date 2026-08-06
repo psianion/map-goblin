@@ -21,6 +21,12 @@ export default {
   darkMode: "class",
   theme: {
     extend: {
+      // v3's ringWidth scale has no `3` key, so `ring-3`/`focus-visible:ring-3`
+      // silently compiled to nothing and every focus ring using them vanished
+      // from the build. Check the BUILT css when touching this, not the source.
+      ringWidth: {
+        3: '3px',
+      },
       colors: {
         // Surface hierarchy — the table the map lies on
         'surface-0': token('surface-0'),

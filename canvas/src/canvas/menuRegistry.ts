@@ -284,16 +284,48 @@ registerMenu('zone', (ctx) => [headerRow(ctx.child), ...sharedVerbs(ctx)])
 export function buildChildMenu(ctx: ChildMenuContext): MenuRow[] {
   const builder = builders.get(ctx.child.childType)
   const rows = builder ? builder(ctx) : [headerRow(ctx.child), ...sharedVerbs(ctx)]
-  if (ctx.layer.locked || !ctx.layer.visible) {
-    // Mirror the layer panel: rows render but nothing bites on a locked or
-    // hidden layer. Headers and separators pass through untouched.
-    return rows.map((r) =>
-      'onSelect' in r || r.type === 'toggle' || r.type === 'slider'
-        ? ({ ...r, disabled: true } as MenuRow)
-        : r,
-    )
-  }
-  return rows
+  const reason = ctx.layer.locked
+    ? 'Layer is locked'
+    : !ctx.layer.visible
+      ? 'Layer is hidden'
+      : null
+  return reason ? lockRows(rows, reason) : rows
+}
+
+/**
+ * A locked or hidden layer's menu: every row disabled AND every callback
+ * neutralised. The renderer's `disabled` handles the rows it knows; swapping
+ * the callbacks for a warning is the backstop that keeps a row type added
+ * later from writing through a lock it never learned about. The header's
+ * sublabel says why, so the grey has an explanation.
+ */
+function lockRows(rows: MenuRow[], reason: string): MenuRow[] {
+  const refuse = () => notify.warning(reason)
+  return rows.map((r): MenuRow => {
+    if (!('type' in r) || !r.type || r.type === 'action') {
+      return { ...r, disabled: true, onSelect: refuse }
+    }
+    switch (r.type) {
+      case 'header':
+        return { ...r, sublabel: reason }
+      case 'toggle':
+        return { ...r, disabled: true, onToggle: refuse }
+      case 'slider':
+        // onChange stays silent — it fires per pixel; the commit warns once.
+        return { ...r, disabled: true, onChange: () => {}, onCommit: refuse }
+      case 'swatches':
+        return { ...r, disabled: true, onPick: refuse }
+      case 'thumbStrip':
+        return {
+          ...r,
+          disabled: true,
+          onPick: refuse,
+          trailing: r.trailing ? { ...r.trailing, onSelect: refuse } : undefined,
+        }
+      case 'submenu':
+        return { ...r, disabled: true, rows: lockRows(r.rows, reason) }
+    }
+  })
 }
 
 /** Menu for a mixed multi-selection: the shared-verb intersection only. */
