@@ -121,6 +121,19 @@ describe('subscribeToAssets', () => {
     expect(objects.children[1].zIndex).toBe(1);
   });
 
+  it('re-resolves the texture when a swap changes assetId', () => {
+    useStore.getState().addChild(layerId, asset('a1'));
+    unsub = subscribeToAssets();
+    const sprite = objects.children[0] as FakeSprite & { texture: { id: string } };
+    expect(sprite.texture.id).toBe('tree-a');
+
+    useStore.getState().updateChild(layerId, 'a1', { assetId: 'tree-b' } as never);
+    expect(sprite.texture.id).toBe('tree-b');
+    // Same sprite, not a rebuild — position/order state must survive the swap.
+    expect(objects.children.length).toBe(1);
+    expect(objects.children[0]).toBe(sprite);
+  });
+
   it('reorderChild updates zIndex to match the new order', () => {
     useStore.getState().addChild(layerId, asset('a1'));
     useStore.getState().addChild(layerId, asset('a2'));
