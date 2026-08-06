@@ -10,6 +10,7 @@ import type { AnyChild, DungeonLayer } from '@/store/types';
 import { selectLayerForChild } from '@/store/selectors';
 import { noEditableLayerMessage } from '@dnd/core/src/engine/tools/layerGuard';
 import { snapshotChild, transformChild } from '@dnd/core/src/engine/tools/childTransform';
+import { translateTangents } from '@dnd/core/src/shared/bezier';
 import { togglePopoverRef } from '@/components/toolbar/toolConstants';
 import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
 
@@ -132,21 +133,31 @@ function flipSelection(axis: 'h' | 'v'): void | false {
       const ys = pts.map((p) => p[1]);
       const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
       const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-      const mirrored = snap.contours.map((ring) =>
-        ring
-          .map(([x, y]): [number, number] =>
-            axis === 'h' ? [2 * cx - x, y] : [x, 2 * cy - y],
-          )
-          .reverse(),
+      const mirrorPt = ([x, y]: [number, number]): [number, number] =>
+        axis === 'h' ? [2 * cx - x, y] : [x, 2 * cy - y];
+      const mirrored = snap.contours.map((ring) => ring.map(mirrorPt).reverse());
+      // Curve handles mirror with their ring — and because the ring's order is
+      // reversed, each vertex's incoming edge becomes its outgoing one, so the
+      // in/out pair swaps sides too.
+      const mirroredTangents = snap.tangents?.map((rt, r) =>
+        Array.from({ length: snap.contours[r]?.length ?? 0 }, (_, i) => {
+          const vt = rt?.[i];
+          return vt
+            ? {
+                ...(vt.tout ? { tin: mirrorPt(vt.tout) } : {}),
+                ...(vt.tin ? { tout: mirrorPt(vt.tin) } : {}),
+              }
+            : null;
+        }).reverse(),
       );
       // Only shapes carry an optional baked-in transform; snapshotChild folded
       // it into the rings above, so the patch must clear it on shapes only.
       const before = (child.childType === 'shape'
-        ? { contours: structuredClone(child.contours), transform: child.transform }
-        : { contours: structuredClone(child.contours) }) as Partial<AnyChild>;
+        ? { contours: structuredClone(child.contours), tangents: structuredClone(child.tangents), transform: child.transform }
+        : { contours: structuredClone(child.contours), tangents: structuredClone(child.tangents) }) as Partial<AnyChild>;
       const after = (child.childType === 'shape'
-        ? { contours: mirrored, transform: undefined }
-        : { contours: mirrored }) as Partial<AnyChild>;
+        ? { contours: mirrored, tangents: mirroredTangents, transform: undefined }
+        : { contours: mirrored, tangents: mirroredTangents }) as Partial<AnyChild>;
       cmds.push(new UpdateChildCommand(label, layer.id, child.id, before, after));
     }
   }
@@ -430,6 +441,13 @@ const toolKeyMap: Record<string, () => void | false> = {
             newChild.transform.translate[0] + 1,
             newChild.transform.translate[1] + 1,
           ];
+        } else if ('contours' in newChild) {
+          // Shapes and water carry their geometry in rings, not a position —
+          // without this branch they pasted exactly on top of the original.
+          newChild.contours = newChild.contours.map((ring) =>
+            ring.map(([x, y]): [number, number] => [x + 1, y + 1]),
+          );
+          newChild.tangents = translateTangents(newChild.tangents, 1, 1);
         }
         return new AddChildCommand('Paste child', activeLayerId, newChild);
       });
@@ -471,6 +489,7 @@ const toolKeyMap: Record<string, () => void | false> = {
         copy.contours = copy.contours.map((ring) =>
           ring.map(([x, y]): [number, number] => [x + 1, y + 1]),
         );
+        copy.tangents = translateTangents(copy.tangents, 1, 1);
       }
       newIds.push(copy.id);
       return new AddChildCommand('Duplicate child', layer.id, copy);

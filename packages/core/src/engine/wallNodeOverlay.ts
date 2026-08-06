@@ -4,7 +4,7 @@
 // redrawn from the render loop, guarded so it only rebuilds when something it
 // draws actually changed.
 
-import type { Graphics } from 'pixi.js';
+import { Text, TextStyle, type Graphics } from 'pixi.js';
 import { useStore } from '../store/store';
 import type { DungeonLayer } from '../store/types';
 import type { WallEdits } from '../shared/types';
@@ -14,28 +14,49 @@ import { buildPieceSpecs, seedForPoints } from './wallNodeRenderer';
 import type { WallCategory } from '../assets/textureManifest';
 import { blockedLayerReason } from './tools/layerGuard';
 import { notify } from '../shared/notify';
-
-const HANDLE_COLOR = 0x38bdf8;
-const SELECTED_COLOR = 0xfbbf24;
+import { strokeRopeDash, drawNodeHandle, drawEditDim } from './overlayDraw';
 
 /**
- * Handle sizes in SCREEN pixels, converted to world units per draw.
+ * Pick radius in SCREEN pixels, converted to world units per pick.
  *
  * Sizing these in world units instead makes them shrink with the map: at 30%
  * zoom the pick radius came out around 4px and grabbing a node became a
- * coin flip.
+ * coin flip. Visual sizes live in overlayDraw.ts, shared with the shape
+ * outline handles.
  */
-const HANDLE_RADIUS_PX = 5;
 const PICK_RADIUS_PX = 10;
 
 let overlay: Graphics | null = null;
 let lastSignature = '';
+/** Key-hint chip riding next to the selected stone. Created lazily: Text
+ *  construction touches canvas text metrics the node test env lacks. */
+let chip: Text | null = null;
 
 /** Wire the world-space Graphics the handles are drawn into (see sceneGraph). */
 export function initWallNodeOverlay(graphics: Graphics): void {
   overlay = graphics;
   overlay.label = 'wallNodeOverlay';
   lastSignature = '';
+  chip?.destroy();
+  chip = null;
+}
+
+function ensureChip(): Text | null {
+  if (!overlay?.parent) return null;
+  if (!chip) {
+    chip = new Text({
+      text: '[ ] rotate · - + size · , . gap',
+      style: new TextStyle({
+        fontFamily: 'IBM Plex Mono, Consolas, monospace',
+        fontSize: 10,
+        fill: 0xffffff,
+      }),
+      resolution: 2,
+    });
+    chip.label = 'wallNodeChip';
+    overlay.parent.addChild(chip);
+  }
+  return chip;
 }
 
 /**
@@ -145,8 +166,13 @@ export function currentWallNodes(): WallNode[] {
  * Draw a handle per node. Called every frame, redraws only on change.
  *
  * @param zoom Screen pixels per world unit, so handles keep a constant size.
+ * @param view Camera world rect for the edit-mode dim; omitted (tests, old
+ *   callers) means no dim quad.
  */
-export function renderWallNodeHandles(zoom: number): void {
+export function renderWallNodeHandles(
+  zoom: number,
+  view?: { x: number; y: number; width: number; height: number },
+): void {
   if (!overlay) return;
   const state = useStore.getState();
   // Draw-time read, not activeEditableRun(): that warns on every call, and a
@@ -170,6 +196,8 @@ export function renderWallNodeHandles(zoom: number): void {
         found.layer.style.wallTextureSetId ?? '',
         // Zoom is part of the signature because handle size depends on it.
         zoom.toFixed(3),
+        // The dim quad covers the camera rect, so panning must redraw it.
+        view ? `${view.x.toFixed(2)},${view.y.toFixed(2)}` : '',
         JSON.stringify(found.edits?.nodeEdits ?? []),
         JSON.stringify(found.edits?.spanEdits ?? []),
         JSON.stringify(found.edits?.nodeInserts ?? []),
@@ -182,31 +210,52 @@ export function renderWallNodeHandles(zoom: number): void {
   if (!found) return;
 
   const nodes = currentWallNodes();
-  const safeZoom = zoom > 0 ? zoom : 1;
-  const r = HANDLE_RADIUS_PX / safeZoom;
   const selectedT = state.tools.selectedNodeT;
   const group = state.tools.selectedNodeTs;
 
-  // The spine itself, so the run reads as one object while being picked apart.
-  overlay.poly(found.points.flat(), found.closed);
-  overlay.stroke({ color: HANDLE_COLOR, width: r * 0.25, alpha: 0.5 });
+  // Everything else steps back 15% so the run being edited carries the light.
+  // A closed ring spares its own floor; an open chain has no interior.
+  if (view) drawEditDim(overlay, view, found.closed ? found.points : undefined);
 
+  // The spine as a rope dash: provisional, being worked on — not geometry yet.
+  strokeRopeDash(overlay, found.points, found.closed, zoom);
+
+  let primaryNode: WallNode | null = null;
   for (const node of nodes) {
     const primary = selectedT !== null && Math.abs(node.t - selectedT) < 1e-9;
-    // Three states, one hue ramp rather than a third colour: unpicked is a small
-    // translucent dot, a group member is the same amber but hollow, and the
-    // primary — the one the keys act on — is filled and largest.
     const inGroup = !primary && group.some((t) => Math.abs(node.t - t) < 1e-9);
-    overlay.circle(node.x, node.y, primary ? r * 1.35 : inGroup ? r * 1.2 : r);
-    overlay.fill({
-      color: primary || inGroup ? SELECTED_COLOR : HANDLE_COLOR,
-      alpha: primary ? 0.9 : inGroup ? 0.25 : 0.55,
+    if (primary) primaryNode = node;
+    // Stones are circles (they have no corner semantics); the primary — the
+    // one the keys act on — gets the double ring, group members ride hollow.
+    drawNodeHandle(overlay, node.x, node.y, zoom, {
+      circle: true,
+      selected: primary,
+      hollow: inGroup,
     });
-    overlay.stroke(
-      inGroup
-        ? { color: SELECTED_COLOR, width: r * 0.3, alpha: 0.95 }
-        : { color: 0x0b1220, width: r * 0.18, alpha: 0.8 },
-    );
+  }
+
+  // The top keys ride next to the selected stone — the status bar carries the
+  // full map, this is the glanceable reminder at the point of action.
+  const hint = ensureChip();
+  if (hint) {
+    hint.visible = primaryNode !== null;
+    if (primaryNode) {
+      const z = zoom > 0 ? zoom : 1;
+      hint.scale.set(1 / z);
+      hint.position.set(primaryNode.x + 14 / z, primaryNode.y - 22 / z);
+      const pad = 4 / z;
+      // Text.width already includes the 1/z scale, so these are world units.
+      const w = hint.width;
+      const h = hint.height;
+      overlay.roundRect(
+        primaryNode.x + 14 / z - pad,
+        primaryNode.y - 22 / z - pad / 2,
+        w + pad * 2,
+        h + pad,
+        3 / z,
+      );
+      overlay.fill({ color: 0x100d09, alpha: 0.78 });
+    }
   }
 }
 

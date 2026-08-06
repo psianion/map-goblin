@@ -125,6 +125,13 @@ export interface ShapeChild extends LayerChild {
   childType: 'shape';
   shapeType: 'rectangle' | 'polygon' | 'regularPolygon' | 'path';
   contours: [number, number][][]; // index 0 = outer boundary, 1+ = holes
+  /**
+   * Optional curve tangents, indexed like `contours` (ring, then vertex).
+   * Absent means every edge is straight — existing maps never carry this.
+   * Consumers of geometry read the FLATTENED ring (shared/bezier.ts), never
+   * this field; only authoring UI touches it.
+   */
+  tangents?: import('./bezier').RingTangents[];
   roughnessEnabled: boolean;
   roughnessAmplitude?: number;
   transform?: {
@@ -139,6 +146,9 @@ export interface ShapeChild extends LayerChild {
   textureFillRotation: number;
   textureTint: string;
 }
+
+/** Per-ring curve tangents — see shared/bezier.ts. */
+export type { RingTangents, VertexTangents } from './bezier';
 
 export interface AssetChild extends LayerChild {
   childType: 'asset';
@@ -205,6 +215,8 @@ export interface WaterChild extends LayerChild {
   /** 'river' = built from a stroked spline, 'lake' = drawn polygon. Editing UX only — rendering is identical. */
   waterType: 'river' | 'lake';
   contours: [number, number][][]; // index 0 = outer boundary, 1+ = holes
+  /** Optional curve tangents, indexed like `contours` — see ShapeChild.tangents. */
+  tangents?: import('./bezier').RingTangents[];
   textureId: string;
   tint: string;
   opacity: number;

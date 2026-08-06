@@ -10,6 +10,7 @@
 import { Container, Graphics } from 'pixi.js';
 import type { ShapeChild, DungeonLayer } from '../store/types';
 import { clipper2Engine } from '../geometry/Clipper2Engine';
+import { flattenRing } from '../shared/bezier';
 import type { Polygon } from '../types/geometry';
 
 interface AABB {
@@ -77,8 +78,12 @@ export function detectEdgeTransitions(
   const strips: TransitionStrip[] = [];
   const halfWidth = transitionWidth / 2;
 
+  // Flatten once up front: transition strips must hug the drawn boundary of a
+  // curved room, not the straight chords between its anchors.
+  const rings: Polygon[] = shapes.map((s) => flattenRing(s.contours[0] ?? [], s.tangents?.[0]));
+
   // Pre-compute AABBs
-  const aabbs: AABB[] = shapes.map((s) => computeAABB(s.contours[0]));
+  const aabbs: AABB[] = rings.map((r) => computeAABB(r));
 
   for (let i = 0; i < shapes.length; i++) {
     for (let j = i + 1; j < shapes.length; j++) {
@@ -94,11 +99,11 @@ export function detectEdgeTransitions(
       if (!aabbOverlap(aabbs[i], aabbs[j], transitionWidth)) continue;
 
       // Skip shapes with too few points
-      if (shapeA.contours[0].length < 3 || shapeB.contours[0].length < 3) continue;
+      if (rings[i].length < 3 || rings[j].length < 3) continue;
 
       // Inflate both shapes and intersect
-      const inflatedA = clipper2Engine.inflate([shapeA.contours[0]], halfWidth);
-      const inflatedB = clipper2Engine.inflate([shapeB.contours[0]], halfWidth);
+      const inflatedA = clipper2Engine.inflate([rings[i]], halfWidth);
+      const inflatedB = clipper2Engine.inflate([rings[j]], halfWidth);
 
       if (inflatedA.length === 0 || inflatedB.length === 0) continue;
 

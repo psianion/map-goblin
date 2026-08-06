@@ -2,9 +2,9 @@ import type { Point } from '../../types/geometry';
 import { snapToAngle } from '../../geometry/drawAssist';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
-import { AddChildCommand, RemoveChildCommand, UpdateChildCommand, CompositeCommand } from '../../store/commands';
+import { AddChildCommand, CompositeCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
-import { clipper2Engine } from '../../geometry/Clipper2Engine';
+import { eraseShapeCommands } from './eraseShapes';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
 import { resolveEditableLayer } from './layerGuard';
 
@@ -100,23 +100,7 @@ export class PolygonTool implements DrawingTool {
     const isErase = store.tools.eraseMode;
 
     if (isErase) {
-      const commands: import('../../store/types').Command[] = [];
-      for (const c of activeLayer.children) {
-        if (c.childType !== 'shape') continue;
-        const shape = c as ShapeChild;
-        const outerRing = shape.contours[0];
-        const inter = clipper2Engine.intersection([outerRing], [polyPoints]);
-        if (inter.length === 0) continue;
-        const existingHoles = shape.contours.slice(1);
-        const remaining = clipper2Engine.difference([outerRing], [...existingHoles, polyPoints]);
-        if (remaining.length === 0) {
-          commands.push(new RemoveChildCommand('Erase', activeLayerId, shape.id));
-        } else {
-          commands.push(new UpdateChildCommand('Erase', activeLayerId, shape.id,
-            { contours: shape.contours } as Partial<ShapeChild>,
-            { contours: remaining } as Partial<ShapeChild>));
-        }
-      }
+      const commands = eraseShapeCommands(activeLayer, activeLayerId, [polyPoints]);
       if (commands.length === 0) return;
       undoManager.execute(commands.length === 1 ? commands[0] : new CompositeCommand('Erase', commands));
     } else {

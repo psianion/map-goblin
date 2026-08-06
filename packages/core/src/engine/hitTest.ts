@@ -1,4 +1,5 @@
 import type { AnyChild, ShapeChild, LightChild, DungeonLayer } from '../store/types';
+import { flattenRing } from '../shared/bezier';
 import { resolveDoors, resolveWalls } from '../shared/wallResolve';
 import { useStore } from '../store/store';
 import { isLayerEffectivelyVisible } from '../store/selectors';
@@ -36,11 +37,13 @@ export function pointInShape(shape: ShapeChild, point: [number, number]): boolea
     y /= t.scale[1];
     p = [x, y];
   }
+  // Curved edges hit-test against the same flattened ring everything else
+  // sees; straight rings pass through flattenRing untouched.
   // Must be inside outer ring
-  if (!pointInPolygon(p, shape.contours[0])) return false;
+  if (!pointInPolygon(p, flattenRing(shape.contours[0], shape.tangents?.[0]))) return false;
   // Must NOT be inside any hole ring
   for (let i = 1; i < shape.contours.length; i++) {
-    if (pointInPolygon(p, shape.contours[i])) return false;
+    if (pointInPolygon(p, flattenRing(shape.contours[i], shape.tangents?.[i]))) return false;
   }
   return true;
 }
@@ -163,7 +166,9 @@ export function getChildBounds(child: AnyChild): {
 } {
   switch (child.childType) {
     case 'shape': {
-      let points = child.contours[0];
+      // Flattened: a curve can bow past its anchors, and the gizmo/selection
+      // box must wrap what is actually drawn.
+      let points = flattenRing(child.contours[0], child.tangents?.[0]);
       if (child.transform) {
         const t = child.transform;
         const cos = Math.cos(t.rotate);
@@ -233,7 +238,7 @@ export function getChildBounds(child: AnyChild): {
       };
     }
     case 'water': {
-      const points = child.contours[0] ?? [];
+      const points = flattenRing(child.contours[0] ?? [], child.tangents?.[0]);
       if (points.length === 0) return { x: 0, y: 0, width: 0, height: 0 };
       let minX = points[0][0];
       let maxX = points[0][0];

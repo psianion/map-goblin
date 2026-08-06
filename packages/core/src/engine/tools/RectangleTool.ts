@@ -1,9 +1,9 @@
 import type { Point } from '../../types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
-import { AddChildCommand, RemoveChildCommand, UpdateChildCommand, CompositeCommand } from '../../store/commands';
+import { AddChildCommand, CompositeCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
-import { clipper2Engine } from '../../geometry/Clipper2Engine';
+import { eraseShapeCommands } from './eraseShapes';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
 import { resolveEditableLayer } from './layerGuard';
 
@@ -84,28 +84,7 @@ export class RectangleTool implements DrawingTool {
     if (isErase) {
       // Erase: boolean-difference the erase rect from each intersecting shape.
       // If the result is empty → remove shape. Otherwise → update shape's points.
-      const commands: import('../../store/types').Command[] = [];
-
-      for (const c of activeLayer.children) {
-        if (c.childType !== 'shape') continue;
-        const shape = c as ShapeChild;
-        const outerRing = shape.contours[0];
-        const intersection = clipper2Engine.intersection([outerRing], [rectPoly]);
-        if (intersection.length === 0) continue;
-
-        // Combine existing holes + new erase rect as clips
-        const existingHoles = shape.contours.slice(1);
-        const allClips = [...existingHoles, rectPoly];
-        const remaining = clipper2Engine.difference([outerRing], allClips);
-        if (remaining.length === 0) {
-          commands.push(new RemoveChildCommand('Erase', activeLayerId, shape.id));
-        } else {
-          const before = { contours: shape.contours } as Partial<ShapeChild>;
-          const after = { contours: remaining } as Partial<ShapeChild>;
-          commands.push(new UpdateChildCommand('Erase', activeLayerId, shape.id, before, after));
-        }
-      }
-
+      const commands = eraseShapeCommands(activeLayer, activeLayerId, [rectPoly]);
       if (commands.length === 0) return;
       undoManager.execute(
         commands.length === 1

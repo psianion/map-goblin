@@ -26,6 +26,7 @@ import {
   pointInAsset,
   pointInLight,
 } from '../hitTest';
+import { flattenRing } from '../../shared/bezier';
 
 // ─── State machine ────────────────────────────────────────
 
@@ -545,6 +546,7 @@ export class SelectTool implements DrawingTool {
               // as well would apply it a second time on restore.
               ({
                 contours: structuredClone((child as { contours: [number, number][][] }).contours),
+                tangents: structuredClone((child as { tangents?: unknown }).tangents),
                 transform: (child as { transform?: unknown }).transform,
               } as Partial<AnyChild>)
             : snap.kind === 'box'
@@ -676,8 +678,9 @@ export class SelectTool implements DrawingTool {
 
     switch (child.childType) {
       case 'shape': {
-        // Transform shape outer ring to screen space
-        let pts = child.contours[0];
+        // Transform shape outer ring to screen space, curves flattened so the
+        // highlight hugs what is drawn.
+        let pts = flattenRing(child.contours[0], child.tangents?.[0]);
         if (child.transform) {
           const t = child.transform;
           const cos = Math.cos(t.rotate);

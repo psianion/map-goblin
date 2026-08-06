@@ -3,6 +3,7 @@ import type { DungeonLayer } from '../../store/types';
 import type { WaterChild } from '../../shared/types';
 import type { Polygon } from '../../types/geometry';
 import { unitTexture } from '../../assets/textureLoader';
+import { flattenRing } from '../../shared/bezier';
 import { registerFlowSprite, unregisterFlowSpritesIn } from './waterAnimation';
 
 const PX_PER_GRID_CELL = 200;
@@ -76,7 +77,9 @@ function tracePolygon(g: Graphics, poly: Polygon): void {
  * plus bank edge strips tiled along the outer shoreline.
  */
 function renderWaterChild(parent: Container, water: WaterChild): void {
-  const outer = water.contours[0];
+  // Curved shorelines flatten here; straight rings pass through untouched.
+  const contours = water.contours.map((c, i) => flattenRing(c, water.tangents?.[i]));
+  const outer = contours[0];
   if (!outer || outer.length < 3) return;
 
   // unitTexture, not resolveTexture: a variant-sheet source file must fill with
@@ -89,7 +92,7 @@ function renderWaterChild(parent: Container, water: WaterChild): void {
   // Clipper can return several same-winding rings for one self-crossing stroke;
   // only the opposite-winding ones are holes to cut out of the body.
   const outerSign = Math.sign(signedArea(outer));
-  const rings = water.contours.filter((c) => c.length >= 3);
+  const rings = contours.filter((c) => c.length >= 3);
   const fills = rings.filter((c, i) => i === 0 || Math.sign(signedArea(c)) === outerSign);
   const holes = rings.filter((c, i) => i > 0 && Math.sign(signedArea(c)) !== outerSign);
 

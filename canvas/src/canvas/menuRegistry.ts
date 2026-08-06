@@ -18,6 +18,7 @@ import {
 import type { AnyChild, DoorChild, DoorStyle, DungeonLayer, LightChild } from '@/store/types'
 import { selectLayerForChild } from '@/store/selectors'
 import { getTextureEntry, getTexturesByCategory } from '@dnd/core/src/assets/textureManifest'
+import { translateTangents } from '@dnd/core/src/shared/bezier'
 import { handleShortcut, rotateSelection90 } from '@/shortcuts/defaultShortcuts'
 import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef'
 import { notify } from '@/lib/toast'
@@ -387,6 +388,7 @@ function pasteAt(world: { x: number; y: number }): void {
       copy.contours = copy.contours.map((ring) =>
         ring.map(([x, y]): [number, number] => [x + dx, y + dy]),
       )
+      copy.tangents = translateTangents(copy.tangents, dx, dy)
     }
     return new AddChildCommand('Paste child', activeLayer.id, copy)
   })

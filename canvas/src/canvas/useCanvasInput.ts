@@ -12,7 +12,7 @@ import { TERRAIN_PANEL_ID } from '@/store/types';
 import { cancelZoomAnimationRef } from '@/components/toolbar/zoomToFitRef';
 import { priorActiveLayerRef } from '@/components/toolbar/toolConstants';
 import { wallNodeAt } from '@/engine/wallNodeOverlay';
-import { openCanvasMenuRef } from '@/components/canvas/CanvasContextMenu';
+import { openCanvasMenuRef } from '@/components/canvas/canvasMenuRef';
 import { hitTestChildren } from '@dnd/core/src/engine/hitTest';
 import { isLayerEffectivelyVisible } from '@dnd/core/src/store/selectors';
 import type { DungeonLayer } from '@/store/types';
@@ -185,9 +185,23 @@ export function useCanvasInput(
           applyOutlineEdit({ kind: 'insert', index: hit.index, x: hit.x, y: hit.y }, 'Add vertex');
           return;
         }
-        if (hit) {
+        if (hit?.kind === 'tangent') {
+          useStore.getState().selectVertex(hit.index);
+          if (beginOutlineDrag('tangents', hit.index, { which: hit.which })) {
+            outlineDragStart = rawWorld;
+            return;
+          }
+        }
+        if (hit?.kind === 'vertex' || hit?.kind === 'edge') {
           useStore.getState().selectVertex(hit.kind === 'vertex' ? hit.index : null);
-          if (beginOutlineDrag(hit.kind === 'vertex' ? 'vertex' : 'edge', hit.index)) {
+          // Alt is the curve modifier: on a vertex it drags out a symmetric
+          // tangent pair, on an edge it bows the run toward the cursor. Plain
+          // drags keep meaning move.
+          const kind =
+            hit.kind === 'vertex' ? (e.altKey ? 'tangents' : 'vertex') : e.altKey ? 'bow' : 'edge';
+          const opts =
+            kind === 'tangents' ? { which: 'out' as const, forceMirror: true } : undefined;
+          if (beginOutlineDrag(kind, hit.index, opts)) {
             outlineDragStart = rawWorld;
             return;
           }
@@ -225,10 +239,14 @@ export function useCanvasInput(
         return;
       }
 
-      // Outline vertex/edge drag — the floor and its walls follow live.
+      // Outline vertex/edge/tangent drag — the floor and its walls follow live.
       if (isDraggingOutline() && outlineDragStart) {
         const w = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
-        updateOutlineDrag(w, { x: w.x - outlineDragStart.x, y: w.y - outlineDragStart.y });
+        updateOutlineDrag(
+          w,
+          { x: w.x - outlineDragStart.x, y: w.y - outlineDragStart.y },
+          { alt: e.altKey },
+        );
         return;
       }
 
@@ -314,6 +332,17 @@ export function useCanvasInput(
       if (useStore.getState().tools.activeTool !== 'select') return;
       const rect = canvasEl.getBoundingClientRect();
       const world = engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+      // In outline edit mode, double-click on an anchor toggles it between
+      // corner and smooth; only a double-click elsewhere exits the mode.
+      if (useStore.getState().tools.shapeNodeEditId) {
+        const hit = outlineHitAt(world, engine.stage().scale.x);
+        if (hit?.kind === 'vertex') {
+          useStore.getState().selectVertex(hit.index);
+          applyOutlineEdit({ kind: 'toggleSmooth', index: hit.index }, 'Toggle smooth corner');
+          e.preventDefault();
+          return;
+        }
+      }
       if (toggleNodeEditAt(world) || toggleShapeNodeEditAt(world)) e.preventDefault();
     };
 
