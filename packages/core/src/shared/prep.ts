@@ -8,8 +8,15 @@
 /** The six D&D ability scores, as roll/save keys. */
 export type Ability = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
 
-export type TimeOfDay = 'dawn' | 'day' | 'dusk' | 'night';
-export type Weather = 'clear' | 'rain' | 'storm' | 'fog' | 'snow';
+/** The one authoritative member list — validation and UI option lists derive from it. */
+export const TIMES = ['dawn', 'day', 'dusk', 'night'] as const;
+export const WEATHERS = ['clear', 'rain', 'storm', 'fog', 'snow'] as const;
+
+export type TimeOfDay = (typeof TIMES)[number];
+export type Weather = (typeof WEATHERS)[number];
+
+/** Display label for a TIMES/WEATHERS value — the vocab is lowercase, the UI wants Title case. */
+export const vocabLabel = (v: TimeOfDay | Weather): string => v[0]!.toUpperCase() + v.slice(1);
 
 /**
  * Everything a DM authors against a map beyond its geometry.
@@ -51,8 +58,12 @@ export interface TrapSave {
 export type TriggerAction =
   /** Narration. `toPlayers: false` keeps it on the DM's trigger log. */
   | { kind: 'show-text'; text: string; toPlayers: boolean }
-  /** Toggle an authored `LightChild` by uuid. A missing id marks the trigger inert. */
-  | { kind: 'light'; lightId: string; on: boolean }
+  /**
+   * Toggle an authored `LightChild` by uuid. A missing id marks the trigger inert.
+   * `toPlayers` (default true) narrates the change at the table like `show-text`;
+   * off keeps the log line on the DM's record while the map still relights.
+   */
+  | { kind: 'light'; lightId: string; on: boolean; toPlayers?: boolean }
   /** `damage` is a dice formula, `NdM(+|-)K`. */
   | { kind: 'trap'; text: string; save?: TrapSave; damage?: string }
   | { kind: 'ability-check'; ability: Ability; dc: number; text: string }

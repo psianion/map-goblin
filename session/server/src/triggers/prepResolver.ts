@@ -105,13 +105,15 @@ function resolveTrigger(def: TriggerDef, map: SceneMap | null): ResolvedTrigger 
     }
   }
 
+  const lightNames: Record<string, string> = {}
   for (const action of def.actions) {
-    if (action.kind === 'light' && !map!.lightIds.has(action.lightId)) {
-      return { ...resolved, inert: 'light no longer exists' }
+    if (action.kind === 'light') {
+      if (!map!.lightNames.has(action.lightId)) return { ...resolved, inert: 'light no longer exists' }
+      lightNames[action.lightId] = map!.lightNames.get(action.lightId) ?? ''
     }
     if (action.kind === 'trap' && action.damage !== undefined && !isValidFormula(action.damage)) {
       return { ...resolved, inert: 'malformed damage formula' }
     }
   }
-  return resolved
+  return { ...resolved, lightNames }
 }

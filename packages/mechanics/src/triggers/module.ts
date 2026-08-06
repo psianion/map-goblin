@@ -20,7 +20,7 @@ import {
   type TriggerPrompt,
   type TriggersState,
 } from './types'
-import type { TimeOfDay, TriggerAction, Weather } from '@dnd/core/src/shared/prep'
+import { TIMES, WEATHERS, type TimeOfDay, type TriggerAction, type Weather } from '@dnd/core/src/shared/prep'
 
 export * from './types'
 
@@ -140,12 +140,40 @@ function pushPrompt(scene: SceneTriggers, prompt: Omit<TriggerPrompt, 'id'>): vo
   if (scene.prompts.length > PROMPTS_MAX) scene.prompts.splice(0, scene.prompts.length - PROMPTS_MAX)
 }
 
-/** Shared by `set-environment` and the `environment` fire-action — one sentence, one place. */
-function envText(env: { time?: TimeOfDay; weather?: Weather }): string {
+/** Quiet diegetic narration, never the debug-shaped "Time: dusk" — one phrase per value,
+ *  read at the table like any other trigger line. */
+const TIME_PHRASES: Record<TimeOfDay, string> = {
+  dawn: 'Dawn breaks',
+  day: 'Daylight returns',
+  dusk: 'Dusk settles',
+  night: 'Night falls',
+}
+const WEATHER_PHRASES: Record<Weather, string> = {
+  clear: 'The sky clears',
+  rain: 'Rain begins to fall',
+  storm: 'A storm rolls in',
+  fog: 'Fog creeps in',
+  snow: 'Snow begins to fall',
+}
+
+/** Shared by `set-environment` and the `environment` fire-action — one sentence, one place.
+ *  Takes the DELTA (only the field(s) this change actually touches), never the whole merged
+ *  env: restating an unchanged field alongside the one that moved would narrate a no-op. */
+function envText(delta: { time?: TimeOfDay; weather?: Weather }): string {
   const parts: string[] = []
-  if (env.time) parts.push(`Time: ${env.time}`)
-  if (env.weather) parts.push(`Weather: ${env.weather}`)
-  return parts.join(', ')
+  if (delta.time) parts.push(TIME_PHRASES[delta.time])
+  if (delta.weather) parts.push(WEATHER_PHRASES[delta.weather])
+  return parts.map((p) => p + '.').join(' ')
+}
+
+/** The `light` fire-action's log line — the light's own authored name, or the nameless
+ *  fallback. Never the id: that means nothing to a player. A default auto-name like
+ *  "Light 3" is not authorship, so it narrates nameless too. */
+function lightText(name: string | undefined, on: boolean): string {
+  const trimmed = name?.trim()
+  const named = trimmed && !/^Light \d+$/.test(trimmed) ? trimmed : undefined
+  if (on) return named ? `${named} lights` : 'A light kindles'
+  return named ? `${named} goes dark` : 'A light goes dark'
 }
 
 // ── DM commands ──────────────────────────────────────────────────────────────
@@ -153,14 +181,13 @@ function envText(env: { time?: TimeOfDay; weather?: Weather }): string {
 function setEnvironment(p: Payload, ctx: Ctx): void {
   const sceneId = sceneOf(p, ctx)
   const scene = sceneTriggersOf(ctx.state, sceneId)
-  const TIMES: readonly TimeOfDay[] = ['dawn', 'day', 'dusk', 'night']
-  const WEATHERS: readonly Weather[] = ['clear', 'rain', 'storm', 'fog', 'snow']
   if (p.time === undefined && p.weather === undefined) bad('set-environment needs time or weather')
-  const env = { ...scene.env }
-  if (p.time !== undefined) env.time = oneOf(p.time, TIMES, 'time')
-  if (p.weather !== undefined) env.weather = oneOf(p.weather, WEATHERS, 'weather')
+  const delta: { time?: TimeOfDay; weather?: Weather } = {}
+  if (p.time !== undefined) delta.time = oneOf(p.time, TIMES, 'time')
+  if (p.weather !== undefined) delta.weather = oneOf(p.weather, WEATHERS, 'weather')
+  const env = { ...scene.env, ...delta }
   const next = { ...scene, env, log: [...scene.log] }
-  pushLog(next, { kind: 'environment', text: envText(env), toPlayers: true }, Date.now())
+  pushLog(next, { kind: 'environment', text: envText(delta), toPlayers: true }, Date.now())
   setScene(ctx, sceneId, next)
 }
 
@@ -413,15 +440,16 @@ function runFireAction(
 
     case 'light':
       scene.lightOverrides[action.lightId] = action.on
-      // toPlayers: false — a raw light-child UUID means nothing to a player. Player-facing
-      // wording lands in M5 with the actual client-side relight.
+      // M5 — the client's relight is live (lightSync.ts), so the log line rides along with
+      // it: player-visible, and never a raw light-child id (an unnamed light still reads as
+      // a light, never as a UUID).
       pushLog(
         scene,
         {
           triggerId: t.def.id,
           kind: 'light',
-          text: `Light ${action.lightId} turned ${action.on ? 'on' : 'off'}`,
-          toPlayers: false,
+          text: lightText(t.lightNames?.[action.lightId], action.on),
+          toPlayers: action.toPlayers ?? true,
         },
         now,
       )
@@ -510,11 +538,11 @@ function runFireAction(
       return
 
     case 'environment': {
-      const env = { ...scene.env }
-      if (action.time !== undefined) env.time = action.time
-      if (action.weather !== undefined) env.weather = action.weather
-      scene.env = env
-      pushLog(scene, { triggerId: t.def.id, kind: 'environment', text: envText(env), toPlayers: true }, now)
+      const delta: { time?: TimeOfDay; weather?: Weather } = {}
+      if (action.time !== undefined) delta.time = action.time
+      if (action.weather !== undefined) delta.weather = action.weather
+      scene.env = { ...scene.env, ...delta }
+      pushLog(scene, { triggerId: t.def.id, kind: 'environment', text: envText(delta), toPlayers: true }, now)
       return
     }
   }

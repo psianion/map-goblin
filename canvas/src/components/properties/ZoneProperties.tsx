@@ -10,6 +10,7 @@ import { UpdateChildCommand } from '@/store/commands'
 import { undoManager } from '@/store/undoManager'
 import { cn } from '@/lib/utils'
 import { X } from 'lucide-react'
+import { TIMES, WEATHERS, vocabLabel } from '@/store/types'
 import type {
   DungeonLayer,
   ZoneChild,
@@ -95,20 +96,11 @@ const ACTION_KIND_LABELS: Record<string, string> = Object.fromEntries(
   ACTION_KIND_OPTIONS.map((o) => [o.value, o.label]),
 )
 
-const TIME_OPTIONS: { value: TimeOfDay; label: string }[] = [
-  { value: 'dawn', label: 'Dawn' },
-  { value: 'day', label: 'Day' },
-  { value: 'dusk', label: 'Dusk' },
-  { value: 'night', label: 'Night' },
-]
-
-const WEATHER_OPTIONS: { value: Weather; label: string }[] = [
-  { value: 'clear', label: 'Clear' },
-  { value: 'rain', label: 'Rain' },
-  { value: 'storm', label: 'Storm' },
-  { value: 'fog', label: 'Fog' },
-  { value: 'snow', label: 'Snow' },
-]
+const TIME_OPTIONS: { value: TimeOfDay; label: string }[] = TIMES.map((t) => ({ value: t, label: vocabLabel(t) }))
+const WEATHER_OPTIONS: { value: Weather; label: string }[] = WEATHERS.map((w) => ({
+  value: w,
+  label: vocabLabel(w),
+}))
 
 function defaultAction(kind: TriggerAction['kind'], firstLightId: string): TriggerAction {
   switch (kind) {
@@ -441,11 +433,14 @@ function ActionEditor({ action, lights, onChange, onRemove }: ActionEditorProps)
               className={cn(fieldInputClass, 'resize-y')}
             />
           </PropertyField>
-          <ToggleSwitch
-            checked={action.toPlayers}
-            onChange={(v) => onChange({ ...action, toPlayers: v })}
-            label="Show to players"
-          />
+          <label className="flex items-center gap-1.5 text-panel-small text-text-muted">
+            <ToggleSwitch
+              checked={action.toPlayers}
+              onChange={(v) => onChange({ ...action, toPlayers: v })}
+              label="Show to players"
+            />
+            Show to players
+          </label>
         </>
       )}
 
@@ -469,11 +464,18 @@ function ActionEditor({ action, lights, onChange, onRemove }: ActionEditorProps)
               Light not found — trigger is inert
             </span>
           )}
-          <ToggleSwitch
-            checked={action.on}
-            onChange={(v) => onChange({ ...action, on: v })}
-            label="Turn light on"
-          />
+          <label className="flex items-center gap-1.5 text-panel-small text-text-muted">
+            <ToggleSwitch checked={action.on} onChange={(v) => onChange({ ...action, on: v })} label="Turn light on" />
+            Turn light on
+          </label>
+          <label className="flex items-center gap-1.5 text-panel-small text-text-muted">
+            <ToggleSwitch
+              checked={action.toPlayers ?? true}
+              onChange={(v) => onChange({ ...action, toPlayers: v })}
+              label="Show to players"
+            />
+            Show to players
+          </label>
         </>
       )}
 

@@ -5,9 +5,11 @@
 
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { SessionState } from '@dnd/core/src/shared/protocol';
+import type { TriggersState } from '@dnd/mechanics/triggers';
 import { useSessionStore } from '../session/store';
+import { usePanels } from '../session/panels';
 import { SessionControls } from './SessionControls';
 
 vi.mock('../session/auth', () => ({
@@ -21,7 +23,7 @@ vi.mock('../session/auth', () => ({
 const { listScenes, patchScene, deleteScene, reorderScenes, publishScene } =
   await import('../session/auth');
 
-function session(activeSceneId: string | null): SessionState {
+function session(activeSceneId: string | null, modules: SessionState['modules'] = {}): SessionState {
   return {
     protocolVersion: PROTOCOL_VERSION,
     sessionId: 's1',
@@ -29,12 +31,22 @@ function session(activeSceneId: string | null): SessionState {
     activeSceneId,
     scenes: [],
     players: [],
-    modules: {},
+    modules,
   };
 }
 
 const HALL = { id: 'sc-1', name: 'Great Hall', sortIndex: 0, visibleToPlayers: false, mapId: 'm-1', updatedAt: 1 };
 const CRYPT = { id: 'sc-2', name: 'Crypt', sortIndex: 1, visibleToPlayers: true, mapId: 'm-2', updatedAt: 2 };
+
+/** A single scene's worth of `SceneTriggers`, the shape `sceneTriggersOf` expects to find
+ *  already in place — env is all this suite cares about, the rest is filler. */
+function triggersState(sceneId: string, env: { time?: string; weather?: string }): TriggersState {
+  return {
+    byScene: {
+      [sceneId]: { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, env, prompts: [], log: [] },
+    },
+  } as TriggersState;
+}
 
 beforeEach(() => {
   cleanup();
@@ -153,5 +165,97 @@ describe('SessionControls scene library (#47)', () => {
 
     fireEvent.click(screen.getAllByRole('checkbox')[0]!);
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'the table is on fire');
+  });
+
+  it('shows the placeholder, disabled, once the scene has an environment set', async () => {
+    useSessionStore.setState({ session: session(HALL.id, { triggers: triggersState(HALL.id, { time: 'dusk' }) }) });
+    render(<SessionControls />);
+    await screen.findByText('Great Hall');
+
+    expect(screen.getByLabelText('Time of day')).toHaveProperty('value', 'dusk');
+    const timePlaceholder = screen.getByLabelText('Time of day').querySelector('option[value=""]');
+    expect(timePlaceholder).toHaveProperty('disabled', true);
+    expect(timePlaceholder).toHaveProperty('textContent', 'Not set');
+
+    // Weather is still unset on this scene — its own placeholder stays selected and open.
+    expect(screen.getByLabelText('Weather')).toHaveProperty('value', '');
+    const weatherPlaceholder = screen.getByLabelText('Weather').querySelector('option[value=""]');
+    expect(weatherPlaceholder).toHaveProperty('disabled', false);
+    expect(weatherPlaceholder).toHaveProperty('textContent', 'Not set');
+  });
+
+  it('labels the wire enum options for reading, not the wire values themselves', async () => {
+    useSessionStore.setState({ session: session(HALL.id, { triggers: triggersState(HALL.id, {}) }) });
+    render(<SessionControls />);
+    await screen.findByText('Great Hall');
+
+    const timeOption = screen.getByLabelText('Time of day').querySelector('option[value="dusk"]');
+    expect(timeOption).toHaveProperty('textContent', 'Dusk');
+    const weatherOption = screen.getByLabelText('Weather').querySelector('option[value="storm"]');
+    expect(weatherOption).toHaveProperty('textContent', 'Storm');
+  });
+
+  it('sends set-environment with only the field that changed', async () => {
+    useSessionStore.setState({ session: session(HALL.id, { triggers: triggersState(HALL.id, {}) }) });
+    render(<SessionControls />);
+    await screen.findByText('Great Hall');
+
+    const sendCommand = vi.spyOn(useSessionStore.getState(), 'sendCommand');
+    fireEvent.change(screen.getByLabelText('Time of day'), { target: { value: 'night' } });
+    expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-environment', { time: 'night' });
+
+    sendCommand.mockClear();
+    fireEvent.change(screen.getByLabelText('Weather'), { target: { value: 'storm' } });
+    expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-environment', { weather: 'storm' });
+    expect(sendCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the pick immediately, before the server echoes it back in env', async () => {
+    useSessionStore.setState({ session: session(HALL.id, { triggers: triggersState(HALL.id, {}) }) });
+    render(<SessionControls />);
+    await screen.findByText('Great Hall');
+
+    fireEvent.change(screen.getByLabelText('Time of day'), { target: { value: 'night' } });
+    // Nothing echoed `env` yet — the select still reads the optimistic pick, not the blank.
+    expect(screen.getByLabelText('Time of day')).toHaveProperty('value', 'night');
+
+    // The server catches up: env now carries what was picked, and the pending echo clears
+    // (a no-op for what's on screen, but stale pending state doesn't leak into a re-pick).
+    useSessionStore.setState({
+      session: session(HALL.id, { triggers: triggersState(HALL.id, { time: 'night' }) }),
+    });
+    await waitFor(() => expect(screen.getByLabelText('Time of day')).toHaveProperty('value', 'night'));
+  });
+
+  it('falls an unconfirmed pending pick back to the env echo after it times out', async () => {
+    useSessionStore.setState({ session: session(HALL.id, { triggers: triggersState(HALL.id, {}) }) });
+    render(<SessionControls />);
+    await screen.findByText('Great Hall');
+
+    vi.useFakeTimers();
+    fireEvent.change(screen.getByLabelText('Time of day'), { target: { value: 'night' } });
+    expect(screen.getByLabelText('Time of day')).toHaveProperty('value', 'night');
+
+    // The module state never confirms it (dropped command, disconnect) — after ~4s the
+    // field falls back to the env echo rather than showing the untaken pick forever.
+    act(() => vi.advanceTimersByTime(4000));
+    expect(screen.getByLabelText('Time of day')).toHaveProperty('value', '');
+
+    vi.useRealTimers();
+  });
+
+  it('replaces the environment controls with a prompt when no scene is active', async () => {
+    useSessionStore.setState({ session: session(null) });
+    render(<SessionControls />);
+
+    expect(await screen.findByText('Activate a scene to set its environment.')).not.toBeNull();
+    expect(screen.queryByLabelText('Time of day')).toBeNull();
+    expect(screen.queryByLabelText('Weather')).toBeNull();
+  });
+
+  it('is registered DM-only, so a player never gets the panel at all', () => {
+    const panel = usePanels('dm').find((p) => p.id === 'session-controls');
+    expect(panel?.roles).toEqual(['dm']);
+    expect(usePanels('player').some((p) => p.id === 'session-controls')).toBe(false);
   });
 });

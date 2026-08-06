@@ -356,6 +356,80 @@ describe('a malformed damage formula never crashes the module (F1)', () => {
   })
 })
 
+describe('light fire-action (M5)', () => {
+  it('names the light and narrates on/off, player-visible', () => {
+    const t = trigger(
+      { id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'light', lightId: 'l1', on: true }] },
+      { roomId: 'r1', lightNames: { l1: 'Brazier' } },
+    )
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }) }))
+    const { next, error } = run(mod, empty, DM, 'fire', { triggerId: 'x' })
+    expect(error).toBeNull()
+    const line = sceneOf(next).log.at(-1)!
+    expect(line).toMatchObject({ text: 'Brazier lights', toPlayers: true })
+    expect(sceneOf(next).lightOverrides).toEqual({ l1: true })
+  })
+
+  it('narrates turning a named light off', () => {
+    const t = trigger(
+      { id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'light', lightId: 'l1', on: false }] },
+      { roomId: 'r1', lightNames: { l1: 'Brazier' } },
+    )
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }) }))
+    const { next } = run(mod, empty, DM, 'fire', { triggerId: 'x' })
+    expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Brazier goes dark', toPlayers: true })
+  })
+
+  it('falls back to the nameless wording for a default auto-name (F1) — never a raw id', () => {
+    // lightNames always resolves an entry for a light action against an existing light
+    // (N1) — the resolver-impossible fixture here used to be `{ roomId: 'r1' }` with no
+    // lightNames at all. A never-renamed light's real authored name is its auto-name,
+    // 'Light 3', which is not authorship either, so it narrates nameless too.
+    const t = trigger(
+      { id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'light', lightId: 'l1', on: true }] },
+      { roomId: 'r1', lightNames: { l1: 'Light 3' } },
+    )
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }) }))
+    const { next } = run(mod, empty, DM, 'fire', { triggerId: 'x' })
+    const line = sceneOf(next).log.at(-1)!
+    expect(line.text).toBe('A light kindles')
+    expect(line.text).not.toContain('l1')
+    expect(line.text).not.toContain('Light 3')
+
+    const off = trigger(
+      { id: 'y', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'light', lightId: 'l1', on: false }] },
+      { roomId: 'r1', lightNames: { l1: 'Light 3' } },
+    )
+    const m2 = triggersModule(makeDeps({ prepOf: () => ({ triggers: [off] }) }))
+    const offResult = run(m2, empty, DM, 'fire', { triggerId: 'y' })
+    expect(offResult.next.byScene[SCENE].log.at(-1)?.text).toBe('A light goes dark')
+  })
+
+  it('honours toPlayers on the light action (O1) — default on, explicit off keeps it DM-only', () => {
+    const t = trigger(
+      { id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'light', lightId: 'l1', on: true, toPlayers: false }] },
+      { roomId: 'r1', lightNames: { l1: 'Brazier' } },
+    )
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }) }))
+    const { next } = run(mod, empty, DM, 'fire', { triggerId: 'x' })
+    expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Brazier lights', toPlayers: false })
+  })
+})
+
+describe('environment fire-action (F3)', () => {
+  it('narrates only its own delta, not the merged environment', () => {
+    const t = trigger(
+      { id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'environment', weather: 'fog' }] },
+      { roomId: 'r1' },
+    )
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }) }))
+    let state = run(mod, empty, DM, 'set-environment', { time: 'dawn' }).next
+    const { next } = run(mod, state, DM, 'fire', { triggerId: 'x' })
+    expect(sceneOf(next).env).toEqual({ time: 'dawn', weather: 'fog' })
+    expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Fog creeps in.', toPlayers: true })
+  })
+})
+
 describe('inert and disabled triggers never fire', () => {
   const shape = { kind: 'circle' as const, x: 0, y: 0, radius: 5 }
   const tokens = () => ({ tok1: { id: 'tok1', x: 0, y: 0, ownerId: null } })
@@ -460,17 +534,32 @@ describe('caps', () => {
 })
 
 describe('set-environment', () => {
-  it('merges time/weather and logs a readable sentence, toPlayers', () => {
+  it('merges time/weather and logs quiet diegetic narration, toPlayers', () => {
     const mod = triggersModule(makeDeps())
     const { next, error } = run(mod, empty, DM, 'set-environment', { weather: 'rain' })
     expect(error).toBeNull()
     expect(sceneOf(next).env).toEqual({ weather: 'rain' })
-    expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Weather: rain', toPlayers: true })
+    expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Rain begins to fall.', toPlayers: true })
   })
 
   it('rejects a payload with neither field', () => {
     const mod = triggersModule(makeDeps())
     expect(run(mod, empty, DM, 'set-environment', {}).error?.code).toBe('invalid-command')
+  })
+
+  it('narrates only the field this change touches (F3) — an unchanged field is not restated', () => {
+    const mod = triggersModule(makeDeps())
+    let state = run(mod, empty, DM, 'set-environment', { time: 'dusk' }).next
+    expect(sceneOf(state).log.at(-1)).toMatchObject({ text: 'Dusk settles.' })
+    state = run(mod, state, DM, 'set-environment', { weather: 'storm' }).next
+    expect(sceneOf(state).env).toEqual({ time: 'dusk', weather: 'storm' })
+    expect(sceneOf(state).log.at(-1)).toMatchObject({ text: 'A storm rolls in.' })
+  })
+
+  it('joins both fields as separate sentences when both change at once', () => {
+    const mod = triggersModule(makeDeps())
+    const { next } = run(mod, empty, DM, 'set-environment', { time: 'night', weather: 'snow' })
+    expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Night falls. Snow begins to fall.' })
   })
 })
 

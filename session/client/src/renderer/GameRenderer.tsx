@@ -20,6 +20,7 @@ import { attachCameraInput, fitMap } from './cameraInput';
 import { useSessionStore } from '../session/store';
 import { swapSceneMap } from '../session/loadSceneMap';
 import { syncDoorsToLighting } from '../modules/doors/doorLighting';
+import { syncLightsToScene } from '../modules/triggers/lightSync';
 import { mountPlayerFogWhenReady } from '../modules/fog/FogRenderer';
 
 // ponytail: copied from canvas/src/geometry/initClipper.ts (12 lines). It cannot
@@ -154,6 +155,9 @@ export function GameRenderer() {
   // on for both roles. Each waits for the engine on its own and is role-aware inside.
   useEffect(() => mountPlayerFogWhenReady(), []);
   useEffect(() => syncDoorsToLighting(), []);
+  // A trigger's `light` action is the same live-relight shape as a door: always on, both
+  // roles, no panel of its own (M5).
+  useEffect(() => syncLightsToScene(), []);
 
   // ── Container-relative sizing (D9) ────────────────────────────────────────
   useEffect(() => {
