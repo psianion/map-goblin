@@ -167,10 +167,37 @@ describe('buildChildMenu', () => {
 });
 
 describe('buildMultiMenu', () => {
-  it('offers only the shared-verb intersection', () => {
-    const rows = buildMultiMenu(3);
-    expect(labels(rows)).toEqual([
-      '3 selected',
+  it('offers flips only when something in the selection can flip', () => {
+    // Lights alone: flips would silently no-op, so they must not appear.
+    const a = makeLight();
+    const b = { ...makeLight(), id: 'light-2', name: 'Light 2' };
+    useStore.getState().addChild(layer().id, a);
+    useStore.getState().addChild(layer().id, b);
+    useStore.getState().setSelectedIds([a.id, b.id]);
+    expect(labels(buildMultiMenu(2))).toEqual(['2 selected', 'Duplicate', 'Delete']);
+  });
+
+  it('offers the full shared-verb intersection for a flippable selection', () => {
+    const light = makeLight();
+    const shape = {
+      id: 'shape-1',
+      name: 'Room',
+      childType: 'shape',
+      visible: true,
+      shapeType: 'rectangle',
+      contours: [[[0, 0], [4, 0], [4, 4], [0, 4]]],
+      roughnessEnabled: false,
+      textureScale: 1,
+      textureOffsetX: 0,
+      textureOffsetY: 0,
+      textureFillRotation: 0,
+      textureTint: '#ffffff',
+    };
+    useStore.getState().addChild(layer().id, light);
+    useStore.getState().addChild(layer().id, shape as unknown as LightChild);
+    useStore.getState().setSelectedIds([light.id, 'shape-1']);
+    expect(labels(buildMultiMenu(2))).toEqual([
+      '2 selected',
       'Duplicate',
       'Flip horizontal',
       'Flip vertical',

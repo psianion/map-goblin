@@ -447,6 +447,16 @@ export class SelectTool implements DrawingTool {
 
   /** Called every frame — syncs gizmo to current screen-space bbox of selected children. */
   updateGizmo(): void {
+    // A selection can arrive from outside the canvas — the layer panel writes
+    // selectedIds directly, a fresh stamp selects its child — while this tool
+    // still thinks it is idle. Adopt it, or the child is selected everywhere
+    // except the one place it can be transformed.
+    if (this.state === 'IDLE' && !this.altDragMode) {
+      if (useStore.getState().selection.selectedIds.length > 0) {
+        this.state = 'SELECTED';
+        if (!this.gizmo) this.createGizmo();
+      }
+    }
     if (!this.gizmo || this.state === 'IDLE' || this.state === 'SELECTING') return;
 
     const store = useStore.getState();
@@ -467,7 +477,15 @@ export class SelectTool implements DrawingTool {
 
     // Object selection path
     const { selectedIds } = store.selection;
-    if (selectedIds.length === 0) return;
+    if (selectedIds.length === 0) {
+      // The mirror of the adoption above: a selection cleared from outside
+      // the canvas must not leave a stale box floating over nothing.
+      if (this.state === 'SELECTED') {
+        this.destroyGizmo();
+        this.state = 'IDLE';
+      }
+      return;
+    }
 
     const dungeonLayers = store.layers.filter(
       (l): l is DungeonLayer => l.type === 'dungeon',
@@ -509,7 +527,15 @@ export class SelectTool implements DrawingTool {
       only && (only.childType === 'asset' || only.childType === 'text') && only.rotation !== 0
         ? ` · ${Math.round((only.rotation * 180) / Math.PI)}°`
         : '';
-    const chip = `${worldBox.width.toFixed(1)} × ${worldBox.height.toFixed(1)} sq${deg}`;
+    // A single rotated prop reports its OWN size — the Transform panel shows
+    // the same numbers, and two authoritative W×H readings for one object is
+    // worse than either. The axis-aligned union stays for multi-selection,
+    // where no single object size exists.
+    const ownSize =
+      only && (only.childType === 'asset' || only.childType === 'text')
+        ? { w: only.width * only.scale, h: only.height * only.scale }
+        : { w: worldBox.width, h: worldBox.height };
+    const chip = `${ownSize.w.toFixed(1)} × ${ownSize.h.toFixed(1)} sq${deg}`;
 
     this.gizmo.update(screenBBox, 0, { showRotate, chip });
   }

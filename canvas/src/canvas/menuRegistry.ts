@@ -330,11 +330,25 @@ function lockRows(rows: MenuRow[], reason: string): MenuRow[] {
 
 /** Menu for a mixed multi-selection: the shared-verb intersection only. */
 export function buildMultiMenu(count: number): MenuRow[] {
+  // Flips silently skip lights and labels, so a selection with nothing
+  // flippable must not offer them — dead verbs read as broken ones.
+  const store = useStore.getState()
+  const ids = new Set(store.selection.selectedIds)
+  const kinds = new Set<string>()
+  for (const l of store.layers) {
+    if (l.type !== 'dungeon') continue
+    for (const c of l.children) if (ids.has(c.id)) kinds.add(c.childType)
+  }
+  const flippable = ['asset', 'shape', 'water'].some((k) => kinds.has(k))
   return [
     { type: 'header', label: `${count} selected` },
     { label: 'Duplicate', kbd: 'Ctrl+D', onSelect: () => handleShortcut('ctrl+d') },
-    { label: 'Flip horizontal', kbd: 'Shift+H', onSelect: () => handleShortcut('shift+h') },
-    { label: 'Flip vertical', kbd: 'Shift+V', onSelect: () => handleShortcut('shift+v') },
+    ...(flippable
+      ? [
+          { label: 'Flip horizontal', kbd: 'Shift+H', onSelect: () => handleShortcut('shift+h') },
+          { label: 'Flip vertical', kbd: 'Shift+V', onSelect: () => handleShortcut('shift+v') },
+        ]
+      : []),
     {
       separatorBefore: true,
       label: 'Delete',

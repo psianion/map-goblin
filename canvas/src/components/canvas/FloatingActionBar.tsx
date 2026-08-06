@@ -20,6 +20,17 @@ const BAR_GAP = 12
 export function FloatingActionBar() {
   const activeTool = useStore((s) => s.tools.activeTool)
   const selectedIds = useStore(useShallow((s) => s.selection.selectedIds))
+  // Child kinds in the selection, as a stable string — the verb list derives
+  // from it, so a light never sees a Rotate button that would silently no-op.
+  const kinds = useStore((s) => {
+    const ids = new Set(s.selection.selectedIds)
+    const found = new Set<string>()
+    for (const l of s.layers) {
+      if (l.type !== 'dungeon') continue
+      for (const c of l.children) if (ids.has(c.id)) found.add(c.childType)
+    }
+    return [...found].sort().join(',')
+  })
   const ref = useRef<HTMLDivElement>(null)
 
   const visible = activeTool === 'select' && selectedIds.length > 0
@@ -71,12 +82,22 @@ export function FloatingActionBar() {
 
   if (!visible) return null
 
+  // Verbs that would silently no-op for the selection are omitted, matching
+  // how the gizmo already drops the rotate stem for lights: flips apply to
+  // props/shapes/water, rotation to everything except lights.
+  const kindSet = new Set(kinds.split(',').filter(Boolean))
+  const has = (...ks: string[]) => ks.some((k) => kindSet.has(k))
   const actions: { label: string; icon: typeof Copy; run: () => void }[] = [
-    { label: 'Flip horizontal', icon: FlipHorizontal2, run: () => handleShortcut('shift+h') },
-    { label: 'Flip vertical', icon: FlipVertical2, run: () => handleShortcut('shift+v') },
-    { label: 'Rotate 90°', icon: RotateCw, run: () => rotateSelection90() },
+    ...(has('asset', 'shape', 'water')
+      ? [
+          { label: 'Flip horizontal', icon: FlipHorizontal2, run: () => handleShortcut('shift+h') },
+          { label: 'Flip vertical', icon: FlipVertical2, run: () => handleShortcut('shift+v') },
+        ]
+      : []),
+    ...(has('asset', 'text', 'shape', 'water')
+      ? [{ label: 'Rotate 90°', icon: RotateCw, run: () => rotateSelection90() }]
+      : []),
     { label: 'Duplicate', icon: Copy, run: () => handleShortcut('ctrl+d') },
-    { label: 'Delete', icon: Trash2, run: () => handleShortcut('delete') },
   ]
 
   return (
@@ -102,6 +123,19 @@ export function FloatingActionBar() {
           <Icon size={14} />
         </button>
       ))}
+      {/* Delete is destructive: fenced off and coloured like the menu's danger
+          slot, not a fifth identical button 2px from Duplicate. */}
+      <div aria-hidden className="mx-0.5 h-4 w-px bg-border-default" />
+      <button
+        type="button"
+        title="Delete (Del)"
+        aria-label="Delete"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => handleShortcut('delete')}
+        className="gg-row rounded-sm p-1.5 text-danger/80 hover:text-danger focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-border-focus/50"
+      >
+        <Trash2 size={14} />
+      </button>
     </div>
   )
 }

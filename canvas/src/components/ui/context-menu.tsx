@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SliderInput } from '@/components/inputs/SliderInput'
+import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas'
 
 export interface ContextMenuItem {
   /** Absent means 'action' — the original plain-verb row every menu already uses. */
@@ -141,6 +142,26 @@ export function clampMenuPosition(
     left: Math.max(0, Math.min(pos.x, viewport.width - size.width)),
     top: Math.max(0, Math.min(pos.y, viewport.height - size.height)),
   }
+}
+
+/**
+ * Thumbnail with the asset browser's fallback: manifest paths are dev-only
+ * (production nginx serves index.html for them, so the img decodes to
+ * nothing without a 404) — on error the texture renders straight from the
+ * rehydrated pack, the same source the canvas draws from.
+ */
+function MenuThumb({ id, src }: { id: string; src: string }) {
+  const [failed, setFailed] = useState(false)
+  if (failed || !src) return <PackThumbnailCanvas textureId={id} />
+  return (
+    <img
+      src={src}
+      alt=""
+      className="h-full w-full object-contain"
+      draggable={false}
+      onError={() => setFailed(true)}
+    />
+  )
 }
 
 function ActionRow({ item, onClose, returnFocus }: {
@@ -334,7 +355,7 @@ function Row({ row, onClose, returnFocus }: {
                   it.active ? 'border-accent-active' : 'border-border-default hover:border-text-secondary',
                 )}
               >
-                <img src={it.src} alt="" className="h-full w-full object-contain" draggable={false} />
+                <MenuThumb id={it.id} src={it.src} />
               </button>
             ))}
             {r.trailing && (
