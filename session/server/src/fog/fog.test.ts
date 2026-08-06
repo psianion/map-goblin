@@ -9,7 +9,8 @@ import { fogModule, type FogState, type SceneFog } from '@dnd/mechanics/fog'
 import { doorsModule, type DoorsState } from '@dnd/mechanics/doors'
 import type { Viewer } from '@dnd/mechanics/contract'
 import type { Token, TokensState } from '@dnd/mechanics/tokens'
-import type { AnyChild, DoorChild, Room, WallSegment } from '@dnd/core/src/shared/types'
+import type { AnyChild, DoorChild, Room, WallSegment, ZoneShape } from '@dnd/core/src/shared/types'
+import type { ScenePrep } from '@dnd/core/src/shared/prep'
 import type { ServerMessage } from '@dnd/core/src/shared/protocol'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import { openDb } from '../db/db'
@@ -17,7 +18,7 @@ import { createStores, type Stores } from '../db/stores'
 import { ModuleRegistry } from '../modules/registry'
 import { buildRedactor, type OutboundMessage } from '../ws/Broadcaster'
 import { mapDeltaFor, redactMapForViewer } from './redactMap'
-import { createSceneMaps } from './sceneMap'
+import { centreOf, createSceneMaps } from './sceneMap'
 import { createVision } from './vision'
 
 // ── A four-room crypt ───────────────────────────────────────────────────────
@@ -98,6 +99,15 @@ const door = (id: string, x: number, y: number, roomA: string, roomB: string, is
     roomA,
     roomB,
   }) as DoorChild
+
+const zone = (id: string, shape: ZoneShape): AnyChild =>
+  ({
+    id,
+    name: id,
+    childType: 'zone',
+    visible: true,
+    shape,
+  }) as AnyChild
 
 const wall = (id: string, x0: number, y0: number, x1: number, y1: number): WallSegment => ({
   id,
@@ -726,5 +736,98 @@ describe('the scene a mapDelta belongs to, with more than one in play (§2.1, D5
     for (const viewer of [P1, P2]) {
       expect(deltasFor(viewer).map((d) => d.sceneId)).toEqual([SCENE, SCENE])
     }
+  })
+})
+
+// ── scene prep and zones never travel to a player ──────────────────────────
+// Prep is the DM's trigger authoring, and a zone is its anchor — the position IS
+// the trap. Both are stripped with the same severity as a secret door, on every
+// redaction path, whichever room (or no room at all) the zone sits in.
+
+describe('prep and zones (schema 3.1)', () => {
+  const PREP: ScenePrep = {
+    version: 1,
+    triggers: [
+      {
+        id: 't1',
+        name: 'Dart trap',
+        when: { kind: 'enter-region', zoneId: 'zone-hall' },
+        actions: [{ kind: 'trap', text: 'A dart flies out!', damage: '1d4' }],
+        once: true,
+        enabled: true,
+      },
+    ],
+  }
+
+  /** `mapFile()` plus a zone in the (revealed) hall, one in the (never-revealed) vault, and prep. */
+  function withPrepAndZones(): SerializedMapData {
+    const base = mapFile()
+    const layer = base.layers[0] as DungeonLayer
+    return {
+      ...base,
+      prep: PREP,
+      layers: [
+        {
+          ...layer,
+          children: [
+            ...layer.children,
+            zone('zone-hall', { kind: 'point', position: { x: 5, y: 5 } }),
+            zone('zone-vault', { kind: 'circle', position: { x: 35, y: 5 }, radius: 2 }),
+          ],
+        },
+      ],
+    }
+  }
+
+  function sceneFor(data: SerializedMapData) {
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Crypt')
+    stores.maps.insert(SCENE, campaign.id, 'Crypt', JSON.stringify(data))
+    stores.scenes.create(SCENE, campaign.id, SCENE, 'Crypt')
+    return createSceneMaps(stores).sceneMapOf(SCENE)!
+  }
+
+  const zoneCount = (map: SerializedMapData) =>
+    (map.layers[0] as DungeonLayer).children.filter((c) => c.childType === 'zone').length
+
+  it('strips prep and both zones from redactMapForViewer, revealed room and unrevealed alike', () => {
+    const scene = sceneFor(withPrepAndZones())
+    const redacted = redactMapForViewer(scene, fog(), {})
+    expect(redacted.prep).toBeUndefined()
+    expect(zoneCount(redacted)).toBe(0)
+    // The DM's own copy is untouched.
+    expect(scene.data.prep).toEqual(PREP)
+    expect(zoneCount(scene.data)).toBe(2)
+  })
+
+  it('strips prep and zones from the unzoned-layer branch too', () => {
+    const plain = withPrepAndZones()
+    delete (plain.layers[0] as DungeonLayer).rooms
+    const scene = sceneFor(plain)
+    const redacted = redactMapForViewer(scene, fog(), {})
+    expect(redacted.prep).toBeUndefined()
+    expect(zoneCount(redacted)).toBe(0)
+  })
+
+  it('drops zones from a mapDeltaFor reveal, whichever room the delta names', () => {
+    const scene = sceneFor(withPrepAndZones())
+    const zonesIn = (rooms: string[]) =>
+      mapDeltaFor(scene, SCENE, rooms, {}).layers.flatMap((l) => l.children).filter((c) => c.childType === 'zone')
+    expect(zonesIn(['hall'])).toEqual([])
+    expect(zonesIn(['vault'])).toEqual([])
+  })
+})
+
+describe('centreOf zones (D5)', () => {
+  it('a point zone centres on its authored position', () => {
+    expect(centreOf(zone('z1', { kind: 'point', position: { x: 3, y: 4 } }))).toEqual([3, 4])
+  })
+
+  it('a circle zone centres on its authored position, ignoring the radius', () => {
+    expect(centreOf(zone('z2', { kind: 'circle', position: { x: 3, y: 4 }, radius: 10 }))).toEqual([3, 4])
+  })
+
+  it('a rect zone centres on the rectangle midpoint', () => {
+    expect(centreOf(zone('z3', { kind: 'rect', x: 0, y: 0, width: 10, height: 4 }))).toEqual([5, 2])
   })
 })

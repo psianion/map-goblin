@@ -48,6 +48,56 @@ describe('mapFormat', () => {
     expect(() => decodeMapFile(bytes)).toThrow(/Incompatible file version/);
   });
 
+  it('accepts every supported version', () => {
+    for (const version of ['2.0', '3.0', '3.1'] as const) {
+      expect(decodeMapFile(encodeMapFile({ ...doc(), version })).version).toBe(version);
+    }
+  });
+
+  it('round-trips a document with prep and a zone child byte-faithfully', () => {
+    const data: SerializedMapData = {
+      ...doc(),
+      version: '3.1',
+      layers: [
+        {
+          id: 'l1',
+          name: 'L1',
+          type: 'dungeon',
+          visible: true,
+          locked: false,
+          opacity: 1,
+          children: [
+            {
+              id: 'zone-1',
+              name: 'Zone',
+              childType: 'zone',
+              visible: true,
+              shape: { kind: 'circle', position: { x: 3, y: 4 }, radius: 2 },
+            },
+          ],
+          standaloneWalls: [],
+          mergedFloor: null,
+          style: {},
+          sublayerVisibility: {},
+        } as unknown as SerializedMapData['layers'][number],
+      ],
+      prep: {
+        version: 1,
+        triggers: [
+          {
+            id: 't1',
+            name: 'Trap',
+            when: { kind: 'enter-region', zoneId: 'zone-1' },
+            actions: [{ kind: 'show-text', text: 'A dart flies out!', toPlayers: true }],
+            once: true,
+            enabled: true,
+          },
+        ],
+      },
+    };
+    expect(decodeMapFile(encodeMapFile(data))).toEqual(data);
+  });
+
   it('bytesToBase64 survives multi-chunk input', () => {
     const big = new Uint8Array(0x8000 * 2 + 3).fill(65);
     expect(atob(bytesToBase64(big)).length).toBe(big.length);

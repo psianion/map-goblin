@@ -18,3 +18,5 @@ forge/examples/
 catalog.db
 packs/*/source/
 assets/test/
+# Local design-critique snapshots (impeccable tooling)
+.impeccable/

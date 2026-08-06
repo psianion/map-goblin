@@ -6,6 +6,7 @@ import { BackgroundProperties } from './BackgroundProperties'
 import { TerrainProperties } from './TerrainProperties'
 import { LightProperties } from './LightProperties'
 import { DoorProperties } from './DoorProperties'
+import { ZoneProperties } from './ZoneProperties'
 import { ShapeTextureProperties } from './ShapeTextureProperties'
 import { TextProperties } from './TextProperties'
 import { TransformSection } from './TransformSection'
@@ -175,6 +176,17 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
     return (
       <div className="flex flex-col pt-2">
         <DoorProperties layerId={activeLayer.id} childId={selectedChild.id} />
+        <GridSection openSections={openSections} onToggleSection={onToggleSection} />
+        <AmbientSection openSections={openSections} onToggleSection={onToggleSection} />
+      </div>
+    )
+  }
+
+  // If first selected child is a zone, show zone + trigger properties
+  if (selectedChild?.childType === 'zone' && activeLayer) {
+    return (
+      <div className="flex flex-col pt-2">
+        <ZoneProperties layerId={activeLayer.id} childId={selectedChild.id} />
         <GridSection openSections={openSections} onToggleSection={onToggleSection} />
         <AmbientSection openSections={openSections} onToggleSection={onToggleSection} />
       </div>

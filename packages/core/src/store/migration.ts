@@ -1,7 +1,20 @@
 // src/store/migration.ts
 import type { SerializedMapData } from './types'
 
-export const CURRENT_VERSION = '3.0' as const
+export const CURRENT_VERSION = '3.1' as const
+
+/**
+ * Every file version a reader must accept, oldest first. THE one list — the
+ * editor's load gate, the autosave gate, the `.mapbuilder` decoder and the
+ * session server's upload validation all consume it, so widening the format is
+ * a one-line change here plus a migration below when the shape actually moved.
+ * ('3.0' → '3.1' is purely additive — optional `prep` — so no migration step.)
+ */
+export const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0', '3.1']
+
+export function isSupportedVersion(version: unknown): version is SerializedMapData['version'] {
+  return typeof version === 'string' && (SUPPORTED_VERSIONS as readonly string[]).includes(version)
+}
 
 interface WallSegmentV2 {
   id: string
@@ -31,7 +44,9 @@ export function migrateToLatest(data: V2Data | SerializedMapData): SerializedMap
     result = migrateV2ToV3(result as V2Data)
   }
 
-  if (result.version !== CURRENT_VERSION) {
+  // '3.0' loads as-is: '3.1' only added the optional `prep` block, and the
+  // version stamp is rewritten to CURRENT_VERSION on the next save.
+  if (result.version !== '3.0' && result.version !== CURRENT_VERSION) {
     throw new Error(
       `Unknown map format version: ${result.version}. Expected ${CURRENT_VERSION}.`,
     )

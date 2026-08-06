@@ -19,6 +19,7 @@ import { initClipper } from '@/geometry/initClipper';
 import { registerAllTools } from '@/engine/tools/registerTools';
 import { SnapIndicator } from './snapIndicator';
 import { DimensionHud } from './dimensionHud';
+import { mountZoneOverlay } from './zoneOverlay';
 import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
@@ -143,6 +144,9 @@ export function CanvasHost() {
       const dimensionHud = new DimensionHud(sceneGraph.overlayContainer);
       setDimensionHud(dimensionHud);
 
+      // Zone markers — editor-only, never present in the session/table bundle
+      const unmountZoneOverlay = mountZoneOverlay(sceneGraph.worldContainer);
+
       // Wire fog transition resize to engine resize events
       const unregFogResize = pixiEngine.onResize((w, h) => {
         sceneGraph.fogTransition.resize(w, h);
@@ -167,6 +171,7 @@ export function CanvasHost() {
         snapIndicator.destroy();
         setDimensionHud(null);
         dimensionHud.destroy();
+        unmountZoneOverlay();
         sceneGraph.toolManager.destroy();
         sceneGraph.lightingRenderer.destroy();
         sceneGraph.fogTransition.destroy();

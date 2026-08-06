@@ -306,6 +306,15 @@ const toolKeyMap: Record<string, () => void | false> = {
     useStore.getState().setActiveTool('text');
     notify.subtle('Label', { icon: 'tool' });
   },
+  z: () => {
+    const s = useStore.getState();
+    if (s.tools.activeTool === 'zone') {
+      togglePopoverRef.current?.();
+    } else {
+      s.setActiveTool('zone');
+      notify.subtle('Zone', { icon: 'tool' });
+    }
+  },
   // Mode toggles
   e: () => {
     const s = useStore.getState();
@@ -441,6 +450,15 @@ const toolKeyMap: Record<string, () => void | false> = {
             newChild.transform.translate[0] + 1,
             newChild.transform.translate[1] + 1,
           ];
+        } else if (newChild.childType === 'zone') {
+          // Zones keep their position inside `shape` — without this a pasted
+          // zone lands exactly on top of the original.
+          newChild.shape = newChild.shape.kind === 'rect'
+            ? { ...newChild.shape, x: newChild.shape.x + 1, y: newChild.shape.y + 1 }
+            : {
+                ...newChild.shape,
+                position: { x: newChild.shape.position.x + 1, y: newChild.shape.position.y + 1 },
+              };
         } else if ('contours' in newChild) {
           // Shapes and water carry their geometry in rings, not a position —
           // without this branch they pasted exactly on top of the original.
@@ -577,6 +595,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       }
 
       // Delete selected
+      warnOrphanedTriggers(store, store.selection.selectedIds);
       const commands = store.selection.selectedIds.map((id) => {
         const layer = selectLayerForChild(store, id);
         return new RemoveChildCommand('Cut', layer?.id ?? '', id);
@@ -615,6 +634,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       return;
     }
 
+    warnOrphanedTriggers(store, store.selection.selectedIds);
     const delCount = store.selection.selectedIds.length;
     const delCmds = store.selection.selectedIds.map((id) => {
       const layer = selectLayerForChild(store, id);
@@ -632,6 +652,26 @@ const toolKeyMap: Record<string, () => void | false> = {
     return toolKeyMap['delete']?.() ?? false;
   },
 };
+
+/**
+ * Triggers keyed to a removed zone become unreachable from every screen while
+ * still riding along in saves/publishes — say so before the zone goes, since
+ * prep edits sit outside the undo stack even though the zone itself comes
+ * back on undo. ZoneTool's own delete path carries the same warning; this
+ * covers the global Delete/Backspace/Cut shortcuts, which bypass the tool.
+ */
+function warnOrphanedTriggers(
+  store: ReturnType<typeof useStore.getState>,
+  removedIds: string[],
+): void {
+  const removed = new Set(removedIds);
+  const orphaned = store.prep?.triggers.filter((t) => removed.has(t.when.zoneId)).length ?? 0;
+  if (orphaned > 0) {
+    notify.warning(
+      `Zone deleted — ${orphaned} trigger${orphaned === 1 ? ' now references' : 's now reference'} nothing (undo restores the zone)`,
+    );
+  }
+}
 
 export interface ShortcutDefinition {
   id: string;
@@ -653,6 +693,7 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'tool.text',           keys: 'n',           category: 'Tools', label: 'Label' },
     { id: 'tool.door',           keys: 'd',           category: 'Tools', label: 'Door' },
     { id: 'tool.light',          keys: 'l',           category: 'Tools', label: 'Light' },
+    { id: 'tool.zone',           keys: 'z',           category: 'Tools', label: 'Zone' },
     { id: 'mode.erase',          keys: 'e',           category: 'Tools', label: 'Toggle Erase' },
     { id: 'mode.rough',          keys: 'x',           category: 'Tools', label: 'Toggle Rough' },
     { id: 'mode.curve',          keys: 'c',           category: 'Tools', label: 'Toggle Curve' },

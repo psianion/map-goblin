@@ -4,9 +4,8 @@
 
 import { gunzipSync } from 'node:zlib'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
-
-/** Everything `SerializedMapData['version']` allows. Widen it when core widens. */
-const SUPPORTED_VERSIONS: readonly SerializedMapData['version'][] = ['2.0', '3.0']
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- D3 waiver, same as shared/mapBounds: store/migration is the shared version list + pure JSON migration, pixi-free by design
+import { SUPPORTED_VERSIONS } from '@dnd/core/src/store/migration'
 
 /**
  * The editor writes a `.mapbuilder` as `MPBLD\0` + gzip(UTF-8 JSON) — canvas/src/io/saveLoad.ts

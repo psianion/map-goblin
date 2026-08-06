@@ -11,7 +11,7 @@ import {
 import { useStore } from '../store/store';
 import { createDungeonLayer } from '../store/factories';
 import type { ShapeChild, AssetChild, LightChild } from '../store/types';
-import type { DoorChild, TextChild, WaterChild } from '../shared/types';
+import type { DoorChild, TextChild, WaterChild, ZoneChild, ZoneShape } from '../shared/types';
 
 // ─── Helpers ──────────────────────────────────────────────
 
@@ -314,6 +314,22 @@ describe('hitTestChildren', () => {
     expect(hitTestChildren([label, asset], [5, 5])?.id).toBe('label-1');
     expect(hitTestChildren([asset, label], [5, 5])?.id).toBe('label-1');
   });
+
+  it('never hits a zone — the Select tool must not grab prep markers', () => {
+    // Deliberate: zones have no case here; ZoneTool owns all zone interaction.
+    // If someone adds a 'zone' case, this locks the conversation, not just the code.
+    const zone: import('../shared/types').ZoneChild = {
+      id: 'zone-1',
+      name: 'Zone 1',
+      childType: 'zone',
+      visible: true,
+      shape: { kind: 'rect', x: 0, y: 0, width: 10, height: 10 },
+    };
+    expect(hitTestChildren([zone], [5, 5])).toBeNull();
+    // …and it does not shadow anything underneath it either.
+    const shape = makeShape(square, { id: 'floor' });
+    expect(hitTestChildren([zone, shape], [5, 5])?.id).toBe('floor');
+  });
 });
 
 // ─── hitTestAllLayers — solo (render-only override) ───────
@@ -386,6 +402,25 @@ describe('getChildBounds', () => {
   it('returns a zero rect for water with an empty contour', () => {
     const water = makeWater([]);
     expect(getChildBounds(water)).toEqual({ x: 0, y: 0, width: 0, height: 0 });
+  });
+
+  function makeZone(shape: ZoneShape): ZoneChild {
+    return { id: 'zone-1', name: 'Zone', childType: 'zone', visible: true, shape };
+  }
+
+  it('gives a point zone half a cell of extent, centred on its position', () => {
+    const b = getChildBounds(makeZone({ kind: 'point', position: { x: 5, y: 5 } }));
+    expect(b).toEqual({ x: 4.75, y: 4.75, width: 0.5, height: 0.5 });
+  });
+
+  it('computes AABB for a circle zone from its position and radius', () => {
+    const b = getChildBounds(makeZone({ kind: 'circle', position: { x: 5, y: 5 }, radius: 3 }));
+    expect(b).toEqual({ x: 2, y: 2, width: 6, height: 6 });
+  });
+
+  it('computes AABB for a rect zone from its own fields', () => {
+    const b = getChildBounds(makeZone({ kind: 'rect', x: 1, y: 2, width: 8, height: 4 }));
+    expect(b).toEqual({ x: 1, y: 2, width: 8, height: 4 });
   });
 });
 

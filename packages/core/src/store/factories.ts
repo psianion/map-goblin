@@ -81,6 +81,7 @@ type MapBuilderState = Omit<
   | 'setClipboard' | 'setRegionClipboard' | 'setSelectionTransform' | 'bakeSelectionTransform'
   | 'toggleFavorite' | 'trackRecentUse' | 'addCustomUpload' | 'removeCustomUpload'
   | 'setManifest' | 'markCategoryLoaded' | 'addCustomImage'
+  | 'upsertTrigger' | 'removeTrigger'
   | 'loadFromFile' | 'getSerializableState' | 'resetToDefault'
   | 'loadMapIndex' | 'saveCurrentMap' | 'loadMap' | 'createNewMap' | 'deleteMap' | 'renameMap' | 'duplicateMap'
   | 'setInstalledPacks' | 'setAvailableUpdates' | 'setIsChecking' | 'setInstallProgress'
@@ -149,6 +150,9 @@ export function createDefaultState(): MapBuilderState {
           bankTextureId: 'bank-grassy-01-a1',
           flowSpeed: 0.15,
         },
+        zone: {
+          mode: 'point' as const,
+        },
       },
       recentAssets: [],
       nodeEditWallId: null,
@@ -200,5 +204,6 @@ export function createDefaultState(): MapBuilderState {
     mapIndex: [],
     activeMapId: null,
     isMapSwitching: false,
+    prep: null,
   };
 }

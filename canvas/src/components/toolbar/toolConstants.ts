@@ -12,6 +12,7 @@ export const TOOLS_WITH_POPOVER = new Set<ToolType>([
   'scatterBrush',
   'terrain',
   'water',
+  'zone',
 ]);
 
 /**

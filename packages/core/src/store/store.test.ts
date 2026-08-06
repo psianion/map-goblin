@@ -87,7 +87,7 @@ describe('MapBuilderStore', () => {
 
   it('getSerializableState returns correct shape', () => {
     const data = useStore.getState().getSerializableState();
-    expect(data.version).toBe('3.0');
+    expect(data.version).toBe('3.1');
     expect(data.mapSettings.name).toBe('Untitled Map');
     expect(data.layers).toHaveLength(2);
     expect(data.customImages).toEqual({});
@@ -173,5 +173,99 @@ describe('MapBuilderStore', () => {
     useStore.getState().setMapName('Changed');
     useStore.getState().resetToDefault();
     expect(useStore.getState().mapSettings.name).toBe('Untitled Map');
+  });
+});
+
+// ─── prep (schema 3.1) ──────────────────────────────────────
+
+describe('getSerializableState / loadFromFile — prep', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+  });
+
+  it('writes version 3.1', () => {
+    expect(useStore.getState().getSerializableState().version).toBe('3.1');
+  });
+
+  it('omits the prep key entirely when nothing was ever authored', () => {
+    const data = useStore.getState().getSerializableState();
+    expect(data.prep).toBeUndefined();
+    // The field is `undefined`, not absent from the object literal — `in` would
+    // still say true. JSON.stringify is what a save file actually goes through,
+    // and that is what drops the key so an unauthored prep leaves the server's
+    // stored prep alone on republish.
+    expect(JSON.stringify(data)).not.toContain('"prep"');
+  });
+
+  it('carries authored triggers', () => {
+    useStore.getState().upsertTrigger({
+      id: 't1',
+      name: 'Trap',
+      when: { kind: 'enter-region', zoneId: 'z1' },
+      actions: [],
+      once: true,
+      enabled: true,
+    });
+    const data = useStore.getState().getSerializableState();
+    expect(data.prep).toEqual({ version: 1, triggers: [expect.objectContaining({ id: 't1' })] });
+  });
+
+  it('an explicit empty-triggers prep survives (explicit clear, not absence)', () => {
+    useStore.getState().upsertTrigger({
+      id: 't1',
+      name: 'Trap',
+      when: { kind: 'enter-region', zoneId: 'z1' },
+      actions: [],
+      once: true,
+      enabled: true,
+    });
+    useStore.getState().removeTrigger('t1');
+    const data = useStore.getState().getSerializableState();
+    expect(data.prep).toEqual({ version: 1, triggers: [] });
+  });
+
+  it('accepts a 3.1 doc with prep and a zone child, and sets store prep', () => {
+    const data = structuredClone(useStore.getState().getSerializableState());
+    const layer = data.layers.find((l) => l.type === 'dungeon');
+    if (!layer || layer.type !== 'dungeon') throw new Error('No dungeon layer');
+    layer.children.push({
+      id: 'zone-1',
+      name: 'Zone',
+      childType: 'zone',
+      visible: true,
+      shape: { kind: 'point', position: { x: 1, y: 1 } },
+    });
+    data.version = '3.1';
+    data.prep = { version: 1, triggers: [{ id: 't1', name: 'Trap', when: { kind: 'enter-region', zoneId: 'zone-1' }, actions: [], once: true, enabled: true }] };
+
+    useStore.getState().loadFromFile(data);
+
+    expect(useStore.getState().prep).toEqual(data.prep);
+    const loadedLayer = useStore.getState().layers.find((l) => l.type === 'dungeon');
+    if (!loadedLayer || loadedLayer.type !== 'dungeon') throw new Error('Dungeon layer gone');
+    expect(loadedLayer.children.some((c) => c.id === 'zone-1')).toBe(true);
+  });
+
+  it('rejects an unsupported version and leaves prep untouched', () => {
+    useStore.getState().upsertTrigger({
+      id: 'keep-me',
+      name: 'Trap',
+      when: { kind: 'enter-region', zoneId: 'z1' },
+      actions: [],
+      once: true,
+      enabled: true,
+    });
+    const before = useStore.getState().prep;
+    const data = structuredClone(useStore.getState().getSerializableState());
+    useStore.getState().loadFromFile({ ...data, version: '4.0' } as unknown as SerializedMapData);
+    expect(useStore.getState().prep).toEqual(before);
+  });
+
+  it('a 3.0 doc with no prep field loads with store prep null', () => {
+    const data = structuredClone(useStore.getState().getSerializableState());
+    delete (data as { prep?: unknown }).prep;
+    data.version = '3.0';
+    useStore.getState().loadFromFile(data);
+    expect(useStore.getState().prep).toBeNull();
   });
 });

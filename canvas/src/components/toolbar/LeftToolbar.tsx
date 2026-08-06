@@ -19,6 +19,7 @@ import {
   Ruler,
   Type,
   Spline,
+  Crosshair,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useStore } from '@/store/store';
@@ -51,6 +52,7 @@ const TOOLS: ToolButton[] = [
   { tool: 'ruler', icon: Ruler, label: 'Measure', shortcut: 'M' },
   // N for note — T is terrain and X is the rough-mode toggle.
   { tool: 'text', icon: Type, label: 'Label', shortcut: 'N' },
+  { tool: 'zone', icon: Crosshair, label: 'Zone', shortcut: 'Z' },
 ];
 
 /** Module-level button element map — avoids useRef reads during render */
@@ -126,7 +128,7 @@ export function LeftToolbar() {
     select: 'Select', pan: 'Pan', rectangle: 'Rectangle', polygon: 'Polygon',
     regularPolygon: 'Regular Polygon', path: 'Path', wall: 'Wall', door: 'Door',
     light: 'Light', scatterBrush: 'Scatter Brush', terrain: 'Terrain Brush', water: 'Water',
-    ruler: 'Measure', text: 'Label',
+    ruler: 'Measure', text: 'Label', zone: 'Zone',
   };
 
   const handleToolClick = (tool: ToolType) => {

@@ -16,8 +16,8 @@ const V2_BASE = {
 }
 
 describe('migrateToLatest', () => {
-  it('exports CURRENT_VERSION as 3.0', () => {
-    expect(CURRENT_VERSION).toBe('3.0')
+  it('exports CURRENT_VERSION as 3.1', () => {
+    expect(CURRENT_VERSION).toBe('3.1')
   })
 
   it('migrates v2.0 data to v3.0', () => {
@@ -67,10 +67,19 @@ describe('migrateToLatest', () => {
     expect(result.layers[0].type).toBe('background')
   })
 
-  it('loads v3 files without migration', () => {
+  it('loads v3.0 files without migration', () => {
     const v3Data = { ...V2_BASE, version: '3.0' }
     const result = migrateToLatest(v3Data)
     expect(result.version).toBe('3.0')
+  })
+
+  // '3.1' only adds the optional `prep` block — no migration step, and a doc
+  // that already carries it must survive untouched, prep included.
+  it('passes v3.1 files through unchanged, prep included', () => {
+    const v31Data = { ...V2_BASE, version: '3.1', prep: { version: 1, triggers: [] } }
+    const result = migrateToLatest(v31Data)
+    expect(result.version).toBe('3.1')
+    expect(result.prep).toEqual({ version: 1, triggers: [] })
   })
 
   it('throws for unknown version', () => {

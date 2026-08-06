@@ -1,5 +1,5 @@
 import { memo, useRef, useState } from 'react'
-import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical } from 'lucide-react'
+import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical, Crosshair } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '@/store/store'
@@ -37,6 +37,8 @@ function childIcon(childType: AnyChild['childType']) {
       return <Waves size={12} />
     case 'text':
       return <Type size={12} />
+    case 'zone':
+      return <Crosshair size={12} />
   }
 }
 
@@ -46,6 +48,16 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
   const setSelectedIds = useStore((s) => s.setSelectedIds)
   const setActiveTool = useStore((s) => s.setActiveTool)
   const setActiveLayerId = useStore((s) => s.setActiveLayerId)
+
+  // Zone-only: how many triggers reference this zone, so a DM can tell a
+  // wired-up zone from an empty one without expanding it. Selector narrowed
+  // to a single number so unrelated store changes (and non-zone rows) don't
+  // rerender this row.
+  const zoneTriggerCount = useStore((s) =>
+    child.childType === 'zone'
+      ? (s.prep?.triggers.filter((t) => t.when.zoneId === child.id).length ?? 0)
+      : 0,
+  )
 
   const menu = useContextMenu()
   const isSelected = selectedIds.includes(child.id)
@@ -117,6 +129,12 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
       c.position = { x: c.position.x + 1, y: c.position.y + 1 }
     } else if ('transform' in clone && clone.transform) {
       clone.transform.translate = [clone.transform.translate[0] + 1, clone.transform.translate[1] + 1]
+    } else if (clone.childType === 'zone') {
+      // Zones keep their position inside `shape` — without this the copy lands
+      // exactly on top of the original.
+      clone.shape = clone.shape.kind === 'rect'
+        ? { ...clone.shape, x: clone.shape.x + 1, y: clone.shape.y + 1 }
+        : { ...clone.shape, position: { x: clone.shape.position.x + 1, y: clone.shape.position.y + 1 } }
     }
     undoManager.execute(new AddChildCommand('Duplicate', layerId, clone))
     notify.action('Duplicated', { label: 'Undo', onClick: () => undoManager.undo(), icon: 'copy' })
@@ -274,6 +292,10 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
         displayClassName="text-panel-body text-text-secondary"
         restoreFocusRef={rowRef}
       />
+
+      {child.childType === 'zone' && zoneTriggerCount > 0 && (
+        <span className="shrink-0 text-panel-small text-text-muted">{zoneTriggerCount}</span>
+      )}
 
       {/* visibility toggle — tabIndex=-1: reachable via the row's Space
           (see handleRowKeyDown) or the row menu, not a separate tab stop. */}
