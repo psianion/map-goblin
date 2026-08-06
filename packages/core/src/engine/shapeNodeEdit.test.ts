@@ -1,6 +1,24 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { editedOutline, editedCurvedRing } from './shapeNodeEdit';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// Clipper2 is WASM that never loads in unit tests. The drag tests only need
+// contributors() to see the lone shape overlapping its own outline.
+vi.mock('../geometry/Clipper2Engine', () => ({
+  clipper2Engine: {
+    intersection: () => [[[0, 0], [1, 0], [1, 1]]],
+    union: (subj: unknown) => subj,
+    difference: (subj: unknown) => subj,
+  },
+}));
+
+import {
+  editedOutline,
+  editedCurvedRing,
+  beginOutlineDrag,
+  updateOutlineDrag,
+  endOutlineDrag,
+} from './shapeNodeEdit';
 import { useStore } from '../store/store';
+import type { DungeonLayer, ShapeChild } from '../store/types';
 import type { Polygon } from '../types/geometry';
 import {
   edgeControls,
@@ -163,5 +181,86 @@ describe('editedCurvedRing', () => {
     expect(vt.tin![1] + vt.tout![1]).toBeCloseTo(2 * p[1], 9);
     const back = editedCurvedRing(out.ring, out.tangents, { kind: 'toggleSmooth', index: 1 })!;
     expect(back.tangents[1]).toBeNull();
+  });
+});
+
+// ─── Tangent drags through the store ────────────────────────────────────────
+
+function dungeon(): DungeonLayer {
+  const l = useStore.getState().layers.find((x): x is DungeonLayer => x.type === 'dungeon');
+  if (!l) throw new Error('default state has no dungeon layer');
+  return l;
+}
+
+function seedShape(tangents?: ShapeChild['tangents']): ShapeChild {
+  const shape = {
+    id: 'shape-curve-1',
+    name: 'Room',
+    childType: 'shape',
+    visible: true,
+    shapeType: 'polygon',
+    contours: [SQUARE.map(([x, y]) => [x, y])],
+    tangents,
+    roughnessEnabled: false,
+    textureScale: 1,
+    textureOffsetX: 0,
+    textureOffsetY: 0,
+    textureFillRotation: 0,
+    textureTint: '#ffffff',
+  } as unknown as ShapeChild;
+  const l = dungeon();
+  useStore.getState().addChild(l.id, shape);
+  useStore.getState().updateLayer(l.id, { mergedFloor: [SQUARE] } as Partial<DungeonLayer>);
+  useStore.getState().setShapeNodeEdit(shape.id);
+  return shape;
+}
+
+function editedShape(): ShapeChild {
+  const id = useStore.getState().tools.shapeNodeEditId;
+  const sh = dungeon().children.find((c): c is ShapeChild => c.id === id);
+  if (!sh) throw new Error('edited shape vanished');
+  return sh;
+}
+
+describe('tangent drags', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+    useStore.setState((s) => {
+      s.grid.snapEnabled = false;
+    });
+  });
+
+  // The walk-found regression: Alt is the pull-out gesture's trigger and stays
+  // held for its whole life, so it must not break the very pair it creates.
+  it('pull-out keeps the pair mirrored while Alt stays held', () => {
+    seedShape();
+    expect(beginOutlineDrag('tangents', 1, { which: 'out', forceMirror: true })).toBe(true);
+    updateOutlineDrag({ x: 12, y: -3 }, { x: 2, y: -3 }, { alt: true });
+    endOutlineDrag();
+    const vt = editedShape().tangents![0][1]!;
+    expect(vt.tout).toEqual([12, -3]);
+    // Mirror about the anchor (10, 0).
+    expect(vt.tin).toEqual([8, 3]);
+  });
+
+  it('a handle-tip grab still breaks the pair on Alt', () => {
+    seedShape([[null, { tin: [8, 3], tout: [12, -3] }, null, null]]);
+    expect(beginOutlineDrag('tangents', 1, { which: 'in' })).toBe(true);
+    updateOutlineDrag({ x: 6, y: 5 }, { x: -2, y: 2 }, { alt: true });
+    endOutlineDrag();
+    const vt = editedShape().tangents![0][1]!;
+    expect(vt.tin).toEqual([6, 5]);
+    // The out side stayed exactly where it was.
+    expect(vt.tout).toEqual([12, -3]);
+  });
+
+  it('a handle-tip grab of a mirrored pair keeps the mirror without Alt', () => {
+    seedShape([[null, { tin: [8, 3], tout: [12, -3] }, null, null]]);
+    expect(beginOutlineDrag('tangents', 1, { which: 'out' })).toBe(true);
+    updateOutlineDrag({ x: 13, y: -4 }, { x: 1, y: -1 }, {});
+    endOutlineDrag();
+    const vt = editedShape().tangents![0][1]!;
+    expect(vt.tout).toEqual([13, -4]);
+    expect(vt.tin).toEqual([7, 4]);
   });
 });

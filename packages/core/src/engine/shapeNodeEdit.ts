@@ -612,6 +612,13 @@ interface DragSession {
   which: 'in' | 'out' | null;
   /** Keep the tangent pair mirrored; Alt mid-drag breaks it for the gesture. */
   mirror: boolean;
+  /**
+   * The pull-out gesture (Alt-drag from an anchor) holds Alt for its whole
+   * life — Alt IS its trigger — so the alt-breaks-the-mirror rule must not
+   * apply to it, or the pair it exists to create un-mirrors on the first
+   * pointermove. Only a grab of an existing handle tip can break the pair.
+   */
+  mirrorLocked: boolean;
   /** Shape carrying the outline during the preview. */
   ownerId: string;
   collapsed: boolean;
@@ -668,6 +675,7 @@ export function beginOutlineDrag(
     indices: [],
     which: opts?.which ?? null,
     mirror,
+    mirrorLocked: opts?.forceMirror === true,
   });
 }
 
@@ -695,12 +703,16 @@ export function beginGroupOutlineDrag(
     indices,
     which: null,
     mirror: false,
+    mirrorLocked: false,
   });
 }
 
 function startDrag(
   target: OutlineTarget,
-  session: Pick<DragSession, 'ringIndex' | 'kind' | 'index' | 'indices' | 'which' | 'mirror'> & {
+  session: Pick<
+    DragSession,
+    'ringIndex' | 'kind' | 'index' | 'indices' | 'which' | 'mirror' | 'mirrorLocked'
+  > & {
     shapeId: string | null;
     base: Polygon;
   },
@@ -745,6 +757,7 @@ function startDrag(
     indices: session.indices,
     which: session.which,
     mirror: session.mirror,
+    mirrorLocked: session.mirrorLocked,
     ownerId,
     collapsed,
     latest: null,
@@ -764,7 +777,7 @@ export function updateOutlineDrag(
   opts?: { alt?: boolean },
 ): void {
   if (!drag) return;
-  if (opts?.alt && drag.kind === 'tangents') drag.mirror = false;
+  if (opts?.alt && drag.kind === 'tangents' && !drag.mirrorLocked) drag.mirror = false;
 
   let next: CurvedRing | null;
   switch (drag.kind) {
