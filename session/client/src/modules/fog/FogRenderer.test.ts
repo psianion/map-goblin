@@ -698,7 +698,7 @@ const session = (modules: Record<string, unknown> = {}): SessionState => ({
   sessionId: 's1',
   campaignId: 'c1',
   activeSceneId: 'scene-1',
-  scenes: [{ id: 'scene-1', name: 'Crypt' }],
+  scenes: [{ id: 'scene-1', name: 'Crypt', mapId: 'scene-1' }],
   players: [player],
   modules,
 });

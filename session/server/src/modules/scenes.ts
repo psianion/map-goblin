@@ -19,11 +19,12 @@ export function scenesModule(stores: Stores): GameModule {
       // #47 — a scene is its own row now, not a map id. Anything that does not resolve to
       // one in this campaign is either a typo or a client trying to point the table at
       // somebody else's scene.
-      if (stores.scenes.get(sceneId)?.campaign_id !== ctx.campaignId) {
+      const scene = stores.scenes.get(sceneId)
+      if (scene?.campaign_id !== ctx.campaignId) {
         return { code: 'invalid-command', message: `no scene '${sceneId}' in this campaign` }
       }
       stores.sessions.setActiveScene(ctx.sessionId, sceneId)
-      ctx.broadcast({ type: 'scene-changed', sceneId })
+      ctx.broadcast({ type: 'scene-changed', sceneId, mapId: scene.map_id })
     },
   }
 }

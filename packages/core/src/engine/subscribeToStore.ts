@@ -270,6 +270,15 @@ function computeMergedFloor(layer: DungeonLayer): Polygon[] | null {
 
 const pendingRebuild = new Set<string>();
 const pendingRedraw = new Set<string>();
+// Layers whose containers outlive their store entry by one flush: a wholesale document
+// swap (`loadFromFile` on a scene switch) replaces every layer id at once, and destroying
+// the outgoing containers before the incoming layers have drawn leaves a frame of bare
+// water and grid — the F1 wipe. The old scene stays on screen until the same flush that
+// first draws the new one, then goes in one motion.
+const pendingRemoval = new Set<string>();
+// `flushLayerDraws` needs the scene graph to destroy parked containers, but is module-level
+// for the tests' sake — captured here by `subscribeToStore`, which owns its lifetime.
+let removalSceneGraph: SceneGraph | null = null;
 let rafHandle: number | null = null;
 let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
@@ -297,6 +306,16 @@ export function flushLayerDraws(): void {
     const entry = getLayerEntry(id);
     const layer = useStore.getState().layers.find((l) => l.id === id);
     if (entry && layer && layer.type === 'dungeon') redrawDoors(layer, entry);
+  }
+
+  // Parked containers go last, in the same synchronous flush that drew their
+  // replacements: no frame ever renders the gap between the two scenes.
+  if (pendingRemoval.size && removalSceneGraph) {
+    const live = new Set(useStore.getState().layers.map((l) => l.id));
+    for (const id of pendingRemoval) {
+      if (!live.has(id)) removeLayerFromScene(removalSceneGraph, id);
+    }
+    pendingRemoval.clear();
   }
 }
 
@@ -346,6 +365,7 @@ export function subscribeToStore(
   lightManager: LightManager,
 ): () => void {
   const unsubscribers: (() => void)[] = [];
+  removalSceneGraph = sceneGraph;
 
   // ─── Layer list changes (add/remove/reorder) ──────────
   let prevLayerIds: string[] = [];
@@ -359,15 +379,20 @@ export function subscribeToStore(
       // Add new layers
       for (let i = 0; i < layers.length; i++) {
         const layer = layers[i];
+        // Removed and re-added before the flush ran: the container never left.
+        pendingRemoval.delete(layer.id);
         if (!entries.has(layer.id)) {
           addLayerToScene(engine, sceneGraph, layer.id, layer.type, i);
         }
       }
 
-      // Remove deleted layers
+      // Remove deleted layers — parked until the flush that draws their replacements
+      // (see pendingRemoval above). armFlush covers the no-rebuild case: a swap to a
+      // document with nothing to draw must still take the old containers down.
       for (const id of entries.keys()) {
         if (!currentIds.includes(id)) {
-          removeLayerFromScene(sceneGraph, id);
+          pendingRemoval.add(id);
+          armFlush();
         }
       }
 
@@ -840,5 +865,9 @@ export function subscribeToStore(
     for (const unsub of unsubscribers) {
       unsub();
     }
+    // Engine teardown destroys everything wholesale (clearAllLayers); nothing parked may
+    // survive into a next mount, where its ids would shadow a fresh document's layers.
+    pendingRemoval.clear();
+    removalSceneGraph = null;
   };
 }

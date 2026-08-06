@@ -3,6 +3,7 @@ import type { Role } from '@dnd/core/src/shared/protocol';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
 import { restoreCustomImages, registerImageBlob } from '@dnd/core/src/assets/textureLoader';
+import { preloadLayerTextures } from '@dnd/core/src/engine/floorWallRenderer';
 import { SPLAT_IMAGE_KEYS } from '@dnd/core/src/engine/terrain/terrainShared';
 import { endpoints } from '../endpoints';
 import { useSessionStore } from './store';
@@ -139,10 +140,10 @@ export function mergeMapDelta(
   current: SerializedMapData | null,
   delta: MapDelta,
   role: Role | undefined,
-  activeSceneId: string | null | undefined,
+  loadedSceneId: string | null | undefined,
 ): SerializedMapData | null {
   if (!current || !delta?.layers?.length) return current;
-  if (activeSceneId && delta.sceneId !== activeSceneId) return current;
+  if (loadedSceneId && delta.sceneId !== loadedSceneId) return current;
 
   const byId = new Map(delta.layers.map((layer) => [layer.id, layer]));
   const merged: SerializedMapData = {
@@ -158,15 +159,19 @@ export function mergeMapDelta(
       };
     }),
   };
-  return forViewer(merged, role, activeSceneId ?? delta.sceneId);
+  return forViewer(merged, role, loadedSceneId ?? delta.sceneId);
+}
+
+interface SceneDoc {
+  data: SerializedMapData;
+  splatPngs: [Blob | null, Blob | null];
 }
 
 /**
- * §2.3 — `GET /api/maps/:id` with the session token, straight into the store.
- * The server redacts the document for players from S3; `withoutSecretDoors` is the second
- * lock on the same door.
+ * §2.3 — `GET /api/maps/:id` with the session token. The server redacts the document for
+ * players from S3; `withoutSecretDoors` (applied at commit time) is the second lock.
  */
-export async function loadSceneMap(sceneId: string, token: string): Promise<void> {
+async function fetchSceneDoc(sceneId: string, token: string): Promise<SceneDoc> {
   const headers = { Authorization: `Bearer ${token}` };
   // `images=external` asks the server to leave the images out of the JSON and
   // list their keys instead — megabytes of base64 stop riding the document.
@@ -204,6 +209,89 @@ export async function loadSceneMap(sceneId: string, token: string): Promise<void
     await restoreCustomImages(data.customImages);
   }
 
+  return { data, splatPngs };
+}
+
+// ── Scene document cache ─────────────────────────────────────────────────────
+// Switching back to a scene the table already visited should not cost a refetch. Keyed on
+// `sceneId:mapId` so a republish is naturally a miss. Small on purpose: documents are
+// megabytes, and a table rarely bounces between more than a couple of scenes.
+const DOC_CACHE_MAX = 4;
+const docCache = new Map<string, SceneDoc>();
+const docKey = (sceneId: string, mapId: string): string => `${sceneId}:${mapId}`;
+
+function cachePut(key: string, doc: SceneDoc): void {
+  docCache.delete(key);
+  docCache.set(key, doc);
+  for (const oldest of docCache.keys()) {
+    if (docCache.size <= DOC_CACHE_MAX) break;
+    docCache.delete(oldest);
+  }
+}
+
+/**
+ * Drop every cached document of a scene. Called when fog state moves under a scene the
+ * client is not currently holding (its cached copy no longer matches what a fetch would
+ * answer) and when a swap lands a fresh fetch.
+ */
+export function invalidateSceneDocs(sceneId: string): void {
+  for (const key of docCache.keys()) {
+    if (key.startsWith(`${sceneId}:`)) docCache.delete(key);
+  }
+}
+
+// A later swap supersedes an earlier one wholesale — whichever fetch resolves last must
+// not clobber the scene the table actually moved to.
+let swapGen = 0;
+
+/**
+ * Move the table to `sceneId` without ever rendering nothing (F1/F3's client half).
+ *
+ * The held document stays in the store — and on screen — until the replacement is fully
+ * in hand: fetched (or cache-hit), images registered, floor/wall textures preloaded. Only
+ * then does one `setMapData` swap it, so the engine rebuilds straight into drawable
+ * layers instead of empty containers waiting on textures. The outgoing document is stashed
+ * in the cache as-held (merged reveals included), which is what makes switching back
+ * instant; re-applying `forViewer` on re-entry is idempotent.
+ */
+export async function swapSceneMap(sceneId: string, mapId: string, token: string): Promise<void> {
+  const gen = ++swapGen;
   const store = useSessionStore.getState();
-  store.setMapData(forViewer(data, store.you?.role, sceneId), splatPngs);
+
+  // Stash the outgoing document before anything can replace it.
+  if (store.loadedScene && store.mapData) {
+    cachePut(docKey(store.loadedScene.sceneId, store.loadedScene.mapId), {
+      data: store.mapData as SerializedMapData,
+      splatPngs: store.splatPngs,
+    });
+  }
+
+  const key = docKey(sceneId, mapId);
+  let doc = docCache.get(key);
+  if (!doc) {
+    doc = await fetchSceneDoc(sceneId, token);
+    // A fresh fetch is the newest truth for this scene — older cached copies are stale.
+    invalidateSceneDocs(sceneId);
+    cachePut(key, doc);
+  }
+
+  // Warm the textures the rebuild will ask for, so the first flush draws rather than
+  // schedules a second pass. Failure is soft — the rebuild falls back exactly as before.
+  try {
+    await Promise.all(
+      doc.data.layers
+        .filter((layer) => layer.type === 'dungeon')
+        .map((layer) => preloadLayerTextures(layer)),
+    );
+  } catch {
+    /* textures load lazily during rebuild instead */
+  }
+
+  if (gen !== swapGen) return; // superseded by a newer switch mid-flight
+
+  const fresh = useSessionStore.getState();
+  fresh.setMapData(forViewer(doc.data, fresh.you?.role, sceneId), doc.splatPngs, {
+    sceneId,
+    mapId,
+  });
 }

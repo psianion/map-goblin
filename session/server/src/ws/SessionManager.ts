@@ -23,6 +23,7 @@ interface Session {
 export interface SceneEntry {
   id: string
   name: string
+  mapId: string
   visibleToPlayers: boolean
 }
 
@@ -266,8 +267,16 @@ export class SessionManager {
           you: player,
         })
       }
-      if (changedSceneId && this.scenes(session).activeSceneId === changedSceneId) {
-        this.broadcaster.broadcast(session.id, { type: 'scene-changed', sceneId: changedSceneId })
+      const { scenes, activeSceneId } = this.scenes(session)
+      if (changedSceneId && activeSceneId === changedSceneId) {
+        const changed = scenes.find((s) => s.id === changedSceneId)
+        if (changed) {
+          this.broadcaster.broadcast(session.id, {
+            type: 'scene-changed',
+            sceneId: changedSceneId,
+            mapId: changed.mapId,
+          })
+        }
       }
     }
   }
@@ -300,7 +309,7 @@ export class SessionManager {
       // way (fog and door redaction are what actually gate its content) — this only
       // gates which *other* scenes a player can tell exist before the DM switches to one.
       scenes: (viewer.role === 'dm' ? scenes : scenes.filter((s) => s.visibleToPlayers)).map(
-        ({ id, name }) => ({ id, name }),
+        ({ id, name, mapId }) => ({ id, name, mapId }),
       ),
       activeSceneId,
       players: [...session.players.values()],

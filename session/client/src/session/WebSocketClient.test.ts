@@ -18,7 +18,7 @@ const SNAPSHOT: SessionState = {
   sessionId: 's1',
   campaignId: 'c1',
   activeSceneId: null,
-  scenes: [{ id: 'm1', name: 'Cragmaw' }],
+  scenes: [{ id: 'm1', name: 'Cragmaw', mapId: 'm1' }],
   players: [ME],
   modules: {},
 };
