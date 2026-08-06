@@ -2,9 +2,10 @@
 // two lines a viewer should not have to go read the log to catch: room text everyone hears,
 // and "did my roll succeed."
 //
-// The toast store is single-slot (`session/toasts.ts`) — a viewer who is handed two new
-// lines in the same tick sees only the second, which is the store's own semantic (a repeat
-// toast renews rather than queues) and not something this hook works around.
+// The toast store is single-slot (`session/toasts.ts`) — a repeat toast renews rather than
+// queues. Multiple *distinct* new lines in the same tick are a different problem: this hook
+// raises them as one toast (F2), its lines joined with newlines, rather than dropping all
+// but the last.
 
 import { useEffect, useRef } from 'react';
 import type { TriggerLogEntry, TriggersState } from '@dnd/mechanics/triggers';
@@ -12,12 +13,16 @@ import { sceneTriggersOf } from '@dnd/mechanics/triggers';
 import { showToast } from './toasts';
 import { useModuleState, useSessionStore } from './store';
 
+/** World narration kinds that toast the moment they land — the same bar as `show-text`:
+ *  marked `toPlayers`, seen by players and the DM alike. `environment` is a weather/time
+ *  change (M4); `light` is M5's relight narration. */
+const WORLD_KINDS = new Set(['show-text', 'environment', 'light']);
+
 /**
  * Log entries worth interrupting for, out of ones not already seen: world narration
- * (`show-text` marked `toPlayers`, seen by players and the DM alike) and this viewer's own
- * roll/trap outcome (`forIdentityId` is only ever this viewer's id or absent — the server
- * never hands a seat someone else's). Exported for the pure-logic test; `useTriggerToasts`
- * is the only runtime caller.
+ * (marked `toPlayers`) and this viewer's own roll/trap outcome (`forIdentityId` is only ever
+ * this viewer's id or absent — the server never hands a seat someone else's). Exported for
+ * the pure-logic test; `useTriggerToasts` is the only runtime caller.
  */
 export function pickToastable(
   entries: readonly TriggerLogEntry[],
@@ -27,7 +32,7 @@ export function pickToastable(
   return entries.filter(
     (e) =>
       !seen.has(e.id) &&
-      ((e.kind === 'show-text' && e.toPlayers) ||
+      ((WORLD_KINDS.has(e.kind) && e.toPlayers) ||
         (myIdentityId !== undefined && e.forIdentityId === myIdentityId)),
   );
 }
@@ -55,9 +60,8 @@ export function useTriggerToasts(): void {
       seenScene.current = sceneId;
       return;
     }
-    for (const entry of pickToastable(log, seen.current, myIdentityId)) {
-      showToast({ message: entry.text });
-    }
+    const news = pickToastable(log, seen.current, myIdentityId);
+    if (news.length) showToast({ message: news.map((e) => e.text).join('\n') });
     for (const entry of log) seen.current.add(entry.id);
   }, [state, sceneId, myIdentityId]);
 }

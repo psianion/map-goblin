@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { getEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
-import { useSessionStore } from '../session/store';
+import type { TriggersState } from '@dnd/mechanics/triggers';
+import { sceneTriggersOf } from '@dnd/mechanics/triggers';
+import { vocabLabel } from '@dnd/core/src/shared/prep';
+import { useModuleState, useSessionStore } from '../session/store';
 import { MAX_ZOOM } from '../renderer/camera';
 import { fitMap, minZoom, zoomAbout } from '../renderer/cameraInput';
 
@@ -105,6 +108,15 @@ export function TableStatusBar() {
   const connection = useSessionStore((s) => s.connection);
   const latencyMs = useSessionStore((s) => s.latencyMs);
   const sessionEnded = useSessionStore((s) => s.sessionEnded);
+  const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
+  const triggersState = useModuleState<TriggersState>('triggers');
+  const env = sceneId && triggersState ? sceneTriggersOf(triggersState, sceneId).env : {};
+  const envLabel = [
+    env.time !== undefined ? vocabLabel(env.time) : undefined,
+    env.weather !== undefined ? vocabLabel(env.weather) : undefined,
+  ]
+    .filter((v): v is string => v !== undefined)
+    .join(', ');
   const rafRef = useRef(0);
   const frameCountRef = useRef(0);
 
@@ -147,6 +159,14 @@ export function TableStatusBar() {
         <span>{sessionEnded ? 'Session ended' : conn.label}</span>
         {connection === 'open' && latencyMs !== null && (
           <span className="text-text-secondary">{Math.round(latencyMs)} ms</span>
+        )}
+        {envLabel && (
+          <>
+            <span>&middot;</span>
+            <span data-testid="env-badge" className="text-text-secondary">
+              {envLabel}
+            </span>
+          </>
         )}
       </div>
 

@@ -1,5 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
+import { TIMES, WEATHERS, vocabLabel, type TimeOfDay, type Weather } from '@dnd/core/src/shared/prep';
+import type { TriggersState } from '@dnd/mechanics/triggers';
+import { sceneTriggersOf } from '@dnd/mechanics/triggers';
 import {
   deleteScene,
   listScenes,
@@ -11,7 +14,7 @@ import {
 } from '../session/auth';
 import { readMapFile } from '../session/mapFile';
 import { ALL_ROLES, registerPanel } from '../session/panels';
-import { useSessionStore } from '../session/store';
+import { useModuleState, useSessionStore } from '../session/store';
 import { InviteCodeChip } from './InviteCodeChip';
 import { PlayerList } from './PlayerList';
 
@@ -20,6 +23,13 @@ const iconButton =
   'shrink-0 rounded px-1.5 py-0.5 text-xs text-neutral-400 hover:bg-neutral-700 hover:text-neutral-100 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-neutral-400';
 const textInput =
   'w-full rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 text-sm text-neutral-100 focus:border-neutral-500 focus:outline-none';
+const selectInput =
+  'min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 text-sm text-neutral-100 focus:border-neutral-500 focus:outline-none';
+
+// A pending environment pick the module state never confirms (dropped command,
+// disconnect) must not show forever — each field's own timer falls it back to the
+// env echo. Fixed window; key it to connection state instead if 4s proves tight.
+const PENDING_TIMEOUT_MS = 4000;
 
 /**
  * §2.4.2 — the DM's corner of the table: invite code, scene library, and in-session
@@ -76,6 +86,82 @@ export function SessionControls() {
   const activate = (sceneId: string) => {
     if (sceneId === activeSceneId) return;
     useSessionStore.getState().sendCommand('scenes', 'activate', { sceneId });
+  };
+
+  // The module keeps env per scene and only ever sets a field, never clears one (see the
+  // module's own `set-environment` — "at least one of time/weather" isn't "either can go
+  // back to unset"), so there is nothing here to reset when the active scene has none yet.
+  const triggersState = useModuleState<TriggersState>('triggers');
+  const env = activeSceneId && triggersState ? sceneTriggersOf(triggersState, activeSceneId).env : {};
+
+  // Optimistic echo: a select shows its own pending pick the instant it's clicked rather
+  // than snapping back to `env` until the server's broadcast round-trips. Cleared per-field
+  // once `env` catches up, and wholesale on scene switch — a pending pick from the scene you
+  // just left has no business showing on the one you switched to.
+  const [pending, setPending] = useState<{ time?: TimeOfDay; weather?: Weather }>({});
+  const pendingTimeouts = useRef<{ time?: ReturnType<typeof setTimeout>; weather?: ReturnType<typeof setTimeout> }>(
+    {},
+  );
+  const clearPendingTimeout = (field: 'time' | 'weather') => {
+    clearTimeout(pendingTimeouts.current[field]);
+    pendingTimeouts.current[field] = undefined;
+  };
+
+  useEffect(() => {
+    setPending({});
+    clearPendingTimeout('time');
+    clearPendingTimeout('weather');
+  }, [activeSceneId]);
+
+  useEffect(
+    () => () => {
+      clearPendingTimeout('time');
+      clearPendingTimeout('weather');
+    },
+    [],
+  );
+
+  useEffect(() => {
+    setPending((p) => {
+      const timeDone = p.time !== undefined && p.time === env.time;
+      const weatherDone = p.weather !== undefined && p.weather === env.weather;
+      if (!timeDone && !weatherDone) return p; // unchanged reference — no wasted render
+      const next = { ...p };
+      if (timeDone) {
+        delete next.time;
+        clearPendingTimeout('time');
+      }
+      if (weatherDone) {
+        delete next.weather;
+        clearPendingTimeout('weather');
+      }
+      return next;
+    });
+  }, [env.time, env.weather]);
+
+  const setTime = (time: TimeOfDay) => {
+    setPending((p) => ({ ...p, time }));
+    clearPendingTimeout('time');
+    pendingTimeouts.current.time = setTimeout(() => {
+      setPending((p) => {
+        const next = { ...p };
+        delete next.time;
+        return next;
+      });
+    }, PENDING_TIMEOUT_MS);
+    useSessionStore.getState().sendCommand('triggers', 'set-environment', { time });
+  };
+  const setWeather = (weather: Weather) => {
+    setPending((p) => ({ ...p, weather }));
+    clearPendingTimeout('weather');
+    pendingTimeouts.current.weather = setTimeout(() => {
+      setPending((p) => {
+        const next = { ...p };
+        delete next.weather;
+        return next;
+      });
+    }, PENDING_TIMEOUT_MS);
+    useSessionStore.getState().sendCommand('triggers', 'set-environment', { weather });
   };
 
   const upload = (file: File) =>
@@ -247,6 +333,67 @@ export function SessionControls() {
               </li>
             ))}
           </ul>
+        )}
+      </div>
+
+      <div className="border-t border-neutral-800 pt-2">
+        <p className="mb-1 text-xs uppercase tracking-wide text-neutral-500">Environment</p>
+        {activeSceneId ? (
+          <div className="flex gap-2">
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              {/* Sentence case, no tracking — a field under the ENVIRONMENT header, not a peer section. */}
+              <label htmlFor="env-time-select" className="text-xs text-neutral-500">
+                Time
+              </label>
+              <select
+                id="env-time-select"
+                value={pending.time ?? env.time ?? ''}
+                aria-label="Time of day"
+                data-testid="env-time"
+                onChange={(e) => {
+                  const time = e.target.value as TimeOfDay | '';
+                  if (time) setTime(time);
+                }}
+                className={selectInput}
+              >
+                <option value="" disabled={pending.time !== undefined || env.time !== undefined}>
+                  Not set
+                </option>
+                {TIMES.map((t) => (
+                  <option key={t} value={t}>
+                    {vocabLabel(t)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <label htmlFor="env-weather-select" className="text-xs text-neutral-500">
+                Weather
+              </label>
+              <select
+                id="env-weather-select"
+                value={pending.weather ?? env.weather ?? ''}
+                aria-label="Weather"
+                data-testid="env-weather"
+                onChange={(e) => {
+                  const weather = e.target.value as Weather | '';
+                  if (weather) setWeather(weather);
+                }}
+                className={selectInput}
+              >
+                <option value="" disabled={pending.weather !== undefined || env.weather !== undefined}>
+                  Not set
+                </option>
+                {WEATHERS.map((w) => (
+                  <option key={w} value={w}>
+                    {vocabLabel(w)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-neutral-500">Activate a scene to set its environment.</p>
         )}
       </div>
 

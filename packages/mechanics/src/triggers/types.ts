@@ -24,6 +24,9 @@ export interface ResolvedTrigger {
   /** Human-readable reason (missing zone / no containing room / missing light) — set ⇒ this
    *  trigger never fires, manual `fire` included. */
   inert?: string
+  /** A `light` action's lightId → the light's own display name, resolved server-side —
+   *  the pure module never imports the map to look one up itself. */
+  lightNames?: Record<string, string>
 }
 
 export interface ResolvedPrep {

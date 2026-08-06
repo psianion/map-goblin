@@ -1,6 +1,7 @@
 import { Container, Graphics } from 'pixi.js';
 import { useStore } from '@/store/store';
 import { isLayerEffectivelyVisible } from '@dnd/core/src/store/selectors';
+import { getEngineSingleton } from '@/engine/engineSingleton';
 import type { DungeonLayer, ZoneChild } from '@/store/types';
 import type { ZoneShape } from '@dnd/core/src/shared/types';
 
@@ -11,13 +12,26 @@ import type { ZoneShape } from '@dnd/core/src/shared/types';
  * table-facing, so this file living in the canvas package rather than core
  * is the whole guarantee: it is never imported by session/client.
  *
- * Subscribes on a string digest of the visible zones (+ their selection
- * state) rather than joining `subscribeToStore`'s digest cache — that cache
- * is shared with the table client and deliberately excludes zones. The
- * digest matters: an equality-less subscribe fires on every store write, and
- * an unconditional `graphics.clear()` dirties the render group on every
- * pointermove of every other tool.
+ * Every world-unit constant below (stroke widths, the point radius, the
+ * dash pattern) is divided by (zoom / REFERENCE_ZOOM) before drawing, so the
+ * marker keeps constant weight on screen at any zoom — the same guarantee
+ * the light icons get from being drawn in screen space. `zoom` here is
+ * `stage().scale.x`, i.e. pixels-per-world-unit (20 at 100%, set in
+ * PixiRenderEngine's initial camera), not a 1.0-based multiplier — dividing
+ * world constants by the raw zoom cancels the container's own scale exactly
+ * and pins every marker to a fixed sub-pixel size, so REFERENCE_ZOOM is what
+ * makes the authored constants read as their intended on-screen weight at
+ * 100% and hold it as the camera moves.
+ *
+ * Zone geometry and selection live in the store, but the camera zoom does
+ * not (it's plain Pixi stage state, like the zoom slider's own
+ * `stage().scale.x` poll), so there's nothing in the store to subscribe to
+ * for "zoom changed" — a frame poll compares the zoom to the last-seen
+ * value. Geometry/selection changes still come from the store, via a
+ * `subscribeWithSelector` dirty flag, so the poll doesn't have to re-walk
+ * every dungeon child 60 times a second to know whether zones changed.
  */
+const REFERENCE_ZOOM = 20;
 
 // Canvas overlays are theme-free white + ink: the app accent is a theme (and
 // will be user-customizable), and an accent-colored marker can vanish on
@@ -27,17 +41,27 @@ const WHITE = 0xffffff;
 const INK = 0x191b16;
 /** Outset of the second ring drawn around a selected zone, world units. */
 const SELECT_RING = 0.1;
+/** Width of the thin outline rings (the point marker's own outline, the select ring). */
+const RING_WIDTH = 0.03;
+/** Interior fill on top of the ink fill so zones read on black-surround (unlit) maps too. */
+const WHITE_FILL = { unselected: 0.05, selected: 0.09 };
 
-function drawZone(g: Graphics, shape: ZoneShape, selected: boolean): void {
+function drawZone(g: Graphics, shape: ZoneShape, selected: boolean, zoom: number): void {
   const fillAlpha = selected ? 0.15 : 0.08;
+  const whiteFillAlpha = selected ? WHITE_FILL.selected : WHITE_FILL.unselected;
   const strokeAlpha = selected ? 0.95 : 0.65;
-  const strokeWidth = selected ? 0.06 : 0.04;
-  const inkWidth = strokeWidth + 0.03;
+  const scale = zoom / REFERENCE_ZOOM;
+  const strokeWidth = (selected ? 0.06 : 0.04) / scale;
+  const inkWidth = strokeWidth + 0.03 / scale;
+  const ringWidth = RING_WIDTH / scale;
+  const selectRing = SELECT_RING / scale;
+  const dash = DASH / scale;
+  const gap = GAP / scale;
 
   switch (shape.kind) {
     case 'point': {
       const { x, y } = shape.position;
-      const r = selected ? 0.16 : 0.13;
+      const r = (selected ? 0.16 : 0.13) / scale;
       const crosshair = () => {
         g.moveTo(x - r * 1.8, y).lineTo(x + r * 1.8, y);
         g.moveTo(x, y - r * 1.8).lineTo(x, y + r * 1.8);
@@ -47,9 +71,9 @@ function drawZone(g: Graphics, shape: ZoneShape, selected: boolean): void {
       crosshair();
       g.stroke({ color: WHITE, width: strokeWidth, alpha: strokeAlpha });
       g.circle(x, y, r).fill({ color: WHITE, alpha: selected ? 0.95 : 0.7 });
-      g.circle(x, y, r).stroke({ color: INK, width: 0.03, alpha: 0.85 });
+      g.circle(x, y, r).stroke({ color: INK, width: ringWidth, alpha: 0.85 });
       if (selected) {
-        g.circle(x, y, r + SELECT_RING).stroke({ color: WHITE, width: 0.03, alpha: 0.9 });
+        g.circle(x, y, r + selectRing).stroke({ color: WHITE, width: ringWidth, alpha: 0.9 });
       }
       break;
     }
@@ -57,18 +81,20 @@ function drawZone(g: Graphics, shape: ZoneShape, selected: boolean): void {
       const { x, y } = shape.position;
       const r = shape.radius;
       g.circle(x, y, r).fill({ color: INK, alpha: fillAlpha });
+      g.circle(x, y, r).fill({ color: WHITE, alpha: whiteFillAlpha });
       if (selected) {
         g.circle(x, y, r).stroke({ color: INK, width: inkWidth, alpha: 0.7 });
         g.circle(x, y, r).stroke({ color: WHITE, width: strokeWidth, alpha: strokeAlpha });
-        g.circle(x, y, r + SELECT_RING).stroke({ color: WHITE, width: 0.03, alpha: 0.9 });
+        g.circle(x, y, r + selectRing).stroke({ color: WHITE, width: ringWidth, alpha: 0.9 });
       } else {
-        dashedCircle(g, x, y, r, INK, inkWidth, 0.5);
-        dashedCircle(g, x, y, r, WHITE, strokeWidth, strokeAlpha);
+        dashedCircle(g, x, y, r, INK, inkWidth, 0.5, dash, gap);
+        dashedCircle(g, x, y, r, WHITE, strokeWidth, strokeAlpha, dash, gap);
       }
       break;
     }
     case 'rect':
       g.rect(shape.x, shape.y, shape.width, shape.height).fill({ color: INK, alpha: fillAlpha });
+      g.rect(shape.x, shape.y, shape.width, shape.height).fill({ color: WHITE, alpha: whiteFillAlpha });
       if (selected) {
         g.rect(shape.x, shape.y, shape.width, shape.height).stroke({ color: INK, width: inkWidth, alpha: 0.7 });
         g.rect(shape.x, shape.y, shape.width, shape.height).stroke({
@@ -77,31 +103,25 @@ function drawZone(g: Graphics, shape: ZoneShape, selected: boolean): void {
           alpha: strokeAlpha,
         });
         g.rect(
-          shape.x - SELECT_RING,
-          shape.y - SELECT_RING,
-          shape.width + SELECT_RING * 2,
-          shape.height + SELECT_RING * 2,
-        ).stroke({ color: WHITE, width: 0.03, alpha: 0.9 });
+          shape.x - selectRing,
+          shape.y - selectRing,
+          shape.width + selectRing * 2,
+          shape.height + selectRing * 2,
+        ).stroke({ color: WHITE, width: ringWidth, alpha: 0.9 });
       } else {
-        dashedRect(g, shape.x, shape.y, shape.width, shape.height, INK, inkWidth, 0.5);
-        dashedRect(g, shape.x, shape.y, shape.width, shape.height, WHITE, strokeWidth, strokeAlpha);
+        dashedRect(g, shape.x, shape.y, shape.width, shape.height, INK, inkWidth, 0.5, dash, gap);
+        dashedRect(g, shape.x, shape.y, shape.width, shape.height, WHITE, strokeWidth, strokeAlpha, dash, gap);
       }
       break;
   }
 }
 
-/** World-unit dash/gap length — Pixi has no native dashed stroke. */
+/** World-unit dash/gap length (pre-zoom) — Pixi has no native dashed stroke. */
 const DASH = 0.15;
 const GAP = 0.1;
 const CIRCLE_SEGMENTS = 32;
 
-function dashSegment(
-  g: Graphics,
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-): void {
+function dashSegment(g: Graphics, x1: number, y1: number, x2: number, y2: number, dash: number, gap: number): void {
   const dx = x2 - x1;
   const dy = y2 - y1;
   const len = Math.hypot(dx, dy);
@@ -110,32 +130,61 @@ function dashSegment(
   const uy = dy / len;
   let pos = 0;
   while (pos < len) {
-    const end = Math.min(pos + DASH, len);
+    const end = Math.min(pos + dash, len);
     g.moveTo(x1 + ux * pos, y1 + uy * pos);
     g.lineTo(x1 + ux * end, y1 + uy * end);
-    pos += DASH + GAP;
+    pos += dash + gap;
   }
 }
 
-function dashedPolygon(g: Graphics, points: [number, number][], color: number, width: number, alpha: number): void {
+function dashedPolygon(
+  g: Graphics,
+  points: [number, number][],
+  color: number,
+  width: number,
+  alpha: number,
+  dash: number,
+  gap: number,
+): void {
   for (let i = 0; i < points.length; i++) {
     const [x1, y1] = points[i];
     const [x2, y2] = points[(i + 1) % points.length];
-    dashSegment(g, x1, y1, x2, y2);
+    dashSegment(g, x1, y1, x2, y2, dash, gap);
   }
   g.stroke({ color, width, alpha });
 }
 
-function dashedCircle(g: Graphics, cx: number, cy: number, r: number, color: number, width: number, alpha: number): void {
+function dashedCircle(
+  g: Graphics,
+  cx: number,
+  cy: number,
+  r: number,
+  color: number,
+  width: number,
+  alpha: number,
+  dash: number,
+  gap: number,
+): void {
   const points: [number, number][] = [];
   for (let i = 0; i < CIRCLE_SEGMENTS; i++) {
     const a = (i / CIRCLE_SEGMENTS) * Math.PI * 2;
     points.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
   }
-  dashedPolygon(g, points, color, width, alpha);
+  dashedPolygon(g, points, color, width, alpha, dash, gap);
 }
 
-function dashedRect(g: Graphics, x: number, y: number, w: number, h: number, color: number, width: number, alpha: number): void {
+function dashedRect(
+  g: Graphics,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  color: number,
+  width: number,
+  alpha: number,
+  dash: number,
+  gap: number,
+): void {
   dashedPolygon(
     g,
     [
@@ -147,6 +196,8 @@ function dashedRect(g: Graphics, x: number, y: number, w: number, h: number, col
     color,
     width,
     alpha,
+    dash,
+    gap,
   );
 }
 
@@ -164,18 +215,9 @@ function visibleZones(state: StoreState): { zone: ZoneChild; selected: boolean }
   return out;
 }
 
-/** Primitive digest so zustand's default Object.is skips redraws on unrelated writes. */
-function zoneDigest(state: StoreState): string {
-  let key = '';
-  for (const { zone, selected } of visibleZones(state)) {
-    const s = zone.shape;
-    key += zone.id + (selected ? '!' : '.');
-    key +=
-      s.kind === 'rect'
-        ? `r${s.x},${s.y},${s.width},${s.height};`
-        : `${s.kind === 'circle' ? `c` : 'p'}${s.position.x},${s.position.y}${s.kind === 'circle' ? `,${s.radius}` : ''};`;
-  }
-  return key;
+/** Current stage zoom, or REFERENCE_ZOOM (100%) with no engine mounted (tests, or before CanvasHost wires one). */
+function currentZoom(): number {
+  return getEngineSingleton()?.engine.stage().scale.x ?? REFERENCE_ZOOM;
 }
 
 /**
@@ -187,16 +229,44 @@ export function mountZoneOverlay(worldContainer: Container): () => void {
   graphics.label = 'zoneOverlay';
   worldContainer.addChild(graphics);
 
-  const redraw = () => {
+  const redraw = (zoom: number) => {
     graphics.clear();
     for (const { zone, selected } of visibleZones(useStore.getState())) {
-      drawZone(graphics, zone.shape, selected);
+      drawZone(graphics, zone.shape, selected, zoom);
     }
   };
 
-  const unsubscribe = useStore.subscribe(zoneDigest, redraw, { fireImmediately: true });
+  // Zoom lives outside the store (plain Pixi stage state), so a rAF poll is still needed to
+  // notice it moved — same idiom as the zoom slider's own poll. Zone geometry/selection do
+  // live in the store, so those are store-write-driven: a dirty flag, not a per-frame walk
+  // of every dungeon child.
+  let dirty = true;
+  // ui.solo is a key of its own: toggleSoloLayer never touches `layers`, but
+  // isLayerEffectivelyVisible reads it — same trap renderLoop.ts documents.
+  const unsubscribe = useStore.subscribe(
+    (state) => [state.layers, state.selection.selectedIds, state.ui.solo] as const,
+    () => {
+      dirty = true;
+    },
+    { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] },
+  );
+
+  let lastZoom = NaN;
+  let rafId = 0;
+  const tick = () => {
+    // Scheduled first so a throw below costs this one frame, not the whole loop.
+    rafId = requestAnimationFrame(tick);
+    const zoom = currentZoom();
+    if (dirty || zoom !== lastZoom) {
+      dirty = false;
+      lastZoom = zoom;
+      redraw(zoom);
+    }
+  };
+  tick();
 
   return () => {
+    cancelAnimationFrame(rafId);
     unsubscribe();
     graphics.destroy();
   };

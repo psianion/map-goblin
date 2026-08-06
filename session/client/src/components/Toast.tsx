@@ -37,7 +37,7 @@ export function ToastHost() {
         data-animated={entrance ? 'true' : 'false'}
         className={`pointer-events-auto flex max-w-md items-center gap-3 rounded border border-border-default bg-surface-2 px-3 py-2 text-sm text-text-primary shadow-lg shadow-black/50 ${entrance}`}
       >
-        <span className="min-w-0 flex-1">{toast.message}</span>
+        <span className="min-w-0 flex-1 whitespace-pre-line">{toast.message}</span>
         {toast.action && (
           <button
             type="button"

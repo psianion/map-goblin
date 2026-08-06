@@ -1,5 +1,5 @@
 import type { ScenePrep, TriggerDef } from '@dnd/core/src/shared/prep'
-import type { Room, ZoneChild } from '@dnd/core/src/shared/types'
+import type { LightChild, Room, ZoneChild } from '@dnd/core/src/shared/types'
 import { SERVER_URL } from './table'
 
 /**
@@ -302,5 +302,89 @@ export function triggersFlagshipDoc(name: string): Record<string, unknown> {
     ],
     customImages: {},
     prep: triggersFlagshipPrep(),
+  }
+}
+
+// ─── M5 time & weather fixture ─────────────────────────
+
+const LAMP_ZONE_ID = 'zone-lamp'
+
+export const TIME_WEATHER_FIXTURE = {
+  /** Outside the lamp zone. */
+  spawn: { x: 1.5, y: 1.5 },
+  /** Inside `zone-lamp`'s rect (10,10)-(14,14), cell-centred. */
+  lampPoint: { x: 11.5, y: 11.5 },
+  lightId: 'light-lamp',
+  lightName: 'Lamp',
+  triggerId: 'trg-lamp',
+} as const
+
+/** One `enter-region` trigger wired to a `light` action — M5's live-relight row. */
+export function timeWeatherPrep(): ScenePrep {
+  const f = TIME_WEATHER_FIXTURE
+  const triggers: TriggerDef[] = [
+    {
+      id: f.triggerId,
+      name: 'Lamp trigger',
+      when: { kind: 'enter-region', zoneId: LAMP_ZONE_ID },
+      actions: [{ kind: 'light', lightId: f.lightId, on: true }],
+      once: true,
+      enabled: true,
+    },
+  ]
+  return { version: 1, triggers }
+}
+
+/**
+ * The map doc `timeWeatherPrep()` anchors to: a zone to walk into and the light it wires
+ * to, authored off (`visible: false`) so the trigger's flip is observable. No room needed —
+ * `enter-region` resolves straight off the zone's own shape, unlike `room-revealed`.
+ */
+export function timeWeatherDoc(name: string): Record<string, unknown> {
+  const f = TIME_WEATHER_FIXTURE
+  const zone: ZoneChild = {
+    id: LAMP_ZONE_ID,
+    name: 'Lamp zone',
+    childType: 'zone',
+    visible: true,
+    shape: { kind: 'rect', x: 10, y: 10, width: 4, height: 4 },
+  }
+  const light: LightChild = {
+    id: f.lightId,
+    name: f.lightName,
+    childType: 'light',
+    visible: false,
+    color: '#ffaa55',
+    radius: 5,
+    featherRadius: 2,
+    intensity: 1,
+    falloff: 'linear',
+    position: { x: 12, y: 12 },
+  }
+  return {
+    version: '3.1',
+    mapSettings: { name, gridType: 'square', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#101018' },
+    grid: { visible: true, snapDivision: 1, style: 'clean' },
+    layers: [
+      {
+        id: 'layer-1',
+        name: 'Dungeon',
+        type: 'dungeon',
+        visible: true,
+        locked: false,
+        opacity: 1,
+        standaloneWalls: [],
+        mergedFloor: null,
+        // Both empty-ish, but present — see `triggersFlagshipDoc`'s own note: the renderer
+        // reads these unconditionally, an absent object crashes the page rather than drawing
+        // nothing.
+        style: {},
+        sublayerVisibility: { floor: true, grid: true, walls: true },
+        rooms: [],
+        children: [zone, light],
+      },
+    ],
+    customImages: {},
+    prep: timeWeatherPrep(),
   }
 }

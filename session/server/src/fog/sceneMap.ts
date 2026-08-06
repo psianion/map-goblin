@@ -31,8 +31,10 @@ export interface SceneMap {
   doors: readonly DoorChild[]
   /** DM-authored trigger anchors (M4) — never rendered, never sent to a player (prep.ts). */
   zones: readonly ZoneChild[]
-  /** ids of every authored light — how a trigger's `light` action is checked for staleness. */
-  lightIds: ReadonlySet<string>
+  /** Every authored light, id → its display name — how a trigger's `light` action is checked
+   *  for staleness, and how M5's narration gets a light's name without a server import into
+   *  the (pure) triggers module. */
+  lightNames: ReadonlyMap<string, string>
   /** The room whose polygon contains the point, or null if it is on unzoned map (D6). */
   roomAt(x: number, y: number): string | null
   /** The rooms a wall segment borders — both sides of a shared wall. */
@@ -90,8 +92,12 @@ function index(campaignId: string, data: SerializedMapData): SceneMap {
   const zones = layers.flatMap((layer) =>
     childrenOf(layer).filter((child): child is ZoneChild => child.childType === 'zone'),
   )
-  const lightIds = new Set(
-    layers.flatMap((layer) => childrenOf(layer).filter((child) => child.childType === 'light').map((c) => c.id)),
+  const lightNames = new Map(
+    layers.flatMap((layer) =>
+      childrenOf(layer)
+        .filter((child) => child.childType === 'light')
+        .map((c): [string, string] => [c.id, c.name]),
+    ),
   )
   return {
     campaignId,
@@ -99,7 +105,7 @@ function index(campaignId: string, data: SerializedMapData): SceneMap {
     rooms,
     doors,
     zones,
-    lightIds,
+    lightNames,
     roomAt: (x, y) => rooms.find((room) => contains(room, x, y))?.id ?? null,
     roomsAlong: (wall) => {
       const [ax, ay] = wall.points[0]
