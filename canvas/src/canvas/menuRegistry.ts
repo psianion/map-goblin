@@ -169,6 +169,7 @@ registerMenu('asset', (ctx) => {
 })
 
 const LIGHT_SWATCHES = ['#ffdd88', '#ffb45e', '#ff7a5e', '#aec8ff', '#b7ffd9', '#e8e4d8']
+const LIGHT_SWATCH_NAMES = ['Candlelight', 'Torchlight', 'Embers', 'Moonlight', 'Faerie glow', 'Daylight']
 
 registerMenu('light', (ctx) => {
   const child = ctx.child
@@ -204,6 +205,7 @@ registerMenu('light', (ctx) => {
       label: 'Colour',
       value: child.color,
       options: LIGHT_SWATCHES,
+      optionNames: LIGHT_SWATCH_NAMES,
       onPick: (color) =>
         commitChild('Light colour', layerId, child.id, { color: child.color }, { color }),
     },
@@ -251,7 +253,10 @@ registerMenu('door', (ctx) => {
       type: 'submenu',
       label: 'Style',
       rows: DOOR_STYLES.map((s) => ({
-        label: s.label + (child.style === s.value ? ' ✓' : ''),
+        label: s.label,
+        // A real checked state, not ' ✓' pasted into the label — the row
+        // announces as one choice of a set and draws the glyph itself.
+        checked: child.style === s.value,
         onSelect: () =>
           commitChild('Door style', layerId, child.id, { style: child.style }, { style: s.value }),
       })),
@@ -340,6 +345,11 @@ export function buildMultiMenu(count: number): MenuRow[] {
     for (const c of l.children) if (ids.has(c.id)) kinds.add(c.childType)
   }
   const flippable = ['asset', 'shape', 'water'].some((k) => kinds.has(k))
+  // Move-to-layer is most wanted exactly here — herding a mixed selection
+  // onto one layer — so the multi menu offers it like every single menu does.
+  const targetLayers = store.layers.filter(
+    (l): l is DungeonLayer => l.type === 'dungeon' && !l.locked,
+  )
   return [
     { type: 'header', label: `${count} selected` },
     { label: 'Duplicate', kbd: 'Ctrl+D', onSelect: () => handleShortcut('ctrl+d') },
@@ -347,6 +357,18 @@ export function buildMultiMenu(count: number): MenuRow[] {
       ? [
           { label: 'Flip horizontal', kbd: 'Shift+H', onSelect: () => handleShortcut('shift+h') },
           { label: 'Flip vertical', kbd: 'Shift+V', onSelect: () => handleShortcut('shift+v') },
+        ]
+      : []),
+    ...(targetLayers.length > 0
+      ? [
+          {
+            type: 'submenu' as const,
+            label: 'Move to layer',
+            rows: targetLayers.map((l) => ({
+              label: l.name,
+              onSelect: () => moveSelectionToLayer(l.id),
+            })),
+          },
         ]
       : []),
     {

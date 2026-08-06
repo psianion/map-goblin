@@ -174,7 +174,12 @@ describe('buildMultiMenu', () => {
     useStore.getState().addChild(layer().id, a);
     useStore.getState().addChild(layer().id, b);
     useStore.getState().setSelectedIds([a.id, b.id]);
-    expect(labels(buildMultiMenu(2))).toEqual(['2 selected', 'Duplicate', 'Delete']);
+    expect(labels(buildMultiMenu(2))).toEqual([
+      '2 selected',
+      'Duplicate',
+      'Move to layer',
+      'Delete',
+    ]);
   });
 
   it('offers the full shared-verb intersection for a flippable selection', () => {
@@ -201,6 +206,7 @@ describe('buildMultiMenu', () => {
       'Duplicate',
       'Flip horizontal',
       'Flip vertical',
+      'Move to layer',
       'Delete',
     ]);
   });

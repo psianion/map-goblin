@@ -9,6 +9,7 @@ import type { AnyChild, DungeonLayer } from '../../store/types';
 import { isLayerEffectivelyVisible } from '../../store/selectors';
 import type { RenderEngine } from '../RenderEngine';
 import { TransformGizmo, type HandleType } from './TransformGizmo';
+import { OVERLAY_INK, OVERLAY_WHITE } from '../overlayPalette';
 import { computeBoundingBox } from './transformMath';
 import {
   anchorForHandle,
@@ -71,7 +72,7 @@ class RegionOverlay {
       for (let i = 1; i < poly.length; i++) g.lineTo(poly[i][0], poly[i][1]);
       g.closePath();
     }
-    g.fill({ color: 0x4488ff, alpha: 0.15 });
+    g.fill({ color: OVERLAY_WHITE, alpha: 0.1 });
 
     if (holes.length > 0) {
       for (const poly of holes) {
@@ -82,13 +83,19 @@ class RegionOverlay {
       g.cut();
     }
 
-    g.setStrokeStyle({ color: 0x4488ff, width: 0.04 });
-    for (const poly of [...outers, ...holes]) {
-      g.moveTo(poly[0][0], poly[0][1]);
-      for (let i = 1; i < poly.length; i++) g.lineTo(poly[i][0], poly[i][1]);
-      g.closePath();
-    }
-    g.stroke();
+    // White over an ink underlay — the viewfinder language from
+    // overlayPalette.ts. A colour here vanished against same-hue art.
+    const traceAll = (): void => {
+      for (const poly of [...outers, ...holes]) {
+        g.moveTo(poly[0][0], poly[0][1]);
+        for (let i = 1; i < poly.length; i++) g.lineTo(poly[i][0], poly[i][1]);
+        g.closePath();
+      }
+    };
+    traceAll();
+    g.stroke({ color: OVERLAY_INK, width: 0.09, alpha: 0.7 });
+    traceAll();
+    g.stroke({ color: OVERLAY_WHITE, width: 0.04, alpha: 1 });
   }
 
   clear(): void {
@@ -97,10 +104,11 @@ class RegionOverlay {
 }
 
 // ─── Hover highlight graphics (screen-space overlay) ─────
+// White-over-ink like every canvas overlay; hover is thinner and fainter than
+// selection so weight, not hue, separates the two states.
 
-const HOVER_COLOR = 0x4488ff;
-const HOVER_ALPHA = 0.4;
-const HOVER_WIDTH = 1.5;
+const HOVER_WHITE_WIDTH = 1.25;
+const HOVER_INK_WIDTH = 3;
 
 // ─── SelectTool ───────────────────────────────────────────
 
@@ -700,70 +708,76 @@ export class SelectTool implements DrawingTool {
     g.clear();
     if (!child) return;
 
-    g.setStrokeStyle({ color: HOVER_COLOR, alpha: HOVER_ALPHA, width: HOVER_WIDTH });
-
-    switch (child.childType) {
-      case 'shape': {
-        // Transform shape outer ring to screen space, curves flattened so the
-        // highlight hugs what is drawn.
-        let pts = flattenRing(child.contours[0], child.tangents?.[0]);
-        if (child.transform) {
-          const t = child.transform;
-          const cos = Math.cos(t.rotate);
-          const sin = Math.sin(t.rotate);
-          pts = pts.map(([px, py]): [number, number] => {
-            const sx = px * t.scale[0];
-            const sy = py * t.scale[1];
-            return [
-              cos * sx - sin * sy + t.translate[0],
-              sin * sx + cos * sy + t.translate[1],
-            ];
-          });
-        }
-        const screenPts = pts.map(([wx, wy]) => this.engine.worldToScreen(wx, wy));
-        if (screenPts.length < 2) return;
-        g.moveTo(screenPts[0].x, screenPts[0].y);
-        for (let i = 1; i < screenPts.length; i++) g.lineTo(screenPts[i].x, screenPts[i].y);
-        g.closePath();
-        g.stroke();
-        break;
-      }
-      case 'asset': {
-        const halfW = (child.width * child.scale) / 2;
-        const halfH = (child.height * child.scale) / 2;
-        // Four corners in world space (unrotated first, then rotate)
-        const corners: [number, number][] = [
-          [-halfW, -halfH],
-          [halfW, -halfH],
-          [halfW, halfH],
-          [-halfW, halfH],
-        ].map(([lx, ly]): [number, number] => {
-          if (child.rotation !== 0) {
-            const cos = Math.cos(child.rotation);
-            const sin = Math.sin(child.rotation);
-            return [
-              lx * cos - ly * sin + child.position.x,
-              lx * sin + ly * cos + child.position.y,
-            ];
+    // Builds the child's outline path without stroking, so the same path can
+    // be laid down twice — ink underlay, then white line.
+    const trace = (): boolean => {
+      switch (child.childType) {
+        case 'shape': {
+          // Transform shape outer ring to screen space, curves flattened so
+          // the highlight hugs what is drawn.
+          let pts = flattenRing(child.contours[0], child.tangents?.[0]);
+          if (child.transform) {
+            const t = child.transform;
+            const cos = Math.cos(t.rotate);
+            const sin = Math.sin(t.rotate);
+            pts = pts.map(([px, py]): [number, number] => {
+              const sx = px * t.scale[0];
+              const sy = py * t.scale[1];
+              return [
+                cos * sx - sin * sy + t.translate[0],
+                sin * sx + cos * sy + t.translate[1],
+              ];
+            });
           }
-          return [lx + child.position.x, ly + child.position.y];
-        });
-        const screenPts = corners.map(([wx, wy]) => this.engine.worldToScreen(wx, wy));
-        g.moveTo(screenPts[0].x, screenPts[0].y);
-        for (let i = 1; i < screenPts.length; i++) g.lineTo(screenPts[i].x, screenPts[i].y);
-        g.closePath();
-        g.stroke();
-        break;
+          const screenPts = pts.map(([wx, wy]) => this.engine.worldToScreen(wx, wy));
+          if (screenPts.length < 2) return false;
+          g.moveTo(screenPts[0].x, screenPts[0].y);
+          for (let i = 1; i < screenPts.length; i++) g.lineTo(screenPts[i].x, screenPts[i].y);
+          g.closePath();
+          return true;
+        }
+        case 'asset': {
+          const halfW = (child.width * child.scale) / 2;
+          const halfH = (child.height * child.scale) / 2;
+          // Four corners in world space (unrotated first, then rotate)
+          const corners: [number, number][] = [
+            [-halfW, -halfH],
+            [halfW, -halfH],
+            [halfW, halfH],
+            [-halfW, halfH],
+          ].map(([lx, ly]): [number, number] => {
+            if (child.rotation !== 0) {
+              const cos = Math.cos(child.rotation);
+              const sin = Math.sin(child.rotation);
+              return [
+                lx * cos - ly * sin + child.position.x,
+                lx * sin + ly * cos + child.position.y,
+              ];
+            }
+            return [lx + child.position.x, ly + child.position.y];
+          });
+          const screenPts = corners.map(([wx, wy]) => this.engine.worldToScreen(wx, wy));
+          g.moveTo(screenPts[0].x, screenPts[0].y);
+          for (let i = 1; i < screenPts.length; i++) g.lineTo(screenPts[i].x, screenPts[i].y);
+          g.closePath();
+          return true;
+        }
+        case 'light': {
+          const center = this.engine.worldToScreen(child.position.x, child.position.y);
+          const edgePt = this.engine.worldToScreen(child.position.x + 0.5, child.position.y);
+          const radiusPx = edgePt.x - center.x;
+          g.circle(center.x, center.y, Math.max(radiusPx, 6));
+          return true;
+        }
+        default:
+          return false;
       }
-      case 'light': {
-        const center = this.engine.worldToScreen(child.position.x, child.position.y);
-        const edgePt = this.engine.worldToScreen(child.position.x + 0.5, child.position.y);
-        const radiusPx = edgePt.x - center.x;
-        g.circle(center.x, center.y, Math.max(radiusPx, 6));
-        g.stroke();
-        break;
-      }
-    }
+    };
+
+    if (!trace()) return;
+    g.stroke({ color: OVERLAY_INK, width: HOVER_INK_WIDTH, alpha: 0.55 });
+    trace();
+    g.stroke({ color: OVERLAY_WHITE, width: HOVER_WHITE_WIDTH, alpha: 0.9 });
   }
 
   // ─── Box-drag selection ───────────────────────────────────────────────────

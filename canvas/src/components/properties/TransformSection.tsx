@@ -149,8 +149,11 @@ export function TransformSection({
               />
               <button
                 type="button"
-                title={ratioLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
-                aria-label={ratioLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
+                // The name stays constant and aria-pressed carries the state —
+                // "Unlock…" + pressed=true announced the action and its
+                // opposite at once.
+                title="Lock aspect ratio"
+                aria-label="Lock aspect ratio"
                 aria-pressed={ratioLocked}
                 onClick={() => setRatioLocked((v) => !v)}
                 className={cn(

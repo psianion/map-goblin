@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SliderInput } from '@/components/inputs/SliderInput'
 import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas'
@@ -19,6 +19,12 @@ export interface ContextMenuItem {
   icon?: ReactNode
   /** Right-aligned shortcut hint, e.g. "Ctrl+D". */
   kbd?: string
+  /**
+   * Marks the row as one choice of a set (a door's style): renders a real
+   * check glyph and announces as menuitemradio, instead of a ' ✓' pasted into
+   * the label that no assistive tech can perceive.
+   */
+  checked?: boolean
 }
 
 /** Identity line pinned at the top: what was clicked, in words. */
@@ -58,6 +64,9 @@ export interface MenuSwatchesRow {
   label: string
   value: string
   options: string[]
+  /** Human names for `options`, index-aligned — a screen reader says
+   *  "Candlelight", not "hash f f d d 8 8". */
+  optionNames?: string[]
   onPick: (color: string) => void
   separatorBefore?: boolean
   disabled?: boolean
@@ -172,7 +181,8 @@ function ActionRow({ item, onClose, returnFocus }: {
   return (
     <button
       type="button"
-      role="menuitem"
+      role={item.checked !== undefined ? 'menuitemradio' : 'menuitem'}
+      aria-checked={item.checked}
       data-menu-focusable
       disabled={item.disabled}
       aria-disabled={item.disabled}
@@ -201,10 +211,11 @@ function ActionRow({ item, onClose, returnFocus }: {
         item.disabled && 'opacity-60 cursor-not-allowed pointer-events-none',
       )}
     >
-      {item.icon || item.kbd ? (
+      {item.icon || item.kbd || item.checked !== undefined ? (
         <>
           {item.icon && <span className="shrink-0 text-text-muted">{item.icon}</span>}
           <span className="flex-1">{item.label}</span>
+          {item.checked && <Check size={12} className="shrink-0 text-text-secondary" aria-hidden />}
           {item.kbd && (
             <span className="font-mono text-panel-small text-text-muted">{item.kbd}</span>
           )}
@@ -292,6 +303,7 @@ function Row({ row, onClose, returnFocus }: {
             onChange={r.onChange}
             onChangeCommit={r.onCommit}
             disabled={r.disabled}
+            ariaLabel={r.label}
           />
         </div>
       )
@@ -302,28 +314,34 @@ function Row({ row, onClose, returnFocus }: {
         <div className={cn('px-3 py-1.5', r.disabled && 'opacity-60')}>
           <div className="mb-1 font-mono text-panel-label uppercase text-text-muted">{r.label}</div>
           <div className="flex gap-1.5" role="group" aria-label={r.label}>
-            {r.options.map((color) => {
+            {r.options.map((color, i) => {
               const active = color.toLowerCase() === r.value.toLowerCase()
+              const name = r.optionNames?.[i] ?? color
               return (
                 <button
                   key={color}
                   type="button"
+                  role="menuitemradio"
                   data-menu-focusable
-                  title={color}
-                  aria-label={color}
-                  aria-pressed={active}
+                  title={name}
+                  aria-label={name}
+                  aria-checked={active}
                   disabled={r.disabled}
                   onClick={(e) => {
                     e.stopPropagation()
                     r.onPick(color)
                   }}
                   className={cn(
-                    'h-5 w-5 shrink-0 rounded-full border-2 transition-colors',
-                    'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus',
+                    // 24px minimum touch target; the check carries "selected"
+                    // so state never rides on the ring colour alone.
+                    'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-border-focus',
                     active ? 'border-accent-active' : 'border-border-default hover:border-text-secondary',
                   )}
                   style={{ backgroundColor: color }}
-                />
+                >
+                  {active && <Check size={12} strokeWidth={3} className="text-[#100d09]" aria-hidden />}
+                </button>
               )
             })}
           </div>
@@ -335,15 +353,18 @@ function Row({ row, onClose, returnFocus }: {
       return (
         <div className={cn('px-3 py-1.5', r.disabled && 'opacity-60')}>
           <div className="mb-1 font-mono text-panel-label uppercase text-text-muted">{r.label}</div>
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+          {/* Wraps instead of scrolling: a horizontal scroller inside a
+              context menu hid half the choices behind an invisible edge. */}
+          <div className="flex flex-wrap items-center gap-1.5 pb-0.5">
             {r.items.map((it) => (
               <button
                 key={it.id}
                 type="button"
+                role="menuitemradio"
                 data-menu-focusable
                 title={it.title}
                 aria-label={it.title}
-                aria-pressed={it.active}
+                aria-checked={it.active}
                 disabled={r.disabled}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -521,7 +542,7 @@ export function ContextMenu({
       {items.map((row, i) => (
         <div key={i}>
           {'separatorBefore' in row && row.separatorBefore && (
-            <div className="h-px bg-border-default mx-2 my-1" />
+            <div role="separator" className="h-px bg-border-default mx-2 my-1" />
           )}
           <Row row={row} onClose={onClose} returnFocus={returnFocus} />
         </div>

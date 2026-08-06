@@ -19,6 +19,9 @@ interface SliderInputProps {
   unit?: string
   /** Inert and dimmed — e.g. a light's radius on a locked layer. */
   disabled?: boolean
+  /** Accessible name for the range input — the visual caption is a sibling
+   *  div no assistive tech associates with it. */
+  ariaLabel?: string
 }
 
 export function SliderInput({
@@ -31,6 +34,7 @@ export function SliderInput({
   step = 0.01,
   unit,
   disabled,
+  ariaLabel,
 }: SliderInputProps) {
   const startRef = useRef(rawValue ?? value)
 
@@ -53,6 +57,7 @@ export function SliderInput({
         step={step}
         value={value}
         disabled={disabled}
+        aria-label={ariaLabel}
         onChange={(e) => onChange(Number(e.target.value))}
         onFocus={() => { startRef.current = rawValue ?? value }}
         onPointerDown={() => { startRef.current = rawValue ?? value }}

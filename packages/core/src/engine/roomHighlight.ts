@@ -1,8 +1,7 @@
 import type { Graphics } from 'pixi.js';
 import { useStore } from '../store/store';
 import type { DungeonLayer } from '../store/types';
-
-const HIGHLIGHT_COLOR = 0x38bdf8;
+import { OVERLAY_INK, OVERLAY_WHITE } from './overlayPalette';
 
 let highlight: Graphics | null = null;
 let lastRoomId: string | null = null;
@@ -38,7 +37,10 @@ export function renderRoomHighlight(): void {
   const room = layer?.rooms?.find((r) => r.id === roomId);
   if (!room || room.boundary.length < 3) return;
 
+  // White over ink, like every canvas overlay — sky-blue disappeared on water.
   highlight.poly(room.boundary.flat());
-  highlight.fill({ color: HIGHLIGHT_COLOR, alpha: 0.18 });
-  highlight.stroke({ color: HIGHLIGHT_COLOR, width: 0.08, alpha: 0.9 });
+  highlight.fill({ color: OVERLAY_WHITE, alpha: 0.12 });
+  highlight.stroke({ color: OVERLAY_INK, width: 0.12, alpha: 0.7 });
+  highlight.poly(room.boundary.flat());
+  highlight.stroke({ color: OVERLAY_WHITE, width: 0.05, alpha: 1 });
 }
