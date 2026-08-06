@@ -102,7 +102,9 @@ export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarPro
       style={{
         left: leftPanelOpen ? '308px' : '48px',
         right: rightPanelOpen ? '300px' : '48px',
-        opacity: faded ? 0.4 : 1,
+        // 0.65, not 0.4: the faded bar composited below 2.1:1, unreadable in
+        // exactly the dim rooms the product is built for.
+        opacity: faded ? 0.65 : 1,
         transition: 'left 200ms ease-out, right 200ms ease-out, opacity 200ms ease',
       }}
     >

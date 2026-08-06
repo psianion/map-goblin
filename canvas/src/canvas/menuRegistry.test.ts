@@ -113,14 +113,41 @@ describe('buildChildMenu', () => {
     expect(labels(rows)).not.toContain('Duplicate');
   });
 
-  it('disables interactive rows on a locked layer, mirroring the panel', () => {
+  it('disables EVERY interactive row on a locked layer, sliders and swatches included', () => {
     const light = makeLight();
     useStore.getState().addChild(layer().id, light);
     useStore.getState().updateLayer(layer().id, { locked: true });
     const rows = buildChildMenu(ctx(light));
-    for (const r of rows) {
-      if ('onSelect' in r) expect(r.disabled).toBe(true);
+    // The gate walk proved 'onSelect' in r alone let sliders, swatches and
+    // thumb strips write through the lock — assert every non-header row.
+    const flat = (rs: MenuRow[]): MenuRow[] =>
+      rs.flatMap((r) => ('type' in r && r.type === 'submenu' ? [r, ...flat(r.rows)] : [r]));
+    for (const r of flat(rows)) {
+      if ('type' in r && r.type === 'header') continue;
+      expect((r as { disabled?: boolean }).disabled, JSON.stringify(r).slice(0, 80)).toBe(true);
     }
+    // The header explains the grey instead of leaving it silent.
+    const header = rows[0];
+    expect('sublabel' in header && header.sublabel).toBe('Layer is locked');
+  });
+
+  it('locked-layer callbacks refuse instead of writing — the seam backstop', () => {
+    const light = makeLight();
+    useStore.getState().addChild(layer().id, light);
+    useStore.getState().updateLayer(layer().id, { locked: true });
+    const rows = buildChildMenu(ctx(light));
+    const slider = rows.find((r) => 'type' in r && r.type === 'slider');
+    const swatches = rows.find((r) => 'type' in r && r.type === 'swatches');
+    if (!slider || !('onCommit' in slider) || !swatches || !('onPick' in swatches)) {
+      throw new Error('light menu missing slider/swatches');
+    }
+    slider.onChange(11.5);
+    slider.onCommit(11.5, 6);
+    swatches.onPick('#ff7a5e');
+    const after = layer().children.find((c) => c.id === 'light-1') as LightChild;
+    expect(after.radius).toBe(6);
+    expect(after.color).toBe('#ffdd88');
+    expect(undoManager.canUndo()).toBe(false);
   });
 
   it('falls back to header + shared verbs for an unregistered kind', () => {
@@ -140,13 +167,46 @@ describe('buildChildMenu', () => {
 });
 
 describe('buildMultiMenu', () => {
-  it('offers only the shared-verb intersection', () => {
-    const rows = buildMultiMenu(3);
-    expect(labels(rows)).toEqual([
-      '3 selected',
+  it('offers flips only when something in the selection can flip', () => {
+    // Lights alone: flips would silently no-op, so they must not appear.
+    const a = makeLight();
+    const b = { ...makeLight(), id: 'light-2', name: 'Light 2' };
+    useStore.getState().addChild(layer().id, a);
+    useStore.getState().addChild(layer().id, b);
+    useStore.getState().setSelectedIds([a.id, b.id]);
+    expect(labels(buildMultiMenu(2))).toEqual([
+      '2 selected',
+      'Duplicate',
+      'Move to layer',
+      'Delete',
+    ]);
+  });
+
+  it('offers the full shared-verb intersection for a flippable selection', () => {
+    const light = makeLight();
+    const shape = {
+      id: 'shape-1',
+      name: 'Room',
+      childType: 'shape',
+      visible: true,
+      shapeType: 'rectangle',
+      contours: [[[0, 0], [4, 0], [4, 4], [0, 4]]],
+      roughnessEnabled: false,
+      textureScale: 1,
+      textureOffsetX: 0,
+      textureOffsetY: 0,
+      textureFillRotation: 0,
+      textureTint: '#ffffff',
+    };
+    useStore.getState().addChild(layer().id, light);
+    useStore.getState().addChild(layer().id, shape as unknown as LightChild);
+    useStore.getState().setSelectedIds([light.id, 'shape-1']);
+    expect(labels(buildMultiMenu(2))).toEqual([
+      '2 selected',
       'Duplicate',
       'Flip horizontal',
       'Flip vertical',
+      'Move to layer',
       'Delete',
     ]);
   });

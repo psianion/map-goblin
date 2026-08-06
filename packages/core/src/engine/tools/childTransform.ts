@@ -200,12 +200,17 @@ export function transformChild(snap: ChildSnapshot, t: WorldTransform): Partial<
       } as Partial<AnyChild>;
     }
     case 'radius': {
-      const [x, y] = mapPoint(snap.position.x, snap.position.y, t);
       // Lights have no orientation: rotation is ignored, scale resizes the
-      // radius by the dominant factor.
+      // radius by the dominant factor. Only the translation reaches the
+      // centre — a radial object grows about itself, and mapping the centre
+      // through the corner anchor dragged the light across the room while
+      // its corner was being pulled.
       const factor = Math.max(Math.abs(t.scaleX), Math.abs(t.scaleY));
       return {
-        position: { x, y },
+        position: {
+          x: snap.position.x + t.translateX,
+          y: snap.position.y + t.translateY,
+        },
         radius: Math.max(snap.radius * factor, 0.1),
       } as Partial<AnyChild>;
     }

@@ -201,6 +201,13 @@
     background-color: var(--hover-tint);
     background-image: var(--hover-glow);
   }
+  /* Press feedback: the hover tint deepens the instant the button is down,
+     so a click reads as contact instead of nothing-until-release. */
+  .gg-row:active {
+    background-color: rgb(var(--accent-active) / 0.16);
+    background-image: var(--hover-glow);
+    transition-duration: 40ms;
+  }
 }
 
 /* react-colorful overrides for dark theme */

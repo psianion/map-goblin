@@ -169,6 +169,7 @@ registerMenu('asset', (ctx) => {
 })
 
 const LIGHT_SWATCHES = ['#ffdd88', '#ffb45e', '#ff7a5e', '#aec8ff', '#b7ffd9', '#e8e4d8']
+const LIGHT_SWATCH_NAMES = ['Candlelight', 'Torchlight', 'Embers', 'Moonlight', 'Faerie glow', 'Daylight']
 
 registerMenu('light', (ctx) => {
   const child = ctx.child
@@ -204,6 +205,7 @@ registerMenu('light', (ctx) => {
       label: 'Colour',
       value: child.color,
       options: LIGHT_SWATCHES,
+      optionNames: LIGHT_SWATCH_NAMES,
       onPick: (color) =>
         commitChild('Light colour', layerId, child.id, { color: child.color }, { color }),
     },
@@ -251,7 +253,10 @@ registerMenu('door', (ctx) => {
       type: 'submenu',
       label: 'Style',
       rows: DOOR_STYLES.map((s) => ({
-        label: s.label + (child.style === s.value ? ' ✓' : ''),
+        label: s.label,
+        // A real checked state, not ' ✓' pasted into the label — the row
+        // announces as one choice of a set and draws the glyph itself.
+        checked: child.style === s.value,
         onSelect: () =>
           commitChild('Door style', layerId, child.id, { style: child.style }, { style: s.value }),
       })),
@@ -284,25 +289,88 @@ registerMenu('zone', (ctx) => [headerRow(ctx.child), ...sharedVerbs(ctx)])
 export function buildChildMenu(ctx: ChildMenuContext): MenuRow[] {
   const builder = builders.get(ctx.child.childType)
   const rows = builder ? builder(ctx) : [headerRow(ctx.child), ...sharedVerbs(ctx)]
-  if (ctx.layer.locked || !ctx.layer.visible) {
-    // Mirror the layer panel: rows render but nothing bites on a locked or
-    // hidden layer. Headers and separators pass through untouched.
-    return rows.map((r) =>
-      'onSelect' in r || r.type === 'toggle' || r.type === 'slider'
-        ? ({ ...r, disabled: true } as MenuRow)
-        : r,
-    )
-  }
-  return rows
+  const reason = ctx.layer.locked
+    ? 'Layer is locked'
+    : !ctx.layer.visible
+      ? 'Layer is hidden'
+      : null
+  return reason ? lockRows(rows, reason) : rows
+}
+
+/**
+ * A locked or hidden layer's menu: every row disabled AND every callback
+ * neutralised. The renderer's `disabled` handles the rows it knows; swapping
+ * the callbacks for a warning is the backstop that keeps a row type added
+ * later from writing through a lock it never learned about. The header's
+ * sublabel says why, so the grey has an explanation.
+ */
+function lockRows(rows: MenuRow[], reason: string): MenuRow[] {
+  const refuse = () => notify.warning(reason)
+  return rows.map((r): MenuRow => {
+    if (!('type' in r) || !r.type || r.type === 'action') {
+      return { ...r, disabled: true, onSelect: refuse }
+    }
+    switch (r.type) {
+      case 'header':
+        return { ...r, sublabel: reason }
+      case 'toggle':
+        return { ...r, disabled: true, onToggle: refuse }
+      case 'slider':
+        // onChange stays silent — it fires per pixel; the commit warns once.
+        return { ...r, disabled: true, onChange: () => {}, onCommit: refuse }
+      case 'swatches':
+        return { ...r, disabled: true, onPick: refuse }
+      case 'thumbStrip':
+        return {
+          ...r,
+          disabled: true,
+          onPick: refuse,
+          trailing: r.trailing ? { ...r.trailing, onSelect: refuse } : undefined,
+        }
+      case 'submenu':
+        return { ...r, disabled: true, rows: lockRows(r.rows, reason) }
+    }
+  })
 }
 
 /** Menu for a mixed multi-selection: the shared-verb intersection only. */
 export function buildMultiMenu(count: number): MenuRow[] {
+  // Flips silently skip lights and labels, so a selection with nothing
+  // flippable must not offer them — dead verbs read as broken ones.
+  const store = useStore.getState()
+  const ids = new Set(store.selection.selectedIds)
+  const kinds = new Set<string>()
+  for (const l of store.layers) {
+    if (l.type !== 'dungeon') continue
+    for (const c of l.children) if (ids.has(c.id)) kinds.add(c.childType)
+  }
+  const flippable = ['asset', 'shape', 'water'].some((k) => kinds.has(k))
+  // Move-to-layer is most wanted exactly here — herding a mixed selection
+  // onto one layer — so the multi menu offers it like every single menu does.
+  const targetLayers = store.layers.filter(
+    (l): l is DungeonLayer => l.type === 'dungeon' && !l.locked,
+  )
   return [
     { type: 'header', label: `${count} selected` },
     { label: 'Duplicate', kbd: 'Ctrl+D', onSelect: () => handleShortcut('ctrl+d') },
-    { label: 'Flip horizontal', kbd: 'Shift+H', onSelect: () => handleShortcut('shift+h') },
-    { label: 'Flip vertical', kbd: 'Shift+V', onSelect: () => handleShortcut('shift+v') },
+    ...(flippable
+      ? [
+          { label: 'Flip horizontal', kbd: 'Shift+H', onSelect: () => handleShortcut('shift+h') },
+          { label: 'Flip vertical', kbd: 'Shift+V', onSelect: () => handleShortcut('shift+v') },
+        ]
+      : []),
+    ...(targetLayers.length > 0
+      ? [
+          {
+            type: 'submenu' as const,
+            label: 'Move to layer',
+            rows: targetLayers.map((l) => ({
+              label: l.name,
+              onSelect: () => moveSelectionToLayer(l.id),
+            })),
+          },
+        ]
+      : []),
     {
       separatorBefore: true,
       label: 'Delete',
