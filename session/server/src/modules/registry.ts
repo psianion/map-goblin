@@ -41,6 +41,18 @@ const RETRACTS: Record<string, readonly string[]> = {
   doors: ['tokens', 'fog'],
 }
 
+/**
+ * M4 — the writes a trigger may be conditioned on. After one of these succeeds, the registry
+ * tells the triggers module so it can re-evaluate against the post-write truth (a token that
+ * just moved, a room that just got revealed). Keying off `tokens.*`/`fog.*` only is also what
+ * keeps this from ever cascading into itself: `triggers.event` (dispatched internally, below)
+ * is not in this table, so its own successful run never queues a second cascade.
+ */
+const CASCADES: Record<string, readonly string[]> = {
+  tokens: ['move', 'place', 'update', 'delete', 'claim', 'hide'],
+  fog: ['reveal', 'set-bulk', 'hide', 'reset'],
+}
+
 export class ModuleRegistry {
   private readonly modules = new Map<string, GameModule<unknown>>()
 
@@ -71,7 +83,40 @@ export class ModuleRegistry {
         message: `role '${ctx.sender.role}' may not run ${module}.${action}`,
       }
     }
+    return this.run(found, action, payload, ctx)
+  }
 
+  /**
+   * The one door into an action that is not in a module's `commands` map — skipping both
+   * the role gate and the existence check `dispatch` makes against `commands`. Only this
+   * registry calls it, and only for `triggers.event` (see the cascade below): the wire's
+   * `CommandRouter` calls `dispatch` exclusively, so an action left out of `commands` — the
+   * way `event` deliberately is — stays permanently unreachable from a socket no matter what
+   * a client sends. That absence *is* the access control; this method is the one place
+   * allowed to step around it.
+   *
+   * @internal Only `cascade` (below) and `registry.test.ts` call this. `CommandRouter` must
+   * never reach for it — `dispatch` is the only entry a socket gets, on purpose (see above).
+   */
+  dispatchInternal(
+    module: string,
+    action: string,
+    payload: unknown,
+    ctx: DispatchContext,
+  ): CommandError | null {
+    const found = this.modules.get(module)
+    if (!found) {
+      return { code: 'invalid-command', message: `no module '${module}' is registered` }
+    }
+    return this.run(found, action, payload, ctx)
+  }
+
+  private run(
+    found: GameModule<unknown>,
+    action: string,
+    payload: unknown,
+    ctx: DispatchContext,
+  ): CommandError | null {
     // Lazy on purpose: a command that never reads its state (ping, scenes) never touches
     // the row, so dispatch stays one prepared statement for the modules that do.
     let loaded: { value: unknown } | undefined
@@ -103,7 +148,25 @@ export class ModuleRegistry {
         for (const name of RETRACTS[found.name] ?? []) this.resend(name, ctx.campaignId, say)
       },
     }
-    return found.handler(action, payload, full) ?? null
+    const result = found.handler(action, payload, full) ?? null
+    if (result === null) this.cascade(found.name, action, sceneId, ctx)
+    return result
+  }
+
+  /**
+   * M4 — after a `tokens`/`fog` write actually lands, ask triggers whether anything just
+   * fired. Swallowed on error: a bad cascade is a server-side bug to notice, never something
+   * the player who moved a token should see instead of their move succeeding.
+   */
+  private cascade(module: string, action: string, sceneId: string | null, ctx: DispatchContext): void {
+    if (!CASCADES[module]?.includes(action)) return
+    if (!sceneId || !this.modules.has('triggers')) return
+    try {
+      const error = this.dispatchInternal('triggers', 'event', { sceneId, source: { module, action } }, ctx)
+      if (error) console.warn(`[triggers] cascade from ${module}.${action} refused: ${error.message}`)
+    } catch (err) {
+      console.warn(`[triggers] cascade from ${module}.${action} threw`, err)
+    }
   }
 
   /** Join snapshots (§2.3.4): every module's slice, redacted for the viewer receiving it. */

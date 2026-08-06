@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { createElement } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
@@ -166,7 +167,7 @@ describe('a refused move (the rubber-band on its own says nothing)', () => {
   const player: PlayerInfo = { identityId: 'p-2', name: 'Borin', role: 'player', connected: true };
 
   const session = (tokens: Token[]): SessionState => ({
-    protocolVersion: 3,
+    protocolVersion: PROTOCOL_VERSION,
     sessionId: 's1',
     campaignId: 'c1',
     activeSceneId: 'scene-1',
@@ -233,7 +234,7 @@ describe('a refused drag rubber-bands to where the pointer picked the token up',
   const mine = (over: Partial<Token> = {}) => token({ ownerId: 'p-2', ...over });
 
   const session = (tokens: Token[]): SessionState => ({
-    protocolVersion: 3,
+    protocolVersion: PROTOCOL_VERSION,
     sessionId: 's1',
     campaignId: 'c1',
     activeSceneId: 'scene-1',

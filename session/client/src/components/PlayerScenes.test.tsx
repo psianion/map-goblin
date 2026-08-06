@@ -2,6 +2,7 @@
 // down to what the DM made visible (SessionManager.snapshot), so this component has nothing
 // left to filter; it only has to render what it is handed and mark the active one.
 
+import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import type { SessionState } from '@dnd/core/src/shared/protocol';
@@ -10,7 +11,7 @@ import { PlayerScenes } from './PlayerScenes';
 
 function session(over: Partial<SessionState> = {}): SessionState {
   return {
-    protocolVersion: 3,
+    protocolVersion: PROTOCOL_VERSION,
     sessionId: 's1',
     campaignId: 'c1',
     activeSceneId: null,

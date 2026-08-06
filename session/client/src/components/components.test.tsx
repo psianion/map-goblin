@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { act, fireEvent, render, screen, cleanup } from '@testing-library/react';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
@@ -17,7 +18,7 @@ const gone: PlayerInfo = { identityId: 'p-2', name: 'Borin', role: 'player', con
 
 function session(players: PlayerInfo[]): SessionState {
   return {
-    protocolVersion: 2,
+    protocolVersion: PROTOCOL_VERSION,
     sessionId: 's1',
     campaignId: 'c1',
     activeSceneId: null,

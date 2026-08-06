@@ -7,6 +7,7 @@ import { doorsModule } from '@dnd/mechanics/doors'
 import { fogModule } from '@dnd/mechanics/fog'
 import { rollsModule } from '@dnd/mechanics/rolls'
 import { tokensModule } from '@dnd/mechanics/tokens'
+import { triggersModule } from '@dnd/mechanics/triggers'
 import { WebSocketServer } from 'ws'
 import { ensureAdminPass, verifyToken } from './auth'
 import { loadConfig, type Config } from './config'
@@ -17,6 +18,7 @@ import { createRequestHandler } from './http'
 import { pingModule } from './modules/ping'
 import { ModuleRegistry } from './modules/registry'
 import { scenesModule } from './modules/scenes'
+import { createTriggerDeps } from './triggers/prepResolver'
 import { ClientConnection, type Identity } from './ws/ClientConnection'
 import { SessionManager, type SessionManagerOptions } from './ws/SessionManager'
 
@@ -100,6 +102,10 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   modules.register(tokensModule(vision.visionOf))
   modules.register(fogModule(vision.roomsOf))
   modules.register(doorsModule(vision.doorsOf, vision.playerDoors))
+  // Shared with http.ts's GET .../prep (F3): one memoized instance so the DM's prep panel
+  // and the live cascade resolve the same scene's triggers off the same cache.
+  const triggerDeps = createTriggerDeps(stores, vision.sceneMapOf)
+  modules.register(triggersModule(triggerDeps))
   for (const module of options.modules ?? []) modules.register(module)
 
   const sessions = new SessionManager(modules, {
@@ -142,6 +148,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
       sessionManager: sessions,
       vision,
       modules,
+      triggerDeps,
     }),
   )
 

@@ -13,7 +13,13 @@ export const FIXTURE = join(import.meta.dirname, '../../testdata/demo-dungeon.ma
 
 /** A map a spec hosts on: the file the DM uploads, and the name core's store loads it as. */
 export interface MapUnderTest {
-  file: string
+  file?: string
+  /**
+   * Upload this JSON directly, in-memory, instead of reading `file` off disk — for a fixture
+   * built at test time (`library.ts`'s builders) that has no `.mapbuilder` on disk to point
+   * at. Takes priority over `file` when both are set.
+   */
+  doc?: Record<string, unknown>
   name: string
 }
 
@@ -131,7 +137,15 @@ export async function hostTable(
   await page.locator('#campaign-name').fill('Cragmaw Hideout')
   await page.getByRole('button', { name: 'Create campaign' }).click()
 
-  await page.locator('#map-file').setInputFiles(map.file)
+  if (map.doc) {
+    await page.locator('#map-file').setInputFiles({
+      name: `${map.name}.mapbuilder`,
+      mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify(map.doc)),
+    })
+  } else {
+    await page.locator('#map-file').setInputFiles(map.file!)
+  }
   await expect(page.getByTestId('uploaded-map')).toContainText(map.name)
   if (startingRoomId) await page.locator('#starting-room').selectOption(startingRoomId)
   await page.getByRole('button', { name: 'Continue' }).click()

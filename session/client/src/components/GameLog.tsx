@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DoorsState } from '@dnd/mechanics/doors';
 import type { FogState } from '@dnd/mechanics/fog';
 import type { RollEvent } from '@dnd/mechanics/rolls';
+import type { TriggersState } from '@dnd/mechanics/triggers';
+import { sceneTriggersOf } from '@dnd/mechanics/triggers';
 import { ALL_ROLES, registerPanel } from '../session/panels';
 import { useModuleState, useSessionStore } from '../session/store';
 import { tableLogLines } from '../session/tableLog';
@@ -35,6 +37,9 @@ export function GameLog() {
   // ever holds the ones it is allowed to read — there is nothing to filter here.
   const doors = useModuleState<DoorsState>('doors');
   const fog = useModuleState<FogState>('fog');
+  // Already redacted for this viewer server-side (players: `toPlayers` lines plus their own
+  // outcomes; the DM: everything) — nothing to filter again here, unlike doors/fog above.
+  const triggers = useModuleState<TriggersState>('triggers');
   const mapData = useSessionStore((s) => s.mapData);
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const [draft, setDraft] = useState('');
@@ -69,8 +74,15 @@ export function GameLog() {
       whisper: false,
       presence: true,
     }));
-    return [...rollEntries, ...presenceEntries, ...tableEntries].sort((a, b) => a.at - b.at);
-  }, [rolls, presence, doors, fog, mapData, sceneId]);
+    // Room narration and trap/check outcomes read the same quiet register as a door or fog
+    // line — what the table did, not a roll anyone made.
+    const triggerEntries = (sceneId && triggers ? sceneTriggersOf(triggers, sceneId).log : []).map(
+      (e) => ({ key: e.id, at: e.at, who: '', text: e.text, whisper: false, presence: true }),
+    );
+    return [...rollEntries, ...presenceEntries, ...tableEntries, ...triggerEntries].sort(
+      (a, b) => a.at - b.at,
+    );
+  }, [rolls, presence, doors, fog, triggers, mapData, sceneId]);
 
   // Newest at the bottom, so follow it. Not setState — no render loop.
   useEffect(() => {

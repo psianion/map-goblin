@@ -1,5 +1,5 @@
-import type { ScenePrep } from '@dnd/core/src/shared/prep'
-import type { ZoneChild } from '@dnd/core/src/shared/types'
+import type { ScenePrep, TriggerDef } from '@dnd/core/src/shared/prep'
+import type { Room, ZoneChild } from '@dnd/core/src/shared/types'
 import { SERVER_URL } from './table'
 
 /**
@@ -145,4 +145,162 @@ export function mapDoc(name: string, opts: { prep?: ScenePrep } = {}): Record<st
   }
   if (opts.prep !== undefined) doc.prep = opts.prep
   return doc
+}
+
+// ─── M4 triggers-flagship fixture ─────────────────────────
+
+/**
+ * One room, two zones: `zone-reveal` (a point, for the room-revealed narration) and
+ * `zone-trap` (a rect, for the two enter-region triggers). The server trusts an uploaded
+ * document's own `rooms`/zone geometry verbatim (`session/server/src/fog/sceneMap.ts` reads
+ * `layer.rooms` straight off the file — it never re-detects them), and the DM's fog-room list
+ * reads the same untouched `mapData` (`FogTool`'s `serverRooms`, "the server's rooms, not
+ * core's re-detected ones") — so a hand-authored room with no wall geometry at all is exactly
+ * as real as one the editor derived from walls, for everything this spec touches.
+ *
+ * Shapes mirror `session/server/src/triggers.e2e.test.ts`'s own fixture (the wire-level proof
+ * of this exact cascade) rather than inventing new geometry to re-derive the same answer.
+ */
+const TRIGGERS_ROOM_ID = 'room-trig-1'
+const ZONE_REVEAL_ID = 'zone-reveal'
+const ZONE_TRAP_ID = 'zone-trap'
+
+export const TRIGGERS_FIXTURE = {
+  roomId: TRIGGERS_ROOM_ID,
+  /**
+   * Where the DM's token starts: inside the room, outside the trap rect. Cell-centred
+   * (`.5`) so it matches the server's own snap for an odd-cell token (`tokens/validate.ts`'s
+   * `snap`) with nothing to round away.
+   */
+  spawn: { x: 1.5, y: 1.5 },
+  /** Inside `zone-trap`'s rect (10,10)-(14,14), also cell-centred. */
+  trapPoint: { x: 11.5, y: 11.5 },
+  roomText: 'Dust sifts from the ceiling as torches flare to life.',
+  trapText: 'A dart trap fires!',
+  trapDc: 13,
+  trapAbilityLabel: 'DEX save · DC 13',
+  trapDamage: '2d6+1',
+  rearmText: 'Something stirs in the dark corner.',
+  // The definition-leak probe's marker: a DM-only trigger name and prompt text that must
+  // never reach a player who never claimed the token it would have targeted.
+  secretName: 'Ambush cue (DM only)',
+  secretPromptText: 'Shapes move in the dark — roll for initiative!',
+  triggerIds: {
+    room: 'trg-room',
+    trap: 'trg-trap',
+    rearm: 'trg-rearm',
+    initiative: 'trg-initiative',
+  },
+} as const
+
+/**
+ * Four triggers: a `room-revealed` narration everyone hears, an `enter-region` trap the
+ * claiming player answers, a second `enter-region` trigger on the *same* zone with
+ * `once: false` (proves a DM-driven move cascades exactly like a player's — test 4 re-enters
+ * the same rect from the DM's own seat), and a `once`/authored-`enabled: false` `prompt`
+ * trigger that exists only to be force-fired from the DM's Fire button (`fireCommand` skips
+ * `enabled`/`disabled` entirely — see module.ts) and never to auto-fire.
+ */
+export function triggersFlagshipPrep(): ScenePrep {
+  const f = TRIGGERS_FIXTURE
+  const triggers: TriggerDef[] = [
+    {
+      id: f.triggerIds.room,
+      name: 'Room revealed narration',
+      when: { kind: 'room-revealed', zoneId: ZONE_REVEAL_ID },
+      actions: [{ kind: 'show-text', text: f.roomText, toPlayers: true }],
+      once: true,
+      enabled: true,
+    },
+    {
+      id: f.triggerIds.trap,
+      name: 'Dart trap',
+      when: { kind: 'enter-region', zoneId: ZONE_TRAP_ID },
+      actions: [
+        { kind: 'trap', text: f.trapText, save: { ability: 'dex', dc: f.trapDc }, damage: f.trapDamage },
+      ],
+      once: true,
+      enabled: true,
+    },
+    {
+      id: f.triggerIds.rearm,
+      name: 'Zone rearm ping',
+      when: { kind: 'enter-region', zoneId: ZONE_TRAP_ID },
+      actions: [{ kind: 'show-text', text: f.rearmText, toPlayers: false }],
+      once: false,
+      enabled: true,
+    },
+    {
+      id: f.triggerIds.initiative,
+      name: f.secretName,
+      when: { kind: 'room-revealed', zoneId: ZONE_REVEAL_ID },
+      actions: [{ kind: 'prompt', prompt: 'initiative', text: f.secretPromptText }],
+      once: true,
+      enabled: false,
+    },
+  ]
+  return { version: 1, triggers }
+}
+
+/**
+ * The map doc `triggersFlagshipPrep()`'s zones anchor to: one room, no walls (mergedFloor
+ * stays `null` — nothing in this spec needs the floor to render, only the fog room list and
+ * the server's zone→room resolution, both of which read `rooms`/`zones` verbatim). Prep rides
+ * in the same document, exactly like `mapDoc`'s `opts.prep` — the UI upload path stores it in
+ * one step, no separate `putPrep` call needed.
+ */
+export function triggersFlagshipDoc(name: string): Record<string, unknown> {
+  const room: Room = {
+    id: TRIGGERS_ROOM_ID,
+    name: 'The Vault',
+    boundary: [
+      [0, 0],
+      [20, 0],
+      [20, 20],
+      [0, 20],
+    ],
+    centroid: [10, 10],
+    area: 400,
+    isPathway: false,
+  }
+  const zoneReveal: ZoneChild = {
+    id: ZONE_REVEAL_ID,
+    name: 'Reveal anchor',
+    childType: 'zone',
+    visible: true,
+    shape: { kind: 'point', position: { x: 2, y: 2 } },
+  }
+  const zoneTrap: ZoneChild = {
+    id: ZONE_TRAP_ID,
+    name: 'Trap zone',
+    childType: 'zone',
+    visible: true,
+    shape: { kind: 'rect', x: 10, y: 10, width: 4, height: 4 },
+  }
+  return {
+    version: '3.1',
+    mapSettings: { name, gridType: 'square', cellScale: { value: 5, unit: 'ft' }, ambientLight: '#101018' },
+    grid: { visible: true, snapDivision: 1, style: 'clean' },
+    layers: [
+      {
+        id: 'layer-1',
+        name: 'Dungeon',
+        type: 'dungeon',
+        visible: true,
+        locked: false,
+        opacity: 1,
+        standaloneWalls: [],
+        mergedFloor: null,
+        // Both empty-ish, but present: the renderer reads `style.wallTextureSetId` and
+        // `sublayerVisibility.floor` unconditionally (wallNodeRenderer.ts, subscribeToStore.ts)
+        // — an absent object crashes the page, it does not just draw nothing.
+        style: {},
+        sublayerVisibility: { floor: true, grid: true, walls: true },
+        rooms: [room],
+        children: [zoneReveal, zoneTrap],
+      },
+    ],
+    customImages: {},
+    prep: triggersFlagshipPrep(),
+  }
 }

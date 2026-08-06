@@ -5,6 +5,7 @@
 // dim or clear under each fog/door/reachability combination, which reveal earns a fade, and
 // that an unrelated store write does not rebuild the mask.
 
+import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Container, Graphics, Ticker } from 'pixi.js';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
@@ -694,7 +695,7 @@ describe('fogBounds', () => {
 const player: PlayerInfo = { identityId: 'p1', name: 'Ayla', role: 'player', connected: true };
 
 const session = (modules: Record<string, unknown> = {}): SessionState => ({
-  protocolVersion: 3,
+  protocolVersion: PROTOCOL_VERSION,
   sessionId: 's1',
   campaignId: 'c1',
   activeSceneId: 'scene-1',

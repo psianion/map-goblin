@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { describe, expect, it, beforeEach, vi, afterEach } from 'vitest';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import { endpoints } from '../endpoints';
@@ -397,7 +398,7 @@ describe('mergeMapDelta', () => {
 
 describe('state-update carrying a mapDelta', () => {
   const session = {
-    protocolVersion: 3,
+    protocolVersion: PROTOCOL_VERSION,
     sessionId: 's1',
     campaignId: 'c1',
     activeSceneId: 'scene-1',

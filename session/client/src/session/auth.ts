@@ -4,6 +4,7 @@
 // POSTing the OAuth code and returning the same `{identityId, campaignId, token}` shape —
 // and nothing else in the client moves: pages call this module, the store holds the token.
 
+import type { ScenePrep } from '@dnd/core/src/shared/prep';
 import { endpoints, setServerUrl } from '../endpoints';
 
 export interface DmSession {
@@ -193,6 +194,20 @@ export function publishScene(
 /** DELETE /api/scenes/:id. */
 export function deleteScene(sceneId: string, token: string): Promise<{ sceneId: string; deleted: true }> {
   return request(`/api/scenes/${encodeURIComponent(sceneId)}`, { method: 'DELETE' }, token);
+}
+
+/**
+ * GET /api/scenes/:id/prep — DM only (M4). The DM's authored trigger defs for this scene,
+ * raw as written in the editor — `null` if the DM never opened prep on it — plus the
+ * server's resolution verdict per trigger: an `inert` reason means the runtime will never
+ * fire it (zone deleted, light gone, malformed damage formula), which is exactly what the
+ * triggers panel needs to warn about.
+ */
+export function getScenePrep(
+  sceneId: string,
+  token: string,
+): Promise<{ prep: ScenePrep | null; resolved: { id: string; inert?: string }[] }> {
+  return request(`/api/scenes/${encodeURIComponent(sceneId)}/prep`, { method: 'GET' }, token);
 }
 
 /** PUT /api/campaigns/:id/scenes/order — every scene id, in the new order (D4). */
