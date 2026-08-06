@@ -4,6 +4,10 @@ services:
     image: map-goblin:dev
     ports:
       - "8080:80"
+    # The editor's /api proxy targets game-server; resolution is per-request
+    # (see nginx.conf), so this is boot ordering, not a hard requirement.
+    depends_on:
+      - game-server
     restart: unless-stopped
 
   # `docker compose up game-server` — the command HostSetup hands the DM (D4).

@@ -780,6 +780,223 @@ describe('scenes (#47)', () => {
   })
 })
 
+describe('dm-token (M3)', () => {
+  it('mints a fresh DM token for an existing campaign, admin-pass gated', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', {
+        token: adminPass,
+        body: { name: 'Lost Mine' },
+      })
+      const campaignId = campaign.body.campaignId as string
+
+      expect(
+        (await api(base, 'POST', `/api/campaigns/${campaignId}/dm-token`, { token: 'hunter2' })).status,
+      ).toBe(401)
+      expect((await api(base, 'POST', `/api/campaigns/${campaignId}/dm-token`)).status).toBe(401)
+      expect(
+        (await api(base, 'POST', '/api/campaigns/no-such-campaign/dm-token', { token: adminPass })).status,
+      ).toBe(404)
+
+      const minted = await api(base, 'POST', `/api/campaigns/${campaignId}/dm-token`, { token: adminPass })
+      expect(minted.status).toBe(200)
+      expect(minted.body).toEqual({ token: expect.any(String), campaignId, name: 'Lost Mine' })
+
+      // Authorizes exactly like any other DM token, though it names a fresh identity.
+      const list = await api(base, 'GET', `/api/campaigns/${campaignId}/scenes`, {
+        token: minted.body.token as string,
+      })
+      expect(list.status).toBe(200)
+    })
+  })
+
+  it('reuses the campaign’s existing DM identity instead of minting a fresh one each call (N10)', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', {
+        token: adminPass,
+        body: { name: 'Lost Mine' },
+      })
+      const campaignId = campaign.body.campaignId as string
+
+      // `createCampaign` already minted one DM identity; two more mints must not add to it.
+      const before = server.stores.identities.listByCampaign(campaignId).length
+      expect((await api(base, 'POST', `/api/campaigns/${campaignId}/dm-token`, { token: adminPass })).status).toBe(200)
+      expect((await api(base, 'POST', `/api/campaigns/${campaignId}/dm-token`, { token: adminPass })).status).toBe(200)
+      expect(server.stores.identities.listByCampaign(campaignId).length).toBe(before)
+    })
+  })
+})
+
+describe('scene prep (M3)', () => {
+  const PREP = {
+    version: 1,
+    triggers: [
+      {
+        id: 't1',
+        name: 'Trap',
+        when: { kind: 'enter-region', zoneId: 'z1' },
+        actions: [],
+        once: true,
+        enabled: true,
+      },
+    ],
+  }
+  const EMPTY_PREP = { version: 1, triggers: [] }
+
+  it('extracts prep on upload, and leaves it null when the file carries none', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+
+      const withPrep = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify({ ...MAP, prep: PREP }),
+      })
+      const sceneWithPrep = withPrep.body.sceneId as string
+      expect(
+        (await api(base, 'GET', `/api/scenes/${sceneWithPrep}/prep`, { token: dmToken })).body,
+      ).toEqual({ prep: PREP })
+
+      const withoutPrep = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(MAP),
+      })
+      const sceneWithoutPrep = withoutPrep.body.sceneId as string
+      expect(
+        (await api(base, 'GET', `/api/scenes/${sceneWithoutPrep}/prep`, { token: dmToken })).body,
+      ).toEqual({ prep: null })
+    })
+  })
+
+  it('keeps stored prep on a prep-less republish, overwrites on an explicit one, and clears on an explicit empty one', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+      const uploaded = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify({ ...MAP, prep: PREP }),
+      })
+      const sceneId = uploaded.body.sceneId as string
+      const getPrep = async () =>
+        (await api(base, 'GET', `/api/scenes/${sceneId}/prep`, { token: dmToken })).body
+
+      // No `prep` key at all — the DM never opened prep in this save, so it survives.
+      await api(base, 'PUT', `/api/scenes/${sceneId}/publish`, { token: dmToken, raw: JSON.stringify(MAP) })
+      expect(await getPrep()).toEqual({ prep: PREP })
+
+      // An explicit prep overwrites whatever was there.
+      const OTHER_PREP = { version: 1, triggers: [{ ...PREP.triggers[0], id: 't2' }] }
+      await api(base, 'PUT', `/api/scenes/${sceneId}/publish`, {
+        token: dmToken,
+        raw: JSON.stringify({ ...MAP, prep: OTHER_PREP }),
+      })
+      expect(await getPrep()).toEqual({ prep: OTHER_PREP })
+
+      // An explicit *empty* prep still overwrites — distinct from "never touched".
+      await api(base, 'PUT', `/api/scenes/${sceneId}/publish`, {
+        token: dmToken,
+        raw: JSON.stringify({ ...MAP, prep: EMPTY_PREP }),
+      })
+      expect(await getPrep()).toEqual({ prep: EMPTY_PREP })
+    })
+  })
+
+  it('round-trips PUT/GET, refuses players and outsiders, and refuses an invalid body', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+      const uploaded = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(MAP),
+      })
+      const sceneId = uploaded.body.sceneId as string
+      const originalMapId = uploaded.body.mapId as string
+
+      const put = await api(base, 'PUT', `/api/scenes/${sceneId}/prep`, { token: dmToken, body: PREP })
+      expect(put.status).toBe(200)
+      expect(put.body).toEqual({ prep: PREP })
+      expect(
+        (await api(base, 'GET', `/api/scenes/${sceneId}/prep`, { token: dmToken })).body,
+      ).toEqual({ prep: PREP })
+
+      // A prep edit never touches the scene's map — it is not a republish in disguise.
+      const scenes = await api(base, 'GET', `/api/campaigns/${campaignId}/scenes`, { token: dmToken })
+      expect((scenes.body.scenes as { id: string; mapId: string }[])[0].mapId).toBe(originalMapId)
+
+      // A player seated at this table, and no token at all, can neither read nor write it.
+      const started = await api(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId } })
+      const joined = await api(base, 'POST', '/api/join', {
+        body: { code: started.body.inviteCode as string, name: 'Bob' },
+      })
+      const playerToken = joined.body.token as string
+      expect((await api(base, 'GET', `/api/scenes/${sceneId}/prep`, { token: playerToken })).status).toBe(403)
+      expect(
+        (await api(base, 'PUT', `/api/scenes/${sceneId}/prep`, { token: playerToken, body: PREP })).status,
+      ).toBe(403)
+      expect((await api(base, 'GET', `/api/scenes/${sceneId}/prep`)).status).toBe(401)
+      expect((await api(base, 'PUT', `/api/scenes/${sceneId}/prep`, { body: PREP })).status).toBe(401)
+
+      // Shapes the trigger runtime could not read are refused rather than stored.
+      const putBody = (body: unknown) => api(base, 'PUT', `/api/scenes/${sceneId}/prep`, { token: dmToken, body })
+      expect((await putBody({ version: 2, triggers: [] })).status).toBe(400)
+      expect((await putBody({ version: 1, triggers: 'nope' })).status).toBe(400)
+      expect((await putBody('not an object')).status).toBe(400)
+    })
+  })
+
+  it('strips extra top-level keys instead of storing the raw body (N3)', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+      const uploaded = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify(MAP),
+      })
+      const sceneId = uploaded.body.sceneId as string
+
+      const put = await api(base, 'PUT', `/api/scenes/${sceneId}/prep`, {
+        token: dmToken,
+        body: { ...EMPTY_PREP, evil: 'payload' },
+      })
+      expect(put.status).toBe(200)
+      expect(put.body).toEqual({ prep: EMPTY_PREP })
+      // Not just the response — the column itself carries only the declared shape.
+      expect(server.stores.scenes.get(sceneId)?.prep).toBe(JSON.stringify(EMPTY_PREP))
+    })
+  })
+
+  it('stores SQL NULL, not the string "null", for an explicit prep: null (N4)', async () => {
+    await withServer(async ({ server, base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: {} })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+
+      // A hand-made file can carry a literal `"prep": null`.
+      const uploaded = await api(base, 'POST', `/api/campaigns/${campaignId}/maps`, {
+        token: dmToken,
+        raw: JSON.stringify({ ...MAP, prep: null }),
+      })
+      const sceneId = uploaded.body.sceneId as string
+      expect(
+        (await api(base, 'GET', `/api/scenes/${sceneId}/prep`, { token: dmToken })).body,
+      ).toEqual({ prep: null })
+      expect(server.stores.scenes.get(sceneId)?.prep).toBeNull()
+
+      // publishScene's explicit-clear path: give it prep, then explicitly null it back out.
+      await api(base, 'PUT', `/api/scenes/${sceneId}/prep`, { token: dmToken, body: PREP })
+      expect(server.stores.scenes.get(sceneId)?.prep).not.toBeNull()
+      await api(base, 'PUT', `/api/scenes/${sceneId}/publish`, {
+        token: dmToken,
+        raw: JSON.stringify({ ...MAP, prep: null }),
+      })
+      expect(server.stores.scenes.get(sceneId)?.prep).toBeNull()
+    })
+  })
+})
+
 describe('assets (D11)', () => {
   it('takes png/jpeg/webp from the DM and serves them back to the table, cached forever', async () => {
     await withServer(async ({ base, adminPass }) => {
@@ -1117,6 +1334,25 @@ describe('brute force', () => {
 
       // The budget is per address, not per route: /api/join is the other way in.
       expect((await api(base, 'POST', '/api/join', { body: { code: 'ZZZZZZ', name: 'Bob' } })).status).toBe(429)
+    })
+  })
+
+  it('rate-limits admin-pass guessing on the dm-token route the same way (N9)', async () => {
+    await withServer(async ({ base }) => {
+      // isAdminPass fails before the campaign lookup, so a real campaign is not needed to
+      // exercise the budget on this route.
+      for (let attempt = 0; attempt < 10; attempt++) {
+        expect(
+          (await api(base, 'POST', '/api/campaigns/no-such-campaign/dm-token', { token: 'hunter2' })).status,
+        ).toBe(401)
+      }
+      const res = await fetch(`${base}/api/campaigns/no-such-campaign/dm-token`, {
+        method: 'POST',
+        headers: { authorization: 'Bearer hunter2' },
+      })
+      expect(res.status).toBe(429)
+      expect(Number(res.headers.get('retry-after'))).toBeGreaterThan(0)
+      await res.text()
     })
   })
 

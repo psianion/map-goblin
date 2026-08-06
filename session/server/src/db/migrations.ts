@@ -107,4 +107,11 @@ export const MIGRATIONS: readonly string[] = [
          0, imported_at, imported_at
   FROM maps;
   `,
+
+  // 004 — M3: DM-authored scene prep (triggers), extracted from the published
+  // `.mapbuilder` and stored alongside the scene it belongs to. Null until a DM
+  // publishes a file that carries one.
+  `
+  ALTER TABLE scenes ADD COLUMN prep TEXT;
+  `,
 ]

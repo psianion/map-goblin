@@ -3,7 +3,18 @@ import type { Room } from '@dnd/core/src/shared/types';
 import { endpoints } from '../endpoints';
 import { serverRooms } from '../modules/fog/fog';
 import { navigate } from '../router';
-import { createCampaignAsDm, startSession, uploadMapFile, type DmSession } from '../session/auth';
+import {
+  createCampaignAsDm,
+  fetchMapDoc,
+  listCampaignsAsAdmin,
+  listScenes,
+  mintDmToken,
+  startSession,
+  uploadMapFile,
+  type CampaignSummary,
+  type DmSession,
+  type SceneMeta,
+} from '../session/auth';
 import { readMapFile } from '../session/mapFile';
 import { useSessionStore } from '../session/store';
 
@@ -51,8 +62,18 @@ export default function HostSetup() {
   const [serverUrl, setServerUrl] = useState(endpoints.httpBase);
   const [adminPass, setAdminPass] = useState('');
   const [campaignName, setCampaignName] = useState('');
+  const [campaigns, setCampaigns] = useState<CampaignSummary[]>([]);
   const [dm, setDm] = useState<DmSession | null>(null);
-  const [map, setMap] = useState<{ mapId: string; name: string; sizeBytes: number } | null>(null);
+  const [map, setMap] = useState<{
+    mapId: string;
+    sceneId: string;
+    name: string;
+    sizeBytes: number;
+  } | null>(null);
+  /** The campaign's published library, fetched once its DM token is in hand (M3). */
+  const [scenes, setScenes] = useState<SceneMeta[]>([]);
+  /** A library scene picked instead of uploading — mutually exclusive with `map`. */
+  const [selectedSceneId, setSelectedSceneId] = useState('');
   /** The uploaded map's own rooms — the same list the fog panel will show at the table. */
   const [rooms, setRooms] = useState<Room[]>([]);
   /** '' = none, which is the table starting dark exactly as it did before this picker. */
@@ -78,12 +99,65 @@ export default function HostSetup() {
   const resolvedServerUrl = serverUrl.trim() || endpoints.httpBase;
   const serverError = serverUrlError(serverUrl);
 
+  /** Fetches the campaign's list to decide the Server step to leave off on. */
+  const continueFromServer = () =>
+    run(async () => {
+      const { campaigns } = await listCampaignsAsAdmin(resolvedServerUrl, adminPass);
+      setCampaigns(campaigns);
+      setStep(2);
+    });
+
+  /** Shared tail of both campaign paths and the N2 retry: a token in hand, its library fetched. */
+  const fetchScenesAndAdvance = async (session: DmSession): Promise<void> => {
+    setScenes((await listScenes(session.campaignId, session.token)).scenes);
+    setStep(3);
+  };
+
   const createCampaign = () =>
     run(async () => {
-      setDm(
-        await createCampaignAsDm(resolvedServerUrl, adminPass, campaignName || 'Untitled campaign'),
+      const session = await createCampaignAsDm(
+        resolvedServerUrl,
+        adminPass,
+        campaignName || 'Untitled campaign',
       );
-      setStep(3);
+      setDm(session);
+      await fetchScenesAndAdvance(session);
+    });
+
+  const hostExisting = (campaign: CampaignSummary) =>
+    run(async () => {
+      const session = await mintDmToken(resolvedServerUrl, adminPass, campaign.id);
+      setDm(session);
+      await fetchScenesAndAdvance(session);
+    });
+
+  /**
+   * N2 — `dm` already holds a live token once `createCampaign`/`hostExisting` minted one; if
+   * the library fetch that follows throws, the wizard is stuck on step 2 with "Create
+   * campaign" as the only visible retry, which mints a duplicate campaign instead of just
+   * trying the fetch again. This re-runs the fetch against the token already in hand.
+   */
+  const retryMapStep = () =>
+    run(async () => {
+      if (!dm) return;
+      await fetchScenesAndAdvance(dm);
+    });
+
+  /**
+   * F2 — a library scene is a map too: its starting room needs the same room list an
+   * upload gets, fetched from the doc the scene already points at rather than a file the
+   * DM would have to hunt down again.
+   */
+  const pickScene = (sceneId: string) =>
+    run(async () => {
+      setSelectedSceneId(sceneId);
+      // Uploading and picking from the library are mutually exclusive — whichever was
+      // chosen last is the one that opens the table.
+      setMap(null);
+      setRooms([]);
+      setStartRoomId('');
+      if (!dm) return;
+      setRooms(serverRooms(await fetchMapDoc(sceneId, dm.token)));
     });
 
   const uploadMap = (file: File) =>
@@ -92,6 +166,7 @@ export default function HostSetup() {
       // The editor's own save is gzipped (`readMapFile`); a testdata fixture is plain JSON.
       const text = await readMapFile(file);
       setMap(await uploadMapFile(dm.campaignId, dm.token, text));
+      setSelectedSceneId('');
       // Only reached once the server has accepted the same bytes, so it parses here too.
       setRooms(serverRooms(JSON.parse(text)));
       setStartRoomId('');
@@ -100,11 +175,12 @@ export default function HostSetup() {
   const openTable = () =>
     run(async () => {
       if (!dm) return;
-      // A scene *is* a map: the id the upload handed back is the one fog is keyed by, and
-      // the one the table has to open on — a campaign may already hold others.
-      const startingRoom =
-        map && startRoomId ? { sceneId: map.mapId, roomId: startRoomId } : undefined;
-      const opened = await startSession(dm.campaignId, dm.token, startingRoom, map?.mapId);
+      // A scene *is* a map: the id the upload handed back (or the library scene picked
+      // instead) is the one fog is keyed by, and the one the table has to open on — a
+      // campaign may already hold others.
+      const sceneId = selectedSceneId || map?.sceneId;
+      const startingRoom = sceneId && startRoomId ? { sceneId, roomId: startRoomId } : undefined;
+      const opened = await startSession(dm.campaignId, dm.token, startingRoom, sceneId);
       setInviteCode(opened.inviteCode);
     });
 
@@ -203,39 +279,122 @@ export default function HostSetup() {
             <button
               type="button"
               className={primary}
-              disabled={!adminPass.trim() || serverError !== null}
-              onClick={() => setStep(2)}
+              disabled={!adminPass.trim() || serverError !== null || busy}
+              onClick={continueFromServer}
             >
-              Continue
+              {busy ? 'Checking…' : 'Continue'}
             </button>
           </section>
         )}
 
         {step === 2 && (
           <section className="flex flex-col gap-4">
+            {/*
+              #M3 — hosting an existing campaign is the primary path once one exists: its
+              library was already built in the map editor. A brand-new server has no
+              campaigns yet, so this list is simply absent rather than an empty state
+              nobody needs to read past — the create form below is exactly today's step.
+            */}
+            {campaigns.length > 0 && (
+              <div>
+                <p className={label}>Host an existing campaign</p>
+                <ul aria-label="Existing campaigns" className="flex flex-col gap-1">
+                  {campaigns.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void hostExisting(c)}
+                        className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-left text-sm hover:border-neutral-600 hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <span className="font-medium text-neutral-100">{c.name}</span>
+                        <span className="ml-2 text-xs text-neutral-500">
+                          Created {new Date(c.createdAt).toLocaleDateString()}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-xs text-neutral-500">
+                  Picking one opens its scene library on the next step.
+                </p>
+              </div>
+            )}
+
             <div>
               <label className={label} htmlFor="campaign-name">
-                Campaign name
+                {campaigns.length > 0 ? 'Or start a new campaign' : 'Campaign name'}
               </label>
               <input
                 id="campaign-name"
                 className={field}
                 value={campaignName}
+                disabled={busy}
                 onChange={(e) => setCampaignName(e.target.value)}
                 placeholder="Untitled campaign"
               />
             </div>
-            <button type="button" className={primary} disabled={busy} onClick={createCampaign}>
-              {busy ? 'Creating…' : 'Create campaign'}
+            {/*
+              N2 — a token already minted (`dm` set) means a prior library fetch on this
+              same campaign failed; retrying it is the fix, not minting a second campaign
+              via this same button.
+            */}
+            <button
+              type="button"
+              className={primary}
+              disabled={busy}
+              onClick={dm ? retryMapStep : createCampaign}
+            >
+              {dm ? (busy ? 'Retrying…' : 'Retry') : busy ? 'Creating…' : 'Create campaign'}
             </button>
           </section>
         )}
 
         {step === 3 && (
           <section className="flex flex-col gap-4">
+            {/*
+              M3 — library-first: a campaign whose scenes came from the map editor should
+              open on one of them, not send the DM hunting for the file again. A fresh
+              campaign has nothing here yet, so this fieldset is simply absent and upload
+              is the only option — exactly today's step.
+            */}
+            {scenes.length > 0 && (
+              <fieldset className="flex flex-col gap-2">
+                <legend className={label}>Choose a scene from the library</legend>
+                <div className="flex flex-col gap-1">
+                  {scenes.map((scene) => (
+                    <label
+                      key={scene.id}
+                      className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-neutral-400 ${
+                        selectedSceneId === scene.id
+                          ? 'border-neutral-500 bg-neutral-800 text-neutral-100'
+                          : 'border-neutral-800 bg-neutral-900 text-neutral-300 hover:border-neutral-700'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="library-scene"
+                        value={scene.id}
+                        checked={selectedSceneId === scene.id}
+                        disabled={busy}
+                        onChange={() => void pickScene(scene.id)}
+                      />
+                      <span className="min-w-0 flex-1 truncate">{scene.name}</span>
+                      {!scene.visibleToPlayers && (
+                        <span className="shrink-0 text-xs text-neutral-500">Hidden</span>
+                      )}
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-neutral-500">
+                  Opens the table on this scene. Switch scenes any time once you're at the table.
+                </p>
+              </fieldset>
+            )}
+
             <div>
               <label className={label} htmlFor="map-file">
-                Map file
+                {scenes.length > 0 ? 'Or import a map file' : 'Map file'}
               </label>
               <input
                 id="map-file"
@@ -249,7 +408,13 @@ export default function HostSetup() {
                 className="w-full text-sm text-neutral-400 file:mr-3 file:rounded-md file:border-0 file:bg-neutral-800 file:px-3 file:py-2 file:text-sm file:text-neutral-100 hover:file:bg-neutral-700"
               />
               <p className="mt-1 text-xs text-neutral-500">
-                A <code>.mapbuilder</code> saved from the editor, up to 20MB.
+                {scenes.length > 0 ? (
+                  <>A backup path — most tables are already in the library above.</>
+                ) : (
+                  <>
+                    A <code>.mapbuilder</code> saved from the editor, up to 20MB.
+                  </>
+                )}
               </p>
             </div>
 
@@ -266,7 +431,7 @@ export default function HostSetup() {
               reveal: without it the party's first minute is a black canvas they cannot move
               a token on. Skipping is the old behaviour, so the default stays "none".
             */}
-            {map && rooms.length > 0 && (
+            {rooms.length > 0 && (
               <div>
                 <label className={label} htmlFor="starting-room">
                   Starting room
@@ -290,7 +455,12 @@ export default function HostSetup() {
               </div>
             )}
 
-            <button type="button" className={primary} disabled={!map} onClick={() => setStep(4)}>
+            <button
+              type="button"
+              className={primary}
+              disabled={!map && !selectedSceneId}
+              onClick={() => setStep(4)}
+            >
               Continue
             </button>
           </section>

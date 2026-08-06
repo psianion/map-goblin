@@ -7,12 +7,34 @@ export interface MapMeta {
   layerCount: number;
 }
 
+/** Where this map last landed in one campaign's library, and what was published. */
+export interface PublishState {
+  sceneId: string;
+  mapHash: string;
+  prepHash: string;
+}
+
+/** One slot per campaign a map has been published to — publishing to a second
+ * campaign must not orphan the first scene's publish state. */
+export type PublishRecord = Record<string, PublishState>;
+
 interface MapEntry extends MapMeta {
   data: Uint8Array;
+  /** Absent until the map has been published once. */
+  publish?: PublishRecord;
+}
+
+// ponytail: this unreleased branch briefly stored `publish` as a single
+// {campaignId, sceneId, mapHash} object instead of a per-campaign record. No map has
+// shipped with that shape, so rather than migrate it we just discard it on read.
+function isLegacyPublishShape(v: unknown): boolean {
+  return !!v && typeof v === 'object' && 'campaignId' in (v as object);
 }
 
 const DB_NAME = 'mapbuilder-maps';
 const STORE_NAME = 'maps';
+// `publish` is an optional property on an existing store's values, not a new store or
+// index — IndexedDB needs no upgrade transaction for that, so this stays at 1.
 const DB_VERSION = 1;
 
 export class MapIndexDB {
@@ -129,6 +151,38 @@ export class MapIndexDB {
       updatedAt: now,
     });
     return newId;
+  }
+
+  async getPublishState(id: string): Promise<PublishRecord | null> {
+    const entry = await this.get(id);
+    const publish = entry?.publish;
+    if (!publish || isLegacyPublishShape(publish)) return null;
+    return publish;
+  }
+
+  /** Read-modify-write in one transaction, so a concurrent autosave's put on the same
+   * entry can't be reverted by a get-then-put over the whole MapEntry racing it. */
+  async setPublishState(id: string, campaignId: string, publish: PublishState): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const tx = this.db!.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const entry = getReq.result as MapEntry | undefined;
+        if (!entry) {
+          resolve();
+          return;
+        }
+        const existing = isLegacyPublishShape(entry.publish)
+          ? undefined
+          : (entry.publish as PublishRecord | undefined);
+        entry.publish = { ...existing, [campaignId]: publish };
+        const putReq = store.put(entry);
+        putReq.onsuccess = () => resolve();
+        putReq.onerror = () => reject(putReq.error);
+      };
+      getReq.onerror = () => reject(getReq.error);
+    });
   }
 
   private async get(id: string): Promise<MapEntry | null> {

@@ -8,7 +8,9 @@ import { endpoints, setServerUrl } from '../endpoints';
 
 export interface DmSession {
   campaignId: string;
-  identityId: string;
+  // `mintDmToken` (an existing campaign) doesn't hand this back — only `createCampaignAsDm`
+  // does — and nothing downstream in the client reads it either way.
+  identityId?: string;
   token: string;
 }
 
@@ -34,6 +36,48 @@ export async function createCampaignAsDm(
     throw new Error(`"${serverUrl}" is not a server address. Try http://localhost:8787`);
   }
   return request('/api/campaigns', postJson({ name }), adminPass);
+}
+
+export interface CampaignSummary {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Admin pass → every campaign already on this server (M3: hosting an existing campaign
+ * starts from its library, not a fresh one). Also retargets `endpoints`, same as
+ * {@link createCampaignAsDm} — this is the first authenticated call the wizard makes.
+ */
+export function listCampaignsAsAdmin(
+  serverUrl: string,
+  adminPass: string,
+): Promise<{ campaigns: CampaignSummary[] }> {
+  try {
+    setServerUrl(serverUrl);
+  } catch {
+    throw new Error(`"${serverUrl}" is not a server address. Try http://localhost:8787`);
+  }
+  return request('/api/campaigns', { method: 'GET' }, adminPass);
+}
+
+/** Admin pass → a fresh DM token for a campaign the admin pass already owns (M3). */
+export function mintDmToken(
+  serverUrl: string,
+  adminPass: string,
+  campaignId: string,
+): Promise<DmSession & { name: string }> {
+  try {
+    setServerUrl(serverUrl);
+  } catch {
+    throw new Error(`"${serverUrl}" is not a server address. Try http://localhost:8787`);
+  }
+  return request(
+    `/api/campaigns/${encodeURIComponent(campaignId)}/dm-token`,
+    { method: 'POST' },
+    adminPass,
+  );
 }
 
 /** Invite code + a name → a player token. No credential: the code is the credential. */
@@ -108,6 +152,16 @@ export interface SceneMeta {
 /** GET /api/campaigns/:id/scenes — the full library, in drag order. DM only. */
 export function listScenes(campaignId: string, token: string): Promise<{ scenes: SceneMeta[] }> {
   return request(`/api/campaigns/${encodeURIComponent(campaignId)}/scenes`, { method: 'GET' }, token);
+}
+
+/**
+ * GET /api/maps/:id — the map document a library scene points at, for deriving its rooms
+ * (M3: the host wizard's starting-room picker has to work for a scene picked from the
+ * library, not only one just uploaded in this tab). `images=external` is the same leniency
+ * `loadSceneMap` uses — the picker only reads `layers`, so the images never need fetching.
+ */
+export function fetchMapDoc(sceneId: string, token: string): Promise<unknown> {
+  return request(`/api/maps/${encodeURIComponent(sceneId)}?images=external`, { method: 'GET' }, token);
 }
 
 /** PATCH /api/scenes/:id — rename and/or the D5 visibility flag. */

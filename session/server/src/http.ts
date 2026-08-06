@@ -25,7 +25,7 @@ import {
 } from './db/stores'
 import type { Vision } from './fog/vision'
 import { parseMapFile, unwrapMapFile } from './mapImport'
-import type { SerializedMapData } from '@dnd/core/src/store/types'
+import type { ScenePrep, SerializedMapData } from '@dnd/core/src/store/types'
 import type { ModuleRegistry } from './modules/registry'
 import type { SessionManager } from './ws/SessionManager'
 
@@ -76,6 +76,8 @@ async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse)
 
   if (method === 'GET' && resource === 'campaigns' && !id) return listCampaigns(deps, req, res)
   if (method === 'POST' && resource === 'campaigns' && !id) return createCampaign(deps, req, res)
+  if (method === 'POST' && resource === 'campaigns' && id && sub === 'dm-token')
+    return mintDmToken(deps, req, res, id)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'maps')
     return uploadMap(deps, req, res, id)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'assets')
@@ -99,6 +101,9 @@ async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse)
     return publishScene(deps, req, res, id)
   if (method === 'PATCH' && resource === 'scenes' && id && !sub) return patchScene(deps, req, res, id)
   if (method === 'DELETE' && resource === 'scenes' && id && !sub) return deleteScene(deps, req, res, id)
+  if (method === 'GET' && resource === 'scenes' && id && sub === 'prep') return getScenePrep(deps, req, res, id)
+  if (method === 'PUT' && resource === 'scenes' && id && sub === 'prep')
+    return putScenePrep(deps, req, res, id)
 
   return json(res, 404, { error: 'not found' })
 }
@@ -114,7 +119,8 @@ async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse)
  * the same gate `createCampaign` uses — so it is also the one that means "whoever may
  * come back and see what they created". A self-hosted table has exactly one such person.
  */
-function listCampaigns(deps: HttpDeps, req: IncomingMessage, res: ServerResponse): void {
+function listCampaigns(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): void {
+  if (rateLimited(deps, req, res)) return
   if (!isAdminPass(deps.stores.passes, credential(req))) {
     return json(res, 401, { error: 'invalid admin pass' })
   }
@@ -128,7 +134,8 @@ function listCampaigns(deps: HttpDeps, req: IncomingMessage, res: ServerResponse
 }
 
 /** POST /api/campaigns — admin pass in, campaign + DM session token out. */
-async function createCampaign(deps: HttpDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function createCampaign(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (rateLimited(deps, req, res)) return
   if (!isAdminPass(deps.stores.passes, credential(req))) {
     return json(res, 401, { error: 'invalid admin pass' })
   }
@@ -141,6 +148,37 @@ async function createCampaign(deps: HttpDeps, req: IncomingMessage, res: ServerR
     campaignId: campaign.id,
     identityId: dm.id,
     token: issueToken(deps.hmacSecret, dm.id, campaign.id, 'dm'),
+  })
+}
+
+/**
+ * POST /api/campaigns/:id/dm-token — admin pass in, a fresh DM token for an *existing*
+ * campaign out (M3: publish-to-library needs a way back into a campaign the admin pass
+ * already owns, without minting a whole new one). Same mint shape as `createCampaign`,
+ * unbound to any session for the same reason theirs is (see auth.ts's `TokenClaims`).
+ */
+function mintDmToken(
+  deps: RouteDeps,
+  req: IncomingMessage,
+  res: ServerResponse,
+  campaignId: string,
+): void {
+  if (rateLimited(deps, req, res)) return
+  if (!isAdminPass(deps.stores.passes, credential(req))) {
+    return json(res, 401, { error: 'invalid admin pass' })
+  }
+  const campaign = deps.stores.campaigns.get(campaignId)
+  if (!campaign) return json(res, 404, { error: 'no such campaign' })
+
+  // Reuse the campaign's existing DM identity when one exists (N10) — every dialog open or
+  // host-existing used to mint a brand new, permanent DM credential.
+  const dm =
+    deps.stores.identities.findByCampaignAndRole(campaignId, 'dm') ??
+    deps.stores.identities.mint(randomUUID(), campaignId, 'DM', 'dm')
+  json(res, 200, {
+    token: issueToken(deps.hmacSecret, dm.id, campaignId, 'dm'),
+    campaignId,
+    name: campaign.name,
   })
 }
 
@@ -176,9 +214,19 @@ async function uploadMap(
   const map = parseMapFile(text)
   if (!map.ok) return json(res, 400, { error: map.error })
 
+  // M3 — trigger prep the DM authored in the editor rides inside the same file; extracted
+  // once here so the scene library, not the map document, is what the trigger runtime and
+  // the prep endpoints below ever have to read.
+  const prep = map.data.prep
   // Stored verbatim: the bytes the editor wrote are the bytes the renderer gets back.
   const row = deps.stores.maps.insert(randomUUID(), campaignId, map.name, text)
-  const scene = deps.stores.scenes.create(row.id, campaignId, row.id, map.name)
+  const scene = deps.stores.scenes.create(
+    row.id,
+    campaignId,
+    row.id,
+    map.name,
+    prep ? JSON.stringify(prep) : null,
+  )
   deps.stores.campaigns.touch(campaignId)
   deps.sessionManager.refreshScenes(campaignId)
   json(res, 201, {
@@ -311,6 +359,14 @@ async function publishScene(
 
   const row = deps.stores.maps.insert(randomUUID(), scene.campaign_id, map.name, raw)
   deps.stores.scenes.republish(sceneId, row.id)
+  // M3 — `prep` absent means the author never opened prep in this save, so whatever is
+  // already stored survives untouched; an explicit prep (including an emptied-out one)
+  // overwrites it. Canvas's own serialization is what makes "absent" and "empty" distinct.
+  if (map.data.prep !== undefined) {
+    // null/falsy stores SQL NULL rather than the string 'null' (N4); {version:1,triggers:[]}
+    // is truthy, so an explicit clear still stores the empty block.
+    deps.stores.scenes.setPrep(sceneId, map.data.prep ? JSON.stringify(map.data.prep) : null)
+  }
   // The cached geometry `sceneMapOf`/`vision` hold for this id was read off the map row
   // this scene *used* to point at — without this a republish would answer fog, doors and
   // the player's own map GET with the scene's old geometry until something else evicted it.
@@ -340,6 +396,57 @@ function deleteScene(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, 
   deps.vision.invalidateScene(sceneId)
   deps.sessionManager.refreshScenes(scene.campaign_id)
   json(res, 200, { sceneId, deleted: true })
+}
+
+/** GET /api/scenes/:id/prep — DM only, campaign-scoped (M3). */
+function getScenePrep(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, sceneId: string): void {
+  const identity = requireSession(deps, req, res)
+  if (!identity) return
+  const scene = deps.stores.scenes.get(sceneId)
+  if (!scene || scene.campaign_id !== identity.campaign_id) {
+    return json(res, 404, { error: 'no such scene' })
+  }
+  if (identity.role !== 'dm') return json(res, 403, { error: 'dm only' })
+
+  json(res, 200, { prep: scene.prep ? (JSON.parse(scene.prep) as ScenePrep) : null })
+}
+
+/**
+ * PUT /api/scenes/:id/prep — DM authors prep directly, without a whole map re-publish.
+ * Deliberately quiet: no `refreshScenes`, no `vision.invalidateScene` — a prep edit
+ * changes nothing about the map or fog a live table is looking at, only what a future
+ * trigger check will read (M4 re-reads prep itself rather than being told to reload).
+ */
+async function putScenePrep(
+  deps: HttpDeps,
+  req: IncomingMessage,
+  res: ServerResponse,
+  sceneId: string,
+): Promise<void> {
+  const identity = requireSession(deps, req, res)
+  if (!identity) return
+  const scene = deps.stores.scenes.get(sceneId)
+  if (!scene || scene.campaign_id !== identity.campaign_id) {
+    return json(res, 404, { error: 'no such scene' })
+  }
+  if (identity.role !== 'dm') return json(res, 403, { error: 'dm only' })
+
+  const body = await readJson(req, res)
+  if (!body) return
+  if (!isScenePrep(body)) return json(res, 400, { error: 'prep must be {version: 1, triggers: [...]}' })
+
+  // Only the declared shape is persisted — an extra top-level key or a malformed trigger
+  // riding along in the body would otherwise be stored verbatim (N3); per-trigger validation
+  // is M4's runtime concern, not this endpoint's.
+  deps.stores.scenes.setPrep(sceneId, JSON.stringify({ version: 1, triggers: body.triggers }))
+  json(res, 200, { prep: { version: 1, triggers: body.triggers } })
+}
+
+/** Just enough shape-checking that a bad body 400s instead of corrupting the stored JSON. */
+function isScenePrep(value: unknown): value is ScenePrep {
+  if (typeof value !== 'object' || value === null) return false
+  const { version, triggers } = value as Record<string, unknown>
+  return version === 1 && Array.isArray(triggers)
 }
 
 /** POST /api/campaigns/:id/assets — DM, ≤ 2MB, raw image bytes (D11). */

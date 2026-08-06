@@ -33,6 +33,11 @@ const textInput =
  */
 export function SessionControls() {
   const activeSceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
+  // The wire's own thin scene list already resends live on any scene mutation in this
+  // campaign (`refreshScenes`, server-side) — including a publish from the map editor in
+  // another tab. Its identity only changes when that happens (or on the join snapshot), so
+  // keying the refetch off it covers "library changed elsewhere" for free, no poll needed.
+  const wireScenes = useSessionStore((s) => s.session?.scenes);
   const [scenes, setScenes] = useState<SceneMeta[]>([]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -49,8 +54,10 @@ export function SessionControls() {
     }
   };
 
-  // One fetch, on mount only — every mutation below refetches itself via `run`.
-  useEffect(() => void refresh(), []);
+  // One fetch on mount, plus one whenever the wire's own scene list changes underneath —
+  // every mutation *this panel* makes also refetches itself via `run`, so this only ever
+  // fires again for a change nobody at this table clicked (see `wireScenes` above).
+  useEffect(() => void refresh(), [wireScenes]);
 
   /** Every mutating call is the same three lines around the request that differs. */
   const run = async (action: () => Promise<void>): Promise<void> => {
@@ -243,12 +250,18 @@ export function SessionControls() {
         )}
       </div>
 
-      <label className="text-xs text-neutral-500">
-        {busy ? 'Working…' : 'Publish a new scene'}
+      {/*
+        The map editor's own publish is the primary way a scene gets here now (M3) — this
+        is the backup path for a file that never went through it, so it reads as one rather
+        than the main "add a scene" affordance it used to be.
+      */}
+      <label className="border-t border-neutral-800 pt-2 text-xs text-neutral-500">
+        {busy ? 'Working…' : 'Import a map file'}
         <input
           type="file"
           accept=".mapbuilder,.json,application/json"
           disabled={busy}
+          aria-label="Import a map file"
           data-testid="scene-upload"
           onChange={(e) => {
             const file = e.target.files?.[0];

@@ -162,6 +162,8 @@ export interface SceneRow {
   visible_to_players: number
   created_at: number
   updated_at: number
+  /** DM-authored trigger prep (M3), JSON-encoded `ScenePrep` — null until the DM has any. */
+  prep: string | null
 }
 
 /**
@@ -180,13 +182,14 @@ export class SceneStore {
   readonly #rename
   readonly #setVisible
   readonly #setSort
+  readonly #setPrep
   readonly #delete
 
   constructor(db: Database) {
     this.#db = db
-    this.#insert = db.prepare<[string, string, string, string, number, number, number]>(
-      `INSERT INTO scenes (id, campaign_id, map_id, name, sort_index, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    this.#insert = db.prepare<[string, string, string, string, number, number, number, string | null]>(
+      `INSERT INTO scenes (id, campaign_id, map_id, name, sort_index, created_at, updated_at, prep)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     this.#get = db.prepare<[string], SceneRow>('SELECT * FROM scenes WHERE id = ?')
     this.#list = db.prepare<[string], SceneRow>(
@@ -205,6 +208,9 @@ export class SceneStore {
       'UPDATE scenes SET visible_to_players = ?, updated_at = ? WHERE id = ?',
     )
     this.#setSort = db.prepare<[number, string]>('UPDATE scenes SET sort_index = ? WHERE id = ?')
+    this.#setPrep = db.prepare<[string | null, number, string]>(
+      'UPDATE scenes SET prep = ?, updated_at = ? WHERE id = ?',
+    )
     this.#delete = db.prepare<[string]>('DELETE FROM scenes WHERE id = ?')
   }
 
@@ -213,11 +219,21 @@ export class SceneStore {
    * (http.ts's `uploadMap`), which is what lets an existing sceneId keep meaning the
    * same thing it always did. A scene published any other way mints its own.
    */
-  create(id: string, campaignId: string, mapId: string, name: string): SceneRow {
+  create(id: string, campaignId: string, mapId: string, name: string, prep: string | null = null): SceneRow {
     const sortIndex = (this.#nextSort.get(campaignId) as { n: number }).n
     const now = Date.now()
-    this.#insert.run(id, campaignId, mapId, name, sortIndex, now, now)
-    return { id, campaign_id: campaignId, map_id: mapId, name, sort_index: sortIndex, visible_to_players: 0, created_at: now, updated_at: now }
+    this.#insert.run(id, campaignId, mapId, name, sortIndex, now, now, prep)
+    return {
+      id,
+      campaign_id: campaignId,
+      map_id: mapId,
+      name,
+      sort_index: sortIndex,
+      visible_to_players: 0,
+      created_at: now,
+      updated_at: now,
+      prep,
+    }
   }
 
   get(id: string): SceneRow | undefined {
@@ -231,6 +247,11 @@ export class SceneStore {
   /** Re-publish (#47 D1): repoints at a new map row without moving the scene's own id. */
   republish(id: string, mapId: string): void {
     this.#republish.run(mapId, Date.now(), id)
+  }
+
+  /** M3 — the handler decides keep-vs-overwrite; this always writes what it is given. */
+  setPrep(id: string, prep: string | null): void {
+    this.#setPrep.run(prep, Date.now(), id)
   }
 
   rename(id: string, name: string): void {
@@ -338,6 +359,8 @@ export class IdentityStore {
   readonly #get
   readonly #ban
   readonly #touch
+  readonly #byCampaignAndRole
+  readonly #list
 
   constructor(db: Database) {
     this.#insert = db.prepare<[string, string, string, string]>(
@@ -346,6 +369,12 @@ export class IdentityStore {
     this.#get = db.prepare<[string], Identity>('SELECT * FROM identities WHERE id = ?')
     this.#ban = db.prepare<[string]>('UPDATE identities SET banned = 1 WHERE id = ?')
     this.#touch = db.prepare<[number, string]>('UPDATE identities SET last_seen = ? WHERE id = ?')
+    // A banned DM identity is not a candidate to reuse — its token would just be refused
+    // the moment it was spent (N10, see `requireSession`'s banned check).
+    this.#byCampaignAndRole = db.prepare<[string, string], Identity>(
+      'SELECT * FROM identities WHERE campaign_id = ? AND role = ? AND banned = 0 LIMIT 1',
+    )
+    this.#list = db.prepare<[string], Identity>('SELECT * FROM identities WHERE campaign_id = ?')
   }
 
   /** `id` comes from the caller because A4 signs it into the session token as it mints one. */
@@ -356,6 +385,15 @@ export class IdentityStore {
 
   get(id: string): Identity | undefined {
     return this.#get.get(id)
+  }
+
+  /** The campaign's existing, unbanned holder of this role, if any (N10 — dm-token reuse). */
+  findByCampaignAndRole(campaignId: string, role: Role): Identity | undefined {
+    return this.#byCampaignAndRole.get(campaignId, role)
+  }
+
+  listByCampaign(campaignId: string): Identity[] {
+    return this.#list.all(campaignId)
   }
 
   ban(id: string): void {

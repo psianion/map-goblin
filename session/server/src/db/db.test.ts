@@ -207,6 +207,7 @@ describe('scenes migration (#47)', () => {
     const theirs = maps.insert('their-map', other.id, 'Theirs', '{}')
 
     raw.exec(MIGRATIONS[2]!) // the scenes table + backfill
+    raw.exec(MIGRATIONS[3]!) // scenes.prep column (M3) — SceneStore's statements expect it
 
     const scenes = new SceneStore(raw)
     // Same id as the map it wraps — a live server's `active_scene_id` or module state
