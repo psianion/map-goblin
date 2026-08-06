@@ -62,6 +62,22 @@ describe('MapBuilderStore', () => {
     expect(useStore.getState().tools.activeTool).toBe('wall');
   });
 
+  it('entering node edit clears the selection so the gizmo retires', () => {
+    useStore.getState().setSelectedIds(['some-child']);
+    useStore.getState().setShapeNodeEdit('shape-1');
+    expect(useStore.getState().selection.selectedIds).toEqual([]);
+
+    useStore.getState().setSelectedIds(['some-child']);
+    useStore.getState().setNodeEditWall('wall-1');
+    expect(useStore.getState().selection.selectedIds).toEqual([]);
+
+    // Leaving the mode must not touch whatever was selected meanwhile.
+    useStore.getState().setSelectedIds(['picked-inside']);
+    useStore.getState().setShapeNodeEdit(null);
+    useStore.getState().setNodeEditWall(null);
+    expect(useStore.getState().selection.selectedIds).toEqual(['picked-inside']);
+  });
+
   it('togglePanel toggles panel visibility', () => {
     useStore.getState().togglePanel('right');
     expect(useStore.getState().ui.rightPanelOpen).toBe(false);

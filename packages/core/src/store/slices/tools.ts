@@ -59,6 +59,9 @@ export const createToolsSlice: StateCreator<
       state.tools.nodeEditWallId = wallId;
       state.tools.selectedNodeT = null;
       state.tools.selectedNodeTs = [];
+      // Node editing replaces the selection UI. The gizmo adopts any live
+      // selection, so leaving one behind stacks it over the node overlay.
+      if (wallId) state.selection.selectedIds = [];
     }),
   selectNode: (t) =>
     set((state) => {
@@ -91,6 +94,9 @@ export const createToolsSlice: StateCreator<
       // Delete fell through to the global binding and removed the whole shape.
       if (state.tools.shapeNodeEditId !== shapeId) state.tools.selectedVertex = null;
       state.tools.shapeNodeEditId = shapeId;
+      // Same as setNodeEditWall: the mode owns the screen, the gizmo must not
+      // stay drawn around whatever the entry double-click selected.
+      if (shapeId) state.selection.selectedIds = [];
     }),
   selectVertex: (index) =>
     set((state) => {
