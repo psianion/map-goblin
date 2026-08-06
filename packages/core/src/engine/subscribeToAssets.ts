@@ -63,6 +63,49 @@ function ensureRegistered(assetId: string, resolvedUrl: string): void {
 }
 
 /**
+ * The assetId a sprite's texture was resolved from. A swap rewrites `assetId`
+ * on the same child, and a sprite that only resolved its texture at creation
+ * kept the old art until a reload rebuilt it.
+ */
+const texturedAs = new WeakMap<Sprite, string>();
+
+/** Resolve and assign the child's texture; async-loads uncached custom images. */
+function applyTexture(sprite: Sprite, obj: AssetChild, spriteMap: Map<string, Sprite>): void {
+  texturedAs.set(sprite, obj.assetId);
+  const isCustomImage = obj.assetId.startsWith('data:') || obj.assetId.startsWith('blob:');
+  if (!isCustomImage) {
+    // Pack, legacy, or bundled texture — sync resolution via unified resolver
+    const resolved = resolveTexture(obj.assetId);
+    sprite.texture = resolved.width > 0 ? resolved : Texture.WHITE;
+    return;
+  }
+  // Custom user-uploaded images bypass the pack system — use PIXI.Assets async path
+  let cached: Texture | undefined;
+  try {
+    cached = Assets.get<Texture>(obj.assetId);
+  } catch {
+    cached = undefined;
+  }
+  sprite.texture = cached ?? Texture.WHITE;
+  if (cached) return;
+  const url = resolveAssetUrl(obj.assetId);
+  ensureRegistered(obj.assetId, url);
+  Assets.load<Texture>(url)
+    .then((tex) => {
+      // Only if this sprite is still live and still showing this asset — a
+      // second swap while the load was in flight must not be overwritten.
+      if (spriteMap.get(obj.id) === sprite && texturedAs.get(sprite) === obj.assetId) {
+        sprite.texture = tex;
+        syncSprite(sprite, obj);
+      }
+    })
+    .catch((err: unknown) => {
+      // Leave WHITE texture as fallback; surface which asset failed
+      console.error(`[assets] texture load failed for "${obj.assetId}":`, err);
+    });
+}
+
+/**
  * Subscribe to dungeon layer children (AssetChild nodes) and sync PixiJS sprites.
  * Called once from CanvasHost. Returns cleanup function.
  */
@@ -121,56 +164,20 @@ export function subscribeToAssets(): () => void {
         // stay union-rendered (Clipper2), so no per-child order applies there.
         for (let i = 0; i < layer.assets.length; i++) {
           const obj = layer.assets[i];
-          if (spriteMap.has(obj.id)) {
-            // Update existing sprite transform
-            const sprite = spriteMap.get(obj.id)!;
-            syncSprite(sprite, obj);
-            sprite.zIndex = i;
-          } else {
-            // Create new sprite — try unified resolver first (handles pack + legacy + bundled)
-            const isCustomImage = obj.assetId.startsWith('data:') || obj.assetId.startsWith('blob:');
-            let initialTexture: Texture;
-
-            if (isCustomImage) {
-              // Custom user-uploaded images bypass pack system — use PIXI.Assets async path
-              let cached: Texture | undefined;
-              try {
-                cached = Assets.get<Texture>(obj.assetId);
-              } catch {
-                cached = undefined;
-              }
-              initialTexture = cached ?? Texture.WHITE;
-            } else {
-              // Pack, legacy, or bundled texture — sync resolution via unified resolver
-              const resolved = resolveTexture(obj.assetId);
-              initialTexture = resolved.width > 0 ? resolved : Texture.WHITE;
-            }
-
-            const sprite = new Sprite(initialTexture);
+          let sprite = spriteMap.get(obj.id);
+          if (!sprite) {
+            sprite = new Sprite(Texture.WHITE);
             sprite.anchor.set(0.5, 0.5);
             sprite.label = 'placed-' + obj.id;
-            syncSprite(sprite, obj);
-            sprite.zIndex = i;
-            objectsLayer.addChild(sprite);
             spriteMap.set(obj.id, sprite);
-
-            // Async load only for custom images not yet cached
-            if (isCustomImage && initialTexture === Texture.WHITE) {
-              const url = resolveAssetUrl(obj.assetId);
-              ensureRegistered(obj.assetId, url);
-              Assets.load<Texture>(url)
-                .then((tex) => {
-                  if (spriteMap.get(obj.id) === sprite) {
-                    sprite.texture = tex;
-                    syncSprite(sprite, obj);
-                  }
-                })
-                .catch((err: unknown) => {
-                  // Leave WHITE texture as fallback; surface which asset failed
-                  console.error(`[assets] texture load failed for "${obj.assetId}":`, err);
-                });
-            }
+            objectsLayer.addChild(sprite);
           }
+          // Covers both a fresh sprite and a swapped assetId on an existing
+          // one. Texture before syncSprite: the width/height setters compute
+          // scale relative to whatever texture the sprite holds.
+          if (texturedAs.get(sprite) !== obj.assetId) applyTexture(sprite, obj, spriteMap);
+          syncSprite(sprite, obj);
+          sprite.zIndex = i;
         }
       }
     },
