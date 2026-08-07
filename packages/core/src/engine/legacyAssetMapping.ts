@@ -35,6 +35,38 @@ const LEGACY_MAP: Record<string, string> = {
   // Wall textures
   'stone-slate': 'dungeon-classic:stone-slate_1x1_floor_A',
   'wood-ashen': 'dungeon-classic:wood-ashen_1x1_floor_A',
+
+  // GG Fieldstone walls — explicit entries, never the stem derivation below
+  // (the derived-stem path silently breaks when filenames or gridSize drift)
+'wall-fieldstone-straight-3x1-a': 'dungeon-classic:GG_Fieldstone_Straight_3x1_A_3x1_wall_A',
+  'wall-fieldstone-straight-3x1-b': 'dungeon-classic:GG_Fieldstone_Straight_3x1_B_3x1_wall_A',
+  'wall-fieldstone-straight-3x1-c': 'dungeon-classic:GG_Fieldstone_Straight_3x1_C_3x1_wall_A',
+  'wall-fieldstone-straight-2x1-a': 'dungeon-classic:GG_Fieldstone_Straight_2x1_A_2x1_wall_A',
+  'wall-fieldstone-straight-2x1-b': 'dungeon-classic:GG_Fieldstone_Straight_2x1_B_2x1_wall_A',
+  'wall-fieldstone-straight-2x1-c': 'dungeon-classic:GG_Fieldstone_Straight_2x1_C_2x1_wall_A',
+  'wall-fieldstone-straight-1x1-a': 'dungeon-classic:GG_Fieldstone_Straight_1x1_A_1x1_wall_A',
+  'wall-fieldstone-straight-1x1-b': 'dungeon-classic:GG_Fieldstone_Straight_1x1_B_1x1_wall_A',
+  'wall-fieldstone-straight-1x1-c': 'dungeon-classic:GG_Fieldstone_Straight_1x1_C_1x1_wall_A',
+  'wall-fieldstone-straight-half-a': 'dungeon-classic:GG_Fieldstone_Straight_Half_A_1x1_wall_A',
+  'wall-fieldstone-straight-half-b': 'dungeon-classic:GG_Fieldstone_Straight_Half_B_1x1_wall_A',
+  'wall-fieldstone-straight-half-c': 'dungeon-classic:GG_Fieldstone_Straight_Half_C_1x1_wall_A',
+  'wall-fieldstone-corner-a-1x1': 'dungeon-classic:GG_Fieldstone_Corner_A_1x1_1x1_wall_A',
+  'wall-fieldstone-corner-b-1x1': 'dungeon-classic:GG_Fieldstone_Corner_B_1x1_1x1_wall_A',
+  'wall-fieldstone-corner-c-1x1': 'dungeon-classic:GG_Fieldstone_Corner_C_1x1_1x1_wall_A',
+  'wall-fieldstone-corner-d-1x1': 'dungeon-classic:GG_Fieldstone_Corner_D_1x1_1x1_wall_A',
+  'wall-fieldstone-corner-e-1x1': 'dungeon-classic:GG_Fieldstone_Corner_E_1x1_1x1_wall_A',
+  'wall-fieldstone-corner-f-2x2': 'dungeon-classic:GG_Fieldstone_Corner_F_2x2_2x2_wall_A',
+  'wall-fieldstone-corner-g-2x2': 'dungeon-classic:GG_Fieldstone_Corner_G_2x2_2x2_wall_A',
+  'wall-fieldstone-corner-h-3x3': 'dungeon-classic:GG_Fieldstone_Corner_H_3x3_3x3_wall_A',
+  'wall-fieldstone-joint-a-1x1': 'dungeon-classic:GG_Fieldstone_Joint_A_1x1_1x1_wall_A',
+  'wall-fieldstone-joint-b-1x1': 'dungeon-classic:GG_Fieldstone_Joint_B_1x1_1x1_wall_A',
+  'wall-fieldstone-joint-c-1x1': 'dungeon-classic:GG_Fieldstone_Joint_C_1x1_1x1_wall_A',
+  'wall-fieldstone-joint-d-1x1': 'dungeon-classic:GG_Fieldstone_Joint_D_1x1_1x1_wall_A',
+  'wall-fieldstone-connector-a-1x1': 'dungeon-classic:GG_Fieldstone_Connector_A_1x1_1x1_wall_A',
+  'wall-fieldstone-connector-b-1x1': 'dungeon-classic:GG_Fieldstone_Connector_B_1x1_1x1_wall_A',
+  'wall-fieldstone-connector-diag-a-1x1': 'dungeon-classic:GG_Fieldstone_Connector_DIAG_A_1x1_1x1_wall_A',
+  'wall-fieldstone-ending-a-1x1': 'dungeon-classic:GG_Fieldstone_Ending_A_1x1_1x1_wall_A',
+  'wall-fieldstone-straight-path': 'dungeon-classic:GG_Fieldstone_Straight_Path_8x1_wall_A',
 }
 
 /**

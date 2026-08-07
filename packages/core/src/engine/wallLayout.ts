@@ -35,6 +35,10 @@ export interface WallPieceSpec {
   thicknessPx: number;
   /** Turn this piece is drawn for, radians. Junction pieces only. */
   authoredTurn?: number;
+  /** Manual-swap only: never auto-placed. Free-standing corners whose chipped
+   *  arms stop short of the tile edge would leave gaps against the straights
+   *  the layout pulls back to make room for them. */
+  swapOnly?: boolean;
 }
 
 export type NodeKind = 'straight' | 'fan' | 'corner' | 'ending' | 'inserted';
@@ -181,6 +185,27 @@ export function nodeSpriteScale(
  * there is fatal. A naive xorshift here mapped seeds 1 and 999 to the identical
  * sequence. fmix32 gives 2000 distinct sequences over 2000 seeds.
  */
+/**
+ * The authored elbow for a turn, chosen among every variant that fits the
+ * angle. Position-seeded so the layout pass and the drag-time corner pass
+ * agree on the variant for the same vertex — a seed-and-index pick here would
+ * swap the cornerstone the moment a drag ended.
+ */
+function elbowFor(
+  elbows: WallPieceSpec[],
+  turn: number,
+  elbowTol: number,
+  x: number,
+  y: number,
+): WallPieceSpec | null {
+  const matches = elbows.filter(
+    (p) => Math.abs(Math.abs(turn) - (p.authoredTurn ?? Math.PI / 2)) <= elbowTol,
+  );
+  if (matches.length === 0) return null;
+  const seed = (Math.round(x * 16) ^ Math.imul(Math.round(y * 16), 0x9e3779b1)) >>> 0;
+  return pick(matches, seed, 0);
+}
+
 function pick<T>(items: T[], seed: number, index: number): T {
   let h = (Math.imul(index, 0x9e3779b1) ^ Math.imul(seed, 0x85ebca6b)) >>> 0;
   h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b) >>> 0;
@@ -403,7 +428,7 @@ function applyCornerPieces(
   pieces: WallPieceSpec[],
   elbowTol: number,
 ): void {
-  const elbows = pieces.filter((p) => p.role === 'corner');
+  const elbows = pieces.filter((p) => p.role === 'corner' && !p.swapOnly);
   const affected = new Set<number>();
   for (let i = 0; i < nodes.length; i++) {
     if (dragged.has(nodes[i])) {
@@ -427,9 +452,7 @@ function applyCornerPieces(
     // rather than sprouting cornerstones along it.
     if (Math.abs(turn) < ARM_TURN_MIN) continue;
 
-    const elbow = elbows.find(
-      (p) => Math.abs(Math.abs(turn) - (p.authoredTurn ?? Math.PI / 2)) <= elbowTol,
-    );
+    const elbow = elbowFor(elbows, turn, elbowTol, node.x, node.y);
     if (elbow) {
       // Same arm-picking rule as the layout pass: rotating by the incoming angle
       // puts an arm on the wrong side half the time.
@@ -804,7 +827,7 @@ export function layoutWall(
 
   const straights = pieces.filter((p) => p.role === 'straight');
   const rocks = pieces.filter((p) => p.role === 'rock');
-  const elbows = pieces.filter((p) => p.role === 'corner');
+  const elbows = pieces.filter((p) => p.role === 'corner' && !p.swapOnly);
   const endings = pieces.filter((p) => p.role === 'ending');
   // Fan material: small pieces from this same set, so the band stays continuous.
   const fanPieces = rocks.length > 0 ? rocks : straights;
@@ -846,9 +869,7 @@ export function layoutWall(
     // Elbows first: an authored piece is used when the turn is close to what it
     // was drawn for. Every Corner_* in dungeon-classic is 90°, so in practice
     // this catches square rooms and nothing else — by design, not by accident.
-    const elbow =
-      elbows.find((p) => Math.abs(Math.abs(turn) - (p.authoredTurn ?? Math.PI / 2)) <= elbowTol) ??
-      null;
+    const elbow = elbowFor(elbows, turn, elbowTol, curr.a.x, curr.a.y);
 
     let reachIn: number;
     let reachOut: number;

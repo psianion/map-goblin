@@ -1,6 +1,6 @@
 {
   "name": "dungeon-classic",
-  "version": "1.1.1",
+  "version": "1.1.0",
   "description": "Foundation pack — classic dungeon tileset. Ships with map-builder as the zero-install experience.",
   "theme": [
     "dungeon",
@@ -1742,6 +1742,354 @@
         "cave",
         "ruin"
       ]
+    },
+    "GG_Fieldstone_Straight_3x1_A_3x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_3x1_A",
+      "gridSize": "3x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Straight_3x1_B_3x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_3x1_B",
+      "gridSize": "3x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Straight_3x1_C_3x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_3x1_C",
+      "gridSize": "3x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Straight_2x1_A_2x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_2x1_A",
+      "gridSize": "2x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Straight_2x1_B_2x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_2x1_B",
+      "gridSize": "2x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Straight_2x1_C_2x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_2x1_C",
+      "gridSize": "2x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Straight_1x1_A_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_1x1_A",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Straight_1x1_B_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_1x1_B",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Straight_1x1_C_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_1x1_C",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Straight_Half_A_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_Half_A",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Straight_Half_B_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_Half_B",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Straight_Half_C_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_Half_C",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Corner_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Corner_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Corner_C_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_C_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Corner_D_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_D_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Corner_E_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_E_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Corner_F_2x2_2x2_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_F_2x2",
+      "gridSize": "2x2",
+      "pieceType": "corner",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Corner_G_2x2_2x2_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_G_2x2",
+      "gridSize": "2x2",
+      "pieceType": "corner",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Corner_H_3x3_3x3_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_H_3x3",
+      "gridSize": "3x3",
+      "pieceType": "corner",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Joint_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Joint_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Joint_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Joint_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Joint_C_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Joint_C_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Joint_D_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Joint_D_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Connector_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Connector_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Connector_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Connector_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Connector_DIAG_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Connector_DIAG_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Ending_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Ending_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "ending",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
+    },
+    "GG_Fieldstone_Straight_Path_8x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_Path",
+      "gridSize": "8x1",
+      "pieceType": "path",
+      "variant": "A",
+      "tags": [
+        "dungeon",
+        "cave",
+        "ruin"
+      ]
     }
   },
   "atlases": {
@@ -1978,6 +2326,122 @@
     "Arch_Cross_Stone_Slate_A1_3x3_A-c283fc95.webp": {
       "checksum": "sha256:c283fc95d3fde6d9f952b7f75d6a4e08a846fe36efb8ba61ec1efd92551ffa3f",
       "size": 28352
+    },
+    "GG_Fieldstone_Straight_3x1_A_3x1_A-5ef05fa6.webp": {
+      "checksum": "sha256:5ef05fa6db7f31a34f28db5d28b9fe6a531fba25cec4149aba5e1326675f745f",
+      "size": 10990
+    },
+    "GG_Fieldstone_Straight_3x1_B_3x1_A-f53073a8.webp": {
+      "checksum": "sha256:f53073a8bb847c048a947898aa41486d3114d8e595ebae1c77d79ce8a7d90ad7",
+      "size": 10892
+    },
+    "GG_Fieldstone_Straight_3x1_C_3x1_A-5fac34d4.webp": {
+      "checksum": "sha256:5fac34d4ce37daa63675ade3ccab561dc0b3cb21640b76c3008069fa76ed869b",
+      "size": 10394
+    },
+    "GG_Fieldstone_Straight_2x1_A_2x1_A-92f1cfc7.webp": {
+      "checksum": "sha256:92f1cfc7093f62c50f7c56ad1143568c1774fb06d65e58fb2000654569dd199d",
+      "size": 8040
+    },
+    "GG_Fieldstone_Straight_2x1_B_2x1_A-0ed047c3.webp": {
+      "checksum": "sha256:0ed047c3f82bce120a923f4476aafd5e56ac81f7d7d667ba40f4c20e762569b4",
+      "size": 7194
+    },
+    "GG_Fieldstone_Straight_2x1_C_2x1_A-5930ef4c.webp": {
+      "checksum": "sha256:5930ef4cc20258e97782f81525853a172bc65639250416eea9f51ce6517fe5b6",
+      "size": 6664
+    },
+    "GG_Fieldstone_Straight_1x1_A_1x1_A-f8c35d33.webp": {
+      "checksum": "sha256:f8c35d33dd1ab52c6108fbc451add9d2a753c5842b2c25d8a755a2331930cd5a",
+      "size": 4160
+    },
+    "GG_Fieldstone_Straight_1x1_B_1x1_A-54d3145b.webp": {
+      "checksum": "sha256:54d3145bf6adfcee86d4a7bf473e1025de8b4490e8a29561ced35d44f61e6026",
+      "size": 4176
+    },
+    "GG_Fieldstone_Straight_1x1_C_1x1_A-7b8fd86c.webp": {
+      "checksum": "sha256:7b8fd86cffbe2b73444a440823b4f3a303f77112b364dcda169e607c303c5a80",
+      "size": 3888
+    },
+    "GG_Fieldstone_Straight_Half_A_1x1_A-568defc9.webp": {
+      "checksum": "sha256:568defc9de59ff63204744508eba3c4d54b9a9447f8fc542c715b6501e6341e8",
+      "size": 2072
+    },
+    "GG_Fieldstone_Straight_Half_B_1x1_A-d577cfb3.webp": {
+      "checksum": "sha256:d577cfb3007d78d5b95988e6d28e70c3ed9e15203acfca18e4c40f5a2c12875d",
+      "size": 2250
+    },
+    "GG_Fieldstone_Straight_Half_C_1x1_A-c60811d6.webp": {
+      "checksum": "sha256:c60811d6471ed626ac8cb747d0ebb3f0adba4c050c73bf5941bfec9990409cae",
+      "size": 2014
+    },
+    "GG_Fieldstone_Corner_A_1x1_1x1_A-befaa93e.webp": {
+      "checksum": "sha256:befaa93eb39e8c9fd80329e54f64eb76512d9a18fd3cde1a0bbee9b8a1b9b515",
+      "size": 3294
+    },
+    "GG_Fieldstone_Corner_B_1x1_1x1_A-3f402c02.webp": {
+      "checksum": "sha256:3f402c02cb2480daef6d538cdd414cf08bfbc08ec96a20b60aa4ad75a9491a6d",
+      "size": 3680
+    },
+    "GG_Fieldstone_Corner_C_1x1_1x1_A-19a34e68.webp": {
+      "checksum": "sha256:19a34e68091f12046d1856f2505e62b38bd5dec9cc9c76b6c3c38ad9d718e437",
+      "size": 4258
+    },
+    "GG_Fieldstone_Corner_D_1x1_1x1_A-95a27440.webp": {
+      "checksum": "sha256:95a27440b95875260e8ede96751de45b1548fcd442d27ca4cac1f0d34e454c55",
+      "size": 4460
+    },
+    "GG_Fieldstone_Corner_E_1x1_1x1_A-35746135.webp": {
+      "checksum": "sha256:3574613596b4d039925bee45dc3127a4c212449165761d77dcbbcdd74602c629",
+      "size": 3866
+    },
+    "GG_Fieldstone_Corner_F_2x2_2x2_A-ce2f150a.webp": {
+      "checksum": "sha256:ce2f150a54cb21176884ffd7ed3f6636820cecea3a034e6963393efbc3b94d46",
+      "size": 7230
+    },
+    "GG_Fieldstone_Corner_G_2x2_2x2_A-293bbf52.webp": {
+      "checksum": "sha256:293bbf52c45409d1320ec28d492c11197c06ef0ebadcfda9cfad41b15527a18f",
+      "size": 11546
+    },
+    "GG_Fieldstone_Corner_H_3x3_3x3_A-b19cd22d.webp": {
+      "checksum": "sha256:b19cd22d183b3172d7a6e9e4d783dcec53f1b5ba89c88c8472e7f34c75de6c9a",
+      "size": 14316
+    },
+    "GG_Fieldstone_Joint_A_1x1_1x1_A-a33b94cf.webp": {
+      "checksum": "sha256:a33b94cfdc077bc1a4124a295b3a0b20315453f27a654d92cd5a724f1b3479fc",
+      "size": 4124
+    },
+    "GG_Fieldstone_Joint_B_1x1_1x1_A-f321def5.webp": {
+      "checksum": "sha256:f321def54a169ddb6de2d5691d65a925d3ad7ae0fa6f33603c49e6394d816c38",
+      "size": 3484
+    },
+    "GG_Fieldstone_Joint_C_1x1_1x1_A-3665a180.webp": {
+      "checksum": "sha256:3665a18047e642347d8a614fefcaeb668b84cb7ca00ed8fa9e29dcc811cd77f5",
+      "size": 7262
+    },
+    "GG_Fieldstone_Joint_D_1x1_1x1_A-cab9c52e.webp": {
+      "checksum": "sha256:cab9c52ecd8511b5b6779157b22a9be7b89a34a4f520d088cd71b8914f2564a4",
+      "size": 5972
+    },
+    "GG_Fieldstone_Connector_A_1x1_1x1_A-902b9619.webp": {
+      "checksum": "sha256:902b96197e5ea1c22e8f3996e3b940a48b4ecc68208d7689c3dcf6b2efbcdab4",
+      "size": 2654
+    },
+    "GG_Fieldstone_Connector_B_1x1_1x1_A-61b64bf8.webp": {
+      "checksum": "sha256:61b64bf87f49fb0cf15e8174666d2fb6c68c240885feca17e615c0794c380cd3",
+      "size": 1410
+    },
+    "GG_Fieldstone_Connector_DIAG_A_1x1_1x1_A-a9b772f0.webp": {
+      "checksum": "sha256:a9b772f0e5c50f6005e5b94766c310aadc4f1c117b004f871769062f80449cda",
+      "size": 4728
+    },
+    "GG_Fieldstone_Ending_A_1x1_1x1_A-a571b8e4.webp": {
+      "checksum": "sha256:a571b8e4b41cb5d10ccf2d7804bbaed62c614ec22d030007c89e4f2c3249d1df",
+      "size": 1344
+    },
+    "GG_Fieldstone_Straight_Path_8x1_A-ab6d36d0.webp": {
+      "checksum": "sha256:ab6d36d0b3607c4c528565005ec013de7fb36ca1ac8ca442e38c42f881fdcdf4",
+      "size": 31342
     }
   },
   "checksums": {
@@ -2038,7 +2502,36 @@
     "Stairs_Stone_Slate_A_1x3_A-fb20627d.webp": "sha256:fb20627da8158de21403912442d24164271350f2dd18ca139c1749a4ee80f707",
     "Rubble_Pile_Stone_Earthy_A11_2x2_A-5809adcd.webp": "sha256:5809adcdbefc9beb35884f59b3a29de50e246d380e8ed07b98ebe26639ecc7b3",
     "Railing_Rough_Wood_Ashen_B1_2x1_A-836ff29e.webp": "sha256:836ff29e14299cf9ffc68a5eca3cbab82d5f6fede02417869b372cc6e2017387",
-    "Arch_Cross_Stone_Slate_A1_3x3_A-c283fc95.webp": "sha256:c283fc95d3fde6d9f952b7f75d6a4e08a846fe36efb8ba61ec1efd92551ffa3f"
+    "Arch_Cross_Stone_Slate_A1_3x3_A-c283fc95.webp": "sha256:c283fc95d3fde6d9f952b7f75d6a4e08a846fe36efb8ba61ec1efd92551ffa3f",
+    "GG_Fieldstone_Straight_3x1_A_3x1_A-5ef05fa6.webp": "sha256:5ef05fa6db7f31a34f28db5d28b9fe6a531fba25cec4149aba5e1326675f745f",
+    "GG_Fieldstone_Straight_3x1_B_3x1_A-f53073a8.webp": "sha256:f53073a8bb847c048a947898aa41486d3114d8e595ebae1c77d79ce8a7d90ad7",
+    "GG_Fieldstone_Straight_3x1_C_3x1_A-5fac34d4.webp": "sha256:5fac34d4ce37daa63675ade3ccab561dc0b3cb21640b76c3008069fa76ed869b",
+    "GG_Fieldstone_Straight_2x1_A_2x1_A-92f1cfc7.webp": "sha256:92f1cfc7093f62c50f7c56ad1143568c1774fb06d65e58fb2000654569dd199d",
+    "GG_Fieldstone_Straight_2x1_B_2x1_A-0ed047c3.webp": "sha256:0ed047c3f82bce120a923f4476aafd5e56ac81f7d7d667ba40f4c20e762569b4",
+    "GG_Fieldstone_Straight_2x1_C_2x1_A-5930ef4c.webp": "sha256:5930ef4cc20258e97782f81525853a172bc65639250416eea9f51ce6517fe5b6",
+    "GG_Fieldstone_Straight_1x1_A_1x1_A-f8c35d33.webp": "sha256:f8c35d33dd1ab52c6108fbc451add9d2a753c5842b2c25d8a755a2331930cd5a",
+    "GG_Fieldstone_Straight_1x1_B_1x1_A-54d3145b.webp": "sha256:54d3145bf6adfcee86d4a7bf473e1025de8b4490e8a29561ced35d44f61e6026",
+    "GG_Fieldstone_Straight_1x1_C_1x1_A-7b8fd86c.webp": "sha256:7b8fd86cffbe2b73444a440823b4f3a303f77112b364dcda169e607c303c5a80",
+    "GG_Fieldstone_Straight_Half_A_1x1_A-568defc9.webp": "sha256:568defc9de59ff63204744508eba3c4d54b9a9447f8fc542c715b6501e6341e8",
+    "GG_Fieldstone_Straight_Half_B_1x1_A-d577cfb3.webp": "sha256:d577cfb3007d78d5b95988e6d28e70c3ed9e15203acfca18e4c40f5a2c12875d",
+    "GG_Fieldstone_Straight_Half_C_1x1_A-c60811d6.webp": "sha256:c60811d6471ed626ac8cb747d0ebb3f0adba4c050c73bf5941bfec9990409cae",
+    "GG_Fieldstone_Corner_A_1x1_1x1_A-befaa93e.webp": "sha256:befaa93eb39e8c9fd80329e54f64eb76512d9a18fd3cde1a0bbee9b8a1b9b515",
+    "GG_Fieldstone_Corner_B_1x1_1x1_A-3f402c02.webp": "sha256:3f402c02cb2480daef6d538cdd414cf08bfbc08ec96a20b60aa4ad75a9491a6d",
+    "GG_Fieldstone_Corner_C_1x1_1x1_A-19a34e68.webp": "sha256:19a34e68091f12046d1856f2505e62b38bd5dec9cc9c76b6c3c38ad9d718e437",
+    "GG_Fieldstone_Corner_D_1x1_1x1_A-95a27440.webp": "sha256:95a27440b95875260e8ede96751de45b1548fcd442d27ca4cac1f0d34e454c55",
+    "GG_Fieldstone_Corner_E_1x1_1x1_A-35746135.webp": "sha256:3574613596b4d039925bee45dc3127a4c212449165761d77dcbbcdd74602c629",
+    "GG_Fieldstone_Corner_F_2x2_2x2_A-ce2f150a.webp": "sha256:ce2f150a54cb21176884ffd7ed3f6636820cecea3a034e6963393efbc3b94d46",
+    "GG_Fieldstone_Corner_G_2x2_2x2_A-293bbf52.webp": "sha256:293bbf52c45409d1320ec28d492c11197c06ef0ebadcfda9cfad41b15527a18f",
+    "GG_Fieldstone_Corner_H_3x3_3x3_A-b19cd22d.webp": "sha256:b19cd22d183b3172d7a6e9e4d783dcec53f1b5ba89c88c8472e7f34c75de6c9a",
+    "GG_Fieldstone_Joint_A_1x1_1x1_A-a33b94cf.webp": "sha256:a33b94cfdc077bc1a4124a295b3a0b20315453f27a654d92cd5a724f1b3479fc",
+    "GG_Fieldstone_Joint_B_1x1_1x1_A-f321def5.webp": "sha256:f321def54a169ddb6de2d5691d65a925d3ad7ae0fa6f33603c49e6394d816c38",
+    "GG_Fieldstone_Joint_C_1x1_1x1_A-3665a180.webp": "sha256:3665a18047e642347d8a614fefcaeb668b84cb7ca00ed8fa9e29dcc811cd77f5",
+    "GG_Fieldstone_Joint_D_1x1_1x1_A-cab9c52e.webp": "sha256:cab9c52ecd8511b5b6779157b22a9be7b89a34a4f520d088cd71b8914f2564a4",
+    "GG_Fieldstone_Connector_A_1x1_1x1_A-902b9619.webp": "sha256:902b96197e5ea1c22e8f3996e3b940a48b4ecc68208d7689c3dcf6b2efbcdab4",
+    "GG_Fieldstone_Connector_B_1x1_1x1_A-61b64bf8.webp": "sha256:61b64bf87f49fb0cf15e8174666d2fb6c68c240885feca17e615c0794c380cd3",
+    "GG_Fieldstone_Connector_DIAG_A_1x1_1x1_A-a9b772f0.webp": "sha256:a9b772f0e5c50f6005e5b94766c310aadc4f1c117b004f871769062f80449cda",
+    "GG_Fieldstone_Ending_A_1x1_1x1_A-a571b8e4.webp": "sha256:a571b8e4b41cb5d10ccf2d7804bbaed62c614ec22d030007c89e4f2c3249d1df",
+    "GG_Fieldstone_Straight_Path_8x1_A-ab6d36d0.webp": "sha256:ab6d36d0b3607c4c528565005ec013de7fb36ca1ac8ca442e38c42f881fdcdf4"
   },
-  "bundleSize": 8057520
+  "bundleSize": 8245224
 }

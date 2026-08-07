@@ -19,7 +19,7 @@ export type EdgeCategory = 'bank' | 'cliff' | 'cliff-top' | 'under-cliff' | 'bur
 
 export type ObjectCategory = 'tree' | 'foliage' | 'campfire' | 'lamp' | 'rock' | 'puddle' | 'log';
 
-export type WallCategory = 'stone-slate' | 'wood-ashen';
+export type WallCategory = 'stone-slate' | 'wood-ashen' | 'fieldstone';
 
 export type WallPiece = 'straight' | 'corner' | 'joint' | 'connector' | 'ending' | 'path';
 
@@ -275,6 +275,44 @@ const WALLS_WOOD_ASHEN_B: TextureEntry[] = [
   { id: 'wall-wood-b-ending-a-1x1', path: '/textures/walls/wood-ashen-b/Wall_Wood_Ashen_B_Ending_A_1x1.png', type: 'wall', category: 'wood-ashen', wallPiece: 'ending', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Wood Wall Ending A 1x1' },
 ];
 
+
+// ─── GG Fieldstone (Good Goblin original set) ─────────────────────
+// Grey masters, colored via runtime tint. Band 68px @ y66, 200px grid.
+// Straights ship 3 variants per length (A/B/C share one contentRect, so the
+// layout engine alternates them per slot).
+
+const WALLS_FIELDSTONE: TextureEntry[] = [
+  { id: 'wall-fieldstone-straight-3x1-a', path: '/textures/walls/fieldstone/GG_Fieldstone_Straight_3x1_A.png', type: 'wall', category: 'fieldstone', wallPiece: 'straight', naturalWidth: 600, naturalHeight: 200, gridSize: '3x1', label: 'Fieldstone Straight 3x1 A', contentRect: { x: 0, y: 66, w: 600, h: 68 } },
+  { id: 'wall-fieldstone-straight-3x1-b', path: '/textures/walls/fieldstone/GG_Fieldstone_Straight_3x1_B.png', type: 'wall', category: 'fieldstone', wallPiece: 'straight', naturalWidth: 600, naturalHeight: 200, gridSize: '3x1', label: 'Fieldstone Straight 3x1 B', contentRect: { x: 0, y: 66, w: 600, h: 68 } },
+  { id: 'wall-fieldstone-straight-3x1-c', path: '/textures/walls/fieldstone/GG_Fieldstone_Straight_3x1_C.png', type: 'wall', category: 'fieldstone', wallPiece: 'straight', naturalWidth: 600, naturalHeight: 200, gridSize: '3x1', label: 'Fieldstone Straight 3x1 C', contentRect: { x: 0, y: 66, w: 600, h: 68 } },
+  { id: 'wall-fieldstone-straight-2x1-a', path: '/textures/walls/fieldstone/GG_Fieldstone_Straight_2x1_A.png', type: 'wall', category: 'fieldstone', wallPiece: 'straight', naturalWidth: 400, naturalHeight: 200, gridSize: '2x1', label: 'Fieldstone Straight 2x1 A', contentRect: { x: 0, y: 66, w: 400, h: 68 } },
+  { id: 'wall-fieldstone-straight-2x1-b', path: '/textures/walls/fieldstone/GG_Fieldstone_Straight_2x1_B.png', type: 'wall', category: 'fieldstone', wallPiece: 'straight', naturalWidth: 400, naturalHeight: 200, gridSize: '2x1', label: 'Fieldstone Straight 2x1 B', contentRect: { x: 0, y: 66, w: 400, h: 68 } },
+  { id: 'wall-fieldstone-straight-2x1-c', path: '/textures/walls/fieldstone/GG_Fieldstone_Straight_2x1_C.png', type: 'wall', category: 'fieldstone', wallPiece: 'straight', naturalWidth: 400, naturalHeight: 200, gridSize: '2x1', label: 'Fieldstone Straight 2x1 C', contentRect: { x: 0, y: 66, w: 400, h: 68 } },
+  { id: 'wall-fieldstone-straight-1x1-a', path: '/textures/walls/fieldstone/GG_Fieldstone_Straight_1x1_A.png', type: 'wall', category: 'fieldstone', wallPiece: 'straight', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Straight 1x1 A', contentRect: { x: 0, y: 66, w: 200, h: 68 } },
+  { id: 'wall-fieldstone-straight-1x1-b', path: '/textures/walls/fieldstone/GG_Fieldstone_Straight_1x1_B.png', type: 'wall', category: 'fieldstone', wallPiece: 'straight', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Straight 1x1 B', contentRect: { x: 0, y: 66, w: 200, h: 68 } },
+  { id: 'wall-fieldstone-straight-1x1-c', path: '/textures/walls/fieldstone/GG_Fieldstone_Straight_1x1_C.png', type: 'wall', category: 'fieldstone', wallPiece: 'straight', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Straight 1x1 C', contentRect: { x: 0, y: 66, w: 200, h: 68 } },
+  { id: 'wall-fieldstone-straight-half-a', path: '/textures/walls/fieldstone/GG_Fieldstone_Straight_Half_A.png', type: 'wall', category: 'fieldstone', wallPiece: 'straight', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Straight Half A', contentRect: { x: 0, y: 66, w: 100, h: 68 } },
+  { id: 'wall-fieldstone-straight-half-b', path: '/textures/walls/fieldstone/GG_Fieldstone_Straight_Half_B.png', type: 'wall', category: 'fieldstone', wallPiece: 'straight', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Straight Half B', contentRect: { x: 0, y: 66, w: 100, h: 68 } },
+  { id: 'wall-fieldstone-straight-half-c', path: '/textures/walls/fieldstone/GG_Fieldstone_Straight_Half_C.png', type: 'wall', category: 'fieldstone', wallPiece: 'straight', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Straight Half C', contentRect: { x: 0, y: 66, w: 100, h: 68 } },
+  { id: 'wall-fieldstone-corner-a-1x1', path: '/textures/walls/fieldstone/GG_Fieldstone_Corner_A_1x1.png', type: 'wall', category: 'fieldstone', wallPiece: 'corner', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Corner A 1x1', tags: ['standalone'] },
+  { id: 'wall-fieldstone-corner-b-1x1', path: '/textures/walls/fieldstone/GG_Fieldstone_Corner_B_1x1.png', type: 'wall', category: 'fieldstone', wallPiece: 'corner', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Corner B 1x1', tags: ['standalone'] },
+  { id: 'wall-fieldstone-corner-c-1x1', path: '/textures/walls/fieldstone/GG_Fieldstone_Corner_C_1x1.png', type: 'wall', category: 'fieldstone', wallPiece: 'corner', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Corner C 1x1' },
+  { id: 'wall-fieldstone-corner-d-1x1', path: '/textures/walls/fieldstone/GG_Fieldstone_Corner_D_1x1.png', type: 'wall', category: 'fieldstone', wallPiece: 'corner', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Corner D 1x1' },
+  { id: 'wall-fieldstone-corner-e-1x1', path: '/textures/walls/fieldstone/GG_Fieldstone_Corner_E_1x1.png', type: 'wall', category: 'fieldstone', wallPiece: 'corner', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Corner E 1x1' },
+  { id: 'wall-fieldstone-corner-f-2x2', path: '/textures/walls/fieldstone/GG_Fieldstone_Corner_F_2x2.png', type: 'wall', category: 'fieldstone', wallPiece: 'corner', naturalWidth: 400, naturalHeight: 400, gridSize: '2x2', label: 'Fieldstone Corner F 2x2' },
+  { id: 'wall-fieldstone-corner-g-2x2', path: '/textures/walls/fieldstone/GG_Fieldstone_Corner_G_2x2.png', type: 'wall', category: 'fieldstone', wallPiece: 'corner', naturalWidth: 400, naturalHeight: 400, gridSize: '2x2', label: 'Fieldstone Corner G 2x2' },
+  { id: 'wall-fieldstone-corner-h-3x3', path: '/textures/walls/fieldstone/GG_Fieldstone_Corner_H_3x3.png', type: 'wall', category: 'fieldstone', wallPiece: 'corner', naturalWidth: 600, naturalHeight: 600, gridSize: '3x3', label: 'Fieldstone Corner H 3x3' },
+  { id: 'wall-fieldstone-joint-a-1x1', path: '/textures/walls/fieldstone/GG_Fieldstone_Joint_A_1x1.png', type: 'wall', category: 'fieldstone', wallPiece: 'joint', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Joint A 1x1' },
+  { id: 'wall-fieldstone-joint-b-1x1', path: '/textures/walls/fieldstone/GG_Fieldstone_Joint_B_1x1.png', type: 'wall', category: 'fieldstone', wallPiece: 'joint', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Joint B 1x1' },
+  { id: 'wall-fieldstone-joint-c-1x1', path: '/textures/walls/fieldstone/GG_Fieldstone_Joint_C_1x1.png', type: 'wall', category: 'fieldstone', wallPiece: 'joint', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Joint C 1x1' },
+  { id: 'wall-fieldstone-joint-d-1x1', path: '/textures/walls/fieldstone/GG_Fieldstone_Joint_D_1x1.png', type: 'wall', category: 'fieldstone', wallPiece: 'joint', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Joint D 1x1' },
+  { id: 'wall-fieldstone-connector-a-1x1', path: '/textures/walls/fieldstone/GG_Fieldstone_Connector_A_1x1.png', type: 'wall', category: 'fieldstone', wallPiece: 'connector', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Connector A 1x1', contentRect: { x: 51, y: 66, w: 99, h: 68 } },
+  { id: 'wall-fieldstone-connector-b-1x1', path: '/textures/walls/fieldstone/GG_Fieldstone_Connector_B_1x1.png', type: 'wall', category: 'fieldstone', wallPiece: 'connector', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Connector B 1x1', contentRect: { x: 80, y: 66, w: 40, h: 68 } },
+  { id: 'wall-fieldstone-connector-diag-a-1x1', path: '/textures/walls/fieldstone/GG_Fieldstone_Connector_DIAG_A_1x1.png', type: 'wall', category: 'fieldstone', wallPiece: 'connector', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Connector DIAG A 1x1', contentRect: { x: 16, y: 66, w: 151, h: 114 } },
+  { id: 'wall-fieldstone-ending-a-1x1', path: '/textures/walls/fieldstone/GG_Fieldstone_Ending_A_1x1.png', type: 'wall', category: 'fieldstone', wallPiece: 'ending', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Fieldstone Ending A 1x1' },
+  { id: 'wall-fieldstone-straight-path', path: '/textures/walls/fieldstone/GG_Fieldstone_Straight_Path.png', type: 'wall', category: 'fieldstone', wallPiece: 'path', naturalWidth: 1650, naturalHeight: 200, gridSize: '8x1', label: 'Fieldstone Straight Path', contentRect: { x: 0, y: 66, w: 1650, h: 68 } },
+];
+
 // ─── Scatter ───────────────────────────────────────────────────────
 // Decorative strips scattered along paths / terrain boundaries.
 
@@ -290,6 +328,7 @@ export const TEXTURE_MANIFEST: TextureEntry[] = [
   ...OBJECTS,
   ...WALLS_STONE_SLATE_A,
   ...WALLS_WOOD_ASHEN_B,
+  ...WALLS_FIELDSTONE,
   ...SCATTER,
 ];
 
@@ -344,6 +383,8 @@ export interface WallSetDefaults {
 export const WALL_SET_DEFAULTS: Record<WallCategory, WallSetDefaults> = {
   'stone-slate': { defaultWidth: 0.5, minWidth: 0.15, maxWidth: 1.5 },
   'wood-ashen':  { defaultWidth: 0.5, minWidth: 0.15, maxWidth: 1.5 },
+  // Fieldstone band is 68/200px (~34% content) — same tuning as stone-slate
+  'fieldstone':  { defaultWidth: 0.5, minWidth: 0.15, maxWidth: 1.5 },
 };
 
 export function getWallSetDefaults(category: WallCategory): WallSetDefaults {

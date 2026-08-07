@@ -462,6 +462,7 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
                 <option value="none">None (Invisible)</option>
                 <option value="stone-slate">Stone Slate</option>
                 <option value="wood-ashen">Wood Ashen</option>
+                <option value="fieldstone">Fieldstone</option>
               </select>
             </PropertyField>
           )}
