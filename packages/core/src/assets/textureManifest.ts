@@ -19,7 +19,7 @@ export type EdgeCategory = 'bank' | 'cliff' | 'cliff-top' | 'under-cliff' | 'bur
 
 export type ObjectCategory = 'tree' | 'foliage' | 'campfire' | 'lamp' | 'rock' | 'puddle' | 'log';
 
-export type WallCategory = 'stone-slate' | 'wood-ashen' | 'fieldstone';
+export type WallCategory = 'stone-slate' | 'wood-ashen' | 'fieldstone' | 'palisade';
 
 export type WallPiece = 'straight' | 'corner' | 'joint' | 'connector' | 'ending' | 'path';
 
@@ -313,6 +313,44 @@ const WALLS_FIELDSTONE: TextureEntry[] = [
   { id: 'wall-fieldstone-straight-path', path: '/textures/walls/fieldstone/GG_Fieldstone_Straight_Path.png', type: 'wall', category: 'fieldstone', wallPiece: 'path', naturalWidth: 1650, naturalHeight: 200, gridSize: '8x1', label: 'Fieldstone Straight Path', contentRect: { x: 0, y: 66, w: 1650, h: 68 } },
 ];
 
+// ─── Walls: Timber Palisade (GG_Palisade) ─────────────────────────
+// Grey masters, colored via runtime tint. Band 44px @ y78, 200px grid.
+// Straight variants mix single-row and two-row plank reads by design.
+// Corners A/B have chipped free ends short of the tile edge — standalone
+// (swap-only), same rule as fieldstone.
+
+const WALLS_PALISADE: TextureEntry[] = [
+  { id: 'wall-palisade-straight-3x1-a', path: '/textures/walls/palisade/GG_Palisade_Straight_3x1_A.png', type: 'wall', category: 'palisade', wallPiece: 'straight', naturalWidth: 600, naturalHeight: 200, gridSize: '3x1', label: 'Palisade Straight 3x1 A', contentRect: { x: 0, y: 78, w: 600, h: 44 } },
+  { id: 'wall-palisade-straight-3x1-b', path: '/textures/walls/palisade/GG_Palisade_Straight_3x1_B.png', type: 'wall', category: 'palisade', wallPiece: 'straight', naturalWidth: 600, naturalHeight: 200, gridSize: '3x1', label: 'Palisade Straight 3x1 B', contentRect: { x: 0, y: 78, w: 600, h: 44 } },
+  { id: 'wall-palisade-straight-3x1-c', path: '/textures/walls/palisade/GG_Palisade_Straight_3x1_C.png', type: 'wall', category: 'palisade', wallPiece: 'straight', naturalWidth: 600, naturalHeight: 200, gridSize: '3x1', label: 'Palisade Straight 3x1 C', contentRect: { x: 0, y: 78, w: 600, h: 44 } },
+  { id: 'wall-palisade-straight-2x1-a', path: '/textures/walls/palisade/GG_Palisade_Straight_2x1_A.png', type: 'wall', category: 'palisade', wallPiece: 'straight', naturalWidth: 400, naturalHeight: 200, gridSize: '2x1', label: 'Palisade Straight 2x1 A', contentRect: { x: 0, y: 78, w: 400, h: 44 } },
+  { id: 'wall-palisade-straight-2x1-b', path: '/textures/walls/palisade/GG_Palisade_Straight_2x1_B.png', type: 'wall', category: 'palisade', wallPiece: 'straight', naturalWidth: 400, naturalHeight: 200, gridSize: '2x1', label: 'Palisade Straight 2x1 B', contentRect: { x: 0, y: 78, w: 400, h: 44 } },
+  { id: 'wall-palisade-straight-2x1-c', path: '/textures/walls/palisade/GG_Palisade_Straight_2x1_C.png', type: 'wall', category: 'palisade', wallPiece: 'straight', naturalWidth: 400, naturalHeight: 200, gridSize: '2x1', label: 'Palisade Straight 2x1 C', contentRect: { x: 0, y: 78, w: 400, h: 44 } },
+  { id: 'wall-palisade-straight-1x1-a', path: '/textures/walls/palisade/GG_Palisade_Straight_1x1_A.png', type: 'wall', category: 'palisade', wallPiece: 'straight', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Straight 1x1 A', contentRect: { x: 0, y: 78, w: 200, h: 44 } },
+  { id: 'wall-palisade-straight-1x1-b', path: '/textures/walls/palisade/GG_Palisade_Straight_1x1_B.png', type: 'wall', category: 'palisade', wallPiece: 'straight', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Straight 1x1 B', contentRect: { x: 0, y: 78, w: 200, h: 44 } },
+  { id: 'wall-palisade-straight-1x1-c', path: '/textures/walls/palisade/GG_Palisade_Straight_1x1_C.png', type: 'wall', category: 'palisade', wallPiece: 'straight', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Straight 1x1 C', contentRect: { x: 0, y: 78, w: 200, h: 44 } },
+  { id: 'wall-palisade-straight-half-a', path: '/textures/walls/palisade/GG_Palisade_Straight_Half_A.png', type: 'wall', category: 'palisade', wallPiece: 'straight', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Straight Half A', contentRect: { x: 0, y: 78, w: 100, h: 44 } },
+  { id: 'wall-palisade-straight-half-b', path: '/textures/walls/palisade/GG_Palisade_Straight_Half_B.png', type: 'wall', category: 'palisade', wallPiece: 'straight', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Straight Half B', contentRect: { x: 0, y: 78, w: 100, h: 44 } },
+  { id: 'wall-palisade-straight-half-c', path: '/textures/walls/palisade/GG_Palisade_Straight_Half_C.png', type: 'wall', category: 'palisade', wallPiece: 'straight', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Straight Half C', contentRect: { x: 0, y: 78, w: 100, h: 44 } },
+  { id: 'wall-palisade-corner-a-1x1', path: '/textures/walls/palisade/GG_Palisade_Corner_A_1x1.png', type: 'wall', category: 'palisade', wallPiece: 'corner', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Corner A 1x1', tags: ['standalone'] },
+  { id: 'wall-palisade-corner-b-1x1', path: '/textures/walls/palisade/GG_Palisade_Corner_B_1x1.png', type: 'wall', category: 'palisade', wallPiece: 'corner', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Corner B 1x1', tags: ['standalone'] },
+  { id: 'wall-palisade-corner-c-1x1', path: '/textures/walls/palisade/GG_Palisade_Corner_C_1x1.png', type: 'wall', category: 'palisade', wallPiece: 'corner', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Corner C 1x1' },
+  { id: 'wall-palisade-corner-d-1x1', path: '/textures/walls/palisade/GG_Palisade_Corner_D_1x1.png', type: 'wall', category: 'palisade', wallPiece: 'corner', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Corner D 1x1' },
+  { id: 'wall-palisade-corner-e-1x1', path: '/textures/walls/palisade/GG_Palisade_Corner_E_1x1.png', type: 'wall', category: 'palisade', wallPiece: 'corner', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Corner E 1x1' },
+  { id: 'wall-palisade-corner-f-2x2', path: '/textures/walls/palisade/GG_Palisade_Corner_F_2x2.png', type: 'wall', category: 'palisade', wallPiece: 'corner', naturalWidth: 400, naturalHeight: 400, gridSize: '2x2', label: 'Palisade Corner F 2x2' },
+  { id: 'wall-palisade-corner-g-2x2', path: '/textures/walls/palisade/GG_Palisade_Corner_G_2x2.png', type: 'wall', category: 'palisade', wallPiece: 'corner', naturalWidth: 400, naturalHeight: 400, gridSize: '2x2', label: 'Palisade Corner G 2x2' },
+  { id: 'wall-palisade-corner-h-3x3', path: '/textures/walls/palisade/GG_Palisade_Corner_H_3x3.png', type: 'wall', category: 'palisade', wallPiece: 'corner', naturalWidth: 600, naturalHeight: 600, gridSize: '3x3', label: 'Palisade Corner H 3x3' },
+  { id: 'wall-palisade-joint-a-1x1', path: '/textures/walls/palisade/GG_Palisade_Joint_A_1x1.png', type: 'wall', category: 'palisade', wallPiece: 'joint', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Joint A 1x1' },
+  { id: 'wall-palisade-joint-b-1x1', path: '/textures/walls/palisade/GG_Palisade_Joint_B_1x1.png', type: 'wall', category: 'palisade', wallPiece: 'joint', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Joint B 1x1' },
+  { id: 'wall-palisade-joint-c-1x1', path: '/textures/walls/palisade/GG_Palisade_Joint_C_1x1.png', type: 'wall', category: 'palisade', wallPiece: 'joint', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Joint C 1x1' },
+  { id: 'wall-palisade-joint-d-1x1', path: '/textures/walls/palisade/GG_Palisade_Joint_D_1x1.png', type: 'wall', category: 'palisade', wallPiece: 'joint', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Joint D 1x1' },
+  { id: 'wall-palisade-connector-a-1x1', path: '/textures/walls/palisade/GG_Palisade_Connector_A_1x1.png', type: 'wall', category: 'palisade', wallPiece: 'connector', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Connector A 1x1', contentRect: { x: 51, y: 78, w: 99, h: 44 } },
+  { id: 'wall-palisade-connector-b-1x1', path: '/textures/walls/palisade/GG_Palisade_Connector_B_1x1.png', type: 'wall', category: 'palisade', wallPiece: 'connector', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Connector B 1x1', contentRect: { x: 82, y: 78, w: 36, h: 44 } },
+  { id: 'wall-palisade-connector-diag-a-1x1', path: '/textures/walls/palisade/GG_Palisade_Connector_DIAG_A_1x1.png', type: 'wall', category: 'palisade', wallPiece: 'connector', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Connector DIAG A 1x1', contentRect: { x: 26, y: 78, w: 140, h: 97 } },
+  { id: 'wall-palisade-ending-a-1x1', path: '/textures/walls/palisade/GG_Palisade_Ending_A_1x1.png', type: 'wall', category: 'palisade', wallPiece: 'ending', naturalWidth: 200, naturalHeight: 200, gridSize: '1x1', label: 'Palisade Ending A 1x1' },
+  { id: 'wall-palisade-straight-path', path: '/textures/walls/palisade/GG_Palisade_Straight_Path.png', type: 'wall', category: 'palisade', wallPiece: 'path', naturalWidth: 1650, naturalHeight: 200, gridSize: '8x1', label: 'Palisade Straight Path', contentRect: { x: 0, y: 78, w: 1650, h: 44 } },
+];
+
 // ─── Scatter ───────────────────────────────────────────────────────
 // Decorative strips scattered along paths / terrain boundaries.
 
@@ -329,6 +367,7 @@ export const TEXTURE_MANIFEST: TextureEntry[] = [
   ...WALLS_STONE_SLATE_A,
   ...WALLS_WOOD_ASHEN_B,
   ...WALLS_FIELDSTONE,
+  ...WALLS_PALISADE,
   ...SCATTER,
 ];
 
@@ -385,6 +424,9 @@ export const WALL_SET_DEFAULTS: Record<WallCategory, WallSetDefaults> = {
   'wood-ashen':  { defaultWidth: 0.5, minWidth: 0.15, maxWidth: 1.5 },
   // Fieldstone band is 68/200px (~34% content) — same tuning as stone-slate
   'fieldstone':  { defaultWidth: 0.5, minWidth: 0.15, maxWidth: 1.5 },
+  // Palisade band is 44/200px (22% content) — same tuning; the thinner band
+  // just reads as a narrower wall at the same logical width
+  'palisade':    { defaultWidth: 0.5, minWidth: 0.15, maxWidth: 1.5 },
 };
 
 export function getWallSetDefaults(category: WallCategory): WallSetDefaults {

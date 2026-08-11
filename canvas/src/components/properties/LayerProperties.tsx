@@ -463,6 +463,7 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
                 <option value="stone-slate">Stone Slate</option>
                 <option value="wood-ashen">Wood Ashen</option>
                 <option value="fieldstone">Fieldstone</option>
+                <option value="palisade">Palisade</option>
               </select>
             </PropertyField>
           )}

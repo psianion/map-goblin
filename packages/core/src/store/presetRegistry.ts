@@ -82,6 +82,26 @@ export const DUNGEON_STYLE_PRESETS: MapStylePreset[] = [
     },
   },
   {
+    id: 'timber-palisade',
+    label: 'Timber Palisade',
+    category: 'dungeon',
+    dungeonStyle: {
+      floorColor: '#94875f',
+      wallColor: '#221a12',
+      wallWidth: 0.5,
+      shadowEnabled: true,
+      shadowColor: '#4a3d2c',
+      shadowOffset: { x: 0.4, y: 0.3 },
+      shadowIntensity: 0.5,
+      edgeTransitionWidth: 0.5,
+      showEdgeTransitions: true,
+      defaultTextureId: 'grassy-dirt-a-02',
+      wallTextureSetId: 'palisade',
+      // grey master mid #A0 x this tint lands on the Ashen source's mean color
+      wallTextureTint: '#b49366',
+    },
+  },
+  {
     id: 'cave-natural',
     label: 'Cave / Natural',
     category: 'dungeon',
