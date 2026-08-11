@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="The map you drew is the game you run — Good Goblin turns authored walls, doors, and rooms into live fog, sight, and lighting."
+    />
+    <meta name="theme-color" content="#0b0a08" />
+    <title>Good Goblin</title>
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Good Goblin" />
+    <meta
+      property="og:description"
+      content="The map you drew is the game you run — authored walls, doors, and rooms become live fog, sight, and lighting with zero setup."
+    />
+    <meta property="og:image" content="/og-image.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A torchlit dungeon map, walls up and lit, drawn in Good Goblin." />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Good Goblin" />
+    <meta
+      name="twitter:description"
+      content="The map you drew is the game you run — authored walls, doors, and rooms become live fog, sight, and lighting with zero setup."
+    />
+    <meta name="twitter:image" content="/og-image.jpg" />
+
+    <!-- ============ first-paint loader — "The Survey" ============
+         The page takes real seconds on a cold visit: the module bundle, the
+         fonts, the procedural canvas bakes (scene/textures.ts), three's shader
+         compile, then a first frame. All of that lands AFTER this file paints,
+         so the loader's markup, styles and rig are inlined here rather than
+         imported — the goblin is already drawing while the bundle is still on
+         the wire. Ported from docs/loader-options/option-a.html (the approved
+         design; that file stays untouched as the spec).
+         Everything is namespaced #gg-* / --gg-* so nothing here can collide
+         with the page's own ids or custom properties. Colors are tokens.css
+         values written out by hand — that sheet ships inside the bundle. -->
+    <style>
+      html {
+        background: #e8dfc6;
+      }
+      /* Scroll is pinned at y=0 for the loader's whole life so the exit always
+         hands the scroll rig its clean zero state. The stable gutter keeps the
+         scrollbar's width reserved throughout, so releasing it shifts nothing. */
+      html[data-gg-loading] {
+        overflow: hidden;
+        scrollbar-gutter: stable;
+      }
+      /* The page underneath is inert (set on #root by the rig) and unclickable
+         until the loader is gone. */
+      html[data-gg-loading] #root {
+        pointer-events: none;
+      }
+      /* The three page layers the loader stands in for. Each is handed its own
+         value back at the exit: the canvas fades up under the soaking ink, and
+         the lamp/grain are swapped for the loader's copies of the same two
+         recipes in the single frame the loader is removed. */
+      html[data-gg-loading] .canvas-mount,
+      html[data-gg-loading] .stage-lamp,
+      html[data-gg-loading] .grain {
+        opacity: 0;
+      }
+      /* The first fold arrives on the exit, staggered — the rig drives these
+         inline (inline wins over this rule, so they can come up while the
+         attribute is still set). */
+      html[data-gg-loading] .brand,
+      html[data-gg-loading] .beat-whisper .copy-scrub {
+        opacity: 0;
+      }
+
+      /* No script, no loader: the attribute is only ever set from JS, so a
+         no-JS visitor gets the prerendered page with nothing covering it. */
+      #gg-loader {
+        display: none;
+      }
+      html[data-gg-loading] #gg-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: grid;
+        place-items: center;
+        pointer-events: none;
+        /* Base rule, deliberately outside the reduced-motion block below: the
+           JS clear path writes --gg-a and must never depend on a media query
+           being matched for the loader to actually go away. */
+        opacity: var(--gg-a, 1);
+      }
+
+      /* ============ the lit table ============
+         Same origin (26% 12%) and same stops global.css gives .stage-lamp, so
+         the value this lands on at the end of the exit IS that element's rest
+         value and the swap is invisible. */
+      #gg-lamp {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(
+          75% 90% at 26% 12%,
+          rgb(255 217 160 / 0.32) 0%,
+          rgb(255 217 160 / 0.1) 38%,
+          rgb(20 12 6 / 0.15) 100%
+        );
+        /* low while the goblin works, full once he's done */
+        opacity: calc(0.42 + 0.58 * var(--gg-lamp, 0));
+      }
+      /* Same recipe as global.css's .grain, for the same reason as the lamp. */
+      #gg-grain {
+        position: absolute;
+        inset: 0;
+        opacity: 0.12;
+        mix-blend-mode: multiply;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.55' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.6 -0.5'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        background-size: 140px 140px;
+      }
+
+      #gg-stage {
+        position: relative;
+        width: min(92vw, 1080px);
+        aspect-ratio: 1000 / 600;
+        /* the sheet lifts a hair as the ink soaks away */
+        transform: scale(calc(1 + 0.055 * var(--gg-soak, 0)));
+        transform-origin: 40% 45%;
+      }
+      #gg-plan {
+        display: block;
+        width: 100%;
+        height: 100%;
+        filter: blur(calc(var(--gg-soak, 0) * 4px));
+        opacity: calc(1 - var(--gg-soak, 0));
+      }
+
+      /* ============ title block (the map's cartouche) ============ */
+      #gg-cart {
+        position: absolute;
+        left: 0.5%;
+        bottom: 2%;
+        width: clamp(196px, 21%, 250px);
+        padding: 0.65rem 0.75rem 0.6rem;
+        border: 1.5px solid #16180f;
+        border-radius: 2px;
+        background: rgb(232 223 198 / 0.72);
+        box-shadow: 2px 3px 0 rgb(22 24 15 / 0.14);
+        opacity: calc(var(--gg-cart, 0) * (1 - var(--gg-cart-out, 0)));
+        transform: translateY(calc(6px * (1 - var(--gg-cart, 0)) - 8px * var(--gg-cart-out, 0)));
+      }
+      #gg-cart .gg-wordmark {
+        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-size: 11.5px;
+        letter-spacing: 0.14em;
+        font-weight: 500;
+        color: #16180f;
+      }
+      #gg-cart hr {
+        border: 0;
+        border-top: 1px solid rgb(22 24 15 / 0.35);
+        margin: 0.45rem 0 0.4rem;
+      }
+      #gg-cart .gg-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.5rem;
+      }
+      #gg-phase {
+        font-family: 'Newsreader', Georgia, serif;
+        font-style: italic;
+        font-size: 14px;
+        line-height: 1.25;
+        color: #4d6410;
+        /* two lines reserved — the phase copy never reflows the block */
+        min-height: 2.5em;
+        transition: opacity 130ms linear;
+      }
+      #gg-pct {
+        font-family: 'IBM Plex Mono', ui-monospace, monospace;
+        font-size: 12.5px;
+        color: #4a4433;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: 'tnum' 1;
+        width: 4.2ch;
+        text-align: right;
+        flex: none;
+      }
+      /* the surveyor's rule: a hairline in the block that fills with progress */
+      #gg-rule {
+        position: relative;
+        height: 3px;
+        margin-top: 0.5rem;
+        background: rgb(22 24 15 / 0.14);
+      }
+      #gg-rule::after {
+        content: '';
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: calc(var(--gg-p, 0) * 100%);
+        background: #16180f;
+      }
+
+      /* The block sits inside the sheet's own bottom-left corner on a desktop
+         sheet; on a phone the stage is barely 230px tall and a 196px-wide
+         cartouche lands squarely on the corridor it's describing. Below 700px
+         it drops out from under the drawing instead, full stage width. */
+      @media (max-width: 700px) {
+        #gg-cart {
+          left: 0;
+          right: 0;
+          bottom: auto;
+          top: calc(100% + 1.25rem);
+          width: auto;
+        }
+      }
+
+      /* Reduced motion: no drawing, no travel, no blur — the composed survey is
+         held as a still, then it and the page cross-fade.
+         The !important is deliberate: global.css zeroes every transition-
+         duration under this same query, and an opacity crossfade IS this
+         mode's accommodation here, not the thing being accommodated. */
+      @media (prefers-reduced-motion: reduce) {
+        #gg-stage {
+          transform: none !important;
+        }
+        #gg-plan {
+          filter: none !important;
+          opacity: 1 !important;
+        }
+        html[data-gg-loading] #gg-loader,
+        html[data-gg-loading] .canvas-mount,
+        html[data-gg-loading] .brand,
+        html[data-gg-loading] .beat-whisper .copy-scrub {
+          transition: opacity 300ms linear !important;
+        }
+        #gg-phase {
+          transition: none;
+        }
+      }
+    </style>
+    <script>
+      document.documentElement.setAttribute('data-gg-loading', '');
+    </script>
+  </head>
+  <body>
+    <!-- role=status, not progressbar: the phase line is the only thing worth
+         announcing, and it reads as a short polite sentence. The percentage and
+         the drawing itself are aria-hidden so the live region isn't spammed
+         sixty times a second. Deliberately unnamed and NOT aria-busy: a label
+         on a live region can be read in place of the content that changed, and
+         aria-busy on the region itself would hold back the very announcements
+         this exists to make. aria-busy belongs on the page being loaded, and
+         the rig puts it there (with `inert`) on #root. -->
+    <div id="gg-loader" role="status" aria-live="polite">
+      <div id="gg-lamp" aria-hidden="true"></div>
+      <div id="gg-stage">
+        <svg id="gg-plan" viewBox="100 100 1000 600" aria-hidden="true">
+          <defs>
+            <pattern id="gg-grid" width="50" height="50" patternUnits="userSpaceOnUse">
+              <path d="M50 0 L0 0 0 50" fill="none" stroke="#16180f" stroke-opacity="0.11" stroke-width="1" />
+            </pattern>
+            <!-- hand-inked wobble: static turbulence displacing the linework so
+                 the strokes read painted, never flat vector (art-style-guide
+                 rule 3) -->
+            <filter id="gg-inkwobble" x="-3%" y="-3%" width="106%" height="106%">
+              <feTurbulence type="fractalNoise" baseFrequency="0.013" numOctaves="2" seed="9" result="n" />
+              <feDisplacementMap in="SourceGraphic" in2="n" scale="3.4" xChannelSelector="R" yChannelSelector="G" />
+            </filter>
+            <radialGradient id="gg-tg">
+              <stop offset="0%" stop-color="#ffd9a0" stop-opacity="0.78" />
+              <stop offset="42%" stop-color="#eda94e" stop-opacity="0.26" />
+              <stop offset="100%" stop-color="#eda94e" stop-opacity="0" />
+            </radialGradient>
+            <radialGradient id="gg-pen">
+              <stop offset="0%" stop-color="#ffd9a0" stop-opacity="0.85" />
+              <stop offset="100%" stop-color="#eda94e" stop-opacity="0" />
+            </radialGradient>
+          </defs>
+
+          <!-- 1. the ground is surveyed -->
+          <g id="gg-grid-layer" opacity="0">
+            <rect x="100" y="100" width="1000" height="600" fill="url(#gg-grid)" />
+          </g>
+
+          <!-- 5. lighting, baked warm pools -->
+          <g id="gg-glows" opacity="0">
+            <circle cx="250" cy="215" r="185" fill="url(#gg-tg)" />
+            <circle cx="930" cy="230" r="165" fill="url(#gg-tg)" />
+            <circle cx="720" cy="520" r="175" fill="url(#gg-tg)" />
+          </g>
+
+          <g filter="url(#gg-inkwobble)">
+            <!-- floors: desaturated stone inside each room, tied to its own wall -->
+            <g fill="#cbc4aa" fill-opacity="0.92">
+              <rect id="gg-f1" x="150" y="150" width="400" height="300" opacity="0" />
+              <rect id="gg-f2" x="650" y="150" width="400" height="200" opacity="0" />
+              <rect id="gg-f2b" x="550" y="275" width="100" height="50" opacity="0" />
+              <rect id="gg-f3" x="650" y="450" width="300" height="200" opacity="0" />
+              <rect id="gg-f3b" x="325" y="450" width="50" height="160" opacity="0" />
+              <rect id="gg-f3c" x="325" y="560" width="325" height="50" opacity="0" />
+            </g>
+
+            <!-- 2. walls raise, one pen stroke per wing -->
+            <!-- 0.28 grid units of stroke — the guide's "thick dark strokes" -->
+            <g fill="none" stroke="#16180f" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+              <path id="gg-w1" pathLength="1"
+                    d="M150,275 L150,150 L550,150 L550,275
+                       M550,325 L550,450 L375,450
+                       M325,450 L150,450 L150,325" />
+              <path id="gg-w2" pathLength="1"
+                    d="M550,275 L650,275 L650,150 L1050,150 L1050,350 L850,350
+                       M800,350 L650,350 L650,325 L550,325" />
+              <path id="gg-w3" pathLength="1"
+                    d="M375,450 L375,560 L650,560 L650,450 L950,450 L950,650 L650,650 L650,610 L325,610 L325,450" />
+            </g>
+
+            <!-- 3. doors hang in the gaps -->
+            <g stroke="#16180f" stroke-width="3.5">
+              <rect class="gg-pop" data-in="0.62,0.70" x="142" y="277" width="16" height="46" rx="2" fill="#8a6138" />
+              <rect class="gg-pop" data-in="0.66,0.74" x="542" y="277" width="16" height="46" rx="2" fill="#8a6138" />
+              <rect class="gg-pop" data-in="0.70,0.78" x="802" y="342" width="46" height="16" rx="2" fill="#8a6138" />
+              <rect class="gg-pop" data-in="0.73,0.81" x="642" y="562" width="16" height="46" rx="2" fill="#8a6138" />
+            </g>
+
+            <!-- 4. the furniture goes in -->
+            <g stroke="#16180f" stroke-width="3" fill="none">
+              <rect class="gg-pop" data-in="0.78,0.84" x="270" y="290" width="160" height="62" rx="3" fill="#c8b489" />
+              <circle class="gg-pop" data-in="0.80,0.86" cx="205" cy="405" r="15" fill="#c8b489" />
+              <circle class="gg-pop" data-in="0.815,0.875" cx="240" cy="412" r="13" fill="#c8b489" />
+              <circle class="gg-pop" data-in="0.83,0.89" cx="212" cy="372" r="12" fill="#c8b489" />
+              <g class="gg-pop" data-in="0.80,0.88" fill="none">
+                <rect x="960" y="180" width="76" height="140" fill="#cfc2a0" />
+                <path d="M960,204 H1036 M960,228 H1036 M960,252 H1036 M960,276 H1036 M960,300 H1036" stroke-width="2.4" />
+              </g>
+              <g class="gg-pop" data-in="0.84,0.90" stroke-width="2.6" fill="#d3c6a4">
+                <circle cx="700" cy="618" r="9" /><circle cx="726" cy="628" r="6" />
+                <circle cx="892" cy="486" r="8" /><circle cx="874" cy="500" r="5.5" />
+              </g>
+              <!-- the map's one focal accent: the altar -->
+              <g class="gg-pop" data-in="0.88,0.95">
+                <rect x="762" y="516" width="86" height="52" rx="3" fill="#e0b063" stroke-width="4" />
+                <path d="M778,516 V568 M805,516 V568 M832,516 V568" stroke-width="2.2" />
+              </g>
+            </g>
+
+            <!-- the pen tip riding the live stroke -->
+            <g id="gg-pen-tip" opacity="0">
+              <circle id="gg-pen-glow" r="30" fill="url(#gg-pen)" />
+              <circle r="5.5" fill="#16180f" />
+            </g>
+          </g>
+        </svg>
+
+        <div id="gg-cart">
+          <div class="gg-wordmark">GOOD&nbsp;GOBLIN</div>
+          <hr />
+          <div class="gg-row">
+            <span id="gg-phase">unrolling a blank sheet</span>
+            <span id="gg-pct" aria-hidden="true">0%</span>
+          </div>
+          <div id="gg-rule" aria-hidden="true"></div>
+        </div>
+      </div>
+      <div id="gg-grain" aria-hidden="true"></div>
+    </div>
+
+    <div id="root"></div>
+
+    <script>
+      (function () {
+        'use strict';
+
+        var root = document.documentElement;
+        var loader = document.getElementById('gg-loader');
+        if (!loader) return;
+        var $ = function (id) { return document.getElementById(id); };
+
+        /* ---------- progress: a real load, not a metronome ----------
+           Each milestone raises the pen's GOAL onto the phase window the design
+           gave that stage of the drawing; the pen eases toward it and, once
+           there, keeps inching a little past so it is never parked on a wall
+           boundary looking broken (the windows overlap, so a hair past one wall
+           is always mid-stroke on the next). It never runs backwards.
+             fonts       document.fonts.ready — still surveying the blank sheet
+             react       the app has mounted and committed
+             scene-code  the ~1MB three/gsap/lenis chunk is down and evaluated
+             scene       the R3F scene exists; the texture bakes run behind it
+             frame       the first frame is on the screen — torches lit */
+        var CEIL = { fonts: 0.16, react: 0.34, 'scene-code': 0.62, scene: 0.8, frame: 1 };
+        var MIN_MS = 1200;   // the arc has to read even off a warm cache
+        var CAP_MS = 12000;  // ...and the loader may never sit on a working page
+        var HOLD_MS = 220, EXIT_MS = 1120;
+        var TAU = 0.22;      // seconds; ease constant toward the current goal
+        var CREEP = 0.012;   // progress/second the pen inches on regardless
+        var HEAD = 0.06;     // how far past the goal the creep is allowed
+
+        var goal = 0, p = 0;
+        function mark(name) {
+          var c = CEIL[name];
+          if (c > goal) goal = c;
+        }
+        // Exposed for the app's own milestones (src/loadProgress.ts).
+        window.__ggMark = mark;
+        if (document.fonts && document.fonts.ready) {
+          document.fonts.ready.then(function () { mark('fonts'); });
+        }
+
+        function span(v, a, b) { var t = (v - a) / (b - a); return t < 0 ? 0 : t > 1 ? 1 : t; }
+        var outQuart = function (t) { return 1 - Math.pow(1 - t, 4); };
+        var outQuint = function (t) { return 1 - Math.pow(1 - t, 5); };
+        var outExpo = function (t) { return t >= 1 ? 1 : 1 - Math.pow(2, -10 * t); };
+
+        var walls = [
+          { el: $('gg-w1'), a: 0.06, b: 0.4, floors: [$('gg-f1')] },
+          { el: $('gg-w2'), a: 0.34, b: 0.63, floors: [$('gg-f2'), $('gg-f2b')] },
+          { el: $('gg-w3'), a: 0.5, b: 0.8, floors: [$('gg-f3'), $('gg-f3b'), $('gg-f3c')] }
+        ];
+        walls.forEach(function (w) {
+          w.el.setAttribute('stroke-dasharray', '1 1');
+          w.el.setAttribute('stroke-dashoffset', '1');
+          w.len = w.el.getTotalLength();
+        });
+        var pops = [].slice.call(loader.querySelectorAll('.gg-pop')).map(function (el) {
+          var r = el.getAttribute('data-in').split(',');
+          el.style.transformBox = 'fill-box';
+          el.style.transformOrigin = 'center';
+          return { el: el, a: parseFloat(r[0]), b: parseFloat(r[1]) };
+        });
+
+        var gridLayer = $('gg-grid-layer'), glows = $('gg-glows');
+        var penTip = $('gg-pen-tip'), penGlow = $('gg-pen-glow');
+        var pctEl = $('gg-pct'), phaseEl = $('gg-phase');
+
+        var PHASES = [
+          [0.1, 'unrolling a blank sheet'],
+          [0.62, 'raising the walls'],
+          [0.78, 'hanging the doors'],
+          [0.88, 'dragging the furniture in'],
+          [0.995, 'lighting the torches'],
+          [2, 'ready when you are']
+        ];
+        var phaseIdx = -1, phaseTimer = 0;
+        function setPhase(v) {
+          var i = 0;
+          while (PHASES[i][0] < v) i++;
+          if (i === phaseIdx) return;
+          var first = phaseIdx === -1;
+          phaseIdx = i;
+          if (first) { phaseEl.textContent = PHASES[i][1]; return; }
+          phaseEl.style.opacity = '0';
+          clearTimeout(phaseTimer);
+          phaseTimer = setTimeout(function () {
+            phaseEl.textContent = PHASES[phaseIdx][1];
+            phaseEl.style.opacity = '1';
+          }, 130);
+        }
+
+        var clock = 0; // ms since the rig started; only the pen's torch reads it
+        function render(v) {
+          root.style.setProperty('--gg-p', v.toFixed(4));
+
+          /* the ground */
+          gridLayer.setAttribute('opacity', (outQuart(span(v, 0, 0.13)) * 0.95).toFixed(3));
+
+          /* the walls, plus the pen riding whichever one is live */
+          var live = null;
+          for (var i = 0; i < walls.length; i++) {
+            var w = walls[i];
+            var t = span(v, w.a, w.b);
+            var d = outQuart(t);
+            w.el.setAttribute('stroke-dashoffset', (1 - d).toFixed(4));
+            for (var f = 0; f < w.floors.length; f++) {
+              w.floors[f].setAttribute('opacity', (d * d).toFixed(3));
+            }
+            if (t > 0.001 && t < 0.999) live = { w: w, d: d };
+          }
+          if (live) {
+            var pt = live.w.el.getPointAtLength(live.w.len * live.d);
+            penTip.setAttribute('transform', 'translate(' + pt.x.toFixed(1) + ',' + pt.y.toFixed(1) + ')');
+            penTip.setAttribute('opacity', '1');
+            /* The torch on the pen breathes off the clock, not off progress:
+               when a milestone is genuinely stuck the pen creeps to its ceiling
+               and then holds, and a dead-still tip is what makes a slow load
+               read as a broken one. The percentage honestly stops climbing;
+               the light does not go out. */
+            penGlow.setAttribute('opacity', (0.72 + 0.28 * Math.abs(Math.sin(clock / 620))).toFixed(2));
+          } else {
+            penTip.setAttribute('opacity', v > 0.8 ? '0' : '0.25');
+          }
+
+          /* doors, furniture, the altar */
+          for (var j = 0; j < pops.length; j++) {
+            var q = pops[j], tq = outQuint(span(v, q.a, q.b));
+            q.el.setAttribute('opacity', tq.toFixed(3));
+            q.el.style.transform = 'scale(' + (0.84 + 0.16 * tq).toFixed(3) + ')';
+          }
+
+          /* torchlight, last — held at 0.78 so the exit has somewhere to flare to */
+          var lit = outQuart(span(v, 0.86, 1));
+          glows.setAttribute('opacity', (lit * 0.78).toFixed(3));
+          root.style.setProperty('--gg-lamp', (lit * 0.35).toFixed(3));
+
+          /* the title block */
+          root.style.setProperty('--gg-cart', outQuart(span(v, 0.03, 0.16)).toFixed(3));
+          pctEl.textContent = Math.round(v * 100) + '%';
+          setPhase(v);
+        }
+
+        /* ---------- exit: the ink soaks in, the lamp comes up ----------
+           The parchment ground never cuts. The live scene (a lit table with
+           this same sheet resting on it) fades up UNDER the soaking ink, so the
+           survey settles onto the table it was always being drawn on, and the
+           first fold's copy staggers in behind it. */
+        var parts = null;
+        function exitParts() {
+          // Re-queried while empty rather than cached once: on the hard-cap
+          // path the app may not have rendered yet the first time through.
+          if (!parts || !parts.length) {
+            parts = [
+              document.querySelector('.brand'),
+              document.querySelector('.beat-whisper .copy-scrub')
+            ].filter(Boolean);
+          }
+          return parts;
+        }
+        var canvasMount = null;
+        function renderExit(e) {
+          /* the block bows out first */
+          root.style.setProperty('--gg-cart-out', outQuart(span(e, 0, 0.22)).toFixed(3));
+          /* one last flare from the torches before the ink lets go */
+          glows.setAttribute('opacity', (0.78 + 0.22 * Math.sin(span(e, 0, 0.26) * Math.PI)).toFixed(3));
+          /* ink bleeds into the paper */
+          root.style.setProperty('--gg-soak', outQuart(span(e, 0.12, 0.72)).toFixed(3));
+          /* the lamp finishes rising, landing on .stage-lamp's own rest value */
+          root.style.setProperty('--gg-lamp', (0.35 + 0.65 * outExpo(span(e, 0.1, 1))).toFixed(3));
+          if (!canvasMount) canvasMount = document.querySelector('.canvas-mount');
+          if (canvasMount) canvasMount.style.opacity = outQuart(span(e, 0.25, 0.8)).toFixed(3);
+          /* the page arrives on the ground that was already there */
+          var els = exitParts();
+          for (var i = 0; i < els.length; i++) {
+            var t = outQuint(span(e, 0.34 + i * 0.09, 0.78 + i * 0.09));
+            els[i].style.opacity = t.toFixed(3);
+            els[i].style.transform = 'translateY(' + (14 * (1 - t)).toFixed(2) + 'px)';
+          }
+        }
+
+        function clear() {
+          root.removeAttribute('data-gg-loading');
+          root.style.removeProperty('--gg-p');
+          root.style.removeProperty('--gg-cart');
+          root.style.removeProperty('--gg-cart-out');
+          root.style.removeProperty('--gg-soak');
+          root.style.removeProperty('--gg-lamp');
+          root.style.removeProperty('--gg-a');
+          var rootEl = document.getElementById('root');
+          if (rootEl) {
+            rootEl.removeAttribute('inert');
+            rootEl.removeAttribute('aria-busy');
+          }
+          if (canvasMount) canvasMount.style.removeProperty('opacity');
+          exitParts().forEach(function (el) {
+            el.style.removeProperty('opacity');
+            el.style.removeProperty('transform');
+          });
+          loader.remove();
+          delete window.__ggMark;
+          // The scroll rig gets its clean zero state — unless the visitor
+          // arrived on a deep link, whose anchor the lock above suppressed and
+          // this is the first moment it can honestly be honored.
+          var anchor = location.hash.length > 1 && document.querySelector(location.hash);
+          if (anchor) anchor.scrollIntoView();
+          else window.scrollTo(0, 0);
+        }
+
+        /* ---------- run ----------
+           Scroll is pinned at zero for the loader's whole life (the overflow
+           lock is in the critical CSS above): the exit has to hand the scroll
+           rig its clean y=0 state, and a browser-restored scroll position
+           would otherwise drop it mid-beat with the camera at keyframe 0. */
+        if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+        window.scrollTo(0, 0);
+        var rootEl = document.getElementById('root');
+        if (rootEl) {
+          rootEl.setAttribute('inert', '');
+          rootEl.setAttribute('aria-busy', 'true');
+        }
+
+        var t0 = performance.now(), last = t0, exitAt = 0;
+
+        if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          /* the finished survey as a still, held until the page is actually
+             ready, then a plain cross-fade — no drawing, no travel, no blur */
+          render(1);
+          phaseEl.textContent = 'ready when you are';
+          glows.setAttribute('opacity', '0.78');
+          root.style.setProperty('--gg-lamp', '1');
+          (function wait() {
+            var el = performance.now() - t0;
+            if ((goal < 1 || el < MIN_MS) && el < CAP_MS) { requestAnimationFrame(wait); return; }
+            var cm = document.querySelector('.canvas-mount');
+            canvasMount = cm;
+            if (cm) cm.style.opacity = '1';
+            exitParts().forEach(function (e2) { e2.style.opacity = '1'; });
+            root.style.setProperty('--gg-a', '0');
+            setTimeout(clear, 320);
+          })();
+          return;
+        }
+
+        render(0);
+        requestAnimationFrame(function frame(now) {
+          // Wall-clock dt, barely clamped. The whole point of this loader is a
+          // main thread busy enough that rAF stops firing for whole chunks of
+          // the load, and both terms below are time-based — a long frame
+          // SHOULD advance the pen by what it actually cost, or the pen ends
+          // up pacing the blocking work instead of the clock and a warm cache
+          // never gets its fast path. Runaway is bounded by the goal, not by
+          // this; the clamp only stops a tab that was hidden for a minute from
+          // resuming with one absurd step.
+          var dt = Math.min(1, (now - last) / 1000);
+          last = now;
+          var el = now - t0;
+          clock = el;
+
+          if (exitAt) {
+            var e = Math.min(1, (now - exitAt) / EXIT_MS);
+            renderExit(e);
+            if (e >= 1) { clear(); return; }
+            requestAnimationFrame(frame);
+            return;
+          }
+
+          if (el >= CAP_MS) goal = 1;
+          if (p < goal) p += (goal - p) * (1 - Math.exp(-dt / TAU));
+          p = Math.min(p + dt * CREEP, Math.min(goal + HEAD, 1));
+          render(p);
+
+          /* 0.995, not 1: the torch window's ease is visually complete there,
+             and holding out for the last half-percent costs most of a second
+             on a warm cache for a frame nobody can tell apart. */
+          if (p >= 0.995 && el >= MIN_MS) {
+            render(1);
+            exitAt = now + HOLD_MS;
+          }
+          requestAnimationFrame(frame);
+        });
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

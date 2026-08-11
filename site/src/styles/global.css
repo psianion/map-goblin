@@ -1,0 +1,770 @@
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+body {
+  background: var(--parchment);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--goblin);
+  color: var(--ink);
+}
+
+/* torch-ink (4.75:1 on parchment) — the page field is light everywhere a
+   focus ring can land, including inside .plaque, so one color covers both. */
+:focus-visible {
+  outline: 2px solid var(--torch-ink);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+p {
+  max-width: 62ch;
+  text-wrap: pretty;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.voice {
+  font-family: var(--font-display);
+  font-style: italic;
+  color: var(--goblin-ink);
+}
+
+/* ============ paper grain ============ */
+/* SVG feTurbulence, not a shipped image — resolution-independent, seamless
+   by construction (no tiling edge to hide), zero bytes over the wire.
+   Fix round F1: the coarse 0.02/700px mottle layer was viewport-pinned
+   (position: fixed) while the world scrolls underneath it, so its ~350px
+   turbulence tile read as a static, repeating grey-green blotch grid
+   stamped over the parchment — "dirt on the lens" — killing the floor's
+   warm #efe6cf and the torch pools page-wide. Deleted outright; only the
+   fine high-frequency fiber tile remains (matches the board's own .d2
+   .sheet recipe: baseFrequency 0.55, 140px tile). Explicit width/height on
+   the SVG root (matching background-size) so the feTurbulence tile is
+   generated at exactly the tile size instead of some default viewport-ish
+   box the browser then stretches/samples — that mismatch is what seams at
+   tile boundaries. Alpha matrix softened from scale 2.4/bias -0.7 to scale
+   1.6/bias -0.5 and element opacity dropped 0.3 -> 0.12 to match. */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  opacity: 0.12;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.55' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.6 -0.5'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 140px 140px;
+}
+
+/* ============ D2 lit-table falloff (finding 2, Route B) ============
+   Retired (issue 4 / P1-A/P2-I fix): this used to be a viewport-pinned DOM
+   radial standing in for the table's own light because the canvas bake was
+   38 world units off-stage and modulated by only ~12.6/255 across the
+   framed area — "the lamp" a viewer actually saw was this sticker, which by
+   construction never parallaxed, was never occluded, and sat in the same
+   screen corner at every beat. Two light stories violated the art guide's
+   one-light-source rule, which is exactly what this issue existed to
+   remove. The pool now lives IN THE WORLD, baked into the table wood
+   texture at LAMP_WORLD (textures.ts) with a world-unit falloff radius, so
+   it parallaxes with the table across all nine beats and dims with
+   TABLE_NIGHT_TINT the same way every other surface here already does —
+   the CSS overlay's own --night-t dimming is replaced for free by that
+   existing multiply. Loader hand-off note (index.html:95-98, not this
+   file's to touch): the loader's #gg-lamp exit used to hand off to this
+   element's rest value; LAMP_WORLD was placed so the canvas's own pool
+   lands at the same (26%, 12%) screen fraction at camera keyframe 0, so the
+   hand-off still reads as one continuous light even with this element
+   gone. */
+
+/* ============ canvas mount ============ */
+.canvas-mount {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.canvas-mount canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.hero-mobile-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 30%;
+}
+
+/* ============ page shell ============ */
+.brand {
+  position: fixed;
+  top: 1.5rem;
+  left: clamp(1.5rem, 6vw, 3rem);
+  z-index: 5;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--ink-mut);
+}
+
+main {
+  position: relative;
+  z-index: 1;
+}
+
+.beat {
+  position: relative;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(5rem, 14vh, 8rem) clamp(1.5rem, 6vw, 6rem);
+  /* Fix round finding 6: this hairline was invisible against the old void
+     field; on parchment it paints a full-bleed rule at every beat boundary.
+     Beats are separated by full-viewport pinning, not rules — deleted. */
+}
+
+/* Beat copy fade — driven by ScrollCamera.tsx (sceneProgress.ts's
+   writeCopyV), which writes --copy-v (0..1) onto a beat's .copy-scrub
+   wrapper — a dedicated text-only wrapper, NOT the .beat section itself, so
+   overlay bits paired with their own scene-driven progress (pane-tags, the
+   .scrub widget) sit outside it and are never gated by this fade. The hero
+   H1+CTA and the closing CTA carry no .copy-scrub wrapper at all — they're
+   exempt from scroll-gating entirely, the primary conversion element is
+   never hidden. Contract: copy starts fading in once its own beat's picture
+   is 5% established, fully in by 20%, then holds fully visible until the
+   tail of its own beat's pin, dissolving over that pin's raw progress
+   80% -> 95% so it's gone before the pin releases. */
+.copy-scrub {
+  --copy-v: 1;
+  position: relative;
+  visibility: visible;
+  transition: visibility 0s;
+}
+.copy-scrub > * {
+  opacity: var(--copy-v);
+  transform: translateY(calc((1 - var(--copy-v)) * 14px));
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+
+/* Copy substrate: DELIBERATELY ABSENT for now. A scrim/backing behind the
+   copy is a text treatment whose correct form depends on the finished
+   background (sheet construction, camera composition, floor values) — it
+   gets designed ONCE, in the final copy-treatment pass, after the D2
+   background phases settle. Do not reintroduce per-beat patches here. */
+
+/* Small DOM overlays that ride their OWN element's opacity (set imperatively
+   by SceneRenderer.tsx/ScrollCamera.tsx) rather than --copy-v: a ::before on
+   that same element rides that opacity for free, no separate binding.
+   .pane-tag is already position:absolute (below), which is enough to anchor
+   this. */
+.pane-tags .pane-tag::before {
+  content: '';
+  position: absolute;
+  inset: -0.4rem -0.9rem;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 2px;
+  background: rgb(232 223 198 / 0.94);
+}
+.scrub {
+  position: relative;
+}
+/* WCAG 2.4.7: a fully faded-out beat must not stay focusable/clickable.
+   Delay the visibility flip so the opacity fade still plays; hiding ->
+   showing is instant (see the base rule's transition above). No focus-within
+   escape hatch needed: every CTA sits outside .copy-scrub (App.tsx — the
+   hero H1+CTA and closing CTA are exempt from scroll-gating entirely), so
+   nothing focusable ever lives inside one of these to get trapped. */
+.copy-scrub[data-copy-hidden] {
+  visibility: hidden;
+  pointer-events: none;
+  transition: visibility 0s 0.35s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .copy-scrub {
+    visibility: visible !important;
+  }
+  .copy-scrub > *,
+  .copy-scrub::before {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none;
+  }
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--ink-mut);
+  margin-bottom: 1.5rem;
+  display: block;
+}
+
+/* ============ beat 0 — whisper ============ */
+.beat-whisper {
+  border-top: none;
+  align-items: center;
+}
+.beat-whisper p {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: clamp(1.2rem, 2.6vw, 1.8rem);
+  color: var(--goblin-ink);
+  max-width: 26ch;
+}
+
+/* ============ beat 1 — ink ============ */
+.beat-ink {
+  align-items: flex-start;
+}
+.beat-ink .ink-line {
+  font-size: clamp(2.2rem, 5vw, 4rem);
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+  max-width: none;
+}
+
+/* ============ beat 2 — hero ============ */
+.beat-hero h1 {
+  font-size: clamp(2.6rem, 5.2vw, 5.5rem);
+  line-height: 1.04;
+  max-width: 20ch;
+}
+.beat-hero h1 .drew {
+  font-style: italic;
+}
+.beat-hero h1 .run {
+  color: var(--torch-ink);
+}
+.beat-hero .sub {
+  margin-top: 1.6rem;
+  color: var(--ink-mut);
+  font-size: 17px;
+}
+.beat-hero .aside {
+  margin-top: 2.2rem;
+  font-size: 15px;
+}
+.cta-row {
+  margin-top: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+.cta {
+  display: inline-block;
+  background: var(--goblin);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 15px;
+  padding: 0.85rem 1.7rem;
+  border-radius: 3px;
+  text-decoration: none;
+  box-shadow: 0 0 32px rgb(182 214 72 / 0.18);
+}
+.cta-quiet {
+  font-size: 14px;
+  color: var(--ink-mut);
+}
+
+/* ============ feature rooms (beats 3–6) ============ */
+.feature-room h2 {
+  font-size: clamp(1.9rem, 3.4vw, 3rem);
+  line-height: 1.12;
+  max-width: 18ch;
+}
+.feature-room .sub {
+  margin-top: 1.2rem;
+  color: var(--ink-mut);
+  font-size: 17px;
+}
+.feature-room .voice {
+  display: block;
+  margin-top: 1.2rem;
+  font-size: 1.05rem;
+}
+/* ---- beat 5 ("world-turns"): the copy keeps its own ground ----
+   Beat 5 is the one beat whose ground walks out from under its copy. The map
+   floor the column sits on sweeps #efe6cf -> #232838 across the scrub
+   (FLOOR_TINT multiplied toward FLOOR_NIGHT_TINT by frontLoad(nightT),
+   Diorama.tsx), while every ink token this page uses was authored against
+   --parchment — tokens.css states its ratios as "computed against
+   --parchment" (--ink 13.5:1, --ink-mut 7.3:1, --goblin-ink 5.04:1). At full
+   night the ink measured ~1.24:1 against that floor: invisible.
+
+   WHY THE OBVIOUS FIX CANNOT WORK — do not re-introduce it. The previous
+   attempt ramped these three inks toward --text/--text-2 on a night variable
+   (--night-t-copy, front-loaded; since deleted from SceneRenderer.tsx). A
+   monotone text ramp travelling one way, over a background sweeping the full
+   value range the other way, MUST cross: the text passes through the
+   background's own luminance somewhere, and at the crossing the ratio is
+   1:1 by construction. Measured against the real floor that ramp put h2 at
+   1.08:1 at worldP 0.50 — worse than the flat ink it replaced (~6.2:1
+   there). No reshaping of the curve removes the crossing; it only moves
+   where it lands, and front-loading moved it into the middle of the beat,
+   which is the worst place available. The ramp's own numbers looked healthy
+   only because they were taken against the flat scene surround, which is not
+   what the copy sits on.
+
+   So the constraint that gives is the COUPLING, not the curve. The copy stops
+   sharing the world's ground and gets back the one its tokens were designed
+   for: an opaque sheet of --parchment that travels with the column. Every
+   authored ratio is then true at every scroll position by construction — no
+   ramp, no crossing, nothing left to retune — and this beat's copy renders
+   byte-identically to every day beat.
+
+   It is a sheet, not a scrim. The full-bleed copy scrim was removed for
+   veiling the diorama at every beat; this is one beat's text block plus its
+   margin, in the page's own material vocabulary — .pane-tag::before lays the
+   same parchment plate over the same canvas one beat earlier, .plaque is the
+   same paper at beat 8. No border, no shadow, no backdrop-filter, no
+   text-shadow: matte discipline holds, and the page grain (.grain — fixed,
+   multiply, above everything) falls across it exactly as it falls across the
+   board. While the floor is still lit the sheet is near-imperceptible against
+   it; it emerges as the world darkens around it, so the beat's own picture
+   does the reveal and nothing has to animate.
+
+   width: fit-content shrinks the wrapper (a stretch-by-default column flex
+   item, otherwise as wide as the page's content box) onto its own widest
+   max-width'd child, so the sheet is the size of the text block instead of
+   the size of the column. Text layout is unchanged either way — every child
+   is already capped by its own max-width. */
+.feature-room[data-beat='world-turns'] .copy-scrub {
+  width: fit-content;
+}
+.feature-room[data-beat='world-turns'] .copy-scrub::before {
+  content: '';
+  position: absolute;
+  /* Runs off the left edge of the frame rather than floating clear of it: the
+     left inset is .beat's own padding, negated, so the sheet's left edge lands
+     exactly on the viewport's. A rectangle with all four edges showing reads
+     as a card; one that leaves the frame reads as paper laid over the table,
+     which is what it is. Bottom is the tight one — .scrub sits 1.6rem under
+     this wrapper (its own margin-top), so 1rem here keeps a hair of table
+     visible between the paper's edge and the clock track instead of the two
+     touching. */
+  inset: -1.5rem -2.2rem -1rem calc(-1 * clamp(1.5rem, 6vw, 6rem));
+  z-index: -1;
+  border-radius: 0 2px 2px 0;
+  background: var(--parchment);
+  /* Rides the beat's own copy fade. `.copy-scrub > *` can't do it — that `*`
+     matches elements, never a pseudo-element — so the binding and the
+     matching transition are spelled out here, and the sheet and the ink it
+     carries dissolve as one object. */
+  opacity: var(--copy-v);
+  transition: opacity 0.35s ease;
+}
+
+/* ============ beat 4 — trust split ============ */
+.pane-tags {
+  /* R6 fix round: this element now lives under .canvas-mount (created
+     imperatively by SceneRenderer.tsx, same pattern as its own trustVignette
+     overlay), not inside the "trust" section's own DOM box — that section
+     un-pins and scrolls away the instant beat 5's own pin starts, but the
+     canvas split (trustGlow-gated) now persists a little past that boundary
+     as it eases shut, so anchoring these tags to the section they used to
+     live in stopped working the moment GSAP's pin (a transform on the
+     section) also stopped being able to serve as a fixed-position
+     containing block for them. .canvas-mount is itself position:fixed and
+     never pinned/transformed, so position:absolute here — relative to that
+     ancestor — stays put over the canvas for as long as the split does. */
+  position: absolute;
+  inset: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+  /* Default hidden — SceneRenderer.tsx drives this with an inline opacity
+     every frame once the scene is live; without this default, mobile/no-
+     WebGL (and the idle window before Canvas3D mounts) shows "YOUR VIEW /
+     THEIR VIEW" at full opacity over nothing. */
+  opacity: 0;
+}
+.pane-tags .pane-tag {
+  position: absolute;
+  bottom: 2rem;
+}
+.pane-tags .dm {
+  left: 25%;
+  color: var(--torch-ink);
+  transform: translateX(-50%);
+}
+.pane-tags .pl {
+  left: 75%;
+  color: var(--ink-mut);
+  transform: translateX(-50%);
+}
+/* The molten crack inside beat 4's wood divider — blurred --goblin glow,
+   #d9ef8a core hint, #14110b lips: molten light in the gap between the two
+   views. (Originally the page-wide seam's material family; the seam itself
+   was removed 2026-08-08 — this divider treatment was independently signed
+   off and stands alone.) Created under .canvas-mount by
+   SceneRenderer.tsx (same lifecycle as .pane-tags); it drives width (= the
+   canvas gap, logical px) and opacity (= trustGlow) inline every frame.
+   Everything paints as gradients on the column itself and overflow is
+   clipped, so no green ever reaches the panes — the outer stops are fully
+   transparent green with only the dark lip tint at the edges. */
+.pane-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+}
+.pane-divider::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    /* crack-lip occlusion: dark wood biting into the light at uneven
+       intervals down the run, so it reads as molten light in the crack's
+       depth, not a neon bar */
+    linear-gradient(
+      180deg,
+      rgb(20 17 11 / 0.55) 0%,
+      rgb(20 17 11 / 0.1) 13%,
+      rgb(20 17 11 / 0.42) 31%,
+      rgb(20 17 11 / 0.06) 47%,
+      rgb(20 17 11 / 0.48) 68%,
+      rgb(20 17 11 / 0.1) 86%,
+      rgb(20 17 11 / 0.55) 100%
+    ),
+    /* core hint */
+    linear-gradient(90deg, rgb(217 239 138 / 0) 40%, rgb(217 239 138 / 0.38) 50%, rgb(217 239 138 / 0) 60%),
+    /* molten glow, contained: transparent well inside both column edges */
+    linear-gradient(90deg, rgb(182 214 72 / 0) 8%, rgb(182 214 72 / 0.3) 50%, rgb(182 214 72 / 0) 92%);
+  animation: divider-breathe 5s ease-in-out infinite;
+}
+@keyframes divider-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.65;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pane-divider::before {
+    animation: none;
+  }
+}
+
+/* ============ beat 5 — the world turns (scrub) ============ */
+.scrub {
+  margin-top: 1.6rem;
+  max-width: 22rem;
+  /* Default hidden, same reasoning as .pane-tags above — ScrollCamera.tsx
+     sets this to 1 once it mounts (the scene is live), so mobile/no-WebGL
+     and the pre-mount idle window don't show a dead scrub track. */
+  opacity: 0;
+}
+.scrub-track {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: #26241d;
+}
+.scrub-fill {
+  position: absolute;
+  inset: 0;
+  width: 0%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--torch), #aebfe0);
+}
+.scrub-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #aebfe0;
+  border: 2px solid var(--ink);
+  transform: translate(-50%, -50%);
+}
+.scrub-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-mut);
+}
+
+/* ============ beat 7 — kit ============ */
+.beat-kit {
+  text-align: center;
+}
+.beat-kit h2 {
+  font-size: clamp(2.2rem, 4.6vw, 4rem);
+  line-height: 1.06;
+  margin: 0 auto;
+}
+.beat-kit h2 em {
+  font-style: italic;
+  color: var(--goblin-ink);
+}
+.beat-kit .sub {
+  margin: 1.2rem auto 0;
+  color: var(--ink-mut);
+  font-size: 17px;
+}
+.beat-kit .cta-row {
+  justify-content: center;
+}
+
+/* ============ beat 8 — the door / waitlist ============ */
+/* D2 phase E recast (was: a parchment card dead-centered on open sheet,
+   reading as a floating UI panel). The beat-8 camera settles low and
+   forward, looking across the table at the exit door (cameraPath.ts
+   keyframe 8) — in that perspective the NEAR edge of the table/sheet is the
+   bottom of the viewport, not its middle. Anchoring the doorstage there
+   (place-items: end) puts the door at the table's near rim instead of
+   floating in the empty parchment above it. */
+.beat-door {
+  display: grid;
+  place-items: end center;
+  text-align: center;
+  /* F6: raised ~2.5rem over the old clamp(1.5rem, 5vh, 3rem) so the deeper
+     sill below still clears the viewport bottom at max scroll instead of
+     getting clipped. */
+  padding-bottom: clamp(4rem, 7vh, 5.5rem);
+}
+.doorstage {
+  max-width: 26rem;
+  position: relative;
+  /* F6: gives .door's rotateX below a vanishing point to foreshorten
+     against, so it reads as tilted into the table's perspective rather than
+     a flat card. */
+  perspective: 900px;
+}
+/* Table-edge sill: a wide dark-wood plinth the door sits into, so the door
+   reads as carved into the table's edge rather than a card set on top of
+   it. Painted before .door in source order, so it sits behind the door
+   wherever the two overlap with no z-index needed relative to .door itself.
+   F6: widened/deepened and clipped into a trapezoid (narrow far edge, wide
+   near edge) so it foreshortens the same direction as .door's rotateX below
+   and reads as the table's rim instead of a flat rectangular plinth.
+   C3 fix round (third attempt — see the two dead ends below): `border` +
+   clip-path clips the border along with the fill (N6's own finding), and
+   `background-clip: padding-box` + `border: 0` (N6's fix) has nothing left
+   to clip TO — a zero-width border-box is the same box as the padding-box,
+   so it silently draws no ring either. Both were trying to fake an inset
+   ring with ONE box. The geometrically honest version needs two: ::after
+   below is the full-size ink trapezoid (fill var(--ink), same clip-path,
+   carries the drop shadow); ::before here is the SAME clip-path on a
+   slightly smaller, centered box (a uniform few-px inset on every side,
+   including both diagonals, since it's the same shape scaled down rather
+   than an offset rectangle) painted with the wood gradient, above the ink
+   layer — so the ink shows as a ring on all four edges of the trapezoid. */
+.doorstage::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -2.2rem;
+  transform: translateX(-50%);
+  width: min(30rem, 94vw);
+  height: 4rem;
+  clip-path: polygon(18% 0%, 82% 0%, 100% 100%, 0% 100%);
+  background: var(--ink);
+  box-shadow: 0 12px 20px rgb(12 8 4 / 0.45);
+  /* Negative, not 0/1: .doorstage's real child `.door` has no z-index of its
+     own (position:relative only, auto stack level) — a 0/1 pair here would
+     paint ABOVE that auto-level child (::after is later in tree order than
+     .door, and an explicit z-index:1 outranks auto outright), burying the
+     door under its own sill. Negative keeps both pseudo-elements in the
+     stacking context's negative bucket, unconditionally behind `.door`. */
+  z-index: -2;
+}
+.doorstage::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  /* 4px inset on every side of ::after's box: bottom shifted up 4px, width/
+     height each trimmed 8px (4px off each edge via the centering transform),
+     same relative clip-path polygon scaled onto the smaller box — so the
+     ink ring reads as a consistent width around the whole trapezoid,
+     diagonals included, rather than an offset duplicate shape. */
+  bottom: calc(-2.2rem + 4px);
+  transform: translateX(-50%);
+  width: calc(min(30rem, 94vw) - 8px);
+  height: calc(4rem - 8px);
+  /* X4 fix round: reusing ::after's OWN percentages on this smaller box
+     scaled the trapezoid's slant by a different factor per axis (width -8px
+     vs height -8px are different fractions of 480/64), so the "ring" tapered
+     to ~0 and inverted by ~1px at the near corners instead of holding a
+     uniform 4px. These four percentages are ::after's trapezoid
+     (W=480,H=64) offset inward by a true 4px perpendicular polygon inset —
+     each edge's line moved 4px into the shape, adjacent edges re-intersected
+     for the new corner — then re-expressed as percentages of THIS box's own
+     (472x56) frame. Only correct at the W=480/H=64 size (30rem/4rem, unclamped
+     by 94vw) — recompute if either literal changes.  */
+  clip-path: polygon(17.73% 0%, 82.27% 0%, 98.28% 100%, 1.72% 100%);
+  background: linear-gradient(180deg, var(--wood-lit) 0%, var(--wood) 55%, #3a2717 100%);
+  z-index: -1;
+}
+.eyes {
+  display: block;
+  margin: 0 auto 0.75rem;
+}
+.eyes ellipse {
+  animation: blink 6s infinite;
+  transform-origin: center;
+}
+@keyframes blink {
+  0%,
+  91%,
+  100% {
+    transform: scaleY(1);
+  }
+  93.5% {
+    transform: scaleY(0.06);
+  }
+  96% {
+    transform: scaleY(1);
+  }
+}
+.door {
+  position: relative;
+  width: min(320px, 78vw);
+  margin: 0 auto;
+  border-radius: 160px 160px 4px 4px;
+  /* F6: tilts the door into .doorstage's perspective, pivoting on its own
+     base so the top edge recedes (foreshortens) toward the table's
+     vanishing direction instead of sitting flat-on like a pasted card. */
+  transform: rotateX(8deg);
+  transform-origin: bottom center;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 38px, rgb(0 0 0 / 0.28) 38px 41px),
+    linear-gradient(178deg, var(--wood-lit) 0%, var(--wood) 45%, #4e3520 100%);
+  border: 5px solid var(--ink);
+  box-shadow:
+    0 0 0 10px #241f16,
+    0 0 70px rgb(237 169 78 / 0.12),
+    inset 0 -30px 60px rgb(0 0 0 / 0.4);
+  padding: 4.5rem 2rem 2.6rem;
+}
+.plaque {
+  background: var(--parchment);
+  color: var(--ink);
+  border-radius: 3px;
+  border: 2px solid var(--ink);
+  padding: 1.4rem 1.3rem 1.2rem;
+  box-shadow: 0 4px 0 rgb(0 0 0 / 0.35);
+  text-align: left;
+}
+.plaque h3 {
+  font-size: 1.5rem;
+  line-height: 1.15;
+}
+.plaque p {
+  font-size: 13.5px;
+  color: var(--ink-mut);
+  margin-top: 0.5rem;
+}
+.plaque form {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.plaque label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--ink-mut);
+}
+.plaque input {
+  font: inherit;
+  font-size: 14px;
+  padding: 0.7rem 0.9rem;
+  border: 2px solid var(--ink);
+  border-radius: 3px;
+  background: #f4eeda;
+  color: var(--ink);
+  width: 100%;
+}
+.plaque input::placeholder {
+  color: #5c5540;
+}
+.plaque button {
+  font: inherit;
+  font-weight: 600;
+  font-size: 14.5px;
+  padding: 0.75rem;
+  background: var(--ink);
+  color: var(--parchment);
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.plaque button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.waitlist-status {
+  margin-top: 0.9rem;
+  font-size: 13.5px;
+  min-height: 1.4em;
+  max-width: none;
+}
+.waitlist-status[data-status='success'] {
+  font-family: var(--font-display);
+  font-style: italic;
+  color: #4a5518;
+}
+.waitlist-status[data-status='error'] {
+  color: #8a3a2c;
+}
+.waitlist-status[data-status='duplicate'] {
+  color: #6a5a2a;
+}
+@media (max-width: 700px) {
+  .beat {
+    padding: clamp(3.5rem, 12vh, 5rem) 1.5rem;
+  }
+}

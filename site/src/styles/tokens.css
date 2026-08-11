@@ -1,0 +1,48 @@
+/*
+ * Design tokens — lifted exactly from the approved mockup board's spec
+ * section (docs/landing-mockups/2026-08-07-landing-concepts.html).
+ * The seven named swatches are the spec-chip colors; the rest are the
+ * same board's supporting :root values needed to typeset a full page.
+ */
+:root {
+  /* spec-chip colors (exact) */
+  --void: #0b0a08;
+  --stone: #2b2e26;
+  --ink: #16180f;
+  --torch: #eda94e;
+  --goblin: #b6d648; /* marketing only — never enters the app */
+  --parchment: #e8dfc6;
+  --text: #e6e1d3;
+
+  /* supporting tokens from the same board */
+  --void-2: #12110d;
+  --stone-deep: #1d1f19;
+  --text-2: #b5af9e;
+  --text-mut: #90897a;
+  --goblin-deep: #7e9c2a;
+  --torch-hot: #ffd9a0;
+  --wood: #6d4a2c;
+  --wood-lit: #8a6138;
+
+  /* D2 "the lit table" — ink tokens for text on the parchment field.
+   * goblin-ink and torch-ink are darker, AA-legible stand-ins for --goblin
+   * and --torch when those colors are used as *text* on light ground (the
+   * raw brand hues stay fills-only per the color law). ink-mut covers
+   * every secondary/tertiary label. Ratios computed against --parchment:
+   *   --ink       13.5:1
+   *   --ink-mut    7.3:1
+   *   --torch-ink  4.75:1
+   *   --goblin-ink 5.04:1 (darkened from the board's #5f7a14/3.70:1 — fix
+   *     round finding 4: that shade shipped on body-size text, e.g.
+   *     .feature-room .voice/.beat-hero .aside, and failed 4.5:1 AA there).
+   */
+  --ink-mut: #4a4433;
+  --goblin-ink: #4d6410;
+  --torch-ink: #8a5314;
+
+  --ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --font-display: 'Newsreader', Georgia, serif;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
