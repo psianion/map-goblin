@@ -31,6 +31,12 @@ COPY canvas/public ./canvas/public
 ARG VITE_HTTP_BASE=""
 ENV VITE_HTTP_BASE=$VITE_HTTP_BASE
 
+# Where the browser fetches asset packs from. Empty keeps the bundled pack copied in
+# above — the table then needs no external origin at all. Point it at the pack bucket to
+# publish new art without rebuilding this image (docs/2026-08-09-pack-cdn-plan.md).
+ARG VITE_CDN_BASE_URL=""
+ENV VITE_CDN_BASE_URL=$VITE_CDN_BASE_URL
+
 # vite only, not the package's `tsc -b && vite build`: the typecheck gate needs the
 # whole workspace (src tests import server sources), and this stage deliberately
 # copies only the client's slice. Types are enforced locally/CI on the full tree.

@@ -197,6 +197,39 @@ describe('AssetPackManager.rehydrate', () => {
   })
 })
 
+describe('AssetPackManager.resolveManifestPath', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  // `pack-builder index` writes CDN-root-relative paths ("<pack>/pack-<hash>.json") so
+  // one file describes where everything lives. Callers append it to `<base>/<packId>/`,
+  // so leaving the directory on produced /packs/dungeon-classic/dungeon-classic/... — a
+  // 404 that only shows up against a real generated index, never against a stub with
+  // `manifest: ''`.
+  it('strips the pack directory from a root-relative index path', async () => {
+    const index = {
+      packs: {
+        'dungeon-classic': {
+          version: '1.2.0', bundleSize: 8340158, entryCount: 167, themes: ['dungeon'],
+          preview: 'dungeon-classic/preview-9e0e45e5.webp',
+          manifest: 'dungeon-classic/pack-4a9bdbee.json',
+        },
+      },
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, headers: { get: () => null }, json: async () => index }))
+
+    const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com' })
+    expect(await mgr['resolveManifestPath']('dungeon-classic')).toBe('pack-4a9bdbee.json')
+  })
+
+  it('passes through a bare filename unchanged', async () => {
+    const index = { packs: { 'test-pack': { version: '1.0.0', bundleSize: 1, entryCount: 1, themes: [], preview: '', manifest: 'pack-abc123.json' } } }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, headers: { get: () => null }, json: async () => index }))
+
+    const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com' })
+    expect(await mgr['resolveManifestPath']('test-pack')).toBe('pack-abc123.json')
+  })
+})
+
 describe('AssetPackManager.checkForUpdates', () => {
   afterEach(() => vi.unstubAllGlobals())
 

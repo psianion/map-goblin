@@ -345,11 +345,30 @@ export interface PackUpdateInfo {
   availableVersion: string;
 }
 
+/**
+ * An update the DM has started, and how it ended.
+ *
+ * One field rather than three (running / result / error) because those three states are
+ * mutually exclusive and separate fields let them contradict — a stale success line
+ * sitting under a failed retry. One pack updates at a time in this UI, so one slot holds.
+ */
+export interface PackUpdateState {
+  packId: string;
+  status: 'running' | 'done' | 'error';
+  /** status 'done': what actually came down the wire, the point of the whole exercise. */
+  changedFiles?: number;
+  downloadedBytes?: number;
+  version?: string;
+  /** status 'error': what happened, in words a DM mid-session can act on. */
+  message?: string;
+}
+
 export interface PacksSlice {
   installedPacks: PackSummary[];
   availableUpdates: PackUpdateInfo[];
   isChecking: boolean;
   installProgress: { packId: string; percent: number } | null;
+  activeUpdate: PackUpdateState | null;
 }
 
 // ─── Maps (Multi-Map Persistence) ────────────────────────
@@ -536,6 +555,8 @@ export interface MapBuilderStore {
   setInstallProgress: (progress: PacksSlice['installProgress']) => void;
   checkForPackUpdates: () => Promise<void>;
   installPack: (packId: string) => Promise<void>;
+  updatePack: (packId: string) => Promise<void>;
+  dismissUpdateResult: () => void;
   uninstallPack: (packId: string) => Promise<void>;
 
   // maps actions

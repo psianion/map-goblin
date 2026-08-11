@@ -85,7 +85,7 @@ type MapBuilderState = Omit<
   | 'loadFromFile' | 'getSerializableState' | 'resetToDefault'
   | 'loadMapIndex' | 'saveCurrentMap' | 'loadMap' | 'createNewMap' | 'deleteMap' | 'renameMap' | 'duplicateMap'
   | 'setInstalledPacks' | 'setAvailableUpdates' | 'setIsChecking' | 'setInstallProgress'
-  | 'checkForPackUpdates' | 'installPack' | 'uninstallPack'
+  | 'checkForPackUpdates' | 'installPack' | 'updatePack' | 'dismissUpdateResult' | 'uninstallPack'
 >;
 
 export function createDefaultState(): MapBuilderState {
@@ -196,6 +196,7 @@ export function createDefaultState(): MapBuilderState {
       availableUpdates: [],
       isChecking: false,
       installProgress: null,
+      activeUpdate: null,
     },
     terrainSplats: {
       pngs: [null, null],

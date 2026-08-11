@@ -95,6 +95,41 @@ describe('ensureBundledPack', () => {
     expect(mgr.registerPack).not.toHaveBeenCalled()
   })
 
+  // Once the same pack is also published to a CDN, the bundled manifest is frozen at
+  // whatever shipped in the image while the installed copy moves ahead. A content-only
+  // staleness test reads that as "differs, therefore stale" and reinstalls the *older*
+  // bundled copy — silently undoing the update on every reload.
+  it('leaves an installed copy alone when it is newer than the bundled one', async () => {
+    stubManifestFetch() // bundled manifest is 1.0.0
+    const updated = manifest()
+    updated.version = '1.3.0'
+    ;(updated.files['file-3.webp'] as { checksum: string }).checksum = 'newfloors'
+
+    const mgr = fakeManager(
+      [{ packId: 'dungeon-classic', version: '1.3.0', entryCount: 1 }],
+      [{ packId: 'dungeon-classic', manifest: updated }],
+    )
+
+    expect(await ensureBundledPack(mgr)).toBe(false)
+    expect(mgr.uninstallPack).not.toHaveBeenCalled()
+    expect(mgr.registerPack).not.toHaveBeenCalled()
+  })
+
+  it('still reinstalls when the bundle ships a version newer than the installed copy', async () => {
+    // The other direction has to keep working: a new build with newer art must win.
+    stubManifestFetch() // bundled manifest is 1.0.0
+    const older = manifest()
+    older.version = '0.9.0'
+
+    const mgr = fakeManager(
+      [{ packId: 'dungeon-classic', version: '0.9.0', entryCount: 1 }],
+      [{ packId: 'dungeon-classic', manifest: older }],
+    )
+
+    expect(await ensureBundledPack(mgr)).toBe(true)
+    expect(mgr.uninstallPack).toHaveBeenCalledWith('dungeon-classic')
+  })
+
   it('reinstalls when the installed pack is outdated', async () => {
     // The bundled manifest ships at a fixed path, so content updates arrive
     // under the same URL — a mere installed-check would pin the stale copy.

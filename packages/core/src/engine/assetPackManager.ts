@@ -117,12 +117,24 @@ export class AssetPackManager {
     }))
   }
 
-  /** Resolve the manifest filename for a pack from the index. */
+  /**
+   * Resolve the manifest *filename* for a pack from the index.
+   *
+   * The index stores paths relative to the CDN root ("dungeon-classic/pack-<hash>.json")
+   * so that one file describes where everything lives. Both callers build their URL as
+   * `${cdnBaseUrl}/${packId}/${here}`, so the pack directory has to come off or the
+   * fetch goes to /packs/dungeon-classic/dungeon-classic/pack-<hash>.json and 404s.
+   */
   private async resolveManifestPath(packId: string): Promise<string> {
     try {
       const index = await this.fetchIndex()
       const entry = index.packs[packId]
-      if (entry?.manifest) return entry.manifest
+      if (entry?.manifest) {
+        const prefix = `${packId}/`
+        return entry.manifest.startsWith(prefix)
+          ? entry.manifest.slice(prefix.length)
+          : entry.manifest
+      }
     } catch (err) {
       // Index unavailable — fall through to the default name. Worth saying so:
       // a pack whose manifest is content-hashed has no `pack.json` to fall back
@@ -580,6 +592,10 @@ export class AssetPackManager {
       themes: newManifest.themes ?? [],
       bundleSize: packSize,
     })
+    // The cache backs getPackManifests(), which firstBootInstall reads to decide whether
+    // the installed copy still matches the bundle. Leaving the pre-update manifest here
+    // made every in-session reader see the old content until the next rehydrate.
+    this.manifestCache.set(packId, newManifest)
 
     await this.loadPackTextures(packId, newManifest, blobs)
 
@@ -718,7 +734,7 @@ function sortByDownloadPriority(files: string[]): string[] {
 }
 
 /** Compare two semver strings. Returns >0 if a > b, 0 if equal, <0 if a < b. */
-function compareSemver(a: string, b: string): number {
+export function compareSemver(a: string, b: string): number {
   const pa = a.split('.').map(Number)
   const pb = b.split('.').map(Number)
   for (let i = 0; i < 3; i++) {

@@ -3,7 +3,10 @@
 // Production: set VITE_CDN_BASE_URL to the real CDN origin.
 
 export const cdnConfig = {
-  baseUrl: import.meta.env.VITE_CDN_BASE_URL ?? '/packs',
+  // `||`, not `??`: the Docker build declares VITE_CDN_BASE_URL with an empty default so
+  // the arg always exists, and Vite inlines that as "" — a value `??` happily keeps. That
+  // silently rebases every pack URL to the site root and 404s the lot. Empty means unset.
+  baseUrl: import.meta.env.VITE_CDN_BASE_URL || '/packs',
   catalogPath: '/catalog',
   packsPath: '/packs',
 } as const

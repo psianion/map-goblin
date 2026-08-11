@@ -5,6 +5,7 @@
 // first experience with no CDN dependency.
 
 import pLimit from 'p-limit';
+import { compareSemver } from './assetPackManager';
 import type { AssetPackManager } from './assetPackManager';
 import type { PackManifest } from './assetPackManager';
 
@@ -62,24 +63,39 @@ export async function ensureBundledPack(packManager: AssetPackManager): Promise<
     return false;
   }
 
-  // Installed and byte-for-byte the bundled content — nothing to do. Compared on
-  // the full content key, not version and entry count, so an art swap that forgot
-  // a version bump still ships. The installed manifest is the one already in
-  // IndexedDB, put back into the cache by rehydrate; hashing that is why no extra
-  // field has to be persisted alongside the install.
   const bundledEntryCount = Object.keys(manifest.entries).length;
   const installedManifest = packManager
     .getPackManifests()
     .find((p) => p.packId === BUNDLED_PACK_ID)?.manifest;
-  if (current && installedManifest && contentKey(installedManifest) === contentKey(manifest)) {
-    return false;
+
+  if (current) {
+    const versionDelta = compareSemver(manifest.version, current.version);
+
+    // The installed copy is ahead of the build — it came from the CDN. Leave it alone.
+    //
+    // This check is the whole reason the function is not a plain content comparison.
+    // The bundled manifest is frozen at whatever shipped in the image, so once the same
+    // pack is also published to a CDN the two disagree permanently, and a content-only
+    // test reads "differs, therefore stale" in both directions: every reload uninstalled
+    // the newer CDN copy and reinstalled the older bundled one. A pack update could never
+    // survive a refresh.
+    if (versionDelta < 0) return false;
+
+    // Same version, byte-for-byte identical — nothing to do. Compared on the full content
+    // key, not entry count, so an art swap that forgot a version bump still ships. The
+    // installed manifest is the one in IndexedDB, put back into the cache by rehydrate;
+    // hashing that is why no extra field has to be persisted alongside the install.
+    //
+    // With no cached manifest the copy predates this check and falls through to a
+    // reinstall — the cheap way to get it onto a known content key.
+    if (versionDelta === 0 && installedManifest && contentKey(installedManifest) === contentKey(manifest)) {
+      return false;
+    }
   }
 
   // Outdated copy: drop it so the reinstall below starts clean — no stale
   // textures lingering under keys the new manifest no longer declares.
   if (current) {
-    // A copy with no cached manifest predates this check; reinstalling once is
-    // the cheap way to get it onto a known content key.
     console.info(
       `[firstBootInstall] Bundled pack outdated (installed ${current.version}/${current.entryCount} entries, bundled ${manifest.version}/${bundledEntryCount}${installedManifest ? '' : ', no cached manifest'}) — reinstalling`,
     );
