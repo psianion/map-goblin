@@ -2,8 +2,8 @@
   "version": 1,
   "packs": {
     "dungeon-classic": {
-      "version": "1.2.0",
-      "bundleSize": 8340158,
+      "version": "1.3.0",
+      "bundleSize": 8343072,
       "entryCount": 167,
       "themes": [
         "dungeon",
@@ -11,12 +11,12 @@
         "ruin"
       ],
       "preview": "dungeon-classic/preview-9e0e45e5.webp",
-      "manifest": "dungeon-classic/pack-4a9bdbee.json"
+      "manifest": "dungeon-classic/pack-820544e4.json"
     }
   },
   "catalog": {
     "totalEntries": 167,
     "chunkCount": 0,
-    "lastUpdated": "2026-08-09T09:53:21.405Z"
+    "lastUpdated": "2026-08-13T09:07:19.318Z"
   }
 }

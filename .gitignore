@@ -20,8 +20,11 @@ coverage
 .env.*
 !.env.example
 
-# vault/forge — generated + licensed source images stay local, never in git
+# vault/forge — generated + licensed source images stay local, never in git.
+# forge/dist holds set masters + manifests; published art lives in the bucket,
+# only the bundled baseline under canvas/public/packs is committed.
 forge/staging/
+forge/dist/
 forge/jobs/
 forge/examples/
 catalog.db

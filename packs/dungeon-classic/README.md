@@ -53,14 +53,18 @@ These localId values are frozen for v1.x. Changing them breaks `legacyAssetMappi
 - Edge localIds: `{legacy-id}_edge_A`
 - Object localIds: `{legacy-id}_object_A`
 
-## Installable Pack (`canvas/public/packs/dungeon-classic/pack-4a9bdbee.json`)
+## Installable Pack (v1.3.0)
+
+The manifest filename is content-hashed (`pack-<hash>.json`) and changes on every rebuild;
+resolve it via `canvas/public/packs/index.json` rather than a literal path.
 
 The table above describes the legacy static manifest (`textureManifest.ts`), which still
 drives floor/wall/object rendering directly and is untouched by this update. Separately,
 `AssetPackManager` loads an installable pack manifest — currently the only consumer is
 `doorRenderer.ts`, which resolves door sprites as `dungeon-classic:door-{style}-{state}`.
-This pack was extended with the slate/ashen asset kit: **109 entries** (was 94) — floor 22,
-wall 42, edge 17, scatter 1, object 21, door 6 (new type).
+This pack now totals **167 entries** — floor 22, wall 100, edge 17, scatter 1, object 21,
+door 6. The wall count grew as Fieldstone and Palisade wall sets were added alongside the
+original stone-slate/wood-ashen sets.
 
 ### Door sprite contract
 
