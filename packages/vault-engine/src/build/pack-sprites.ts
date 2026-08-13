@@ -12,6 +12,8 @@ export interface SpriteInput {
 export interface PackOptions {
   maxSize: number;
   padding: number;
+  /** Final atlas encode. Defaults to quality-only, matching the pipeline's prior fixed 90. */
+  webp?: { quality: number; alphaQuality?: number };
 }
 
 export interface FrameData {
@@ -96,7 +98,7 @@ export async function packSprites(
       },
     })
       .composite(composites)
-      .webp({ quality: 90 })
+      .webp(opts.webp ?? { quality: 90 })
       .toBuffer();
 
     atlases.push({

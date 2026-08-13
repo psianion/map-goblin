@@ -64,6 +64,9 @@ function toSpec(entry: TextureEntry, role: WallPieceSpec['role'], bandPx: number
     lengthPx: cr?.w ?? entry.naturalWidth,
     thicknessPx: cr?.h ?? bandPx,
     authoredTurn: role === 'corner' ? Math.PI / 2 : undefined,
+    // 'standalone' marks pieces drawn with chipped free ends (they don't reach
+    // their tile edge) — offered for manual swap, never auto-placed.
+    swapOnly: entry.tags?.includes('standalone') || undefined,
   };
 }
 

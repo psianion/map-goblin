@@ -5,16 +5,13 @@
   "type": "module",
   "scripts": {
     "cli": "tsx src/cli.ts",
-    "forge": "tsx src/cli.ts forge",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "check": "pnpm typecheck && pnpm test"
   },
   "dependencies": {
     "@dnd/vault-engine": "workspace:*",
-    "commander": "^13.0.0",
-    "sharp": "^0.34.0",
-    "zod": "^3.25.0"
+    "commander": "^13.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

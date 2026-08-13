@@ -2,9 +2,12 @@ import { z } from 'zod';
 
 const SemverSchema = z.string().regex(/^\d+\.\d+\.\d+$/, 'Must be semver (N.N.N)');
 
+// 'door' postdates this schema — doors shipped as a first-class asset type and the
+// bundled pack has carried six of them since, so validation rejected the very pack
+// the app ships. The schema was the stale side, not the pack.
 const AssetTypeEnum = z.enum([
   'floor', 'wall', 'pattern', 'edge', 'object',
-  'scatter', 'path', 'portal', 'light-mask',
+  'scatter', 'path', 'portal', 'light-mask', 'door',
 ]);
 
 const FrameSchema = z.object({
@@ -22,6 +25,8 @@ const ManifestEntrySchema = z.object({
   variant: z.string().min(1),
   atlas: z.string().optional(),
   frame: FrameSchema.optional(),
+  // Forge-set provenance (set integration writes this; hand-authored packs don't have it).
+  set: z.string().min(1).optional(),
   tags: z.array(z.string()),
 });
 
@@ -43,3 +48,4 @@ export const PackManifestSchema = z.object({
 });
 
 export type PackManifest = z.infer<typeof PackManifestSchema>;
+export type ManifestEntry = z.infer<typeof ManifestEntrySchema>;

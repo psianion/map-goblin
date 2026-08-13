@@ -265,9 +265,10 @@ function insertStone(t: number, direction: -1 | 1): void {
 /**
  * Swap the piece under the selected node for the next one the set offers.
  *
- * Cycles the wall set's own straights and rocks — the pieces that can stand in
- * for one another along a run. Corners and end caps are excluded: they are
- * placed for a specific role and swapping one in mid-run reads as a mistake.
+ * Cycles within the node's own role: a run stone swaps among the set's
+ * straights and rocks, a cornerstone among its corner variants, an end cap
+ * among its endings. Roles never cross — a corner mid-run reads as a mistake,
+ * which is why the pool is scoped to what can actually stand in.
  */
 function cyclePiece(t: number, direction: number): void {
   const run = activeEditableRun();
@@ -284,13 +285,17 @@ function cyclePiece(t: number, direction: number): void {
   const setId = layer?.style.wallTextureSetId as WallCategory | undefined;
   if (!setId) return;
 
-  const swappable = buildPieceSpecs(setId).filter(
-    (p) => p.role === 'straight' || p.role === 'rock',
-  );
-  if (swappable.length === 0) return;
-
   const node = currentWallNodes().find((n) => Math.abs(n.t - t) < 1e-9);
   if (!node) return;
+
+  const specs = buildPieceSpecs(setId);
+  const role = specs.find((p) => p.id === node.pieceId)?.role;
+  const swappable = specs.filter(
+    role === 'corner' || role === 'ending'
+      ? (p) => p.role === role
+      : (p) => p.role === 'straight' || p.role === 'rock',
+  );
+  if (swappable.length < 2) return;
 
   const at = swappable.findIndex((p) => p.id === node.pieceId);
   const next = swappable[(at + direction + swappable.length) % swappable.length];

@@ -4,7 +4,8 @@ import { validateCommand } from './commands/validate.js';
 import { buildCommand } from './commands/build.js';
 import { composeCommand } from './commands/compose.js';
 import { indexCommand } from './commands/index-cmd.js';
-import { forgeCommand } from './commands/forge.js';
+import { deployCommand, rollbackCommand } from './commands/deploy.js';
+import { integrateCommand } from './commands/integrate.js';
 
 const program = new Command();
 
@@ -17,6 +18,8 @@ program.addCommand(validateCommand());
 program.addCommand(buildCommand());
 program.addCommand(composeCommand());
 program.addCommand(indexCommand());
-program.addCommand(forgeCommand());
+program.addCommand(deployCommand());
+program.addCommand(rollbackCommand());
+program.addCommand(integrateCommand());
 
 program.parse();

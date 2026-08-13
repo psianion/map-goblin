@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   ListObjectsV2Command,
   DeleteObjectCommand,
+  GetObjectCommand,
 } from '@aws-sdk/client-s3';
 
 export interface R2Config {
@@ -76,6 +77,22 @@ export async function listR2Files(
     token = result.IsTruncated ? result.NextContinuationToken : undefined;
   } while (token);
   return keys;
+}
+
+/** Read an object back. rollbackPack needs this to fetch an archived index.json. */
+export async function downloadFromR2(
+  client: S3Client,
+  bucket: string,
+  key: string,
+): Promise<Buffer> {
+  const result = await client.send(
+    new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    }),
+  );
+  if (!result.Body) throw new Error(`Empty body for ${key}`);
+  return Buffer.from(await result.Body.transformToByteArray());
 }
 
 export async function deleteFromR2(

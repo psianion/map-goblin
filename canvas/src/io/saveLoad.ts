@@ -15,6 +15,7 @@ import type { SerializedMapData } from '@/store/types';
 import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
 import { getTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
+import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { encodeMapFile, decodeMapFile, MAGIC_HEADER } from './mapFormat';
 
 export { MAGIC_HEADER };
@@ -259,6 +260,15 @@ export async function loadMap(): Promise<boolean> {
 
   // Load data into the store
   useStore.getState().loadFromFile(data);
+
+  // Install-by-need: fetch whatever pack asset sets this document references that aren't
+  // resident yet. Soft-fail — a missing set degrades to the magenta fallback, same as
+  // before this existed, and must never be the reason an opened file fails to load.
+  try {
+    await getAssetPackManager().ensureTexturesForMap(data);
+  } catch (err) {
+    console.warn('[loadMap] ensureTexturesForMap failed:', err);
+  }
 
   // Create a new map entry in the multi-map system
   const store = useStore.getState();

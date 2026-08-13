@@ -1,9 +1,18 @@
 import type { PackUpdateInfo } from './types';
 
+/** What a differential update actually moved — see AssetPackManager.updatePack. */
+export interface PackDiff {
+  changedFiles: number;
+  unchangedFiles: number;
+  downloadedBytes: number;
+  totalFiles: number;
+}
+
 /** Interface matching the subset of AssetPackManager used by the packs slice. */
 export interface PackManager {
   checkForUpdates(): Promise<PackUpdateInfo[]>;
   installPack(packId: string): Promise<void>;
+  updatePack(packId: string): Promise<PackDiff>;
   uninstallPack(packId: string): Promise<void>;
   getInstalledPacks(): Array<{ packId: string; version: string; bundleSize: number }>;
 }

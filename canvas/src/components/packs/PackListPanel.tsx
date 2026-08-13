@@ -2,19 +2,28 @@ import { useCallback } from 'react';
 import { useStore } from '@/store/store';
 import { useShallow } from 'zustand/react/shallow';
 import { PackCard } from './PackCard';
-import type { PackSummary, PackUpdateInfo } from '@/store/types';
+import type { PackSummary, PackUpdateInfo, PackUpdateState } from '@/store/types';
 
 const selectPacks = (s: {
-  packs: { installedPacks: PackSummary[]; availableUpdates: PackUpdateInfo[]; isChecking: boolean };
+  packs: {
+    installedPacks: PackSummary[];
+    availableUpdates: PackUpdateInfo[];
+    isChecking: boolean;
+    activeUpdate: PackUpdateState | null;
+  };
 }) => ({
   installedPacks: s.packs.installedPacks,
   availableUpdates: s.packs.availableUpdates,
   isChecking: s.packs.isChecking,
+  activeUpdate: s.packs.activeUpdate,
 });
 
 export function PackListPanel() {
-  const { installedPacks, availableUpdates, isChecking } = useStore(useShallow(selectPacks));
+  const { installedPacks, availableUpdates, isChecking, activeUpdate } =
+    useStore(useShallow(selectPacks));
   const uninstallPack = useStore((s) => s.uninstallPack);
+  const updatePack = useStore((s) => s.updatePack);
+  const dismissUpdateResult = useStore((s) => s.dismissUpdateResult);
   const checkForPackUpdates = useStore((s) => s.checkForPackUpdates);
 
   const updatesMap = new Map(availableUpdates.map((u) => [u.packId, u]));
@@ -26,6 +35,17 @@ export function PackListPanel() {
       });
     },
     [uninstallPack],
+  );
+
+  // updatePack records its own failures in activeUpdate — the card shows them. The catch
+  // is here so a rejection can never surface as an unhandled promise instead.
+  const handleUpdate = useCallback(
+    (packId: string) => {
+      updatePack(packId).catch((err: Error) => {
+        console.warn('[PackListPanel] Update failed:', err.message);
+      });
+    },
+    [updatePack],
   );
 
   return (
@@ -56,7 +76,10 @@ export function PackListPanel() {
               key={pack.packId}
               pack={pack}
               update={updatesMap.get(pack.packId)}
+              updateState={activeUpdate?.packId === pack.packId ? activeUpdate : undefined}
               onUninstall={handleUninstall}
+              onUpdate={handleUpdate}
+              onDismissResult={dismissUpdateResult}
             />
           ))
         )}
@@ -72,7 +95,10 @@ function CacheUsageBar({ packs }: { packs: PackSummary[] }) {
   const totalUsed = packs.reduce((sum, p) => sum + p.sizeBytes, 0);
   const limit = 200 * 1024 * 1024; // 200MB
   const pct = Math.min((totalUsed / limit) * 100, 100);
-  const color = pct > 90 ? 'bg-destructive' : pct > 70 ? 'bg-yellow-500' : 'bg-accent';
+  // Tokens, not raw palette: `bg-accent` is the surface-3 token (a panel fill), so the
+  // bar read as an empty track at every level below 70%, and `bg-yellow-500` was the one
+  // colour on this screen that ignored the theme.
+  const color = pct > 90 ? 'bg-destructive' : pct > 70 ? 'bg-warning' : 'bg-accent-active';
 
   return (
     <div className="border-t border-border px-3 py-2 shrink-0">

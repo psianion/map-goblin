@@ -1,6 +1,12 @@
 services:
   map-goblin:
-    build: .
+    build:
+      context: .
+      args:
+        # Empty on purpose: the bundled dungeon-classic pack ships inside this image, so
+        # the editor works with no external origin. Set PACK_CDN_URL to the pack bucket
+        # to pick up published art without rebuilding (docs/2026-08-09-pack-cdn-plan.md).
+        VITE_CDN_BASE_URL: "${PACK_CDN_URL:-}"
     image: map-goblin:dev
     ports:
       - "8080:80"
@@ -36,6 +42,9 @@ services:
         # server's as far as the browser is concerned. Set GAME_SERVER_URL only when
         # serving the bundle from somewhere without that proxy.
         VITE_HTTP_BASE: "${GAME_SERVER_URL:-}"
+        # Same story as the editor: empty uses the bundled pack, set it to publish art
+        # to the table without rebuilding.
+        VITE_CDN_BASE_URL: "${PACK_CDN_URL:-}"
     image: map-goblin-session-client:dev
     ports:
       - "8090:80"

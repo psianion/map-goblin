@@ -5,12 +5,32 @@
 // first experience with no CDN dependency.
 
 import pLimit from 'p-limit';
+import { compareSemver } from './assetPackManager';
 import type { AssetPackManager } from './assetPackManager';
 import type { PackManifest } from './assetPackManager';
 
 const BUNDLED_PACK_ID = 'dungeon-classic';
 const FETCH_CONCURRENCY = 8;
-const BUNDLED_PACK_PATH = '/packs/dungeon-classic/pack-4a9bdbee.json';
+
+/**
+ * Resolve the bundled manifest's URL from the bundled index — the manifest filename
+ * is content-hashed and changes on every publish, so it can't be hardcoded.
+ *
+ * Mirrors AssetPackManager.resolveManifestPath, but reads the LOCAL bundled copy
+ * (`/packs/index.json`, same origin) rather than the CDN — this is the baseline
+ * shipped in the image, not a remote pack install.
+ *
+ * Throws on any failure; ensureBundledPack has no fallback filename to try, and
+ * callers already wrap the whole bundled-install path in try/catch and soft-fail.
+ */
+async function resolveBundledManifestUrl(): Promise<string> {
+  const res = await fetch('/packs/index.json');
+  if (!res.ok) throw new Error(`Bundled pack index not found (status ${res.status})`);
+  const index = (await res.json()) as { packs?: Record<string, { manifest?: string }> };
+  const manifest = index.packs?.[BUNDLED_PACK_ID]?.manifest;
+  if (!manifest) throw new Error(`Bundled pack index has no manifest entry for "${BUNDLED_PACK_ID}"`);
+  return `/packs/${manifest}`;
+}
 
 /**
  * A manifest's content, as one comparable string: its version, every entry id, and
@@ -44,13 +64,14 @@ export async function ensureBundledPack(packManager: AssetPackManager): Promise<
   const installed = packManager.getInstalledPacks();
   const current = installed.find((p) => p.packId === BUNDLED_PACK_ID);
 
-  // Fetch the bundled manifest even when a copy is already installed: the
-  // manifest lives at a fixed path, so updated content arrives under the same
-  // URL and an installed-check alone would pin every returning browser to its
-  // first-ever copy forever. The fetch is a small local file — cheap at boot.
-  const res = await fetch(BUNDLED_PACK_PATH);
+  // Fetch the bundled manifest even when a copy is already installed: updated
+  // content arrives under a new content-hashed filename each publish, so an
+  // installed-check alone would pin every returning browser to its first-ever
+  // copy forever. The fetch is a small local file — cheap at boot.
+  const bundledManifestUrl = await resolveBundledManifestUrl();
+  const res = await fetch(bundledManifestUrl);
   if (!res.ok) {
-    console.warn(`[firstBootInstall] Bundled pack manifest not found at ${BUNDLED_PACK_PATH}`);
+    console.warn(`[firstBootInstall] Bundled pack manifest not found at ${bundledManifestUrl}`);
     return false;
   }
 
@@ -62,24 +83,39 @@ export async function ensureBundledPack(packManager: AssetPackManager): Promise<
     return false;
   }
 
-  // Installed and byte-for-byte the bundled content — nothing to do. Compared on
-  // the full content key, not version and entry count, so an art swap that forgot
-  // a version bump still ships. The installed manifest is the one already in
-  // IndexedDB, put back into the cache by rehydrate; hashing that is why no extra
-  // field has to be persisted alongside the install.
   const bundledEntryCount = Object.keys(manifest.entries).length;
   const installedManifest = packManager
     .getPackManifests()
     .find((p) => p.packId === BUNDLED_PACK_ID)?.manifest;
-  if (current && installedManifest && contentKey(installedManifest) === contentKey(manifest)) {
-    return false;
+
+  if (current) {
+    const versionDelta = compareSemver(manifest.version, current.version);
+
+    // The installed copy is ahead of the build — it came from the CDN. Leave it alone.
+    //
+    // This check is the whole reason the function is not a plain content comparison.
+    // The bundled manifest is frozen at whatever shipped in the image, so once the same
+    // pack is also published to a CDN the two disagree permanently, and a content-only
+    // test reads "differs, therefore stale" in both directions: every reload uninstalled
+    // the newer CDN copy and reinstalled the older bundled one. A pack update could never
+    // survive a refresh.
+    if (versionDelta < 0) return false;
+
+    // Same version, byte-for-byte identical — nothing to do. Compared on the full content
+    // key, not entry count, so an art swap that forgot a version bump still ships. The
+    // installed manifest is the one in IndexedDB, put back into the cache by rehydrate;
+    // hashing that is why no extra field has to be persisted alongside the install.
+    //
+    // With no cached manifest the copy predates this check and falls through to a
+    // reinstall — the cheap way to get it onto a known content key.
+    if (versionDelta === 0 && installedManifest && contentKey(installedManifest) === contentKey(manifest)) {
+      return false;
+    }
   }
 
   // Outdated copy: drop it so the reinstall below starts clean — no stale
   // textures lingering under keys the new manifest no longer declares.
   if (current) {
-    // A copy with no cached manifest predates this check; reinstalling once is
-    // the cheap way to get it onto a known content key.
     console.info(
       `[firstBootInstall] Bundled pack outdated (installed ${current.version}/${current.entryCount} entries, bundled ${manifest.version}/${bundledEntryCount}${installedManifest ? '' : ', no cached manifest'}) — reinstalling`,
     );

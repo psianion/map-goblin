@@ -9,6 +9,8 @@ export interface PackActions {
   setInstallProgress: (progress: PacksSlice['installProgress']) => void;
   checkForPackUpdates: () => Promise<void>;
   installPack: (packId: string) => Promise<void>;
+  updatePack: (packId: string) => Promise<void>;
+  dismissUpdateResult: () => void;
   uninstallPack: (packId: string) => Promise<void>;
 }
 
@@ -77,6 +79,56 @@ export const createPacksSlice: StateCreator<
       });
     }
   },
+
+  /**
+   * Pull a published pack update. The manager re-downloads only the files whose checksum
+   * moved, so the numbers it returns are the reason this button is worth pressing: a
+   * six-texture art batch is a few hundred KB, not the whole 8 MB pack.
+   */
+  updatePack: async (packId: string) => {
+    set((state) => {
+      state.packs.activeUpdate = { packId, status: 'running' };
+    });
+
+    try {
+      const packManager = getPackManager();
+      const diff = await packManager.updatePack(packId);
+      const updated = packManager.getInstalledPacks().find((p) => p.packId === packId);
+
+      set((state) => {
+        const pack = state.packs.installedPacks.find((p) => p.packId === packId);
+        if (pack && updated) {
+          pack.version = updated.version;
+          pack.sizeBytes = updated.bundleSize;
+        }
+        // The pack is current now, so its pending-update row has to go with it —
+        // leaving it would offer the same update again on a pack that just took it.
+        state.packs.availableUpdates = state.packs.availableUpdates.filter(
+          (u) => u.packId !== packId,
+        );
+        state.packs.activeUpdate = {
+          packId,
+          status: 'done',
+          changedFiles: diff.changedFiles,
+          downloadedBytes: diff.downloadedBytes,
+          version: updated?.version,
+        };
+      });
+    } catch (err) {
+      set((state) => {
+        state.packs.activeUpdate = {
+          packId,
+          status: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        };
+      });
+    }
+  },
+
+  dismissUpdateResult: () =>
+    set((state) => {
+      state.packs.activeUpdate = null;
+    }),
 
   uninstallPack: async (packId: string) => {
     // Don't allow uninstalling bundled packs

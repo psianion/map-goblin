@@ -19,6 +19,15 @@ CMD ["pnpm", "exec", "vite", "--host", "0.0.0.0"]
 
 # --- Build: production bundle ---
 FROM base AS build
+# Where the browser fetches asset packs from. Empty is the normal case: the bundled
+# dungeon-classic pack is served from this image's own /packs, so no external origin is
+# involved and the app works with no CDN at all. Point it at the pack bucket to publish
+# art without rebuilding — see docs/2026-08-09-pack-cdn-plan.md.
+#
+# Vite inlines this at build time, so *changing the origin* still needs a rebuild.
+# Changing what is *in* the bucket does not, which is the point.
+ARG VITE_CDN_BASE_URL=""
+ENV VITE_CDN_BASE_URL=$VITE_CDN_BASE_URL
 RUN pnpm --filter ./canvas build
 
 # --- Runtime: nginx serving static build (default target) ---

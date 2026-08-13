@@ -31,10 +31,17 @@ function fakeManager(
 
 const INSTALLED = [{ packId: 'dungeon-classic', version: '1.0.0', entryCount: 1 }]
 
+const INDEX_RESPONSE = {
+  packs: { 'dungeon-classic': { manifest: 'dungeon-classic/pack-abc123.json' } },
+}
+
 function stubManifestFetch() {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
+      if (url.endsWith('index.json')) {
+        return { ok: true, json: async () => INDEX_RESPONSE } as unknown as Response
+      }
       if (url.endsWith('.json') && url.includes('pack-')) {
         return { ok: true, json: async () => manifest() } as unknown as Response
       }
@@ -52,6 +59,9 @@ describe('ensureBundledPack', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
+        if (url.endsWith('index.json')) {
+          return { ok: true, json: async () => INDEX_RESPONSE } as unknown as Response
+        }
         if (url.endsWith('.json') && url.includes('pack-')) {
           return { ok: true, json: async () => manifest() } as unknown as Response
         }
@@ -74,6 +84,9 @@ describe('ensureBundledPack', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
+        if (url.endsWith('index.json')) {
+          return { ok: true, json: async () => INDEX_RESPONSE } as unknown as Response
+        }
         if (url.endsWith('.json') && url.includes('pack-')) {
           return { ok: true, json: async () => manifest() } as unknown as Response
         }
@@ -93,6 +106,41 @@ describe('ensureBundledPack', () => {
     expect(await ensureBundledPack(mgr)).toBe(false)
     expect(mgr.uninstallPack).not.toHaveBeenCalled()
     expect(mgr.registerPack).not.toHaveBeenCalled()
+  })
+
+  // Once the same pack is also published to a CDN, the bundled manifest is frozen at
+  // whatever shipped in the image while the installed copy moves ahead. A content-only
+  // staleness test reads that as "differs, therefore stale" and reinstalls the *older*
+  // bundled copy — silently undoing the update on every reload.
+  it('leaves an installed copy alone when it is newer than the bundled one', async () => {
+    stubManifestFetch() // bundled manifest is 1.0.0
+    const updated = manifest()
+    updated.version = '1.3.0'
+    ;(updated.files['file-3.webp'] as { checksum: string }).checksum = 'newfloors'
+
+    const mgr = fakeManager(
+      [{ packId: 'dungeon-classic', version: '1.3.0', entryCount: 1 }],
+      [{ packId: 'dungeon-classic', manifest: updated }],
+    )
+
+    expect(await ensureBundledPack(mgr)).toBe(false)
+    expect(mgr.uninstallPack).not.toHaveBeenCalled()
+    expect(mgr.registerPack).not.toHaveBeenCalled()
+  })
+
+  it('still reinstalls when the bundle ships a version newer than the installed copy', async () => {
+    // The other direction has to keep working: a new build with newer art must win.
+    stubManifestFetch() // bundled manifest is 1.0.0
+    const older = manifest()
+    older.version = '0.9.0'
+
+    const mgr = fakeManager(
+      [{ packId: 'dungeon-classic', version: '0.9.0', entryCount: 1 }],
+      [{ packId: 'dungeon-classic', manifest: older }],
+    )
+
+    expect(await ensureBundledPack(mgr)).toBe(true)
+    expect(mgr.uninstallPack).toHaveBeenCalledWith('dungeon-classic')
   })
 
   it('reinstalls when the installed pack is outdated', async () => {
@@ -147,5 +195,41 @@ describe('ensureBundledPack', () => {
     const mgr = fakeManager(INSTALLED, [{ packId: 'dungeon-classic', manifest: fewer }])
     expect(await ensureBundledPack(mgr)).toBe(true)
     expect(mgr.registerPack).toHaveBeenCalled()
+  })
+
+  it('resolves the bundled manifest filename from the index instead of a hardcoded path', async () => {
+    let requestedManifestUrl: string | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.endsWith('index.json')) {
+          return { ok: true, json: async () => INDEX_RESPONSE } as unknown as Response
+        }
+        if (url.endsWith('.json') && url.includes('pack-')) {
+          requestedManifestUrl = url
+          return { ok: true, json: async () => manifest() } as unknown as Response
+        }
+        return { ok: true, arrayBuffer: async () => new Uint8Array([1]).buffer } as unknown as Response
+      }),
+    )
+
+    const mgr = fakeManager()
+    expect(await ensureBundledPack(mgr)).toBe(true)
+    expect(requestedManifestUrl).toBe('/packs/dungeon-classic/pack-abc123.json')
+  })
+
+  it('throws when the bundled index cannot be fetched', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 }) as unknown as Response))
+    const mgr = fakeManager()
+    await expect(ensureBundledPack(mgr)).rejects.toThrow('Bundled pack index not found')
+  })
+
+  it('throws when the bundled index has no entry for the bundled pack id', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, json: async () => ({ packs: {} }) }) as unknown as Response),
+    )
+    const mgr = fakeManager()
+    await expect(ensureBundledPack(mgr)).rejects.toThrow('no manifest entry')
   })
 })

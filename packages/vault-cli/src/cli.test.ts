@@ -6,6 +6,7 @@ import { validateCommand } from './commands/validate.js';
 import { buildCommand } from './commands/build.js';
 import { composeCommand } from './commands/compose.js';
 import { indexCommand } from './commands/index-cmd.js';
+import { integrateCommand } from './commands/integrate.js';
 
 function makeProgram(): Command {
   const program = new Command();
@@ -19,6 +20,7 @@ function makeProgram(): Command {
   program.addCommand(buildCommand());
   program.addCommand(composeCommand());
   program.addCommand(indexCommand());
+  program.addCommand(integrateCommand());
 
   return program;
 }
@@ -58,5 +60,21 @@ describe('CLI', () => {
     const program = makeProgram();
     const cmd = program.commands.find((c) => c.name() === 'index');
     expect(cmd).toBeDefined();
+  });
+
+  it('registers integrate command', () => {
+    const program = makeProgram();
+    const cmd = program.commands.find((c) => c.name() === 'integrate');
+    expect(cmd).toBeDefined();
+  });
+
+  it('integrate uses --pack-version, not --version, so it never resolves to the root flag', () => {
+    const program = makeProgram();
+    const cmd = program.commands.find((c) => c.name() === 'integrate')!;
+    const versionOpt = cmd.options.find((o) => o.long === '--pack-version');
+    expect(versionOpt).toBeDefined();
+    expect(versionOpt!.short).toBeUndefined();
+    expect(cmd.options.some((o) => o.long === '--version')).toBe(false);
+    expect(cmd.options.some((o) => o.short === '-v' || o.short === '-V')).toBe(false);
   });
 });
