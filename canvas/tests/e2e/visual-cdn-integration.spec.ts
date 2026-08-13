@@ -26,9 +26,61 @@ import { gotoApp, waitFrame, firePointer, getPixelColor } from './helpers'
 /** Must stay in step with `cdnConfig.baseUrl` (src/config/cdnConfig.ts). */
 const CDN_BASE = '/packs'
 const PACK_ID = 'dungeon-classic'
-const PACK_MANIFEST = 'pack-4a9bdbee.json'
+
+type PackManifestBody = {
+  version: string
+  name: string
+  entries: Record<string, { type: string; atlas?: string }>
+  atlases: Record<string, { checksum: string; size: number }>
+}
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * The manifest filename is content-hashed and changes on every publish
+ * (`pack-<hash>.json`), so it can't be a literal constant — resolve it from
+ * `index.json` the same way the app does. Cached per test file: the index
+ * doesn't change mid-run and every test that needs the filename would
+ * otherwise re-fetch it.
+ */
+let cachedManifestFilename: string | undefined
+
+async function getPackManifestFilename(page: Page): Promise<string> {
+  if (cachedManifestFilename) return cachedManifestFilename
+  cachedManifestFilename = await page.evaluate(async (cdnBase) => {
+    const res = await fetch(`${cdnBase}/index.json`)
+    const body = (await res.json()) as { packs: Record<string, { manifest?: string }> }
+    const raw = body.packs['dungeon-classic']?.manifest
+    if (!raw) throw new Error('index.json has no manifest entry for dungeon-classic')
+    // index.json stores CDN-root-relative paths ("dungeon-classic/pack-<hash>.json");
+    // callers join `${cdnBase}/${packId}/${filename}`, so the pack directory has to
+    // come off first or the fetch doubles it up.
+    const prefix = 'dungeon-classic/'
+    return raw.startsWith(prefix) ? raw.slice(prefix.length) : raw
+  }, CDN_BASE)
+  return cachedManifestFilename
+}
+
+async function getPackManifestBody(page: Page): Promise<PackManifestBody> {
+  const manifest = await getPackManifestFilename(page)
+  return page.evaluate(
+    async ({ cdnBase, packId, manifest }) => {
+      const res = await fetch(`${cdnBase}/${packId}/${manifest}`)
+      return res.json()
+    },
+    { cdnBase: CDN_BASE, packId: PACK_ID, manifest },
+  )
+}
+
+/** First atlas .json/.webp pair of a given type ("floor", "wall", "edge", "scatter"). */
+async function getAtlasBaseName(page: Page, type: string): Promise<string> {
+  const manifest = await getPackManifestBody(page)
+  const jsonKey = Object.keys(manifest.atlases).find(
+    (f) => f.startsWith(`atlas-${type}-`) && f.endsWith('.json'),
+  )
+  if (!jsonKey) throw new Error(`No "${type}" atlas found in manifest`)
+  return jsonKey.slice(0, -'.json'.length)
+}
 
 /** Get the Zustand store state for packs */
 async function getInstalledPacks(page: Page) {
@@ -183,7 +235,9 @@ test.describe('CDN Connectivity', () => {
       const pack = body.packs['dungeon-classic']
       if (!pack) return { found: false }
 
-      const manRes = await fetch(`${cdnBase}/dungeon-classic/${pack.manifest}`)
+      // pack.manifest is CDN-root-relative ("dungeon-classic/pack-<hash>.json") —
+      // fetch it directly off cdnBase rather than joining another packId in.
+      const manRes = await fetch(`${cdnBase}/${pack.manifest}`)
       const manifest = (await manRes.json()) as {
         version: string
         entries: Record<string, unknown>
@@ -231,6 +285,7 @@ test.describe('CDN Connectivity', () => {
   test('pack manifest is fetchable from CDN', async ({ page }) => {
     await gotoApp(page)
 
+    const manifestFilename = await getPackManifestFilename(page)
     const result = await page.evaluate(
       async ({ cdnBase, packId, manifest }) => {
         const res = await fetch(`${cdnBase}/${packId}/${manifest}`)
@@ -248,23 +303,24 @@ test.describe('CDN Connectivity', () => {
           atlasCount: Object.keys(body.atlases ?? {}).length,
         }
       },
-      { cdnBase: CDN_BASE, packId: PACK_ID, manifest: PACK_MANIFEST },
+      { cdnBase: CDN_BASE, packId: PACK_ID, manifest: manifestFilename },
     )
 
     expect(result.ok).toBe(true)
     expect(result.version).toBe(await publishedPackVersion(page))
     expect(result.name).toBe('dungeon-classic')
-    expect(result.entryCount).toBe(109)
+    // Pinned regression tripwire — verified against the committed manifest.
+    expect(result.entryCount).toBe(167)
     expect(result.atlasCount).toBeGreaterThan(0)
   })
 
   test('atlas WebP files are fetchable from CDN', async ({ page }) => {
     await gotoApp(page)
 
+    const floorAtlas = await getAtlasBaseName(page, 'floor')
     const result = await page.evaluate(
-      async ({ cdnBase, packId }) => {
-        // Fetch the floor atlas WebP
-        const atlasUrl = `${cdnBase}/${packId}/atlas-floor-060bdb3a.webp`
+      async ({ cdnBase, packId, floorAtlas }) => {
+        const atlasUrl = `${cdnBase}/${packId}/${floorAtlas}.webp`
         const res = await fetch(atlasUrl)
         return {
           ok: res.ok,
@@ -273,7 +329,7 @@ test.describe('CDN Connectivity', () => {
           size: Number(res.headers.get('content-length') ?? 0),
         }
       },
-      { cdnBase: CDN_BASE, packId: PACK_ID },
+      { cdnBase: CDN_BASE, packId: PACK_ID, floorAtlas },
     )
 
     expect(result.ok).toBe(true)
@@ -448,7 +504,10 @@ test.describe('Asset Browser Displays CDN Assets', () => {
         }
       } catch {
         // Catalog meta endpoint not present — fall back to pack manifest check
-        const manifestRes = await fetch(`${cdnBase}/dungeon-classic/pack-4a9bdbee.json`)
+        const indexRes = await fetch(`${cdnBase}/index.json`)
+        const index = (await indexRes.json()) as { packs: Record<string, { manifest: string }> }
+        const manifestPath = index.packs['dungeon-classic']!.manifest
+        const manifestRes = await fetch(`${cdnBase}/${manifestPath}`)
         const manifest = (await manifestRes.json()) as {
           entries: Record<string, { type: string }>
         }
@@ -477,6 +536,7 @@ test.describe('Asset Browser Displays CDN Assets', () => {
   test('pack manifest entry counts match expected dungeon-classic spec', async ({ page }) => {
     await gotoApp(page)
 
+    const manifestFilename = await getPackManifestFilename(page)
     const counts = await page.evaluate(
       async ({ cdnBase, packId, manifest }) => {
         const res = await fetch(`${cdnBase}/${packId}/${manifest}`)
@@ -493,19 +553,22 @@ test.describe('Asset Browser Displays CDN Assets', () => {
           object: types['object'] ?? 0,
           edge: types['edge'] ?? 0,
           scatter: types['scatter'] ?? 0,
+          door: types['door'] ?? 0,
           total: Object.keys(body.entries).length,
         }
       },
-      { cdnBase: CDN_BASE, packId: PACK_ID, manifest: PACK_MANIFEST },
+      { cdnBase: CDN_BASE, packId: PACK_ID, manifest: manifestFilename },
     )
 
-    // Verify known dungeon-classic composition
-    expect(counts.total).toBe(109)
+    // Verify known dungeon-classic composition — pinned regression tripwire,
+    // verified against the committed manifest (167 entries).
+    expect(counts.total).toBe(167)
     expect(counts.floor).toBe(22)
-    expect(counts.wall).toBe(42)
+    expect(counts.wall).toBe(100)
     expect(counts.object).toBe(21)
     expect(counts.edge).toBe(17)
     expect(counts.scatter).toBe(1)
+    expect(counts.door).toBe(6)
   })
 
   test('asset search/filter works in asset browser without crash', async ({ page }) => {
@@ -563,6 +626,7 @@ test.describe('Asset Placement from CDN', () => {
     await addImagesLayerAndActivate(page)
 
     const objectsBefore = await getPlacedObjects(page)
+    const manifestFilename = await getPackManifestFilename(page)
 
     // Inject a manifest entry backed by a CDN atlas URL and place it
     const placed = await page.evaluate(
@@ -630,7 +694,7 @@ test.describe('Asset Placement from CDN', () => {
 
         return true
       },
-      { cdnBase: CDN_BASE, packId: PACK_ID, manifest: PACK_MANIFEST },
+      { cdnBase: CDN_BASE, packId: PACK_ID, manifest: manifestFilename },
     )
 
     if (!placed) {
@@ -725,21 +789,25 @@ test.describe('Atlas Textures from CDN', () => {
   test('floor atlas JSON and WebP are both fetchable', async ({ page }) => {
     await gotoApp(page)
 
-    const result = await page.evaluate(async (cdnBase) => {
-      const jsonRes = await fetch(`${cdnBase}/dungeon-classic/atlas-floor-060bdb3a.json`)
-      const webpRes = await fetch(`${cdnBase}/dungeon-classic/atlas-floor-060bdb3a.webp`)
-      const json = (await jsonRes.json()) as {
-        frames: Record<string, unknown>
-        meta?: { image?: string; size?: { w: number; h: number } }
-      }
-      return {
-        jsonOk: jsonRes.ok,
-        webpOk: webpRes.ok,
-        frameCount: Object.keys(json.frames ?? {}).length,
-        metaImage: json.meta?.image,
-        metaSize: json.meta?.size,
-      }
-    }, CDN_BASE)
+    const floorAtlas = await getAtlasBaseName(page, 'floor')
+    const result = await page.evaluate(
+      async ({ cdnBase, floorAtlas }) => {
+        const jsonRes = await fetch(`${cdnBase}/dungeon-classic/${floorAtlas}.json`)
+        const webpRes = await fetch(`${cdnBase}/dungeon-classic/${floorAtlas}.webp`)
+        const json = (await jsonRes.json()) as {
+          frames: Record<string, unknown>
+          meta?: { image?: string; size?: { w: number; h: number } }
+        }
+        return {
+          jsonOk: jsonRes.ok,
+          webpOk: webpRes.ok,
+          frameCount: Object.keys(json.frames ?? {}).length,
+          metaImage: json.meta?.image,
+          metaSize: json.meta?.size,
+        }
+      },
+      { cdnBase: CDN_BASE, floorAtlas },
+    )
 
     expect(result.jsonOk).toBe(true)
     expect(result.webpOk).toBe(true)
@@ -750,20 +818,24 @@ test.describe('Atlas Textures from CDN', () => {
   test('wall atlas JSON and WebP are both fetchable', async ({ page }) => {
     await gotoApp(page)
 
-    const result = await page.evaluate(async (cdnBase) => {
-      const jsonRes = await fetch(`${cdnBase}/dungeon-classic/atlas-wall-ffcc1679.json`)
-      const webpRes = await fetch(`${cdnBase}/dungeon-classic/atlas-wall-ffcc1679.webp`)
-      const json = (await jsonRes.json()) as {
-        frames: Record<string, unknown>
-        meta?: { image?: string }
-      }
-      return {
-        jsonOk: jsonRes.ok,
-        webpOk: webpRes.ok,
-        frameCount: Object.keys(json.frames ?? {}).length,
-        metaImage: json.meta?.image,
-      }
-    }, CDN_BASE)
+    const wallAtlas = await getAtlasBaseName(page, 'wall')
+    const result = await page.evaluate(
+      async ({ cdnBase, wallAtlas }) => {
+        const jsonRes = await fetch(`${cdnBase}/dungeon-classic/${wallAtlas}.json`)
+        const webpRes = await fetch(`${cdnBase}/dungeon-classic/${wallAtlas}.webp`)
+        const json = (await jsonRes.json()) as {
+          frames: Record<string, unknown>
+          meta?: { image?: string }
+        }
+        return {
+          jsonOk: jsonRes.ok,
+          webpOk: webpRes.ok,
+          frameCount: Object.keys(json.frames ?? {}).length,
+          metaImage: json.meta?.image,
+        }
+      },
+      { cdnBase: CDN_BASE, wallAtlas },
+    )
 
     expect(result.jsonOk).toBe(true)
     expect(result.webpOk).toBe(true)
@@ -774,18 +846,22 @@ test.describe('Atlas Textures from CDN', () => {
   test('edge atlas JSON and WebP are both fetchable', async ({ page }) => {
     await gotoApp(page)
 
-    const result = await page.evaluate(async (cdnBase) => {
-      const jsonRes = await fetch(`${cdnBase}/dungeon-classic/atlas-edge-6d093d27.json`)
-      const webpRes = await fetch(`${cdnBase}/dungeon-classic/atlas-edge-6d093d27.webp`)
-      const json = (await jsonRes.json()) as {
-        frames: Record<string, unknown>
-      }
-      return {
-        jsonOk: jsonRes.ok,
-        webpOk: webpRes.ok,
-        frameCount: Object.keys(json.frames ?? {}).length,
-      }
-    }, CDN_BASE)
+    const edgeAtlas = await getAtlasBaseName(page, 'edge')
+    const result = await page.evaluate(
+      async ({ cdnBase, edgeAtlas }) => {
+        const jsonRes = await fetch(`${cdnBase}/dungeon-classic/${edgeAtlas}.json`)
+        const webpRes = await fetch(`${cdnBase}/dungeon-classic/${edgeAtlas}.webp`)
+        const json = (await jsonRes.json()) as {
+          frames: Record<string, unknown>
+        }
+        return {
+          jsonOk: jsonRes.ok,
+          webpOk: webpRes.ok,
+          frameCount: Object.keys(json.frames ?? {}).length,
+        }
+      },
+      { cdnBase: CDN_BASE, edgeAtlas },
+    )
 
     expect(result.jsonOk).toBe(true)
     expect(result.webpOk).toBe(true)
@@ -795,18 +871,22 @@ test.describe('Atlas Textures from CDN', () => {
   test('scatter atlas JSON and WebP are both fetchable', async ({ page }) => {
     await gotoApp(page)
 
-    const result = await page.evaluate(async (cdnBase) => {
-      const jsonRes = await fetch(`${cdnBase}/dungeon-classic/atlas-scatter-095695eb.json`)
-      const webpRes = await fetch(`${cdnBase}/dungeon-classic/atlas-scatter-095695eb.webp`)
-      const json = (await jsonRes.json()) as {
-        frames: Record<string, unknown>
-      }
-      return {
-        jsonOk: jsonRes.ok,
-        webpOk: webpRes.ok,
-        frameCount: Object.keys(json.frames ?? {}).length,
-      }
-    }, CDN_BASE)
+    const scatterAtlas = await getAtlasBaseName(page, 'scatter')
+    const result = await page.evaluate(
+      async ({ cdnBase, scatterAtlas }) => {
+        const jsonRes = await fetch(`${cdnBase}/dungeon-classic/${scatterAtlas}.json`)
+        const webpRes = await fetch(`${cdnBase}/dungeon-classic/${scatterAtlas}.webp`)
+        const json = (await jsonRes.json()) as {
+          frames: Record<string, unknown>
+        }
+        return {
+          jsonOk: jsonRes.ok,
+          webpOk: webpRes.ok,
+          frameCount: Object.keys(json.frames ?? {}).length,
+        }
+      },
+      { cdnBase: CDN_BASE, scatterAtlas },
+    )
 
     expect(result.jsonOk).toBe(true)
     expect(result.webpOk).toBe(true)
@@ -816,30 +896,34 @@ test.describe('Atlas Textures from CDN', () => {
   test('AssetPackManager loads floor atlas frames into texture cache', async ({ page }) => {
     await gotoApp(page)
 
-    const result = await page.evaluate(async (cdnBase) => {
-      const { AssetPackManager } = (await import(
-        '/src/engine/assetPackManager.ts'
-      )) as typeof import('@/engine/assetPackManager')
+    const floorAtlas = await getAtlasBaseName(page, 'floor')
+    const result = await page.evaluate(
+      async ({ cdnBase, floorAtlas }) => {
+        const { AssetPackManager } = (await import(
+          '/src/engine/assetPackManager.ts'
+        )) as typeof import('@/engine/assetPackManager')
 
-      const manager = new AssetPackManager({ cdnBaseUrl: cdnBase })
+        const manager = new AssetPackManager({ cdnBaseUrl: cdnBase })
 
-      // Load atlas JSON
-      const jsonRes = await fetch(`${cdnBase}/dungeon-classic/atlas-floor-060bdb3a.json`)
-      const json = (await jsonRes.json()) as {
-        frames: Record<string, unknown>
-        meta?: { image?: string }
-      }
-      const frameCount = Object.keys(json.frames ?? {}).length
+        // Load atlas JSON
+        const jsonRes = await fetch(`${cdnBase}/dungeon-classic/${floorAtlas}.json`)
+        const json = (await jsonRes.json()) as {
+          frames: Record<string, unknown>
+          meta?: { image?: string }
+        }
+        const frameCount = Object.keys(json.frames ?? {}).length
 
-      // Before any pack install, the texture cache should be empty
-      const beforeCount = manager.getEntryIds('dungeon-classic').length
+        // Before any pack install, the texture cache should be empty
+        const beforeCount = manager.getEntryIds('dungeon-classic').length
 
-      return {
-        frameCount,
-        beforeCount,
-        atlasHasFrames: frameCount > 0,
-      }
-    }, CDN_BASE)
+        return {
+          frameCount,
+          beforeCount,
+          atlasHasFrames: frameCount > 0,
+        }
+      },
+      { cdnBase: CDN_BASE, floorAtlas },
+    )
 
     expect(result.frameCount).toBeGreaterThan(0)
     expect(result.atlasHasFrames).toBe(true)
@@ -850,21 +934,25 @@ test.describe('Atlas Textures from CDN', () => {
   test('floor atlas frames reference correct atlas image filename', async ({ page }) => {
     await gotoApp(page)
 
-    const result = await page.evaluate(async (cdnBase) => {
-      const res = await fetch(`${cdnBase}/dungeon-classic/atlas-floor-060bdb3a.json`)
-      const json = (await res.json()) as {
-        frames: Record<string, { frame: { x: number; y: number; w: number; h: number } }>
-        meta?: { image?: string; size?: { w: number; h: number } }
-      }
+    const floorAtlas = await getAtlasBaseName(page, 'floor')
+    const result = await page.evaluate(
+      async ({ cdnBase, floorAtlas }) => {
+        const res = await fetch(`${cdnBase}/dungeon-classic/${floorAtlas}.json`)
+        const json = (await res.json()) as {
+          frames: Record<string, { frame: { x: number; y: number; w: number; h: number } }>
+          meta?: { image?: string; size?: { w: number; h: number } }
+        }
 
-      const firstFrame = Object.entries(json.frames)[0]
-      return {
-        metaImage: json.meta?.image,
-        metaSize: json.meta?.size,
-        firstFrameKey: firstFrame?.[0],
-        firstFrameData: firstFrame?.[1]?.frame,
-      }
-    }, CDN_BASE)
+        const firstFrame = Object.entries(json.frames)[0]
+        return {
+          metaImage: json.meta?.image,
+          metaSize: json.meta?.size,
+          firstFrameKey: firstFrame?.[0],
+          firstFrameData: firstFrame?.[1]?.frame,
+        }
+      },
+      { cdnBase: CDN_BASE, floorAtlas },
+    )
 
     // meta.image should reference a .webp file
     expect(result.metaImage).toMatch(/\.webp$/)

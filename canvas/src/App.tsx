@@ -22,6 +22,7 @@ import { ShortcutHelpDialog } from '@/components/shared/ShortcutHelpDialog';
 import { zoomToFitRef, viewportInsetsRef } from '@/components/toolbar/zoomToFitRef';
 import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
+import { getAssetPackManager } from '@/engine/assetPackInstance';
 import './index.css';
 
 /**
@@ -186,6 +187,16 @@ export default function App() {
         const { mapIndex } = useStore.getState();
         if (mapIndex.length === 0) {
           await useStore.getState().createNewMap('Untitled Map');
+        }
+
+        // Install-by-need for whatever `loadMapIndex` just loaded off IndexedDB (a blank
+        // bootstrap map has nothing to fetch). Soft-fail — must never block boot.
+        if (!cancelled) {
+          try {
+            await getAssetPackManager().ensureTexturesForMap(useStore.getState());
+          } catch (err) {
+            console.warn('[app] ensureTexturesForMap failed:', err);
+          }
         }
 
         // Load the most recent map (first in index since sorted by updatedAt desc)

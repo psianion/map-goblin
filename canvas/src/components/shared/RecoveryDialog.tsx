@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { loadFromIndexedDB, clearDirtyFlag, deleteAutosaveFromIndexedDB } from '@/io/autosave';
 import { useStore } from '@/store/store';
+import { getAssetPackManager } from '@/engine/assetPackInstance';
 import type { AutosaveEntry } from '@/io/autosave';
 
 interface RecoveryDialogProps {
@@ -25,6 +26,11 @@ export function RecoveryDialog({ onDismiss }: RecoveryDialogProps) {
   const handleRestore = () => {
     if (!entry) return;
     loadFromFile(entry.data);
+    // Soft-fail, fire-and-forget — a missing pack degrades to the magenta fallback and
+    // must never hold up dismissing this dialog.
+    getAssetPackManager()
+      .ensureTexturesForMap(entry.data)
+      .catch((err) => console.warn('[RecoveryDialog] ensureTexturesForMap failed:', err));
     clearDirtyFlag();
     onDismiss();
   };

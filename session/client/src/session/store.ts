@@ -289,6 +289,30 @@ export const useModuleState = <T,>(moduleName: string): T | undefined =>
   useSessionStore((s) => s.session?.modules[moduleName] as T | undefined);
 
 /**
+ * Resolves with the first `session-state` snapshot (immediately if one already landed),
+ * or `null` if none arrives within `timeoutMs`. `connect()` only opens the socket — the
+ * snapshot (§2.5, `activeSceneId` + `scenes` included) follows async over the wire — so
+ * JoinSession's prefetch has to wait for it before it knows what to warm.
+ */
+export function waitForSessionSnapshot(timeoutMs = 5000): Promise<SessionState | null> {
+  const existing = useSessionStore.getState().session;
+  if (existing) return Promise.resolve(existing);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      unsub();
+      resolve(null);
+    }, timeoutMs);
+    const unsub = useSessionStore.subscribe((state) => {
+      if (state.session) {
+        clearTimeout(timer);
+        unsub();
+        resolve(state.session);
+      }
+    });
+  });
+}
+
+/**
  * Reconnect with the seat a refresh threw away. No-op when already connected,
  * after session-ended, or with nothing saved. ponytail: a seat whose session
  * ended while the tab was mid-reload shows "reconnecting" until re-navigation —

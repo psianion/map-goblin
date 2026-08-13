@@ -5,6 +5,7 @@ import { notify } from '@/lib/toast';
 import { switchMap } from '@/store/mapSwitcher';
 import { undoManager } from '@/store/undoManager';
 import { getEngineSingleton } from '@/engine/engineSingleton';
+import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { PanelTabBar } from './PanelTabBar';
 import { MapList } from './MapList';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
@@ -42,7 +43,16 @@ export function MapsSidePanel() {
       getIsMapSwitching: () => useStore.getState().isMapSwitching,
       setIsMapSwitching: (val) => useStore.setState({ isMapSwitching: val }),
       saveCurrentMap: () => useStore.getState().saveCurrentMap(),
-      loadMap: (targetId) => useStore.getState().loadMap(targetId),
+      loadMap: async (targetId) => {
+        await useStore.getState().loadMap(targetId);
+        // Install-by-need for the map just switched to. Soft-fail — a missing pack
+        // set degrades to the magenta fallback and must never abort the switch.
+        try {
+          await getAssetPackManager().ensureTexturesForMap(useStore.getState());
+        } catch (err) {
+          console.warn('[MapsSidePanel] ensureTexturesForMap failed:', err);
+        }
+      },
       clearUndo: () => undoManager.clear(),
       fogIn: fog ? () => fog.fogIn() : () => Promise.resolve(),
       fogOut: fog ? () => fog.fogOut() : () => Promise.resolve(),

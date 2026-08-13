@@ -5,6 +5,7 @@ import type { DoorsState } from '@dnd/mechanics/doors';
 import { restoreCustomImages, registerImageBlob } from '@dnd/core/src/assets/textureLoader';
 import { preloadLayerTextures } from '@dnd/core/src/engine/floorWallRenderer';
 import { SPLAT_IMAGE_KEYS } from '@dnd/core/src/engine/terrain/terrainShared';
+import { getAssetPackManager } from '@dnd/core/src/engine/assetPackInstance';
 import { endpoints } from '../endpoints';
 import { useSessionStore } from './store';
 
@@ -240,6 +241,43 @@ export function invalidateSceneDocs(sceneId: string): void {
   }
 }
 
+/** Cache-hit or fetch-and-cache — the one place either caller decides which. */
+async function getOrFetchSceneDoc(sceneId: string, mapId: string, token: string): Promise<SceneDoc> {
+  const key = docKey(sceneId, mapId);
+  let doc = docCache.get(key);
+  if (!doc) {
+    doc = await fetchSceneDoc(sceneId, token);
+    // A fresh fetch is the newest truth for this scene — older cached copies are stale.
+    invalidateSceneDocs(sceneId);
+    cachePut(key, doc);
+  }
+  return doc;
+}
+
+/**
+ * Warm everything a rebuild will ask for: floor/wall textures already resident in the
+ * bundle (fast, per-layer), and any pack asset sets install-by-need has not fetched yet
+ * (network, per map). Both failure modes are soft — a missing texture degrades to the
+ * magenta fallback exactly as it always has, and this must never be the reason a table
+ * fails to load.
+ */
+async function warmSceneTextures(doc: SceneDoc): Promise<void> {
+  try {
+    await Promise.all(
+      doc.data.layers
+        .filter((layer) => layer.type === 'dungeon')
+        .map((layer) => preloadLayerTextures(layer)),
+    );
+  } catch {
+    /* textures load lazily during rebuild instead */
+  }
+  try {
+    await getAssetPackManager().ensureTexturesForMap(doc.data);
+  } catch (err) {
+    console.warn('[loadSceneMap] ensureTexturesForMap failed:', err);
+  }
+}
+
 // A later swap supersedes an earlier one wholesale — whichever fetch resolves last must
 // not clobber the scene the table actually moved to.
 let swapGen = 0;
@@ -248,11 +286,12 @@ let swapGen = 0;
  * Move the table to `sceneId` without ever rendering nothing (F1/F3's client half).
  *
  * The held document stays in the store — and on screen — until the replacement is fully
- * in hand: fetched (or cache-hit), images registered, floor/wall textures preloaded. Only
- * then does one `setMapData` swap it, so the engine rebuilds straight into drawable
- * layers instead of empty containers waiting on textures. The outgoing document is stashed
- * in the cache as-held (merged reveals included), which is what makes switching back
- * instant; re-applying `forViewer` on re-entry is idempotent.
+ * in hand: fetched (or cache-hit), images registered, floor/wall textures preloaded, any
+ * missing pack asset sets installed. Only then does one `setMapData` swap it, so the
+ * engine rebuilds straight into drawable layers instead of empty containers waiting on
+ * textures. The outgoing document is stashed in the cache as-held (merged reveals
+ * included), which is what makes switching back instant; re-applying `forViewer` on
+ * re-entry is idempotent.
  */
 export async function swapSceneMap(sceneId: string, mapId: string, token: string): Promise<void> {
   const gen = ++swapGen;
@@ -266,26 +305,8 @@ export async function swapSceneMap(sceneId: string, mapId: string, token: string
     });
   }
 
-  const key = docKey(sceneId, mapId);
-  let doc = docCache.get(key);
-  if (!doc) {
-    doc = await fetchSceneDoc(sceneId, token);
-    // A fresh fetch is the newest truth for this scene — older cached copies are stale.
-    invalidateSceneDocs(sceneId);
-    cachePut(key, doc);
-  }
-
-  // Warm the textures the rebuild will ask for, so the first flush draws rather than
-  // schedules a second pass. Failure is soft — the rebuild falls back exactly as before.
-  try {
-    await Promise.all(
-      doc.data.layers
-        .filter((layer) => layer.type === 'dungeon')
-        .map((layer) => preloadLayerTextures(layer)),
-    );
-  } catch {
-    /* textures load lazily during rebuild instead */
-  }
+  const doc = await getOrFetchSceneDoc(sceneId, mapId, token);
+  await warmSceneTextures(doc);
 
   if (gen !== swapGen) return; // superseded by a newer switch mid-flight
 
@@ -294,4 +315,15 @@ export async function swapSceneMap(sceneId: string, mapId: string, token: string
     sceneId,
     mapId,
   });
+}
+
+/**
+ * The join screen's optimization: warm the doc cache and its textures for the table's
+ * active scene before `/table` ever mounts `GameRenderer`, so the `swapSceneMap` it runs
+ * on mount is a cache hit with textures already resident instead of a cold fetch. Commits
+ * nothing to the store — `swapSceneMap` still does that, once the table is actually up.
+ */
+export async function prefetchSceneMap(sceneId: string, mapId: string, token: string): Promise<void> {
+  const doc = await getOrFetchSceneDoc(sceneId, mapId, token);
+  await warmSceneTextures(doc);
 }
