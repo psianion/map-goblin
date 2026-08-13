@@ -25,6 +25,8 @@ const ManifestEntrySchema = z.object({
   variant: z.string().min(1),
   atlas: z.string().optional(),
   frame: FrameSchema.optional(),
+  // Forge-set provenance (set integration writes this; hand-authored packs don't have it).
+  set: z.string().min(1).optional(),
   tags: z.array(z.string()),
 });
 
@@ -46,3 +48,4 @@ export const PackManifestSchema = z.object({
 });
 
 export type PackManifest = z.infer<typeof PackManifestSchema>;
+export type ManifestEntry = z.infer<typeof ManifestEntrySchema>;

@@ -5,6 +5,7 @@ import { buildCommand } from './commands/build.js';
 import { composeCommand } from './commands/compose.js';
 import { indexCommand } from './commands/index-cmd.js';
 import { deployCommand, rollbackCommand } from './commands/deploy.js';
+import { integrateCommand } from './commands/integrate.js';
 
 const program = new Command();
 
@@ -19,5 +20,6 @@ program.addCommand(composeCommand());
 program.addCommand(indexCommand());
 program.addCommand(deployCommand());
 program.addCommand(rollbackCommand());
+program.addCommand(integrateCommand());
 
 program.parse();

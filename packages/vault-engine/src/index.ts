@@ -28,6 +28,7 @@ export { writeBundle } from './build/bundle.js';
 export { generateIndex, type IndexInput } from './build/index-gen.js';
 export { generateCatalogChunks, type CatalogEntryInput } from './build/catalog-gen.js';
 export { buildPack } from './build/pipeline.js';
+export { integrateSets, type IntegrateOptions, type IntegrateResult } from './build/integrate.js';
 
 // Composition engine
 export { analyzeSprite, computeTileableEdges } from './compose/analyze.js';
