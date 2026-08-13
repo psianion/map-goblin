@@ -11,7 +11,26 @@ import type { PackManifest } from './assetPackManager';
 
 const BUNDLED_PACK_ID = 'dungeon-classic';
 const FETCH_CONCURRENCY = 8;
-const BUNDLED_PACK_PATH = '/packs/dungeon-classic/pack-4a9bdbee.json';
+
+/**
+ * Resolve the bundled manifest's URL from the bundled index — the manifest filename
+ * is content-hashed and changes on every publish, so it can't be hardcoded.
+ *
+ * Mirrors AssetPackManager.resolveManifestPath, but reads the LOCAL bundled copy
+ * (`/packs/index.json`, same origin) rather than the CDN — this is the baseline
+ * shipped in the image, not a remote pack install.
+ *
+ * Throws on any failure; ensureBundledPack has no fallback filename to try, and
+ * callers already wrap the whole bundled-install path in try/catch and soft-fail.
+ */
+async function resolveBundledManifestUrl(): Promise<string> {
+  const res = await fetch('/packs/index.json');
+  if (!res.ok) throw new Error(`Bundled pack index not found (status ${res.status})`);
+  const index = (await res.json()) as { packs?: Record<string, { manifest?: string }> };
+  const manifest = index.packs?.[BUNDLED_PACK_ID]?.manifest;
+  if (!manifest) throw new Error(`Bundled pack index has no manifest entry for "${BUNDLED_PACK_ID}"`);
+  return `/packs/${manifest}`;
+}
 
 /**
  * A manifest's content, as one comparable string: its version, every entry id, and
@@ -45,13 +64,14 @@ export async function ensureBundledPack(packManager: AssetPackManager): Promise<
   const installed = packManager.getInstalledPacks();
   const current = installed.find((p) => p.packId === BUNDLED_PACK_ID);
 
-  // Fetch the bundled manifest even when a copy is already installed: the
-  // manifest lives at a fixed path, so updated content arrives under the same
-  // URL and an installed-check alone would pin every returning browser to its
-  // first-ever copy forever. The fetch is a small local file — cheap at boot.
-  const res = await fetch(BUNDLED_PACK_PATH);
+  // Fetch the bundled manifest even when a copy is already installed: updated
+  // content arrives under a new content-hashed filename each publish, so an
+  // installed-check alone would pin every returning browser to its first-ever
+  // copy forever. The fetch is a small local file — cheap at boot.
+  const bundledManifestUrl = await resolveBundledManifestUrl();
+  const res = await fetch(bundledManifestUrl);
   if (!res.ok) {
-    console.warn(`[firstBootInstall] Bundled pack manifest not found at ${BUNDLED_PACK_PATH}`);
+    console.warn(`[firstBootInstall] Bundled pack manifest not found at ${bundledManifestUrl}`);
     return false;
   }
 

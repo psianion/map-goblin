@@ -1,7 +1,9 @@
 // src/engine/assetPackManager.ts
 import { Texture } from 'pixi.js'
 import pLimit from 'p-limit'
-import type { AssetPackDB } from './assetPackDB'
+import type { AssetPackDB, StoredPack } from './assetPackDB'
+import { bumpAssetSetLRU } from './assetPackDB'
+import { collectMapTextureIds, resolveAssetSets, type MapTextureSource } from './mapTextureRefs'
 
 export interface PackSummary {
   packId: string
@@ -38,6 +40,7 @@ export interface ManifestEntry {
   frame: string
   gridSize: string
   tags: string[]
+  set?: string
 }
 
 export interface PackManifest {
@@ -303,13 +306,13 @@ export class AssetPackManager {
       const usage = await this.packDB.getCacheUsage()
       if (usage.used + packSize > usage.limit) {
         const evicted = await this.packDB.evictLRU(packSize - (usage.limit - usage.used))
-        // Amendment B3: also clear in-memory textures for evicted packs
-        for (const evictedId of evicted) {
-          this.clearPackTextures(evictedId)
-        }
+        // Amendment B3: also clear in-memory textures for evicted packs/asset sets
+        this.clearEvicted(evicted)
       }
 
-      // 5. Atomic write to IndexedDB
+      // 5. Atomic write to IndexedDB — every file downloaded above, so every
+      // set this manifest declares is installed already.
+      const setNames = allSetNames(manifest)
       await this.packDB.installPack({
         packId,
         version: manifest.version,
@@ -318,6 +321,7 @@ export class AssetPackManager {
         blobs,
         lastUsed: Date.now(),
         bundled: false,
+        installedAssetSets: setNames.length ? setNames : undefined,
       })
     }
 
@@ -352,6 +356,7 @@ export class AssetPackManager {
     this.manifestCache.set(packId, manifest)
 
     if (this.packDB) {
+      const setNames = allSetNames(manifest)
       await this.packDB.installPack({
         packId,
         version: manifest.version,
@@ -360,6 +365,7 @@ export class AssetPackManager {
         blobs,
         lastUsed: Date.now(),
         bundled,
+        installedAssetSets: setNames.length ? setNames : undefined,
       })
     }
 
@@ -455,10 +461,7 @@ export class AssetPackManager {
           // `{material}_{gridSize}_{type}_{variant}`. Register under the entry KEY
           // — that's what manifestBridge/resolveTexture look up.
           for (const [entryId, entry] of Object.entries(manifest.entries)) {
-            const e = entry as ManifestEntry & { material?: string; variant?: string }
-            const prefix = e.material
-              ? `${e.material}_${e.gridSize}_${e.variant ?? 'A'}-`
-              : e.localId
+            const prefix = loosePrefixFor(entry)
             if (prefix && fileName.startsWith(prefix)) {
               this.textureCache.set(`${packId}:${entryId}`, texture)
               break
@@ -476,6 +479,12 @@ export class AssetPackManager {
   /**
    * Phase 7: Differential pack update — only download files with changed checksums.
    * Falls back to full reinstall if the old manifest can't be read from IndexedDB.
+   *
+   * Set-aware: a file that belongs exclusively to an asset set not installed
+   * locally (never fetched, or since evicted) is skipped entirely — an update
+   * never re-adds content the cache doesn't have a reason to hold. Set
+   * membership is read off the NEW manifest; files shared by installed
+   * content (setless/base) always update.
    */
   async updatePack(packId: string): Promise<PackDiffResult> {
     // 1. Fetch new manifest — resolve content-hashed filename from index
@@ -485,10 +494,12 @@ export class AssetPackManager {
     if (!manifestRes.ok) throw new Error(`Failed to fetch manifest: ${manifestRes.status}`)
     const newManifest = (await manifestRes.json()) as PackManifest
 
-    // 2. Try to load old manifest from IndexedDB for diffing
+    // 2. Load the stored record — old manifest for diffing, old blobs to reuse,
+    // and which asset sets are actually installed locally.
+    let stored: StoredPack | null = null
     let oldChecksums: Map<string, string> | null = null
     if (this.packDB) {
-      const stored = await this.packDB.getPack(packId)
+      stored = await this.packDB.getPack(packId)
       if (stored) {
         try {
           const oldManifest = JSON.parse(
@@ -504,14 +515,22 @@ export class AssetPackManager {
       }
     }
 
-    // 3. Diff: find changed files
+    // 3. Which files does this pack actually need? Setless entries always do;
+    // set-tagged entries only if their set is installed locally. No prior
+    // bookkeeping (legacy record, or first update after this feature shipped)
+    // means "assume everything was installed" — the full-pack behavior
+    // updatePack always had.
+    const installedSets = new Set(stored?.installedAssetSets ?? allSetNames(newManifest))
+    const keepFiles = neededFiles(newManifest, installedSets)
+
+    // 4. Diff: find changed files, scoped to what's actually needed
     const newRefs = { ...newManifest.atlases, ...newManifest.files }
-    const allNewFiles = Object.keys(newRefs)
+    const allKeptFiles = Object.keys(newRefs).filter((file) => keepFiles.has(file))
     let changedFiles: string[]
     let unchangedCount = 0
 
     if (oldChecksums) {
-      changedFiles = allNewFiles.filter((file) => {
+      changedFiles = allKeptFiles.filter((file) => {
         const oldChecksum = oldChecksums!.get(file)
         const newChecksum = newRefs[file]?.checksum
         if (oldChecksum && oldChecksum === newChecksum) {
@@ -521,23 +540,20 @@ export class AssetPackManager {
         return true
       })
     } else {
-      changedFiles = allNewFiles
+      changedFiles = allKeptFiles
     }
 
-    // 4. Download only changed files
+    // 5. Download only changed files
     const blobs = new Map<string, Uint8Array>()
 
     // Reuse unchanged blobs from IndexedDB
-    if (oldChecksums && this.packDB && unchangedCount > 0) {
-      const stored = await this.packDB.getPack(packId)
-      if (stored) {
-        const oldBlobs = stored.blobs instanceof Map
-          ? stored.blobs
-          : new Map(Object.entries(stored.blobs as Record<string, Uint8Array>))
-        for (const [file] of oldBlobs) {
-          if (!changedFiles.includes(file)) {
-            blobs.set(file, oldBlobs.get(file)!)
-          }
+    if (oldChecksums && stored && unchangedCount > 0) {
+      const oldBlobs = stored.blobs instanceof Map
+        ? stored.blobs
+        : new Map(Object.entries(stored.blobs as Record<string, Uint8Array>))
+      for (const file of allKeptFiles) {
+        if (!changedFiles.includes(file) && oldBlobs.has(file)) {
+          blobs.set(file, oldBlobs.get(file)!)
         }
       }
     }
@@ -555,7 +571,7 @@ export class AssetPackManager {
       ),
     )
 
-    // 5. Verify checksums for changed files
+    // 6. Verify checksums for changed files
     for (const file of changedFiles) {
       const blob = blobs.get(file)!
       const hash = await crypto.subtle.digest('SHA-256', blob.buffer as ArrayBuffer)
@@ -568,9 +584,23 @@ export class AssetPackManager {
       }
     }
 
-    // 6. Clear old textures and reinstall
+    // 7. Clear old textures and reinstall
     this.clearPackTextures(packId)
     const packSize = [...blobs.values()].reduce((s, b) => s + b.length, 0)
+
+    // Recompute set bookkeeping against what actually ended up in `blobs` —
+    // a set dropped from the new manifest can't stay "installed", and bytes
+    // may have moved.
+    const newAllSets = allSetNames(newManifest)
+    const keptSets = [...installedSets].filter((s) => newAllSets.includes(s))
+    const keptDynamic = (stored?.dynamicAssetSets ?? []).filter((s) => keptSets.includes(s))
+    const assetSetBytes: Record<string, number> = {}
+    const assetSetFiles: Record<string, string[]> = {}
+    for (const setName of keptSets) {
+      const files = [...filesForSet(newManifest, setName)]
+      assetSetFiles[setName] = files
+      assetSetBytes[setName] = files.reduce((s, f) => s + (blobs.get(f)?.length ?? 0), 0)
+    }
 
     if (this.packDB) {
       await this.packDB.installPack({
@@ -581,6 +611,10 @@ export class AssetPackManager {
         blobs,
         lastUsed: Date.now(),
         bundled: false,
+        installedAssetSets: keptSets.length ? keptSets : undefined,
+        dynamicAssetSets: keptDynamic.length ? keptDynamic : undefined,
+        assetSetBytes: Object.keys(assetSetBytes).length ? assetSetBytes : undefined,
+        assetSetFiles: Object.keys(assetSetFiles).length ? assetSetFiles : undefined,
       })
     }
 
@@ -604,8 +638,114 @@ export class AssetPackManager {
       changedFiles: changedFiles.length,
       unchangedFiles: unchangedCount,
       downloadedBytes: changedSize,
-      totalFiles: allNewFiles.length,
+      totalFiles: allKeptFiles.length,
     }
+  }
+
+  /**
+   * Fetch only the files missing sets of a pack need, verify + store them, and
+   * load their textures. A no-op when every requested set is already
+   * installed. Bumps the asset-set LRU for every requested set, hit or miss —
+   * a hit still counts as "used" for eviction purposes.
+   */
+  async ensureAssetSets(packId: string, setNames: string[]): Promise<void> {
+    if (setNames.length === 0) return
+    const manifest = this.manifestCache.get(packId)
+    if (!manifest) {
+      console.warn(`[AssetPackManager] ensureAssetSets: no cached manifest for pack "${packId}" — skipping`)
+      return
+    }
+
+    for (const setName of setNames) bumpAssetSetLRU(packId, setName)
+
+    if (!this.packDB) return
+    const stored = await this.packDB.getPack(packId)
+    const installed = new Set(stored?.installedAssetSets ?? [])
+    const missing = setNames.filter((s) => !installed.has(s))
+    if (missing.length === 0) return // fast no-op
+
+    const setFiles = new Map<string, Set<string>>()
+    const allFiles = new Set<string>()
+    for (const setName of missing) {
+      const files = filesForSet(manifest, setName)
+      setFiles.set(setName, files)
+      for (const file of files) allFiles.add(file)
+    }
+    if (allFiles.size === 0) return
+
+    // Download + checksum-verify, same as installPack.
+    const allRefs = { ...manifest.atlases, ...manifest.files }
+    const blobs = new Map<string, Uint8Array>()
+    await Promise.all(
+      [...allFiles].map((file) =>
+        this.downloadLimit(async () => {
+          const url = `${this.config.cdnBaseUrl}/${packId}/${file}`
+          const res = await fetch(url, { signal: AbortSignal.timeout(30_000) })
+          if (!res.ok) throw new Error(`Failed to download ${file}: ${res.status}`)
+          blobs.set(file, new Uint8Array(await res.arrayBuffer()))
+        }),
+      ),
+    )
+    for (const file of allFiles) {
+      const ref = allRefs[file]
+      if (!ref) continue
+      const blob = blobs.get(file)!
+      const hash = await crypto.subtle.digest('SHA-256', blob.buffer as ArrayBuffer)
+      const hex = Array.from(new Uint8Array(hash))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('')
+      if (hex !== ref.checksum.replace('sha256:', '')) {
+        throw new Error(`Checksum mismatch for ${file}`)
+      }
+    }
+
+    // Cap check + evict BEFORE writing — never evict what we're about to need.
+    const addedBytes = [...blobs.values()].reduce((s, b) => s + b.length, 0)
+    const usage = await this.packDB.getCacheUsage()
+    if (usage.used + addedBytes > usage.limit) {
+      const evicted = await this.packDB.evictLRU(addedBytes - (usage.limit - usage.used))
+      this.clearEvicted(evicted)
+    }
+
+    const setFilesRecord: Record<string, string[]> = {}
+    for (const [setName, files] of setFiles) setFilesRecord[setName] = [...files]
+    await this.packDB.mergeAssetSetBlobs(packId, blobs, setFilesRecord)
+
+    await this.loadPackTextures(packId, manifest, blobs)
+  }
+
+  /**
+   * Resolve texture ids to the asset sets they need, grouped by pack, using
+   * the cached manifests.
+   */
+  assetSetsForTextureIds(ids: string[]): Map<string, Set<string>> {
+    return resolveAssetSets(ids, this.getPackManifests())
+  }
+
+  /**
+   * Enumerate every texture a map references, resolve which asset sets those
+   * textures need, and fetch only the missing ones. Safe to call whenever a
+   * map is opened — a fully-installed map is a fast no-op — and never throws:
+   * unknown/legacy-only ids are silently ignored by the resolution step, and
+   * any per-pack fetch failure is logged and skipped rather than propagated.
+   */
+  async ensureTexturesForMap(mapData: MapTextureSource): Promise<void> {
+    let ids: string[]
+    try {
+      ids = collectMapTextureIds(mapData)
+    } catch (err) {
+      console.warn('[AssetPackManager] ensureTexturesForMap: failed to enumerate map textures', err)
+      return
+    }
+
+    const bySet = this.assetSetsForTextureIds(ids)
+    await Promise.all(
+      [...bySet.entries()].map(([packId, sets]) =>
+        this.ensureAssetSets(packId, [...sets]).catch((err) => {
+          console.warn(`[AssetPackManager] ensureTexturesForMap: failed to ensure asset sets for pack "${packId}"`, err)
+        }),
+      ),
+    )
   }
 
   async uninstallPack(packId: string): Promise<void> {
@@ -713,6 +853,81 @@ export class AssetPackManager {
       }
     }
   }
+
+  /** Clear in-memory textures for one asset set of a pack, by manifest lookup. */
+  private clearAssetSetTextures(packId: string, setName: string): void {
+    const manifest = this.manifestCache.get(packId)
+    if (!manifest) return
+    for (const [entryId, entry] of Object.entries(manifest.entries)) {
+      if (entry.set !== setName) continue
+      const key = `${packId}:${entryId}`
+      this.textureCache.delete(key)
+      this.frameCache.delete(key)
+    }
+  }
+
+  /**
+   * Clear in-memory textures for whatever `AssetPackDB.evictLRU` evicted —
+   * a bare packId for a whole pack, or `packId:setName` for one asset set.
+   */
+  private clearEvicted(evictedIds: string[]): void {
+    for (const id of evictedIds) {
+      const sep = id.indexOf(':')
+      if (sep === -1) {
+        this.clearPackTextures(id)
+      } else {
+        this.clearAssetSetTextures(id.slice(0, sep), id.slice(sep + 1))
+      }
+    }
+  }
+}
+
+/** `material_gridSize_variant-` prefix a loose file must start with to belong to `entry`. */
+function loosePrefixFor(entry: ManifestEntry & { material?: string; variant?: string }): string | undefined {
+  return entry.material ? `${entry.material}_${entry.gridSize}_${entry.variant ?? 'A'}-` : entry.localId
+}
+
+/** Every file (atlas json + image, or loose files) one manifest entry needs. */
+function entryFiles(
+  manifest: PackManifest,
+  entry: ManifestEntry & { material?: string; variant?: string; atlas?: string },
+): string[] {
+  if (entry.atlas) {
+    const files = [entry.atlas]
+    // The atlas image and its frame-data JSON share a basename — loadPackTextures
+    // needs both to build a spritesheet.
+    const jsonName = entry.atlas.replace(/\.[a-z0-9]+$/i, '.json')
+    if (jsonName !== entry.atlas && manifest.atlases[jsonName]) files.push(jsonName)
+    return files
+  }
+  const prefix = loosePrefixFor(entry)
+  if (!prefix) return []
+  return Object.keys(manifest.files).filter((f) => f.startsWith(prefix))
+}
+
+/** Every asset set name any entry in the manifest declares. */
+function allSetNames(manifest: PackManifest): string[] {
+  return [...new Set(Object.values(manifest.entries).map((e) => e.set).filter((s): s is string => !!s))]
+}
+
+/** Every file (atlas + loose) that belongs to one asset set. */
+function filesForSet(manifest: PackManifest, setName: string): Set<string> {
+  const files = new Set<string>()
+  for (const entry of Object.values(manifest.entries)) {
+    if (entry.set !== setName) continue
+    for (const file of entryFiles(manifest, entry)) files.add(file)
+  }
+  return files
+}
+
+/** Files needed for every setless entry plus every entry in `installedSets`. */
+function neededFiles(manifest: PackManifest, installedSets: Set<string>): Set<string> {
+  const files = new Set<string>()
+  for (const entry of Object.values(manifest.entries)) {
+    if (entry.set && !installedSets.has(entry.set)) continue
+    for (const file of entryFiles(manifest, entry)) files.add(file)
+  }
+  return files
 }
 
 /**
