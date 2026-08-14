@@ -105,6 +105,10 @@ export function tokensModule(visionOf: VisionOf = () => null): GameModule<Tokens
  */
 function inSight(token: Token, scene: SceneVision | null, viewer: Viewer): boolean {
   if (!scene || token.ownerId === viewer.identityId) return true
+  // ponytail: one point, the token's own centre. A large or gargantuan token whose far cells
+  // are swept but whose centre sits behind the corner vanishes whole rather than partly — an
+  // accepted P1 ceiling. The upgrade is sampling the cells the token's footprint covers and
+  // calling it seen if any of them are.
   if (scene.canSee) return scene.canSee(token.x, token.y)
   const room = scene.roomAt(token.x, token.y)
   return room !== null && scene.visible.has(room)

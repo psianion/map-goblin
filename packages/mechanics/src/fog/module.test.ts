@@ -383,6 +383,28 @@ describe('defaultRoom / effectiveFog (amendment 2026-07-28)', () => {
     expect(scene.concealBehindDoors).toBe(false)
   })
 
+  // The fallback branch rebuilds the scene object, and everything it does not carry over is
+  // silently lost — a vision-mode scene coming back out of here in rooms mode would strip
+  // token vision from the two places that read this (the server's cache, the fog renderer).
+  it('carries the vision-mode settings through the fallback rebuild', () => {
+    const region = setCells(regionOf({ minX: 0, minY: 0, maxX: 10, maxY: 10 })!, [[3, 4]])
+    const vision: SceneFog = {
+      ...nothing,
+      mode: 'vision',
+      visionShare: 'individual',
+      autoExplore: false,
+      region,
+    }
+    const scene = effectiveFog(vision, [HALL, VAULT], [])
+    expect(idsOf(scene)).toEqual(['vault'])
+    expect(scene).toMatchObject({
+      mode: 'vision',
+      visionShare: 'individual',
+      autoExplore: false,
+      region,
+    })
+  })
+
   it('reveals it again after a Hide All leaves everything re-hidden', () => {
     const hidden: SceneFog = {
       rooms: {
@@ -742,7 +764,7 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
           [SCENE]: {
             rooms: { hall: { status: 'revealed', wasEverRevealed: true } },
             concealBehindDoors: true,
-            region: setCells(regionOf(FRAME), [[3, 4]]),
+            region: setCells(regionOf(FRAME)!, [[3, 4]]),
           },
         },
       }
@@ -753,6 +775,36 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
         expect(getCell(scened(state).region, 3, 4)).toBe(true)
       }
       expect(scened(andBack).mode).toBe('rooms')
+    })
+
+    // A roomless map has nothing for `canSee` to be wired against server-side, so vision mode
+    // there redacts *nothing*: every token on the scene would ship to every player the moment
+    // the DM flipped the switch. Refusing is the whole fix.
+    it('refuses vision mode on a scene whose map has no detected rooms', () => {
+      const roomless = fogModule(() => [], () => FRAME)
+      const attempt = (action: string, payload: unknown) => {
+        let next = empty
+        const error = roomless.handler(action, payload, {
+          campaignId: 'c-1',
+          sessionId: 's-1',
+          activeSceneId: SCENE,
+          sender: DM,
+          players: [],
+          state: empty,
+          setState: (s) => {
+            next = s
+          },
+          broadcast: () => {},
+        })
+        return { error: error ?? null, next }
+      }
+
+      const refused = attempt('set-mode', { mode: 'vision' })
+      expect(refused.error?.code).toBe('invalid-command')
+      expect(refused.error?.message).toMatch(/rooms/)
+      expect(refused.next).toBe(empty)
+      // Rooms mode is still reachable there — this refuses one mode, not the command.
+      expect(attempt('set-mode', { mode: 'rooms' }).error).toBeNull()
     })
 
     it('stores either share, and refuses a third', () => {
@@ -825,6 +877,58 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
         fire(empty, DM, 'region-set', { sceneId: 'map-2', op: 'reveal', cells: [] }).error?.code,
       ).toBe('invalid-command')
     })
+
+    it('refuses a scene too large to keep region memory for', () => {
+      const huge = fogModule(
+        () => ROOMS,
+        () => ({ minX: 0, minY: 0, maxX: 2000, maxY: 2000 }),
+      )
+      const error = huge.handler(
+        'region-set',
+        { sceneId: SCENE, op: 'reveal', cells: [[0, 0]] },
+        {
+          campaignId: 'c-1',
+          sessionId: 's-1',
+          activeSceneId: SCENE,
+          sender: DM,
+          players: [],
+          state: empty,
+          setState: () => {
+            throw new Error('a scene past the cell ceiling must write no region')
+          },
+          broadcast: () => {},
+        },
+      )
+      expect(error?.code).toBe('invalid-command')
+    })
+
+    // A brush stroke reveals ground the same way the room buttons do, so it reads back the
+    // same way — the one reveal-shaped fog act that used to happen in silence.
+    it('writes a table-log line, the way every other reveal does', () => {
+      const seated = (state: FogState, payload: unknown) => {
+        let next = state
+        framed.handler('region-set', payload, {
+          campaignId: 'c-1',
+          sessionId: 's-1',
+          activeSceneId: SCENE,
+          sender: DM,
+          players: [{ identityId: 'dm-1', name: 'Ilsa', role: 'dm', connected: true }],
+          state,
+          setState: (s) => {
+            next = s
+          },
+          broadcast: () => {},
+        })
+        return next
+      }
+
+      const painted = seated(empty, { op: 'reveal', cells: [[1, 2]] })
+      const line = painted.log?.[painted.log.length - 1]
+      expect(line).toMatchObject({ actor: 'Ilsa', action: 'changed-fog', sceneId: SCENE })
+      // Cells, not a room: no targetId, which is what keeps it readable at every seat.
+      expect(line?.targetId).toBeUndefined()
+      expect(seated(painted, { op: 'hide', cells: [[1, 2]] }).log).toHaveLength(2)
+    })
   })
 
   describe('auto-explore (server-internal)', () => {
@@ -879,7 +983,7 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
           mode: 'vision',
           visionShare: 'party',
           autoExplore: false,
-          region: setCells(regionOf(FRAME), [[3, 4]]),
+          region: setCells(regionOf(FRAME)!, [[3, 4]]),
         },
       },
     }

@@ -146,8 +146,18 @@ function run(action: string, p: Payload, ctx: Ctx, roomsOf: SceneRooms, frameOf:
     // Neither record is touched by a flip: the rooms the party explored and the cells they
     // swept both survive a scene going back and forth between the two modes, so a DM trying
     // token vision out mid-session loses nothing by changing their mind.
-    case 'set-mode':
-      return setScene(ctx, sceneId, { ...scene, mode: oneOf(p.mode, FOG_MODES, 'mode') })
+    case 'set-mode': {
+      const mode = oneOf(p.mode, FOG_MODES, 'mode')
+      // A map with no detected rooms redacts nothing in vision mode: the token redactor's
+      // `canSee` is only wired for a scene that has rooms, so every token on a roomless map
+      // would ship to every player the moment the DM flipped the switch. Refusing is the
+      // honest answer — the DM is told the map is not ready rather than shown a mode that
+      // silently does nothing.
+      if (mode === 'vision' && roomsOf(ctx.campaignId, sceneId).length === 0) {
+        bad('token vision needs a map with detected rooms — this scene has none')
+      }
+      return setScene(ctx, sceneId, { ...scene, mode })
+    }
     case 'set-share':
       return setScene(ctx, sceneId, {
         ...scene,
@@ -160,26 +170,41 @@ function run(action: string, p: Payload, ctx: Ctx, roomsOf: SceneRooms, frameOf:
       })
     case 'region-set': {
       const region = regionFor(scene.region, frameFor(ctx, sceneId, frameOf))
+      if (!region) bad('that scene is too large to keep region memory for')
       const cells = parseCells(p.cells, region)
       const op = oneOf(p.op, REGION_OPS, 'op')
-      return setScene(ctx, sceneId, {
-        ...scene,
-        region: op === 'reveal' ? setCells(region, cells) : clearCells(region, cells),
-      })
+      // A brush stroke is a reveal-shaped DM act like the room buttons are, so it reads back
+      // in the table log the same way. `changed-fog` and no targetId: it names cells rather
+      // than a room, which is also what makes it a whole-scene line every seat may read.
+      return setScene(
+        ctx,
+        sceneId,
+        {
+          ...scene,
+          region: op === 'reveal' ? setCells(region, cells) : clearCells(region, cells),
+        },
+        { action: 'changed-fog' },
+      )
     }
     // Server-internal (see `commands` above): the region cells and rooms one party sweep
     // just earned, applied as ONE write so persistence, the broadcast, D5's geometry delta
     // and the retract re-sends all ride the path a DM's own reveal rides.
     case 'auto-explore': {
+      // Undefined region = a scene past `REGION_CELL_MAX`, which keeps no cell memory at
+      // all. The room reveals still land: those are what decide the geometry a player holds.
       const region = regionFor(scene.region, frameFor(ctx, sceneId, frameOf))
-      const cells = parseCells(p.cells, region)
+      const cells = region ? parseCells(p.cells, region) : []
       const rooms = { ...scene.rooms }
       for (const id of parseRoomIds(p.rooms, ctx, sceneId, roomsOf)) {
         rooms[id] = { status: 'revealed', wasEverRevealed: true }
       }
       // ponytail: no log line. A DM's reveal is an act worth reading back; the map opening
       // as the party walks is the map, and a line per step would bury the acts under it.
-      return setScene(ctx, sceneId, { ...scene, region: setCells(region, cells), rooms })
+      return setScene(ctx, sceneId, {
+        ...scene,
+        region: region && setCells(region, cells),
+        rooms,
+      })
     }
     default:
       bad(`fog has no action '${action}'`)

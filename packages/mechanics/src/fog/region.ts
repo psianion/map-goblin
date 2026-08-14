@@ -52,10 +52,25 @@ export function toBase64(bytes: Uint8Array): string {
   return btoa(out)
 }
 
-/** An empty mask sized to the frame. A 100×100 scene is 1250 bytes of base64. */
-export function regionOf(frame: Frame): RegionMask {
+/**
+ * ponytail: 512×512 cells is the ceiling, because the mask is rebroadcast whole on every
+ * write. 262144 cells is 32KB of bytes ≈ 44KB of base64 inside a frame the socket caps at
+ * 256KiB, and one more doubling of the map's side would blow through it. A scene that big
+ * gets no region record at all rather than a frame the table cannot receive — the upgrade is
+ * region *deltas* (or per-scene slice updates) instead of the whole mask, and this ceiling
+ * comes off the day one of those lands.
+ */
+export const REGION_CELL_MAX = 512 * 512
+
+/**
+ * An empty mask sized to the frame. A 100×100 scene is 1250 bytes of base64. Undefined past
+ * `REGION_CELL_MAX` — a stray far-off asset can stretch a frame to thousands of cells a side,
+ * and a scene with no region record still fogs by room like every scene did before P1.
+ */
+export function regionOf(frame: Frame): RegionMask | undefined {
   const cols = Math.max(0, Math.round(frame.maxX - frame.minX))
   const rows = Math.max(0, Math.round(frame.maxY - frame.minY))
+  if (cols * rows > REGION_CELL_MAX) return undefined
   return {
     minX: frame.minX,
     minY: frame.minY,
@@ -67,16 +82,18 @@ export function regionOf(frame: Frame): RegionMask {
 
 /**
  * The mask a cell command writes into, always in the *current* frame's coordinates —
- * `stored` when it still describes this frame, a fresh empty one when it does not.
+ * `stored` when it still describes this frame, a fresh empty one when it does not, and
+ * undefined for a frame past `REGION_CELL_MAX`, which holds no region record at all.
  *
  * ponytail: a republish that moves or resizes the map starts the region over rather than
  * re-basing the old bits onto the new origin. The room record — the one that decides what
  * geometry a player holds — survives it untouched; region memory is presentation, and
  * re-basing it is worth writing the day a DM complains.
  */
-export function regionFor(stored: RegionMask | undefined, frame: Frame): RegionMask {
+export function regionFor(stored: RegionMask | undefined, frame: Frame): RegionMask | undefined {
   const fresh = regionOf(frame)
-  return stored &&
+  return fresh &&
+    stored &&
     stored.minX === fresh.minX &&
     stored.minY === fresh.minY &&
     stored.cols === fresh.cols &&

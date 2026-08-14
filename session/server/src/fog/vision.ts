@@ -277,10 +277,12 @@ export function createVision(stores: Stores): Vision {
       // what lights the map. A DM who wants it to stay dark turns auto-explore off or locks
       // it — both of which beat the sweep above.
       const fresh = [...rooms].filter((id) => fog.rooms[id]?.status !== 'revealed')
+      // Undefined = a frame past `REGION_CELL_MAX`, which keeps no cell memory; the room
+      // reveals are the half that decides what geometry a player holds, and they still ride.
       const region = regionFor(fog.region, frame)
       // The cheap diff: OR the sweep in and see whether a single byte moved.
-      if (!fresh.length && setCells(region, cells).bits === region.bits) return null
-      return { sceneId, cells, rooms: fresh }
+      if (!fresh.length && (!region || setCells(region, cells).bits === region.bits)) return null
+      return { sceneId, cells: region ? cells : [], rooms: fresh }
     },
 
     invalidateScene: (sceneId) => {

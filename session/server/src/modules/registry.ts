@@ -47,10 +47,16 @@ const RETRACTS: Record<string, readonly string[]> = {
  * just moved, a room that just got revealed). Keying off `tokens.*`/`fog.*` only is also what
  * keeps this from ever cascading into itself: `triggers.event` (dispatched internally, below)
  * is not in this table, so its own successful run never queues a second cascade.
+ *
+ * S3 P1 — `fog.auto-explore` is in it for the same reason `fog.reveal` is: a room the party
+ * walked into is revealed, and a room-revealed trigger cannot tell the two apart. The
+ * causing command's own cascade is no substitute — it runs before the after-write hook and
+ * so reads the explored set from *before* the sweep landed. Still no loop: the auto-explore
+ * hook fires on `tokens`/`doors` writes only, and `triggers.event` is in neither table.
  */
 const CASCADES: Record<string, readonly string[]> = {
   tokens: ['move', 'place', 'update', 'delete', 'claim', 'hide'],
-  fog: ['reveal', 'set-bulk', 'hide', 'reset'],
+  fog: ['reveal', 'set-bulk', 'hide', 'reset', 'auto-explore'],
 }
 
 /**

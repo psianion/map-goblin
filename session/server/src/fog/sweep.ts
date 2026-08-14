@@ -35,7 +35,7 @@ type Doors = Record<string, DoorLiveState>
 const SWEEP_CAP = 256
 
 interface SceneSweeps {
-  /** One char per authored door: does it let sight through right now. */
+  /** One char per authored door — `sightState`, so a reveal is never mistaken for a no-op. */
   doorKey: string
   segments: Segment[]
   polygons: Map<string, Polygon>
@@ -58,7 +58,7 @@ export function createSweeps(): Sweeps {
   const cache = new WeakMap<SceneMap, SceneSweeps>()
 
   function sweepsFor(map: SceneMap, doors: Doors): SceneSweeps {
-    const doorKey = map.doors.map((door) => (passable(door, doors) ? '1' : '0')).join('')
+    const doorKey = map.doors.map((door) => sightState(door, doors)).join('')
     const hit = cache.get(map)
     if (hit && hit.doorKey === doorKey) return hit
     const next: SceneSweeps = { doorKey, segments: segmentsOf(map, doors), polygons: new Map() }
@@ -98,13 +98,17 @@ export function sightContains(polygons: readonly Polygon[], x: number, y: number
 }
 
 /**
- * Does this door let sight through right now — the live state, not the authored one. An
- * archway always does (`seedDoor` says so); a secret door nobody has found never does,
- * whatever the map wrote on it, because it is still a stretch of wall to the party.
+ * How this door stands in the segment build right now — three states, not two, and each one
+ * a *different* set of occluders (see `segmentsOf`). Collapsing the last two into "does not
+ * let sight through" is what let a `reveal-secret` on a shut door read as no change at all
+ * and hand back the cached sweep: the wall it sits on goes from unsplit to split, which
+ * matters wherever the wall's own type does not block light (window, terrain, invisible) and
+ * the door span therefore does.
  */
-function passable(door: DoorChild, doors: Doors): boolean {
+function sightState(door: DoorChild, doors: Doors): 'o' | 's' | 'c' {
   const live = doors[door.id] ?? seedDoor(door)
-  return live.open && (!door.isSecret || live.revealed)
+  if (door.isSecret && !live.revealed) return 's' // still a wall: the span is not even split
+  return live.open ? 'o' : 'c'
 }
 
 /**

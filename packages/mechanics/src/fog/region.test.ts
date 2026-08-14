@@ -5,6 +5,7 @@ import {
   clearCells,
   getCell,
   pointInPolygon,
+  REGION_CELL_MAX,
   regionFor,
   regionOf,
   setCells,
@@ -12,14 +13,15 @@ import {
   toBytes,
   type Cell,
   type Frame,
+  type RegionMask,
 } from './region'
 
 const FRAME: Frame = { minX: 0, minY: 0, maxX: 10, maxY: 10 }
 /** Off-origin on purpose: a mask that only works at (0, 0) is a mask that works by luck. */
 const SHIFTED: Frame = { minX: -4, minY: -2, maxX: 6, maxY: 8 }
 
-const set = (region = regionOf(FRAME), ...cells: Cell[]) => setCells(region, cells)
-const on = (region: ReturnType<typeof regionOf>): Cell[] => {
+const set = (region = regionOf(FRAME)!, ...cells: Cell[]) => setCells(region, cells)
+const on = (region: RegionMask): Cell[] => {
   const cells: Cell[] = []
   for (let row = 0; row < region.rows; row++) {
     for (let col = 0; col < region.cols; col++) if (getCell(region, col, row)) cells.push([col, row])
@@ -40,7 +42,7 @@ describe('base64 round trip', () => {
 
 describe('regionOf', () => {
   it('sizes to the frame and starts empty', () => {
-    const region = regionOf(FRAME)
+    const region = regionOf(FRAME)!
     expect(region).toMatchObject({ minX: 0, minY: 0, cols: 10, rows: 10 })
     // 100 bits = 13 bytes, all zero.
     expect(toBytes(region.bits)).toHaveLength(13)
@@ -49,6 +51,20 @@ describe('regionOf', () => {
 
   it('keeps the frame origin, negative or not', () => {
     expect(regionOf(SHIFTED)).toMatchObject({ minX: -4, minY: -2, cols: 10, rows: 10 })
+  })
+
+  // A stray asset dropped a thousand cells off the map stretches the frame with it, and the
+  // mask is rebroadcast whole on every write — past the ceiling there is no record at all.
+  it('refuses a frame past the cell ceiling, and holds the one exactly on it', () => {
+    expect(REGION_CELL_MAX).toBe(512 * 512)
+    const square = (side: number): Frame => ({ minX: 0, minY: 0, maxX: side, maxY: side })
+    expect(regionOf(square(512))).toMatchObject({ cols: 512, rows: 512 })
+    expect(regionOf(square(513))).toBeUndefined()
+    // Thin and long counts the same: it is cells, not the longest side.
+    expect(regionOf({ minX: 0, minY: 0, maxX: 2000, maxY: 2000 })).toBeUndefined()
+    expect(regionOf({ minX: 0, minY: 0, maxX: 300000, maxY: 1 })).toBeUndefined()
+    // …and `regionFor` passes the refusal straight through rather than inventing a mask.
+    expect(regionFor(undefined, square(513))).toBeUndefined()
   })
 })
 
@@ -77,7 +93,7 @@ describe('setCells / getCell / clearCells', () => {
   })
 
   it('ignores cells outside the mask rather than corrupting a neighbour', () => {
-    const region = regionOf(FRAME)
+    const region = regionOf(FRAME)!
     // Row-major packing means an unclamped col=10 would land on (0, row+1).
     expect(setCells(region, [[10, 0], [-1, 0], [0, 10], [0, -1]]).bits).toBe(region.bits)
     expect(getCell(region, 10, 0)).toBe(false)
@@ -85,7 +101,7 @@ describe('setCells / getCell / clearCells', () => {
   })
 
   it('does not mutate the mask it was handed', () => {
-    const region = regionOf(FRAME)
+    const region = regionOf(FRAME)!
     setCells(region, [[1, 1]])
     expect(on(region)).toEqual([])
   })
@@ -101,9 +117,9 @@ describe('regionFor', () => {
 
   it('starts over when the map moved or resized under it', () => {
     const stored = set(undefined, [1, 1])
-    expect(on(regionFor(stored, { minX: 0, minY: 0, maxX: 12, maxY: 10 }))).toEqual([])
-    expect(on(regionFor(stored, { minX: 1, minY: 0, maxX: 11, maxY: 10 }))).toEqual([])
-    expect(on(regionFor(undefined, frame))).toEqual([])
+    expect(on(regionFor(stored, { minX: 0, minY: 0, maxX: 12, maxY: 10 })!)).toEqual([])
+    expect(on(regionFor(stored, { minX: 1, minY: 0, maxX: 11, maxY: 10 })!)).toEqual([])
+    expect(on(regionFor(undefined, frame)!)).toEqual([])
   })
 })
 
