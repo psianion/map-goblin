@@ -77,6 +77,15 @@ export interface SceneVision {
    * the locked door.
    */
   blockedEdge?(room: string): BlockedEdge | null
+  /**
+   * S3 P1 — token vision, at point resolution: is this spot inside the party's live sight
+   * (range + line of sight through walls and closed doors)?
+   *
+   * Present only when the scene's fog is in `'vision'` mode; the server builds it from the
+   * same sweep union it renders with. Absent — every `'rooms'`-mode scene, which is the
+   * default — leaves the room-granular rule below exactly as it was.
+   */
+  canSee?(x: number, y: number): boolean
 }
 
 /**

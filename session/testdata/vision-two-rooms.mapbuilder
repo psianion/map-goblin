@@ -1,0 +1,215 @@
+{
+  "version": "3.1",
+  "mapSettings": {
+    "name": "Two Rooms"
+  },
+  "grid": {
+    "visible": true,
+    "snapDivision": 1,
+    "style": "clean"
+  },
+  "customImages": {},
+  "layers": [
+    {
+      "id": "layer-1",
+      "name": "Two Rooms",
+      "type": "dungeon",
+      "visible": true,
+      "locked": false,
+      "opacity": 1,
+      "children": [
+        {
+          "id": "floor-west",
+          "name": "floor-west",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [
+            [
+              [
+                0,
+                0
+              ],
+              [
+                10,
+                0
+              ],
+              [
+                10,
+                10
+              ],
+              [
+                0,
+                10
+              ]
+            ]
+          ],
+          "roughnessEnabled": false,
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff"
+        },
+        {
+          "id": "floor-east",
+          "name": "floor-east",
+          "childType": "shape",
+          "visible": true,
+          "shapeType": "rectangle",
+          "contours": [
+            [
+              [
+                12,
+                0
+              ],
+              [
+                22,
+                0
+              ],
+              [
+                22,
+                10
+              ],
+              [
+                12,
+                10
+              ]
+            ]
+          ],
+          "roughnessEnabled": false,
+          "textureScale": 1,
+          "textureOffsetX": 0,
+          "textureOffsetY": 0,
+          "textureFillRotation": 0,
+          "textureTint": "#ffffff"
+        },
+        {
+          "id": "door-mid",
+          "name": "Middle Door",
+          "childType": "door",
+          "visible": true,
+          "wallId": "wall-mid",
+          "position": [
+            11,
+            5
+          ],
+          "angle": 0,
+          "width": 2,
+          "style": "single",
+          "state": "closed",
+          "isSecret": false,
+          "roomA": "west",
+          "roomB": "east"
+        },
+        {
+          "id": "door-secret-east",
+          "name": "Hidden Way",
+          "childType": "door",
+          "visible": true,
+          "wallId": "wall-mid",
+          "position": [
+            11,
+            9
+          ],
+          "angle": 0,
+          "width": 2,
+          "style": "single",
+          "state": "open",
+          "isSecret": true,
+          "roomA": "west",
+          "roomB": "east"
+        }
+      ],
+      "standaloneWalls": [
+        {
+          "id": "wall-mid",
+          "points": [
+            [
+              11,
+              -20
+            ],
+            [
+              11,
+              20
+            ]
+          ],
+          "wallType": "normal",
+          "direction": "both",
+          "color": "#000000",
+          "width": 0.5,
+          "roughness": 0
+        }
+      ],
+      "mergedFloor": null,
+      "style": {},
+      "sublayerVisibility": {
+        "floor": true,
+        "grid": true,
+        "walls": true
+      },
+      "rooms": [
+        {
+          "id": "west",
+          "name": "West Hall",
+          "boundary": [
+            [
+              0,
+              0
+            ],
+            [
+              10,
+              0
+            ],
+            [
+              10,
+              10
+            ],
+            [
+              0,
+              10
+            ]
+          ],
+          "centroid": [
+            5,
+            5
+          ],
+          "area": 100,
+          "isPathway": false
+        },
+        {
+          "id": "east",
+          "name": "East Vault",
+          "boundary": [
+            [
+              12,
+              0
+            ],
+            [
+              22,
+              0
+            ],
+            [
+              22,
+              10
+            ],
+            [
+              12,
+              10
+            ]
+          ],
+          "centroid": [
+            17,
+            5
+          ],
+          "area": 100,
+          "isPathway": false
+        }
+      ],
+      "roomNameOverrides": {
+        "west": "West Hall",
+        "east": "East Vault"
+      }
+    }
+  ]
+}

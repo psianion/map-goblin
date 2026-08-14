@@ -98,9 +98,14 @@ export function tokensModule(visionOf: VisionOf = () => null): GameModule<Tokens
  * D7 — your own claimed token is always visible, wherever the DM puts the dark; everything
  * else only while its room is. A token on unzoned map is the DM's alone, same as the map
  * under it (D6).
+ *
+ * S3 P1 stacks token vision on the same seam: with `canSee` wired (vision mode only) the
+ * question is asked of the point rather than the room, so an orc standing in the dark half
+ * of a lit room is not on this wire at all. Own claimed tokens are exempt either way.
  */
 function inSight(token: Token, scene: SceneVision | null, viewer: Viewer): boolean {
   if (!scene || token.ownerId === viewer.identityId) return true
+  if (scene.canSee) return scene.canSee(token.x, token.y)
   const room = scene.roomAt(token.x, token.y)
   return room !== null && scene.visible.has(room)
 }

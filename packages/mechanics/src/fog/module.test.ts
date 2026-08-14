@@ -4,6 +4,8 @@ import type { PlayerInfo } from '@dnd/core/src/shared/protocol'
 import type { Viewer } from '../contract'
 import type { AuthoredDoor, DoorLiveState } from '../doors/types'
 import { fogModule } from './module'
+import { getCell, regionOf, setCells } from './region'
+import { autoExploreOn, fogModeOf, sceneFogOf } from './types'
 import type { FogState, RoomFogStatus, SceneFog } from './types'
 import { blockedEdge, defaultRoom, effectiveFog, visibleRooms, type FogRoom } from './visibility'
 
@@ -640,6 +642,260 @@ describe('the table log (§2.4.3)', () => {
       const state = fire(empty, 'reveal', { roomId: 'hall' })
       const once = redact(state, P1)
       expect(redact(once, P1)).toEqual(once)
+    })
+  })
+})
+
+// ── S3 P1: token-vision fields, commands and region memory ──────────────────
+// Everything here is additive and optional: a scene stored before any of it existed has to
+// load, and behave, exactly as it did — that is what the whole phase is gated on.
+
+describe('vision-mode settings and region memory (S3 P1)', () => {
+  /** A 10×10 scene starting at the origin: cell (col, row) centres on (col + .5, row + .5). */
+  const FRAME = { minX: 0, minY: 0, maxX: 10, maxY: 10 }
+  const framed = fogModule(
+    () => ROOMS,
+    (_campaignId, sceneId) => (sceneId === SCENE ? FRAME : null),
+  )
+
+  /** Same dispatch mirror as `run`, against the module the server wires a frame into. */
+  function fire(
+    state: FogState,
+    sender: Viewer,
+    action: string,
+    payload: unknown,
+    activeSceneId: string | null = SCENE,
+  ) {
+    const roles = framed.commands[action]
+    if (roles && !roles.includes(sender.role)) {
+      return { error: { code: 'unauthorized', message: '' }, next: state }
+    }
+    let next = state
+    const error = framed.handler(action, payload, {
+      campaignId: 'c-1',
+      sessionId: 's-1',
+      activeSceneId,
+      sender,
+      players: [],
+      state,
+      setState: (s) => {
+        next = s
+      },
+      broadcast: () => {},
+    })
+    return { error: error ?? null, next }
+  }
+
+  const scened = (state: FogState) => state.byScene[SCENE]
+
+  describe('defaults and old state', () => {
+    it('reads an untouched scene as rooms mode with auto-explore on and no region', () => {
+      const scene = sceneFogOf(empty, SCENE)
+      expect(scene).toEqual({ rooms: {}, concealBehindDoors: true })
+      expect(fogModeOf(scene)).toBe('rooms')
+      expect(autoExploreOn(scene)).toBe(true)
+      expect(scene.region).toBeUndefined()
+    })
+
+    it('loads a state written before any of these fields existed, unchanged', () => {
+      const old = stateWith({ hall: { status: 'revealed', wasEverRevealed: true } })
+      const scene = sceneFogOf(old, SCENE)
+      expect(fogModeOf(scene)).toBe('rooms')
+      expect(autoExploreOn(scene)).toBe(true)
+      // …and a command that touches nothing else leaves the old shape intact.
+      const { next } = fire(old, DM, 'set-conceal', { concealBehindDoors: false })
+      expect(scened(next).rooms).toEqual(old.byScene[SCENE].rooms)
+      expect(scened(next).mode).toBeUndefined()
+    })
+  })
+
+  describe('authorization', () => {
+    const dmOnly = [
+      ['set-mode', { mode: 'vision' }],
+      ['set-share', { visionShare: 'individual' }],
+      ['set-auto-explore', { autoExplore: false }],
+      ['region-set', { op: 'reveal', cells: [[0, 0]] }],
+    ] as const
+
+    it.each(dmOnly)('%s is dm-only', (action, payload) => {
+      expect(framed.commands[action]).toEqual(['dm'])
+      expect(fire(empty, P1, action, payload).error).toMatchObject({ code: 'unauthorized' })
+      expect(fire(empty, DM, action, payload).error?.code).not.toBe('unauthorized')
+    })
+
+    it('leaves auto-explore off the command table, so no socket can reach it', () => {
+      // The server's own write (`dispatchInternal`), exactly like `triggers.event`.
+      expect(framed.commands['auto-explore']).toBeUndefined()
+    })
+  })
+
+  describe('set-mode / set-share / set-auto-explore', () => {
+    it('flips the mode and refuses anything that is not one', () => {
+      expect(scened(fire(empty, DM, 'set-mode', { mode: 'vision' }).next).mode).toBe('vision')
+      expect(fire(empty, DM, 'set-mode', { mode: 'sight' }).error?.code).toBe('invalid-command')
+      expect(fire(empty, DM, 'set-mode', {}).error?.code).toBe('invalid-command')
+    })
+
+    it('destroys neither record on a flip, in either direction', () => {
+      const played: FogState = {
+        byScene: {
+          [SCENE]: {
+            rooms: { hall: { status: 'revealed', wasEverRevealed: true } },
+            concealBehindDoors: true,
+            region: setCells(regionOf(FRAME), [[3, 4]]),
+          },
+        },
+      }
+      const toVision = fire(played, DM, 'set-mode', { mode: 'vision' }).next
+      const andBack = fire(toVision, DM, 'set-mode', { mode: 'rooms' }).next
+      for (const state of [toVision, andBack]) {
+        expect(scened(state).rooms).toEqual(played.byScene[SCENE].rooms)
+        expect(getCell(scened(state).region, 3, 4)).toBe(true)
+      }
+      expect(scened(andBack).mode).toBe('rooms')
+    })
+
+    it('stores either share, and refuses a third', () => {
+      expect(
+        scened(fire(empty, DM, 'set-share', { visionShare: 'individual' }).next).visionShare,
+      ).toBe('individual')
+      expect(scened(fire(empty, DM, 'set-share', { visionShare: 'party' }).next).visionShare).toBe(
+        'party',
+      )
+      expect(fire(empty, DM, 'set-share', { visionShare: 'mine' }).error?.code).toBe('invalid-command')
+    })
+
+    it('turns auto-explore off explicitly, never by toggle', () => {
+      expect(scened(fire(empty, DM, 'set-auto-explore', { autoExplore: false }).next).autoExplore).toBe(
+        false,
+      )
+      expect(fire(empty, DM, 'set-auto-explore', { autoExplore: 'no' }).error?.code).toBe(
+        'invalid-command',
+      )
+    })
+  })
+
+  describe('region-set', () => {
+    it('lazily creates the region and reveals the cells it names', () => {
+      const { next, error } = fire(empty, DM, 'region-set', {
+        op: 'reveal',
+        cells: [
+          [1, 2],
+          [9, 9],
+        ],
+      })
+      expect(error).toBeNull()
+      const region = scened(next).region!
+      expect(region).toMatchObject({ minX: 0, minY: 0, cols: 10, rows: 10 })
+      expect(getCell(region, 1, 2)).toBe(true)
+      expect(getCell(region, 9, 9)).toBe(true)
+      expect(getCell(region, 1, 3)).toBe(false)
+    })
+
+    it('hides cells back out again, leaving the rest', () => {
+      const painted = fire(empty, DM, 'region-set', {
+        op: 'reveal',
+        cells: [
+          [1, 2],
+          [1, 3],
+        ],
+      }).next
+      const rubbed = fire(painted, DM, 'region-set', { op: 'hide', cells: [[1, 2]] }).next
+      expect(getCell(scened(rubbed).region, 1, 2)).toBe(false)
+      expect(getCell(scened(rubbed).region, 1, 3)).toBe(true)
+    })
+
+    it('refuses cells off the map, half cells, and payloads that are not cells', () => {
+      const refused = (cells: unknown) =>
+        fire(empty, DM, 'region-set', { op: 'reveal', cells }).error?.code
+      expect(refused([[10, 0]])).toBe('invalid-command')
+      expect(refused([[0, 10]])).toBe('invalid-command')
+      expect(refused([[-1, 0]])).toBe('invalid-command')
+      expect(refused([[0.5, 0]])).toBe('invalid-command')
+      expect(refused([[0]])).toBe('invalid-command')
+      expect(refused(['0,0'])).toBe('invalid-command')
+      expect(refused('everything')).toBe('invalid-command')
+      expect(fire(empty, DM, 'region-set', { op: 'paint', cells: [] }).error?.code).toBe(
+        'invalid-command',
+      )
+    })
+
+    it('refuses a scene the server can measure no frame for', () => {
+      expect(
+        fire(empty, DM, 'region-set', { sceneId: 'map-2', op: 'reveal', cells: [] }).error?.code,
+      ).toBe('invalid-command')
+    })
+  })
+
+  describe('auto-explore (server-internal)', () => {
+    it('ORs cells in and reveals the rooms it names, in one write', () => {
+      const { next, error } = fire(empty, DM, 'auto-explore', {
+        sceneId: SCENE,
+        cells: [
+          [2, 2],
+          [3, 2],
+        ],
+        rooms: ['hall'],
+      })
+      expect(error).toBeNull()
+      expect(getCell(scened(next).region, 2, 2)).toBe(true)
+      expect(scened(next).rooms.hall).toEqual({ status: 'revealed', wasEverRevealed: true })
+      // Not a DM act: the map opening as the party walks writes no log line.
+      expect(next.log ?? []).toEqual([])
+    })
+
+    it('adds to what is already there rather than replacing it', () => {
+      const first = fire(empty, DM, 'auto-explore', {
+        sceneId: SCENE,
+        cells: [[2, 2]],
+        rooms: ['hall'],
+      }).next
+      const second = fire(first, DM, 'auto-explore', {
+        sceneId: SCENE,
+        cells: [[4, 4]],
+        rooms: ['crypt'],
+      }).next
+      expect(getCell(scened(second).region, 2, 2)).toBe(true)
+      expect(getCell(scened(second).region, 4, 4)).toBe(true)
+      expect(Object.keys(scened(second).rooms).sort()).toEqual(['crypt', 'hall'])
+    })
+
+    it('refuses a room the map does not have', () => {
+      expect(
+        fire(empty, DM, 'auto-explore', { sceneId: SCENE, cells: [], rooms: ['nowhere'] }).error?.code,
+      ).toBe('invalid-command')
+    })
+  })
+
+  describe('redact carries the new fields', () => {
+    const state: FogState = {
+      byScene: {
+        [SCENE]: {
+          rooms: {
+            hall: { status: 'revealed', wasEverRevealed: true },
+            treasury: { status: 'never_revealed', wasEverRevealed: false },
+          },
+          concealBehindDoors: true,
+          mode: 'vision',
+          visionShare: 'party',
+          autoExplore: false,
+          region: setCells(regionOf(FRAME), [[3, 4]]),
+        },
+      },
+    }
+
+    it('hands a player the settings and the region whole', () => {
+      const seen = framed.redact!(state, P1).byScene[SCENE]
+      expect(seen.mode).toBe('vision')
+      expect(seen.visionShare).toBe('party')
+      expect(seen.autoExplore).toBe(false)
+      expect(getCell(seen.region, 3, 4)).toBe(true)
+    })
+
+    it('still drops the rooms nobody has seen', () => {
+      const seen = framed.redact!(state, P1)
+      expect(Object.keys(seen.byScene[SCENE].rooms)).toEqual(['hall'])
+      expect(JSON.stringify(seen)).not.toContain('treasury')
     })
   })
 })

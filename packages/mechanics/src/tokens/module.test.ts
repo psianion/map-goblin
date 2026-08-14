@@ -508,3 +508,62 @@ describe('redact under fog (S3 D7)', () => {
     expect(redact(state, DM)).toBe(state)
   })
 })
+
+// ── S3 P1: redaction by token vision ────────────────────────────────────────
+// The same seam, one resolution finer. With `canSee` wired the question is asked of the
+// point a token stands on, so a lit room is no longer a licence to see everything in it.
+
+describe('redact under token vision (S3 P1)', () => {
+  /** A 10×10 box of sight in the middle of one big room — everything else is that room too. */
+  const inSweep = (x: number, y: number) => x >= 10 && x <= 20 && y >= 0 && y <= 10
+  const vision: SceneVision = {
+    roomAt: () => 'hall',
+    visible: new Set(['hall']),
+    occupiable: new Set(['hall']),
+    canSee: inSweep,
+  }
+  const seen = buildTokens((sceneId) => (sceneId === SCENE ? vision : null))
+  const redact = seen.redact!
+
+  const lit = token({ id: 'lit1', x: 15.5, y: 5.5 })
+  const dark = token({ id: 'dark1', x: 1.5, y: 5.5 })
+  const mine = token({ id: 'mine1', x: 1.5, y: 1.5, ownerId: 'p-1' })
+  const hidden = token({ id: 'hid1', x: 15.5, y: 5.5, hidden: true })
+  const state: TokensState = {
+    library: {},
+    byScene: { [SCENE]: Object.fromEntries([lit, dark, mine, hidden].map((t) => [t.id, t])) },
+  }
+
+  it('keeps a token inside the sweep and drops one outside it, same room or not', () => {
+    const view = redact(state, P1).byScene[SCENE]
+    expect(Object.keys(view).sort()).toEqual(['lit1', 'mine1'])
+    // The room is visible; the corner of it the party is not looking at is not.
+    expect(vision.visible.has(vision.roomAt(dark.x, dark.y)!)).toBe(true)
+    expect(JSON.stringify(redact(state, P1))).not.toContain('dark1')
+  })
+
+  it('keeps your own claimed token wherever it stands (D7)', () => {
+    expect(vision.canSee!(mine.x, mine.y)).toBe(false)
+    expect(Object.keys(redact(state, P1).byScene[SCENE])).toContain('mine1')
+    // …and only for its owner.
+    expect(Object.keys(redact(state, P2).byScene[SCENE])).not.toContain('mine1')
+  })
+
+  it('still drops a hidden token standing in plain sight', () => {
+    expect(Object.keys(redact(state, P1).byScene[SCENE])).not.toContain('hid1')
+  })
+
+  it('leaves the DM view untouched, object identity included', () => {
+    expect(redact(state, DM)).toBe(state)
+  })
+
+  it('falls back to the room rule when no sweep is wired (rooms mode)', () => {
+    // Same scene, same tokens, `canSee` absent: the whole room is visible again.
+    const rooms = buildTokens(() => ({ ...vision, canSee: undefined }))
+    expect(Object.keys(rooms.redact!(state, P1).byScene[SCENE]).sort()).toEqual([
+      'dark1',
+      'lit1',
+      'mine1',
+    ])
+  })
+})

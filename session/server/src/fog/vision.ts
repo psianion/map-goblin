@@ -9,10 +9,16 @@
 
 import { doorsOfScene, type AuthoredDoor, type DoorLiveState, type DoorsState } from '@dnd/mechanics/doors'
 import {
+  autoExploreOn,
   blockedEdge,
+  cellsCoveredByPolygon,
   effectiveFog,
+  fogModeOf,
+  regionFor,
   sceneFogOf,
+  setCells,
   visibleRooms,
+  type Cell,
   type FogRoom,
   type FogState,
   type RoomFog,
@@ -30,11 +36,20 @@ import {
   type MapDelta,
 } from './redactMap'
 import { CACHE_MAX, createSceneMaps, type SceneMap, type SceneMapOf } from './sceneMap'
+import {
+  createSweeps,
+  exploreLocks,
+  inAnyLock,
+  sightContains,
+  type Polygon,
+} from './sweep'
 
 /** Everything the rest of the server asks the fog. One implementation, wired at boot. */
 export interface Vision {
   /** Backs `fogModule` — the room ids a fog command may name. */
   roomsOf(campaignId: string, sceneId: string): readonly string[]
+  /** Backs `fogModule`'s region commands — the rectangle a region cell is counted from. */
+  frameOf(campaignId: string, sceneId: string): SceneMap['frame']
   /** Backs `doorsModule` — the doors the map authors. */
   doorsOf(campaignId: string, sceneId: string): readonly AuthoredDoor[]
   /**
@@ -53,14 +68,32 @@ export interface Vision {
   sceneMapOf: SceneMapOf
   /** Rooms whose geometry entered the player view at this mutation, sliced (D5). */
   revealDelta(sceneId: string): MapDelta | null
+  /**
+   * S3 P1 — what the party's sight has just earned in a vision-mode scene, or null when
+   * there is nothing new to write (wrong mode, auto-explore off, nobody looking, or the
+   * sweep covers only ground the record already holds). The auto-explore hook feeds this
+   * straight to `fog.auto-explore`.
+   */
+  autoExplorePatch(sceneId: string): AutoExplorePatch | null
   /** #47 — call after a re-publish repoints a scene's map, or its cached answers go stale. */
   invalidateScene(sceneId: string): void
+}
+
+/** The one fog write a successful token move or door toggle can earn (§4). */
+export interface AutoExplorePatch {
+  sceneId: string
+  /** Every non-locked cell the party can see — an idempotent OR, not a delta. */
+  cells: Cell[]
+  /** Rooms the sweep touched that are not already lit. */
+  rooms: string[]
 }
 
 interface Computed {
   revision: number
   map: SceneMap
   fog: SceneFog
+  /** The party's sight polygons — null in `'rooms'` mode, where nothing sweeps at all. */
+  sight: Polygon[] | null
   doors: Record<string, DoorLiveState>
   /** Rooms the party can see right now (D3). */
   visible: Set<string>
@@ -85,6 +118,7 @@ const NO_ONES_DOORS: ReadonlySet<string> = new Set()
 
 export function createVision(stores: Stores): Vision {
   const { sceneMapOf, invalidate: invalidateSceneMap } = createSceneMaps(stores)
+  const sweeps = createSweeps()
   const cache = new Map<string, Computed>()
 
   const read = <S>(campaignId: string, module: string, fallback: S): S =>
@@ -119,6 +153,10 @@ export function createVision(stores: Stores): Vision {
     // brightness on a scene the DM's panel called Unrevealed. Withholding it here is the half
     // that matters; the mask is only the half the player can see (PRODUCT principle 2).
     const fog = effectiveFog(sceneFogOf(read(campaignId, 'fog', NO_FOG), sceneId), NO_ROOMS, party)
+    // S3 P1 — the sweep is taken once per mutation alongside the BFS, and cached with it:
+    // token redaction, auto-explore and (P2) the mask all read the same polygons, so the
+    // three cannot disagree about where the party's sight ends.
+    const sight = fogModeOf(fog) === 'vision' ? sweeps.partySight(map, tokens, doors) : null
 
     const explored = exploredRooms(fog)
     // The doors a player may hold — the *same* predicate the map cut uses on the door
@@ -153,6 +191,7 @@ export function createVision(stores: Stores): Vision {
       revision: stores.moduleState.revision,
       map,
       fog,
+      sight,
       doors,
       visible: visibleRooms(fog, doors, map.doors, party),
       // D8 asks a different question of the same graph: a re-hidden room the party can
@@ -176,6 +215,7 @@ export function createVision(stores: Stores): Vision {
   return {
     sceneMapOf,
     roomsOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.rooms.map((room) => room.id) ?? [],
+    frameOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.frame ?? null,
     doorsOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.doors ?? [],
     playerDoors: (sceneId) => compute(sceneId)?.playerDoors ?? NO_ONES_DOORS,
 
@@ -183,10 +223,14 @@ export function createVision(stores: Stores): Vision {
       const computed = compute(sceneId)
       // No authored rooms, no fog: room-granular fog has nothing to be granular about.
       if (!computed || computed.map.rooms.length === 0) return null
+      const { sight } = computed
       return {
         roomAt: computed.map.roomAt,
         visible: computed.visible,
         occupiable: computed.occupiable,
+        // P1 — in vision mode a token is judged by the point it stands on, not the room it
+        // is in. Absent in `'rooms'` mode, which leaves `inSight` byte-identical there.
+        canSee: sight ? (x, y) => sightContains(sight, x, y) : undefined,
         // The half of the refusal that was never plugged in: `occupiable` is the BFS's
         // boolean, and without this the cause it discarded stayed discarded, so every move
         // a door refused came back as the generic "you can't move there".
@@ -200,6 +244,44 @@ export function createVision(stores: Stores): Vision {
     },
 
     revealDelta: (sceneId) => compute(sceneId)?.delta ?? null,
+
+    autoExplorePatch: (sceneId) => {
+      const computed = compute(sceneId)
+      if (!computed?.sight?.length) return null
+      const { fog, map } = computed
+      // Sight still drives redaction with auto-explore off (§4); it simply writes nothing.
+      if (!autoExploreOn(fog) || !map.frame) return null
+      const frame = map.frame
+
+      const locks = exploreLocks(map.zones)
+      const cells: Cell[] = []
+      const rooms = new Set<string>()
+      const counted = new Set<string>()
+      for (const polygon of computed.sight) {
+        for (const [col, row] of cellsCoveredByPolygon(polygon, frame)) {
+          const key = `${col},${row}`
+          if (counted.has(key)) continue
+          counted.add(key)
+          const [x, y] = [frame.minX + col + 0.5, frame.minY + row + 0.5]
+          // A lock beats the sweep by construction: the cell is not written and the room it
+          // belongs to is not credited, so a boss chamber seen through an open door stays
+          // the DM's to reveal (§5).
+          if (inAnyLock(locks, x, y)) continue
+          cells.push([col, row])
+          const room = map.roomAt(x, y)
+          if (room !== null) rooms.add(room)
+        }
+      }
+
+      // A re-hidden room the party is looking at comes back: with auto-explore on, sight is
+      // what lights the map. A DM who wants it to stay dark turns auto-explore off or locks
+      // it — both of which beat the sweep above.
+      const fresh = [...rooms].filter((id) => fog.rooms[id]?.status !== 'revealed')
+      const region = regionFor(fog.region, frame)
+      // The cheap diff: OR the sweep in and see whether a single byte moved.
+      if (!fresh.length && setCells(region, cells).bits === region.bits) return null
+      return { sceneId, cells, rooms: fresh }
+    },
 
     invalidateScene: (sceneId) => {
       invalidateSceneMap(sceneId)

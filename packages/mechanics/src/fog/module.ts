@@ -8,9 +8,12 @@
 
 import type { GameModule, ModuleContext } from '../contract'
 import { actorOf, logged, type LogAction, type LogEntry } from '../log'
-import { ID_MAX, Reject, bad, bool, obj, oneOf, str } from '../tokens/validate'
+import { ID_MAX, Reject, bad, bool, num, obj, oneOf, str } from '../tokens/validate'
+import { clearCells, regionFor, setCells, type Cell, type Frame, type RegionMask } from './region'
 import {
+  FOG_MODES,
   ROOM_FOG_STATUSES,
+  VISION_SHARES,
   roomFogOf,
   sceneFogOf,
   type FogState,
@@ -18,16 +21,29 @@ import {
   type SceneFog,
 } from './types'
 
+export * from './region'
 export * from './types'
 export * from './visibility'
 
 /** The room ids of a scene's map — corridors included, they are rooms (D6). */
 export type SceneRooms = (campaignId: string, sceneId: string) => readonly string[]
 
+/**
+ * The scene's cell-snapped confining rectangle, which is what a region cell is counted from.
+ * Injected rather than imported: measuring it needs the map document, and mechanics does not
+ * read files (D2/D3). Null for a scene with no map, which is a scene with no region either.
+ */
+export type SceneFrame = (campaignId: string, sceneId: string) => Frame | null
+
+const REGION_OPS = ['reveal', 'hide'] as const
+
 type Ctx = ModuleContext<FogState>
 type Payload = Record<string, unknown>
 
-export function fogModule(roomsOf: SceneRooms): GameModule<FogState> {
+export function fogModule(
+  roomsOf: SceneRooms,
+  frameOf: SceneFrame = () => null,
+): GameModule<FogState> {
   return {
     name: 'fog',
     commands: {
@@ -36,12 +52,19 @@ export function fogModule(roomsOf: SceneRooms): GameModule<FogState> {
       reset: ['dm'],
       'set-bulk': ['dm'],
       'set-conceal': ['dm'],
+      'set-mode': ['dm'],
+      'set-share': ['dm'],
+      'set-auto-explore': ['dm'],
+      'region-set': ['dm'],
+      // `auto-explore` is deliberately absent: it is the server's own write (the sweep a
+      // token move earned), reachable only through `dispatchInternal`, exactly the way
+      // `triggers.event` is. Leaving it out of this map *is* its access control.
     },
     initialState: { byScene: {} },
 
     handler(action, payload, ctx) {
       try {
-        run(action, obj(payload ?? {}, 'payload'), ctx, roomsOf)
+        run(action, obj(payload ?? {}, 'payload'), ctx, roomsOf, frameOf)
       } catch (err) {
         if (err instanceof Reject) return { code: err.code, message: err.message }
         throw err
@@ -51,6 +74,11 @@ export function fogModule(roomsOf: SceneRooms): GameModule<FogState> {
     // D4: a player is told about the rooms they have seen and nothing else. Never-revealed
     // rooms are absent whole — their ids and their *count* are exactly what must not leak,
     // so a status field would not be enough. Idempotent: re-filtering drops nothing new.
+    //
+    // The vision-mode fields ride the spread whole (mode, share, autoExplore, region): the
+    // first three are settings the client has to render the same way the DM set them, and
+    // the region is presentation memory of cells the party themselves swept — low-secret by
+    // construction, and P2's mask is the thing that needs it. Rooms filtering is unchanged.
     redact(state, viewer) {
       if (viewer.role === 'dm') return state
       const byScene: FogState['byScene'] = {}
@@ -76,7 +104,7 @@ export function fogModule(roomsOf: SceneRooms): GameModule<FogState> {
   }
 }
 
-function run(action: string, p: Payload, ctx: Ctx, roomsOf: SceneRooms): void {
+function run(action: string, p: Payload, ctx: Ctx, roomsOf: SceneRooms, frameOf: SceneFrame): void {
   const sceneId = sceneOf(p, ctx)
   const scene = sceneFogOf(ctx.state, sceneId)
   switch (action) {
@@ -115,9 +143,85 @@ function run(action: string, p: Payload, ctx: Ctx, roomsOf: SceneRooms): void {
         ...scene,
         concealBehindDoors: bool(p.concealBehindDoors, 'concealBehindDoors'),
       })
+    // Neither record is touched by a flip: the rooms the party explored and the cells they
+    // swept both survive a scene going back and forth between the two modes, so a DM trying
+    // token vision out mid-session loses nothing by changing their mind.
+    case 'set-mode':
+      return setScene(ctx, sceneId, { ...scene, mode: oneOf(p.mode, FOG_MODES, 'mode') })
+    case 'set-share':
+      return setScene(ctx, sceneId, {
+        ...scene,
+        visionShare: oneOf(p.visionShare, VISION_SHARES, 'visionShare'),
+      })
+    case 'set-auto-explore':
+      return setScene(ctx, sceneId, {
+        ...scene,
+        autoExplore: bool(p.autoExplore, 'autoExplore'),
+      })
+    case 'region-set': {
+      const region = regionFor(scene.region, frameFor(ctx, sceneId, frameOf))
+      const cells = parseCells(p.cells, region)
+      const op = oneOf(p.op, REGION_OPS, 'op')
+      return setScene(ctx, sceneId, {
+        ...scene,
+        region: op === 'reveal' ? setCells(region, cells) : clearCells(region, cells),
+      })
+    }
+    // Server-internal (see `commands` above): the region cells and rooms one party sweep
+    // just earned, applied as ONE write so persistence, the broadcast, D5's geometry delta
+    // and the retract re-sends all ride the path a DM's own reveal rides.
+    case 'auto-explore': {
+      const region = regionFor(scene.region, frameFor(ctx, sceneId, frameOf))
+      const cells = parseCells(p.cells, region)
+      const rooms = { ...scene.rooms }
+      for (const id of parseRoomIds(p.rooms, ctx, sceneId, roomsOf)) {
+        rooms[id] = { status: 'revealed', wasEverRevealed: true }
+      }
+      // ponytail: no log line. A DM's reveal is an act worth reading back; the map opening
+      // as the party walks is the map, and a line per step would bury the acts under it.
+      return setScene(ctx, sceneId, { ...scene, region: setCells(region, cells), rooms })
+    }
     default:
       bad(`fog has no action '${action}'`)
   }
+}
+
+function frameFor(ctx: Ctx, sceneId: string, frameOf: SceneFrame): Frame {
+  const frame = frameOf(ctx.campaignId, sceneId)
+  if (!frame) bad('that scene has no map to measure cells against')
+  return frame
+}
+
+/** `[col, row]` pairs off the wire, bounds-checked against the mask they are about to hit. */
+function parseCells(value: unknown, region: RegionMask): Cell[] {
+  if (!Array.isArray(value)) bad('cells must be an array of [col, row] pairs')
+  return value.map((raw, i): Cell => {
+    if (!Array.isArray(raw) || raw.length !== 2) bad(`cells[${i}] must be [col, row]`)
+    const col = num(raw[0], `cells[${i}][0]`)
+    const row = num(raw[1], `cells[${i}][1]`)
+    if (!Number.isInteger(col) || !Number.isInteger(row)) bad(`cells[${i}] must be whole cells`)
+    if (col < 0 || row < 0 || col >= region.cols || row >= region.rows) {
+      bad(`cells[${i}] is outside the scene`)
+    }
+    return [col, row]
+  })
+}
+
+/** Room ids off the wire — the same "the map actually has it" check every reveal makes. */
+function parseRoomIds(
+  value: unknown,
+  ctx: Ctx,
+  sceneId: string,
+  roomsOf: SceneRooms,
+): readonly string[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) bad('rooms must be an array of room ids')
+  const known = new Set(roomsOf(ctx.campaignId, sceneId))
+  return value.map((raw, i) => {
+    const id = str(raw, `rooms[${i}]`, ID_MAX)
+    if (!known.has(id)) bad(`no room '${id}' in that scene`)
+    return id
+  })
 }
 
 /** Payload scene, else the table's active scene; a command with neither is nonsense. */

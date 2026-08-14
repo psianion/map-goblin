@@ -53,10 +53,30 @@ const CASCADES: Record<string, readonly string[]> = {
   fog: ['reveal', 'set-bulk', 'hide', 'reset'],
 }
 
+/**
+ * S3 P1 — the one seam a *server-side* rule hangs off a successful command: a token move or
+ * a door swing in a vision-mode scene earns the party the ground they can now see, and that
+ * write has to be a fog write (D5's geometry delta rides fog frames, §4).
+ *
+ * Injected rather than imported because the rule needs the map geometry and this file must
+ * stay a table of modules with no fog in it (D2). It runs after `cascade` for the same
+ * reason `cascade` runs at all: the command has already landed and persisted, so a hook that
+ * throws cannot un-write it. The registry is handed back so the hook can dispatch, without a
+ * construction cycle.
+ */
+export type AfterWrite = (
+  event: { module: string; action: string; sceneId: string | null },
+  ctx: DispatchContext,
+  registry: ModuleRegistry,
+) => void
+
 export class ModuleRegistry {
   private readonly modules = new Map<string, GameModule<unknown>>()
 
-  constructor(private readonly store: ModuleStateStore) {}
+  constructor(
+    private readonly store: ModuleStateStore,
+    private readonly afterWrite?: AfterWrite,
+  ) {}
 
   register<S>(module: GameModule<S>): void {
     this.modules.set(module.name, module)
@@ -149,7 +169,17 @@ export class ModuleRegistry {
       },
     }
     const result = found.handler(action, payload, full) ?? null
-    if (result === null) this.cascade(found.name, action, sceneId, ctx)
+    if (result === null) {
+      this.cascade(found.name, action, sceneId, ctx)
+      // Swallowed for the same reason a bad cascade is: a server-side rule that throws is a
+      // bug to notice in the log, never something the player who moved a token sees instead
+      // of their move succeeding.
+      try {
+        this.afterWrite?.({ module: found.name, action, sceneId }, ctx, this)
+      } catch (err) {
+        console.warn(`[fog] after-write hook from ${found.name}.${action} threw`, err)
+      }
+    }
     return result
   }
 

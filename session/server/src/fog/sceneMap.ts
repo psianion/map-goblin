@@ -5,6 +5,9 @@
 // immutable — an upload mints a new id and never rewrites one — which makes the row id its
 // own version, and the cache needs no invalidation at all.
 
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- D3's one waiver: shared/mapBounds is pure bounds math, pixi-free by design (see eslint.config.js)
+import { computeMapFrame } from '@dnd/core/src/shared/mapBounds'
+import type { WorldBounds } from '@dnd/core/src/shared/mapBounds'
 import type { AnyChild, DoorChild, Room, WallSegment, ZoneChild } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, Layer, SerializedMapData } from '@dnd/core/src/store/types'
 import type { Stores } from '../db/stores'
@@ -26,6 +29,13 @@ export interface SceneMap {
   /** The campaign the map belongs to — module state is keyed by it. */
   campaignId: string
   data: SerializedMapData
+  /**
+   * The map's confining rectangle, cell-snapped. Measured once with the rest of the index
+   * because two callers want it per mutation now — the player map's stamped `frame` and the
+   * region record's cell origin (S3 P1) — and it is a walk over every polygon on the map.
+   * Null while nothing is drawn.
+   */
+  frame: WorldBounds | null
   /** Every dungeon layer's rooms, corridors included: they are rooms like any other (D6). */
   rooms: readonly Room[]
   doors: readonly DoorChild[]
@@ -102,6 +112,7 @@ function index(campaignId: string, data: SerializedMapData): SceneMap {
   return {
     campaignId,
     data,
+    frame: computeMapFrame(data.layers, data.mapSettings?.terrain?.bounds ?? null),
     rooms,
     doors,
     zones,
