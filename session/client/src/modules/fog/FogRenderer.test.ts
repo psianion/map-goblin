@@ -23,7 +23,7 @@ import type { RoomFog, SceneFog } from '@dnd/mechanics/fog';
 import type { Token } from '@dnd/mechanics/tokens';
 import type { LiveDoor } from '../doors/doors';
 import { useSessionStore } from '../../session/store';
-import { FOG_MARGIN, fogPad, fogRegion, ringsWithHoles } from './fog';
+import { FOG_MARGIN, fogPad, fogRegion, type FogRing, ringsWithHoles } from './fog';
 import {
   EXPLORED_TINT,
   EXPLORED_TINT_ALPHA,
@@ -512,11 +512,14 @@ const EAST = hall('r-east', SPINE + WALL_WIDTH / 2, 16);
 /** West's outer (exterior) wall: centreline 3.75, so its far face is a full wallWidth out. */
 const WEST_OUTER_FACE = 4 - WALL_WIDTH;
 
+// Land at even depth, water at odd — a point is in the region when the deepest ring over
+// it is land, which is what the recursive "inside this ring but not covered by its
+// children" asks at every level of the tree.
+const covered = (nodes: readonly FogRing[], point: [number, number]): boolean =>
+  nodes.some(({ outline, holes }) => pointInPolygon(point, outline) && !covered(holes, point));
+
 const inRegion = (rings: Polygon[], point: [number, number]): boolean =>
-  ringsWithHoles(rings).some(
-    ({ outline, holes }) =>
-      pointInPolygon(point, outline) && !holes.some((hole) => pointInPolygon(point, hole)),
-  );
+  covered(ringsWithHoles(rings), point);
 
 describe('fogPad — how far past its floor a room reaches', () => {
   it('buys the whole wall band, not half of it, plus the margin', () => {
@@ -585,6 +588,32 @@ describe('fogRegion — the hole the mask cuts', () => {
     const { clear } = region([WEST, EAST], []);
     expect(ringsWithHoles(clear)).toHaveLength(1);
     expect(inRegion(clear, [SPINE, 3])).toBe(true);
+  });
+
+  it('keeps an island clear inside a fogged courtyard inside revealed rooms', () => {
+    // Three concentric rings: revealed land, unrevealed water walled inside it, and a
+    // revealed island inside *that*. The old one-level pairing dropped the island — three
+    // rings deep it went dark. The tree keeps every level: land at even depth, water at odd.
+    const sq = (r: number): Polygon => [
+      [-r, -r],
+      [r, -r],
+      [r, r],
+      [-r, r],
+    ];
+    const rings = [sq(3), sq(10), sq(6), sq(1.5)]; // deliberately out of order
+    const tree = ringsWithHoles(rings);
+
+    expect(tree).toHaveLength(1);
+    expect(tree[0].outline).toBe(rings[1]); // sq(10) is the land
+    expect(tree[0].holes).toHaveLength(1); // sq(6) is its water…
+    expect(tree[0].holes[0].holes).toHaveLength(1); // …sq(3) the island in it…
+    expect(tree[0].holes[0].holes[0].holes).toHaveLength(1); // …sq(1.5) water again
+
+    expect(inRegion(rings, [0, 8])).toBe(true); // land
+    expect(inRegion(rings, [0, 4.5])).toBe(false); // courtyard stays fogged
+    expect(inRegion(rings, [0, 2])).toBe(true); // the island is clear, not dropped
+    expect(inRegion(rings, [0, 0])).toBe(false); // pocket inside the island errs dark
+    expect(inRegion(rings, [0, 20])).toBe(false); // outside everything
   });
 
   it('runs the falloff outside the room’s claim, never into it', () => {

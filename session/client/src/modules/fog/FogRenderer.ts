@@ -59,6 +59,7 @@ import { tokensOf } from '../tokens/TokenRenderer';
 import {
   fogPad,
   fogRegion,
+  type FogRing,
   ringsWithHoles,
   roomAt,
   roomFog,
@@ -571,6 +572,44 @@ function paintRoom(g: Graphics, room: Room, view: RoomView, pad: number, voidFil
 }
 
 /**
+ * Cut these land rings out of the fill just drawn — the caller's previous instruction must
+ * be that fill — then paint each pocket of water inside them back solid, and recurse, so an
+ * island inside the pocket is cut clear again at any depth.
+ *
+ * ponytail: pockets and islands are hard-edged. `featherEdge` thickens fog towards a rim
+ * from the inside, a pocket wants the opposite, and it takes a closed ring of revealed
+ * rooms to make one at all.
+ */
+function cutLand(
+  g: Graphics,
+  land: readonly FogRing[],
+  water: { color: number; alpha?: number },
+): void {
+  for (const { outline } of land) g.poly(outline.flat());
+  if (land.length > 0) g.cut();
+  for (const { holes } of land) {
+    for (const pocket of holes) {
+      g.poly(pocket.outline.flat()).fill(water);
+      cutLand(g, pocket.holes, water);
+    }
+  }
+}
+
+/** Fill each land ring, cut its water out of that fill, and recurse into the islands. */
+function fillLand(
+  g: Graphics,
+  land: readonly FogRing[],
+  style: { color: number; alpha?: number },
+): void {
+  for (const { outline, holes } of land) {
+    g.poly(outline.flat()).fill(style);
+    for (const pocket of holes) g.poly(pocket.outline.flat());
+    if (holes.length > 0) g.cut();
+    for (const pocket of holes) fillLand(g, pocket.holes, style);
+  }
+}
+
+/**
  * The mask itself: one fill over the map, a hole for everything the player has earned, the
  * explored wash inside the holes that are only memories, and the falloff last so it thickens
  * over both.
@@ -618,34 +657,18 @@ export function drawFog(scrim: Graphics, scene: FogScene, dotsMask?: Graphics): 
 
   const seen = fogRegion([...visible, ...explored], dark, scene.pad, FOG_FEATHER);
   const earned = ringsWithHoles(seen.reach);
-  for (const { outline } of earned) scrim.poly(outline.flat());
-  if (earned.length > 0) scrim.cut();
-  if (dotsMask && earned.length > 0) {
-    for (const { outline } of earned) dotsMask.poly(outline.flat());
-    dotsMask.cut();
-  }
-
-  // Fog the region has closed all the way around — an unrevealed pocket walled in by revealed
-  // rooms. Put back as solid void: it is inside the hole, so nothing else is covering it.
-  // ponytail: hard-edged. `featherEdge` thickens fog towards a rim from the inside, and a
-  // pocket wants the opposite; it takes a closed ring of revealed rooms to make one.
-  for (const { holes } of earned) {
-    for (const hole of holes) {
-      scrim.poly(hole.flat()).fill({ color: voidFill, alpha: 1 });
-      dotsMask?.poly(hole.flat()).fill(0xffffff);
-    }
-  }
+  cutLand(scrim, earned, { color: voidFill, alpha: 1 });
+  if (dotsMask) cutLand(dotsMask, earned, { color: 0xffffff });
 
   // D10's memory tier, on the same padded footprint at its own darkness. It stops at a live
   // room's floor rather than at its own wall, so a wall between a memory and a lit room reads
   // as the memory's — and it runs out to `reach` rather than to `clear`, so the falloff below
   // has a wash to thicken over instead of a gap between the two to fall through.
   const memory = fogRegion(explored, [...dark, ...visible], scene.pad, FOG_FEATHER);
-  for (const { outline, holes } of ringsWithHoles(memory.reach)) {
-    scrim.poly(outline.flat()).fill({ color: EXPLORED_TINT, alpha: EXPLORED_TINT_ALPHA });
-    for (const hole of holes) scrim.poly(hole.flat());
-    if (holes.length > 0) scrim.cut();
-  }
+  fillLand(scrim, ringsWithHoles(memory.reach), {
+    color: EXPLORED_TINT,
+    alpha: EXPLORED_TINT_ALPHA,
+  });
 
   for (const { outline } of earned) featherEdge(scrim, outline, voidFill);
 }
@@ -681,6 +704,19 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   let views: Map<string, RoomView> | null = null;
   let sceneId: string | null = null;
   let voidLook: VoidStyle = { fill: 0, dot: 0, dotAlpha: 0.45, dotsVisible: false };
+
+  // Read-only fade probe for the e2e lanes, on `__testProbe`'s rationale (unguarded:
+  // nothing here a script on the page could not already read). Pixels stopped being able
+  // to time the reveal when #51 brightened the explored look — the fade's largest
+  // per-frame step fell under any gate that still excludes torch flicker — so the
+  // reduced-motion row reads the fade layer itself.
+  const fogProbe = {
+    fadesStarted: 0,
+    fadesActive: (): number => fades.length,
+    reducedMotion: (): boolean => revealDurationMs() === 0,
+    viewOf: (roomId: string): RoomView | null => views?.get(roomId) ?? null,
+  };
+  (window as Window & { __fogProbe?: typeof fogProbe }).__fogProbe = fogProbe;
 
   // GridRenderer's redraw discipline, transplanted: only when the visible cell range
   // shifts by a full cell (which any zoom worth redrawing for causes) or a rebuild
@@ -758,6 +794,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
         paintRoom(graphic, room, before, scene.pad, drawn.void.fill);
         fadeLayer.addChild(graphic);
         fades.push({ graphic, startedAt: performance.now() });
+        fogProbe.fadesStarted += 1;
       }
     }
     views = scene.views;
@@ -790,6 +827,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   return () => {
     ticker.remove(tick);
     unsubscribe();
+    delete (window as Window & { __fogProbe?: typeof fogProbe }).__fogProbe;
     // The engine may already be gone (GameRenderer unmounting first) — its objects are
     // destroyed and touching them throws.
     try {

@@ -885,29 +885,24 @@ test.describe.serial('@sprint3-fog', () => {
   /**
    * §2.6 (added row) — `prefers-reduced-motion` cuts the reveal.
    *
-   * One reveal, watched frame by frame on two tabs at once: the ordinary player's, which
-   * should show the 300ms fade as a run of frames that keep changing, and a `reducedMotion`
-   * one, where the same reveal has to land in a frame or two and stop. Both traces come from
-   * `fadeTrace` — a screenshot cannot answer this at all, it is slower than the fade it would
-   * be timing, and a row that samples too slowly passes by being blind rather than by being
-   * right. The contrast is the point: without the animated trace beside it, "settled by the
-   * first sample" is a claim about the instrument and not about the product.
+   * One reveal, read off the fade layer itself on two tabs at once: the ordinary player's,
+   * which must spend a fade on it, and a `reducedMotion` one, which must never start one —
+   * the cut is the *absence* of the fade, not a faster fade. The instrument is `__fogProbe`
+   * (FogRenderer), not pixels: this row was blind from #51 until this session, because
+   * brightening the explored look dropped the fade's largest per-frame step (easeOutQuart,
+   * ~5.9 levels from wash to lit) below any per-pixel gate that still excludes torch
+   * flicker, and both tabs traced identically however the reveal actually landed. The ramp's
+   * duration and easing stay pinned in FogRenderer's unit rows; what only a live table can
+   * pin — and what this row claims — is the wiring: the media query reaching
+   * `revealDurationMs`, the reveal reaching both seats, and the fade being started on
+   * exactly one of them.
    *
    * The subject is the Torchlit Chamber because on this map it is the only room with a light
-   * inside it, and a reveal the canvas cannot show is a reveal this row cannot time. It is
-   * also the default room (amendment 2026-07-28), so revealing it only means something once
-   * something else is revealed and the fallback is off — hence the anchor below.
+   * inside it. It is also the default room (amendment 2026-07-28), so revealing it only
+   * means something once something else is revealed and the fallback is off — hence the
+   * anchor below.
    */
-  // FIXME(tracked): blind since #51, not since this session. The row re-hides its subject
-  // first, so the fade ramps from the explored wash (~29/255) to lit (~58/255) — a contrast
-  // whose largest single-frame step (easeOutQuart, ~5.9 levels) sits below any per-pixel
-  // gate that still excludes torch flicker; pre-#51 the explored look was near-black and
-  // the same ramp read ~12 levels/frame. Confirmed live: the fade IS created and ticked
-  // (FogRenderer.ts:752-784) and the ordinary tab is not reduced-motion; both tabs simply
-  // trace identically because the discriminating paint is sub-threshold. Reviving the row
-  // means asserting on the fade state itself (a __testProbe read of the fadeLayer), not on
-  // pixels — redesign, tracked for the sprint3-suite recalibration, out of M1's scope.
-  test.fixme('reduced motion cuts the reveal', async ({ browser }) => {
+  test('reduced motion cuts the reveal', async ({ browser }) => {
     const subject = CHAMBER
     expect(lightsIn(subject), 'the subject room has no light in it to reveal').toBeGreaterThan(0)
     // One other room revealed throughout (so the default-room fallback cannot lend the
@@ -928,61 +923,71 @@ test.describe.serial('@sprint3-fog', () => {
       expect(await hush.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(
         true,
       )
-      await hush.waitForTimeout(REVEAL_MS * 2)
 
-      // The instrument's own floor, measured on still frames — the door row's pattern.
-      // Per-tab, because the tabs rest differently: torch flicker is live on the ordinary
-      // tab and pinned under reduced motion, and neither wobble is "the fade".
-      const [quietNoise, movingNoise] = await Promise.all([
-        fadeTrace(hush, 12),
-        fadeTrace(player, 12),
-      ])
-      const FLOOR = Math.max(...[...quietNoise, ...movingNoise].map((f) => f.moved)) + 0.0002
+      interface ProbeRead {
+        started: number
+        active: number
+        reduced: boolean
+        view: string | null
+      }
+      const probe = (page: Page): Promise<ProbeRead | null> =>
+        page.evaluate((roomId) => {
+          const p = (
+            window as Window & {
+              __fogProbe?: {
+                fadesStarted: number
+                fadesActive(): number
+                reducedMotion(): boolean
+                viewOf(id: string): string | null
+              }
+            }
+          ).__fogProbe
+          return p
+            ? {
+                started: p.fadesStarted,
+                active: p.fadesActive(),
+                reduced: p.reducedMotion(),
+                view: p.viewOf(roomId),
+              }
+            : null
+        }, subject.id)
 
-      // Both traces start before the click and run past the fade window; the click is not
-      // awaited into them, so whatever the round trip costs is spent inside the trace.
-      const FRAMES = 60
-      const traces = Promise.all([fadeTrace(hush, FRAMES), fadeTrace(player, FRAMES)])
+      // Both probes mounted, and each tab knows its own motion setting — without the
+      // second read this row could pass by the media query never reaching the renderer.
+      await expect.poll(async () => (await probe(hush))?.reduced).toBe(true)
+      await expect.poll(async () => (await probe(player))?.reduced).toBe(false)
+      const before = {
+        hush: ((await probe(hush)) as ProbeRead).started,
+        moving: ((await probe(player)) as ProbeRead).started,
+      }
+
       await roomRow(dm, subject.id).getByRole('button').click()
-      const [quietTrace, movingTrace] = await traces
       await expect(roomRow(dm, subject.id)).toHaveAttribute('data-fog-status', 'revealed')
 
-      // Score the reveal burst, not all 60 frames: revealing an already-explored room also
-      // triggers a slow settle cascade of redraws (~670ms, identical on both tabs) that has
-      // nothing to do with the fade. Each tab is judged on the REVEAL_MS after its own
-      // first moving frame — where a fade is sustained repaint and a pop is one frame.
-      const moving = (trace: { ms: number; moved: number }[]) =>
-        trace.filter((f) => f.moved > FLOOR)
-      const burst = (trace: { ms: number; moved: number }[]) => {
-        const hot = moving(trace)
-        return hot.length ? hot.filter((f) => f.ms - hot[0].ms <= REVEAL_MS) : []
-      }
-      const paint = (frames: { moved: number }[]) => frames.reduce((s, f) => s + f.moved, 0)
-      const quietBurst = burst(quietTrace)
-      const movingBurst = burst(movingTrace)
+      // The reveal reaches both seats…
+      await expect.poll(async () => (await probe(player))?.view).toBe('visible')
+      await expect.poll(async () => (await probe(hush))?.view).toBe('visible')
+
+      // …the ordinary tab spends a fade on it…
+      await expect
+        .poll(async () => ((await probe(player)) as ProbeRead).started)
+        .toBeGreaterThan(before.moving)
+      // …and the reduced-motion tab, holding the same revealed room, never started one.
+      const after = (await probe(hush)) as ProbeRead
+      expect(after.started, 'reduced motion started a fade').toBe(before.hush)
+      expect(after.active, 'reduced motion has a fade in flight').toBe(0)
+
+      // The fade is a transient: it finishes and is torn down, not left ticking.
+      await player.waitForTimeout(REVEAL_MS * 2)
+      expect(((await probe(player)) as ProbeRead).active).toBe(0)
 
       record(
         'reduced-motion reveal',
-        `${subject.name}: reduced-motion tab moved on ${quietBurst.length} frame(s) in its ` +
-          `${REVEAL_MS}ms burst (${(paint(quietBurst) * 100).toFixed(1)}%-frames of paint); ` +
-          `the same reveal on the ordinary tab moved on ${movingBurst.length} ` +
-          `(${(paint(movingBurst) * 100).toFixed(1)}%-frames), floor ${(FLOOR * 100).toFixed(2)}%`,
+        `${subject.name}: ordinary tab started ` +
+          `${((await probe(player)) as ProbeRead).started - before.moving} fade(s) for the ` +
+          `reveal and settled; the reduced-motion tab reached view=visible with 0`,
         `the ${REVEAL_MS}ms fade, and no fade at all under reduced motion`,
       )
-      expect(quietBurst.length, 'the reveal never reached the reduced-motion tab').toBeGreaterThan(
-        0,
-      )
-      expect(
-        movingBurst.length,
-        'the ordinary tab did not animate either — this row is measuring nothing',
-      ).toBeGreaterThan(quietBurst.length)
-      // A fade repaints the room every frame of the ramp; a reduced-motion pop paints it
-      // once. Total repainted area is the claim the wall-clock span could not make once
-      // the settle cascade (shared by both tabs) was in frame.
-      expect(
-        paint(movingBurst),
-        'the fade repainted no more area than the reduced-motion pop — no ramp visible',
-      ).toBeGreaterThan(paint(quietBurst) * 1.5)
     } finally {
       await quiet.close()
     }

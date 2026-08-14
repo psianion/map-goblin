@@ -195,28 +195,43 @@ export function fogRegion(
 }
 
 /**
- * One region's rings, paired outline to hole.
+ * One region's rings, as a tree: land, the water inside it, the islands inside that.
  *
  * Clipper hands a region back flat — an outline and the rings punched out of it are told
  * apart only by containment — while Pixi wants a fill and then the holes belonging to *that*
- * fill, because `cut` attaches to the instruction before it. Pairing once here is what lets
- * every draw site stay a loop over shapes.
+ * fill, because `cut` attaches to the instruction before it. Building the tree once here is
+ * what lets every draw site stay a walk over shapes.
  *
- * ponytail: one level deep. An island inside a hole — a revealed room enclosed by a courtyard
- * enclosed by revealed rooms — is dropped rather than drawn, so it stays fogged. Three nested
- * rings of geometry to reach, and it errs dark; the fix if it ever lands is a real ring tree.
+ * Every node's `holes` are its *direct* children, so a revealed room enclosed by an
+ * unrevealed courtyard enclosed by revealed rooms is an island two levels down — drawn
+ * clear, not dropped. Rings out of Clipper never cross, so a ring's containers nest, and
+ * the most-contained container is the immediate parent.
  */
-export function ringsWithHoles(
-  rings: readonly Polygon[],
-): { outline: Polygon; holes: Polygon[] }[] {
-  const parts = rings
-    .filter((ring) => ring.length >= 3)
-    .map((outline) => ({ outline, holes: [] as Polygon[] }));
-  return parts.filter((part) => {
-    const parent = parts.find((o) => o !== part && pointInPolygon(part.outline[0], o.outline));
-    parent?.holes.push(part.outline);
-    return !parent;
+export interface FogRing {
+  outline: Polygon;
+  holes: FogRing[];
+}
+
+export function ringsWithHoles(rings: readonly Polygon[]): FogRing[] {
+  const clean = rings.filter((ring) => ring.length >= 3);
+  const containers = clean.map((ring) =>
+    clean.filter((other) => other !== ring && pointInPolygon(ring[0], other)),
+  );
+  const depth = new Map(clean.map((ring, i) => [ring, containers[i].length]));
+  const nodes = new Map(clean.map((ring) => [ring, { outline: ring, holes: [] as FogRing[] }]));
+  const roots: FogRing[] = [];
+  clean.forEach((ring, i) => {
+    const node = nodes.get(ring) as FogRing;
+    if (containers[i].length === 0) {
+      roots.push(node);
+      return;
+    }
+    const parent = containers[i].reduce((deepest, c) =>
+      (depth.get(c) as number) > (depth.get(deepest) as number) ? c : deepest,
+    );
+    (nodes.get(parent) as FogRing).holes.push(node);
   });
+  return roots;
 }
 
 /** The room polygon under a world point, or undefined for unzoned map (D6). */
