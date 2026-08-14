@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test'
-import { DEV_URL } from './e2e/ports'
+import { DEV_PORT, DEV_URL, SERVER_PORT } from './e2e/ports'
 
 // The game server is started by globalSetup (it has to read the admin pass off stdout);
 // only the Vite dev server is a `webServer` here. Its proxy points /api and /ws at the game
@@ -20,6 +20,13 @@ export default defineConfig({
     url: DEV_URL,
     reuseExistingServer: true,
     timeout: 60_000,
+    // vite.config.ts defaults to the dev lane (560x); the E2E lane states its own ports so
+    // a suite can run while `pnpm dev` is up (docs/2026-08-15-dev-runner-ports-plan.md).
+    env: {
+      ...process.env,
+      E2E_DEV_PORT: String(DEV_PORT),
+      E2E_SERVER_PORT: String(SERVER_PORT),
+    },
   },
   // One worker: the flow drives a single real server whose invite codes and roster are
   // global state. Parallel specs would join each other's tables.

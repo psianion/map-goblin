@@ -34,7 +34,7 @@ export async function createCampaignAsDm(
     // Every later call — map upload, session start, WS, map fetch — follows this one.
     setServerUrl(serverUrl);
   } catch {
-    throw new Error(`"${serverUrl}" is not a server address. Try http://localhost:8787`);
+    throw new Error(`"${serverUrl}" is not a server address. Try http://localhost:5620`);
   }
   return request('/api/campaigns', postJson({ name }), adminPass);
 }
@@ -58,7 +58,7 @@ export function listCampaignsAsAdmin(
   try {
     setServerUrl(serverUrl);
   } catch {
-    throw new Error(`"${serverUrl}" is not a server address. Try http://localhost:8787`);
+    throw new Error(`"${serverUrl}" is not a server address. Try http://localhost:5620`);
   }
   return request('/api/campaigns', { method: 'GET' }, adminPass);
 }
@@ -72,7 +72,7 @@ export function mintDmToken(
   try {
     setServerUrl(serverUrl);
   } catch {
-    throw new Error(`"${serverUrl}" is not a server address. Try http://localhost:8787`);
+    throw new Error(`"${serverUrl}" is not a server address. Try http://localhost:5620`);
   }
   return request(
     `/api/campaigns/${encodeURIComponent(campaignId)}/dm-token`,
