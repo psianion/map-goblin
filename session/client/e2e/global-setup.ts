@@ -16,7 +16,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const dataDir = mkdtempSync(join(tmpdir(), 'map-goblin-e2e-'))
   const server = spawn('pnpm', ['--filter', '@dnd/game-server', 'start'], {
     cwd: join(import.meta.dirname, '../../..'),
-    env: { ...process.env, GAME_SERVER_DATA: dataDir, PORT: String(SERVER_PORT) },
+    env: { ...process.env, GAME_SERVER_DATA: dataDir, PORT: String(SERVER_PORT), HOST: '127.0.0.1' },
     shell: true,
   })
 

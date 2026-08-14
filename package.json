@@ -2,6 +2,10 @@
   "name": "@dnd/table",
   "private": true,
   "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:canvas": "node scripts/dev.mjs --canvas",
+    "dev:table": "node scripts/dev.mjs --table",
+    "dev:docker": "node scripts/dev.mjs docker",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",

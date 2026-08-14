@@ -22,6 +22,9 @@ export interface Secrets {
 
 export interface Config {
   port: number
+  /** Interface to bind. Empty = all interfaces (what the container needs); the dev runner
+   * and the E2E harness set HOST=127.0.0.1 so local lanes are not LAN-visible. */
+  host: string
   dbPath: string
   secretsPath: string
   secrets: Secrets
@@ -32,6 +35,7 @@ export function loadConfig(): Config {
   const secretsPath = resolve(dataDir, 'secrets.json')
   return {
     port: Number(process.env.PORT ?? 8787),
+    host: process.env.HOST ?? '',
     dbPath: resolve(dataDir, 'game.db'),
     secretsPath,
     secrets: loadSecrets(secretsPath),

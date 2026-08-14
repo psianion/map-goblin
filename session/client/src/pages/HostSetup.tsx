@@ -36,7 +36,7 @@ function serverUrlError(value: string): string | null {
     const { protocol } = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`);
     if (protocol !== 'http:' && protocol !== 'https:') throw new Error('scheme');
   } catch {
-    return 'That is not an address the browser can reach — try http://localhost:8787';
+    return 'That is not an address the browser can reach — try http://localhost:5620';
   }
   return null;
 }

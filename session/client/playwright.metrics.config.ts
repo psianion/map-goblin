@@ -15,8 +15,8 @@ import { CLIENT_PORT, CLIENT_URL, viteApiEnv } from './e2e/ports'
  * `endpoints.ts` already exposes for exactly this (a deployment where the API is not the
  * origin). Server CORS is open, so the cross-origin fetch is the same fetch.
  *
- * Both ports come from `e2e/ports.ts` — same defaults, overridable on a box where :8787 is
- * spoken for.
+ * Both ports come from `e2e/ports.ts` — the E2E lane of the 56xx scheme, overridable via
+ * the same env vars.
  */
 export default defineConfig({
   testDir: './e2e',

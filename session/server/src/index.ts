@@ -162,7 +162,9 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
     wss.handleUpgrade(req, socket, head, (ws) => sessions.accept(new ClientConnection(ws, identity)))
   })
 
-  await new Promise<void>((ready) => http.listen(options.port ?? config.port, ready))
+  await new Promise<void>((ready) =>
+    http.listen(options.port ?? config.port, config.host || undefined, ready),
+  )
   const address = http.address()
   const port = typeof address === 'object' && address !== null ? address.port : config.port
   console.log(`game-server listening on :${port}`)
