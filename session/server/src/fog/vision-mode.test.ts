@@ -862,7 +862,6 @@ describe('auto-explore and redaction in the dark (S3 P3 §3.2, §3.1)', () => {
 
     // …and out past the ring it is nobody's licence: the same eyes, the same dark, a token
     // eight cells away rather than three.
-    expect(table.run(DM, 'tokens', 'move', { id: ambusher, x: 1.5, y: 1.5 })).toBeNull()
     const far = wired()
     const near = nightWatch(
       far,

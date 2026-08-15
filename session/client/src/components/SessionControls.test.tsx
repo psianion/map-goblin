@@ -40,7 +40,10 @@ const CRYPT = { id: 'sc-2', name: 'Crypt', sortIndex: 1, visibleToPlayers: true,
 
 /** A single scene's worth of `SceneTriggers`, the shape `sceneTriggersOf` expects to find
  *  already in place — env is all this suite cares about, the rest is filler. */
-function triggersState(sceneId: string, env: { time?: string; weather?: string }): TriggersState {
+function triggersState(
+  sceneId: string,
+  env: { time?: string; weather?: string; ambient?: string },
+): TriggersState {
   return {
     byScene: {
       [sceneId]: { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, env, prompts: [], log: [] },
@@ -182,6 +185,26 @@ describe('SessionControls scene library (#47)', () => {
     const weatherPlaceholder = screen.getByLabelText('Weather').querySelector('option[value=""]');
     expect(weatherPlaceholder).toHaveProperty('disabled', false);
     expect(weatherPlaceholder).toHaveProperty('textContent', 'Not set');
+  });
+
+  // D2 — the light dial is the one field that can go back to untouched, because untouched and
+  // an explicit `daylight` do not light the scene the same (`AMBIENT_BITE` vs no dial at all).
+  it('leaves the light dial’s placeholder pickable, and clears the field with it', async () => {
+    useSessionStore.setState({
+      session: session(HALL.id, { triggers: triggersState(HALL.id, { ambient: 'darkness' }) }),
+    });
+    render(<SessionControls />);
+    await screen.findByText('Great Hall');
+
+    const light = screen.getByLabelText('Ambient light');
+    expect(light).toHaveProperty('value', 'darkness');
+    expect(light.querySelector('option[value=""]')).toHaveProperty('disabled', false);
+
+    const sendCommand = vi.spyOn(useSessionStore.getState(), 'sendCommand');
+    fireEvent.change(light, { target: { value: '' } });
+    expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-environment', { ambient: null });
+    // …and the echo shows the clear at once, rather than snapping back to `darkness`.
+    expect(screen.getByLabelText('Ambient light')).toHaveProperty('value', '');
   });
 
   it('labels the wire enum options for reading, not the wire values themselves', async () => {

@@ -524,6 +524,9 @@ export function fogScene(): FogScene {
   // redaction cannot disagree about what is burning.
   const triggers = session?.modules?.triggers as TriggersState | undefined;
   const scene = sceneId && triggers ? sceneTriggersOf(triggers, sceneId) : undefined;
+  // §4 — how hard the lighting composite's ambient fill bites on this scene. Read before the
+  // void's look because the imitation is drawn *through* that same composite (`voidStyle`).
+  const darkness = scene?.env.ambient ? AMBIENT_BITE[ambientOf(scene)] : undefined;
   // Not taken for the DM, whose seat draws no mask at all, nor in rooms mode, which has no
   // use for it — the sweep is the expensive half of this read, and leaving it untaken is also
   // what keeps that path byte-identical.
@@ -565,7 +568,10 @@ export function fogScene(): FogScene {
     pad: fogPad(serverLayers(mapData)),
     sceneId,
     isPlayer,
-    void: voidStyle(),
+    // The imitation bites exactly as hard as the real composite does: the sheet renders above
+    // the same multiply, and §4 just made that multiply a dial. Left at full strength the
+    // fogged sheet reads as a *darker* patch of the same map at daylight and dusk (D1).
+    void: voidStyle(LIGHTING_STRENGTH.player * (darkness ?? 1)),
     mode,
     fog,
     sight,
@@ -585,7 +591,10 @@ export function fogScene(): FogScene {
         : undefined,
     // …and the presentation half, which is not gated on vision mode at all: a rooms-mode scene
     // the DM calls dark should read dark too. An untouched scene reads 1 — today's value.
-    darkness: scene?.env.ambient ? AMBIENT_BITE[ambientOf(scene)] : undefined,
+    // Deliberate (D6): the dial is world state, not a vision-mode feature, so it reaches every
+    // scene the DM turns it on — and a scene nobody has touched carries no `ambient` field at
+    // all, so the rooms path composites byte-identically to what it always has.
+    darkness,
   };
 }
 

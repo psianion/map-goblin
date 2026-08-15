@@ -90,6 +90,13 @@ function seedFromId(id: string): number {
  * turns into tens of milliseconds of GPU time no scheduler fixes without changing the picture.
  * Beyond the cap, the lights nearest the camera win; the rest stay placed and lit up again the
  * moment the table scrolls back to them or another one is hidden.
+ *
+ * ponytail: known ceiling, and S3 P3 gave it a second edge (D3). The player's fog mask sweeps
+ * EVERY source (`lightSources` — placed lights plus carried torches), so past 24 sources a
+ * pool the mask has cleared can go unrendered while the map under it stays open: the fog errs
+ * *open* there, and which pool loses is a function of where the camera is pointing. A party of
+ * six with torches on a lamp-lit map is inside a dozen; revisit the day the P6 gate map plus a
+ * full party crosses 24 — either cap the mask by the same rule or batch the composite.
  */
 export const MAX_RENDERED_LIGHTS = 24
 

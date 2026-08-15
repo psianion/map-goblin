@@ -54,10 +54,12 @@ import {
   roomViews,
   mountPlayerFogWhenReady,
   subscribeFogScene,
+  voidStyle,
   type FogScene,
   type RoomView,
   type VoidStyle,
 } from './FogRenderer';
+import { tokenLightId } from '../triggers/lightSync';
 
 /** A fixed void look for fixtures — drawFog paints hidden map with `fill`, not black. */
 const VOID: VoidStyle = { fill: 0x131316, dot: 0x3a3a3a, dotAlpha: 0.45, dotsVisible: true };
@@ -1279,6 +1281,22 @@ describe('fogScene', () => {
     expect(nightTable('darkness', { 'lamp-a': false })?.night?.lit).toHaveLength(1);
   });
 
+  it('counts a carried torch once — the pseudo-light on the map is that same torch', () => {
+    expect(nightTable('darkness').night?.lit).toHaveLength(2);
+    // What `lightSync` writes onto the map so the renderer draws t3's pool. The token is
+    // already a source in its own right, so reading this as a placed light too sweeps one
+    // torch twice — and the two radii only agree by coincidence (D4).
+    useStore.setState({
+      layers: [
+        {
+          ...(dungeon(ROOMS) as object),
+          children: [lamp('lamp-a', 3, 3), lamp(tokenLightId('t3'), 6, 2)],
+        } as Layer,
+      ],
+    });
+    expect(fogScene().night?.lit).toHaveLength(2);
+  });
+
   it('dials the ambient composite per level, and leaves an untouched scene alone', () => {
     // Untouched is absent rather than 1: the lighting pass is left exactly as it was,
     // no-lights shortcut included.
@@ -1290,6 +1308,23 @@ describe('fogScene', () => {
     // always drawn, so nothing moves on a table nobody has turned the dial at.
     expect(AMBIENT_BITE.daylight).toBeLessThan(AMBIENT_BITE.dusk);
     expect(AMBIENT_BITE.dusk).toBeLessThan(AMBIENT_BITE.darkness);
+  });
+
+  it('imitates the void at the dial’s own bite, not always at full strength', () => {
+    // The fogged sheet is drawn *above* the same composite the real void renders through, so
+    // the two only land on the same pixels while they agree about how hard it bites. Left at
+    // full strength (D1), a daylight scene fogs darker than the map beside it.
+    for (const level of ['daylight', 'dusk', 'darkness'] as const) {
+      expect(nightTable(level).void).toEqual(
+        voidStyle(LIGHTING_STRENGTH.player * AMBIENT_BITE[level]),
+      );
+    }
+    // Lifting the composite lifts the imitation with it…
+    expect(nightTable('daylight').void.fill).toBeGreaterThan(nightTable('darkness').void.fill);
+    expect(nightTable('daylight').void.dot).toBeGreaterThan(nightTable('darkness').void.dot);
+    // …and an untouched scene is still exactly what the layer has always drawn.
+    expect(nightTable(undefined).void).toEqual(voidStyle());
+    expect(nightTable('darkness').void).toEqual(voidStyle());
   });
 });
 
@@ -1463,7 +1498,14 @@ describe('visionRegion in the dark', () => {
     // The pool is clipped to the sweep too — a torch lighting a room nobody is looking at
     // does not open the mask.
     expect(inRegion(night.clear, [6.5, 4])).toBe(false);
-    expect(night.drained).toEqual([]);
+    // The pool itself is lit ground and takes no grade…
+    expect(inRegion(night.drained, LIT_SPOT)).toBe(false);
+    // …but the band the pad opens past its edge, so a torch lights the room's wall stones, is
+    // past where the light itself has fallen to zero. Cleared and unlit is drained, not raw —
+    // otherwise every pool wears a thin ungraded ring (D8).
+    const RING_SPOT: [number, number] = [7 + sightPad(PAD) / 2, 1];
+    expect(inRegion(night.clear, RING_SPOT)).toBe(true);
+    expect(inRegion(night.drained, RING_SPOT)).toBe(true);
   });
 
   it('gives darkvision its own ground, graded apart from the lit pool', () => {
@@ -1542,7 +1584,7 @@ describe('drawFog — the drained grade (§4)', () => {
     expect(DARKVISION_TINT).toBeGreaterThan(EXPLORED_TINT);
   });
 
-  it('draws no grade at all for a party seeing by torchlight', () => {
+  it('grades the band past a pool’s edge, and leaves the pool itself alone', () => {
     const scrim = new Graphics();
     drawFog(
       scrim,
@@ -1558,7 +1600,12 @@ describe('drawFog — the drained grade (§4)', () => {
         darkvision: [],
       }),
     );
-    expect(fillsOf(scrim).some((f) => f.style.color === DARKVISION_TINT)).toBe(false);
+    // The mask opens the wall band around a torch (`sightPad`) and the light's own gradient
+    // has fallen to zero by `radius`, so that band is cleared ground no light reaches — the
+    // drained grade covers it rather than leaving a thin ungraded ring (D8). One wash: the
+    // ring, drawn as a fill with the pool cut out of it.
+    const wash = fillsOf(scrim).filter((f) => f.style.color === DARKVISION_TINT);
+    expect(wash).toHaveLength(1);
     // …and the pool itself is a hole in the scrim, like any other clear ground.
     expect(fillsOf(scrim)[0].hole).toBeDefined();
   });

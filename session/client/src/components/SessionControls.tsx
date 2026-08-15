@@ -49,19 +49,29 @@ type EnvField = keyof EnvFields;
 const ENV_FIELDS: EnvField[] = ['time', 'weather', 'ambient'];
 
 /**
+ * One dial, with its field and its vocabulary tied together — distributed over the fields so
+ * `{ field: 'time', values: AMBIENTS }` is a type error rather than a runtime surprise (D9).
+ */
+type EnvDial = {
+  [F in EnvField]: {
+    field: F;
+    label: string;
+    aria: string;
+    values: readonly EnvFields[F][];
+    /** Whether "Not set" is a pick — the module only accepts a clear for `ambient` (D2). */
+    clearable?: boolean;
+  };
+}[EnvField];
+
+/**
  * The selects, in the order a DM reads them. `ambient` is the one that means something
  * mechanically — in `darkness` a normal eye sees only what a light source covers (S3 P3 §1)
  * — so it is labelled for what it does to the table ("Light"), not for the field's name.
  */
-const ENV_DIALS: {
-  field: EnvField;
-  label: string;
-  aria: string;
-  values: readonly EnvFields[EnvField][];
-}[] = [
+const ENV_DIALS: EnvDial[] = [
   { field: 'time', label: 'Time', aria: 'Time of day', values: TIMES },
   { field: 'weather', label: 'Weather', aria: 'Weather', values: WEATHERS },
-  { field: 'ambient', label: 'Light', aria: 'Ambient light', values: AMBIENTS },
+  { field: 'ambient', label: 'Light', aria: 'Ambient light', values: AMBIENTS, clearable: true },
 ];
 
 /**
@@ -121,9 +131,9 @@ export function SessionControls() {
     useSessionStore.getState().sendCommand('scenes', 'activate', { sceneId });
   };
 
-  // The module keeps env per scene and only ever sets a field, never clears one (see the
-  // module's own `set-environment` — "at least one of time/weather" isn't "either can go
-  // back to unset"), so there is nothing here to reset when the active scene has none yet.
+  // The module sets a field and — for `ambient` alone — takes it back off, because an
+  // untouched scene and an explicit `daylight` do not light the same (D2). Time and weather
+  // are narration and stay set-only.
   const triggersState = useModuleState<TriggersState>('triggers');
   const env = activeSceneId && triggersState ? sceneTriggersOf(triggersState, activeSceneId).env : {};
 
@@ -131,7 +141,8 @@ export function SessionControls() {
   // than snapping back to `env` until the server's broadcast round-trips. Cleared per-field
   // once `env` catches up, and wholesale on scene switch — a pending pick from the scene you
   // just left has no business showing on the one you switched to.
-  const [pending, setPending] = useState<Partial<EnvFields>>({});
+  // `null` is a pending *clear* — distinct from "no pending pick", which is the absent key.
+  const [pending, setPending] = useState<{ [F in EnvField]?: EnvFields[F] | null }>({});
   const pendingTimeouts = useRef<Partial<Record<EnvField, ReturnType<typeof setTimeout>>>>({});
   const clearPendingTimeout = (field: EnvField) => {
     clearTimeout(pendingTimeouts.current[field]);
@@ -151,7 +162,8 @@ export function SessionControls() {
 
   useEffect(() => {
     setPending((p) => {
-      const done = ENV_FIELDS.filter((f) => p[f] !== undefined && p[f] === env[f]);
+      // A pending clear is done when the field is gone, so `null` reads as `undefined` here.
+      const done = ENV_FIELDS.filter((f) => f in p && (p[f] ?? undefined) === env[f]);
       if (done.length === 0) return p; // unchanged reference — no wasted render
       const next = { ...p };
       for (const field of done) {
@@ -163,8 +175,9 @@ export function SessionControls() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [env.time, env.weather, env.ambient]);
 
-  /** One field, one command, one echo — the three selects differ only in their vocabulary. */
-  const setEnv = <F extends EnvField>(field: F, value: EnvFields[F]) => {
+  /** One field, one command, one echo — the three selects differ only in their vocabulary.
+   *  `null` is the clear the module accepts for `ambient` (D2), and it echoes like any pick. */
+  const setEnv = <F extends EnvField>(field: F, value: EnvFields[F] | null) => {
     setPending((p) => ({ ...p, [field]: value }));
     clearPendingTimeout(field);
     pendingTimeouts.current[field] = setTimeout(() => {
@@ -355,7 +368,7 @@ export function SessionControls() {
           // Two to a row: three of these across a panel this narrow would truncate every
           // label. `Light` lands under `Time`, which is the pair a DM reads together.
           <div className="grid grid-cols-2 gap-2">
-            {ENV_DIALS.map(({ field, label, aria, values }) => (
+            {ENV_DIALS.map(({ field, label, aria, values, clearable }) => (
               <div key={field} className="flex min-w-0 flex-col gap-0.5">
                 {/* Sentence case, no tracking — a field under the ENVIRONMENT header, not a peer section. */}
                 <label htmlFor={`env-${field}-select`} className="text-xs text-neutral-500">
@@ -363,18 +376,21 @@ export function SessionControls() {
                 </label>
                 <select
                   id={`env-${field}-select`}
-                  value={pending[field] ?? env[field] ?? ''}
+                  value={field in pending ? (pending[field] ?? '') : (env[field] ?? '')}
                   aria-label={aria}
                   data-testid={`env-${field}`}
                   onChange={(e) => {
                     const picked = e.target.value;
                     if (picked) setEnv(field, picked as EnvFields[typeof field]);
+                    else if (clearable) setEnv(field, null);
                   }}
                   className={selectInput}
                 >
+                  {/* Off the table for time and weather, which the module only ever sets;
+                      `ambient` can go back to untouched, which is not the same as daylight. */}
                   <option
                     value=""
-                    disabled={pending[field] !== undefined || env[field] !== undefined}
+                    disabled={!clearable && (field in pending || env[field] !== undefined)}
                   >
                     Not set
                   </option>

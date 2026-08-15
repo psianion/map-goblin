@@ -316,9 +316,10 @@ export interface VisionRegion {
   /** Live sight: the party's sweep union, out to the falloff's limit. Nothing is drawn here. */
   clear: Polygon[];
   /**
-   * The part of `clear` a darkvision eye is buying unlit (§4) — a subset of it, never a tier
-   * of its own: the party is looking at that ground, they just have no colour to see it in.
-   * Empty outside darkness and empty for a party of normal eyes.
+   * The part of `clear` no light actually reaches (§4) — a subset of it, never a tier of its
+   * own: the party is looking at that ground, they just have no colour to see it in. That is
+   * mostly what a darkvision eye buys unlit, plus the wall band the pad opens around a pool
+   * past where the light itself has fallen to nothing. Empty outside darkness.
    */
   drained: Polygon[];
   /** The explored wash — swept cells and DM-revealed rooms, minus whatever is live. */
@@ -352,7 +353,7 @@ export interface VisionRegion {
  * Without Clipper2 loaded the intersections are empty, so the mask degrades to solid void —
  * dark rather than open, the direction a fog bug should fail in.
  *
- * ponytail: eleven Clipper calls a rebuild (fifteen in the dark, where the lit and darkvision
+ * ponytail: eleven Clipper calls a rebuild (fourteen in the dark, where the lit and darkvision
  * reaches are offset and intersected too), measured at 7.8ms on the two-room fixture, and
  * four of them re-offset room polygons that only move when the map or the room record does.
  * That is comfortably inside a frame and comfortably outside P6's 2ms budget; the upgrade,
@@ -388,17 +389,18 @@ export function visionRegion(
     : sweptHeld.length > 0 && seeable.length > 0
       ? clipper2Engine.intersection(sweptHeld, seeable)
       : [];
-  // …and what that gate let through on darkvision alone, which is the part §4 grades. Taking
-  // the lit pools back out is what keeps a torch's own light out of the drained treatment: a
-  // darkvision eye standing in torchlight sees the pool in colour like anybody else.
-  const seenDark =
-    clear.length > 0 && darkReach.length > 0
-      ? clipper2Engine.intersection(clear, darkReach)
-      : [];
-  const drained =
-    seenDark.length > 0 && litReach.length > 0
-      ? clipper2Engine.difference(seenDark, litReach)
-      : seenDark;
+  // …and §4 grades everything that gate let through which no light actually reaches — which is
+  // the *unpadded* pools' complement, not `litReach`'s (D8). The pad above deliberately opens
+  // the wall band around a torch, and the renderer's own gradient has fallen to zero by
+  // `radius`, so subtracting the padded reach would leave a thin ring of clear-but-unlit,
+  // ungraded ground around every pool. Subtracting the pools as swept folds that band into the
+  // drained treatment, where it belongs, and it keeps the darkvision rule intact for free: a
+  // darkvision eye standing in torchlight still sees the pool in colour like anybody else.
+  const drained = !night
+    ? []
+    : clear.length > 0 && night.lit.length > 0
+      ? clipper2Engine.difference(clear, [...night.lit])
+      : clear;
   const remembered = clipper2Engine.union(
     [...rects, ...fogRegion(revealed, [], pad, feather).reach],
     [],

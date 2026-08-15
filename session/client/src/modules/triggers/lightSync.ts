@@ -57,7 +57,11 @@ export function lightingDrift(
  *  re-creates, and the shadow cache keyed on it survives the step. */
 export const tokenLightId = (tokenId: string): string => `token-light:${tokenId}`;
 
-const isTokenLight = (id: string): boolean => id.startsWith('token-light:');
+/** …and the way back: a light child on the map that is a token's torch rather than an
+ *  authored lamp. Exported because the mask's own light list has to skip them — the token
+ *  they belong to is already a source there (`lightSources`), and reading both counts one
+ *  torch twice (D4). */
+export const isTokenLight = (id: string): boolean => id.startsWith('token-light:');
 
 /**
  * What the scene's tokens should be lighting right now.
@@ -67,6 +71,11 @@ const isTokenLight = (id: string): boolean => id.startsWith('token-light:');
  * radius is where the falloff has finished. A torch is bright close in and dim to its edge.
  * Hidden tokens light nothing — same redaction rule the referee's own light list runs
  * (`lightSources`), because a pool of light around a token nobody may see is a position leak.
+ *
+ * ponytail: every torch here is one more light against `MAX_RENDERED_LIGHTS` (24, nearest the
+ * camera), and the mask sweeps them all — so a big party on a lamp-lit map can push an authored
+ * lamp out of the *render* while the fog still clears its pool. Errs open, and the eviction
+ * follows the camera. Revisit if the P6 gate map plus a full party crosses 24 (D3).
  *
  * ponytail: no flicker on a carried torch. `flicker` puts `nowMs` in the lighting signature,
  * which is a full FBO recomposite every frame for every seat at the table; the day a carried

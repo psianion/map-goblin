@@ -171,16 +171,20 @@ const AMBIENT_PHRASES: Record<AmbientLevel, string> = {
   darkness: 'Darkness closes in',
 }
 
+/** …and the dial handed back: the scene lights itself the way its map was authored again. */
+const AMBIENT_CLEARED = 'The light settles as it was'
+
 type EnvDelta = { time?: TimeOfDay; weather?: Weather; ambient?: AmbientLevel }
 
 /** Shared by `set-environment` and the `environment` fire-action — one sentence, one place.
  *  Takes the DELTA (only the field(s) this change actually touches), never the whole merged
  *  env: restating an unchanged field alongside the one that moved would narrate a no-op. */
-function envText(delta: EnvDelta): string {
+function envText(delta: EnvDelta, ambientCleared = false): string {
   const parts: string[] = []
   if (delta.time) parts.push(TIME_PHRASES[delta.time])
   if (delta.weather) parts.push(WEATHER_PHRASES[delta.weather])
   if (delta.ambient) parts.push(AMBIENT_PHRASES[delta.ambient])
+  if (ambientCleared) parts.push(AMBIENT_CLEARED)
   return parts.map((p) => p + '.').join(' ')
 }
 
@@ -207,10 +211,22 @@ function setEnvironment(p: Payload, ctx: Ctx): void {
   if (p.weather !== undefined) delta.weather = oneOf(p.weather, WEATHERS, 'weather')
   // The light level rides the same command and the same delta-merge: one dial the DM turns,
   // one narrated line, and every reader of `env` picks it up for free (S3 P3 §1).
-  if (p.ambient !== undefined) delta.ambient = oneOf(p.ambient, AMBIENTS, 'ambient')
+  //
+  // …with one exception to the merge's "a field is never cleared" rule: an explicit `null`
+  // takes the dial off. Absent and `daylight` are not the same scene — absent leaves the
+  // lighting composite exactly as the map authored it, `daylight` bites at AMBIENT_BITE — so
+  // a DM who has touched the dial needs a way back to untouched (D2). `undefined` still means
+  // "leave it alone", for this field as for every other.
+  const clearAmbient = p.ambient === null
+  if (p.ambient !== undefined && !clearAmbient) delta.ambient = oneOf(p.ambient, AMBIENTS, 'ambient')
   const env = { ...scene.env, ...delta }
+  if (clearAmbient) delete env.ambient
   const next = { ...scene, env, log: [...scene.log] }
-  pushLog(next, { kind: 'environment', text: envText(delta), toPlayers: true }, Date.now())
+  pushLog(
+    next,
+    { kind: 'environment', text: envText(delta, clearAmbient), toPlayers: true },
+    Date.now(),
+  )
   setScene(ctx, sceneId, next)
 }
 

@@ -24,6 +24,7 @@ import type { LightChild } from '@dnd/core/src/shared/types';
 import type { DungeonLayer, Layer } from '@dnd/core/src/store/types';
 import type { LightSource, PlacedLight } from '@dnd/mechanics/fog';
 import type { Token } from '@dnd/mechanics/tokens';
+import { isTokenLight } from '../triggers/lightSync';
 
 /**
  * The tokens the party's mask is drawn through — the server's filter, to the character: a
@@ -78,13 +79,22 @@ const sightLayers = (layers: readonly Layer[]): DungeonLayer[] =>
  * are the same light children `LightManager` renders from, so the pool the player sees and the
  * pool their mask clears cannot be two different circles. A player's copy carries only the
  * lights inside the rooms they hold, which is the referee's own cut, not a second one.
+ *
+ * *Placed* is the operative word: `lightSync` also writes a pseudo-light child per carried
+ * torch onto these same layers so the renderer draws its pool, and the token behind it is
+ * already a source in its own right (`lightSources`). Reading both would sweep one torch
+ * twice — harmless only while the two radii agree by coincidence, and a real divergence the
+ * day dim and bright stop being one number (D4).
  */
 export const placedLights = (layers: readonly Layer[]): PlacedLight[] =>
   layers
     .filter((layer): layer is DungeonLayer => layer.type === 'dungeon')
     .flatMap((layer) =>
       layer.children
-        .filter((child): child is LightChild => child.childType === 'light')
+        .filter(
+          (child): child is LightChild =>
+            child.childType === 'light' && !isTokenLight(child.id),
+        )
         .map((light) => ({
           id: light.id,
           x: light.position.x,

@@ -139,7 +139,14 @@ export function createSweeps(): Sweeps {
 }
 
 /** §2's shared rule, fed the map's own light children. The rule itself lives in mechanics so
- *  the canvas runs the identical one over the document it holds. */
+ *  the canvas runs the identical one over the document it holds.
+ *
+ *  ponytail: the DM's whole map, where the client runs the same rule over the *redacted* copy
+ *  — the wall asymmetry `visionSight`'s `sightLayers` carries, on the light side (D5). A lamp
+ *  in a room the party does not hold can therefore light a cell here that their own mask never
+ *  cleared, so a cell auto-explores as seen and then draws as void until they actually reach
+ *  it. It errs to void and it self-heals; the fix, the day it matters, is the server sending
+ *  the mask rather than the client sweeping a second time. */
 const litIn = (map: SceneMap, tokens: Record<string, Token>, overrides: Record<string, boolean>) =>
   lightSources(
     map.lights.map((light) => ({

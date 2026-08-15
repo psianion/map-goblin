@@ -603,6 +603,31 @@ describe('set-environment', () => {
     }
   })
 
+  // D2 — the one field a command may clear. An untouched scene lights as its map was
+  // authored; an explicit `daylight` bites the composite. A DM who picks one needs the way
+  // back, and the delta-merge's "a field is never cleared" rule still holds for `undefined`.
+  it('takes the light dial back off on an explicit null, and narrates that too', () => {
+    const mod = triggersModule(makeDeps())
+    let state = run(mod, empty, DM, 'set-environment', { time: 'night', ambient: 'darkness' }).next
+    const { next, error } = run(mod, state, DM, 'set-environment', { ambient: null })
+    expect(error).toBeNull()
+    // Gone, not `daylight` and not present-but-undefined — the field itself is off the scene.
+    expect(sceneOf(next).env).toEqual({ time: 'night' })
+    expect('ambient' in sceneOf(next).env).toBe(false)
+    expect(sceneOf(next).log.at(-1)).toMatchObject({
+      text: 'The light settles as it was.',
+      toPlayers: true,
+    })
+  })
+
+  it('still leaves an untouched field alone — undefined is not a clear', () => {
+    const mod = triggersModule(makeDeps())
+    const state = run(mod, empty, DM, 'set-environment', { ambient: 'darkness' }).next
+    const { next } = run(mod, state, DM, 'set-environment', { weather: 'fog', ambient: undefined })
+    expect(sceneOf(next).env).toEqual({ weather: 'fog', ambient: 'darkness' })
+    expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Fog creeps in.' })
+  })
+
   it('refuses a light level that is not in the vocabulary', () => {
     const mod = triggersModule(makeDeps())
     expect(run(mod, empty, DM, 'set-environment', { ambient: 'gloomy' }).error?.code).toBe(
