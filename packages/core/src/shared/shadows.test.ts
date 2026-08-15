@@ -5,6 +5,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { resolveWorldLight, type MapEnvironment, type NightSky } from './world';
+import { extractWallSegments } from '../engine/lighting/raycaster';
+import { LightManager } from '../engine/lighting/LightManager';
+import type { DungeonLayer } from '../store/types';
 import {
   CASTER_HEIGHT,
   MAX_LENGTH,
@@ -53,6 +56,15 @@ describe('shadowLook — the natural-light gate', () => {
     const sun = lookAt(720)!;
     expect(moon).not.toBeNull();
     expect(moon.alpha).toBeLessThan(sun.alpha);
+  });
+
+  it('a low sun and a full moon both cast something a screen can show', () => {
+    // The gate walk's finding: linear-in-intensity put the whole evening shoulder and the moon
+    // under the noise floor. Half of noon at dusk, a third of it under a full moon.
+    const noon = lookAt(720)!.alpha;
+    expect(lookAt(1020)!.alpha).toBeGreaterThan(noon * 0.4); // 17:00
+    expect(lookAt(420)!.alpha).toBeGreaterThan(noon * 0.4); // 07:00
+    expect(lookAt(0)!.alpha).toBeGreaterThan(noon * 0.3); // full moon, midnight
   });
 
   it('the shadow runs away from the light, not toward it', () => {
@@ -194,6 +206,69 @@ describe('propShadow — the sprite transform', () => {
   it('a prop with no texture yet scales to nothing rather than to infinity', () => {
     const cast = propShadow({ dx: 1, dy: 0, length: 4, alpha: 0.4, color: '#4d5460' }, 0);
     expect(cast.scaleY).toBe(0);
+  });
+});
+
+describe('a standalone wall casts like any other', () => {
+  // The gate walk found the bailey's freestanding palisade casting nothing. This pins the whole
+  // chain from a wall with no floor ring anywhere near it to a quad with area in it, because a
+  // standalone wall is the *only* kind on the demo map — a layer whose walls all dropped out
+  // here would still look plausible, lit by the floor union's own edges.
+  const standalone = (points: [number, number][]): DungeonLayer =>
+    ({
+      id: 'layer-1',
+      type: 'dungeon',
+      children: [],
+      mergedFloor: null,
+      standaloneWalls: [
+        { id: 'w1', points, wallType: 'normal', direction: 'both', color: '#26221c', width: 0.5, roughness: 0 },
+      ],
+    }) as unknown as DungeonLayer;
+
+  /** Shoelace — a degenerate extrusion (light running along the wall) comes out at 0. */
+  const area = (band: number[]): number => {
+    let sum = 0;
+    for (let i = 0; i < band.length; i += 2) {
+      const j = (i + 2) % band.length;
+      sum += band[i]! * band[j + 1]! - band[j]! * band[i + 1]!;
+    }
+    return Math.abs(sum) / 2;
+  };
+
+  it('reaches the segment list with no floor ring on the layer at all', () => {
+    // fieldstone-keep's north courtyard wall, the one the walk sampled across.
+    const segments = extractWallSegments([standalone([[9, 43], [58, 43]])]);
+    expect(segments).toEqual([{ x1: 9, y1: 43, x2: 58, y2: 43 }]);
+  });
+
+  it('extrudes to quads with real area at a low sun', () => {
+    const [seg] = extractWallSegments([standalone([[9, 43], [58, 43]])]);
+    // 17:00 with the demo map's orientation — the evening the walk was looking at.
+    const look = lookAt(1020, { orientation: 90 })!;
+    expect(look).not.toBeNull();
+    for (let step = 1; step <= SHADOW_STEPS; step++) {
+      expect(area(shadowBand(seg!.x1, seg!.y1, seg!.x2, seg!.y2, look, step))).toBeGreaterThan(1);
+    }
+  });
+
+  it('…and the freestanding stub too, whichever way it happens to run', () => {
+    // Vertical, mid-courtyard, nothing behind it. Under the moon the light crosses it.
+    const [seg] = extractWallSegments([standalone([[18, 49], [18, 53]])]);
+    const look = lookAt(0, { orientation: 90 })!;
+    expect(area(shadowBand(seg!.x1, seg!.y1, seg!.x2, seg!.y2, look, SHADOW_STEPS))).toBeGreaterThan(0);
+  });
+
+  it('participates in the invalidation: editing walls bumps the epoch, and the epoch is the key', () => {
+    // `invalidateAll` is what subscribeToStore fires when its `lightingKey` moves, and that key
+    // carries `wallSignature` — every standalone wall's own geometry.
+    const lights = new LightManager();
+    const before = lights.getWallEpoch();
+    lights.invalidateAll();
+    const after = lights.getWallEpoch();
+    expect(after).toBeGreaterThan(before);
+    expect(shadowSignature('layer-1', before, 204, 90, true)).not.toBe(
+      shadowSignature('layer-1', after, 204, 90, true),
+    );
   });
 });
 

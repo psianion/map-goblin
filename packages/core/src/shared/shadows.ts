@@ -22,6 +22,20 @@ export const CASTER_HEIGHT = 1.2;
 export const MAX_LENGTH = 5;
 /** Peak opacity, at the caster's own foot, with the light at full strength. */
 export const MAX_ALPHA = 0.42;
+/**
+ * How opacity answers the light's strength.
+ *
+ * Straight off `intensity` looks right on paper and is invisible in practice: `intensity` is a
+ * sine over the arc, so it spends the entire dusk and dawn shoulder near zero — exactly the
+ * hours the long amber shadows are *for* — and a full moon at 0.35 casts at a seventh of noon,
+ * which pixel-sampling cannot find. `1 - (1 - i)^RESPONSE` lifts the low end without touching
+ * either end point: still exactly 0 on the horizon (so the sun/moon handover keeps happening at
+ * nothing, and nothing can snap there) and still exactly 1 overhead.
+ *
+ * ponytail: the moon's share now reaches the ground through this curve as well, so
+ * `MOON_INTENSITY` (world.ts) is the knob if a full moon ever reads hot rather than silver.
+ */
+const RESPONSE = 2.5;
 /** A prop casts a shorter shadow than a wall — it is a barrel, not a battlement. */
 export const PROP_LENGTH_SCALE = 0.55;
 /**
@@ -80,9 +94,10 @@ export function shadowLook(sun: SunVector): ShadowLook | null {
     dx: Math.cos(theta),
     dy: Math.sin(theta),
     length: Math.min(reach, MAX_LENGTH),
-    // Straight off `intensity`, which the resolver already fades to 0 at both horizons — so a
-    // shadow lengthens and thins out together, and the sun/moon handover happens at nothing.
-    alpha: MAX_ALPHA * sun.intensity,
+    // Through `RESPONSE`, off an `intensity` the resolver already fades to 0 at both horizons —
+    // so a shadow still thins out as it lengthens, and the sun/moon handover still happens at
+    // nothing, but the whole low-sun shoulder is somewhere you can actually see it.
+    alpha: MAX_ALPHA * (1 - (1 - sun.intensity) ** RESPONSE),
     color:
       sun.kind === 'moon'
         ? MOON_SHADOW

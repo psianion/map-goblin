@@ -325,7 +325,10 @@ const map = {
     name: 'Fieldstone Keep',
     gridType: 'square',
     cellScale: { value: 5, unit: 'ft' },
-    ambientLight: '#0e0f14',
+    // The Day preset. The mood is "this world in neutral daylight" now, not a baked night —
+    // the dark comes from the time keys (and the braziers keep their own pools), so a mood of
+    // near-black composed the noon courtyard to near-black and no shadow could multiply onto it.
+    ambientLight: '#e8e4d8',
     // The keep stands under real sky, so the demo map demonstrates the world clock out of the
     // box: the grade carries the hour and the sun casts (P2/P3).
     environment: 'outdoor',
