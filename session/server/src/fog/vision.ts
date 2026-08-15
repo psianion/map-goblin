@@ -50,6 +50,8 @@ export interface Vision {
   roomsOf(campaignId: string, sceneId: string): readonly string[]
   /** Backs `fogModule`'s region commands — the rectangle a region cell is counted from. */
   frameOf(campaignId: string, sceneId: string): SceneMap['frame']
+  /** …and the room a brushed cell falls in, which is the room that has to ship for it. */
+  roomAtOf(campaignId: string, sceneId: string, x: number, y: number): string | null
   /** Backs `doorsModule` — the doors the map authors. */
   doorsOf(campaignId: string, sceneId: string): readonly AuthoredDoor[]
   /**
@@ -216,6 +218,7 @@ export function createVision(stores: Stores): Vision {
     sceneMapOf,
     roomsOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.rooms.map((room) => room.id) ?? [],
     frameOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.frame ?? null,
+    roomAtOf: (_campaignId, sceneId, x, y) => sceneMapOf(sceneId)?.roomAt(x, y) ?? null,
     doorsOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.doors ?? [],
     playerDoors: (sceneId) => compute(sceneId)?.playerDoors ?? NO_ONES_DOORS,
 

@@ -675,9 +675,12 @@ describe('the table log (§2.4.3)', () => {
 describe('vision-mode settings and region memory (S3 P1)', () => {
   /** A 10×10 scene starting at the origin: cell (col, row) centres on (col + .5, row + .5). */
   const FRAME = { minX: 0, minY: 0, maxX: 10, maxY: 10 }
+  /** Two rooms side by side across that frame, with unzoned map east of x = 8 (D6). */
+  const ROOM_AT = (x: number): string | null => (x < 5 ? 'hall' : x < 8 ? 'crypt' : null)
   const framed = fogModule(
     () => ROOMS,
     (_campaignId, sceneId) => (sceneId === SCENE ? FRAME : null),
+    (_campaignId, _sceneId, x) => ROOM_AT(x),
   )
 
   /** Same dispatch mirror as `run`, against the module the server wires a frame into. */
@@ -928,6 +931,44 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       // Cells, not a room: no targetId, which is what keeps it readable at every seat.
       expect(line?.targetId).toBeUndefined()
       expect(seated(painted, { op: 'hide', cells: [[1, 2]] }).log).toHaveLength(2)
+    })
+
+    // ── the latch a brush stroke has to pull (P2 §5) ──────────────────────────
+    // Cells are presentation and rooms are what *ships*. A stroke inside a room nobody has
+    // revealed used to write bits a player could never see, because their copy of the map
+    // carries no geometry for that room at all.
+
+    it('ships the rooms a reveal stroke lands in, without lighting them', () => {
+      const { next } = fire(empty, DM, 'region-set', {
+        op: 'reveal',
+        cells: [
+          [1, 2],
+          [6, 2],
+        ],
+      })
+      // Latched, so the geometry travels — and `re_hidden`, so the room is a memory the
+      // painted cells show through rather than a room washed whole.
+      expect(scened(next).rooms).toEqual({
+        hall: { status: 're_hidden', wasEverRevealed: true },
+        crypt: { status: 're_hidden', wasEverRevealed: true },
+      })
+    })
+
+    it('leaves a room the party already earned exactly as it stands', () => {
+      const lit = stateWith({ hall: { status: 'revealed', wasEverRevealed: true } })
+      const { next } = fire(lit, DM, 'region-set', { op: 'reveal', cells: [[1, 2]] })
+      expect(scened(next).rooms.hall).toEqual({ status: 'revealed', wasEverRevealed: true })
+    })
+
+    it('ships nothing for a stroke on unzoned map, and nothing at all for a hide', () => {
+      // No room under the cell (D6): there is no geometry to latch, only the bits.
+      const unzoned = fire(empty, DM, 'region-set', { op: 'reveal', cells: [[9, 9]] }).next
+      expect(scened(unzoned).rooms).toEqual({})
+      expect(getCell(scened(unzoned).region, 9, 9)).toBe(true)
+
+      // A hide never un-ships and never ships: geometry a player holds stays theirs (D4).
+      const rubbed = fire(unzoned, DM, 'region-set', { op: 'hide', cells: [[1, 2]] }).next
+      expect(scened(rubbed).rooms).toEqual({})
     })
   })
 

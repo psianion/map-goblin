@@ -56,7 +56,7 @@ const EAST_LOCK = lock({ kind: 'rect', x: 11.5, y: -2, width: 14, height: 14 })
 
 function wired(children: AnyChild[] = [], extra: { walls?: WallSegment[]; prep?: ScenePrep } = {}) {
   const data = JSON.parse(MAP) as SerializedMapData
-  const layer = data.layers[0] as DungeonLayer
+  const layer = data.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!
   layer.children = [...layer.children, ...children]
   layer.standaloneWalls = [...layer.standaloneWalls, ...(extra.walls ?? [])]
 
@@ -68,7 +68,7 @@ function wired(children: AnyChild[] = [], extra: { walls?: WallSegment[]; prep?:
   const vision = createVision(stores)
   const registry = new ModuleRegistry(stores.moduleState, autoExplore(vision))
   registry.register(tokensModule(vision.visionOf))
-  registry.register(fogModule(vision.roomsOf, vision.frameOf))
+  registry.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf))
   registry.register(doorsModule(vision.doorsOf, vision.playerDoors))
   registry.register(triggersModule(createTriggerDeps(stores, vision.sceneMapOf)))
   const redact = buildRedactor(registry, vision)
@@ -425,6 +425,38 @@ describe('auto-explored rooms and the triggers hanging off them (M4 × §4)', ()
     const table = wired([VAULT_EYE], { prep: PREP })
     expect(table.run(DM, 'fog', 'reveal', { roomId: 'east' })).toBeNull()
     expect(table.fired()).toEqual(['trg-vault'])
+  })
+})
+
+// A cell brush is presentation memory, and presentation needs something to sit on: a player
+// holds no geometry at all for a room nobody has revealed, so bits painted into one used to
+// reach a client that could never draw them. The latch is what ships the room — and only the
+// room the stroke landed in.
+describe('the region brush ships the room it paints (P2 §5)', () => {
+  it('hands over that room’s geometry and its bits, and no other room', () => {
+    const table = wired()
+    table.run(DM, 'fog', 'set-mode', { mode: 'vision' })
+    const before = table.toPlayer.length
+
+    // Two cells inside the east room, which nobody has been anywhere near.
+    expect(table.run(DM, 'fog', 'region-set', { op: 'reveal', cells: [EAST_CELL, [14, 6]] })).toBeNull()
+
+    const fog = table.fogOf()
+    expect(fog.rooms.east).toEqual({ status: 're_hidden', wasEverRevealed: true })
+    expect(fog.rooms.west).toBeUndefined()
+    expect(getCell(fog.region, ...EAST_CELL)).toBe(true)
+
+    // D5: the geometry rode the stroke's own frame, sliced to the one room.
+    const deltas = table.toPlayer.slice(before).flatMap((msg) => ('mapDelta' in msg ? [msg.mapDelta] : []))
+    expect(deltas).toHaveLength(1)
+    expect(deltas[0].layers.flatMap((l) => l.rooms.map((r) => r.id))).toEqual(['east'])
+
+    // …and what the player's own fog slice says: the bits, the east room, never the west one.
+    const sent = table.toPlayer.slice(before).find((msg) => msg.type === 'state-update' && msg.module === 'fog')
+    const scene = (sent as { state: FogState }).state.byScene[SCENE]
+    expect(Object.keys(scene.rooms)).toEqual(['east'])
+    expect(getCell(scene.region, ...EAST_CELL)).toBe(true)
+    expect(getCell(scene.region, ...WEST_CELL)).toBe(false)
   })
 })
 

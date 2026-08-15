@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 import { GAME_SERVER } from './ports'
 
 /**
@@ -108,6 +108,35 @@ export async function assertMapRendered(page: Page, map: MapUnderTest = DEMO): P
 }
 
 /**
+ * The server's answer when a caller has spent its attempt budget (`INVITE_ATTEMPTS`: ten a
+ * minute per address, over campaign listing, campaign creation, DM tokens, code resolution
+ * and joining).
+ */
+const RATE_LIMITED = /too many attempts/
+
+/**
+ * Take a step of the host or join flow, waiting the budget out if the server is refusing.
+ *
+ * Generous for a person typing, exactly wrong for a lane that stands up three tables in five
+ * minutes: a spec that runs after another one can find the bucket empty and stop dead on
+ * "wait a moment and try again". Waiting is the honest answer — the limit is doing its job,
+ * and this is what the person the message is addressed to would do.
+ *
+ * ponytail: fixed 12-second backoffs rather than reading `retry-after` off the response. The
+ * window is a minute, five waits outlast it, and plumbing a header through the page to get
+ * the same answer is more machinery than the number is worth.
+ */
+async function unhurried(page: Page, take: () => Promise<unknown>, reached: Locator): Promise<void> {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    await take()
+    await expect(reached.or(page.getByText(RATE_LIMITED)).first()).toBeVisible({ timeout: 30_000 })
+    if (await reached.first().isVisible()) return
+    await page.waitForTimeout(12_000)
+  }
+  throw new Error('the table flow never got past the server’s attempt budget')
+}
+
+/**
  * Landing → HostSetup's four steps. Returns the invite code the table is listening on.
  *
  * The upload step is the real one: `#map-file` POSTs the `.mapbuilder` to
@@ -132,10 +161,18 @@ export async function hostTable(
 
   await page.locator('#server-url').fill(SERVER_URL)
   await page.locator('#admin-pass').fill(process.env.E2E_ADMIN_PASS ?? '')
-  await page.getByRole('button', { name: 'Continue' }).click()
+  await unhurried(
+    page,
+    () => page.getByRole('button', { name: 'Continue' }).click(),
+    page.locator('#campaign-name'),
+  )
 
   await page.locator('#campaign-name').fill('Cragmaw Hideout')
-  await page.getByRole('button', { name: 'Create campaign' }).click()
+  await unhurried(
+    page,
+    () => page.getByRole('button', { name: 'Create campaign' }).click(),
+    page.locator('#map-file'),
+  )
 
   if (map.doc) {
     await page.locator('#map-file').setInputFiles({
@@ -180,9 +217,11 @@ export function measureFps(page: Page, ms = 2000): Promise<number> {
 
 /** `/join/CODE` → a seat at the table. Returns when the table page is mounted. */
 export async function joinTable(page: Page, code: string, name: string): Promise<void> {
-  await page.goto(`/join/${code}?e2e=1`)
-  await expect(page.getByText('Table found')).toBeVisible()
+  await unhurried(page, () => page.goto(`/join/${code}?e2e=1`), page.getByText('Table found'))
   await page.locator('#player-name').fill(name)
-  await page.getByRole('button', { name: 'Join' }).click()
-  await expect(page.locator('[data-page="table"]')).toBeVisible()
+  await unhurried(
+    page,
+    () => page.getByRole('button', { name: 'Join' }).click(),
+    page.locator('[data-page="table"]'),
+  )
 }

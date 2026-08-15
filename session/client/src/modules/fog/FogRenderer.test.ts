@@ -19,11 +19,21 @@ import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { clearEngineSingleton, setEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
 import { useStore } from '@dnd/core/src/store/store';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
-import type { RoomFog, SceneFog } from '@dnd/mechanics/fog';
+import { regionOf, setCells, type RoomFog, type SceneFog } from '@dnd/mechanics/fog';
 import type { Token } from '@dnd/mechanics/tokens';
 import type { LiveDoor } from '../doors/doors';
 import { useSessionStore } from '../../session/store';
-import { FOG_MARGIN, fogPad, fogRegion, type FogRing, ringsWithHoles } from './fog';
+import {
+  FOG_MARGIN,
+  cellsIn,
+  fogPad,
+  fogRegion,
+  regionRects,
+  sightPad,
+  visionRegion,
+  type FogRing,
+  ringsWithHoles,
+} from './fog';
 import {
   EXPLORED_TINT,
   EXPLORED_TINT_ALPHA,
@@ -693,6 +703,203 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
   });
 });
 
+// ── Vision mode's three tiers (S3 P2 §1) ────────────────────────────────────
+// The party's own eyes draw the top tier instead of the room record: a sweep is clear, what
+// they have swept or the DM has revealed is a memory, and the rest is the same void. Every
+// row below is written so the *room* rule would answer differently — a room the DM never
+// revealed showing only the cells the party swept is the whole point of the phase.
+
+/** A 24×8 frame over both halls, with unzoned map east of them. Cell (c, r) is [c, c+1]. */
+const VISION_FRAME = { minX: 0, minY: 0, maxX: 24, maxY: 8 };
+
+/** A stretch of the west hall's upper half, as a sight polygon would come off the sweep. */
+const LOOKING: Polygon = [
+  [6, 0.5],
+  [8, 0.5],
+  [8, 2],
+  [6, 2],
+];
+
+describe('regionRects — the swept cells as geometry', () => {
+  const region = (cells: [number, number][]) =>
+    setCells(regionOf({ minX: 0, minY: 0, maxX: 6, maxY: 6 })!, cells);
+
+  it('merges a row of cells into one rectangle and leaves the gaps alone', () => {
+    const rects = regionRects(
+      region([
+        [1, 0],
+        [2, 0],
+        [3, 0],
+        [5, 0],
+        [1, 1],
+      ]),
+    );
+    // Three runs, not five squares: Clipper unioning 150 unit cells for one 8-cell sight
+    // radius costs an order more than unioning the dozen runs they collapse into.
+    expect(rects).toHaveLength(3);
+    expect(rects[0]).toEqual([
+      [1, 0],
+      [4, 0],
+      [4, 1],
+      [1, 1],
+    ]);
+    // A run that reaches the last column is closed like any other.
+    expect(rects[1]).toEqual([
+      [5, 0],
+      [6, 0],
+      [6, 1],
+      [5, 1],
+    ]);
+    expect(rects[2][0]).toEqual([1, 1]);
+    // …and the runs still add up to the cells that were set.
+    expect(cellsIn(rects)).toBe(5);
+  });
+
+  it('is nothing at all for a scene that keeps no region record', () => {
+    expect(regionRects(undefined)).toEqual([]);
+    expect(cellsIn(regionRects(regionOf(VISION_FRAME)))).toBe(0);
+  });
+});
+
+describe('visionRegion — sweep, memory, void', () => {
+  const PAD = fogPad([]);
+  /** West is a room nobody revealed, east one the DM lit by hand; the party swept both. */
+  const swept = setCells(regionOf(VISION_FRAME)!, [
+    [5, 4],
+    [6, 4],
+    [7, 4],
+    // Unzoned map, well east of both halls — the party can sweep it, nothing holds it.
+    [20, 2],
+  ]);
+  const built = () =>
+    visionRegion([LOOKING], swept, [EAST.boundary], [WEST.boundary, EAST.boundary], PAD, FOG_FEATHER);
+
+  it('clears what the party is looking at, out past the stones of the wall', () => {
+    const { clear } = built();
+    expect(inRegion(clear, [7, 1])).toBe(true);
+    // A sweep stops on the wall's *centreline*, so without `sightPad` the outer half of every
+    // stone in front of the party reads as black — the report the room mask's `fogPad` fixed.
+    expect(sightPad(PAD)).toBeCloseTo(WALL_WIDTH / 2 + FOG_MARGIN);
+    expect(inRegion(clear, [8 + sightPad(PAD) - 0.05, 1])).toBe(true);
+    expect(inRegion(clear, [8 + sightPad(PAD) + FOG_FEATHER + 0.1, 1])).toBe(false);
+    // …and nothing they are not looking at, however well they remember it.
+    expect(inRegion(clear, [6.5, 4.5])).toBe(false);
+    expect(inRegion(clear, [13, 3])).toBe(false);
+  });
+
+  it('remembers the cells it swept, and only the cells, in a room nobody revealed', () => {
+    const { memory } = built();
+    expect(inRegion(memory, [6.5, 4.5])).toBe(true);
+    // One row down is map the party has never had their eyes on. In rooms mode the whole
+    // hall would be one wash or one hole; here the record is the cells and nothing else.
+    expect(inRegion(memory, [6.5, 5.5])).toBe(false);
+  });
+
+  it('washes a DM-revealed room whole — told is not the same as looked at', () => {
+    const { memory, clear } = built();
+    expect(inRegion(memory, [13, 3])).toBe(true);
+    // Memory, never live: the party knows the layout because they were told, and their own
+    // sight is the only thing that makes anything current.
+    expect(inRegion(clear, [13, 3])).toBe(false);
+  });
+
+  it('never lets a memory stand where the party is looking right now', () => {
+    const { memory } = built();
+    expect(inRegion(memory, [7, 1])).toBe(false);
+  });
+
+  it('clips the wash to the geometry the player was actually handed', () => {
+    const { memory, cells } = built();
+    // The cell at (20, 2) is on map nobody zoned — swept, recorded, and with nothing under
+    // it to remember. A wash there would be a tint floating on the void.
+    expect(inRegion(memory, [20.5, 2.5])).toBe(false);
+    // It is still in the record, which is what the probe counts.
+    expect(cells).toBe(4);
+  });
+
+  it('cuts one hole for both tiers, so the falloff runs round the outside of everything', () => {
+    const { shown } = built();
+    expect(inRegion(shown, [7, 1])).toBe(true);
+    expect(inRegion(shown, [6.5, 4.5])).toBe(true);
+    expect(inRegion(shown, [6.5, 5.5])).toBe(false);
+  });
+
+  it('is void everywhere for a party with no sight and no memory', () => {
+    const empty = visionRegion([], undefined, [], [WEST.boundary], PAD, FOG_FEATHER);
+    expect(empty).toMatchObject({ clear: [], memory: [], shown: [], cells: 0 });
+  });
+});
+
+describe('drawFog in vision mode', () => {
+  const visionScene = (over: Partial<FogScene> = {}): FogScene => ({
+    rooms: [WEST, EAST],
+    views: new Map(),
+    bounds: fogBounds([], [WEST, EAST]),
+    pad: fogPad([]),
+    sceneId: 's1',
+    isPlayer: true,
+    void: VOID,
+    mode: 'vision',
+    sight: [],
+    fog: { rooms: {}, concealBehindDoors: true },
+    ...over,
+  });
+
+  it('cuts the sweep out of the void and ramps the fog back in over it', () => {
+    const scrim = new Graphics();
+    const drawn = drawFog(scrim, visionScene({ sight: [LOOKING] }));
+
+    const fills = fillsOf(scrim);
+    expect(fills[0].style.color).toBe(VOID.fill);
+    expect(fills[0].hole).toBeDefined();
+    // No memory: nothing has been swept into the record and no room was revealed.
+    expect(fills.some((f) => f.style.color === EXPLORED_TINT)).toBe(false);
+    expect(drawn.cells).toBe(0);
+    expect(
+      scrim.context.instructions.filter((i) => i.action === 'stroke').length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('washes the memory tier at the explored look, over the cells and the reveals', () => {
+    const scrim = new Graphics();
+    const drawn = drawFog(
+      scrim,
+      visionScene({
+        sight: [LOOKING],
+        fog: {
+          rooms: { [EAST.id]: { status: 'revealed', wasEverRevealed: true } },
+          concealBehindDoors: true,
+          region: setCells(regionOf(VISION_FRAME)!, [
+            [5, 4],
+            [6, 4],
+          ]),
+        },
+      }),
+    );
+
+    const wash = fillsOf(scrim).find((f) => f.style.color === EXPLORED_TINT);
+    expect(wash).toBeDefined();
+    expect(wash!.style.alpha).toBe(EXPLORED_TINT_ALPHA);
+    expect(drawn.cells).toBe(2);
+  });
+
+  it('leaves a party with no eyes and no memory one unbroken fill', () => {
+    // The mask fails dark, which is the only direction a fog bug may fail in: no sweep and
+    // no record is a player who has earned nothing, not a player who is owed everything.
+    const scrim = new Graphics();
+    drawFog(scrim, visionScene());
+    expect(fillsOf(scrim)).toHaveLength(1);
+    expect(fillsOf(scrim)[0].hole).toBeUndefined();
+    expect(scrim.context.instructions.filter((i) => i.action === 'stroke')).toHaveLength(0);
+  });
+
+  it('draws the DM nothing at all, as in every other mode (principle 3)', () => {
+    const scrim = new Graphics();
+    drawFog(scrim, visionScene({ sight: [LOOKING], isPlayer: false }));
+    expect(scrim.context.instructions).toHaveLength(0);
+  });
+});
+
 // ── Bounds ──────────────────────────────────────────────────────────────────
 
 describe('fogBounds', () => {
@@ -919,6 +1126,44 @@ describe('fogScene', () => {
     expect(views.get(GALLERY.id)).toBe('visible');
     // …and never through the one only core believes in.
     expect(views.get(VAULT.id)).toBe('explored');
+  });
+
+  // ── vision mode (S3 P2 §3) ───────────────────────────────────────────────
+
+  const sightedToken = (over: Partial<Token> = {}): Token =>
+    token({ sight: { range: 4, angle: 360, visionMode: 'normal' }, ...over });
+
+  it('takes no sweep at all in rooms mode — the mode is the whole fork', () => {
+    const scene = fogScene();
+    expect(scene.mode).toBe('rooms');
+    expect(scene.sight).toBeUndefined();
+  });
+
+  it('sweeps through every claimed pair of eyes in vision mode, and no others', () => {
+    useSessionStore.setState({
+      session: session({
+        fog: { byScene: { 'scene-1': { ...fogOf({}), mode: 'vision' } } },
+        tokens: {
+          library: {},
+          byScene: {
+            'scene-1': {
+              t1: sightedToken({ id: 't1' }),
+              t2: sightedToken({ id: 't2', x: 12, y: 2, ownerId: null }),
+              t3: sightedToken({ id: 't3', x: 12, y: 2, hidden: true }),
+              t4: token({ id: 't4', x: 22, y: 2 }),
+            },
+          },
+        },
+      }),
+    });
+
+    const scene = fogScene();
+    expect(scene.mode).toBe('vision');
+    // The DM's scenery, a hidden token and one with no sight at all are not the party.
+    expect(scene.sight).toHaveLength(1);
+    // The stored record rides along whole — the memory tier reads its cells and its reveals,
+    // not the reachability classification `views` carries.
+    expect(scene.fog?.mode).toBe('vision');
   });
 });
 

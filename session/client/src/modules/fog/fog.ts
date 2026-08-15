@@ -8,7 +8,15 @@ import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import type { Room } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
-import { sceneFogOf, type FogState, type RoomFog, type RoomFogStatus, type SceneFog } from '@dnd/mechanics/fog';
+import {
+  sceneFogOf,
+  toBytes,
+  type FogState,
+  type RegionMask,
+  type RoomFog,
+  type RoomFogStatus,
+  type SceneFog,
+} from '@dnd/mechanics/fog';
 import { liveDoors, type LiveDoor } from '../doors/doors';
 
 /** What a DM reads for each status. The word is the state; colour never carries it alone. */
@@ -232,6 +240,136 @@ export function ringsWithHoles(rings: readonly Polygon[]): FogRing[] {
     (nodes.get(parent) as FogRing).holes.push(node);
   });
   return roots;
+}
+
+// ── Vision mode's mask (S3 P2 §1) ───────────────────────────────────────────
+// Three tiers again, but the party's own eyes draw the top one instead of the room record:
+// what a sweep reaches is clear, what they have swept or the DM has revealed is a memory,
+// and the rest is the same void. Built here, on mutation, for the reason the room mask is —
+// `tick()` draws, it never computes.
+
+/**
+ * How far past a sweep's own boundary the clear area reaches, from the room mask's `pad`.
+ *
+ * A sight polygon stops on the wall *segments*, which are the band's centreline, so the outer
+ * half of every stone the party is looking at falls outside it — the half-swallowed wall
+ * {@link fogPad} exists to buy back for room-granular fog. `fogPad` is `wallWidth +
+ * FOG_MARGIN` measured off a floor polygon, which stops half a band *inside* the centreline;
+ * measured off the centreline itself the same buy-back is `wallWidth / 2 + FOG_MARGIN`.
+ */
+export const sightPad = (pad: number): number => (pad + FOG_MARGIN) / 2;
+
+/**
+ * The party's swept cells as world rectangles, row runs merged.
+ *
+ * One rectangle per *run* rather than per cell, and that is not tidiness: a single 8-cell
+ * sight radius covers ~150 cells, and Clipper unioning 150 unit squares costs an order more
+ * than unioning the dozen runs they collapse into. The region is the same either way — a run
+ * is a row of cells that already share their edges.
+ */
+export function regionRects(region: RegionMask | undefined): Polygon[] {
+  if (!region) return [];
+  const bytes = toBytes(region.bits);
+  const rects: Polygon[] = [];
+  for (let row = 0; row < region.rows; row++) {
+    let start = -1;
+    // One past the last column so a run that reaches the edge is closed like any other.
+    for (let col = 0; col <= region.cols; col++) {
+      const bit = row * region.cols + col;
+      if (col < region.cols && (bytes[bit >>> 3] & (1 << (bit & 7))) !== 0) {
+        if (start < 0) start = col;
+        continue;
+      }
+      if (start < 0) continue;
+      const [x0, x1] = [region.minX + start, region.minX + col];
+      const [y0, y1] = [region.minY + row, region.minY + row + 1];
+      rects.push([
+        [x0, y0],
+        [x1, y0],
+        [x1, y1],
+        [x0, y1],
+      ]);
+      start = -1;
+    }
+  }
+  return rects;
+}
+
+/** How many cells those runs are made of — what `__fogProbe.memoryCells` reports. */
+export const cellsIn = (rects: readonly Polygon[]): number =>
+  rects.reduce((n, rect) => n + (rect[1][0] - rect[0][0]), 0);
+
+/** What the vision mask draws. Void is everything neither tier covers, as it always was. */
+export interface VisionRegion {
+  /** Live sight: the party's sweep union, out to the falloff's limit. Nothing is drawn here. */
+  clear: Polygon[];
+  /** The explored wash — swept cells and DM-revealed rooms, minus whatever is live. */
+  memory: Polygon[];
+  /** Both of them as one region, which is the hole the scrim cuts and the dots clip to. */
+  shown: Polygon[];
+  /**
+   * How many cells the region record holds — §4's `memoryCells`.
+   *
+   * ponytail: the record's own bit count, not the area that survived the clip. It answers
+   * "has the party's memory grown", which is what the probe is for; measuring the drawn
+   * area would mean walking the clipped rings and is worth writing the day a row asks.
+   */
+  cells: number;
+}
+
+/**
+ * The vision mask's geometry, in one pass of Clipper — the same engine and the same
+ * `clear`/`reach` relationship {@link fogRegion} builds the room mask from.
+ *
+ * `revealed` is the rooms the DM has lit by hand, and they land in the *memory* tier rather
+ * than the clear one on purpose: the party knows that layout because they were told, and
+ * their own eyes are the only thing that makes anything live. A re-hidden room contributes
+ * nothing extra — the cells they earned still show, and taking those back is a region-hide.
+ *
+ * `shipped` is every room the player actually holds geometry for, and the memory is clipped
+ * to it: a cell swept on unzoned map, or one the DM brushed past the map's edge, would
+ * otherwise put a wash over void that has nothing under it to remember.
+ *
+ * Without Clipper2 loaded the intersection is empty and the difference is the identity, so
+ * the mask degrades to sweep-and-void — dark rather than open, the direction a fog bug
+ * should fail in.
+ *
+ * ponytail: eleven Clipper calls a rebuild, measured at 7.8ms on the two-room fixture, and
+ * four of them re-offset room polygons that only move when the map or the room record does.
+ * That is comfortably inside a frame and comfortably outside P6's 2ms budget; the upgrade,
+ * when that budget is what is being chased, is to memo `held` and the revealed reach on the
+ * identity of `scene.rooms` and the fog slice — not a second geometry pipeline.
+ */
+export function visionRegion(
+  sight: readonly Polygon[],
+  region: RegionMask | undefined,
+  revealed: readonly Polygon[],
+  shipped: readonly Polygon[],
+  pad: number,
+  feather: number,
+): VisionRegion {
+  const clear = fogRegion(sight, [], sightPad(pad), feather).reach;
+  const rects = regionRects(region);
+  const held = fogRegion(shipped, [], pad, feather).reach;
+  const remembered = clipper2Engine.union(
+    [...rects, ...fogRegion(revealed, [], pad, feather).reach],
+    [],
+  );
+  const inside =
+    remembered.length > 0 && held.length > 0
+      ? clipper2Engine.intersection(remembered, held)
+      : [];
+  const memory = clear.length > 0 ? clipper2Engine.difference(inside, clear) : inside;
+  return {
+    clear,
+    memory,
+    // Unioned rather than drawn as two holes: `cut` takes a set of holes on the promise that
+    // they do not overlap, and the feather runs round the outside of everything the party
+    // holds — a rim between a lit sweep and its own memory would be a line drawn where the
+    // light is still on.
+    shown: clipper2Engine.union([...clear, ...memory], []),
+    cells: cellsIn(rects),
+  };
 }
 
 /** The room polygon under a world point, or undefined for unzoned map (D6). */

@@ -35,6 +35,17 @@ export type SceneRooms = (campaignId: string, sceneId: string) => readonly strin
  */
 export type SceneFrame = (campaignId: string, sceneId: string) => Frame | null
 
+/**
+ * The room a world point falls in, or null for unzoned map (D6). Injected for the reason
+ * {@link SceneFrame} is: the polygons live in the map document, and mechanics reads no files.
+ */
+export type SceneRoomAt = (
+  campaignId: string,
+  sceneId: string,
+  x: number,
+  y: number,
+) => string | null
+
 const REGION_OPS = ['reveal', 'hide'] as const
 
 type Ctx = ModuleContext<FogState>
@@ -43,6 +54,7 @@ type Payload = Record<string, unknown>
 export function fogModule(
   roomsOf: SceneRooms,
   frameOf: SceneFrame = () => null,
+  roomAtOf: SceneRoomAt = () => null,
 ): GameModule<FogState> {
   return {
     name: 'fog',
@@ -64,7 +76,7 @@ export function fogModule(
 
     handler(action, payload, ctx) {
       try {
-        run(action, obj(payload ?? {}, 'payload'), ctx, roomsOf, frameOf)
+        run(action, obj(payload ?? {}, 'payload'), ctx, roomsOf, frameOf, roomAtOf)
       } catch (err) {
         if (err instanceof Reject) return { code: err.code, message: err.message }
         throw err
@@ -104,7 +116,14 @@ export function fogModule(
   }
 }
 
-function run(action: string, p: Payload, ctx: Ctx, roomsOf: SceneRooms, frameOf: SceneFrame): void {
+function run(
+  action: string,
+  p: Payload,
+  ctx: Ctx,
+  roomsOf: SceneRooms,
+  frameOf: SceneFrame,
+  roomAtOf: SceneRoomAt,
+): void {
   const sceneId = sceneOf(p, ctx)
   const scene = sceneFogOf(ctx.state, sceneId)
   switch (action) {
@@ -182,6 +201,12 @@ function run(action: string, p: Payload, ctx: Ctx, roomsOf: SceneRooms, frameOf:
         {
           ...scene,
           region: op === 'reveal' ? setCells(region, cells) : clearCells(region, cells),
+          // …and the rooms those cells fall in have to *ship*, or the brush paints memory
+          // onto geometry the player was never handed and the wash has nothing to sit on
+          // (P2 §1 clips it to what they hold). The latch is all it does: `re_hidden` washes
+          // no room whole, so what a player sees is the cells the DM painted and not the
+          // room around them. `hide` never un-ships — geometry a player holds is theirs (D4).
+          rooms: op === 'reveal' ? shipRooms(scene, region, cells, ctx, sceneId, roomAtOf) : scene.rooms,
         },
         { action: 'changed-fog' },
       )
@@ -209,6 +234,28 @@ function run(action: string, p: Payload, ctx: Ctx, roomsOf: SceneRooms, frameOf:
     default:
       bad(`fog has no action '${action}'`)
   }
+}
+
+/**
+ * The room record a brush stroke leaves behind: every room a newly revealed cell lands in,
+ * latched so its geometry travels, and nothing else touched. A room the party has already
+ * seen keeps whatever status it is at — a brush must not re-light a room the DM re-hid.
+ */
+function shipRooms(
+  scene: SceneFog,
+  region: RegionMask,
+  cells: readonly Cell[],
+  ctx: Ctx,
+  sceneId: string,
+  roomAtOf: SceneRoomAt,
+): Record<string, RoomFog> {
+  let rooms = scene.rooms
+  for (const [col, row] of cells) {
+    const id = roomAtOf(ctx.campaignId, sceneId, region.minX + col + 0.5, region.minY + row + 0.5)
+    if (!id || rooms[id]?.wasEverRevealed) continue
+    rooms = { ...rooms, [id]: { status: 're_hidden', wasEverRevealed: true } }
+  }
+  return rooms
 }
 
 function frameFor(ctx: Ctx, sceneId: string, frameOf: SceneFrame): Frame {
