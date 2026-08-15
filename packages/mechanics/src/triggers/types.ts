@@ -8,10 +8,22 @@
 // and hands the result in through `TriggerDeps.prepOf`; this module only ever reads it.
 
 import type { Ability, AmbientLevel, TimeOfDay, TriggerDef, Weather } from '@dnd/core/src/shared/prep'
+import {
+  NOON,
+  resolveWorldLight,
+  type MapEnvironment,
+  type NightSky,
+  type TimeSpeed,
+  type WorldLight,
+} from '@dnd/core/src/shared/world'
 
 // Consumers of the module (server wiring, table client) get the shared prep vocabulary from
 // here rather than deep-importing @dnd/core themselves.
 export type { Ability, AmbientLevel, TimeOfDay, TriggerDef, Weather }
+// …and the world rules with it, so the referee and the table read the light off one import
+// (`worldLightOf` below) the way they already read `needsLight`.
+export { resolveWorldLight }
+export type { MapEnvironment, NightSky, TimeSpeed, WorldLight }
 
 export interface ResolvedTrigger {
   def: TriggerDef
@@ -77,8 +89,26 @@ export interface SceneTriggers {
   log: TriggerLogEntry[]
 }
 
+/**
+ * The campaign's live world — one clock and one sky for every scene in it, because a party
+ * that walks from the courtyard into the cellar has not travelled through time.
+ *
+ * Beside `byScene` rather than inside it for exactly that reason, and absent on every campaign
+ * that predates the clock: `worldOf` is the one reading, and its defaults are the state the
+ * table has always played in (midday, nothing gated).
+ */
+export interface WorldState {
+  /** Minutes 0-1439. */
+  clock: number
+  nightSky: NightSky
+  /** Auto-advance rate. Stored and synced here; the ticking that reads it is P4. */
+  timeSpeed: TimeSpeed
+}
+
 export interface TriggersState {
   byScene: Record<string, SceneTriggers>
+  /** Absent until a DM touches the world — see `worldOf`. */
+  world?: WorldState
 }
 
 /**
@@ -91,8 +121,43 @@ export const ambientOf = (scene: SceneTriggers): AmbientLevel => scene.env.ambie
 /**
  * The one mechanical distinction the three levels draw: in `darkness` normal vision is
  * clipped to light-source coverage, and in `daylight`/`dusk` the whole sweep counts as lit.
+ *
+ * The scene's own dial only — a map that follows the sky asks `worldLightOf` instead, which
+ * answers the same question with the clock in it.
  */
 export const needsLight = (scene: SceneTriggers): boolean => ambientOf(scene) === 'darkness'
+
+/** The world as it stands, defaulted: midday, a full moon over it, and not moving. */
+export const WORLD_DEFAULT: WorldState = { clock: NOON, nightSky: 'full-moon', timeSpeed: 'paused' }
+
+/** The one reading of the optional slice — a campaign that predates the clock reads midday. */
+export const worldOf = (state: TriggersState): WorldState => ({ ...WORLD_DEFAULT, ...state.world })
+
+/**
+ * The scene's light, as the whole rule sees it: the map's authored environment, the campaign's
+ * clock and sky, and the DM's own override on top.
+ *
+ * This is the seam `ambientOf`/`needsLight` used to be — one function the referee
+ * (`fog/vision.ts`) and the canvas (`FogRenderer`) both call, so the mask and the redaction
+ * cannot disagree about whether the party needs a torch.
+ *
+ * The migration is the `override` argument: a scene's stored `env.ambient` — every value a DM
+ * has ever set — *is* the override, so a campaign upgraded into this feature plays exactly as
+ * it did until someone clears the dial.
+ */
+export function worldLightOf(
+  map: MapEnvironment,
+  state: TriggersState,
+  sceneId: string,
+): WorldLight {
+  const world = worldOf(state)
+  return resolveWorldLight({
+    ...map,
+    clockMinutes: world.clock,
+    nightSky: world.nightSky,
+    override: sceneTriggersOf(state, sceneId).env.ambient ?? null,
+  })
+}
 
 /** An untouched scene: nothing fired, nothing armed, no overrides. */
 export function sceneTriggersOf(state: TriggersState, sceneId: string): SceneTriggers {

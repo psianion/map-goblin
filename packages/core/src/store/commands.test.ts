@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from './store';
-import { AddChildCommand, PresetApplyCommand, PropertyCommand, RemoveChildCommand, ReorderChildCommand, SetAmbientLightCommand, ShapeStyleCommand, UpdateChildCommand } from './commands';
+import { AddChildCommand, PresetApplyCommand, PropertyCommand, RemoveChildCommand, ReorderChildCommand, SetAmbientLightCommand, SetEnvironmentSettingsCommand, ShapeStyleCommand, UpdateChildCommand } from './commands';
 import { undoManager } from './undoManager';
 import { DUNGEON_STYLE_PRESETS } from './presetRegistry';
 import { resolveStyle } from '../engine/styleResolver';
@@ -215,6 +215,32 @@ describe('SetAmbientLightCommand', () => {
     cmd.execute();
     cmd.undo();
     expect(useStore.getState().mapSettings.ambientLight).toBe(before);
+  });
+});
+
+describe('SetEnvironmentSettingsCommand', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+  });
+
+  it('patches only the fields it names, and undo puts every one of them back', () => {
+    useStore.getState().setEnvironmentSettings({ orientation: 45 });
+    const cmd = new SetEnvironmentSettingsCommand(
+      { environment: undefined, orientation: 45 },
+      { environment: 'outdoor', orientation: 90 },
+    );
+    cmd.execute();
+    expect(useStore.getState().mapSettings).toMatchObject({ environment: 'outdoor', orientation: 90 });
+    cmd.undo();
+    expect(useStore.getState().mapSettings.orientation).toBe(45);
+    // Back to never-authored, which is what an undo of "the DM first picked outdoor" means.
+    expect('environment' in useStore.getState().mapSettings).toBe(false);
+  });
+
+  it('leaves a map that never authored any of it alone', () => {
+    const before = { ...useStore.getState().mapSettings };
+    new SetEnvironmentSettingsCommand({}, {}).execute();
+    expect(useStore.getState().mapSettings).toEqual(before);
   });
 });
 

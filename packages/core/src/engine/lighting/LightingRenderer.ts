@@ -25,6 +25,12 @@ import { prefersReducedMotion } from '../motion'
  * `nowMs` only moves the string for a light with `flicker` on — `flickerFactor` answers a
  * constant 1 for everything else (and for any light when reduced-motion is set), so an idle
  * table with no flickering lights still settles onto the cached frame.
+ *
+ * `timeBucket` is the world clock, already coarsened to a bucket by whoever composed the grade
+ * (`shared/world.ts`). A raw clock reading here would defeat the whole memo; a bucket moves the
+ * string a few times a second while a DM scrubs and never while the clock is paused. The grade
+ * colour covers today's picture on its own — the bucket is what the sun/moon pass (P3) rides
+ * on, whose direction moves within one grade colour.
  */
 export function lightingSignature(
   camX: number,
@@ -37,8 +43,9 @@ export function lightingSignature(
   isDirty: (lightId: string) => boolean,
   nowMs: number,
   darkness = 1,
+  timeBucket = 0,
 ): string {
-  const parts = [camX, camY, zoom, width, height, ambientColor, darkness]
+  const parts = [camX, camY, zoom, width, height, ambientColor, darkness, timeBucket]
   for (const l of lights) {
     const maskWidth = l.maskTextureId ? resolveTexture(l.maskTextureId).width : 0
     parts.push(
@@ -202,6 +209,8 @@ export class LightingRenderer {
    * this pass reads it off the frame like it always has.
    */
   private grade: string | null = null
+  /** The clock the grade was composed at, bucketed — see `lightingSignature`. */
+  private timeBucket = 0
 
   constructor(engine: RenderEngine, width: number, height: number) {
     this.engine = engine
@@ -317,9 +326,14 @@ export class LightingRenderer {
    * Separate from `setAmbientLevel` on purpose: the grade is *presentation* (what the world
    * looks like) and the bite is *vision* (what a player is allowed to see), and only the
    * second is ever dialled per seat. `null` hands the frame's own `ambientLight` back.
+   *
+   * `timeBucket` is the clock the colour was composed at, coarsened (`shared/world.ts`) — it
+   * rides along here rather than through `updateAndRender` because it is an input to the same
+   * composition, and the caller that has one always has the other.
    */
-  setGrade(color: string | null): void {
+  setGrade(color: string | null, timeBucket = 0): void {
     this.grade = color
+    this.timeBucket = timeBucket
   }
 
   /** Called each frame from renderLoop. `darkness` defaults to whatever the dial last set. */
@@ -367,6 +381,7 @@ export class LightingRenderer {
       (id) => lightManager.isDirty(id),
       now,
       bite,
+      this.timeBucket,
     )
     if (signature === this.lastSignature) return
     this.lastSignature = signature

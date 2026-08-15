@@ -11,6 +11,7 @@ import { renderRoomHighlight } from './roomHighlight';
 import { renderWallNodeHandles } from './wallNodeOverlay';
 import { renderShapeNodeHandles } from './shapeNodeOverlay';
 import { recordFrame } from './fpsMetrics';
+import { composeGrade, mapClock, timeBucket } from '../shared/world';
 
 /**
  * Set up the per-frame render loop via PixiJS Ticker.
@@ -20,6 +21,10 @@ import { recordFrame } from './fpsMetrics';
  * Dirty-flag strategy: layers are NOT re-rendered every frame.
  * Camera changes need zero layer redraw.
  */
+/** The Editor's grade: the map's mood at the hour the canvas is showing (`mapClock`). */
+const editorGrade = (state: ReturnType<typeof useStore.getState>): string =>
+  composeGrade(state.mapSettings, mapClock(state.mapSettings, state.ui.previewClock));
+
 export function setupRenderLoop(
   engine: RenderEngine,
   sceneGraph: SceneGraph,
@@ -73,13 +78,13 @@ export function setupRenderLoop(
       const currentState = useStore.getState();
       const bgLayer = currentState.layers.find((l) => l.type === 'background');
 
-      // When any light exists, use ambient light color for background
+      // When any light exists, use the grade for the background
       // to prevent the multiply compositing from darkening to black
       const hasLights = currentState.layers.some(
         (l) => l.type === 'dungeon' && l.children.some((c: LightChild | { childType: string }) => c.childType === 'light'),
       );
       const bgColor = hasLights
-        ? currentState.mapSettings.ambientLight
+        ? editorGrade(currentState)
         : (bgLayer && bgLayer.type === 'background' ? bgLayer.backgroundColor : '#0f100e');
 
       if (
@@ -175,6 +180,14 @@ export function setupRenderLoop(
     const zoom = stage.scale.x;
     const camX = -stage.position.x / zoom;
     const camY = -stage.position.y / zoom;
+
+    // The composed grade: the map's mood carrying the hour the Editor is showing (the scrub
+    // head, or the map's own time), damped by how much sky the map has. The Table composes the
+    // same colour from the campaign clock — this surface just has no clock to read.
+    sceneGraph.lightingRenderer.setGrade(
+      editorGrade(storeState),
+      timeBucket(mapClock(storeState.mapSettings, storeState.ui.previewClock)),
+    );
 
     sceneGraph.lightingRenderer.updateAndRender(
       lightManager,

@@ -1,7 +1,9 @@
 export * from '../shared/types';
 export * from '../shared/prep';
+export * from '../shared/world';
 import type { AnyChild, WallSegment, WallEdits, WallType, WallDirection, DoorStyle, MaskData, Room } from '../shared/types';
 import type { ScenePrep, TriggerDef } from '../shared/prep';
+import type { MapEnvironment } from '../shared/world';
 import type { Polygon } from '../types/geometry';
 
 // ─── Map Settings ─────────────────────────────────────────
@@ -21,10 +23,17 @@ export interface TerrainData {
 /** Sentinel activeLayerId for the pinned Terrain row — never a real layer id. */
 export const TERRAIN_PANEL_ID = '__terrain__';
 
-export interface MapSettings {
+/**
+ * `MapEnvironment` is the world half — environment type, time palette, natural light,
+ * orientation, time mode (`shared/world.ts`). Every field of it is optional, so a map saved
+ * before the world clock existed reads as an indoor map on the default palette and nothing
+ * about it moves when the campaign's clock does.
+ */
+export interface MapSettings extends MapEnvironment {
   name: string;
   gridType: 'square' | 'hex' | 'isometric';
   cellScale: { value: number; unit: string };
+  /** The map's mood tint — the base of the grade, "this world in neutral daylight". */
   ambientLight: string;
   /** Optional — absent on maps that never painted terrain (and on pre-terrain saves). */
   terrain?: TerrainData;
@@ -278,6 +287,13 @@ export interface UISlice {
    * store/selectors.ts) instead of reading `layer.visible` directly.
    */
   solo: { layerId: string } | null;
+  /**
+   * The Editor's day-scrub preview clock, minutes 0-1439 — local, never persisted and never
+   * sent anywhere (the plan's "Editor preview clock must not leak into campaign state"). Null
+   * is "not scrubbing": the map is drawn at its own time, which is `fixedTime` on a fixed map
+   * and midday on one that follows the clock it cannot see from here.
+   */
+  previewClock: number | null;
 }
 
 // ─── Assets ───────────────────────────────────────────────
@@ -461,6 +477,7 @@ export interface MapBuilderStore {
   setMapName: (name: string) => void;
   setGridType: (type: MapSettings['gridType']) => void;
   setAmbientLight: (color: string) => void;
+  setEnvironmentSettings: (patch: Partial<MapEnvironment>) => void;
   setTerrainData: (patch: Partial<TerrainData>) => void;
   setTerrainSplats: (pngs: [Blob | null, Blob | null]) => void;
 
@@ -522,6 +539,7 @@ export interface MapBuilderStore {
   toggleSoloLayer: (id: string) => void;
   /** Drops solo bookkeeping without touching any layer's visibility. */
   clearSolo: () => void;
+  setPreviewClock: (minutes: number | null) => void;
 
   // asset actions
   toggleFavorite: (assetId: string) => void;

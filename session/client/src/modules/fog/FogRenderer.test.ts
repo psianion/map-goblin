@@ -6,7 +6,7 @@
 // that an unrelated store write does not rebuild the mask.
 
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Container, Graphics, Ticker } from 'pixi.js';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '@dnd/core/src/geometry/Clipper2Engine';
@@ -1385,8 +1385,16 @@ describe('fogScene', () => {
       position: { x, y },
     }) as unknown as DoorChild;
 
-  /** A vision scene with a lamp on the map, three tokens, and the DM's dial at `ambient`. */
-  const nightTable = (ambient?: string, overrides: Record<string, boolean> = {}) => {
+  /**
+   * A vision scene with a lamp on the map, three tokens, the DM's dial at `ambient` — and,
+   * since P2, the campaign's own clock and sky over it (`world`) and whatever environment the
+   * map authored.
+   */
+  const nightTable = (
+    ambient?: string,
+    overrides: Record<string, boolean> = {},
+    world?: { clock: number; nightSky: 'full-moon' | 'crescent' | 'moonless'; timeSpeed: 'paused' },
+  ) => {
     useStore.setState({
       layers: [{ ...(dungeon(ROOMS) as object), children: [lamp('lamp-a', 3, 3)] } as Layer],
     });
@@ -1410,6 +1418,7 @@ describe('fogScene', () => {
           },
         },
         triggers: {
+          world,
           byScene: {
             'scene-1': {
               fired: {},
@@ -1476,19 +1485,86 @@ describe('fogScene', () => {
     expect(AMBIENT_BITE.dusk).toBeLessThan(AMBIENT_BITE.darkness);
   });
 
+  // P2 — the same rule the referee runs (`worldLightOf`), read through this seat's mask.
+  describe('the world clock', () => {
+    // The map document is store state like any other — put it back, or the map every test
+    // below reads is whichever one this block authored last.
+    const authored = { ...useStore.getState().mapSettings };
+    afterEach(() => useStore.setState({ mapSettings: { ...authored } }));
+
+    const outdoor = (over: Record<string, unknown> = {}) =>
+      useStore.setState({
+        mapSettings: { ...useStore.getState().mapSettings, environment: 'outdoor', ...over },
+      });
+    const night = { clock: 0, timeSpeed: 'paused' } as const;
+
+    it('gates an outdoor map on the clock and the sky, with nobody touching a dial', () => {
+      outdoor();
+      expect(nightTable(undefined, {}, { ...night, nightSky: 'moonless' }).night).toBeDefined();
+      // A full moon is a world you can still see: dusk, and no light gate at all.
+      expect(nightTable(undefined, {}, { ...night, nightSky: 'full-moon' }).night).toBeUndefined();
+      // …and midday is midday.
+      expect(nightTable(undefined, {}, { clock: 720, nightSky: 'moonless', timeSpeed: 'paused' }).night).toBeUndefined();
+    });
+
+    it('reads a crescent night one shade softer than a moonless one, mechanics unchanged', () => {
+      outdoor();
+      const crescent = nightTable(undefined, {}, { ...night, nightSky: 'crescent' });
+      const moonless = nightTable(undefined, {}, { ...night, nightSky: 'moonless' });
+      expect(crescent.light?.biteLevel).toBe('darkness-soft');
+      expect(crescent.bite).toBe(biteStrength('darkness-soft', 'player'));
+      expect(crescent.bite).toBeLessThan(moonless.bite);
+      // Both still clip vision to the torches — the softening is presentation only.
+      expect(crescent.night).toBeDefined();
+    });
+
+    it('lets the DM dial beat the clock, and says what the clock would have said', () => {
+      outdoor();
+      const scene = nightTable('daylight', {}, { ...night, nightSky: 'moonless' });
+      expect(scene.night).toBeUndefined();
+      expect(scene.light).toMatchObject({ source: 'override', wouldBe: 'darkness' });
+    });
+
+    it('leaves an indoor map to the DM at every hour, and composites it unchanged', () => {
+      useStore.setState({
+        mapSettings: { ...useStore.getState().mapSettings, environment: undefined },
+      });
+      const scene = nightTable(undefined, {}, { ...night, nightSky: 'moonless' });
+      expect(scene.night).toBeUndefined();
+      expect(scene.light?.biteLevel).toBeNull();
+      expect(scene.bite).toBe(biteStrength(undefined, 'player'));
+    });
+
+    it('composes a grade that follows the clock, and buckets it for the pass', () => {
+      outdoor();
+      const noon = nightTable(undefined, {}, { clock: 720, nightSky: 'full-moon', timeSpeed: 'paused' });
+      const midnight = nightTable(undefined, {}, { ...night, nightSky: 'full-moon' });
+      expect(noon.grade).not.toBe(midnight.grade);
+      expect(midnight.timeBucket).toBe(0);
+      expect(noon.timeBucket).toBe(144);
+      // A fixed map ignores the clock entirely (decision #9).
+      outdoor({ timeMode: 'fixed', fixedTime: 720 });
+      expect(nightTable(undefined, {}, { ...night, nightSky: 'moonless' }).grade).toBe(noon.grade);
+    });
+  });
+
   it('imitates the void at the dial’s own bite, not always at full strength', () => {
     // The fogged sheet is drawn *above* the same composite the real void renders through, so
     // the two only land on the same pixels while they agree about how hard it bites. Left at
     // full strength (D1), a daylight scene fogs darker than the map beside it.
+    // …and through the same *grade*, which is the colour the composite is actually filled
+    // with now that the world clock composes one (P2).
     for (const level of ['daylight', 'dusk', 'darkness'] as const) {
-      expect(nightTable(level).void).toEqual(voidStyle(biteStrength(level, 'player')));
+      const scene = nightTable(level);
+      expect(scene.void).toEqual(voidStyle(biteStrength(level, 'player'), true, scene.grade));
     }
     // Lifting the composite lifts the imitation with it…
     expect(nightTable('daylight').void.fill).toBeGreaterThan(nightTable('darkness').void.fill);
     expect(nightTable('daylight').void.dot).toBeGreaterThan(nightTable('darkness').void.dot);
-    // …and an untouched scene is still exactly what the layer has always drawn.
-    expect(nightTable(undefined).void).toEqual(voidStyle());
-    expect(nightTable('darkness').void).toEqual(voidStyle());
+    // …and an untouched scene still bites at full, exactly as the layer has always drawn it.
+    const untouched = nightTable(undefined);
+    expect(untouched.void).toEqual(voidStyle(undefined, true, untouched.grade));
+    expect(nightTable('darkness').void).toEqual(voidStyle(undefined, true, untouched.grade));
   });
 });
 

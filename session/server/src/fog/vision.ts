@@ -26,7 +26,7 @@ import {
   type RoomFog,
   type SceneFog,
 } from '@dnd/mechanics/fog'
-import { needsLight, sceneTriggersOf, type TriggersState } from '@dnd/mechanics/triggers'
+import { sceneTriggersOf, worldLightOf, type TriggersState } from '@dnd/mechanics/triggers'
 import { sightParty, type SceneVision, type Token, type TokensState } from '@dnd/mechanics/tokens'
 import type { Viewer } from '@dnd/mechanics/contract'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
@@ -201,8 +201,16 @@ export function createVision(stores: Stores): Vision {
     // to it bumps the revision this record is keyed on, so a `set-environment` or a trigger
     // firing re-derives the answer for free. Outside `darkness` no light sweep is taken at all:
     // `lit: null` is the P2 behaviour, unchanged, which is what an untouched scene keeps.
-    const triggers = sceneTriggersOf(read(campaignId, 'triggers', NO_TRIGGERS), sceneId)
-    const lights = needsLight(triggers) ? triggers.lightOverrides : null
+    //
+    // …and P2 puts the world clock in front of it. The gate is no longer the scene's dial
+    // alone: on a map authored as outdoor the campaign's clock and sky decide it, and the
+    // dial — every value a DM has ever set — is the override that still beats them
+    // (`worldLightOf`). The same function the table's mask calls, on the same two slices, so
+    // the referee and the canvas cannot disagree about whether the party needs a torch.
+    const triggersState = read(campaignId, 'triggers', NO_TRIGGERS)
+    const triggers = sceneTriggersOf(triggersState, sceneId)
+    const world = worldLightOf(map.data.mapSettings ?? {}, triggersState, sceneId)
+    const lights = world.effectiveLevel === 'darkness' ? triggers.lightOverrides : null
     const vision = fogModeOf(fog) === 'vision'
     const sight = vision ? sweeps.partyVision(map, tokens, doors, lights) : null
     // P5 — one seat's eyes, on demand and once per revision. Lazy because most tables never

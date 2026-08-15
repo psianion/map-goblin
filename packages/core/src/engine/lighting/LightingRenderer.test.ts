@@ -140,6 +140,12 @@ describe('lightingSignature', () => {
       'ambient level (the DM’s dial)',
       () => lightingSignature(100, 200, 1.5, 1280, 720, '#0d0e12', [light()], clean, 0, 0.45),
     ],
+    // P2 — the world clock, bucketed. The grade colour covers the picture this pass draws
+    // today; the bucket is what the sun/moon direction (P3) moves inside one grade colour.
+    [
+      'the world clock’s bucket',
+      () => lightingSignature(100, 200, 1.5, 1280, 720, '#0d0e12', [light()], clean, 0, 1, 7),
+    ],
     ['light moved', () => sig([light({ position: { x: 13, y: 20 } })])],
     ['light radius', () => sig([light({ radius: 41 })])],
     ['light colour', () => sig([light({ color: '#ff0000' })])],
@@ -424,6 +430,21 @@ describe('LightingRenderer composite guard', () => {
     t.renderer.setGrade(null);
     t.frame('#2d2d44');
     expect(t.baseFills.at(-1)?.[0].color).toBe(0x2d2d44);
+  });
+
+  it('redraws when the clock bucket moves under an unchanged grade colour', () => {
+    const t = table();
+    t.renderer.setGrade('#442d2d', 100);
+    t.frame('#2d2d44');
+    const drawn = t.drawnInto.length;
+    // Same colour, later hour: the picture the sun draws is not a function of the grade alone.
+    t.renderer.setGrade('#442d2d', 101);
+    t.frame('#2d2d44');
+    expect(t.drawnInto.length).toBeGreaterThan(drawn);
+    // …and a paused clock costs nothing: the same bucket is the same frame.
+    const moved = t.drawnInto.length;
+    t.frame('#2d2d44');
+    expect(t.drawnInto.length).toBe(moved);
   });
 
   it('rearms after the last light is hidden and lit again', () => {

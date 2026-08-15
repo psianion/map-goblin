@@ -59,12 +59,17 @@ import {
 } from '@dnd/mechanics/fog';
 import { sightParty, type Token, type TokensState } from '@dnd/mechanics/tokens';
 import {
-  ambientOf,
-  needsLight,
   sceneTriggersOf,
-  type AmbientLevel,
+  worldLightOf,
   type TriggersState,
 } from '@dnd/mechanics/triggers';
+import {
+  NOON,
+  composeGrade,
+  timeBucket,
+  type BiteLevel,
+  type WorldLight,
+} from '@dnd/core/src/shared/world';
 import { addScreenOverlay, mountWhenEngineReady } from '../../renderer/overlayLayer';
 import { prefersReducedMotion } from '../../session/motion';
 import { useSessionStore } from '../../session/store';
@@ -193,13 +198,11 @@ export const DARKVISION_TINT_ALPHA = 0.55;
  * unlit map most, dusk sits between.
  */
 /**
- * The gate's three levels plus the one the *sky* adds: a crescent moon is a `darkness` scene
- * for every mechanical purpose (`needsLight` still clips vision to the torches) that reads a
- * shade softer than a moonless one, because there is a little light out there. Presentation
- * only — nothing mechanical may switch on this, and nothing sets it until the world clock and
- * the sky exist to.
+ * The gate's three levels plus the one the *sky* adds — defined with the world rules now that
+ * the clock and the sky exist to set it (`shared/world.ts`), and re-exported here because this
+ * is where the strengths below live.
  */
-export type BiteLevel = AmbientLevel | 'darkness-soft';
+export type { BiteLevel };
 
 export const AMBIENT_BITE: Record<BiteLevel, number> = {
   daylight: 0.45,
@@ -325,6 +328,16 @@ export interface FogScene {
    * always 0 for the DM — the grade is the half that reaches every seat, and it is not in here.
    */
   bite: number;
+  /** P2 — the one composed colour the lighting pass fills its base with (`composeGrade`). */
+  grade: string;
+  /** …and the coarsened clock it was composed at, which is what the pass memoizes on. */
+  timeBucket: number;
+  /**
+   * P2 — the whole resolved world for this scene: effective gate, provenance, sun vector.
+   * Absent only before the join snapshot lands. The badge reads `effectiveLevel`/`source`/
+   * `wouldBe` off it; nothing this file draws needs the rest.
+   */
+  light?: WorldLight;
 }
 
 /**
@@ -573,15 +586,20 @@ const graded = (grade: [number, number, number], bite: number): [number, number,
  * the composite's fill is actually biting for this seat (`biteStrength`) — the grade's tint
  * lands either way, which is why 0 is no longer "no multiply". `composited` is: a table with
  * no lighting engine has no multiply to imitate, and the mount checks which is true.
+ *
+ * `grade` is the colour the composite is actually filled with — the mood carrying the hour
+ * (`composeGrade`). Omitted, it falls back to the mood alone, which is what the composite
+ * shows on a surface with no clock behind it.
  */
 export function voidStyle(
   bite: number = LIGHTING_STRENGTH.player,
   composited = true,
+  grade?: string,
 ): VoidStyle {
   const { layers, mapSettings, grid } = useStore.getState();
   const bg = layers.find((l): l is BackgroundLayer => l.type === 'background');
   const ambient = composited
-    ? graded(channels(mapSettings.ambientLight), bite)
+    ? graded(channels(grade ?? mapSettings.ambientLight), bite)
     : UNCOMPOSITED;
   const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
   return {
@@ -610,9 +628,23 @@ export function fogScene(): FogScene {
   // redaction cannot disagree about what is burning.
   const triggers = session?.modules?.triggers as TriggersState | undefined;
   const scene = sceneId && triggers ? sceneTriggersOf(triggers, sceneId) : undefined;
+  // P2 — and the world the scene is played in: the map's authored environment against the
+  // campaign's clock and sky, with the DM's dial as the override that beats them. The referee
+  // resolves the same thing from the same two slices (`vision.ts`), which is the whole point
+  // of the rule being one function.
+  const mapSettings = useStore.getState().mapSettings;
+  const light =
+    sceneId && triggers ? worldLightOf(mapSettings, triggers, sceneId) : undefined;
   // §4 — how hard the lighting composite's ambient fill bites for this seat. Read before the
   // void's look because the imitation is drawn *through* that same composite (`voidStyle`).
-  const bite = biteStrength(scene?.env.ambient ? ambientOf(scene) : undefined, isPlayer ? 'player' : 'dm');
+  // `null` from the resolver is still "nobody has stated a level", which bites at full: an
+  // indoor map nobody has dialled composites exactly as it did before the clock existed.
+  const bite = biteStrength(light?.biteLevel ?? undefined, isPlayer ? 'player' : 'dm');
+  // The composed grade — mood × hour × how much sky this map has — and the bucket the lighting
+  // pass memoizes it on. One colour, every seat.
+  // Midday until the join snapshot lands: an unknown clock must not paint the first frame of
+  // a map at midnight.
+  const grade = composeGrade(mapSettings, light?.minutes ?? NOON);
   // Not taken for the DM, whose seat draws no mask at all, nor in rooms mode, which has no
   // use for it — the sweep is the expensive half of this read, and leaving it untaken is also
   // what keeps that path byte-identical.
@@ -665,7 +697,7 @@ export function fogScene(): FogScene {
     // The imitation bites exactly as hard as the real composite does: the sheet renders above
     // the same multiply, and §4 just made that multiply a dial. Left at full strength the
     // fogged sheet reads as a *darker* patch of the same map at daylight and dusk (D1).
-    void: voidStyle(bite),
+    void: voidStyle(bite, true, grade),
     mode,
     fog,
     sight,
@@ -674,7 +706,7 @@ export function fogScene(): FogScene {
     // token-carried ones), and separately the sweeps of the party's darkvision eyes, which are
     // the polygons already computed above — a darkvision eye is not swept twice.
     night:
-      sight && scene && needsLight(scene)
+      sight && scene && light?.effectiveLevel === 'darkness'
         ? {
             lit: sightCache.litArea(
               layers,
@@ -687,6 +719,9 @@ export function fogScene(): FogScene {
     // the DM calls dark should read dark too. Deliberate (D6): the dial is world state, not a
     // vision-mode feature, so it reaches every scene the DM turns it on.
     bite,
+    grade,
+    timeBucket: timeBucket(light?.minutes ?? NOON),
+    light,
   };
 }
 
@@ -734,8 +769,10 @@ export function subscribeFogScene(onChange: () => void): () => void {
       // merged reveal delta, so identity is the whole test here too.
       mapData,
       useStore.getState().layers,
-      // The void look the fog imitates — background colour, ambient, grid toggle.
-      useStore.getState().mapSettings.ambientLight,
+      // The void look the fog imitates — background colour, ambient, grid toggle. The whole
+      // settings object rather than the tint alone now: the environment type, the palette and
+      // the time mode all compose into the grade the imitation is drawn through.
+      useStore.getState().mapSettings,
       useStore.getState().grid.visible,
     ];
     if (next.length === last.length && next.every((v, i) => v === last[i])) return false;
@@ -1130,10 +1167,13 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // other half of the same statement. A table always knows its seat, so it always states a
     // bite — 0 for the DM, so darkness stays something they stage (principle 3).
     lighting()?.setAmbientLevel(scene.bite);
+    // P2 — and the grade with it: the mood carrying the hour the world clock is at, damped by
+    // how much sky the map has. Every seat, the DM's included.
+    lighting()?.setGrade(scene.grade, scene.timeBucket);
 
     // The imitation has to match the void as it actually renders — including a table with no
     // lighting pass at all, where there is no multiply for the void to have gone through.
-    const drawn = lit?.visible ? scene : { ...scene, void: voidStyle(0, false) };
+    const drawn = lit?.visible ? scene : { ...scene, void: voidStyle(0, false, scene.grade) };
     voidLook = drawn.void;
     cells = drawFog(scrim, drawn, dotsMask).cells;
     // Stamped before the dots and the fades: those are draws, and what §4 budgets is what one
@@ -1199,6 +1239,8 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
       const lit = composite();
       if (lit) lit.alpha = GRADE_STRENGTH;
       lighting()?.setAmbientLevel(null);
+      // …and the grade back to the frame's own, which is what the editor's pass composes.
+      lighting()?.setGrade(null);
       if (!layer.destroyed) layer.destroy({ children: true });
     } catch {
       /* engine torn down first */
