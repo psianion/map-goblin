@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   BANDS,
   DAY_MINUTES,
+  FAST_TIME_RATE,
+  REAL_TIME_RATE,
+  advanceClock,
   composeGrade,
   environmentOf,
   mixOklch,
@@ -241,5 +244,39 @@ describe('sun and moon', () => {
       const grade = (m: number): string => composeGrade({ ambientLight: '#2d2d44', ...outdoor }, m);
       expect(Math.abs(lum(grade(before.minutes)) - lum(grade(after.minutes)))).toBeLessThan(8);
     }
+  });
+});
+
+describe('advanceClock (P4 ticking)', () => {
+  it('does nothing while paused, or before a whole game-minute has elapsed', () => {
+    expect(advanceClock(0, 'paused', 10 * 60_000)).toBeNull();
+    expect(advanceClock(0, 'real', 59_999)).toBeNull();
+    expect(advanceClock(0, 'fast', 0)).toBeNull();
+  });
+
+  it('advances one game-minute per real minute at the real rate', () => {
+    expect(REAL_TIME_RATE).toBe(1);
+    expect(advanceClock(0, 'real', 60_000)).toEqual({ clock: 1, consumedMs: 60_000 });
+    // Under a full minute banks nothing — the remainder is not a partial commit.
+    expect(advanceClock(0, 'real', 90_000)).toEqual({ clock: 1, consumedMs: 60_000 });
+  });
+
+  it('runs a day in about an hour at the fast rate', () => {
+    expect(FAST_TIME_RATE).toBe(24);
+    // 24x: one game-minute every 2500ms.
+    expect(advanceClock(0, 'fast', 2_500)).toEqual({ clock: 1, consumedMs: 2_500 });
+    // A full real hour at 24x is a full game day — wraps clean back to midnight.
+    expect(advanceClock(0, 'fast', 60 * 60_000)).toEqual({ clock: 0, consumedMs: 60 * 60_000 });
+  });
+
+  it('wraps at midnight rather than running the clock past 1439', () => {
+    expect(advanceClock(1439, 'real', 60_000)).toEqual({ clock: 0, consumedMs: 60_000 });
+    expect(advanceClock(1439, 'real', 3 * 60_000)).toEqual({ clock: 2, consumedMs: 3 * 60_000 });
+  });
+
+  it('consumes only the ms the committed minutes actually cost — drift-free', () => {
+    // 24x, 5 minutes' worth plus a fractional remainder: the remainder must not be consumed.
+    const advance = advanceClock(0, 'fast', 5 * 2_500 + 900);
+    expect(advance).toEqual({ clock: 5, consumedMs: 5 * 2_500 });
   });
 });

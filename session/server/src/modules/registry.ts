@@ -205,6 +205,13 @@ export class ModuleRegistry {
     }
   }
 
+  /** Plain state read, no viewer redaction — for a server-side caller that is not running a
+   *  command (P4's world-clock ticker: "has anything moved since I last looked"). */
+  readState(campaignId: string, name: string): unknown {
+    const module = this.modules.get(name)
+    return module ? this.load(campaignId, module) : undefined
+  }
+
   /** Join snapshots (§2.3.4): every module's slice, redacted for the viewer receiving it. */
   snapshotModules(campaignId: string, viewer: Viewer): Record<string, unknown> {
     const slices: Record<string, unknown> = {}

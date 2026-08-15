@@ -20,7 +20,7 @@ import type { AmbientLevel, TimeOfDay } from './prep';
 export const ENVIRONMENTS = ['outdoor', 'indoor', 'underground'] as const;
 /** The sky over the campaign at night — the DM's, shared by every scene. */
 export const NIGHT_SKIES = ['full-moon', 'crescent', 'moonless'] as const;
-/** How fast the world clock advances on its own. Ticking is P4; the value is state today. */
+/** How fast the world clock advances on its own — real time, or the fast dial (P4). */
 export const TIME_SPEEDS = ['paused', 'real', 'fast'] as const;
 /** Whether a map follows the world clock or pins its own time (decision #9). */
 export const TIME_MODES = ['clock', 'fixed'] as const;
@@ -43,6 +43,17 @@ export type BiteLevel = AmbientLevel | 'darkness-soft';
 
 /** Minutes in a day — the clock's modulus, and the one place the number is written. */
 export const DAY_MINUTES = 1440;
+
+/** `real` tracks the table one-for-one; `fast` runs a whole day in about an hour. Named so
+ *  the server's ticker (P4) and its tests never hardcode the multiplier twice. */
+export const REAL_TIME_RATE = 1;
+export const FAST_TIME_RATE = 24;
+/** Game-minutes per real minute, by dial. `paused` is 0 — the ticker's short-circuit. */
+export const TIME_SPEED_RATES: Record<TimeSpeed, number> = {
+  paused: 0,
+  real: REAL_TIME_RATE,
+  fast: FAST_TIME_RATE,
+};
 
 // ─── Time palette ─────────────────────────────────────────
 
@@ -163,6 +174,29 @@ export function timeOfDayAt(minutes: number): TimeOfDay {
   if (m < BANDS.day) return 'dawn';
   if (m < BANDS.dusk) return 'day';
   return 'dusk';
+}
+
+/** What a tick advances the clock to, and what it cost — see {@link advanceClock}. */
+export interface ClockAdvance {
+  /** The new clock reading, wrapped 0-1439. */
+  clock: number;
+  /** Wall-clock ms this advance actually spent. Consume exactly this from the ticker's base
+   *  rather than jumping it to "now" — a leftover fraction of a game-minute is never lost
+   *  (drift-free accumulation, P4). */
+  consumedMs: number;
+}
+
+/**
+ * How far `clock` moves for `elapsedMs` of wall time at `speed`, in whole game-minutes only
+ * — there is no fractional minute to broadcast. `null` when nothing is due yet: paused, or
+ * not even one game-minute has elapsed.
+ */
+export function advanceClock(clock: number, speed: TimeSpeed, elapsedMs: number): ClockAdvance | null {
+  const rate = TIME_SPEED_RATES[speed];
+  if (rate <= 0 || elapsedMs <= 0) return null;
+  const minutes = Math.floor((elapsedMs * rate) / 60_000);
+  if (minutes < 1) return null;
+  return { clock: wrap(clock + minutes), consumedMs: (minutes * 60_000) / rate };
 }
 
 /**
@@ -397,7 +431,7 @@ function sunAt(
 
 // ─── Colour maths ─────────────────────────────────────────
 
-const wrap = (m: number): number => ((m % DAY_MINUTES) + DAY_MINUTES) % DAY_MINUTES;
+export const wrap = (m: number): number => ((m % DAY_MINUTES) + DAY_MINUTES) % DAY_MINUTES;
 const wrapDegrees = (d: number): number => ((d % 360) + 360) % 360;
 const clamp255 = (v: number): number => Math.max(0, Math.min(255, Math.round(v)));
 
