@@ -11,7 +11,7 @@ import { renderRoomHighlight } from './roomHighlight';
 import { renderWallNodeHandles } from './wallNodeOverlay';
 import { renderShapeNodeHandles } from './shapeNodeOverlay';
 import { recordFrame } from './fpsMetrics';
-import { composeGrade, timeBucket } from '../shared/world';
+import { composeGrade, mixOklch, timeBucket } from '../shared/world';
 import { updateShadows } from './shadowPass';
 import { worldFrame, worldGrade } from './worldOverride';
 
@@ -89,9 +89,16 @@ export function setupRenderLoop(
       const hasLights = currentState.layers.some(
         (l) => l.type === 'dungeon' && l.children.some((c: LightChild | { childType: string }) => c.childType === 'light'),
       );
-      const bgColor = hasLights
-        ? gradeNow(currentState)
-        : (bgLayer && bgLayer.type === 'background' ? bgLayer.backgroundColor : '#0f100e');
+      const authoredBg =
+        bgLayer && bgLayer.type === 'background' ? bgLayer.backgroundColor : '#0f100e';
+      // The void takes a *hint* of the hour, not the whole of it. Painting it the grade outright
+      // was invisible while every mood was a baked night, but a mood is "this world in neutral
+      // daylight" now — and at full strength an evening grade flooded the entire viewport, map
+      // and void alike, with saturated orange (the lighting composite multiplies by the grade a
+      // second time on top). A third of the way keeps the original point of this branch — the
+      // background still lifts clear of the black the multiply would otherwise crush it to —
+      // without the void ever becoming the brightest thing on screen.
+      const bgColor = hasLights ? mixOklch(authoredBg, gradeNow(currentState), 0.33) : authoredBg;
 
       if (
         camX !== lastBgCamX ||

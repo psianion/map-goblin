@@ -64,11 +64,18 @@ vi.mock('pixi.js', () => {
   return { Container: MockContainer, Graphics: MockGraphics, Sprite: MockSprite };
 });
 vi.mock('./sceneGraph', () => ({ getLayerEntry: vi.fn() }));
+// Clipper2's WASM is not loaded in a unit test (its real `intersection` answers [] without it),
+// so the clip is the identity here — what is asserted is *which* ground the pass hands it and
+// whether it draws at all, not Clipper's own arithmetic.
+vi.mock('../geometry/Clipper2Engine', () => ({
+  clipper2Engine: { intersection: (subjects: unknown[], clips: unknown[]) => (clips.length > 0 ? subjects : []) },
+}));
 
 import { Container } from 'pixi.js';
 import { updateShadows } from './shadowPass';
 import { setTableWorld } from './worldOverride';
 import { resolveWorldLight, type MapEnvironment } from '../shared/world';
+import { SHADOW_STEPS } from '../shared/shadows';
 import { useStore } from '../store/store';
 import { getLayerEntry } from './sceneGraph';
 import type { DungeonLayer, Polygon } from '../store/types';
@@ -110,11 +117,11 @@ interface Recorder {
 const childLabelled = (parent: unknown, label: string): Recorder =>
   (parent as Recorder).children.find((c) => c.label === label)!;
 
-/** The mask this layer's shadow sublayer is clipped by, as the scene graph holds it. */
-const clipOf = (entry: { container: unknown }): Recorder => childLabelled(entry.container, 'shadowClip');
 
 describe('the shadow clip', () => {
   let entry: { container: InstanceType<typeof Container>; sublayers: Record<string, InstanceType<typeof Container>> };
+
+  const drawnOf = (): Recorder => childLabelled(entry.sublayers.shadows, 'wallShadows');
 
   beforeEach(() => {
     useStore.getState().resetToDefault();
@@ -127,62 +134,58 @@ describe('the shadow clip', () => {
 
   afterEach(() => setTableWorld(null));
 
-  it('is cut when the floor union lands, though nothing else changed', () => {
+  it('draws once the floor union lands, though nothing else changed', () => {
     const layer = freshLayer();
     const frame = frameAt(EVENING);
 
-    // Frame 1: the map is on screen, the sun is casting, and the union has not been computed
-    // yet (`subscribeToStore` only builds it for a layer whose scene-graph entry exists, so it
-    // lands a notification later than this).
+    // Frame 1: on screen, sun casting, and no union yet — `subscribeToStore` only builds it for
+    // a layer whose scene-graph entry exists, so it lands a notification later than this.
     updateShadows([layer], 1, frame);
-    expect(clipOf(entry).fills).toBe(0);
+    expect(drawnOf().fills).toBe(0);
 
-    // The union arrives. No wall was edited, no clock tick, no orientation nudge — every term
-    // the draw memo keys on is byte-identical, which is exactly why this used to be missed.
+    // The union arrives. No wall edited, no clock tick, no orientation nudge — every term the
+    // draw memo used to key on is byte-identical, which is exactly why this used to be missed.
     layer.mergedFloor = COURTYARD;
     updateShadows([layer], 1, frame);
-    expect(clipOf(entry).fills).toBeGreaterThan(0);
-    expect(clipOf(entry).paths).toBe(1);
+    expect(drawnOf().fills).toBe(SHADOW_STEPS);
+    expect(drawnOf().paths).toBeGreaterThan(0);
   });
 
-  it('…and the shadows it clips are actually drawn', () => {
-    const layer = freshLayer();
-    layer.mergedFloor = COURTYARD;
-    updateShadows([layer], 1, frameAt(EVENING));
-    const drawn = childLabelled(entry.sublayers.shadows, 'wallShadows');
-    expect(drawn.fills).toBeGreaterThan(0);
-    expect(entry.sublayers.shadows.mask).toBe(clipOf(entry));
-  });
-
-  it('takes the painted terrain’s own ground too, with or without a floor under it', () => {
+  it('takes the painted terrain as ground too, with no floor under it', () => {
     const layer = freshLayer();
     updateShadows([layer], 1, frameAt(EVENING));
-    expect(clipOf(entry).fills).toBe(0);
+    expect(drawnOf().fills).toBe(0);
 
     useStore.setState((s) => {
       s.mapSettings.terrain = { palette: [], bounds: { minX: 0, minY: 0, maxX: 30, maxY: 30 } };
     });
     updateShadows([layer], 1, frameAt(EVENING));
-    expect(clipOf(entry).paths).toBe(1);
-    expect(clipOf(entry).fills).toBeGreaterThan(0);
+    expect(drawnOf().fills).toBe(SHADOW_STEPS);
   });
 
-  it('leaves a wall standing in the void clipped to nothing', () => {
-    // No floors, no terrain: correct behaviour, not a bug to paper over.
+  it('leaves a wall standing in the void casting nothing', () => {
+    // No floors, no terrain: correct behaviour, not a gap to paper over.
     updateShadows([freshLayer()], 1, frameAt(EVENING));
-    expect(clipOf(entry).fills).toBe(0);
-    expect(clipOf(entry).paths).toBe(0);
+    expect(drawnOf().fills).toBe(0);
+    expect(drawnOf().paths).toBe(0);
   });
 
-  it('re-cuts when the floor is edited, not just when it first lands', () => {
+  it('redraws when the floor is edited, not just when it first lands', () => {
     const layer = freshLayer();
     layer.mergedFloor = COURTYARD;
     updateShadows([layer], 1, frameAt(EVENING));
-    const before = clipOf(entry).fills;
-    // A shape edit replaces the union wholesale — identity is the invalidation.
-    layer.mergedFloor = [[[0, 0], [4, 0], [4, 4], [0, 4]], [[9, 9], [12, 9], [12, 12], [9, 12]]];
+    const first = drawnOf().paths;
+    layer.mergedFloor = [[[0, 0], [40, 0], [40, 40], [0, 40]]];
     updateShadows([layer], 1, frameAt(EVENING));
-    expect(clipOf(entry).paths).toBe(2);
-    expect(clipOf(entry).fills).toBe(before);
+    expect(drawnOf().paths).toBe(first);
+    expect(drawnOf().fills).toBe(SHADOW_STEPS);
+  });
+
+  it('hangs no PixiJS mask on the sublayer — the clip is in the geometry', () => {
+    const layer = freshLayer();
+    layer.mergedFloor = COURTYARD;
+    updateShadows([layer], 1, frameAt(EVENING));
+    expect(entry.sublayers.shadows.mask).toBeNull();
+    expect(entry.container.children.some((c) => c.label === 'shadowClip')).toBe(false);
   });
 });
