@@ -22,6 +22,7 @@ import {
   type SceneFog,
 } from '@dnd/mechanics/fog';
 import { liveDoors, type LiveDoor } from '../doors/doors';
+import { maskField, maskRings, regionCells } from './memoryMask';
 
 /** What a DM reads for each status. The word is the state; colour never carries it alone. */
 export const FOG_STATUS_LABEL: Record<RoomFogStatus, string> = {
@@ -270,6 +271,11 @@ export const sightPad = (pad: number): number => (pad + FOG_MARGIN) / 2;
  * sight radius covers ~150 cells, and Clipper unioning 150 unit squares costs an order more
  * than unioning the dozen runs they collapse into. The region is the same either way — a run
  * is a row of cells that already share their edges.
+ *
+ * Exact, and cell-shaped — which is what the DM's own brush wash wants (`FogOverlay`: the
+ * referee is being shown which cells they painted) and what the player's tier does not. W3
+ * moved that half onto a painted outline (`memoryOutline`); this stays the DM's, and the
+ * fallback for a record too large to paint.
  */
 export function regionRects(region: RegionMask | undefined): Polygon[] {
   if (!region) return [];
@@ -299,7 +305,7 @@ export function regionRects(region: RegionMask | undefined): Polygon[] {
   return rects;
 }
 
-/** How many cells those runs are made of — what `__fogProbe.memoryCells` reports. */
+/** How many cells those runs are made of. The mask counts the record's bits directly. */
 export const cellsIn = (rects: readonly Polygon[]): number =>
   rects.reduce((n, rect) => n + (rect[1][0] - rect[0][0]), 0);
 
@@ -366,8 +372,26 @@ function memoOnce<T>(): (key: readonly unknown[], build: () => T) => T {
  */
 const heldReach = memoOnce<Polygon[]>();
 const revealedReach = memoOnce<Polygon[]>();
-const memoryRects = memoOnce<Polygon[]>();
+const memoryMask = memoOnce<MemoryMask>();
 const rememberedHeld = memoOnce<Polygon[]>();
+
+/** The explored tier's silhouette, and the cell count the probe reports beside it. */
+interface MemoryMask {
+  rings: Polygon[];
+  cells: number;
+}
+
+/**
+ * W3 — the swept cells as one soft outline, painted once per region delta (`memoryMask.ts`).
+ *
+ * The row runs stay the fallback rather than the path: they are exact, and on a record too
+ * large to paint (`MASK_MAX_CELLS`) a stair-stepped tier beats no tier. Everything downstream
+ * takes these rings exactly as it took the rects — same orientation, same non-zero union.
+ */
+function memoryOutline(region: RegionMask | undefined): MemoryMask {
+  const field = maskField(region);
+  return { rings: field ? maskRings(field) : regionRects(region), cells: regionCells(region) };
+}
 
 /**
  * S3 P3 §3 — the light half of the clear tier, present only when the scene's ambient is
@@ -441,9 +465,9 @@ export function visionRegion(
   feather: number,
   night?: NightSight,
 ): VisionRegion {
-  const rects = memoryRects(
+  const mask = memoryMask(
     [region?.bits, region?.minX, region?.minY, region?.cols, region?.rows],
-    () => regionRects(region),
+    () => memoryOutline(region),
   );
   const held = heldReach([pad, feather, ...shipped], () => reachOf(shipped, pad + feather));
   const swept = reachOf(sight, sightPad(pad) + feather);
@@ -487,8 +511,8 @@ export function visionRegion(
   const revealedGrown = revealedReach([pad, feather, ...revealed], () =>
     reachOf(revealed, pad + feather),
   );
-  const inside = rememberedHeld([rects, revealedGrown, held], () => {
-    const remembered = clipper2Engine.union([...rects, ...revealedGrown], []);
+  const inside = rememberedHeld([mask, revealedGrown, held], () => {
+    const remembered = clipper2Engine.union([...mask.rings, ...revealedGrown], []);
     return remembered.length > 0 && held.length > 0
       ? clipper2Engine.intersection(remembered, held)
       : [];
@@ -503,7 +527,7 @@ export function visionRegion(
     // holds — a rim between a lit sweep and its own memory would be a line drawn where the
     // light is still on.
     shown: clipper2Engine.union([...clear, ...memory], []),
-    cells: cellsIn(rects),
+    cells: mask.cells,
   };
 }
 
