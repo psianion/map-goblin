@@ -33,6 +33,7 @@ vi.mock('./sceneGraph', () => {
     textureSprite: null,
     sublayers: {
       floor: { visible: true },
+      shadows: { visible: true },
       grid: { visible: true },
       walls: { visible: true },
       doors: { visible: true },

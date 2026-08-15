@@ -27,6 +27,7 @@ function makeEntry(): LayerEntry {
     sublayers: {
       water: new Container(),
       floor: new Container(),
+      shadows: new Container(),
       grid: new Container(),
       walls: new Container(),
       doors: new Container(),

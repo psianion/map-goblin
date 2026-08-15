@@ -7,7 +7,10 @@
    "value": 5,
    "unit": "ft"
   },
-  "ambientLight": "#0e0f14"
+  "ambientLight": "#0e0f14",
+  "environment": "outdoor",
+  "naturalLight": true,
+  "orientation": 90
  },
  "grid": {
   "visible": true,

@@ -326,6 +326,16 @@ const map = {
     gridType: 'square',
     cellScale: { value: 5, unit: 'ft' },
     ambientLight: '#0e0f14',
+    // The keep stands under real sky, so the demo map demonstrates the world clock out of the
+    // box: the grade carries the hour and the sun casts (P2/P3).
+    environment: 'outdoor',
+    naturalLight: true,
+    // Sunrise sits at `orientation` degrees clockwise from screen-right, and a shadow runs the
+    // opposite way. At 90° the morning sun stands south-west of the bailey, so both palisade
+    // runs — the west one at x=2 and the south one at y=58 — throw their shadows up and to the
+    // right, i.e. into the courtyard rather than out into the void beyond it.
+    orientation: 90,
+    // timeMode left unset (= 'clock'): the keep follows the campaign's own hour.
   },
   grid: { visible: true, snapDivision: 2, style: 'clean' },
   customImages: {},

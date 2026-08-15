@@ -27,6 +27,12 @@ export interface SceneGraph {
 export interface DungeonSublayers {
   water: Container;
   floor: Container;
+  /**
+   * Sun/moon cast shadows (P3a) — on the ground, under everything that casts one. Below the
+   * per-layer grid as well as the walls, because a shadow falls on the floor and the grid is
+   * drawn over the floor, not under it.
+   */
+  shadows: Container;
   grid: Container;
   walls: Container;
   /**
@@ -171,6 +177,7 @@ export function addLayerToScene(
   if (layerType === 'dungeon') {
     const water = new Container(); water.label = 'sublayer-water';
     const floor = new Container(); floor.label = 'sublayer-floor';
+    const shadows = new Container(); shadows.label = 'sublayer-shadows';
     const grid = new Container(); grid.label = 'sublayer-grid';
     const walls = new Container(); walls.label = 'sublayer-walls';
     const doors = new Container(); doors.label = 'sublayer-doors';
@@ -180,11 +187,11 @@ export function addLayerToScene(
     // subscribeToAssets.ts / subscribeToTextLabels.ts, which assign zIndex.
     objects.sortableChildren = true;
     labels.sortableChildren = true;
-    container.addChild(water, floor, grid, walls, doors, objects, labels);
+    container.addChild(water, floor, shadows, grid, walls, doors, objects, labels);
     // Shared ripple displacement over all water in this layer
     const waterFilter = getWaterFilter();
     if (waterFilter) water.filters = [waterFilter];
-    sublayers = { water, floor, grid, walls, doors, objects, labels };
+    sublayers = { water, floor, shadows, grid, walls, doors, objects, labels };
   }
 
   const renderTexture: RenderTexture | null = null;

@@ -11,7 +11,9 @@ import { renderRoomHighlight } from './roomHighlight';
 import { renderWallNodeHandles } from './wallNodeOverlay';
 import { renderShapeNodeHandles } from './shapeNodeOverlay';
 import { recordFrame } from './fpsMetrics';
-import { composeGrade, mapClock, timeBucket } from '../shared/world';
+import { timeBucket } from '../shared/world';
+import { updateShadows } from './shadowPass';
+import { worldFrame, worldGrade } from './worldOverride';
 
 /**
  * Set up the per-frame render loop via PixiJS Ticker.
@@ -21,9 +23,13 @@ import { composeGrade, mapClock, timeBucket } from '../shared/world';
  * Dirty-flag strategy: layers are NOT re-rendered every frame.
  * Camera changes need zero layer redraw.
  */
-/** The Editor's grade: the map's mood at the hour the canvas is showing (`mapClock`). */
-const editorGrade = (state: ReturnType<typeof useStore.getState>): string =>
-  composeGrade(state.mapSettings, mapClock(state.mapSettings, state.ui.previewClock));
+/**
+ * The grade: the map's mood at the hour this engine is standing at — the campaign clock where
+ * a surface installed one (the Table), the map's own where none did (the Editor). One writer
+ * of `setGrade`, which is this loop; see `worldOverride`.
+ */
+const gradeNow = (state: ReturnType<typeof useStore.getState>): string =>
+  worldGrade(state.mapSettings, state.ui.previewClock);
 
 export function setupRenderLoop(
   engine: RenderEngine,
@@ -84,7 +90,7 @@ export function setupRenderLoop(
         (l) => l.type === 'dungeon' && l.children.some((c: LightChild | { childType: string }) => c.childType === 'light'),
       );
       const bgColor = hasLights
-        ? editorGrade(currentState)
+        ? gradeNow(currentState)
         : (bgLayer && bgLayer.type === 'background' ? bgLayer.backgroundColor : '#0f100e');
 
       if (
@@ -176,18 +182,24 @@ export function setupRenderLoop(
     }
     lightManager.rebuildIfDirty(cachedDungeonLayers);
 
+    // The one clock this tick stands at — the campaign's, or the map's own (`worldOverride`).
+    const frame = worldFrame(storeState.mapSettings, storeState.ui.previewClock);
+
+    // (6b) Directional shadows (P3a) — the sun's own pass, over the same wall set the sweep
+    // above was just rebuilt from. Memoized on (wall epoch, sun step, orientation): an
+    // unedited map under a paused clock costs one string compare per layer here.
+    updateShadows(cachedDungeonLayers, lightManager.getWallEpoch(), frame);
+
     // Get camera state for UV → world transform in shader
     const zoom = stage.scale.x;
     const camX = -stage.position.x / zoom;
     const camY = -stage.position.y / zoom;
 
-    // The composed grade: the map's mood carrying the hour the Editor is showing (the scrub
-    // head, or the map's own time), damped by how much sky the map has. The Table composes the
-    // same colour from the campaign clock — this surface just has no clock to read.
-    sceneGraph.lightingRenderer.setGrade(
-      editorGrade(storeState),
-      timeBucket(mapClock(storeState.mapSettings, storeState.ui.previewClock)),
-    );
+    // The composed grade: the map's mood carrying the hour this engine stands at, damped by how
+    // much sky the map has. Both surfaces come through here — the Table by installing its
+    // campaign clock (`setTableWorld`), the Editor by installing nothing and falling through to
+    // the scrub head. One writer, so a per-frame caller can no longer outrun an on-mutation one.
+    sceneGraph.lightingRenderer.setGrade(gradeNow(storeState), timeBucket(frame.minutes));
 
     sceneGraph.lightingRenderer.updateAndRender(
       lightManager,

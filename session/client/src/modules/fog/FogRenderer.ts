@@ -1167,9 +1167,10 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // other half of the same statement. A table always knows its seat, so it always states a
     // bite — 0 for the DM, so darkness stays something they stage (principle 3).
     lighting()?.setAmbientLevel(scene.bite);
-    // P2 — and the grade with it: the mood carrying the hour the world clock is at, damped by
-    // how much sky the map has. Every seat, the DM's included.
-    lighting()?.setGrade(scene.grade, scene.timeBucket);
+    // The grade is not set here. It is composed once a frame by core's render loop, at the
+    // clock this seat installed (`modules/world/worldSync`) — one writer, because a per-frame
+    // one always beats an on-mutation one and this call was being stomped back to midday.
+    // `scene.grade` is still the colour the imitation void is drawn through, below.
 
     // The imitation has to match the void as it actually renders — including a table with no
     // lighting pass at all, where there is no multiply for the void to have gone through.
@@ -1239,8 +1240,8 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
       const lit = composite();
       if (lit) lit.alpha = GRADE_STRENGTH;
       lighting()?.setAmbientLevel(null);
-      // …and the grade back to the frame's own, which is what the editor's pass composes.
-      lighting()?.setGrade(null);
+      // The grade needs no handing back — this file no longer sets it. The clock goes back with
+      // `syncWorldToScene`'s own cleanup, and the render loop recomposes from there.
       if (!layer.destroyed) layer.destroy({ children: true });
     } catch {
       /* engine torn down first */
