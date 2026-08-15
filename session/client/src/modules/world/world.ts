@@ -210,9 +210,19 @@ export const ribbonAt = (minutes: number): string =>
 
 // ─── Quick jumps ──────────────────────────────────────────
 
-/** The five hours a DM jumps to, off the palette's own anchors — one list, not a second one. */
+/**
+ * The five hours a DM jumps to, off the palette's own anchors — one list, not a second one.
+ * Evening is the exception: its palette anchor (18:00) is exactly sunset, the one minute of
+ * the day the sun casts nothing, so the jump lands an hour earlier where "evening" actually
+ * looks like evening — long amber shadows, not the handover instant.
+ */
+const EVENING_JUMP = 1020; // 17:00
 export const JUMPS: readonly { key: TimeKey; label: string; minutes: number }[] = TIME_KEYS.map(
-  (key) => ({ key, label: key[0]!.toUpperCase() + key.slice(1), minutes: KEY_MINUTES[key] }),
+  (key) => ({
+    key,
+    label: key[0]!.toUpperCase() + key.slice(1),
+    minutes: key === 'evening' ? EVENING_JUMP : KEY_MINUTES[key],
+  }),
 );
 
 /**
