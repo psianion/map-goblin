@@ -12,6 +12,7 @@ export interface UIActions {
   setHighlightedRoomId: (roomId: string | null) => void;
   toggleSoloLayer: (id: string) => void;
   clearSolo: () => void;
+  setPreviewClock: (minutes: number | null) => void;
 }
 
 export const createUISlice: StateCreator<
@@ -75,5 +76,11 @@ export const createUISlice: StateCreator<
   clearSolo: () =>
     set((state) => {
       state.ui.solo = null;
+    }),
+  // Same tier as solo: a view convenience, not an authored edit — never undoable, never
+  // serialized, and (unlike the Table's clock) never sent to anybody.
+  setPreviewClock: (minutes) =>
+    set((state) => {
+      state.ui.previewClock = minutes;
     }),
 });

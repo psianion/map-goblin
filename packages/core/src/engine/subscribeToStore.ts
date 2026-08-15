@@ -741,6 +741,9 @@ export function subscribeToStore(
         const entry = getLayerEntry(id);
         if (!entry?.sublayers) continue;
         entry.sublayers.floor.visible = vis.floor;
+        // Shadows fall on the floor, so they follow it: hiding the ground to look at what is
+        // under it should not leave the sun's own pass floating over nothing.
+        entry.sublayers.shadows.visible = vis.floor;
         applyGridVisibility(entry, vis.grid, globalGridVisible);
         entry.sublayers.walls.visible = vis.walls;
         // Doors have their own sublayer now (see sceneGraph.ts) but still

@@ -21,6 +21,7 @@ import { useSessionStore } from '../session/store';
 import { swapSceneMap } from '../session/loadSceneMap';
 import { syncDoorsToLighting } from '../modules/doors/doorLighting';
 import { syncLightsToScene } from '../modules/triggers/lightSync';
+import { syncWorldToScene } from '../modules/world/worldSync';
 import { mountPlayerFogWhenReady } from '../modules/fog/FogRenderer';
 
 // ponytail: copied from canvas/src/geometry/initClipper.ts (12 lines). It cannot
@@ -158,6 +159,9 @@ export function GameRenderer() {
   // A trigger's `light` action is the same live-relight shape as a door: always on, both
   // roles, no panel of its own (M5).
   useEffect(() => syncLightsToScene(), []);
+  // P2/P3a — and the clock the engine composes its grade and its sun at: the campaign's, not
+  // the map's own. The render loop is the only writer of either; this just states the hour.
+  useEffect(() => syncWorldToScene(), []);
 
   // ── Container-relative sizing (D9) ────────────────────────────────────────
   useEffect(() => {

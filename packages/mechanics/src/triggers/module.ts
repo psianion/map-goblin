@@ -11,14 +11,16 @@
 
 import { ANY_ROLE, type GameModule, type ModuleContext } from '../contract'
 import { roll, type RollResult } from '../dice/roll'
-import { ID_MAX, Reject, bad, bool, denied, obj, oneOf, str } from '../tokens/validate'
+import { ID_MAX, Reject, bad, bool, denied, num, obj, oneOf, str } from '../tokens/validate'
 import {
   sceneTriggersOf,
+  worldOf,
   type ResolvedTrigger,
   type SceneTriggers,
   type TriggerLogEntry,
   type TriggerPrompt,
   type TriggersState,
+  type WorldState,
 } from './types'
 import {
   AMBIENTS,
@@ -29,6 +31,7 @@ import {
   type TriggerAction,
   type Weather,
 } from '@dnd/core/src/shared/prep'
+import { DAY_MINUTES, NIGHT_SKIES, TIME_SPEEDS, timeOfDayAt } from '@dnd/core/src/shared/world'
 
 export * from './types'
 
@@ -68,6 +71,7 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
     name: 'triggers',
     commands: {
       'set-environment': ['dm'],
+      'set-world': ['dm'],
       fire: ['dm'],
       'set-enabled': ['dm'],
       'roll-prompt': ANY_ROLE,
@@ -89,6 +93,10 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
     // DM's own bookkeeping and never ride to a player at all. env and lightOverrides are
     // world state everyone already sees on the table. Pure and idempotent: a scene with
     // nothing addressed to this viewer re-filters to the same empty arrays every time.
+    //
+    // This function rebuilds its answer key by key, so anything NOT copied here is dropped
+    // from every player's copy — `world` is copied for the same reason `env` is: the clock and
+    // the sky are what the whole table is looking at.
     redact(state, viewer) {
       if (viewer.role === 'dm') return state
       const byScene: TriggersState['byScene'] = {}
@@ -103,7 +111,7 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
           log: scene.log.filter((e) => e.toPlayers || e.forIdentityId === viewer.identityId),
         }
       }
-      return { byScene }
+      return { byScene, world: state.world }
     },
   }
 }
@@ -112,6 +120,8 @@ function run(action: string, p: Payload, ctx: Ctx, deps: TriggerDeps): void {
   switch (action) {
     case 'set-environment':
       return setEnvironment(p, ctx)
+    case 'set-world':
+      return setWorld(p, ctx)
     case 'fire':
       return fireCommand(p, ctx, deps)
     case 'set-enabled':
@@ -228,6 +238,49 @@ function setEnvironment(p: Payload, ctx: Ctx): void {
     Date.now(),
   )
   setScene(ctx, sceneId, next)
+}
+
+/**
+ * The world's own dials — one clock and one sky for the whole campaign (`WorldState`), so this
+ * is the one handler that writes beside `byScene` rather than into it.
+ *
+ * The clock is where `env.time` came from all along: rather than keep a second source of truth
+ * for the hour, moving the clock across a band narrates the change in exactly the voice the
+ * time dial used (`TIME_PHRASES`), and only when the band actually turns over — a DM nudging
+ * the slider through the afternoon is not four announcements of the same daylight.
+ */
+function setWorld(p: Payload, ctx: Ctx): void {
+  if (p.clock === undefined && p.nightSky === undefined && p.timeSpeed === undefined) {
+    bad('set-world needs clock, nightSky or timeSpeed')
+  }
+  const before = worldOf(ctx.state)
+  const next: WorldState = { ...before }
+  if (p.clock !== undefined) {
+    const clock = Math.floor(num(p.clock, 'clock'))
+    if (!Number.isFinite(clock) || clock < 0 || clock >= DAY_MINUTES) {
+      bad(`clock must be a minute of the day, 0-${DAY_MINUTES - 1}`)
+    }
+    next.clock = clock
+  }
+  if (p.nightSky !== undefined) next.nightSky = oneOf(p.nightSky, NIGHT_SKIES, 'nightSky')
+  if (p.timeSpeed !== undefined) next.timeSpeed = oneOf(p.timeSpeed, TIME_SPEEDS, 'timeSpeed')
+
+  const band = timeOfDayAt(next.clock)
+  if (band !== timeOfDayAt(before.clock)) {
+    const sceneId = ctx.activeSceneId
+    if (sceneId) {
+      const scene = sceneTriggersOf(ctx.state, sceneId)
+      const narrated = { ...scene, log: [...scene.log] }
+      pushLog(narrated, { kind: 'environment', text: `${TIME_PHRASES[band]}.`, toPlayers: true }, Date.now())
+      ctx.setState({
+        ...ctx.state,
+        world: next,
+        byScene: { ...ctx.state.byScene, [sceneId]: narrated },
+      })
+      return
+    }
+  }
+  ctx.setState({ ...ctx.state, world: next })
 }
 
 function setEnabled(p: Payload, ctx: Ctx): void {

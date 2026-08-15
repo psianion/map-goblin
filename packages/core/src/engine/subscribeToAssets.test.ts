@@ -50,6 +50,9 @@ vi.mock('../assets/textureManifest', () => ({
   getTextureEntry: () => null,
 }));
 vi.mock('./sceneGraph', () => ({ getLayerEntry: vi.fn() }));
+// The shadow pass is the sun's, not this loop's — it draws with the real PixiJS this file has
+// mocked away. Its own contract is covered in shared/shadows.test.ts.
+vi.mock('./shadowPass', () => ({ syncPropShadows: vi.fn() }));
 
 import { subscribeToAssets } from './subscribeToAssets';
 import { getLayerEntry } from './sceneGraph';
@@ -85,13 +88,14 @@ describe('subscribeToAssets', () => {
     const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
     layerId = layer.id;
     objects = new MockContainer();
-    // All seven sublayers, not just the one this file cares about — a
+    // All eight sublayers, not just the one this file cares about — a
     // regression that reads the wrong sublayer should fail loudly (undefined
     // access) instead of silently passing because the fake only had `objects`.
     vi.mocked(getLayerEntry).mockReturnValue({
       sublayers: {
         water: new MockContainer(),
         floor: new MockContainer(),
+        shadows: new MockContainer(),
         grid: new MockContainer(),
         walls: new MockContainer(),
         doors: new MockContainer(),

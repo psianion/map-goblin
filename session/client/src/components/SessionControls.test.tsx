@@ -170,41 +170,26 @@ describe('SessionControls scene library (#47)', () => {
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'the table is on fire');
   });
 
-  it('shows the placeholder, disabled, once the scene has an environment set', async () => {
-    useSessionStore.setState({ session: session(HALL.id, { triggers: triggersState(HALL.id, { time: 'dusk' }) }) });
+  // P2 — the hour and the light level moved to the World block (one world clock, one gate).
+  // Weather is the narration dial that stays, and the echo machinery stays with it.
+  it('shows the placeholder, disabled, once the scene has weather set', async () => {
+    useSessionStore.setState({ session: session(HALL.id, { triggers: triggersState(HALL.id, { weather: 'rain' }) }) });
     render(<SessionControls />);
     await screen.findByText('Great Hall');
 
-    expect(screen.getByLabelText('Time of day')).toHaveProperty('value', 'dusk');
-    const timePlaceholder = screen.getByLabelText('Time of day').querySelector('option[value=""]');
-    expect(timePlaceholder).toHaveProperty('disabled', true);
-    expect(timePlaceholder).toHaveProperty('textContent', 'Not set');
-
-    // Weather is still unset on this scene — its own placeholder stays selected and open.
-    expect(screen.getByLabelText('Weather')).toHaveProperty('value', '');
-    const weatherPlaceholder = screen.getByLabelText('Weather').querySelector('option[value=""]');
-    expect(weatherPlaceholder).toHaveProperty('disabled', false);
-    expect(weatherPlaceholder).toHaveProperty('textContent', 'Not set');
+    expect(screen.getByLabelText('Weather')).toHaveProperty('value', 'rain');
+    const placeholder = screen.getByLabelText('Weather').querySelector('option[value=""]');
+    expect(placeholder).toHaveProperty('disabled', true);
+    expect(placeholder).toHaveProperty('textContent', 'Not set');
   });
 
-  // D2 — the light dial is the one field that can go back to untouched, because untouched and
-  // an explicit `daylight` do not light the scene the same (`AMBIENT_BITE` vs no dial at all).
-  it('leaves the light dial’s placeholder pickable, and clears the field with it', async () => {
-    useSessionStore.setState({
-      session: session(HALL.id, { triggers: triggersState(HALL.id, { ambient: 'darkness' }) }),
-    });
+  it('no longer carries the time or light dials — the World block owns both', async () => {
+    useSessionStore.setState({ session: session(HALL.id, { triggers: triggersState(HALL.id, {}) }) });
     render(<SessionControls />);
     await screen.findByText('Great Hall');
 
-    const light = screen.getByLabelText('Ambient light');
-    expect(light).toHaveProperty('value', 'darkness');
-    expect(light.querySelector('option[value=""]')).toHaveProperty('disabled', false);
-
-    const sendCommand = vi.spyOn(useSessionStore.getState(), 'sendCommand');
-    fireEvent.change(light, { target: { value: '' } });
-    expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-environment', { ambient: null });
-    // …and the echo shows the clear at once, rather than snapping back to `darkness`.
-    expect(screen.getByLabelText('Ambient light')).toHaveProperty('value', '');
+    expect(screen.queryByLabelText('Time of day')).toBeNull();
+    expect(screen.queryByLabelText('Ambient light')).toBeNull();
   });
 
   it('labels the wire enum options for reading, not the wire values themselves', async () => {
@@ -212,8 +197,6 @@ describe('SessionControls scene library (#47)', () => {
     render(<SessionControls />);
     await screen.findByText('Great Hall');
 
-    const timeOption = screen.getByLabelText('Time of day').querySelector('option[value="dusk"]');
-    expect(timeOption).toHaveProperty('textContent', 'Dusk');
     const weatherOption = screen.getByLabelText('Weather').querySelector('option[value="storm"]');
     expect(weatherOption).toHaveProperty('textContent', 'Storm');
   });
@@ -224,10 +207,6 @@ describe('SessionControls scene library (#47)', () => {
     await screen.findByText('Great Hall');
 
     const sendCommand = vi.spyOn(useSessionStore.getState(), 'sendCommand');
-    fireEvent.change(screen.getByLabelText('Time of day'), { target: { value: 'night' } });
-    expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-environment', { time: 'night' });
-
-    sendCommand.mockClear();
     fireEvent.change(screen.getByLabelText('Weather'), { target: { value: 'storm' } });
     expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-environment', { weather: 'storm' });
     expect(sendCommand).toHaveBeenCalledTimes(1);
@@ -238,16 +217,16 @@ describe('SessionControls scene library (#47)', () => {
     render(<SessionControls />);
     await screen.findByText('Great Hall');
 
-    fireEvent.change(screen.getByLabelText('Time of day'), { target: { value: 'night' } });
+    fireEvent.change(screen.getByLabelText('Weather'), { target: { value: 'storm' } });
     // Nothing echoed `env` yet — the select still reads the optimistic pick, not the blank.
-    expect(screen.getByLabelText('Time of day')).toHaveProperty('value', 'night');
+    expect(screen.getByLabelText('Weather')).toHaveProperty('value', 'storm');
 
     // The server catches up: env now carries what was picked, and the pending echo clears
     // (a no-op for what's on screen, but stale pending state doesn't leak into a re-pick).
     useSessionStore.setState({
-      session: session(HALL.id, { triggers: triggersState(HALL.id, { time: 'night' }) }),
+      session: session(HALL.id, { triggers: triggersState(HALL.id, { weather: 'storm' }) }),
     });
-    await waitFor(() => expect(screen.getByLabelText('Time of day')).toHaveProperty('value', 'night'));
+    await waitFor(() => expect(screen.getByLabelText('Weather')).toHaveProperty('value', 'storm'));
   });
 
   it('falls an unconfirmed pending pick back to the env echo after it times out', async () => {
@@ -256,13 +235,13 @@ describe('SessionControls scene library (#47)', () => {
     await screen.findByText('Great Hall');
 
     vi.useFakeTimers();
-    fireEvent.change(screen.getByLabelText('Time of day'), { target: { value: 'night' } });
-    expect(screen.getByLabelText('Time of day')).toHaveProperty('value', 'night');
+    fireEvent.change(screen.getByLabelText('Weather'), { target: { value: 'storm' } });
+    expect(screen.getByLabelText('Weather')).toHaveProperty('value', 'storm');
 
     // The module state never confirms it (dropped command, disconnect) — after ~4s the
     // field falls back to the env echo rather than showing the untaken pick forever.
     act(() => vi.advanceTimersByTime(4000));
-    expect(screen.getByLabelText('Time of day')).toHaveProperty('value', '');
+    expect(screen.getByLabelText('Weather')).toHaveProperty('value', '');
 
     vi.useRealTimers();
   });
@@ -272,7 +251,6 @@ describe('SessionControls scene library (#47)', () => {
     render(<SessionControls />);
 
     expect(await screen.findByText('Activate a scene to set its environment.')).not.toBeNull();
-    expect(screen.queryByLabelText('Time of day')).toBeNull();
     expect(screen.queryByLabelText('Weather')).toBeNull();
   });
 

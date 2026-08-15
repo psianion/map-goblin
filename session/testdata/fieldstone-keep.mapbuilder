@@ -7,7 +7,10 @@
    "value": 5,
    "unit": "ft"
   },
-  "ambientLight": "#0e0f14"
+  "ambientLight": "#e8e4d8",
+  "environment": "outdoor",
+  "naturalLight": true,
+  "orientation": 90
  },
  "grid": {
   "visible": true,
@@ -124,7 +127,7 @@
        43
       ],
       [
-       58,
+       7,
        43
       ]
      ],
@@ -138,12 +141,12 @@
      "id": "wall-005",
      "points": [
       [
-       17,
-       2
+       7,
+       43
       ],
       [
-       17,
-       7
+       9,
+       43
       ]
      ],
      "wallType": "normal",
@@ -156,12 +159,12 @@
      "id": "wall-006",
      "points": [
       [
-       17,
-       7
+       9,
+       43
       ],
       [
-       17,
-       9
+       58,
+       43
       ]
      ],
      "wallType": "normal",
@@ -175,11 +178,11 @@
      "points": [
       [
        17,
-       9
+       2
       ],
       [
        17,
-       13
+       7
       ]
      ],
      "wallType": "normal",
@@ -192,12 +195,12 @@
      "id": "wall-008",
      "points": [
       [
-       29,
-       2
+       17,
+       7
       ],
       [
-       29,
-       5
+       17,
+       9
       ]
      ],
      "wallType": "normal",
@@ -210,12 +213,12 @@
      "id": "wall-009",
      "points": [
       [
-       29,
-       5
+       17,
+       9
       ],
       [
-       29,
-       7
+       17,
+       13
       ]
      ],
      "wallType": "normal",
@@ -229,6 +232,42 @@
      "points": [
       [
        29,
+       2
+      ],
+      [
+       29,
+       5
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-011",
+     "points": [
+      [
+       29,
+       5
+      ],
+      [
+       29,
+       7
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-012",
+     "points": [
+      [
+       29,
        7
       ],
       [
@@ -243,7 +282,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-011",
+     "id": "wall-013",
      "points": [
       [
        45,
@@ -261,7 +300,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-012",
+     "id": "wall-014",
      "points": [
       [
        45,
@@ -279,7 +318,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-013",
+     "id": "wall-015",
      "points": [
       [
        45,
@@ -297,7 +336,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-014",
+     "id": "wall-016",
      "points": [
       [
        31,
@@ -306,42 +345,6 @@
       [
        31,
        21
-      ]
-     ],
-     "wallType": "normal",
-     "direction": "both",
-     "color": "#26221c",
-     "width": 0.5,
-     "roughness": 0
-    },
-    {
-     "id": "wall-015",
-     "points": [
-      [
-       31,
-       21
-      ],
-      [
-       31,
-       23
-      ]
-     ],
-     "wallType": "normal",
-     "direction": "both",
-     "color": "#26221c",
-     "width": 0.5,
-     "roughness": 0
-    },
-    {
-     "id": "wall-016",
-     "points": [
-      [
-       31,
-       23
-      ],
-      [
-       31,
-       31
       ]
      ],
      "wallType": "normal",
@@ -354,12 +357,12 @@
      "id": "wall-017",
      "points": [
       [
-       45,
-       13
+       31,
+       21
       ],
       [
-       45,
-       21
+       31,
+       23
       ]
      ],
      "wallType": "normal",
@@ -372,12 +375,12 @@
      "id": "wall-018",
      "points": [
       [
-       45,
-       21
+       31,
+       23
       ],
       [
-       45,
-       23
+       31,
+       31
       ]
      ],
      "wallType": "normal",
@@ -391,6 +394,42 @@
      "points": [
       [
        45,
+       13
+      ],
+      [
+       45,
+       21
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-020",
+     "points": [
+      [
+       45,
+       21
+      ],
+      [
+       45,
+       23
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-021",
+     "points": [
+      [
+       45,
        23
       ],
       [
@@ -405,7 +444,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-020",
+     "id": "wall-022",
      "points": [
       [
        14,
@@ -414,42 +453,6 @@
       [
        14,
        36
-      ]
-     ],
-     "wallType": "normal",
-     "direction": "both",
-     "color": "#26221c",
-     "width": 0.5,
-     "roughness": 0
-    },
-    {
-     "id": "wall-021",
-     "points": [
-      [
-       14,
-       36
-      ],
-      [
-       14,
-       38
-      ]
-     ],
-     "wallType": "normal",
-     "direction": "both",
-     "color": "#26221c",
-     "width": 0.5,
-     "roughness": 0
-    },
-    {
-     "id": "wall-022",
-     "points": [
-      [
-       14,
-       38
-      ],
-      [
-       14,
-       43
       ]
      ],
      "wallType": "normal",
@@ -462,12 +465,12 @@
      "id": "wall-023",
      "points": [
       [
-       30,
-       31
+       14,
+       36
       ],
       [
-       30,
-       35
+       14,
+       38
       ]
      ],
      "wallType": "normal",
@@ -480,12 +483,12 @@
      "id": "wall-024",
      "points": [
       [
-       30,
-       35
+       14,
+       38
       ],
       [
-       30,
-       37
+       14,
+       43
       ]
      ],
      "wallType": "normal",
@@ -499,11 +502,11 @@
      "points": [
       [
        30,
-       37
+       31
       ],
       [
        30,
-       43
+       35
       ]
      ],
      "wallType": "normal",
@@ -516,11 +519,11 @@
      "id": "wall-026",
      "points": [
       [
-       45,
-       31
+       30,
+       35
       ],
       [
-       45,
+       30,
        37
       ]
      ],
@@ -534,6 +537,42 @@
      "id": "wall-027",
      "points": [
       [
+       30,
+       37
+      ],
+      [
+       30,
+       43
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-028",
+     "points": [
+      [
+       45,
+       31
+      ],
+      [
+       45,
+       37
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-029",
+     "points": [
+      [
        45,
        37
       ],
@@ -549,7 +588,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-028",
+     "id": "wall-030",
      "points": [
       [
        45,
@@ -567,7 +606,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-029",
+     "id": "wall-031",
      "points": [
       [
        2,
@@ -575,42 +614,6 @@
       ],
       [
        8,
-       13
-      ]
-     ],
-     "wallType": "normal",
-     "direction": "both",
-     "color": "#26221c",
-     "width": 0.5,
-     "roughness": 0
-    },
-    {
-     "id": "wall-030",
-     "points": [
-      [
-       8,
-       13
-      ],
-      [
-       10,
-       13
-      ]
-     ],
-     "wallType": "normal",
-     "direction": "both",
-     "color": "#26221c",
-     "width": 0.5,
-     "roughness": 0
-    },
-    {
-     "id": "wall-031",
-     "points": [
-      [
-       10,
-       13
-      ],
-      [
-       17,
        13
       ]
      ],
@@ -624,6 +627,42 @@
      "id": "wall-032",
      "points": [
       [
+       8,
+       13
+      ],
+      [
+       10,
+       13
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-033",
+     "points": [
+      [
+       10,
+       13
+      ],
+      [
+       17,
+       13
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-034",
+     "points": [
+      [
        17,
        13
       ],
@@ -639,7 +678,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-033",
+     "id": "wall-035",
      "points": [
       [
        22,
@@ -657,7 +696,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-034",
+     "id": "wall-036",
      "points": [
       [
        24,
@@ -675,7 +714,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-035",
+     "id": "wall-037",
      "points": [
       [
        29,
@@ -693,7 +732,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-036",
+     "id": "wall-038",
      "points": [
       [
        31,
@@ -711,7 +750,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-037",
+     "id": "wall-039",
      "points": [
       [
        37,
@@ -729,7 +768,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-038",
+     "id": "wall-040",
      "points": [
       [
        39,
@@ -747,7 +786,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-039",
+     "id": "wall-041",
      "points": [
       [
        45,
@@ -765,7 +804,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-040",
+     "id": "wall-042",
      "points": [
       [
        2,
@@ -783,7 +822,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-041",
+     "id": "wall-043",
      "points": [
       [
        7,
@@ -801,7 +840,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-042",
+     "id": "wall-044",
      "points": [
       [
        9,
@@ -819,7 +858,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-043",
+     "id": "wall-045",
      "points": [
       [
        14,
@@ -837,7 +876,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-044",
+     "id": "wall-046",
      "points": [
       [
        21,
@@ -855,7 +894,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-045",
+     "id": "wall-047",
      "points": [
       [
        23,
@@ -873,7 +912,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-046",
+     "id": "wall-048",
      "points": [
       [
        30,
@@ -891,7 +930,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-047",
+     "id": "wall-049",
      "points": [
       [
        31,
@@ -909,7 +948,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-048",
+     "id": "wall-050",
      "points": [
       [
        37,
@@ -927,7 +966,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-049",
+     "id": "wall-051",
      "points": [
       [
        39,
@@ -945,7 +984,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-050",
+     "id": "wall-052",
      "points": [
       [
        45,
@@ -963,7 +1002,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-051",
+     "id": "wall-053",
      "points": [
       [
        50,
@@ -981,7 +1020,7 @@
      "roughness": 0
     },
     {
-     "id": "wall-052",
+     "id": "wall-054",
      "points": [
       [
        52,
@@ -997,6 +1036,86 @@
      "color": "#26221c",
      "width": 0.5,
      "roughness": 0
+    },
+    {
+     "id": "wall-055",
+     "points": [
+      [
+       2,
+       50
+      ],
+      [
+       2,
+       58
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#221a12",
+     "width": 0.5,
+     "roughness": 0,
+     "textureSetId": "palisade",
+     "textureTint": "#b49366"
+    },
+    {
+     "id": "wall-056",
+     "points": [
+      [
+       4,
+       58
+      ],
+      [
+       14,
+       58
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#221a12",
+     "width": 0.5,
+     "roughness": 0,
+     "textureSetId": "palisade",
+     "textureTint": "#b49366"
+    },
+    {
+     "id": "wall-057",
+     "points": [
+      [
+       17,
+       58
+      ],
+      [
+       25,
+       58
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#221a12",
+     "width": 0.5,
+     "roughness": 0,
+     "textureSetId": "palisade",
+     "textureTint": "#b49366"
+    },
+    {
+     "id": "wall-058",
+     "points": [
+      [
+       18,
+       49
+      ],
+      [
+       18,
+       53
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#221a12",
+     "width": 0.5,
+     "roughness": 0,
+     "textureSetId": "palisade",
+     "textureTint": "#b49366"
     }
    ],
    "rooms": [
@@ -1307,6 +1426,34 @@
      ],
      "area": 143.75,
      "isPathway": false
+    },
+    {
+     "id": "room-mg8jn2",
+     "name": "Bailey Courtyard",
+     "boundary": [
+      [
+       2.25,
+       43.25
+      ],
+      [
+       25.75,
+       43.25
+      ],
+      [
+       25.75,
+       57.75
+      ],
+      [
+       2.25,
+       57.75
+      ]
+     ],
+     "centroid": [
+      14,
+      50.5
+     ],
+     "area": 340.75,
+     "isPathway": false
     }
    ],
    "roomNameOverrides": {
@@ -1320,7 +1467,8 @@
     "room-17wq96r": "Gatehouse",
     "room-1i9r71": "Guard Room",
     "room-1udploo": "Kitchens",
-    "room-1cinf1c": "Crypt Stair"
+    "room-1cinf1c": "Crypt Stair",
+    "room-mg8jn2": "Bailey Courtyard"
    },
    "children": [
     {
@@ -1691,6 +1839,108 @@
      ],
      "roughnessEnabled": false,
      "textureId": "dungeon-classic:smooth-stone-floor-a-10_1x1_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#ffffff"
+    },
+    {
+     "id": "floor-courtyard",
+     "name": "Bailey Courtyard Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        2,
+        43
+       ],
+       [
+        26,
+        43
+       ],
+       [
+        26,
+        58
+       ],
+       [
+        2,
+        58
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "dungeon-classic:grass-a-01_1x1_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#ffffff"
+    },
+    {
+     "id": "floor-courtyard-apron",
+     "name": "Bailey Apron",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        5,
+        43
+       ],
+       [
+        13,
+        43
+       ],
+       [
+        13,
+        49
+       ],
+       [
+        5,
+        49
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "dungeon-classic:dirt-b-04_1x1_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#ffffff"
+    },
+    {
+     "id": "floor-courtyard-path",
+     "name": "Bailey Path",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        7,
+        43
+       ],
+       [
+        9,
+        43
+       ],
+       [
+        9,
+        55
+       ],
+       [
+        7,
+        55
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "dungeon-classic:cobblestone-a-01_1x1_floor_A",
      "textureScale": 1,
      "textureOffsetX": 0,
      "textureOffsetY": 0,
@@ -2378,6 +2628,139 @@
      "flipY": false
     },
     {
+     "id": "asset-lamp-courtyard-gate",
+     "name": "Gate Lantern",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Lamp_Metal_Brass_A_1x1_1x1_object_A",
+     "position": {
+      "x": 8,
+      "y": 46
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-tree-courtyard-1",
+     "name": "Bailey Tree",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Tree_Green_A1_6x6_6x6_object_A",
+     "position": {
+      "x": 20,
+      "y": 47
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 6,
+     "height": 6,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-tree-courtyard-2",
+     "name": "Bailey Tree",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Tree_Green_A1_6x6_6x6_object_A",
+     "position": {
+      "x": 23,
+      "y": 53
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 6,
+     "height": 6,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-logs-courtyard",
+     "name": "Supply Stack",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Log_Ashen_A1_6x3_6x3_object_A",
+     "position": {
+      "x": 16,
+      "y": 45
+     },
+     "rotation": 0.3,
+     "scale": 0.4,
+     "width": 6,
+     "height": 3,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-stump-courtyard",
+     "name": "Yard Stump",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Stump_Ashen_A1_4x4_4x4_object_A",
+     "position": {
+      "x": 11,
+      "y": 52
+     },
+     "rotation": 0,
+     "scale": 0.35,
+     "width": 4,
+     "height": 4,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-rock-courtyard-1",
+     "name": "Fallen Stone",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Rock_Stone_Mossy_C11_2x1_2x1_object_A",
+     "position": {
+      "x": 5,
+      "y": 55
+     },
+     "rotation": 0.4,
+     "scale": 1,
+     "width": 2,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-grass-courtyard",
+     "name": "Weeds",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Grass_Patch_Green1_A1_1x1_1x1_object_A",
+     "position": {
+      "x": 21,
+      "y": 44
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#8a9b7e",
+     "flipX": false,
+     "flipY": false
+    },
+    {
      "id": "light-hall-west",
      "name": "Great Hall Brazier (West)",
      "childType": "light",
@@ -2453,11 +2836,44 @@
      }
     },
     {
-     "id": "door-01-vestry-door",
+     "id": "light-courtyard-gate",
+     "name": "Bailey Gate Lantern",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffb877",
+     "radius": 8,
+     "featherRadius": 2.5,
+     "intensity": 0.8,
+     "falloff": "quadratic",
+     "position": {
+      "x": 8,
+      "y": 46
+     }
+    },
+    {
+     "id": "door-01-bailey-gate",
+     "name": "Bailey Gate",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-005",
+     "position": [
+      8,
+      43
+     ],
+     "angle": 0,
+     "width": 2,
+     "style": "archway",
+     "state": "open",
+     "isSecret": false,
+     "roomA": "room-mg8jn2",
+     "roomB": "room-17wq96r"
+    },
+    {
+     "id": "door-02-vestry-door",
      "name": "Vestry Door",
      "childType": "door",
      "visible": true,
-     "wallId": "wall-006",
+     "wallId": "wall-008",
      "position": [
       17,
       8
@@ -2471,11 +2887,11 @@
      "roomB": "room-1ddq9s6"
     },
     {
-     "id": "door-02-muster-arch",
+     "id": "door-03-muster-arch",
      "name": "Muster Arch",
      "childType": "door",
      "visible": true,
-     "wallId": "wall-009",
+     "wallId": "wall-011",
      "position": [
       29,
       6
@@ -2489,11 +2905,11 @@
      "roomB": "room-tunrir"
     },
     {
-     "id": "door-03-hidden-shelf",
+     "id": "door-04-hidden-shelf",
      "name": "Hidden Shelf",
      "childType": "door",
      "visible": true,
-     "wallId": "wall-012",
+     "wallId": "wall-014",
      "position": [
       45,
       8
@@ -2507,11 +2923,11 @@
      "roomB": "room-13u985u"
     },
     {
-     "id": "door-04-hall-double-door",
+     "id": "door-05-hall-double-door",
      "name": "Hall Double Door",
      "childType": "door",
      "visible": true,
-     "wallId": "wall-015",
+     "wallId": "wall-017",
      "position": [
       31,
       22
@@ -2525,11 +2941,11 @@
      "roomB": "room-1v7l99m"
     },
     {
-     "id": "door-05-cistern-gate",
+     "id": "door-06-cistern-gate",
      "name": "Cistern Gate",
      "childType": "door",
      "visible": true,
-     "wallId": "wall-018",
+     "wallId": "wall-020",
      "position": [
       45,
       22
@@ -2543,11 +2959,11 @@
      "roomB": "room-1dcj2ma"
     },
     {
-     "id": "door-06-watch-door",
+     "id": "door-07-watch-door",
      "name": "Watch Door",
      "childType": "door",
      "visible": true,
-     "wallId": "wall-021",
+     "wallId": "wall-023",
      "position": [
       14,
       37
@@ -2561,11 +2977,11 @@
      "roomB": "room-1i9r71"
     },
     {
-     "id": "door-07-scullery-door",
+     "id": "door-08-scullery-door",
      "name": "Scullery Door",
      "childType": "door",
      "visible": true,
-     "wallId": "wall-024",
+     "wallId": "wall-026",
      "position": [
       30,
       36
@@ -2579,11 +2995,11 @@
      "roomB": "room-1udploo"
     },
     {
-     "id": "door-08-crypt-door",
+     "id": "door-09-crypt-door",
      "name": "Crypt Door",
      "childType": "door",
      "visible": true,
-     "wallId": "wall-027",
+     "wallId": "wall-029",
      "position": [
       45,
       38
@@ -2597,11 +3013,11 @@
      "roomB": "room-1cinf1c"
     },
     {
-     "id": "door-09-chancel-arch",
+     "id": "door-10-chancel-arch",
      "name": "Chancel Arch",
      "childType": "door",
      "visible": true,
-     "wallId": "wall-030",
+     "wallId": "wall-032",
      "position": [
       9,
       13
@@ -2615,11 +3031,11 @@
      "roomB": "room-54jiio"
     },
     {
-     "id": "door-10-armoury-door",
+     "id": "door-11-armoury-door",
      "name": "Armoury Door",
      "childType": "door",
      "visible": true,
-     "wallId": "wall-033",
+     "wallId": "wall-035",
      "position": [
       23,
       13
@@ -2633,11 +3049,11 @@
      "roomB": "room-1ddq9s6"
     },
     {
-     "id": "door-11-stair-door",
+     "id": "door-12-stair-door",
      "name": "Stair Door",
      "childType": "door",
      "visible": true,
-     "wallId": "wall-037",
+     "wallId": "wall-039",
      "position": [
       38,
       13
@@ -2651,11 +3067,11 @@
      "roomB": "room-tunrir"
     },
     {
-     "id": "door-12-gate-arch",
+     "id": "door-13-gate-arch",
      "name": "Gate Arch",
      "childType": "door",
      "visible": true,
-     "wallId": "wall-041",
+     "wallId": "wall-043",
      "position": [
       8,
       31
@@ -2669,11 +3085,11 @@
      "roomB": "room-nmrsav"
     },
     {
-     "id": "door-13-guard-door",
+     "id": "door-14-guard-door",
      "name": "Guard Door",
      "childType": "door",
      "visible": true,
-     "wallId": "wall-044",
+     "wallId": "wall-046",
      "position": [
       22,
       31
@@ -2687,11 +3103,11 @@
      "roomB": "room-nmrsav"
     },
     {
-     "id": "door-14-mess-door",
+     "id": "door-15-mess-door",
      "name": "Mess Door",
      "childType": "door",
      "visible": true,
-     "wallId": "wall-048",
+     "wallId": "wall-050",
      "position": [
       38,
       31
@@ -2705,11 +3121,11 @@
      "roomB": "room-1v7l99m"
     },
     {
-     "id": "door-15-undercroft-door",
+     "id": "door-16-undercroft-door",
      "name": "Undercroft Door",
      "childType": "door",
      "visible": true,
-     "wallId": "wall-051",
+     "wallId": "wall-053",
      "position": [
       51,
       31

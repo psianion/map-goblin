@@ -64,7 +64,7 @@ export function createBackgroundLayer(): BackgroundLayer {
 
 type MapBuilderState = Omit<
   MapBuilderStore,
-  | 'setMapName' | 'setGridType' | 'setAmbientLight' | 'setTerrainData' | 'setTerrainSplats'
+  | 'setMapName' | 'setGridType' | 'setAmbientLight' | 'setEnvironmentSettings' | 'setTerrainData' | 'setTerrainSplats'
   | 'setGridVisible' | 'setSnapEnabled' | 'setSnapDivision'
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
   | 'addChild' | 'removeChild' | 'reorderChild' | 'updateChild' | 'recomputeMergedFloor'
@@ -74,7 +74,7 @@ type MapBuilderState = Omit<
   | 'setNodeEditWall' | 'selectNode' | 'toggleNodeSelection' | 'setShapeNodeEdit' | 'selectVertex'
   | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
   | 'showModal' | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
-  | 'toggleSoloLayer' | 'clearSolo'
+  | 'toggleSoloLayer' | 'clearSolo' | 'setPreviewClock'
   | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
   | 'setSelectedIds' | 'setHoveredId' | 'setSelectedRegion'
@@ -174,6 +174,7 @@ export function createDefaultState(): MapBuilderState {
       focusMode: 'auto' as const,
       highlightedRoomId: null,
       solo: null,
+      previewClock: null,
     },
     assets: {
       manifest: null,

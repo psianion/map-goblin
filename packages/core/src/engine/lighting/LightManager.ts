@@ -12,6 +12,13 @@ export class LightManager {
   private wallSegments: Segment[] = []
   private quadtree = new SegmentQuadtree()
   private wallsDirty = true
+  /**
+   * How many times the wall set has been declared stale — the wall-set half of a cache key,
+   * for a pass that draws from the same geometry but does not sweep it (the P3 shadow pass).
+   * Bumped by `invalidateAll`, which is fired by exactly one thing: subscribeToStore's
+   * `lightingKey` change, whose terms are every input `extractWallSegments` reads.
+   */
+  private wallEpoch = 0
 
   getLights(): LightChild[] {
     return this.lights
@@ -60,6 +67,12 @@ export class LightManager {
       this.dirtySet.add(light.id)
     }
     this.wallsDirty = true
+    this.wallEpoch++
+  }
+
+  /** See {@link wallEpoch}. */
+  getWallEpoch(): number {
+    return this.wallEpoch
   }
 
   isDirty(lightId: string): boolean {

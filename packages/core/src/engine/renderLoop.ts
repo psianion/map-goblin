@@ -11,6 +11,9 @@ import { renderRoomHighlight } from './roomHighlight';
 import { renderWallNodeHandles } from './wallNodeOverlay';
 import { renderShapeNodeHandles } from './shapeNodeOverlay';
 import { recordFrame } from './fpsMetrics';
+import { composeGrade, mixOklch, timeBucket } from '../shared/world';
+import { updateShadows } from './shadowPass';
+import { worldFrame, worldGrade } from './worldOverride';
 
 /**
  * Set up the per-frame render loop via PixiJS Ticker.
@@ -20,6 +23,14 @@ import { recordFrame } from './fpsMetrics';
  * Dirty-flag strategy: layers are NOT re-rendered every frame.
  * Camera changes need zero layer redraw.
  */
+/**
+ * The grade: the map's mood at the hour this engine is standing at — the campaign clock where
+ * a surface installed one (the Table), the map's own where none did (the Editor). One writer
+ * of `setGrade`, which is this loop; see `worldOverride`.
+ */
+const gradeNow = (state: ReturnType<typeof useStore.getState>): string =>
+  worldGrade(state.mapSettings, state.ui.previewClock);
+
 export function setupRenderLoop(
   engine: RenderEngine,
   sceneGraph: SceneGraph,
@@ -73,14 +84,21 @@ export function setupRenderLoop(
       const currentState = useStore.getState();
       const bgLayer = currentState.layers.find((l) => l.type === 'background');
 
-      // When any light exists, use ambient light color for background
+      // When any light exists, use the grade for the background
       // to prevent the multiply compositing from darkening to black
       const hasLights = currentState.layers.some(
         (l) => l.type === 'dungeon' && l.children.some((c: LightChild | { childType: string }) => c.childType === 'light'),
       );
-      const bgColor = hasLights
-        ? currentState.mapSettings.ambientLight
-        : (bgLayer && bgLayer.type === 'background' ? bgLayer.backgroundColor : '#0f100e');
+      const authoredBg =
+        bgLayer && bgLayer.type === 'background' ? bgLayer.backgroundColor : '#0f100e';
+      // The void takes a *hint* of the hour, not the whole of it. Painting it the grade outright
+      // was invisible while every mood was a baked night, but a mood is "this world in neutral
+      // daylight" now — and at full strength an evening grade flooded the entire viewport, map
+      // and void alike, with saturated orange (the lighting composite multiplies by the grade a
+      // second time on top). A third of the way keeps the original point of this branch — the
+      // background still lifts clear of the black the multiply would otherwise crush it to —
+      // without the void ever becoming the brightest thing on screen.
+      const bgColor = hasLights ? mixOklch(authoredBg, gradeNow(currentState), 0.33) : authoredBg;
 
       if (
         camX !== lastBgCamX ||
@@ -171,10 +189,27 @@ export function setupRenderLoop(
     }
     lightManager.rebuildIfDirty(cachedDungeonLayers);
 
+    // The one clock this tick stands at — the campaign's, or the map's own (`worldOverride`).
+    const frame = worldFrame(storeState.mapSettings, storeState.ui.previewClock);
+
+    // (6b) Directional shadows (P3a) — the sun's own pass, over the same wall set the sweep
+    // above was just rebuilt from. Memoized on (wall epoch, sun step, orientation): an
+    // unedited map under a paused clock costs one string compare per layer here.
+    updateShadows(cachedDungeonLayers, lightManager.getWallEpoch(), frame);
+
     // Get camera state for UV → world transform in shader
     const zoom = stage.scale.x;
     const camX = -stage.position.x / zoom;
     const camY = -stage.position.y / zoom;
+
+    // The composed grade: the map's mood carrying the hour this engine stands at, damped by how
+    // much sky the map has. Both surfaces come through here — the Table by installing its
+    // campaign clock (`setTableWorld`), the Editor by installing nothing and falling through to
+    // the scrub head. One writer, so a per-frame caller can no longer outrun an on-mutation one.
+    sceneGraph.lightingRenderer.setGrade(
+      composeGrade(storeState.mapSettings, frame.minutes),
+      timeBucket(frame.minutes),
+    );
 
     sceneGraph.lightingRenderer.updateAndRender(
       lightManager,

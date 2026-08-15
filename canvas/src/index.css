@@ -423,6 +423,34 @@
   }
 }
 
+/* Day-scrub over a DayRibbon: a native range for the drag, the keyboard and the a11y tree,
+   with no chrome of its own — the ribbon is the track and RibbonHead is the thumb, which is
+   how the same control can read "preview" (hollow, dashed) or "pinned" (solid blade). */
+.ribbon-scrub {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: ew-resize;
+  outline: none;
+}
+.ribbon-scrub::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 100%;
+  background: transparent;
+}
+.ribbon-scrub::-moz-range-thumb {
+  width: 12px;
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
+.ribbon-scrub:focus-visible {
+  outline: 1px solid rgb(var(--border-focus));
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 /* Minimal Precision slider — uses CSS vars from .dark theme */
 .slider-minimal {
   -webkit-appearance: none;

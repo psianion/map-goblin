@@ -21,6 +21,7 @@ import '../modules/tokens';
 import '../modules/doors';
 import '../modules/fog';
 import '../modules/triggers';
+import '../modules/world';
 
 /**
  * §2.6 — the table. Renderer takes the room, sidebar carries the registered panels.

@@ -9,6 +9,7 @@ import { getLayerEntry } from './sceneGraph';
 import type { AssetChild, DungeonLayer } from '../store/types';
 import { getTextureEntry } from '../assets/textureManifest';
 import { resolveTexture } from '../assets/textureLoader';
+import { syncPropShadows } from './shadowPass';
 
 /**
  * Apply all transform/style properties from an AssetChild onto an existing Sprite.
@@ -179,6 +180,14 @@ export function subscribeToAssets(): () => void {
           syncSprite(sprite, obj);
           sprite.zIndex = i;
         }
+
+        // P3a — every prop that stands on this layer lays a silhouette down on it. Here rather
+        // than in the shadow pass because this is the one loop that knows a child's texture,
+        // and it is the same loop on the Table as in the Editor.
+        syncPropShadows(
+          layer.id,
+          layer.assets.map((obj) => ({ sprite: spriteMap.get(obj.id)!, obj })),
+        );
       }
     },
     { fireImmediately: true },

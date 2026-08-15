@@ -9,6 +9,8 @@ import {
   needsLight,
   sceneTriggersOf,
   triggersModule,
+  worldLightOf,
+  worldOf,
   type ResolvedTrigger,
   type TriggerDeps,
   type TriggersState,
@@ -512,6 +514,74 @@ describe('redact', () => {
   it('is idempotent', () => {
     const once = redact(state, P1)
     expect(redact(once, P1)).toEqual(once)
+  })
+
+  // The function rebuilds its answer key by key, so a field that is not copied is a field
+  // players never receive — and the clock and the sky are what the whole table is looking at.
+  it('passes the world through to players — the clock and the sky are not the DM’s secret', () => {
+    const world = { clock: 60, nightSky: 'crescent' as const, timeSpeed: 'paused' as const }
+    expect(redact({ ...state, world }, P1).world).toEqual(world)
+  })
+})
+
+describe('set-world', () => {
+  it('is dm-only, and needs at least one dial', () => {
+    const mod = triggersModule(makeDeps())
+    expect(run(mod, empty, P1, 'set-world', { clock: 60 }).error?.code).toBe('unauthorized')
+    expect(run(mod, empty, DM, 'set-world', {}).error?.code).toBe('invalid-command')
+  })
+
+  it('reads midday under a full moon, paused, until a DM says otherwise', () => {
+    expect(worldOf(empty)).toEqual({ clock: 720, nightSky: 'full-moon', timeSpeed: 'paused' })
+  })
+
+  it('merges one dial at a time and leaves the others standing', () => {
+    const mod = triggersModule(makeDeps())
+    let state = run(mod, empty, DM, 'set-world', { nightSky: 'moonless' }).next
+    expect(worldOf(state)).toMatchObject({ clock: 720, nightSky: 'moonless' })
+    state = run(mod, state, DM, 'set-world', { timeSpeed: 'fast' }).next
+    expect(worldOf(state)).toEqual({ clock: 720, nightSky: 'moonless', timeSpeed: 'fast' })
+  })
+
+  it('refuses a clock outside the day and a value outside the vocabulary', () => {
+    const mod = triggersModule(makeDeps())
+    for (const payload of [{ clock: 1440 }, { clock: -1 }, { nightSky: 'eclipse' }, { timeSpeed: 'warp' }]) {
+      expect(run(mod, empty, DM, 'set-world', payload).error?.code).toBe('invalid-command')
+    }
+  })
+
+  it('narrates the hour only where the band turns over — the clock is `env.time`’s source', () => {
+    const mod = triggersModule(makeDeps())
+    // Midday to late afternoon: still day, nothing to announce.
+    let state = run(mod, empty, DM, 'set-world', { clock: 900 }).next
+    expect(sceneOf(state)).toBeUndefined()
+    state = run(mod, state, DM, 'set-world', { clock: 1200 }).next
+    expect(sceneOf(state).log.at(-1)).toMatchObject({ text: 'Night falls.', toPlayers: true })
+    expect(worldOf(state).clock).toBe(1200)
+  })
+
+  it('takes the scene’s stored dial as the override, so an upgraded campaign plays unchanged', () => {
+    const mod = triggersModule(makeDeps())
+    const outdoor = { environment: 'outdoor' as const }
+    let state = run(mod, empty, DM, 'set-world', { clock: 0, nightSky: 'moonless' }).next
+    // Nothing set: the clock rules an outdoor map.
+    expect(worldLightOf(outdoor, state, SCENE)).toMatchObject({
+      effectiveLevel: 'darkness',
+      source: 'clock',
+    })
+    // The dial a DM set before any of this existed still wins, and says what it overrode.
+    state = run(mod, state, DM, 'set-environment', { ambient: 'daylight' }).next
+    expect(worldLightOf(outdoor, state, SCENE)).toMatchObject({
+      effectiveLevel: 'daylight',
+      source: 'override',
+      wouldBe: 'darkness',
+    })
+    // …and an indoor map is the manual gate it has always been.
+    expect(worldLightOf({}, empty, SCENE)).toMatchObject({
+      effectiveLevel: 'daylight',
+      biteLevel: null,
+      source: 'manual',
+    })
   })
 })
 

@@ -553,6 +553,36 @@ export class SetAmbientLightCommand implements Command {
 }
 
 /**
+ * Command for the map's environment settings — environment type, time palette, natural light,
+ * orientation, time mode. One command for the section rather than six, because the fields are
+ * authored together and the undo entry a DM expects is "the change I just made to Environment".
+ *
+ * `before` carries the same keys `after` does, at their previous values — `undefined` where a
+ * field had never been authored, which `setEnvironmentSettings` takes back off the map.
+ */
+export class SetEnvironmentSettingsCommand implements Command {
+  readonly label = 'Environment';
+  private readonly before: Partial<import('../shared/world').MapEnvironment>;
+  private readonly after: Partial<import('../shared/world').MapEnvironment>;
+
+  constructor(
+    before: Partial<import('../shared/world').MapEnvironment>,
+    after: Partial<import('../shared/world').MapEnvironment>,
+  ) {
+    this.before = structuredClone(before);
+    this.after = structuredClone(after);
+  }
+
+  execute(): void {
+    useStore.getState().setEnvironmentSettings(this.after);
+  }
+
+  undo(): void {
+    useStore.getState().setEnvironmentSettings(this.before);
+  }
+}
+
+/**
  * Renames a detected room. The name lives in `roomNameOverrides`, which is
  * what survives re-detection, so undo just writes the previous name back.
  *

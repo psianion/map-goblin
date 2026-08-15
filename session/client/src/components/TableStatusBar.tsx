@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { getEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
 import type { TriggersState } from '@dnd/mechanics/triggers';
-import { sceneTriggersOf } from '@dnd/mechanics/triggers';
+import { sceneTriggersOf, worldLightOf, worldOf } from '@dnd/mechanics/triggers';
+import { useStore } from '@dnd/core/src/store/store';
 import { vocabLabel } from '@dnd/core/src/shared/prep';
+import { worldBadge } from '../modules/world/world';
 import { useModuleState, useSessionStore } from '../session/store';
 import { MAX_ZOOM } from '../renderer/camera';
 import { fitMap, minZoom, zoomAbout } from '../renderer/cameraInput';
@@ -110,17 +112,23 @@ export function TableStatusBar() {
   const sessionEnded = useSessionStore((s) => s.sessionEnded);
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const triggersState = useModuleState<TriggersState>('triggers');
+  const map = useStore((s) => s.mapSettings);
   const env = sceneId && triggersState ? sceneTriggersOf(triggersState, sceneId).env : {};
-  const envLabel = [
-    env.time !== undefined ? vocabLabel(env.time) : undefined,
-    env.weather !== undefined ? vocabLabel(env.weather) : undefined,
-    // Daylight is the level every scene is at until a DM says otherwise (S3 P3 §1), so saying
-    // it would be chrome about nothing — the badge carries the light level only when it is
-    // something the table can feel.
-    env.ambient !== undefined && env.ambient !== 'daylight' ? vocabLabel(env.ambient) : undefined,
-  ]
+  // P2 — the world half of the badge is the same resolver answer the referee gates sight with
+  // and the World block shows in full (`worldBadge`), read down to one line. The hour is the
+  // clock's now, not a second dial: `env.time` stopped being a source of truth for it.
+  //
+  // Daylight on a clock nobody has touched is the state every table is in until something
+  // happens, so `mirror` is null there — the bar carries the world only when it is something
+  // the table can feel, which is the rule this badge already played by.
+  const mirror =
+    sceneId && triggersState
+      ? worldBadge(worldLightOf(map, triggersState, sceneId), map, worldOf(triggersState).nightSky)
+          .mirror
+      : null;
+  const envLabel = [mirror ?? undefined, env.weather !== undefined ? vocabLabel(env.weather) : undefined]
     .filter((v): v is string => v !== undefined)
-    .join(', ');
+    .join(' · ');
   const rafRef = useRef(0);
   const frameCountRef = useRef(0);
 
