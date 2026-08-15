@@ -1,7 +1,7 @@
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { createElement } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { act, cleanup, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { DOOR_CLOSED, DOOR_LOCKED } from '@dnd/mechanics/doors';
 import type { Token } from '@dnd/mechanics/tokens';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
@@ -11,6 +11,7 @@ import { useSessionStore } from '../../session/store';
 import { useToasts, type Toast } from '../../session/toasts';
 import { tokenLabelText } from './TokenRenderer';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
+import type { WebSocketClient } from '../../session/WebSocketClient';
 import {
   SETTLE_MS,
   approach,
@@ -20,8 +21,10 @@ import {
   drawOrder,
   hitTest,
   tokenRefusal,
+  useTokenInteraction,
   type TokenLayer,
 } from './drag';
+import { mapScale, toCells, toUnits } from './sight';
 import { TokenPanel } from './TokenPanel';
 import { DISPOSITION_COLOR, initials, tokenAppearance, tokensOf } from './TokenRenderer';
 
@@ -552,5 +555,137 @@ describe('tokenRefusal carries the cause the server named', () => {
   it('stays out of refusals that are not about a move', () => {
     expect(tokenRefusal(`${DOOR_LOCKED}: that door is locked`)).toBeNull();
     expect(tokenRefusal('no token def "goblin"')).toBeNull();
+  });
+});
+
+// ── P4 §3/§4 — Sight & light, and the links ────────────────────────────────
+
+describe('mapScale / the unit a DM reads ranges in', () => {
+  it('quotes the map’s own unit and stores cells either way', () => {
+    const feet = { value: 5, unit: 'ft' };
+    expect(mapScale({ mapSettings: { cellScale: feet } })).toEqual(feet);
+    expect(toUnits(6, feet)).toBe(30);
+    expect(toCells(30, feet)).toBe(6);
+    // A half-cell radius is 2.5 ft, not 2.5000000000000004.
+    expect(toUnits(1.5, feet)).toBe(7.5);
+    // No scale on the document ⇒ cells, which is honest rather than a guessed 5 ft.
+    expect(mapScale(null)).toEqual({ value: 1, unit: 'cells' });
+    expect(mapScale({ mapSettings: { cellScale: { value: 0, unit: 'ft' } } }).value).toBe(1);
+  });
+});
+
+describe('TokenPanel — Sight & light (DM only)', () => {
+  const dm: PlayerInfo = { identityId: 'dm-1', name: 'Ayla', role: 'dm', connected: true };
+  const player: PlayerInfo = { identityId: 'p-1', name: 'Borin', role: 'player', connected: true };
+
+  const scene = (tokens: Token[]): SessionState => ({
+    protocolVersion: PROTOCOL_VERSION,
+    sessionId: 's1',
+    campaignId: 'c1',
+    activeSceneId: 'scene-1',
+    scenes: [{ id: 'scene-1', name: 'Crypt', mapId: 'scene-1' }],
+    players: [dm, player],
+    modules: {
+      tokens: { library: {}, byScene: { 'scene-1': Object.fromEntries(tokens.map((t) => [t.id, t])) } },
+    },
+  });
+
+  interface Sent {
+    module: string;
+    action: string;
+    payload: Record<string, unknown>;
+  }
+
+  /** Renders the panel with `tokens` on the scene and the first one selected. */
+  function panel(tokens: Token[], you: PlayerInfo = dm): Sent[] {
+    const sent: Sent[] = [];
+    useSessionStore.setState({
+      session: scene(tokens),
+      you,
+      lastError: null,
+      mapData: { mapSettings: { cellScale: { value: 5, unit: 'ft' } } },
+      client: { send: (m: Sent) => sent.push(m) } as unknown as WebSocketClient,
+    });
+    useTokenInteraction.getState().select(tokens[0].id);
+    render(createElement(TokenPanel));
+    return sent;
+  }
+
+  beforeEach(() => {
+    cleanup();
+    useToasts.setState({ toast: null });
+  });
+
+  it('is the DM’s section alone — a player who owns the token never sees it', () => {
+    panel([token({ ownerId: 'p-1' })], player);
+    expect(screen.queryByTestId('token-sight')).toBeNull();
+  });
+
+  it('gives a token sight and takes it away again, in the map’s own unit', () => {
+    const sent = panel([token()]);
+    // Nothing to edit until it has some: sight is nullable and starts null.
+    expect(screen.queryByLabelText('Sight range')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('token-sight-add'));
+    expect(sent[0]).toMatchObject({
+      module: 'tokens',
+      action: 'update',
+      payload: { id: 't1', sight: { range: 6, angle: 360, visionMode: 'normal' } },
+    });
+
+    // …and with sight on the token, the field reads 30 ft for those 6 cells.
+    cleanup();
+    const withSight = panel([token({ sight: { range: 6, angle: 360, visionMode: 'normal' } })]);
+    expect(screen.getByLabelText('Sight range')).toHaveProperty('value', '30');
+
+    fireEvent.change(screen.getByLabelText('Sight range'), { target: { value: '60' } });
+    expect(withSight[0].payload.sight).toEqual({ range: 12, angle: 360, visionMode: 'normal' });
+
+    fireEvent.change(screen.getByLabelText('Vision mode'), { target: { value: 'darkvision' } });
+    expect(withSight[1].payload.sight).toMatchObject({ visionMode: 'darkvision' });
+
+    fireEvent.click(screen.getByTestId('token-sight-clear'));
+    expect(withSight[2].payload).toEqual({ id: 't1', sight: null });
+  });
+
+  it('edits the carried light the same way, colour included', () => {
+    const sent = panel([token({ light: { dim: 8, bright: 4, color: '#ffbb66', angle: 360 } })]);
+    expect(screen.getByLabelText('Dim light radius')).toHaveProperty('value', '40');
+    expect(screen.getByLabelText('Bright light radius')).toHaveProperty('value', '20');
+
+    fireEvent.change(screen.getByLabelText('Bright light radius'), { target: { value: '10' } });
+    expect(sent[0].payload.light).toEqual({ dim: 8, bright: 2, color: '#ffbb66', angle: 360 });
+
+    fireEvent.change(screen.getByLabelText('Light colour'), { target: { value: '#3366ff' } });
+    expect(sent[1].payload.light).toMatchObject({ color: '#3366ff' });
+
+    fireEvent.click(screen.getByTestId('token-light-clear'));
+    expect(sent[2].payload).toEqual({ id: 't1', light: null });
+  });
+
+  it('links a token to another and unlinks it from the chip', () => {
+    const familiar = token({ id: 't2', name: 'Hawk' });
+    const sent = panel([token(), familiar]);
+    // Offered, not linked: no chip yet.
+    expect(screen.getByTestId('token-links').querySelector('[data-link-id]')).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Link a token'), { target: { value: 't2' } });
+    expect(sent[0]).toMatchObject({
+      module: 'tokens',
+      action: 'set-sight-link',
+      payload: { id: 't1', otherId: 't2', linked: true },
+    });
+
+    // With the link stored, the chip names the other token and its × unlinks.
+    cleanup();
+    const linked = panel([token({ sharesSightWith: ['t2'] }), familiar]);
+    expect(screen.getByTestId('token-links').textContent).toContain('Hawk');
+    fireEvent.click(screen.getByLabelText('Unlink Hawk'));
+    expect(linked[0]).toMatchObject({
+      action: 'set-sight-link',
+      payload: { id: 't1', otherId: 't2', linked: false },
+    });
+    // A token cannot be offered to itself, nor offered twice.
+    expect(screen.queryByLabelText('Link a token')).toBeNull();
   });
 });

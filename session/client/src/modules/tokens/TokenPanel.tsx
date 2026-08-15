@@ -3,13 +3,24 @@
 // panel is this module's only React lifecycle (D8) and the engine is only ready some time
 // after boot (§4).
 
-import { useEffect, useMemo } from 'react';
-import type { TokensState } from '@dnd/mechanics/tokens';
+import { useEffect, useMemo, useState } from 'react';
+import type { Token, TokensState } from '@dnd/mechanics/tokens';
 import { ALL_ROLES, registerPanel } from '../../session/panels';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { showToast } from '../../session/toasts';
 import { liveSceneDoors } from '../doors/DoorRenderer';
 import { tokenRefusal, useTokenInteraction } from './drag';
+import {
+  DEFAULT_LIGHT,
+  DEFAULT_SIGHT,
+  VISION_MODES,
+  mapScale,
+  toCells,
+  toUnits,
+  type Light,
+  type MapScale,
+  type Sight,
+} from './sight';
 import { mountTokenLayerWhenReady, tokensOf } from './TokenRenderer';
 
 const send = (action: string, payload: unknown): void =>
@@ -44,6 +55,210 @@ function useTokenFeedback(): void {
   }, [lastError]);
 }
 
+// ── P4 §3/§4 — Sight & light, and who this token shares it with ────────────
+// DM-only, and that is enforced on the server rather than by hiding the controls: `sight` and
+// `light` are in `UPDATE_FIELDS`, which a non-DM may not touch even on a token they own. The
+// panel below is simply never rendered for them.
+
+const numberInput =
+  'w-14 min-w-0 rounded border border-border-default bg-surface-1 px-1 py-0.5 text-right text-xs tabular-nums text-text-primary focus:border-border-focus focus:outline-none';
+const unitLabel = 'shrink-0 text-[11px] text-text-muted';
+const quietButton =
+  'shrink-0 rounded-chip border border-border-default px-1.5 py-0.5 text-[11px] text-text-secondary transition-colors duration-150 ease-out-quart hover:bg-surface-3 hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none';
+
+/** A labelled row with the field's own "give it one" / "take it away" affordance on the right. */
+function NullableField({
+  label,
+  testId,
+  present,
+  onAdd,
+  onClear,
+  children,
+}: {
+  label: string;
+  testId: string;
+  present: boolean;
+  onAdd: () => void;
+  onClear: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-text-secondary">{label}</span>
+        <button
+          type="button"
+          data-testid={present ? `${testId}-clear` : `${testId}-add`}
+          onClick={present ? onClear : onAdd}
+          className={quietButton}
+        >
+          {present ? 'None' : 'Add'}
+        </button>
+      </div>
+      {present && children}
+    </div>
+  );
+}
+
+function SightAndLight({
+  token,
+  tokens,
+  scale,
+  send,
+}: {
+  token: Token;
+  tokens: readonly Token[];
+  scale: MapScale;
+  send: (action: string, payload: unknown) => void;
+}) {
+  const [linking, setLinking] = useState('');
+  const update = (fields: Record<string, unknown>) => send('update', { id: token.id, ...fields });
+  const setSight = (patch: Partial<Sight>) =>
+    update({ sight: { ...(token.sight ?? DEFAULT_SIGHT), ...patch } });
+  const setLight = (patch: Partial<Light>) =>
+    update({ light: { ...(token.light ?? DEFAULT_LIGHT), ...patch } });
+
+  const links = token.sharesSightWith ?? [];
+  const linkable = tokens.filter((t) => t.id !== token.id && !links.includes(t.id));
+  const link = (otherId: string, linked: boolean) =>
+    send('set-sight-link', { id: token.id, otherId, linked });
+
+  return (
+    <div data-testid="token-sight" className="flex flex-col gap-2 border-t border-border-default pt-2">
+      <p className="text-xs uppercase tracking-wide text-text-secondary">Sight &amp; light</p>
+
+      <NullableField
+        label="Vision"
+        testId="token-sight"
+        present={token.sight !== null}
+        onAdd={() => update({ sight: DEFAULT_SIGHT })}
+        onClear={() => update({ sight: null })}
+      >
+        <div className="flex items-center gap-1">
+          <input
+            type="number"
+            min={0}
+            step={scale.value}
+            aria-label="Sight range"
+            data-testid="token-sight-range"
+            value={toUnits(token.sight?.range ?? 0, scale)}
+            onChange={(e) => setSight({ range: Math.max(0, toCells(e.target.valueAsNumber || 0, scale)) })}
+            className={numberInput}
+          />
+          <span className={unitLabel}>{scale.unit}</span>
+          <select
+            aria-label="Vision mode"
+            data-testid="token-vision-mode"
+            value={token.sight?.visionMode ?? 'normal'}
+            onChange={(e) => setSight({ visionMode: e.target.value as Sight['visionMode'] })}
+            className="min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1 py-0.5 text-xs text-text-primary focus:border-border-focus focus:outline-none"
+          >
+            {VISION_MODES.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </NullableField>
+
+      <NullableField
+        label="Carried light"
+        testId="token-light"
+        present={token.light !== null}
+        onAdd={() => update({ light: DEFAULT_LIGHT })}
+        onClear={() => update({ light: null })}
+      >
+        <div className="flex items-center gap-1">
+          <input
+            type="number"
+            min={0}
+            step={scale.value}
+            aria-label="Bright light radius"
+            data-testid="token-light-bright"
+            value={toUnits(token.light?.bright ?? 0, scale)}
+            onChange={(e) => setLight({ bright: Math.max(0, toCells(e.target.valueAsNumber || 0, scale)) })}
+            className={numberInput}
+          />
+          <span className={unitLabel}>bright</span>
+          <input
+            type="number"
+            min={0}
+            step={scale.value}
+            aria-label="Dim light radius"
+            data-testid="token-light-dim"
+            value={toUnits(token.light?.dim ?? 0, scale)}
+            onChange={(e) => setLight({ dim: Math.max(0, toCells(e.target.valueAsNumber || 0, scale)) })}
+            className={numberInput}
+          />
+          <span className={unitLabel}>dim</span>
+          {/* The platform's own colour input: it can only produce `#rrggbb`, which is inside
+              the server's `COLOR_MAX` by construction and needs no validation of ours. */}
+          <input
+            type="color"
+            aria-label="Light colour"
+            data-testid="token-light-color"
+            value={token.light?.color ?? DEFAULT_LIGHT.color}
+            onChange={(e) => setLight({ color: e.target.value })}
+            className="h-6 w-6 shrink-0 cursor-pointer rounded border border-border-default bg-surface-1"
+          />
+        </div>
+      </NullableField>
+
+      <div className="flex flex-col gap-1 border-t border-border-default pt-2">
+        <span className="text-xs text-text-secondary">Shares sight with</span>
+        <div data-testid="token-links" className="flex flex-wrap items-center gap-1">
+          {links.map((id) => {
+            const other = tokens.find((t) => t.id === id);
+            return (
+              <span
+                key={id}
+                data-link-id={id}
+                className="flex items-center gap-1 rounded-chip border border-border-default bg-surface-2 py-0.5 pl-2 pr-1 text-[11px] text-text-primary"
+              >
+                {other?.name ?? 'Elsewhere'}
+                <button
+                  type="button"
+                  aria-label={`Unlink ${other?.name ?? id}`}
+                  onClick={() => link(id, false)}
+                  className="rounded-chip px-0.5 text-text-muted transition-colors duration-150 ease-out-quart hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-border-focus motion-reduce:transition-none"
+                >
+                  ×
+                </button>
+              </span>
+            );
+          })}
+          {linkable.length > 0 && (
+            // A select rather than a chip that opens a menu: the list is every other token on
+            // the scene, it is already a one-of-N choice, and the platform's own picker is
+            // keyboard- and screen-reader-complete without a line of ours.
+            <select
+              aria-label="Link a token"
+              data-testid="token-link-add"
+              value={linking}
+              onChange={(e) => {
+                if (e.target.value) link(e.target.value, true);
+                setLinking('');
+              }}
+              className="min-w-0 rounded-chip border border-dashed border-border-default bg-transparent px-1.5 py-0.5 text-[11px] text-text-secondary focus:border-border-focus focus:outline-none"
+            >
+              <option value="">+ Link token…</option>
+              {linkable.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        <p className="text-[11px] text-text-muted">
+          Linked tokens see through each other, in every share mode.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function TokenPanel() {
   const state = useModuleState<TokensState>('tokens');
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
@@ -57,7 +272,9 @@ export function TokenPanel() {
   useEffect(() => mountTokenLayerWhenReady(), []);
   useTokenFeedback();
 
+  const mapData = useSessionStore((s) => s.mapData);
   const tokens = useMemo(() => tokensOf(state, sceneId), [state, sceneId]);
+  const scale = useMemo(() => mapScale(mapData), [mapData]);
   const selected = tokens.find((t) => t.id === selectedId);
   const owner = players?.find((p) => p.identityId === selected?.ownerId);
   const isDm = you?.role === 'dm';
@@ -136,6 +353,7 @@ export function TokenPanel() {
               </>
             )}
           </div>
+          {isDm && <SightAndLight token={selected} tokens={tokens} scale={scale} send={send} />}
         </div>
       )}
     </div>

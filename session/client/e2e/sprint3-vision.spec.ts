@@ -806,4 +806,156 @@ test.describe.serial('@sprint3-vision', () => {
     // The standing gate condition, on the rows this phase added too.
     expect(pageErrors, pageErrors.join('\n')).toEqual([])
   })
+
+  // ── S3 P4 — the DM controls, driven as a DM drives them ───────────────────
+  // Every row above puts its commands on the wire through the session store, which pins the
+  // referee. These two pin the *chrome*: the panel, the segmented control, the armed tool and
+  // a real pointer dragged across the canvas. A panel that dispatched the wrong payload, or a
+  // brush whose cell arithmetic disagreed with the server's frame, would pass every row above
+  // and fail here — which is exactly the seam P4 adds.
+
+  /** Where a world point is on the DM's canvas right now, in page coordinates. */
+  function pointAt(page: Page, x: number, y: number): Promise<{ x: number; y: number }> {
+    return page.evaluate(
+      ([wx, wy]: number[]) => {
+        const probe = (
+          window as Window & { __fogProbe?: { screenOf(x: number, y: number): { x: number; y: number } } }
+        ).__fogProbe
+        if (!probe) throw new Error('no fog probe on this seat — rebuild')
+        const canvas = document.querySelector('[data-testid="game-canvas"] canvas')
+        if (!canvas) throw new Error('no canvas to brush on')
+        const rect = canvas.getBoundingClientRect()
+        const at = probe.screenOf(wx, wy)
+        return { x: rect.left + at.x, y: rect.top + at.y }
+      },
+      [x, y],
+    )
+  }
+
+  /** One brush stroke along a row of cell centres, as a pointer actually makes it. */
+  async function brush(page: Page, from: [number, number], to: [number, number]): Promise<void> {
+    const a = await pointAt(page, ...from)
+    const b = await pointAt(page, ...to)
+    await page.mouse.move(a.x, a.y)
+    await page.mouse.down()
+    await page.mouse.move(b.x, b.y, { steps: 8 })
+    await page.mouse.up()
+  }
+
+  test('the DM drives the panel: mode, the armed tool, and a brush stroke the player sees', async () => {
+    // Back to daylight and to one pair of eyes far from the far hall, so what this row reads
+    // is the brush and nothing else. The torch and the owl are the previous rows' props.
+    await command(dm, 'triggers', 'set-environment', { ambient: 'daylight' })
+    await command(dm, 'tokens', 'hide', { id: torchId, hidden: true })
+    await command(dm, 'tokens', 'hide', { id: owlId, hidden: true })
+    await command(dm, 'tokens', 'move', { id: scout, ...AWAY })
+    await expect.poll(async () => (await read(player)).sources).toBe(1)
+
+    // The mode, off the segmented control — both ways, so the control is not write-once.
+    const mode = dm.getByTestId('fog-mode')
+    await mode.getByRole('radio', { name: 'Rooms' }).click()
+    await expect.poll(async () => (await probe(player))?.mode).toBe('rooms')
+    await mode.getByRole('radio', { name: 'Token vision' }).click()
+    await expect.poll(async () => (await probe(player))?.mode).toBe('vision')
+
+    // Arm the tool, then the brush — a sub-mode of it, which the indicator has to say.
+    await dm.getByTestId('fog-tool-toggle').click()
+    await expect(dm.getByTestId('fog-bar')).toBeVisible()
+    await dm.getByTestId('fog-brush').click()
+    await expect(dm.getByTestId('active-tool')).toContainText('Fog · Brush')
+    await expect(dm.getByTestId('active-tool')).toHaveAttribute('data-tool', 'fog')
+
+    // Rub the map back to void, so what the brush paints is the only thing on it. The rooms
+    // go under as well as the cells: an earlier row revealed the far hall by hand, and a
+    // room the DM has lit is washed whole — four more cells inside it would change nothing.
+    for (const room of [NEAR, FAR]) {
+      await command(dm, 'fog', 'hide', { roomId: room.id })
+      await command(dm, 'fog', 'region-set', { op: 'hide', cells: await cellsOf(player, room) })
+    }
+    await player.waitForTimeout(REVEAL_MS * 3)
+    const before = await read(player)
+    const dark = await shoot(player)
+
+    // Four cell centres along one row of the far hall, which nobody is looking at.
+    const [row, first] = [FAR.centroid[1] + 0.5, Math.floor(FAR.centroid[0]) - 1.5]
+    await brush(dm, [first, row], [first + 3, row])
+
+    // Exactly four cells: the panel's op, the overlay's arithmetic and the server's frame all
+    // agreeing about which squares those were. One off in any of them and this is not 4.
+    await expect
+      .poll(async () => (await read(player)).cells - before.cells, { timeout: 5000 })
+      .toBe(4)
+    await player.waitForTimeout(REVEAL_MS * 4)
+    const painted = await shoot(player)
+    const moved = await changed(player, dark, painted)
+
+    record(
+      'a real brush stroke on the DM canvas, read off the player seat',
+      `4 cell(s) painted through the panel; ${(moved * 100).toFixed(2)}% of the player canvas ` +
+        `moved (${show(await develop(player, dark))} → ${show(await develop(player, painted))})`,
+      'the cells the DM painted, and no room around them',
+    )
+
+    // The player sees them, and sees them as memory — the far hall is latched, never lit.
+    expect(moved, 'the brushed cells never reached the player canvas').toBeGreaterThan(0.0005)
+    expect(await fogStatus(player, FAR.id)).toBe('re_hidden')
+
+    // Esc leaves the tool, and the brush with it.
+    await dm.keyboard.press('Escape')
+    await expect(dm.getByTestId('active-tool')).toContainText('None')
+    await expect(dm.getByTestId('fog-bar')).toHaveCount(0)
+  })
+
+  test('the DM edits Sight & light on the panel and the player’s mask follows', async () => {
+    await command(dm, 'tokens', 'move', { id: scout, ...AT_DOOR })
+    await expect.poll(async () => (await read(player)).rebuilds).toBeGreaterThan(0)
+
+    // Select the scout in the DM's own token list — the section is part of the selection.
+    await dm.getByTestId('token-layer').locator(`[data-token-id="${scout}"] button`).click()
+    await expect(dm.getByTestId('token-sight')).toBeVisible()
+    // 8 cells at this map's 5 ft a cell: the panel quotes the unit, the wire stores cells.
+    await expect(dm.getByLabel('Sight range')).toHaveValue('40')
+
+    await frameUp(player)
+    const wide = await look(player)
+
+    // Down to two cells, through the real input.
+    await dm.getByLabel('Sight range').fill('10')
+    await dm.getByLabel('Sight range').blur()
+    await expect.poll(async () => (await look(player)).lit).toBeLessThan(wide.lit)
+    await player.waitForTimeout(REVEAL_MS * 3)
+    const narrow = await look(player)
+
+    // …and the mode select, which the wire has to carry as `darkvision`.
+    await dm.getByLabel('Vision mode').selectOption('darkvision')
+    await expect
+      .poll(() =>
+        dm.evaluate((id: string) => {
+          const store = (
+            window as unknown as {
+              __sessionStore?: {
+                getState(): { session?: { activeSceneId?: string; modules?: Record<string, unknown> } }
+              }
+            }
+          ).__sessionStore
+          const state = store?.getState()
+          const scene = state?.session?.activeSceneId
+          const tokens = state?.session?.modules?.tokens as
+            | { byScene?: Record<string, Record<string, { sight?: { visionMode?: string } }>> }
+            | undefined
+          return (scene ? tokens?.byScene?.[scene]?.[id]?.sight?.visionMode : null) ?? null
+        }, scout),
+      )
+      .toBe('darkvision')
+
+    record(
+      'a sight range edited on the panel, measured on the player canvas',
+      `40 ft of sight read ${show(wide)}; 10 ft read ${show(narrow)}`,
+      'a smaller eye is a smaller mask, off the panel alone',
+    )
+    expect(narrow.lit, `40 ft ${show(wide)} against 10 ft ${show(narrow)}`).toBeLessThan(wide.lit)
+
+    // The standing gate condition, on the rows this phase added too.
+    expect(pageErrors, pageErrors.join('\n')).toEqual([])
+  })
 })

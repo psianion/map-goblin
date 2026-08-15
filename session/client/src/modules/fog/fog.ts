@@ -5,13 +5,17 @@
 import { pointInPolygon } from '@dnd/core/src/engine/hitTest';
 import { clipper2Engine } from '@dnd/core/src/geometry/Clipper2Engine';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
-import type { Room } from '@dnd/core/src/shared/types';
-import type { Layer } from '@dnd/core/src/store/types';
+import { computeMapFrame } from '@dnd/core/src/shared/mapBounds';
+import type { Room, ZoneChild } from '@dnd/core/src/shared/types';
+import type { Layer, SerializedMapData } from '@dnd/core/src/store/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
 import {
+  cellsCoveredByPolygon,
   sceneFogOf,
   toBytes,
+  type Cell,
   type FogState,
+  type Frame,
   type RegionMask,
   type RoomFog,
   type RoomFogStatus,
@@ -459,3 +463,107 @@ export function sceneFog(state: FogState | undefined, sceneId: string | null | u
 }
 
 export { roomFogOf as roomFog } from '@dnd/mechanics/fog';
+
+// ── P4 §1/§2 — what the brush paints on, and what the room list has to say ──
+
+/**
+ * The rectangle a region cell is counted from, exactly as the server counts it.
+ *
+ * A player's copy arrives with the referee's own `frame` stamped on it; the DM's copy is the
+ * authored file, which carries none — so the DM's is measured here with the very function the
+ * server measured it with (`sceneMap.frame`). Same inputs, same arithmetic, so a cell the DM's
+ * brush names is the cell the server writes.
+ */
+export function fogFrame(mapData: unknown): Frame | null {
+  const doc = mapData as SerializedMapData | null;
+  if (!doc) return null;
+  return doc.frame ?? computeMapFrame(doc.layers ?? [], doc.mapSettings?.terrain?.bounds ?? null);
+}
+
+/**
+ * A world point as a region cell, or null off the frame — the `cellsCoveredByPolygon`
+ * convention (cell `[col, row]` is the square whose centre is `minX + col + 0.5`), which is
+ * what makes a brushed cell and a swept cell the same cell.
+ */
+export function cellAt(frame: Frame, x: number, y: number): Cell | null {
+  const [col, row] = [Math.floor(x - frame.minX), Math.floor(y - frame.minY)];
+  const [cols, rows] = [Math.round(frame.maxX - frame.minX), Math.round(frame.maxY - frame.minY)];
+  return col < 0 || row < 0 || col >= cols || row >= rows ? null : [col, row];
+}
+
+/** …and back: the world square that cell covers, for the brush's own hover highlight. */
+export const cellRect = (frame: Frame, [col, row]: Cell): Polygon => [
+  [frame.minX + col, frame.minY + row],
+  [frame.minX + col + 1, frame.minY + row],
+  [frame.minX + col + 1, frame.minY + row + 1],
+  [frame.minX + col, frame.minY + row + 1],
+];
+
+/**
+ * Rooms the region record has bits inside — the brush and the party's own sweep showing
+ * through the room list as "Partly seen" (§1). Only interesting on a room the DM has not lit:
+ * a `revealed` room is washed whole whatever the cells say.
+ *
+ * The mask is decoded once for all the rooms rather than per cell (`getCell` decodes the whole
+ * record every call, which is fine for a probe and not for a list), and each room stops at its
+ * first set bit.
+ */
+export function partlySeenRooms(rooms: readonly Room[], region: RegionMask | undefined): Set<string> {
+  const seen = new Set<string>();
+  if (!region) return seen;
+  const bytes = toBytes(region.bits);
+  const frame = {
+    minX: region.minX,
+    minY: region.minY,
+    maxX: region.minX + region.cols,
+    maxY: region.minY + region.rows,
+  };
+  for (const room of rooms) {
+    if (room.boundary.length < 3) continue;
+    for (const [col, row] of cellsCoveredByPolygon(room.boundary, frame)) {
+      const bit = row * region.cols + col;
+      if ((bytes[bit >>> 3] & (1 << (bit & 7))) !== 0) {
+        seen.add(room.id);
+        break;
+      }
+    }
+  }
+  return seen;
+}
+
+/**
+ * Rooms an authored explore lock covers (§5) — the DM's badge for "the party's own sight will
+ * never open this one; it is yours to reveal".
+ *
+ * ponytail: box against box, not shape against polygon. A lock is authored to cover a room, so
+ * the two boxes overlapping is the case; a huge lock that clips a neighbouring room's corner
+ * would badge that neighbour too. The precise answer is the zone shape intersected with the
+ * room polygon, and it is worth writing the day a DM is misled by the coarse one — the server
+ * already tests the real geometry per cell (`inAnyLock`), so nothing but this label is coarse.
+ */
+export function lockedRooms(rooms: readonly Room[], layers: readonly Layer[]): Set<string> {
+  const locks = layers
+    .flatMap((layer) => (layer.type === 'dungeon' ? layer.children : []))
+    .filter((child): child is ZoneChild => child.childType === 'zone' && !!child.blocksAutoExplore)
+    .flatMap((zone) => {
+      const s = zone.shape;
+      if (s.kind === 'circle') {
+        return [[s.position.x - s.radius, s.position.y - s.radius, s.position.x + s.radius, s.position.y + s.radius]];
+      }
+      // A point zone has no area to lock, and the server refuses it too (`exploreLocks`).
+      return s.kind === 'rect' ? [[s.x, s.y, s.x + s.width, s.y + s.height]] : [];
+    });
+
+  const locked = new Set<string>();
+  if (locks.length === 0) return locked;
+  for (const room of rooms) {
+    if (room.boundary.length < 3) continue;
+    const xs = room.boundary.map((p) => p[0]);
+    const ys = room.boundary.map((p) => p[1]);
+    const [rx0, rx1, ry0, ry1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    if (locks.some(([x0, y0, x1, y1]) => x0 < rx1 && x1 > rx0 && y0 < ry1 && y1 > ry0)) {
+      locked.add(room.id);
+    }
+  }
+  return locked;
+}

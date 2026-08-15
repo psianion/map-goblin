@@ -936,6 +936,11 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     /** How long the last mask took to *build* — §4's budget is about mutation, not frames. */
     lastRebuildMs: 0,
     memoryCells: (): number => cells,
+    // S3 P4 — where a world point is on this canvas right now. The brush rows drive the real
+    // pointer over named cells, and the camera transform is the one thing a Node process
+    // cannot work out for itself. Read-only, and it discloses nothing the page does not
+    // already draw.
+    screenOf: (x: number, y: number): { x: number; y: number } => engine.worldToScreen(x, y),
   };
   (window as Window & { __fogProbe?: typeof fogProbe }).__fogProbe = fogProbe;
 

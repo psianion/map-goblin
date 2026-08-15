@@ -320,6 +320,105 @@ describe('update', () => {
     )
     expect(run(state, DM, 'update', { id: 't1' }).error?.code).toBe('invalid-command')
   })
+
+  // ── P4 §3 — sight and light on a placed instance ──────────────────────────
+
+  const SIGHT = { range: 8, angle: 360, visionMode: 'darkvision' }
+  const LIGHT = { dim: 4, bright: 2, color: '#ffbb66', angle: 360 }
+
+  it('round-trips sight and light, and clears them with null', () => {
+    const lit = run(stateWith(token()), DM, 'update', { id: 't1', sight: SIGHT, light: LIGHT })
+    expect(lit.error).toBeNull()
+    expect(only(lit.next)).toMatchObject({ sight: SIGHT, light: LIGHT })
+
+    const blind = run(lit.next, DM, 'update', { id: 't1', sight: null, light: null })
+    expect(blind.error).toBeNull()
+    expect(only(blind.next)).toMatchObject({ sight: null, light: null })
+  })
+
+  it('runs the same validators `place` does — a bad payload is refused, not stored', () => {
+    const state = stateWith(token())
+    for (const payload of [
+      { sight: { range: 8, angle: 360, visionMode: 'x-ray' } },
+      { sight: { range: 'far', angle: 360, visionMode: 'normal' } },
+      { light: { dim: 4, bright: 2, color: 'c'.repeat(33), angle: 360 } },
+      { light: { dim: 4, bright: 2, angle: 360 } },
+    ]) {
+      const { error, next } = run(state, DM, 'update', { id: 't1', ...payload })
+      expect(error, JSON.stringify(payload)).toMatchObject({ code: 'invalid-command' })
+      expect(only(next).sight).toBeNull()
+      expect(only(next).light).toBeNull()
+    }
+  })
+
+  it('refuses a player sight or light EVEN ON THEIR OWN token (the whole access control)', () => {
+    const mine = stateWith(token({ ownerId: 'p-1' }))
+    expect(run(mine, P1, 'update', { id: 't1', sight: SIGHT }).error).toMatchObject({
+      code: 'unauthorized',
+    })
+    expect(run(mine, P1, 'update', { id: 't1', light: LIGHT }).error).toMatchObject({
+      code: 'unauthorized',
+    })
+    // …including the clearing form, which is a change to the field like any other.
+    expect(run(mine, P1, 'update', { id: 't1', name: 'Rex', sight: null }).error).toMatchObject({
+      code: 'unauthorized',
+    })
+    // …and nothing was written on the way to the refusal.
+    expect(only(mine).sight).toBeNull()
+  })
+})
+
+// ── P4 §4 — sight links ────────────────────────────────────────────────────
+
+describe('set-sight-link', () => {
+  const pair = () => stateWith(token({ id: 't1' }), token({ id: 't2' }), token({ id: 't3' }))
+  const linksOf = (s: TokensState, id: string) => s.byScene[SCENE][id].sharesSightWith
+
+  it('writes both ends of the edge in one state', () => {
+    const { error, next } = run(pair(), DM, 'set-sight-link', {
+      id: 't1',
+      otherId: 't2',
+      linked: true,
+    })
+    expect(error).toBeNull()
+    expect(linksOf(next, 't1')).toEqual(['t2'])
+    expect(linksOf(next, 't2')).toEqual(['t1'])
+    // The third token is untouched: a link is an edge, not a group.
+    expect(linksOf(next, 't3')).toBeUndefined()
+  })
+
+  it('unlinks both ends and leaves no empty array behind (absent ≡ no links)', () => {
+    const linked = run(pair(), DM, 'set-sight-link', { id: 't1', otherId: 't2', linked: true }).next
+    // Unlinked from the OTHER end, which only symmetric storage can answer.
+    const { next } = run(linked, DM, 'set-sight-link', { id: 't2', otherId: 't1', linked: false })
+    expect(linksOf(next, 't1')).toBeUndefined()
+    expect(linksOf(next, 't2')).toBeUndefined()
+  })
+
+  it('is idempotent — linking twice is one edge', () => {
+    const once = run(pair(), DM, 'set-sight-link', { id: 't1', otherId: 't2', linked: true }).next
+    const twice = run(once, DM, 'set-sight-link', { id: 't1', otherId: 't2', linked: true }).next
+    expect(linksOf(twice, 't1')).toEqual(['t2'])
+  })
+
+  it('refuses a self-link, an unknown other, and a missing subject', () => {
+    for (const payload of [
+      { id: 't1', otherId: 't1', linked: true },
+      { id: 't1', otherId: 'nope', linked: true },
+      { id: 'nope', otherId: 't1', linked: true },
+      { id: 't1', otherId: 't2' },
+    ]) {
+      expect(run(pair(), DM, 'set-sight-link', payload).error, JSON.stringify(payload)).toMatchObject(
+        { code: 'invalid-command' },
+      )
+    }
+  })
+
+  it('is dm-only', () => {
+    expect(
+      run(pair(), P1, 'set-sight-link', { id: 't1', otherId: 't2', linked: true }).error,
+    ).toMatchObject({ code: 'unauthorized' })
+  })
 })
 
 describe('hide and delete', () => {

@@ -25,7 +25,7 @@ import {
   type SceneFog,
 } from '@dnd/mechanics/fog'
 import { needsLight, sceneTriggersOf, type TriggersState } from '@dnd/mechanics/triggers'
-import type { SceneVision, TokensState } from '@dnd/mechanics/tokens'
+import { sightParty, type SceneVision, type TokensState } from '@dnd/mechanics/tokens'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
 import type { Stores } from '../db/stores'
 import {
@@ -142,9 +142,10 @@ export function createVision(stores: Stores): Vision {
 
     // Party-global (D3): one set for the player role, anchored on the rooms the claimed
     // tokens stand in.
+    // P4 §4 — and "the party" is the sight-link closure of the claimed tokens, the same set
+    // the sweep is taken through, so a linked familiar anchors the rooms-mode BFS too.
     const party: string[] = []
-    for (const token of Object.values(tokens)) {
-      if (token.ownerId === null || token.hidden) continue
+    for (const token of sightParty(Object.values(tokens))) {
       const room = map.roomAt(token.x, token.y)
       if (room !== null && !party.includes(room)) party.push(room)
     }

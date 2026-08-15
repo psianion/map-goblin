@@ -2,19 +2,41 @@
 // create/edit, delete, and click-to-place: arming a def here makes the next click on the
 // map place it (the pointer handling itself is drag.ts's).
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Disposition, TokenDef, TokenSize, TokensState } from '@dnd/mechanics/tokens';
 import { SIZE_CELLS } from '@dnd/mechanics/tokens';
 import { endpoints } from '../../endpoints';
 import { registerPanel } from '../../session/panels';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { useTokenInteraction } from './drag';
+import {
+  DEFAULT_LIGHT,
+  DEFAULT_SIGHT,
+  VISION_MODES,
+  mapScale,
+  toCells,
+  toUnits,
+  type Light,
+  type Sight,
+} from './sight';
 
 const SIZES = Object.keys(SIZE_CELLS) as TokenSize[];
 const DISPOSITIONS: Disposition[] = ['friendly', 'neutral', 'hostile'];
 const NAME_MAX = 60; // matches the server's cap (§2.2) so a rejected upsert is not the way you find out
 
-const blank = { id: null as string | null, name: '', size: 'medium' as TokenSize, disposition: 'neutral' as Disposition, imageAssetId: null as string | null };
+const blank = {
+  id: null as string | null,
+  name: '',
+  size: 'medium' as TokenSize,
+  disposition: 'neutral' as Disposition,
+  imageAssetId: null as string | null,
+  // P4 §3 — the def's own sight and light, which `place` copies onto every instance (D12).
+  sight: null as Sight | null,
+  light: null as Light | null,
+};
+
+const defInput =
+  'w-14 min-w-0 rounded border border-neutral-700 bg-neutral-900 px-1 py-0.5 text-right tabular-nums text-neutral-100 focus:border-neutral-500 focus:outline-none';
 
 /** D11 — same shape as the map upload: raw bytes, bearer token, `{id}` back. */
 async function uploadPortrait(file: File): Promise<string> {
@@ -34,9 +56,13 @@ export function TokenLibraryPanel() {
   const library = useModuleState<TokensState>('tokens')?.library;
   const placingDefId = useTokenInteraction((s) => s.placingDefId);
   const setPlacing = useTokenInteraction((s) => s.setPlacing);
+  const mapData = useSessionStore((s) => s.mapData);
   const [form, setForm] = useState(blank);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The unit the DM is reading off the table's own map — the same one TokenPanel quotes, so
+  // the two panels they alternate between never disagree about what "30" means.
+  const scale = useMemo(() => mapScale(mapData), [mapData]);
 
   const defs: TokenDef[] = library && typeof library === 'object' ? Object.values(library) : [];
   const send = (action: string, payload: unknown) =>
@@ -51,6 +77,8 @@ export function TokenLibraryPanel() {
       size: form.size,
       disposition: form.disposition,
       imageAssetId: form.imageAssetId,
+      sight: form.sight,
+      light: form.light,
     });
     setForm(blank);
   };
@@ -100,6 +128,8 @@ export function TokenLibraryPanel() {
                     size: def.size,
                     disposition: def.disposition,
                     imageAssetId: def.imageAssetId,
+                    sight: def.sight,
+                    light: def.light,
                   })
                 }
                 className="rounded px-1 text-xs text-neutral-500 hover:text-neutral-200"
@@ -187,12 +217,124 @@ export function TokenLibraryPanel() {
           />
         </label>
 
-        {/* Schema exists server-side; the fields land with S3's fog/vision work. */}
-        <details className="text-xs text-neutral-500">
-          <summary className="cursor-pointer">Sight &amp; light (S3)</summary>
-          <div className="mt-1 flex gap-1">
-            <input disabled placeholder="sight range" aria-label="Sight range (S3)" className="min-w-0 flex-1 rounded border border-neutral-800 bg-neutral-900/60 px-1 py-0.5" />
-            <input disabled placeholder="light dim/bright" aria-label="Light (S3)" className="min-w-0 flex-1 rounded border border-neutral-800 bg-neutral-900/60 px-1 py-0.5" />
+        {/* P4 §3 — live, and folded away: most defs are a name and a portrait, and a DM
+            authoring a torchbearer opens this once. Ranges are in the map's own unit; the def
+            stores cells, the way the sweep and the light pool measure. */}
+        <details data-testid="token-def-sight" className="text-xs text-neutral-500">
+          <summary className="cursor-pointer">Sight &amp; light</summary>
+          <div className="mt-1 flex flex-col gap-1">
+            <label className="flex items-center gap-1">
+              <input
+                type="checkbox"
+                data-testid="token-def-has-sight"
+                checked={form.sight !== null}
+                onChange={(e) => setForm({ ...form, sight: e.target.checked ? DEFAULT_SIGHT : null })}
+              />
+              Vision
+            </label>
+            {form.sight && (
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  min={0}
+                  step={scale.value}
+                  aria-label="Sight range"
+                  data-testid="token-def-sight-range"
+                  value={toUnits(form.sight.range, scale)}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      sight: {
+                        ...(form.sight as Sight),
+                        range: Math.max(0, toCells(e.target.valueAsNumber || 0, scale)),
+                      },
+                    })
+                  }
+                  className={defInput}
+                />
+                <span className="shrink-0">{scale.unit}</span>
+                <select
+                  aria-label="Vision mode"
+                  data-testid="token-def-vision-mode"
+                  value={form.sight.visionMode}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      sight: { ...(form.sight as Sight), visionMode: e.target.value as Sight['visionMode'] },
+                    })
+                  }
+                  className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-1 py-0.5 text-neutral-100"
+                >
+                  {VISION_MODES.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <label className="flex items-center gap-1">
+              <input
+                type="checkbox"
+                data-testid="token-def-has-light"
+                checked={form.light !== null}
+                onChange={(e) => setForm({ ...form, light: e.target.checked ? DEFAULT_LIGHT : null })}
+              />
+              Carried light
+            </label>
+            {form.light && (
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  min={0}
+                  step={scale.value}
+                  aria-label="Bright light radius"
+                  data-testid="token-def-light-bright"
+                  value={toUnits(form.light.bright, scale)}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      light: {
+                        ...(form.light as Light),
+                        bright: Math.max(0, toCells(e.target.valueAsNumber || 0, scale)),
+                      },
+                    })
+                  }
+                  className={defInput}
+                />
+                <span className="shrink-0">bright</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={scale.value}
+                  aria-label="Dim light radius"
+                  data-testid="token-def-light-dim"
+                  value={toUnits(form.light.dim, scale)}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      light: {
+                        ...(form.light as Light),
+                        dim: Math.max(0, toCells(e.target.valueAsNumber || 0, scale)),
+                      },
+                    })
+                  }
+                  className={defInput}
+                />
+                <span className="shrink-0">dim</span>
+                <input
+                  type="color"
+                  aria-label="Light colour"
+                  data-testid="token-def-light-color"
+                  value={form.light.color}
+                  onChange={(e) =>
+                    setForm({ ...form, light: { ...(form.light as Light), color: e.target.value } })
+                  }
+                  className="h-6 w-6 shrink-0 cursor-pointer rounded border border-neutral-700 bg-neutral-900"
+                />
+              </div>
+            )}
           </div>
         </details>
 

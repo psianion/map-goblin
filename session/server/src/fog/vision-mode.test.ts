@@ -528,6 +528,98 @@ describe('explore locks (§5)', () => {
 // Every row here is written so the *room* rule would answer the other way — the ambusher
 // always stands somewhere the party has explored and can currently see. Otherwise the room
 // rule alone would produce the same answer and the test would prove nothing about sight.
+// ── P4 §4 — sight links ────────────────────────────────────────────────────
+// The familiar is the whole case: an *unclaimed* token, in a room nobody has been near, whose
+// sweep the party owns only because the DM said so. Everything below is a fact the scout alone
+// could not have produced — region bits in the east room, a room latched, a token on the wire.
+
+describe('a sight link widens the party (P4 §4)', () => {
+  /** The scout in the west room, plus an unclaimed hawk deep in the east one, with sight. */
+  function familiar(table: ReturnType<typeof wired>) {
+    const scout = scouted(table)
+    table.run(DM, 'tokens', 'place', {
+      name: 'Hawk',
+      x: 17.5,
+      y: 5.5,
+      sight: { range: 6, angle: 360, visionMode: 'normal' },
+    })
+    const by = (name: string) => Object.entries(table.tokensOf()).find(([, t]) => t.name === name)![0]
+    return { scout, hawk: by('Hawk') }
+  }
+
+  const link = (table: ReturnType<typeof wired>, id: string, otherId: string, linked: boolean) =>
+    table.run(DM, 'tokens', 'set-sight-link', { id, otherId, linked })
+
+  it('lends an unclaimed familiar’s sweep to the party — sight, cells and the room latch', () => {
+    const table = wired()
+    const { scout, hawk } = familiar(table)
+
+    // The shut door is between them: the scout's own sweep reaches none of this.
+    expect(table.vision.visionOf(SCENE)!.canSee!(17.5, 5.5)).toBe(false)
+    expect(table.fogOf().rooms.east).toBeUndefined()
+    expect(getCell(table.fogOf().region, ...EAST_CELL)).toBe(false)
+
+    expect(link(table, scout, hawk, true)).toBeNull()
+
+    expect(table.vision.visionOf(SCENE)!.canSee!(17.5, 5.5)).toBe(true)
+    // …and the write rode the same auto-explore hook a step does: the east room latched and
+    // its cells landed, with nothing on the board having moved.
+    expect(table.fogOf().rooms.east).toEqual({ status: 're_hidden', wasEverRevealed: true })
+    expect(getCell(table.fogOf().region, ...EAST_CELL)).toBe(true)
+  })
+
+  it('ships a token only the familiar can see, and stops shipping it on unlink', () => {
+    const table = wired()
+    const { scout, hawk } = familiar(table)
+    table.run(DM, 'tokens', 'place', { name: 'Cultist', x: 16.5, y: 5.5, sight: null })
+    const cultist = Object.entries(table.tokensOf()).find(([, t]) => t.name === 'Cultist')![0]
+
+    // Neither the hawk (unclaimed, out of sight) nor what it is looking at.
+    expect(table.tokensFor(P1)).toEqual([scout])
+
+    link(table, scout, hawk, true)
+    // The hawk is the viewer's own now (the closure), and the cultist is in its sweep.
+    expect(table.tokensFor(P1)).toEqual([cultist, hawk, scout].sort())
+
+    link(table, scout, hawk, false)
+    expect(table.tokensFor(P1)).toEqual([scout])
+  })
+
+  it('is transitive, and hidden beats the link', () => {
+    const table = wired()
+    const { scout, hawk } = familiar(table)
+    table.run(DM, 'tokens', 'place', {
+      name: 'Rat',
+      x: 20.5,
+      y: 8.5,
+      sight: { range: 4, angle: 360, visionMode: 'normal' },
+    })
+    const rat = Object.entries(table.tokensOf()).find(([, t]) => t.name === 'Rat')![0]
+    link(table, scout, hawk, true)
+    link(table, hawk, rat, true)
+    expect(table.vision.visionOf(SCENE)!.canSee!(20.5, 8.5)).toBe(true)
+
+    // The hawk goes off the board, and the chain to the rat goes with it.
+    table.run(DM, 'tokens', 'hide', { id: hawk, hidden: true })
+    expect(table.vision.visionOf(SCENE)!.canSee!(20.5, 8.5)).toBe(false)
+    expect(table.vision.visionOf(SCENE)!.canSee!(17.5, 5.5)).toBe(false)
+  })
+
+  it('anchors the rooms-mode party too — the familiar’s room is one of theirs', () => {
+    const table = wired()
+    const scout = scouted(table, 'rooms')
+    table.run(DM, 'tokens', 'place', { name: 'Hawk', x: 17.5, y: 5.5, sight: null })
+    const hawk = Object.entries(table.tokensOf()).find(([, t]) => t.name === 'Hawk')![0]
+    table.run(DM, 'fog', 'reveal', { roomId: 'east' })
+
+    // Concealment is on and the door is shut, so the east room is unreachable from the west.
+    expect(table.vision.visionOf(SCENE)!.visible.has('east')).toBe(false)
+    link(table, scout, hawk, true)
+    // The party now stands in both rooms, so the BFS starts in the east one as well.
+    expect(table.vision.visionOf(SCENE)!.visible.has('east')).toBe(true)
+  })
+})
+
 describe('token redaction by vision (§6)', () => {
   /**
    * A short-sighted scout in the middle of the west room, and an ambusher in the far corner

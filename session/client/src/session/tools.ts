@@ -11,11 +11,22 @@ import { create } from 'zustand';
  */
 export type ToolId = 'fog';
 
-export const TOOL_LABEL: Record<ToolId, string> = { fog: 'Fog' };
+const TOOL_NAME: Record<ToolId, string> = { fog: 'Fog' };
+
+/**
+ * What the indicator calls the tool right now — its name, plus its sub-mode when it has one
+ * ("Fog · Brush", P4 §2). A sub-mode changes what a click does as much as the tool does, so
+ * the one piece of chrome that answers "what will this click do" has to say it.
+ */
+export const toolLabel = (tool: ToolId, detail: string | null = null): string =>
+  detail ? `${TOOL_NAME[tool]} · ${detail}` : TOOL_NAME[tool];
 
 interface ToolStore {
   activeTool: ToolId | null;
+  /** The active tool's sub-mode, set by whoever owns it; cleared when the tool goes. */
+  toolDetail: string | null;
   setActiveTool: (tool: ToolId | null) => void;
+  setToolDetail: (detail: string | null) => void;
 }
 
 // Escape exits the active tool. It lives with the state rather than in a component so the
@@ -41,11 +52,15 @@ function disarmEscape(): void {
 
 export const useActiveTool = create<ToolStore>()((set) => ({
   activeTool: null,
+  toolDetail: null,
   setActiveTool: (activeTool) => {
-    set({ activeTool });
+    // The detail belongs to the tool that set it: leaving it behind would have the indicator
+    // announce a sub-mode of a tool nobody is holding the next time one is armed.
+    set({ activeTool, toolDetail: null });
     if (activeTool) armEscape();
     else disarmEscape();
   },
+  setToolDetail: (toolDetail) => set({ toolDetail }),
 }));
 
 /** True while any tool owns the canvas — token and door input stand down (D11). */

@@ -23,16 +23,20 @@ import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import type { LightChild } from '@dnd/core/src/shared/types';
 import type { DungeonLayer, Layer } from '@dnd/core/src/store/types';
 import type { LightSource, PlacedLight } from '@dnd/mechanics/fog';
-import type { Token } from '@dnd/mechanics/tokens';
+import { sightParty, type Token } from '@dnd/mechanics/tokens';
 import { isTokenLight } from '../triggers/lightSync';
 
 /**
  * The tokens the party's mask is drawn through — the server's filter, to the character: a
  * claimed token is a player at the table, an unclaimed one is scenery the DM moves, a hidden
  * one has been taken off the board, and a token with no sight is not looking at anything.
+ *
+ * Literally the server's filter now (P4 §4): `sightParty` is the shared predicate the referee's
+ * own sweep runs, imported rather than mirrored, so a sight link the DM makes cannot widen what
+ * a player is *sent* without widening what their mask lets them *see*.
  */
 export const sighted = (tokens: readonly Token[]): Token[] =>
-  tokens.filter((t) => t.ownerId !== null && !t.hidden && (t.sight?.range ?? 0) > 0);
+  sightParty(tokens).filter((t) => (t.sight?.range ?? 0) > 0);
 
 /**
  * ponytail: one entry per layers array, holding every sweep taken against that geometry, and

@@ -5,7 +5,8 @@
 // Role gating is data: the registry checks `commands[action]` before the handler runs, so
 // everything below is the *extra* validation — ownership, ids, field caps, snap.
 
-import { ANY_ROLE, type GameModule, type ModuleContext, type Viewer } from '../contract'
+import { ANY_ROLE, type GameModule, type ModuleContext } from '../contract'
+import { sightPartyIds } from './links'
 import type { SceneVision, Token, TokenDef, TokensState, VisionOf } from './types'
 import {
   DISPOSITIONS,
@@ -23,10 +24,13 @@ import {
   obj,
   oneOf,
   parseDefFields,
+  parseLight,
+  parseSight,
   snap,
   str,
 } from './validate'
 
+export * from './links'
 export * from './types'
 // The client snaps optimistically during a drag (§2.4.6) against the same function the
 // server validates with — one rule, one implementation.
@@ -35,8 +39,14 @@ export { snap } from './validate'
 type Ctx = ModuleContext<TokensState>
 type Payload = Record<string, unknown>
 
-/** Fields `update` accepts; players get `name` alone (D10). */
-const UPDATE_FIELDS = ['name', 'size', 'disposition', 'elevation', 'z'] as const
+/**
+ * Fields `update` accepts; players get `name` alone (D10).
+ *
+ * P4 adds `sight` and `light`, and adding them here is the *whole* of their access control:
+ * the guard below refuses a non-DM any field but `name`, so a player cannot grant their own
+ * token darkvision or a torch by editing the token they legitimately own.
+ */
+const UPDATE_FIELDS = ['name', 'size', 'disposition', 'elevation', 'z', 'sight', 'light'] as const
 
 let minted = 0
 const mintId = (prefix: string): string =>
@@ -60,6 +70,7 @@ export function tokensModule(visionOf: VisionOf = () => null): GameModule<Tokens
       hide: ['dm'],
       delete: ['dm'],
       claim: ['player'],
+      'set-sight-link': ['dm'],
     },
     initialState: { library: {}, byScene: {} },
 
@@ -82,9 +93,15 @@ export function tokensModule(visionOf: VisionOf = () => null): GameModule<Tokens
       const byScene: TokensState['byScene'] = {}
       for (const [sceneId, tokens] of Object.entries(state.byScene)) {
         const scene = visionOf(sceneId)
+        // P4 §4 — "yours" is the closure of the tokens you claimed over the DM's sight links,
+        // so a familiar you were handed is as exempt from the fog as the scout it follows.
+        const mine = sightPartyIds(
+          Object.values(tokens),
+          (token) => token.ownerId === viewer.identityId,
+        )
         const visible: Record<string, Token> = {}
         for (const [id, token] of Object.entries(tokens)) {
-          if (token.hidden || !inSight(token, scene, viewer)) dropped = true
+          if (token.hidden || !inSight(token, scene, mine)) dropped = true
           else visible[id] = token
         }
         byScene[sceneId] = visible
@@ -102,9 +119,14 @@ export function tokensModule(visionOf: VisionOf = () => null): GameModule<Tokens
  * S3 P1 stacks token vision on the same seam: with `canSee` wired (vision mode only) the
  * question is asked of the point rather than the room, so an orc standing in the dark half
  * of a lit room is not on this wire at all. Own claimed tokens are exempt either way.
+ *
+ * P4 widens "own" to `mine`, the sight-link closure of the viewer's claimed tokens
+ * (`sightParty`). It matters fully in P5, where each viewer's mask is their own; here the
+ * party already sees what any of them sees, so the widening is harmless and the rule is
+ * written once.
  */
-function inSight(token: Token, scene: SceneVision | null, viewer: Viewer): boolean {
-  if (!scene || token.ownerId === viewer.identityId) return true
+function inSight(token: Token, scene: SceneVision | null, mine: ReadonlySet<string>): boolean {
+  if (!scene || mine.has(token.id)) return true
   // ponytail: one point, the token's own centre. A large or gargantuan token whose far cells
   // are swept but whose centre sits behind the corner vanishes whole rather than partly — an
   // accepted P1 ceiling. The upgrade is sampling the cells the token's footprint covers and
@@ -132,6 +154,8 @@ function run(action: string, p: Payload, ctx: Ctx, visionOf: VisionOf): void {
       return remove(p, ctx)
     case 'claim':
       return claim(p, ctx)
+    case 'set-sight-link':
+      return setSightLink(p, ctx)
     default:
       bad(`tokens has no action '${action}'`)
   }
@@ -254,7 +278,56 @@ function update(p: Payload, ctx: Ctx): void {
   if (p.disposition !== undefined) next.disposition = oneOf(p.disposition, DISPOSITIONS, 'disposition')
   if (p.elevation !== undefined) next.elevation = num(p.elevation, 'elevation')
   if (p.z !== undefined) next.z = num(p.z, 'z')
+  // The same two parsers `place` and `library-upsert` already run, so an instance edited at
+  // the table and one placed from the library are validated by one rule. `null` clears.
+  if (p.sight !== undefined) next.sight = parseSight(p.sight)
+  if (p.light !== undefined) next.light = parseLight(p.light)
   put(ctx, sceneId, next)
+}
+
+/**
+ * P4 §4 — one symmetric edge, written on both ends in one command.
+ *
+ * Symmetry is maintained here rather than read as a union at query time because the closure
+ * walks the edges from whichever end the seed happens to be at: an edge stored on the familiar
+ * alone would widen the party when the familiar is claimed and not when the scout is. Storing
+ * both directions makes `sightParty` a plain BFS with nothing to reconcile.
+ *
+ * The empty array is dropped rather than persisted — absent ≡ no links (the type says so), and
+ * keeping `[]` around would leave two encodings of the same fact on the wire.
+ */
+function setSightLink(p: Payload, ctx: Ctx): void {
+  const { sceneId, token } = find(p, ctx)
+  const otherId = str(p.otherId, 'otherId', ID_MAX)
+  if (otherId === token.id) bad('a token cannot share sight with itself')
+  const other = ctx.state.byScene[sceneId]?.[otherId]
+  if (!other) bad('no such token in that scene')
+  const linked = bool(p.linked, 'linked')
+
+  const withLink = (subject: Token, otherEnd: string): Token => {
+    const links = new Set(subject.sharesSightWith ?? [])
+    if (linked) links.add(otherEnd)
+    else links.delete(otherEnd)
+    const next = { ...subject }
+    if (links.size === 0) delete next.sharesSightWith
+    else next.sharesSightWith = [...links]
+    return next
+  }
+
+  // One write, not two puts: `setState` persists and broadcasts, and half a symmetric edge on
+  // the wire is a state no reader should ever have to cope with.
+  const { state } = ctx
+  ctx.setState({
+    ...state,
+    byScene: {
+      ...state.byScene,
+      [sceneId]: {
+        ...state.byScene[sceneId],
+        [token.id]: withLink(token, otherId),
+        [otherId]: withLink(other, token.id),
+      },
+    },
+  })
 }
 
 function hide(p: Payload, ctx: Ctx): void {

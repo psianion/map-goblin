@@ -47,6 +47,12 @@ export interface Token extends TokenDef {
   hidden: boolean
   /** identityId of the claiming player. */
   ownerId: string | null
+  /**
+   * S3 P4 §4 — the other tokens in this scene whose sight is shared with this one. Symmetric
+   * and maintained by `set-sight-link` on both ends; absent ≡ no links. Scene-scoped, so it
+   * lives on the instance and never on the def a token was placed from.
+   */
+  sharesSightWith?: string[]
 }
 
 export interface TokensState {

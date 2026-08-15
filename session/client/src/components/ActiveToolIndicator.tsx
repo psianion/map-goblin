@@ -1,4 +1,4 @@
-import { TOOL_LABEL, useActiveTool } from '../session/tools';
+import { toolLabel, useActiveTool } from '../session/tools';
 import { useRole } from '../session/store';
 
 /**
@@ -11,6 +11,7 @@ import { useRole } from '../session/store';
  */
 export function ActiveToolIndicator() {
   const activeTool = useActiveTool((s) => s.activeTool);
+  const toolDetail = useActiveTool((s) => s.toolDetail);
   const setActiveTool = useActiveTool((s) => s.setActiveTool);
   const isDm = useRole() === 'dm';
 
@@ -25,13 +26,16 @@ export function ActiveToolIndicator() {
       <span className="text-text-secondary">Tool</span>
       {activeTool ? (
         <>
-          {/* Filled dot + name + the key: three encodings, none of them colour alone. */}
+          {/* Filled dot + name + the key: three encodings, none of them colour alone. The name
+              carries the sub-mode too ("Fog · Brush"), because a sub-mode changes what a click
+              does as much as the tool does. The exit label stays the tool's own name: Esc
+              leaves the tool, not the brush. */}
           <span className="h-1.5 w-1.5 rounded-full bg-accent-active" aria-hidden />
-          <span className="font-medium text-text-primary">{TOOL_LABEL[activeTool]}</span>
+          <span className="font-medium text-text-primary">{toolLabel(activeTool, toolDetail)}</span>
           <button
             type="button"
             data-testid="active-tool-exit"
-            aria-label={`Exit the ${TOOL_LABEL[activeTool]} tool`}
+            aria-label={`Exit the ${toolLabel(activeTool)} tool`}
             onClick={() => setActiveTool(null)}
             className="pointer-events-auto rounded-chip border border-border-default px-1.5 py-0.5 font-mono text-[11px] text-text-secondary transition-colors duration-150 ease-out-quart hover:bg-surface-3 hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-0 motion-reduce:transition-none"
           >
