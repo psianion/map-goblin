@@ -1,0 +1,2742 @@
+{
+ "version": "3.1",
+ "mapSettings": {
+  "name": "Fieldstone Keep",
+  "gridType": "square",
+  "cellScale": {
+   "value": 5,
+   "unit": "ft"
+  },
+  "ambientLight": "#0e0f14"
+ },
+ "grid": {
+  "visible": true,
+  "snapDivision": 2,
+  "style": "clean"
+ },
+ "customImages": {},
+ "layers": [
+  {
+   "id": "bg-fieldstone-keep",
+   "name": "Background",
+   "type": "background",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "backgroundColor": "#08090b",
+   "backgroundTexture": null,
+   "textureScale": 0.25,
+   "textureTint": "#ffffff",
+   "presetLock": false
+  },
+  {
+   "id": "dungeon-fieldstone-keep",
+   "name": "Keep",
+   "type": "dungeon",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "mergedFloor": null,
+   "style": {
+    "floorColor": "#b8ac92",
+    "wallColor": "#26221c",
+    "wallWidth": 0.5,
+    "shadowEnabled": true,
+    "shadowColor": "#5c544a",
+    "shadowOffset": {
+     "x": 0.4,
+     "y": 0.3
+    },
+    "shadowIntensity": 0.5,
+    "roughnessAmplitude": 0,
+    "lineWidth": 0.04,
+    "defaultTextureId": "dungeon-classic:large-flagstone-a-01_1x1_floor_A",
+    "edgeTransitionWidth": 0.5,
+    "showEdgeTransitions": true,
+    "wallTextureSetId": "fieldstone",
+    "wallTextureTint": "#b09878"
+   },
+   "sublayerVisibility": {
+    "floor": true,
+    "grid": true,
+    "walls": true
+   },
+   "standaloneWalls": [
+    {
+     "id": "wall-001",
+     "points": [
+      [
+       2,
+       2
+      ],
+      [
+       2,
+       43
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-002",
+     "points": [
+      [
+       58,
+       2
+      ],
+      [
+       58,
+       43
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-003",
+     "points": [
+      [
+       2,
+       2
+      ],
+      [
+       58,
+       2
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-004",
+     "points": [
+      [
+       2,
+       43
+      ],
+      [
+       58,
+       43
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-005",
+     "points": [
+      [
+       17,
+       2
+      ],
+      [
+       17,
+       7
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-006",
+     "points": [
+      [
+       17,
+       7
+      ],
+      [
+       17,
+       9
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-007",
+     "points": [
+      [
+       17,
+       9
+      ],
+      [
+       17,
+       13
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-008",
+     "points": [
+      [
+       29,
+       2
+      ],
+      [
+       29,
+       5
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-009",
+     "points": [
+      [
+       29,
+       5
+      ],
+      [
+       29,
+       7
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-010",
+     "points": [
+      [
+       29,
+       7
+      ],
+      [
+       29,
+       13
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-011",
+     "points": [
+      [
+       45,
+       2
+      ],
+      [
+       45,
+       7
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-012",
+     "points": [
+      [
+       45,
+       7
+      ],
+      [
+       45,
+       9
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-013",
+     "points": [
+      [
+       45,
+       9
+      ],
+      [
+       45,
+       13
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-014",
+     "points": [
+      [
+       31,
+       13
+      ],
+      [
+       31,
+       21
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-015",
+     "points": [
+      [
+       31,
+       21
+      ],
+      [
+       31,
+       23
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-016",
+     "points": [
+      [
+       31,
+       23
+      ],
+      [
+       31,
+       31
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-017",
+     "points": [
+      [
+       45,
+       13
+      ],
+      [
+       45,
+       21
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-018",
+     "points": [
+      [
+       45,
+       21
+      ],
+      [
+       45,
+       23
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-019",
+     "points": [
+      [
+       45,
+       23
+      ],
+      [
+       45,
+       31
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-020",
+     "points": [
+      [
+       14,
+       31
+      ],
+      [
+       14,
+       36
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-021",
+     "points": [
+      [
+       14,
+       36
+      ],
+      [
+       14,
+       38
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-022",
+     "points": [
+      [
+       14,
+       38
+      ],
+      [
+       14,
+       43
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-023",
+     "points": [
+      [
+       30,
+       31
+      ],
+      [
+       30,
+       35
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-024",
+     "points": [
+      [
+       30,
+       35
+      ],
+      [
+       30,
+       37
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-025",
+     "points": [
+      [
+       30,
+       37
+      ],
+      [
+       30,
+       43
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-026",
+     "points": [
+      [
+       45,
+       31
+      ],
+      [
+       45,
+       37
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-027",
+     "points": [
+      [
+       45,
+       37
+      ],
+      [
+       45,
+       39
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-028",
+     "points": [
+      [
+       45,
+       39
+      ],
+      [
+       45,
+       43
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-029",
+     "points": [
+      [
+       2,
+       13
+      ],
+      [
+       8,
+       13
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-030",
+     "points": [
+      [
+       8,
+       13
+      ],
+      [
+       10,
+       13
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-031",
+     "points": [
+      [
+       10,
+       13
+      ],
+      [
+       17,
+       13
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-032",
+     "points": [
+      [
+       17,
+       13
+      ],
+      [
+       22,
+       13
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-033",
+     "points": [
+      [
+       22,
+       13
+      ],
+      [
+       24,
+       13
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-034",
+     "points": [
+      [
+       24,
+       13
+      ],
+      [
+       29,
+       13
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-035",
+     "points": [
+      [
+       29,
+       13
+      ],
+      [
+       31,
+       13
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-036",
+     "points": [
+      [
+       31,
+       13
+      ],
+      [
+       37,
+       13
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-037",
+     "points": [
+      [
+       37,
+       13
+      ],
+      [
+       39,
+       13
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-038",
+     "points": [
+      [
+       39,
+       13
+      ],
+      [
+       45,
+       13
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-039",
+     "points": [
+      [
+       45,
+       13
+      ],
+      [
+       58,
+       13
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-040",
+     "points": [
+      [
+       2,
+       31
+      ],
+      [
+       7,
+       31
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-041",
+     "points": [
+      [
+       7,
+       31
+      ],
+      [
+       9,
+       31
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-042",
+     "points": [
+      [
+       9,
+       31
+      ],
+      [
+       14,
+       31
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-043",
+     "points": [
+      [
+       14,
+       31
+      ],
+      [
+       21,
+       31
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-044",
+     "points": [
+      [
+       21,
+       31
+      ],
+      [
+       23,
+       31
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-045",
+     "points": [
+      [
+       23,
+       31
+      ],
+      [
+       30,
+       31
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-046",
+     "points": [
+      [
+       30,
+       31
+      ],
+      [
+       31,
+       31
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-047",
+     "points": [
+      [
+       31,
+       31
+      ],
+      [
+       37,
+       31
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-048",
+     "points": [
+      [
+       37,
+       31
+      ],
+      [
+       39,
+       31
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-049",
+     "points": [
+      [
+       39,
+       31
+      ],
+      [
+       45,
+       31
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-050",
+     "points": [
+      [
+       45,
+       31
+      ],
+      [
+       50,
+       31
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-051",
+     "points": [
+      [
+       50,
+       31
+      ],
+      [
+       52,
+       31
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-052",
+     "points": [
+      [
+       52,
+       31
+      ],
+      [
+       58,
+       31
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#26221c",
+     "width": 0.5,
+     "roughness": 0
+    }
+   ],
+   "rooms": [
+    {
+     "id": "room-54jiio",
+     "name": "Chapel of the Pale Flame",
+     "boundary": [
+      [
+       2.25,
+       2.25
+      ],
+      [
+       16.75,
+       2.25
+      ],
+      [
+       16.75,
+       12.75
+      ],
+      [
+       2.25,
+       12.75
+      ]
+     ],
+     "centroid": [
+      9.5,
+      7.5
+     ],
+     "area": 152.25,
+     "isPathway": false
+    },
+    {
+     "id": "room-1ddq9s6",
+     "name": "Armoury",
+     "boundary": [
+      [
+       17.25,
+       2.25
+      ],
+      [
+       28.75,
+       2.25
+      ],
+      [
+       28.75,
+       12.75
+      ],
+      [
+       17.25,
+       12.75
+      ]
+     ],
+     "centroid": [
+      23,
+      7.5
+     ],
+     "area": 120.75,
+     "isPathway": false
+    },
+    {
+     "id": "room-tunrir",
+     "name": "Scriptorium",
+     "boundary": [
+      [
+       29.25,
+       2.25
+      ],
+      [
+       44.75,
+       2.25
+      ],
+      [
+       44.75,
+       12.75
+      ],
+      [
+       29.25,
+       12.75
+      ]
+     ],
+     "centroid": [
+      37,
+      7.5
+     ],
+     "area": 162.75,
+     "isPathway": false
+    },
+    {
+     "id": "room-13u985u",
+     "name": "Sealed Vault",
+     "boundary": [
+      [
+       45.25,
+       2.25
+      ],
+      [
+       57.75,
+       2.25
+      ],
+      [
+       57.75,
+       12.75
+      ],
+      [
+       45.25,
+       12.75
+      ]
+     ],
+     "centroid": [
+      51.5,
+      7.5
+     ],
+     "area": 131.25,
+     "isPathway": false
+    },
+    {
+     "id": "room-nmrsav",
+     "name": "Great Hall of Banners",
+     "boundary": [
+      [
+       2.25,
+       13.25
+      ],
+      [
+       30.75,
+       13.25
+      ],
+      [
+       30.75,
+       30.75
+      ],
+      [
+       2.25,
+       30.75
+      ]
+     ],
+     "centroid": [
+      16.5,
+      22
+     ],
+     "area": 498.75,
+     "isPathway": false
+    },
+    {
+     "id": "room-1v7l99m",
+     "name": "Barrack Rows",
+     "boundary": [
+      [
+       31.25,
+       13.25
+      ],
+      [
+       44.75,
+       13.25
+      ],
+      [
+       44.75,
+       30.75
+      ],
+      [
+       31.25,
+       30.75
+      ]
+     ],
+     "centroid": [
+      38,
+      22
+     ],
+     "area": 236.25,
+     "isPathway": false
+    },
+    {
+     "id": "room-1dcj2ma",
+     "name": "Cistern Undercroft",
+     "boundary": [
+      [
+       45.25,
+       13.25
+      ],
+      [
+       57.75,
+       13.25
+      ],
+      [
+       57.75,
+       30.75
+      ],
+      [
+       45.25,
+       30.75
+      ]
+     ],
+     "centroid": [
+      51.5,
+      22
+     ],
+     "area": 218.75,
+     "isPathway": false
+    },
+    {
+     "id": "room-17wq96r",
+     "name": "Gatehouse",
+     "boundary": [
+      [
+       2.25,
+       31.25
+      ],
+      [
+       13.75,
+       31.25
+      ],
+      [
+       13.75,
+       42.75
+      ],
+      [
+       2.25,
+       42.75
+      ]
+     ],
+     "centroid": [
+      8,
+      37
+     ],
+     "area": 132.25,
+     "isPathway": false
+    },
+    {
+     "id": "room-1i9r71",
+     "name": "Guard Room",
+     "boundary": [
+      [
+       14.25,
+       31.25
+      ],
+      [
+       29.75,
+       31.25
+      ],
+      [
+       29.75,
+       42.75
+      ],
+      [
+       14.25,
+       42.75
+      ]
+     ],
+     "centroid": [
+      22,
+      37
+     ],
+     "area": 178.25,
+     "isPathway": false
+    },
+    {
+     "id": "room-1udploo",
+     "name": "Kitchens",
+     "boundary": [
+      [
+       30.25,
+       31.25
+      ],
+      [
+       44.75,
+       31.25
+      ],
+      [
+       44.75,
+       42.75
+      ],
+      [
+       30.25,
+       42.75
+      ]
+     ],
+     "centroid": [
+      37.5,
+      37
+     ],
+     "area": 166.75,
+     "isPathway": false
+    },
+    {
+     "id": "room-1cinf1c",
+     "name": "Crypt Stair",
+     "boundary": [
+      [
+       45.25,
+       31.25
+      ],
+      [
+       57.75,
+       31.25
+      ],
+      [
+       57.75,
+       42.75
+      ],
+      [
+       45.25,
+       42.75
+      ]
+     ],
+     "centroid": [
+      51.5,
+      37
+     ],
+     "area": 143.75,
+     "isPathway": false
+    }
+   ],
+   "roomNameOverrides": {
+    "room-54jiio": "Chapel of the Pale Flame",
+    "room-1ddq9s6": "Armoury",
+    "room-tunrir": "Scriptorium",
+    "room-13u985u": "Sealed Vault",
+    "room-nmrsav": "Great Hall of Banners",
+    "room-1v7l99m": "Barrack Rows",
+    "room-1dcj2ma": "Cistern Undercroft",
+    "room-17wq96r": "Gatehouse",
+    "room-1i9r71": "Guard Room",
+    "room-1udploo": "Kitchens",
+    "room-1cinf1c": "Crypt Stair"
+   },
+   "children": [
+    {
+     "id": "floor-chapel",
+     "name": "Chapel of the Pale Flame Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        2,
+        2
+       ],
+       [
+        17,
+        2
+       ],
+       [
+        17,
+        13
+       ],
+       [
+        2,
+        13
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "dungeon-classic:large-flagstone-a-01_1x1_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#ffffff"
+    },
+    {
+     "id": "floor-armory",
+     "name": "Armoury Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        17,
+        2
+       ],
+       [
+        29,
+        2
+       ],
+       [
+        29,
+        13
+       ],
+       [
+        17,
+        13
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "dungeon-classic:rectangular-tiles-a-01_1x1_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#ffffff"
+    },
+    {
+     "id": "floor-scriptorium",
+     "name": "Scriptorium Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        29,
+        2
+       ],
+       [
+        45,
+        2
+       ],
+       [
+        45,
+        13
+       ],
+       [
+        29,
+        13
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "dungeon-classic:smooth-stone-floor-a-10_1x1_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#ffffff"
+    },
+    {
+     "id": "floor-vault",
+     "name": "Sealed Vault Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        45,
+        2
+       ],
+       [
+        58,
+        2
+       ],
+       [
+        58,
+        13
+       ],
+       [
+        45,
+        13
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "dungeon-classic:rectangular-tiles-a-01_1x1_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#ffffff"
+    },
+    {
+     "id": "floor-hall",
+     "name": "Great Hall of Banners Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        2,
+        13
+       ],
+       [
+        31,
+        13
+       ],
+       [
+        31,
+        31
+       ],
+       [
+        2,
+        31
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "dungeon-classic:large-flagstone-a-01_1x1_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#ffffff"
+    },
+    {
+     "id": "floor-barracks",
+     "name": "Barrack Rows Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        31,
+        13
+       ],
+       [
+        45,
+        13
+       ],
+       [
+        45,
+        31
+       ],
+       [
+        31,
+        31
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "dungeon-classic:cobblestone-a-01_1x1_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#ffffff"
+    },
+    {
+     "id": "floor-cistern",
+     "name": "Cistern Undercroft Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        45,
+        13
+       ],
+       [
+        58,
+        13
+       ],
+       [
+        58,
+        31
+       ],
+       [
+        45,
+        31
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "dungeon-classic:rock-tiles-b-01_1x1_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#ffffff"
+    },
+    {
+     "id": "floor-gatehouse",
+     "name": "Gatehouse Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        2,
+        31
+       ],
+       [
+        14,
+        31
+       ],
+       [
+        14,
+        43
+       ],
+       [
+        2,
+        43
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "dungeon-classic:cobblestone-a-01_1x1_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#ffffff"
+    },
+    {
+     "id": "floor-guard",
+     "name": "Guard Room Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        14,
+        31
+       ],
+       [
+        30,
+        31
+       ],
+       [
+        30,
+        43
+       ],
+       [
+        14,
+        43
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "dungeon-classic:cobblestone-a-01_1x1_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#ffffff"
+    },
+    {
+     "id": "floor-kitchen",
+     "name": "Kitchens Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        30,
+        31
+       ],
+       [
+        45,
+        31
+       ],
+       [
+        45,
+        43
+       ],
+       [
+        30,
+        43
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "dungeon-classic:large-flagstone-a-01_1x1_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#ffffff"
+    },
+    {
+     "id": "floor-crypt",
+     "name": "Crypt Stair Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        45,
+        31
+       ],
+       [
+        58,
+        31
+       ],
+       [
+        58,
+        43
+       ],
+       [
+        45,
+        43
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "dungeon-classic:smooth-stone-floor-a-10_1x1_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#ffffff"
+    },
+    {
+     "id": "water-cistern",
+     "name": "Cistern Pool",
+     "childType": "water",
+     "visible": true,
+     "waterType": "lake",
+     "contours": [
+      [
+       [
+        47,
+        17
+       ],
+       [
+        56,
+        17
+       ],
+       [
+        56,
+        27
+       ],
+       [
+        47,
+        27
+       ]
+      ]
+     ],
+     "textureId": "dungeon-classic:Water_Still_A_01_7x7_floor_A",
+     "tint": "#5f8790",
+     "opacity": 0.88,
+     "bankTextureId": "dungeon-classic:Bank_Stone_Mossy_Path_A1_4x1_edge_A",
+     "bankWidth": 0.6,
+     "flowSpeed": 0,
+     "flowAngle": 0
+    },
+    {
+     "id": "asset-brazier-hall-w",
+     "name": "Hall Brazier West",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Campfire_Wood_Dark_Stone_Sandstone_Lit_A1_1x1_1x1_object_A",
+     "position": {
+      "x": 9,
+      "y": 19
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-brazier-hall-e",
+     "name": "Hall Brazier East",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Campfire_Wood_Dark_Stone_Sandstone_Lit_A1_1x1_1x1_object_A",
+     "position": {
+      "x": 24,
+      "y": 26
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-hearth-kitchen",
+     "name": "Kitchen Hearth",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Campfire_Wood_Dark_Stone_Sandstone_Lit_A1_1x1_1x1_object_A",
+     "position": {
+      "x": 37,
+      "y": 37
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-embers-chapel",
+     "name": "Chapel Embers",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Campfire_Embers_B1_1x1_1x1_object_A",
+     "position": {
+      "x": 9,
+      "y": 7
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-lamp-gatehouse",
+     "name": "Gatehouse Lamp",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Lamp_Metal_Brass_A_1x1_1x1_object_A",
+     "position": {
+      "x": 8,
+      "y": 37
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-lamp-hall-n",
+     "name": "Hall Sconce",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Lamp_Street_Metal_Brass_A_1x1_1x1_object_A",
+     "position": {
+      "x": 16,
+      "y": 14.2
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-lamp-hall-s",
+     "name": "Hall Sconce",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Lamp_Street_Metal_Brass_A_1x1_1x1_object_A",
+     "position": {
+      "x": 27,
+      "y": 29.8
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-lamp-guard",
+     "name": "Guard Lamp",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Lamp_Metal_Brass_A_1x1_1x1_object_A",
+     "position": {
+      "x": 15.2,
+      "y": 32.2
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-lamp-barracks",
+     "name": "Cold Sconce",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Lamp_Street_Metal_Brass_A_1x1_1x1_object_A",
+     "position": {
+      "x": 32.2,
+      "y": 14.2
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-lamp-cistern",
+     "name": "Dead Lamp",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Lamp_Metal_Brass_A_1x1_1x1_object_A",
+     "position": {
+      "x": 46.2,
+      "y": 14.2
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-log-hall",
+     "name": "Firewood",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Log_Ashen_A1_6x3_6x3_object_A",
+     "position": {
+      "x": 5.5,
+      "y": 29.5
+     },
+     "rotation": 0,
+     "scale": 0.5,
+     "width": 6,
+     "height": 3,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-log-kitchen",
+     "name": "Kitchen Logs",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Log_Ashen_A1_6x3_6x3_object_A",
+     "position": {
+      "x": 43,
+      "y": 41
+     },
+     "rotation": 1.57,
+     "scale": 0.42,
+     "width": 6,
+     "height": 3,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-stump-crypt",
+     "name": "Block",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Stump_Ashen_A1_4x4_4x4_object_A",
+     "position": {
+      "x": 56,
+      "y": 41.5
+     },
+     "rotation": 0,
+     "scale": 0.35,
+     "width": 4,
+     "height": 4,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-rock-armory-n",
+     "name": "Fallen Stone",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Rock_Stone_Mossy_C11_2x1_2x1_object_A",
+     "position": {
+      "x": 27.4,
+      "y": 3.2
+     },
+     "rotation": 0.3,
+     "scale": 1,
+     "width": 2,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-rock-scriptorium-s",
+     "name": "Fallen Stone",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Rock_Stone_Mossy_C11_2x1_2x1_object_A",
+     "position": {
+      "x": 31.5,
+      "y": 11.8
+     },
+     "rotation": -0.15,
+     "scale": 1,
+     "width": 2,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-rock-vault-e",
+     "name": "Fallen Stone",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Rock_Stone_Mossy_C11_2x1_2x1_object_A",
+     "position": {
+      "x": 56.2,
+      "y": 4.4
+     },
+     "rotation": 1.5,
+     "scale": 1,
+     "width": 2,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-rock-barracks-w",
+     "name": "Fallen Stone",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Rock_Stone_Mossy_C11_2x1_2x1_object_A",
+     "position": {
+      "x": 32.4,
+      "y": 29.6
+     },
+     "rotation": 0.1,
+     "scale": 1,
+     "width": 2,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-rock-cistern-n",
+     "name": "Fallen Stone",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Rock_Stone_Mossy_C11_2x1_2x1_object_A",
+     "position": {
+      "x": 46.5,
+      "y": 14.5
+     },
+     "rotation": -0.4,
+     "scale": 1,
+     "width": 2,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-rock-crypt-w",
+     "name": "Fallen Stone",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Rock_Stone_Mossy_C11_2x1_2x1_object_A",
+     "position": {
+      "x": 46.6,
+      "y": 41.2
+     },
+     "rotation": -0.2,
+     "scale": 1,
+     "width": 2,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-rock-crypt-e",
+     "name": "Fallen Stone",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Rock_Stone_Mossy_C11_2x1_2x1_object_A",
+     "position": {
+      "x": 56.4,
+      "y": 33
+     },
+     "rotation": 1.4,
+     "scale": 1,
+     "width": 2,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-rock-hall-nw",
+     "name": "Fallen Stone",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Rock_Stone_Mossy_C11_2x1_2x1_object_A",
+     "position": {
+      "x": 3.4,
+      "y": 14.4
+     },
+     "rotation": 0.2,
+     "scale": 1,
+     "width": 2,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-rock-guard-s",
+     "name": "Fallen Stone",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Rock_Stone_Mossy_C11_2x1_2x1_object_A",
+     "position": {
+      "x": 16,
+      "y": 41.6
+     },
+     "rotation": -0.3,
+     "scale": 1,
+     "width": 2,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-puddle-cistern",
+     "name": "Seep",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Puddle_Water_Muddy_A12_2x2_2x2_object_A",
+     "position": {
+      "x": 46.5,
+      "y": 29
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 2,
+     "height": 2,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-puddle-cistern-2",
+     "name": "Seep",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Puddle_Water_Muddy_A5_2x2_2x2_object_A",
+     "position": {
+      "x": 56,
+      "y": 15.5
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 2,
+     "height": 2,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-puddle-crypt",
+     "name": "Crypt Seep",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Puddle_Water_Blue_A11_1x1_1x1_object_A",
+     "position": {
+      "x": 47,
+      "y": 35.5
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-puddle-crypt-2",
+     "name": "Crypt Seep",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Puddle_Water_Blue_A1_2x2_2x2_object_A",
+     "position": {
+      "x": 52,
+      "y": 42
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 2,
+     "height": 2,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-puddle-barracks",
+     "name": "Spill",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Puddle_Water_Muddy_A5_2x2_2x2_object_A",
+     "position": {
+      "x": 43,
+      "y": 15.5
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 2,
+     "height": 2,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-leaf-gate-1",
+     "name": "Blown Leaves",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Fallen_Leaves_Piles_Green1_A1_1x1_1x1_object_A",
+     "position": {
+      "x": 3.2,
+      "y": 41.6
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#b9c4b0",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-leaf-gate-2",
+     "name": "Blown Leaves",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Fallen_Leaves_Piles_Green1_A1_1x1_1x1_object_A",
+     "position": {
+      "x": 12.6,
+      "y": 32.2
+     },
+     "rotation": 1.1,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#b9c4b0",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-leaf-gate-3",
+     "name": "Blown Leaves",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Fallen_Leaves_Piles_Green1_A1_1x1_1x1_object_A",
+     "position": {
+      "x": 6.4,
+      "y": 33.4
+     },
+     "rotation": 2.3,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#b9c4b0",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-leaf-hall-1",
+     "name": "Blown Leaves",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Fallen_Leaves_Piles_Green1_A1_1x1_1x1_object_A",
+     "position": {
+      "x": 4.2,
+      "y": 22.5
+     },
+     "rotation": 0.6,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#b9c4b0",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-leaf-guard-1",
+     "name": "Blown Leaves",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Fallen_Leaves_Piles_Green1_A1_1x1_1x1_object_A",
+     "position": {
+      "x": 28.6,
+      "y": 32.4
+     },
+     "rotation": 1.8,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#b9c4b0",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-grass-crypt",
+     "name": "Weeds",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Grass_Patch_Green1_A1_1x1_1x1_object_A",
+     "position": {
+      "x": 46.4,
+      "y": 32.4
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#8a9b7e",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "asset-grass-gate",
+     "name": "Weeds",
+     "childType": "asset",
+     "visible": true,
+     "objectType": "asset",
+     "assetId": "dungeon-classic:Grass_Patch_Green1_A1_1x1_1x1_object_A",
+     "position": {
+      "x": 3.4,
+      "y": 36.5
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#8a9b7e",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "light-hall-west",
+     "name": "Great Hall Brazier (West)",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffb877",
+     "radius": 9.5,
+     "featherRadius": 2.5,
+     "intensity": 0.95,
+     "falloff": "quadratic",
+     "position": {
+      "x": 9,
+      "y": 19
+     }
+    },
+    {
+     "id": "light-hall-east",
+     "name": "Great Hall Brazier (East)",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffb877",
+     "radius": 9.5,
+     "featherRadius": 2.5,
+     "intensity": 0.95,
+     "falloff": "quadratic",
+     "position": {
+      "x": 24,
+      "y": 26
+     }
+    },
+    {
+     "id": "light-gatehouse",
+     "name": "Gatehouse Lantern",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffc38a",
+     "radius": 7.5,
+     "featherRadius": 2.5,
+     "intensity": 0.85,
+     "falloff": "quadratic",
+     "position": {
+      "x": 8,
+      "y": 37
+     }
+    },
+    {
+     "id": "light-kitchen",
+     "name": "Kitchen Hearth",
+     "childType": "light",
+     "visible": true,
+     "color": "#ff9b52",
+     "radius": 8.5,
+     "featherRadius": 2.5,
+     "intensity": 0.9,
+     "falloff": "quadratic",
+     "position": {
+      "x": 37,
+      "y": 37
+     }
+    },
+    {
+     "id": "light-chapel",
+     "name": "Chapel Candles",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffd9a0",
+     "radius": 6.5,
+     "featherRadius": 2.5,
+     "intensity": 0.7,
+     "falloff": "quadratic",
+     "position": {
+      "x": 9,
+      "y": 7
+     }
+    },
+    {
+     "id": "door-01-vestry-door",
+     "name": "Vestry Door",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-006",
+     "position": [
+      17,
+      8
+     ],
+     "angle": 1.5707963267948966,
+     "width": 2,
+     "style": "single",
+     "state": "closed",
+     "isSecret": false,
+     "roomA": "room-54jiio",
+     "roomB": "room-1ddq9s6"
+    },
+    {
+     "id": "door-02-muster-arch",
+     "name": "Muster Arch",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-009",
+     "position": [
+      29,
+      6
+     ],
+     "angle": 1.5707963267948966,
+     "width": 2,
+     "style": "archway",
+     "state": "open",
+     "isSecret": false,
+     "roomA": "room-1ddq9s6",
+     "roomB": "room-tunrir"
+    },
+    {
+     "id": "door-03-hidden-shelf",
+     "name": "Hidden Shelf",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-012",
+     "position": [
+      45,
+      8
+     ],
+     "angle": 1.5707963267948966,
+     "width": 2,
+     "style": "single",
+     "state": "closed",
+     "isSecret": true,
+     "roomA": "room-tunrir",
+     "roomB": "room-13u985u"
+    },
+    {
+     "id": "door-04-hall-double-door",
+     "name": "Hall Double Door",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-015",
+     "position": [
+      31,
+      22
+     ],
+     "angle": 1.5707963267948966,
+     "width": 2,
+     "style": "double",
+     "state": "closed",
+     "isSecret": false,
+     "roomA": "room-nmrsav",
+     "roomB": "room-1v7l99m"
+    },
+    {
+     "id": "door-05-cistern-gate",
+     "name": "Cistern Gate",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-018",
+     "position": [
+      45,
+      22
+     ],
+     "angle": 1.5707963267948966,
+     "width": 2,
+     "style": "portcullis",
+     "state": "closed",
+     "isSecret": false,
+     "roomA": "room-1v7l99m",
+     "roomB": "room-1dcj2ma"
+    },
+    {
+     "id": "door-06-watch-door",
+     "name": "Watch Door",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-021",
+     "position": [
+      14,
+      37
+     ],
+     "angle": 1.5707963267948966,
+     "width": 2,
+     "style": "single",
+     "state": "closed",
+     "isSecret": false,
+     "roomA": "room-17wq96r",
+     "roomB": "room-1i9r71"
+    },
+    {
+     "id": "door-07-scullery-door",
+     "name": "Scullery Door",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-024",
+     "position": [
+      30,
+      36
+     ],
+     "angle": 1.5707963267948966,
+     "width": 2,
+     "style": "single",
+     "state": "open",
+     "isSecret": false,
+     "roomA": "room-1i9r71",
+     "roomB": "room-1udploo"
+    },
+    {
+     "id": "door-08-crypt-door",
+     "name": "Crypt Door",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-027",
+     "position": [
+      45,
+      38
+     ],
+     "angle": 1.5707963267948966,
+     "width": 2,
+     "style": "single",
+     "state": "closed",
+     "isSecret": false,
+     "roomA": "room-1udploo",
+     "roomB": "room-1cinf1c"
+    },
+    {
+     "id": "door-09-chancel-arch",
+     "name": "Chancel Arch",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-030",
+     "position": [
+      9,
+      13
+     ],
+     "angle": 0,
+     "width": 2,
+     "style": "archway",
+     "state": "open",
+     "isSecret": false,
+     "roomA": "room-nmrsav",
+     "roomB": "room-54jiio"
+    },
+    {
+     "id": "door-10-armoury-door",
+     "name": "Armoury Door",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-033",
+     "position": [
+      23,
+      13
+     ],
+     "angle": 0,
+     "width": 2,
+     "style": "single",
+     "state": "closed",
+     "isSecret": false,
+     "roomA": "room-nmrsav",
+     "roomB": "room-1ddq9s6"
+    },
+    {
+     "id": "door-11-stair-door",
+     "name": "Stair Door",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-037",
+     "position": [
+      38,
+      13
+     ],
+     "angle": 0,
+     "width": 2,
+     "style": "single",
+     "state": "closed",
+     "isSecret": false,
+     "roomA": "room-1v7l99m",
+     "roomB": "room-tunrir"
+    },
+    {
+     "id": "door-12-gate-arch",
+     "name": "Gate Arch",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-041",
+     "position": [
+      8,
+      31
+     ],
+     "angle": 0,
+     "width": 2,
+     "style": "archway",
+     "state": "open",
+     "isSecret": false,
+     "roomA": "room-17wq96r",
+     "roomB": "room-nmrsav"
+    },
+    {
+     "id": "door-13-guard-door",
+     "name": "Guard Door",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-044",
+     "position": [
+      22,
+      31
+     ],
+     "angle": 0,
+     "width": 2,
+     "style": "single",
+     "state": "open",
+     "isSecret": false,
+     "roomA": "room-1i9r71",
+     "roomB": "room-nmrsav"
+    },
+    {
+     "id": "door-14-mess-door",
+     "name": "Mess Door",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-048",
+     "position": [
+      38,
+      31
+     ],
+     "angle": 0,
+     "width": 2,
+     "style": "single",
+     "state": "open",
+     "isSecret": false,
+     "roomA": "room-1udploo",
+     "roomB": "room-1v7l99m"
+    },
+    {
+     "id": "door-15-undercroft-door",
+     "name": "Undercroft Door",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-051",
+     "position": [
+      51,
+      31
+     ],
+     "angle": 0,
+     "width": 2,
+     "style": "single",
+     "state": "closed",
+     "isSecret": false,
+     "roomA": "room-1cinf1c",
+     "roomB": "room-1dcj2ma"
+    },
+    {
+     "id": "zone-vault-seal",
+     "name": "Sealed Vault",
+     "childType": "zone",
+     "visible": true,
+     "shape": {
+      "kind": "rect",
+      "x": 45.5,
+      "y": 2.5,
+      "width": 12,
+      "height": 10
+     },
+     "blocksAutoExplore": true
+    }
+   ]
+  }
+ ]
+}
