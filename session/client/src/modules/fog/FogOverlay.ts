@@ -130,29 +130,40 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   };
 
   /**
-   * The swept cells as row runs, remembered on the fog slice's own identity.
+   * The swept cells as row runs, remembered on the *mask's own bytes*.
    *
-   * `regionRects` decodes the entire mask, and a redraw now happens per *cell* crossed during a
-   * brush stroke — the same bytes walked a dozen times a second for a record that only changes
-   * when the referee echoes a write. The store replaces its slices wholesale (§2.5), so identity
-   * is the whole test, exactly as `sync` already assumes.
+   * `regionRects` decodes the whole record, and P5 made a miss cost that per seat: the table's
+   * memory is every seat's record ORed together (`tableRegion`) — the party record alone would
+   * freeze at the moment the DM flipped the switch and leave the DM's wash lying about what the
+   * table has seen (principle 3). Meanwhile a redraw happens per *cell* crossed during a brush
+   * stroke, and per fog write of any kind.
    *
-   * P5 — the *table's* memory, which in individual share is every seat's record ORed together
-   * (`tableRegion`); the party record alone would freeze at the moment the DM flipped the
-   * switch and leave the DM's own wash lying about what the table has seen (principle 3).
-   * Keyed on the scene rather than on the mask because that union is a fresh object every
-   * time — and a new mask never arrives without a new slice, so the memo is no coarser.
+   * So the key is the base64 the union is built from, not the fog slice's identity. A fog
+   * `state-update` is fresh JSON every time (§2.5 — the slice is replaced wholesale), and it
+   * fires for every set-mode, share flip, auto-explore toggle and room reveal, none of which
+   * touch a single cell: on slice identity every one of those re-decoded and re-ran the union
+   * for bytes that had not changed. Strings compare by reference first, so the hover-move case
+   * — same slice, same string objects — is still a pointer test.
+   *
+   * `mapData` rides in the key because the frame is a pure function of it, and the frame is
+   * what re-bases the union (`tableRegion`, D3): a republish that moves the map must not draw
+   * yesterday's cells at today's origin.
    *
    * ponytail: still a fresh Graphics rebuild per redraw. At 512×512 (`REGION_CELL_MAX`) that is
    * a few thousand rects; if a stroke ever stutters, the next step is drawing the wash into a
    * RenderTexture and blitting it rather than re-recording the polys.
    */
-  let cachedScene: unknown = null;
+  let cachedKey: unknown[] = [];
   let cachedRects: ReturnType<typeof regionRects> = [];
-  const rectsOf = (scene: FogState['byScene'][string]) => {
-    if (scene !== cachedScene) {
-      cachedScene = scene;
-      cachedRects = regionRects(tableRegion(scene));
+  const rectsOf = (scene: FogState['byScene'][string], mapData: unknown) => {
+    const key = [
+      mapData,
+      scene.region?.bits,
+      ...Object.values(scene.regions ?? {}).map((mask) => mask.bits),
+    ];
+    if (key.length !== cachedKey.length || key.some((v, i) => v !== cachedKey[i])) {
+      cachedKey = key;
+      cachedRects = regionRects(tableRegion(scene, fogFrame(mapData) ?? undefined));
     }
     return cachedRects;
   };
@@ -187,7 +198,7 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     // Rooms mode has no cell tier at all, and painting one there would say something the
     // player's canvas does not.
     if (fogModeOf(fog) === 'vision') {
-      for (const rect of rectsOf(fog)) {
+      for (const rect of rectsOf(fog, mapData)) {
         paint.poly(rect.flat()).fill(REGION_WASH);
       }
     }

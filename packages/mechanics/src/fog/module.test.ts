@@ -154,6 +154,15 @@ describe('reset', () => {
   it('leaves the scene conceal toggle alone', () => {
     expect(run(played, DM, 'reset', {}).next.byScene[SCENE].concealBehindDoors).toBe(false)
   })
+
+  it('touches no region field on a rooms-mode scene, which has none to touch', () => {
+    // The vision half of the reset is checked where the records live (S3 P5); here is the
+    // promise that a rooms-mode table's stored shape is byte-for-byte what it always was.
+    const scene = run(played, DM, 'reset', {}).next.byScene[SCENE]
+    expect(scene).toEqual({ rooms: {}, concealBehindDoors: false })
+    expect('region' in scene).toBe(false)
+    expect('regions' in scene).toBe(false)
+  })
 })
 
 describe('set-bulk (D9)', () => {
@@ -1129,6 +1138,28 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       expect(tableRegion(shared)).toBe(shared.region)
     })
 
+    it('re-bases that union onto the frame it is asked about, so a republish cannot draw it stale', () => {
+      // The rule `regionFor` already applies to every *stored* record, applied to the union the
+      // DM's overlay draws: a mask minted before a republish moved the map is memory of
+      // coordinates that no longer exist, and drawing it puts the wash a map-shift away from
+      // the cells it is about.
+      const scene = scened(split({ region: setCells(regionOf(FRAME)!, [PARTY_CELL]) }))
+      expect(getCell(tableRegion(scene, FRAME), ...MINE)).toBe(true)
+
+      const MOVED = { minX: 20, minY: 20, maxX: 30, maxY: 30 }
+      const moved = tableRegion(scene, MOVED)
+      expect(moved, 'a moved frame kept the old origin instead of starting over').toEqual(
+        regionOf(MOVED),
+      )
+      expect(getCell(moved, ...MINE)).toBe(false)
+      expect(getCell(moved, ...THEIRS)).toBe(false)
+      expect(getCell(moved, ...PARTY_CELL)).toBe(false)
+
+      // …and with no party record to seed from, the union starts at the *frame's* empty mask
+      // rather than adopting whichever seat `Object.values` happened to hand back first.
+      expect(tableRegion(scened(split()), MOVED)).toEqual(regionOf(MOVED))
+    })
+
     describe('set-share merges, in both directions, and destroys nothing', () => {
       it('seeds every seat with the table’s record on the way to individual', () => {
         const shared = split({ visionShare: 'party', region: setCells(regionOf(FRAME)!, [PARTY_CELL]) })
@@ -1243,6 +1274,23 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
         expect(getCell(rubbed.regions!['p-1'], ...PARTY_CELL)).toBe(false)
         expect(getCell(rubbed.regions!['p-1'], ...MINE)).toBe(false)
         expect(getCell(rubbed.regions!['p-2'], ...PARTY_CELL)).toBe(false)
+      })
+    })
+
+    describe('reset clears the cell memory too, or it is not a reset', () => {
+      it('wipes the party record and every seat’s', () => {
+        // "Indistinguishable from a fresh one" is what reset means, and in vision mode the
+        // rooms are only half the scene: leaving the cells would hand a reset scene back with
+        // the dungeon still washed on the DM's overlay and still remembered on every mask.
+        const scene = scened(
+          fire(split({ region: setCells(regionOf(FRAME)!, [PARTY_CELL]) }), DM, 'reset', {}).next,
+        )
+        expect(scene.region, 'the party’s cells survived a reset').toBeUndefined()
+        expect(scene.regions, 'a seat’s cells survived a reset').toBeUndefined()
+        expect(scene.rooms).toEqual({})
+        // The settings are not memory: a reset scene is still the vision-mode scene it was.
+        expect(scene.mode).toBe('vision')
+        expect(scene.visionShare).toBe('individual')
       })
     })
 

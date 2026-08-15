@@ -632,6 +632,10 @@ export function subscribeFogScene(onChange: () => void): () => void {
     const { session, you, mapData } = useSessionStore.getState();
     const next = [
       you?.role,
+      // P5 — whose eyes the mask is drawn through in individual share, so a seat rebind is a
+      // mask input like the role is. Atomic with `session` today (`session-state` sets both in
+      // one `set`), which is precisely why leaving it out would be invisible until it wasn't.
+      you?.identityId,
       session?.activeSceneId,
       session?.modules?.fog,
       session?.modules?.doors,

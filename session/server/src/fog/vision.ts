@@ -354,11 +354,17 @@ export function createVision(stores: Stores): Vision {
       // is state, not a session, so a player who logged off still remembers what their scout
       // walked past while the rest of the party carried on.
       //
-      // ponytail: one cell walk per seat per mutation, so a six-player table in individual
-      // share pays the enumeration six times (the shadowcasts underneath are shared — the
-      // sweeps are memoized per origin and reach, and every seat's eyes are a subset of the
-      // party's). The upgrade, if a big table ever measures it, is one walk that tags each
-      // cell with the eyes that reached it rather than a walk per eye set.
+      // ponytail: ~2N cell walks per mutation on an N-seat table in individual share, not N.
+      // This loop is the first N. The write it returns bumps the fog revision, and redaction
+      // then asks `sightFor` again per *connected* viewer to build their mask — so a six-seat
+      // table pays roughly twelve enumerations for one token step. What is duplicated is the
+      // cheap half: `cellsCoveredByPolygon` over each eye's box, plus the per-cell room and
+      // lock tests in `swept`. What is not is the expensive half — the shadowcasts are
+      // memoized per origin and reach and are warm by the second pass, and every seat's eyes
+      // are a subset of the party's sweep this function already computed.
+      // The upgrade, if a big table ever measures it, is one walk that tags each cell with the
+      // eyes that reached it rather than a walk per eye set — and that halves both N's at once,
+      // which is why it is the one worth writing rather than a cache over this loop.
       const byIdentity: Record<string, Cell[]> = {}
       for (const identityId of computed.owners) {
         const own = computed.sightFor(identityId)

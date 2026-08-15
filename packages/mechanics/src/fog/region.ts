@@ -54,11 +54,20 @@ export function toBase64(bytes: Uint8Array): string {
 
 /**
  * ponytail: 512×512 cells is the ceiling, because the mask is rebroadcast whole on every
- * write. 262144 cells is 32KB of bytes ≈ 44KB of base64 inside a frame the socket caps at
- * 256KiB, and one more doubling of the map's side would blow through it. A scene that big
- * gets no region record at all rather than a frame the table cannot receive — the upgrade is
- * region *deltas* (or per-scene slice updates) instead of the whole mask, and this ceiling
- * comes off the day one of those lands.
+ * write. 262144 cells is 32768 bytes ≈ 43692 chars of base64 — and that is *one* record.
+ *
+ * What has to fit the frame the socket caps at 256KiB is the whole fog slice, which is every
+ * record the viewer is allowed to hold. A player holds one: `redact` maps their own onto
+ * `region` and strips `regions` whole. The DM in individual share holds the party record plus
+ * one per seat — ~43KB × (seats + 1), which passes 262144 bytes at five seats — and the slice
+ * is `byScene` entire, so a campaign's second vision scene multiplies it again.
+ *
+ * So the honest reading is that this constant bounds one record and does not bound the frame:
+ * a full-size map is a DM-socket problem at an ordinary table long before a bigger map is. It
+ * still buys the thing it was written for — a scene past it keeps no region record at all,
+ * rather than one record nothing can receive. The frame is what region *deltas* buy (broadcast
+ * the cells a write turned on, not the whole mask), and the DM's (seats + 1) multiplication is
+ * the trigger to go write them, not a bigger cap here.
  */
 export const REGION_CELL_MAX = 512 * 512
 
@@ -154,6 +163,14 @@ export function orRegion(base: RegionMask, other: RegionMask | undefined): Regio
   }
   const bytes = toBytes(base.bits)
   const add = toBytes(other.bits)
+  // A record whose byte count disagrees is refused whole, exactly as a disagreeing frame is.
+  // It cannot be minted here — `regionOf` derives the length from cols × rows and every write
+  // re-encodes the same array — so a mismatch is a corrupted or hand-made record, and merging
+  // its prefix would write another mask's cells into this one on the strength of four numbers
+  // that happen to line up. (It would not *eat* the base's tail: `bytes[i] |= undefined` is
+  // `| 0`, a no-op. The partial merge is the part worth refusing.) Byte count and not base64
+  // length, because 4 chars of base64 can be 1, 2 or 3 bytes.
+  if (add.length !== bytes.length) return base
   for (let i = 0; i < bytes.length; i++) bytes[i] |= add[i]
   return { ...base, bits: toBase64(bytes) }
 }

@@ -173,9 +173,16 @@ function run(
         { action: 'hid-room', targetId: id },
       )
     }
-    case 'reset':
+    case 'reset': {
       // A true reset: the latch goes too, so the scene is indistinguishable from a fresh one.
-      return setRooms(ctx, sceneId, scene, {}, { action: 'reset-fog' })
+      // Which means the cell memory goes with it — the party's record *and* every seat's. A
+      // reset that left those standing would hand a "fresh" vision scene back with the whole
+      // dungeon still washed on the DM's overlay and still remembered on every player's mask,
+      // which is the one thing the word cannot mean. A rooms-mode scene carries neither field,
+      // so this is byte-for-byte the write it always was there.
+      const { region, regions, ...rest } = scene
+      return setScene(ctx, sceneId, { ...rest, rooms: {} }, { action: 'reset-fog' })
+    }
     case 'set-bulk': {
       const rooms = parseRooms(p.rooms, ctx, sceneId, roomsOf)
       return setRooms(ctx, sceneId, scene, rooms, {

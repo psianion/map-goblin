@@ -6,6 +6,7 @@ import {
   getCell,
   pointInPolygon,
   REGION_CELL_MAX,
+  orRegion,
   regionFor,
   regionOf,
   setCells,
@@ -183,6 +184,44 @@ describe('cellsCoveredByPolygon', () => {
     expect(cells).toContainEqual([1, 1])
     expect(cells).toContainEqual([4, 4])
     expect(cells).not.toContainEqual([4, 1])
+  })
+})
+
+/** The same bytes in a longer array — a record whose length this frame could never mint. */
+const padded = (bits: string, length: number): Uint8Array => {
+  const out = new Uint8Array(length)
+  out.set(toBytes(bits))
+  return out
+}
+
+describe('orRegion destroys nothing', () => {
+  it('merges two masks on the same frame', () => {
+    expect(on(orRegion(set(undefined, [1, 1]), set(undefined, [8, 8])))).toEqual([
+      [1, 1],
+      [8, 8],
+    ])
+  })
+
+  it('leaves the base alone when the frames disagree', () => {
+    const other = setCells(regionOf(SHIFTED)!, [[8, 8]])
+    expect(orRegion(set(undefined, [1, 1]), other).bits).toBe(set(undefined, [1, 1]).bits)
+    expect(orRegion(set(undefined, [1, 1]), undefined).bits).toBe(set(undefined, [1, 1]).bits)
+  })
+
+  it('refuses a mask whose byte count disagrees, the way it refuses a disagreeing frame', () => {
+    // Four numbers lining up is not a promise that the bytes do — `bits` is the record, and a
+    // length that cannot come from this frame's cols × rows is a corrupted or hand-made one.
+    // Half-merging it writes cells out of somebody else's mask into this one.
+    const base = set(undefined, [9, 9])
+    const longer = { ...base, bits: toBase64(padded(set(undefined, [1, 1]).bits, 20)) }
+    expect(on(orRegion(base, longer)), 'a mask of the wrong length was merged anyway').toEqual([
+      [9, 9],
+    ])
+
+    // The other direction is inert rather than destructive (`bytes[i] |= undefined` is `| 0`),
+    // and refused for the same reason: the base's own tail is left exactly as it stands.
+    const short = { ...base, bits: toBase64(toBytes(base.bits).slice(0, 4)) }
+    expect(orRegion(base, short).bits).toBe(base.bits)
   })
 })
 

@@ -3,7 +3,7 @@
 // migration — and corridors are rooms like any other (D6), nothing here special-cases them.
 
 import type { Logged } from '../log'
-import { orRegion, type RegionMask } from './region'
+import { orRegion, regionFor, type Frame, type RegionMask } from './region'
 
 export type RoomFogStatus = 'never_revealed' | 'revealed' | 're_hidden'
 
@@ -92,13 +92,26 @@ export const identityRegion = (scene: SceneFog, identityId: string): RegionMask 
  * whichever half of it predates the switch (principle 3).
  *
  * Identity in party share, where no seat holds a record of its own.
+ *
+ * `frame` is the scene's *current* rectangle, and passing it puts the union through the one
+ * re-base rule every stored record already obeys (`regionFor`): a mask minted before a
+ * republish moved the map is memory of coordinates that no longer exist, and drawing it would
+ * put the wash a whole map-shift away from the cells it is about. It also fixes the union's
+ * origin up front, so a scene with no party record yet cannot adopt whichever seat's frame
+ * `Object.values` happened to hand back first. Anything *storing* the union (`set-share`)
+ * omits it — the next write re-bases through `regionFor` like every other write does; anything
+ * *drawing* it passes it.
  */
-export function tableRegion(scene: SceneFog): RegionMask | undefined {
-  let merged = scene.region
+export function tableRegion(scene: SceneFog, frame?: Frame): RegionMask | undefined {
+  // With a frame this is the empty mask for the frame when the party record is absent or
+  // stale, which is exactly what makes the OR below drop a seat's stale record too.
+  const seed = frame ? regionFor(scene.region, frame) : scene.region
+  let merged = seed
   for (const mask of Object.values(scene.regions ?? {})) {
     merged = merged ? orRegion(merged, mask) : mask
   }
-  return merged
+  // No seed under a frame = a scene past `REGION_CELL_MAX`, which keeps no cell memory at all.
+  return frame && !seed ? undefined : merged
 }
 
 export interface FogState extends Logged {

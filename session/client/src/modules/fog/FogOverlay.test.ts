@@ -15,7 +15,7 @@
 // only the renderer needs WebGL, so the draw is inspectable in jsdom.
 
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
-import { beforeEach, afterEach, describe, expect, it } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { Container, Ticker } from 'pixi.js';
 import type { Room } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
@@ -28,8 +28,16 @@ import type { WebSocketClient } from '../../session/WebSocketClient';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
 import { useFogBrush } from './brush';
-import { DM_FOG_LOOK } from './fog';
+import { DM_FOG_LOOK, regionRects } from './fog';
 import { mountFogOverlayWhenReady } from './FogOverlay';
+
+// The one thing the drawn instructions cannot say: whether the runs were *rebuilt*. Delegating
+// wrapper, so every other row here draws exactly what it drew before.
+vi.mock('./fog', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./fog')>();
+  return { ...actual, regionRects: vi.fn(actual.regionRects) };
+});
+const rebuilds = (): number => vi.mocked(regionRects).mock.calls.length;
 
 const room = (id: string, x: number): Room => ({
   id,
@@ -427,6 +435,34 @@ describe('the fog brush writes cells, not rooms (P4 §2)', () => {
     expect(tinted(sceneGraph), 'the second seat’s memory never reached the DM canvas').not.toBe(
       one,
     );
+  });
+
+  it('rebuilds the runs on the mask’s bytes, not on every fog write', () => {
+    // A fog `state-update` replaces the slice wholesale (§2.5) and fires for set-mode, share
+    // flips, auto-explore and every room reveal — none of which move a cell. Keyed on the
+    // slice, each of those re-decoded every seat's record and re-ran the union for bytes that
+    // had not changed, at O(seats) per DM redraw.
+    brushing();
+    const vision = (over: Record<string, unknown>) => ({
+      session: session({
+        fog: {
+          byScene: {
+            'scene-1': { rooms: {}, concealBehindDoors: true, mode: 'vision', ...over },
+          },
+        },
+      }),
+    });
+    const swept = setCells(regionOf(FRAME)!, [[1, 1]]);
+    useSessionStore.setState(vision({ region: swept }));
+    const built = rebuilds();
+
+    // Fresh objects carrying the same base64, the way a re-parsed slice arrives.
+    useSessionStore.setState(vision({ region: { ...swept }, autoExplore: false }));
+    expect(rebuilds(), 'the same bytes were decoded a second time').toBe(built);
+
+    // …and a cell the party actually swept still lands.
+    useSessionStore.setState(vision({ region: setCells(swept, [[2, 2]]) }));
+    expect(rebuilds(), 'a real write never reached the canvas').toBe(built + 1);
   });
 
   it('paints nothing on a scene too large to keep a region record', () => {
