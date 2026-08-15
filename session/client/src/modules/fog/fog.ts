@@ -304,6 +304,72 @@ export const cellsIn = (rects: readonly Polygon[]): number =>
   rects.reduce((n, rect) => n + (rect[1][0] - rect[0][0]), 0);
 
 /**
+ * A region's falloff limit in one Clipper call, where {@link fogRegion} takes three (P6 §1).
+ *
+ * Two identities do the work. Offsetting distributes over union — `(A ∪ B) ⊕ D` is
+ * `(A ⊕ D) ∪ (B ⊕ D)` for a disc `D` — so the union `fogRegion` runs between its two offsets
+ * buys nothing that the *callers* of this do not already get: every consumer below hands the
+ * result straight to a Clipper boolean, and those fill NonZero, where overlapping rings of one
+ * orientation are one region. And offsetting composes — `(A ⊕ D_p) ⊕ D_f` is `A ⊕ D_{p+f}` —
+ * so `clear` and its feather are one offset rather than two, which matters because the second
+ * one ran over the *offset* geometry: round joins at `ARC_TOLERANCE` had already tripled the
+ * vertex count by then.
+ *
+ * Measured on the gate map with eight sighted tokens (13 rooms, 206 walls, jsdom + the same
+ * WASM): the party's reach 8.45ms → 2.75ms, the held reach 6.09ms → 1.54ms, and the whole
+ * `visionRegion` 34.7ms → 17.7ms before any memo. The regions agree to arc-discretisation
+ * noise — 0.48 of 823 square cells symmetric difference on the sweep union, a sliver a fifth
+ * of a pixel wide along the rim.
+ *
+ * `fogRegion` keeps the three calls because it keeps `clear` *and* withholds `blocked` from
+ * both tiers, and the order of those two matters (a blocked strip the feather would otherwise
+ * step over). Nothing in vision mode blocks anything, which is why this is its own function
+ * rather than a flag on that one.
+ */
+export const reachOf = (polys: readonly Polygon[], grow: number): Polygon[] =>
+  polys.length > 0 ? clipper2Engine.inflate([...polys], grow) : [];
+
+/**
+ * One slot, keyed on an argument list compared by identity — `FogOverlay`'s `rectsOf` pattern,
+ * lifted because P6 needs it four times over.
+ *
+ * One slot rather than an LRU for the reason that pattern has one: every input here is
+ * replaced wholesale on a write (§2.5), so the answer that can be asked for again is the
+ * previous one. Module-level for the reason `sightCache` is — there is one mask per tab, and a
+ * second instance would be a second cache over the same answers.
+ */
+function memoOnce<T>(): (key: readonly unknown[], build: () => T) => T {
+  let seen: readonly unknown[] | null = null;
+  let value: T;
+  return (key, build) => {
+    const last = seen;
+    if (!last || key.length !== last.length || key.some((v, i) => v !== last[i])) {
+      seen = key;
+      value = build();
+    }
+    return value;
+  };
+}
+
+/**
+ * The four halves of the vision mask that do *not* move when the party does (P6 §1).
+ *
+ * The rooms a player holds change on a reveal delta, the rooms the DM has lit change on a
+ * reveal, and the region record changes when the referee writes cells — none of which is what
+ * a drag does. Everything downstream of the party's own sweep is rebuilt every frame the mask
+ * is; everything upstream of it is these.
+ *
+ * The keys are what each answer is a statement about, by identity: room boundaries come off
+ * the loaded document and are stable while it is, and the region record is keyed on its own
+ * bytes rather than on the fog slice — a fog `state-update` is fresh JSON for a mode flip or a
+ * share change that touches no cell at all (`FogOverlay`, same reason).
+ */
+const heldReach = memoOnce<Polygon[]>();
+const revealedReach = memoOnce<Polygon[]>();
+const memoryRects = memoOnce<Polygon[]>();
+const rememberedHeld = memoOnce<Polygon[]>();
+
+/**
  * S3 P3 §3 — the light half of the clear tier, present only when the scene's ambient is
  * `darkness`. Absent is the daylight/dusk answer: the whole sweep counts as lit, which is
  * exactly the P2 mask.
@@ -357,12 +423,14 @@ export interface VisionRegion {
  * Without Clipper2 loaded the intersections are empty, so the mask degrades to solid void —
  * dark rather than open, the direction a fog bug should fail in.
  *
- * ponytail: eleven Clipper calls a rebuild (fourteen in the dark, where the lit and darkvision
- * reaches are offset and intersected too), measured at 7.8ms on the two-room fixture, and
- * four of them re-offset room polygons that only move when the map or the room record does.
- * That is comfortably inside a frame and comfortably outside P6's 2ms budget; the upgrade,
- * when that budget is what is being chased, is to memo `held` and the revealed reach on the
- * identity of `scene.rooms` and the fog slice — not a second geometry pipeline.
+ * P6 §1 took the eleven Clipper calls this used to cost down to four on a drag: `reachOf`
+ * folds each of the three-call reaches into one offset, and the four answers a moving token
+ * does not change are memoized above. What is left is the party's own reach and the three
+ * booleans that shape it against everything they have already earned — measured 34.7ms →
+ * 13.0ms on the gate map with eight sighted tokens (jsdom; the browser number and the pinned
+ * budget are the gate spec's). Nothing here is a second geometry pipeline, which is what the
+ * remaining floor would cost: those four calls are Clipper's own work on ~1600 vertices of
+ * offset sweep, and the only lever left is fewer vertices going in.
  */
 export function visionRegion(
   sight: readonly Polygon[],
@@ -373,9 +441,12 @@ export function visionRegion(
   feather: number,
   night?: NightSight,
 ): VisionRegion {
-  const rects = regionRects(region);
-  const held = fogRegion(shipped, [], pad, feather).reach;
-  const swept = fogRegion(sight, [], sightPad(pad), feather).reach;
+  const rects = memoryRects(
+    [region?.bits, region?.minX, region?.minY, region?.cols, region?.rows],
+    () => regionRects(region),
+  );
+  const held = heldReach([pad, feather, ...shipped], () => reachOf(shipped, pad + feather));
+  const swept = reachOf(sight, sightPad(pad) + feather);
   // Clipped to `held` for the reason the memory tier is, and it is the louder of the two: the
   // scrim is grown to cover the sweep (`drawFog`), so a sight polygon escaping the geometry
   // the player holds cuts a real hole in it — bare background, no dots, in the shape of the
@@ -385,8 +456,14 @@ export function visionRegion(
   // §3.3 — the light gate, as one more intersection on the same pipeline. A light's pool is
   // padded exactly as a sweep is (`sightPad`), so a torch in a room lights the room's wall band
   // rather than stopping on the segments' centreline and leaving the stones dark.
-  const litReach = night ? fogRegion(night.lit, [], sightPad(pad), feather).reach : [];
-  const darkReach = night ? fogRegion(night.darkvision, [], sightPad(pad), feather).reach : [];
+  //
+  // ponytail: these two are not memoized where the four above are. A torch is carried, so its
+  // reach moves with the party rather than with the map — but only the *mover's* does, and a
+  // seven-eighths hit is there for a slot each on the polygon identities. Worth writing the day
+  // a table plays a whole session in the dark; the gate's night median is 20.5ms against the
+  // day's 13.2, and the fps guard covers both.
+  const litReach = night ? reachOf(night.lit, sightPad(pad) + feather) : [];
+  const darkReach = night ? reachOf(night.darkvision, sightPad(pad) + feather) : [];
   const seeable = night ? clipper2Engine.union([...litReach, ...darkReach], []) : [];
   const clear = !night
     ? sweptHeld
@@ -405,14 +482,17 @@ export function visionRegion(
     : clear.length > 0 && night.lit.length > 0
       ? clipper2Engine.difference(clear, [...night.lit])
       : clear;
-  const remembered = clipper2Engine.union(
-    [...rects, ...fogRegion(revealed, [], pad, feather).reach],
-    [],
+  // Everything the party has *already* earned, which is the half a moving token never touches:
+  // one union and one intersection, memoized on the three answers they are built from.
+  const revealedGrown = revealedReach([pad, feather, ...revealed], () =>
+    reachOf(revealed, pad + feather),
   );
-  const inside =
-    remembered.length > 0 && held.length > 0
+  const inside = rememberedHeld([rects, revealedGrown, held], () => {
+    const remembered = clipper2Engine.union([...rects, ...revealedGrown], []);
+    return remembered.length > 0 && held.length > 0
       ? clipper2Engine.intersection(remembered, held)
       : [];
+  });
   const memory = clear.length > 0 ? clipper2Engine.difference(inside, clear) : inside;
   return {
     clear,

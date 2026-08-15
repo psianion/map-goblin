@@ -6789,6 +6789,20 @@
           "isSecret": false,
           "roomA": "room-1vrnm5j",
           "roomB": "room-mxez1n"
+        },
+        {
+          "id": "zone-vault-seal",
+          "name": "Vault Seal",
+          "childType": "zone",
+          "visible": true,
+          "shape": {
+            "kind": "rect",
+            "x": 41,
+            "y": 28,
+            "width": 6.5,
+            "height": 6.5
+          },
+          "blocksAutoExplore": true
         }
       ]
     }

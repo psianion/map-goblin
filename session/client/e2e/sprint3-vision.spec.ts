@@ -612,9 +612,11 @@ test.describe.serial('@sprint3-vision', () => {
    * §4 — the mask is built on mutation and then only drawn, and this is the number that says
    * so: one token move, one rebuild, and the sweep plus the whole Clipper pass inside it.
    *
-   * The bound is a frame, not the phase's real budget. P6 pins < 2ms for eight tokens on the
-   * dressed gate map; what this row defends is the discipline — a build that ever crept into
-   * the draw loop would blow a 16ms bound on a map this size long before a dressed one.
+   * The bound is a frame, not the phase's real budget. P6 pins the eight-token number on the
+   * dressed gate map (`sprint3-vision-gate.spec.ts`, at the floor it measured rather than at
+   * the plan's 2ms, which Clipper cannot reach); what this row defends is the
+   * discipline — a build that ever crept into the draw loop would blow a 16ms bound on a map
+   * this size long before a dressed one.
    *
    * The fps half is sprint3-fog's ratio, for its reasons: four runs of that row on identical
    * code read 26.6 through 12.3fps as the box's load moved, so the guard is the player's seat
@@ -638,7 +640,8 @@ test.describe.serial('@sprint3-vision', () => {
       `${built.lastMs.toFixed(2)}ms to build (${built.rebuilds - before.rebuilds} rebuild(s), ` +
         `${built.sources} sight source(s), ${built.cells} swept cell(s)); ${seat.toFixed(1)}fps ` +
         `on the masked player seat against ${dmSeat.toFixed(1)}fps on the DM's unmasked canvas`,
-      '< 16ms per build (P6 pins < 2ms on the gate map) and no gap against the DM control',
+      '< 16ms per build (the gate map’s eight-token budget is sprint3-vision-gate’s own) and ' +
+        'no gap against the DM control',
     )
 
     expect(built.lastMs, 'the mask took longer than a frame to build').toBeLessThan(16)

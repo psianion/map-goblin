@@ -869,6 +869,32 @@ describe('visionRegion — sweep, memory, void', () => {
     expect(inRegion(held.clear, [7, 1])).toBe(true);
   });
 
+  it('follows a delta that grows the map instead of answering from the last one', () => {
+    // P6 §1 memoizes the held and revealed reaches — the two halves of the mask a moving token
+    // never changes — on the room set they are measured from. A reveal delta is exactly the
+    // write that has to miss that memo: it arrives as new geometry with the party standing
+    // still, and a stale answer would leave the room the DM just lit as void.
+    const wash = (rooms: Polygon[], revealed: Polygon[]) =>
+      visionRegion([LOOKING], swept, revealed, rooms, PAD, FOG_FEATHER).memory;
+    /** A yard the party swept a cell of (20, 2) long before its geometry was sent. */
+    const YARD: Polygon = [
+      [19, 1],
+      [23, 1],
+      [23, 4],
+      [19, 4],
+    ];
+
+    // The revealed reach: a room the DM lights while nobody moves.
+    expect(inRegion(wash([WEST.boundary], []), [13, 3])).toBe(false);
+    expect(inRegion(wash([WEST.boundary, EAST.boundary], [EAST.boundary]), [13, 3])).toBe(true);
+    // …and the held reach, which is the clip: the cell was in the record all along and had
+    // nothing under it to remember until the delta carried the yard over.
+    expect(inRegion(wash([WEST.boundary, EAST.boundary], []), [20.5, 2.5])).toBe(false);
+    expect(inRegion(wash([WEST.boundary, EAST.boundary, YARD], []), [20.5, 2.5])).toBe(true);
+    // …and back, because the memo answers the arguments it was handed and not the newest ones.
+    expect(inRegion(wash([WEST.boundary], []), [13, 3])).toBe(false);
+  });
+
   it('is void everywhere for a party with no sight and no memory', () => {
     const empty = visionRegion([], undefined, [], [WEST.boundary], PAD, FOG_FEATHER);
     expect(empty).toMatchObject({ clear: [], memory: [], shown: [], cells: 0 });
