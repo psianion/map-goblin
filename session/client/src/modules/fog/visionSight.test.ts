@@ -134,6 +134,32 @@ describe('the party sweep the mask is cut to (S3 P2 §2)', () => {
     ];
     expect(sighted(tokens).map((t) => t.id)).toEqual(['t1']);
   });
+
+  /**
+   * S3 P5 — the same filter with the seed narrowed to one seat, which is the whole of the
+   * client's individual-share change. Written so party share would answer differently: the
+   * other player's token is one this seat legitimately *holds* (it walked into their sight),
+   * and drawing the mask through its eyes too would hand back the party view.
+   */
+  it('draws through this seat’s own eyes alone when the share is individual', () => {
+    const mine = (t: Token) => t.ownerId === 'p1';
+    // The edges are symmetric, the way `set-sight-link` writes them on both ends.
+    const tokens = [
+      scout({ id: 'mine', sharesSightWith: ['familiar'] }),
+      scout({ id: 'familiar', ownerId: null, sharesSightWith: ['mine'] }),
+      scout({ id: 'theirs', ownerId: 'p2', sharesSightWith: ['their-familiar'] }),
+      scout({ id: 'their-familiar', ownerId: null, sharesSightWith: ['theirs'] }),
+    ];
+    // Own claimed token plus the closure over the DM's links, and nothing of the other seat's.
+    expect(sighted(tokens, mine).map((t) => t.id).sort()).toEqual(['familiar', 'mine']);
+    // …and with no seed at all it is the party: every claimed token and their familiars.
+    expect(sighted(tokens).map((t) => t.id).sort()).toEqual([
+      'familiar',
+      'mine',
+      'their-familiar',
+      'theirs',
+    ]);
+  });
 });
 
 describe('the memo that keeps a still party from paying twice', () => {

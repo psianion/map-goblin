@@ -134,6 +134,31 @@ function write(region: RegionMask, cells: readonly Cell[], on: boolean): RegionM
 }
 
 /**
+ * `base` with every bit `other` holds turned on — the whole of P5's share-flip merge, in one
+ * primitive, because a region record is bytes and a merge of two of them is an OR (§1).
+ *
+ * Frames that disagree are left alone rather than re-based, which is the rule `regionFor`
+ * already applies to a stored mask: every record on one scene is minted from that scene's
+ * frame, so two of them only differ after a republish moved the map — and a republish is
+ * exactly what starts the record over.
+ */
+export function orRegion(base: RegionMask, other: RegionMask | undefined): RegionMask {
+  if (
+    !other ||
+    other.minX !== base.minX ||
+    other.minY !== base.minY ||
+    other.cols !== base.cols ||
+    other.rows !== base.rows
+  ) {
+    return base
+  }
+  const bytes = toBytes(base.bits)
+  const add = toBytes(other.bits)
+  for (let i = 0; i < bytes.length; i++) bytes[i] |= add[i]
+  return { ...base, bits: toBase64(bytes) }
+}
+
+/**
  * The cells a sweep polygon covers, judged by their centres — the same rule room membership
  * uses, so a token and the cell it stands on never disagree about which side of a wall they
  * are on. Bounded by the polygon's own box, so a 6-cell sight radius walks ~150 cells and

@@ -5,7 +5,7 @@ import type { Viewer } from '../contract'
 import type { AuthoredDoor, DoorLiveState } from '../doors/types'
 import { fogModule } from './module'
 import { getCell, regionOf, setCells } from './region'
-import { autoExploreOn, fogModeOf, sceneFogOf } from './types'
+import { autoExploreOn, fogModeOf, identityRegion, sceneFogOf, tableRegion } from './types'
 import type { FogState, RoomFog, RoomFogStatus, SceneFog } from './types'
 import { blockedEdge, defaultRoom, effectiveFog, visibleRooms, type FogRoom } from './visibility'
 
@@ -1080,6 +1080,235 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       expect(
         fire(empty, DM, 'auto-explore', { sceneId: SCENE, cells: [], rooms: ['nowhere'] }).error?.code,
       ).toBe('invalid-command')
+    })
+  })
+
+  // ── S3 P5 — individual vision ─────────────────────────────────────────────
+  // Two seats, two records, one shared room record. Every row here is written so party share
+  // would answer the other way: the two identities are given *different* cells, so a rule
+  // that read one record for everybody could not produce any of these numbers.
+  describe('per-identity region memory (S3 P5)', () => {
+    const P2: Viewer = { role: 'player', identityId: 'p-2' }
+    const MINE: [number, number] = [1, 1]
+    const THEIRS: [number, number] = [7, 7]
+    const PARTY_CELL: [number, number] = [4, 4]
+
+    /** A scene in individual share where each seat has swept a cell of its own. */
+    const split = (over: Partial<SceneFog> = {}): FogState => ({
+      byScene: {
+        [SCENE]: {
+          rooms: {},
+          concealBehindDoors: true,
+          mode: 'vision',
+          visionShare: 'individual',
+          regions: {
+            'p-1': setCells(regionOf(FRAME)!, [MINE]),
+            'p-2': setCells(regionOf(FRAME)!, [THEIRS]),
+          },
+          ...over,
+        },
+      },
+    })
+
+    it('loads a scene written before the field existed, and reads the party record for it', () => {
+      const played = fire(empty, DM, 'region-set', { op: 'reveal', cells: [PARTY_CELL] }).next
+      const scene = scened(played)
+      expect(scene.regions).toBeUndefined()
+      // The seed rule, said once: a seat with no record of its own is at the table's record.
+      expect(getCell(identityRegion(scene, 'p-1'), ...PARTY_CELL)).toBe(true)
+      expect(getCell(identityRegion(scene, 'nobody'), ...PARTY_CELL)).toBe(true)
+    })
+
+    it('reads the table’s memory as every seat’s ORed together — what the DM is owed', () => {
+      const table = tableRegion(scened(split({ region: setCells(regionOf(FRAME)!, [PARTY_CELL]) })))
+      expect(getCell(table, ...MINE)).toBe(true)
+      expect(getCell(table, ...THEIRS)).toBe(true)
+      expect(getCell(table, ...PARTY_CELL)).toBe(true)
+      // Identity in party share, where no seat holds a record of its own.
+      const shared = scened(fire(empty, DM, 'region-set', { op: 'reveal', cells: [PARTY_CELL] }).next)
+      expect(tableRegion(shared)).toBe(shared.region)
+    })
+
+    describe('set-share merges, in both directions, and destroys nothing', () => {
+      it('seeds every seat with the table’s record on the way to individual', () => {
+        const shared = split({ visionShare: 'party', region: setCells(regionOf(FRAME)!, [PARTY_CELL]) })
+        const next = scened(fire(shared, DM, 'set-share', { visionShare: 'individual' }).next)
+
+        // Each seat keeps its own and gains the party's — nothing of either is lost.
+        expect(getCell(next.regions!['p-1'], ...MINE)).toBe(true)
+        expect(getCell(next.regions!['p-1'], ...PARTY_CELL)).toBe(true)
+        expect(getCell(next.regions!['p-2'], ...THEIRS)).toBe(true)
+        expect(getCell(next.regions!['p-2'], ...PARTY_CELL)).toBe(true)
+        // …and no seat gains the other's, which is the whole point of the mode.
+        expect(getCell(next.regions!['p-1'], ...THEIRS)).toBe(false)
+        expect(getCell(next.regions!['p-2'], ...MINE)).toBe(false)
+        // The party record is still there to seed the next seat that claims a token.
+        expect(getCell(next.region, ...PARTY_CELL)).toBe(true)
+      })
+
+      it('ORs every seat’s record into the table’s on the way back to party', () => {
+        const next = scened(fire(split(), DM, 'set-share', { visionShare: 'party' }).next)
+        expect(getCell(next.region, ...MINE)).toBe(true)
+        expect(getCell(next.region, ...THEIRS)).toBe(true)
+        // Kept, not consumed: the seats' own records survive the flip.
+        expect(getCell(next.regions!['p-1'], ...MINE)).toBe(true)
+        expect(getCell(next.regions!['p-2'], ...THEIRS)).toBe(true)
+      })
+
+      it('hands each seat its own record back after a round trip, never the union', () => {
+        const toParty = fire(split(), DM, 'set-share', { visionShare: 'party' }).next
+        const andBack = scened(fire(toParty, DM, 'set-share', { visionShare: 'individual' }).next)
+        // The party record went round with them (that is the merge), but a seat's *own*
+        // memory is still its own: p-1 remembers the union because the table did, and would
+        // have remembered nothing of p-2's had the DM never flipped.
+        expect(getCell(andBack.regions!['p-1'], ...MINE)).toBe(true)
+        expect(getCell(andBack.regions!['p-2'], ...THEIRS)).toBe(true)
+        expect(scened(fire(split(), DM, 'set-share', { visionShare: 'individual' }).next).regions![
+          'p-1'
+        ]).toEqual(scened(split()).regions!['p-1'])
+      })
+
+      it('has nothing to merge on a table that never left party share', () => {
+        const played = fire(empty, DM, 'region-set', { op: 'reveal', cells: [PARTY_CELL] }).next
+        const flipped = scened(fire(played, DM, 'set-share', { visionShare: 'individual' }).next)
+        expect(flipped.regions).toBeUndefined()
+        expect(getCell(flipped.region, ...PARTY_CELL)).toBe(true)
+      })
+    })
+
+    describe('redact maps this viewer’s record onto `region` and strips the rest', () => {
+      it('hands each seat its own cells and nobody else’s — byte level', () => {
+        const state = split()
+        const mine = framed.redact!(state, P1).byScene[SCENE]
+        const theirs = framed.redact!(state, P2).byScene[SCENE]
+
+        // The client mask code is untouched: it goes on reading `region`.
+        expect(getCell(mine.region, ...MINE)).toBe(true)
+        expect(getCell(mine.region, ...THEIRS)).toBe(false)
+        expect(getCell(theirs.region, ...THEIRS)).toBe(true)
+        expect(getCell(theirs.region, ...MINE)).toBe(false)
+
+        // …and the record itself never travels: not the other seat's bytes, not the fact that
+        // there is another seat at all. The whole slice, as a string. (Quoted, because the
+        // scene these run on is called `map-1` and an unquoted `p-1` is inside it.)
+        expect(mine.regions).toBeUndefined()
+        const wire = (viewer: Viewer) => JSON.stringify(framed.redact!(state, viewer))
+        const bitsOf = (id: string) => scened(state).regions![id].bits
+        expect(wire(P1)).not.toContain('"p-2"')
+        expect(wire(P1)).not.toContain(bitsOf('p-2'))
+        expect(wire(P2)).not.toContain('"p-1"')
+        expect(wire(P2)).not.toContain(bitsOf('p-1'))
+      })
+
+      it('seeds a seat with no record of its own from the party record', () => {
+        const state = split({ region: setCells(regionOf(FRAME)!, [PARTY_CELL]) })
+        const fresh = framed.redact!(state, { role: 'player', identityId: 'p-3' }).byScene[SCENE]
+        expect(getCell(fresh.region, ...PARTY_CELL)).toBe(true)
+        expect(getCell(fresh.region, ...MINE)).toBe(false)
+      })
+
+      it('strips the records in party share too, where they are only the DM’s', () => {
+        const parked = split({ visionShare: 'party', region: setCells(regionOf(FRAME)!, [PARTY_CELL]) })
+        const seen = framed.redact!(parked, P1).byScene[SCENE]
+        expect(seen.regions).toBeUndefined()
+        // …and party share still reads the party record, which is what every table plays.
+        expect(getCell(seen.region, ...PARTY_CELL)).toBe(true)
+        expect(getCell(seen.region, ...MINE)).toBe(false)
+      })
+
+      it('leaves the DM the whole thing — every seat’s memory is theirs to see', () => {
+        expect(framed.redact!(split(), DM)).toEqual(split())
+      })
+    })
+
+    describe('region-set paints every record the scene keeps', () => {
+      it('reveals into the party record and both seats’ at once', () => {
+        const next = scened(
+          fire(split(), DM, 'region-set', { op: 'reveal', cells: [PARTY_CELL] }).next,
+        )
+        expect(getCell(next.region, ...PARTY_CELL)).toBe(true)
+        expect(getCell(next.regions!['p-1'], ...PARTY_CELL)).toBe(true)
+        expect(getCell(next.regions!['p-2'], ...PARTY_CELL)).toBe(true)
+        // What each seat already had is untouched by the stroke.
+        expect(getCell(next.regions!['p-1'], ...MINE)).toBe(true)
+        expect(getCell(next.regions!['p-2'], ...MINE)).toBe(false)
+      })
+
+      it('rubs a cell out of every record, so a hide really hides', () => {
+        const painted = fire(split(), DM, 'region-set', { op: 'reveal', cells: [PARTY_CELL] }).next
+        const rubbed = scened(
+          fire(painted, DM, 'region-set', { op: 'hide', cells: [PARTY_CELL, MINE] }).next,
+        )
+        expect(getCell(rubbed.region, ...PARTY_CELL)).toBe(false)
+        expect(getCell(rubbed.regions!['p-1'], ...PARTY_CELL)).toBe(false)
+        expect(getCell(rubbed.regions!['p-1'], ...MINE)).toBe(false)
+        expect(getCell(rubbed.regions!['p-2'], ...PARTY_CELL)).toBe(false)
+      })
+    })
+
+    describe('auto-explore writes the record the eyes belong to', () => {
+      it('lands each seat’s cells in that seat’s record and leaves the table’s alone', () => {
+        const { next, error } = fire(split(), DM, 'auto-explore', {
+          sceneId: SCENE,
+          cells: [],
+          rooms: ['hall'],
+          byIdentity: { 'p-1': [[2, 2]], 'p-2': [[6, 6]] },
+        })
+        expect(error).toBeNull()
+        const scene = scened(next)
+        expect(getCell(scene.regions!['p-1'], 2, 2)).toBe(true)
+        expect(getCell(scene.regions!['p-1'], 6, 6)).toBe(false)
+        expect(getCell(scene.regions!['p-2'], 6, 6)).toBe(true)
+        expect(getCell(scene.regions!['p-2'], 2, 2)).toBe(false)
+        // The room record is shared: one seat's sweep ships the geometry for the table.
+        expect(scene.rooms.hall).toEqual({ status: 're_hidden', wasEverRevealed: true })
+      })
+
+      it('starts a seat with no record from the party’s, rather than from black', () => {
+        const seeded = split({ region: setCells(regionOf(FRAME)!, [PARTY_CELL]), regions: undefined })
+        const next = scened(
+          fire(seeded, DM, 'auto-explore', {
+            sceneId: SCENE,
+            cells: [],
+            rooms: [],
+            byIdentity: { 'p-3': [[2, 2]] },
+          }).next,
+        )
+        expect(getCell(next.regions!['p-3'], 2, 2)).toBe(true)
+        expect(getCell(next.regions!['p-3'], ...PARTY_CELL)).toBe(true)
+      })
+
+      it('ORs into what a seat already holds rather than replacing it', () => {
+        const next = scened(
+          fire(split(), DM, 'auto-explore', {
+            sceneId: SCENE,
+            cells: [],
+            rooms: [],
+            byIdentity: { 'p-1': [[2, 2]] },
+          }).next,
+        )
+        expect(getCell(next.regions!['p-1'], 2, 2)).toBe(true)
+        expect(getCell(next.regions!['p-1'], ...MINE)).toBe(true)
+      })
+
+      it('refuses cells off the map and a payload that is not a record of them', () => {
+        const refused = (byIdentity: unknown) =>
+          fire(split(), DM, 'auto-explore', { sceneId: SCENE, cells: [], rooms: [], byIdentity })
+            .error?.code
+        expect(refused({ 'p-1': [[10, 0]] })).toBe('invalid-command')
+        expect(refused({ 'p-1': 'everything' })).toBe('invalid-command')
+        expect(refused('p-1')).toBe('invalid-command')
+      })
+
+      it('is byte-identical to P1 when the referee sends no per-seat half at all', () => {
+        const party = fire(empty, DM, 'auto-explore', {
+          sceneId: SCENE,
+          cells: [[2, 2]],
+          rooms: ['hall'],
+        }).next
+        expect(scened(party).regions).toBeUndefined()
+        expect(getCell(scened(party).region, 2, 2)).toBe(true)
+      })
     })
   })
 

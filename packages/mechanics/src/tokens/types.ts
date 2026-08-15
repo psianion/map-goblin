@@ -3,6 +3,7 @@
 // place time and keeps `defId` only as provenance, so deleting a def never orphans a
 // token that is already on the table.
 
+import type { Viewer } from '../contract'
 import type { BlockedEdge } from '../doors/types'
 
 export type TokenSize = 'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'gargantuan'
@@ -111,5 +112,11 @@ export const OUTSIDE_MAP = 'outside-map'
  * `null` = that scene's map authors no rooms. Fog is room-granular, so a map nobody zoned
  * has no fog and hides nothing — the S2 behaviour, which is also the default when no
  * lookup is wired at all.
+ *
+ * S3 P5 — the seam is viewer-aware, because `visionShare: 'individual'` makes "what can be
+ * seen" a different answer per seat: `redact` passes the viewer it is redacting for and gets
+ * that seat's own `canSee` back. Optional, and omitting it asks the party question — which is
+ * what the *command* callers want (`canOccupy` is party-global, D8) and what every party-share
+ * table answers anyway.
  */
-export type VisionOf = (sceneId: string) => SceneVision | null
+export type VisionOf = (sceneId: string, viewer?: Viewer) => SceneVision | null

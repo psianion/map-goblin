@@ -18,7 +18,14 @@ import { Container, Graphics } from 'pixi.js';
 import type { Room } from '@dnd/core/src/shared/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
-import { fogModeOf, regionOf, type Cell, type FogState, type Frame } from '@dnd/mechanics/fog';
+import {
+  fogModeOf,
+  regionOf,
+  tableRegion,
+  type Cell,
+  type FogState,
+  type Frame,
+} from '@dnd/mechanics/fog';
 import {
   addScreenOverlay,
   addWorldOverlay,
@@ -123,23 +130,29 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   };
 
   /**
-   * The swept cells as row runs, remembered on the region's own identity.
+   * The swept cells as row runs, remembered on the fog slice's own identity.
    *
    * `regionRects` decodes the entire mask, and a redraw now happens per *cell* crossed during a
    * brush stroke — the same bytes walked a dozen times a second for a record that only changes
    * when the referee echoes a write. The store replaces its slices wholesale (§2.5), so identity
    * is the whole test, exactly as `sync` already assumes.
    *
+   * P5 — the *table's* memory, which in individual share is every seat's record ORed together
+   * (`tableRegion`); the party record alone would freeze at the moment the DM flipped the
+   * switch and leave the DM's own wash lying about what the table has seen (principle 3).
+   * Keyed on the scene rather than on the mask because that union is a fresh object every
+   * time — and a new mask never arrives without a new slice, so the memo is no coarser.
+   *
    * ponytail: still a fresh Graphics rebuild per redraw. At 512×512 (`REGION_CELL_MAX`) that is
    * a few thousand rects; if a stroke ever stutters, the next step is drawing the wash into a
    * RenderTexture and blitting it rather than re-recording the polys.
    */
-  let cachedRegion: unknown = null;
+  let cachedScene: unknown = null;
   let cachedRects: ReturnType<typeof regionRects> = [];
-  const rectsOf = (region: FogState['byScene'][string]['region']) => {
-    if (region !== cachedRegion) {
-      cachedRegion = region;
-      cachedRects = regionRects(region);
+  const rectsOf = (scene: FogState['byScene'][string]) => {
+    if (scene !== cachedScene) {
+      cachedScene = scene;
+      cachedRects = regionRects(tableRegion(scene));
     }
     return cachedRects;
   };
@@ -174,7 +187,7 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     // Rooms mode has no cell tier at all, and painting one there would say something the
     // player's canvas does not.
     if (fogModeOf(fog) === 'vision') {
-      for (const rect of rectsOf(fog.region)) {
+      for (const rect of rectsOf(fog)) {
         paint.poly(rect.flat()).fill(REGION_WASH);
       }
     }

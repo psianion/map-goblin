@@ -33,6 +33,8 @@ const MAP = readFileSync(join(import.meta.dirname, '../../../testdata/vision-two
 const SCENE = 'two-rooms'
 const DM: Viewer = { role: 'dm', identityId: 'dm-1' }
 const P1: Viewer = { role: 'player', identityId: 'p-1' }
+/** The second seat P5 exists for — every row before it is a table of one player. */
+const P2: Viewer = { role: 'player', identityId: 'p-2' }
 
 /**
  * The map frame is (-1, -1)–(23, 11), so cell (col, row) centres on (col - .5, row - .5) —
@@ -75,6 +77,8 @@ function wired(children: AnyChild[] = [], extra: { walls?: WallSegment[]; prep?:
 
   const sent: ServerMessage[] = []
   const toPlayer: OutboundMessage[] = []
+  /** P5 — the same frames as the second seat receives them, so a divergence has two sides. */
+  const toPlayer2: OutboundMessage[] = []
   const run = (sender: Viewer, module: string, action: string, payload: object) =>
     registry.dispatch(
       module,
@@ -89,6 +93,7 @@ function wired(children: AnyChild[] = [], extra: { walls?: WallSegment[]; prep?:
         broadcast: (msg) => {
           sent.push(msg)
           toPlayer.push(redact(msg, P1))
+          toPlayer2.push(redact(msg, P2))
         },
       },
     )
@@ -104,6 +109,7 @@ function wired(children: AnyChild[] = [], extra: { walls?: WallSegment[]; prep?:
     run,
     sent,
     toPlayer,
+    toPlayer2,
     fogOf,
     tokensOf,
     /** Which triggers have fired, by id. */
@@ -963,5 +969,226 @@ describe('auto-explore and redaction in the dark (S3 P3 §3.2, §3.1)', () => {
     far.run(DM, 'tokens', 'place', { name: 'Ambusher', x: 2.5, y: 5.5, sight: null })
     far.run(DM, 'fog', 'reveal', { roomId: 'west' })
     expect(far.tokensFor(P1)).toEqual([near])
+  })
+})
+
+// ── S3 P5 — individual vision ───────────────────────────────────────────────
+// Two seats at one table, each looking through its own eyes. The geometry is deliberate: both
+// seats' tokens stand in the *same* revealed hall, so the room rule would hand every one of
+// the tokens below to both of them and only a per-seat sweep can produce these answers. Party
+// share is the control on every row that has one — it must come out as P1..P4 left it.
+
+/** The fog scene as the last frame in `msgs` said it — one seat's own copy of the record. */
+function fogSlice(msgs: OutboundMessage[]): SceneFog {
+  const last = [...msgs].reverse().find((m) => m.type === 'state-update' && m.module === 'fog')
+  return ((last as { state: FogState }).state.byScene[SCENE] ?? {}) as SceneFog
+}
+
+/** Every frame a seat was sent, as one string — the byte search the wire rows do. */
+const said = (msgs: readonly OutboundMessage[]): string =>
+  msgs.map((m) => JSON.stringify(m)).join('')
+
+describe('individual vision (S3 P5)', () => {
+  /** p-1's scout, west; p-2's guard, further into the same hall. Neither sees the other. */
+  const SCOUT = { x: 2.5, y: 5.5 }
+  const GUARD = { x: 8.5, y: 8.5 }
+  /** Where those two stand, in the region record's own cells (the frame starts at -1, -1). */
+  const SCOUT_CELL: [number, number] = [3, 6]
+  const GUARD_CELL: [number, number] = [9, 9]
+  const SHORT = { range: 3, angle: 360, visionMode: 'normal' }
+
+  const idOf = (table: ReturnType<typeof wired>, name: string) =>
+    Object.entries(table.tokensOf()).find(([, t]) => t.name === name)![0]
+
+  /**
+   * The two-seat table: one claimed token each, and something standing in each one's sight
+   * that the other cannot possibly see. The hall is revealed by hand so the room rule is
+   * given every chance to hand all four tokens to both seats.
+   */
+  function twoSeats(share: 'party' | 'individual' = 'individual') {
+    const table = wired()
+    table.run(DM, 'fog', 'set-mode', { mode: 'vision' })
+    table.run(DM, 'fog', 'set-share', { visionShare: share })
+    table.run(DM, 'tokens', 'place', { name: 'Scout', ...SCOUT, sight: SHORT })
+    table.run(DM, 'tokens', 'place', { name: 'Guard', ...GUARD, sight: SHORT })
+    // One cell from the scout and seven from the guard — and the mirror image of it.
+    table.run(DM, 'tokens', 'place', { name: 'Rat', x: 1.5, y: 5.5, sight: null })
+    table.run(DM, 'tokens', 'place', { name: 'Spider', x: 8.5, y: 6.5, sight: null })
+    const ids = {
+      scout: idOf(table, 'Scout'),
+      guard: idOf(table, 'Guard'),
+      rat: idOf(table, 'Rat'),
+      spider: idOf(table, 'Spider'),
+    }
+    expect(table.run(P1, 'tokens', 'claim', { id: ids.scout })).toBeNull()
+    expect(table.run(P2, 'tokens', 'claim', { id: ids.guard })).toBeNull()
+    table.run(DM, 'fog', 'reveal', { roomId: 'west' })
+    return { table, ...ids }
+  }
+
+  /** An unclaimed familiar deep in the far hall, behind the shut door. */
+  function hawk(table: ReturnType<typeof wired>): string {
+    table.run(DM, 'tokens', 'place', {
+      name: 'Hawk',
+      x: 17.5,
+      y: 5.5,
+      sight: { range: 6, angle: 360, visionMode: 'normal' },
+    })
+    return idOf(table, 'Hawk')
+  }
+
+  describe('the record each seat accrues', () => {
+    it('holds what that seat’s own eyes saw, and nothing the other’s did', () => {
+      const { table } = twoSeats()
+      const fog = table.fogOf()
+      expect(getCell(fog.regions!['p-1'], ...SCOUT_CELL)).toBe(true)
+      expect(getCell(fog.regions!['p-1'], ...GUARD_CELL)).toBe(false)
+      expect(getCell(fog.regions!['p-2'], ...GUARD_CELL)).toBe(true)
+      expect(getCell(fog.regions!['p-2'], ...SCOUT_CELL)).toBe(false)
+      // The room record stays shared — geometry ships per scene, never per seat (§1).
+      expect(fog.rooms.west).toMatchObject({ wasEverRevealed: true })
+    })
+
+    it('leaves the party record as the seed rather than as the running total', () => {
+      const { table } = twoSeats()
+      expect(getCell(table.fogOf().region, ...SCOUT_CELL)).toBe(false)
+      expect(getCell(table.fogOf().region, ...GUARD_CELL)).toBe(false)
+    })
+
+    it('writes one shared record in party share, exactly as P1 did', () => {
+      const { table } = twoSeats('party')
+      expect(table.fogOf().regions).toBeUndefined()
+      expect(getCell(table.fogOf().region, ...SCOUT_CELL)).toBe(true)
+      expect(getCell(table.fogOf().region, ...GUARD_CELL)).toBe(true)
+    })
+
+    it('feeds both linkees when the DM links one familiar to both seats', () => {
+      const { table, scout, guard } = twoSeats()
+      const familiar = hawk(table)
+      // Behind a shut door in the far hall: neither seat's own eyes reach any of it.
+      expect(getCell(table.fogOf().regions!['p-1'], ...EAST_CELL)).toBe(false)
+      expect(getCell(table.fogOf().regions!['p-2'], ...EAST_CELL)).toBe(false)
+
+      table.run(DM, 'tokens', 'set-sight-link', { id: scout, otherId: familiar, linked: true })
+      table.run(DM, 'tokens', 'set-sight-link', { id: guard, otherId: familiar, linked: true })
+      // One pair of borrowed eyes, two records: a link crosses the share by construction,
+      // because the closure runs from whichever seed it was started with.
+      expect(getCell(table.fogOf().regions!['p-1'], ...EAST_CELL)).toBe(true)
+      expect(getCell(table.fogOf().regions!['p-2'], ...EAST_CELL)).toBe(true)
+    })
+
+    it('lends a familiar to the seat linked to it and to no other', () => {
+      const { table, scout } = twoSeats()
+      table.run(DM, 'tokens', 'set-sight-link', { id: scout, otherId: hawk(table), linked: true })
+      expect(getCell(table.fogOf().regions!['p-1'], ...EAST_CELL)).toBe(true)
+      expect(getCell(table.fogOf().regions!['p-2'], ...EAST_CELL)).toBe(false)
+      // …and the far hall shipped for the table anyway: the room record is not per seat.
+      expect(table.fogOf().rooms.east).toMatchObject({ wasEverRevealed: true })
+    })
+  })
+
+  describe('what reaches each seat', () => {
+    it('sends each seat its own record and never the other’s — raw bytes, both ways', () => {
+      const { table } = twoSeats()
+      const bitsOf = (id: string) => table.fogOf().regions![id].bits
+      const mine = fogSlice(table.toPlayer)
+      const theirs = fogSlice(table.toPlayer2)
+
+      // The mapping: each seat's own record arrives as the `region` the mask already reads.
+      expect(getCell(mine.region, ...SCOUT_CELL)).toBe(true)
+      expect(getCell(mine.region, ...GUARD_CELL)).toBe(false)
+      expect(getCell(theirs.region, ...GUARD_CELL)).toBe(true)
+      expect(getCell(theirs.region, ...SCOUT_CELL)).toBe(false)
+      expect(mine.regions).toBeUndefined()
+      expect(theirs.regions).toBeUndefined()
+
+      // …and no frame of the whole session carried the other seat's memory, or the fact that
+      // there is another seat: the bytes are the memory, the quoted id is the fact.
+      expect(said(table.toPlayer)).not.toContain(bitsOf('p-2'))
+      expect(said(table.toPlayer)).not.toContain('"p-2"')
+      expect(said(table.toPlayer2)).not.toContain(bitsOf('p-1'))
+      expect(said(table.toPlayer2)).not.toContain('"p-1"')
+    })
+
+    it('withholds the tokens only the other seat is entitled to, both ways', () => {
+      const { table, scout, guard, rat, spider } = twoSeats()
+      expect(table.tokensFor(P1)).toEqual([rat, scout].sort())
+      expect(table.tokensFor(P2)).toEqual([guard, spider].sort())
+      // The DM is fenced by none of it (principle 3).
+      expect(table.tokensFor(DM)).toEqual([guard, rat, scout, spider].sort())
+    })
+
+    it('never puts them on the wire at all — raw bytes, both ways', () => {
+      const { table, guard, rat, spider, scout } = twoSeats()
+      expect(said(table.toPlayer)).not.toContain(spider)
+      expect(said(table.toPlayer)).not.toContain(guard)
+      expect(said(table.toPlayer)).toContain(scout)
+      expect(said(table.toPlayer2)).not.toContain(rat)
+      expect(said(table.toPlayer2)).not.toContain(scout)
+      expect(said(table.toPlayer2)).toContain(guard)
+    })
+
+    it('lets a linked familiar carry its own seat’s entitlement and no more', () => {
+      const { table, scout, guard, spider, rat } = twoSeats()
+      const familiar = hawk(table)
+      table.run(DM, 'tokens', 'place', { name: 'Cultist', x: 16.5, y: 5.5, sight: null })
+      const cultist = idOf(table, 'Cultist')
+      table.run(DM, 'tokens', 'set-sight-link', { id: scout, otherId: familiar, linked: true })
+
+      // p-1 holds the familiar (its own closure now) and what it is looking at; p-2 holds
+      // neither, in the same scene, at the same moment.
+      expect(table.tokensFor(P1)).toEqual([cultist, familiar, rat, scout].sort())
+      expect(table.tokensFor(P2)).toEqual([guard, spider].sort())
+    })
+
+    it('hands both seats everything in party share, which is the rule it narrows', () => {
+      const { table, scout, guard, rat, spider } = twoSeats('party')
+      const all = [guard, rat, scout, spider].sort()
+      expect(table.tokensFor(P1)).toEqual(all)
+      expect(table.tokensFor(P2)).toEqual(all)
+    })
+
+    it('asks the party question of a caller with no viewer, so a move stays party-global', () => {
+      const { table } = twoSeats()
+      const anyone = table.vision.visionOf(SCENE)!
+      expect(anyone.canSee!(SCOUT.x, SCOUT.y)).toBe(true)
+      expect(anyone.canSee!(GUARD.x, GUARD.y)).toBe(true)
+      // …while per seat it is one or the other, never both.
+      expect(table.vision.visionOf(SCENE, P1)!.canSee!(GUARD.x, GUARD.y)).toBe(false)
+      expect(table.vision.visionOf(SCENE, P2)!.canSee!(SCOUT.x, SCOUT.y)).toBe(false)
+      // The DM's redaction is identity, so their answer is the party's.
+      expect(table.vision.visionOf(SCENE, DM)!.canSee!(GUARD.x, GUARD.y)).toBe(true)
+    })
+  })
+
+  describe('a share flip mid-session', () => {
+    it('merges both records into the table’s and hands both seats everything', () => {
+      const { table, scout, guard, rat, spider } = twoSeats()
+      expect(table.run(DM, 'fog', 'set-share', { visionShare: 'party' })).toBeNull()
+
+      const fog = table.fogOf()
+      expect(getCell(fog.region, ...SCOUT_CELL)).toBe(true)
+      expect(getCell(fog.region, ...GUARD_CELL)).toBe(true)
+      // Nothing destroyed: each seat still holds its own record underneath.
+      expect(getCell(fog.regions!['p-1'], ...SCOUT_CELL)).toBe(true)
+      expect(getCell(fog.regions!['p-2'], ...GUARD_CELL)).toBe(true)
+      // …and the redaction went with it, in the same beat: one party, one view.
+      const all = [guard, rat, scout, spider].sort()
+      expect(table.tokensFor(P1)).toEqual(all)
+      expect(table.tokensFor(P2)).toEqual(all)
+      // Both seats were *sent* the merged record, not just left holding their own.
+      expect(getCell(fogSlice(table.toPlayer).region, ...GUARD_CELL)).toBe(true)
+      expect(getCell(fogSlice(table.toPlayer2).region, ...SCOUT_CELL)).toBe(true)
+    })
+
+    it('gives each seat its own eyes back on the way in, with the table’s memory seeded', () => {
+      const { table, scout, rat } = twoSeats('party')
+      expect(table.run(DM, 'fog', 'set-share', { visionShare: 'individual' })).toBeNull()
+      expect(table.tokensFor(P1)).toEqual([rat, scout].sort())
+      // Neither seat wakes up blind: the party record is what a seat with none reads (§1).
+      const seen = fogSlice(table.toPlayer)
+      expect(getCell(seen.region, ...SCOUT_CELL)).toBe(true)
+      expect(getCell(seen.region, ...GUARD_CELL)).toBe(true)
+    })
   })
 })

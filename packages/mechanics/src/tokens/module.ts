@@ -92,7 +92,10 @@ export function tokensModule(visionOf: VisionOf = () => null): GameModule<Tokens
       let dropped = false
       const byScene: TokensState['byScene'] = {}
       for (const [sceneId, tokens] of Object.entries(state.byScene)) {
-        const scene = visionOf(sceneId)
+        // P5 — the viewer goes through the seam, so `canSee` is *this* seat's sight in
+        // individual share and the party's in party share. The rule below is unchanged;
+        // only the eyes behind it narrow.
+        const scene = visionOf(sceneId, viewer)
         // P4 §4 — "yours" is the closure of the tokens you claimed over the DM's sight links,
         // so a familiar you were handed is as exempt from the fog as the scout it follows.
         const mine = sightPartyIds(

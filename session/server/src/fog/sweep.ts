@@ -77,6 +77,13 @@ export interface Sweeps {
     tokens: Record<string, Token>,
     doors: Doors,
     lights: Record<string, boolean> | null,
+    /**
+     * S3 P5 — whose eyes to start the closure from. Omitted is every claimed token, which is
+     * the party. `individual` share passes one seat's own (`t.ownerId === identityId`) and
+     * gets that seat's sight for the same money: the sweeps are memoized per origin and
+     * reach, so a per-identity union re-uses the polygons the party union already took.
+     */
+    isSeed?: (token: Token) => boolean,
   ): PartyVision
 }
 
@@ -98,12 +105,12 @@ export function createSweeps(): Sweeps {
   }
 
   return {
-    partyVision(map, tokens, doors, lights) {
+    partyVision(map, tokens, doors, lights, isSeed) {
       // P4 §4 — the party's eyes are the sight-link closure of the claimed tokens, not the
       // claimed tokens alone: an unclaimed familiar the DM linked to a scout is looking for
       // them. `sightParty` drops hidden tokens itself (hidden trumps links); a token with no
       // sight is in the party but is not an eye.
-      const claimed = sightParty(Object.values(tokens)).filter(
+      const claimed = sightParty(Object.values(tokens), isSeed).filter(
         (token) => (token.sight?.range ?? 0) > 0,
       )
       if (claimed.length === 0) return { eyes: [], lit: null }

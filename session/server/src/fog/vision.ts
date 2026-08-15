@@ -14,10 +14,12 @@ import {
   cellsCoveredByPolygon,
   effectiveFog,
   fogModeOf,
+  identityRegion,
   regionFor,
   sceneFogOf,
   setCells,
   visibleRooms,
+  visionShareOf,
   type Cell,
   type FogRoom,
   type FogState,
@@ -25,7 +27,8 @@ import {
   type SceneFog,
 } from '@dnd/mechanics/fog'
 import { needsLight, sceneTriggersOf, type TriggersState } from '@dnd/mechanics/triggers'
-import { sightParty, type SceneVision, type TokensState } from '@dnd/mechanics/tokens'
+import { sightParty, type SceneVision, type Token, type TokensState } from '@dnd/mechanics/tokens'
+import type { Viewer } from '@dnd/mechanics/contract'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
 import type { Stores } from '../db/stores'
 import {
@@ -62,8 +65,14 @@ export interface Vision {
    * with no map, which is the scene a player is handed no geometry for either.
    */
   playerDoors(sceneId: string): ReadonlySet<string>
-  /** Backs `tokensModule` — redaction (D7) and `canOccupy` (D8). */
-  visionOf(sceneId: string): SceneVision | null
+  /**
+   * Backs `tokensModule` — redaction (D7) and `canOccupy` (D8).
+   *
+   * P5 — the viewer is what makes `individual` share real: pass the seat being redacted for
+   * and `canSee` is that seat's own sight. Omitted (every command-path caller) is the party's,
+   * which is what `canOccupy` asks and what party share answers for everyone anyway.
+   */
+  visionOf(sceneId: string, viewer?: Viewer): SceneVision | null
   /** The map GET's player path (D4). Null when the map is unknown or will not parse. */
   playerMap(sceneId: string): SerializedMapData | null
   /** The scene's parsed map, raw — triggers' prep resolver (M4) reuses this cache rather
@@ -87,8 +96,19 @@ export interface AutoExplorePatch {
   sceneId: string
   /** Every non-locked cell the party can see — an idempotent OR, not a delta. */
   cells: Cell[]
-  /** Rooms the sweep touched that are not already lit. */
+  /**
+   * Rooms the sweep touched that are not already lit.
+   *
+   * Shared in both shares, on purpose (P5 §1): geometry ships per scene, so any seat's sweep
+   * latches a room for the table. What diverges is presentation and entity redaction, and
+   * the cells below are the presentation half.
+   */
   rooms: string[]
+  /**
+   * P5 — the cells *each* seat's own eyes earned, in `individual` share. Absent in party
+   * share, where `cells` is the one record everybody reads.
+   */
+  byIdentity?: Record<string, Cell[]>
 }
 
 interface Computed {
@@ -98,6 +118,18 @@ interface Computed {
   /** The party's eyes and the lit area they are judged against — null in `'rooms'` mode,
    *  where nothing sweeps at all. */
   sight: PartyVision | null
+  /**
+   * P5 — the same thing for one seat: the sweep union of the tokens *that identity* claimed,
+   * closed over the DM's sight links. Memoized into this record, so it is keyed on the module
+   * revision exactly as the party union is and goes stale on the same write; the shadowcasts
+   * underneath are memoized per origin and reach, so a second seat looking at the same map
+   * pays for eye assembly and nothing else.
+   */
+  sightFor(identityId: string): PartyVision | null
+  /** Which share the scene is playing — read once, here, so nothing below re-derives it. */
+  share: 'party' | 'individual'
+  /** The identities holding a claimed token, connected or not: whose records auto-explore. */
+  owners: string[]
   doors: Record<string, DoorLiveState>
   /** Rooms the party can see right now (D3). */
   visible: Set<string>
@@ -170,15 +202,22 @@ export function createVision(stores: Stores): Vision {
     // firing re-derives the answer for free. Outside `darkness` no light sweep is taken at all:
     // `lit: null` is the P2 behaviour, unchanged, which is what an untouched scene keeps.
     const triggers = sceneTriggersOf(read(campaignId, 'triggers', NO_TRIGGERS), sceneId)
-    const sight =
-      fogModeOf(fog) === 'vision'
-        ? sweeps.partyVision(
-            map,
-            tokens,
-            doors,
-            needsLight(triggers) ? triggers.lightOverrides : null,
-          )
-        : null
+    const lights = needsLight(triggers) ? triggers.lightOverrides : null
+    const vision = fogModeOf(fog) === 'vision'
+    const sight = vision ? sweeps.partyVision(map, tokens, doors, lights) : null
+    // P5 — one seat's eyes, on demand and once per revision. Lazy because most tables never
+    // ask: party share reads `sight` alone, and even in individual share only the seats
+    // actually being redacted for are ever computed.
+    const perIdentity = new Map<string, PartyVision | null>()
+    const sightFor = (identityId: string): PartyVision | null => {
+      if (!vision) return null
+      let own = perIdentity.get(identityId)
+      if (own === undefined) {
+        own = sweeps.partyVision(map, tokens, doors, lights, (t) => t.ownerId === identityId)
+        perIdentity.set(identityId, own)
+      }
+      return own
+    }
 
     const explored = exploredRooms(fog)
     // The doors a player may hold — the *same* predicate the map cut uses on the door
@@ -214,6 +253,9 @@ export function createVision(stores: Stores): Vision {
       map,
       fog,
       sight,
+      sightFor,
+      share: visionShareOf(fog),
+      owners: ownersOf(tokens),
       doors,
       visible: visibleRooms(fog, doors, map.doors, party),
       // D8 asks a different question of the same graph: a re-hidden room the party can
@@ -242,11 +284,17 @@ export function createVision(stores: Stores): Vision {
     doorsOf: (_campaignId, sceneId) => sceneMapOf(sceneId)?.doors ?? [],
     playerDoors: (sceneId) => compute(sceneId)?.playerDoors ?? NO_ONES_DOORS,
 
-    visionOf: (sceneId) => {
+    visionOf: (sceneId, viewer) => {
       const computed = compute(sceneId)
       // No authored rooms, no fog: room-granular fog has nothing to be granular about.
       if (!computed || computed.map.rooms.length === 0) return null
-      const { sight } = computed
+      // P5 — the whole of the per-viewer divergence, in one expression: the same `seen()` rule
+      // over a narrower set of eyes. A DM is asked nothing (their redaction is identity), and a
+      // caller with no viewer at all — every command path — asks the party question.
+      const sight =
+        viewer && viewer.role !== 'dm' && computed.share === 'individual'
+          ? computed.sightFor(viewer.identityId)
+          : computed.sight
       return {
         roomAt: computed.map.roomAt,
         visible: computed.visible,
@@ -279,29 +327,7 @@ export function createVision(stores: Stores): Vision {
       const frame = map.frame
 
       const locks = exploreLocks(map.zones)
-      const cells: Cell[] = []
-      const rooms = new Set<string>()
-      const counted = new Set<string>()
-      for (const eye of computed.sight.eyes) {
-        for (const [col, row] of cellsCoveredByPolygon(eye.polygon, frame)) {
-          const key = `${col},${row}`
-          if (counted.has(key)) continue
-          counted.add(key)
-          const [x, y] = [frame.minX + col + 0.5, frame.minY + row + 0.5]
-          // §3.2 — you explore what you saw, not what your sweep crossed in pitch black. In
-          // daylight this is the identity (a cell enumerated from an eye's own polygon is in
-          // it); in darkness it is the whole difference between walking a lit corridor and
-          // groping down an unlit one.
-          if (!seen(computed.sight, x, y)) continue
-          // A lock beats the sweep by construction: the cell is not written and the room it
-          // belongs to is not credited, so a boss chamber seen through an open door stays
-          // the DM's to reveal (§5).
-          if (inAnyLock(locks, x, y)) continue
-          cells.push([col, row])
-          const room = map.roomAt(x, y)
-          if (room !== null) rooms.add(room)
-        }
-      }
+      const { cells, rooms } = swept(computed.sight, map, frame, locks)
 
       // A swept room latches exactly the way the DM's region brush latches one (mechanics'
       // `shipRooms`): `re_hidden` plus the latch, so the geometry travels and what the player
@@ -309,13 +335,49 @@ export function createVision(stores: Stores): Vision {
       // own act — auto-explore claiming it would wash every explored room whole and leave the
       // cell tier with nothing to say. A room already latched is left alone, which is also why
       // a DM's `revealed` survives the party walking back into it.
+      //
+      // Off the *party's* sweep in both shares (P5 §1): the room record is shared, so whoever
+      // opened the door has opened it for the table, and the party union is exactly the union
+      // of the seats' own — `sightParty`'s closure over a union of seeds is the union of the
+      // closures. Only the cells below are per-seat.
       const fresh = [...rooms].filter((id) => !fog.rooms[id]?.wasEverRevealed)
       // Undefined = a frame past `REGION_CELL_MAX`, which keeps no cell memory; the room
       // reveals are the half that decides what geometry a player holds, and they still ride.
       const region = regionFor(fog.region, frame)
-      // The cheap diff: OR the sweep in and see whether a single byte moved.
-      if (!fresh.length && (!region || setCells(region, cells).bits === region.bits)) return null
-      return { sceneId, cells: region ? cells : [], rooms: fresh }
+      if (computed.share !== 'individual') {
+        // The cheap diff: OR the sweep in and see whether a single byte moved.
+        if (!fresh.length && (!region || setCells(region, cells).bits === region.bits)) return null
+        return { sceneId, cells: region ? cells : [], rooms: fresh }
+      }
+
+      // …and per seat: every identity holding a claimed token, connected or not — the record
+      // is state, not a session, so a player who logged off still remembers what their scout
+      // walked past while the rest of the party carried on.
+      //
+      // ponytail: one cell walk per seat per mutation, so a six-player table in individual
+      // share pays the enumeration six times (the shadowcasts underneath are shared — the
+      // sweeps are memoized per origin and reach, and every seat's eyes are a subset of the
+      // party's). The upgrade, if a big table ever measures it, is one walk that tags each
+      // cell with the eyes that reached it rather than a walk per eye set.
+      const byIdentity: Record<string, Cell[]> = {}
+      for (const identityId of computed.owners) {
+        const own = computed.sightFor(identityId)
+        if (!own?.eyes.length) continue
+        const mine = swept(own, map, frame, locks).cells
+        const base = region && regionFor(identityRegion(fog, identityId), frame)
+        // The same cheap diff, per record: a seat standing still writes nothing.
+        if (!base || setCells(base, mine).bits === base.bits) continue
+        byIdentity[identityId] = mine
+      }
+      if (!fresh.length && Object.keys(byIdentity).length === 0) return null
+      // The party record is left alone: in individual share it is the *seed* every new seat
+      // starts from, and a flip back to party ORs every seat's own into it (`set-share`).
+      //
+      // ponytail: so it freezes at the moment of the flip. Nothing reads it as "the table's
+      // memory" — the DM's own wash asks `tableRegion`, which unions the seats — and letting
+      // it accrue instead would seed every seat that claims a token later with everything the
+      // rest of the table has seen, which is the mode turned off by the back door.
+      return { sceneId, cells: [], rooms: fresh, byIdentity }
     },
 
     invalidateScene: (sceneId) => {
@@ -323,6 +385,50 @@ export function createVision(stores: Stores): Vision {
       cache.delete(sceneId)
     },
   }
+}
+
+/**
+ * What one set of eyes just earned: the non-locked cells they can actually see, and the rooms
+ * those cells fall in. Lifted out of `autoExplorePatch` unchanged so the per-seat pass asks
+ * the identical question of a narrower sweep rather than a second implementation of it.
+ */
+function swept(
+  sight: PartyVision,
+  map: SceneMap,
+  frame: NonNullable<SceneMap['frame']>,
+  locks: ReturnType<typeof exploreLocks>,
+): { cells: Cell[]; rooms: Set<string> } {
+  const cells: Cell[] = []
+  const rooms = new Set<string>()
+  const counted = new Set<string>()
+  for (const eye of sight.eyes) {
+    for (const [col, row] of cellsCoveredByPolygon(eye.polygon, frame)) {
+      const key = `${col},${row}`
+      if (counted.has(key)) continue
+      counted.add(key)
+      const [x, y] = [frame.minX + col + 0.5, frame.minY + row + 0.5]
+      // §3.2 — you explore what you saw, not what your sweep crossed in pitch black. In
+      // daylight this is the identity (a cell enumerated from an eye's own polygon is in
+      // it); in darkness it is the whole difference between walking a lit corridor and
+      // groping down an unlit one.
+      if (!seen(sight, x, y)) continue
+      // A lock beats the sweep by construction: the cell is not written and the room it
+      // belongs to is not credited, so a boss chamber seen through an open door stays
+      // the DM's to reveal (§5).
+      if (inAnyLock(locks, x, y)) continue
+      cells.push([col, row])
+      const room = map.roomAt(x, y)
+      if (room !== null) rooms.add(room)
+    }
+  }
+  return { cells, rooms }
+}
+
+/** The identities holding a claimed token in this scene — whose records P5 writes. */
+function ownersOf(tokens: Record<string, Token>): string[] {
+  const owners = new Set<string>()
+  for (const token of Object.values(tokens)) if (token.ownerId) owners.add(token.ownerId)
+  return [...owners]
 }
 
 /** Two deltas for one mutation, said in one message — the client merges layers by id. */

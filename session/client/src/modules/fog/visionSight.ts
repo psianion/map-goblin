@@ -27,16 +27,23 @@ import { sightParty, type Token } from '@dnd/mechanics/tokens';
 import { isTokenLight } from '../triggers/lightSync';
 
 /**
- * The tokens the party's mask is drawn through — the server's filter, to the character: a
- * claimed token is a player at the table, an unclaimed one is scenery the DM moves, a hidden
- * one has been taken off the board, and a token with no sight is not looking at anything.
+ * The tokens the mask is drawn through — the server's filter, to the character: a claimed
+ * token is a player at the table, an unclaimed one is scenery the DM moves, a hidden one has
+ * been taken off the board, and a token with no sight is not looking at anything.
  *
  * Literally the server's filter now (P4 §4): `sightParty` is the shared predicate the referee's
  * own sweep runs, imported rather than mirrored, so a sight link the DM makes cannot widen what
  * a player is *sent* without widening what their mask lets them *see*.
+ *
+ * P5 — `isSeed` is where `visionShare` lands, and it is the whole client-side change: in
+ * individual share this seat seeds on its *own* claimed tokens (`ownerId === you.identityId`)
+ * and the closure carries their linked familiars in, exactly as the referee's own per-seat
+ * sweep does. It is not belt-and-braces: a seat is legitimately sent the other party members'
+ * tokens whenever they walk into its sight, and drawing the mask through those eyes too would
+ * hand it back the party view the DM just turned off.
  */
-export const sighted = (tokens: readonly Token[]): Token[] =>
-  sightParty(tokens).filter((t) => (t.sight?.range ?? 0) > 0);
+export const sighted = (tokens: readonly Token[], isSeed?: (token: Token) => boolean): Token[] =>
+  sightParty(tokens, isSeed).filter((t) => (t.sight?.range ?? 0) > 0);
 
 /**
  * ponytail: one entry per layers array, holding every sweep taken against that geometry, and

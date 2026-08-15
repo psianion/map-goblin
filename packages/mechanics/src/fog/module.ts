@@ -9,16 +9,28 @@
 import type { GameModule, ModuleContext } from '../contract'
 import { actorOf, logged, type LogAction, type LogEntry } from '../log'
 import { ID_MAX, Reject, bad, bool, num, obj, oneOf, str } from '../tokens/validate'
-import { clearCells, regionFor, setCells, type Cell, type Frame, type RegionMask } from './region'
+import {
+  clearCells,
+  orRegion,
+  regionFor,
+  setCells,
+  type Cell,
+  type Frame,
+  type RegionMask,
+} from './region'
 import {
   FOG_MODES,
   ROOM_FOG_STATUSES,
   VISION_SHARES,
+  identityRegion,
   roomFogOf,
   sceneFogOf,
+  tableRegion,
+  visionShareOf,
   type FogState,
   type RoomFog,
   type SceneFog,
+  type VisionShare,
 } from './types'
 
 export * from './light'
@@ -92,6 +104,12 @@ export function fogModule(
     // first three are settings the client has to render the same way the DM set them, and
     // the region is presentation memory of cells the party themselves swept — low-secret by
     // construction, and P2's mask is the thing that needs it. Rooms filtering is unchanged.
+    //
+    // P5 does the *viewer mapping* here and nowhere else: in `'individual'` share this
+    // viewer's own record becomes the `region` field they already read, and `regions` — every
+    // other seat's memory, and the mere fact of who is at the table — is stripped whole. Every
+    // other seat's record must never be on this wire, so filtering it down would not do; and
+    // because the mapping lands on the field the mask already reads, no client code changes.
     redact(state, viewer) {
       if (viewer.role === 'dm') return state
       const byScene: FogState['byScene'] = {}
@@ -100,7 +118,13 @@ export function fogModule(
         for (const [roomId, fog] of Object.entries(scene.rooms)) {
           if (fog.wasEverRevealed) rooms[roomId] = fog
         }
-        byScene[sceneId] = { ...scene, rooms }
+        // Stripped in *both* shares: a table the DM flipped back to party still holds the
+        // per-seat records (nothing is ever destroyed), and they are nobody's but the DM's.
+        const { regions, ...rest } = scene
+        byScene[sceneId] =
+          regions && visionShareOf(scene) === 'individual'
+            ? { ...rest, rooms, region: identityRegion(scene, viewer.identityId) }
+            : { ...rest, rooms }
       }
       // Same rule as the rooms: a line about a room is readable exactly when the room is,
       // so a reveal in a wing the party has never entered is not on this wire at all. A
@@ -178,21 +202,23 @@ function run(
       }
       return setScene(ctx, sceneId, { ...scene, mode })
     }
-    case 'set-share':
-      return setScene(ctx, sceneId, {
-        ...scene,
-        visionShare: oneOf(p.visionShare, VISION_SHARES, 'visionShare'),
-      })
+    case 'set-share': {
+      const visionShare = oneOf(p.visionShare, VISION_SHARES, 'visionShare')
+      return setScene(ctx, sceneId, { ...scene, visionShare, ...shareMerge(scene, visionShare) })
+    }
     case 'set-auto-explore':
       return setScene(ctx, sceneId, {
         ...scene,
         autoExplore: bool(p.autoExplore, 'autoExplore'),
       })
     case 'region-set': {
-      const region = regionFor(scene.region, frameFor(ctx, sceneId, frameOf))
+      const frame = frameFor(ctx, sceneId, frameOf)
+      const region = regionFor(scene.region, frame)
       if (!region) bad('that scene is too large to keep region memory for')
       const cells = parseCells(p.cells, region)
       const op = oneOf(p.op, REGION_OPS, 'op')
+      const paint = (mask: RegionMask): RegionMask =>
+        op === 'reveal' ? setCells(mask, cells) : clearCells(mask, cells)
       // A brush stroke is a reveal-shaped DM act like the room buttons are, so it reads back
       // in the table log the same way. `changed-fog` and no targetId: it names cells rather
       // than a room, which is also what makes it a whole-scene line every seat may read.
@@ -201,7 +227,13 @@ function run(
         sceneId,
         {
           ...scene,
-          region: op === 'reveal' ? setCells(region, cells) : clearCells(region, cells),
+          region: paint(region),
+          // P5 — a DM stroke is for the table, so it lands on every record the scene keeps and
+          // not only the party's: a reveal nobody could see, or a hide that left the cells
+          // standing on four seats, would be a brush that does not brush. There is no
+          // per-player targeting (a stated non-goal), which is why this needs no `viewer`.
+          // A scene with no per-identity records — every party-mode table — spreads nothing.
+          ...(scene.regions ? { regions: paintAll(scene.regions, frame, paint) } : {}),
           // …and the rooms those cells fall in have to *ship*, or the brush paints memory
           // onto geometry the player was never handed and the wash has nothing to sit on
           // (P2 §1 clips it to what they hold). The latch is all it does: `re_hidden` washes
@@ -221,8 +253,20 @@ function run(
     case 'auto-explore': {
       // Undefined region = a scene past `REGION_CELL_MAX`, which keeps no cell memory at
       // all. The room reveals still land: those are what decide the geometry a player holds.
-      const region = regionFor(scene.region, frameFor(ctx, sceneId, frameOf))
+      const frame = frameFor(ctx, sceneId, frameOf)
+      const region = regionFor(scene.region, frame)
       const cells = region ? parseCells(p.cells, region) : []
+      // P5 — the same write, per identity, in `'individual'` share: the referee sends the
+      // cells *each* seat's own eyes earned and each lands in that seat's own record. Absent
+      // in party share, which is every table until a DM says otherwise, so the payload and
+      // the write below are byte-identical there.
+      const byIdentity = parseByIdentity(p.byIdentity, region)
+      let regions = scene.regions
+      for (const [identityId, own] of byIdentity) {
+        const base = regionFor(identityRegion(scene, identityId), frame)
+        if (!base) continue
+        regions = { ...regions, [identityId]: setCells(base, own) }
+      }
       const rooms = { ...scene.rooms }
       // The same latch the brush leaves (`shipRooms`), for the same reason: the room has to
       // ship or the swept cells have no geometry to sit on, and `revealed` — which washes the
@@ -237,6 +281,7 @@ function run(
       return setScene(ctx, sceneId, {
         ...scene,
         region: region && setCells(region, cells),
+        ...(regions ? { regions } : {}),
         rooms,
       })
     }
@@ -281,6 +326,61 @@ function shipRooms(
     rooms = { ...rooms, [id]: { status: 're_hidden', wasEverRevealed: true } }
   }
   return rooms
+}
+
+/**
+ * What a share flip does to the two records: it merges them, in whichever direction it is
+ * going, and destroys neither (P5 §1). A DM trying individual vision out mid-session and
+ * changing their mind back an hour later loses nothing either way.
+ *
+ * party → individual: everything the table already remembers becomes every seat's own
+ * starting point. Only the records that exist need the OR — a seat with none reads the party
+ * record through `identityRegion` and is seeded by the same fact.
+ *
+ * individual → party: every seat's memory becomes the table's, and every seat *keeps* its
+ * own, so flipping back hands each of them their own record again rather than the union.
+ */
+function shareMerge(scene: SceneFog, share: VisionShare): Pick<SceneFog, 'region' | 'regions'> {
+  const { region, regions } = scene
+  if (!regions) return { region, regions }
+  if (share === 'individual') {
+    if (!region) return { region, regions }
+    const seeded: Record<string, RegionMask> = {}
+    for (const [id, mask] of Object.entries(regions)) seeded[id] = orRegion(mask, region)
+    return { region, regions: seeded }
+  }
+  return { region: tableRegion(scene), regions }
+}
+
+/** One brush stroke applied to every per-identity record, each in the current frame. */
+function paintAll(
+  regions: Record<string, RegionMask>,
+  frame: Frame,
+  paint: (mask: RegionMask) => RegionMask,
+): Record<string, RegionMask> {
+  const next: Record<string, RegionMask> = {}
+  for (const [id, mask] of Object.entries(regions)) {
+    // Undefined = this scene keeps no cell memory at all any more (past `REGION_CELL_MAX`),
+    // in which case the record it used to keep is not one to carry forward either.
+    const current = regionFor(mask, frame)
+    if (current) next[id] = paint(current)
+  }
+  return next
+}
+
+/**
+ * `auto-explore`'s per-identity half off the wire — `{ identityId: [[col, row], …] }`.
+ *
+ * Server-internal like the command itself (`dispatchInternal`; see `commands` above), and
+ * validated anyway: this parses the same bounds-checked cells the party payload does, because
+ * "nothing untrusted reaches it today" is a property of the caller and not of this handler.
+ */
+function parseByIdentity(value: unknown, region: RegionMask | undefined): Array<[string, Cell[]]> {
+  if (value === undefined) return []
+  return Object.entries(obj(value, 'byIdentity')).map(([id, cells]) => [
+    str(id, 'byIdentity key', ID_MAX),
+    region ? parseCells(cells, region) : [],
+  ])
 }
 
 function frameFor(ctx: Ctx, sceneId: string, frameOf: SceneFrame): Frame {

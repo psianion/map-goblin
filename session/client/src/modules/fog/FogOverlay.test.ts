@@ -399,6 +399,36 @@ describe('the fog brush writes cells, not rooms (P4 §2)', () => {
     expect(tinted(sceneGraph), 'the swept cells never reached the DM canvas').not.toBe(empty);
   });
 
+  it('washes the table’s whole memory in individual share, not the frozen party half', () => {
+    // P5 — every seat's record is its own, and the party record stops accruing the moment the
+    // DM flips the switch. Washing that half alone would tell the DM the table has seen
+    // nothing since, on the one canvas the product promises never loses visibility.
+    brushing();
+    const seat = (cell: [number, number]) => setCells(regionOf(FRAME)!, [cell]);
+    const scene = (regions: Record<string, ReturnType<typeof seat>>) => ({
+      session: session({
+        fog: {
+          byScene: {
+            'scene-1': {
+              rooms: {},
+              concealBehindDoors: true,
+              mode: 'vision' as const,
+              visionShare: 'individual' as const,
+              regions,
+            },
+          },
+        },
+      }),
+    });
+
+    useSessionStore.setState(scene({ 'p-1': seat([1, 1]) }));
+    const one = tinted(sceneGraph);
+    useSessionStore.setState(scene({ 'p-1': seat([1, 1]), 'p-2': seat([3, 3]) }));
+    expect(tinted(sceneGraph), 'the second seat’s memory never reached the DM canvas').not.toBe(
+      one,
+    );
+  });
+
   it('paints nothing on a scene too large to keep a region record', () => {
     // Past `REGION_CELL_MAX`: the referee refuses every cell of the stroke, so the brush must
     // not enter painting at all — the click stays the room click it was.

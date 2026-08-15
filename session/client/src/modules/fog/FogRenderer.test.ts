@@ -1214,6 +1214,55 @@ describe('fogScene', () => {
     expect(scene.fog?.mode).toBe('vision');
   });
 
+  // ── individual vision (S3 P5) ────────────────────────────────────────────
+  // The seat is `player` (identity `p1`). The other seat's token is one this tab legitimately
+  // holds — the referee sent it because it walked into this seat's sight — so a mask that
+  // swept through every claimed token would hand back exactly the party view the DM turned off.
+
+  const twoSeatTokens = {
+    library: {},
+    byScene: {
+      'scene-1': {
+        // Symmetric edges, the way `set-sight-link` writes them on both ends.
+        mine: sightedToken({ id: 'mine', sharesSightWith: ['familiar'] }),
+        familiar: sightedToken({ id: 'familiar', x: 6, y: 2, ownerId: null, sharesSightWith: ['mine'] }),
+        theirs: sightedToken({ id: 'theirs', x: 12, y: 2, ownerId: 'p2' }),
+      },
+    },
+  };
+
+  const shared = (visionShare: 'party' | 'individual') =>
+    session({
+      fog: { byScene: { 'scene-1': { ...fogOf({}), mode: 'vision' as const, visionShare } } },
+      tokens: twoSeatTokens,
+    });
+
+  it('sweeps through this seat’s own eyes and its familiars in individual share', () => {
+    useSessionStore.setState({ session: shared('individual') });
+    // Own claimed token and the familiar the DM linked to it — never the other seat's.
+    expect(fogScene().sight).toHaveLength(2);
+  });
+
+  it('sweeps through every claimed token in party share, which is the default', () => {
+    useSessionStore.setState({ session: shared('party') });
+    expect(fogScene().sight).toHaveLength(3);
+    // …and an untouched scene reads party, so no table plays the narrow rule by accident.
+    useSessionStore.setState({
+      session: session({
+        fog: { byScene: { 'scene-1': { ...fogOf({}), mode: 'vision' } } },
+        tokens: twoSeatTokens,
+      }),
+    });
+    expect(fogScene().sight).toHaveLength(3);
+  });
+
+  it('falls back to the party rule while this tab does not know who it is', () => {
+    // The seat is not known until the join snapshot lands. Sweeping through nobody would
+    // black the canvas out for a beat; the referee is still withholding everything secret.
+    useSessionStore.setState({ session: shared('individual'), you: null });
+    expect(fogScene().sight).toHaveLength(3);
+  });
+
   // ── the light gate (S3 P3 §3) ────────────────────────────────────────────
 
   const lamp = (id: string, x: number, y: number, visible = true) =>

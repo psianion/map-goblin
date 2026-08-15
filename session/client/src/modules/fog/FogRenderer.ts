@@ -49,6 +49,7 @@ import {
   fogModeOf,
   lightSources,
   visibleRooms,
+  visionShareOf,
   type FogMode,
   type FogRoom,
   type FogState,
@@ -534,7 +535,15 @@ export function fogScene(): FogScene {
   // Not taken for the DM, whose seat draws no mask at all, nor in rooms mode, which has no
   // use for it — the sweep is the expensive half of this read, and leaving it untaken is also
   // what keeps that path byte-identical.
-  const eyes = isVision && isPlayer ? sighted(tokens) : [];
+  //
+  // P5 — and taken through this seat's own eyes when the DM has set individual share: the same
+  // closure the referee runs for the same identity, seeded on the tokens *you* claimed rather
+  // than on every claimed token at the table. Party share passes no seed and is unchanged.
+  const mine =
+    visionShareOf(fog) === 'individual' && you
+      ? (token: Token) => token.ownerId === you.identityId
+      : undefined;
+  const eyes = isVision && isPlayer ? sighted(tokens, mine) : [];
   //
   // Off *core's* layers rather than the document's, which is the one place this file reads
   // core on purpose: the table's live door state is stamped onto them for the lighting pass
@@ -786,12 +795,13 @@ function roomTiers(scene: FogScene): { earned: FogRing[]; memory: FogRing[] } {
 }
 
 /**
- * §1's three tiers, drawn through the party's own eyes: the sweep union is clear, everything
- * they have swept or the DM has revealed is a memory, and the rest is the same void.
+ * §1's three tiers, drawn through this seat's own eyes: the sweep union is clear, everything
+ * swept or DM-revealed is a memory, and the rest is the same void.
  *
- * ponytail: `visionShare: 'individual'` renders as party here — every claimed token's sweep is
- * in the union whoever is looking at the screen. Per-viewer masks are P5, and the server is
- * still the thing withholding anything secret either way.
+ * Nothing here knows about `visionShare`, and that is P5's point: `fogScene` narrows the eyes
+ * (`sighted`) and the referee narrows the memory record (`fog.region` is already *this*
+ * viewer's, mapped at redaction), so the two tiers diverge per seat without this pass having a
+ * second shape.
  */
 function visionTiers(scene: FogScene): {
   earned: FogRing[];
