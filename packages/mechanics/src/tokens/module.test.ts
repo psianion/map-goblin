@@ -414,6 +414,24 @@ describe('set-sight-link', () => {
     }
   })
 
+  it('unlinks an id that is no longer on the scene — the ghost is the thing to clean up', () => {
+    // Pre-existing data written before `delete` pruned its edges. Refusing this would leave a
+    // dangling link with no way out of it; linking *to* a ghost is still nonsense.
+    const haunted = stateWith(token({ id: 't1', sharesSightWith: ['gone'] }), token({ id: 't2' }))
+    const { error, next } = run(haunted, DM, 'set-sight-link', {
+      id: 't1',
+      otherId: 'gone',
+      linked: false,
+    })
+    expect(error).toBeNull()
+    expect(linksOf(next, 't1')).toBeUndefined()
+    expect(next.byScene[SCENE].gone).toBeUndefined()
+
+    expect(
+      run(haunted, DM, 'set-sight-link', { id: 't1', otherId: 'gone', linked: true }).error,
+    ).toMatchObject({ code: 'invalid-command' })
+  })
+
   it('is dm-only', () => {
     expect(
       run(pair(), P1, 'set-sight-link', { id: 't1', otherId: 't2', linked: true }).error,
@@ -431,6 +449,22 @@ describe('hide and delete', () => {
   it('deletes the instance only', () => {
     const { next } = run(stateWith(token(), token({ id: 't2' })), DM, 'delete', { id: 't1' })
     expect(Object.keys(next.byScene[SCENE])).toEqual(['t2'])
+  })
+
+  it('takes its half of every sight link with it — no edge is left pointing at a ghost', () => {
+    const state = stateWith(
+      token({ id: 't1', sharesSightWith: ['t2', 't3'] }),
+      token({ id: 't2', sharesSightWith: ['t1'] }),
+      token({ id: 't3', sharesSightWith: ['t1', 't2'] }),
+    )
+    const { next } = run(state, DM, 'delete', { id: 't1' })
+    const scene = next.byScene[SCENE]
+    expect(Object.keys(scene).sort()).toEqual(['t2', 't3'])
+    // The only edge t2 had was to the deleted token, so the key goes with it (absent ≡ none).
+    expect(scene.t2.sharesSightWith).toBeUndefined()
+    // …while an edge between two survivors is untouched.
+    expect(scene.t3.sharesSightWith).toEqual(['t2'])
+    expect(JSON.stringify(next)).not.toContain('t1')
   })
 })
 
@@ -650,6 +684,35 @@ describe('redact under token vision (S3 P1)', () => {
 
   it('still drops a hidden token standing in plain sight', () => {
     expect(Object.keys(redact(state, P1).byScene[SCENE])).not.toContain('hid1')
+  })
+
+  it('never names a dropped token through the surviving end of a sight link', () => {
+    // The leak the token drop is for, one field over: `sharesSightWith` is a list of token
+    // *ids*, so a party token linked to the hidden ambusher would carry its id — and its
+    // count — into every frame the player receives.
+    const linked: TokensState = {
+      library: {},
+      byScene: {
+        [SCENE]: {
+          mine1: { ...mine, sharesSightWith: ['hid1', 'lit1'] },
+          lit1: { ...lit, sharesSightWith: ['mine1'] },
+          hid1: { ...hidden, sharesSightWith: ['mine1'] },
+          dark1: { ...dark, sharesSightWith: ['dark2'] },
+          dark2: token({ id: 'dark2', x: 1.5, y: 6.5, sharesSightWith: ['dark1'] }),
+        },
+      },
+    }
+    const view = redact(linked, P1)
+    expect(JSON.stringify(view)).not.toContain('hid1')
+    expect(JSON.stringify(view)).not.toContain('dark2')
+    // The link to a token that did survive is still there — this trims, it does not erase.
+    expect(view.byScene[SCENE].mine1.sharesSightWith).toEqual(['lit1'])
+    // Trimmed to nothing drops the key rather than shipping an empty array.
+    expect('sharesSightWith' in view.byScene[SCENE].lit1).toBe(true)
+    expect(redact(linked, P2).byScene[SCENE].lit1.sharesSightWith).toBeUndefined()
+    // The DM's own view keeps every edge, and the source is untouched.
+    expect(redact(linked, DM)).toBe(linked)
+    expect(linked.byScene[SCENE].mine1.sharesSightWith).toEqual(['hid1', 'lit1'])
   })
 
   it('leaves the DM view untouched, object identity included', () => {

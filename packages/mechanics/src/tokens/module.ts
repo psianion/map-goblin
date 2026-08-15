@@ -104,6 +104,22 @@ export function tokensModule(visionOf: VisionOf = () => null): GameModule<Tokens
           if (token.hidden || !inSight(token, scene, mine)) dropped = true
           else visible[id] = token
         }
+        // A link is a token *id*, so a surviving token's `sharesSightWith` is a list of names
+        // — and one of them can name a token this viewer was never handed (the hidden familiar,
+        // the scout in the unseen room). That is the same leak dropping the token whole was for,
+        // so the edges are trimmed to the survivors. Second pass rather than one: whether a link
+        // survives is only answerable once the whole scene has been decided.
+        for (const [id, token] of Object.entries(visible)) {
+          const links = token.sharesSightWith
+          if (!links) continue
+          const kept = links.filter((other) => other in visible)
+          if (kept.length === links.length) continue
+          dropped = true
+          const trimmed = { ...token }
+          if (kept.length === 0) delete trimmed.sharesSightWith
+          else trimmed.sharesSightWith = kept
+          visible[id] = trimmed
+        }
         byScene[sceneId] = visible
       }
       return dropped ? { ...state, byScene } : state
@@ -301,8 +317,11 @@ function setSightLink(p: Payload, ctx: Ctx): void {
   const otherId = str(p.otherId, 'otherId', ID_MAX)
   if (otherId === token.id) bad('a token cannot share sight with itself')
   const other = ctx.state.byScene[sceneId]?.[otherId]
-  if (!other) bad('no such token in that scene')
   const linked = bool(p.linked, 'linked')
+  // Linking needs both ends to exist; *unlinking* must not. A ghost id is exactly the state
+  // this command has to be able to clean up (data written before `delete` pruned its edges),
+  // and refusing it would leave the only way out a hand-edited database.
+  if (linked && !other) bad('no such token in that scene')
 
   const withLink = (subject: Token, otherEnd: string): Token => {
     const links = new Set(subject.sharesSightWith ?? [])
@@ -324,7 +343,7 @@ function setSightLink(p: Payload, ctx: Ctx): void {
       [sceneId]: {
         ...state.byScene[sceneId],
         [token.id]: withLink(token, otherId),
-        [otherId]: withLink(other, token.id),
+        ...(other ? { [otherId]: withLink(other, token.id) } : {}),
       },
     },
   })
@@ -342,6 +361,18 @@ function remove(p: Payload, ctx: Ctx): void {
   const { sceneId, token } = find(p, ctx)
   const scene = { ...state.byScene[sceneId] }
   delete scene[token.id]
+  // The edge is symmetric and maintained on write (`setSightLink`), so it has to be *un*written
+  // on both ends here too — otherwise the familiar keeps naming a scout that no longer exists,
+  // which every reader of `sharesSightWith` would then have to cope with.
+  for (const id of token.sharesSightWith ?? []) {
+    const other = scene[id]
+    if (!other?.sharesSightWith) continue
+    const links = other.sharesSightWith.filter((linkId) => linkId !== token.id)
+    const next = { ...other }
+    if (links.length === 0) delete next.sharesSightWith
+    else next.sharesSightWith = links
+    scene[id] = next
+  }
   ctx.setState({ ...state, byScene: { ...state.byScene, [sceneId]: scene } })
 }
 

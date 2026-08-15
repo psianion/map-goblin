@@ -54,7 +54,7 @@ import {
   type FogState,
   type SceneFog,
 } from '@dnd/mechanics/fog';
-import type { Token, TokensState } from '@dnd/mechanics/tokens';
+import { sightParty, type Token, type TokensState } from '@dnd/mechanics/tokens';
 import {
   ambientOf,
   needsLight,
@@ -351,11 +351,15 @@ export const PARTY_ROOM_UNKNOWN = '\0party-elsewhere';
  * Where the party is standing, for D3's reachability BFS. A claimed token is a player at
  * the table; an unclaimed one is scenery the DM moves. D7 needs no special case here — a
  * player's own claimed token is always in their tokens slice, so it always counts.
+ *
+ * P4 §4 — "the party" is the sight-link closure, not the claimed tokens alone: the referee
+ * assembles its rooms-mode party with `sightParty`, and a client reading only `ownerId` would
+ * render a linked hawk's room as memory while the server ships it lit. One function, both
+ * sides. (Hidden and unclaimed-unlinked tokens are excluded inside it.)
  */
 export function partyRoomIds(tokens: readonly Token[], rooms: readonly Room[]): string[] {
   const ids = new Set<string>();
-  for (const token of tokens) {
-    if (!token.ownerId || token.hidden) continue;
+  for (const token of sightParty(tokens)) {
     const room = roomAt(rooms, token.x, token.y);
     ids.add(room ? room.id : PARTY_ROOM_UNKNOWN);
   }

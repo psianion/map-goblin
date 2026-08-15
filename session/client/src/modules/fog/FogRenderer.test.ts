@@ -337,6 +337,18 @@ describe('partyRoomIds', () => {
     expect(partyRoomIds(tokens, ROOMS).sort()).toEqual([GALLERY.id, VESTIBULE.id].sort());
   });
 
+  it('counts a linked token the party never claimed — the referee’s party is the closure', () => {
+    // P4 §4: the DM hands the party a hawk and links it to the scout. The server assembles
+    // its rooms-mode party with `sightParty`, so a client filtering on `ownerId` alone would
+    // paint the hawk's room as memory while the referee ships it lit.
+    const scout = token({ id: 't1', x: 2, y: 2, sharesSightWith: ['hawk'] });
+    const hawk = token({ id: 'hawk', x: 12, y: 2, ownerId: null, sharesSightWith: ['t1'] });
+    expect(partyRoomIds([scout, hawk], ROOMS).sort()).toEqual([GALLERY.id, VESTIBULE.id].sort());
+
+    // Hidden still trumps the link — the DM taking the hawk off the board closes it.
+    expect(partyRoomIds([scout, { ...hawk, hidden: true }], ROOMS)).toEqual([VESTIBULE.id]);
+  });
+
   it('names a room it cannot place a claimed token in, rather than reporting no party', () => {
     // The reload case: the party's own token is somewhere this tab has no geometry for,
     // because the default-room fallback stopped handing that room over (amendment

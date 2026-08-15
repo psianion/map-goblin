@@ -18,7 +18,7 @@ import { Container, Graphics } from 'pixi.js';
 import type { Room } from '@dnd/core/src/shared/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
-import { fogModeOf, type Cell, type FogState, type Frame } from '@dnd/mechanics/fog';
+import { fogModeOf, regionOf, type Cell, type FogState, type Frame } from '@dnd/mechanics/fog';
 import {
   addScreenOverlay,
   addWorldOverlay,
@@ -103,15 +103,46 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     return sceneFog(session?.modules?.fog as FogState | undefined, session?.activeSceneId ?? null);
   };
 
+  const frameNow = (): Frame | null => fogFrame(useSessionStore.getState().mapData);
+
   /**
    * The brush is a sub-mode of the armed tool (P4 §2) and a vision-mode one: the region record
    * is what a rooms-mode mask never draws, so painting cells there would write memory nothing
    * renders. Rooms-mode clicks stay exactly what they were.
+   *
+   * And a scene whose frame is past `REGION_CELL_MAX` keeps no region record at all — the
+   * referee refuses every cell of such a stroke, so the brush must not enter painting there.
+   * The panel disables the button for the same reason; this is the half that holds when the
+   * flag is already on.
    */
-  const brushArmed = () =>
-    toolArmed() && useFogBrush.getState().on && fogModeOf(sceneFogNow()) === 'vision';
+  const brushArmed = () => {
+    if (!toolArmed() || !useFogBrush.getState().on) return false;
+    if (fogModeOf(sceneFogNow()) !== 'vision') return false;
+    const frame = frameNow();
+    return frame !== null && regionOf(frame) !== undefined;
+  };
 
-  const frameNow = (): Frame | null => fogFrame(useSessionStore.getState().mapData);
+  /**
+   * The swept cells as row runs, remembered on the region's own identity.
+   *
+   * `regionRects` decodes the entire mask, and a redraw now happens per *cell* crossed during a
+   * brush stroke — the same bytes walked a dozen times a second for a record that only changes
+   * when the referee echoes a write. The store replaces its slices wholesale (§2.5), so identity
+   * is the whole test, exactly as `sync` already assumes.
+   *
+   * ponytail: still a fresh Graphics rebuild per redraw. At 512×512 (`REGION_CELL_MAX`) that is
+   * a few thousand rects; if a stroke ever stutters, the next step is drawing the wash into a
+   * RenderTexture and blitting it rather than re-recording the polys.
+   */
+  let cachedRegion: unknown = null;
+  let cachedRects: ReturnType<typeof regionRects> = [];
+  const rectsOf = (region: FogState['byScene'][string]['region']) => {
+    if (region !== cachedRegion) {
+      cachedRegion = region;
+      cachedRects = regionRects(region);
+    }
+    return cachedRects;
+  };
 
   const draw = () => {
     const { session, mapData } = useSessionStore.getState();
@@ -143,7 +174,7 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     // Rooms mode has no cell tier at all, and painting one there would say something the
     // player's canvas does not.
     if (fogModeOf(fog) === 'vision') {
-      for (const rect of regionRects(fog.region)) {
+      for (const rect of rectsOf(fog.region)) {
         paint.poly(rect.flat()).fill(REGION_WASH);
       }
     }
@@ -357,7 +388,15 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   document.addEventListener('pointerleave', onLeave, true);
   // No core-store subscription: everything this draws now comes off the session store.
   const unsubSession = useSessionStore.subscribe(sync);
-  const unsubTool = useActiveTool.subscribe(sync);
+  const unsubTool = useActiveTool.subscribe(() => {
+    // Leaving the tool leaves the brush behind with it: a flag surviving a disarm makes
+    // re-arming re-enter cell painting silently, on a click the DM meant for a room.
+    if (!toolArmed() && useFogBrush.getState().on) useFogBrush.getState().setOn(false);
+    sync();
+  });
+  // The brush is a thing this layer *draws* (the cell cursor instead of the room highlight),
+  // so toggling it has to repaint now rather than on the next pointer event.
+  const unsubBrush = useFogBrush.subscribe(sync);
   sync();
 
   return () => {
@@ -370,6 +409,7 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     document.removeEventListener('pointerleave', onLeave, true);
     unsubSession();
     unsubTool();
+    unsubBrush();
     // The engine may already be gone (GameRenderer unmounting first) — its objects are
     // destroyed and touching them throws.
     try {

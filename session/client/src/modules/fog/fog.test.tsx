@@ -94,6 +94,7 @@ beforeEach(() => {
   });
   useActiveTool.getState().setActiveTool(null);
   useToasts.setState({ toast: null });
+  useFogBrush.setState({ on: false, op: 'reveal' });
   useStore.setState({ layers: [dungeonLayer([CRYPT, HALL])] });
 });
 
@@ -423,7 +424,13 @@ describe('what the room list derives that the fog record does not hold', () => {
 
 describe('Fog panel v2 — mode, and what the mode brings with it', () => {
   const arm = (fog: FogState) => {
-    useSessionStore.setState({ session: session({ fog }), you: dm });
+    // A stamped frame, because the brush is only offered where the scene can keep a region
+    // record — measured off this map with the function the referee measures it with.
+    useSessionStore.setState({
+      session: session({ fog }),
+      you: dm,
+      mapData: { frame: FRAME, layers: [dungeonLayer([CRYPT, HALL])] },
+    });
     const sent = captureCommands();
     render(<FogTool />);
     fireEvent.click(screen.getByTestId('fog-tool-toggle'));
@@ -487,5 +494,51 @@ describe('Fog panel v2 — mode, and what the mode brings with it', () => {
     // Leaving the tool leaves the brush behind with it.
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(useActiveTool.getState().toolDetail).toBeNull();
+  });
+
+  it('does not offer the brush on a scene that keeps no cell memory, and says why', () => {
+    // A frame past `REGION_CELL_MAX`: the referee refuses every `region-set` on it, so a brush
+    // here paints into a void and the DM finds out from a rejection they never see.
+    useSessionStore.setState({
+      session: session({ fog: visionScene() }),
+      you: dm,
+      mapData: { frame: { minX: 0, minY: 0, maxX: 4000, maxY: 4000 }, layers: [layerWith([])] },
+    });
+    const sent = captureCommands();
+    render(<FogTool />);
+    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
+
+    const brush = screen.getByTestId('fog-brush') as HTMLButtonElement;
+    expect(brush.disabled).toBe(true);
+    expect(screen.getByTestId('fog-brush-unavailable').textContent).toContain('too large');
+    fireEvent.click(brush);
+    expect(useFogBrush.getState().on).toBe(false);
+    expect(sent).toEqual([]);
+  });
+
+  it('tints “Partly seen” on its own, per the mockup — the one status that is mid-way', () => {
+    useSessionStore.setState({
+      session: session({
+        fog: visionScene({
+          rooms: {
+            'r-crypt': { status: 're_hidden', wasEverRevealed: true },
+            'r-hall': { status: 're_hidden', wasEverRevealed: true },
+          },
+          region: setCells(regionOf(FRAME)!, [[1, 1]]),
+        }),
+      }),
+      you: dm,
+      mapData: { frame: FRAME, layers: [layerWith([])] },
+    });
+    render(<FogTool />);
+    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
+
+    const rows = screen.getByTestId('fog-rooms').querySelectorAll('li');
+    const statusOf = (row: Element) => row.querySelectorAll('span')[row.querySelectorAll('span').length - 1];
+    expect(rows[0].getAttribute('data-fog-label')).toBe('Partly seen');
+    expect(statusOf(rows[0]).className).toContain('text-warning');
+    // Every other status stays the quiet tier — the tint is the state, not decoration.
+    expect(rows[1].getAttribute('data-fog-label')).toBe('Explored');
+    expect(statusOf(rows[1]).className).toContain('text-text-secondary');
   });
 });

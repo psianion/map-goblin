@@ -356,10 +356,26 @@ describe('forged clients (§2.6 ownership enforcement)', () => {
       sendCommand(player, 'tokens', 'hide', { id: visible.id })
       expect((await next(player, 'error')).code).toBe('unauthorized')
 
+      // Claimed, so it is a party token whose every field reaches this socket.
+      const claimed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(player, 'tokens', 'claim', { id: visible.id })
+      await claimed
+
       const hiddenPlaced = nextState<TokensState>(dm, 'tokens')
       sendCommand(dm, 'tokens', 'place', { name: 'Ambusher', x: 9.1, y: 9.1, hidden: true })
       const ambusher = Object.values((await hiddenPlaced).byScene[sceneId]).find((t) => t.hidden)!
       expect(ambusher.name).toBe('Ambusher')
+
+      // P4 §4 — the DM links the hidden familiar to the party's own token. The link is stored
+      // on BOTH ends, so the party token now carries the hidden token's id in a field that
+      // ships: the id of a token this seat must never learn exists, and the count of them.
+      const linked = nextState<TokensState>(dm, 'tokens')
+      sendCommand(dm, 'tokens', 'set-sight-link', {
+        id: ambusher.id,
+        otherId: visible.id,
+        linked: true,
+      })
+      expect((await linked).byScene[sceneId][visible.id].sharesSightWith).toEqual([ambusher.id])
 
       // The player never received it (D4 drops hidden tokens whole), but a forged client
       // can still guess an id — the handler answers as if the token does not exist, so the
@@ -371,14 +387,20 @@ describe('forged clients (§2.6 ownership enforcement)', () => {
       const snapshot = await next(player, 'session-state')
       const forPlayer = snapshot.state.modules.tokens as TokensState
       expect(Object.keys(forPlayer.byScene[sceneId])).toEqual([visible.id])
-      expect(Object.values(forPlayer.byScene[sceneId])[0].ownerId).toBeNull()
+      expect(Object.values(forPlayer.byScene[sceneId])[0].ownerId).toBe('FH-p0')
+      // …and their own token arrives with no trace of the edge it is one end of.
+      expect(forPlayer.byScene[sceneId][visible.id].sharesSightWith).toBeUndefined()
 
       // Nothing about the ambusher — not its id, not its name, not its position — was ever
-      // on this socket, in any frame, redacted or otherwise.
+      // on this socket, in any frame, redacted or otherwise. The link is the third way that
+      // id could travel, and it is searched for as bytes because that is the absolute.
       for (const frame of seen) {
         expect(frame).not.toContain(ambusher.id)
         expect(frame).not.toContain('Ambusher')
       }
+      // The socket did receive the party token after the link was written — an empty search
+      // proves nothing otherwise.
+      expect(seen.some((frame) => frame.includes(visible.id))).toBe(true)
     })
   })
 })

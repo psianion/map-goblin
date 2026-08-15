@@ -399,6 +399,44 @@ describe('the fog brush writes cells, not rooms (P4 §2)', () => {
     expect(tinted(sceneGraph), 'the swept cells never reached the DM canvas').not.toBe(empty);
   });
 
+  it('paints nothing on a scene too large to keep a region record', () => {
+    // Past `REGION_CELL_MAX`: the referee refuses every cell of the stroke, so the brush must
+    // not enter painting at all — the click stays the room click it was.
+    const sent = brushing();
+    useSessionStore.setState({
+      mapData: {
+        frame: { minX: 0, minY: 0, maxX: 4000, maxY: 4000 },
+        layers: [dungeonLayer([CRYPT, HALL])],
+      },
+    });
+    down(2, 2);
+    up();
+    expect(sent.map((s) => s.action)).toEqual(['reveal']);
+  });
+
+  it('repaints the moment the brush is toggled, not on the next pointer event', () => {
+    // Nothing subscribed to the brush store, so arming it left the last frame on screen until
+    // the DM happened to move the pointer — the cursor lying about what a click will do.
+    brushing();
+    move(2, 2);
+    const cell = drawn(sceneGraph);
+    useFogBrush.setState({ on: false });
+    expect(drawn(sceneGraph), 'the brush toggle never reached the overlay').not.toBe(cell);
+  });
+
+  it('drops the brush when the tool is disarmed, so re-arming never re-enters it silently', () => {
+    const sent = brushing();
+    expect(useFogBrush.getState().on).toBe(true);
+    useActiveTool.getState().setActiveTool(null);
+    expect(useFogBrush.getState().on).toBe(false);
+
+    // Re-arming is the room tool again, which is what the panel's own button then says.
+    useActiveTool.getState().setActiveTool('fog');
+    down(2, 2);
+    up();
+    expect(sent.map((s) => s.action)).toEqual(['reveal']);
+  });
+
   it('shows one cell under the cursor instead of the whole room', () => {
     brushing();
     move(2, 2);

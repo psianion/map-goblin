@@ -638,7 +638,10 @@ describe('TokenPanel — Sight & light (DM only)', () => {
     const withSight = panel([token({ sight: { range: 6, angle: 360, visionMode: 'normal' } })]);
     expect(screen.getByLabelText('Sight range')).toHaveProperty('value', '30');
 
+    // A range commits on blur, never per keystroke (every update is a sweep + a broadcast).
     fireEvent.change(screen.getByLabelText('Sight range'), { target: { value: '60' } });
+    expect(withSight).toEqual([]);
+    fireEvent.blur(screen.getByLabelText('Sight range'));
     expect(withSight[0].payload.sight).toEqual({ range: 12, angle: 360, visionMode: 'normal' });
 
     fireEvent.change(screen.getByLabelText('Vision mode'), { target: { value: 'darkvision' } });
@@ -654,6 +657,7 @@ describe('TokenPanel — Sight & light (DM only)', () => {
     expect(screen.getByLabelText('Bright light radius')).toHaveProperty('value', '20');
 
     fireEvent.change(screen.getByLabelText('Bright light radius'), { target: { value: '10' } });
+    fireEvent.blur(screen.getByLabelText('Bright light radius'));
     expect(sent[0].payload.light).toEqual({ dim: 8, bright: 2, color: '#ffbb66', angle: 360 });
 
     fireEvent.change(screen.getByLabelText('Light colour'), { target: { value: '#3366ff' } });
@@ -661,6 +665,34 @@ describe('TokenPanel — Sight & light (DM only)', () => {
 
     fireEvent.click(screen.getByTestId('token-light-clear'));
     expect(sent[2].payload).toEqual({ id: 't1', light: null });
+  });
+
+  it('commits a range once, on the way out — and never commits an emptied field', () => {
+    const sent = panel([token({ sight: { range: 6, angle: 360, visionMode: 'normal' }, light: null })]);
+    const range = screen.getByLabelText('Sight range');
+
+    // Typing "120" one key at a time: three updates would be three party sweeps and three
+    // fog broadcasts, and the table would spend the middle of them playing on a 10 ft range.
+    for (const value of ['1', '12', '120']) fireEvent.change(range, { target: { value } });
+    expect(sent).toEqual([]);
+
+    fireEvent.blur(range);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].payload.sight).toEqual({ range: 24, angle: 360, visionMode: 'normal' });
+
+    // Clearing the field to type a new number reads as NaN, which used to commit as 0 —
+    // sight range zero collapses every player's mask mid-keystroke. Nothing is sent, and the
+    // field falls back to the value the table is still playing on.
+    fireEvent.change(range, { target: { value: '' } });
+    fireEvent.blur(range);
+    expect(sent).toHaveLength(1);
+    expect(range).toHaveProperty('value', '30');
+
+    // Enter commits from the keyboard, exactly once — it blurs rather than sending beside it.
+    fireEvent.change(range, { target: { value: '45' } });
+    fireEvent.keyDown(range, { key: 'Enter' });
+    expect(sent).toHaveLength(2);
+    expect(sent[1].payload.sight).toMatchObject({ range: 9 });
   });
 
   it('links a token to another and unlinks it from the chip', () => {

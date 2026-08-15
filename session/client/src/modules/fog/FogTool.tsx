@@ -13,7 +13,15 @@
 // the ones that were already here, unchanged.
 
 import { useEffect, useMemo } from 'react';
-import { autoExploreOn, fogModeOf, type FogMode, type FogState, type RoomFog, type VisionShare } from '@dnd/mechanics/fog';
+import {
+  autoExploreOn,
+  fogModeOf,
+  regionOf,
+  type FogMode,
+  type FogState,
+  type RoomFog,
+  type VisionShare,
+} from '@dnd/mechanics/fog';
 import { registerPanel } from '../../session/panels';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { UNDO_TOAST_MS, showToast } from '../../session/toasts';
@@ -22,6 +30,7 @@ import { useFogBrush, type BrushOp } from './brush';
 import {
   FOG_STATUS_LABEL,
   fogActionFor,
+  fogFrame,
   hideAllRooms,
   lockedRooms,
   partlySeenRooms,
@@ -188,6 +197,17 @@ export function FogTool() {
   const locked = useMemo(() => lockedRooms(rooms, serverLayers(mapData)), [rooms, mapData]);
 
   /**
+   * Whether this scene keeps a region record at all — measured off the DM's own map with the
+   * function the referee measures it with, so the answer here is the one `region-set` will
+   * give. A frame past `REGION_CELL_MAX` keeps no cell memory, and every stroke a DM painted
+   * on it would be refused after the fact; the button says so instead.
+   */
+  const brushable = useMemo(() => {
+    const frame = fogFrame(mapData);
+    return frame !== null && regionOf(frame) !== undefined;
+  }, [mapData]);
+
+  /**
    * D9 — the bulk ops land instantly and hand back a way out, instead of stopping to ask.
    * The record captured here is the scene's fog *before* the change, and undo replays it
    * verbatim through `set-bulk`: whatever mixture of revealed and explored rooms the DM
@@ -269,8 +289,9 @@ export function FogTool() {
                 type="button"
                 data-testid="fog-brush"
                 aria-pressed={brushOn}
+                disabled={!brushable}
                 onClick={() => setBrushOn(!brushOn)}
-                className={`rounded border px-2 py-1 text-left text-xs transition-colors duration-150 ease-out-quart focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none ${
+                className={`rounded border px-2 py-1 text-left text-xs transition-colors duration-150 ease-out-quart focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:cursor-not-allowed disabled:text-text-muted disabled:hover:bg-surface-2 motion-reduce:transition-none ${
                   brushOn
                     ? 'border-border-focus bg-surface-3 font-medium text-text-primary'
                     : 'border-border-default bg-surface-2 text-text-secondary hover:bg-surface-3 hover:text-text-primary active:bg-surface-1'
@@ -278,7 +299,14 @@ export function FogTool() {
               >
                 {brushOn ? `Fog brush — ${brushOp === 'reveal' ? 'revealing' : 'hiding'}` : 'Fog brush'}
               </button>
-              {brushOn && (
+              {!brushable && (
+                // Said once, where the click would have been: without it the brush paints into
+                // a void and the referee refuses the stroke after the fact.
+                <p data-testid="fog-brush-unavailable" className="text-xs text-text-secondary">
+                  This map is too large to keep cell memory — reveal by room here.
+                </p>
+              )}
+              {brushOn && brushable && (
                 <>
                   <Segmented
                     label="Brush paints"
@@ -358,7 +386,14 @@ export function FogTool() {
                           Locked
                         </span>
                       )}
-                      <span className="shrink-0 text-text-secondary">{label}</span>
+                      {/* The one status the mockup tints: "partly seen" is a state the DM is
+                          mid-way through, not a settled one, so it carries the chrome's own
+                          warning token (never the theme accent — overlays stay neutral). */}
+                      <span
+                        className={`shrink-0 ${label === 'Partly seen' ? 'text-warning' : 'text-text-secondary'}`}
+                      >
+                        {label}
+                      </span>
                     </button>
                   </li>
                 );

@@ -66,6 +66,55 @@ const unitLabel = 'shrink-0 text-[11px] text-text-muted';
 const quietButton =
   'shrink-0 rounded-chip border border-border-default px-1.5 py-0.5 text-[11px] text-text-secondary transition-colors duration-150 ease-out-quart hover:bg-surface-3 hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none';
 
+/**
+ * A range field that commits on blur or Enter, never per keystroke.
+ *
+ * Every `tokens update` is an auto-explore trigger — a full sweep for the party and a fog
+ * broadcast to the table — so a DM typing "30" would fire three of them, and the middle of
+ * "30" is 3. Worse, an emptied field reads `NaN`, which committed as 0: sight range zero
+ * collapses every player's mask while the DM is still typing. So the draft lives here, and
+ * a draft that is not a number is discarded rather than sent — the field snaps back to the
+ * last value the token actually has, which is the one the table is still playing on.
+ */
+function RangeField({
+  label,
+  testId,
+  value,
+  step,
+  onCommit,
+}: {
+  label: string;
+  testId: string;
+  value: number;
+  step: number;
+  onCommit: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    const next = Number(draft);
+    if (draft !== null && draft.trim() !== '' && Number.isFinite(next)) onCommit(Math.max(0, next));
+    setDraft(null);
+  };
+  return (
+    <input
+      type="number"
+      min={0}
+      step={step}
+      aria-label={label}
+      data-testid={testId}
+      value={draft ?? value}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      // Enter commits from the keyboard. It cannot double-send with the blur that follows:
+      // committing clears the draft, and a commit with no draft is a no-op.
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit();
+      }}
+      className={numberInput}
+    />
+  );
+}
+
 /** A labelled row with the field's own "give it one" / "take it away" affordance on the right. */
 function NullableField({
   label,
@@ -135,15 +184,12 @@ function SightAndLight({
         onClear={() => update({ sight: null })}
       >
         <div className="flex items-center gap-1">
-          <input
-            type="number"
-            min={0}
+          <RangeField
+            label="Sight range"
+            testId="token-sight-range"
             step={scale.value}
-            aria-label="Sight range"
-            data-testid="token-sight-range"
             value={toUnits(token.sight?.range ?? 0, scale)}
-            onChange={(e) => setSight({ range: Math.max(0, toCells(e.target.valueAsNumber || 0, scale)) })}
-            className={numberInput}
+            onCommit={(units) => setSight({ range: toCells(units, scale) })}
           />
           <span className={unitLabel}>{scale.unit}</span>
           <select
@@ -170,26 +216,20 @@ function SightAndLight({
         onClear={() => update({ light: null })}
       >
         <div className="flex items-center gap-1">
-          <input
-            type="number"
-            min={0}
+          <RangeField
+            label="Bright light radius"
+            testId="token-light-bright"
             step={scale.value}
-            aria-label="Bright light radius"
-            data-testid="token-light-bright"
             value={toUnits(token.light?.bright ?? 0, scale)}
-            onChange={(e) => setLight({ bright: Math.max(0, toCells(e.target.valueAsNumber || 0, scale)) })}
-            className={numberInput}
+            onCommit={(units) => setLight({ bright: toCells(units, scale) })}
           />
           <span className={unitLabel}>bright</span>
-          <input
-            type="number"
-            min={0}
+          <RangeField
+            label="Dim light radius"
+            testId="token-light-dim"
             step={scale.value}
-            aria-label="Dim light radius"
-            data-testid="token-light-dim"
             value={toUnits(token.light?.dim ?? 0, scale)}
-            onChange={(e) => setLight({ dim: Math.max(0, toCells(e.target.valueAsNumber || 0, scale)) })}
-            className={numberInput}
+            onCommit={(units) => setLight({ dim: toCells(units, scale) })}
           />
           <span className={unitLabel}>dim</span>
           {/* The platform's own colour input: it can only produce `#rrggbb`, which is inside
