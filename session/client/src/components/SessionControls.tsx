@@ -1,14 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
-import {
-  AMBIENTS,
-  TIMES,
-  WEATHERS,
-  vocabLabel,
-  type AmbientLevel,
-  type TimeOfDay,
-  type Weather,
-} from '@dnd/core/src/shared/prep';
+import { WEATHERS, vocabLabel, type Weather } from '@dnd/core/src/shared/prep';
 import type { TriggersState } from '@dnd/mechanics/triggers';
 import { sceneTriggersOf } from '@dnd/mechanics/triggers';
 import {
@@ -38,41 +30,6 @@ const selectInput =
 // disconnect) must not show forever — each field's own timer falls it back to the
 // env echo. Fixed window; key it to connection state instead if 4s proves tight.
 const PENDING_TIMEOUT_MS = 4000;
-
-/** The three dials the Environment section sets, and the vocabulary each one picks from. */
-interface EnvFields {
-  time: TimeOfDay;
-  weather: Weather;
-  ambient: AmbientLevel;
-}
-type EnvField = keyof EnvFields;
-const ENV_FIELDS: EnvField[] = ['time', 'weather', 'ambient'];
-
-/**
- * One dial, with its field and its vocabulary tied together — distributed over the fields so
- * `{ field: 'time', values: AMBIENTS }` is a type error rather than a runtime surprise (D9).
- */
-type EnvDial = {
-  [F in EnvField]: {
-    field: F;
-    label: string;
-    aria: string;
-    values: readonly EnvFields[F][];
-    /** Whether "Not set" is a pick — the module only accepts a clear for `ambient` (D2). */
-    clearable?: boolean;
-  };
-}[EnvField];
-
-/**
- * The selects, in the order a DM reads them. `ambient` is the one that means something
- * mechanically — in `darkness` a normal eye sees only what a light source covers (S3 P3 §1)
- * — so it is labelled for what it does to the table ("Light"), not for the field's name.
- */
-const ENV_DIALS: EnvDial[] = [
-  { field: 'time', label: 'Time', aria: 'Time of day', values: TIMES },
-  { field: 'weather', label: 'Weather', aria: 'Weather', values: WEATHERS },
-  { field: 'ambient', label: 'Light', aria: 'Ambient light', values: AMBIENTS, clearable: true },
-];
 
 /**
  * §2.4.2 — the DM's corner of the table: invite code, scene library, and in-session
@@ -131,63 +88,37 @@ export function SessionControls() {
     useSessionStore.getState().sendCommand('scenes', 'activate', { sceneId });
   };
 
-  // The module sets a field and — for `ambient` alone — takes it back off, because an
-  // untouched scene and an explicit `daylight` do not light the same (D2). Time and weather
-  // are narration and stay set-only.
+  // P2 — weather is what is left of the environment triad here. The hour is the campaign's
+  // world clock and the light level is the vision gate's override, and both of those live in
+  // the World block now: one clock for the world beats a per-scene narration dial that said a
+  // different time than the sky did.
   const triggersState = useModuleState<TriggersState>('triggers');
   const env = activeSceneId && triggersState ? sceneTriggersOf(triggersState, activeSceneId).env : {};
 
-  // Optimistic echo: a select shows its own pending pick the instant it's clicked rather
-  // than snapping back to `env` until the server's broadcast round-trips. Cleared per-field
-  // once `env` catches up, and wholesale on scene switch — a pending pick from the scene you
-  // just left has no business showing on the one you switched to.
-  // `null` is a pending *clear* — distinct from "no pending pick", which is the absent key.
-  const [pending, setPending] = useState<{ [F in EnvField]?: EnvFields[F] | null }>({});
-  const pendingTimeouts = useRef<Partial<Record<EnvField, ReturnType<typeof setTimeout>>>>({});
-  const clearPendingTimeout = (field: EnvField) => {
-    clearTimeout(pendingTimeouts.current[field]);
-    pendingTimeouts.current[field] = undefined;
-  };
-  const clearAllPending = () => ENV_FIELDS.forEach(clearPendingTimeout);
+  // Optimistic echo: the select shows its own pending pick the instant it's clicked rather
+  // than snapping back to `env` until the server's broadcast round-trips. Cleared once `env`
+  // catches up, and on scene switch — a pending pick from the scene you just left has no
+  // business showing on the one you switched to.
+  const [pending, setPending] = useState<Weather | undefined>();
+  const pendingTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const weather = pending ?? env.weather;
 
   useEffect(() => {
-    setPending({});
-    clearAllPending();
-    // The fields are a constant list; the effect is about the scene changing under them.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setPending(undefined);
+    clearTimeout(pendingTimeout.current);
   }, [activeSceneId]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => clearAllPending, []);
+  useEffect(() => () => clearTimeout(pendingTimeout.current), []);
 
   useEffect(() => {
-    setPending((p) => {
-      // A pending clear is done when the field is gone, so `null` reads as `undefined` here.
-      const done = ENV_FIELDS.filter((f) => f in p && (p[f] ?? undefined) === env[f]);
-      if (done.length === 0) return p; // unchanged reference — no wasted render
-      const next = { ...p };
-      for (const field of done) {
-        delete next[field];
-        clearPendingTimeout(field);
-      }
-      return next;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [env.time, env.weather, env.ambient]);
+    setPending((p) => (p === env.weather ? undefined : p));
+  }, [env.weather]);
 
-  /** One field, one command, one echo — the three selects differ only in their vocabulary.
-   *  `null` is the clear the module accepts for `ambient` (D2), and it echoes like any pick. */
-  const setEnv = <F extends EnvField>(field: F, value: EnvFields[F] | null) => {
-    setPending((p) => ({ ...p, [field]: value }));
-    clearPendingTimeout(field);
-    pendingTimeouts.current[field] = setTimeout(() => {
-      setPending((p) => {
-        const next = { ...p };
-        delete next[field];
-        return next;
-      });
-    }, PENDING_TIMEOUT_MS);
-    useSessionStore.getState().sendCommand('triggers', 'set-environment', { [field]: value });
+  const setWeather = (value: Weather) => {
+    setPending(value);
+    clearTimeout(pendingTimeout.current);
+    pendingTimeout.current = setTimeout(() => setPending(undefined), PENDING_TIMEOUT_MS);
+    useSessionStore.getState().sendCommand('triggers', 'set-environment', { weather: value });
   };
 
   const upload = (file: File) =>
@@ -365,43 +296,29 @@ export function SessionControls() {
       <div className="border-t border-neutral-800 pt-2">
         <p className="mb-1 text-xs uppercase tracking-wide text-neutral-500">Environment</p>
         {activeSceneId ? (
-          // Two to a row: three of these across a panel this narrow would truncate every
-          // label. `Light` lands under `Time`, which is the pair a DM reads together.
-          <div className="grid grid-cols-2 gap-2">
-            {ENV_DIALS.map(({ field, label, aria, values, clearable }) => (
-              <div key={field} className="flex min-w-0 flex-col gap-0.5">
-                {/* Sentence case, no tracking — a field under the ENVIRONMENT header, not a peer section. */}
-                <label htmlFor={`env-${field}-select`} className="text-xs text-neutral-500">
-                  {label}
-                </label>
-                <select
-                  id={`env-${field}-select`}
-                  value={field in pending ? (pending[field] ?? '') : (env[field] ?? '')}
-                  aria-label={aria}
-                  data-testid={`env-${field}`}
-                  onChange={(e) => {
-                    const picked = e.target.value;
-                    if (picked) setEnv(field, picked as EnvFields[typeof field]);
-                    else if (clearable) setEnv(field, null);
-                  }}
-                  className={selectInput}
-                >
-                  {/* Off the table for time and weather, which the module only ever sets;
-                      `ambient` can go back to untouched, which is not the same as daylight. */}
-                  <option
-                    value=""
-                    disabled={!clearable && (field in pending || env[field] !== undefined)}
-                  >
-                    Not set
-                  </option>
-                  {values.map((v) => (
-                    <option key={v} value={v}>
-                      {vocabLabel(v)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ))}
+          <div className="flex min-w-0 flex-col gap-0.5">
+            {/* Sentence case, no tracking — a field under the ENVIRONMENT header, not a peer section. */}
+            <label htmlFor="env-weather-select" className="text-xs text-neutral-500">
+              Weather
+            </label>
+            <select
+              id="env-weather-select"
+              value={weather ?? ''}
+              aria-label="Weather"
+              data-testid="env-weather"
+              onChange={(e) => e.target.value && setWeather(e.target.value as Weather)}
+              className={selectInput}
+            >
+              {/* Off the table once set: the module only ever sets weather, never clears it. */}
+              <option value="" disabled={weather !== undefined}>
+                Not set
+              </option>
+              {WEATHERS.map((v) => (
+                <option key={v} value={v}>
+                  {vocabLabel(v)}
+                </option>
+              ))}
+            </select>
           </div>
         ) : (
           <p className="text-sm text-neutral-500">Activate a scene to set its environment.</p>

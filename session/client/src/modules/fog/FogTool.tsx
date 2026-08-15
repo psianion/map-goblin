@@ -22,6 +22,7 @@ import {
   type RoomFog,
   type VisionShare,
 } from '@dnd/mechanics/fog';
+import { Segmented, Switch } from '../../components/controls';
 import { registerPanel } from '../../session/panels';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { UNDO_TOAST_MS, showToast } from '../../session/toasts';
@@ -46,95 +47,8 @@ const send = (action: string, payload: unknown): void =>
   useSessionStore.getState().sendCommand('fog', action, payload);
 
 // ── The panel's own vocabulary ─────────────────────────────────────────────
-// Three of these on one panel, so they are written once. Both are the shapes already in this
-// file — the switch is the conceal toggle's markup, and the segment is the tool button's two
-// states side by side — rather than a component library this panel is the only member of.
-
-/**
- * A one-of-N choice. `role="radiogroup"` and not a row of `aria-pressed` buttons: pressed
- * says "this is on", which would leave a screen reader hearing two independent toggles where
- * a DM sees one either/or.
- */
-function Segmented<T extends string>({
-  label,
-  testId,
-  value,
-  options,
-  onPick,
-}: {
-  label: string;
-  testId: string;
-  value: T;
-  options: readonly { value: T; label: string }[];
-  onPick: (value: T) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span id={`${testId}-label`} className="text-xs text-text-secondary">
-        {label}
-      </span>
-      <div
-        role="radiogroup"
-        aria-labelledby={`${testId}-label`}
-        data-testid={testId}
-        data-value={value}
-        className="flex gap-0.5 rounded border border-border-default bg-surface-1 p-0.5"
-      >
-        {options.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={option.value === value}
-            data-value={option.value}
-            onClick={() => onPick(option.value)}
-            className={`min-w-0 flex-1 truncate rounded px-2 py-1 text-xs transition-colors duration-150 ease-out-quart focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none ${
-              option.value === value
-                ? 'bg-surface-3 font-medium text-text-primary'
-                : 'text-text-secondary hover:bg-surface-2 hover:text-text-primary active:bg-surface-1'
-            }`}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/** The conceal toggle's own markup, lifted so the two switches on this panel are one thing. */
-function Switch({
-  testId,
-  checked,
-  onToggle,
-  children,
-}: {
-  testId: string;
-  checked: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      data-testid={testId}
-      aria-checked={checked}
-      onClick={onToggle}
-      className="flex items-center gap-2 rounded px-1 py-1 text-left text-xs text-text-secondary transition-colors duration-150 ease-out-quart hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none"
-    >
-      <span
-        aria-hidden
-        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-chip border ${
-          checked ? 'border-border-focus bg-surface-3 text-text-primary' : 'border-border-default'
-        }`}
-      >
-        {checked ? '✓' : ''}
-      </span>
-      {children}
-    </button>
-  );
-}
+// `Segmented` and `Switch` started here and now live in `components/controls.tsx`, because
+// the World block reaches for the same two shapes (see that file's header).
 
 const MODES: readonly { value: FogMode; label: string }[] = [
   { value: 'rooms', label: 'Rooms' },

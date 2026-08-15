@@ -101,3 +101,37 @@ body,
   border: 1px solid var(--border);
   cursor: pointer;
 }
+
+/* The world clock. The day's own gradient is the track (painted by the World block), so this
+   input contributes nothing but the playhead: a solid blade, not a knob. */
+.clock-ribbon {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: ew-resize;
+}
+
+.clock-ribbon::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 3px;
+  height: 24px;
+  border-radius: 1px;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.85);
+  cursor: ew-resize;
+}
+
+.clock-ribbon::-moz-range-thumb {
+  width: 3px;
+  height: 24px;
+  border: 0;
+  border-radius: 1px;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.85);
+  cursor: ew-resize;
+}
+
+.clock-ribbon:focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 2px;
+}
