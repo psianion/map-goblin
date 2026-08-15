@@ -384,32 +384,31 @@ const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floo
  * which is a phase of its own and not a gate item.
  *
  * So the floor is *asserted* rather than logged, which is what makes the §1 work a thing that
- * stays done — and it is asserted twice, because one number cannot carry it on this box. The
- * same ten-step drag on the same code read medians of 12.2 and 13.6 running alone and 17.7 and
- * 20.8 as the fourth spec file of a full sprint3 run, where three tables have already been
- * stood up and torn down; the run before the perf work read 33.8 alone (22.9 at its fastest
- * step). A median bound tight enough to catch that regression in isolation is inside the noise
- * of a full run, and one loose enough to be quiet there catches nothing.
+ * stays done — but only the median carries an assertion. The same ten-step drag on the same
+ * code read medians of 12.2 and 13.6 running alone and 17.7 and 20.8 as the fourth spec file
+ * of a full sprint3 run, where three tables have already been stood up and torn down; the run
+ * before the perf work read 33.8 alone (22.9 at its fastest step). The 30ms median bound
+ * discriminates in both conditions: good code stays under it loaded or idle, and the reverted
+ * code fails it even idle.
  *
- * So: the median carries the ceiling, and the *fastest* of the ten steps carries the
- * discrimination. A step can only be pushed up by the box — a rebuild interrupted by another
- * tab's frame is still that rebuild plus something else — so the quickest one is the cleanest
- * reading of what the work actually costs, and it is the number the regression moves furthest
- * (14.4 at its worst here against 22.9 before the work).
+ * The fastest of the ten steps is *reported*, not asserted. It was asserted at 20ms once, on
+ * the theory that the quickest step is the cleanest reading of what the work costs — and then
+ * a heavily loaded box measured 20.4 at its fastest against the reverted code's idle 22.9.
+ * There is no reliable line between those two numbers, so a bound there is a coin flip on a
+ * busy afternoon, and a flaky gate row is worse than one honest bound. The number still
+ * prints in the metric line so a drift shows up in the log history.
  *
- * What these two numbers therefore catch is a **full revert of the P6 perf work; a partial
- * regression hides inside the box-noise headroom** — dropping `reachOf` alone and keeping the
- * memos lands around 17–19ms median, comfortably inside both bounds. That is the accepted
- * trade-off rather than an oversight: the headroom is what a full sprint3 run costs this box
- * (12.2 alone against 17.7 as the fourth spec file), and a bound tight enough to see half the
- * work go is a bound that fails on a busy afternoon. Treat these as a floor under the phase,
- * not a pin through it; the per-call breakdown that would pin one half lives in `fog.ts`.
+ * What the median bound catches is a **full revert of the P6 perf work; a partial regression
+ * hides inside the box-noise headroom** — dropping `reachOf` alone and keeping the memos
+ * lands around 17–19ms median, inside the bound. That is the accepted trade-off rather than
+ * an oversight; the client unit suite's memo-key rows are what pin the individual pieces, and
+ * the per-call breakdown lives in `fog.ts`. Treat this as a floor under the phase, not a pin
+ * through it.
  *
  * The plan's own second budget, 60fps held mid-drag, is met outright: 60.1fps on the masked
  * seat against 60.1 on the DM's.
  */
 const REBUILD_BUDGET_MS = 30
-const REBUILD_FLOOR_MS = 20
 
 // ── The table ──────────────────────────────────────────────────────────────
 
@@ -713,18 +712,14 @@ test.describe.serial('@sprint3-vision-gate', () => {
         `${warm.cells} swept cell(s) through ${warm.sources} eyes; ${night.toFixed(2)}ms median ` +
         `in darkness; ${seat.toFixed(1)}fps on the masked player seat against ` +
         `${dmSeat.toFixed(1)}fps on the DM's unmasked canvas, ${nightSeat.toFixed(1)}fps in the dark`,
-      `≤ ${REBUILD_BUDGET_MS}ms median and ≤ ${REBUILD_FLOOR_MS}ms at the fastest step (the ` +
-        'measured floor: 33.8/22.9ms before P6 §1, 12.2/10.5ms after — the plan’s 2ms is not ' +
-        'reachable with Clipper in the loop) and 60fps mid-drag with no gap against the DM control',
+      `≤ ${REBUILD_BUDGET_MS}ms median (the measured floor: 33.8ms before P6 §1, 12.2ms ` +
+        'after — the plan’s 2ms is not reachable with Clipper in the loop; the fastest step ' +
+        'is reported, not asserted) and 60fps mid-drag with no gap against the DM control',
     )
 
     expect(mid, 'the mask rebuild is over the budget P6 §1 measured').toBeLessThanOrEqual(
       REBUILD_BUDGET_MS,
     )
-    expect(
-      Math.min(...samples),
-      'not one of ten rebuilds came in under the floor P6 §1 measured',
-    ).toBeLessThanOrEqual(REBUILD_FLOOR_MS)
     expect(mid, 'the probe never timed a build at all').toBeGreaterThan(0)
     expect(
       seat / dmSeat,

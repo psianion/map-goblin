@@ -15,13 +15,14 @@ import type { Vision } from './vision'
  * ignores its own `fog.auto-explore` write, so the loop closes on the first pass.
  *
  * Everything that changes the *set* of tokens doing the sweeping is in it, not just the two
- * that move one: a claim adds a pair of eyes, `update` can resize the token they belong to (and
- * since P4, hand it sight or a torch), `set-sight-link` lends the party a whole extra sweep,
- * and hide/delete take them away. Left out, the party's own newly-claimed scout lit nothing
- * until somebody happened to take a step.
+ * that move one: a claim (or the DM's `assign`, which is the same fact from the other side)
+ * adds a pair of eyes, `update` can resize the token they belong to (and since P4, hand it
+ * sight or a torch), `set-sight-link` lends the party a whole extra sweep, and hide/delete
+ * take them away. Left out, the party's own newly-claimed scout lit nothing until somebody
+ * happened to take a step.
  */
 const TRIGGERS: Record<string, readonly string[]> = {
-  tokens: ['move', 'place', 'claim', 'update', 'hide', 'delete', 'set-sight-link'],
+  tokens: ['move', 'place', 'claim', 'assign', 'update', 'hide', 'delete', 'set-sight-link'],
   doors: ['toggle', 'reveal-secret'],
 }
 

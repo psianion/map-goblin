@@ -23,6 +23,13 @@ const P1: Viewer = { role: 'player', identityId: 'p-1' }
 const P2: Viewer = { role: 'player', identityId: 'p-2' }
 const SCENE = 'scene-a'
 
+/** The seats `assign` validates its identity against; every other row is indifferent to it. */
+const ROSTER = [
+  { identityId: 'dm-1', name: 'Ayla', role: 'dm' as const, connected: true },
+  { identityId: 'p-1', name: 'Borin', role: 'player' as const, connected: true },
+  { identityId: 'p-2', name: 'Cass', role: 'player' as const, connected: true },
+]
+
 /** No vision lookup wired: an unzoned map has no fog, which is every test but the last. */
 const tokensModule = buildTokens()
 
@@ -66,7 +73,7 @@ function run(
     sessionId: 's-1',
     activeSceneId,
     sender,
-    players: [],
+    players: ROSTER,
     state,
     setState: (s) => {
       next = s
@@ -483,6 +490,53 @@ describe('claim', () => {
     expect(run(stateWith(token({ hidden: true })), P1, 'claim', { id: 't1' }).error).toMatchObject({
       code: 'invalid-command',
     })
+  })
+})
+
+describe('assign (the DM hands a token over)', () => {
+  it('sets an owner, reassigns it, and clears it again', () => {
+    const first = run(stateWith(token()), DM, 'assign', { id: 't1', identityId: 'p-1' })
+    expect(first.error).toBeNull()
+    expect(only(first.next).ownerId).toBe('p-1')
+
+    // Reassignment is the DM overriding an existing owner — `claim` refuses this on purpose.
+    const second = run(first.next, DM, 'assign', { id: 't1', identityId: 'p-2' })
+    expect(second.error).toBeNull()
+    expect(only(second.next).ownerId).toBe('p-2')
+
+    const cleared = run(second.next, DM, 'assign', { id: 't1', identityId: null })
+    expect(cleared.error).toBeNull()
+    expect(only(cleared.next).ownerId).toBeNull()
+  })
+
+  it('is the DM’s alone — a player cannot hand themselves a token', () => {
+    expect(run(stateWith(token()), P1, 'assign', { id: 't1', identityId: 'p-1' }).error).toMatchObject(
+      { code: 'unauthorized' },
+    )
+  })
+
+  it('refuses an identity nobody at this table holds, and a token that is not there', () => {
+    for (const payload of [
+      { id: 't1', identityId: 'p-9' },
+      { id: 't1' },
+      { id: 't-nope', identityId: 'p-1' },
+    ]) {
+      expect(run(stateWith(token()), DM, 'assign', payload).error).toMatchObject({
+        code: 'invalid-command',
+      })
+    }
+  })
+
+  it('assigns a hidden token, which its new owner still does not receive', () => {
+    const { next, error } = run(stateWith(token({ hidden: true })), DM, 'assign', {
+      id: 't1',
+      identityId: 'p-1',
+    })
+    expect(error).toBeNull()
+    expect(only(next).ownerId).toBe('p-1')
+    // Unchanged semantic: hidden beats own-token in `redact`, exactly as it does for a token
+    // claimed and then hidden. Revealing it is the DM's second act.
+    expect(tokensModule.redact!(next, P1).byScene[SCENE]).toEqual({})
   })
 })
 

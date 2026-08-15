@@ -70,6 +70,7 @@ export function tokensModule(visionOf: VisionOf = () => null): GameModule<Tokens
       hide: ['dm'],
       delete: ['dm'],
       claim: ['player'],
+      assign: ['dm'],
       'set-sight-link': ['dm'],
     },
     initialState: { library: {}, byScene: {} },
@@ -173,6 +174,8 @@ function run(action: string, p: Payload, ctx: Ctx, visionOf: VisionOf): void {
       return remove(p, ctx)
     case 'claim':
       return claim(p, ctx)
+    case 'assign':
+      return assign(p, ctx)
     case 'set-sight-link':
       return setSightLink(p, ctx)
     default:
@@ -383,4 +386,28 @@ function claim(p: Payload, ctx: Ctx): void {
   const { sceneId, token } = find(p, ctx)
   if (token.ownerId !== null) denied('that token is already claimed')
   put(ctx, sceneId, { ...token, ownerId: ctx.sender.identityId })
+}
+
+/**
+ * The DM's side of `claim`, and the only way out of a real deadlock: claiming is done by
+ * clicking a token on your own list, and in vision mode a seat with no token has no eyes, so
+ * redaction sends it *no tokens at all* — nothing to click, so nothing to claim. Control stays
+ * with the DM either way; this is the referee handing a piece over.
+ *
+ * Reassignment is deliberate (the DM overrides an existing owner — a player left, a familiar
+ * changes hands) and `null` unhands it, so this one command is both directions. The identity
+ * is checked against the roster rather than taken on trust: an ownerId nobody at the table
+ * holds is a token no seat can ever move again.
+ *
+ * ponytail: a hidden token can be assigned, and `redact` still withholds it from its new
+ * owner — hidden beats own-token there, exactly as it already does for a token claimed and
+ * then hidden. That semantic is unchanged here.
+ */
+function assign(p: Payload, ctx: Ctx): void {
+  const { sceneId, token } = find(p, ctx)
+  const identityId = p.identityId === null ? null : str(p.identityId, 'identityId', ID_MAX)
+  if (identityId !== null && !ctx.players.some((player) => player.identityId === identityId)) {
+    bad('no such player at this table')
+  }
+  put(ctx, sceneId, { ...token, ownerId: identityId })
 }

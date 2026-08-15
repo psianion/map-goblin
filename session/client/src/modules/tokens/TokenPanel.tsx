@@ -393,6 +393,32 @@ export function TokenPanel() {
               </>
             )}
           </div>
+          {/* Claiming is done by clicking a token on your own list, and in vision mode a seat
+              with no token is sent no tokens at all — so a player who joins late can never
+              claim their way in. The DM hands one over instead; `null` takes it back. */}
+          {isDm && (
+            <label className="flex items-center gap-2 text-xs text-text-secondary">
+              Owner
+              <select
+                aria-label="Owner"
+                data-testid="token-owner"
+                value={selected.ownerId ?? ''}
+                onChange={(e) =>
+                  send('assign', { id: selected.id, identityId: e.target.value || null })
+                }
+                className="min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1 py-0.5 text-xs text-text-primary focus:border-border-focus focus:outline-none"
+              >
+                <option value="">Unassigned</option>
+                {players
+                  ?.filter((p) => p.role === 'player')
+                  .map((p) => (
+                    <option key={p.identityId} value={p.identityId}>
+                      {p.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
           {isDm && <SightAndLight token={selected} tokens={tokens} scale={scale} send={send} />}
         </div>
       )}

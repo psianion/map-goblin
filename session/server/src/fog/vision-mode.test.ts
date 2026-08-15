@@ -36,6 +36,13 @@ const P1: Viewer = { role: 'player', identityId: 'p-1' }
 /** The second seat P5 exists for — every row before it is a table of one player. */
 const P2: Viewer = { role: 'player', identityId: 'p-2' }
 
+/** The roster the table is dispatching against — what `tokens assign` validates against. */
+const ROSTER = [
+  { identityId: 'dm-1', name: 'Ayla', role: 'dm' as const, connected: true },
+  { identityId: 'p-1', name: 'Borin', role: 'player' as const, connected: true },
+  { identityId: 'p-2', name: 'Cass', role: 'player' as const, connected: true },
+]
+
 /**
  * The map frame is (-1, -1)–(23, 11), so cell (col, row) centres on (col - .5, row - .5) —
  * the token at (5.5, 5.5) stands on cell (6, 6) and the east room's doorway is cell (13, 6).
@@ -89,7 +96,7 @@ function wired(children: AnyChild[] = [], extra: { walls?: WallSegment[]; prep?:
         sessionId: 's-1',
         activeSceneId: SCENE,
         sender,
-        players: [],
+        players: ROSTER,
         broadcast: (msg) => {
           sent.push(msg)
           toPlayer.push(redact(msg, P1))
@@ -1190,5 +1197,59 @@ describe('individual vision (S3 P5)', () => {
       expect(getCell(seen.region, ...SCOUT_CELL)).toBe(true)
       expect(getCell(seen.region, ...GUARD_CELL)).toBe(true)
     })
+  })
+})
+
+// ── The join deadlock ───────────────────────────────────────────────────────
+
+/**
+ * The defect the browser gate found, pinned from the wire down.
+ *
+ * Claiming is done by clicking a token on your own list. In vision mode a seat with no
+ * claimed token has no eyes, so `canSee` is false everywhere and redaction hands it *zero*
+ * token instances — its panel reads "No tokens on this scene", and there is nothing to click.
+ * A player who joins after the tokens are placed can never claim their way in.
+ *
+ * The redaction is right and stays exactly as it is (the first half of the row asserts it,
+ * byte for byte). What was missing is the DM's way of handing a token over, which this row
+ * drives end to end: revert `tokens assign` and it fails on the dispatch.
+ */
+describe('a seat that joined with nothing (the DM assignment)', () => {
+  it('is sent no tokens at all, until the DM assigns one — which is then an eye', () => {
+    const table = wired()
+    table.run(DM, 'fog', 'set-mode', { mode: 'vision' })
+    table.run(DM, 'tokens', 'place', {
+      name: 'Scout',
+      x: 5.5,
+      y: 5.5,
+      sight: { range: 8, angle: 360, visionMode: 'normal' },
+    })
+    const scout = Object.keys(table.tokensOf())[0]
+
+    // No eyes: the token is on the board, on the DM's wire, and on nobody else's.
+    expect(table.tokensFor(DM)).toEqual([scout])
+    expect(table.tokensFor(P1)).toEqual([])
+    expect(said(table.toPlayer)).not.toContain(scout)
+    // …and nothing has been swept, so there is no memory standing in for the sight either.
+    expect(table.fogOf().rooms.west).toBeUndefined()
+    const before = table.toPlayer.length
+
+    expect(table.run(DM, 'tokens', 'assign', { id: scout, identityId: 'p-1' })).toBeNull()
+
+    // The token reaches the seat it was handed to…
+    expect(table.tokensFor(P1)).toEqual([scout])
+    expect(said(table.toPlayer.slice(before))).toContain(scout)
+    // …and, on the default party share, the seat that now sees through it — which is the
+    // existing share rule, not a second thing the assignment does.
+    expect(table.tokensFor(P2)).toEqual([scout])
+    expect(said(table.toPlayer2.slice(before))).toContain(scout)
+    // …and it is a pair of eyes: the assignment ran the same sweep a claim does, so the hall
+    // it is standing in auto-explored without anybody taking a step.
+    expect(table.fogOf().rooms.west).toBeDefined()
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(true)
+
+    // Taking it back is the same command, and puts the seat back where it started.
+    expect(table.run(DM, 'tokens', 'assign', { id: scout, identityId: null })).toBeNull()
+    expect(table.tokensFor(P1)).toEqual([])
   })
 })

@@ -574,7 +574,7 @@ describe('mapScale / the unit a DM reads ranges in', () => {
   });
 });
 
-describe('TokenPanel — Sight & light (DM only)', () => {
+describe('TokenPanel — the DM’s section (owner, sight & light)', () => {
   const dm: PlayerInfo = { identityId: 'dm-1', name: 'Ayla', role: 'dm', connected: true };
   const player: PlayerInfo = { identityId: 'p-1', name: 'Borin', role: 'player', connected: true };
 
@@ -619,6 +619,36 @@ describe('TokenPanel — Sight & light (DM only)', () => {
   it('is the DM’s section alone — a player who owns the token never sees it', () => {
     panel([token({ ownerId: 'p-1' })], player);
     expect(screen.queryByTestId('token-sight')).toBeNull();
+    expect(screen.queryByLabelText('Owner')).toBeNull();
+  });
+
+  /**
+   * The way out of the join deadlock: a seat with no token is sent no tokens in vision mode,
+   * so there is nothing on its list to claim. The DM hands one over from here instead.
+   */
+  it('hands a token to a player from the Owner select, and takes it back', () => {
+    const sent = panel([token()]);
+    const select = screen.getByLabelText('Owner');
+    // The seats, and only the seats — the DM is not an owner you can pick.
+    expect([...select.querySelectorAll('option')].map((o) => o.textContent)).toEqual([
+      'Unassigned',
+      'Borin',
+    ]);
+    expect(select).toHaveProperty('value', '');
+
+    fireEvent.change(select, { target: { value: 'p-1' } });
+    expect(sent[0]).toMatchObject({
+      module: 'tokens',
+      action: 'assign',
+      payload: { id: 't1', identityId: 'p-1' },
+    });
+
+    // With an owner stored the select reads it back, and "Unassigned" clears it.
+    cleanup();
+    const held = panel([token({ ownerId: 'p-1' })]);
+    expect(screen.getByLabelText('Owner')).toHaveProperty('value', 'p-1');
+    fireEvent.change(screen.getByLabelText('Owner'), { target: { value: '' } });
+    expect(held[0].payload).toEqual({ id: 't1', identityId: null });
   });
 
   it('gives a token sight and takes it away again, in the map’s own unit', () => {

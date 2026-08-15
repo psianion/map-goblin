@@ -909,6 +909,46 @@ test.describe.serial('@sprint3-vision', () => {
     await expect(dm.getByTestId('fog-bar')).toHaveCount(0)
   })
 
+  /**
+   * The row the browser gate was missing: every other row here claims by id down the socket,
+   * which is exactly the path a real player cannot take. Claiming is a click on a token in
+   * your own list, and in vision mode a seat with no token is sent no tokens at all — so the
+   * list is empty and the seat is stranded. The DM's Owner select is the way out, and this
+   * row drives it from the DM's panel and reads the answer on the player's.
+   */
+  test('a seat with no token is not stranded: the DM hands one over from the panel', async () => {
+    await command(dm, 'tokens', 'move', { id: scout, ...AT_DOOR })
+    await dm.getByTestId('token-layer').locator(`[data-token-id="${scout}"] button`).click()
+    const owner = dm.getByLabel('Owner')
+    await expect(owner).not.toHaveValue('')
+    await frameUp(player)
+
+    // Take it away and the player is the seat that joins late: no eyes, so no tokens, so
+    // nothing to claim. This is the deadlock, reproduced through the real UI.
+    await owner.selectOption('')
+    await expect(player.getByTestId('token-layer').locator('[data-token-id]')).toHaveCount(0)
+    await expect(player.getByText('No tokens on this scene.')).toBeVisible()
+    await expect.poll(async () => (await read(player)).sources).toBe(0)
+    const stranded = await look(player)
+
+    // One select on the DM's panel, and the seat has a token and a pair of eyes again.
+    await owner.selectOption({ label: 'Borin' })
+    await expect(
+      player.getByTestId('token-layer').locator(`[data-token-id="${scout}"]`),
+    ).toHaveCount(1)
+    await expect.poll(async () => (await read(player)).sources).toBe(1)
+    await player.waitForTimeout(REVEAL_MS * 4)
+    const handed = await look(player)
+
+    record(
+      'the DM assignment (Owner select → the player’s panel and mask)',
+      `unassigned: no tokens listed, 0 sight source(s), ${show(stranded)} → assigned: ` +
+        `1 token, 1 sight source, ${show(handed)}`,
+      'a player with no token can be handed one, and it lights their mask',
+    )
+    expect(handed.lit, `the handed token lit ${show(handed)}`).toBeGreaterThan(stranded.lit)
+  })
+
   test('the DM edits Sight & light on the panel and the player’s mask follows', async () => {
     await command(dm, 'tokens', 'move', { id: scout, ...AT_DOOR })
     await expect.poll(async () => (await read(player)).rebuilds).toBeGreaterThan(0)
