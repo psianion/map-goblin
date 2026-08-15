@@ -18,7 +18,7 @@ import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { clearEngineSingleton, setEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
 import { useStore } from '@dnd/core/src/store/store';
-import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
+import type { PlayerInfo, ServerMessage, SessionState } from '@dnd/core/src/shared/protocol';
 import { regionOf, setCells, type RoomFog, type SceneFog } from '@dnd/mechanics/fog';
 import type { Token } from '@dnd/mechanics/tokens';
 import type { LiveDoor } from '../doors/doors';
@@ -43,6 +43,7 @@ import {
   FOG_FEATHER,
   LIGHTING_STRENGTH,
   PARTY_ROOM_UNKNOWN,
+  REBUILD_FLOOR_MS,
   REVEAL_MS,
   drawFog,
   easeOutQuart,
@@ -1534,6 +1535,97 @@ describe('the lighting composite each seat is mounted with', () => {
 
     it('starts none at all in vision mode, where a footprint wash would be the flicker', async () => {
       expect(await fadesAfterAReveal('vision')).toBe(0);
+    });
+  });
+
+  // ── The share flip on a backgrounded seat (gate walk §5.1) ───────────────
+  // The walk's finding, at the seam it actually lives on. Two players, the DM flips Vision
+  // share, and the seat nobody is looking at holds its pre-flip sweep: `state-update` landed,
+  // the store is right, and the rebuild those writes queued is sitting behind a frame Chrome
+  // will not run while the tab is hidden. Read on the *second* seat, in both directions,
+  // which is exactly the pair of numbers the walk read off Borin's tab.
+
+  describe('a share flip reaching a hidden tab', () => {
+    /** Chrome suspends rAF while a tab is backgrounded: queued, never called. */
+    function backgrounded(): () => void {
+      const real = globalThis.requestAnimationFrame;
+      globalThis.requestAnimationFrame = (() => 1) as typeof globalThis.requestAnimationFrame;
+      Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+      return () => {
+        globalThis.requestAnimationFrame = real;
+        Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+      };
+    }
+
+    const sweepSources = (): number =>
+      (window as Window & { __fogProbe?: { sweepSources(): number } }).__fogProbe!.sweepSources();
+
+    /** Past `REBUILD_FLOOR_MS`, which is the only clock a hidden tab has. */
+    const settle = (): Promise<void> =>
+      new Promise((resolve) => setTimeout(resolve, REBUILD_FLOOR_MS + 50));
+
+    /** This seat is `p2` — the one the walk found stale — and `p1` is the other player. */
+    const seatTwo: PlayerInfo = { identityId: 'p2', name: 'Borin', role: 'player', connected: true };
+    const eye = (over: Partial<Token>): Token =>
+      token({ sight: { range: 4, angle: 360, visionMode: 'normal' }, ...over });
+    const mine = eye({ id: 'mine', ownerId: 'p2', x: 9, y: 2 });
+    const theirs = eye({ id: 'theirs', ownerId: 'p1', x: 2, y: 2 });
+
+    const shared = (visionShare: 'party' | 'individual', tokens: Token[]) =>
+      session({
+        fog: { byScene: { 'scene-1': { ...fogOf({}), mode: 'vision' as const, visionShare } } },
+        tokens: {
+          library: {},
+          byScene: { 'scene-1': Object.fromEntries(tokens.map((t) => [t.id, t])) },
+        },
+      });
+
+    /**
+     * The flip as the wire delivers it: the fog slice, then the tokens the DM's write
+     * retracted or handed back (`RETRACTS.fog`), each its own `state-update`.
+     */
+    async function flippedTo(
+      from: 'party' | 'individual',
+      to: 'party' | 'individual',
+    ): Promise<{ before: number; after: number }> {
+      const { unmount } = mounted('player');
+      // …then the table this seat is actually sitting at, which `mounted` knows nothing of.
+      useSessionStore.setState({
+        session: shared(from, from === 'party' ? [mine, theirs] : [mine]),
+        you: seatTwo,
+        mapData: sent([dungeon(ROOMS)]),
+      });
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+      const before = sweepSources();
+
+      const foreground = backgrounded();
+      const { applyServerMessage } = useSessionStore.getState();
+      const tokens = to === 'party' ? [mine, theirs] : [mine];
+      applyServerMessage({
+        type: 'state-update',
+        module: 'fog',
+        state: shared(to, tokens).modules.fog,
+      } as ServerMessage);
+      applyServerMessage({
+        type: 'state-update',
+        module: 'tokens',
+        state: shared(to, tokens).modules.tokens,
+      } as ServerMessage);
+      await settle();
+
+      const after = sweepSources();
+      foreground();
+      unmount();
+      return { before, after };
+    }
+
+    it('recomputes this seat’s live sweep on individual → party', async () => {
+      // The walk's own reading, in miniature: held at the pre-flip 1 instead of the party's 2.
+      expect(await flippedTo('individual', 'party')).toEqual({ before: 1, after: 2 });
+    });
+
+    it('…and on party → individual, back to this seat’s own eyes alone', async () => {
+      expect(await flippedTo('party', 'individual')).toEqual({ before: 2, after: 1 });
     });
   });
 });

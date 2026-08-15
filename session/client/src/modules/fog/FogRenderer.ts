@@ -91,6 +91,16 @@ export type RoomView = 'visible' | 'explored' | 'dark';
 export const REVEAL_MS = 300;
 
 /**
+ * The floor under `subscribeFogScene`'s frame coalescing — long enough that a tab actually
+ * being painted always beats it to the rebuild, so nothing about the visible path moves.
+ *
+ * ponytail: a hidden tab's timers are throttled by the browser to ~1s, so this is a *wider*
+ * coalescing window there than the frame ever was, not a narrower one — a backgrounded seat
+ * rebuilds less than a foregrounded one, it just stops rebuilding never.
+ */
+export const REBUILD_FLOOR_MS = 100;
+
+/**
  * Cold near-black: the desaturating half of the explored look, pulling warm torchlight out.
  *
  * Darker than the dimmest thing a *visible* room can be, and that is a requirement rather
@@ -623,10 +633,18 @@ export function fogScene(): FogScene {
  * and there is no draw to miss without one — the fog is only ever seen through a frame.
  * The first paint stays synchronous: the mask has to exist before the map under it is
  * drawn, or the player sees one unmasked frame of the whole dungeon.
+ *
+ * …with a floor under the frame, because a hidden tab never gets one: Chrome suspends rAF
+ * while a tab is backgrounded, so a rebuild queued there stays queued for as long as the
+ * seat is not being looked at, and the mask — and every number taken off it — holds its
+ * pre-mutation value. The gate walk read exactly that on the second player's tab: a share
+ * flip the store had already applied, still drawn through the pre-flip eyes. A backgrounded
+ * seat is still a seat being sent state, so the rebuild cannot be conditional on a frame.
+ * `REBUILD_FLOOR_MS` is the same coalescing, taken off a timer the browser does run.
  */
 export function subscribeFogScene(onChange: () => void): () => void {
   let last: unknown[] = [];
-  let queued: number | null = null;
+  let queued = false;
 
   const changed = (): boolean => {
     const { session, you, mapData } = useSessionStore.getState();
@@ -656,19 +674,26 @@ export function subscribeFogScene(onChange: () => void): () => void {
     return true;
   };
 
+  // Whichever of the two arrives first rebuilds; the other finds the flag down and does
+  // nothing, which is also what unsubscribing does to a rebuild still in flight. Cheaper
+  // than holding two cancellation handles for a callback whose whole body is one `if`.
   const flush = (): void => {
-    queued = null;
+    if (!queued) return;
+    queued = false;
     onChange();
   };
   const check = (): void => {
-    if (changed() && queued === null) queued = requestAnimationFrame(flush);
+    if (!changed() || queued) return;
+    queued = true;
+    requestAnimationFrame(flush);
+    setTimeout(flush, REBUILD_FLOOR_MS);
   };
 
   if (changed()) onChange();
   const unsubSession = useSessionStore.subscribe(check);
   const unsubMap = useStore.subscribe(check);
   return () => {
-    if (queued !== null) cancelAnimationFrame(queued);
+    queued = false;
     unsubSession();
     unsubMap();
   };

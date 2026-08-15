@@ -434,6 +434,10 @@ test.describe.serial('@sprint3-share', () => {
     // …and the party's eyes with it — Alda is drawn through three pairs now (hers, Bran's
     // and the hawk he is linked to), where a moment ago she had one.
     await expect.poll(async () => (await read(alda)).sources).toBe(3)
+    // …on *both* seats, which is the half the gate walk found stale: Alda's tab reloaded a
+    // row ago and Bran's has been open since `beforeAll`, and a flip has to reach the
+    // long-lived one too. Three eyes here as well — the party is one set of eyes now.
+    await expect.poll(async () => (await read(bran)).sources).toBe(3)
 
     await dm.keyboard.press('Escape')
     await frameUp(alda)
