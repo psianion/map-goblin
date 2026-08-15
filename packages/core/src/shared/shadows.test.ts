@@ -10,6 +10,7 @@ import { LightManager } from '../engine/lighting/LightManager';
 import type { DungeonLayer } from '../store/types';
 import {
   CASTER_HEIGHT,
+  MAX_ALPHA,
   MAX_LENGTH,
   PROP_LENGTH_SCALE,
   SHADOW_STEPS,
@@ -99,17 +100,23 @@ describe('shadowLook — continuity across the day', () => {
   // narration only (`BANDS`); nothing drawn is allowed to know where they are.
   const alphaOf = (m: number): number => lookAt(m)?.alpha ?? 0;
 
+  // A minute is 1/1440 of the arc; anything visible as a step is orders of magnitude larger.
+  // As a *share* of the peak rather than an absolute, because "smooth" is a claim about the
+  // shape of the curve and an absolute would instead pin how dark a shadow is allowed to get:
+  // every per-minute delta scales with `MAX_ALPHA`, so tuning the strength up would fail a
+  // fixed bound while the ramp it is meant to police stayed exactly as smooth.
+  const STEP = MAX_ALPHA * 0.012;
+
   it('opacity never jumps, at a band edge or anywhere else', () => {
     let worst = 0;
     for (const m of DAY) worst = Math.max(worst, Math.abs(alphaOf(m) - alphaOf((m + 1) % 1440)));
-    // A minute is 1/1440 of the arc; anything visible as a step is orders of magnitude larger.
-    expect(worst).toBeLessThan(0.005);
+    expect(worst).toBeLessThan(STEP);
   });
 
   it('…including at the four narration bands and both horizons', () => {
     for (const edge of [300, 360, 420, 1020, 1080, 1140]) {
-      expect(Math.abs(alphaOf(edge) - alphaOf(edge - 1))).toBeLessThan(0.005);
-      expect(Math.abs(alphaOf(edge) - alphaOf(edge + 1))).toBeLessThan(0.005);
+      expect(Math.abs(alphaOf(edge) - alphaOf(edge - 1))).toBeLessThan(STEP);
+      expect(Math.abs(alphaOf(edge) - alphaOf(edge + 1))).toBeLessThan(STEP);
     }
   });
 

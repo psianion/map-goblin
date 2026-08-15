@@ -20,8 +20,16 @@ import { mixOklch, type SunVector } from './world';
 export const CASTER_HEIGHT = 1.2;
 /** The longest a shadow ever reaches. The sun on the horizon would otherwise cast to infinity. */
 export const MAX_LENGTH = 5;
-/** Peak opacity, at the caster's own foot, with the light at full strength. */
-export const MAX_ALPHA = 0.42;
+/**
+ * Peak opacity, at the caster's own foot, with the light at full strength.
+ *
+ * Read against what actually lands on the ground, not against this number: the peak is spread
+ * over {@link SHADOW_STEPS} nested bands at {@link bandAlpha} each, and the colour is a mid-grey
+ * rather than black, so the darkest pixel of a shadow only ever darkens the floor by roughly
+ * `peak × 0.6`. At 0.42 the low-sun hour this pass exists for measured ~12% — under the noise of
+ * a painted floor texture, and invisible on a live walk at every zoom.
+ */
+export const MAX_ALPHA = 0.6;
 /**
  * How opacity answers the light's strength.
  *

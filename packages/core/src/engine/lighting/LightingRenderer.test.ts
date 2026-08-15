@@ -75,7 +75,7 @@ vi.mock('../motion', () => ({
   prefersReducedMotion: () => mockReducedMotion,
 }));
 
-import { LightingRenderer, lightingSignature, flickerFactor, cullLightsByDistance, MAX_RENDERED_LIGHTS, rgb, gradedLight, W_LIGHT_GRADE } from './LightingRenderer';
+import { LightingRenderer, lightingSignature, flickerFactor, cullLightsByDistance, MAX_RENDERED_LIGHTS, rgb, gradedLight, headroom, W_LIGHT_GRADE } from './LightingRenderer';
 import { LightManager } from './LightManager';
 import type { RenderEngine } from '../RenderEngine';
 import type { LightChild } from '../../store/types';
@@ -582,6 +582,43 @@ describe('LightingRenderer light-count perf', () => {
     t.frame();
     // Not 2*n+1: however many are on the table, the redraw cost tops out at the cap.
     expect(t.drawnInto.length - settled).toBe(2 * MAX_RENDERED_LIGHTS + 1);
+  });
+});
+
+describe('headroom — a pool can reach white but never past it', () => {
+  // The whole point of the scale: additive compositing is unsigned, so a grade with no room
+  // left turns a bright pool into a clamped one — and a clamped pool multiplies by white,
+  // which is the ground rendered at authored daylight brightness with the light's warmth and
+  // the world's mood both clipped away. Walked live at midnight and at 17:00 before this
+  // existed: every pool centre sat at (255,255,255) over a graded surround.
+  const brightest = (grade: string, light: string): number => {
+    const [gr, gg, gb] = rgb(grade);
+    const contribution = gradedLight(light, grade).map((c) => c * headroom(grade));
+    return Math.max(gr + contribution[0]!, gg + contribution[1]!, gb + contribution[2]!);
+  };
+
+  it('keeps a full-strength light inside the range at every grade, dark or blown', () => {
+    for (const grade of ['#000000', '#181c28', '#2c3444', '#808080', '#e8e4d8', '#fff8ec', '#ffffff']) {
+      for (const light of ['#ffffff', '#ffb877', '#ff9b52', '#8899ff']) {
+        expect(brightest(grade, light)).toBeLessThanOrEqual(255);
+      }
+    }
+  });
+
+  it('hands a torch most of the range at midnight and almost none at golden hour', () => {
+    expect(headroom('#181c28')).toBeGreaterThan(0.8);
+    // 17:00 composes to a grade whose red is already at 98% — nothing left to burn into.
+    expect(headroom('#fac49b')).toBeLessThan(0.03);
+    expect(headroom('#ffffff')).toBe(0);
+  });
+
+  it('scales as one number, so a pool keeps its hue instead of desaturating', () => {
+    // Per-channel headroom would add most to whichever channel had room and drag every pool
+    // toward white; one scalar leaves the light's own R>G>B ordering intact.
+    const grade = '#2c3444';
+    const [r, g, b] = gradedLight('#ffb877', grade).map((c) => c * headroom(grade));
+    expect(r).toBeGreaterThan(g!);
+    expect(g).toBeGreaterThan(b!);
   });
 });
 

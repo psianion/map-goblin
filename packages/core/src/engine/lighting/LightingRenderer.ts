@@ -157,6 +157,34 @@ export function gradedLight(light: string, grade: string): [number, number, numb
 }
 
 /**
+ * How much room the grade leaves a light to burn into, 0..1 — the whole of what stops a pool
+ * from clamping, and the reason a torch stops mattering at noon.
+ *
+ * The FBO is filled with the grade and every light *adds* on top of it, then the whole thing
+ * multiplies the scene. Add is unsigned, so once the grade sits near white a light has nowhere
+ * left to go: the sum saturates, and a saturated pool multiplies by pure white — which is not a
+ * bright pool but *no pool at all*, the ground beneath it rendered at its authored daylight
+ * brightness with the light's warmth and the world's mood both clipped away. Measured live at
+ * midnight and at 17:00: pool centres at (255,255,255) over a graded surround, reading as flat
+ * white boxes with hard visibility-polygon edges.
+ *
+ * Scaling each light's contribution by the headroom above the grade's *brightest* channel is
+ * what makes the pass total-light-aware instead of blind: at midnight the grade is dark, the
+ * headroom is most of the range and a torch dominates; at golden hour the grade is already at
+ * 98% red and the same torch correctly does almost nothing. Off the brightest channel rather
+ * than a luminance so the bound is exact — a single light can reach white but never past it —
+ * and as one scalar rather than per-channel so the pool keeps its own hue instead of
+ * desaturating toward whichever channel happened to have room left.
+ *
+ * ponytail: bounds one light, not a stack — two pools dead on top of each other can still
+ * saturate where they overlap. Screen-blend the composite if a map ever piles them that way.
+ */
+export function headroom(grade: string): number {
+  const [r, g, b] = rgb(grade)
+  return 1 - Math.max(r, g, b) / 255
+}
+
+/**
  * LightingRenderer — FBO-based light compositing pass.
  *
  * Compositing architecture:
@@ -388,6 +416,8 @@ export class LightingRenderer {
 
     const [gradeR, gradeG, gradeB] = rgb(grade)
     const gradeColorNum = (gradeR << 16) | (gradeG << 8) | gradeB
+    // What the grade leaves for the lights to burn into — see `headroom`.
+    const lightRoom = headroom(grade)
 
     // Everything below draws in FBO pixels — screen coords scaled by the FBO's
     // resolution factor. The composite sprite stretches the result back out.
@@ -433,7 +463,10 @@ export class LightingRenderer {
       // still cools when the night does, where grading the whole composite instead would
       // drag every torch toward the sky's colour.
       const [lr, lg, lb] = gradedLight(light.color, grade)
-      const alpha = Math.min(1, Math.max(0, light.intensity * flickerFactor(light, now)))
+      const alpha = Math.min(
+        1,
+        Math.max(0, light.intensity * flickerFactor(light, now) * lightRoom),
+      )
       const toRgba = (a: number): string => `rgba(${lr},${lg},${lb},${a.toFixed(4)})`
 
       const screenFeather = (light.featherRadius ?? 0) * zoom * S

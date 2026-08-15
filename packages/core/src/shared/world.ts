@@ -78,6 +78,19 @@ export interface TimePalette {
  * authored; a map that wants a brighter midday is a map with a brighter mood.
  *
  * Painterly starting values — tuned at the gate walk, per the plan.
+ *
+ * The `night` keys carry a hard constraint the daylight keys do not, and it is arithmetic
+ * rather than taste. The lighting pass fills its FBO with the composed grade and *adds* each
+ * light on top (`LightingRenderer`), so the grade is what decides how much headroom a torch
+ * has left to burn into. A light contributes at most `255*(1-W_LIGHT_GRADE) + W_LIGHT_GRADE*g`
+ * per channel, so a grade channel above ~66 makes a full-strength pool clamp at 255 — and a
+ * clamped pool multiplies by white, which is no pool at all: the ground under it renders at
+ * its authored daylight brightness with the warmth and the world's mood both gone.
+ *
+ * These keys used to be read against near-black moods, where any night key looked like night
+ * and nothing could clamp. Against a neutral-daylight mood (which is what a mood now *is*)
+ * a key near #3d4664 composes midnight to roughly half of noon — not a night, and no headroom.
+ * Scaled to keep each biome's hue exactly and land the composed grade inside that budget.
  */
 export const TIME_PALETTES: Record<string, Record<TimeKey, string>> = {
   temperate: {
@@ -85,28 +98,28 @@ export const TIME_PALETTES: Record<string, Record<TimeKey, string>> = {
     morning: '#85817a',
     noon: '#808080',
     evening: '#8a6a5c',
-    night: '#3d4664',
+    night: '#181c28',
   },
   desert: {
     dawn: '#a37c5e',
     morning: '#93856c',
     noon: '#8a8074',
     evening: '#a05f45',
-    night: '#454b6c',
+    night: '#1c1e2b',
   },
   snow: {
     dawn: '#7f8698',
     morning: '#7e848e',
     noon: '#7e8490',
     evening: '#7d8496',
-    night: '#3a4566',
+    night: '#171c29',
   },
   swamp: {
     dawn: '#77806e',
     morning: '#7b8172',
     noon: '#7c8274',
     evening: '#6e6b52',
-    night: '#333b42',
+    night: '#14181a',
   },
 };
 
