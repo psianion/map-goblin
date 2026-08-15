@@ -622,24 +622,6 @@ export class TerrainRenderer {
   }
 
   /**
-   * A quad of the painted terrain for use as an **alpha mask**, not as a picture.
-   *
-   * The shadow pass clips to "wherever there is ground" — the floor union plus whatever the DM
-   * painted — and the painted half has no vector shape to union with (it is a splatmap). Its
-   * own alpha is the shape, so the mask is this mesh.
-   *
-   * Deliberately outside `floorMeshes`/`setAppearance`: a DM who dials terrain opacity down, or
-   * hides it to look at the geometry underneath, has not moved the ground the sun is falling
-   * on. Fresh per call — a Pixi object has one parent, and each layer masks its own sublayer.
-   */
-  createMaskMesh(): Mesh<MeshGeometry, Shader> | null {
-    if (this.destroyed || this.failed || !this.geometry || !this.displayShader) return null;
-    const mesh = new Mesh({ geometry: this.geometry, shader: this.displayShader });
-    mesh.label = 'terrainMaskMesh';
-    return mesh;
-  }
-
-  /**
    * Global show/hide + opacity (mapSettings.terrain.visible/opacity), driven by
    * a subscribeToStore subscription. `container.alpha` alone would miss the
    * floor-clipped quads {@link createFloorMesh} hands to each dungeon layer —

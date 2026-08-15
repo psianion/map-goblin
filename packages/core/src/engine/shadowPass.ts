@@ -12,11 +12,10 @@
 // (`timeBucket`) or the map's orientation moves — so a paused clock on an unedited map draws
 // once and then costs nothing, which is the whole gate.
 
-import { Container, Graphics, Sprite } from 'pixi.js';
+import { Graphics, Sprite } from 'pixi.js';
 import type { DungeonLayer, AssetChild } from '../store/types';
 import { getLayerEntry } from './sceneGraph';
 import { extractWallSegments } from './lighting/raycaster';
-import { getTerrainRenderer } from './terrain/TerrainRenderer';
 import { useStore } from '../store/store';
 import {
   SHADOW_STEPS,
@@ -40,11 +39,12 @@ function shadowLookNow(): ShadowLook | null {
 
 interface LayerShadows {
   graphics: Graphics;
-  /** The composite clip: the floor union, plus the terrain paint's own alpha. */
-  mask: Container;
-  maskFloor: Graphics;
-  /** Identity of the union the mask was cut from — the invalidation, straight off the store. */
+  /** The clip: this layer's floor union, plus whatever terrain the map has painted. */
+  mask: Graphics;
+  /** Identity of the union the clip was cut from — the invalidation, straight off the store. */
   maskFloorRef: unknown;
+  /** …and of the terrain's bounds, the other half. */
+  maskTerrainRef: unknown;
   signature: string;
   /** Prop silhouettes, by asset child id. Synced by `syncPropShadows`, aimed by the sun here. */
   props: Map<string, { sprite: Sprite; obj: AssetChild }>;
@@ -65,20 +65,23 @@ function shadowsOf(layerId: string): LayerShadows | null {
   graphics.blendMode = 'multiply';
   entry.sublayers.shadows.addChild(graphics);
 
-  const maskFloor = new Graphics();
-  const mask = new Container();
+  // A `Graphics` rather than a container of things: PixiJS masks a Graphics through the
+  // *stencil* buffer, which is binary coverage and leaves the blending underneath alone — and
+  // this pass is a multiply, so it has to blend against the real frame. (A mask that is a
+  // Sprite goes down the alpha path instead, which is a filter, and a filter would isolate the
+  // subtree and swallow the multiply — as well as breaking the pass's no-filters rule.)
+  const mask = new Graphics();
   mask.label = 'shadowClip';
-  mask.addChild(maskFloor);
-  // A mask has to be in the scene to have a transform; Pixi renders it as a mask, not a layer.
-  // Hung on the sublayer only while something is casting (see `updateShadows`) — every indoor
-  // map in the catalogue would otherwise pay for a mask pass over an empty container.
+  // A mask has to be in the scene to be transformed with it; Pixi draws it into the stencil
+  // rather than onto the map. Hung on the sublayer only while something is casting (see
+  // `updateShadows`) — every indoor map would otherwise pay for a stencil pass over nothing.
   entry.container.addChild(mask);
 
   const state: LayerShadows = {
     graphics,
     mask,
-    maskFloor,
     maskFloorRef: undefined,
+    maskTerrainRef: undefined,
     signature: '',
     props: new Map(),
   };
@@ -87,31 +90,53 @@ function shadowsOf(layerId: string): LayerShadows | null {
 }
 
 /**
- * Cut the clip to "wherever there is ground on this layer": the floor union, plus the terrain
- * paint's own alpha. The floor half is rebuilt only when the union itself is replaced (the
- * store's own identity is the invalidation); the painted half is a live mesh, so a paint stroke
- * changes the clip with nothing to invalidate at all.
+ * Cut the clip to "wherever there is ground": this layer's floor union, plus whatever terrain
+ * the map has painted.
  *
- * The union half is per layer and the painted half is the map's — which is the right pair: a
- * shadow falls on the floor its own walls stand on, and on the open ground under all of them.
+ * **Called every frame while casting, not on a draw-memo miss.** That is the whole of the bug
+ * two gate walks chased: a freshly loaded map arrives with `mergedFloor: null` — the union is
+ * computed at runtime by `subscribeToStore`, and only for a layer whose scene-graph entry
+ * already exists, so it lands a notification *after* the entry the first shadow frame needs.
+ * Cutting the clip only when the shadow *geometry* changed meant the one cut this map ever got
+ * was taken against a null union, and `mergedFloor` is in nothing the draw memo keys on (the
+ * union's arrival moves no shape key, so no wall epoch, no sun step, no orientation). The
+ * stencil stayed empty for the life of the map and every shadow on it was clipped to nothing.
+ *
+ * It is free to leave unguarded: two identity compares, and the draws happen only when one of
+ * them actually moved.
+ *
+ * Terrain arrives as its axis-aligned bounds rather than its splat alpha — a stencil is binary
+ * coverage, so per-texel alpha was never reachable through this path. A painted region's own
+ * rectangle is the honest approximation, and it is the rectangle the export bounds already
+ * agree on.
+ *
+ * Neither half present is not a bug to paper over: a wall standing in the void has no ground to
+ * cast onto, and an empty clip is exactly the right answer.
  */
 function syncMask(state: LayerShadows, layer: DungeonLayer): void {
-  // The terrain renderer is built with the scene graph, but a layer can be created against a
-  // half-booted one (or a torn-down and remounted engine) — so the painted half of the clip is
-  // claimed the first time it is actually available rather than only at creation.
-  if (state.mask.children.length < 2) {
-    const terrainMask = getTerrainRenderer()?.createMaskMesh();
-    if (terrainMask) state.mask.addChild(terrainMask);
-  }
-  if (state.maskFloorRef === layer.mergedFloor) return;
-  state.maskFloorRef = layer.mergedFloor;
-  state.maskFloor.clear();
   const rings = layer.mergedFloor;
-  if (!rings || rings.length === 0) return;
-  for (const ring of rings) if (ring.length > 2) state.maskFloor.poly(ring.flat());
+  const bounds = useStore.getState().mapSettings.terrain?.bounds ?? null;
+  if (state.maskFloorRef === rings && state.maskTerrainRef === bounds) return;
+  state.maskFloorRef = rings;
+  state.maskTerrainRef = bounds;
+
+  const g = state.mask;
+  g.clear();
+  let drew = false;
   // One fill for every ring: Clipper2 winds holes the other way, so a courtyard cut out of a
   // floor stays cut out of the shadow's clip too.
-  state.maskFloor.fill(0xffffff);
+  if (rings) {
+    for (const ring of rings) {
+      if (ring.length < 3) continue;
+      g.poly(ring.flat());
+      drew = true;
+    }
+  }
+  if (bounds) {
+    g.rect(bounds.minX, bounds.minY, bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
+    drew = true;
+  }
+  if (drew) g.fill(0xffffff);
 }
 
 // ─── The pass ─────────────────────────────────────────────
@@ -141,7 +166,7 @@ export function updateShadows(
   for (const [id, state] of byLayer) {
     if (live.has(id)) continue;
     if (!state.graphics.destroyed) state.graphics.destroy();
-    if (!state.mask.destroyed) state.mask.destroy({ children: true });
+    if (!state.mask.destroyed) state.mask.destroy();
     byLayer.delete(id);
     propInputs.delete(id);
   }
@@ -151,13 +176,17 @@ export function updateShadows(
     // container, no mask, no cost — the pass simply is not there.
     const state = casting || byLayer.has(layer.id) ? shadowsOf(layer.id) : null;
     if (!state) continue;
+
+    // The clip first, and outside the memo below: the ground a map stands on arrives on its own
+    // schedule (see `syncMask`), and it moves nothing the drawing is keyed on.
+    if (casting) syncMask(state, layer);
+
     const signature = shadowSignature(layer.id, wallEpoch, step, orientation, casting);
     if (signature === state.signature) continue;
     state.signature = signature;
     if (look === undefined) look = shadowLook(frame.sun);
     const sublayer = getLayerEntry(layer.id)?.sublayers?.shadows;
     if (sublayer) sublayer.mask = casting ? state.mask : null;
-    if (casting) syncMask(state, layer);
     drawWallShadows(state.graphics, layer, look);
     drawPropShadows(layer.id, look);
   }
