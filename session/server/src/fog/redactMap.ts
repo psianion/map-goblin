@@ -7,8 +7,6 @@
 
 import { seedDoor, type AuthoredDoor, type DoorLiveState } from '@dnd/mechanics/doors'
 import type { SceneFog } from '@dnd/mechanics/fog'
-// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- D3's one waiver: shared/mapBounds is pure bounds math, pixi-free by design (see eslint.config.js)
-import { computeMapFrame } from '@dnd/core/src/shared/mapBounds'
 import type { AnyChild, DoorChild, Room, WallSegment } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import { centreOf, childrenOf, isDungeon, wallsOf, type SceneMap } from './sceneMap'
@@ -49,7 +47,8 @@ export function redactMapForViewer(
   doors: Doors,
 ): SerializedMapData {
   const kept = exploredRooms(fog)
-  // The confining rectangle of the *full* document, measured before the cut: the player's
+  // The confining rectangle of the *full* document, measured with the index and so before
+  // any cut (`SceneMap.frame`): the player's
   // fog covers the whole frame, and their redacted layers can no longer measure it. A rect
   // leaks only the map's overall size — never where inside it anything is. Only stamped
   // when the map has fog to enforce (rooms); an unzoned map goes over whole and untouched.
@@ -60,14 +59,7 @@ export function redactMapForViewer(
   const { prep: _prep, ...docSansPrep } = scene.data
   return {
     ...docSansPrep,
-    ...(zoned
-      ? {
-          frame: computeMapFrame(
-            scene.data.layers,
-            scene.data.mapSettings?.terrain?.bounds ?? null,
-          ),
-        }
-      : {}),
+    ...(zoned ? { frame: scene.frame } : {}),
     layers: scene.data.layers.map((layer) => {
       if (!isDungeon(layer)) return layer
       // A layer nobody zoned has no fog to enforce — room-granular fog needs rooms (D6) — so

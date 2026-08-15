@@ -18,18 +18,32 @@ import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { clearEngineSingleton, setEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
 import { useStore } from '@dnd/core/src/store/store';
-import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
-import type { RoomFog, SceneFog } from '@dnd/mechanics/fog';
+import type { PlayerInfo, ServerMessage, SessionState } from '@dnd/core/src/shared/protocol';
+import { regionOf, setCells, type RoomFog, type SceneFog } from '@dnd/mechanics/fog';
 import type { Token } from '@dnd/mechanics/tokens';
 import type { LiveDoor } from '../doors/doors';
 import { useSessionStore } from '../../session/store';
-import { FOG_MARGIN, fogPad, fogRegion, ringsWithHoles } from './fog';
 import {
+  FOG_MARGIN,
+  cellsIn,
+  fogPad,
+  fogRegion,
+  regionRects,
+  sightPad,
+  visionRegion,
+  type FogRing,
+  ringsWithHoles,
+} from './fog';
+import {
+  AMBIENT_BITE,
+  DARKVISION_TINT,
+  DARKVISION_TINT_ALPHA,
   EXPLORED_TINT,
   EXPLORED_TINT_ALPHA,
   FOG_FEATHER,
   LIGHTING_STRENGTH,
   PARTY_ROOM_UNKNOWN,
+  REBUILD_FLOOR_MS,
   REVEAL_MS,
   drawFog,
   easeOutQuart,
@@ -41,10 +55,12 @@ import {
   roomViews,
   mountPlayerFogWhenReady,
   subscribeFogScene,
+  voidStyle,
   type FogScene,
   type RoomView,
   type VoidStyle,
 } from './FogRenderer';
+import { tokenLightId } from '../triggers/lightSync';
 
 /** A fixed void look for fixtures — drawFog paints hidden map with `fill`, not black. */
 const VOID: VoidStyle = { fill: 0x131316, dot: 0x3a3a3a, dotAlpha: 0.45, dotsVisible: true };
@@ -322,6 +338,18 @@ describe('partyRoomIds', () => {
     expect(partyRoomIds(tokens, ROOMS).sort()).toEqual([GALLERY.id, VESTIBULE.id].sort());
   });
 
+  it('counts a linked token the party never claimed — the referee’s party is the closure', () => {
+    // P4 §4: the DM hands the party a hawk and links it to the scout. The server assembles
+    // its rooms-mode party with `sightParty`, so a client filtering on `ownerId` alone would
+    // paint the hawk's room as memory while the referee ships it lit.
+    const scout = token({ id: 't1', x: 2, y: 2, sharesSightWith: ['hawk'] });
+    const hawk = token({ id: 'hawk', x: 12, y: 2, ownerId: null, sharesSightWith: ['t1'] });
+    expect(partyRoomIds([scout, hawk], ROOMS).sort()).toEqual([GALLERY.id, VESTIBULE.id].sort());
+
+    // Hidden still trumps the link — the DM taking the hawk off the board closes it.
+    expect(partyRoomIds([scout, { ...hawk, hidden: true }], ROOMS)).toEqual([VESTIBULE.id]);
+  });
+
   it('names a room it cannot place a claimed token in, rather than reporting no party', () => {
     // The reload case: the party's own token is somewhere this tab has no geometry for,
     // because the default-room fallback stopped handing that room over (amendment
@@ -512,11 +540,14 @@ const EAST = hall('r-east', SPINE + WALL_WIDTH / 2, 16);
 /** West's outer (exterior) wall: centreline 3.75, so its far face is a full wallWidth out. */
 const WEST_OUTER_FACE = 4 - WALL_WIDTH;
 
+// Land at even depth, water at odd — a point is in the region when the deepest ring over
+// it is land, which is what the recursive "inside this ring but not covered by its
+// children" asks at every level of the tree.
+const covered = (nodes: readonly FogRing[], point: [number, number]): boolean =>
+  nodes.some(({ outline, holes }) => pointInPolygon(point, outline) && !covered(holes, point));
+
 const inRegion = (rings: Polygon[], point: [number, number]): boolean =>
-  ringsWithHoles(rings).some(
-    ({ outline, holes }) =>
-      pointInPolygon(point, outline) && !holes.some((hole) => pointInPolygon(point, hole)),
-  );
+  covered(ringsWithHoles(rings), point);
 
 describe('fogPad — how far past its floor a room reaches', () => {
   it('buys the whole wall band, not half of it, plus the margin', () => {
@@ -585,6 +616,32 @@ describe('fogRegion — the hole the mask cuts', () => {
     const { clear } = region([WEST, EAST], []);
     expect(ringsWithHoles(clear)).toHaveLength(1);
     expect(inRegion(clear, [SPINE, 3])).toBe(true);
+  });
+
+  it('keeps an island clear inside a fogged courtyard inside revealed rooms', () => {
+    // Three concentric rings: revealed land, unrevealed water walled inside it, and a
+    // revealed island inside *that*. The old one-level pairing dropped the island — three
+    // rings deep it went dark. The tree keeps every level: land at even depth, water at odd.
+    const sq = (r: number): Polygon => [
+      [-r, -r],
+      [r, -r],
+      [r, r],
+      [-r, r],
+    ];
+    const rings = [sq(3), sq(10), sq(6), sq(1.5)]; // deliberately out of order
+    const tree = ringsWithHoles(rings);
+
+    expect(tree).toHaveLength(1);
+    expect(tree[0].outline).toBe(rings[1]); // sq(10) is the land
+    expect(tree[0].holes).toHaveLength(1); // sq(6) is its water…
+    expect(tree[0].holes[0].holes).toHaveLength(1); // …sq(3) the island in it…
+    expect(tree[0].holes[0].holes[0].holes).toHaveLength(1); // …sq(1.5) water again
+
+    expect(inRegion(rings, [0, 8])).toBe(true); // land
+    expect(inRegion(rings, [0, 4.5])).toBe(false); // courtyard stays fogged
+    expect(inRegion(rings, [0, 2])).toBe(true); // the island is clear, not dropped
+    expect(inRegion(rings, [0, 0])).toBe(false); // pocket inside the island errs dark
+    expect(inRegion(rings, [0, 20])).toBe(false); // outside everything
   });
 
   it('runs the falloff outside the room’s claim, never into it', () => {
@@ -661,6 +718,263 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     expect(fillsOf(scrim)).toHaveLength(1);
     expect(fillsOf(scrim)[0].hole).toBeUndefined();
     expect(strokesOf(scrim)).toHaveLength(0);
+  });
+});
+
+// ── Vision mode's three tiers (S3 P2 §1) ────────────────────────────────────
+// The party's own eyes draw the top tier instead of the room record: a sweep is clear, what
+// they have swept or the DM has revealed is a memory, and the rest is the same void. Every
+// row below is written so the *room* rule would answer differently — a room the DM never
+// revealed showing only the cells the party swept is the whole point of the phase.
+
+/** A 24×8 frame over both halls, with unzoned map east of them. Cell (c, r) is [c, c+1]. */
+const VISION_FRAME = { minX: 0, minY: 0, maxX: 24, maxY: 8 };
+
+/** A stretch of the west hall's upper half, as a sight polygon would come off the sweep. */
+const LOOKING: Polygon = [
+  [6, 0.5],
+  [8, 0.5],
+  [8, 2],
+  [6, 2],
+];
+
+describe('regionRects — the swept cells as geometry', () => {
+  const region = (cells: [number, number][]) =>
+    setCells(regionOf({ minX: 0, minY: 0, maxX: 6, maxY: 6 })!, cells);
+
+  it('merges a row of cells into one rectangle and leaves the gaps alone', () => {
+    const rects = regionRects(
+      region([
+        [1, 0],
+        [2, 0],
+        [3, 0],
+        [5, 0],
+        [1, 1],
+      ]),
+    );
+    // Three runs, not five squares: Clipper unioning 150 unit cells for one 8-cell sight
+    // radius costs an order more than unioning the dozen runs they collapse into.
+    expect(rects).toHaveLength(3);
+    expect(rects[0]).toEqual([
+      [1, 0],
+      [4, 0],
+      [4, 1],
+      [1, 1],
+    ]);
+    // A run that reaches the last column is closed like any other.
+    expect(rects[1]).toEqual([
+      [5, 0],
+      [6, 0],
+      [6, 1],
+      [5, 1],
+    ]);
+    expect(rects[2][0]).toEqual([1, 1]);
+    // …and the runs still add up to the cells that were set.
+    expect(cellsIn(rects)).toBe(5);
+  });
+
+  it('is nothing at all for a scene that keeps no region record', () => {
+    expect(regionRects(undefined)).toEqual([]);
+    expect(cellsIn(regionRects(regionOf(VISION_FRAME)))).toBe(0);
+  });
+});
+
+describe('visionRegion — sweep, memory, void', () => {
+  const PAD = fogPad([]);
+  /** West is a room nobody revealed, east one the DM lit by hand; the party swept both. */
+  const swept = setCells(regionOf(VISION_FRAME)!, [
+    [5, 4],
+    [6, 4],
+    [7, 4],
+    // Unzoned map, well east of both halls — the party can sweep it, nothing holds it.
+    [20, 2],
+  ]);
+  const built = () =>
+    visionRegion([LOOKING], swept, [EAST.boundary], [WEST.boundary, EAST.boundary], PAD, FOG_FEATHER);
+
+  it('clears what the party is looking at, out past the stones of the wall', () => {
+    const { clear } = built();
+    expect(inRegion(clear, [7, 1])).toBe(true);
+    // A sweep stops on the wall's *centreline*, so without `sightPad` the outer half of every
+    // stone in front of the party reads as black — the report the room mask's `fogPad` fixed.
+    expect(sightPad(PAD)).toBeCloseTo(WALL_WIDTH / 2 + FOG_MARGIN);
+    expect(inRegion(clear, [8 + sightPad(PAD) - 0.05, 1])).toBe(true);
+    expect(inRegion(clear, [8 + sightPad(PAD) + FOG_FEATHER + 0.1, 1])).toBe(false);
+    // …and nothing they are not looking at, however well they remember it.
+    expect(inRegion(clear, [6.5, 4.5])).toBe(false);
+    expect(inRegion(clear, [13, 3])).toBe(false);
+  });
+
+  it('remembers the cells it swept, and only the cells, in a room nobody revealed', () => {
+    const { memory } = built();
+    expect(inRegion(memory, [6.5, 4.5])).toBe(true);
+    // One row down is map the party has never had their eyes on. In rooms mode the whole
+    // hall would be one wash or one hole; here the record is the cells and nothing else.
+    expect(inRegion(memory, [6.5, 5.5])).toBe(false);
+  });
+
+  it('washes a DM-revealed room whole — told is not the same as looked at', () => {
+    const { memory, clear } = built();
+    expect(inRegion(memory, [13, 3])).toBe(true);
+    // Memory, never live: the party knows the layout because they were told, and their own
+    // sight is the only thing that makes anything current.
+    expect(inRegion(clear, [13, 3])).toBe(false);
+  });
+
+  it('never lets a memory stand where the party is looking right now', () => {
+    const { memory } = built();
+    expect(inRegion(memory, [7, 1])).toBe(false);
+  });
+
+  it('clips the wash to the geometry the player was actually handed', () => {
+    const { memory, cells } = built();
+    // The cell at (20, 2) is on map nobody zoned — swept, recorded, and with nothing under
+    // it to remember. A wash there would be a tint floating on the void.
+    expect(inRegion(memory, [20.5, 2.5])).toBe(false);
+    // It is still in the record, which is what the probe counts.
+    expect(cells).toBe(4);
+  });
+
+  it('cuts one hole for both tiers, so the falloff runs round the outside of everything', () => {
+    const { shown } = built();
+    expect(inRegion(shown, [7, 1])).toBe(true);
+    expect(inRegion(shown, [6.5, 4.5])).toBe(true);
+    expect(inRegion(shown, [6.5, 5.5])).toBe(false);
+  });
+
+  it('clips the sweep to that geometry too — a sightline off the map cuts nothing', () => {
+    // A sweep that escapes the rooms the player holds is the louder half of the same bug: the
+    // scrim is grown to cover any sight polygon (`drawFog`), so an unclipped clear tier cuts a
+    // real hole in it — bare background, dots and all missing, in the shape of the party's own
+    // sightline over map they were never sent.
+    const OFF_THE_MAP: Polygon = [
+      [19, 1],
+      [22, 1],
+      [22, 4],
+      [19, 4],
+    ];
+    const { clear, shown, memory } = visionRegion(
+      [OFF_THE_MAP],
+      undefined,
+      [],
+      [WEST.boundary],
+      PAD,
+      FOG_FEATHER,
+    );
+    expect(inRegion(clear, [20.5, 2.5])).toBe(false);
+    expect(inRegion(shown, [20.5, 2.5])).toBe(false);
+    expect(memory).toEqual([]);
+
+    // …while a sweep that stays inside what they hold is untouched by the clip.
+    const held = visionRegion([LOOKING], undefined, [], [WEST.boundary], PAD, FOG_FEATHER);
+    expect(inRegion(held.clear, [7, 1])).toBe(true);
+  });
+
+  it('follows a delta that grows the map instead of answering from the last one', () => {
+    // P6 §1 memoizes the held and revealed reaches — the two halves of the mask a moving token
+    // never changes — on the room set they are measured from. A reveal delta is exactly the
+    // write that has to miss that memo: it arrives as new geometry with the party standing
+    // still, and a stale answer would leave the room the DM just lit as void.
+    const wash = (rooms: Polygon[], revealed: Polygon[]) =>
+      visionRegion([LOOKING], swept, revealed, rooms, PAD, FOG_FEATHER).memory;
+    /** A yard the party swept a cell of (20, 2) long before its geometry was sent. */
+    const YARD: Polygon = [
+      [19, 1],
+      [23, 1],
+      [23, 4],
+      [19, 4],
+    ];
+
+    // The revealed reach: a room the DM lights while nobody moves.
+    expect(inRegion(wash([WEST.boundary], []), [13, 3])).toBe(false);
+    expect(inRegion(wash([WEST.boundary, EAST.boundary], [EAST.boundary]), [13, 3])).toBe(true);
+    // …and the DM taking it back again, which is the only write that moves `revealed` while
+    // `shipped` stands still: the room stays latched — the player keeps the geometry they were
+    // handed — so every other term of the memo's key is identity-stable across this call, and a
+    // key that dropped the revealed reach would answer it out of the line above and leave a
+    // re-hidden room washed as though the DM never closed it.
+    expect(inRegion(wash([WEST.boundary, EAST.boundary], []), [13, 3])).toBe(false);
+    // …and the held reach, which is the clip: the cell was in the record all along and had
+    // nothing under it to remember until the delta carried the yard over.
+    expect(inRegion(wash([WEST.boundary, EAST.boundary], []), [20.5, 2.5])).toBe(false);
+    expect(inRegion(wash([WEST.boundary, EAST.boundary, YARD], []), [20.5, 2.5])).toBe(true);
+    // …and back, because the memo answers the arguments it was handed and not the newest ones.
+    expect(inRegion(wash([WEST.boundary], []), [13, 3])).toBe(false);
+  });
+
+  it('is void everywhere for a party with no sight and no memory', () => {
+    const empty = visionRegion([], undefined, [], [WEST.boundary], PAD, FOG_FEATHER);
+    expect(empty).toMatchObject({ clear: [], memory: [], shown: [], cells: 0 });
+  });
+});
+
+describe('drawFog in vision mode', () => {
+  const visionScene = (over: Partial<FogScene> = {}): FogScene => ({
+    rooms: [WEST, EAST],
+    views: new Map(),
+    bounds: fogBounds([], [WEST, EAST]),
+    pad: fogPad([]),
+    sceneId: 's1',
+    isPlayer: true,
+    void: VOID,
+    mode: 'vision',
+    sight: [],
+    fog: { rooms: {}, concealBehindDoors: true },
+    ...over,
+  });
+
+  it('cuts the sweep out of the void and ramps the fog back in over it', () => {
+    const scrim = new Graphics();
+    const drawn = drawFog(scrim, visionScene({ sight: [LOOKING] }));
+
+    const fills = fillsOf(scrim);
+    expect(fills[0].style.color).toBe(VOID.fill);
+    expect(fills[0].hole).toBeDefined();
+    // No memory: nothing has been swept into the record and no room was revealed.
+    expect(fills.some((f) => f.style.color === EXPLORED_TINT)).toBe(false);
+    expect(drawn.cells).toBe(0);
+    expect(
+      scrim.context.instructions.filter((i) => i.action === 'stroke').length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('washes the memory tier at the explored look, over the cells and the reveals', () => {
+    const scrim = new Graphics();
+    const drawn = drawFog(
+      scrim,
+      visionScene({
+        sight: [LOOKING],
+        fog: {
+          rooms: { [EAST.id]: { status: 'revealed', wasEverRevealed: true } },
+          concealBehindDoors: true,
+          region: setCells(regionOf(VISION_FRAME)!, [
+            [5, 4],
+            [6, 4],
+          ]),
+        },
+      }),
+    );
+
+    const wash = fillsOf(scrim).find((f) => f.style.color === EXPLORED_TINT);
+    expect(wash).toBeDefined();
+    expect(wash!.style.alpha).toBe(EXPLORED_TINT_ALPHA);
+    expect(drawn.cells).toBe(2);
+  });
+
+  it('leaves a party with no eyes and no memory one unbroken fill', () => {
+    // The mask fails dark, which is the only direction a fog bug may fail in: no sweep and
+    // no record is a player who has earned nothing, not a player who is owed everything.
+    const scrim = new Graphics();
+    drawFog(scrim, visionScene());
+    expect(fillsOf(scrim)).toHaveLength(1);
+    expect(fillsOf(scrim)[0].hole).toBeUndefined();
+    expect(scrim.context.instructions.filter((i) => i.action === 'stroke')).toHaveLength(0);
+  });
+
+  it('draws the DM nothing at all, as in every other mode (principle 3)', () => {
+    const scrim = new Graphics();
+    drawFog(scrim, visionScene({ sight: [LOOKING], isPlayer: false }));
+    expect(scrim.context.instructions).toHaveLength(0);
   });
 });
 
@@ -891,6 +1205,221 @@ describe('fogScene', () => {
     // …and never through the one only core believes in.
     expect(views.get(VAULT.id)).toBe('explored');
   });
+
+  // ── vision mode (S3 P2 §3) ───────────────────────────────────────────────
+
+  const sightedToken = (over: Partial<Token> = {}): Token =>
+    token({ sight: { range: 4, angle: 360, visionMode: 'normal' }, ...over });
+
+  it('takes no sweep at all in rooms mode — the mode is the whole fork', () => {
+    const scene = fogScene();
+    expect(scene.mode).toBe('rooms');
+    expect(scene.sight).toBeUndefined();
+  });
+
+  it('sweeps through every claimed pair of eyes in vision mode, and no others', () => {
+    useSessionStore.setState({
+      session: session({
+        fog: { byScene: { 'scene-1': { ...fogOf({}), mode: 'vision' } } },
+        tokens: {
+          library: {},
+          byScene: {
+            'scene-1': {
+              t1: sightedToken({ id: 't1' }),
+              t2: sightedToken({ id: 't2', x: 12, y: 2, ownerId: null }),
+              t3: sightedToken({ id: 't3', x: 12, y: 2, hidden: true }),
+              t4: token({ id: 't4', x: 22, y: 2 }),
+            },
+          },
+        },
+      }),
+    });
+
+    const scene = fogScene();
+    expect(scene.mode).toBe('vision');
+    // The DM's scenery, a hidden token and one with no sight at all are not the party.
+    expect(scene.sight).toHaveLength(1);
+    // …and the room classification is not taken at all: the tiers come off the sweep and the
+    // region record, and the fade that was its other reader is rooms-only.
+    expect(scene.views.size).toBe(0);
+    // The stored record rides along whole — the memory tier reads its cells and its reveals,
+    // not the reachability classification `views` carries.
+    expect(scene.fog?.mode).toBe('vision');
+  });
+
+  // ── individual vision (S3 P5) ────────────────────────────────────────────
+  // The seat is `player` (identity `p1`). The other seat's token is one this tab legitimately
+  // holds — the referee sent it because it walked into this seat's sight — so a mask that
+  // swept through every claimed token would hand back exactly the party view the DM turned off.
+
+  const twoSeatTokens = {
+    library: {},
+    byScene: {
+      'scene-1': {
+        // Symmetric edges, the way `set-sight-link` writes them on both ends.
+        mine: sightedToken({ id: 'mine', sharesSightWith: ['familiar'] }),
+        familiar: sightedToken({ id: 'familiar', x: 6, y: 2, ownerId: null, sharesSightWith: ['mine'] }),
+        theirs: sightedToken({ id: 'theirs', x: 12, y: 2, ownerId: 'p2' }),
+      },
+    },
+  };
+
+  const shared = (visionShare: 'party' | 'individual') =>
+    session({
+      fog: { byScene: { 'scene-1': { ...fogOf({}), mode: 'vision' as const, visionShare } } },
+      tokens: twoSeatTokens,
+    });
+
+  it('sweeps through this seat’s own eyes and its familiars in individual share', () => {
+    useSessionStore.setState({ session: shared('individual') });
+    // Own claimed token and the familiar the DM linked to it — never the other seat's.
+    expect(fogScene().sight).toHaveLength(2);
+  });
+
+  it('sweeps through every claimed token in party share, which is the default', () => {
+    useSessionStore.setState({ session: shared('party') });
+    expect(fogScene().sight).toHaveLength(3);
+    // …and an untouched scene reads party, so no table plays the narrow rule by accident.
+    useSessionStore.setState({
+      session: session({
+        fog: { byScene: { 'scene-1': { ...fogOf({}), mode: 'vision' } } },
+        tokens: twoSeatTokens,
+      }),
+    });
+    expect(fogScene().sight).toHaveLength(3);
+  });
+
+  it('falls back to the party rule while this tab does not know who it is', () => {
+    // The seat is not known until the join snapshot lands. Sweeping through nobody would
+    // black the canvas out for a beat; the referee is still withholding everything secret.
+    useSessionStore.setState({ session: shared('individual'), you: null });
+    expect(fogScene().sight).toHaveLength(3);
+  });
+
+  // ── the light gate (S3 P3 §3) ────────────────────────────────────────────
+
+  const lamp = (id: string, x: number, y: number, visible = true) =>
+    ({
+      id,
+      name: id,
+      childType: 'light',
+      visible,
+      color: '#ffbb66',
+      radius: 4,
+      featherRadius: 2,
+      intensity: 1,
+      falloff: 'quadratic',
+      position: { x, y },
+    }) as unknown as DoorChild;
+
+  /** A vision scene with a lamp on the map, three tokens, and the DM's dial at `ambient`. */
+  const nightTable = (ambient?: string, overrides: Record<string, boolean> = {}) => {
+    useStore.setState({
+      layers: [{ ...(dungeon(ROOMS) as object), children: [lamp('lamp-a', 3, 3)] } as Layer],
+    });
+    useSessionStore.setState({
+      session: session({
+        fog: { byScene: { 'scene-1': { ...fogOf({}), mode: 'vision' } } },
+        tokens: {
+          library: {},
+          byScene: {
+            'scene-1': {
+              t1: sightedToken({ id: 't1' }),
+              t2: sightedToken({
+                id: 't2',
+                x: 4,
+                y: 2,
+                sight: { range: 3, angle: 360, visionMode: 'darkvision' },
+              }),
+              // Carried light on the DM's own unclaimed torchbearer — not an eye, a source.
+              t3: token({ id: 't3', x: 6, y: 2, ownerId: null, light: { dim: 4, bright: 2, color: '#fb6', angle: 360 } }),
+            },
+          },
+        },
+        triggers: {
+          byScene: {
+            'scene-1': {
+              fired: {},
+              armed: {},
+              disabled: {},
+              lightOverrides: overrides,
+              env: ambient ? { ambient } : {},
+              prompts: [],
+              log: [],
+            },
+          },
+        },
+      }),
+    });
+    return fogScene();
+  };
+
+  it('takes no light gate at all until the DM turns the scene dark', () => {
+    for (const ambient of [undefined, 'daylight', 'dusk']) {
+      const scene = nightTable(ambient);
+      expect(scene.sight).toHaveLength(2);
+      expect(scene.night).toBeUndefined();
+    }
+  });
+
+  it('gates on the lit area and the darkvision eyes when it is dark', () => {
+    const scene = nightTable('darkness');
+    // The map's own lamp and the torch a token is carrying — the shared rule's two halves.
+    expect(scene.night?.lit).toHaveLength(2);
+    // …and the darkvision half is one of the sweeps already taken, not a second sweep.
+    expect(scene.night?.darkvision).toHaveLength(1);
+    expect(scene.night?.darkvision[0]).toBe(scene.sight?.[1]);
+  });
+
+  it('answers to the table’s own light switch, not only to the map', () => {
+    expect(nightTable('darkness', { 'lamp-a': false })?.night?.lit).toHaveLength(1);
+  });
+
+  it('counts a carried torch once — the pseudo-light on the map is that same torch', () => {
+    expect(nightTable('darkness').night?.lit).toHaveLength(2);
+    // What `lightSync` writes onto the map so the renderer draws t3's pool. The token is
+    // already a source in its own right, so reading this as a placed light too sweeps one
+    // torch twice — and the two radii only agree by coincidence (D4).
+    useStore.setState({
+      layers: [
+        {
+          ...(dungeon(ROOMS) as object),
+          children: [lamp('lamp-a', 3, 3), lamp(tokenLightId('t3'), 6, 2)],
+        } as Layer,
+      ],
+    });
+    expect(fogScene().night?.lit).toHaveLength(2);
+  });
+
+  it('dials the ambient composite per level, and leaves an untouched scene alone', () => {
+    // Untouched is absent rather than 1: the lighting pass is left exactly as it was,
+    // no-lights shortcut included.
+    expect(nightTable(undefined).darkness).toBeUndefined();
+    expect(nightTable('darkness').darkness).toBe(AMBIENT_BITE.darkness);
+    expect(nightTable('dusk').darkness).toBe(AMBIENT_BITE.dusk);
+    expect(nightTable('daylight').darkness).toBe(AMBIENT_BITE.daylight);
+    // Monotone, and the untouched scene is the darkest — which is what the renderer has
+    // always drawn, so nothing moves on a table nobody has turned the dial at.
+    expect(AMBIENT_BITE.daylight).toBeLessThan(AMBIENT_BITE.dusk);
+    expect(AMBIENT_BITE.dusk).toBeLessThan(AMBIENT_BITE.darkness);
+  });
+
+  it('imitates the void at the dial’s own bite, not always at full strength', () => {
+    // The fogged sheet is drawn *above* the same composite the real void renders through, so
+    // the two only land on the same pixels while they agree about how hard it bites. Left at
+    // full strength (D1), a daylight scene fogs darker than the map beside it.
+    for (const level of ['daylight', 'dusk', 'darkness'] as const) {
+      expect(nightTable(level).void).toEqual(
+        voidStyle(LIGHTING_STRENGTH.player * AMBIENT_BITE[level]),
+      );
+    }
+    // Lifting the composite lifts the imitation with it…
+    expect(nightTable('daylight').void.fill).toBeGreaterThan(nightTable('darkness').void.fill);
+    expect(nightTable('daylight').void.dot).toBeGreaterThan(nightTable('darkness').void.dot);
+    // …and an untouched scene is still exactly what the layer has always drawn.
+    expect(nightTable(undefined).void).toEqual(voidStyle());
+    expect(nightTable('darkness').void).toEqual(voidStyle());
+  });
 });
 
 // ── The composite each seat actually gets (D12 / principle 3) ───────────────
@@ -965,5 +1494,304 @@ describe('the lighting composite each seat is mounted with', () => {
     const { lighting, unmount } = mounted('dm');
     unmount();
     expect(lighting.alpha).toBe(0.95);
+  });
+
+  // ── D10's fade is rooms-only (S3 P2 §1) ──────────────────────────────────
+  // The fade paints a room's whole footprint in the void colour and lifts it off. In vision
+  // mode that is a room-shaped dark wash dropped over live sight on every room transition and
+  // every door swing — the one flicker the mode is specified to have none of.
+
+  describe('the reveal fade across the two modes', () => {
+    const frame = (): Promise<void> =>
+      new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+    /** Mount dark, then hand the party the room they are standing in. */
+    async function fadesAfterAReveal(mode: 'rooms' | 'vision'): Promise<number> {
+      const dark = { ...fogOf({}), mode };
+      const lit = { ...fogOf({ [VESTIBULE.id]: seen }), mode };
+      const withFog = (scene: SceneFog) =>
+        session({
+          fog: { byScene: { 'scene-1': scene } },
+          tokens: { library: {}, byScene: { 'scene-1': { t1: token() } } },
+        });
+
+      const { unmount } = mounted('player');
+      useSessionStore.setState({ session: withFog(dark) });
+      await frame();
+      const probe = (window as Window & { __fogProbe?: { fadesStarted: number } }).__fogProbe!;
+      const before = probe.fadesStarted;
+
+      useSessionStore.setState({ session: withFog(lit) });
+      await frame();
+      const started = probe.fadesStarted - before;
+      unmount();
+      return started;
+    }
+
+    it('still fades a room reveal in rooms mode — D10 is untouched', async () => {
+      expect(revealDurationMs()).toBeGreaterThan(0);
+      expect(await fadesAfterAReveal('rooms')).toBeGreaterThan(0);
+    });
+
+    it('starts none at all in vision mode, where a footprint wash would be the flicker', async () => {
+      expect(await fadesAfterAReveal('vision')).toBe(0);
+    });
+  });
+
+  // ── The share flip on a backgrounded seat (gate walk §5.1) ───────────────
+  // The walk's finding, at the seam it actually lives on. Two players, the DM flips Vision
+  // share, and the seat nobody is looking at holds its pre-flip sweep: `state-update` landed,
+  // the store is right, and the rebuild those writes queued is sitting behind a frame Chrome
+  // will not run while the tab is hidden. Read on the *second* seat, in both directions,
+  // which is exactly the pair of numbers the walk read off Borin's tab.
+
+  describe('a share flip reaching a hidden tab', () => {
+    /** Chrome suspends rAF while a tab is backgrounded: queued, never called. */
+    function backgrounded(): () => void {
+      const real = globalThis.requestAnimationFrame;
+      globalThis.requestAnimationFrame = (() => 1) as typeof globalThis.requestAnimationFrame;
+      Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+      return () => {
+        globalThis.requestAnimationFrame = real;
+        Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+      };
+    }
+
+    const sweepSources = (): number =>
+      (window as Window & { __fogProbe?: { sweepSources(): number } }).__fogProbe!.sweepSources();
+
+    /** Past `REBUILD_FLOOR_MS`, which is the only clock a hidden tab has. */
+    const settle = (): Promise<void> =>
+      new Promise((resolve) => setTimeout(resolve, REBUILD_FLOOR_MS + 50));
+
+    /** This seat is `p2` — the one the walk found stale — and `p1` is the other player. */
+    const seatTwo: PlayerInfo = { identityId: 'p2', name: 'Borin', role: 'player', connected: true };
+    const eye = (over: Partial<Token>): Token =>
+      token({ sight: { range: 4, angle: 360, visionMode: 'normal' }, ...over });
+    const mine = eye({ id: 'mine', ownerId: 'p2', x: 9, y: 2 });
+    const theirs = eye({ id: 'theirs', ownerId: 'p1', x: 2, y: 2 });
+
+    const shared = (visionShare: 'party' | 'individual', tokens: Token[]) =>
+      session({
+        fog: { byScene: { 'scene-1': { ...fogOf({}), mode: 'vision' as const, visionShare } } },
+        tokens: {
+          library: {},
+          byScene: { 'scene-1': Object.fromEntries(tokens.map((t) => [t.id, t])) },
+        },
+      });
+
+    /**
+     * The flip as the wire delivers it: the fog slice, then the tokens the DM's write
+     * retracted or handed back (`RETRACTS.fog`), each its own `state-update`.
+     */
+    async function flippedTo(
+      from: 'party' | 'individual',
+      to: 'party' | 'individual',
+    ): Promise<{ before: number; after: number }> {
+      const { unmount } = mounted('player');
+      // …then the table this seat is actually sitting at, which `mounted` knows nothing of.
+      useSessionStore.setState({
+        session: shared(from, from === 'party' ? [mine, theirs] : [mine]),
+        you: seatTwo,
+        mapData: sent([dungeon(ROOMS)]),
+      });
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+      const before = sweepSources();
+
+      const foreground = backgrounded();
+      const { applyServerMessage } = useSessionStore.getState();
+      const tokens = to === 'party' ? [mine, theirs] : [mine];
+      applyServerMessage({
+        type: 'state-update',
+        module: 'fog',
+        state: shared(to, tokens).modules.fog,
+      } as ServerMessage);
+      applyServerMessage({
+        type: 'state-update',
+        module: 'tokens',
+        state: shared(to, tokens).modules.tokens,
+      } as ServerMessage);
+      await settle();
+
+      const after = sweepSources();
+      foreground();
+      unmount();
+      return { before, after };
+    }
+
+    it('recomputes this seat’s live sweep on individual → party', async () => {
+      // The walk's own reading, in miniature: held at the pre-flip 1 instead of the party's 2.
+      expect(await flippedTo('individual', 'party')).toEqual({ before: 1, after: 2 });
+    });
+
+    it('…and on party → individual, back to this seat’s own eyes alone', async () => {
+      expect(await flippedTo('party', 'individual')).toEqual({ before: 2, after: 1 });
+    });
+  });
+});
+
+// ── S3 P3 §3/§4 — the light gate on the mask, and the drained grade ─────────
+// The clear tier stops being "what the sweep reaches" and becomes "what the sweep reaches AND
+// the party can see by". Every row is written so the P2 answer would differ: the same sweep,
+// the same rooms, and only the light moving.
+
+describe('visionRegion in the dark', () => {
+  const PAD = fogPad([]);
+  /** A torch pool at the near end of what the party is looking at. */
+  const TORCH_POOL: Polygon = [
+    [6, 0.5],
+    [7, 0.5],
+    [7, 1.5],
+    [6, 1.5],
+  ];
+  /** …and a darkvision eye's own reach at the far end of it, past the pool. */
+  const OWL_REACH: Polygon = [
+    [8, 0.5],
+    [8.4, 0.5],
+    [8.4, 2],
+    [8, 2],
+  ];
+  /** Inside the torch pool, and inside the sweep but well past it. */
+  const LIT_SPOT: [number, number] = [6.5, 1];
+  const DARK_SPOT: [number, number] = [8.5, 1];
+
+  const at = (night?: { lit: Polygon[]; darkvision: Polygon[] }) =>
+    visionRegion([LOOKING], undefined, [], [WEST.boundary], PAD, FOG_FEATHER, night);
+
+  it('is the P2 mask with no night at all — the ambient dial untouched changes nothing', () => {
+    const day = at();
+    expect(inRegion(day.clear, LIT_SPOT)).toBe(true);
+    expect(inRegion(day.clear, DARK_SPOT)).toBe(true);
+    expect(day.drained).toEqual([]);
+  });
+
+  it('leaves a party with no light at all looking at nothing', () => {
+    const blind = at({ lit: [], darkvision: [] });
+    expect(blind.clear).toEqual([]);
+    expect(blind.drained).toEqual([]);
+    // The sweep is still taken and the memory tier is still whatever they earned — what the
+    // dark takes away is the live tier, not the record.
+    expect(blind.shown).toEqual([]);
+  });
+
+  it('clears the torch pool and nothing else the sweep crossed', () => {
+    const night = at({ lit: [TORCH_POOL], darkvision: [] });
+    expect(inRegion(night.clear, LIT_SPOT)).toBe(true);
+    // Two cells further along the same sightline, unlit: the sweep reaches it and the party
+    // cannot see it. In P2 this was clear.
+    expect(inRegion(night.clear, DARK_SPOT)).toBe(false);
+    // The pool is clipped to the sweep too — a torch lighting a room nobody is looking at
+    // does not open the mask.
+    expect(inRegion(night.clear, [6.5, 4])).toBe(false);
+    // The pool itself is lit ground and takes no grade…
+    expect(inRegion(night.drained, LIT_SPOT)).toBe(false);
+    // …but the band the pad opens past its edge, so a torch lights the room's wall stones, is
+    // past where the light itself has fallen to zero. Cleared and unlit is drained, not raw —
+    // otherwise every pool wears a thin ungraded ring (D8).
+    const RING_SPOT: [number, number] = [7 + sightPad(PAD) / 2, 1];
+    expect(inRegion(night.clear, RING_SPOT)).toBe(true);
+    expect(inRegion(night.drained, RING_SPOT)).toBe(true);
+  });
+
+  it('gives darkvision its own ground, graded apart from the lit pool', () => {
+    const night = at({ lit: [TORCH_POOL], darkvision: [OWL_REACH] });
+    // Both are clear — the party is looking at both.
+    expect(inRegion(night.clear, LIT_SPOT)).toBe(true);
+    expect(inRegion(night.clear, DARK_SPOT)).toBe(true);
+    // …but only the unlit half takes the drained grade: a darkvision eye standing in
+    // torchlight sees the pool in colour like anybody else.
+    expect(inRegion(night.drained, DARK_SPOT)).toBe(true);
+    expect(inRegion(night.drained, LIT_SPOT)).toBe(false);
+  });
+
+  it('drains the whole clear area when nothing is burning at all', () => {
+    const night = at({ lit: [], darkvision: [OWL_REACH] });
+    expect(inRegion(night.clear, DARK_SPOT)).toBe(true);
+    expect(inRegion(night.drained, DARK_SPOT)).toBe(true);
+    // And a normal eye's ground is still dark: the ring is the darkvision token's, not the
+    // party's (the referee draws the same line — `seen` in fog/sweep.ts).
+    expect(inRegion(night.clear, LIT_SPOT)).toBe(false);
+  });
+
+  it('keeps the unlit ground the party remembers as memory rather than void', () => {
+    const swept = setCells(regionOf(VISION_FRAME)!, [[8, 1]]);
+    const night = visionRegion(
+      [LOOKING],
+      swept,
+      [],
+      [WEST.boundary],
+      PAD,
+      FOG_FEATHER,
+      { lit: [TORCH_POOL], darkvision: [] },
+    );
+    // The cell they swept before the light went out: not live, still theirs.
+    expect(inRegion(night.memory, [8.5, 1.5])).toBe(true);
+    expect(inRegion(night.clear, [8.5, 1.5])).toBe(false);
+  });
+});
+
+describe('drawFog — the drained grade (§4)', () => {
+  const nightScene = (night: { lit: Polygon[]; darkvision: Polygon[] }): FogScene => ({
+    rooms: [WEST, EAST],
+    views: new Map(),
+    bounds: fogBounds([], [WEST, EAST]),
+    pad: fogPad([]),
+    sceneId: 's1',
+    isPlayer: true,
+    void: VOID,
+    mode: 'vision',
+    sight: [LOOKING],
+    fog: { rooms: {}, concealBehindDoors: true },
+    night,
+  });
+
+  it('washes the darkvision area at its own look, and only there', () => {
+    const scrim = new Graphics();
+    drawFog(
+      scrim,
+      nightScene({
+        lit: [],
+        darkvision: [
+          [
+            [6, 0.5],
+            [8, 0.5],
+            [8, 2],
+            [6, 2],
+          ],
+        ],
+      }),
+    );
+    const wash = fillsOf(scrim).filter((f) => f.style.color === DARKVISION_TINT);
+    expect(wash).toHaveLength(1);
+    expect(wash[0].style.alpha).toBe(DARKVISION_TINT_ALPHA);
+    // Above the void's own floor and below the lit map: three states, three brightnesses.
+    expect(DARKVISION_TINT_ALPHA).toBeLessThan(EXPLORED_TINT_ALPHA);
+    expect(DARKVISION_TINT).toBeGreaterThan(EXPLORED_TINT);
+  });
+
+  it('grades the band past a pool’s edge, and leaves the pool itself alone', () => {
+    const scrim = new Graphics();
+    drawFog(
+      scrim,
+      nightScene({
+        lit: [
+          [
+            [6, 0.5],
+            [8, 0.5],
+            [8, 2],
+            [6, 2],
+          ],
+        ],
+        darkvision: [],
+      }),
+    );
+    // The mask opens the wall band around a torch (`sightPad`) and the light's own gradient
+    // has fallen to zero by `radius`, so that band is cleared ground no light reaches — the
+    // drained grade covers it rather than leaving a thin ungraded ring (D8). One wash: the
+    // ring, drawn as a fill with the pool cut out of it.
+    const wash = fillsOf(scrim).filter((f) => f.style.color === DARKVISION_TINT);
+    expect(wash).toHaveLength(1);
+    // …and the pool itself is a hole in the scrim, like any other clear ground.
+    expect(fillsOf(scrim)[0].hole).toBeDefined();
   });
 });

@@ -273,6 +273,15 @@ export type ZoneShape =
 export interface ZoneChild extends LayerChild {
   childType: 'zone';
   shape: ZoneShape;
+  /**
+   * S3 token vision — an explore lock. Sight sweeping into this zone still *shows* the
+   * party what is there, but it never auto-explores it: the curtained vault stays the DM's
+   * to reveal by hand. Circle and rect zones only; a point zone has no area to lock.
+   *
+   * Absent reads as false, so old maps load unchanged and the schema stays 3.1. Server-side
+   * by construction — zones are stripped from every player-bound document.
+   */
+  blocksAutoExplore?: boolean;
 }
 
 export type AnyChild =

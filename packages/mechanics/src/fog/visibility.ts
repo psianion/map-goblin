@@ -61,7 +61,11 @@ export function effectiveFog(
   const lit = Object.values(fog.rooms).some((room) => room.status === 'revealed')
   const fallback = lit ? null : defaultRoom(rooms)
   if (!fallback) return { ...fog, concealBehindDoors }
+  // Spread, never rebuilt from two fields: the scene's mode, share, auto-explore and region
+  // memory are the fog too, and a branch that drops them hands its caller a scene that
+  // silently reverted to rooms mode.
   return {
+    ...fog,
     rooms: { ...fog.rooms, [fallback.id]: EFFECTIVELY_REVEALED },
     concealBehindDoors: false,
   }

@@ -114,6 +114,10 @@ export function TableStatusBar() {
   const envLabel = [
     env.time !== undefined ? vocabLabel(env.time) : undefined,
     env.weather !== undefined ? vocabLabel(env.weather) : undefined,
+    // Daylight is the level every scene is at until a DM says otherwise (S3 P3 §1), so saying
+    // it would be chrome about nothing — the badge carries the light level only when it is
+    // something the table can feel.
+    env.ambient !== undefined && env.ambient !== 'daylight' ? vocabLabel(env.ambient) : undefined,
   ]
     .filter((v): v is string => v !== undefined)
     .join(', ');

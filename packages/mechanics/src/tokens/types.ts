@@ -3,6 +3,7 @@
 // place time and keeps `defId` only as provenance, so deleting a def never orphans a
 // token that is already on the table.
 
+import type { Viewer } from '../contract'
 import type { BlockedEdge } from '../doors/types'
 
 export type TokenSize = 'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'gargantuan'
@@ -47,6 +48,12 @@ export interface Token extends TokenDef {
   hidden: boolean
   /** identityId of the claiming player. */
   ownerId: string | null
+  /**
+   * S3 P4 §4 — the other tokens in this scene whose sight is shared with this one. Symmetric
+   * and maintained by `set-sight-link` on both ends; absent ≡ no links. Scene-scoped, so it
+   * lives on the instance and never on the def a token was placed from.
+   */
+  sharesSightWith?: string[]
 }
 
 export interface TokensState {
@@ -77,6 +84,15 @@ export interface SceneVision {
    * the locked door.
    */
   blockedEdge?(room: string): BlockedEdge | null
+  /**
+   * S3 P1 — token vision, at point resolution: is this spot inside the party's live sight
+   * (range + line of sight through walls and closed doors)?
+   *
+   * Present only when the scene's fog is in `'vision'` mode; the server builds it from the
+   * same sweep union it renders with. Absent — every `'rooms'`-mode scene, which is the
+   * default — leaves the room-granular rule below exactly as it was.
+   */
+  canSee?(x: number, y: number): boolean
 }
 
 /**
@@ -96,5 +112,11 @@ export const OUTSIDE_MAP = 'outside-map'
  * `null` = that scene's map authors no rooms. Fog is room-granular, so a map nobody zoned
  * has no fog and hides nothing — the S2 behaviour, which is also the default when no
  * lookup is wired at all.
+ *
+ * S3 P5 — the seam is viewer-aware, because `visionShare: 'individual'` makes "what can be
+ * seen" a different answer per seat: `redact` passes the viewer it is redacting for and gets
+ * that seat's own `canSee` back. Optional, and omitting it asks the party question — which is
+ * what the *command* callers want (`canOccupy` is party-global, D8) and what every party-share
+ * table answers anyway.
  */
-export type VisionOf = (sceneId: string) => SceneVision | null
+export type VisionOf = (sceneId: string, viewer?: Viewer) => SceneVision | null

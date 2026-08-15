@@ -240,6 +240,23 @@ export function ZoneProperties({ layerId, childId }: ZonePropertiesProps) {
         </div>
       </PropertyField>
 
+      {/* S3 P4 §5 — the explore lock. A flag on a zone the DM already authored rather than a
+          tool of its own: sight sweeping in still SHOWS the party what is there, it simply
+          never auto-explores it, so the curtained vault stays theirs to reveal by hand.
+          Gated off point zones because a lock needs an area — the server refuses one too
+          (`exploreLocks`), and offering a switch that cannot take effect would be a lie. */}
+      {shape.kind !== 'point' && (
+        <PropertyField label="Blocks auto-explore">
+          <ToggleSwitch
+            checked={zone.blocksAutoExplore ?? false}
+            onChange={(v) =>
+              update({ blocksAutoExplore: zone.blocksAutoExplore }, { blocksAutoExplore: v })
+            }
+            label="Blocks auto-explore"
+          />
+        </PropertyField>
+      )}
+
       <div className="flex flex-col gap-1.5 pt-1">
         <div className="flex items-center justify-between">
           <span className="font-mono text-panel-label uppercase text-text-muted">Triggers</span>

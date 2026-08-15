@@ -151,7 +151,7 @@ export function occupyRefusal(
   return say(scene.visible.has(room) ? MOVE_BLOCKED : ROOM_UNEXPLORED)
 }
 
-function parseSight(v: unknown): TokenDef['sight'] {
+export function parseSight(v: unknown): TokenDef['sight'] {
   if (v === null) return null
   const o = obj(v, 'sight')
   return {
@@ -161,7 +161,7 @@ function parseSight(v: unknown): TokenDef['sight'] {
   }
 }
 
-function parseLight(v: unknown): TokenDef['light'] {
+export function parseLight(v: unknown): TokenDef['light'] {
   if (v === null) return null
   const o = obj(v, 'light')
   return {

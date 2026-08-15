@@ -23,6 +23,13 @@ const P1: Viewer = { role: 'player', identityId: 'p-1' }
 const P2: Viewer = { role: 'player', identityId: 'p-2' }
 const SCENE = 'scene-a'
 
+/** The seats `assign` validates its identity against; every other row is indifferent to it. */
+const ROSTER = [
+  { identityId: 'dm-1', name: 'Ayla', role: 'dm' as const, connected: true },
+  { identityId: 'p-1', name: 'Borin', role: 'player' as const, connected: true },
+  { identityId: 'p-2', name: 'Cass', role: 'player' as const, connected: true },
+]
+
 /** No vision lookup wired: an unzoned map has no fog, which is every test but the last. */
 const tokensModule = buildTokens()
 
@@ -66,7 +73,7 @@ function run(
     sessionId: 's-1',
     activeSceneId,
     sender,
-    players: [],
+    players: ROSTER,
     state,
     setState: (s) => {
       next = s
@@ -320,6 +327,123 @@ describe('update', () => {
     )
     expect(run(state, DM, 'update', { id: 't1' }).error?.code).toBe('invalid-command')
   })
+
+  // ── P4 §3 — sight and light on a placed instance ──────────────────────────
+
+  const SIGHT = { range: 8, angle: 360, visionMode: 'darkvision' }
+  const LIGHT = { dim: 4, bright: 2, color: '#ffbb66', angle: 360 }
+
+  it('round-trips sight and light, and clears them with null', () => {
+    const lit = run(stateWith(token()), DM, 'update', { id: 't1', sight: SIGHT, light: LIGHT })
+    expect(lit.error).toBeNull()
+    expect(only(lit.next)).toMatchObject({ sight: SIGHT, light: LIGHT })
+
+    const blind = run(lit.next, DM, 'update', { id: 't1', sight: null, light: null })
+    expect(blind.error).toBeNull()
+    expect(only(blind.next)).toMatchObject({ sight: null, light: null })
+  })
+
+  it('runs the same validators `place` does — a bad payload is refused, not stored', () => {
+    const state = stateWith(token())
+    for (const payload of [
+      { sight: { range: 8, angle: 360, visionMode: 'x-ray' } },
+      { sight: { range: 'far', angle: 360, visionMode: 'normal' } },
+      { light: { dim: 4, bright: 2, color: 'c'.repeat(33), angle: 360 } },
+      { light: { dim: 4, bright: 2, angle: 360 } },
+    ]) {
+      const { error, next } = run(state, DM, 'update', { id: 't1', ...payload })
+      expect(error, JSON.stringify(payload)).toMatchObject({ code: 'invalid-command' })
+      expect(only(next).sight).toBeNull()
+      expect(only(next).light).toBeNull()
+    }
+  })
+
+  it('refuses a player sight or light EVEN ON THEIR OWN token (the whole access control)', () => {
+    const mine = stateWith(token({ ownerId: 'p-1' }))
+    expect(run(mine, P1, 'update', { id: 't1', sight: SIGHT }).error).toMatchObject({
+      code: 'unauthorized',
+    })
+    expect(run(mine, P1, 'update', { id: 't1', light: LIGHT }).error).toMatchObject({
+      code: 'unauthorized',
+    })
+    // …including the clearing form, which is a change to the field like any other.
+    expect(run(mine, P1, 'update', { id: 't1', name: 'Rex', sight: null }).error).toMatchObject({
+      code: 'unauthorized',
+    })
+    // …and nothing was written on the way to the refusal.
+    expect(only(mine).sight).toBeNull()
+  })
+})
+
+// ── P4 §4 — sight links ────────────────────────────────────────────────────
+
+describe('set-sight-link', () => {
+  const pair = () => stateWith(token({ id: 't1' }), token({ id: 't2' }), token({ id: 't3' }))
+  const linksOf = (s: TokensState, id: string) => s.byScene[SCENE][id].sharesSightWith
+
+  it('writes both ends of the edge in one state', () => {
+    const { error, next } = run(pair(), DM, 'set-sight-link', {
+      id: 't1',
+      otherId: 't2',
+      linked: true,
+    })
+    expect(error).toBeNull()
+    expect(linksOf(next, 't1')).toEqual(['t2'])
+    expect(linksOf(next, 't2')).toEqual(['t1'])
+    // The third token is untouched: a link is an edge, not a group.
+    expect(linksOf(next, 't3')).toBeUndefined()
+  })
+
+  it('unlinks both ends and leaves no empty array behind (absent ≡ no links)', () => {
+    const linked = run(pair(), DM, 'set-sight-link', { id: 't1', otherId: 't2', linked: true }).next
+    // Unlinked from the OTHER end, which only symmetric storage can answer.
+    const { next } = run(linked, DM, 'set-sight-link', { id: 't2', otherId: 't1', linked: false })
+    expect(linksOf(next, 't1')).toBeUndefined()
+    expect(linksOf(next, 't2')).toBeUndefined()
+  })
+
+  it('is idempotent — linking twice is one edge', () => {
+    const once = run(pair(), DM, 'set-sight-link', { id: 't1', otherId: 't2', linked: true }).next
+    const twice = run(once, DM, 'set-sight-link', { id: 't1', otherId: 't2', linked: true }).next
+    expect(linksOf(twice, 't1')).toEqual(['t2'])
+  })
+
+  it('refuses a self-link, an unknown other, and a missing subject', () => {
+    for (const payload of [
+      { id: 't1', otherId: 't1', linked: true },
+      { id: 't1', otherId: 'nope', linked: true },
+      { id: 'nope', otherId: 't1', linked: true },
+      { id: 't1', otherId: 't2' },
+    ]) {
+      expect(run(pair(), DM, 'set-sight-link', payload).error, JSON.stringify(payload)).toMatchObject(
+        { code: 'invalid-command' },
+      )
+    }
+  })
+
+  it('unlinks an id that is no longer on the scene — the ghost is the thing to clean up', () => {
+    // Pre-existing data written before `delete` pruned its edges. Refusing this would leave a
+    // dangling link with no way out of it; linking *to* a ghost is still nonsense.
+    const haunted = stateWith(token({ id: 't1', sharesSightWith: ['gone'] }), token({ id: 't2' }))
+    const { error, next } = run(haunted, DM, 'set-sight-link', {
+      id: 't1',
+      otherId: 'gone',
+      linked: false,
+    })
+    expect(error).toBeNull()
+    expect(linksOf(next, 't1')).toBeUndefined()
+    expect(next.byScene[SCENE].gone).toBeUndefined()
+
+    expect(
+      run(haunted, DM, 'set-sight-link', { id: 't1', otherId: 'gone', linked: true }).error,
+    ).toMatchObject({ code: 'invalid-command' })
+  })
+
+  it('is dm-only', () => {
+    expect(
+      run(pair(), P1, 'set-sight-link', { id: 't1', otherId: 't2', linked: true }).error,
+    ).toMatchObject({ code: 'unauthorized' })
+  })
 })
 
 describe('hide and delete', () => {
@@ -332,6 +456,22 @@ describe('hide and delete', () => {
   it('deletes the instance only', () => {
     const { next } = run(stateWith(token(), token({ id: 't2' })), DM, 'delete', { id: 't1' })
     expect(Object.keys(next.byScene[SCENE])).toEqual(['t2'])
+  })
+
+  it('takes its half of every sight link with it — no edge is left pointing at a ghost', () => {
+    const state = stateWith(
+      token({ id: 't1', sharesSightWith: ['t2', 't3'] }),
+      token({ id: 't2', sharesSightWith: ['t1'] }),
+      token({ id: 't3', sharesSightWith: ['t1', 't2'] }),
+    )
+    const { next } = run(state, DM, 'delete', { id: 't1' })
+    const scene = next.byScene[SCENE]
+    expect(Object.keys(scene).sort()).toEqual(['t2', 't3'])
+    // The only edge t2 had was to the deleted token, so the key goes with it (absent ≡ none).
+    expect(scene.t2.sharesSightWith).toBeUndefined()
+    // …while an edge between two survivors is untouched.
+    expect(scene.t3.sharesSightWith).toEqual(['t2'])
+    expect(JSON.stringify(next)).not.toContain('t1')
   })
 })
 
@@ -350,6 +490,53 @@ describe('claim', () => {
     expect(run(stateWith(token({ hidden: true })), P1, 'claim', { id: 't1' }).error).toMatchObject({
       code: 'invalid-command',
     })
+  })
+})
+
+describe('assign (the DM hands a token over)', () => {
+  it('sets an owner, reassigns it, and clears it again', () => {
+    const first = run(stateWith(token()), DM, 'assign', { id: 't1', identityId: 'p-1' })
+    expect(first.error).toBeNull()
+    expect(only(first.next).ownerId).toBe('p-1')
+
+    // Reassignment is the DM overriding an existing owner — `claim` refuses this on purpose.
+    const second = run(first.next, DM, 'assign', { id: 't1', identityId: 'p-2' })
+    expect(second.error).toBeNull()
+    expect(only(second.next).ownerId).toBe('p-2')
+
+    const cleared = run(second.next, DM, 'assign', { id: 't1', identityId: null })
+    expect(cleared.error).toBeNull()
+    expect(only(cleared.next).ownerId).toBeNull()
+  })
+
+  it('is the DM’s alone — a player cannot hand themselves a token', () => {
+    expect(run(stateWith(token()), P1, 'assign', { id: 't1', identityId: 'p-1' }).error).toMatchObject(
+      { code: 'unauthorized' },
+    )
+  })
+
+  it('refuses an identity nobody at this table holds, and a token that is not there', () => {
+    for (const payload of [
+      { id: 't1', identityId: 'p-9' },
+      { id: 't1' },
+      { id: 't-nope', identityId: 'p-1' },
+    ]) {
+      expect(run(stateWith(token()), DM, 'assign', payload).error).toMatchObject({
+        code: 'invalid-command',
+      })
+    }
+  })
+
+  it('assigns a hidden token, which its new owner still does not receive', () => {
+    const { next, error } = run(stateWith(token({ hidden: true })), DM, 'assign', {
+      id: 't1',
+      identityId: 'p-1',
+    })
+    expect(error).toBeNull()
+    expect(only(next).ownerId).toBe('p-1')
+    // Unchanged semantic: hidden beats own-token in `redact`, exactly as it does for a token
+    // claimed and then hidden. Revealing it is the DM's second act.
+    expect(tokensModule.redact!(next, P1).byScene[SCENE]).toEqual({})
   })
 })
 
@@ -506,5 +693,93 @@ describe('redact under fog (S3 D7)', () => {
 
   it('leaves the DM view untouched, object identity included', () => {
     expect(redact(state, DM)).toBe(state)
+  })
+})
+
+// ── S3 P1: redaction by token vision ────────────────────────────────────────
+// The same seam, one resolution finer. With `canSee` wired the question is asked of the
+// point a token stands on, so a lit room is no longer a licence to see everything in it.
+
+describe('redact under token vision (S3 P1)', () => {
+  /** A 10×10 box of sight in the middle of one big room — everything else is that room too. */
+  const inSweep = (x: number, y: number) => x >= 10 && x <= 20 && y >= 0 && y <= 10
+  const vision: SceneVision = {
+    roomAt: () => 'hall',
+    visible: new Set(['hall']),
+    occupiable: new Set(['hall']),
+    canSee: inSweep,
+  }
+  const seen = buildTokens((sceneId) => (sceneId === SCENE ? vision : null))
+  const redact = seen.redact!
+
+  const lit = token({ id: 'lit1', x: 15.5, y: 5.5 })
+  const dark = token({ id: 'dark1', x: 1.5, y: 5.5 })
+  const mine = token({ id: 'mine1', x: 1.5, y: 1.5, ownerId: 'p-1' })
+  const hidden = token({ id: 'hid1', x: 15.5, y: 5.5, hidden: true })
+  const state: TokensState = {
+    library: {},
+    byScene: { [SCENE]: Object.fromEntries([lit, dark, mine, hidden].map((t) => [t.id, t])) },
+  }
+
+  it('keeps a token inside the sweep and drops one outside it, same room or not', () => {
+    const view = redact(state, P1).byScene[SCENE]
+    expect(Object.keys(view).sort()).toEqual(['lit1', 'mine1'])
+    // The room is visible; the corner of it the party is not looking at is not.
+    expect(vision.visible.has(vision.roomAt(dark.x, dark.y)!)).toBe(true)
+    expect(JSON.stringify(redact(state, P1))).not.toContain('dark1')
+  })
+
+  it('keeps your own claimed token wherever it stands (D7)', () => {
+    expect(vision.canSee!(mine.x, mine.y)).toBe(false)
+    expect(Object.keys(redact(state, P1).byScene[SCENE])).toContain('mine1')
+    // …and only for its owner.
+    expect(Object.keys(redact(state, P2).byScene[SCENE])).not.toContain('mine1')
+  })
+
+  it('still drops a hidden token standing in plain sight', () => {
+    expect(Object.keys(redact(state, P1).byScene[SCENE])).not.toContain('hid1')
+  })
+
+  it('never names a dropped token through the surviving end of a sight link', () => {
+    // The leak the token drop is for, one field over: `sharesSightWith` is a list of token
+    // *ids*, so a party token linked to the hidden ambusher would carry its id — and its
+    // count — into every frame the player receives.
+    const linked: TokensState = {
+      library: {},
+      byScene: {
+        [SCENE]: {
+          mine1: { ...mine, sharesSightWith: ['hid1', 'lit1'] },
+          lit1: { ...lit, sharesSightWith: ['mine1'] },
+          hid1: { ...hidden, sharesSightWith: ['mine1'] },
+          dark1: { ...dark, sharesSightWith: ['dark2'] },
+          dark2: token({ id: 'dark2', x: 1.5, y: 6.5, sharesSightWith: ['dark1'] }),
+        },
+      },
+    }
+    const view = redact(linked, P1)
+    expect(JSON.stringify(view)).not.toContain('hid1')
+    expect(JSON.stringify(view)).not.toContain('dark2')
+    // The link to a token that did survive is still there — this trims, it does not erase.
+    expect(view.byScene[SCENE].mine1.sharesSightWith).toEqual(['lit1'])
+    // Trimmed to nothing drops the key rather than shipping an empty array.
+    expect('sharesSightWith' in view.byScene[SCENE].lit1).toBe(true)
+    expect(redact(linked, P2).byScene[SCENE].lit1.sharesSightWith).toBeUndefined()
+    // The DM's own view keeps every edge, and the source is untouched.
+    expect(redact(linked, DM)).toBe(linked)
+    expect(linked.byScene[SCENE].mine1.sharesSightWith).toEqual(['hid1', 'lit1'])
+  })
+
+  it('leaves the DM view untouched, object identity included', () => {
+    expect(redact(state, DM)).toBe(state)
+  })
+
+  it('falls back to the room rule when no sweep is wired (rooms mode)', () => {
+    // Same scene, same tokens, `canSee` absent: the whole room is visible again.
+    const rooms = buildTokens(() => ({ ...vision, canSee: undefined }))
+    expect(Object.keys(rooms.redact!(state, P1).byScene[SCENE]).sort()).toEqual([
+      'dark1',
+      'lit1',
+      'mine1',
+    ])
   })
 })

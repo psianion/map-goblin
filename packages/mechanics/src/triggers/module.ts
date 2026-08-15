@@ -20,7 +20,15 @@ import {
   type TriggerPrompt,
   type TriggersState,
 } from './types'
-import { TIMES, WEATHERS, type TimeOfDay, type TriggerAction, type Weather } from '@dnd/core/src/shared/prep'
+import {
+  AMBIENTS,
+  TIMES,
+  WEATHERS,
+  type AmbientLevel,
+  type TimeOfDay,
+  type TriggerAction,
+  type Weather,
+} from '@dnd/core/src/shared/prep'
 
 export * from './types'
 
@@ -156,13 +164,27 @@ const WEATHER_PHRASES: Record<Weather, string> = {
   snow: 'Snow begins to fall',
 }
 
+/** The light level in the same voice — what the table *sees* happen, never "ambient: darkness". */
+const AMBIENT_PHRASES: Record<AmbientLevel, string> = {
+  daylight: 'The dark lifts',
+  dusk: 'The light thins',
+  darkness: 'Darkness closes in',
+}
+
+/** …and the dial handed back: the scene lights itself the way its map was authored again. */
+const AMBIENT_CLEARED = 'The light settles as it was'
+
+type EnvDelta = { time?: TimeOfDay; weather?: Weather; ambient?: AmbientLevel }
+
 /** Shared by `set-environment` and the `environment` fire-action — one sentence, one place.
  *  Takes the DELTA (only the field(s) this change actually touches), never the whole merged
  *  env: restating an unchanged field alongside the one that moved would narrate a no-op. */
-function envText(delta: { time?: TimeOfDay; weather?: Weather }): string {
+function envText(delta: EnvDelta, ambientCleared = false): string {
   const parts: string[] = []
   if (delta.time) parts.push(TIME_PHRASES[delta.time])
   if (delta.weather) parts.push(WEATHER_PHRASES[delta.weather])
+  if (delta.ambient) parts.push(AMBIENT_PHRASES[delta.ambient])
+  if (ambientCleared) parts.push(AMBIENT_CLEARED)
   return parts.map((p) => p + '.').join(' ')
 }
 
@@ -181,13 +203,30 @@ function lightText(name: string | undefined, on: boolean): string {
 function setEnvironment(p: Payload, ctx: Ctx): void {
   const sceneId = sceneOf(p, ctx)
   const scene = sceneTriggersOf(ctx.state, sceneId)
-  if (p.time === undefined && p.weather === undefined) bad('set-environment needs time or weather')
-  const delta: { time?: TimeOfDay; weather?: Weather } = {}
+  if (p.time === undefined && p.weather === undefined && p.ambient === undefined) {
+    bad('set-environment needs time, weather or ambient')
+  }
+  const delta: EnvDelta = {}
   if (p.time !== undefined) delta.time = oneOf(p.time, TIMES, 'time')
   if (p.weather !== undefined) delta.weather = oneOf(p.weather, WEATHERS, 'weather')
+  // The light level rides the same command and the same delta-merge: one dial the DM turns,
+  // one narrated line, and every reader of `env` picks it up for free (S3 P3 §1).
+  //
+  // …with one exception to the merge's "a field is never cleared" rule: an explicit `null`
+  // takes the dial off. Absent and `daylight` are not the same scene — absent leaves the
+  // lighting composite exactly as the map authored it, `daylight` bites at AMBIENT_BITE — so
+  // a DM who has touched the dial needs a way back to untouched (D2). `undefined` still means
+  // "leave it alone", for this field as for every other.
+  const clearAmbient = p.ambient === null
+  if (p.ambient !== undefined && !clearAmbient) delta.ambient = oneOf(p.ambient, AMBIENTS, 'ambient')
   const env = { ...scene.env, ...delta }
+  if (clearAmbient) delete env.ambient
   const next = { ...scene, env, log: [...scene.log] }
-  pushLog(next, { kind: 'environment', text: envText(delta), toPlayers: true }, Date.now())
+  pushLog(
+    next,
+    { kind: 'environment', text: envText(delta, clearAmbient), toPlayers: true },
+    Date.now(),
+  )
   setScene(ctx, sceneId, next)
 }
 
@@ -538,7 +577,10 @@ function runFireAction(
       return
 
     case 'environment': {
-      const delta: { time?: TimeOfDay; weather?: Weather } = {}
+      // ponytail: an authored trigger sets time/weather only — the light level is the DM's
+      // live dial (§1). Add `ambient` to the action the day a map wants to author a blackout,
+      // which is an editor field as much as a line here.
+      const delta: EnvDelta = {}
       if (action.time !== undefined) delta.time = action.time
       if (action.weather !== undefined) delta.weather = action.weather
       scene.env = { ...scene.env, ...delta }

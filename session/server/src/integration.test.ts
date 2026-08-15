@@ -356,10 +356,26 @@ describe('forged clients (§2.6 ownership enforcement)', () => {
       sendCommand(player, 'tokens', 'hide', { id: visible.id })
       expect((await next(player, 'error')).code).toBe('unauthorized')
 
+      // Claimed, so it is a party token whose every field reaches this socket.
+      const claimed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(player, 'tokens', 'claim', { id: visible.id })
+      await claimed
+
       const hiddenPlaced = nextState<TokensState>(dm, 'tokens')
       sendCommand(dm, 'tokens', 'place', { name: 'Ambusher', x: 9.1, y: 9.1, hidden: true })
       const ambusher = Object.values((await hiddenPlaced).byScene[sceneId]).find((t) => t.hidden)!
       expect(ambusher.name).toBe('Ambusher')
+
+      // P4 §4 — the DM links the hidden familiar to the party's own token. The link is stored
+      // on BOTH ends, so the party token now carries the hidden token's id in a field that
+      // ships: the id of a token this seat must never learn exists, and the count of them.
+      const linked = nextState<TokensState>(dm, 'tokens')
+      sendCommand(dm, 'tokens', 'set-sight-link', {
+        id: ambusher.id,
+        otherId: visible.id,
+        linked: true,
+      })
+      expect((await linked).byScene[sceneId][visible.id].sharesSightWith).toEqual([ambusher.id])
 
       // The player never received it (D4 drops hidden tokens whole), but a forged client
       // can still guess an id — the handler answers as if the token does not exist, so the
@@ -371,14 +387,20 @@ describe('forged clients (§2.6 ownership enforcement)', () => {
       const snapshot = await next(player, 'session-state')
       const forPlayer = snapshot.state.modules.tokens as TokensState
       expect(Object.keys(forPlayer.byScene[sceneId])).toEqual([visible.id])
-      expect(Object.values(forPlayer.byScene[sceneId])[0].ownerId).toBeNull()
+      expect(Object.values(forPlayer.byScene[sceneId])[0].ownerId).toBe('FH-p0')
+      // …and their own token arrives with no trace of the edge it is one end of.
+      expect(forPlayer.byScene[sceneId][visible.id].sharesSightWith).toBeUndefined()
 
       // Nothing about the ambusher — not its id, not its name, not its position — was ever
-      // on this socket, in any frame, redacted or otherwise.
+      // on this socket, in any frame, redacted or otherwise. The link is the third way that
+      // id could travel, and it is searched for as bytes because that is the absolute.
       for (const frame of seen) {
         expect(frame).not.toContain(ambusher.id)
         expect(frame).not.toContain('Ambusher')
       }
+      // The socket did receive the party token after the link was written — an empty search
+      // proves nothing otherwise.
+      expect(seen.some((frame) => frame.includes(visible.id))).toBe(true)
     })
   })
 })
@@ -1314,6 +1336,169 @@ describe('canOccupy at the wire (§2.6, D8)', () => {
       sendCommand(dm, 'tokens', 'move', { id: mine.id, x: unseen.centroid[0], y: unseen.centroid[1] })
       expect(Object.values((await dmMoved).byScene[sceneId])[0].x).toBeCloseTo(
         Math.floor(unseen.centroid[0]) + 0.5,
+      )
+    })
+  })
+})
+
+// ── §2.6 (S3 P1): token vision is server-enforced, at the wire ──────────────
+// The same question the fog rows ask of the map, asked of the *tokens*: a token the party
+// has not earned the sight of must not be in a single byte a player's socket receives. The
+// fixture is two rooms either side of one wall with a door in it, so "earned" is a fact
+// about geometry and not about a room being switched on.
+
+const VISION_MAP = readFileSync(
+  join(import.meta.dirname, '../../testdata/vision-two-rooms.mapbuilder'),
+  'utf8',
+)
+
+/** A DM and one player seated on the two-room sight fixture. */
+async function twoRooms(server: RunningServer, name: string) {
+  table(server, name, VISION_MAP)
+  const seats = await seatTable(server, name, 1)
+  return { sceneId: `${name}-map`, ...seats, player: seats.players[0] }
+}
+
+describe('token redaction by vision on the wire (§2.6, S3 P1)', () => {
+  it('never carries a token the party cannot see, and carries it the moment they can', async () => {
+    await withServer({}, async (server) => {
+      const { sceneId, dm, player } = await twoRooms(server, 'TV')
+      // Every byte this socket is handed, from before the ambusher exists.
+      const frames = rawFrames(player)
+
+      const mode = nextState(dm, 'fog')
+      sendCommand(dm, 'fog', 'set-mode', { sceneId, mode: 'vision' })
+      await mode
+
+      // A scout in the middle of the west room, looking only three cells…
+      const placed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(dm, 'tokens', 'place', {
+        sceneId,
+        name: 'Scout',
+        x: 5.5,
+        y: 5.5,
+        sight: { range: 3, angle: 360, visionMode: 'normal' },
+      })
+      const scout = Object.values((await placed).byScene[sceneId])[0]
+
+      // …and an ambusher in the far corner of the *same* room. The room is about to be
+      // explored and visible, so the room-granular rule would hand this token straight over;
+      // the only thing withholding it is that nobody is looking at that corner.
+      const ambushed = nextState<TokensState>(dm, 'tokens', (s) =>
+        Object.keys(s.byScene[sceneId]).length === 2,
+      )
+      sendCommand(dm, 'tokens', 'place', { sceneId, name: 'Ambusher', x: 1.5, y: 1.5 })
+      const ambusher = Object.values((await ambushed).byScene[sceneId]).find(
+        (t) => t.id !== scout.id,
+      )!
+
+      const claimed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(player, 'tokens', 'claim', { id: scout.id })
+      await claimed
+
+      // The move that makes the party look: the west room auto-explores off the sweep, which
+      // latches it (`re_hidden` + the latch) rather than lighting it — the geometry travels
+      // and the swept cells are what the player can see of it. `revealed` is the DM's word.
+      const swept = nextState<FogState>(player, 'fog', (s) => s.byScene[sceneId]?.rooms.west !== undefined)
+      sendCommand(dm, 'tokens', 'move', { sceneId, id: scout.id, x: 5.5, y: 5.5 })
+      expect((await swept).byScene[sceneId].rooms.west).toMatchObject({
+        status: 're_hidden',
+        wasEverRevealed: true,
+      })
+
+      // Not the id, not the name, in any frame this socket has ever been handed.
+      expect(frames.length).toBeGreaterThan(0)
+      for (const frame of frames) {
+        expect(frame, 'an unseen token reached a player socket').not.toContain(ambusher.id)
+        expect(frame).not.toContain('Ambusher')
+      }
+      // …while their own claimed token has been there all along, and the room they are
+      // standing in did reach them — an empty payload would prove nothing.
+      expect(frames.some((frame) => frame.includes(scout.id))).toBe(true)
+      expect(frames.some((frame) => frame.includes('west'))).toBe(true)
+
+      // A step across the room and the corner comes into sight.
+      const arrived = nextState<TokensState>(player, 'tokens', (s) => ambusher.id in s.byScene[sceneId])
+      sendCommand(dm, 'tokens', 'move', { sceneId, id: scout.id, x: 2.5, y: 2.5 })
+      const seen = await arrived
+      expect(Object.keys(seen.byScene[sceneId]).sort()).toEqual([ambusher.id, scout.id].sort())
+
+      // …and a step back takes it away again: the slice is retracted, and nothing after
+      // this point names it either (D4c — a redacted future is not enough on its own).
+      const mark = frames.length
+      const gone = nextState<TokensState>(player, 'tokens', (s) => !(ambusher.id in s.byScene[sceneId]))
+      sendCommand(dm, 'tokens', 'move', { sceneId, id: scout.id, x: 8.5, y: 8.5 })
+      const after = await gone
+      expect(Object.keys(after.byScene[sceneId])).toEqual([scout.id])
+      for (const frame of frames.slice(mark)) expect(frame).not.toContain('Ambusher')
+    })
+  })
+
+  it('keeps a shut door between the party and a token in a room the DM has lit', async () => {
+    await withServer({}, async (server) => {
+      const { sceneId, dm, player } = await twoRooms(server, 'TW')
+      const frames = rawFrames(player)
+
+      for (const [action, payload] of [
+        ['set-mode', { mode: 'vision' }],
+        // Both of the room rule's escape hatches, deliberately left open: the east room is
+        // lit by hand and concealment is off, so `visible` holds it with the door shut.
+        ['reveal', { roomId: 'east' }],
+        ['set-conceal', { concealBehindDoors: false }],
+      ] as const) {
+        const done = nextState(dm, 'fog')
+        sendCommand(dm, 'fog', action, { sceneId, ...payload })
+        await done
+      }
+
+      const placed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(dm, 'tokens', 'place', {
+        sceneId,
+        name: 'Scout',
+        x: 5.5,
+        y: 5.5,
+        sight: { range: 8, angle: 360, visionMode: 'normal' },
+      })
+      const scout = Object.values((await placed).byScene[sceneId])[0]
+
+      const ambushed = nextState<TokensState>(dm, 'tokens', (s) =>
+        Object.keys(s.byScene[sceneId]).length === 2,
+      )
+      sendCommand(dm, 'tokens', 'place', { sceneId, name: 'Ambusher', x: 12.5, y: 5.5 })
+      const ambusher = Object.values((await ambushed).byScene[sceneId]).find(
+        (t) => t.id !== scout.id,
+      )!
+
+      const claimed = nextState<TokensState>(dm, 'tokens')
+      sendCommand(player, 'tokens', 'claim', { id: scout.id })
+      await claimed
+
+      const swept = nextState<FogState>(player, 'fog', (s) => s.byScene[sceneId]?.rooms.west !== undefined)
+      sendCommand(dm, 'tokens', 'move', { sceneId, id: scout.id, x: 5.5, y: 5.5 })
+      await swept
+
+      // The player holds the east room's geometry and its fog record — and still not the
+      // token standing in it, because a wall is between them.
+      expect(frames.some((frame) => frame.includes('east'))).toBe(true)
+      for (const frame of frames) expect(frame).not.toContain(ambusher.id)
+
+      // The door opens and sight reaches through the gap.
+      const arrived = nextState<TokensState>(player, 'tokens', (s) => ambusher.id in s.byScene[sceneId])
+      sendCommand(dm, 'doors', 'toggle', { sceneId, id: 'door-mid' })
+      await arrived
+
+      // …and shuts again: the retract re-sends the tokens slice without it.
+      const mark = frames.length
+      const gone = nextState<TokensState>(player, 'tokens', (s) => !(ambusher.id in s.byScene[sceneId]))
+      sendCommand(dm, 'doors', 'toggle', { sceneId, id: 'door-mid' })
+      expect(Object.keys((await gone).byScene[sceneId])).toEqual([scout.id])
+      for (const frame of frames.slice(mark)) expect(frame).not.toContain('Ambusher')
+
+      // The DM's own view was never fogged by any of it (PRODUCT principle 3).
+      const dmView = nextState<TokensState>(dm, 'tokens')
+      sendCommand(dm, 'tokens', 'update', { sceneId, id: ambusher.id, name: 'Ambusher' })
+      expect(Object.keys((await dmView).byScene[sceneId]).sort()).toEqual(
+        [ambusher.id, scout.id].sort(),
       )
     })
   })

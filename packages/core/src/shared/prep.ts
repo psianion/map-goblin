@@ -11,12 +11,26 @@ export type Ability = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
 /** The one authoritative member list — validation and UI option lists derive from it. */
 export const TIMES = ['dawn', 'day', 'dusk', 'night'] as const;
 export const WEATHERS = ['clear', 'rain', 'storm', 'fog', 'snow'] as const;
+/**
+ * How much light the scene itself gives (S3 P3 §1) — the *gate* normal vision is measured
+ * against, not the tint (`mapSettings.ambientLight` stays the tint).
+ *
+ * Three words rather than a slider because only one distinction is mechanical: in `darkness`
+ * a normal eye sees only what a light source covers, and in the other two the whole sweep
+ * counts as lit. `dusk` differs from `daylight` in presentation alone.
+ *
+ * Deliberately independent of `TIMES`: the time of day is narration, and a torchlit crypt at
+ * noon is the ordinary case. Coupling the two belongs to scene presets, not here.
+ */
+export const AMBIENTS = ['daylight', 'dusk', 'darkness'] as const;
 
 export type TimeOfDay = (typeof TIMES)[number];
 export type Weather = (typeof WEATHERS)[number];
+export type AmbientLevel = (typeof AMBIENTS)[number];
 
-/** Display label for a TIMES/WEATHERS value — the vocab is lowercase, the UI wants Title case. */
-export const vocabLabel = (v: TimeOfDay | Weather): string => v[0]!.toUpperCase() + v.slice(1);
+/** Display label for a TIMES/WEATHERS/AMBIENTS value — the vocab is lowercase, the UI wants Title case. */
+export const vocabLabel = (v: TimeOfDay | Weather | AmbientLevel): string =>
+  v[0]!.toUpperCase() + v.slice(1);
 
 /**
  * Everything a DM authors against a map beyond its geometry.

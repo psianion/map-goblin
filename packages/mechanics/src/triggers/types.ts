@@ -7,11 +7,11 @@
 // `inert` from the authored zone once (containing room, radius, missing-reference checks)
 // and hands the result in through `TriggerDeps.prepOf`; this module only ever reads it.
 
-import type { Ability, TimeOfDay, TriggerDef, Weather } from '@dnd/core/src/shared/prep'
+import type { Ability, AmbientLevel, TimeOfDay, TriggerDef, Weather } from '@dnd/core/src/shared/prep'
 
 // Consumers of the module (server wiring, table client) get the shared prep vocabulary from
 // here rather than deep-importing @dnd/core themselves.
-export type { Ability, TimeOfDay, TriggerDef, Weather }
+export type { Ability, AmbientLevel, TimeOfDay, TriggerDef, Weather }
 
 export interface ResolvedTrigger {
   def: TriggerDef
@@ -68,7 +68,9 @@ export interface SceneTriggers {
   /** Runtime overrides from `set-enabled` — `true` blocks a trigger regardless of `def.enabled`. */
   disabled: Record<string, boolean>
   lightOverrides: Record<string, boolean>
-  env: { time?: TimeOfDay; weather?: Weather }
+  /** `ambient` absent ⇒ `'daylight'` — a scene played before the dial existed keeps the
+   *  purely geometric vision it was played with (S3 P3 §1). */
+  env: { time?: TimeOfDay; weather?: Weather; ambient?: AmbientLevel }
   /** Open prompts, cap 20 (drop oldest). */
   prompts: TriggerPrompt[]
   /** Cap 200 (drop oldest). */
@@ -78,6 +80,19 @@ export interface SceneTriggers {
 export interface TriggersState {
   byScene: Record<string, SceneTriggers>
 }
+
+/**
+ * The scene's light level, as the vision rules read it (S3 P3 §1) — one reading of the
+ * optional field, shared by the referee and the canvas so the two cannot disagree about
+ * whether a normal eye needs a torch.
+ */
+export const ambientOf = (scene: SceneTriggers): AmbientLevel => scene.env.ambient ?? 'daylight'
+
+/**
+ * The one mechanical distinction the three levels draw: in `darkness` normal vision is
+ * clipped to light-source coverage, and in `daylight`/`dusk` the whole sweep counts as lit.
+ */
+export const needsLight = (scene: SceneTriggers): boolean => ambientOf(scene) === 'darkness'
 
 /** An untouched scene: nothing fired, nothing armed, no overrides. */
 export function sceneTriggersOf(state: TriggersState, sceneId: string): SceneTriggers {

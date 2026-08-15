@@ -71,6 +71,35 @@ describe('ZoneProperties', () => {
     expect(screen.getByRole('switch', { name: 'Show to players' })).toHaveProperty('ariaChecked', 'false')
   })
 
+  // ── S3 P4 §5 — the explore lock ────────────────────────────────────────
+  // The flag is already in the schema and round-trips itself; what this pins is the two
+  // things the panel decides — that the switch writes through undo, and that it is not
+  // offered on a shape that cannot hold a lock.
+
+  it('writes blocksAutoExplore through the undo stack, on an area zone', () => {
+    const area: ZoneChild = { ...ZONE, id: 'zone-area', shape: { kind: 'rect', x: 0, y: 0, width: 4, height: 4 } }
+    useStore.getState().addChild(dungeon().id, area)
+    render(<ZoneProperties layerId={dungeon().id} childId={area.id} />)
+
+    const toggle = screen.getByRole('switch', { name: 'Blocks auto-explore' })
+    expect(toggle).toHaveProperty('ariaChecked', 'false')
+
+    fireEvent.click(toggle)
+    const stored = () =>
+      dungeon().children.find((c) => c.id === area.id) as ZoneChild
+    expect(stored().blocksAutoExplore).toBe(true)
+
+    // Undo is the reason it goes through UpdateChildCommand rather than a direct write.
+    undoManager.undo()
+    expect(stored().blocksAutoExplore).toBeFalsy()
+  })
+
+  it('offers no lock on a point zone, which has no area to lock', () => {
+    useStore.getState().addChild(dungeon().id, ZONE)
+    render(<ZoneProperties layerId={dungeon().id} childId={ZONE.id} />)
+    expect(screen.queryByRole('switch', { name: 'Blocks auto-explore' })).toBeNull()
+  })
+
   it('an explicit toPlayers: false on the light action renders off, not the default', () => {
     renderExpanded({
       ...BASE_TRIGGER,
