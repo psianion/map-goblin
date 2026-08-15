@@ -229,6 +229,9 @@ export interface FogScene {
  */
 const NO_FALLBACK_ROOM: readonly FogRoom[] = [];
 
+/** Vision mode's `views`: nothing classifies rooms there. Shared because nothing writes it. */
+const NO_VIEWS: Map<string, RoomView> = new Map();
+
 /**
  * D3's two layers, resolved per room. `visibleRooms` is the mechanics module's — the same
  * pure function the server redacts with, so the canvas and the referee cannot disagree.
@@ -454,6 +457,7 @@ export function fogScene(): FogScene {
   const tokens = tokensOf(session?.modules?.tokens as TokensState | undefined, sceneId);
   const mode = fogModeOf(fog);
   const isPlayer = you?.role !== 'dm';
+  const isVision = mode === 'vision';
 
   return {
     rooms,
@@ -462,12 +466,17 @@ export function fogScene(): FogScene {
     // re-binds every door to rooms it re-detected from the partial geometry a player holds
     // (`serverDoors`). Live door state still comes off the session slice the door marks are
     // drawn from, so the mask cannot drift from what those marks say either.
-    views: roomViews(
-      rooms,
-      fog,
-      serverDoors(mapData, session?.modules?.doors as DoorsState | undefined, sceneId),
-      partyRoomIds(tokens, rooms),
-    ),
+    // …and not taken at all in vision mode, where the room record classifies nothing the mask
+    // draws: the tiers come off the sweep and the region record (`visionTiers`), and the one
+    // other reader — the reveal fade — is rooms-only for the reason `rebuild` gives.
+    views: isVision
+      ? NO_VIEWS
+      : roomViews(
+          rooms,
+          fog,
+          serverDoors(mapData, session?.modules?.doors as DoorsState | undefined, sceneId),
+          partyRoomIds(tokens, rooms),
+        ),
     // No document, no statement: until the referee has sent one there is nothing to be
     // right or wrong about, and covering the canvas on the strength of an empty store would
     // black out the DM's own first frame of a map that is merely still in flight.
@@ -491,10 +500,7 @@ export function fogScene(): FogScene {
     // (`syncDoorsToLighting`), and a sweep through a door the map file still calls shut is a
     // sweep the referee never took. Rooms and the door graph stay the document's for the
     // reason `serverRooms` gives — those are what core re-detects, and walls are not.
-    sight:
-      mode === 'vision' && isPlayer
-        ? sightCache.partySight(layers, sighted(tokens))
-        : undefined,
+    sight: isVision && isPlayer ? sightCache.partySight(layers, sighted(tokens)) : undefined,
   };
 }
 
@@ -893,8 +899,12 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     sources = scene.sight?.length ?? 0;
     redrawDots(true);
 
-    // Reduced motion cuts instead of fading, so it simply never starts one.
-    if (scene.isPlayer && revealDurationMs() > 0) {
+    // Rooms mode only. A fade paints a room's whole footprint dark and lifts it — over live
+    // sight, in vision mode, on every room transition and every door swing, which is exactly
+    // the flicker the mode is specified to have none of. Reduced motion cuts instead of
+    // fading, so it never starts one either way.
+    // ponytail: a vision-shaped transition (the sweep's own edge easing out) is P6 polish.
+    if (scene.isPlayer && scene.mode !== 'vision' && revealDurationMs() > 0) {
       const roomById = new Map(scene.rooms.map((room) => [room.id, room]));
       for (const [roomId, before] of revealsBetween(views, scene.views)) {
         const room = roomById.get(roomId);

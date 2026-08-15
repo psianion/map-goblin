@@ -824,6 +824,34 @@ describe('visionRegion — sweep, memory, void', () => {
     expect(inRegion(shown, [6.5, 5.5])).toBe(false);
   });
 
+  it('clips the sweep to that geometry too — a sightline off the map cuts nothing', () => {
+    // A sweep that escapes the rooms the player holds is the louder half of the same bug: the
+    // scrim is grown to cover any sight polygon (`drawFog`), so an unclipped clear tier cuts a
+    // real hole in it — bare background, dots and all missing, in the shape of the party's own
+    // sightline over map they were never sent.
+    const OFF_THE_MAP: Polygon = [
+      [19, 1],
+      [22, 1],
+      [22, 4],
+      [19, 4],
+    ];
+    const { clear, shown, memory } = visionRegion(
+      [OFF_THE_MAP],
+      undefined,
+      [],
+      [WEST.boundary],
+      PAD,
+      FOG_FEATHER,
+    );
+    expect(inRegion(clear, [20.5, 2.5])).toBe(false);
+    expect(inRegion(shown, [20.5, 2.5])).toBe(false);
+    expect(memory).toEqual([]);
+
+    // …while a sweep that stays inside what they hold is untouched by the clip.
+    const held = visionRegion([LOOKING], undefined, [], [WEST.boundary], PAD, FOG_FEATHER);
+    expect(inRegion(held.clear, [7, 1])).toBe(true);
+  });
+
   it('is void everywhere for a party with no sight and no memory', () => {
     const empty = visionRegion([], undefined, [], [WEST.boundary], PAD, FOG_FEATHER);
     expect(empty).toMatchObject({ clear: [], memory: [], shown: [], cells: 0 });
@@ -1161,6 +1189,9 @@ describe('fogScene', () => {
     expect(scene.mode).toBe('vision');
     // The DM's scenery, a hidden token and one with no sight at all are not the party.
     expect(scene.sight).toHaveLength(1);
+    // …and the room classification is not taken at all: the tiers come off the sweep and the
+    // region record, and the fade that was its other reader is rooms-only.
+    expect(scene.views.size).toBe(0);
     // The stored record rides along whole — the memory tier reads its cells and its reveals,
     // not the reachability classification `views` carries.
     expect(scene.fog?.mode).toBe('vision');
@@ -1239,5 +1270,47 @@ describe('the lighting composite each seat is mounted with', () => {
     const { lighting, unmount } = mounted('dm');
     unmount();
     expect(lighting.alpha).toBe(0.95);
+  });
+
+  // ── D10's fade is rooms-only (S3 P2 §1) ──────────────────────────────────
+  // The fade paints a room's whole footprint in the void colour and lifts it off. In vision
+  // mode that is a room-shaped dark wash dropped over live sight on every room transition and
+  // every door swing — the one flicker the mode is specified to have none of.
+
+  describe('the reveal fade across the two modes', () => {
+    const frame = (): Promise<void> =>
+      new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+    /** Mount dark, then hand the party the room they are standing in. */
+    async function fadesAfterAReveal(mode: 'rooms' | 'vision'): Promise<number> {
+      const dark = { ...fogOf({}), mode };
+      const lit = { ...fogOf({ [VESTIBULE.id]: seen }), mode };
+      const withFog = (scene: SceneFog) =>
+        session({
+          fog: { byScene: { 'scene-1': scene } },
+          tokens: { library: {}, byScene: { 'scene-1': { t1: token() } } },
+        });
+
+      const { unmount } = mounted('player');
+      useSessionStore.setState({ session: withFog(dark) });
+      await frame();
+      const probe = (window as Window & { __fogProbe?: { fadesStarted: number } }).__fogProbe!;
+      const before = probe.fadesStarted;
+
+      useSessionStore.setState({ session: withFog(lit) });
+      await frame();
+      const started = probe.fadesStarted - before;
+      unmount();
+      return started;
+    }
+
+    it('still fades a room reveal in rooms mode — D10 is untouched', async () => {
+      expect(revealDurationMs()).toBeGreaterThan(0);
+      expect(await fadesAfterAReveal('rooms')).toBeGreaterThan(0);
+    });
+
+    it('starts none at all in vision mode, where a footprint wash would be the flicker', async () => {
+      expect(await fadesAfterAReveal('vision')).toBe(0);
+    });
   });
 });

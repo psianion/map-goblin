@@ -326,13 +326,13 @@ export interface VisionRegion {
  * their own eyes are the only thing that makes anything live. A re-hidden room contributes
  * nothing extra — the cells they earned still show, and taking those back is a region-hide.
  *
- * `shipped` is every room the player actually holds geometry for, and the memory is clipped
- * to it: a cell swept on unzoned map, or one the DM brushed past the map's edge, would
- * otherwise put a wash over void that has nothing under it to remember.
+ * `shipped` is every room the player actually holds geometry for, and *both* earned tiers are
+ * clipped to it: a cell swept on unzoned map would otherwise put a wash over void that has
+ * nothing under it to remember, and a sweep running past the last room they hold would cut a
+ * bare-background wedge out of the scrim.
  *
- * Without Clipper2 loaded the intersection is empty and the difference is the identity, so
- * the mask degrades to sweep-and-void — dark rather than open, the direction a fog bug
- * should fail in.
+ * Without Clipper2 loaded the intersections are empty, so the mask degrades to solid void —
+ * dark rather than open, the direction a fog bug should fail in.
  *
  * ponytail: eleven Clipper calls a rebuild, measured at 7.8ms on the two-room fixture, and
  * four of them re-offset room polygons that only move when the map or the room record does.
@@ -348,9 +348,15 @@ export function visionRegion(
   pad: number,
   feather: number,
 ): VisionRegion {
-  const clear = fogRegion(sight, [], sightPad(pad), feather).reach;
   const rects = regionRects(region);
   const held = fogRegion(shipped, [], pad, feather).reach;
+  const swept = fogRegion(sight, [], sightPad(pad), feather).reach;
+  // Clipped to `held` for the reason the memory tier is, and it is the louder of the two: the
+  // scrim is grown to cover the sweep (`drawFog`), so a sight polygon escaping the geometry
+  // the player holds cuts a real hole in it — bare background, no dots, in the shape of the
+  // party's own sightline over map they were never sent. Unheld space stays void.
+  const clear =
+    swept.length > 0 && held.length > 0 ? clipper2Engine.intersection(swept, held) : [];
   const remembered = clipper2Engine.union(
     [...rects, ...fogRegion(revealed, [], pad, feather).reach],
     [],

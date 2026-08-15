@@ -6,7 +6,7 @@ import type { AuthoredDoor, DoorLiveState } from '../doors/types'
 import { fogModule } from './module'
 import { getCell, regionOf, setCells } from './region'
 import { autoExploreOn, fogModeOf, sceneFogOf } from './types'
-import type { FogState, RoomFogStatus, SceneFog } from './types'
+import type { FogState, RoomFog, RoomFogStatus, SceneFog } from './types'
 import { blockedEdge, defaultRoom, effectiveFog, visibleRooms, type FogRoom } from './visibility'
 
 const DM: Viewer = { role: 'dm', identityId: 'dm-1' }
@@ -970,10 +970,59 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       const rubbed = fire(unzoned, DM, 'region-set', { op: 'hide', cells: [[1, 2]] }).next
       expect(scened(rubbed).rooms).toEqual({})
     })
+
+    it('stops looking rooms up once there is no room left to latch', () => {
+      // `roomAtOf` is a point-in-polygon walk over the map for every cell it is asked about,
+      // and a big brush is thousands of cells in one synchronous handler. Nothing here needs
+      // the answer after both rooms have shipped.
+      let lookups = 0
+      const counted = fogModule(
+        () => ROOMS,
+        () => FRAME,
+        (_campaignId, _sceneId, x) => {
+          lookups += 1
+          return ROOM_AT(x)
+        },
+      )
+      const cells: [number, number][] = []
+      for (let col = 0; col < 10; col++) for (let row = 0; row < 10; row++) cells.push([col, row])
+      // The two rooms this map has no cells for are already the party's, so `hall` and
+      // `crypt` are the whole of what the stroke can still ship.
+      const seen: RoomFog = { status: 're_hidden', wasEverRevealed: true }
+      const state = stateWith({ 'corridor-1': seen, treasury: seen })
+
+      let next = state
+      counted.handler(
+        'region-set',
+        { sceneId: SCENE, op: 'reveal', cells },
+        {
+          campaignId: 'c-1',
+          sessionId: 's-1',
+          activeSceneId: SCENE,
+          sender: DM,
+          players: [],
+          state,
+          setState: (s) => {
+            next = s
+          },
+          broadcast: () => {},
+        },
+      )
+      // Both rooms shipped, and the walk stopped there — the naive loop paid all 100.
+      expect(Object.keys(scened(next).rooms).sort()).toEqual([
+        'corridor-1',
+        'crypt',
+        'hall',
+        'treasury',
+      ])
+      expect(lookups).toBeLessThan(cells.length)
+      // Every bit still went in: the bail is on the lookups, never on the record.
+      expect(getCell(scened(next).region, 9, 9)).toBe(true)
+    })
   })
 
   describe('auto-explore (server-internal)', () => {
-    it('ORs cells in and reveals the rooms it names, in one write', () => {
+    it('ORs cells in and latches the rooms it names, in one write', () => {
       const { next, error } = fire(empty, DM, 'auto-explore', {
         sceneId: SCENE,
         cells: [
@@ -984,9 +1033,31 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       })
       expect(error).toBeNull()
       expect(getCell(scened(next).region, 2, 2)).toBe(true)
-      expect(scened(next).rooms.hall).toEqual({ status: 'revealed', wasEverRevealed: true })
+      // The brush's latch, not a reveal: the room ships so its geometry travels, and what the
+      // player sees inside it is the cells above. `revealed` washes a room whole and is the
+      // DM's own word — a sweep claiming it would leave the cell tier with nothing to say.
+      expect(scened(next).rooms.hall).toEqual({ status: 're_hidden', wasEverRevealed: true })
       // Not a DM act: the map opening as the party walks writes no log line.
       expect(next.log ?? []).toEqual([])
+    })
+
+    it('leaves a room the DM has already spoken for exactly as it stands', () => {
+      const lit = fire(empty, DM, 'reveal', { sceneId: SCENE, roomId: 'hall' }).next
+      const swept = fire(lit, DM, 'auto-explore', {
+        sceneId: SCENE,
+        cells: [[2, 2]],
+        rooms: ['hall'],
+      }).next
+      expect(scened(swept).rooms.hall).toEqual({ status: 'revealed', wasEverRevealed: true })
+
+      // …and the same in the other direction: a sweep does not undo a re-hide.
+      const hidden = fire(swept, DM, 'hide', { sceneId: SCENE, roomId: 'hall' }).next
+      const again = fire(hidden, DM, 'auto-explore', {
+        sceneId: SCENE,
+        cells: [[3, 2]],
+        rooms: ['hall'],
+      }).next
+      expect(scened(again).rooms.hall).toEqual({ status: 're_hidden', wasEverRevealed: true })
     })
 
     it('adds to what is already there rather than replacing it', () => {

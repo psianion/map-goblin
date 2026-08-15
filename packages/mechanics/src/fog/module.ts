@@ -206,7 +206,10 @@ function run(
           // (P2 §1 clips it to what they hold). The latch is all it does: `re_hidden` washes
           // no room whole, so what a player sees is the cells the DM painted and not the
           // room around them. `hide` never un-ships — geometry a player holds is theirs (D4).
-          rooms: op === 'reveal' ? shipRooms(scene, region, cells, ctx, sceneId, roomAtOf) : scene.rooms,
+          rooms:
+            op === 'reveal'
+              ? shipRooms(scene, region, cells, ctx, sceneId, roomsOf, roomAtOf)
+              : scene.rooms,
         },
         { action: 'changed-fog' },
       )
@@ -220,8 +223,13 @@ function run(
       const region = regionFor(scene.region, frameFor(ctx, sceneId, frameOf))
       const cells = region ? parseCells(p.cells, region) : []
       const rooms = { ...scene.rooms }
+      // The same latch the brush leaves (`shipRooms`), for the same reason: the room has to
+      // ship or the swept cells have no geometry to sit on, and `revealed` — which washes the
+      // room whole on the player's canvas — is the DM's word, not the sweep's. Already latched
+      // is left as it stands, so a sweep can never undo a DM's reveal or a DM's re-hide.
       for (const id of parseRoomIds(p.rooms, ctx, sceneId, roomsOf)) {
-        rooms[id] = { status: 'revealed', wasEverRevealed: true }
+        if (rooms[id]?.wasEverRevealed) continue
+        rooms[id] = { status: 're_hidden', wasEverRevealed: true }
       }
       // ponytail: no log line. A DM's reveal is an act worth reading back; the map opening
       // as the party walks is the map, and a line per step would bury the acts under it.
@@ -240,6 +248,15 @@ function run(
  * The room record a brush stroke leaves behind: every room a newly revealed cell lands in,
  * latched so its geometry travels, and nothing else touched. A room the party has already
  * seen keeps whatever status it is at — a brush must not re-light a room the DM re-hid.
+ *
+ * `roomAtOf` is a point-in-polygon walk over every room on the map, so the naive loop is one
+ * of those per brushed cell: a 60×60 stroke on a twelve-room map is ~43k of them in one
+ * synchronous handler. `unlatched` is the whole answer — the loop exists to latch rooms, and
+ * once there is none left to latch there is nothing to look up.
+ *
+ * ponytail: the ceiling left is the first big stroke on a fresh map, which still pays a
+ * lookup per cell until it has touched every room. The upgrade there is a cell→room index on
+ * the scene map (the caller's side of `SceneRoomAt`), not a cache in here.
  */
 function shipRooms(
   scene: SceneFog,
@@ -247,12 +264,19 @@ function shipRooms(
   cells: readonly Cell[],
   ctx: Ctx,
   sceneId: string,
+  roomsOf: SceneRooms,
   roomAtOf: SceneRoomAt,
 ): Record<string, RoomFog> {
+  const unlatched = new Set(
+    roomsOf(ctx.campaignId, sceneId).filter((id) => !scene.rooms[id]?.wasEverRevealed),
+  )
   let rooms = scene.rooms
   for (const [col, row] of cells) {
+    if (unlatched.size === 0) break
     const id = roomAtOf(ctx.campaignId, sceneId, region.minX + col + 0.5, region.minY + row + 0.5)
-    if (!id || rooms[id]?.wasEverRevealed) continue
+    // `delete` is the guard as well as the bookkeeping: false means the cell landed on no
+    // room, on one the map does not author, or on one already latched.
+    if (!id || !unlatched.delete(id)) continue
     rooms = { ...rooms, [id]: { status: 're_hidden', wasEverRevealed: true } }
   }
   return rooms

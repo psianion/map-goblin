@@ -247,7 +247,7 @@ describe('the party sweep the server keeps (S3 P1 §3)', () => {
 })
 
 describe('party-mode auto-explore (§4)', () => {
-  it('writes region bits and reveals the room a move swept, through the fog module', () => {
+  it('writes region bits and latches the room a move swept, through the fog module', () => {
     const table = wired()
     const id = scouted(table)
     // The claim already swept from where the scout was standing (§4's trigger table), so
@@ -260,7 +260,10 @@ describe('party-mode auto-explore (§4)', () => {
     expect(getCell(table.fogOf().region, 10, 1)).toBe(true)
 
     const fog = table.fogOf()
-    expect(fog.rooms.west).toEqual({ status: 'revealed', wasEverRevealed: true })
+    // The latch, not a reveal: the sweep ships the room's geometry and the cells the party
+    // actually swept say what they can see of it. `revealed` — which washes a room whole on
+    // the player's canvas — is reserved for the DM's own button.
+    expect(fog.rooms.west).toEqual({ status: 're_hidden', wasEverRevealed: true })
     expect(fog.rooms.east).toBeUndefined()
     expect(getCell(fog.region, ...WEST_CELL)).toBe(true)
     expect(getCell(fog.region, ...EAST_CELL)).toBe(false)
@@ -268,6 +271,23 @@ describe('party-mode auto-explore (§4)', () => {
     // One fog write, on the existing path: the move's own frame, then fog, then the two
     // slices fog retracts. No second reveal route.
     expect(table.modules().slice(before)).toEqual(['tokens', 'fog', 'tokens', 'doors'])
+  })
+
+  it('never overwrites the DM’s own word — a reveal and a re-hide both survive the sweep', () => {
+    const table = wired()
+    const id = scouted(table)
+    expect(table.run(DM, 'fog', 'reveal', { roomId: 'west' })).toBeNull()
+
+    // Swept, and still `revealed`: the latch only ever fills in a room nobody has seen.
+    table.run(DM, 'tokens', 'move', { id, x: 5.5, y: 5.5 })
+    expect(table.fogOf().rooms.west).toMatchObject({ status: 'revealed' })
+    expect(getCell(table.fogOf().region, ...WEST_CELL)).toBe(true)
+
+    // …and a room the DM took back does not come back on its own the next time the party
+    // looks at it. Their cells still show — taking those is a region-hide (P4's brush).
+    expect(table.run(DM, 'fog', 'hide', { roomId: 'west' })).toBeNull()
+    table.run(DM, 'tokens', 'move', { id, x: 4.5, y: 4.5 })
+    expect(table.fogOf().rooms.west).toMatchObject({ status: 're_hidden' })
   })
 
   it('rides D5 — the geometry of the room it just opened travels in the same frame', () => {
@@ -288,7 +308,7 @@ describe('party-mode auto-explore (§4)', () => {
     expect(table.fogOf().rooms.east).toBeUndefined()
 
     expect(table.run(DM, 'doors', 'toggle', { id: 'door-mid' })).toBeNull()
-    expect(table.fogOf().rooms.east).toEqual({ status: 'revealed', wasEverRevealed: true })
+    expect(table.fogOf().rooms.east).toEqual({ status: 're_hidden', wasEverRevealed: true })
     expect(getCell(table.fogOf().region, ...EAST_CELL)).toBe(true)
   })
 
@@ -312,7 +332,7 @@ describe('party-mode auto-explore (§4)', () => {
     // The claim alone — no move follows it.
     expect(table.run(P1, 'tokens', 'claim', { id })).toBeNull()
     expect(getCell(table.fogOf().region, ...WEST_CELL)).toBe(true)
-    expect(table.fogOf().rooms.west).toMatchObject({ status: 'revealed' })
+    expect(table.fogOf().rooms.west).toMatchObject({ status: 're_hidden' })
     // Just out of reach from where it stands.
     expect(getCell(table.fogOf().region, 8, 7)).toBe(false)
 
@@ -417,7 +437,9 @@ describe('auto-explored rooms and the triggers hanging off them (M4 × §4)', ()
 
     // One door swing. Nothing moves after it.
     expect(table.run(DM, 'doors', 'toggle', { id: 'door-mid' })).toBeNull()
-    expect(table.fogOf().rooms.east).toMatchObject({ status: 'revealed' })
+    // Latched, not revealed — and a room-revealed trigger reads the *explored* set, which the
+    // latch is what puts a room into, so the sweep still springs it.
+    expect(table.fogOf().rooms.east).toMatchObject({ status: 're_hidden' })
     expect(table.fired()).toEqual(['trg-vault'])
   })
 
@@ -468,7 +490,7 @@ describe('explore locks (§5)', () => {
     table.run(DM, 'doors', 'toggle', { id: 'door-mid' })
 
     const fog = table.fogOf()
-    expect(fog.rooms.west).toMatchObject({ status: 'revealed' })
+    expect(fog.rooms.west).toMatchObject({ status: 're_hidden' })
     expect(fog.rooms.east).toBeUndefined()
     expect(getCell(fog.region, ...EAST_CELL)).toBe(false)
     // The lock stops the *record*, never the sight: the party can still see in there.
@@ -490,7 +512,7 @@ describe('explore locks (§5)', () => {
     const id = scouted(table)
     table.run(DM, 'tokens', 'move', { id, x: 5.5, y: 5.5 })
     table.run(DM, 'doors', 'toggle', { id: 'door-mid' })
-    expect(table.fogOf().rooms.east).toMatchObject({ status: 'revealed' })
+    expect(table.fogOf().rooms.east).toMatchObject({ status: 're_hidden' })
   })
 
   it('ignores a zone that is not flagged', () => {
@@ -499,7 +521,7 @@ describe('explore locks (§5)', () => {
     const id = scouted(table)
     table.run(DM, 'tokens', 'move', { id, x: 5.5, y: 5.5 })
     table.run(DM, 'doors', 'toggle', { id: 'door-mid' })
-    expect(table.fogOf().rooms.east).toMatchObject({ status: 'revealed' })
+    expect(table.fogOf().rooms.east).toMatchObject({ status: 're_hidden' })
   })
 })
 
@@ -523,9 +545,11 @@ describe('token redaction by vision (§6)', () => {
     const by = (name: string) => Object.entries(table.tokensOf()).find(([, t]) => t.name === name)![0]
     const scout = by('Scout')
     table.run(P1, 'tokens', 'claim', { id: scout })
-    // Rooms mode explores nothing, so light the room by hand there.
-    if (mode === 'rooms') table.run(DM, 'fog', 'reveal', { roomId: 'west' })
-    else table.run(DM, 'tokens', 'move', { id: scout, x: 5.5, y: 5.5 })
+    // A sweep only *latches* the room it opened (`re_hidden`); `revealed` stays a DM act. So
+    // both modes get the hand reveal as well — this row is about sight withholding a token in
+    // a room the room rule hands over whole, and the room rule is given every chance to agree.
+    if (mode === 'vision') table.run(DM, 'tokens', 'move', { id: scout, x: 5.5, y: 5.5 })
+    table.run(DM, 'fog', 'reveal', { roomId: 'west' })
     return { scout, ambusher: by('Ambusher') }
   }
 

@@ -122,18 +122,35 @@ const RATE_LIMITED = /too many attempts/
  * "wait a moment and try again". Waiting is the honest answer — the limit is doing its job,
  * and this is what the person the message is addressed to would do.
  *
+ * A Locator is a control to press and is guarded against a second press; a function is a step
+ * with nothing to press twice (the join navigation) and is simply repeated.
+ *
  * ponytail: fixed 12-second backoffs rather than reading `retry-after` off the response. The
  * window is a minute, five waits outlast it, and plumbing a header through the page to get
  * the same answer is more machinery than the number is worth.
  */
-async function unhurried(page: Page, take: () => Promise<unknown>, reached: Locator): Promise<void> {
+async function unhurried(
+  page: Page,
+  take: Locator | (() => Promise<unknown>),
+  reached: Locator,
+): Promise<void> {
+  const control = typeof take === 'function' ? null : take
+  const step = typeof take === 'function' ? take : () => take.click()
   for (let attempt = 0; attempt < 6; attempt++) {
-    await take()
+    // Never submit twice. "Rate limited" and "the click landed" are both live on the page for
+    // a beat after a slow create, and a retry that re-pressed the button stood a second
+    // campaign up. A control that is gone says the press took — then there is only the flow
+    // behind it to wait for.
+    if (attempt > 0 && control && !(await control.isVisible())) break
+    await step()
     await expect(reached.or(page.getByText(RATE_LIMITED)).first()).toBeVisible({ timeout: 30_000 })
     if (await reached.first().isVisible()) return
     await page.waitForTimeout(12_000)
   }
-  throw new Error('the table flow never got past the server’s attempt budget')
+  await expect(
+    reached.first(),
+    'the table flow never got past the server’s attempt budget',
+  ).toBeVisible({ timeout: 30_000 })
 }
 
 /**
@@ -163,14 +180,14 @@ export async function hostTable(
   await page.locator('#admin-pass').fill(process.env.E2E_ADMIN_PASS ?? '')
   await unhurried(
     page,
-    () => page.getByRole('button', { name: 'Continue' }).click(),
+    page.getByRole('button', { name: 'Continue' }),
     page.locator('#campaign-name'),
   )
 
   await page.locator('#campaign-name').fill('Cragmaw Hideout')
   await unhurried(
     page,
-    () => page.getByRole('button', { name: 'Create campaign' }).click(),
+    page.getByRole('button', { name: 'Create campaign' }),
     page.locator('#map-file'),
   )
 
@@ -221,7 +238,7 @@ export async function joinTable(page: Page, code: string, name: string): Promise
   await page.locator('#player-name').fill(name)
   await unhurried(
     page,
-    () => page.getByRole('button', { name: 'Join' }).click(),
+    page.getByRole('button', { name: 'Join' }),
     page.locator('[data-page="table"]'),
   )
 }

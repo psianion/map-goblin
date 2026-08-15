@@ -1374,10 +1374,15 @@ describe('token redaction by vision on the wire (§2.6, S3 P1)', () => {
       sendCommand(player, 'tokens', 'claim', { id: scout.id })
       await claimed
 
-      // The move that makes the party look: the west room auto-explores off the sweep.
+      // The move that makes the party look: the west room auto-explores off the sweep, which
+      // latches it (`re_hidden` + the latch) rather than lighting it — the geometry travels
+      // and the swept cells are what the player can see of it. `revealed` is the DM's word.
       const swept = nextState<FogState>(player, 'fog', (s) => s.byScene[sceneId]?.rooms.west !== undefined)
       sendCommand(dm, 'tokens', 'move', { sceneId, id: scout.id, x: 5.5, y: 5.5 })
-      expect((await swept).byScene[sceneId].rooms.west).toMatchObject({ status: 'revealed' })
+      expect((await swept).byScene[sceneId].rooms.west).toMatchObject({
+        status: 're_hidden',
+        wasEverRevealed: true,
+      })
 
       // Not the id, not the name, in any frame this socket has ever been handed.
       expect(frames.length).toBeGreaterThan(0)

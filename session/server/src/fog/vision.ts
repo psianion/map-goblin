@@ -276,10 +276,13 @@ export function createVision(stores: Stores): Vision {
         }
       }
 
-      // A re-hidden room the party is looking at comes back: with auto-explore on, sight is
-      // what lights the map. A DM who wants it to stay dark turns auto-explore off or locks
-      // it — both of which beat the sweep above.
-      const fresh = [...rooms].filter((id) => fog.rooms[id]?.status !== 'revealed')
+      // A swept room latches exactly the way the DM's region brush latches one (mechanics'
+      // `shipRooms`): `re_hidden` plus the latch, so the geometry travels and what the player
+      // then *sees* of it is the cells they actually swept. `revealed` is reserved for a DM's
+      // own act — auto-explore claiming it would wash every explored room whole and leave the
+      // cell tier with nothing to say. A room already latched is left alone, which is also why
+      // a DM's `revealed` survives the party walking back into it.
+      const fresh = [...rooms].filter((id) => !fog.rooms[id]?.wasEverRevealed)
       // Undefined = a frame past `REGION_CELL_MAX`, which keeps no cell memory; the room
       // reveals are the half that decides what geometry a player holds, and they still ride.
       const region = regionFor(fog.region, frame)

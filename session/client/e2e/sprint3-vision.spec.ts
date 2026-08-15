@@ -135,6 +135,31 @@ function heldRooms(page: Page): Promise<string[]> {
   })
 }
 
+/**
+ * What this tab's own fog slice says about a room — null for one it was never sent.
+ *
+ * The wire half of the cell tier: a room the party *swept* is latched (`re_hidden`), so its
+ * geometry ships and the cells they reached are what shows; `revealed` is the DM's own act and
+ * is the only thing that washes a room whole.
+ */
+function fogStatus(page: Page, roomId: string): Promise<string | null> {
+  return page.evaluate((id: string) => {
+    const store = (
+      window as unknown as {
+        __sessionStore?: {
+          getState(): { session?: { activeSceneId?: string; modules?: Record<string, unknown> } }
+        }
+      }
+    ).__sessionStore
+    const state = store?.getState()
+    const scene = state?.session?.activeSceneId
+    const fog = state?.session?.modules?.fog as
+      | { byScene?: Record<string, { rooms?: Record<string, { status?: string }> }> }
+      | undefined
+    return (scene ? fog?.byScene?.[scene]?.rooms?.[id]?.status : null) ?? null
+  }, roomId)
+}
+
 /** The cells of one room, in the region record's own coordinates. */
 async function cellsOf(page: Page, room: Room): Promise<[number, number][]> {
   const frame = await page.evaluate(() => {
@@ -400,8 +425,15 @@ test.describe.serial('@sprint3-vision', () => {
 
     // The one thing that takes a memory back (P4's brush, driven here as commands): the room
     // goes under *and* the cells the party earned are rubbed out. Only then is it void again.
-    await command(dm, 'fog', 'hide', { roomId: FAR.id })
-    await command(dm, 'fog', 'region-set', { op: 'hide', cells: await cellsOf(player, FAR) })
+    //
+    // Both halls, not just the far one. A swept room is latched rather than lit (the sweep
+    // never says `revealed`), so what is actually on the canvas is cells — and taking one
+    // room's back while the party's own memory of the room they walked through still covers
+    // a fifth of the frame would leave this reading measuring almost nothing.
+    for (const room of [NEAR, FAR]) {
+      await command(dm, 'fog', 'hide', { roomId: room.id })
+      await command(dm, 'fog', 'region-set', { op: 'hide', cells: await cellsOf(player, room) })
+    }
     await expect.poll(async () => (await read(player)).cells).toBeLessThan(remembered.cells)
     await player.waitForTimeout(REVEAL_MS * 4)
     const blanked = await look(player)
@@ -427,6 +459,68 @@ test.describe.serial('@sprint3-vision', () => {
     expect(Math.abs(reloaded.mean - away.mean)).toBeLessThan(away.mean * 0.1)
     // Region memory only ever ORs: walking away takes no ground back.
     expect(remembered.cells).toBeGreaterThan(0)
+  })
+
+  /**
+   * §1 — what walking earns is *cells*, not rooms, and this is the row that can tell.
+   *
+   * The far hall is entered through a two-cell doorway from most of a room away, so the party's
+   * sightline reaches a sliver of it and no more. A mask that washed every explored room whole
+   * would put the entire hall under the memory tint on that sliver's strength — which is
+   * exactly what the two readings below separate: the same room, same camera, remembered from
+   * a partial sweep and then revealed by the DM's own hand, which is the one act that *is* a
+   * whole-room wash.
+   */
+  test('a swept room remembers the cells it swept; only a DM reveal washes it whole', async () => {
+    const farRoomCells = await cellsOf(player, FAR)
+    const before = await read(player)
+
+    // Look through the doorway again — the row above rubbed both halls' cells out, so what
+    // comes back now is exactly what this one sightline reaches.
+    await command(dm, 'tokens', 'move', { id: scout, ...AT_DOOR })
+    await expect.poll(async () => (await read(player)).cells).toBeGreaterThan(before.cells)
+
+    // …then stop looking at it, so the far hall is memory alone with nothing live in it.
+    await command(dm, 'tokens', 'move', { id: scout, ...AWAY })
+    await expect.poll(async () => (await read(player)).rebuilds).toBeGreaterThan(before.rebuilds)
+    await player.waitForTimeout(REVEAL_MS * 4)
+    await frameUp(player)
+    const partial = await look(player)
+
+    // The wire says what the canvas says: a sweep latches a room, it does not light it.
+    expect(await fogStatus(player, FAR.id)).toBe('re_hidden')
+
+    // The DM's own reveal — the whole-room wash, and the only thing that is one.
+    await command(dm, 'fog', 'reveal', { roomId: FAR.id })
+    await expect.poll(() => fogStatus(player, FAR.id)).toBe('revealed')
+    await player.waitForTimeout(REVEAL_MS * 4)
+    const washed = await look(player)
+
+    // How much of the far hall that sightline actually earned, counted the only way the probe
+    // can: rub exactly its cells out and read what the total dropped by.
+    const held = (await read(player)).cells
+    await command(dm, 'fog', 'region-set', { op: 'hide', cells: farRoomCells })
+    await expect.poll(async () => (await read(player)).cells).toBeLessThan(held)
+    const swept = held - (await read(player)).cells
+
+    record(
+      'cell-granular memory against a whole-room wash',
+      `${FAR.name}: ${swept} of ${farRoomCells.length} cell(s) swept through the doorway reads ` +
+        `${show(partial)}; the DM's reveal of the same room reads ${show(washed)}`,
+      'a sweep shows its cells; only the DM’s reveal washes the room whole',
+    )
+
+    // The sightline earned a sliver, never the room — the sweep is what the record holds.
+    expect(
+      swept,
+      `the doorway sweep recorded ${swept} of the hall’s ${farRoomCells.length} cells`,
+    ).toBeLessThan(farRoomCells.length / 2)
+    // …and the canvas agrees: revealing the room by hand is visibly more map than the sliver.
+    expect(
+      washed.mean,
+      `the swept sliver read ${show(partial)} and the DM's whole-room reveal ${show(washed)} — ` +
+        'a mask washing every explored room whole reads them the same',
+    ).toBeGreaterThan(partial.mean + 1)
   })
 
   /** §2.6's standing gate condition, on this map too: zero uncaught errors. */
