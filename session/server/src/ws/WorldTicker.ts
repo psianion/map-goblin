@@ -99,7 +99,14 @@ export class WorldTicker {
       players: session.players(),
       broadcast: session.broadcast,
     }
-    this.registry.dispatch('triggers', 'set-world', { clock: advance.clock }, ctx)
+    // This fires unattended every tick forever — a throw here would take the whole server
+    // down with it, so it gets the same containment as afterWrite/cascade.
+    try {
+      this.registry.dispatch('triggers', 'set-world', { clock: advance.clock }, ctx)
+    } catch (err) {
+      console.warn('world ticker dispatch failed', err)
+      return
+    }
     // Consume exactly the ms the committed minutes cost, not "now" — the leftover remainder
     // keeps accumulating toward the next one.
     this.bases.set(session.sessionId, { at: base.at + advance.consumedMs, clock: advance.clock, speed: world.timeSpeed })

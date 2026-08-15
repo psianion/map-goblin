@@ -11,7 +11,7 @@ import { renderRoomHighlight } from './roomHighlight';
 import { renderWallNodeHandles } from './wallNodeOverlay';
 import { renderShapeNodeHandles } from './shapeNodeOverlay';
 import { recordFrame } from './fpsMetrics';
-import { timeBucket } from '../shared/world';
+import { composeGrade, timeBucket } from '../shared/world';
 import { updateShadows } from './shadowPass';
 import { worldFrame, worldGrade } from './worldOverride';
 
@@ -199,7 +199,10 @@ export function setupRenderLoop(
     // much sky the map has. Both surfaces come through here — the Table by installing its
     // campaign clock (`setTableWorld`), the Editor by installing nothing and falling through to
     // the scrub head. One writer, so a per-frame caller can no longer outrun an on-mutation one.
-    sceneGraph.lightingRenderer.setGrade(gradeNow(storeState), timeBucket(frame.minutes));
+    sceneGraph.lightingRenderer.setGrade(
+      composeGrade(storeState.mapSettings, frame.minutes),
+      timeBucket(frame.minutes),
+    );
 
     sceneGraph.lightingRenderer.updateAndRender(
       lightManager,
