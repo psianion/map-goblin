@@ -58,6 +58,10 @@ const R = [
   { key: 'guard',       name: 'Guard Room',               x0: 14, y0: 31, x1: 30, y1: 43, floor: 'cobblestone-a-01' },
   { key: 'kitchen',     name: 'Kitchens',                 x0: 30, y0: 31, x1: 45, y1: 43, floor: 'large-flagstone-a-01' },
   { key: 'crypt',       name: 'Crypt Stair',              x0: 45, y0: 31, x1: 58, y1: 43, floor: 'smooth-stone-floor-a-10' },
+  // exterior: south of the Gatehouse, outside the shell. Registered as a room
+  // like the rest (door binding needs `rid`/`sides` to find it) but its
+  // perimeter below is deliberately incomplete — see the palisade segments.
+  { key: 'courtyard',   name: 'Bailey Courtyard',         x0: 2,  y0: 43, x1: 26, y1: 58, floor: 'grass-a-01' },
 ];
 
 for (const r of R) {
@@ -138,7 +142,7 @@ const seg = (a, b) => {
 line('v', 2, 2, 43);
 line('v', 58, 2, 43);
 line('h', 2, 2, 58);
-line('h', 43, 2, 58);
+line('h', 43, 2, 58, [{ at: 8, a: 'gatehouse', b: 'courtyard', name: 'Bailey Gate', style: 'archway', state: 'open' }]);
 
 // vertical partitions
 line('v', 17, 2, 13, [{ at: 8, a: 'chapel', b: 'armory', name: 'Vestry Door' }]);
@@ -162,6 +166,17 @@ line('h', 31, 30, 31); // hall's south-east stub
 line('h', 31, 31, 45, [{ at: 38, a: 'barracks', b: 'kitchen', name: 'Mess Door', state: 'open' }]);
 line('h', 31, 45, 58, [{ at: 51, a: 'cistern', b: 'crypt', name: 'Undercroft Door' }]);
 
+// courtyard perimeter: timber palisade, per-wall texture override (the layer
+// style stays 'fieldstone' for the interior). Left deliberately incomplete —
+// wide gaps on the west and south runs — so it reads as an open bailey, not
+// a walled room. The isolated stub in the yard is freestanding on purpose:
+// directional-shadow testing wants a wall with nothing behind it.
+const segPalisade = (a, b) => ({ ...seg(a, b), textureSetId: 'palisade', textureTint: '#b49366', color: '#221a12' });
+walls.push(segPalisade([2, 50], [2, 58]));   // west run, starts well clear of the gate
+walls.push(segPalisade([4, 58], [14, 58]));  // south run, west half
+walls.push(segPalisade([17, 58], [25, 58])); // south run, east half — 3-unit gap between
+walls.push(segPalisade([18, 49], [18, 53])); // freestanding stub, shadow test target
+
 // ─── children ───
 const floors = R.map((r) => ({
   id: `floor-${r.key}`,
@@ -178,6 +193,22 @@ const floors = R.map((r) => ({
   textureFillRotation: 0,
   textureTint: '#ffffff',
 }));
+
+// courtyard ground detail, painted on top of its base grass floor above —
+// same shape/texture vocabulary as `floors`, just hand-authored since it's
+// two textures inside one room instead of one.
+const patch = (id, name, tex, x0, y0, x1, y1) => ({
+  id, name, childType: 'shape', visible: true, shapeType: 'rectangle',
+  contours: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]],
+  roughnessEnabled: false,
+  textureId: PACK + tex + '_1x1_floor_A',
+  textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0,
+  textureTint: '#ffffff',
+});
+const courtyardFloors = [
+  patch('floor-courtyard-apron', 'Bailey Apron', 'dirt-b-04', 5, 43, 13, 49),
+  patch('floor-courtyard-path', 'Bailey Path', 'cobblestone-a-01', 7, 43, 9, 55),
+];
 
 const water = [{
   id: 'water-cistern',
@@ -208,6 +239,7 @@ const lights = [
   light('light-gatehouse', 'Gatehouse Lantern', 8, 37, 7.5, 0.85, '#ffc38a'),
   light('light-kitchen', 'Kitchen Hearth', 37, 37, 8.5, 0.9, '#ff9b52'),
   light('light-chapel', 'Chapel Candles', 9, 7, 6.5, 0.7, '#ffd9a0'),
+  light('light-courtyard-gate', 'Bailey Gate Lantern', 8, 46, 8, 0.8, '#ffb877'),
 ];
 
 const asset = (id, name, assetId, x, y, opts = {}) => ({
@@ -268,6 +300,14 @@ const assets = [
   leaf('guard-1', 28.6, 32.4, 1.8),
   asset('asset-grass-crypt', 'Weeds', 'Grass_Patch_Green1_A1_1x1_1x1_object_A', 46.4, 32.4, { tint: '#8a9b7e' }),
   asset('asset-grass-gate', 'Weeds', 'Grass_Patch_Green1_A1_1x1_1x1_object_A', 3.4, 36.5, { tint: '#8a9b7e' }),
+  // bailey courtyard dressing — spaced apart for directional prop shadows
+  asset('asset-lamp-courtyard-gate', 'Gate Lantern', 'Lamp_Metal_Brass_A_1x1_1x1_object_A', 8, 46),
+  asset('asset-tree-courtyard-1', 'Bailey Tree', 'Tree_Green_A1_6x6_6x6_object_A', 20, 47, { width: 6, height: 6 }),
+  asset('asset-tree-courtyard-2', 'Bailey Tree', 'Tree_Green_A1_6x6_6x6_object_A', 23, 53, { width: 6, height: 6 }),
+  asset('asset-logs-courtyard', 'Supply Stack', 'Log_Ashen_A1_6x3_6x3_object_A', 16, 45, { width: 6, height: 3, scale: 0.4, rotation: 0.3 }),
+  asset('asset-stump-courtyard', 'Yard Stump', 'Stump_Ashen_A1_4x4_4x4_object_A', 11, 52, { width: 4, height: 4, scale: 0.35 }),
+  rock('courtyard-1', 5, 55, 0.4),
+  asset('asset-grass-courtyard', 'Weeds', 'Grass_Patch_Green1_A1_1x1_1x1_object_A', 21, 44, { tint: '#8a9b7e' }),
 ];
 
 const zones = [{
@@ -334,7 +374,7 @@ const map = {
         centroid: r.centroid, area: r.area, isPathway: false,
       })),
       roomNameOverrides: Object.fromEntries(R.map((r) => [r.id, r.name])),
-      children: [...floors, ...water, ...assets, ...lights, ...doors, ...zones],
+      children: [...floors, ...courtyardFloors, ...water, ...assets, ...lights, ...doors, ...zones],
     },
   ],
 };
