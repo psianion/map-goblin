@@ -30,8 +30,10 @@
 //
 // The DM is not in that hierarchy at all. PRODUCT principle 3 — the DM never loses
 // visibility — makes darkness a thing the DM *stages*, never a thing imposed on them, so
-// their composite is dialled to nothing and the fog state reaches them as the overlay's
-// tints (FogOverlay) instead of as an unreadable stage.
+// their *bite* is dialled to nothing and the fog state reaches them as the overlay's tints
+// (FogOverlay) instead of as an unreadable stage. Their grade is not: dialling the whole
+// composite off used to take every brazier on the map with it, and mood is presentation
+// rather than information — `GRADE_STRENGTH` against `LIGHTING_STRENGTH` is that split.
 //
 // ponytail: pixi through @dnd/core, the same reach-through TokenRenderer documents.
 import { Container, Graphics } from 'pixi.js';
@@ -146,6 +148,18 @@ export const EXPLORED_TINT_ALPHA = 0.7;
 export const LIGHTING_STRENGTH = { dm: 0, player: 0.7 };
 
 /**
+ * How hard the *grade* composites, per seat — and it is the same for every seat, which is the
+ * whole of the split above.
+ *
+ * The bite is vision: a player is being told what they cannot see, so it is dialled per seat
+ * and the DM's is nothing. The grade is presentation: the world is cold tonight for everyone
+ * at the table, referee included, and a DM staring at a flat unlit map all session (W2) was
+ * only ever a side effect of one number doing both jobs. The editor's own value — the sprite
+ * is created at 0.95 and this hands it back there on unmount.
+ */
+export const GRADE_STRENGTH = 0.95;
+
+/**
  * S3 P3 §4 — the drained grade a darkvision eye reads unlit ground through.
  *
  * A wash, not a filter. The art guide's dungeon is "near-black surround, grey floors, 1-2
@@ -178,11 +192,34 @@ export const DARKVISION_TINT_ALPHA = 0.55;
  * levels then land monotonically under it: darkness is the map as authored, daylight lifts the
  * unlit map most, dusk sits between.
  */
-export const AMBIENT_BITE: Record<AmbientLevel, number> = {
+/**
+ * The gate's three levels plus the one the *sky* adds: a crescent moon is a `darkness` scene
+ * for every mechanical purpose (`needsLight` still clips vision to the torches) that reads a
+ * shade softer than a moonless one, because there is a little light out there. Presentation
+ * only — nothing mechanical may switch on this, and nothing sets it until the world clock and
+ * the sky exist to.
+ */
+export type BiteLevel = AmbientLevel | 'darkness-soft';
+
+export const AMBIENT_BITE: Record<BiteLevel, number> = {
   daylight: 0.45,
   dusk: 0.75,
+  'darkness-soft': 0.9,
   darkness: 1,
 };
+
+/**
+ * How hard the composite's ambient fill bites for one seat on one scene — the two halves of
+ * §4's statement multiplied out, and the only number the lighting pass is ever handed.
+ *
+ * No level is "the DM has not turned the dial", which bites at full: the map as authored, the
+ * value the renderer has always used. The DM's own seat is 0 at every level (principle 3),
+ * which is not the same as the composite being off — their grade still lands.
+ */
+export function biteStrength(level: BiteLevel | undefined, role: 'dm' | 'player'): number {
+  const seat = role === 'dm' ? LIGHTING_STRENGTH.dm : LIGHTING_STRENGTH.player;
+  return seat * (level ? AMBIENT_BITE[level] : 1);
+}
 /** Black extends this far past the map so the edge of the world is not a tell. */
 const BOUNDS_PAD = 20;
 
@@ -236,6 +273,19 @@ export interface Bounds {
 export interface VoidStyle {
   /** The background layer's colour, through the player lighting multiply. */
   fill: number;
+  /**
+   * The memory and darkvision washes, through that same multiply.
+   *
+   * They are drawn *above* the composite like everything else here, so a fixed constant is a
+   * floor the room underneath can fall through: a wash leaves `alpha` of its own colour
+   * standing whatever the map is doing, and once the grade multiplies the live room below
+   * that, a memory reads *brighter* than the room it remembers — the third gate's inversion,
+   * back through the door P1 opened by making the grade universal. Composited, the wash is
+   * always a strict share of what the room shows live, at any grade and any bite, which is
+   * the order holding by construction rather than by two constants agreeing.
+   */
+  memory: number;
+  drained: number;
   /** GridRenderer's dot colour (0x888888), through the same multiply. */
   dot: number;
   dotAlpha: number;
@@ -270,11 +320,11 @@ export interface FogScene {
    */
   night?: NightSight;
   /**
-   * §4 — how hard the lighting composite's ambient fill bites, from the scene's ambient level.
-   * Absent is "the DM has not turned the dial", which leaves the lighting pass exactly as it
-   * was before P3 — including its no-lights-no-composite shortcut.
+   * §4 — how hard the lighting composite's ambient fill bites for *this seat*: the scene's
+   * ambient level through the seat's own strength (`biteStrength`). Always a number now, and
+   * always 0 for the DM — the grade is the half that reaches every seat, and it is not in here.
    */
-  darkness?: number;
+  bite: number;
 }
 
 /**
@@ -495,9 +545,9 @@ const channels = (hex: string): [number, number, number] => {
 };
 
 /**
- * A colour as it lands after the player's lighting multiply: `c · lerp(1, ambient, s)` per
- * channel — the same arithmetic LightingRenderer's composite performs on the real void
- * (its sprite alpha is set to LIGHTING_STRENGTH.player on every rebuild below).
+ * A colour as it lands after the lighting multiply: `c · lerp(1, m, s)` per channel — the
+ * same arithmetic LightingRenderer's composite performs on the real void, where `m` is the
+ * FBO's unlit base at this bite (`graded`) and `s` is the sprite's alpha.
  */
 const lit = (hex: string, ambient: [number, number, number], s: number): number => {
   const [r, g, b] = channels(hex);
@@ -505,19 +555,40 @@ const lit = (hex: string, ambient: [number, number, number], s: number): number 
   return (mul(r, ambient[0]) << 16) | (mul(g, ambient[1]) << 8) | mul(b, ambient[2]);
 };
 
+/** Multiplied by nothing: what a seat with no lighting pass at all renders the void at. */
+const UNCOMPOSITED: [number, number, number] = [255, 255, 255];
+
 /**
- * The void's look, off the same store the real background renders from. `strength` is how
- * hard the lighting composite is actually biting — LIGHTING_STRENGTH.player on a lit map,
- * 0 on a map with no lights (LightingRenderer leaves its sprite invisible there and the
- * real void renders unmultiplied; the mount checks which is true at rebuild).
+ * The FBO's unlit base, per channel 0..255 — the grade, and then the bite's second pass of
+ * the same colour over it (`LightingRenderer`, step 1). The imitation void is drawn *above*
+ * that composite and has to land on the same pixels the real one does.
  */
-export function voidStyle(strength: number = LIGHTING_STRENGTH.player): VoidStyle {
+const graded = (grade: [number, number, number], bite: number): [number, number, number] => {
+  const ch = (c: number): number => c * (1 - bite * (1 - c / 255));
+  return [ch(grade[0]), ch(grade[1]), ch(grade[2])];
+};
+
+/**
+ * The void's look, off the same store the real background renders from. `bite` is how hard
+ * the composite's fill is actually biting for this seat (`biteStrength`) — the grade's tint
+ * lands either way, which is why 0 is no longer "no multiply". `composited` is: a table with
+ * no lighting engine has no multiply to imitate, and the mount checks which is true.
+ */
+export function voidStyle(
+  bite: number = LIGHTING_STRENGTH.player,
+  composited = true,
+): VoidStyle {
   const { layers, mapSettings, grid } = useStore.getState();
   const bg = layers.find((l): l is BackgroundLayer => l.type === 'background');
-  const ambient = channels(mapSettings.ambientLight);
+  const ambient = composited
+    ? graded(channels(mapSettings.ambientLight), bite)
+    : UNCOMPOSITED;
+  const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
   return {
-    fill: lit(bg?.backgroundColor ?? '#2d2d2d', ambient, strength),
-    dot: lit('#888888', ambient, strength),
+    fill: lit(bg?.backgroundColor ?? '#2d2d2d', ambient, GRADE_STRENGTH),
+    memory: lit(hex(EXPLORED_TINT), ambient, GRADE_STRENGTH),
+    drained: lit(hex(DARKVISION_TINT), ambient, GRADE_STRENGTH),
+    dot: lit('#888888', ambient, GRADE_STRENGTH),
     dotAlpha: 0.45,
     dotsVisible: grid.visible,
   };
@@ -539,9 +610,9 @@ export function fogScene(): FogScene {
   // redaction cannot disagree about what is burning.
   const triggers = session?.modules?.triggers as TriggersState | undefined;
   const scene = sceneId && triggers ? sceneTriggersOf(triggers, sceneId) : undefined;
-  // §4 — how hard the lighting composite's ambient fill bites on this scene. Read before the
+  // §4 — how hard the lighting composite's ambient fill bites for this seat. Read before the
   // void's look because the imitation is drawn *through* that same composite (`voidStyle`).
-  const darkness = scene?.env.ambient ? AMBIENT_BITE[ambientOf(scene)] : undefined;
+  const bite = biteStrength(scene?.env.ambient ? ambientOf(scene) : undefined, isPlayer ? 'player' : 'dm');
   // Not taken for the DM, whose seat draws no mask at all, nor in rooms mode, which has no
   // use for it — the sweep is the expensive half of this read, and leaving it untaken is also
   // what keeps that path byte-identical.
@@ -594,7 +665,7 @@ export function fogScene(): FogScene {
     // The imitation bites exactly as hard as the real composite does: the sheet renders above
     // the same multiply, and §4 just made that multiply a dial. Left at full strength the
     // fogged sheet reads as a *darker* patch of the same map at daylight and dusk (D1).
-    void: voidStyle(LIGHTING_STRENGTH.player * (darkness ?? 1)),
+    void: voidStyle(bite),
     mode,
     fog,
     sight,
@@ -613,11 +684,9 @@ export function fogScene(): FogScene {
           }
         : undefined,
     // …and the presentation half, which is not gated on vision mode at all: a rooms-mode scene
-    // the DM calls dark should read dark too. An untouched scene reads 1 — today's value.
-    // Deliberate (D6): the dial is world state, not a vision-mode feature, so it reaches every
-    // scene the DM turns it on — and a scene nobody has touched carries no `ambient` field at
-    // all, so the rooms path composites byte-identically to what it always has.
-    darkness,
+    // the DM calls dark should read dark too. Deliberate (D6): the dial is world state, not a
+    // vision-mode feature, so it reaches every scene the DM turns it on.
+    bite,
   };
 }
 
@@ -735,12 +804,12 @@ function featherEdge(g: Graphics, ring: Polygon, color: number): void {
  * nothing over the shape it is covering, and a rim that never sits still is not one anybody
  * can read.
  */
-function paintRoom(g: Graphics, room: Room, view: RoomView, pad: number, voidFill: number): void {
+function paintRoom(g: Graphics, room: Room, view: RoomView, pad: number, look: VoidStyle): void {
   if (room.boundary.length < 3 || view === 'visible') return;
   const style =
     view === 'dark'
-      ? { color: voidFill, alpha: 1 }
-      : { color: EXPLORED_TINT, alpha: EXPLORED_TINT_ALPHA };
+      ? { color: look.fill, alpha: 1 }
+      : { color: look.memory, alpha: EXPLORED_TINT_ALPHA };
   for (const ring of fogRegion([room.boundary], [], pad, FOG_FEATHER).reach) {
     g.poly(ring.flat()).fill(style);
   }
@@ -912,11 +981,11 @@ export function drawFog(
   cutLand(scrim, earned, { color: voidFill, alpha: 1 });
   if (dotsMask) cutLand(dotsMask, earned, { color: 0xffffff });
 
-  fillLand(scrim, memory, { color: EXPLORED_TINT, alpha: EXPLORED_TINT_ALPHA });
+  fillLand(scrim, memory, { color: scene.void.memory, alpha: EXPLORED_TINT_ALPHA });
   // §4 — inside the hole, not instead of it: the party can see this ground, so it keeps the
   // room's own render underneath and takes the grade on top. Drawn after the memory wash and
   // before the falloff, which thickens over both.
-  fillLand(scrim, drained, { color: DARKVISION_TINT, alpha: DARKVISION_TINT_ALPHA });
+  fillLand(scrim, drained, { color: scene.void.drained, alpha: DARKVISION_TINT_ALPHA });
 
   for (const { outline } of earned) featherEdge(scrim, outline, voidFill);
   return { cells };
@@ -955,7 +1024,14 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   const fades: Fade[] = [];
   let views: Map<string, RoomView> | null = null;
   let sceneId: string | null = null;
-  let voidLook: VoidStyle = { fill: 0, dot: 0, dotAlpha: 0.45, dotsVisible: false };
+  let voidLook: VoidStyle = {
+    fill: 0,
+    memory: 0,
+    drained: 0,
+    dot: 0,
+    dotAlpha: 0.45,
+    dotsVisible: false,
+  };
   /** What the last rebuild drew with, for the vision probe below. */
   let sources = 0;
   let cells = 0;
@@ -1045,16 +1121,19 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // Set every rebuild rather than once at mount: the seat is not known until the join
     // snapshot lands, and the composite itself is created asynchronously with the engine.
     const lit = composite();
-    if (lit) lit.alpha = scene.isPlayer ? LIGHTING_STRENGTH.player : LIGHTING_STRENGTH.dm;
+    // The grade at full strength for everyone; the bite carries the seat. Dialling the whole
+    // sprite off for the DM was one number doing both jobs, and what it cost them was every
+    // brazier on the map (W2) — the multiply is where the light pools live too.
+    if (lit) lit.alpha = GRADE_STRENGTH;
     // §4 — the ambient dial, reaching the lighting pass the same way: this layer already owns
     // how hard that composite bites (`LIGHTING_STRENGTH`), and the scene's light level is the
-    // other half of the same statement. The DM's composite is dialled to nothing either way,
-    // so darkness is something they stage rather than something imposed on them (principle 3).
-    lighting()?.setAmbientLevel(scene.darkness ?? null);
+    // other half of the same statement. A table always knows its seat, so it always states a
+    // bite — 0 for the DM, so darkness stays something they stage (principle 3).
+    lighting()?.setAmbientLevel(scene.bite);
 
-    // The imitation has to match the void as it actually renders: an unlit map never
-    // composites (the sprite stays invisible), so its void is the raw background colour.
-    const drawn = lit?.visible ? scene : { ...scene, void: voidStyle(0) };
+    // The imitation has to match the void as it actually renders — including a table with no
+    // lighting pass at all, where there is no multiply for the void to have gone through.
+    const drawn = lit?.visible ? scene : { ...scene, void: voidStyle(0, false) };
     voidLook = drawn.void;
     cells = drawFog(scrim, drawn, dotsMask).cells;
     // Stamped before the dots and the fades: those are draws, and what §4 budgets is what one
@@ -1076,7 +1155,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
         const room = roomById.get(roomId);
         if (!room) continue;
         const graphic = new Graphics();
-        paintRoom(graphic, room, before, scene.pad, drawn.void.fill);
+        paintRoom(graphic, room, before, scene.pad, drawn.void);
         fadeLayer.addChild(graphic);
         fades.push({ graphic, startedAt: performance.now() });
         fogProbe.fadesStarted += 1;
@@ -1118,7 +1197,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     try {
       // Hand the lighting back at the strength the editor and every other mount expects.
       const lit = composite();
-      if (lit) lit.alpha = 0.95;
+      if (lit) lit.alpha = GRADE_STRENGTH;
       lighting()?.setAmbientLevel(null);
       if (!layer.destroyed) layer.destroy({ children: true });
     } catch {

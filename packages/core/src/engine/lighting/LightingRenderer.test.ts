@@ -22,9 +22,11 @@ vi.mock('pixi.js', () => {
     destroy(): void {}
   }
   class MockGraphics extends MockContainer {
+    /** Every fill this shape was given, so a test can read the base the FBO cleared to. */
+    fills: unknown[] = [];
     clear(): this { return this; }
     rect(): this { return this; }
-    fill(): this { return this; }
+    fill(style?: unknown): this { this.fills.push(style); return this; }
     stroke(): this { return this; }
     circle(): this { return this; }
     setStrokeStyle(): this { return this; }
@@ -73,7 +75,7 @@ vi.mock('../motion', () => ({
   prefersReducedMotion: () => mockReducedMotion,
 }));
 
-import { LightingRenderer, lightingSignature, flickerFactor, cullLightsByDistance, MAX_RENDERED_LIGHTS } from './LightingRenderer';
+import { LightingRenderer, lightingSignature, flickerFactor, cullLightsByDistance, MAX_RENDERED_LIGHTS, rgb, gradedLight, W_LIGHT_GRADE } from './LightingRenderer';
 import { LightManager } from './LightManager';
 import type { RenderEngine } from '../RenderEngine';
 import type { LightChild } from '../../store/types';
@@ -274,6 +276,8 @@ function table(initialLights: LightChild[] = [light()]) {
   };
   const viewport = { width: 1280, height: 720, dpr: 1 };
   const drawnInto: FakeTexture[] = [];
+  /** The FBO's base fills, frame by frame — the grade, and the bite's second pass of it. */
+  const baseFills: { color: number; alpha: number }[][] = [];
   const engine = {
     overlay: () => overlay,
     viewport: () => viewport,
@@ -283,7 +287,12 @@ function table(initialLights: LightChild[] = [light()]) {
       height,
       destroy: () => {},
     }),
-    renderToTexture: (_c: unknown, texture: FakeTexture) => {
+    renderToTexture: (c: unknown, texture: FakeTexture) => {
+      const container = c as { label?: string; children?: { fills?: unknown[] }[] };
+      if (container.label === 'ambientContainer') {
+        const fills = container.children?.[0]?.fills;
+        if (fills) baseFills.push([...fills] as { color: number; alpha: number }[]);
+      }
       drawnInto.push(texture);
     },
   } as unknown as RenderEngine;
@@ -299,7 +308,11 @@ function table(initialLights: LightChild[] = [light()]) {
   // A freshly synced light starts dirty; two frames settle the polygon rebuild it earns.
   frame();
   frame();
-  return { renderer, lights, overlay, viewport, drawnInto, frame };
+  const sprite = (): { visible: boolean } =>
+    overlay.children.find((c) => c.label === 'lightingComposite') as unknown as {
+      visible: boolean;
+    };
+  return { renderer, lights, overlay, viewport, drawnInto, baseFills, frame, sprite };
 }
 
 const iconCount = (overlay: { children: { label: string }[] }): number =>
@@ -377,23 +390,40 @@ describe('LightingRenderer composite guard', () => {
     });
   });
 
-  it('leaves a scene with no dial exactly as it was — no lights, no composite', () => {
+  // P1 — the grade/bite split. A map's mood is not conditional on it owning a torch, and the
+  // old shortcut (no lights, no dial ⇒ no composite at all) is why a lightless map was the one
+  // map with no mood.
+  it('still composites a lightless, dial-less scene — for its grade, at no bite', () => {
     const t = table();
     t.lights.syncFromStore([]);
     const settled = t.drawnInto.length;
-    t.frame();
-    expect(t.drawnInto.length).toBe(settled);
-    expect(t.overlay.children.find((c) => c.label === 'lightingComposite')).toMatchObject({
-      visible: false,
-    });
+    t.frame('#2d2d44');
+    expect(t.drawnInto.length).toBeGreaterThan(settled);
+    expect(t.sprite().visible).toBe(true);
+    // The grade as authored, opaque — and nothing else. No dial is no bite.
+    expect(t.baseFills.at(-1)).toEqual([{ color: 0x2d2d44, alpha: 1 }]);
+  });
 
-    // …and setting the dial back to null puts that shortcut back.
-    t.renderer.setAmbientLevel(0.5);
-    t.frame();
-    const forced = t.drawnInto.length;
-    t.renderer.setAmbientLevel(null);
-    t.frame();
-    expect(t.drawnInto.length).toBe(forced);
+  it('lays the bite over the grade as a second pass of the same colour', () => {
+    const t = table();
+    t.lights.syncFromStore([]);
+    t.renderer.setAmbientLevel(0.7);
+    t.frame('#2d2d44');
+    expect(t.baseFills.at(-1)).toEqual([
+      { color: 0x2d2d44, alpha: 1 },
+      { color: 0x2d2d44, alpha: 0.7 },
+    ]);
+  });
+
+  it('takes the composed grade over the frame’s own ambient once one is set', () => {
+    const t = table();
+    t.renderer.setGrade('#442d2d');
+    t.frame('#2d2d44');
+    expect(t.baseFills.at(-1)?.[0].color).toBe(0x442d2d);
+    // …and hands the frame back when nobody is composing one.
+    t.renderer.setGrade(null);
+    t.frame('#2d2d44');
+    expect(t.baseFills.at(-1)?.[0].color).toBe(0x2d2d44);
   });
 
   it('rearms after the last light is hidden and lit again', () => {
@@ -404,6 +434,104 @@ describe('LightingRenderer composite guard', () => {
     t.lights.syncFromStore([light()]);
     t.frame();
     expect(t.drawnInto.length).toBeGreaterThan(dark);
+  });
+});
+
+// ── P1 — what the grade does to the picture ─────────────────────────────────
+// The composite needs a GPU, but its arithmetic does not: the FBO is the grade (plus the
+// bite's second pass of it) with each light's graded colour added on top, and the sprite
+// multiplies the result over the map. Modelled here per channel so the requirements can be
+// asserted as *properties* of the output rather than as identities of the intermediates —
+// W1 explicitly changes what a lit floor looks like, so nothing about it is byte-stable.
+
+/** The FBO's unlit base: the grade, then the bite's second pass of it. 0..1 per channel. */
+const base = (grade: string, bite: number): number[] =>
+  rgb(grade).map((c) => (c / 255) * (1 - bite * (1 - c / 255)));
+
+/** The FBO inside a pool: the base with the light's graded colour added at `intensity`. */
+const pool = (grade: string, light: string, bite: number, intensity = 0.8): number[] =>
+  gradedLight(light, grade).map((c, i) =>
+    Math.min(1, base(grade, bite)[i] + (c / 255) * intensity),
+  );
+
+/** What the map's own pixels come out as: `dst · lerp(1, fbo, 0.95)`, the sprite's multiply. */
+const SPRITE_ALPHA = 0.95;
+const out = (floor: number[], fbo: number[]): number[] =>
+  floor.map((c, i) => c * (1 - SPRITE_ALPHA * (1 - fbo[i])));
+
+/** Hue angle in degrees — what "still reads warm" means when brightness is free to move. */
+function hue([r, g, b]: number[]): number {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max === min) return 0;
+  const d = max - min;
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return (h * 60 + 360) % 360;
+}
+
+const DAY = '#e8e4d8';
+const NIGHT = '#1a1a2e';
+const TORCH = '#ffb454';
+/** A stretch of mid-grey dungeon floor, as the art ships it. */
+const FLOOR = [0.55, 0.55, 0.55];
+
+describe('the grade, as properties of the output', () => {
+  it('(a) leaves a torch reading as a torch under a cold night', () => {
+    // The finding this replaces: grading the whole composite dragged the pool's own colour
+    // toward the grade's. Tinting the light's contribution instead moves its brightness, not
+    // its hue — a brazier under a night sky is a cooler, dimmer brazier, not a blue one.
+    const ungraded = rgb(TORCH);
+    const graded = gradedLight(TORCH, NIGHT);
+    const drift = Math.abs(hue(graded) - hue(ungraded));
+    expect(drift).toBeLessThan(15);
+    // …and it did cool: the grade took a real share of it, so this is not a no-op either.
+    expect(graded[0]).toBeLessThan(ungraded[0]);
+    expect(W_LIGHT_GRADE).toBeGreaterThan(0);
+    // Warm still means warm: red leads, blue trails, as it did before the grade.
+    expect(graded[0]).toBeGreaterThan(graded[1]);
+    expect(graded[1]).toBeGreaterThan(graded[2]);
+  });
+
+  it('(b) changes the LIT floor when the grade goes from day to night (W1)', () => {
+    // The whole point of P1. Lit ground used to escape the grade almost entirely — the pool
+    // washed the fill out from under itself and the composite never got another word in.
+    const day = out(FLOOR, pool(DAY, TORCH, 0));
+    const night = out(FLOOR, pool(NIGHT, TORCH, 0));
+    const drop = 1 - night[0] / day[0];
+    expect(drop).toBeGreaterThan(0.2);
+    // …and what is left standing in the pool is the torch, not the sky: the night takes the
+    // ambient blue out of the lit ground and leaves the flame's own warmth doing the work,
+    // which is the art guide's "grey floors, one or two strong warm glows".
+    expect(night[0]).toBeGreaterThan(night[2]);
+    expect(hue(night)).toBeLessThan(60);
+  });
+
+  it('(c) gives the DM a dark night map with pools burning in it (W2 + finding 2)', () => {
+    // Their bite is 0 — no vision-darkness is ever imposed on a referee — but the grade is
+    // not vision, and a night map is *supposed* to be dark. What they must not lose is the
+    // map: the braziers are right there, several times brighter than the ground around them.
+    const dm = { unlit: out(FLOOR, base(NIGHT, 0)), lit: out(FLOOR, pool(NIGHT, TORCH, 0)) };
+    expect(dm.unlit[0]).toBeLessThan(FLOOR[0] * 0.25);
+    expect(dm.lit[0]).toBeGreaterThan(dm.unlit[0] * 3);
+    // …and a player's bite lands strictly under the DM on the same ground, never over it.
+    expect(out(FLOOR, base(NIGHT, 0.7))[0]).toBeLessThan(dm.unlit[0]);
+  });
+
+  it('(d) leaves a map with a neutral white grade exactly as it was', () => {
+    // The compat anchor. White is "no grade", and no grade must cost nothing at any bite —
+    // both fills are the grade, so both are white, and the multiply is the identity.
+    for (const bite of [0, 0.45, 0.7, 1]) {
+      expect(base('#ffffff', bite)).toEqual([1, 1, 1]);
+      expect(out(FLOOR, base('#ffffff', bite))).toEqual(FLOOR);
+    }
+    // …and an ungraded torch is the torch as authored.
+    expect(gradedLight(TORCH, '#ffffff')).toEqual(rgb(TORCH));
+  });
+
+  it('reads a colour off the wire, or black if it cannot', () => {
+    expect(rgb('#2d2d44')).toEqual([0x2d, 0x2d, 0x44]);
+    expect(rgb('2d2d44')).toEqual([0x2d, 0x2d, 0x44]);
+    expect(rgb('not a colour')).toEqual([0, 0, 0]);
   });
 });
 

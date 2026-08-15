@@ -36,6 +36,8 @@ import {
 } from './fog';
 import {
   AMBIENT_BITE,
+  GRADE_STRENGTH,
+  biteStrength,
   DARKVISION_TINT,
   DARKVISION_TINT_ALPHA,
   EXPLORED_TINT,
@@ -63,7 +65,14 @@ import {
 import { tokenLightId } from '../triggers/lightSync';
 
 /** A fixed void look for fixtures — drawFog paints hidden map with `fill`, not black. */
-const VOID: VoidStyle = { fill: 0x131316, dot: 0x3a3a3a, dotAlpha: 0.45, dotsVisible: true };
+const VOID: VoidStyle = {
+  fill: 0x131316,
+  memory: EXPLORED_TINT,
+  drained: DARKVISION_TINT,
+  dot: 0x3a3a3a,
+  dotAlpha: 0.45,
+  dotsVisible: true,
+};
 
 /**
  * The mask's padding is Clipper2 offsets, so the geometry half of this file needs the real
@@ -296,6 +305,7 @@ describe('roomViews — what each room is doing', () => {
       pad: fogPad([]),
       sceneId: 's1',
       isPlayer: true,
+      bite: LIGHTING_STRENGTH.player,
       void: VOID,
     });
 
@@ -316,6 +326,7 @@ describe('roomViews — what each room is doing', () => {
       pad: fogPad([]),
       sceneId: 's1',
       isPlayer: true,
+      bite: LIGHTING_STRENGTH.player,
       void: VOID,
     });
 
@@ -441,30 +452,43 @@ const over = (base: number, color: number, alpha: number): number =>
   base * (1 - alpha) + color * alpha;
 
 /**
- * LightingRenderer's composite, at the strength the player's seat dials it to. The blend is
- * `multiply` and the sprite's alpha is a *strength* — `dst · lerp(1, src, a)` — so this is
- * the map's ambient wherever no light reaches. `#0d0e12` is the gate map's, and all four of
- * its torches are in one room: every other room is composited against exactly this.
+ * LightingRenderer's composite, at the bite the player's seat dials it to. The blend is
+ * `multiply` and the sprite's alpha is a *strength* — `dst · lerp(1, m, a)` — where `m` is the
+ * FBO's unlit base: the grade, plus the bite's second pass of it. `#0d0e12` is the gate map's
+ * grade, and all four of its torches are in one room: every other room is composited against
+ * exactly this. The red channel, the grade's dimmest and so the strictest of the three.
+ *
+ * P1 made the grade universal, which moved every absolute number in this section: a player's
+ * unlit floor on the darkest map in the repo now lands where the *editor* has always drawn it
+ * and then a little under. What the rows below assert is therefore the ordering and the
+ * texture — which is what the two lost gates were actually about — and they are stated as
+ * shares of the live room rather than as levels of 255.
  */
-const AMBIENT = 0x0d;
+const AMBIENT = 0x0d * (1 - LIGHTING_STRENGTH.player * (1 - 0x0d / 255));
 const unlit = (base: number): number =>
-  base * (1 - LIGHTING_STRENGTH.player + LIGHTING_STRENGTH.player * (AMBIENT / 255));
+  base * (1 - GRADE_STRENGTH + GRADE_STRENGTH * (AMBIENT / 255));
 
 /** A stretch of dungeon floor, as one channel. Texture is the spread between these. */
 const FLOOR = [140, 168, 120, 190, 152];
 const spread = (values: number[]): number => Math.max(...values) - Math.min(...values);
 
-/** What the wash does to whatever it is given. */
-const washed = (base: number): number => over(base, EXPLORED_TINT & 0xff, EXPLORED_TINT_ALPHA);
+/**
+ * What the wash does to whatever it is given — through the composite, as it is now drawn
+ * (`VoidStyle.memory`). A fixed constant here was the inversion's whole mechanism: it left a
+ * floor standing that the graded room below it could fall through.
+ */
+const washedTint = (EXPLORED_TINT & 0xff) * (1 - GRADE_STRENGTH + GRADE_STRENGTH * (AMBIENT / 255));
+const washed = (base: number): number => over(base, washedTint, EXPLORED_TINT_ALPHA);
 
 describe('the explored look', () => {
   it('keeps the floor texture readable — a memory, not a placeholder', () => {
     // Composed the way it actually is: the wash over the room's *lit* render, which is what
-    // collapsed to under three levels of 255 and read as the second gate's flat box.
+    // collapsed to under three levels of 255 and read as the second gate's flat box. As a
+    // share of the room's own texture, because the grade owns the absolute level now.
     const drawn = FLOOR.map((v) => washed(unlit(v)));
-    expect(spread(drawn)).toBeGreaterThan(5);
-    // …and nowhere near black, which is what `never_revealed` is reserved for.
-    expect(Math.min(...drawn)).toBeGreaterThan(24);
+    expect(spread(drawn) / spread(FLOOR.map(unlit))).toBeGreaterThan(0.25);
+    // …and nowhere near the void, which is what `never_revealed` is reserved for.
+    expect(Math.min(...drawn)).toBeGreaterThan(washed(0));
   });
 
   it('is a strict dimming of the same room live — the third gate’s inversion', () => {
@@ -480,27 +504,74 @@ describe('the explored look', () => {
   it('never pedestals a memory above the dimmest thing a live room can be', () => {
     // The invariant behind both rows above, stated once: what the wash leaves standing over
     // pure black is the floor of "explored", and it has to sit under the floor of "visible"
-    // or the order inverts again on the next map with a darker ambient.
-    const pedestal = (EXPLORED_TINT & 0xff) * EXPLORED_TINT_ALPHA;
+    // or the order inverts again on the next map with a darker ambient — or, since P1, on any
+    // map at all, the grade having become universal and the live floor having come down with
+    // it. Composited, the pedestal comes down by exactly the same factor, so this now holds
+    // for every grade rather than for the one it was tuned against.
+    const pedestal = washedTint * EXPLORED_TINT_ALPHA;
     expect(pedestal).toBeLessThan(Math.min(...FLOOR.map(unlit)));
   });
 });
 
 describe('the lighting strength each seat composites at', () => {
-  it('leaves the DM out of the multiply entirely (PRODUCT principle 3)', () => {
+  it('leaves the DM out of the *bite* entirely (PRODUCT principle 3)', () => {
     // The gate found the DM's stage ~90% near-black with everything revealed. Darkness is
     // something a DM stages, never something staged at them.
     expect(LIGHTING_STRENGTH.dm).toBe(0);
+    for (const level of ['daylight', 'dusk', 'darkness-soft', 'darkness'] as const) {
+      expect(biteStrength(level, 'dm')).toBe(0);
+    }
+    expect(biteStrength(undefined, 'dm')).toBe(0);
   });
 
-  it('keeps drama for the player without floors that read as unlit', () => {
-    // Below 1, so unlit-but-visible map lands somewhere legible rather than at the ambient's
-    // ~5%; above 0, so a torch still means something.
+  it('keeps the grade for every seat — the half that is presentation, not vision (W2)', () => {
+    // P1's split. The DM used to lose the whole multiply to that zero above, and with it every
+    // brazier on the map: the light pools live in the same composite the mood does.
+    expect(GRADE_STRENGTH).toBeGreaterThan(0);
+    // A DM at the darkest level still composites the grade as authored — and only the grade,
+    // their bite being 0, so the map is the mood and never the vision-darkness on top of it.
+    const dmVoid = voidStyle(biteStrength('darkness', 'dm'));
+    expect(dmVoid).toEqual(voidStyle(0));
+    // …and a player's seat lands strictly under it on the same background.
+    expect(voidStyle(biteStrength('darkness', 'player')).fill).toBeLessThan(dmVoid.fill);
+  });
+
+  it('keeps drama for the player without a floor of pure black', () => {
+    // Above 0, so the dial means something; below 1, so a player's unlit ground is a step
+    // under the map as authored rather than a second full pass of the grade on top of it.
     expect(LIGHTING_STRENGTH.player).toBeGreaterThan(0);
     expect(LIGHTING_STRENGTH.player).toBeLessThan(1);
-    // The art guide's grey floors, not black ones: a mid-grey floor keeps a quarter of
-    // itself with no light on it at all.
-    expect(unlit(160)).toBeGreaterThan(160 * 0.25);
+    // P1 handed the absolute level to the *grade* — a map authored at #0d0e12 is a map the
+    // author asked to be near-black, and the DM now sees that too. What stays this side's
+    // business is the step: strictly darker than the DM's, and strictly above nothing.
+    const dm = 160 * (1 - GRADE_STRENGTH + GRADE_STRENGTH * (0x0d / 255));
+    expect(unlit(160)).toBeLessThan(dm);
+    expect(unlit(160)).toBeGreaterThan(0);
+  });
+});
+
+// ── P1 §4 — which bite a seat gets, level by level ─────────────────────────
+describe('biteStrength', () => {
+  it('multiplies the scene’s level by the seat’s own strength', () => {
+    for (const level of ['daylight', 'dusk', 'darkness-soft', 'darkness'] as const) {
+      expect(biteStrength(level, 'player')).toBeCloseTo(
+        LIGHTING_STRENGTH.player * AMBIENT_BITE[level],
+      );
+    }
+    // No dial is the map as authored — full level, which is what the pass has always drawn.
+    expect(biteStrength(undefined, 'player')).toBe(LIGHTING_STRENGTH.player);
+  });
+
+  it('lands the crescent’s soft bite between dusk and a moonless night', () => {
+    // The sky's own level: mechanically a `darkness` scene (`needsLight` is untouched by it),
+    // presented a shade softer because there is a little light out there. Nothing sets it
+    // until the world clock and the sky do.
+    expect(AMBIENT_BITE.dusk).toBeLessThan(AMBIENT_BITE['darkness-soft']);
+    expect(AMBIENT_BITE['darkness-soft']).toBeLessThan(AMBIENT_BITE.darkness);
+    expect(biteStrength('dusk', 'player')).toBeLessThan(biteStrength('darkness-soft', 'player'));
+    expect(biteStrength('darkness-soft', 'player')).toBeLessThan(
+      biteStrength('darkness', 'player'),
+    );
   });
 });
 
@@ -670,6 +741,7 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     pad: fogPad([]),
     sceneId: 's1',
     isPlayer: true,
+    bite: LIGHTING_STRENGTH.player,
     void: VOID,
   });
 
@@ -916,6 +988,7 @@ describe('drawFog in vision mode', () => {
     pad: fogPad([]),
     sceneId: 's1',
     isPlayer: true,
+    bite: LIGHTING_STRENGTH.player,
     void: VOID,
     mode: 'vision',
     sight: [],
@@ -1392,14 +1465,13 @@ describe('fogScene', () => {
   });
 
   it('dials the ambient composite per level, and leaves an untouched scene alone', () => {
-    // Untouched is absent rather than 1: the lighting pass is left exactly as it was,
-    // no-lights shortcut included.
-    expect(nightTable(undefined).darkness).toBeUndefined();
-    expect(nightTable('darkness').darkness).toBe(AMBIENT_BITE.darkness);
-    expect(nightTable('dusk').darkness).toBe(AMBIENT_BITE.dusk);
-    expect(nightTable('daylight').darkness).toBe(AMBIENT_BITE.daylight);
-    // Monotone, and the untouched scene is the darkest — which is what the renderer has
+    // Untouched is the seat's full bite: the map as authored, which is what the renderer has
     // always drawn, so nothing moves on a table nobody has turned the dial at.
+    expect(nightTable(undefined).bite).toBe(biteStrength(undefined, 'player'));
+    expect(nightTable('darkness').bite).toBe(biteStrength('darkness', 'player'));
+    expect(nightTable('dusk').bite).toBe(biteStrength('dusk', 'player'));
+    expect(nightTable('daylight').bite).toBe(biteStrength('daylight', 'player'));
+    // Monotone, and the untouched scene is the darkest.
     expect(AMBIENT_BITE.daylight).toBeLessThan(AMBIENT_BITE.dusk);
     expect(AMBIENT_BITE.dusk).toBeLessThan(AMBIENT_BITE.darkness);
   });
@@ -1409,9 +1481,7 @@ describe('fogScene', () => {
     // the two only land on the same pixels while they agree about how hard it bites. Left at
     // full strength (D1), a daylight scene fogs darker than the map beside it.
     for (const level of ['daylight', 'dusk', 'darkness'] as const) {
-      expect(nightTable(level).void).toEqual(
-        voidStyle(LIGHTING_STRENGTH.player * AMBIENT_BITE[level]),
-      );
+      expect(nightTable(level).void).toEqual(voidStyle(biteStrength(level, 'player')));
     }
     // Lifting the composite lifts the imitation with it…
     expect(nightTable('daylight').void.fill).toBeGreaterThan(nightTable('darkness').void.fill);
@@ -1477,16 +1547,20 @@ describe('the lighting composite each seat is mounted with', () => {
     };
   }
 
-  it('dials the multiply off for the DM — darkness is staged, never imposed', () => {
+  // P1 — the sprite is the *grade* now, so every seat is mounted with it. What the DM is left
+  // out of is the bite, which reaches the pass separately (`setAmbientLevel`), and the two
+  // rows below are the split at the only place the halves meet.
+  it('mounts the DM with the grade — their darkness is staged, never imposed', () => {
     const { lighting, unmount } = mounted('dm');
-    expect(lighting.alpha).toBe(LIGHTING_STRENGTH.dm);
-    expect(lighting.alpha).toBe(0);
+    expect(lighting.alpha).toBe(GRADE_STRENGTH);
+    expect(fogScene().bite).toBe(0);
     unmount();
   });
 
-  it('leaves the player theirs, dialled back rather than off', () => {
+  it('mounts the player with the same grade and their own bite', () => {
     const { lighting, unmount } = mounted('player');
-    expect(lighting.alpha).toBe(LIGHTING_STRENGTH.player);
+    expect(lighting.alpha).toBe(GRADE_STRENGTH);
+    expect(fogScene().bite).toBe(LIGHTING_STRENGTH.player);
     unmount();
   });
 
@@ -1738,6 +1812,7 @@ describe('drawFog — the drained grade (§4)', () => {
     pad: fogPad([]),
     sceneId: 's1',
     isPlayer: true,
+    bite: LIGHTING_STRENGTH.player,
     void: VOID,
     mode: 'vision',
     sight: [LOOKING],

@@ -117,11 +117,43 @@ export function cullLightsByDistance(
     .slice(0, cap)
 }
 
+/** '#rrggbb' → [r, g, b]. Anything unparseable reads as black, as the old parse did. */
+export function rgb(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())?.[1]
+  const v = m ? parseInt(m, 16) : 0
+  return [(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff]
+}
+
+/**
+ * How much of the grade a light's own colour carries — W1's mechanism, and a tuning knob.
+ *
+ * The grade fills the FBO and the lights *add* on top of it, so a bright enough pool washes
+ * the fill out from under itself and lit ground escapes the world's mood entirely — which is
+ * what the live walk measured. Tinting each light's contribution by `lerp(white, grade, w)`
+ * puts the grade back into the pool without going through the composite, where it would hit
+ * the lights and the ground alike and desaturate every torch toward the grade's hue.
+ *
+ * At 0.35 a torch keeps its own hue dominant — a warm pool stays a warm pool, within a few
+ * degrees of its ungraded angle — while a cold night visibly cools it and a day grade leaves
+ * it alone. Raise it if night pools still read as day pools; lower it if torches start
+ * turning the colour of the sky.
+ */
+export const W_LIGHT_GRADE = 0.35
+
+/** A light's colour once the grade has had its share of it. */
+export function gradedLight(light: string, grade: string): [number, number, number] {
+  const l = rgb(light)
+  const g = rgb(grade)
+  const ch = (i: number): number =>
+    Math.round(l[i] * (1 - W_LIGHT_GRADE + (W_LIGHT_GRADE * g[i]) / 255))
+  return [ch(0), ch(1), ch(2)]
+}
+
 /**
  * LightingRenderer — FBO-based light compositing pass.
  *
  * Compositing architecture:
- *  1. Clear lightFBO with the ambient color (base darkness).
+ *  1. Clear lightFBO with the grade, plus the player's bite as a second pass of it.
  *  2. For each visible light, render into an isolated per-light RT:
  *     a. Draw the visibility polygon directly with a radial FillGradient.
  *  3. Composite each per-light RT into lightFBO with additive blend (clear:false).
@@ -154,24 +186,22 @@ export class LightingRenderer {
   private lastSignature = ''
   private lastIconSignature = ''
   /**
-   * How hard the ambient fill bites, 0..1 (S3 P3 §4). 1 is the editor's own answer and every
-   * table's until a DM turns the scene's ambient dial, so nothing here changes without one.
+   * How hard the ambient fill bites *on top of the grade*, 0..1 (S3 P3 §4) — a second pass of
+   * the grade over the base, and the whole of what a player's seat gets that a DM's does not.
    *
-   * It is a strength on the *unlit* base alone: a light adds into the same FBO, and additive
-   * blending carries its alpha to full inside the pool, so dialling this back lifts the
-   * surround without touching the glows.
+   * 0 is nobody having asked for one, which is every editor frame and the DM's seat at every
+   * level: the base is then the grade alone, exactly what this pass has always drawn. It bites
+   * the *unlit* base only — a light adds into the same FBO and washes the fill out inside its
+   * own pool — so dialling it back lifts the surround without touching the glows.
    */
-  private ambientDarkness = 1
+  private ambientDarkness = 0
   /**
-   * Whether a scene's ambient dial is in force at all.
-   *
-   * It decides one thing the scalar cannot: whether a scene with *no lights* still owes a
-   * composite. Untouched, it does not — no lights means nothing to multiply by, which is the
-   * editor's own answer and every table's before P3. With a level set, the ambient fill IS
-   * the picture: a `darkness` scene whose last torch just went out has to go dark, not
-   * hand back a fully lit map.
+   * The composed grade, when something has composed one — the mood tint alone today, and mood
+   * × time × environment damping once the world clock exists. `null` is "nobody has composed
+   * one", which is every editor frame: the map's own `ambientLight` is then the grade, and
+   * this pass reads it off the frame like it always has.
    */
-  private ambientForced = false
+  private grade: string | null = null
 
   constructor(engine: RenderEngine, width: number, height: number) {
     this.engine = engine
@@ -272,14 +302,24 @@ export class LightingRenderer {
    * The scene's light level, as a strength on the ambient fill (S3 P3 §4). The session sets it
    * from the DM's ambient dial; the editor never touches it.
    *
-   * `null` is "no dial set", which is every scene until a DM turns one and the only state the
-   * editor is ever in — it restores this pass exactly as it behaved before the dial existed.
+   * `null` is "no dial set" — no bite, which is the only state the editor is ever in and
+   * leaves the base as the grade alone, exactly what this pass drew before the dial existed.
    * A number is clamped, because a value outside 0..1 is a caller bug that would otherwise
    * show up as a black table or an unlit one.
    */
   setAmbientLevel(darkness: number | null): void {
-    this.ambientForced = darkness !== null
-    this.ambientDarkness = darkness === null ? 1 : Math.min(1, Math.max(0, darkness))
+    this.ambientDarkness = darkness === null ? 0 : Math.min(1, Math.max(0, darkness))
+  }
+
+  /**
+   * The scene's grade — one final composed colour, applied to every seat including the DM's.
+   *
+   * Separate from `setAmbientLevel` on purpose: the grade is *presentation* (what the world
+   * looks like) and the bite is *vision* (what a player is allowed to see), and only the
+   * second is ever dialled per seat. `null` hands the frame's own `ambientLight` back.
+   */
+  setGrade(color: string | null): void {
+    this.grade = color
   }
 
   /** Called each frame from renderLoop. `darkness` defaults to whatever the dial last set. */
@@ -309,16 +349,12 @@ export class LightingRenderer {
       MAX_RENDERED_LIGHTS,
     )
 
-    // No lights and no dial: nothing to composite, and the map renders unmultiplied — the
-    // answer this pass has always given. With a level set the ambient fill is the picture,
-    // so an empty light list is the *darkest* frame rather than the absence of one.
-    if (visibleLights.length === 0 && !this.ambientForced) {
-      this.compositingSprite.visible = false
-      this.lastSignature = ''
-      return
-    }
+    // The grade composites always — a map's mood is not conditional on it owning a torch, and
+    // the old no-lights shortcut is why a lightless map was the one map with no mood at all.
     this.compositingSprite.visible = true
 
+    const bite = darkness
+    const grade = this.grade ?? ambientColor
     const now = performance.now()
     const signature = lightingSignature(
       camX,
@@ -326,30 +362,38 @@ export class LightingRenderer {
       zoom,
       this.width,
       this.height,
-      ambientColor,
+      grade,
       visibleLights,
       (id) => lightManager.isDirty(id),
       now,
-      darkness,
+      bite,
     )
     if (signature === this.lastSignature) return
     this.lastSignature = signature
 
-    const ambientHex = parseInt(ambientColor.replace('#', ''), 16)
-    const ambientR = (ambientHex >> 16) & 0xff
-    const ambientG = (ambientHex >> 8) & 0xff
-    const ambientB = ambientHex & 0xff
-    const ambientColorNum = (ambientR << 16) | (ambientG << 8) | ambientB
+    const [gradeR, gradeG, gradeB] = rgb(grade)
+    const gradeColorNum = (gradeR << 16) | (gradeG << 8) | gradeB
 
     // Everything below draws in FBO pixels — screen coords scaled by the FBO's
     // resolution factor. The composite sprite stretches the result back out.
     const S = LIGHT_FBO_SCALE
 
-    // ── Step 1: Fill lightFBO with ambient color ──
+    // ── Step 1: Fill lightFBO with the grade, then the bite ──
+    // The grade is universal — every seat, every scene, opaque, whatever the bite says. The
+    // bite is a *second* pass of the same colour and it is the player's alone: a DM (or the
+    // editor) is at 0 and lands on the grade as authored, which is the mood and is theirs to
+    // see. Both are the grade, so a neutral white grade still composites to nothing at any
+    // bite — the anchor that keeps a map nobody has graded looking untouched.
     this.ambientContainer.removeChildren()
     const ambientG2 = new Graphics()
-    ambientG2.rect(0, 0, Math.ceil(this.width * S), Math.ceil(this.height * S))
-    ambientG2.fill({ color: ambientColorNum, alpha: darkness })
+    const fbw = Math.ceil(this.width * S)
+    const fbh = Math.ceil(this.height * S)
+    ambientG2.rect(0, 0, fbw, fbh)
+    ambientG2.fill({ color: gradeColorNum, alpha: 1 })
+    if (bite > 0) {
+      ambientG2.rect(0, 0, fbw, fbh)
+      ambientG2.fill({ color: gradeColorNum, alpha: bite })
+    }
     this.ambientContainer.addChild(ambientG2)
     this.engine.renderToTexture(this.ambientContainer, this.lightFBO, true)
 
@@ -369,10 +413,11 @@ export class LightingRenderer {
       const rawCenter = this.engine.worldToScreen(light.position.x, light.position.y)
       const screenCenter = { x: rawCenter.x * S, y: rawCenter.y * S }
       const screenRadius = Math.max(1, light.radius * zoom * S)
-      const lightHex = parseInt(light.color.replace('#', ''), 16)
-      const lr = (lightHex >> 16) & 0xff
-      const lg = (lightHex >> 8) & 0xff
-      const lb = lightHex & 0xff
+      // W1 — the light's own colour, with the grade's share of it taken (`W_LIGHT_GRADE`).
+      // This is what puts the world's mood on *lit* ground: the pool keeps its own hue and
+      // still cools when the night does, where grading the whole composite instead would
+      // drag every torch toward the sky's colour.
+      const [lr, lg, lb] = gradedLight(light.color, grade)
       const alpha = Math.min(1, Math.max(0, light.intensity * flickerFactor(light, now)))
       const toRgba = (a: number): string => `rgba(${lr},${lg},${lb},${a.toFixed(4)})`
 
@@ -424,7 +469,7 @@ export class LightingRenderer {
           const maskScale = (screenRadius * 2) / Math.max(maskTex.width, maskTex.height)
           maskSprite.scale.set(maskScale)
           maskSprite.alpha = alpha
-          maskSprite.tint = parseInt(light.color.replace('#', ''), 16)
+          maskSprite.tint = (lr << 16) | (lg << 8) | lb
           this.perLightContainer.addChild(maskSprite)
         } else {
           // Mask texture not loaded — fall back to gradient
