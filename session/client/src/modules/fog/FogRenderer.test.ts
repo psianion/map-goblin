@@ -306,6 +306,8 @@ describe('roomViews — what each room is doing', () => {
       sceneId: 's1',
       isPlayer: true,
       bite: LIGHTING_STRENGTH.player,
+      grade: '#ffffff',
+      timeBucket: 0,
       void: VOID,
     });
 
@@ -327,6 +329,8 @@ describe('roomViews — what each room is doing', () => {
       sceneId: 's1',
       isPlayer: true,
       bite: LIGHTING_STRENGTH.player,
+      grade: '#ffffff',
+      timeBucket: 0,
       void: VOID,
     });
 
@@ -742,6 +746,8 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     sceneId: 's1',
     isPlayer: true,
     bite: LIGHTING_STRENGTH.player,
+      grade: '#ffffff',
+      timeBucket: 0,
     void: VOID,
   });
 
@@ -989,6 +995,8 @@ describe('drawFog in vision mode', () => {
     sceneId: 's1',
     isPlayer: true,
     bite: LIGHTING_STRENGTH.player,
+      grade: '#ffffff',
+      timeBucket: 0,
     void: VOID,
     mode: 'vision',
     sight: [],
@@ -1889,6 +1897,8 @@ describe('drawFog — the drained grade (§4)', () => {
     sceneId: 's1',
     isPlayer: true,
     bite: LIGHTING_STRENGTH.player,
+      grade: '#ffffff',
+      timeBucket: 0,
     void: VOID,
     mode: 'vision',
     sight: [LOOKING],
