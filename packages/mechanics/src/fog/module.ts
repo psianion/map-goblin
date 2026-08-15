@@ -21,6 +21,7 @@ import {
   type SceneFog,
 } from './types'
 
+export * from './light'
 export * from './region'
 export * from './types'
 export * from './visibility'

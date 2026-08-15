@@ -8,7 +8,7 @@
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- D3's one waiver: shared/mapBounds is pure bounds math, pixi-free by design (see eslint.config.js)
 import { computeMapFrame } from '@dnd/core/src/shared/mapBounds'
 import type { WorldBounds } from '@dnd/core/src/shared/mapBounds'
-import type { AnyChild, DoorChild, Room, WallSegment, ZoneChild } from '@dnd/core/src/shared/types'
+import type { AnyChild, DoorChild, LightChild, Room, WallSegment, ZoneChild } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, Layer, SerializedMapData } from '@dnd/core/src/store/types'
 import type { Stores } from '../db/stores'
 import { validateMapData } from '../mapImport'
@@ -41,6 +41,10 @@ export interface SceneMap {
   doors: readonly DoorChild[]
   /** DM-authored trigger anchors (M4) — never rendered, never sent to a player (prep.ts). */
   zones: readonly ZoneChild[]
+  /** Every authored light, whole (S3 P3 §2): the runner needs where they are and how far they
+   *  reach, not just what they are called. Indexed with the doors and zones because it is the
+   *  same walk. */
+  lights: readonly LightChild[]
   /** Every authored light, id → its display name — how a trigger's `light` action is checked
    *  for staleness, and how M5's narration gets a light's name without a server import into
    *  the (pure) triggers module. */
@@ -102,13 +106,10 @@ function index(campaignId: string, data: SerializedMapData): SceneMap {
   const zones = layers.flatMap((layer) =>
     childrenOf(layer).filter((child): child is ZoneChild => child.childType === 'zone'),
   )
-  const lightNames = new Map(
-    layers.flatMap((layer) =>
-      childrenOf(layer)
-        .filter((child) => child.childType === 'light')
-        .map((c): [string, string] => [c.id, c.name]),
-    ),
+  const lights = layers.flatMap((layer) =>
+    childrenOf(layer).filter((child): child is LightChild => child.childType === 'light'),
   )
+  const lightNames = new Map(lights.map((light): [string, string] => [light.id, light.name]))
   return {
     campaignId,
     data,
@@ -116,6 +117,7 @@ function index(campaignId: string, data: SerializedMapData): SceneMap {
     rooms,
     doors,
     zones,
+    lights,
     lightNames,
     roomAt: (x, y) => rooms.find((room) => contains(room, x, y))?.id ?? null,
     roomsAlong: (wall) => {

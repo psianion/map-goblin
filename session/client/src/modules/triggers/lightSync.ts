@@ -15,8 +15,10 @@
 import type { LightChild } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import { useStore } from '@dnd/core/src/store/store';
+import type { Token, TokensState } from '@dnd/mechanics/tokens';
 import { sceneTriggersOf, type TriggersState } from '@dnd/mechanics/triggers';
 import { useSessionStore } from '../../session/store';
+import { tokensOf } from '../tokens/TokenRenderer';
 
 /** This scene's light overrides, or none while there is no scene/triggers state yet. */
 function activeOverrides(): Record<string, boolean> {
@@ -45,16 +47,101 @@ export function lightingDrift(
   return drift;
 }
 
+// ── Token-carried light (S3 P3 §2) ──────────────────────────────────────────
+// A torch a token is carrying is a light like any other, so it becomes one: a pseudo light
+// child on the loaded map, fed through the same LightManager the authored lights go through.
+// That buys the per-source shadow cache, the 24-light cull and the whole composite for free —
+// the renderer never learns that tokens exist.
+
+/** The pseudo-light a token's own light renders as. Stable, so a move updates rather than
+ *  re-creates, and the shadow cache keyed on it survives the step. */
+export const tokenLightId = (tokenId: string): string => `token-light:${tokenId}`;
+
+const isTokenLight = (id: string): boolean => id.startsWith('token-light:');
+
 /**
- * Fires whenever the drift inputs could have changed — a triggers command, a scene change, or
- * a new map. Both stores replace their slices wholesale, so identity is the whole test (same
- * as `subscribeLiveDoors`).
+ * What the scene's tokens should be lighting right now.
+ *
+ * `radius` is the token's *dim* radius and `featherRadius` its bright one, which is exactly
+ * how LightingRenderer reads the pair: the feather is the plateau at full intensity and the
+ * radius is where the falloff has finished. A torch is bright close in and dim to its edge.
+ * Hidden tokens light nothing — same redaction rule the referee's own light list runs
+ * (`lightSources`), because a pool of light around a token nobody may see is a position leak.
+ *
+ * ponytail: no flicker on a carried torch. `flicker` puts `nowMs` in the lighting signature,
+ * which is a full FBO recomposite every frame for every seat at the table; the day a carried
+ * torch should gutter, it should gutter on a budget measured first.
+ */
+export function tokenLights(tokens: readonly Token[]): LightChild[] {
+  return tokens
+    .filter((token) => token.light !== null && !token.hidden)
+    .map((token) => ({
+      id: tokenLightId(token.id),
+      name: token.name,
+      childType: 'light',
+      visible: true,
+      color: token.light!.color,
+      radius: Math.max(token.light!.dim, token.light!.bright),
+      featherRadius: Math.min(token.light!.dim, token.light!.bright),
+      intensity: 1,
+      falloff: 'quadratic',
+      position: { x: token.x, y: token.y },
+    }));
+}
+
+/** Where a pseudo-light disagrees with the token carrying it — every field the renderer reads. */
+const sameLight = (a: LightChild, b: LightChild): boolean =>
+  a.position.x === b.position.x &&
+  a.position.y === b.position.y &&
+  a.radius === b.radius &&
+  a.featherRadius === b.featherRadius &&
+  a.color === b.color &&
+  a.visible === b.visible;
+
+/** The pseudo-lights to write, and the ones to take off the map — a token put away, hidden,
+ *  or handed its torch back is a light that has to stop existing, not one left burning. */
+export function tokenLightDrift(
+  tokens: readonly Token[],
+  layers: readonly Layer[],
+): { write: LightChild[]; remove: string[] } {
+  const want = new Map(tokenLights(tokens).map((light) => [light.id, light]));
+  const have = new Map<string, LightChild>();
+  for (const layer of layers) {
+    if (layer.type !== 'dungeon') continue;
+    for (const child of layer.children) {
+      if (child.childType === 'light' && isTokenLight(child.id)) have.set(child.id, child);
+    }
+  }
+  return {
+    write: [...want.values()].filter((light) => {
+      const current = have.get(light.id);
+      return !current || !sameLight(current, light);
+    }),
+    remove: [...have.keys()].filter((id) => !want.has(id)),
+  };
+}
+
+/** The scene's tokens, or none while there is no scene/tokens state yet. */
+function activeTokens(): Token[] {
+  const session = useSessionStore.getState().session;
+  return tokensOf(session?.modules?.tokens as TokensState | undefined, session?.activeSceneId);
+}
+
+/**
+ * Fires whenever the drift inputs could have changed — a triggers command, a token moving, a
+ * scene change, or a new map. Both stores replace their slices wholesale, so identity is the
+ * whole test (same as `subscribeLiveDoors`).
  */
 function subscribeLiveLights(onChange: () => void): () => void {
   let last: unknown[] = [];
   const check = () => {
     const session = useSessionStore.getState().session;
-    const next = [session?.modules?.triggers, session?.activeSceneId, useStore.getState().layers];
+    const next = [
+      session?.modules?.triggers,
+      session?.modules?.tokens,
+      session?.activeSceneId,
+      useStore.getState().layers,
+    ];
     if (next.length === last.length && next.every((v, i) => v === last[i])) return;
     last = next;
     onChange();
@@ -74,8 +161,17 @@ function subscribeLiveLights(onChange: () => void): () => void {
  */
 export function syncLightsToScene(): () => void {
   return subscribeLiveLights(() => {
-    const drift = lightingDrift(activeOverrides(), useStore.getState().layers);
-    if (drift.size === 0) return;
+    const layers = useStore.getState().layers;
+    const drift = lightingDrift(activeOverrides(), layers);
+    const carried = tokenLightDrift(activeTokens(), layers);
+    // The recursion guard, and the reason both drifts are answered in one write: this callback
+    // re-enters on the store write it makes, and the second pass has to find nothing left.
+    if (drift.size === 0 && carried.write.length === 0 && carried.remove.length === 0) return;
+    // Cut before place: a pseudo-light being rewritten is taken off *every* layer and put back
+    // on one, so an update can never leave a second copy of a torch behind on the layer it
+    // happened to be written to last.
+    const rewriting = new Set([...carried.remove, ...carried.write.map((light) => light.id)]);
+    let placed = carried.write.length === 0;
     useStore.setState((state) => {
       for (const layer of state.layers) {
         if (layer.type !== 'dungeon') continue;
@@ -83,6 +179,16 @@ export function syncLightsToScene(): () => void {
           if (child.childType !== 'light') continue;
           const next = drift.get(child.id);
           if (next !== undefined) (child as LightChild).visible = next;
+        }
+        // A token that stopped carrying light, was hidden, or left the scene.
+        if (rewriting.size > 0) {
+          layer.children = layer.children.filter((child) => !rewriting.has(child.id));
+        }
+        // Every carried light lives on one dungeon layer — which one is immaterial (the
+        // renderer flattens them all), and keeping them together is what makes them findable.
+        if (!placed) {
+          placed = true;
+          layer.children.push(...carried.write);
         }
       }
     });

@@ -299,10 +299,28 @@ export function regionRects(region: RegionMask | undefined): Polygon[] {
 export const cellsIn = (rects: readonly Polygon[]): number =>
   rects.reduce((n, rect) => n + (rect[1][0] - rect[0][0]), 0);
 
+/**
+ * S3 P3 §3 — the light half of the clear tier, present only when the scene's ambient is
+ * `darkness`. Absent is the daylight/dusk answer: the whole sweep counts as lit, which is
+ * exactly the P2 mask.
+ */
+export interface NightSight {
+  /** Every light source's own sweep — what a normal eye can see by in the dark. */
+  lit: readonly Polygon[];
+  /** The sweeps of the party's darkvision eyes — unlit ground they alone reach. */
+  darkvision: readonly Polygon[];
+}
+
 /** What the vision mask draws. Void is everything neither tier covers, as it always was. */
 export interface VisionRegion {
   /** Live sight: the party's sweep union, out to the falloff's limit. Nothing is drawn here. */
   clear: Polygon[];
+  /**
+   * The part of `clear` a darkvision eye is buying unlit (§4) — a subset of it, never a tier
+   * of its own: the party is looking at that ground, they just have no colour to see it in.
+   * Empty outside darkness and empty for a party of normal eyes.
+   */
+  drained: Polygon[];
   /** The explored wash — swept cells and DM-revealed rooms, minus whatever is live. */
   memory: Polygon[];
   /** Both of them as one region, which is the hole the scrim cuts and the dots clip to. */
@@ -334,7 +352,8 @@ export interface VisionRegion {
  * Without Clipper2 loaded the intersections are empty, so the mask degrades to solid void —
  * dark rather than open, the direction a fog bug should fail in.
  *
- * ponytail: eleven Clipper calls a rebuild, measured at 7.8ms on the two-room fixture, and
+ * ponytail: eleven Clipper calls a rebuild (fifteen in the dark, where the lit and darkvision
+ * reaches are offset and intersected too), measured at 7.8ms on the two-room fixture, and
  * four of them re-offset room polygons that only move when the map or the room record does.
  * That is comfortably inside a frame and comfortably outside P6's 2ms budget; the upgrade,
  * when that budget is what is being chased, is to memo `held` and the revealed reach on the
@@ -347,6 +366,7 @@ export function visionRegion(
   shipped: readonly Polygon[],
   pad: number,
   feather: number,
+  night?: NightSight,
 ): VisionRegion {
   const rects = regionRects(region);
   const held = fogRegion(shipped, [], pad, feather).reach;
@@ -355,8 +375,30 @@ export function visionRegion(
   // scrim is grown to cover the sweep (`drawFog`), so a sight polygon escaping the geometry
   // the player holds cuts a real hole in it — bare background, no dots, in the shape of the
   // party's own sightline over map they were never sent. Unheld space stays void.
-  const clear =
+  const sweptHeld =
     swept.length > 0 && held.length > 0 ? clipper2Engine.intersection(swept, held) : [];
+  // §3.3 — the light gate, as one more intersection on the same pipeline. A light's pool is
+  // padded exactly as a sweep is (`sightPad`), so a torch in a room lights the room's wall band
+  // rather than stopping on the segments' centreline and leaving the stones dark.
+  const litReach = night ? fogRegion(night.lit, [], sightPad(pad), feather).reach : [];
+  const darkReach = night ? fogRegion(night.darkvision, [], sightPad(pad), feather).reach : [];
+  const seeable = night ? clipper2Engine.union([...litReach, ...darkReach], []) : [];
+  const clear = !night
+    ? sweptHeld
+    : sweptHeld.length > 0 && seeable.length > 0
+      ? clipper2Engine.intersection(sweptHeld, seeable)
+      : [];
+  // …and what that gate let through on darkvision alone, which is the part §4 grades. Taking
+  // the lit pools back out is what keeps a torch's own light out of the drained treatment: a
+  // darkvision eye standing in torchlight sees the pool in colour like anybody else.
+  const seenDark =
+    clear.length > 0 && darkReach.length > 0
+      ? clipper2Engine.intersection(clear, darkReach)
+      : [];
+  const drained =
+    seenDark.length > 0 && litReach.length > 0
+      ? clipper2Engine.difference(seenDark, litReach)
+      : seenDark;
   const remembered = clipper2Engine.union(
     [...rects, ...fogRegion(revealed, [], pad, feather).reach],
     [],
@@ -368,6 +410,7 @@ export function visionRegion(
   const memory = clear.length > 0 ? clipper2Engine.difference(inside, clear) : inside;
   return {
     clear,
+    drained,
     memory,
     // Unioned rather than drawn as two holes: `cut` takes a set of holes on the promise that
     // they do not overlap, and the feather runs round the outside of everything the party

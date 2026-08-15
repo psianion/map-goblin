@@ -4,7 +4,15 @@ import type { PlayerInfo } from '@dnd/core/src/shared/protocol'
 import type { TriggerDef } from '@dnd/core/src/shared/prep'
 import type { GameModule, Viewer } from '../contract'
 import type { RollResult } from '../dice/roll'
-import { triggersModule, type ResolvedTrigger, type TriggerDeps, type TriggersState } from './module'
+import {
+  ambientOf,
+  needsLight,
+  sceneTriggersOf,
+  triggersModule,
+  type ResolvedTrigger,
+  type TriggerDeps,
+  type TriggersState,
+} from './module'
 
 const DM: Viewer = { role: 'dm', identityId: 'dm-1' }
 const P1: Viewer = { role: 'player', identityId: 'p-1' }
@@ -560,6 +568,46 @@ describe('set-environment', () => {
     const mod = triggersModule(makeDeps())
     const { next } = run(mod, empty, DM, 'set-environment', { time: 'night', weather: 'snow' })
     expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Night falls. Snow begins to fall.' })
+  })
+
+  // S3 P3 §1 — the light level rides the same command, and it is the one field with mechanics
+  // behind it: `needsLight` is what the referee and the mask both gate normal vision on.
+  it('merges the ambient level and narrates it in the same voice', () => {
+    const mod = triggersModule(makeDeps())
+    let state = run(mod, empty, DM, 'set-environment', { time: 'night' }).next
+    const { next, error } = run(mod, state, DM, 'set-environment', { ambient: 'darkness' })
+    expect(error).toBeNull()
+    expect(sceneOf(next).env).toEqual({ time: 'night', ambient: 'darkness' })
+    expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Darkness closes in.', toPlayers: true })
+
+    // …and back again, without disturbing the time it was set alongside.
+    state = run(mod, next, DM, 'set-environment', { ambient: 'daylight' }).next
+    expect(sceneOf(state).env).toEqual({ time: 'night', ambient: 'daylight' })
+    expect(sceneOf(state).log.at(-1)).toMatchObject({ text: 'The dark lifts.' })
+  })
+
+  it('reads daylight until a DM says otherwise, and only darkness asks for a light', () => {
+    const mod = triggersModule(makeDeps())
+    expect(ambientOf(sceneTriggersOf(empty, SCENE))).toBe('daylight')
+    expect(needsLight(sceneTriggersOf(empty, SCENE))).toBe(false)
+
+    for (const [ambient, dark] of [
+      ['daylight', false],
+      ['dusk', false],
+      ['darkness', true],
+    ] as const) {
+      const { next } = run(mod, empty, DM, 'set-environment', { ambient })
+      expect(ambientOf(sceneTriggersOf(next, SCENE))).toBe(ambient)
+      // dusk differs from daylight in presentation alone — mechanically they are one answer.
+      expect(needsLight(sceneTriggersOf(next, SCENE))).toBe(dark)
+    }
+  })
+
+  it('refuses a light level that is not in the vocabulary', () => {
+    const mod = triggersModule(makeDeps())
+    expect(run(mod, empty, DM, 'set-environment', { ambient: 'gloomy' }).error?.code).toBe(
+      'invalid-command',
+    )
   })
 })
 

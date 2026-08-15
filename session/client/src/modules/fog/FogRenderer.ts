@@ -40,12 +40,14 @@ import type { Room } from '@dnd/core/src/shared/types';
 import type { BackgroundLayer, Layer, SerializedMapData } from '@dnd/core/src/store/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
+import type { LightingRenderer } from '@dnd/core/src/engine/lighting/LightingRenderer';
 import { useStore } from '@dnd/core/src/store/store';
 import { computeMapWorldBounds } from '@dnd/core/src/engine/export/exportPipeline';
 import type { AuthoredDoor, DoorLiveState, DoorsState } from '@dnd/mechanics/doors';
 import {
   effectiveFog,
   fogModeOf,
+  lightSources,
   visibleRooms,
   type FogMode,
   type FogRoom,
@@ -53,6 +55,13 @@ import {
   type SceneFog,
 } from '@dnd/mechanics/fog';
 import type { Token, TokensState } from '@dnd/mechanics/tokens';
+import {
+  ambientOf,
+  needsLight,
+  sceneTriggersOf,
+  type AmbientLevel,
+  type TriggersState,
+} from '@dnd/mechanics/triggers';
 import { addScreenOverlay, mountWhenEngineReady } from '../../renderer/overlayLayer';
 import { prefersReducedMotion } from '../../session/motion';
 import { useSessionStore } from '../../session/store';
@@ -62,6 +71,7 @@ import {
   fogPad,
   fogRegion,
   type FogRing,
+  type NightSight,
   ringsWithHoles,
   roomAt,
   roomFog,
@@ -71,7 +81,7 @@ import {
   serverRooms,
   visionRegion,
 } from './fog';
-import { sightCache, sighted } from './visionSight';
+import { placedLights, sightCache, sighted } from './visionSight';
 
 /** What the player's canvas does with one room. */
 export type RoomView = 'visible' | 'explored' | 'dark';
@@ -123,6 +133,45 @@ export const EXPLORED_TINT_ALPHA = 0.7;
  * near-black with everything revealed.
  */
 export const LIGHTING_STRENGTH = { dm: 0, player: 0.7 };
+
+/**
+ * S3 P3 §4 — the drained grade a darkvision eye reads unlit ground through.
+ *
+ * A wash, not a filter. The art guide's dungeon is "near-black surround, grey floors, 1-2
+ * strong warm glows doing all the color work" and its night is "desaturated, low contrast" —
+ * which is a statement about *chroma*, and a near-neutral wash is the cheapest thing that
+ * makes one: EXPLORED_TINT's own pair already measures 24.7 → 7.2 chroma on this canvas
+ * (see EXPLORED_TINT_ALPHA), so the primitive is known to drain colour rather than merely dim.
+ * A `ColorMatrixFilter` would grade the pixels properly and re-run every frame the stage draws
+ * — the one thing this layer is built never to do (`FEATHER_STEPS`) — and it has no precedent
+ * in core outside water's displacement.
+ *
+ * Cooler and lighter than the memory tint on purpose: the three states have to stay three
+ * brightnesses (void < memory < drained < lit), because the party IS looking at this ground.
+ * Tuned against the screenshot the darkvision e2e row takes, not against arithmetic.
+ */
+export const DARKVISION_TINT = 0x151b24;
+export const DARKVISION_TINT_ALPHA = 0.55;
+
+/**
+ * How hard the lighting composite's ambient fill bites, per ambient level (§4).
+ *
+ * `LightingRenderer` clears its FBO to the map's ambient colour and the lights add on top, so
+ * the fill's alpha is a strength on the *unlit* base alone — a torch pool's own alpha comes
+ * from the additive draw and is untouched. Dialling the fill back therefore lifts the surround
+ * without touching the glows, which is the knob the art guide's "ambient is underused for
+ * scene mood" is asking for.
+ *
+ * An untouched scene reads 1 — the value the renderer has always used — so every scene played
+ * before the dial existed, and every rooms-mode table, composites byte-identically. The three
+ * levels then land monotonically under it: darkness is the map as authored, daylight lifts the
+ * unlit map most, dusk sits between.
+ */
+export const AMBIENT_BITE: Record<AmbientLevel, number> = {
+  daylight: 0.45,
+  dusk: 0.75,
+  darkness: 1,
+};
 /** Black extends this far past the map so the edge of the world is not a tell. */
 const BOUNDS_PAD = 20;
 
@@ -203,6 +252,18 @@ export interface FogScene {
   sight?: Polygon[];
   /** Vision only (§1): the scene's fog as *stored*, for the memory tier's cells and reveals. */
   fog?: SceneFog;
+  /**
+   * S3 P3 §3 — the light gate, present only in a vision scene the DM has turned to
+   * `darkness`. Absent is daylight/dusk, where the whole sweep counts as lit: the P2 mask,
+   * unchanged, which is what every scene keeps until the dial is touched.
+   */
+  night?: NightSight;
+  /**
+   * §4 — how hard the lighting composite's ambient fill bites, from the scene's ambient level.
+   * Absent is "the DM has not turned the dial", which leaves the lighting pass exactly as it
+   * was before P3 — including its no-lights-no-composite shortcut.
+   */
+  darkness?: number;
 }
 
 /**
@@ -458,6 +519,22 @@ export function fogScene(): FogScene {
   const mode = fogModeOf(fog);
   const isPlayer = you?.role !== 'dm';
   const isVision = mode === 'vision';
+  // The table's light state, both halves of it: the scene's ambient dial and every light the
+  // triggers have relit. The same slice the referee reads (`vision.ts`), so the mask and the
+  // redaction cannot disagree about what is burning.
+  const triggers = session?.modules?.triggers as TriggersState | undefined;
+  const scene = sceneId && triggers ? sceneTriggersOf(triggers, sceneId) : undefined;
+  // Not taken for the DM, whose seat draws no mask at all, nor in rooms mode, which has no
+  // use for it — the sweep is the expensive half of this read, and leaving it untaken is also
+  // what keeps that path byte-identical.
+  const eyes = isVision && isPlayer ? sighted(tokens) : [];
+  //
+  // Off *core's* layers rather than the document's, which is the one place this file reads
+  // core on purpose: the table's live door state is stamped onto them for the lighting pass
+  // (`syncDoorsToLighting`), and a sweep through a door the map file still calls shut is a
+  // sweep the referee never took. Rooms and the door graph stay the document's for the
+  // reason `serverRooms` gives — those are what core re-detects, and walls are not.
+  const sight = isVision && isPlayer ? sightCache.partySight(layers, eyes) : undefined;
 
   return {
     rooms,
@@ -491,16 +568,24 @@ export function fogScene(): FogScene {
     void: voidStyle(),
     mode,
     fog,
-    // Not taken for the DM, whose seat draws no mask at all, nor in rooms mode, which has no
-    // use for it — the sweep is the expensive
-    // half of this read, and leaving it untaken is also what keeps that path byte-identical.
-    //
-    // Off *core's* layers rather than the document's, which is the one place this file reads
-    // core on purpose: the table's live door state is stamped onto them for the lighting pass
-    // (`syncDoorsToLighting`), and a sweep through a door the map file still calls shut is a
-    // sweep the referee never took. Rooms and the door graph stay the document's for the
-    // reason `serverRooms` gives — those are what core re-detects, and walls are not.
-    sight: isVision && isPlayer ? sightCache.partySight(layers, sighted(tokens)) : undefined,
+    sight,
+    // §3 — the light gate, taken only where it is the answer: a vision scene the DM has turned
+    // to `darkness`. Every light source's own sweep (placed lights the table has left on, plus
+    // token-carried ones), and separately the sweeps of the party's darkvision eyes, which are
+    // the polygons already computed above — a darkvision eye is not swept twice.
+    night:
+      sight && scene && needsLight(scene)
+        ? {
+            lit: sightCache.litArea(
+              layers,
+              lightSources(placedLights(layers), tokens, scene.lightOverrides),
+            ),
+            darkvision: sight.filter((_, i) => eyes[i].sight!.visionMode === 'darkvision'),
+          }
+        : undefined,
+    // …and the presentation half, which is not gated on vision mode at all: a rooms-mode scene
+    // the DM calls dark should read dark too. An untouched scene reads 1 — today's value.
+    darkness: scene?.env.ambient ? AMBIENT_BITE[ambientOf(scene)] : undefined,
   };
 }
 
@@ -529,6 +614,9 @@ export function subscribeFogScene(onChange: () => void): () => void {
       session?.modules?.fog,
       session?.modules?.doors,
       session?.modules?.tokens,
+      // S3 P3 — the light state: the scene's ambient dial and every relit light. A DM turning
+      // the dial moves what the party can see without a token or a door moving at all.
+      session?.modules?.triggers,
       // The document the mask's rooms come from: replaced wholesale on a load and on every
       // merged reveal delta, so identity is the whole test here too.
       mapData,
@@ -692,7 +780,12 @@ function roomTiers(scene: FogScene): { earned: FogRing[]; memory: FogRing[] } {
  * in the union whoever is looking at the screen. Per-viewer masks are P5, and the server is
  * still the thing withholding anything secret either way.
  */
-function visionTiers(scene: FogScene): { earned: FogRing[]; memory: FogRing[]; cells: number } {
+function visionTiers(scene: FogScene): {
+  earned: FogRing[];
+  memory: FogRing[];
+  drained: FogRing[];
+  cells: number;
+} {
   const stored = scene.fog?.rooms ?? {};
   const floorsOf = (pick: (roomId: string) => boolean): Polygon[] =>
     scene.rooms
@@ -707,10 +800,12 @@ function visionTiers(scene: FogScene): { earned: FogRing[]; memory: FogRing[]; c
     floorsOf(() => true),
     scene.pad,
     FOG_FEATHER,
+    scene.night,
   );
   return {
     earned: ringsWithHoles(region.shown),
     memory: ringsWithHoles(region.memory),
+    drained: ringsWithHoles(region.drained),
     cells: region.cells,
   };
 }
@@ -757,13 +852,19 @@ export function drawFog(
 
   // The one fork in this file. Everything either side of it — the fill, the cut, the wash and
   // the falloff — is the same four instructions in the same order; the tiers are what differ.
-  const { earned, memory, cells } =
-    scene.mode === 'vision' ? visionTiers(scene) : { ...roomTiers(scene), cells: 0 };
+  const { earned, memory, drained, cells } =
+    scene.mode === 'vision'
+      ? visionTiers(scene)
+      : { ...roomTiers(scene), drained: [] as FogRing[], cells: 0 };
 
   cutLand(scrim, earned, { color: voidFill, alpha: 1 });
   if (dotsMask) cutLand(dotsMask, earned, { color: 0xffffff });
 
   fillLand(scrim, memory, { color: EXPLORED_TINT, alpha: EXPLORED_TINT_ALPHA });
+  // §4 — inside the hole, not instead of it: the party can see this ground, so it keeps the
+  // room's own render underneath and takes the grade on top. Drawn after the memory wash and
+  // before the falloff, which thickens over both.
+  fillLand(scrim, drained, { color: DARKVISION_TINT, alpha: DARKVISION_TINT_ALPHA });
 
   for (const { outline } of earned) featherEdge(scrim, outline, voidFill);
   return { cells };
@@ -794,6 +895,9 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     (sceneGraph.overlayContainer.children.find((c) => c.label === LIGHTING_COMPOSITE) as
       | Container
       | undefined) ?? null;
+
+  /** …and the pass behind it, for the ambient dial. Absent on a scene graph with no lighting. */
+  const lighting = (): LightingRenderer | null => sceneGraph.lightingRenderer ?? null;
 
   const world = sceneGraph.worldContainer;
   const fades: Fade[] = [];
@@ -885,6 +989,11 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // snapshot lands, and the composite itself is created asynchronously with the engine.
     const lit = composite();
     if (lit) lit.alpha = scene.isPlayer ? LIGHTING_STRENGTH.player : LIGHTING_STRENGTH.dm;
+    // §4 — the ambient dial, reaching the lighting pass the same way: this layer already owns
+    // how hard that composite bites (`LIGHTING_STRENGTH`), and the scene's light level is the
+    // other half of the same statement. The DM's composite is dialled to nothing either way,
+    // so darkness is something they stage rather than something imposed on them (principle 3).
+    lighting()?.setAmbientLevel(scene.darkness ?? null);
 
     // The imitation has to match the void as it actually renders: an unlit map never
     // composites (the sprite stays invisible), so its void is the raw background colour.
@@ -953,6 +1062,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
       // Hand the lighting back at the strength the editor and every other mount expects.
       const lit = composite();
       if (lit) lit.alpha = 0.95;
+      lighting()?.setAmbientLevel(null);
       if (!layer.destroyed) layer.destroy({ children: true });
     } catch {
       /* engine torn down first */

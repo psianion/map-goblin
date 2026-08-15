@@ -133,6 +133,11 @@ describe('lightingSignature', () => {
     ['viewport width', () => sig([light()], [100, 200, 1.5], [1281, 720])],
     ['viewport height', () => sig([light()], [100, 200, 1.5], [1280, 721])],
     ['ambient colour', () => sig([light()], [100, 200, 1.5], [1280, 720], '#101014')],
+    // S3 P3 §4 — the dial changes the picture without changing a light, so it changes the key.
+    [
+      'ambient level (the DM’s dial)',
+      () => lightingSignature(100, 200, 1.5, 1280, 720, '#0d0e12', [light()], clean, 0, 0.45),
+    ],
     ['light moved', () => sig([light({ position: { x: 13, y: 20 } })])],
     ['light radius', () => sig([light({ radius: 41 })])],
     ['light colour', () => sig([light({ color: '#ff0000' })])],
@@ -346,6 +351,49 @@ describe('LightingRenderer composite guard', () => {
     const settled = t.drawnInto.length;
     t.frame('#202030');
     expect(t.drawnInto.length).toBeGreaterThan(settled);
+  });
+
+  // ── S3 P3 §4 — the scene's ambient dial ──────────────────────────────────
+
+  it('recomposites when the DM turns the ambient dial, with nothing else moving', () => {
+    const t = table();
+    const settled = t.drawnInto.length;
+    t.renderer.setAmbientLevel(0.45);
+    t.frame();
+    expect(t.drawnInto.length).toBeGreaterThan(settled);
+  });
+
+  it('keeps composing a dial-set scene after its last light goes out', () => {
+    const t = table();
+    t.renderer.setAmbientLevel(1);
+    t.lights.syncFromStore([]);
+    const settled = t.drawnInto.length;
+    t.frame();
+    // The ambient fill IS the picture now — a `darkness` scene whose torch just went out has
+    // to go dark, not hand back a fully lit map.
+    expect(t.drawnInto.length).toBeGreaterThan(settled);
+    expect(t.overlay.children.find((c) => c.label === 'lightingComposite')).toMatchObject({
+      visible: true,
+    });
+  });
+
+  it('leaves a scene with no dial exactly as it was — no lights, no composite', () => {
+    const t = table();
+    t.lights.syncFromStore([]);
+    const settled = t.drawnInto.length;
+    t.frame();
+    expect(t.drawnInto.length).toBe(settled);
+    expect(t.overlay.children.find((c) => c.label === 'lightingComposite')).toMatchObject({
+      visible: false,
+    });
+
+    // …and setting the dial back to null puts that shortcut back.
+    t.renderer.setAmbientLevel(0.5);
+    t.frame();
+    const forced = t.drawnInto.length;
+    t.renderer.setAmbientLevel(null);
+    t.frame();
+    expect(t.drawnInto.length).toBe(forced);
   });
 
   it('rearms after the last light is hidden and lit again', () => {

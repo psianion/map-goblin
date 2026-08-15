@@ -602,3 +602,275 @@ describe('token redaction by vision (§6)', () => {
     expect(table.tokensFor(P1)).toEqual([scout])
   })
 })
+
+// ── S3 P3 — the light model ─────────────────────────────────────────────────
+// Every row below turns on one thing: `seen()` is `inSweep AND (not dark OR lit OR
+// darkvision-in-range)`. The geometry is the same two halls, so what a reading proves is the
+// light clause and never the shadowcast — the P1 rows above already pin that half.
+
+/** An authored light on the map, at a spot and a reach the rows below can reason about. */
+const light = (id: string, x: number, y: number, radius: number, visible = true): AnyChild =>
+  ({
+    id,
+    name: id,
+    childType: 'light',
+    visible,
+    color: '#ffbb66',
+    radius,
+    featherRadius: radius / 2,
+    intensity: 1,
+    falloff: 'quadratic',
+    position: { x, y },
+  }) as AnyChild
+
+/** A claimed scout in the west hall, in a scene the DM has turned to `darkness`. */
+function nightWatch(
+  table: ReturnType<typeof wired>,
+  at: { x: number; y: number } = { x: 5.5, y: 5.5 },
+  sight = { range: 8, angle: 360, visionMode: 'normal' },
+): string {
+  table.run(DM, 'fog', 'set-mode', { mode: 'vision' })
+  table.run(DM, 'triggers', 'set-environment', { ambient: 'darkness' })
+  table.run(DM, 'tokens', 'place', { name: 'Scout', ...at, sight })
+  const id = Object.keys(table.tokensOf()).find((t) => table.tokensOf()[t].name === 'Scout')!
+  expect(table.run(P1, 'tokens', 'claim', { id })).toBeNull()
+  return id
+}
+
+describe('the light gate (S3 P3 §3)', () => {
+  it('leaves a normal eye blind in the dark, and daylight untouched', () => {
+    const table = wired()
+    const id = nightWatch(table)
+    // Its own feet, well inside its own sweep — and unlit, so it sees nothing at all.
+    expect(table.vision.visionOf(SCENE)!.canSee!(5.5, 5.5)).toBe(false)
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(false)
+
+    // The dial back to daylight, with nothing else touched: the P2 answer, exactly.
+    table.run(DM, 'triggers', 'set-environment', { ambient: 'daylight' })
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(true)
+    expect(table.vision.visionOf(SCENE)!.canSee!(12.5, 5.5)).toBe(false) // the wall, still
+    expect(table.tokensOf()[id].x).toBe(5.5) // and nothing moved to earn it
+  })
+
+  it('reads dusk as daylight — the difference between the two is presentation', () => {
+    const table = wired()
+    nightWatch(table)
+    table.run(DM, 'triggers', 'set-environment', { ambient: 'dusk' })
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(true)
+  })
+
+  it('sees by a placed light, and not through the wall that shadows one', () => {
+    // Two lights three cells apart, one either side of the wall. Both are within reach of the
+    // spot being asked about; only one of them can actually get there.
+    const table = wired([light('west-lamp', 9.5, 5.5, 6), light('east-lamp', 12.5, 5.5, 6, false)])
+    nightWatch(table)
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(true)
+
+    // …and with the near lamp doused, the far one is 3 cells away through a wall: unlit.
+    const dark = wired([light('west-lamp', 9.5, 5.5, 6, false), light('east-lamp', 12.5, 5.5, 6)])
+    nightWatch(dark)
+    expect(dark.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(false)
+  })
+
+  it('relights the doorway’s edge when the door opens, with nobody moving', () => {
+    const table = wired([light('east-lamp', 12.5, 5.5, 6)])
+    const id = nightWatch(table, { x: 9.5, y: 5.5 })
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(false)
+
+    expect(table.run(DM, 'doors', 'toggle', { id: 'door-mid' })).toBeNull()
+    // The lamp's own sweep now reaches through the two-cell gap, and the scout is standing in
+    // what it reaches. Nothing about the scout changed.
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(true)
+    expect(table.tokensOf()[id]).toMatchObject({ x: 9.5, y: 5.5 })
+    // Above the doorway the wall still shadows it — this is a gap, not a hole in the wall.
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 1.5)).toBe(false)
+  })
+
+  it('lights the dark from a carried torch, and puts it out when the token is hidden', () => {
+    const table = wired()
+    const id = nightWatch(table)
+    table.run(DM, 'tokens', 'place', {
+      name: 'Torchbearer',
+      x: 8.5,
+      y: 5.5,
+      sight: null,
+      light: { dim: 4, bright: 2, color: '#ffbb66', angle: 360 },
+    })
+    const torch = Object.keys(table.tokensOf()).find(
+      (t) => table.tokensOf()[t].name === 'Torchbearer',
+    )!
+    // Unclaimed and sightless — it is not looking at anything, it is only burning.
+    expect(table.vision.visionOf(SCENE)!.canSee!(8.5, 5.5)).toBe(true)
+    // The outer of the two radii is the reach: 4 cells, not 2.
+    expect(table.vision.visionOf(SCENE)!.canSee!(5.5, 5.5)).toBe(true)
+    expect(table.vision.visionOf(SCENE)!.canSee!(2.5, 5.5)).toBe(false)
+
+    // Taken off the board: a lit torch on a token nobody may see is a position leak.
+    expect(table.run(DM, 'tokens', 'hide', { id: torch, hidden: true })).toBeNull()
+    expect(table.vision.visionOf(SCENE)!.canSee!(8.5, 5.5)).toBe(false)
+    expect(table.tokensOf()[id].sight).not.toBeNull()
+  })
+
+  it('gives darkvision its own ring, and lends it to nobody else', () => {
+    const table = wired()
+    // Two claimed eyes on the same spot: a far-seeing normal one and a short darkvision one.
+    nightWatch(table, { x: 5.5, y: 5.5 }, { range: 8, angle: 360, visionMode: 'normal' })
+    table.run(DM, 'tokens', 'place', {
+      name: 'Owl',
+      x: 5.5,
+      y: 5.5,
+      sight: { range: 3, angle: 360, visionMode: 'darkvision' },
+    })
+    const owl = Object.keys(table.tokensOf()).find((t) => table.tokensOf()[t].name === 'Owl')!
+    table.run(P1, 'tokens', 'claim', { id: owl })
+
+    // Inside the owl's range: unlit ground, seen anyway.
+    expect(table.vision.visionOf(SCENE)!.canSee!(7.5, 5.5)).toBe(true)
+    // Past it — inside the *other* eye's sweep, which has no darkvision to lend it.
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(false)
+
+    // In daylight the darkvision eye is an ordinary one: its range still binds.
+    table.run(DM, 'triggers', 'set-environment', { ambient: 'daylight' })
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(true)
+  })
+
+  it('follows a trigger’s relight without anything else happening at the table', () => {
+    const LAMP_PREP: ScenePrep = {
+      version: 1,
+      triggers: [
+        {
+          id: 'trg-lamp',
+          name: 'The lamp',
+          when: { kind: 'room-revealed', zoneId: 'zone-lamp' },
+          actions: [{ kind: 'light', lightId: 'west-lamp', on: true }],
+          once: false,
+          enabled: true,
+        },
+      ],
+    }
+    const anchor: AnyChild = {
+      id: 'zone-lamp',
+      name: 'The lamp',
+      childType: 'zone',
+      visible: true,
+      shape: { kind: 'point', position: { x: 5, y: 5 } },
+    } as AnyChild
+    const table = wired([anchor, light('west-lamp', 9.5, 5.5, 6, false)], { prep: LAMP_PREP })
+    nightWatch(table)
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(false)
+
+    expect(table.run(DM, 'triggers', 'fire', { triggerId: 'trg-lamp' })).toBeNull()
+    // The override beats the map's authored `visible: false`, and the vision cache re-derived
+    // off the triggers write on its own — no token moved, no door swung.
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(true)
+  })
+})
+
+describe('auto-explore and redaction in the dark (S3 P3 §3.2, §3.1)', () => {
+  it('records the cells the party could see, not the ones their sweep crossed', () => {
+    const table = wired([light('west-lamp', 5.5, 5.5, 3)])
+    const id = nightWatch(table)
+    const fog = table.fogOf()
+    // Standing in the lamp's pool: the cell under the party is theirs.
+    expect(getCell(fog.region, ...WEST_CELL)).toBe(true)
+    // Four cells out — inside a sweep that reaches eight, and pitch dark.
+    expect(getCell(fog.region, 10, 6)).toBe(false)
+    // The room still latches: they saw part of it, so its geometry is theirs to hold.
+    expect(fog.rooms.west).toMatchObject({ status: 're_hidden', wasEverRevealed: true })
+
+    // Daylight over the same sweep, nothing else touched: the cell they could not see is
+    // theirs now, which is the whole difference the gate makes.
+    table.run(DM, 'triggers', 'set-environment', { ambient: 'daylight' })
+    table.run(DM, 'tokens', 'move', { id, x: 5.5, y: 5.5 })
+    expect(getCell(table.fogOf().region, 10, 6)).toBe(true)
+  })
+
+  it('leaves a locked zone locked however brightly it is lit', () => {
+    const table = wired([EAST_LOCK, light('east-lamp', 12.5, 5.5, 6)])
+    const id = nightWatch(table)
+    table.run(DM, 'doors', 'toggle', { id: 'door-mid' })
+    table.run(DM, 'tokens', 'move', { id, x: 9.5, y: 5.5 })
+    // Lit, swept, and still the DM's to give: locks beat the sweep by construction (§5).
+    expect(table.vision.visionOf(SCENE)!.canSee!(12.5, 5.5)).toBe(true)
+    expect(getCell(table.fogOf().region, ...EAST_CELL)).toBe(false)
+    expect(table.fogOf().rooms.east).toBeUndefined()
+  })
+
+  it('keeps an unlit token off the wire, and hands it over the moment the light does', () => {
+    const table = wired()
+    const scout = nightWatch(table)
+    table.run(DM, 'tokens', 'place', { name: 'Ambusher', x: 8.5, y: 5.5, sight: null })
+    const ambusher = Object.entries(table.tokensOf()).find(([, t]) => t.name === 'Ambusher')![0]
+    // Every room rule's escape hatch open: the room is revealed by hand and concealment off.
+    table.run(DM, 'fog', 'reveal', { roomId: 'west' })
+    table.run(DM, 'fog', 'set-conceal', { concealBehindDoors: false })
+
+    // Three cells away in a straight, unobstructed line — and pitch dark.
+    expect(table.tokensFor(P1)).toEqual([scout])
+    const before = table.toPlayer.length
+
+    // A torch carried into the room, and the ambusher is standing in the pool it throws.
+    // (Placed rather than handed to the scout: `tokens.update` takes no light — see the
+    // deferred note in this phase's report; the wire claim is about the light, not the hand.)
+    expect(
+      table.run(DM, 'tokens', 'place', {
+        name: 'Torchbearer',
+        x: 7.5,
+        y: 5.5,
+        sight: null,
+        light: { dim: 4, bright: 2, color: '#ffbb66', angle: 360 },
+      }),
+    ).toBeNull()
+    const torch = Object.entries(table.tokensOf()).find(([, t]) => t.name === 'Torchbearer')![0]
+    expect(table.tokensFor(P1)).toEqual([ambusher, scout, torch].sort())
+
+    // The wire itself, byte for byte: the frames after the torch was lit name the ambusher,
+    // and the ones before it never did.
+    const said = (msgs: unknown[]) => msgs.map((m) => JSON.stringify(m)).join('')
+    expect(said(table.toPlayer.slice(0, before))).not.toContain(ambusher)
+    expect(said(table.toPlayer.slice(before))).toContain(ambusher)
+  })
+
+  it('changes its answer on the dial alone, with nothing on the board moving', () => {
+    const table = wired()
+    const scout = nightWatch(table)
+    table.run(DM, 'tokens', 'place', { name: 'Ambusher', x: 8.5, y: 5.5, sight: null })
+    const ambusher = Object.entries(table.tokensOf()).find(([, t]) => t.name === 'Ambusher')![0]
+    table.run(DM, 'fog', 'reveal', { roomId: 'west' })
+    expect(table.tokensFor(P1)).toEqual([scout])
+
+    expect(table.run(DM, 'triggers', 'set-environment', { ambient: 'daylight' })).toBeNull()
+    expect(table.tokensFor(P1)).toEqual([ambusher, scout].sort())
+    expect(table.tokensOf()[ambusher]).toMatchObject({ x: 8.5, y: 5.5 })
+
+    // …and back into the dark, which takes it away again (D4c).
+    expect(table.run(DM, 'triggers', 'set-environment', { ambient: 'darkness' })).toBeNull()
+    expect(table.tokensFor(P1)).toEqual([scout])
+  })
+
+  it('hands a darkvision viewer what a normal one may not have', () => {
+    const table = wired()
+    const scout = nightWatch(
+      table,
+      { x: 5.5, y: 5.5 },
+      { range: 8, angle: 360, visionMode: 'darkvision' },
+    )
+    table.run(DM, 'tokens', 'place', { name: 'Ambusher', x: 8.5, y: 5.5, sight: null })
+    const ambusher = Object.entries(table.tokensOf()).find(([, t]) => t.name === 'Ambusher')![0]
+    table.run(DM, 'fog', 'reveal', { roomId: 'west' })
+    expect(table.tokensFor(P1)).toEqual([ambusher, scout].sort())
+
+    // …and out past the ring it is nobody's licence: the same eyes, the same dark, a token
+    // eight cells away rather than three.
+    expect(table.run(DM, 'tokens', 'move', { id: ambusher, x: 1.5, y: 1.5 })).toBeNull()
+    const far = wired()
+    const near = nightWatch(
+      far,
+      { x: 9.5, y: 5.5 },
+      { range: 3, angle: 360, visionMode: 'darkvision' },
+    )
+    far.run(DM, 'tokens', 'place', { name: 'Ambusher', x: 2.5, y: 5.5, sight: null })
+    far.run(DM, 'fog', 'reveal', { roomId: 'west' })
+    expect(far.tokensFor(P1)).toEqual([near])
+  })
+})

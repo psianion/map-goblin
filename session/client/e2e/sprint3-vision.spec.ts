@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 // `.ts` because these specs run under Playwright's Node loader, not Vite: @dnd/core has no
@@ -218,6 +218,83 @@ function develop(page: Page, shot: Buffer): Promise<Look> {
 const look = async (page: Page): Promise<Look> => develop(page, await shoot(page))
 const show = (l: Look) => `mean ${l.mean.toFixed(1)}/255, ${(l.lit * 100).toFixed(1)}% floor`
 
+interface Patch {
+  /** Mean luminance over the sampled pixels, 0–255. */
+  mean: number
+  /** Mean chroma — max channel minus min — over the same pixels, 0–255. */
+  chroma: number
+  /** How many pixels were in the sample, as a fraction of the frame. */
+  covered: number
+}
+
+/**
+ * What one state did to the pixels another state lit — sprint3-fog's instrument, for its
+ * reasons: a mean over the whole frame is mostly a count of how much black is in it, and the
+ * question §4 asks is about one patch of floor under three different treatments.
+ *
+ * Masked on the *floor* threshold rather than sprint3-fog's black floor: this map's memory
+ * wash and its drained grade both clear 32, so a looser mask would fold the rest of the map
+ * into a reading that is supposed to be about the torch pool alone.
+ *
+ * Chroma comes with it because dimming is only half the requirement. The art guide's night
+ * is "desaturated, low contrast" with "glows doing all the colour work" — a treatment that is
+ * merely darker has taken the light away without taking the colour.
+ */
+function sample(page: Page, shot: Buffer, mask: Buffer): Promise<Patch> {
+  return page.evaluate(
+    async ([a, b]: string[]) => {
+      const pixels = async (url: string) => {
+        const bitmap = await createImageBitmap(await (await fetch(url)).blob())
+        const surface = new OffscreenCanvas(bitmap.width, bitmap.height)
+        const ctx = surface.getContext('2d')!
+        ctx.drawImage(bitmap, 0, 0)
+        return ctx.getImageData(0, 0, bitmap.width, bitmap.height).data
+      }
+      const [target, reference] = await Promise.all([pixels(a), pixels(b)])
+      const luminance = (d: Uint8ClampedArray, i: number) =>
+        0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]
+      let sum = 0
+      let chroma = 0
+      let counted = 0
+      for (let i = 0; i < target.length; i += 4) {
+        if (luminance(reference, i) <= 120) continue
+        counted++
+        sum += luminance(target, i)
+        chroma +=
+          Math.max(target[i], target[i + 1], target[i + 2]) -
+          Math.min(target[i], target[i + 1], target[i + 2])
+      }
+      return {
+        mean: counted ? sum / counted : 0,
+        chroma: counted ? chroma / counted : 0,
+        covered: counted / (target.length / 4),
+      }
+    },
+    [
+      `data:image/png;base64,${shot.toString('base64')}`,
+      `data:image/png;base64,${mask.toString('base64')}`,
+    ],
+  )
+}
+
+const showPatch = (p: Patch) =>
+  `mean ${p.mean.toFixed(1)}/255, chroma ${p.chroma.toFixed(1)} over ${(p.covered * 100).toFixed(1)}% of the frame`
+
+/** Every token id on a seat's canvas, which is how a freshly placed one is picked out. */
+const tokenIds = (page: Page): Promise<string[]> =>
+  page
+    .getByTestId('token-layer')
+    .locator('[data-token-id]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('data-token-id') as string))
+
+/** Place a token and hand back the id the server minted for it. */
+async function place(page: Page, payload: Record<string, unknown>): Promise<string> {
+  const before = await tokenIds(page)
+  await command(page, 'tokens', 'place', payload)
+  await expect.poll(async () => (await tokenIds(page)).length).toBe(before.length + 1)
+  return (await tokenIds(page)).find((id) => !before.includes(id)) as string
+}
+
 /**
  * One camera for every reading in a segment.
  *
@@ -274,6 +351,9 @@ test.describe.serial('@sprint3-vision', () => {
   let dm: Page
   let player: Page
   let scout: string
+  /** The torch and the darkvision eye the P3 rows below light the map with. */
+  let torchId: string
+  let owlId: string
   /** The honest "nothing earned" reading, taken before any token is claimed. */
   let dark: Look
   const pageErrors: string[] = []
@@ -567,5 +647,163 @@ test.describe.serial('@sprint3-vision', () => {
       seat / dmSeat,
       'the vision mask opened a gap against the unmasked DM control',
     ).toBeGreaterThanOrEqual(0.6)
+  })
+
+  // ── S3 P3 — the light model at the table ──────────────────────────────────
+  // Everything above is a party that can see by the scene itself. These four rows are the
+  // same table with the light taken away: the DM turns the ambient dial to `darkness`, and
+  // what the player can see becomes a statement about torches and darkvision instead of
+  // about walls. The unit rows pin the rule either side of the socket
+  // (`vision-mode.test.ts`'s light gate, `FogRenderer.test.ts`'s `visionRegion in the dark`);
+  // what only a browser can answer is what the canvas actually looks like.
+
+  /** A carried torch: bright to 2 cells, dim to 4 — the outer radius is the reach. */
+  const TORCH = { dim: 4, bright: 2, color: '#ffbb66', angle: 360 }
+
+  test('in the dark a normal eye sees by a torch, and by nothing else', async () => {
+    await command(dm, 'tokens', 'move', { id: scout, ...AT_DOOR })
+    await expect.poll(async () => (await read(player)).sources).toBe(1)
+    await frameUp(player)
+    const seeing = await look(player)
+    const dmSeeing = await look(dm)
+
+    // One dial, no token moved, no door touched.
+    await command(dm, 'triggers', 'set-environment', { ambient: 'darkness' })
+    await expect.poll(async () => (await look(player)).lit).toBeLessThan(seeing.lit / 2)
+    await player.waitForTimeout(REVEAL_MS * 2)
+    const blind = await look(player)
+
+    torchId = await place(dm, { name: 'Torchbearer', ...AT_DOOR, sight: null, light: TORCH })
+    await expect.poll(async () => (await look(player)).lit).toBeGreaterThan(blind.lit + 0.005)
+    await player.waitForTimeout(REVEAL_MS * 2)
+    const pool = await look(player)
+    const dmDark = await look(dm)
+
+    record(
+      'the ambient dial and the torch under it',
+      `sweep-lit ${show(seeing)} → darkness ${show(blind)} → one torch ${show(pool)}; the DM's ` +
+        `own canvas ${dmSeeing.mean.toFixed(1)} → ${dmDark.mean.toFixed(1)} mean`,
+      'the pool is what they see, and the DM stages the dark rather than sitting in it',
+    )
+
+    // Pitch dark is pitch dark: nothing of the map is drawn at floor brightness.
+    expect(blind.lit, `the dark still drew ${show(blind)}`).toBeLessThan(0.005)
+    // The torch opens a pool — and only a pool. The sweep reaches eight cells, the torch four.
+    expect(pool.lit).toBeGreaterThan(blind.lit)
+    expect(pool.lit, `the torch lit ${show(pool)} against the sweep's ${show(seeing)}`)
+      .toBeLessThan(seeing.lit)
+    // …while the DM never loses the map (principle 3): darkness is something they stage. The
+    // tolerance is the torchbearer's own token, which is new on both canvases.
+    expect(Math.abs(dmDark.mean - dmSeeing.mean)).toBeLessThan(Math.max(1, dmSeeing.mean * 0.1))
+  })
+
+  /**
+   * §4 — the drained grade, measured the way sprint3-fog measures the explored one: the same
+   * pixels, three times over. The mask is the torchlit frame, so every reading below is about
+   * one patch of floor and not about how much black is in the frame.
+   */
+  test('darkvision reads shape without colour — above the void, under the torchlight', async () => {
+    const litShot = await shoot(player)
+    const lit = await sample(player, litShot, litShot)
+    expect(lit.covered, 'the torch pool is too small to measure').toBeGreaterThan(0.01)
+
+    // The same ground with the torch gone: the party is blind and it is void.
+    await command(dm, 'tokens', 'delete', { id: torchId })
+    await expect.poll(async () => (await look(player)).lit).toBeLessThan(0.005)
+    await player.waitForTimeout(REVEAL_MS * 2)
+    const dark = await sample(player, await shoot(player), litShot)
+
+    // …and again, seen by an owl's eyes alone. Nothing is burning anywhere on this map.
+    owlId = await place(dm, {
+      name: 'Owl',
+      ...AT_DOOR,
+      sight: { range: 8, angle: 360, visionMode: 'darkvision' },
+    })
+    await command(player, 'tokens', 'claim', { id: owlId })
+    await expect.poll(async () => (await read(player)).sources).toBe(2)
+    await player.waitForTimeout(REVEAL_MS * 2)
+    const drained = await sample(player, await shoot(player), litShot)
+
+    record(
+      'the darkvision grade against torchlight and void, on one patch of floor',
+      `torchlit ${showPatch(lit)} → unlit ${showPatch(dark)} → darkvision ${showPatch(drained)}`,
+      'above the void, below the pool, and drained of the pool’s colour',
+    )
+
+    // Shape: the party can see this ground, so it is not void.
+    expect(drained.mean, 'the darkvision area came back as void').toBeGreaterThan(dark.mean + 4)
+    // …but not as light: a lit room still reads as the brighter thing.
+    expect(drained.mean).toBeLessThan(lit.mean)
+    // …and not as colour, which is the half a dimming alone would fail (art guide: night is
+    // desaturated, and the glows do the colour work).
+    expect(
+      drained.chroma,
+      `darkvision chroma ${drained.chroma.toFixed(1)} against torchlight's ${lit.chroma.toFixed(1)}`,
+    ).toBeLessThan(lit.chroma / 2)
+
+    // The frame the treatment was judged on: a torch pool and a darkvision area at once.
+    torchId = await place(dm, { name: 'Torchbearer', x: 3.5, y: 3.5, sight: null, light: TORCH })
+    await expect.poll(async () => (await look(player)).lit).toBeGreaterThan(0.005)
+    await player.waitForTimeout(REVEAL_MS * 2)
+    writeFileSync(join(import.meta.dirname, '../test-results/p3-darkvision.png'), await shoot(player))
+  })
+
+  test('the ambient dial moves the canvas live, with nothing on the board moving', async () => {
+    const before = await read(player)
+    const night = await shoot(player)
+    const nightAgain = await shoot(player)
+    const noise = await changed(player, night, nightAgain)
+    await expect(player.getByTestId('env-badge')).toHaveText('Darkness')
+
+    await command(dm, 'triggers', 'set-environment', { ambient: 'daylight' })
+    await expect.poll(async () => (await read(player)).rebuilds).toBeGreaterThan(before.rebuilds)
+    await player.waitForTimeout(REVEAL_MS * 2)
+    const day = await shoot(player)
+    const moved = await changed(player, nightAgain, day)
+
+    record(
+      'a live ambient flip on the player canvas',
+      `${(moved * 100).toFixed(2)}% of the canvas moved on the dial alone (still frame to ` +
+        `still frame: ${(noise * 100).toFixed(2)}%), ${show(await develop(player, day))}`,
+      'no reload, no token moved, no door touched',
+    )
+
+    expect(moved, 'the dial changed nothing on the player canvas').toBeGreaterThan(noise + 0.01)
+    // Daylight is what every scene is at until a DM says otherwise, so the badge stops
+    // saying anything at all rather than reading "Daylight" at a table nobody has darkened.
+    await expect(player.getByTestId('env-badge')).toHaveCount(0)
+
+    await command(dm, 'triggers', 'set-environment', { ambient: 'darkness' })
+    await expect(player.getByTestId('env-badge')).toHaveText('Darkness')
+    await player.waitForTimeout(REVEAL_MS * 2)
+    expect((await look(player)).lit).toBeLessThan((await develop(player, day)).lit)
+  })
+
+  test('a carried light moves with the token carrying it', async () => {
+    const before = await shoot(player)
+    const beforeAgain = await shoot(player)
+    const noise = await changed(player, before, beforeAgain)
+
+    // Four cells east, which is a whole pool away from where it was standing.
+    await command(dm, 'tokens', 'move', { id: torchId, x: 7.5, y: 3.5 })
+    await expect.poll(async () => (await read(player)).rebuilds).toBeGreaterThan(0)
+    await player.waitForTimeout(REVEAL_MS * 2)
+    const after = await shoot(player)
+    const moved = await changed(player, beforeAgain, after)
+    // The floor the torch *was* standing on, measured after it left: the owl still sees it,
+    // so what has to drop is the light on it, not the mask over it.
+    const abandoned = await sample(player, after, beforeAgain)
+
+    record(
+      'a torch walking away from the ground it lit',
+      `${(moved * 100).toFixed(2)}% of the canvas moved (still frame to still frame: ` +
+        `${(noise * 100).toFixed(2)}%); the old pool fell to ${showPatch(abandoned)}`,
+      'the pool travels with the token, and the ground it leaves goes dark',
+    )
+
+    expect(moved, 'the carried light did not move with its token').toBeGreaterThan(noise + 0.005)
+    expect(abandoned.mean, 'the ground the torch left behind stayed lit').toBeLessThan(120)
+    // The standing gate condition, on the rows this phase added too.
+    expect(pageErrors, pageErrors.join('\n')).toEqual([])
   })
 })

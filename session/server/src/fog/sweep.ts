@@ -7,7 +7,7 @@
 // about, and to remember the answers until something moves.
 
 import { seedDoor, type DoorLiveState } from '@dnd/mechanics/doors'
-import { pointInPolygon } from '@dnd/mechanics/fog'
+import { lightSources, pointInPolygon } from '@dnd/mechanics/fog'
 import type { Token } from '@dnd/mechanics/tokens'
 // D3's runtime waivers, in the same targeted per-line style redactMap.ts uses for
 // shared/mapBounds: the sweep subtree (ClockwiseSweep → raycaster → occlusion, wallResolve,
@@ -41,12 +41,43 @@ interface SceneSweeps {
   polygons: Map<string, Polygon>
 }
 
+/**
+ * One pair of eyes and what it reaches. The token stays attached because the §3 rule is asked
+ * *per token*: darkvision is a property of the eye, not of the party, so a union of bare
+ * polygons cannot answer "who saw this, and could they have seen it unlit".
+ */
+export interface Eye {
+  x: number
+  y: number
+  range: number
+  darkvision: boolean
+  polygon: Polygon
+}
+
+export interface PartyVision {
+  eyes: Eye[]
+  /**
+   * Every light source's own sweep, unioned by `seen` — or null when the scene's ambient is
+   * not `darkness`, which is the whole sweep counting as lit and no light sweeps taken at all.
+   * Null is therefore both the answer and the P2 fast path.
+   */
+  lit: Polygon[] | null
+}
+
 export interface Sweeps {
   /**
-   * The party's live sight: one polygon per claimed, non-hidden, sighted token in the scene.
-   * Empty when nobody is looking, which is a party that sees nothing rather than everything.
+   * The party's live sight: one eye per claimed, non-hidden, sighted token in the scene, plus
+   * the lit area the §3 rule measures against. Empty when nobody is looking, which is a party
+   * that sees nothing rather than everything.
+   *
+   * `lights` is null outside `darkness` — pass the scene's live `lightOverrides` to gate.
    */
-  partySight(map: SceneMap, tokens: Record<string, Token>, doors: Doors): Polygon[]
+  partyVision(
+    map: SceneMap,
+    tokens: Record<string, Token>,
+    doors: Doors,
+    lights: Record<string, boolean> | null,
+  ): PartyVision
 }
 
 /**
@@ -67,34 +98,75 @@ export function createSweeps(): Sweeps {
   }
 
   return {
-    partySight(map, tokens, doors) {
+    partyVision(map, tokens, doors, lights) {
       const claimed = Object.values(tokens).filter(
         (token) => token.ownerId !== null && !token.hidden && (token.sight?.range ?? 0) > 0,
       )
-      if (claimed.length === 0) return []
+      if (claimed.length === 0) return { eyes: [], lit: null }
       const scene = sweepsFor(map, doors)
       if (scene.polygons.size > SWEEP_CAP) scene.polygons.clear()
-      const seen: Polygon[] = []
-      for (const token of claimed) {
-        const range = token.sight!.range
-        // P1 is purely geometric: `visionMode: 'darkvision'` sweeps identically to normal
-        // and `sight.angle` is ignored — the light gate is P3, cones are a v1 non-goal.
-        const key = `${token.x},${token.y},${range}`
+      // A light's sweep and an eye's sweep are the same computation from the same occluders,
+      // so they share one memo: origin and reach are the whole key either way, and a torch
+      // standing where a scout stood is genuinely the same polygon.
+      const sweep = (x: number, y: number, radius: number): Polygon => {
+        const key = `${x},${y},${radius}`
         let polygon = scene.polygons.get(key)
         if (!polygon) {
-          polygon = clockwiseSweep([token.x, token.y], range, scene.segments).map((v) => v.point)
+          polygon = clockwiseSweep([x, y], radius, scene.segments).map((v) => v.point)
           scene.polygons.set(key, polygon)
         }
-        seen.push(polygon)
+        return polygon
       }
-      return seen
+
+      const eyes = claimed.map((token) => {
+        const range = token.sight!.range
+        // `sight.angle` is ignored — cones are a v1 non-goal. Darkvision sweeps the same
+        // geometry as a normal eye; what it changes is the light test, not the shadowcast.
+        return {
+          x: token.x,
+          y: token.y,
+          range,
+          darkvision: token.sight!.visionMode === 'darkvision',
+          polygon: sweep(token.x, token.y, range),
+        }
+      })
+      return {
+        eyes,
+        lit: lights ? litIn(map, tokens, lights).map((l) => sweep(l.x, l.y, l.radius)) : null,
+      }
     },
   }
 }
 
-/** Inside any one of the party's sight polygons. */
-export function sightContains(polygons: readonly Polygon[], x: number, y: number): boolean {
-  return polygons.some((polygon) => pointInPolygon(polygon, x, y))
+/** §2's shared rule, fed the map's own light children. The rule itself lives in mechanics so
+ *  the canvas runs the identical one over the document it holds. */
+const litIn = (map: SceneMap, tokens: Record<string, Token>, overrides: Record<string, boolean>) =>
+  lightSources(
+    map.lights.map((light) => ({
+      id: light.id,
+      x: light.position.x,
+      y: light.position.y,
+      radius: light.radius,
+      visible: light.visible,
+    })),
+    Object.values(tokens),
+    overrides,
+  )
+
+/**
+ * §3, the whole rule, in one place so the three callers cannot drift:
+ *
+ *   seen(p) = inSweep(p) AND (ambient ≠ darkness OR lit(p) OR (darkvision eye AND p in range))
+ *
+ * Party entitlement is the union over the party's eyes, but the darkvision clause is not:
+ * only the eye that *has* darkvision may claim unlit ground, and only out to its own range.
+ */
+export function seen(vision: PartyVision, x: number, y: number): boolean {
+  const looking = vision.eyes.filter((eye) => pointInPolygon(eye.polygon, x, y))
+  if (looking.length === 0) return false
+  if (!vision.lit) return true
+  if (vision.lit.some((polygon) => pointInPolygon(polygon, x, y))) return true
+  return looking.some((eye) => eye.darkvision && Math.hypot(x - eye.x, y - eye.y) <= eye.range)
 }
 
 /**

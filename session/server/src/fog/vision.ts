@@ -24,6 +24,7 @@ import {
   type RoomFog,
   type SceneFog,
 } from '@dnd/mechanics/fog'
+import { needsLight, sceneTriggersOf, type TriggersState } from '@dnd/mechanics/triggers'
 import type { SceneVision, TokensState } from '@dnd/mechanics/tokens'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
 import type { Stores } from '../db/stores'
@@ -40,8 +41,8 @@ import {
   createSweeps,
   exploreLocks,
   inAnyLock,
-  sightContains,
-  type Polygon,
+  seen,
+  type PartyVision,
 } from './sweep'
 
 /** Everything the rest of the server asks the fog. One implementation, wired at boot. */
@@ -94,8 +95,9 @@ interface Computed {
   revision: number
   map: SceneMap
   fog: SceneFog
-  /** The party's sight polygons — null in `'rooms'` mode, where nothing sweeps at all. */
-  sight: Polygon[] | null
+  /** The party's eyes and the lit area they are judged against — null in `'rooms'` mode,
+   *  where nothing sweeps at all. */
+  sight: PartyVision | null
   doors: Record<string, DoorLiveState>
   /** Rooms the party can see right now (D3). */
   visible: Set<string>
@@ -116,6 +118,8 @@ const NO_FOG: FogState = { byScene: {} }
 const NO_ROOMS: readonly FogRoom[] = []
 const NO_DOORS: DoorsState = { byScene: {} }
 const NO_TOKENS: TokensState = { library: {}, byScene: {} }
+/** No triggers state yet ⇒ no relights and no ambient dial: `sceneTriggersOf` reads daylight. */
+const NO_TRIGGERS: TriggersState = { byScene: {} }
 const NO_ONES_DOORS: ReadonlySet<string> = new Set()
 
 export function createVision(stores: Stores): Vision {
@@ -158,7 +162,22 @@ export function createVision(stores: Stores): Vision {
     // S3 P1 — the sweep is taken once per mutation alongside the BFS, and cached with it:
     // token redaction, auto-explore and (P2) the mask all read the same polygons, so the
     // three cannot disagree about where the party's sight ends.
-    const sight = fogModeOf(fog) === 'vision' ? sweeps.partySight(map, tokens, doors) : null
+    //
+    // P3 — and the light with it. The triggers module holds both halves of the light state the
+    // table is actually playing (the scene's ambient dial and every relit light), and any write
+    // to it bumps the revision this record is keyed on, so a `set-environment` or a trigger
+    // firing re-derives the answer for free. Outside `darkness` no light sweep is taken at all:
+    // `lit: null` is the P2 behaviour, unchanged, which is what an untouched scene keeps.
+    const triggers = sceneTriggersOf(read(campaignId, 'triggers', NO_TRIGGERS), sceneId)
+    const sight =
+      fogModeOf(fog) === 'vision'
+        ? sweeps.partyVision(
+            map,
+            tokens,
+            doors,
+            needsLight(triggers) ? triggers.lightOverrides : null,
+          )
+        : null
 
     const explored = exploredRooms(fog)
     // The doors a player may hold — the *same* predicate the map cut uses on the door
@@ -233,7 +252,9 @@ export function createVision(stores: Stores): Vision {
         occupiable: computed.occupiable,
         // P1 — in vision mode a token is judged by the point it stands on, not the room it
         // is in. Absent in `'rooms'` mode, which leaves `inSight` byte-identical there.
-        canSee: sight ? (x, y) => sightContains(sight, x, y) : undefined,
+        // P3 — and by the light on that point: in darkness a token beyond every torch and
+        // beyond darkvision is not on the wire at all (§3.1).
+        canSee: sight ? (x, y) => seen(sight, x, y) : undefined,
         // The half of the refusal that was never plugged in: `occupiable` is the BFS's
         // boolean, and without this the cause it discarded stayed discarded, so every move
         // a door refused came back as the generic "you can't move there".
@@ -250,7 +271,7 @@ export function createVision(stores: Stores): Vision {
 
     autoExplorePatch: (sceneId) => {
       const computed = compute(sceneId)
-      if (!computed?.sight?.length) return null
+      if (!computed?.sight?.eyes.length) return null
       const { fog, map } = computed
       // Sight still drives redaction with auto-explore off (§4); it simply writes nothing.
       if (!autoExploreOn(fog) || !map.frame) return null
@@ -260,12 +281,17 @@ export function createVision(stores: Stores): Vision {
       const cells: Cell[] = []
       const rooms = new Set<string>()
       const counted = new Set<string>()
-      for (const polygon of computed.sight) {
-        for (const [col, row] of cellsCoveredByPolygon(polygon, frame)) {
+      for (const eye of computed.sight.eyes) {
+        for (const [col, row] of cellsCoveredByPolygon(eye.polygon, frame)) {
           const key = `${col},${row}`
           if (counted.has(key)) continue
           counted.add(key)
           const [x, y] = [frame.minX + col + 0.5, frame.minY + row + 0.5]
+          // §3.2 — you explore what you saw, not what your sweep crossed in pitch black. In
+          // daylight this is the identity (a cell enumerated from an eye's own polygon is in
+          // it); in darkness it is the whole difference between walking a lit corridor and
+          // groping down an unlit one.
+          if (!seen(computed.sight, x, y)) continue
           // A lock beats the sweep by construction: the cell is not written and the room it
           // belongs to is not credited, so a boss chamber seen through an open door stays
           // the DM's to reveal (§5).

@@ -35,6 +35,9 @@ import {
   ringsWithHoles,
 } from './fog';
 import {
+  AMBIENT_BITE,
+  DARKVISION_TINT,
+  DARKVISION_TINT_ALPHA,
   EXPLORED_TINT,
   EXPLORED_TINT_ALPHA,
   FOG_FEATHER,
@@ -1196,6 +1199,98 @@ describe('fogScene', () => {
     // not the reachability classification `views` carries.
     expect(scene.fog?.mode).toBe('vision');
   });
+
+  // ── the light gate (S3 P3 §3) ────────────────────────────────────────────
+
+  const lamp = (id: string, x: number, y: number, visible = true) =>
+    ({
+      id,
+      name: id,
+      childType: 'light',
+      visible,
+      color: '#ffbb66',
+      radius: 4,
+      featherRadius: 2,
+      intensity: 1,
+      falloff: 'quadratic',
+      position: { x, y },
+    }) as unknown as DoorChild;
+
+  /** A vision scene with a lamp on the map, three tokens, and the DM's dial at `ambient`. */
+  const nightTable = (ambient?: string, overrides: Record<string, boolean> = {}) => {
+    useStore.setState({
+      layers: [{ ...(dungeon(ROOMS) as object), children: [lamp('lamp-a', 3, 3)] } as Layer],
+    });
+    useSessionStore.setState({
+      session: session({
+        fog: { byScene: { 'scene-1': { ...fogOf({}), mode: 'vision' } } },
+        tokens: {
+          library: {},
+          byScene: {
+            'scene-1': {
+              t1: sightedToken({ id: 't1' }),
+              t2: sightedToken({
+                id: 't2',
+                x: 4,
+                y: 2,
+                sight: { range: 3, angle: 360, visionMode: 'darkvision' },
+              }),
+              // Carried light on the DM's own unclaimed torchbearer — not an eye, a source.
+              t3: token({ id: 't3', x: 6, y: 2, ownerId: null, light: { dim: 4, bright: 2, color: '#fb6', angle: 360 } }),
+            },
+          },
+        },
+        triggers: {
+          byScene: {
+            'scene-1': {
+              fired: {},
+              armed: {},
+              disabled: {},
+              lightOverrides: overrides,
+              env: ambient ? { ambient } : {},
+              prompts: [],
+              log: [],
+            },
+          },
+        },
+      }),
+    });
+    return fogScene();
+  };
+
+  it('takes no light gate at all until the DM turns the scene dark', () => {
+    for (const ambient of [undefined, 'daylight', 'dusk']) {
+      const scene = nightTable(ambient);
+      expect(scene.sight).toHaveLength(2);
+      expect(scene.night).toBeUndefined();
+    }
+  });
+
+  it('gates on the lit area and the darkvision eyes when it is dark', () => {
+    const scene = nightTable('darkness');
+    // The map's own lamp and the torch a token is carrying — the shared rule's two halves.
+    expect(scene.night?.lit).toHaveLength(2);
+    // …and the darkvision half is one of the sweeps already taken, not a second sweep.
+    expect(scene.night?.darkvision).toHaveLength(1);
+    expect(scene.night?.darkvision[0]).toBe(scene.sight?.[1]);
+  });
+
+  it('answers to the table’s own light switch, not only to the map', () => {
+    expect(nightTable('darkness', { 'lamp-a': false })?.night?.lit).toHaveLength(1);
+  });
+
+  it('dials the ambient composite per level, and leaves an untouched scene alone', () => {
+    // Untouched is absent rather than 1: the lighting pass is left exactly as it was,
+    // no-lights shortcut included.
+    expect(nightTable(undefined).darkness).toBeUndefined();
+    expect(nightTable('darkness').darkness).toBe(AMBIENT_BITE.darkness);
+    expect(nightTable('dusk').darkness).toBe(AMBIENT_BITE.dusk);
+    expect(nightTable('daylight').darkness).toBe(AMBIENT_BITE.daylight);
+    // Monotone, and the untouched scene is the darkest — which is what the renderer has
+    // always drawn, so nothing moves on a table nobody has turned the dial at.
+    expect(AMBIENT_BITE.daylight).toBeLessThan(AMBIENT_BITE.dusk);
+    expect(AMBIENT_BITE.dusk).toBeLessThan(AMBIENT_BITE.darkness);
+  });
 });
 
 // ── The composite each seat actually gets (D12 / principle 3) ───────────────
@@ -1312,5 +1407,159 @@ describe('the lighting composite each seat is mounted with', () => {
     it('starts none at all in vision mode, where a footprint wash would be the flicker', async () => {
       expect(await fadesAfterAReveal('vision')).toBe(0);
     });
+  });
+});
+
+// ── S3 P3 §3/§4 — the light gate on the mask, and the drained grade ─────────
+// The clear tier stops being "what the sweep reaches" and becomes "what the sweep reaches AND
+// the party can see by". Every row is written so the P2 answer would differ: the same sweep,
+// the same rooms, and only the light moving.
+
+describe('visionRegion in the dark', () => {
+  const PAD = fogPad([]);
+  /** A torch pool at the near end of what the party is looking at. */
+  const TORCH_POOL: Polygon = [
+    [6, 0.5],
+    [7, 0.5],
+    [7, 1.5],
+    [6, 1.5],
+  ];
+  /** …and a darkvision eye's own reach at the far end of it, past the pool. */
+  const OWL_REACH: Polygon = [
+    [8, 0.5],
+    [8.4, 0.5],
+    [8.4, 2],
+    [8, 2],
+  ];
+  /** Inside the torch pool, and inside the sweep but well past it. */
+  const LIT_SPOT: [number, number] = [6.5, 1];
+  const DARK_SPOT: [number, number] = [8.5, 1];
+
+  const at = (night?: { lit: Polygon[]; darkvision: Polygon[] }) =>
+    visionRegion([LOOKING], undefined, [], [WEST.boundary], PAD, FOG_FEATHER, night);
+
+  it('is the P2 mask with no night at all — the ambient dial untouched changes nothing', () => {
+    const day = at();
+    expect(inRegion(day.clear, LIT_SPOT)).toBe(true);
+    expect(inRegion(day.clear, DARK_SPOT)).toBe(true);
+    expect(day.drained).toEqual([]);
+  });
+
+  it('leaves a party with no light at all looking at nothing', () => {
+    const blind = at({ lit: [], darkvision: [] });
+    expect(blind.clear).toEqual([]);
+    expect(blind.drained).toEqual([]);
+    // The sweep is still taken and the memory tier is still whatever they earned — what the
+    // dark takes away is the live tier, not the record.
+    expect(blind.shown).toEqual([]);
+  });
+
+  it('clears the torch pool and nothing else the sweep crossed', () => {
+    const night = at({ lit: [TORCH_POOL], darkvision: [] });
+    expect(inRegion(night.clear, LIT_SPOT)).toBe(true);
+    // Two cells further along the same sightline, unlit: the sweep reaches it and the party
+    // cannot see it. In P2 this was clear.
+    expect(inRegion(night.clear, DARK_SPOT)).toBe(false);
+    // The pool is clipped to the sweep too — a torch lighting a room nobody is looking at
+    // does not open the mask.
+    expect(inRegion(night.clear, [6.5, 4])).toBe(false);
+    expect(night.drained).toEqual([]);
+  });
+
+  it('gives darkvision its own ground, graded apart from the lit pool', () => {
+    const night = at({ lit: [TORCH_POOL], darkvision: [OWL_REACH] });
+    // Both are clear — the party is looking at both.
+    expect(inRegion(night.clear, LIT_SPOT)).toBe(true);
+    expect(inRegion(night.clear, DARK_SPOT)).toBe(true);
+    // …but only the unlit half takes the drained grade: a darkvision eye standing in
+    // torchlight sees the pool in colour like anybody else.
+    expect(inRegion(night.drained, DARK_SPOT)).toBe(true);
+    expect(inRegion(night.drained, LIT_SPOT)).toBe(false);
+  });
+
+  it('drains the whole clear area when nothing is burning at all', () => {
+    const night = at({ lit: [], darkvision: [OWL_REACH] });
+    expect(inRegion(night.clear, DARK_SPOT)).toBe(true);
+    expect(inRegion(night.drained, DARK_SPOT)).toBe(true);
+    // And a normal eye's ground is still dark: the ring is the darkvision token's, not the
+    // party's (the referee draws the same line — `seen` in fog/sweep.ts).
+    expect(inRegion(night.clear, LIT_SPOT)).toBe(false);
+  });
+
+  it('keeps the unlit ground the party remembers as memory rather than void', () => {
+    const swept = setCells(regionOf(VISION_FRAME)!, [[8, 1]]);
+    const night = visionRegion(
+      [LOOKING],
+      swept,
+      [],
+      [WEST.boundary],
+      PAD,
+      FOG_FEATHER,
+      { lit: [TORCH_POOL], darkvision: [] },
+    );
+    // The cell they swept before the light went out: not live, still theirs.
+    expect(inRegion(night.memory, [8.5, 1.5])).toBe(true);
+    expect(inRegion(night.clear, [8.5, 1.5])).toBe(false);
+  });
+});
+
+describe('drawFog — the drained grade (§4)', () => {
+  const nightScene = (night: { lit: Polygon[]; darkvision: Polygon[] }): FogScene => ({
+    rooms: [WEST, EAST],
+    views: new Map(),
+    bounds: fogBounds([], [WEST, EAST]),
+    pad: fogPad([]),
+    sceneId: 's1',
+    isPlayer: true,
+    void: VOID,
+    mode: 'vision',
+    sight: [LOOKING],
+    fog: { rooms: {}, concealBehindDoors: true },
+    night,
+  });
+
+  it('washes the darkvision area at its own look, and only there', () => {
+    const scrim = new Graphics();
+    drawFog(
+      scrim,
+      nightScene({
+        lit: [],
+        darkvision: [
+          [
+            [6, 0.5],
+            [8, 0.5],
+            [8, 2],
+            [6, 2],
+          ],
+        ],
+      }),
+    );
+    const wash = fillsOf(scrim).filter((f) => f.style.color === DARKVISION_TINT);
+    expect(wash).toHaveLength(1);
+    expect(wash[0].style.alpha).toBe(DARKVISION_TINT_ALPHA);
+    // Above the void's own floor and below the lit map: three states, three brightnesses.
+    expect(DARKVISION_TINT_ALPHA).toBeLessThan(EXPLORED_TINT_ALPHA);
+    expect(DARKVISION_TINT).toBeGreaterThan(EXPLORED_TINT);
+  });
+
+  it('draws no grade at all for a party seeing by torchlight', () => {
+    const scrim = new Graphics();
+    drawFog(
+      scrim,
+      nightScene({
+        lit: [
+          [
+            [6, 0.5],
+            [8, 0.5],
+            [8, 2],
+            [6, 2],
+          ],
+        ],
+        darkvision: [],
+      }),
+    );
+    expect(fillsOf(scrim).some((f) => f.style.color === DARKVISION_TINT)).toBe(false);
+    // …and the pool itself is a hole in the scrim, like any other clear ground.
+    expect(fillsOf(scrim)[0].hole).toBeDefined();
   });
 });

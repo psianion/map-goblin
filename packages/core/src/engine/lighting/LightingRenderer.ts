@@ -36,8 +36,9 @@ export function lightingSignature(
   lights: LightChild[],
   isDirty: (lightId: string) => boolean,
   nowMs: number,
+  darkness = 1,
 ): string {
-  const parts = [camX, camY, zoom, width, height, ambientColor]
+  const parts = [camX, camY, zoom, width, height, ambientColor, darkness]
   for (const l of lights) {
     const maskWidth = l.maskTextureId ? resolveTexture(l.maskTextureId).width : 0
     parts.push(
@@ -145,6 +146,25 @@ export class LightingRenderer {
   private iconsVisible = true
   private lastSignature = ''
   private lastIconSignature = ''
+  /**
+   * How hard the ambient fill bites, 0..1 (S3 P3 §4). 1 is the editor's own answer and every
+   * table's until a DM turns the scene's ambient dial, so nothing here changes without one.
+   *
+   * It is a strength on the *unlit* base alone: a light adds into the same FBO, and additive
+   * blending carries its alpha to full inside the pool, so dialling this back lifts the
+   * surround without touching the glows.
+   */
+  private ambientDarkness = 1
+  /**
+   * Whether a scene's ambient dial is in force at all.
+   *
+   * It decides one thing the scalar cannot: whether a scene with *no lights* still owes a
+   * composite. Untouched, it does not — no lights means nothing to multiply by, which is the
+   * editor's own answer and every table's before P3. With a level set, the ambient fill IS
+   * the picture: a `darkness` scene whose last torch just went out has to go dark, not
+   * hand back a fully lit map.
+   */
+  private ambientForced = false
 
   constructor(engine: RenderEngine, width: number, height: number) {
     this.engine = engine
@@ -241,13 +261,28 @@ export class LightingRenderer {
     }
   }
 
-  /** Called each frame from renderLoop. */
+  /**
+   * The scene's light level, as a strength on the ambient fill (S3 P3 §4). The session sets it
+   * from the DM's ambient dial; the editor never touches it.
+   *
+   * `null` is "no dial set", which is every scene until a DM turns one and the only state the
+   * editor is ever in — it restores this pass exactly as it behaved before the dial existed.
+   * A number is clamped, because a value outside 0..1 is a caller bug that would otherwise
+   * show up as a black table or an unlit one.
+   */
+  setAmbientLevel(darkness: number | null): void {
+    this.ambientForced = darkness !== null
+    this.ambientDarkness = darkness === null ? 1 : Math.min(1, Math.max(0, darkness))
+  }
+
+  /** Called each frame from renderLoop. `darkness` defaults to whatever the dial last set. */
   updateAndRender(
     lightManager: LightManager,
     camX: number,
     camY: number,
     zoom: number,
     ambientColor: string,
+    darkness = this.ambientDarkness,
   ): void {
     this.updateIcons(lightManager, camX, camY, zoom)
 
@@ -267,7 +302,10 @@ export class LightingRenderer {
       MAX_RENDERED_LIGHTS,
     )
 
-    if (visibleLights.length === 0) {
+    // No lights and no dial: nothing to composite, and the map renders unmultiplied — the
+    // answer this pass has always given. With a level set the ambient fill is the picture,
+    // so an empty light list is the *darkest* frame rather than the absence of one.
+    if (visibleLights.length === 0 && !this.ambientForced) {
       this.compositingSprite.visible = false
       this.lastSignature = ''
       return
@@ -285,6 +323,7 @@ export class LightingRenderer {
       visibleLights,
       (id) => lightManager.isDirty(id),
       now,
+      darkness,
     )
     if (signature === this.lastSignature) return
     this.lastSignature = signature
@@ -303,7 +342,7 @@ export class LightingRenderer {
     this.ambientContainer.removeChildren()
     const ambientG2 = new Graphics()
     ambientG2.rect(0, 0, Math.ceil(this.width * S), Math.ceil(this.height * S))
-    ambientG2.fill({ color: ambientColorNum, alpha: 1 })
+    ambientG2.fill({ color: ambientColorNum, alpha: darkness })
     this.ambientContainer.addChild(ambientG2)
     this.engine.renderToTexture(this.ambientContainer, this.lightFBO, true)
 
