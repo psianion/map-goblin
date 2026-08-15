@@ -198,6 +198,100 @@ function fogStatus(page: Page, roomId: string): Promise<string | null> {
   }, roomId)
 }
 
+/**
+ * One token as the *referee* sees it, read back off the seat it is claimed on.
+ *
+ * The place and claim calls above go down the socket and are answered by the server, so what
+ * comes back here is the server's own copy — the very record its per-seat sweep is computed
+ * from (`computed.sightFor`). A claim that silently no-op'd, a placement that landed somewhere
+ * else, or a sight field that never took all read differently here than they do on the caller's
+ * side of the socket.
+ */
+function seatToken(
+  page: Page,
+  id: string,
+): Promise<{ x: number; y: number; owned: boolean; range: number | null } | null> {
+  return page.evaluate((tokenId: string) => {
+    const store = (
+      window as unknown as {
+        __sessionStore?: {
+          getState(): { session?: { activeSceneId?: string; modules?: Record<string, unknown> } }
+        }
+      }
+    ).__sessionStore
+    const state = store?.getState()
+    const scene = state?.session?.activeSceneId ?? ''
+    const tokens = (
+      state?.session?.modules?.tokens as
+        | {
+            byScene?: Record<
+              string,
+              Record<
+                string,
+                { x: number; y: number; ownerId?: string | null; sight?: { range?: number } | null }
+              >
+            >
+          }
+        | undefined
+    )?.byScene?.[scene]
+    const token = tokens?.[tokenId]
+    return token
+      ? { x: token.x, y: token.y, owned: Boolean(token.ownerId), range: token.sight?.range ?? null }
+      : null
+  }, id)
+}
+
+/**
+ * How this seat's memory record splits across a world rect: cells credited inside it, and out.
+ *
+ * The same bytes the mask is drawn from (`fog.region`, P1's one-bit-per-cell record), counted
+ * in the page because the record covers the whole frame. `memoryCells()` is the total; this is
+ * the total asked about a *place*, which is what a row about one sealed room needs.
+ */
+function cellsAcross(
+  page: Page,
+  rect: { x: number; y: number; width: number; height: number },
+): Promise<{ inside: number; outside: number }> {
+  return page.evaluate((box: { x: number; y: number; width: number; height: number }) => {
+    const store = (
+      window as unknown as {
+        __sessionStore?: {
+          getState(): { session?: { activeSceneId?: string; modules?: Record<string, unknown> } }
+        }
+      }
+    ).__sessionStore
+    const state = store?.getState()
+    const scene = state?.session?.activeSceneId ?? ''
+    const region = (
+      state?.session?.modules?.fog as
+        | {
+            byScene?: Record<
+              string,
+              { region?: { minX: number; minY: number; cols: number; rows: number; bits: string } }
+            >
+          }
+        | undefined
+    )?.byScene?.[scene]?.region
+    if (!region) return { inside: 0, outside: 0 }
+    const raw = atob(region.bits)
+    let inside = 0
+    let outside = 0
+    for (let row = 0; row < region.rows; row++) {
+      for (let col = 0; col < region.cols; col++) {
+        const bit = row * region.cols + col
+        if ((raw.charCodeAt(bit >>> 3) & (1 << (bit & 7))) === 0) continue
+        const x = region.minX + col + 0.5
+        const y = region.minY + row + 0.5
+        const within =
+          x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height
+        if (within) inside++
+        else outside++
+      }
+    }
+    return { inside, outside }
+  }, rect)
+}
+
 interface Dump {
   /** How much loaded state was searched — a row asserting on an empty page proves nothing. */
   bytes: number
@@ -303,6 +397,14 @@ const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floo
  * reading of what the work actually costs, and it is the number the regression moves furthest
  * (14.4 at its worst here against 22.9 before the work).
  *
+ * What these two numbers therefore catch is a **full revert of the P6 perf work; a partial
+ * regression hides inside the box-noise headroom** — dropping `reachOf` alone and keeping the
+ * memos lands around 17–19ms median, comfortably inside both bounds. That is the accepted
+ * trade-off rather than an oversight: the headroom is what a full sprint3 run costs this box
+ * (12.2 alone against 17.7 as the fourth spec file), and a bound tight enough to see half the
+ * work go is a bound that fails on a busy afternoon. Treat these as a floor under the phase,
+ * not a pin through it; the per-call breakdown that would pin one half lives in `fog.ts`.
+ *
  * The plan's own second budget, 60fps held mid-drag, is met outright: 60.1fps on the masked
  * seat against 60.1 on the DM's.
  */
@@ -397,13 +499,43 @@ test.describe.serial('@sprint3-vision-gate', () => {
    * (`swept`/`inAnyLock`), so the room is not merely *drawn* dark on the player's seat: it never
    * reached the tab at all (principle 2).
    *
-   * The positive half is the room next door on the same evidence, which is what makes this a
-   * row about the lock rather than about a party that never looked.
+   * The positive half is the room next door on the same evidence — but that is a *different*
+   * token's sweep, so on its own it leaves the row passing just as well when nobody ever looked
+   * at the vault: a placement that drifted out of it, a claim that silently no-op'd, or a lock
+   * re-authored off this room all read as the same quiet zero. So the vault member itself is
+   * checked first, on the copy the referee sends back — the record its own sweep is computed
+   * from — and the record is then read cell-deep rather than room-deep.
    */
   test('an authored explore lock resists the party’s own sweep; the DM’s hand still opens it', async () => {
     // The lock is authored over the vault and nothing else — the row's premise, off the file.
     expect(LOCK.shape.kind).toBe('rect')
+    const lock = LOCK.shape as { x: number; y: number; width: number; height: number }
     const held = await heldRooms(player)
+
+    // The token whose sweep the lock is supposed to be beating actually has eyes, and has them
+    // here: claimed by the masked seat, still sighted at the range it was placed with, standing
+    // inside the authored rect. Read off the *player's* state, which is the server's own copy.
+    const looker = await seatToken(player, party[0])
+    expect(looker, 'the vault member never reached the seat that claims it').not.toBeNull()
+    expect(
+      looker?.owned,
+      'the vault member’s claim never took — this seat sweeps nobody there',
+    ).toBe(true)
+    expect(looker?.range, 'the vault member lost the eyes this whole row is about').toBe(
+      PARTY[0].range,
+    )
+    const standing = looker as { x: number; y: number }
+    expect(
+      standing.x >= lock.x &&
+        standing.x <= lock.x + lock.width &&
+        standing.y >= lock.y &&
+        standing.y <= lock.y + lock.height,
+      'the vault member is not standing inside the authored lock — this row would pass vacuously',
+    ).toBe(true)
+    // …and the mask on this seat is drawn through the whole party, that member included.
+    expect((await read(player)).sources, 'this seat is sweeping fewer eyes than it holds').toBe(
+      PARTY.length,
+    )
 
     // The room the party walked into is theirs: latched, geometry sent, cells recorded.
     expect(held, 'the party earned nothing at all — this row cannot say anything').toContain(
@@ -434,6 +566,15 @@ test.describe.serial('@sprint3-vision-gate', () => {
     expect(sealedDump.handles).toEqual([true, true])
     expect(sealedDump.bytes).toBeGreaterThan(10_000)
     expect(sealedDump.hits, 'the locked room leaked into the player’s tab').toEqual([])
+
+    // Cell-deep as well as room-deep, off the same bytes the mask is drawn from: the party's
+    // sweeps have credited this seat plenty of floor, and none of it is the vault's.
+    const memory = await cellsAcross(player, lock)
+    expect(
+      memory.outside,
+      'this seat credited no cells at all — the sweeps are not running',
+    ).toBeGreaterThan(0)
+    expect(memory.inside, 'the sealed vault’s floor was written into the party’s memory').toBe(0)
 
     // …and the DM's own hand still opens it, which is the point of a lock rather than a wall.
     await sealedRow.getByRole('button').click()

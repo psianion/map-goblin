@@ -316,7 +316,7 @@ export const cellsIn = (rects: readonly Polygon[]): number =>
  * vertex count by then.
  *
  * Measured on the gate map with eight sighted tokens (13 rooms, 206 walls, jsdom + the same
- * WASM): the party's reach 8.45ms → 2.75ms, the held reach 6.09ms → 1.54ms, and the whole
+ * WASM): the party's reach 8.45ms → 2.75ms, the held reach 6.30ms → 1.54ms, and the whole
  * `visionRegion` 34.7ms → 17.7ms before any memo. The regions agree to arc-discretisation
  * noise — 0.48 of 823 square cells symmetric difference on the sweep union, a sliver a fifth
  * of a pixel wide along the rim.
@@ -326,7 +326,7 @@ export const cellsIn = (rects: readonly Polygon[]): number =>
  * step over). Nothing in vision mode blocks anything, which is why this is its own function
  * rather than a flag on that one.
  */
-export const reachOf = (polys: readonly Polygon[], grow: number): Polygon[] =>
+const reachOf = (polys: readonly Polygon[], grow: number): Polygon[] =>
   polys.length > 0 ? clipper2Engine.inflate([...polys], grow) : [];
 
 /**

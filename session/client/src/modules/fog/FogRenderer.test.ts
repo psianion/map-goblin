@@ -887,6 +887,12 @@ describe('visionRegion — sweep, memory, void', () => {
     // The revealed reach: a room the DM lights while nobody moves.
     expect(inRegion(wash([WEST.boundary], []), [13, 3])).toBe(false);
     expect(inRegion(wash([WEST.boundary, EAST.boundary], [EAST.boundary]), [13, 3])).toBe(true);
+    // …and the DM taking it back again, which is the only write that moves `revealed` while
+    // `shipped` stands still: the room stays latched — the player keeps the geometry they were
+    // handed — so every other term of the memo's key is identity-stable across this call, and a
+    // key that dropped the revealed reach would answer it out of the line above and leave a
+    // re-hidden room washed as though the DM never closed it.
+    expect(inRegion(wash([WEST.boundary, EAST.boundary], []), [13, 3])).toBe(false);
     // …and the held reach, which is the clip: the cell was in the record all along and had
     // nothing under it to remember until the delta carried the yard over.
     expect(inRegion(wash([WEST.boundary, EAST.boundary], []), [20.5, 2.5])).toBe(false);
