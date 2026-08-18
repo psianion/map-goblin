@@ -10,8 +10,21 @@ const silentLogger = { warn: vi.fn(), error: vi.fn() }
 function depsFor(registry: Registry, overrides: Partial<RouterDeps> = {}): RouterDeps {
   return {
     ownerId: 'owner-1',
-    campaigns: { byChannel: () => undefined },
+    campaigns: { byChannel: () => undefined, upsert: (c) => c },
+    characters: {
+      create: () => {
+        throw new Error('not used in this test')
+      },
+      update: () => {
+        throw new Error('not used in this test')
+      },
+      byId: () => undefined,
+      byCampaignAndName: () => undefined,
+      byOwner: () => [],
+      byCampaign: () => [],
+    },
     db: {} as RouterDeps['db'],
+    announce: async () => {},
     registry,
     logger: silentLogger,
     ...overrides,

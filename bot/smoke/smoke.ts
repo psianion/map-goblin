@@ -10,6 +10,7 @@ import { registry } from '../src/bot/command-registry'
 import { commandsToDeploy, deployedCommandNames, syncDiff } from '../src/bot/sync-commands'
 import { openDb } from '../src/db/db'
 import { parseEnv, type Env } from '../src/env'
+import { renderCharacterCard } from '../src/render/card-kit'
 import { container } from '../src/lib/ui'
 
 export interface Check {
@@ -70,9 +71,27 @@ export function m1Checks(env: Env): Check[] {
   ]
 }
 
+/** Milestone 2 surface: card rendering (registry/DB checks already covered by m1Checks). */
+export function m2Checks(): Check[] {
+  return [
+    {
+      name: 'character card',
+      run: async () => {
+        const png = await renderCharacterCard({
+          name: 'Smoke Test',
+          className: 'Ranger',
+          level: 1,
+          campaignName: 'Smoke Campaign',
+        })
+        return `${png.length} byte PNG`
+      },
+    },
+  ]
+}
+
 async function main(): Promise<void> {
   const env = parseEnv()
-  const results = await runChecks(m1Checks(env))
+  const results = await runChecks([...m1Checks(env), ...m2Checks()])
   const failed = results.filter((r) => !r.ok).length
 
   const client = createClient()

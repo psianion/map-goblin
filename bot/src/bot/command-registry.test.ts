@@ -4,6 +4,7 @@ import type { Campaign } from '../db/stores'
 
 const campaign: Campaign = {
   goblinCampaignId: 'camp-1',
+  name: 'The Sunken Keep',
   channelId: 'player-chan',
   dmChannelId: 'dm-chan',
   dmDiscordId: 'dm-1',
@@ -12,8 +13,21 @@ const campaign: Campaign = {
 
 const deps = (byChannel: (id: string) => Campaign | undefined): Deps => ({
   ownerId: 'owner-1',
-  campaigns: { byChannel },
+  campaigns: { byChannel, upsert: (c) => c },
+  characters: {
+    create: () => {
+      throw new Error('not used in this test')
+    },
+    update: () => {
+      throw new Error('not used in this test')
+    },
+    byId: () => undefined,
+    byCampaignAndName: () => undefined,
+    byOwner: () => [],
+    byCampaign: () => [],
+  },
   db: {} as Deps['db'],
+  announce: async () => {},
 })
 
 const ctx = (over: Partial<AuthContext> = {}): AuthContext => ({

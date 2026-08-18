@@ -31,6 +31,8 @@ const schema = z.object({
   DISCORD_OWNER_ID: snowflake,
   LOG_CHANNEL_ID: snowflake,
   LFG_CHANNEL_ID: snowflake,
+  /** GuildMemberAdd welcome post. Unset = the feature is inert. */
+  WELCOME_CHANNEL_ID: snowflake.optional(),
   GOBLIN_SERVER_URL: goblinUrl,
   GOBLIN_ADMIN_PASS: z.string().min(1),
   PUBLIC_TABLE_URL: z.string().url(),
