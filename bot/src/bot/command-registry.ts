@@ -684,7 +684,27 @@ async function createCharacter(interaction: ChatInputCommandInteraction, deps: D
   const member = await guildMemberOf(interaction)
   if (member) await trySyncNickname(member, character.name)
 
-  await interaction.editReply(characterCreatedReply(character))
+  // The card render rides along on a best-effort basis: the character row is already
+  // committed, so a satori/portrait hiccup degrades to the text confirmation.
+  try {
+    const portraitDataUri = await fetchPortraitDataUri(character.portraitUrl)
+    const png = await renderCharacterCard({
+      name: character.name,
+      className: character.className,
+      level: character.level,
+      campaignName: campaign.name,
+      portraitDataUri,
+    })
+    await interaction.editReply({
+      files: [new AttachmentBuilder(png, { name: 'character.png' })],
+      components: [
+        container({ blocks: [characterCreatedReply(character)], media: ['attachment://character.png'] }),
+      ],
+      flags: MessageFlags.IsComponentsV2,
+    })
+  } catch {
+    await interaction.editReply(characterCreatedReply(character))
+  }
 }
 
 async function updateCharacter(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
