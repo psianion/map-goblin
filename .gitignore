@@ -32,3 +32,6 @@ packs/*/source/
 assets/test/
 # Local design-critique snapshots (impeccable tooling)
 .impeccable/
+
+# Discord bot runtime state (sqlite), never committed.
+bot/data/
