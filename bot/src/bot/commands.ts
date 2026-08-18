@@ -90,3 +90,94 @@ export const character = guildOnly(
 export const mycharacters = guildOnly(
   new SlashCommandBuilder().setName('mycharacters').setDescription('List your characters in this campaign'),
 )
+
+export const quests = guildOnly(
+  new SlashCommandBuilder()
+    .setName('quests')
+    .setDescription('The campaign quest log')
+    .addSubcommand((sub) => sub.setName('log').setDescription('Show the quest log'))
+    .addSubcommand((sub) =>
+      sub
+        .setName('add')
+        .setDescription('Add a quest (DM only)')
+        .addStringOption((o) => o.setName('title').setDescription('Quest title').setRequired(true)),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('complete')
+        .setDescription('Mark a quest done (DM only)')
+        .addStringOption((o) =>
+          o.setName('title').setDescription('Quest title').setRequired(true).setAutocomplete(true),
+        ),
+    ),
+)
+
+export const note = guildOnly(
+  new SlashCommandBuilder()
+    .setName('note')
+    .setDescription('Save a party journal note')
+    .addStringOption((o) => o.setName('text').setDescription('Note text').setRequired(true).setMaxLength(1000)),
+)
+
+export const recall = guildOnly(
+  new SlashCommandBuilder()
+    .setName('recall')
+    .setDescription('Search the party journal')
+    .addStringOption((o) => o.setName('query').setDescription('Search text').setRequired(true)),
+)
+
+export const roll = guildOnly(
+  new SlashCommandBuilder()
+    .setName('roll')
+    .setDescription('Roll dice, e.g. 2d6+3')
+    .addStringOption((o) => o.setName('expr').setDescription('Roll expression').setRequired(true))
+    .addStringOption((o) =>
+      o.setName('character').setDescription('Roll as this character').setRequired(false).setAutocomplete(true),
+    ),
+)
+
+export const loot = guildOnly(
+  new SlashCommandBuilder()
+    .setName('loot')
+    .setDescription('Party loot')
+    .addSubcommand((sub) =>
+      sub
+        .setName('add')
+        .setDescription('Log an item pickup')
+        .addStringOption((o) => o.setName('item').setDescription('Item name').setRequired(true))
+        .addStringOption((o) => o.setName('note').setDescription('Note').setRequired(false)),
+    )
+    .addSubcommand((sub) => sub.setName('list').setDescription('Show gold total and recent entries')),
+)
+
+export const gold = guildOnly(
+  new SlashCommandBuilder()
+    .setName('gold')
+    .setDescription('Party gold')
+    .addSubcommand((sub) =>
+      sub
+        .setName('split')
+        .setDescription('Split gold evenly across the party (DM only)')
+        .addIntegerOption((o) => o.setName('total').setDescription('Total gold').setMinValue(1).setRequired(true)),
+    ),
+)
+
+export const calendar = guildOnly(
+  new SlashCommandBuilder()
+    .setName('calendar')
+    .setDescription('The in-game calendar')
+    .addSubcommand((sub) => sub.setName('show').setDescription('Show the current day'))
+    .addSubcommand((sub) =>
+      sub
+        .setName('set')
+        .setDescription('Set the day (DM only)')
+        .addIntegerOption((o) => o.setName('day').setDescription('Day number').setMinValue(0).setRequired(true))
+        .addStringOption((o) => o.setName('epoch').setDescription('Epoch label').setRequired(false)),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('advance')
+        .setDescription('Advance the day (DM only)')
+        .addIntegerOption((o) => o.setName('days').setDescription('Days to advance').setRequired(true)),
+    ),
+)

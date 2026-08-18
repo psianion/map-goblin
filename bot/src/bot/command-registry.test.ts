@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dmOnly, memberOnly, ownerOnly, type AuthContext, type Deps } from './command-registry'
+import { dmOnly, memberOnly, ownerOnly, registry, type AuthContext, type Deps } from './command-registry'
 import type { Campaign } from '../db/stores'
 
 const campaign: Campaign = {
@@ -25,6 +25,44 @@ const deps = (byChannel: (id: string) => Campaign | undefined): Deps => ({
     byCampaignAndName: () => undefined,
     byOwner: () => [],
     byCampaign: () => [],
+  },
+  quests: {
+    add: () => {
+      throw new Error('not used in this test')
+    },
+    complete: () => {
+      throw new Error('not used in this test')
+    },
+    active: () => [],
+    byCampaign: () => [],
+  },
+  notes: {
+    add: () => {
+      throw new Error('not used in this test')
+    },
+    search: () => [],
+  },
+  rolls: {
+    record: () => {
+      throw new Error('not used in this test')
+    },
+    byId: () => undefined,
+  },
+  ledger: {
+    add: () => {
+      throw new Error('not used in this test')
+    },
+    recent: () => [],
+    goldTotal: () => 0,
+  },
+  calendar: {
+    get: () => undefined,
+    set: () => {
+      throw new Error('not used in this test')
+    },
+    advance: () => {
+      throw new Error('not used in this test')
+    },
   },
   db: {} as Deps['db'],
   announce: async () => {},
@@ -60,5 +98,33 @@ describe('channel-resolved roles', () => {
   it('requires the campaign role for members', () => {
     expect(() => memberOnly(ctx({ roleIds: ['role-1'] }), registered)).not.toThrow()
     expect(() => memberOnly(ctx({ roleIds: ['other'] }), registered)).toThrowError(/not in this campaign/)
+  })
+})
+
+describe('mixed-subcommand authorize (memberViews)', () => {
+  it('/quests log is member-level, add/complete are DM-only', () => {
+    const authorize = registry.quests.authorize
+    expect(() => authorize(ctx({ subcommand: 'log', roleIds: ['role-1'] }), registered)).not.toThrow()
+    expect(() => authorize(ctx({ subcommand: 'log', roleIds: [] }), registered)).toThrowError(/not in this campaign/)
+    expect(() => authorize(ctx({ subcommand: 'add', userId: 'dm-1' }), registered)).not.toThrow()
+    expect(() => authorize(ctx({ subcommand: 'add', userId: 'user-1' }), registered)).toThrowError(/DM/)
+    expect(() => authorize(ctx({ subcommand: 'complete', userId: 'user-1' }), registered)).toThrowError(/DM/)
+  })
+
+  it('/calendar show is member-level, set/advance are DM-only', () => {
+    const authorize = registry.calendar.authorize
+    expect(() => authorize(ctx({ subcommand: 'show', roleIds: ['role-1'] }), registered)).not.toThrow()
+    expect(() => authorize(ctx({ subcommand: 'set', userId: 'user-1' }), registered)).toThrowError(/DM/)
+    expect(() => authorize(ctx({ subcommand: 'advance', userId: 'dm-1' }), registered)).not.toThrow()
+  })
+})
+
+describe('/loot per-subcommand ephemeral', () => {
+  it('add is public, list is ephemeral', () => {
+    const ephemeral = registry.loot.ephemeral
+    expect(typeof ephemeral).toBe('function')
+    const asFn = ephemeral as (i: { options: { getSubcommand: () => string } }) => boolean
+    expect(asFn({ options: { getSubcommand: () => 'add' } })).toBe(false)
+    expect(asFn({ options: { getSubcommand: () => 'list' } })).toBe(true)
   })
 })

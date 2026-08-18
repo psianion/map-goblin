@@ -9,7 +9,9 @@ import { createClient } from '../src/bot/client'
 import { registry } from '../src/bot/command-registry'
 import { commandsToDeploy, deployedCommandNames, syncDiff } from '../src/bot/sync-commands'
 import { openDb } from '../src/db/db'
+import { createCampaigns, createNotes } from '../src/db/stores'
 import { parseEnv, type Env } from '../src/env'
+import { rollExpression } from '../src/features/dice'
 import { renderCharacterCard } from '../src/render/card-kit'
 import { container } from '../src/lib/ui'
 
@@ -89,9 +91,43 @@ export function m2Checks(): Check[] {
   ]
 }
 
+/** Milestone 3 surface: dice parser + FTS5 round-trip (DB/registry checks already covered). */
+export function m3Checks(): Check[] {
+  return [
+    {
+      name: 'dice parser',
+      run: async () => {
+        const result = rollExpression('2d6+3')
+        if (result.terms.length !== 2) throw new Error('unexpected term count')
+        return `2d6+3 -> ${result.total}`
+      },
+    },
+    {
+      name: 'notes fts5',
+      run: async () => {
+        const db = openDb(':memory:')
+        createCampaigns(db).upsert({
+          goblinCampaignId: 'smoke',
+          name: 'Smoke',
+          channelId: 'smoke-chan',
+          dmChannelId: 'smoke-dm',
+          dmDiscordId: 'smoke-dm-user',
+          roleId: 'smoke-role',
+        })
+        const notes = createNotes(db)
+        notes.add('smoke', 'smoke-user', 'the goblin found a key')
+        const hits = notes.search('smoke', '"goblin"')
+        db.close()
+        if (hits.length !== 1) throw new Error('fts round-trip found 0 matches')
+        return 'search round-trip ok'
+      },
+    },
+  ]
+}
+
 async function main(): Promise<void> {
   const env = parseEnv()
-  const results = await runChecks([...m1Checks(env), ...m2Checks()])
+  const results = await runChecks([...m1Checks(env), ...m2Checks(), ...m3Checks()])
   const failed = results.filter((r) => !r.ok).length
 
   const client = createClient()

@@ -35,6 +35,9 @@ function contextOf(interaction: ChatInputCommandInteraction | MessageComponentIn
     userId: interaction.user.id,
     channelId: interaction.channelId ?? '',
     roleIds: roleIdsOf(interaction.member as MemberLike),
+    // Only chat input interactions carry a subcommand; lets authorize give different roles
+    // to different subcommands of the same command (e.g. /quests log vs /quests add).
+    subcommand: 'options' in interaction ? (interaction.options.getSubcommand(false) ?? undefined) : undefined,
   }
 }
 
@@ -52,7 +55,8 @@ async function routeCommand(interaction: ChatInputCommandInteraction, deps: Rout
     if (!command) throw notFound(`I don't have a /${interaction.commandName} any more.`)
 
     command.authorize(contextOf(interaction), deps)
-    await interaction.deferReply(command.ephemeral === false ? {} : { flags: MessageFlags.Ephemeral })
+    const ephemeral = typeof command.ephemeral === 'function' ? command.ephemeral(interaction) : command.ephemeral !== false
+    await interaction.deferReply(ephemeral ? { flags: MessageFlags.Ephemeral } : {})
     await command.execute(interaction, deps)
 
     deps.audit?.(`✅ ${label} — ${elapsed(started)}`)

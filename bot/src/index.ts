@@ -7,7 +7,7 @@ import { createClient } from './bot/client'
 import { registry } from './bot/command-registry'
 import { routeInteraction, type RouterDeps } from './bot/interaction-router'
 import { openDb } from './db/db'
-import { createCampaigns, createCharacters } from './db/stores'
+import { createCalendar, createCampaigns, createCharacters, createLedger, createNotes, createQuests, createRolls } from './db/stores'
 import { parseEnv } from './env'
 import { welcomeMessage } from './features/welcome'
 import { createChannelLog, installExitFlush } from './lib/channel-log'
@@ -31,6 +31,11 @@ const deps: RouterDeps = {
   ownerId: env.DISCORD_OWNER_ID,
   campaigns: createCampaigns(db),
   characters: createCharacters(db),
+  quests: createQuests(db),
+  notes: createNotes(db),
+  rolls: createRolls(db),
+  ledger: createLedger(db),
+  calendar: createCalendar(db),
   db,
   registry,
   audit: channelLog.audit,

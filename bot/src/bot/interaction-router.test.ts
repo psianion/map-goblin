@@ -23,6 +23,44 @@ function depsFor(registry: Registry, overrides: Partial<RouterDeps> = {}): Route
       byOwner: () => [],
       byCampaign: () => [],
     },
+    quests: {
+      add: () => {
+        throw new Error('not used in this test')
+      },
+      complete: () => {
+        throw new Error('not used in this test')
+      },
+      active: () => [],
+      byCampaign: () => [],
+    },
+    notes: {
+      add: () => {
+        throw new Error('not used in this test')
+      },
+      search: () => [],
+    },
+    rolls: {
+      record: () => {
+        throw new Error('not used in this test')
+      },
+      byId: () => undefined,
+    },
+    ledger: {
+      add: () => {
+        throw new Error('not used in this test')
+      },
+      recent: () => [],
+      goldTotal: () => 0,
+    },
+    calendar: {
+      get: () => undefined,
+      set: () => {
+        throw new Error('not used in this test')
+      },
+      advance: () => {
+        throw new Error('not used in this test')
+      },
+    },
     db: {} as RouterDeps['db'],
     announce: async () => {},
     registry,
@@ -135,6 +173,16 @@ describe('routeInteraction — commands', () => {
     const interaction = commandInteraction('ghost')
     await routeInteraction(interaction as unknown as Interaction, depsFor({}))
     expect(interaction.calls).toEqual(["reply:I don't have a /ghost any more."])
+  })
+
+  it('lets a function `ephemeral` pick per-interaction, e.g. per subcommand', async () => {
+    const interaction = commandInteraction('test') as unknown as ChatInputCommandInteraction & { calls: string[] }
+    ;(interaction as unknown as { options: { getSubcommand: () => string } }).options = {
+      getSubcommand: () => 'add',
+    }
+    const registry: Registry = { test: command({ ephemeral: (i) => i.options.getSubcommand() === 'list' }) }
+    await routeInteraction(interaction as unknown as Interaction, depsFor(registry))
+    expect(interaction.deferReply).toHaveBeenCalledWith({})
   })
 })
 

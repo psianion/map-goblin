@@ -4,21 +4,43 @@
 
 import { AttachmentBuilder, MessageFlags, type AutocompleteInteraction, type ChatInputCommandInteraction, type GuildMember, type MessageComponentInteraction } from 'discord.js'
 import type { Database } from '../db/db'
-import type { Campaign, Campaigns, CharacterPatch, Characters } from '../db/stores'
+import type { Calendar, Campaign, Campaigns, CharacterPatch, Characters, Ledger, Notes, Quests, Rolls } from '../db/stores'
+import { calendarAdvanceAnnouncement, calendarSetConfirmation, calendarShow } from '../features/calendar'
 import { campaignSetupConfirmation } from '../features/campaign'
 import { characterCreatedReply, characterUpdatedReply, filterAutocomplete, leveledUp, levelUpAnnouncement, myCharactersList } from '../features/character'
+import { rollExpression, rollReply, summarizeFaces } from '../features/dice'
+import { goldSplitAnnouncement, goldSplitConfirmation, lootAddedReply, lootListEmbed, splitNote, splitShares } from '../features/economy'
+import { noteSavedReply, recallEmbed, sanitizeFtsQuery } from '../features/journal'
 import { trySyncNickname } from '../features/nickname'
+import { questAddedReply, questCompletedReply, questLog } from '../features/quests'
 import type { CustomId } from '../lib/custom-id'
 import { notAuthorized, notFound, wrongChannel } from '../lib/errors'
 import { container, type ContainerSpec } from '../lib/ui'
 import { fetchPortraitDataUri, renderCharacterCard } from '../render/card-kit'
-import { campaign as campaignCommand, character as characterCommand, mycharacters as mycharactersCommand, ping } from './commands'
+import {
+  calendar as calendarCommand,
+  campaign as campaignCommand,
+  character as characterCommand,
+  gold as goldCommand,
+  loot as lootCommand,
+  mycharacters as mycharactersCommand,
+  note as noteCommand,
+  ping,
+  quests as questsCommand,
+  recall as recallCommand,
+  roll as rollCommand,
+} from './commands'
 
 export interface Deps {
   /** DISCORD_OWNER_ID — the bot operator. */
   ownerId: string
   campaigns: Campaigns
   characters: Characters
+  quests: Quests
+  notes: Notes
+  rolls: Rolls
+  ledger: Ledger
+  calendar: Calendar
   db: Database
   /** Sends a container to a specific channel — the seam that keeps features Discord-free.
    * Used for CBAC posts (level-up to the player channel, welcome to the welcome channel). */
@@ -30,6 +52,9 @@ export interface AuthContext {
   userId: string
   channelId: string
   roleIds: string[]
+  /** Set only for chat input interactions — the subcommand name, if any. Lets one command
+   * give different roles to different subcommands (e.g. /quests log vs /quests add). */
+  subcommand?: string
 }
 
 export type Authorize = (ctx: AuthContext, deps: Deps) => void
@@ -39,8 +64,9 @@ export interface Command {
   data: { toJSON: () => { name: string } }
   /** Excluded from sync unless its name is listed in DEV_FEATURES. */
   devOnly?: boolean
-  /** Ephemeral defer + reply. Public output posts to a registered channel instead. */
-  ephemeral?: boolean
+  /** Ephemeral defer + reply. Public output posts to a registered channel instead. A function
+   * picks per-subcommand (e.g. /loot add is public, /loot list is ephemeral). */
+  ephemeral?: boolean | ((interaction: ChatInputCommandInteraction) => boolean)
   authorize: Authorize
   execute: (interaction: ChatInputCommandInteraction, deps: Deps) => Promise<void>
   autocomplete?: (interaction: AutocompleteInteraction, deps: Deps) => Promise<void>
@@ -74,6 +100,15 @@ export const dmOnly: Authorize = (ctx, deps) => {
 export const memberOnly: Authorize = (ctx, deps) => {
   if (!ctx.roleIds.includes(campaignForChannel(ctx, deps).roleId))
     throw notAuthorized("You're not in this campaign.")
+}
+
+/** A command whose read-only subcommands are member-level and the rest are DM-only
+ * (/quests log vs add/complete, /calendar show vs set/advance). */
+function memberViews(...viewSubcommands: string[]): Authorize {
+  return (ctx, deps) => {
+    if (viewSubcommands.includes(ctx.subcommand ?? '')) return memberOnly(ctx, deps)
+    return dmOnly(ctx, deps)
+  }
 }
 
 // --- shared execute-time helpers ----------------------------------------------------
@@ -169,6 +204,153 @@ export const registry: Registry = {
       })
     },
   },
+
+  quests: {
+    data: questsCommand,
+    ephemeral: true,
+    authorize: memberViews('log'),
+    execute: async (interaction, deps) => {
+      const sub = interaction.options.getSubcommand()
+      if (sub === 'log') return questsLog(interaction, deps)
+      if (sub === 'add') return questsAdd(interaction, deps)
+      if (sub === 'complete') return questsComplete(interaction, deps)
+      throw notFound("I don't have that quests subcommand.")
+    },
+    autocomplete: async (interaction, deps) => {
+      const campaign = deps.campaigns.byChannel(interaction.channelId)
+      if (!campaign) return interaction.respond([])
+      const names = filterAutocomplete(
+        deps.quests.active(campaign.goblinCampaignId).map((q) => q.title),
+        interaction.options.getFocused(),
+      )
+      await interaction.respond(names.map((name) => ({ name, value: name })))
+    },
+  },
+
+  note: {
+    data: noteCommand,
+    ephemeral: true,
+    authorize: memberOnly,
+    execute: async (interaction, deps) => {
+      const campaign = requireCampaign(interaction, deps)
+      deps.notes.add(campaign.goblinCampaignId, interaction.user.id, interaction.options.getString('text', true))
+      await interaction.editReply(noteSavedReply())
+    },
+  },
+
+  recall: {
+    data: recallCommand,
+    ephemeral: true,
+    authorize: memberOnly,
+    execute: async (interaction, deps) => {
+      const campaign = requireCampaign(interaction, deps)
+      const query = interaction.options.getString('query', true)
+      const matches = deps.notes.search(campaign.goblinCampaignId, sanitizeFtsQuery(query))
+      await interaction.editReply({
+        components: [container(recallEmbed(query, matches))],
+        flags: MessageFlags.IsComponentsV2,
+      })
+    },
+  },
+
+  roll: {
+    data: rollCommand,
+    ephemeral: false,
+    authorize: memberOnly,
+    execute: async (interaction, deps) => {
+      const campaign = requireCampaign(interaction, deps)
+      const expr = interaction.options.getString('expr', true)
+      const result = rollExpression(expr)
+
+      let characterId: number | null = null
+      let rollerLabel = interaction.user.username
+      const explicitName = interaction.options.getString('character')
+      if (explicitName) {
+        const char = deps.characters.byCampaignAndName(campaign.goblinCampaignId, explicitName)
+        if (!char) throw notFound(`No character named "${explicitName}" here.`)
+        characterId = char.id
+        rollerLabel = char.name
+      } else {
+        const mine = deps.characters.byOwner(campaign.goblinCampaignId, interaction.user.id)
+        if (mine.length === 1) {
+          characterId = mine[0].id
+          rollerLabel = mine[0].name
+        }
+      }
+
+      deps.rolls.record({
+        campaignId: campaign.goblinCampaignId,
+        characterId,
+        discordId: interaction.user.id,
+        expr,
+        total: result.total,
+        faces: summarizeFaces(result),
+        isCrit: result.isCrit,
+        isFail: result.isFail,
+      })
+
+      await interaction.editReply({
+        components: [container(rollReply(rollerLabel, result))],
+        flags: MessageFlags.IsComponentsV2,
+      })
+    },
+    autocomplete: async (interaction, deps) => {
+      const campaign = deps.campaigns.byChannel(interaction.channelId)
+      if (!campaign) return interaction.respond([])
+      const names = filterAutocomplete(
+        deps.characters.byCampaign(campaign.goblinCampaignId).map((c) => c.name),
+        interaction.options.getFocused(),
+      )
+      await interaction.respond(names.map((name) => ({ name, value: name })))
+    },
+  },
+
+  loot: {
+    data: lootCommand,
+    ephemeral: (interaction) => interaction.options.getSubcommand() === 'list',
+    authorize: memberOnly,
+    execute: async (interaction, deps) => {
+      const sub = interaction.options.getSubcommand()
+      if (sub === 'add') return lootAdd(interaction, deps)
+      if (sub === 'list') return lootList(interaction, deps)
+      throw notFound("I don't have that loot subcommand.")
+    },
+  },
+
+  gold: {
+    data: goldCommand,
+    ephemeral: true,
+    authorize: dmOnly,
+    execute: async (interaction, deps) => {
+      if (interaction.options.getSubcommand() !== 'split') throw notFound("I don't have that gold subcommand.")
+      const campaign = requireCampaign(interaction, deps)
+      const total = interaction.options.getInteger('total', true)
+      const partySize = new Set(deps.characters.byCampaign(campaign.goblinCampaignId).map((c) => c.discordId)).size
+      const split = splitShares(total, partySize)
+      deps.ledger.add({
+        campaignId: campaign.goblinCampaignId,
+        kind: 'gold',
+        delta: total,
+        actor: interaction.user.id,
+        note: splitNote(partySize, split),
+      })
+      await deps.announce(campaign.channelId, goldSplitAnnouncement(total, partySize, split))
+      await interaction.editReply(goldSplitConfirmation(total, partySize, split))
+    },
+  },
+
+  calendar: {
+    data: calendarCommand,
+    ephemeral: true,
+    authorize: memberViews('show'),
+    execute: async (interaction, deps) => {
+      const sub = interaction.options.getSubcommand()
+      if (sub === 'show') return calendarShowCmd(interaction, deps)
+      if (sub === 'set') return calendarSet(interaction, deps)
+      if (sub === 'advance') return calendarAdvance(interaction, deps)
+      throw notFound("I don't have that calendar subcommand.")
+    },
+  },
 }
 
 async function createCharacter(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
@@ -241,4 +423,70 @@ async function showCharacter(interaction: ChatInputCommandInteraction, deps: Dep
     components: [container({ media: ['attachment://character.png'] })],
     flags: MessageFlags.IsComponentsV2,
   })
+}
+
+async function questsLog(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+  const campaign = requireCampaign(interaction, deps)
+  const all = deps.quests.byCampaign(campaign.goblinCampaignId)
+  await interaction.editReply({
+    components: [container(questLog(campaign.name, all))],
+    flags: MessageFlags.IsComponentsV2,
+  })
+}
+
+async function questsAdd(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+  const campaign = requireCampaign(interaction, deps)
+  const title = interaction.options.getString('title', true)
+  const quest = deps.quests.add(campaign.goblinCampaignId, title, interaction.user.id)
+  await interaction.editReply(questAddedReply(quest))
+}
+
+async function questsComplete(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+  const campaign = requireCampaign(interaction, deps)
+  const title = interaction.options.getString('title', true)
+  const quest = deps.quests.complete(campaign.goblinCampaignId, title)
+  await interaction.editReply(questCompletedReply(quest))
+}
+
+async function lootAdd(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+  const campaign = requireCampaign(interaction, deps)
+  const item = interaction.options.getString('item', true)
+  const note = interaction.options.getString('note')
+  deps.ledger.add({ campaignId: campaign.goblinCampaignId, kind: 'item', item, actor: interaction.user.id, note })
+  await interaction.editReply(lootAddedReply(item, note))
+}
+
+async function lootList(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+  const campaign = requireCampaign(interaction, deps)
+  const goldTotal = deps.ledger.goldTotal(campaign.goblinCampaignId)
+  const recent = deps.ledger.recent(campaign.goblinCampaignId)
+  await interaction.editReply({
+    components: [container(lootListEmbed(goldTotal, recent))],
+    flags: MessageFlags.IsComponentsV2,
+  })
+}
+
+async function calendarShowCmd(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+  const campaign = requireCampaign(interaction, deps)
+  const state = deps.calendar.get(campaign.goblinCampaignId)
+  await interaction.editReply({
+    components: [container(calendarShow(state))],
+    flags: MessageFlags.IsComponentsV2,
+  })
+}
+
+async function calendarSet(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+  const campaign = requireCampaign(interaction, deps)
+  const day = interaction.options.getInteger('day', true)
+  const epoch = interaction.options.getString('epoch')
+  const state = deps.calendar.set(campaign.goblinCampaignId, day, epoch ?? undefined)
+  await interaction.editReply(calendarSetConfirmation(state))
+}
+
+async function calendarAdvance(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+  const campaign = requireCampaign(interaction, deps)
+  const days = interaction.options.getInteger('days', true)
+  const state = deps.calendar.advance(campaign.goblinCampaignId, days)
+  await deps.announce(campaign.channelId, calendarAdvanceAnnouncement(state, days))
+  await interaction.editReply(calendarSetConfirmation(state))
 }

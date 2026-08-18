@@ -2,7 +2,7 @@
 // these interfaces, not against SQL, so the shape stays stable while the body evolves.
 
 import type { Database } from './db'
-import { userInput } from '../lib/errors'
+import { notFound, userInput } from '../lib/errors'
 
 // ── campaigns ────────────────────────────────────────────────────────────────────────────
 
@@ -236,5 +236,407 @@ export function createCharacters(db: Database): Characters {
     },
     byOwner: (campaignId, discordId) => byOwnerStmt.all(campaignId, discordId).map(toCharacter),
     byCampaign: (campaignId) => byCampaignStmt.all(campaignId).map(toCharacter),
+  }
+}
+
+// ── quests ───────────────────────────────────────────────────────────────────────────────
+
+export type QuestStatus = 'active' | 'done'
+
+export interface Quest {
+  id: number
+  campaignId: string
+  title: string
+  status: QuestStatus
+  addedBy: string
+  createdAt: number
+}
+
+export interface Quests {
+  /** Throws a BotError (user_input) if the title is already logged (case-insensitive). */
+  add: (campaignId: string, title: string, addedBy: string) => Quest
+  /** Throws a BotError (not_found) if no active quest matches that title. */
+  complete: (campaignId: string, title: string) => Quest
+  /** Active quests only — the autocomplete pool for `/quests complete`. */
+  active: (campaignId: string) => Quest[]
+  /** Every quest, active first — the `/quests log` view. */
+  byCampaign: (campaignId: string) => Quest[]
+}
+
+interface QuestRow {
+  id: number
+  campaign_id: string
+  title: string
+  status: QuestStatus
+  added_by: string
+  created_at: number
+}
+
+const QUEST_COLUMNS = 'id, campaign_id, title, status, added_by, created_at'
+
+function toQuest(row: QuestRow): Quest {
+  return {
+    id: row.id,
+    campaignId: row.campaign_id,
+    title: row.title,
+    status: row.status,
+    addedBy: row.added_by,
+    createdAt: row.created_at,
+  }
+}
+
+export function createQuests(db: Database): Quests {
+  const insertStmt = db.prepare<{ campaignId: string; title: string; addedBy: string; createdAt: number }>(`
+    INSERT INTO quests (campaign_id, title, status, added_by, created_at)
+    VALUES (@campaignId, @title, 'active', @addedBy, @createdAt)
+  `)
+  const byIdStmt = db.prepare<[number], QuestRow>(`SELECT ${QUEST_COLUMNS} FROM quests WHERE id = ?`)
+  const byTitleStmt = db.prepare<[string, string], QuestRow>(
+    `SELECT ${QUEST_COLUMNS} FROM quests WHERE campaign_id = ? AND title = ?`,
+  )
+  const completeStmt = db.prepare<[string, string]>(
+    `UPDATE quests SET status = 'done' WHERE campaign_id = ? AND title = ? AND status = 'active'`,
+  )
+  const activeStmt = db.prepare<[string], QuestRow>(
+    `SELECT ${QUEST_COLUMNS} FROM quests WHERE campaign_id = ? AND status = 'active' ORDER BY created_at`,
+  )
+  const byCampaignStmt = db.prepare<[string], QuestRow>(
+    `SELECT ${QUEST_COLUMNS} FROM quests WHERE campaign_id = ? ORDER BY status, created_at`,
+  )
+
+  return {
+    add: (campaignId, title, addedBy) => {
+      try {
+        const info = insertStmt.run({ campaignId, title, addedBy, createdAt: Date.now() })
+        return toQuest(byIdStmt.get(Number(info.lastInsertRowid))!)
+      } catch (err) {
+        if (isUniqueViolation(err)) throw userInput(`"${title}" is already on the quest log.`)
+        throw err
+      }
+    },
+    complete: (campaignId, title) => {
+      const existing = byTitleStmt.get(campaignId, title)
+      if (!existing || existing.status !== 'active') throw notFound(`No active quest named "${title}".`)
+      completeStmt.run(campaignId, title)
+      return toQuest(byIdStmt.get(existing.id)!)
+    },
+    active: (campaignId) => activeStmt.all(campaignId).map(toQuest),
+    byCampaign: (campaignId) => byCampaignStmt.all(campaignId).map(toQuest),
+  }
+}
+
+// ── notes (party journal) ───────────────────────────────────────────────────────────────
+
+export interface Note {
+  id: number
+  campaignId: string
+  discordId: string
+  text: string
+  createdAt: number
+}
+
+export interface Notes {
+  add: (campaignId: string, discordId: string, text: string) => Note
+  /** `query` is already FTS5-safe (see journal.ts's sanitizeFtsQuery) — this never crashes
+   * on user input, but still translates any residual SQLite error into a BotError. */
+  search: (campaignId: string, query: string, limit?: number) => Note[]
+}
+
+interface NoteRow {
+  id: number
+  campaign_id: string
+  discord_id: string
+  text: string
+  created_at: number
+}
+
+function toNote(row: NoteRow): Note {
+  return { id: row.id, campaignId: row.campaign_id, discordId: row.discord_id, text: row.text, createdAt: row.created_at }
+}
+
+export function createNotes(db: Database): Notes {
+  const insertStmt = db.prepare<{ campaignId: string; discordId: string; text: string; createdAt: number }>(`
+    INSERT INTO notes (campaign_id, discord_id, text, created_at)
+    VALUES (@campaignId, @discordId, @text, @createdAt)
+  `)
+  const indexStmt = db.prepare<{ noteId: number; text: string; campaignId: string }>(`
+    INSERT INTO notes_fts (rowid, text, campaign_id, note_id) VALUES (@noteId, @text, @campaignId, @noteId)
+  `)
+  const byIdStmt = db.prepare<[number], NoteRow>(
+    'SELECT id, campaign_id, discord_id, text, created_at FROM notes WHERE id = ?',
+  )
+  const searchStmt = db.prepare<[string, string, number], { note_id: number }>(`
+    SELECT note_id FROM notes_fts WHERE notes_fts MATCH ? AND campaign_id = ? ORDER BY rank LIMIT ?
+  `)
+
+  return {
+    add: (campaignId, discordId, text) => {
+      const insert = db.transaction((input: { campaignId: string; discordId: string; text: string }) => {
+        const createdAt = Date.now()
+        const info = insertStmt.run({ ...input, createdAt })
+        const noteId = Number(info.lastInsertRowid)
+        indexStmt.run({ noteId, text: input.text, campaignId: input.campaignId })
+        return noteId
+      })
+      return toNote(byIdStmt.get(insert({ campaignId, discordId, text }))!)
+    },
+    search: (campaignId, query, limit = 5) => {
+      try {
+        return searchStmt.all(query, campaignId, limit).map((row) => toNote(byIdStmt.get(row.note_id)!))
+      } catch (err) {
+        throw userInput(`Couldn't search for that: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    },
+  }
+}
+
+// ── rolls ────────────────────────────────────────────────────────────────────────────────
+
+export interface RollRecord {
+  id: number
+  campaignId: string
+  characterId: number | null
+  discordId: string
+  expr: string
+  total: number
+  faces: string
+  isCrit: boolean
+  isFail: boolean
+  createdAt: number
+}
+
+export interface RollInput {
+  campaignId: string
+  characterId: number | null
+  discordId: string
+  expr: string
+  total: number
+  faces: string
+  isCrit: boolean
+  isFail: boolean
+}
+
+export interface Rolls {
+  /** Every /roll is persisted (plan §11 M3) — this never rejects a well-formed input. */
+  record: (input: RollInput) => RollRecord
+  byId: (id: number) => RollRecord | undefined
+}
+
+interface RollRow {
+  id: number
+  campaign_id: string
+  character_id: number | null
+  discord_id: string
+  expr: string
+  total: number
+  faces: string
+  is_crit: number
+  is_fail: number
+  created_at: number
+}
+
+const ROLL_COLUMNS = 'id, campaign_id, character_id, discord_id, expr, total, faces, is_crit, is_fail, created_at'
+
+function toRoll(row: RollRow): RollRecord {
+  return {
+    id: row.id,
+    campaignId: row.campaign_id,
+    characterId: row.character_id,
+    discordId: row.discord_id,
+    expr: row.expr,
+    total: row.total,
+    faces: row.faces,
+    isCrit: row.is_crit === 1,
+    isFail: row.is_fail === 1,
+    createdAt: row.created_at,
+  }
+}
+
+export function createRolls(db: Database): Rolls {
+  const insertStmt = db.prepare<{
+    campaignId: string
+    characterId: number | null
+    discordId: string
+    expr: string
+    total: number
+    faces: string
+    isCrit: number
+    isFail: number
+    createdAt: number
+  }>(`
+    INSERT INTO rolls (campaign_id, character_id, discord_id, expr, total, faces, is_crit, is_fail, created_at)
+    VALUES (@campaignId, @characterId, @discordId, @expr, @total, @faces, @isCrit, @isFail, @createdAt)
+  `)
+  const byIdStmt = db.prepare<[number], RollRow>(`SELECT ${ROLL_COLUMNS} FROM rolls WHERE id = ?`)
+
+  return {
+    record: (input) => {
+      const info = insertStmt.run({
+        ...input,
+        isCrit: input.isCrit ? 1 : 0,
+        isFail: input.isFail ? 1 : 0,
+        createdAt: Date.now(),
+      })
+      return toRoll(byIdStmt.get(Number(info.lastInsertRowid))!)
+    },
+    byId: (id) => {
+      const row = byIdStmt.get(id)
+      return row ? toRoll(row) : undefined
+    },
+  }
+}
+
+// ── ledger (loot + gold) ────────────────────────────────────────────────────────────────
+
+export type LedgerKind = 'gold' | 'item'
+
+export interface LedgerEntry {
+  id: number
+  campaignId: string
+  kind: LedgerKind
+  delta: number | null
+  item: string | null
+  actor: string
+  note: string | null
+  createdAt: number
+}
+
+export interface LedgerInput {
+  campaignId: string
+  kind: LedgerKind
+  delta?: number | null
+  item?: string | null
+  actor: string
+  note?: string | null
+}
+
+export interface Ledger {
+  add: (input: LedgerInput) => LedgerEntry
+  /** Most recent entries first. */
+  recent: (campaignId: string, limit?: number) => LedgerEntry[]
+  /** Sum of every gold delta ever recorded for the campaign. */
+  goldTotal: (campaignId: string) => number
+}
+
+interface LedgerRow {
+  id: number
+  campaign_id: string
+  kind: LedgerKind
+  delta: number | null
+  item: string | null
+  actor: string
+  note: string | null
+  created_at: number
+}
+
+const LEDGER_COLUMNS = 'id, campaign_id, kind, delta, item, actor, note, created_at'
+
+function toLedgerEntry(row: LedgerRow): LedgerEntry {
+  return {
+    id: row.id,
+    campaignId: row.campaign_id,
+    kind: row.kind,
+    delta: row.delta,
+    item: row.item,
+    actor: row.actor,
+    note: row.note,
+    createdAt: row.created_at,
+  }
+}
+
+export function createLedger(db: Database): Ledger {
+  const insertStmt = db.prepare<{
+    campaignId: string
+    kind: LedgerKind
+    delta: number | null
+    item: string | null
+    actor: string
+    note: string | null
+    createdAt: number
+  }>(`
+    INSERT INTO ledger (campaign_id, kind, delta, item, actor, note, created_at)
+    VALUES (@campaignId, @kind, @delta, @item, @actor, @note, @createdAt)
+  `)
+  const byIdStmt = db.prepare<[number], LedgerRow>(`SELECT ${LEDGER_COLUMNS} FROM ledger WHERE id = ?`)
+  const recentStmt = db.prepare<[string, number], LedgerRow>(
+    `SELECT ${LEDGER_COLUMNS} FROM ledger WHERE campaign_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`,
+  )
+  const goldTotalStmt = db.prepare<[string], { total: number | null }>(
+    `SELECT SUM(delta) AS total FROM ledger WHERE campaign_id = ? AND kind = 'gold'`,
+  )
+
+  return {
+    add: (input) => {
+      const info = insertStmt.run({
+        campaignId: input.campaignId,
+        kind: input.kind,
+        delta: input.delta ?? null,
+        item: input.item ?? null,
+        actor: input.actor,
+        note: input.note ?? null,
+        createdAt: Date.now(),
+      })
+      return toLedgerEntry(byIdStmt.get(Number(info.lastInsertRowid))!)
+    },
+    recent: (campaignId, limit = 10) => recentStmt.all(campaignId, limit).map(toLedgerEntry),
+    goldTotal: (campaignId) => goldTotalStmt.get(campaignId)?.total ?? 0,
+  }
+}
+
+// ── calendar ─────────────────────────────────────────────────────────────────────────────
+
+export interface CalendarState {
+  campaignId: string
+  day: number
+  epochLabel: string | null
+}
+
+export interface Calendar {
+  get: (campaignId: string) => CalendarState | undefined
+  /** Sets an absolute day. Omitting `epochLabel` leaves the existing label untouched. */
+  set: (campaignId: string, day: number, epochLabel?: string | null) => CalendarState
+  /** Adds `days` to the current counter — 0 (no row yet) if the DM has never set one. */
+  advance: (campaignId: string, days: number) => CalendarState
+}
+
+interface CalendarRow {
+  campaign_id: string
+  day: number
+  epoch_label: string | null
+}
+
+function toCalendarState(row: CalendarRow): CalendarState {
+  return { campaignId: row.campaign_id, day: row.day, epochLabel: row.epoch_label }
+}
+
+export function createCalendar(db: Database): Calendar {
+  const getStmt = db.prepare<[string], CalendarRow>(
+    'SELECT campaign_id, day, epoch_label FROM calendar WHERE campaign_id = ?',
+  )
+  const upsertStmt = db.prepare<{ campaignId: string; day: number; epochLabel: string | null; updatedAt: number }>(`
+    INSERT INTO calendar (campaign_id, day, epoch_label, updated_at)
+    VALUES (@campaignId, @day, @epochLabel, @updatedAt)
+    ON CONFLICT (campaign_id) DO UPDATE SET day = excluded.day, epoch_label = excluded.epoch_label, updated_at = excluded.updated_at
+  `)
+
+  function write(campaignId: string, day: number, epochLabel: string | null): CalendarState {
+    upsertStmt.run({ campaignId, day, epochLabel, updatedAt: Date.now() })
+    return { campaignId, day, epochLabel }
+  }
+
+  return {
+    get: (campaignId) => {
+      const row = getStmt.get(campaignId)
+      return row ? toCalendarState(row) : undefined
+    },
+    set: (campaignId, day, epochLabel) => {
+      const current = getStmt.get(campaignId)
+      const finalEpoch = epochLabel !== undefined ? epochLabel : (current?.epoch_label ?? null)
+      return write(campaignId, day, finalEpoch)
+    },
+    advance: (campaignId, days) => {
+      const current = getStmt.get(campaignId)
+      return write(campaignId, (current?.day ?? 0) + days, current?.epoch_label ?? null)
+    },
   }
 }
