@@ -173,6 +173,21 @@ export const schedule = guildOnly(
     .addStringOption((o) => o.setName('option4').setDescription('Candidate date').setRequired(false)),
 )
 
+export const session = guildOnly(
+  new SlashCommandBuilder()
+    .setName('session')
+    .setDescription('Run the table (DM only)')
+    .addSubcommand((sub) =>
+      sub
+        .setName('start')
+        .setDescription('Open the table and post the live board')
+        .addStringOption((o) =>
+          o.setName('scene').setDescription('Scene to open on').setRequired(false).setAutocomplete(true),
+        ),
+    )
+    .addSubcommand((sub) => sub.setName('end').setDescription('Close the table and post the recap')),
+)
+
 export const lfg = guildOnly(
   new SlashCommandBuilder()
     .setName('lfg')

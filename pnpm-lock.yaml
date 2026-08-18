@@ -29,6 +29,9 @@ importers:
       satori-html:
         specifier: ^0.3.2
         version: 0.3.2
+      ws:
+        specifier: ^8.18.3
+        version: 8.21.1
       zod:
         specifier: ^3.25.0
         version: 3.25.76
@@ -42,6 +45,9 @@ importers:
       '@types/node':
         specifier: ^22.19.0
         version: 22.20.1
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       eslint:
         specifier: ^9.39.4
         version: 9.39.4(jiti@1.21.7)

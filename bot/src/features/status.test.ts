@@ -10,6 +10,8 @@ const campaign: Campaign = {
   dmDiscordId: 'dm-user',
   roleId: 'role-1',
   nextSessionAt: null,
+  serviceToken: null,
+  playerToken: null,
 }
 
 const zed: Character = {
@@ -90,7 +92,21 @@ describe('campaignStatus', () => {
     expect(spec.blocks?.join('\n')).toContain('No session scheduled — /schedule one.')
   })
 
-  it('does not mention sessions-played or last-session (M5 seam, not built yet)', () => {
+  it('reports sessions played and the last one, from the bot sessions table', () => {
+    const spec = campaignStatus({
+      campaign,
+      characters: [],
+      quests: [],
+      goldTotal: 0,
+      calendarState: undefined,
+      rollStats: [],
+      sessionStats: { played: 7, lastStartedAt: Date.parse('2026-08-17T19:00:00Z') },
+      now: 1000,
+    })
+    expect(spec.blocks?.join('\n')).toContain('**Sessions played**: **7** — last on 2026-08-17')
+  })
+
+  it('says none rather than zero-with-a-date before a first table', () => {
     const spec = campaignStatus({
       campaign,
       characters: [],
@@ -100,8 +116,6 @@ describe('campaignStatus', () => {
       rollStats: [],
       now: 1000,
     })
-    const text = spec.blocks?.join('\n') ?? ''
-    expect(text).not.toMatch(/sessions played/i)
-    expect(text).not.toMatch(/last session/i)
+    expect(spec.blocks?.join('\n')).toContain('**Sessions played**: None yet.')
   })
 })

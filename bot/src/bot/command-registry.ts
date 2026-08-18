@@ -18,9 +18,12 @@ import type {
   Quests,
   Rolls,
   SchedulePolls,
+  Sessions,
 } from '../db/stores'
+import type { SessionRunner } from '../goblin/live-session'
+import type { GoblinRest } from '../goblin/rest'
 import { calendarAdvanceAnnouncement, calendarSetConfirmation, calendarShow } from '../features/calendar'
-import { campaignSetupConfirmation } from '../features/campaign'
+import { campaignSetupConfirmation, campaignSetupTokenFailure } from '../features/campaign'
 import { characterCreatedReply, characterUpdatedReply, filterAutocomplete, leveledUp, levelUpAnnouncement, myCharactersList } from '../features/character'
 import { rollExpression, rollReply, summarizeFaces } from '../features/dice'
 import { goldSplitAnnouncement, goldSplitConfirmation, lootAddedReply, lootListEmbed, splitNote, splitShares } from '../features/economy'
@@ -38,9 +41,10 @@ import {
   voteConfirmation,
   winningOption,
 } from '../features/schedule'
+import { sessionEndedReply, sessionStartedReply } from '../features/session'
 import { campaignStatus } from '../features/status'
 import { build, SHARED_OWNER, type CustomId } from '../lib/custom-id'
-import { notAuthorized, notFound, userInput, wrongChannel } from '../lib/errors'
+import { internal, notAuthorized, notFound, userInput, wrongChannel } from '../lib/errors'
 import { container, type ContainerSpec } from '../lib/ui'
 import { fetchPortraitDataUri, renderCharacterCard } from '../render/card-kit'
 import {
@@ -59,6 +63,7 @@ import {
   recall as recallCommand,
   roll as rollCommand,
   schedule as scheduleCommand,
+  session as sessionCommand,
 } from './commands'
 
 export interface Deps {
@@ -75,14 +80,24 @@ export interface Deps {
   lfgPosts: LfgPosts
   lfgApplications: LfgApplications
   feedback: Feedback
+  sessions: Sessions
   db: Database
   /** LFG_CHANNEL_ID — the one fixed cross-campaign recruiting board. */
   lfgChannelId: string
+  /** The game server's REST surface (plan §4). */
+  goblin: GoblinRest
+  /** GOBLIN_ADMIN_PASS — the one credential that mints service tokens. */
+  goblinAdminPass: string
+  /** Owns the live table: observer, board edits, recap (plan §11 M5). */
+  sessionRunner: SessionRunner
   /** Sends a container to a specific channel — the seam that keeps features Discord-free.
    * Used for CBAC posts (level-up to the player channel, welcome to the welcome channel).
    * Resolves the sent message's ref, or undefined if the channel wasn't sendable — schedule
    * polls and LFG posts store it so a later action (vote, close) can find the row. */
   announce: (channelId: string, spec: ContainerSpec) => Promise<{ messageId: string } | undefined>
+  /** The announce twin for a message the bot already posted — the live session board is
+   * edited in place rather than re-posted every time somebody walks through a door (§8). */
+  edit: (channelId: string, messageId: string, spec: ContainerSpec) => Promise<void>
 }
 
 /** Everything `authorize` is allowed to see. No interaction, no network. */
@@ -448,6 +463,43 @@ export const registry: Registry = {
     },
   },
 
+  session: {
+    data: sessionCommand,
+    ephemeral: true,
+    authorize: dmOnly,
+    execute: async (interaction, deps) => {
+      const campaign = requireCampaign(interaction, deps)
+      const sub = interaction.options.getSubcommand()
+      if (sub === 'start') {
+        const { joinLink } = await deps.sessionRunner.start(
+          campaign,
+          interaction.options.getString('scene') ?? undefined,
+        )
+        await interaction.editReply(sessionStartedReply(joinLink))
+        return
+      }
+      if (sub === 'end') {
+        await interaction.editReply(sessionEndedReply(await deps.sessionRunner.end(campaign)))
+        return
+      }
+      throw notFound("I don't have that session subcommand.")
+    },
+    // The scene library lives on the game server, not in the bot DB — the one autocomplete
+    // that goes over the wire. A failure here is an empty list (see interaction-router.ts).
+    autocomplete: async (interaction, deps) => {
+      const campaign = deps.campaigns.byChannel(interaction.channelId)
+      if (!campaign?.serviceToken) return interaction.respond([])
+      const query = interaction.options.getFocused().toLowerCase()
+      const scenes = await deps.goblin.getScenes(campaign.serviceToken, campaign.goblinCampaignId)
+      await interaction.respond(
+        scenes
+          .filter((scene) => scene.name.toLowerCase().includes(query))
+          .slice(0, 25)
+          .map((scene) => ({ name: scene.name, value: scene.id })),
+      )
+    },
+  },
+
   lfg: {
     data: lfgCommand,
     ephemeral: true,
@@ -648,6 +700,20 @@ async function campaignSetup(interaction: ChatInputCommandInteraction, deps: Dep
     dmDiscordId: interaction.options.getUser('dm', true).id,
   }
   const campaign = deps.campaigns.upsert(input)
+
+  // The row is saved before the mint, and deliberately not rolled back if the mint fails:
+  // re-running setup with the same options is the retry, and losing the channel mapping to
+  // a game server that happened to be down would make that retry harder, not safer.
+  try {
+    const [dm, player] = await Promise.all([
+      deps.goblin.mintServiceToken(deps.goblinAdminPass, campaign.goblinCampaignId, 'dm'),
+      deps.goblin.mintServiceToken(deps.goblinAdminPass, campaign.goblinCampaignId, 'player'),
+    ])
+    deps.campaigns.setTokens(campaign.goblinCampaignId, dm.token, player.token)
+  } catch {
+    throw internal(campaignSetupTokenFailure(campaign))
+  }
+
   await interaction.editReply(campaignSetupConfirmation(campaign))
 }
 
@@ -660,6 +726,7 @@ async function campaignStatusCmd(interaction: ChatInputCommandInteraction, deps:
     goldTotal: deps.ledger.goldTotal(campaign.goblinCampaignId),
     calendarState: deps.calendar.get(campaign.goblinCampaignId),
     rollStats: deps.rolls.statsByCampaign(campaign.goblinCampaignId),
+    sessionStats: deps.sessions.stats(campaign.goblinCampaignId),
   })
   await interaction.editReply({ components: [container(status)], flags: MessageFlags.IsComponentsV2 })
 }

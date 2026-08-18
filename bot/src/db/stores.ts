@@ -19,10 +19,17 @@ export interface Campaign {
   roleId: string
   /** Set by /schedule's poll close (plan §11 M4). Null until a poll has ever closed. */
   nextSessionAt: number | null
+  /** The bot's own DM-role game-server token (plan §11 M5). Null until a mint has landed —
+   * `/campaign setup` saves the row first, so an unreachable server is a retry, not a loss. */
+  serviceToken: string | null
+  /** Its player-role twin. Anything player-facing is fetched with this one, so the server's
+   * redactor decides what a player may see and the bot never filters map data itself (§4). */
+  playerToken: string | null
 }
 
-/** `/campaign setup` never touches the schedule — nextSessionAt is upsert-preserved, not input. */
-export type CampaignInput = Omit<Campaign, 'nextSessionAt'>
+/** `/campaign setup` never touches the schedule, and mints the tokens separately — both are
+ * upsert-preserved, not input. */
+export type CampaignInput = Omit<Campaign, 'nextSessionAt' | 'serviceToken' | 'playerToken'>
 
 export interface Campaigns {
   /** The campaign a channel belongs to — player or DM channel. Undefined outside a campaign. */
@@ -34,6 +41,8 @@ export interface Campaigns {
   upsert: (input: CampaignInput) => Campaign
   /** Writes the winning poll date (plan §11 M4's /schedule close). */
   setNextSession: (goblinCampaignId: string, at: number) => Campaign
+  /** Stores a fresh pair of game-server tokens (plan §11 M5's `/campaign setup` mint). */
+  setTokens: (goblinCampaignId: string, serviceToken: string, playerToken: string | null) => Campaign
 }
 
 interface CampaignRow {
@@ -44,10 +53,12 @@ interface CampaignRow {
   dm_discord_id: string
   role_id: string
   next_session_at: number | null
+  game_server_token: string | null
+  player_token: string | null
 }
 
 const CAMPAIGN_COLUMNS =
-  'goblin_campaign_id, name, channel_id, dm_channel_id, dm_discord_id, role_id, next_session_at'
+  'goblin_campaign_id, name, channel_id, dm_channel_id, dm_discord_id, role_id, next_session_at, game_server_token, player_token'
 
 function toCampaign(row: CampaignRow): Campaign {
   return {
@@ -58,6 +69,8 @@ function toCampaign(row: CampaignRow): Campaign {
     dmDiscordId: row.dm_discord_id,
     roleId: row.role_id,
     nextSessionAt: row.next_session_at,
+    serviceToken: row.game_server_token,
+    playerToken: row.player_token,
   }
 }
 
@@ -89,6 +102,9 @@ export function createCampaigns(db: Database): Campaigns {
   const setNextSessionStmt = db.prepare<[number, string]>(
     'UPDATE campaigns SET next_session_at = ? WHERE goblin_campaign_id = ?',
   )
+  const setTokensStmt = db.prepare<[string, string | null, string]>(
+    'UPDATE campaigns SET game_server_token = ?, player_token = ? WHERE goblin_campaign_id = ?',
+  )
 
   return {
     byChannel: (channelId) => {
@@ -105,6 +121,10 @@ export function createCampaigns(db: Database): Campaigns {
     },
     setNextSession: (goblinCampaignId, at) => {
       setNextSessionStmt.run(at, goblinCampaignId)
+      return toCampaign(byIdStmt.get(goblinCampaignId)!)
+    },
+    setTokens: (goblinCampaignId, serviceToken, playerToken) => {
+      setTokensStmt.run(serviceToken, playerToken, goblinCampaignId)
       return toCampaign(byIdStmt.get(goblinCampaignId)!)
     },
   }
@@ -883,6 +903,148 @@ export function createLfgApplications(db: Database): LfgApplications {
       const info = insertStmt.run({ campaignId, discordId, message, createdAt: Date.now() })
       const row = byIdStmt.get(Number(info.lastInsertRowid))!
       return { id: row.id, campaignId: row.campaign_id, discordId: row.discord_id, message: row.message, createdAt: row.created_at }
+    },
+  }
+}
+
+// ── sessions ─────────────────────────────────────────────────────────────────────────────
+
+/** One table the bot opened on the game server (plan §3). The id is the *goblin* session id
+ * — the bot has no id of its own to invent, and the observer keys on the server's. */
+export interface BotSession {
+  goblinSessionId: string
+  campaignId: string
+  /** The game server's invite code — the join link the live board shows. */
+  inviteCode: string | null
+  startedAt: number
+  /** Null while the table is live. Also the "resume this observer on boot" flag. */
+  endedAt: number | null
+  /** The accumulated recap, JSON, written once at the end. */
+  recap: SessionRecap | null
+  /** The live board being edited in place, so a restart keeps editing it. */
+  liveMessageId: string | null
+  recapMessageId: string | null
+}
+
+/** What the observer's accumulator produced — stored verbatim so "Previously on…" and
+ * `/campaign status` read it back without re-deriving anything. */
+export interface SessionRecap {
+  scenes: string[]
+  doorsOpened: number
+  durationMs: number
+  players: string[]
+  peakPlayers: number
+  /** The in-game date the table ended on — the bot owns the calendar (plan §3). */
+  calendarLine: string
+}
+
+export interface Sessions {
+  start: (goblinSessionId: string, campaignId: string, inviteCode: string) => BotSession
+  byId: (goblinSessionId: string) => BotSession | undefined
+  /** Every session no one closed — on boot, the observers to resume. */
+  live: () => BotSession[]
+  /** The campaign's most recently *ended* session — the "Previously on…" source. */
+  lastEnded: (campaignId: string) => BotSession | undefined
+  /** Stamps the end time and the recap together; a second call is a no-op on an ended row. */
+  finish: (goblinSessionId: string, recap: SessionRecap, endedAt?: number) => BotSession
+  setLiveMessageId: (goblinSessionId: string, messageId: string) => BotSession
+  setRecapMessageId: (goblinSessionId: string, messageId: string) => BotSession
+  /** Sessions played and when the last one started — `/campaign status`'s M5 block. */
+  stats: (campaignId: string) => { played: number; lastStartedAt: number | null }
+}
+
+interface BotSessionRow {
+  goblin_session_id: string
+  campaign_id: string
+  invite_code: string | null
+  started_at: number
+  ended_at: number | null
+  recap: string | null
+  live_message_id: string | null
+  recap_message_id: string | null
+}
+
+const SESSION_COLUMNS =
+  'goblin_session_id, campaign_id, invite_code, started_at, ended_at, recap, live_message_id, recap_message_id'
+
+function toBotSession(row: BotSessionRow): BotSession {
+  return {
+    goblinSessionId: row.goblin_session_id,
+    campaignId: row.campaign_id,
+    inviteCode: row.invite_code,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    recap: row.recap ? (JSON.parse(row.recap) as SessionRecap) : null,
+    liveMessageId: row.live_message_id,
+    recapMessageId: row.recap_message_id,
+  }
+}
+
+export function createSessions(db: Database): Sessions {
+  const insertStmt = db.prepare<{
+    goblinSessionId: string
+    campaignId: string
+    inviteCode: string
+    startedAt: number
+  }>(`
+    INSERT INTO sessions (goblin_session_id, campaign_id, invite_code, started_at)
+    VALUES (@goblinSessionId, @campaignId, @inviteCode, @startedAt)
+    ON CONFLICT (goblin_session_id) DO NOTHING
+  `)
+  const byIdStmt = db.prepare<[string], BotSessionRow>(
+    `SELECT ${SESSION_COLUMNS} FROM sessions WHERE goblin_session_id = ?`,
+  )
+  const liveStmt = db.prepare<[], BotSessionRow>(
+    `SELECT ${SESSION_COLUMNS} FROM sessions WHERE ended_at IS NULL ORDER BY started_at`,
+  )
+  const lastEndedStmt = db.prepare<[string], BotSessionRow>(
+    `SELECT ${SESSION_COLUMNS} FROM sessions
+     WHERE campaign_id = ? AND ended_at IS NOT NULL ORDER BY ended_at DESC LIMIT 1`,
+  )
+  // `ended_at IS NULL` guards a double finish: /session end and the observer's session-ended
+  // both land, and the first one to arrive is the one that measured the table.
+  const finishStmt = db.prepare<[number, string, string]>(
+    'UPDATE sessions SET ended_at = ?, recap = ? WHERE goblin_session_id = ? AND ended_at IS NULL',
+  )
+  const setLiveMessageStmt = db.prepare<[string, string]>(
+    'UPDATE sessions SET live_message_id = ? WHERE goblin_session_id = ?',
+  )
+  const setMessageStmt = db.prepare<[string, string]>(
+    'UPDATE sessions SET recap_message_id = ? WHERE goblin_session_id = ?',
+  )
+  const statsStmt = db.prepare<[string], { played: number; last_started_at: number | null }>(
+    'SELECT count(*) AS played, max(started_at) AS last_started_at FROM sessions WHERE campaign_id = ?',
+  )
+
+  return {
+    start: (goblinSessionId, campaignId, inviteCode) => {
+      insertStmt.run({ goblinSessionId, campaignId, inviteCode, startedAt: Date.now() })
+      return toBotSession(byIdStmt.get(goblinSessionId)!)
+    },
+    byId: (goblinSessionId) => {
+      const row = byIdStmt.get(goblinSessionId)
+      return row ? toBotSession(row) : undefined
+    },
+    live: () => liveStmt.all().map(toBotSession),
+    lastEnded: (campaignId) => {
+      const row = lastEndedStmt.get(campaignId)
+      return row ? toBotSession(row) : undefined
+    },
+    finish: (goblinSessionId, recap, endedAt = Date.now()) => {
+      finishStmt.run(endedAt, JSON.stringify(recap), goblinSessionId)
+      return toBotSession(byIdStmt.get(goblinSessionId)!)
+    },
+    setLiveMessageId: (goblinSessionId, messageId) => {
+      setLiveMessageStmt.run(messageId, goblinSessionId)
+      return toBotSession(byIdStmt.get(goblinSessionId)!)
+    },
+    setRecapMessageId: (goblinSessionId, messageId) => {
+      setMessageStmt.run(messageId, goblinSessionId)
+      return toBotSession(byIdStmt.get(goblinSessionId)!)
+    },
+    stats: (campaignId) => {
+      const row = statsStmt.get(campaignId)
+      return { played: row?.played ?? 0, lastStartedAt: row?.last_started_at ?? null }
     },
   }
 }

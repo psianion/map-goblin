@@ -13,6 +13,7 @@ import {
   createQuests,
   createRolls,
   createSchedulePolls,
+  createSessions,
   type Campaign,
 } from '../db/stores'
 import { parse } from '../lib/custom-id'
@@ -26,6 +27,8 @@ const campaign: Campaign = {
   dmDiscordId: 'dm-1',
   roleId: 'role-1',
   nextSessionAt: null,
+  serviceToken: 'dm-token',
+  playerToken: 'player-token',
 }
 
 const deps = (byChannel: (id: string) => Campaign | undefined): Deps => ({
@@ -33,8 +36,11 @@ const deps = (byChannel: (id: string) => Campaign | undefined): Deps => ({
   campaigns: {
     byChannel,
     byId: () => undefined,
-    upsert: (c) => ({ ...c, nextSessionAt: null }),
+    upsert: (c) => ({ ...c, nextSessionAt: null, serviceToken: null, playerToken: null }),
     setNextSession: () => {
+      throw new Error('not used in this test')
+    },
+    setTokens: () => {
       throw new Error('not used in this test')
     },
   },
@@ -122,9 +128,43 @@ const deps = (byChannel: (id: string) => Campaign | undefined): Deps => ({
       throw new Error('not used in this test')
     },
   },
+  sessions: stubSessions(),
   lfgChannelId: 'lfg-chan',
+  goblin: stubGoblin(),
+  goblinAdminPass: 'admin-pass',
+  sessionRunner: stubRunner(),
   db: {} as Deps['db'],
   announce: async () => undefined,
+  edit: async () => {},
+})
+
+/** The M5 bridge, inert: these authorize tests never reach an execute body. */
+const unused = (): never => {
+  throw new Error('not used in this test')
+}
+const stubSessions = (): Deps['sessions'] => ({
+  start: unused,
+  byId: () => undefined,
+  live: () => [],
+  lastEnded: () => undefined,
+  finish: unused,
+  setLiveMessageId: unused,
+  setRecapMessageId: unused,
+  stats: () => ({ played: 0, lastStartedAt: null }),
+})
+const stubGoblin = (): Deps['goblin'] => ({
+  mintServiceToken: unused,
+  getScenes: unused,
+  openSession: unused,
+  endSession: unused,
+  getMap: unused,
+  getAsset: unused,
+})
+const stubRunner = (): Deps['sessionRunner'] => ({
+  start: unused,
+  end: unused,
+  resume: unused,
+  stopAll: unused,
 })
 
 const ctx = (over: Partial<AuthContext> = {}): AuthContext => ({
@@ -202,7 +242,7 @@ describe('/campaign subcommand authorize split (setup owner, status member)', ()
 // fixtures — vote toggling, DM-writes-the-date and membership checks all live inside the
 // component handlers in command-registry.ts, so a pure feature test can't cover them.
 
-function seededDeps(): { deps: Deps; sent: { channelId: string; spec: ContainerSpec }[] } {
+function seededDeps(over: Partial<Deps> = {}): { deps: Deps; sent: { channelId: string; spec: ContainerSpec }[] } {
   const db = openDb(':memory:')
   const campaigns = createCampaigns(db)
   campaigns.upsert({
@@ -227,12 +267,18 @@ function seededDeps(): { deps: Deps; sent: { channelId: string; spec: ContainerS
     lfgPosts: createLfgPosts(db),
     lfgApplications: createLfgApplications(db),
     feedback: createFeedback(db),
+    sessions: createSessions(db),
     lfgChannelId: 'lfg-chan',
+    goblin: stubGoblin(),
+    goblinAdminPass: 'admin-pass',
+    sessionRunner: stubRunner(),
     db,
     announce: async (channelId, spec) => {
       sent.push({ channelId, spec })
       return { messageId: `msg-${sent.length}` }
     },
+    edit: async () => {},
+    ...over,
   }
   return { deps, sent }
 }
@@ -257,6 +303,10 @@ function chatInteraction(over: {
         return value
       },
       getFocused: () => over.focused ?? '',
+      // Channel/role/user options carry only an id here — that is all the registry reads.
+      getChannel: (name: string) => ({ id: over.strings?.[name] ?? name }),
+      getRole: (name: string) => ({ id: over.strings?.[name] ?? name }),
+      getUser: (name: string) => ({ id: over.strings?.[name] ?? name }),
     },
     editReply: vi.fn(async (payload: unknown) => void calls.push(['edit', payload])),
     respond: vi.fn(async (choices: unknown) => void calls.push(['respond', choices])),
@@ -273,6 +323,80 @@ function componentInteraction(customId: string, userId: string, roleIds: string[
     reply: vi.fn(async (payload: unknown) => void calls.push(['reply', payload])),
   }
 }
+
+// ── M5: /campaign setup mints the bot's two game-server seats ─────────────────────────────
+
+const setupOptions = {
+  id: 'camp-9',
+  name: 'New Keep',
+  channel: 'chan-9',
+  'dm-channel': 'dmchan-9',
+  role: 'role-9',
+  dm: 'dmuser-9',
+}
+
+describe('/campaign setup — service token mint', () => {
+  it('stores both seats after registering the row', async () => {
+    const asked: string[] = []
+    const { deps } = seededDeps({
+      goblin: {
+        ...stubGoblin(),
+        mintServiceToken: async (_pass, campaignId, role) => {
+          asked.push(role)
+          return { token: `${role}-token`, campaignId, role, name: 'Goblin Bot' }
+        },
+      },
+    })
+    await registry.campaign.execute(chatInteraction({ subcommand: 'setup', strings: setupOptions }) as never, deps)
+
+    expect(asked.sort()).toEqual(['dm', 'player'])
+    expect(deps.campaigns.byId('camp-9')).toMatchObject({
+      serviceToken: 'dm-token',
+      playerToken: 'player-token',
+    })
+  })
+
+  it('keeps the row when the game server is down, and says re-running is the retry', async () => {
+    const { deps } = seededDeps({
+      goblin: {
+        ...stubGoblin(),
+        mintServiceToken: () => Promise.reject(new Error('ECONNREFUSED')),
+      },
+    })
+    await expect(
+      registry.campaign.execute(chatInteraction({ subcommand: 'setup', strings: setupOptions }) as never, deps),
+    ).rejects.toThrowError(/campaign setup.*again/i)
+
+    // Saved anyway: the mint is the retryable half, and losing the mapping would make the
+    // retry harder rather than safer.
+    expect(deps.campaigns.byId('camp-9')).toMatchObject({ name: 'New Keep', serviceToken: null })
+  })
+})
+
+describe('/session — scene autocomplete', () => {
+  it('offers the game server\'s scenes by name and answers with their ids', async () => {
+    const { deps } = seededDeps({
+      goblin: {
+        ...stubGoblin(),
+        getScenes: async () => [
+          { id: 's1', name: 'Cragmaw Hideout', sortIndex: 0, visibleToPlayers: true, mapId: 'm1', updatedAt: 0 },
+          { id: 's2', name: 'The Vault', sortIndex: 1, visibleToPlayers: true, mapId: 'm2', updatedAt: 0 },
+        ],
+      },
+    })
+    deps.campaigns.setTokens('camp-1', 'dm-token', 'player-token')
+    const interaction = chatInteraction({ focused: 'vault' })
+    await registry.session.autocomplete!(interaction as never, deps)
+    expect(interaction.calls).toEqual([['respond', [{ name: 'The Vault', value: 's2' }]]])
+  })
+
+  it('offers nothing at all before the campaign has a token', async () => {
+    const { deps } = seededDeps()
+    const interaction = chatInteraction({ focused: '' })
+    await registry.session.autocomplete!(interaction as never, deps)
+    expect(interaction.calls).toEqual([['respond', []]])
+  })
+})
 
 describe('/schedule — poll create, vote toggle/switch, close', () => {
   it('creates a poll, stamps its message ref, and posts to the player channel', async () => {

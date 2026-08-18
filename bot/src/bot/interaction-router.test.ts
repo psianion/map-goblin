@@ -7,14 +7,22 @@ import { build, SHARED_OWNER } from '../lib/custom-id'
 
 const silentLogger = { warn: vi.fn(), error: vi.fn() }
 
+/** Every store method the router itself never reaches. */
+const unused = (): never => {
+  throw new Error('not used in this test')
+}
+
 function depsFor(registry: Registry, overrides: Partial<RouterDeps> = {}): RouterDeps {
   return {
     ownerId: 'owner-1',
     campaigns: {
       byChannel: () => undefined,
       byId: () => undefined,
-      upsert: (c) => ({ ...c, nextSessionAt: null }),
+      upsert: (c) => ({ ...c, nextSessionAt: null, serviceToken: null, playerToken: null }),
       setNextSession: () => {
+        throw new Error('not used in this test')
+      },
+      setTokens: () => {
         throw new Error('not used in this test')
       },
     },
@@ -102,9 +110,30 @@ function depsFor(registry: Registry, overrides: Partial<RouterDeps> = {}): Route
         throw new Error('not used in this test')
       },
     },
+    sessions: {
+      start: unused,
+      byId: () => undefined,
+      live: () => [],
+      lastEnded: () => undefined,
+      finish: unused,
+      setLiveMessageId: unused,
+      setRecapMessageId: unused,
+      stats: () => ({ played: 0, lastStartedAt: null }),
+    },
     lfgChannelId: 'lfg-chan',
+    goblin: {
+      mintServiceToken: unused,
+      getScenes: unused,
+      openSession: unused,
+      endSession: unused,
+      getMap: unused,
+      getAsset: unused,
+    },
+    goblinAdminPass: 'admin-pass',
+    sessionRunner: { start: unused, end: unused, resume: unused, stopAll: unused },
     db: {} as RouterDeps['db'],
     announce: async () => undefined,
+    edit: async () => {},
     registry,
     logger: silentLogger,
     ...overrides,

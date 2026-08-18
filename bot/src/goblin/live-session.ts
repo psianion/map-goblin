@@ -1,0 +1,226 @@
+// The one place a live table is orchestrated: open on the server, post the board, keep it
+// current from the observer's stream, and finish exactly once however the table ends.
+//
+// Discord-free by construction — `announce`/`edit` are injected callbacks and the observer
+// factory is too, so the whole lifecycle runs in a unit test with no socket and no gateway.
+
+import type { BotSession, Calendar, Campaign, SessionRecap, Sessions } from '../db/stores'
+import { calendarLine } from '../features/calendar'
+import {
+  joinUrl,
+  liveSessionEmbed,
+  previouslyOnEmbed,
+  sessionRecapEmbed,
+} from '../features/session'
+import { userInput } from '../lib/errors'
+import { log as defaultLog } from '../lib/log'
+import type { ContainerSpec } from '../lib/ui'
+import type { Observer } from './observer'
+import type { GoblinRest } from './rest'
+import { createSessionStats, type SessionStats } from './session-stats'
+
+/** Plan §8: at most one edit per five seconds, so a busy table cannot spend the rate limit. */
+export const EMBED_EDIT_MS = 5_000
+
+/** How many failed connects a *resumed* session tolerates before it is presumed over. The
+ * WS upgrade refuses a token whose session has ended, so this is what "the server closed the
+ * table while the bot was down" looks like from here. */
+const RESUME_GIVE_UP = 3
+
+export interface SessionRunnerDeps {
+  publicTableUrl: string
+  rest: GoblinRest
+  sessions: Sessions
+  calendar: Calendar
+  announce: (channelId: string, spec: ContainerSpec) => Promise<{ messageId: string } | undefined>
+  edit: (channelId: string, messageId: string, spec: ContainerSpec) => Promise<void>
+  /** Injected so tests drive a fake socket and index.ts owns the `ws` dependency. */
+  createObserver: (token: string) => Observer
+  campaignById: (campaignId: string) => Campaign | undefined
+  throttleMs?: number
+  logger?: Pick<typeof defaultLog, 'warn' | 'info'>
+}
+
+export interface SessionRunner {
+  start: (campaign: Campaign, sceneId?: string) => Promise<{ session: BotSession; joinLink: string }>
+  /** The DM's `/session end`. The observer's `session-ended` reaches the same finalize. */
+  end: (campaign: Campaign) => Promise<SessionRecap>
+  /** Boot: pick the live rows back up (plan §11 M5). */
+  resume: () => void
+  stopAll: () => void
+}
+
+interface Running {
+  campaign: Campaign
+  stats: SessionStats
+  observer: Observer
+  refresh: Throttled
+  /** Only set for a resumed session: a live one has a socket that already worked. */
+  deadTries: number | null
+}
+
+export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
+  const logger = deps.logger ?? defaultLog
+  const running = new Map<string, Running>()
+
+  function tokenOf(campaign: Campaign): string {
+    if (!campaign.serviceToken)
+      throw userInput('This campaign has no game-server token yet — run `/campaign setup` again.')
+    return campaign.serviceToken
+  }
+
+  function boardFor(campaign: Campaign, row: BotSession, stats: SessionStats): ContainerSpec {
+    return liveSessionEmbed({
+      campaignName: campaign.name,
+      joinUrl: joinUrl(deps.publicTableUrl, row.inviteCode ?? ''),
+      startedAt: row.startedAt,
+      calendarLine: calendarLine(deps.calendar.get(campaign.goblinCampaignId)),
+      live: stats.live(),
+    })
+  }
+
+  function attach(campaign: Campaign, row: BotSession, resumed: boolean): Running {
+    const stats = createSessionStats(row.startedAt)
+    const refresh = throttle(deps.throttleMs ?? EMBED_EDIT_MS, () => {
+      const current = deps.sessions.byId(row.goblinSessionId)
+      if (!current?.liveMessageId || current.endedAt !== null) return
+      void deps.edit(campaign.channelId, current.liveMessageId, boardFor(campaign, current, stats)).catch(
+        (error: unknown) => logger.warn('live board edit failed', { error: String(error) }),
+      )
+    })
+
+    const observer = deps.createObserver(tokenOf(campaign))
+    const entry: Running = { campaign, stats, observer, refresh, deadTries: resumed ? 0 : null }
+    running.set(row.goblinSessionId, entry)
+
+    observer.subscribe((event) => {
+      if (event.type === 'closed') {
+        if (event.fatal) void finalize(campaign, row.goblinSessionId)
+        // A resumed session whose socket never opens is a table the server already closed:
+        // the upgrade refuses a token bound to a campaign with no active session.
+        else if (entry.deadTries !== null && ++entry.deadTries >= RESUME_GIVE_UP)
+          void finalize(campaign, row.goblinSessionId)
+        return
+      }
+      // Any frame at all proves the table is still there.
+      entry.deadTries = null
+      stats.apply(event)
+      if (event.type === 'session-ended') void finalize(campaign, row.goblinSessionId)
+      else refresh.call()
+    })
+
+    return entry
+  }
+
+  /**
+   * Ends the session exactly once, whoever asked. `/session end`, the observer's
+   * `session-ended` and the give-up path all arrive here; the `ended_at IS NULL` guard in the
+   * store decides which of them measured the table.
+   */
+  async function finalize(campaign: Campaign, sessionId: string): Promise<SessionRecap> {
+    const entry = running.get(sessionId)
+    entry?.refresh.cancel()
+    entry?.observer.stop()
+    running.delete(sessionId)
+
+    const before = deps.sessions.byId(sessionId)
+    if (before?.endedAt !== null && before?.recap) return before.recap
+
+    const stats = entry?.stats ?? createSessionStats(before?.startedAt ?? Date.now())
+    const recap: SessionRecap = {
+      ...stats.recap(Date.now()),
+      calendarLine: calendarLine(deps.calendar.get(campaign.goblinCampaignId)),
+    }
+    const row = deps.sessions.finish(sessionId, recap)
+
+    // Text-only this milestone. Milestone 6 attaches the final player-visible map PNG to
+    // this same post (plan §7) — render it here and pass `media` through the recap spec.
+    const sent = await deps.announce(campaign.channelId, sessionRecapEmbed(campaign.name, recap))
+    if (sent) deps.sessions.setRecapMessageId(sessionId, sent.messageId)
+    // The board stops claiming a table that is over.
+    if (row.liveMessageId) {
+      await deps
+        .edit(campaign.channelId, row.liveMessageId, sessionRecapEmbed(campaign.name, recap))
+        .catch((error: unknown) => logger.warn('live board close-out failed', { error: String(error) }))
+    }
+    return recap
+  }
+
+  return {
+    start: async (campaign, sceneId) => {
+      const opened = await deps.rest.openSession(tokenOf(campaign), campaign.goblinCampaignId, sceneId)
+      const row = deps.sessions.start(opened.sessionId, campaign.goblinCampaignId, opened.inviteCode)
+
+      const previous = deps.sessions.lastEnded(campaign.goblinCampaignId)
+      if (previous?.recap) await deps.announce(campaign.channelId, previouslyOnEmbed(campaign.name, previous.recap))
+
+      const entry = attach(campaign, row, false)
+      const sent = await deps.announce(campaign.channelId, boardFor(campaign, row, entry.stats))
+      if (sent) deps.sessions.setLiveMessageId(row.goblinSessionId, sent.messageId)
+      return { session: row, joinLink: joinUrl(deps.publicTableUrl, opened.inviteCode) }
+    },
+
+    end: async (campaign) => {
+      const row = deps.sessions.live().find((s) => s.campaignId === campaign.goblinCampaignId)
+      if (!row) throw userInput("There's no session running for this campaign.")
+      // Told to the server first: it is the authority, and its `session-ended` broadcast is
+      // what tells the players' clients. Finalizing anyway means a server that already
+      // closed the table (or never heard) still leaves a recap behind.
+      await deps.rest
+        .endSession(tokenOf(campaign), row.goblinSessionId)
+        .catch((error: unknown) => logger.warn('end session call failed', { error: String(error) }))
+      return finalize(campaign, row.goblinSessionId)
+    },
+
+    resume: () => {
+      for (const row of deps.sessions.live()) {
+        const campaign = deps.campaignById(row.campaignId)
+        if (!campaign?.serviceToken) continue
+        logger.info('resuming session observer', { session: row.goblinSessionId })
+        attach(campaign, row, true)
+      }
+    },
+
+    stopAll: () => {
+      for (const entry of running.values()) {
+        entry.refresh.cancel()
+        entry.observer.stop()
+      }
+      running.clear()
+    },
+  }
+}
+
+export interface Throttled {
+  call: () => void
+  cancel: () => void
+}
+
+/**
+ * Leading edge plus a trailing edge: the first change shows at once, and the last one always
+ * lands, with at most one call per window in between. That trailing run is the whole point —
+ * dropping it would leave the board frozen on whatever state happened to be mid-window.
+ */
+export function throttle(ms: number, run: () => void): Throttled {
+  let last = -Infinity
+  let timer: ReturnType<typeof setTimeout> | null = null
+
+  const fire = (): void => {
+    timer = null
+    last = Date.now()
+    run()
+  }
+
+  return {
+    call: () => {
+      if (timer) return // a trailing run is already booked; it will see the newest state
+      const wait = last + ms - Date.now()
+      if (wait <= 0) fire()
+      else timer = setTimeout(fire, wait)
+    },
+    cancel: () => {
+      if (timer) clearTimeout(timer)
+      timer = null
+    },
+  }
+}

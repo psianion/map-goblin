@@ -152,4 +152,27 @@ export const MIGRATIONS: readonly string[] = [
       created_at INTEGER NOT NULL
     )
   `,
+  // v12: the bot's second game-server seat (plan §11 M5). v1's game_server_token is the DM
+  // one it always meant to be; the player token beside it is what player-facing fetches use,
+  // so the server's redactor — not the bot — decides what a player may see (plan §4).
+  `ALTER TABLE campaigns ADD COLUMN player_token TEXT`,
+  // v13: sessions — one row per table the bot opened (plan §3). ended_at NULL is the live
+  // one, and on boot it is also the list of observers to resume. recap is the accumulated
+  // JSON, written once at the end; recap_message_id is where it was posted.
+  //
+  // invite_code and live_message_id are here for that resume: a bot that restarts mid-session
+  // has to keep editing the board it already posted, and re-render a join link it cannot ask
+  // the server for (there is no route that reads a live session's code back out).
+  `
+    CREATE TABLE IF NOT EXISTS sessions (
+      goblin_session_id TEXT PRIMARY KEY,
+      campaign_id TEXT NOT NULL REFERENCES campaigns (goblin_campaign_id),
+      invite_code TEXT,
+      started_at INTEGER NOT NULL,
+      ended_at INTEGER,
+      recap TEXT,
+      live_message_id TEXT,
+      recap_message_id TEXT
+    )
+  `,
 ]

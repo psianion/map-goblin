@@ -12,6 +12,8 @@ export interface CampaignStatusInput {
   goldTotal: number
   calendarState: CalendarState | undefined
   rollStats: RollStats[]
+  /** Sessions the bot has run on the game server (plan §11 M5). */
+  sessionStats?: { played: number; lastStartedAt: number | null }
   /** Injected for deterministic "is the next session in the past" tests. */
   now?: number
 }
@@ -48,6 +50,12 @@ function leaderboardBlock(characters: Character[], rollStats: RollStats[]): stri
     .join('\n')
 }
 
+/** "7 — last on 2026-08-17", or the honest nothing before a first table. */
+function sessionsLine(stats: CampaignStatusInput['sessionStats']): string {
+  if (!stats || stats.played === 0 || stats.lastStartedAt === null) return 'None yet.'
+  return `**${stats.played}** — last on ${new Date(stats.lastStartedAt).toISOString().slice(0, 10)}`
+}
+
 export function campaignStatus(input: CampaignStatusInput): ContainerSpec {
   const now = input.now ?? Date.now()
   return {
@@ -59,8 +67,7 @@ export function campaignStatus(input: CampaignStatusInput): ContainerSpec {
       `**Calendar**: ${calendarLine(input.calendarState)}`,
       `**Next session**: ${nextSessionLine(input.campaign.nextSessionAt, now)}`,
       `**Dice leaderboard**\n${leaderboardBlock(input.characters, input.rollStats)}`,
-      // M5 insertion point: sessions-played / last-session-date come from the game server
-      // (observer-accumulated recap stats, plan §11 M5) — add a block here once that lands.
+      `**Sessions played**: ${sessionsLine(input.sessionStats)}`,
     ],
   }
 }

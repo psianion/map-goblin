@@ -13,6 +13,8 @@ import { createCampaigns, createFeedback, createNotes, createSchedulePolls } fro
 import { parseEnv, type Env } from '../src/env'
 import { rollExpression } from '../src/features/dice'
 import { toggleVote, winningOption } from '../src/features/schedule'
+import { PROTOCOL_VERSION } from '../src/goblin/observer'
+import { createSessionStats } from '../src/goblin/session-stats'
 import { renderCharacterCard } from '../src/render/card-kit'
 import { container } from '../src/lib/ui'
 
@@ -173,9 +175,60 @@ export function m4Checks(): Check[] {
   ]
 }
 
+/** Milestone 5 surface: the game-server bridge. The reachability row is the one check here
+ * that is *allowed* to fail in the log channel — a red line naming an unreachable server is
+ * exactly the deploy record this run exists to leave. */
+export function m5Checks(env: Env): Check[] {
+  return [
+    {
+      name: 'goblin server',
+      run: async () => {
+        const response = await fetch(`${env.GOBLIN_SERVER_URL.replace(/\/+$/, '')}/api/campaigns`, {
+          headers: { authorization: `Bearer ${env.GOBLIN_ADMIN_PASS}` },
+        })
+        if (!response.ok) throw new Error(`GET /api/campaigns answered ${response.status}`)
+        const body = (await response.json()) as { campaigns?: unknown[] }
+        return `reachable, ${body.campaigns?.length ?? 0} campaigns`
+      },
+    },
+    {
+      name: 'session recap accumulator',
+      run: async () => {
+        const stats = createSessionStats(0)
+        const scenes = [{ id: 'scene-1', name: 'Cragmaw Hideout', mapId: 'map-1' }]
+        stats.apply({
+          type: 'session-state',
+          state: {
+            protocolVersion: PROTOCOL_VERSION,
+            sessionId: 'smoke',
+            campaignId: 'smoke',
+            activeSceneId: 'scene-1',
+            scenes,
+            players: [{ identityId: 'p1', name: 'Smoke', role: 'player', connected: true }],
+          },
+        })
+        stats.apply({ type: 'doors', state: { byScene: { 'scene-1': { d1: door(false) } } } })
+        stats.apply({ type: 'doors', state: { byScene: { 'scene-1': { d1: door(true) } } } })
+        const recap = stats.recap(60_000)
+        if (recap.doorsOpened !== 1) throw new Error(`counted ${recap.doorsOpened} door opens, expected 1`)
+        if (recap.scenes.length !== 1) throw new Error('scene visit was not recorded')
+        return `${recap.scenes.join(', ')} · ${recap.doorsOpened} door · ${recap.players.join(', ')}`
+      },
+    },
+  ]
+}
+
+const door = (open: boolean) => ({ open, locked: false, revealed: true })
+
 async function main(): Promise<void> {
   const env = parseEnv()
-  const results = await runChecks([...m1Checks(env), ...m2Checks(), ...m3Checks(), ...m4Checks()])
+  const results = await runChecks([
+    ...m1Checks(env),
+    ...m2Checks(),
+    ...m3Checks(),
+    ...m4Checks(),
+    ...m5Checks(env),
+  ])
   const failed = results.filter((r) => !r.ok).length
   console.log(formatResults(results).join('\n'))
 

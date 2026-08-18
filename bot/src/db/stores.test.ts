@@ -12,7 +12,9 @@ import {
   createQuests,
   createRolls,
   createSchedulePolls,
+  createSessions,
   type CampaignInput,
+  type SessionRecap,
 } from './stores'
 
 const campaignInput: CampaignInput = {
@@ -28,8 +30,9 @@ describe('createCampaigns', () => {
   it('resolves a campaign by either the player or DM channel', () => {
     const campaigns = createCampaigns(openDb(':memory:'))
     campaigns.upsert(campaignInput)
-    expect(campaigns.byChannel('player-chan')).toEqual({ ...campaignInput, nextSessionAt: null })
-    expect(campaigns.byChannel('dm-chan')).toEqual({ ...campaignInput, nextSessionAt: null })
+    const stored = { ...campaignInput, nextSessionAt: null, serviceToken: null, playerToken: null }
+    expect(campaigns.byChannel('player-chan')).toEqual(stored)
+    expect(campaigns.byChannel('dm-chan')).toEqual(stored)
     expect(campaigns.byChannel('random')).toBeUndefined()
   })
 
@@ -55,6 +58,94 @@ describe('createCampaigns', () => {
     expect(updated.nextSessionAt).toBe(12345)
     const reupserted = campaigns.upsert({ ...campaignInput, name: 'Renamed' })
     expect(reupserted.nextSessionAt).toBe(12345)
+  })
+
+  it('setTokens stores both seats, and a re-run of setup keeps them until the next mint', () => {
+    const campaigns = createCampaigns(openDb(':memory:'))
+    campaigns.upsert(campaignInput)
+    expect(campaigns.byId('camp-1')).toMatchObject({ serviceToken: null, playerToken: null })
+
+    campaigns.setTokens('camp-1', 'dm-token', 'player-token')
+    expect(campaigns.upsert({ ...campaignInput, name: 'Renamed' })).toMatchObject({
+      serviceToken: 'dm-token',
+      playerToken: 'player-token',
+    })
+    expect(campaigns.setTokens('camp-1', 'fresh-dm', null).playerToken).toBeNull()
+  })
+})
+
+describe('createSessions', () => {
+  function sessionsStore() {
+    const db = openDb(':memory:')
+    createCampaigns(db).upsert(campaignInput)
+    return createSessions(db)
+  }
+
+  const recap: SessionRecap = {
+    scenes: ['The Vault'],
+    doorsOpened: 2,
+    durationMs: 60_000,
+    players: ['Zed'],
+    peakPlayers: 1,
+    calendarLine: 'Day 3',
+  }
+
+  it('starts live and round-trips the recap JSON', () => {
+    const sessions = sessionsStore()
+    const started = sessions.start('sess-1', 'camp-1', 'AB2CD3')
+    expect(started).toMatchObject({ inviteCode: 'AB2CD3', endedAt: null, recap: null })
+    expect(sessions.live().map((s) => s.goblinSessionId)).toEqual(['sess-1'])
+
+    const finished = sessions.finish('sess-1', recap, 5_000)
+    expect(finished.endedAt).toBe(5_000)
+    expect(finished.recap).toEqual(recap)
+    expect(sessions.live()).toEqual([])
+  })
+
+  it('refuses to re-measure a table that already ended', () => {
+    const sessions = sessionsStore()
+    sessions.start('sess-1', 'camp-1', 'AB2CD3')
+    sessions.finish('sess-1', recap, 5_000)
+    // /session end and the observer's session-ended both land; the first one wins.
+    const second = sessions.finish('sess-1', { ...recap, doorsOpened: 99 }, 9_000)
+    expect(second.endedAt).toBe(5_000)
+    expect(second.recap?.doorsOpened).toBe(2)
+  })
+
+  it('starting the same goblin session twice is not a second row', () => {
+    const sessions = sessionsStore()
+    sessions.start('sess-1', 'camp-1', 'AB2CD3')
+    sessions.start('sess-1', 'camp-1', 'AB2CD3')
+    expect(sessions.live()).toHaveLength(1)
+  })
+
+  it('remembers the two message refs a session leaves behind', () => {
+    const sessions = sessionsStore()
+    sessions.start('sess-1', 'camp-1', 'AB2CD3')
+    expect(sessions.setLiveMessageId('sess-1', 'msg-live').liveMessageId).toBe('msg-live')
+    expect(sessions.setRecapMessageId('sess-1', 'msg-recap').recapMessageId).toBe('msg-recap')
+  })
+
+  it('lastEnded is the most recent finished table, never the live one', () => {
+    const sessions = sessionsStore()
+    sessions.start('sess-1', 'camp-1', 'A')
+    sessions.finish('sess-1', recap, 1_000)
+    sessions.start('sess-2', 'camp-1', 'B')
+    sessions.finish('sess-2', { ...recap, scenes: ['Newer'] }, 2_000)
+    sessions.start('sess-3', 'camp-1', 'C')
+
+    expect(sessions.lastEnded('camp-1')?.goblinSessionId).toBe('sess-2')
+    expect(sessions.lastEnded('other')).toBeUndefined()
+  })
+
+  it('counts sessions played and when the last one started', () => {
+    const sessions = sessionsStore()
+    expect(sessions.stats('camp-1')).toEqual({ played: 0, lastStartedAt: null })
+    sessions.start('sess-1', 'camp-1', 'A')
+    sessions.start('sess-2', 'camp-1', 'B')
+    const stats = sessions.stats('camp-1')
+    expect(stats.played).toBe(2)
+    expect(stats.lastStartedAt).toBeGreaterThan(0)
   })
 })
 
