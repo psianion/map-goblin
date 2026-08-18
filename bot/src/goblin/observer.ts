@@ -40,9 +40,57 @@ export interface DoorFlags {
   revealed: boolean
 }
 
+/** One table-log line, as doors and fog carry them: an id, a verb and a target id — the
+ * words are the reader's side (session-log.ts, same split as the table client). */
+export interface WireLogEntry {
+  id: string
+  at: number
+  /** Server-stamped roster name of the seat that acted. */
+  actor: string
+  action: string
+  sceneId: string
+  targetId?: string
+}
+
 /** The `doors` module's whole state, as it arrives on every state-update. */
 export interface DoorsState {
   byScene: Record<string, Record<string, DoorFlags>>
+  log?: WireLogEntry[]
+}
+
+/** One dice roll (or typed post) off the `rolls` module's log. Every string was capped and
+ * stamped server-side; the bot only prints them. */
+export interface WireRollEvent {
+  id: string
+  at: number
+  playerName?: string
+  characterName?: string
+  title?: string
+  formula?: string
+  breakdown?: string
+  text?: string
+  total?: number
+  visibility?: string
+}
+
+export interface RollsState {
+  log?: WireRollEvent[]
+}
+
+/** Fog carries the same log shape as doors; its per-scene fog facts are nobody's here. */
+export interface FogState {
+  log?: WireLogEntry[]
+}
+
+/** A trigger's log line arrives with its sentence already written server-side. */
+export interface WireTriggerEntry {
+  id: string
+  at: number
+  text: string
+}
+
+export interface TriggersState {
+  byScene?: Record<string, { log?: WireTriggerEntry[] }>
 }
 
 /** A placed token, narrowed to the fields the map snapshot draws (plan §5). */
@@ -74,6 +122,10 @@ export type GoblinEvent =
   | { type: 'doors'; state: DoorsState }
   /** Where everyone is standing — the overlay `/map` and the recap snapshot draw (§5). */
   | { type: 'tokens'; state: TokensState }
+  /** The session thread's feed (session-log.ts): dice, fog lines, trigger text. */
+  | { type: 'rolls'; state: RollsState }
+  | { type: 'fog'; state: FogState }
+  | { type: 'triggers'; state: TriggersState }
   /** The socket went away. `fatal` means it is not coming back — a version the bot cannot
    *  speak — so the caller should surface it rather than wait for a reconnect. */
   | { type: 'closed'; fatal: boolean }
@@ -264,6 +316,10 @@ function toEvent(message: Record<string, unknown>): GoblinEvent | null {
     case 'state-update':
       if (message.module === 'doors') return { type: 'doors', state: message.state as DoorsState }
       if (message.module === 'tokens') return { type: 'tokens', state: message.state as TokensState }
+      if (message.module === 'rolls') return { type: 'rolls', state: message.state as RollsState }
+      if (message.module === 'fog') return { type: 'fog', state: message.state as FogState }
+      if (message.module === 'triggers')
+        return { type: 'triggers', state: message.state as TriggersState }
       return null
     default:
       return null

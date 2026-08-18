@@ -931,6 +931,8 @@ export interface BotSession {
   /** The live board being edited in place, so a restart keeps editing it. */
   liveMessageId: string | null
   recapMessageId: string | null
+  /** The session's log thread under the DM channel — kept for the same restart reason. */
+  logThreadId: string | null
 }
 
 /** What the observer's accumulator produced — stored verbatim so "Previously on…" and
@@ -956,6 +958,7 @@ export interface Sessions {
   finish: (goblinSessionId: string, recap: SessionRecap, endedAt?: number) => BotSession
   setLiveMessageId: (goblinSessionId: string, messageId: string) => BotSession
   setRecapMessageId: (goblinSessionId: string, messageId: string) => BotSession
+  setLogThreadId: (goblinSessionId: string, threadId: string) => BotSession
   /** Sessions played and when the last one started — `/campaign status`'s M5 block. */
   stats: (campaignId: string) => { played: number; lastStartedAt: number | null }
 }
@@ -969,10 +972,11 @@ interface BotSessionRow {
   recap: string | null
   live_message_id: string | null
   recap_message_id: string | null
+  log_thread_id: string | null
 }
 
 const SESSION_COLUMNS =
-  'goblin_session_id, campaign_id, invite_code, started_at, ended_at, recap, live_message_id, recap_message_id'
+  'goblin_session_id, campaign_id, invite_code, started_at, ended_at, recap, live_message_id, recap_message_id, log_thread_id'
 
 function toBotSession(row: BotSessionRow): BotSession {
   return {
@@ -984,6 +988,7 @@ function toBotSession(row: BotSessionRow): BotSession {
     recap: row.recap ? (JSON.parse(row.recap) as SessionRecap) : null,
     liveMessageId: row.live_message_id,
     recapMessageId: row.recap_message_id,
+    logThreadId: row.log_thread_id,
   }
 }
 
@@ -1019,6 +1024,9 @@ export function createSessions(db: Database): Sessions {
   const setMessageStmt = db.prepare<[string, string]>(
     'UPDATE sessions SET recap_message_id = ? WHERE goblin_session_id = ?',
   )
+  const setLogThreadStmt = db.prepare<[string, string]>(
+    'UPDATE sessions SET log_thread_id = ? WHERE goblin_session_id = ?',
+  )
   const statsStmt = db.prepare<[string], { played: number; last_started_at: number | null }>(
     'SELECT count(*) AS played, max(started_at) AS last_started_at FROM sessions WHERE campaign_id = ?',
   )
@@ -1047,6 +1055,10 @@ export function createSessions(db: Database): Sessions {
     },
     setRecapMessageId: (goblinSessionId, messageId) => {
       setMessageStmt.run(messageId, goblinSessionId)
+      return toBotSession(byIdStmt.get(goblinSessionId)!)
+    },
+    setLogThreadId: (goblinSessionId, threadId) => {
+      setLogThreadStmt.run(threadId, goblinSessionId)
       return toBotSession(byIdStmt.get(goblinSessionId)!)
     },
     stats: (campaignId) => {

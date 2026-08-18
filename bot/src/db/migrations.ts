@@ -175,4 +175,7 @@ export const MIGRATIONS: readonly string[] = [
       recap_message_id TEXT
     )
   `,
+  // v14: the session's log thread under the DM channel — stored for the same reason as
+  // live_message_id: a bot that restarts mid-session keeps writing into the thread it opened.
+  `ALTER TABLE sessions ADD COLUMN log_thread_id TEXT`,
 ]

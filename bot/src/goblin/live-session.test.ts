@@ -32,6 +32,7 @@ function harness(
      *  and before the caller learns the message id — so a test can model an observer event
      *  landing during that Discord round-trip. */
     onAnnounce?: (spec: ContainerSpec) => void
+    createThread?: (channelId: string, name: string) => Promise<{ threadId: string } | undefined>
   } = {},
 ) {
   const warn = vi.fn()
@@ -53,6 +54,8 @@ function harness(
   const edited: Edited[] = []
   const observers: { emit: (event: GoblinEvent) => void; stopped: () => boolean }[] = []
   const endCalls: string[] = []
+  const threads: { channelId: string; name: string }[] = []
+  const archived: string[] = []
 
   const runner = createSessionRunner({
     publicTableUrl: 'https://table.example',
@@ -79,6 +82,15 @@ function harness(
     edit: async (channelId, messageId, spec) => {
       edited.push({ channelId, messageId, spec })
     },
+    createThread:
+      over.createThread ??
+      (async (channelId, name) => {
+        threads.push({ channelId, name })
+        return { threadId: `thread-${threads.length}` }
+      }),
+    archiveThread: async (threadId) => {
+      archived.push(threadId)
+    },
     createObserver: () => {
       const listeners = new Set<(event: GoblinEvent) => void>()
       let stopped = false
@@ -99,7 +111,7 @@ function harness(
     logger: { warn, info: vi.fn() },
   })
 
-  return { runner, campaign, campaigns, sessions, characters, posted, edited, observers, endCalls, warn }
+  return { runner, campaign, campaigns, sessions, characters, posted, edited, observers, endCalls, threads, archived, warn }
 }
 
 const snapshot: GoblinEvent = {
@@ -242,7 +254,8 @@ describe('session runner', () => {
     const row = sessions.byId('sess-1')!
     expect(row.endedAt).not.toBeNull()
     expect(row.recap).toMatchObject({ scenes: ['Cragmaw Hideout'], doorsOpened: 1, players: ['Zed'] })
-    expect(row.recapMessageId).toBe('msg-2')
+    // msg-1 was the board, msg-2 the thread's closing line — the recap is the third send.
+    expect(row.recapMessageId).toBe('msg-3')
     expect(posted.at(-1)?.spec.header).toContain('Session recap')
     // The board stops advertising a table that is over.
     expect(text(edited.at(-1)!.spec)).toContain('Doors opened')
@@ -350,9 +363,10 @@ describe('session runner', () => {
     })
     await runner.end(campaign)
 
-    // The *player* seat, so the snapshot is the party's own map even though the observer
-    // watches with the DM's.
-    expect(asked).toEqual(['player-token/scene-1'])
+    // The log's name lookup fetched with the DM seat first; the recap snapshot itself is the
+    // *player* seat, so the picture is the party's own map even though the observer watches
+    // with the DM's.
+    expect(asked).toEqual(['dm-token/scene-1', 'player-token/scene-1'])
     const recap = posted.at(-1)!
     expect(recap.spec.header).toContain('Session recap')
     expect(recap.spec.media).toEqual(['attachment://map.png'])
@@ -373,7 +387,7 @@ describe('session runner', () => {
     expect(posted.at(-1)!.spec.header).toContain('Session recap')
     expect(posted.at(-1)!.spec.media).toBeUndefined()
     expect(posted.at(-1)!.files).toBeUndefined()
-    expect(sessions.byId('sess-1')?.recapMessageId).toBe('msg-2')
+    expect(sessions.byId('sess-1')?.recapMessageId).toBe('msg-3')
     expect(warn).toHaveBeenCalledWith('recap map snapshot failed', expect.anything())
   })
 
@@ -397,6 +411,103 @@ describe('session runner', () => {
       tokens: [{ id: 't1', name: 'Zed', x: 1, y: 2, cells: 2, disposition: 'hostile', hidden: true }],
     })
     expect(runner.liveState('camp-nope')).toBeUndefined()
+  })
+
+  // ── the session log thread ──────────────────────────────────────────────────────────────
+
+  const rollEvent = (id: string, total: number, at = 1_000): GoblinEvent => ({
+    type: 'rolls',
+    state: { log: [{ id, at, playerName: 'Zed', total, visibility: 'public' }] },
+  })
+
+  it('opens a thread under the DM channel and mirrors table log lines into it', async () => {
+    const { runner, campaign, sessions, threads, posted, observers } = harness()
+    await runner.start(campaign)
+
+    expect(threads).toEqual([{ channelId: 'dm-chan', name: expect.stringContaining('Session AB2CD3') }])
+    expect(sessions.byId('sess-1')?.logThreadId).toBe('thread-1')
+
+    observers[0].emit(snapshot)
+    observers[0].emit(rollEvent('r1', 17))
+    await settle()
+
+    const threadPosts = posted.filter((p) => p.channelId === 'thread-1')
+    expect(threadPosts).toHaveLength(1)
+    expect(text(threadPosts[0].spec)).toContain('**Zed**')
+    expect(text(threadPosts[0].spec)).toContain('**17**')
+  })
+
+  it('never replays the campaign tail the join snapshot carries', async () => {
+    const { runner, campaign, posted, observers } = harness()
+    await runner.start(campaign)
+    observers[0].emit({
+      ...snapshot,
+      state: {
+        ...(snapshot as Extract<GoblinEvent, { type: 'session-state' }>).state,
+        modules: { rolls: { log: [{ id: 'old-1', at: 5, playerName: 'Zed', total: 20, visibility: 'public' }] } },
+      },
+    })
+    vi.advanceTimersByTime(EMBED_EDIT_MS * 2)
+    await settle()
+    expect(posted.filter((p) => p.channelId === 'thread-1')).toHaveLength(0)
+  })
+
+  it('batches a busy window into one trailing post', async () => {
+    const { runner, campaign, posted, observers } = harness()
+    await runner.start(campaign)
+    observers[0].emit(snapshot)
+    observers[0].emit(rollEvent('r1', 17))
+    await settle()
+    observers[0].emit(rollEvent('r2', 3, 2_000))
+    observers[0].emit(rollEvent('r3', 9, 3_000))
+    vi.advanceTimersByTime(EMBED_EDIT_MS)
+    await settle()
+
+    const threadPosts = posted.filter((p) => p.channelId === 'thread-1')
+    expect(threadPosts).toHaveLength(2)
+    // The trailing post carries both lines that landed inside the window, in table order.
+    expect(text(threadPosts[1].spec)).toContain('**3**')
+    expect(text(threadPosts[1].spec)).toContain('**9**')
+  })
+
+  it('drains, says the session ended and archives the thread on end', async () => {
+    const { runner, campaign, posted, archived, observers } = harness()
+    await runner.start(campaign)
+    observers[0].emit(snapshot)
+    observers[0].emit(rollEvent('r1', 17))
+    await settle()
+    await runner.end(campaign)
+
+    const threadPosts = posted.filter((p) => p.channelId === 'thread-1')
+    expect(text(threadPosts.at(-1)!.spec)).toContain('Session ended')
+    expect(archived).toEqual(['thread-1'])
+  })
+
+  it('resumes into the thread it already opened, never a new one', async () => {
+    const { runner, sessions, threads, posted, observers } = harness()
+    sessions.start('sess-old', 'camp-1', 'QQ7QQ7')
+    sessions.setLogThreadId('sess-old', 'thread-old')
+    runner.resume()
+
+    observers[0].emit(snapshot)
+    observers[0].emit(rollEvent('r1', 17))
+    await settle()
+
+    expect(threads).toHaveLength(0)
+    expect(posted.filter((p) => p.channelId === 'thread-old')).toHaveLength(1)
+  })
+
+  it('runs the session without a thread when the channel cannot hold one', async () => {
+    const { runner, campaign, posted, edited, observers } = harness({ createThread: async () => undefined })
+    await runner.start(campaign)
+    observers[0].emit(snapshot)
+    observers[0].emit(rollEvent('r1', 17))
+    vi.advanceTimersByTime(EMBED_EDIT_MS * 2)
+    await settle()
+
+    // No thread, no post — and the board keeps working as if nothing happened.
+    expect(posted.filter((p) => p.channelId.startsWith('thread'))).toHaveLength(0)
+    expect(edited.length).toBeGreaterThan(0)
   })
 
   it('refuses to start without a game-server token', async () => {

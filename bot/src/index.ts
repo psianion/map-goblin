@@ -1,7 +1,7 @@
 // Boot, and the only file in the package with import-time side effects. Everything it
 // wires is a pure or DI-friendly export, which is why none of it needs Discord to be tested.
 
-import { AttachmentBuilder, Events, MessageFlags } from 'discord.js'
+import { AttachmentBuilder, ChannelType, Events, MessageFlags } from 'discord.js'
 import { join } from 'node:path'
 import { WebSocket } from 'ws'
 import { createClient } from './bot/client'
@@ -76,6 +76,20 @@ const edit = async (channelId: string, messageId: string, spec: ContainerSpec): 
   await message.edit({ components: [container(spec)], flags: MessageFlags.IsComponentsV2 })
 }
 
+// The session's log thread (plan §4's stream, threaded). announce() itself needs no thread
+// handling — channels.fetch resolves a thread id like any channel id.
+const createThread = async (channelId: string, name: string): Promise<{ threadId: string } | undefined> => {
+  const channel = await client.channels.fetch(channelId)
+  if (channel?.type !== ChannelType.GuildText) return undefined
+  const thread = await channel.threads.create({ name })
+  return { threadId: thread.id }
+}
+
+const archiveThread = async (threadId: string): Promise<void> => {
+  const channel = await client.channels.fetch(threadId)
+  if (channel?.isThread()) await channel.setArchived(true)
+}
+
 const sessionRunner = createSessionRunner({
   publicTableUrl: env.PUBLIC_TABLE_URL,
   rest: goblin,
@@ -84,6 +98,8 @@ const sessionRunner = createSessionRunner({
   characters,
   announce,
   edit,
+  createThread,
+  archiveThread,
   createObserver: (token) =>
     createObserver({
       baseUrl: env.GOBLIN_SERVER_URL,

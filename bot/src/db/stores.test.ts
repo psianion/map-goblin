@@ -126,6 +126,13 @@ describe('createSessions', () => {
     expect(sessions.setRecapMessageId('sess-1', 'msg-recap').recapMessageId).toBe('msg-recap')
   })
 
+  it('remembers the log thread, and starts without one', () => {
+    const sessions = sessionsStore()
+    expect(sessions.start('sess-1', 'camp-1', 'AB2CD3').logThreadId).toBeNull()
+    expect(sessions.setLogThreadId('sess-1', 'thread-1').logThreadId).toBe('thread-1')
+    expect(sessions.byId('sess-1')?.logThreadId).toBe('thread-1')
+  })
+
   it('lastEnded is the most recent finished table, never the live one', () => {
     const sessions = sessionsStore()
     sessions.start('sess-1', 'camp-1', 'A')

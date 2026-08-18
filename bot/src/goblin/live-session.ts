@@ -19,6 +19,7 @@ import { mapSvg, type MapToken } from '../render/map-svg'
 import { rasterize } from '../render/raster'
 import type { Observer } from './observer'
 import type { GoblinRest } from './rest'
+import { chunkLines, createSessionLog, mapNames, type LogLine } from './session-log'
 import { createSessionStats, type SessionStats } from './session-stats'
 
 /** Plan §8: at most one edit per five seconds, so a busy table cannot spend the rate limit. */
@@ -41,6 +42,10 @@ export interface SessionRunnerDeps {
     files?: AttachedFile[],
   ) => Promise<{ messageId: string } | undefined>
   edit: (channelId: string, messageId: string, spec: ContainerSpec) => Promise<void>
+  /** The session's log thread under the DM channel. Undefined when the channel cannot hold
+   * one — the session then simply runs without a thread. */
+  createThread: (channelId: string, name: string) => Promise<{ threadId: string } | undefined>
+  archiveThread: (threadId: string) => Promise<void>
   /** Injected so tests drive a fake socket and index.ts owns the `ws` dependency. */
   createObserver: (token: string) => Observer
   campaignById: (campaignId: string) => Campaign | undefined
@@ -63,11 +68,20 @@ export interface SessionRunner {
 /** The recap's map file name; `media` references it as `attachment://` (plan §7). */
 export const SNAPSHOT_FILE = 'map.png'
 
+/** "Session AB2CD3 — Aug 18": the code the table joined with, so the DM channel's thread
+ * list reads as a campaign history. */
+export const threadName = (row: BotSession): string =>
+  `Session ${row.inviteCode ?? row.goblinSessionId.slice(0, 6)} — ${new Date(row.startedAt).toLocaleDateString(
+    'en-US',
+    { month: 'short', day: 'numeric' },
+  )}`
+
 interface Running {
   campaign: Campaign
   stats: SessionStats
   observer: Observer
   refresh: Throttled
+  logFlush: Throttled
   /** Only set for a resumed session: a live one has a socket that already worked. */
   deadTries: number | null
   /** Flushes a refresh that fired — and found no live message id yet, so did nothing — before
@@ -75,6 +89,10 @@ interface Running {
    *  round-trip, and without this the throttle's one guaranteed leading edge is spent on
    *  nothing, silently, with nothing left to retry it until the next unrelated event. */
   flushIfMissed: () => void
+  /** The log-thread twin of flushIfMissed: lines that arrived before the thread existed. */
+  flushLogIfMissed: () => void
+  /** Everything still buffered, posted now — finalize's last write before archiving. */
+  drainLog: () => Promise<void>
 }
 
 export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
@@ -112,15 +130,56 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
       )
     })
 
+    // The thread's feed. Door and fog lines carry ids; the words need the DM map's names, so
+    // each scene's document is fetched once, in the background — a line that lands before its
+    // map reads as "a door", the same degraded sentence a player without the name would get.
+    const names = new Map<string, string>()
+    const namedScenes = new Set<string>()
+    const loadNames = async (sceneId: string | null): Promise<void> => {
+      if (!sceneId || namedScenes.has(sceneId)) return
+      namedScenes.add(sceneId)
+      try {
+        const doc = await deps.rest.getMap(tokenOf(campaign), sceneId)
+        for (const [id, name] of mapNames(doc)) names.set(id, name)
+      } catch (error) {
+        logger.warn('log name lookup failed', { scene: sceneId, error: String(error) })
+      }
+    }
+    const sessionLog = createSessionLog((id) => names.get(id))
+    const logBuffer: LogLine[] = []
+    const postLogLines = async (threadId: string, lines: LogLine[]): Promise<void> => {
+      const texts = lines.sort((a, b) => a.at - b.at).map((line) => line.text)
+      for (const block of chunkLines(texts)) await deps.announce(threadId, { blocks: [block] })
+    }
+    let logMissedThread = false
+    const logFlush = throttle(deps.throttleMs ?? EMBED_EDIT_MS, () => {
+      const threadId = deps.sessions.byId(row.goblinSessionId)?.logThreadId
+      if (!threadId) {
+        logMissedThread = true
+        return
+      }
+      void postLogLines(threadId, logBuffer.splice(0)).catch((error: unknown) =>
+        logger.warn('log thread post failed', { error: String(error) }),
+      )
+    })
+
     const observer = deps.createObserver(tokenOf(campaign))
     const entry: Running = {
       campaign,
       stats,
       observer,
       refresh,
+      logFlush,
       deadTries: resumed ? 0 : null,
       flushIfMissed: () => {
         if (missedBeforeReady) refresh.call()
+      },
+      flushLogIfMissed: () => {
+        if (logMissedThread) logFlush.call()
+      },
+      drainLog: async () => {
+        const threadId = deps.sessions.byId(row.goblinSessionId)?.logThreadId
+        if (threadId && logBuffer.length) await postLogLines(threadId, logBuffer.splice(0))
       },
     }
     running.set(row.goblinSessionId, entry)
@@ -146,6 +205,13 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
         })
       }
       stats.apply(event)
+      if (event.type === 'session-state') void loadNames(event.state.activeSceneId)
+      if (event.type === 'scene-changed') void loadNames(event.sceneId)
+      const lines = sessionLog.apply(event)
+      if (lines.length) {
+        logBuffer.push(...lines)
+        logFlush.call()
+      }
       if (event.type === 'session-ended') void finalize(campaign, row.goblinSessionId)
       else refresh.call()
     })
@@ -161,6 +227,7 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
   async function finalize(campaign: Campaign, sessionId: string): Promise<SessionRecap> {
     const entry = running.get(sessionId)
     entry?.refresh.cancel()
+    entry?.logFlush.cancel()
     entry?.observer.stop()
     running.delete(sessionId)
 
@@ -190,6 +257,21 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
       .byCampaign(campaign.goblinCampaignId)
       .filter((c) => playerNames.has(c.name.toLowerCase()))
     if (played.length) deps.characters.touchLastPlayed(played.map((c) => c.id), row.endedAt ?? Date.now())
+
+    // The thread gets its last lines, a closing word, and the archive — before the recap, so
+    // the recap stays the campaign channel's final word, and best-effort all the way down: a
+    // thread that cannot be closed out is not worth losing a recap over.
+    if (row.logThreadId) {
+      await entry
+        ?.drainLog()
+        .catch((error: unknown) => logger.warn('log thread drain failed', { error: String(error) }))
+      await deps
+        .announce(row.logThreadId, { blocks: ['*Session ended.*'] })
+        .catch((error: unknown) => logger.warn('log thread close-out failed', { error: String(error) }))
+      await deps
+        .archiveThread(row.logThreadId)
+        .catch((error: unknown) => logger.warn('log thread archive failed', { error: String(error) }))
+    }
 
     // The evening's last map, inside the recap rather than beside it (plan §7). The render
     // reaches the game server, so it is the one part of a recap that can fail — and a lost
@@ -240,6 +322,18 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
         deps.sessions.setLiveMessageId(row.goblinSessionId, sent.messageId)
         entry.flushIfMissed()
       }
+      // The session thread, under the DM channel: every table log line lands in it, private
+      // rolls and secret doors included, which is exactly why it is not in the player channel.
+      const thread = await deps
+        .createThread(campaign.dmChannelId, threadName(row))
+        .catch((error: unknown) => {
+          logger.warn('log thread creation failed', { error: String(error) })
+          return undefined
+        })
+      if (thread) {
+        deps.sessions.setLogThreadId(row.goblinSessionId, thread.threadId)
+        entry.flushLogIfMissed()
+      }
       logger.info('session opened', { campaign: campaign.goblinCampaignId, session: row.goblinSessionId })
       return { session: row, joinLink: joinUrl(deps.publicTableUrl, opened.inviteCode) }
     },
@@ -268,6 +362,7 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
     stopAll: () => {
       for (const entry of running.values()) {
         entry.refresh.cancel()
+        entry.logFlush.cancel()
         entry.observer.stop()
       }
       running.clear()

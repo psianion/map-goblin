@@ -120,6 +120,7 @@ function depsFor(registry: Registry, overrides: Partial<RouterDeps> = {}): Route
       finish: unused,
       setLiveMessageId: unused,
       setRecapMessageId: unused,
+      setLogThreadId: unused,
       stats: () => ({ played: 0, lastStartedAt: null }),
     },
     lfgChannelId: 'lfg-chan',
