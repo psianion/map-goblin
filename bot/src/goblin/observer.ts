@@ -94,7 +94,7 @@ export interface ObserverOptions {
   /** Ping interval; a heartbeat that finds the previous pong still missing hangs up. */
   heartbeatMs?: number
   maxBackoffMs?: number
-  logger?: Pick<typeof defaultLog, 'warn'>
+  logger?: Pick<typeof defaultLog, 'warn' | 'info'>
 }
 
 export interface Observer {
@@ -148,6 +148,7 @@ export function createObserver(options: ObserverOptions): Observer {
     if (stopped || fatal) return
     attempts += 1
     const delay = Math.min(maxBackoffMs, FIRST_BACKOFF_MS * 2 ** (attempts - 1))
+    logger.info('goblin observer reconnect attempt', { attempt: attempts, delayMs: delay })
     retry = setTimeout(connect, delay)
   }
 
@@ -169,6 +170,7 @@ export function createObserver(options: ObserverOptions): Observer {
     current.on('open', () => {
       // The join frame has to be first or the server refuses everything after it.
       current.send(JSON.stringify({ type: 'join', protocolVersion: PROTOCOL_VERSION }))
+      logger.info('goblin observer connected', { attempt: attempts })
       awaitingPong = false
       heartbeat = setInterval(() => {
         if (awaitingPong) {

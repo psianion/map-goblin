@@ -24,7 +24,16 @@ interface Edited extends Posted {
   messageId: string
 }
 
-function harness(over: { openSession?: GoblinRest['openSession']; getMap?: GoblinRest['getMap'] } = {}) {
+function harness(
+  over: {
+    openSession?: GoblinRest['openSession']
+    getMap?: GoblinRest['getMap']
+    /** Fires synchronously while an announce() is "in flight" — before its promise resolves
+     *  and before the caller learns the message id — so a test can model an observer event
+     *  landing during that Discord round-trip. */
+    onAnnounce?: (spec: ContainerSpec) => void
+  } = {},
+) {
   const warn = vi.fn()
   const db = openDb(':memory:')
   const campaigns = createCampaigns(db)
@@ -61,6 +70,7 @@ function harness(over: { openSession?: GoblinRest['openSession']; getMap?: Gobli
     sessions,
     calendar: createCalendar(db),
     announce: async (channelId, spec, files) => {
+      over.onAnnounce?.(spec)
       posted.push({ channelId, spec, files })
       return { messageId: `msg-${posted.length}` }
     },
@@ -189,6 +199,27 @@ describe('session runner', () => {
     expect(edited).toHaveLength(2)
     // The trailing edit carries the newest state, not the one that scheduled it.
     expect(text(edited[1].spec)).toContain('Mira')
+  })
+
+  it('shows the scene from the initial session-state snapshot, with no scene option at start', async () => {
+    // The observer's session-state snapshot reliably beats the Discord round-trip that posts
+    // the board — a local socket vs. a remote HTTP call. This fires it mid-flight, before the
+    // live message id is known, which is exactly the race the fix has to survive.
+    const { runner, campaign, edited, observers } = harness({
+      onAnnounce: (spec) => {
+        if (spec.header?.startsWith('Live')) observers[0]?.emit(snapshot)
+      },
+    })
+    await runner.start(campaign) // no sceneId option passed
+    vi.advanceTimersByTime(EMBED_EDIT_MS)
+
+    expect(edited).toHaveLength(1)
+    expect(text(edited[0].spec)).toContain('Cragmaw Hideout')
+
+    // A later scene-changed still updates it, even to a scene the snapshot never named.
+    observers[0].emit({ type: 'scene-changed', sceneId: 'scene-2' })
+    vi.advanceTimersByTime(EMBED_EDIT_MS)
+    expect(text(edited.at(-1)!.spec)).toContain('scene-2')
   })
 
   it('finishes on the server\'s session-ended: recap stored, posted, observer stopped', async () => {

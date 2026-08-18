@@ -69,6 +69,11 @@ interface Running {
   refresh: Throttled
   /** Only set for a resumed session: a live one has a socket that already worked. */
   deadTries: number | null
+  /** Flushes a refresh that fired — and found no live message id yet, so did nothing — before
+   *  the initial announce() finished. The observer's own snapshot routinely beats that Discord
+   *  round-trip, and without this the throttle's one guaranteed leading edge is spent on
+   *  nothing, silently, with nothing left to retry it until the next unrelated event. */
+  flushIfMissed: () => void
 }
 
 export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
@@ -93,16 +98,30 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
 
   function attach(campaign: Campaign, row: BotSession, resumed: boolean): Running {
     const stats = createSessionStats(row.startedAt)
+    let missedBeforeReady = false
     const refresh = throttle(deps.throttleMs ?? EMBED_EDIT_MS, () => {
       const current = deps.sessions.byId(row.goblinSessionId)
-      if (!current?.liveMessageId || current.endedAt !== null) return
+      if (!current?.liveMessageId) {
+        missedBeforeReady = true
+        return
+      }
+      if (current.endedAt !== null) return
       void deps.edit(campaign.channelId, current.liveMessageId, boardFor(campaign, current, stats)).catch(
         (error: unknown) => logger.warn('live board edit failed', { error: String(error) }),
       )
     })
 
     const observer = deps.createObserver(tokenOf(campaign))
-    const entry: Running = { campaign, stats, observer, refresh, deadTries: resumed ? 0 : null }
+    const entry: Running = {
+      campaign,
+      stats,
+      observer,
+      refresh,
+      deadTries: resumed ? 0 : null,
+      flushIfMissed: () => {
+        if (missedBeforeReady) refresh.call()
+      },
+    }
     running.set(row.goblinSessionId, entry)
 
     observer.subscribe((event) => {
@@ -110,12 +129,21 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
         if (event.fatal) void finalize(campaign, row.goblinSessionId)
         // A resumed session whose socket never opens is a table the server already closed:
         // the upgrade refuses a token bound to a campaign with no active session.
-        else if (entry.deadTries !== null && ++entry.deadTries >= RESUME_GIVE_UP)
+        else if (entry.deadTries !== null && ++entry.deadTries >= RESUME_GIVE_UP) {
+          logger.info('gave up resuming session', { session: row.goblinSessionId, attempts: entry.deadTries })
           void finalize(campaign, row.goblinSessionId)
+        }
         return
       }
       // Any frame at all proves the table is still there.
       entry.deadTries = null
+      if (event.type === 'session-state') {
+        logger.info('session-state snapshot received', {
+          session: row.goblinSessionId,
+          activeSceneId: event.state.activeSceneId,
+          players: event.state.players?.length ?? 0,
+        })
+      }
       stats.apply(event)
       if (event.type === 'session-ended') void finalize(campaign, row.goblinSessionId)
       else refresh.call()
@@ -144,6 +172,12 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
       calendarLine: calendarLine(deps.calendar.get(campaign.goblinCampaignId)),
     }
     const row = deps.sessions.finish(sessionId, recap)
+    logger.info('session finalized', {
+      session: sessionId,
+      doors: recap.doorsOpened,
+      scenes: recap.scenes.length,
+      durationMs: recap.durationMs,
+    })
 
     // The evening's last map, inside the recap rather than beside it (plan §7). The render
     // reaches the game server, so it is the one part of a recap that can fail — and a lost
@@ -190,7 +224,11 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
 
       const entry = attach(campaign, row, false)
       const sent = await deps.announce(campaign.channelId, boardFor(campaign, row, entry.stats))
-      if (sent) deps.sessions.setLiveMessageId(row.goblinSessionId, sent.messageId)
+      if (sent) {
+        deps.sessions.setLiveMessageId(row.goblinSessionId, sent.messageId)
+        entry.flushIfMissed()
+      }
+      logger.info('session opened', { campaign: campaign.goblinCampaignId, session: row.goblinSessionId })
       return { session: row, joinLink: joinUrl(deps.publicTableUrl, opened.inviteCode) }
     },
 

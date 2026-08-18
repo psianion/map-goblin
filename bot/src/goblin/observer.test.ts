@@ -52,7 +52,7 @@ function harness(options: { heartbeatMs?: number } = {}) {
       return socket
     },
     heartbeatMs: options.heartbeatMs ?? 30_000,
-    logger: { warn: vi.fn() },
+    logger: { warn: vi.fn(), info: vi.fn() },
   })
   observer.subscribe((event) => events.push(event))
   return { sockets, events, observer, latest: () => sockets[sockets.length - 1] }
