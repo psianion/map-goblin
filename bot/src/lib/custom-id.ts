@@ -5,6 +5,12 @@
 /** Discord's hard cap on custom_id. Overflowing it fails at send time, in production. */
 export const MAX_CUSTOM_ID = 100
 
+/** Owner-stamp sentinel for a control the whole party may click (poll votes, LFG apply).
+ * The router skips the owner check for this stamp; the component handler is responsible
+ * for its own auth (campaign membership, DM identity, etc). Everything else keeps the
+ * strict "only the stamped user" default. */
+export const SHARED_OWNER = '*'
+
 export interface CustomId {
   namespace: string
   action: string

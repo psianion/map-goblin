@@ -17,15 +17,23 @@ export interface Campaign {
   dmDiscordId: string
   /** Discord role id that marks a campaign member. */
   roleId: string
+  /** Set by /schedule's poll close (plan §11 M4). Null until a poll has ever closed. */
+  nextSessionAt: number | null
 }
 
-export type CampaignInput = Campaign
+/** `/campaign setup` never touches the schedule — nextSessionAt is upsert-preserved, not input. */
+export type CampaignInput = Omit<Campaign, 'nextSessionAt'>
 
 export interface Campaigns {
   /** The campaign a channel belongs to — player or DM channel. Undefined outside a campaign. */
   byChannel: (channelId: string) => Campaign | undefined
-  /** Keyed on goblinCampaignId — re-running `/campaign setup` updates the same row. */
+  /** Keyed on goblinCampaignId — for lookups that aren't channel-resolved (/apply, LFG). */
+  byId: (goblinCampaignId: string) => Campaign | undefined
+  /** Keyed on goblinCampaignId — re-running `/campaign setup` updates the same row and
+   * leaves nextSessionAt untouched. */
   upsert: (input: CampaignInput) => Campaign
+  /** Writes the winning poll date (plan §11 M4's /schedule close). */
+  setNextSession: (goblinCampaignId: string, at: number) => Campaign
 }
 
 interface CampaignRow {
@@ -35,9 +43,11 @@ interface CampaignRow {
   dm_channel_id: string
   dm_discord_id: string
   role_id: string
+  next_session_at: number | null
 }
 
-const CAMPAIGN_COLUMNS = 'goblin_campaign_id, name, channel_id, dm_channel_id, dm_discord_id, role_id'
+const CAMPAIGN_COLUMNS =
+  'goblin_campaign_id, name, channel_id, dm_channel_id, dm_discord_id, role_id, next_session_at'
 
 function toCampaign(row: CampaignRow): Campaign {
   return {
@@ -47,12 +57,16 @@ function toCampaign(row: CampaignRow): Campaign {
     dmChannelId: row.dm_channel_id,
     dmDiscordId: row.dm_discord_id,
     roleId: row.role_id,
+    nextSessionAt: row.next_session_at,
   }
 }
 
 export function createCampaigns(db: Database): Campaigns {
   const byChannelStmt = db.prepare<[string, string], CampaignRow>(
     `SELECT ${CAMPAIGN_COLUMNS} FROM campaigns WHERE channel_id = ? OR dm_channel_id = ?`,
+  )
+  const byIdStmt = db.prepare<[string], CampaignRow>(
+    `SELECT ${CAMPAIGN_COLUMNS} FROM campaigns WHERE goblin_campaign_id = ?`,
   )
   const upsertStmt = db.prepare<{
     goblinCampaignId: string
@@ -72,15 +86,26 @@ export function createCampaigns(db: Database): Campaigns {
       dm_discord_id = excluded.dm_discord_id,
       role_id = excluded.role_id
   `)
+  const setNextSessionStmt = db.prepare<[number, string]>(
+    'UPDATE campaigns SET next_session_at = ? WHERE goblin_campaign_id = ?',
+  )
 
   return {
     byChannel: (channelId) => {
       const row = byChannelStmt.get(channelId, channelId)
       return row ? toCampaign(row) : undefined
     },
+    byId: (goblinCampaignId) => {
+      const row = byIdStmt.get(goblinCampaignId)
+      return row ? toCampaign(row) : undefined
+    },
     upsert: (input) => {
       upsertStmt.run({ ...input, createdAt: Date.now() })
-      return { ...input }
+      return toCampaign(byIdStmt.get(input.goblinCampaignId)!)
+    },
+    setNextSession: (goblinCampaignId, at) => {
+      setNextSessionStmt.run(at, goblinCampaignId)
+      return toCampaign(byIdStmt.get(goblinCampaignId)!)
     },
   }
 }
@@ -416,10 +441,21 @@ export interface RollInput {
   isFail: boolean
 }
 
+/** Per-character dice leaderboard row (plan §11 M4's /campaign status). */
+export interface RollStats {
+  characterId: number
+  rolls: number
+  nat20s: number
+  nat1s: number
+}
+
 export interface Rolls {
   /** Every /roll is persisted (plan §11 M3) — this never rejects a well-formed input. */
   record: (input: RollInput) => RollRecord
   byId: (id: number) => RollRecord | undefined
+  /** One row per character that has rolled — rolls with no character attached are excluded
+   * (there's no one to attribute them to on the leaderboard). */
+  statsByCampaign: (campaignId: string) => RollStats[]
 }
 
 interface RollRow {
@@ -468,6 +504,12 @@ export function createRolls(db: Database): Rolls {
     VALUES (@campaignId, @characterId, @discordId, @expr, @total, @faces, @isCrit, @isFail, @createdAt)
   `)
   const byIdStmt = db.prepare<[number], RollRow>(`SELECT ${ROLL_COLUMNS} FROM rolls WHERE id = ?`)
+  const statsStmt = db.prepare<[string], { character_id: number; rolls: number; nat20s: number; nat1s: number }>(`
+    SELECT character_id, COUNT(*) AS rolls, SUM(is_crit) AS nat20s, SUM(is_fail) AS nat1s
+    FROM rolls
+    WHERE campaign_id = ? AND character_id IS NOT NULL
+    GROUP BY character_id
+  `)
 
   return {
     record: (input) => {
@@ -483,6 +525,8 @@ export function createRolls(db: Database): Rolls {
       const row = byIdStmt.get(id)
       return row ? toRoll(row) : undefined
     },
+    statsByCampaign: (campaignId) =>
+      statsStmt.all(campaignId).map((r) => ({ characterId: r.character_id, rolls: r.rolls, nat20s: r.nat20s, nat1s: r.nat1s })),
   }
 }
 
@@ -637,6 +681,240 @@ export function createCalendar(db: Database): Calendar {
     advance: (campaignId, days) => {
       const current = getStmt.get(campaignId)
       return write(campaignId, (current?.day ?? 0) + days, current?.epoch_label ?? null)
+    },
+  }
+}
+
+// ── schedule polls ──────────────────────────────────────────────────────────────────────
+
+export type PollStatus = 'open' | 'closed'
+
+export interface SchedulePoll {
+  id: number
+  campaignId: string
+  /** Null until setMessageRef runs — the row exists before the poll message is sent, so its
+   * id can be baked into the vote/close buttons. */
+  channelId: string | null
+  messageId: string | null
+  options: string[]
+  /** discord_id -> option index. One vote per user; features/schedule.ts owns the toggle logic. */
+  votes: Record<string, number>
+  status: PollStatus
+  createdAt: number
+}
+
+export interface SchedulePolls {
+  create: (campaignId: string, options: string[]) => SchedulePoll
+  byId: (id: number) => SchedulePoll | undefined
+  setMessageRef: (id: number, channelId: string, messageId: string) => SchedulePoll
+  /** Replaces the whole votes map — the caller (features/schedule.ts's toggleVote) computes it. */
+  setVotes: (id: number, votes: Record<string, number>) => SchedulePoll
+  close: (id: number) => SchedulePoll
+}
+
+interface SchedulePollRow {
+  id: number
+  campaign_id: string
+  channel_id: string | null
+  message_id: string | null
+  options: string
+  votes: string
+  status: PollStatus
+  created_at: number
+}
+
+const SCHEDULE_POLL_COLUMNS = 'id, campaign_id, channel_id, message_id, options, votes, status, created_at'
+
+function toSchedulePoll(row: SchedulePollRow): SchedulePoll {
+  return {
+    id: row.id,
+    campaignId: row.campaign_id,
+    channelId: row.channel_id,
+    messageId: row.message_id,
+    options: JSON.parse(row.options) as string[],
+    votes: JSON.parse(row.votes) as Record<string, number>,
+    status: row.status,
+    createdAt: row.created_at,
+  }
+}
+
+export function createSchedulePolls(db: Database): SchedulePolls {
+  const insertStmt = db.prepare<{ campaignId: string; options: string; createdAt: number }>(`
+    INSERT INTO schedule_polls (campaign_id, options, created_at) VALUES (@campaignId, @options, @createdAt)
+  `)
+  const byIdStmt = db.prepare<[number], SchedulePollRow>(
+    `SELECT ${SCHEDULE_POLL_COLUMNS} FROM schedule_polls WHERE id = ?`,
+  )
+  const setMessageRefStmt = db.prepare<[string, string, number]>(
+    'UPDATE schedule_polls SET channel_id = ?, message_id = ? WHERE id = ?',
+  )
+  const setVotesStmt = db.prepare<[string, number]>('UPDATE schedule_polls SET votes = ? WHERE id = ?')
+  const closeStmt = db.prepare<[number]>(`UPDATE schedule_polls SET status = 'closed' WHERE id = ?`)
+
+  return {
+    create: (campaignId, options) => {
+      const info = insertStmt.run({ campaignId, options: JSON.stringify(options), createdAt: Date.now() })
+      return toSchedulePoll(byIdStmt.get(Number(info.lastInsertRowid))!)
+    },
+    byId: (id) => {
+      const row = byIdStmt.get(id)
+      return row ? toSchedulePoll(row) : undefined
+    },
+    setMessageRef: (id, channelId, messageId) => {
+      setMessageRefStmt.run(channelId, messageId, id)
+      return toSchedulePoll(byIdStmt.get(id)!)
+    },
+    setVotes: (id, votes) => {
+      setVotesStmt.run(JSON.stringify(votes), id)
+      return toSchedulePoll(byIdStmt.get(id)!)
+    },
+    close: (id) => {
+      closeStmt.run(id)
+      return toSchedulePoll(byIdStmt.get(id)!)
+    },
+  }
+}
+
+// ── LFG board ────────────────────────────────────────────────────────────────────────────
+
+export interface LfgPost {
+  id: number
+  campaignId: string
+  blurb: string
+  channelId: string
+  messageId: string
+  status: PollStatus
+  createdAt: number
+}
+
+export interface LfgPosts {
+  create: (campaignId: string, blurb: string, channelId: string, messageId: string) => LfgPost
+  /** Every currently-open post — the pool /apply's autocomplete filters. */
+  open: () => LfgPost[]
+  openForCampaign: (campaignId: string) => LfgPost | undefined
+  close: (campaignId: string) => void
+}
+
+interface LfgPostRow {
+  id: number
+  campaign_id: string
+  blurb: string
+  channel_id: string
+  message_id: string
+  status: PollStatus
+  created_at: number
+}
+
+const LFG_POST_COLUMNS = 'id, campaign_id, blurb, channel_id, message_id, status, created_at'
+
+function toLfgPost(row: LfgPostRow): LfgPost {
+  return {
+    id: row.id,
+    campaignId: row.campaign_id,
+    blurb: row.blurb,
+    channelId: row.channel_id,
+    messageId: row.message_id,
+    status: row.status,
+    createdAt: row.created_at,
+  }
+}
+
+export function createLfgPosts(db: Database): LfgPosts {
+  const insertStmt = db.prepare<{ campaignId: string; blurb: string; channelId: string; messageId: string; createdAt: number }>(`
+    INSERT INTO lfg_posts (campaign_id, blurb, channel_id, message_id, created_at)
+    VALUES (@campaignId, @blurb, @channelId, @messageId, @createdAt)
+  `)
+  const byIdStmt = db.prepare<[number], LfgPostRow>(`SELECT ${LFG_POST_COLUMNS} FROM lfg_posts WHERE id = ?`)
+  const openStmt = db.prepare<[], LfgPostRow>(`SELECT ${LFG_POST_COLUMNS} FROM lfg_posts WHERE status = 'open'`)
+  const openForCampaignStmt = db.prepare<[string], LfgPostRow>(
+    `SELECT ${LFG_POST_COLUMNS} FROM lfg_posts WHERE campaign_id = ? AND status = 'open'`,
+  )
+  const closeStmt = db.prepare<[string]>(`UPDATE lfg_posts SET status = 'closed' WHERE campaign_id = ? AND status = 'open'`)
+
+  return {
+    create: (campaignId, blurb, channelId, messageId) => {
+      const info = insertStmt.run({ campaignId, blurb, channelId, messageId, createdAt: Date.now() })
+      return toLfgPost(byIdStmt.get(Number(info.lastInsertRowid))!)
+    },
+    open: () => openStmt.all().map(toLfgPost),
+    openForCampaign: (campaignId) => {
+      const row = openForCampaignStmt.get(campaignId)
+      return row ? toLfgPost(row) : undefined
+    },
+    close: (campaignId) => {
+      closeStmt.run(campaignId)
+    },
+  }
+}
+
+// ── LFG applications ────────────────────────────────────────────────────────────────────
+
+export interface LfgApplication {
+  id: number
+  campaignId: string
+  discordId: string
+  message: string | null
+  createdAt: number
+}
+
+export interface LfgApplications {
+  add: (campaignId: string, discordId: string, message: string | null) => LfgApplication
+}
+
+interface LfgApplicationRow {
+  id: number
+  campaign_id: string
+  discord_id: string
+  message: string | null
+  created_at: number
+}
+
+export function createLfgApplications(db: Database): LfgApplications {
+  const insertStmt = db.prepare<{ campaignId: string; discordId: string; message: string | null; createdAt: number }>(`
+    INSERT INTO lfg_applications (campaign_id, discord_id, message, created_at)
+    VALUES (@campaignId, @discordId, @message, @createdAt)
+  `)
+  const byIdStmt = db.prepare<[number], LfgApplicationRow>(
+    'SELECT id, campaign_id, discord_id, message, created_at FROM lfg_applications WHERE id = ?',
+  )
+
+  return {
+    add: (campaignId, discordId, message) => {
+      const info = insertStmt.run({ campaignId, discordId, message, createdAt: Date.now() })
+      const row = byIdStmt.get(Number(info.lastInsertRowid))!
+      return { id: row.id, campaignId: row.campaign_id, discordId: row.discord_id, message: row.message, createdAt: row.created_at }
+    },
+  }
+}
+
+// ── feedback ─────────────────────────────────────────────────────────────────────────────
+// No discord_id anywhere in this store or its row — anonymous is a schema property, not a
+// display filter (plan §7).
+
+export interface FeedbackEntry {
+  id: number
+  campaignId: string
+  text: string
+  createdAt: number
+}
+
+export interface Feedback {
+  add: (campaignId: string, text: string) => FeedbackEntry
+}
+
+export function createFeedback(db: Database): Feedback {
+  const insertStmt = db.prepare<{ campaignId: string; text: string; createdAt: number }>(`
+    INSERT INTO feedback (campaign_id, text, created_at) VALUES (@campaignId, @text, @createdAt)
+  `)
+  const byIdStmt = db.prepare<[number], { id: number; campaign_id: string; text: string; created_at: number }>(
+    'SELECT id, campaign_id, text, created_at FROM feedback WHERE id = ?',
+  )
+
+  return {
+    add: (campaignId, text) => {
+      const info = insertStmt.run({ campaignId, text, createdAt: Date.now() })
+      const row = byIdStmt.get(Number(info.lastInsertRowid))!
+      return { id: row.id, campaignId: row.campaign_id, text: row.text, createdAt: row.created_at }
     },
   }
 }

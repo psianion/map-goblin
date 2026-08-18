@@ -10,7 +10,7 @@ import {
   type Interaction,
   type MessageComponentInteraction,
 } from 'discord.js'
-import { parse } from '../lib/custom-id'
+import { parse, SHARED_OWNER } from '../lib/custom-id'
 import { BotError, notAuthorized, notFound, toUserReply } from '../lib/errors'
 import { log as defaultLog } from '../lib/log'
 import type { AuthContext, Deps, Registry } from './command-registry'
@@ -71,8 +71,10 @@ async function routeComponent(interaction: MessageComponentInteraction, deps: Ro
   try {
     const id = parse(interaction.customId)
     if (!id) throw notFound('That control is from an older message.')
-    // Owner stamp: one player cannot drive another player's buttons.
-    if (id.userId !== interaction.user.id) throw notAuthorized("That's someone else's button.")
+    // Owner stamp: one player cannot drive another player's buttons — unless it's stamped
+    // shared (poll votes, LFG apply), where the handler itself does the auth.
+    if (id.userId !== SHARED_OWNER && id.userId !== interaction.user.id)
+      throw notAuthorized("That's someone else's button.")
 
     const handler = deps.registry[id.namespace]?.component
     if (!handler) throw notFound('That control is from an older message.')

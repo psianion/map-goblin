@@ -4,10 +4,14 @@ import {
   createCalendar,
   createCampaigns,
   createCharacters,
+  createFeedback,
   createLedger,
+  createLfgApplications,
+  createLfgPosts,
   createNotes,
   createQuests,
   createRolls,
+  createSchedulePolls,
   type CampaignInput,
 } from './stores'
 
@@ -24,8 +28,8 @@ describe('createCampaigns', () => {
   it('resolves a campaign by either the player or DM channel', () => {
     const campaigns = createCampaigns(openDb(':memory:'))
     campaigns.upsert(campaignInput)
-    expect(campaigns.byChannel('player-chan')).toEqual(campaignInput)
-    expect(campaigns.byChannel('dm-chan')).toEqual(campaignInput)
+    expect(campaigns.byChannel('player-chan')).toEqual({ ...campaignInput, nextSessionAt: null })
+    expect(campaigns.byChannel('dm-chan')).toEqual({ ...campaignInput, nextSessionAt: null })
     expect(campaigns.byChannel('random')).toBeUndefined()
   })
 
@@ -35,6 +39,22 @@ describe('createCampaigns', () => {
     campaigns.upsert({ ...campaignInput, name: 'Renamed', channelId: 'new-player-chan' })
     expect(campaigns.byChannel('player-chan')).toBeUndefined()
     expect(campaigns.byChannel('new-player-chan')).toMatchObject({ name: 'Renamed' })
+  })
+
+  it('resolves by goblin id, for lookups that are not channel-based', () => {
+    const campaigns = createCampaigns(openDb(':memory:'))
+    campaigns.upsert(campaignInput)
+    expect(campaigns.byId('camp-1')).toMatchObject({ name: 'The Sunken Keep' })
+    expect(campaigns.byId('nope')).toBeUndefined()
+  })
+
+  it('setNextSession writes the date and re-upserting never touches it', () => {
+    const campaigns = createCampaigns(openDb(':memory:'))
+    campaigns.upsert(campaignInput)
+    const updated = campaigns.setNextSession('camp-1', 12345)
+    expect(updated.nextSessionAt).toBe(12345)
+    const reupserted = campaigns.upsert({ ...campaignInput, name: 'Renamed' })
+    expect(reupserted.nextSessionAt).toBe(12345)
   })
 })
 
@@ -210,6 +230,80 @@ describe('createRolls', () => {
     })
     expect(recorded).toMatchObject({ total: 20, isCrit: true, isFail: false, characterId: null })
     expect(rolls.byId(recorded.id)).toMatchObject({ expr: 'd20' })
+  })
+})
+
+describe('rolls.statsByCampaign', () => {
+  it('aggregates rolls, nat-20s and nat-1s per character, skipping characterless rolls', () => {
+    const db = seededDb()
+    const characters = createCharacters(db)
+    const zed = characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Zed', className: 'Fighter', level: 1 })
+    const rolls = createRolls(db)
+    rolls.record({ campaignId: 'camp-1', characterId: zed.id, discordId: 'user-1', expr: 'd20', total: 20, faces: 'd20[20]', isCrit: true, isFail: false })
+    rolls.record({ campaignId: 'camp-1', characterId: zed.id, discordId: 'user-1', expr: 'd20', total: 1, faces: 'd20[1]', isCrit: false, isFail: true })
+    rolls.record({ campaignId: 'camp-1', characterId: null, discordId: 'user-2', expr: 'd6', total: 4, faces: 'd6[4]', isCrit: false, isFail: false })
+    const stats = rolls.statsByCampaign('camp-1')
+    expect(stats).toEqual([{ characterId: zed.id, rolls: 2, nat20s: 1, nat1s: 1 }])
+  })
+
+  it('returns nothing for a campaign with no attributed rolls', () => {
+    const rolls = createRolls(seededDb())
+    expect(rolls.statsByCampaign('camp-1')).toEqual([])
+  })
+})
+
+describe('createSchedulePolls', () => {
+  it('creates a poll before it has a message ref, then stamps one on', () => {
+    const polls = createSchedulePolls(seededDb())
+    const poll = polls.create('camp-1', ['Friday 8pm', 'Saturday 2pm'])
+    expect(poll).toMatchObject({ channelId: null, messageId: null, votes: {}, status: 'open' })
+    const stamped = polls.setMessageRef(poll.id, 'chan-1', 'msg-1')
+    expect(stamped).toMatchObject({ channelId: 'chan-1', messageId: 'msg-1' })
+  })
+
+  it('replaces the votes map and closes independently', () => {
+    const polls = createSchedulePolls(seededDb())
+    const poll = polls.create('camp-1', ['Friday 8pm', 'Saturday 2pm'])
+    const voted = polls.setVotes(poll.id, { 'user-1': 0, 'user-2': 1 })
+    expect(voted.votes).toEqual({ 'user-1': 0, 'user-2': 1 })
+    expect(voted.status).toBe('open')
+    const closed = polls.close(poll.id)
+    expect(closed.status).toBe('closed')
+    expect(closed.votes).toEqual({ 'user-1': 0, 'user-2': 1 })
+  })
+})
+
+describe('createLfgPosts', () => {
+  it('lists only open posts, and finds the open post for one campaign', () => {
+    const db = seededDb()
+    createCampaigns(db).upsert({ ...campaignInput, goblinCampaignId: 'camp-2', channelId: 'chan-2', dmChannelId: 'dm-2' })
+    const posts = createLfgPosts(db)
+    posts.create('camp-1', 'Looking for a rogue', 'lfg-chan', 'msg-1')
+    const camp2 = posts.create('camp-2', 'Looking for a cleric', 'lfg-chan', 'msg-2')
+    expect(posts.open().map((p) => p.campaignId).sort()).toEqual(['camp-1', 'camp-2'])
+    posts.close('camp-2')
+    expect(posts.open().map((p) => p.campaignId)).toEqual(['camp-1'])
+    expect(posts.openForCampaign('camp-2')).toBeUndefined()
+    expect(camp2.blurb).toBe('Looking for a cleric')
+  })
+})
+
+describe('createLfgApplications', () => {
+  it('stores an application, message included or not', () => {
+    const applications = createLfgApplications(seededDb())
+    const withMessage = applications.add('camp-1', 'user-1', 'I love rogues')
+    expect(withMessage).toMatchObject({ campaignId: 'camp-1', discordId: 'user-1', message: 'I love rogues' })
+    const withoutMessage = applications.add('camp-1', 'user-2', null)
+    expect(withoutMessage.message).toBeNull()
+  })
+})
+
+describe('createFeedback', () => {
+  it('stores feedback with no author column at all — the row shape itself is anonymous', () => {
+    const feedback = createFeedback(seededDb())
+    const entry = feedback.add('camp-1', 'Loved the ambush, pacing dragged in act 2')
+    expect(entry).toEqual({ id: entry.id, campaignId: 'camp-1', text: 'Loved the ambush, pacing dragged in act 2', createdAt: entry.createdAt })
+    expect(Object.keys(entry)).not.toContain('discordId')
   })
 })
 

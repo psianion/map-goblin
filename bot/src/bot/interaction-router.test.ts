@@ -3,14 +3,21 @@ import type { ChatInputCommandInteraction, Interaction } from 'discord.js'
 import { routeInteraction, type RouterDeps } from './interaction-router'
 import { notAuthorized, userInput } from '../lib/errors'
 import type { Command, Registry } from './command-registry'
-import { build } from '../lib/custom-id'
+import { build, SHARED_OWNER } from '../lib/custom-id'
 
 const silentLogger = { warn: vi.fn(), error: vi.fn() }
 
 function depsFor(registry: Registry, overrides: Partial<RouterDeps> = {}): RouterDeps {
   return {
     ownerId: 'owner-1',
-    campaigns: { byChannel: () => undefined, upsert: (c) => c },
+    campaigns: {
+      byChannel: () => undefined,
+      byId: () => undefined,
+      upsert: (c) => ({ ...c, nextSessionAt: null }),
+      setNextSession: () => {
+        throw new Error('not used in this test')
+      },
+    },
     characters: {
       create: () => {
         throw new Error('not used in this test')
@@ -44,6 +51,7 @@ function depsFor(registry: Registry, overrides: Partial<RouterDeps> = {}): Route
         throw new Error('not used in this test')
       },
       byId: () => undefined,
+      statsByCampaign: () => [],
     },
     ledger: {
       add: () => {
@@ -61,8 +69,42 @@ function depsFor(registry: Registry, overrides: Partial<RouterDeps> = {}): Route
         throw new Error('not used in this test')
       },
     },
+    schedulePolls: {
+      create: () => {
+        throw new Error('not used in this test')
+      },
+      byId: () => undefined,
+      setMessageRef: () => {
+        throw new Error('not used in this test')
+      },
+      setVotes: () => {
+        throw new Error('not used in this test')
+      },
+      close: () => {
+        throw new Error('not used in this test')
+      },
+    },
+    lfgPosts: {
+      create: () => {
+        throw new Error('not used in this test')
+      },
+      open: () => [],
+      openForCampaign: () => undefined,
+      close: () => {},
+    },
+    lfgApplications: {
+      add: () => {
+        throw new Error('not used in this test')
+      },
+    },
+    feedback: {
+      add: () => {
+        throw new Error('not used in this test')
+      },
+    },
+    lfgChannelId: 'lfg-chan',
     db: {} as RouterDeps['db'],
-    announce: async () => {},
+    announce: async () => undefined,
     registry,
     logger: silentLogger,
     ...overrides,
@@ -229,6 +271,29 @@ describe('routeInteraction — components', () => {
     const interaction = componentInteraction('legacy-button', 'user-1')
     await routeInteraction(interaction as unknown as Interaction, depsFor({}))
     expect(interaction.calls).toEqual(['reply:That control is from an older message.'])
+  })
+
+  it('runs the handler for ANY clicker on a shared-sentinel control (poll votes, LFG apply)', async () => {
+    const handler = vi.fn<NonNullable<Command['component']>>(async () => {})
+    const registry: Registry = { schedule: command({ component: handler }) }
+    const id = build('schedule', 'vote', SHARED_OWNER, '1', '0')
+    const first = componentInteraction(id, 'user-1')
+    const second = componentInteraction(id, 'user-2')
+    await routeInteraction(first as unknown as Interaction, depsFor(registry))
+    await routeInteraction(second as unknown as Interaction, depsFor(registry))
+    expect(handler).toHaveBeenCalledTimes(2)
+    expect(first.calls).toEqual([])
+    expect(second.calls).toEqual([])
+  })
+
+  it('still enforces the strict owner stamp for a non-shared id, even one from the same namespace', async () => {
+    const handler = vi.fn<NonNullable<Command['component']>>(async () => {})
+    const registry: Registry = { schedule: command({ component: handler }) }
+    const id = build('schedule', 'close', 'dm-1', '1')
+    const interaction = componentInteraction(id, 'someone-else')
+    await routeInteraction(interaction as unknown as Interaction, depsFor(registry))
+    expect(handler).not.toHaveBeenCalled()
+    expect(interaction.calls).toEqual(["reply:That's someone else's button."])
   })
 })
 

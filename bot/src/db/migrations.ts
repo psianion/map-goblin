@@ -104,4 +104,52 @@ export const MIGRATIONS: readonly string[] = [
       updated_at INTEGER NOT NULL
     )
   `,
+  // v8: schedule_polls — /schedule (plan §11 M4). options/votes are JSON (SQLite has no
+  // array/map column); votes keys on discord_id -> option index, one vote per user.
+  // channel_id/message_id are nullable: the row is created first so the vote/close buttons
+  // can be built with its id, then stamped with the message ref once the poll is posted.
+  `
+    CREATE TABLE IF NOT EXISTS schedule_polls (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      campaign_id TEXT NOT NULL REFERENCES campaigns (goblin_campaign_id),
+      channel_id TEXT,
+      message_id TEXT,
+      options TEXT NOT NULL,
+      votes TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at INTEGER NOT NULL
+    )
+  `,
+  // v9: lfg_posts — the recruiting board post per campaign (plan §11 M4).
+  `
+    CREATE TABLE IF NOT EXISTS lfg_posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      campaign_id TEXT NOT NULL REFERENCES campaigns (goblin_campaign_id),
+      blurb TEXT NOT NULL,
+      channel_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at INTEGER NOT NULL
+    )
+  `,
+  // v10: lfg_applications — one row per /apply or board-button click.
+  `
+    CREATE TABLE IF NOT EXISTS lfg_applications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      campaign_id TEXT NOT NULL REFERENCES campaigns (goblin_campaign_id),
+      discord_id TEXT NOT NULL,
+      message TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `,
+  // v11: feedback — deliberately no discord_id column. Anonymous means not stored, not just
+  // not shown (plan §7): there is nothing here to un-anonymize even with DB access.
+  `
+    CREATE TABLE IF NOT EXISTS feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      campaign_id TEXT NOT NULL REFERENCES campaigns (goblin_campaign_id),
+      text TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `,
 ]

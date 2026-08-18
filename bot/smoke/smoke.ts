@@ -9,9 +9,10 @@ import { createClient } from '../src/bot/client'
 import { registry } from '../src/bot/command-registry'
 import { commandsToDeploy, deployedCommandNames, syncDiff } from '../src/bot/sync-commands'
 import { openDb } from '../src/db/db'
-import { createCampaigns, createNotes } from '../src/db/stores'
+import { createCampaigns, createFeedback, createNotes, createSchedulePolls } from '../src/db/stores'
 import { parseEnv, type Env } from '../src/env'
 import { rollExpression } from '../src/features/dice'
+import { toggleVote, winningOption } from '../src/features/schedule'
 import { renderCharacterCard } from '../src/render/card-kit'
 import { container } from '../src/lib/ui'
 
@@ -125,9 +126,56 @@ export function m3Checks(): Check[] {
   ]
 }
 
+/** Milestone 4 surface: schedule polls + feedback's anonymous schema (DB/registry already
+ * covered by m1Checks; LFG/apply reuse the same store round-trip shape as schedule). */
+export function m4Checks(): Check[] {
+  return [
+    {
+      name: 'schedule poll round-trip',
+      run: async () => {
+        const db = openDb(':memory:')
+        createCampaigns(db).upsert({
+          goblinCampaignId: 'smoke',
+          name: 'Smoke',
+          channelId: 'smoke-chan',
+          dmChannelId: 'smoke-dm',
+          dmDiscordId: 'smoke-dm-user',
+          roleId: 'smoke-role',
+        })
+        const polls = createSchedulePolls(db)
+        const poll = polls.create('smoke', ['2026-08-21T20:00:00Z', '2026-08-22T14:00:00Z'])
+        const voted = polls.setVotes(poll.id, toggleVote(poll.votes, 'smoke-user', 0))
+        const winner = winningOption(voted)
+        db.close()
+        if (winner?.index !== 0) throw new Error('vote round-trip did not pick the voted option')
+        return 'create -> vote -> winner ok'
+      },
+    },
+    {
+      name: 'feedback schema is anonymous',
+      run: async () => {
+        const db = openDb(':memory:')
+        createCampaigns(db).upsert({
+          goblinCampaignId: 'smoke',
+          name: 'Smoke',
+          channelId: 'smoke-chan',
+          dmChannelId: 'smoke-dm',
+          dmDiscordId: 'smoke-dm-user',
+          roleId: 'smoke-role',
+        })
+        createFeedback(db).add('smoke', 'smoke feedback text')
+        const columns = (db.prepare('PRAGMA table_info(feedback)').all() as { name: string }[]).map((c) => c.name)
+        db.close()
+        if (columns.includes('discord_id')) throw new Error('feedback table carries an author column')
+        return 'no author column'
+      },
+    },
+  ]
+}
+
 async function main(): Promise<void> {
   const env = parseEnv()
-  const results = await runChecks([...m1Checks(env), ...m2Checks(), ...m3Checks()])
+  const results = await runChecks([...m1Checks(env), ...m2Checks(), ...m3Checks(), ...m4Checks()])
   const failed = results.filter((r) => !r.ok).length
 
   const client = createClient()

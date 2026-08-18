@@ -7,7 +7,19 @@ import { createClient } from './bot/client'
 import { registry } from './bot/command-registry'
 import { routeInteraction, type RouterDeps } from './bot/interaction-router'
 import { openDb } from './db/db'
-import { createCalendar, createCampaigns, createCharacters, createLedger, createNotes, createQuests, createRolls } from './db/stores'
+import {
+  createCalendar,
+  createCampaigns,
+  createCharacters,
+  createFeedback,
+  createLedger,
+  createLfgApplications,
+  createLfgPosts,
+  createNotes,
+  createQuests,
+  createRolls,
+  createSchedulePolls,
+} from './db/stores'
 import { parseEnv } from './env'
 import { welcomeMessage } from './features/welcome'
 import { createChannelLog, installExitFlush } from './lib/channel-log'
@@ -36,12 +48,19 @@ const deps: RouterDeps = {
   rolls: createRolls(db),
   ledger: createLedger(db),
   calendar: createCalendar(db),
+  schedulePolls: createSchedulePolls(db),
+  lfgPosts: createLfgPosts(db),
+  lfgApplications: createLfgApplications(db),
+  feedback: createFeedback(db),
+  lfgChannelId: env.LFG_CHANNEL_ID,
   db,
   registry,
   audit: channelLog.audit,
   announce: async (channelId: string, spec: ContainerSpec) => {
     const channel = await client.channels.fetch(channelId)
-    if (channel?.isSendable()) await channel.send({ components: [container(spec)], flags: MessageFlags.IsComponentsV2 })
+    if (!channel?.isSendable()) return undefined
+    const message = await channel.send({ components: [container(spec)], flags: MessageFlags.IsComponentsV2 })
+    return { messageId: message.id }
   },
 }
 

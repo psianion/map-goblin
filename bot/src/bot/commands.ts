@@ -45,7 +45,8 @@ export const campaign = guildOnly(
         )
         .addRoleOption((o) => o.setName('role').setDescription('Campaign member role').setRequired(true))
         .addUserOption((o) => o.setName('dm').setDescription('The DM').setRequired(true)),
-    ),
+    )
+    .addSubcommand((sub) => sub.setName('status').setDescription('Show the campaign status board')),
 )
 
 export const character = guildOnly(
@@ -160,6 +161,46 @@ export const gold = guildOnly(
         .setDescription('Split gold evenly across the party (DM only)')
         .addIntegerOption((o) => o.setName('total').setDescription('Total gold').setMinValue(1).setRequired(true)),
     ),
+)
+
+export const schedule = guildOnly(
+  new SlashCommandBuilder()
+    .setName('schedule')
+    .setDescription('Poll the party for the next session time (DM only)')
+    .addStringOption((o) => o.setName('option1').setDescription('Candidate date, e.g. 2026-08-22 19:00').setRequired(true))
+    .addStringOption((o) => o.setName('option2').setDescription('Candidate date').setRequired(true))
+    .addStringOption((o) => o.setName('option3').setDescription('Candidate date').setRequired(false))
+    .addStringOption((o) => o.setName('option4').setDescription('Candidate date').setRequired(false)),
+)
+
+export const lfg = guildOnly(
+  new SlashCommandBuilder()
+    .setName('lfg')
+    .setDescription('Recruit for this campaign (DM only)')
+    .addSubcommand((sub) =>
+      sub
+        .setName('open')
+        .setDescription('Post this campaign to the LFG board')
+        .addStringOption((o) => o.setName('blurb').setDescription("What you're looking for").setRequired(true)),
+    )
+    .addSubcommand((sub) => sub.setName('close').setDescription('Take this campaign off the LFG board')),
+)
+
+export const apply = guildOnly(
+  new SlashCommandBuilder()
+    .setName('apply')
+    .setDescription('Apply to a recruiting campaign')
+    .addStringOption((o) =>
+      o.setName('campaign').setDescription('Campaign to apply to').setRequired(true).setAutocomplete(true),
+    )
+    .addStringOption((o) => o.setName('message').setDescription('A note for the DM').setRequired(false)),
+)
+
+export const feedback = guildOnly(
+  new SlashCommandBuilder()
+    .setName('feedback')
+    .setDescription('Send anonymous session feedback to the DM')
+    .addStringOption((o) => o.setName('text').setDescription('Your feedback').setRequired(true).setMaxLength(1000)),
 )
 
 export const calendar = guildOnly(

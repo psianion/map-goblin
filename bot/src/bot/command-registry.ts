@@ -2,26 +2,55 @@
 // context object and the deps, never of a live interaction, so every rule in plan §6 is
 // unit-testable and runs before deferReply (see interaction-router.ts).
 
-import { AttachmentBuilder, MessageFlags, type AutocompleteInteraction, type ChatInputCommandInteraction, type GuildMember, type MessageComponentInteraction } from 'discord.js'
+import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, MessageFlags, type AutocompleteInteraction, type ChatInputCommandInteraction, type GuildMember, type MessageComponentInteraction } from 'discord.js'
 import type { Database } from '../db/db'
-import type { Calendar, Campaign, Campaigns, CharacterPatch, Characters, Ledger, Notes, Quests, Rolls } from '../db/stores'
+import type {
+  Calendar,
+  Campaign,
+  Campaigns,
+  CharacterPatch,
+  Characters,
+  Feedback,
+  Ledger,
+  LfgApplications,
+  LfgPosts,
+  Notes,
+  Quests,
+  Rolls,
+  SchedulePolls,
+} from '../db/stores'
 import { calendarAdvanceAnnouncement, calendarSetConfirmation, calendarShow } from '../features/calendar'
 import { campaignSetupConfirmation } from '../features/campaign'
 import { characterCreatedReply, characterUpdatedReply, filterAutocomplete, leveledUp, levelUpAnnouncement, myCharactersList } from '../features/character'
 import { rollExpression, rollReply, summarizeFaces } from '../features/dice'
 import { goldSplitAnnouncement, goldSplitConfirmation, lootAddedReply, lootListEmbed, splitNote, splitShares } from '../features/economy'
+import { feedbackCard, feedbackThanks } from '../features/feedback'
 import { noteSavedReply, recallEmbed, sanitizeFtsQuery } from '../features/journal'
+import { applicationCard, applyConfirmation, lfgBoardPost, lfgCloseConfirmation, lfgClosedNotice, lfgOpenConfirmation } from '../features/lfg'
 import { trySyncNickname } from '../features/nickname'
 import { questAddedReply, questCompletedReply, questLog } from '../features/quests'
-import type { CustomId } from '../lib/custom-id'
-import { notAuthorized, notFound, wrongChannel } from '../lib/errors'
+import {
+  parseCandidateDate,
+  pollAnnouncement,
+  pollCreatedConfirmation,
+  pollResultAnnouncement,
+  toggleVote,
+  voteConfirmation,
+  winningOption,
+} from '../features/schedule'
+import { campaignStatus } from '../features/status'
+import { build, SHARED_OWNER, type CustomId } from '../lib/custom-id'
+import { notAuthorized, notFound, userInput, wrongChannel } from '../lib/errors'
 import { container, type ContainerSpec } from '../lib/ui'
 import { fetchPortraitDataUri, renderCharacterCard } from '../render/card-kit'
 import {
+  apply as applyCommand,
   calendar as calendarCommand,
   campaign as campaignCommand,
   character as characterCommand,
+  feedback as feedbackCommand,
   gold as goldCommand,
+  lfg as lfgCommand,
   loot as lootCommand,
   mycharacters as mycharactersCommand,
   note as noteCommand,
@@ -29,6 +58,7 @@ import {
   quests as questsCommand,
   recall as recallCommand,
   roll as rollCommand,
+  schedule as scheduleCommand,
 } from './commands'
 
 export interface Deps {
@@ -41,10 +71,18 @@ export interface Deps {
   rolls: Rolls
   ledger: Ledger
   calendar: Calendar
+  schedulePolls: SchedulePolls
+  lfgPosts: LfgPosts
+  lfgApplications: LfgApplications
+  feedback: Feedback
   db: Database
+  /** LFG_CHANNEL_ID — the one fixed cross-campaign recruiting board. */
+  lfgChannelId: string
   /** Sends a container to a specific channel — the seam that keeps features Discord-free.
-   * Used for CBAC posts (level-up to the player channel, welcome to the welcome channel). */
-  announce: (channelId: string, spec: ContainerSpec) => Promise<void>
+   * Used for CBAC posts (level-up to the player channel, welcome to the welcome channel).
+   * Resolves the sent message's ref, or undefined if the channel wasn't sendable — schedule
+   * polls and LFG posts store it so a later action (vote, close) can find the row. */
+  announce: (channelId: string, spec: ContainerSpec) => Promise<{ messageId: string } | undefined>
 }
 
 /** Everything `authorize` is allowed to see. No interaction, no network. */
@@ -129,6 +167,17 @@ async function guildMemberOf(interaction: ChatInputCommandInteraction): Promise<
   return interaction.guild.members.fetch(interaction.user.id).catch(() => undefined)
 }
 
+/** Same role read as the router's contextOf, duplicated locally rather than imported —
+ * command-registry.ts is what interaction-router.ts imports, so the reverse import would
+ * be circular. Used by the schedule poll's shared-sentinel vote button to check membership
+ * itself (the router only owns the owner-stamp check, not campaign membership). */
+type MemberLike = { roles?: string[] | { cache: Map<string, unknown> } } | null
+function memberRoleIds(member: MemberLike): string[] {
+  const roles = member?.roles
+  if (!roles) return []
+  return Array.isArray(roles) ? roles : [...roles.cache.keys()]
+}
+
 // --- commands ----------------------------------------------------------------------
 
 export const registry: Registry = {
@@ -148,19 +197,13 @@ export const registry: Registry = {
   campaign: {
     data: campaignCommand,
     ephemeral: true,
-    authorize: ownerOnly,
+    // Every other subcommand is owner-only registration; status is a member-level read.
+    authorize: (ctx, deps) => (ctx.subcommand === 'status' ? memberOnly(ctx, deps) : ownerOnly(ctx, deps)),
     execute: async (interaction, deps) => {
-      if (interaction.options.getSubcommand() !== 'setup') throw notFound("I don't have that campaign subcommand.")
-      const input: Campaign = {
-        goblinCampaignId: interaction.options.getString('id', true),
-        name: interaction.options.getString('name', true),
-        channelId: interaction.options.getChannel('channel', true).id,
-        dmChannelId: interaction.options.getChannel('dm-channel', true).id,
-        roleId: interaction.options.getRole('role', true).id,
-        dmDiscordId: interaction.options.getUser('dm', true).id,
-      }
-      const campaign = deps.campaigns.upsert(input)
-      await interaction.editReply(campaignSetupConfirmation(campaign))
+      const sub = interaction.options.getSubcommand()
+      if (sub === 'setup') return campaignSetup(interaction, deps)
+      if (sub === 'status') return campaignStatusCmd(interaction, deps)
+      throw notFound("I don't have that campaign subcommand.")
     },
   },
 
@@ -351,6 +394,110 @@ export const registry: Registry = {
       throw notFound("I don't have that calendar subcommand.")
     },
   },
+
+  schedule: {
+    data: scheduleCommand,
+    ephemeral: true,
+    authorize: dmOnly,
+    execute: async (interaction, deps) => {
+      const campaign = requireCampaign(interaction, deps)
+      const options = [
+        interaction.options.getString('option1', true),
+        interaction.options.getString('option2', true),
+        interaction.options.getString('option3'),
+        interaction.options.getString('option4'),
+      ].filter((o): o is string => Boolean(o))
+      options.forEach(parseCandidateDate) // throws user_input on anything Date.parse can't read
+
+      const poll = deps.schedulePolls.create(campaign.goblinCampaignId, options)
+      const sent = await deps.announce(campaign.channelId, {
+        ...pollAnnouncement(campaign.name, campaign.roleId, options),
+        rows: [scheduleVoteRow(poll.id, options), scheduleCloseRow(poll.id, campaign.dmDiscordId)],
+      })
+      if (sent) deps.schedulePolls.setMessageRef(poll.id, campaign.channelId, sent.messageId)
+      await interaction.editReply(pollCreatedConfirmation())
+    },
+    component: async (interaction, id, deps) => {
+      const poll = deps.schedulePolls.byId(Number(id.extra[0]))
+      if (!poll) throw notFound('This poll no longer exists.')
+      const campaign = deps.campaigns.byId(poll.campaignId)
+      if (!campaign) throw notFound('This campaign no longer exists.')
+      if (poll.status !== 'open') throw userInput('This poll is already closed.')
+
+      if (id.action === 'vote') {
+        if (!memberRoleIds(interaction.member as MemberLike).includes(campaign.roleId))
+          throw notAuthorized("You're not in this campaign.")
+        const updated = deps.schedulePolls.setVotes(
+          poll.id,
+          toggleVote(poll.votes, interaction.user.id, Number(id.extra[1])),
+        )
+        await interaction.reply({ content: voteConfirmation(updated, interaction.user.id), flags: MessageFlags.Ephemeral })
+        return
+      }
+
+      if (id.action === 'close') {
+        // Belt and suspenders: the button is owner-stamped to the DM already (the router
+        // rejects anyone else before this runs), but the handler proves it again per plan §11.
+        if (interaction.user.id !== campaign.dmDiscordId) throw notAuthorized("Only this campaign's DM can do that.")
+        const closed = deps.schedulePolls.close(poll.id)
+        const winner = winningOption(closed)
+        if (winner) deps.campaigns.setNextSession(campaign.goblinCampaignId, parseCandidateDate(winner.label))
+        await deps.announce(campaign.channelId, pollResultAnnouncement(winner))
+        await interaction.reply({ content: 'Poll closed.', flags: MessageFlags.Ephemeral })
+      }
+    },
+  },
+
+  lfg: {
+    data: lfgCommand,
+    ephemeral: true,
+    authorize: dmOnly,
+    execute: async (interaction, deps) => {
+      const sub = interaction.options.getSubcommand()
+      if (sub === 'open') return lfgOpen(interaction, deps)
+      if (sub === 'close') return lfgClose(interaction, deps)
+      throw notFound("I don't have that lfg subcommand.")
+    },
+  },
+
+  apply: {
+    data: applyCommand,
+    ephemeral: true,
+    authorize: everyone,
+    execute: async (interaction, deps) => {
+      const campaignId = interaction.options.getString('campaign', true)
+      const message = interaction.options.getString('message')
+      const campaign = await submitApplication(deps, campaignId, interaction.user.id, message)
+      await interaction.editReply(applyConfirmation(campaign.name))
+    },
+    autocomplete: async (interaction, deps) => {
+      const query = interaction.options.getFocused().toLowerCase()
+      const choices = deps.lfgPosts
+        .open()
+        .map((post) => deps.campaigns.byId(post.campaignId))
+        .filter((c): c is Campaign => Boolean(c))
+        .filter((c) => c.name.toLowerCase().includes(query))
+        .slice(0, 25)
+      await interaction.respond(choices.map((c) => ({ name: c.name, value: c.goblinCampaignId })))
+    },
+    component: async (interaction, id, deps) => {
+      const campaign = await submitApplication(deps, id.extra[0], interaction.user.id, null)
+      await interaction.reply({ content: applyConfirmation(campaign.name), flags: MessageFlags.Ephemeral })
+    },
+  },
+
+  feedback: {
+    data: feedbackCommand,
+    ephemeral: true,
+    authorize: memberOnly,
+    execute: async (interaction, deps) => {
+      const campaign = requireCampaign(interaction, deps)
+      const text = interaction.options.getString('text', true)
+      deps.feedback.add(campaign.goblinCampaignId, text) // no discord_id stored anywhere (plan §7)
+      await deps.announce(campaign.dmChannelId, feedbackCard(campaign.name, text))
+      await interaction.editReply(feedbackThanks())
+    },
+  },
 }
 
 async function createCharacter(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
@@ -489,4 +636,95 @@ async function calendarAdvance(interaction: ChatInputCommandInteraction, deps: D
   const state = deps.calendar.advance(campaign.goblinCampaignId, days)
   await deps.announce(campaign.channelId, calendarAdvanceAnnouncement(state, days))
   await interaction.editReply(calendarSetConfirmation(state))
+}
+
+async function campaignSetup(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+  const input = {
+    goblinCampaignId: interaction.options.getString('id', true),
+    name: interaction.options.getString('name', true),
+    channelId: interaction.options.getChannel('channel', true).id,
+    dmChannelId: interaction.options.getChannel('dm-channel', true).id,
+    roleId: interaction.options.getRole('role', true).id,
+    dmDiscordId: interaction.options.getUser('dm', true).id,
+  }
+  const campaign = deps.campaigns.upsert(input)
+  await interaction.editReply(campaignSetupConfirmation(campaign))
+}
+
+async function campaignStatusCmd(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+  const campaign = requireCampaign(interaction, deps)
+  const status = campaignStatus({
+    campaign,
+    characters: deps.characters.byCampaign(campaign.goblinCampaignId),
+    quests: deps.quests.byCampaign(campaign.goblinCampaignId),
+    goldTotal: deps.ledger.goldTotal(campaign.goblinCampaignId),
+    calendarState: deps.calendar.get(campaign.goblinCampaignId),
+    rollStats: deps.rolls.statsByCampaign(campaign.goblinCampaignId),
+  })
+  await interaction.editReply({ components: [container(status)], flags: MessageFlags.IsComponentsV2 })
+}
+
+/** One button per candidate date. Anyone may click (shared owner-stamp) — the schedule
+ * component handler checks campaign membership itself. */
+function scheduleVoteRow(pollId: number, options: string[]): ActionRowBuilder<ButtonBuilder> {
+  const row = new ActionRowBuilder<ButtonBuilder>()
+  options.forEach((label, index) => {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(build('schedule', 'vote', SHARED_OWNER, String(pollId), String(index)))
+        .setLabel(label.slice(0, 80))
+        .setStyle(ButtonStyle.Secondary),
+    )
+  })
+  return row
+}
+
+/** Owner-stamped to the DM — only they can click it, enforced by the router before the
+ * schedule component handler even runs (plus its own re-check, belt and suspenders). */
+function scheduleCloseRow(pollId: number, dmDiscordId: string): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(build('schedule', 'close', dmDiscordId, String(pollId)))
+      .setLabel('Close poll')
+      .setStyle(ButtonStyle.Danger),
+  )
+}
+
+async function lfgOpen(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+  const campaign = requireCampaign(interaction, deps)
+  const blurb = interaction.options.getString('blurb', true)
+  const applyRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(build('apply', 'apply', SHARED_OWNER, campaign.goblinCampaignId))
+      .setLabel('Apply')
+      .setStyle(ButtonStyle.Primary),
+  )
+  const sent = await deps.announce(deps.lfgChannelId, { ...lfgBoardPost(campaign.name, blurb), rows: [applyRow] })
+  deps.lfgPosts.create(campaign.goblinCampaignId, blurb, deps.lfgChannelId, sent?.messageId ?? '')
+  await interaction.editReply(lfgOpenConfirmation(campaign.name))
+}
+
+async function lfgClose(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+  const campaign = requireCampaign(interaction, deps)
+  deps.lfgPosts.close(campaign.goblinCampaignId)
+  // "Replaces the board post" (plan §11 M4): a fresh closed-notice supersedes the open one
+  // rather than editing it in place — announce only ever posts, matching every other CBAC seam.
+  await deps.announce(deps.lfgChannelId, lfgClosedNotice(campaign.name))
+  await interaction.editReply(lfgCloseConfirmation(campaign.name))
+}
+
+/** Shared by /apply and the board's Apply button. Throws user_input if the campaign isn't
+ * (or is no longer) recruiting, not_found if it doesn't exist at all. */
+async function submitApplication(
+  deps: Deps,
+  campaignId: string,
+  applicantId: string,
+  message: string | null,
+): Promise<Campaign> {
+  const campaign = deps.campaigns.byId(campaignId)
+  if (!campaign) throw notFound("That campaign isn't recruiting.")
+  if (!deps.lfgPosts.openForCampaign(campaignId)) throw userInput("That campaign isn't recruiting right now.")
+  deps.lfgApplications.add(campaignId, applicantId, message)
+  await deps.announce(campaign.dmChannelId, applicationCard(campaign.name, campaign.dmDiscordId, applicantId, message))
+  return campaign
 }

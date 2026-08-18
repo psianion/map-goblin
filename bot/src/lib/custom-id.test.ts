@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { build, parse } from './custom-id'
+import { build, parse, SHARED_OWNER } from './custom-id'
 
 describe('custom-id', () => {
   it('roundtrips namespace, action, owner and extras', () => {
@@ -30,5 +30,10 @@ describe('custom-id', () => {
   it('detects a foreign owner', () => {
     const parsed = parse(build('map', 'refresh', 'owner-1'))
     expect(parsed?.userId).not.toBe('someone-else')
+  })
+
+  it('builds and parses the shared-sentinel stamp like any other owner id', () => {
+    const id = build('schedule', 'vote', SHARED_OWNER, '1', '0')
+    expect(parse(id)).toEqual({ namespace: 'schedule', action: 'vote', userId: SHARED_OWNER, extra: ['1', '0'] })
   })
 })
