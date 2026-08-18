@@ -177,6 +177,7 @@ async function main(): Promise<void> {
   const env = parseEnv()
   const results = await runChecks([...m1Checks(env), ...m2Checks(), ...m3Checks(), ...m4Checks()])
   const failed = results.filter((r) => !r.ok).length
+  console.log(formatResults(results).join('\n'))
 
   const client = createClient()
   await new Promise<void>((resolve) => {
