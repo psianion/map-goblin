@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // One-terminal runner for the dev stack (docs/2026-08-15-dev-runner-ports-plan.md).
 //
-//   pnpm dev              server + canvas + table
+//   pnpm dev              server + canvas + table (+ bot when bot/.env exists)
 //   pnpm dev --canvas     server + canvas (build & save map scenes)
 //   pnpm dev --table      server + table (host a session, no editor)
 //   pnpm dev docker       docker compose up --build (compose interleaves its own logs)
@@ -9,6 +9,8 @@
 // Dev lane ports: server 5600, canvas 5601, table 5602 — shift the whole lane with
 // DEV_PORT_BASE. Everything binds 127.0.0.1; docker is the LAN-facing lane.
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
 
 const BASE = Number(process.env.DEV_PORT_BASE ?? 5600)
@@ -24,7 +26,11 @@ if (args[0] === 'docker') {
   const canvasOnly = args.includes('--canvas')
   const tableOnly = args.includes('--table')
   const procs = []
-  const colors = { server: 33, canvas: 35, table: 36 }
+  const colors = { server: 33, canvas: 35, table: 36, bot: 32 }
+  // The Discord bot rides along whenever its creds exist; it binds no port
+  // (gateway client, outbound only), so it takes no slot in the lane.
+  const botEnv = fileURLToPath(new URL('../bot/.env', import.meta.url))
+  const withBot = !canvasOnly && existsSync(botEnv)
 
   let dying = false
   const shutdown = (code, who) => {
@@ -70,10 +76,16 @@ if (args[0] === 'docker') {
       E2E_DEV_PORT: String(TABLE_PORT),
       E2E_SERVER_PORT: String(SERVER_PORT),
     })
+  if (withBot)
+    run('bot', '@dnd/bot', {
+      GOBLIN_SERVER_URL: `http://127.0.0.1:${SERVER_PORT}`,
+      PUBLIC_TABLE_URL: `http://localhost:${TABLE_PORT}`,
+    })
 
   console.log(
     `[dev] server :${SERVER_PORT}` +
       (tableOnly ? '' : `  canvas http://localhost:${CANVAS_PORT}`) +
-      (canvasOnly ? '' : `  table http://localhost:${TABLE_PORT}`),
+      (canvasOnly ? '' : `  table http://localhost:${TABLE_PORT}`) +
+      (withBot ? '  bot up (no port)' : ''),
   )
 }
