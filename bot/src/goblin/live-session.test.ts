@@ -4,7 +4,8 @@ import type { GoblinEvent, Observer } from './observer'
 import type { GoblinRest } from './rest'
 import { openDb } from '../db/db'
 import { createCalendar, createCampaigns, createSessions, type Campaign } from '../db/stores'
-import type { ContainerSpec } from '../lib/ui'
+import type { AttachedFile, ContainerSpec } from '../lib/ui'
+import { playerMap } from '../render/__fixtures__/two-rooms'
 
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
@@ -16,13 +17,15 @@ const unused = (): never => {
 interface Posted {
   channelId: string
   spec: ContainerSpec
+  files?: AttachedFile[]
 }
 
 interface Edited extends Posted {
   messageId: string
 }
 
-function harness(over: { openSession?: GoblinRest['openSession'] } = {}) {
+function harness(over: { openSession?: GoblinRest['openSession']; getMap?: GoblinRest['getMap'] } = {}) {
+  const warn = vi.fn()
   const db = openDb(':memory:')
   const campaigns = createCampaigns(db)
   campaigns.upsert({
@@ -52,13 +55,13 @@ function harness(over: { openSession?: GoblinRest['openSession'] } = {}) {
       endSession: async (_token, sessionId) => {
         endCalls.push(sessionId)
       },
-      getMap: unused,
+      getMap: over.getMap ?? unused,
       getAsset: unused,
     },
     sessions,
     calendar: createCalendar(db),
-    announce: async (channelId, spec) => {
-      posted.push({ channelId, spec })
+    announce: async (channelId, spec, files) => {
+      posted.push({ channelId, spec, files })
       return { messageId: `msg-${posted.length}` }
     },
     edit: async (channelId, messageId, spec) => {
@@ -81,10 +84,10 @@ function harness(over: { openSession?: GoblinRest['openSession'] } = {}) {
       return observer
     },
     campaignById: campaigns.byId,
-    logger: { warn: vi.fn(), info: vi.fn() },
+    logger: { warn, info: vi.fn() },
   })
 
-  return { runner, campaign, campaigns, sessions, posted, edited, observers, endCalls }
+  return { runner, campaign, campaigns, sessions, posted, edited, observers, endCalls, warn }
 }
 
 const snapshot: GoblinEvent = {
@@ -261,6 +264,79 @@ describe('session runner', () => {
 
     expect(sessions.byId('sess-old')?.endedAt).not.toBeNull()
     expect(posted.at(-1)?.spec.header).toContain('Session recap')
+  })
+
+  // ── M6: the recap carries the evening's last map ──────────────────────────────────────
+
+  it('renders the final player-visible map into the recap, one message', async () => {
+    const asked: string[] = []
+    const { runner, campaign, posted, observers } = harness({
+      getMap: async (token, sceneId) => {
+        asked.push(`${token}/${sceneId}`)
+        return playerMap
+      },
+    })
+    await runner.start(campaign)
+    observers[0].emit(snapshot)
+    observers[0].emit({
+      type: 'tokens',
+      state: {
+        byScene: {
+          'scene-1': {
+            t1: { id: 't1', name: 'Zed', x: 3, y: 3, size: 'medium', disposition: 'friendly', hidden: false },
+          },
+        },
+      },
+    })
+    await runner.end(campaign)
+
+    // The *player* seat, so the snapshot is the party's own map even though the observer
+    // watches with the DM's.
+    expect(asked).toEqual(['player-token/scene-1'])
+    const recap = posted.at(-1)!
+    expect(recap.spec.header).toContain('Session recap')
+    expect(recap.spec.media).toEqual(['attachment://map.png'])
+    expect(recap.files?.[0].name).toBe('map.png')
+    expect(recap.files?.[0].data.length).toBeGreaterThan(1000)
+  })
+
+  it('still posts the recap when the map render fails', async () => {
+    const { runner, campaign, posted, observers, sessions, warn } = harness({
+      getMap: () => Promise.reject(new Error('server down')),
+    })
+    await runner.start(campaign)
+    observers[0].emit(snapshot)
+    const recap = await runner.end(campaign)
+
+    // The words survive; only the picture is lost, and it is logged rather than swallowed.
+    expect(recap.scenes).toEqual(['Cragmaw Hideout'])
+    expect(posted.at(-1)!.spec.header).toContain('Session recap')
+    expect(posted.at(-1)!.spec.media).toBeUndefined()
+    expect(posted.at(-1)!.files).toBeUndefined()
+    expect(sessions.byId('sess-1')?.recapMessageId).toBe('msg-2')
+    expect(warn).toHaveBeenCalledWith('recap map snapshot failed', expect.anything())
+  })
+
+  it('hands /map the scene and tokens the observer is holding', async () => {
+    const { runner, campaign, observers } = harness()
+    await runner.start(campaign)
+    observers[0].emit(snapshot)
+    observers[0].emit({
+      type: 'tokens',
+      state: {
+        byScene: {
+          'scene-1': {
+            t1: { id: 't1', name: 'Zed', x: 1, y: 2, size: 'large', disposition: 'hostile', hidden: true },
+          },
+        },
+      },
+    })
+
+    expect(runner.liveState('camp-1')).toEqual({
+      sceneId: 'scene-1',
+      tokens: [{ id: 't1', name: 'Zed', x: 1, y: 2, cells: 2, disposition: 'hostile', hidden: true }],
+    })
+    expect(runner.liveState('camp-nope')).toBeUndefined()
   })
 
   it('refuses to start without a game-server token', async () => {

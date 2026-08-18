@@ -55,7 +55,7 @@ describe('liveSessionEmbed', () => {
   it('carries the link, the scene, the world date and who is here', () => {
     const spec = liveSessionEmbed({
       ...base,
-      live: { players: ['Zed', 'Mira'], sceneName: 'Cragmaw Hideout', dmConnected: true },
+      live: { players: ['Zed', 'Mira'], sceneName: 'Cragmaw Hideout', sceneId: 'scene-1', dmConnected: true },
     })
     const body = text(spec)
     expect(spec.header).toBe('Live — The Sunken Keep')
@@ -68,7 +68,7 @@ describe('liveSessionEmbed', () => {
 
   it('says so plainly when the table is empty or the DM has dropped', () => {
     const body = text(
-      liveSessionEmbed({ ...base, live: { players: [], sceneName: null, dmConnected: false } }),
+      liveSessionEmbed({ ...base, live: { players: [], sceneName: null, sceneId: null, dmConnected: false } }),
     )
     expect(body).toContain('Nobody at the table yet')
     expect(body).toContain('None yet')

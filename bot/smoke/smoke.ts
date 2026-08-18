@@ -16,6 +16,9 @@ import { toggleVote, winningOption } from '../src/features/schedule'
 import { PROTOCOL_VERSION } from '../src/goblin/observer'
 import { createSessionStats } from '../src/goblin/session-stats'
 import { renderCharacterCard } from '../src/render/card-kit'
+import { playerMap, tokens as mapTokens } from '../src/render/__fixtures__/two-rooms'
+import { mapSvg } from '../src/render/map-svg'
+import { rasterize } from '../src/render/raster'
 import { container } from '../src/lib/ui'
 
 export interface Check {
@@ -218,6 +221,24 @@ export function m5Checks(env: Env): Check[] {
   ]
 }
 
+/** Milestone 6 surface: the map pipeline, offline. Rendering the fixture end to end proves the
+ * fonts are in the image and resvg loaded its native binding — the two things that break in a
+ * container and nowhere else. */
+export function m6Checks(): Check[] {
+  return [
+    {
+      name: 'map snapshot render',
+      run: async () => {
+        const svg = mapSvg(playerMap, { tokens: mapTokens })
+        if (!svg.includes('West Hall')) throw new Error('room labels missing from the schematic')
+        const png = rasterize(svg)
+        if (png.length === 0) throw new Error('rasterizer produced no bytes')
+        return `${png.length} byte PNG from the two-room fixture`
+      },
+    },
+  ]
+}
+
 const door = (open: boolean) => ({ open, locked: false, revealed: true })
 
 async function main(): Promise<void> {
@@ -228,6 +249,7 @@ async function main(): Promise<void> {
     ...m3Checks(),
     ...m4Checks(),
     ...m5Checks(env),
+    ...m6Checks(),
   ])
   const failed = results.filter((r) => !r.ok).length
   console.log(formatResults(results).join('\n'))

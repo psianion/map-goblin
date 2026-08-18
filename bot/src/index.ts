@@ -1,7 +1,7 @@
 // Boot, and the only file in the package with import-time side effects. Everything it
 // wires is a pure or DI-friendly export, which is why none of it needs Discord to be tested.
 
-import { Events, MessageFlags } from 'discord.js'
+import { AttachmentBuilder, Events, MessageFlags } from 'discord.js'
 import { join } from 'node:path'
 import { WebSocket } from 'ws'
 import { createClient } from './bot/client'
@@ -29,7 +29,7 @@ import { createObserver } from './goblin/observer'
 import { createGoblinRest } from './goblin/rest'
 import { createChannelLog, installExitFlush } from './lib/channel-log'
 import { log, subscribe } from './lib/log'
-import { container, type ContainerSpec } from './lib/ui'
+import { container, type AttachedFile, type ContainerSpec } from './lib/ui'
 
 const env = parseEnv()
 const db = openDb(join(env.BOT_DATA, 'bot.db'))
@@ -51,10 +51,20 @@ const goblin = createGoblinRest({ baseUrl: env.GOBLIN_SERVER_URL })
 
 /** The only place `ws` is named: the observer takes a socket factory so its own tests can
  * drive a fake one, and the runner takes an observer factory for the same reason. */
-const announce = async (channelId: string, spec: ContainerSpec): Promise<{ messageId: string } | undefined> => {
+const announce = async (
+  channelId: string,
+  spec: ContainerSpec,
+  files?: AttachedFile[],
+): Promise<{ messageId: string } | undefined> => {
   const channel = await client.channels.fetch(channelId)
   if (!channel?.isSendable()) return undefined
-  const message = await channel.send({ components: [container(spec)], flags: MessageFlags.IsComponentsV2 })
+  const message = await channel.send({
+    components: [container(spec)],
+    // The container's media items reference these by `attachment://<name>` (plan §7), which
+    // is what puts the map inside the recap rather than beside it.
+    ...(files?.length ? { files: files.map((f) => new AttachmentBuilder(f.data, { name: f.name })) } : {}),
+    flags: MessageFlags.IsComponentsV2,
+  })
   return { messageId: message.id }
 }
 

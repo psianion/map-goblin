@@ -130,7 +130,7 @@ function depsFor(registry: Registry, overrides: Partial<RouterDeps> = {}): Route
       getAsset: unused,
     },
     goblinAdminPass: 'admin-pass',
-    sessionRunner: { start: unused, end: unused, resume: unused, stopAll: unused },
+    sessionRunner: { start: unused, end: unused, liveState: () => undefined, resume: unused, stopAll: unused },
     db: {} as RouterDeps['db'],
     announce: async () => undefined,
     edit: async () => {},

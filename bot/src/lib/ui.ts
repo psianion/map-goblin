@@ -14,6 +14,13 @@ import {
 /** Parchment-ink accent from the art style guide. */
 export const ACCENT = 0xb08d57
 
+/** A buffer posted alongside a container, referenced from `media` as `attachment://<name>`.
+ * Plain data, so every seam that carries one stays Discord-free. */
+export interface AttachedFile {
+  name: string
+  data: Buffer
+}
+
 export interface ContainerSpec {
   accent?: number
   /** Rendered as an h2 line above the blocks. */

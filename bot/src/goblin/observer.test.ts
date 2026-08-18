@@ -96,9 +96,11 @@ describe('observer', () => {
     latest().deliver(snapshot())
     latest().deliver({ type: 'player-joined', player: { identityId: 'p', name: 'Zed', role: 'player', connected: true } })
     latest().deliver({ type: 'state-update', module: 'doors', state: { byScene: {} } })
-    latest().deliver({ type: 'state-update', module: 'tokens', state: {} })
+    latest().deliver({ type: 'state-update', module: 'tokens', state: { byScene: {} } })
+    // A module the bot has no use for, and a message type that does not exist yet.
+    latest().deliver({ type: 'state-update', module: 'initiative', state: {} })
     latest().deliver({ type: 'some-future-thing' })
-    expect(events.map((e) => e.type)).toEqual(['session-state', 'player-joined', 'doors'])
+    expect(events.map((e) => e.type)).toEqual(['session-state', 'player-joined', 'doors', 'tokens'])
   })
 
   it('reconnects with a capped exponential backoff', () => {

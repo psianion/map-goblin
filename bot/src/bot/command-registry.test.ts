@@ -17,7 +17,9 @@ import {
   type Campaign,
 } from '../db/stores'
 import { parse } from '../lib/custom-id'
-import type { ContainerSpec } from '../lib/ui'
+import type { AttachedFile, ContainerSpec } from '../lib/ui'
+import { dmMap, playerMap } from '../render/__fixtures__/two-rooms'
+import type { MapToken } from '../render/map-svg'
 
 const campaign: Campaign = {
   goblinCampaignId: 'camp-1',
@@ -163,6 +165,7 @@ const stubGoblin = (): Deps['goblin'] => ({
 const stubRunner = (): Deps['sessionRunner'] => ({
   start: unused,
   end: unused,
+  liveState: () => undefined,
   resume: unused,
   stopAll: unused,
 })
@@ -242,7 +245,13 @@ describe('/campaign subcommand authorize split (setup owner, status member)', ()
 // fixtures — vote toggling, DM-writes-the-date and membership checks all live inside the
 // component handlers in command-registry.ts, so a pure feature test can't cover them.
 
-function seededDeps(over: Partial<Deps> = {}): { deps: Deps; sent: { channelId: string; spec: ContainerSpec }[] } {
+interface Sent {
+  channelId: string
+  spec: ContainerSpec
+  files?: AttachedFile[]
+}
+
+function seededDeps(over: Partial<Deps> = {}): { deps: Deps; sent: Sent[] } {
   const db = openDb(':memory:')
   const campaigns = createCampaigns(db)
   campaigns.upsert({
@@ -253,7 +262,7 @@ function seededDeps(over: Partial<Deps> = {}): { deps: Deps; sent: { channelId: 
     dmDiscordId: 'dm-1',
     roleId: 'role-1',
   })
-  const sent: { channelId: string; spec: ContainerSpec }[] = []
+  const sent: Sent[] = []
   const deps: Deps = {
     ownerId: 'owner-1',
     campaigns,
@@ -273,8 +282,8 @@ function seededDeps(over: Partial<Deps> = {}): { deps: Deps; sent: { channelId: 
     goblinAdminPass: 'admin-pass',
     sessionRunner: stubRunner(),
     db,
-    announce: async (channelId, spec) => {
-      sent.push({ channelId, spec })
+    announce: async (channelId, spec, files) => {
+      sent.push({ channelId, spec, files })
       return { messageId: `msg-${sent.length}` }
     },
     edit: async () => {},
@@ -283,12 +292,19 @@ function seededDeps(over: Partial<Deps> = {}): { deps: Deps; sent: { channelId: 
   return { deps, sent }
 }
 
+interface FakeAttachment {
+  url: string
+  name: string
+  contentType: string | null
+}
+
 function chatInteraction(over: {
   channelId?: string
   userId?: string
   subcommand?: string
   strings?: Record<string, string | null>
   focused?: string
+  attachments?: Record<string, FakeAttachment>
 }) {
   const calls: unknown[][] = []
   return {
@@ -303,6 +319,7 @@ function chatInteraction(over: {
         return value
       },
       getFocused: () => over.focused ?? '',
+      getAttachment: (name: string) => over.attachments?.[name] ?? null,
       // Channel/role/user options carry only an id here — that is all the registry reads.
       getChannel: (name: string) => ({ id: over.strings?.[name] ?? name }),
       getRole: (name: string) => ({ id: over.strings?.[name] ?? name }),
@@ -545,5 +562,158 @@ describe('/feedback — anonymous by schema, not just by display', () => {
 
     expect(sent.at(-1)!.channelId).toBe('dm-chan')
     expect(interaction.calls[0]).toEqual(['edit', 'Thanks — sent anonymously to the DM.'])
+  })
+})
+
+// â”€â”€ M6: the map pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/** A campaign with both seats, and a table the observer may or may not be watching. */
+function mapDeps(over: { liveScene?: string | null; tokens?: MapToken[]; maps?: Record<string, unknown> } = {}) {
+  const asked: { token: string; sceneId: string }[] = []
+  const { deps, sent } = seededDeps({
+    goblin: {
+      ...stubGoblin(),
+      getMap: async (token, sceneId) => {
+        asked.push({ token, sceneId })
+        return over.maps?.[sceneId] ?? playerMap
+      },
+    },
+    sessionRunner: {
+      ...stubRunner(),
+      liveState: () =>
+        over.liveScene === undefined ? undefined : { sceneId: over.liveScene, tokens: over.tokens ?? [] },
+    },
+  })
+  deps.campaigns.setTokens('camp-1', 'dm-token', 'player-token')
+  return { deps, sent, asked }
+}
+
+describe('/map â€” channel-switched authorize', () => {
+  it('is the DM view only in the DM channel, and member-level everywhere else in the campaign', () => {
+    const authorize = registry.map.authorize
+    // The DM in their own channel: allowed without the campaign role â€” the DB is the authority.
+    expect(() => authorize(ctx({ channelId: 'dm-chan', userId: 'dm-1' }), registered)).not.toThrow()
+    // The DM channel does not make anyone else a DM; they are a member, and need the role.
+    expect(() => authorize(ctx({ channelId: 'dm-chan', userId: 'user-1' }), registered)).toThrowError(
+      /not in this campaign/,
+    )
+    expect(() =>
+      authorize(ctx({ channelId: 'dm-chan', userId: 'user-1', roleIds: ['role-1'] }), registered),
+    ).not.toThrow()
+    // Player channel: the role is the whole test, DM or not.
+    expect(() => authorize(ctx({ roleIds: ['role-1'] }), registered)).not.toThrow()
+    expect(() => authorize(ctx({ roleIds: [] }), registered)).toThrowError(/not in this campaign/)
+    // Outside the campaign nothing resolves, and it says so before looking at the user.
+    expect(() => authorize(ctx({ channelId: 'random', userId: 'dm-1' }), registered)).toThrowError(
+      /campaign channel/,
+    )
+  })
+})
+
+describe('/map â€” which seat renders, and where the picture lands', () => {
+  it('uses the player seat and posts in the invoking channel', async () => {
+    const { deps, sent, asked } = mapDeps({ liveScene: 'scene-1' })
+    await registry.map.execute(chatInteraction({}) as never, deps)
+
+    expect(asked).toEqual([{ token: 'player-token', sceneId: 'scene-1' }])
+    expect(sent).toHaveLength(1)
+    expect(sent[0].channelId).toBe('player-chan')
+    expect(sent[0].spec.header).toContain('Party map')
+    expect(sent[0].spec.media).toEqual(['attachment://map.png'])
+    expect(sent[0].files?.[0].name).toBe('map.png')
+    expect(sent[0].files?.[0].data.length).toBeGreaterThan(1000)
+  })
+
+  it('uses the DM seat in the DM channel, and posts there and nowhere else', async () => {
+    const { deps, sent, asked } = mapDeps({ liveScene: 'scene-1', maps: { 'scene-1': dmMap } })
+    await registry.map.execute(chatInteraction({ channelId: 'dm-chan', userId: 'dm-1' }) as never, deps)
+    expect(asked).toEqual([{ token: 'dm-token', sceneId: 'scene-1' }])
+    expect(sent[0].channelId).toBe('dm-chan')
+    expect(sent[0].spec.header).toContain('DM map')
+  })
+
+  it('refuses a campaign registered before the seats existed', async () => {
+    const { deps } = mapDeps({ liveScene: 'scene-1' })
+    deps.campaigns.setTokens('camp-1', 'dm-token', null)
+    await expect(registry.map.execute(chatInteraction({}) as never, deps)).rejects.toThrowError(/campaign setup/)
+  })
+})
+
+describe('/map â€” scene resolution', () => {
+  it('prefers the option over the live scene', async () => {
+    const { deps, asked } = mapDeps({ liveScene: 'scene-1' })
+    await registry.map.execute(chatInteraction({ strings: { scene: 'scene-9' } }) as never, deps)
+    expect(asked[0].sceneId).toBe('scene-9')
+  })
+
+  it('says so plainly when there is neither an option nor a live scene', async () => {
+    const { deps: noSession } = mapDeps()
+    await expect(registry.map.execute(chatInteraction({}) as never, noSession)).rejects.toThrowError(
+      /no current scene/i,
+    )
+    const { deps: idle } = mapDeps({ liveScene: null })
+    await expect(registry.map.execute(chatInteraction({}) as never, idle)).rejects.toThrowError(/no current scene/i)
+  })
+
+  it('overlays tokens only for the scene the observer is actually watching', async () => {
+    const size = async (sceneOption: string | null): Promise<number> => {
+      const { deps, sent } = mapDeps({
+        liveScene: 'scene-1',
+        tokens: [{ id: 't', name: 'Zed', x: 3, y: 3, cells: 1, disposition: 'friendly', hidden: false }],
+        maps: { 'scene-1': playerMap, 'scene-2': playerMap },
+      })
+      await registry.map.execute(chatInteraction({ strings: { scene: sceneOption } }) as never, deps)
+      return sent[0].files![0].data.length
+    }
+    // Same document either way, so the token dot is the only thing that can differ.
+    expect(await size(null)).toBeGreaterThan(await size('scene-2'))
+  })
+})
+
+describe('/handout â€” the DM pushes to the player channel', () => {
+  it('needs something to send', async () => {
+    const { deps, sent } = seededDeps()
+    await expect(
+      registry.handout.execute(chatInteraction({ channelId: 'dm-chan', userId: 'dm-1' }) as never, deps),
+    ).rejects.toThrowError(/something to hand out/i)
+    expect(sent).toHaveLength(0)
+  })
+
+  it('reposts a game-server asset as a real attachment, fetched with the DM seat', async () => {
+    const asked: string[] = []
+    const { deps, sent } = seededDeps({
+      goblin: {
+        ...stubGoblin(),
+        getAsset: async (token, assetId) => {
+          asked.push(`${token}/${assetId}`)
+          return { bytes: Buffer.from('fake-png-bytes'), mime: 'image/png' }
+        },
+      },
+    })
+    deps.campaigns.setTokens('camp-1', 'dm-token', 'player-token')
+    const interaction = chatInteraction({
+      channelId: 'dm-chan',
+      userId: 'dm-1',
+      strings: { asset: 'asset-7', note: 'The map you found.' },
+    })
+    await registry.handout.execute(interaction as never, deps)
+
+    expect(asked).toEqual(['dm-token/asset-7'])
+    // Always the player channel, never the channel it was typed in (plan Â§6).
+    expect(sent[0].channelId).toBe('player-chan')
+    expect(sent[0].files).toEqual([{ name: 'asset-7.png', data: Buffer.from('fake-png-bytes') }])
+    expect(sent[0].spec.media).toEqual(['attachment://asset-7.png'])
+    expect(sent[0].spec.blocks?.join('\n')).toContain('The map you found.')
+    expect(interaction.calls[0]).toEqual(['edit', "Handout posted to The Sunken Keep's player channel."])
+  })
+
+  it('sends a note on its own with nothing attached', async () => {
+    const { deps, sent } = seededDeps()
+    await registry.handout.execute(
+      chatInteraction({ channelId: 'dm-chan', userId: 'dm-1', strings: { note: 'Rest up.' } }) as never,
+      deps,
+    )
+    expect(sent[0].files).toEqual([])
+    expect(sent[0].spec.media).toBeUndefined()
   })
 })

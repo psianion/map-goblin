@@ -14,7 +14,9 @@ import {
 } from '../features/session'
 import { userInput } from '../lib/errors'
 import { log as defaultLog } from '../lib/log'
-import type { ContainerSpec } from '../lib/ui'
+import type { AttachedFile, ContainerSpec } from '../lib/ui'
+import { mapSvg, type MapToken } from '../render/map-svg'
+import { rasterize } from '../render/raster'
 import type { Observer } from './observer'
 import type { GoblinRest } from './rest'
 import { createSessionStats, type SessionStats } from './session-stats'
@@ -32,7 +34,11 @@ export interface SessionRunnerDeps {
   rest: GoblinRest
   sessions: Sessions
   calendar: Calendar
-  announce: (channelId: string, spec: ContainerSpec) => Promise<{ messageId: string } | undefined>
+  announce: (
+    channelId: string,
+    spec: ContainerSpec,
+    files?: AttachedFile[],
+  ) => Promise<{ messageId: string } | undefined>
   edit: (channelId: string, messageId: string, spec: ContainerSpec) => Promise<void>
   /** Injected so tests drive a fake socket and index.ts owns the `ws` dependency. */
   createObserver: (token: string) => Observer
@@ -48,7 +54,13 @@ export interface SessionRunner {
   /** Boot: pick the live rows back up (plan §11 M5). */
   resume: () => void
   stopAll: () => void
+  /** What the observer currently knows about a campaign's table — the scene `/map` defaults
+   * to, and the tokens it overlays. Undefined when no session is being watched. */
+  liveState: (campaignId: string) => { sceneId: string | null; tokens: MapToken[] } | undefined
 }
+
+/** The recap's map file name; `media` references it as `attachment://` (plan §7). */
+export const SNAPSHOT_FILE = 'map.png'
 
 interface Running {
   campaign: Campaign
@@ -133,9 +145,19 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
     }
     const row = deps.sessions.finish(sessionId, recap)
 
-    // Text-only this milestone. Milestone 6 attaches the final player-visible map PNG to
-    // this same post (plan §7) — render it here and pass `media` through the recap spec.
-    const sent = await deps.announce(campaign.channelId, sessionRecapEmbed(campaign.name, recap))
+    // The evening's last map, inside the recap rather than beside it (plan §7). The render
+    // reaches the game server, so it is the one part of a recap that can fail — and a lost
+    // recap would be a far worse trade than a recap without a picture.
+    const snapshot = await snapshotOf(campaign, entry?.stats).catch((error: unknown) => {
+      logger.warn('recap map snapshot failed', { error: String(error) })
+      return undefined
+    })
+    const spec = sessionRecapEmbed(campaign.name, recap)
+    const sent = await deps.announce(
+      campaign.channelId,
+      snapshot ? { ...spec, media: [`attachment://${SNAPSHOT_FILE}`] } : spec,
+      snapshot ? [snapshot] : undefined,
+    )
     if (sent) deps.sessions.setRecapMessageId(sessionId, sent.messageId)
     // The board stops claiming a table that is over.
     if (row.liveMessageId) {
@@ -144,6 +166,18 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
         .catch((error: unknown) => logger.warn('live board close-out failed', { error: String(error) }))
     }
     return recap
+  }
+
+  /**
+   * The final *player-visible* map: fetched with the campaign's player-role token, so the
+   * server's redactor decides what the party is allowed to keep looking at after the table
+   * closes (plan §4). Undefined when there is nothing to draw or no seat to draw it from.
+   */
+  async function snapshotOf(campaign: Campaign, stats: SessionStats | undefined): Promise<AttachedFile | undefined> {
+    const sceneId = stats?.live().sceneId
+    if (!sceneId || !campaign.playerToken) return undefined
+    const doc = await deps.rest.getMap(campaign.playerToken, sceneId)
+    return { name: SNAPSHOT_FILE, data: rasterize(mapSvg(doc, { tokens: stats?.tokens(sceneId) })) }
   }
 
   return {
@@ -187,6 +221,15 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
         entry.observer.stop()
       }
       running.clear()
+    },
+
+    liveState: (campaignId) => {
+      for (const entry of running.values()) {
+        if (entry.campaign.goblinCampaignId !== campaignId) continue
+        const sceneId = entry.stats.live().sceneId
+        return { sceneId, tokens: sceneId ? entry.stats.tokens(sceneId) : [] }
+      }
+      return undefined
     },
   }
 }

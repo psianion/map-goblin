@@ -188,6 +188,29 @@ export const session = guildOnly(
     .addSubcommand((sub) => sub.setName('end').setDescription('Close the table and post the recap')),
 )
 
+/**
+ * One command, two outputs (plan §7). Typed in the DM channel by the DM it renders the
+ * unfogged map there; anywhere else in the campaign it renders the party's own copy in the
+ * channel it was typed in. The switch is the channel, so there is nothing to get wrong.
+ */
+export const map = guildOnly(
+  new SlashCommandBuilder()
+    .setName('map')
+    .setDescription('Post a snapshot of the current map')
+    .addStringOption((o) =>
+      o.setName('scene').setDescription('Scene to render (default: the live one)').setRequired(false).setAutocomplete(true),
+    ),
+)
+
+export const handout = guildOnly(
+  new SlashCommandBuilder()
+    .setName('handout')
+    .setDescription('Share an image, file or note with the players (DM only)')
+    .addAttachmentOption((o) => o.setName('file').setDescription('Image or file to share').setRequired(false))
+    .addStringOption((o) => o.setName('asset').setDescription('Game-server asset id').setRequired(false))
+    .addStringOption((o) => o.setName('note').setDescription('A note for the players').setMaxLength(1000).setRequired(false)),
+)
+
 export const lfg = guildOnly(
   new SlashCommandBuilder()
     .setName('lfg')

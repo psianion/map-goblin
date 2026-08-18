@@ -28,6 +28,14 @@ import { characterCreatedReply, characterUpdatedReply, filterAutocomplete, level
 import { rollExpression, rollReply, summarizeFaces } from '../features/dice'
 import { goldSplitAnnouncement, goldSplitConfirmation, lootAddedReply, lootListEmbed, splitNote, splitShares } from '../features/economy'
 import { feedbackCard, feedbackThanks } from '../features/feedback'
+import {
+  assetFileName,
+  fetchAttachment,
+  handoutConfirmation,
+  handoutPost,
+  isImage,
+  safeFileName,
+} from '../features/handout'
 import { noteSavedReply, recallEmbed, sanitizeFtsQuery } from '../features/journal'
 import { applicationCard, applyConfirmation, lfgBoardPost, lfgCloseConfirmation, lfgClosedNotice, lfgOpenConfirmation } from '../features/lfg'
 import { trySyncNickname } from '../features/nickname'
@@ -45,8 +53,11 @@ import { sessionEndedReply, sessionStartedReply } from '../features/session'
 import { campaignStatus } from '../features/status'
 import { build, SHARED_OWNER, type CustomId } from '../lib/custom-id'
 import { internal, notAuthorized, notFound, userInput, wrongChannel } from '../lib/errors'
-import { container, type ContainerSpec } from '../lib/ui'
+import { container, type AttachedFile, type ContainerSpec } from '../lib/ui'
+import { SNAPSHOT_FILE } from '../goblin/live-session'
 import { fetchPortraitDataUri, renderCharacterCard } from '../render/card-kit'
+import { mapSvg } from '../render/map-svg'
+import { rasterize } from '../render/raster'
 import {
   apply as applyCommand,
   calendar as calendarCommand,
@@ -54,7 +65,9 @@ import {
   character as characterCommand,
   feedback as feedbackCommand,
   gold as goldCommand,
+  handout as handoutCommand,
   lfg as lfgCommand,
+  map as mapCommand,
   loot as lootCommand,
   mycharacters as mycharactersCommand,
   note as noteCommand,
@@ -94,7 +107,11 @@ export interface Deps {
    * Used for CBAC posts (level-up to the player channel, welcome to the welcome channel).
    * Resolves the sent message's ref, or undefined if the channel wasn't sendable — schedule
    * polls and LFG posts store it so a later action (vote, close) can find the row. */
-  announce: (channelId: string, spec: ContainerSpec) => Promise<{ messageId: string } | undefined>
+  announce: (
+    channelId: string,
+    spec: ContainerSpec,
+    files?: AttachedFile[],
+  ) => Promise<{ messageId: string } | undefined>
   /** The announce twin for a message the bot already posted — the live session board is
    * edited in place rather than re-posted every time somebody walks through a door (§8). */
   edit: (channelId: string, messageId: string, spec: ContainerSpec) => Promise<void>
@@ -484,20 +501,29 @@ export const registry: Registry = {
       }
       throw notFound("I don't have that session subcommand.")
     },
-    // The scene library lives on the game server, not in the bot DB — the one autocomplete
-    // that goes over the wire. A failure here is an empty list (see interaction-router.ts).
-    autocomplete: async (interaction, deps) => {
-      const campaign = deps.campaigns.byChannel(interaction.channelId)
-      if (!campaign?.serviceToken) return interaction.respond([])
-      const query = interaction.options.getFocused().toLowerCase()
-      const scenes = await deps.goblin.getScenes(campaign.serviceToken, campaign.goblinCampaignId)
-      await interaction.respond(
-        scenes
-          .filter((scene) => scene.name.toLowerCase().includes(query))
-          .slice(0, 25)
-          .map((scene) => ({ name: scene.name, value: scene.id })),
-      )
+    autocomplete: sceneAutocomplete,
+  },
+
+  map: {
+    data: mapCommand,
+    // The picture is the post; the invoker's own reply is a receipt.
+    ephemeral: true,
+    // Channel-switched (plan §7): the DM's own channel is the only place the unfogged map
+    // exists, and everywhere else in the campaign is a member-level party map.
+    authorize: (ctx, deps) => {
+      const campaign = campaignForChannel(ctx, deps)
+      if (isDmMapView(ctx.channelId, ctx.userId, campaign)) return
+      memberOnly(ctx, deps)
     },
+    execute: postMap,
+    autocomplete: sceneAutocomplete,
+  },
+
+  handout: {
+    data: handoutCommand,
+    ephemeral: true,
+    authorize: dmOnly,
+    execute: sendHandout,
   },
 
   lfg: {
@@ -550,6 +576,97 @@ export const registry: Registry = {
       await interaction.editReply(feedbackThanks())
     },
   },
+}
+
+/** The scene library lives on the game server, not in the bot DB — the one autocomplete that
+ * goes over the wire. A failure here is an empty list (see interaction-router.ts). */
+async function sceneAutocomplete(interaction: AutocompleteInteraction, deps: Deps): Promise<void> {
+  const campaign = deps.campaigns.byChannel(interaction.channelId)
+  if (!campaign?.serviceToken) return interaction.respond([])
+  const query = interaction.options.getFocused().toLowerCase()
+  const scenes = await deps.goblin.getScenes(campaign.serviceToken, campaign.goblinCampaignId)
+  await interaction.respond(
+    scenes
+      .filter((scene) => scene.name.toLowerCase().includes(query))
+      .slice(0, 25)
+      .map((scene) => ({ name: scene.name, value: scene.id })),
+  )
+}
+
+/** The DM, in their own channel. Both halves matter: the DM asking elsewhere gets the party's
+ * map (nothing leaks into a shared channel), and a member in the DM channel is still a member. */
+function isDmMapView(channelId: string, userId: string, campaign: Campaign): boolean {
+  return channelId === campaign.dmChannelId && userId === campaign.dmDiscordId
+}
+
+const NO_TOKEN = 'This campaign has no game-server seat yet — the DM needs to run `/campaign setup` again.'
+
+async function postMap(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+  const campaign = requireCampaign(interaction, deps)
+  const dmView = isDmMapView(interaction.channelId, interaction.user.id, campaign)
+  // The token *is* the redaction (plan §4): the player seat gets the server-cut document, so
+  // the bot never decides what a player may see.
+  const token = dmView ? campaign.serviceToken : campaign.playerToken
+  if (!token) throw userInput(NO_TOKEN)
+
+  const live = deps.sessionRunner.liveState(campaign.goblinCampaignId)
+  const sceneId = interaction.options.getString('scene') ?? live?.sceneId
+  if (!sceneId)
+    throw userInput("No session is running, so there's no current scene — pass the `scene` option.")
+
+  const doc = await deps.goblin.getMap(token, sceneId)
+  // Tokens only for the scene the observer is actually watching: positions from another scene
+  // would be fiction drawn at full confidence.
+  const tokens = live?.sceneId === sceneId ? live.tokens : undefined
+  const png = rasterize(mapSvg(doc, { tokens, dmView }))
+
+  await deps.announce(
+    dmView ? campaign.dmChannelId : interaction.channelId,
+    {
+      header: `${campaign.name} — ${dmView ? 'DM map' : 'Party map'}`,
+      blocks: [dmView ? '_Unfogged, secrets included._' : '_What the party has uncovered so far._'],
+      media: [`attachment://${SNAPSHOT_FILE}`],
+    },
+    [{ name: SNAPSHOT_FILE, data: png }],
+  )
+  await interaction.editReply(dmView ? 'Posted to your DM channel.' : 'Map posted.')
+}
+
+async function sendHandout(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+  const campaign = requireCampaign(interaction, deps)
+  const note = interaction.options.getString('note')
+  const assetId = interaction.options.getString('asset')
+  const upload = interaction.options.getAttachment('file')
+  if (!note && !assetId && !upload)
+    throw userInput('Give me something to hand out: a file, an asset id, or a note.')
+
+  const files: AttachedFile[] = []
+  const imageNames: string[] = []
+  const fileNames: string[] = []
+  const add = (name: string, data: Buffer, mime: string | null | undefined): void => {
+    files.push({ name, data })
+    ;(isImage(mime) ? imageNames : fileNames).push(name)
+  }
+
+  if (assetId) {
+    if (!campaign.serviceToken) throw userInput(NO_TOKEN)
+    const asset = await deps.goblin.getAsset(campaign.serviceToken, assetId)
+    add(assetFileName(assetId, asset.mime), asset.bytes, asset.mime)
+  }
+  if (upload) {
+    // Re-uploaded rather than linked: a Discord CDN url is signed and expires, and a handout
+    // that 404s a month later is worse than no handout.
+    const data = await fetchAttachment(upload.url)
+    if (!data) throw userInput("I couldn't fetch that upload — try attaching it again.")
+    add(safeFileName(upload.name), data, upload.contentType)
+  }
+
+  await deps.announce(
+    campaign.channelId,
+    handoutPost({ campaignName: campaign.name, note, imageNames, fileNames }),
+    files,
+  )
+  await interaction.editReply(handoutConfirmation(campaign.name))
 }
 
 async function createCharacter(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {

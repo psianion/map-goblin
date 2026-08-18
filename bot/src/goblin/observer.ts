@@ -45,6 +45,24 @@ export interface DoorsState {
   byScene: Record<string, Record<string, DoorFlags>>
 }
 
+/** A placed token, narrowed to the fields the map snapshot draws (plan §5). */
+export interface WireToken {
+  id: string
+  name: string
+  /** Centre, in grid cells. */
+  x: number
+  y: number
+  size: string
+  disposition: string
+  /** DM-only. The bot's observer holds the DM's seat, so these do arrive here. */
+  hidden: boolean
+}
+
+/** The `tokens` module's whole state, keyed scene → token id. */
+export interface TokensState {
+  byScene: Record<string, Record<string, WireToken>>
+}
+
 export type GoblinEvent =
   | { type: 'session-state'; state: SessionState }
   | { type: 'player-joined'; player: PlayerInfo }
@@ -54,6 +72,8 @@ export type GoblinEvent =
   | { type: 'dm-disconnected' }
   | { type: 'dm-reconnected' }
   | { type: 'doors'; state: DoorsState }
+  /** Where everyone is standing — the overlay `/map` and the recap snapshot draw (§5). */
+  | { type: 'tokens'; state: TokensState }
   /** The socket went away. `fatal` means it is not coming back — a version the bot cannot
    *  speak — so the caller should surface it rather than wait for a reconnect. */
   | { type: 'closed'; fatal: boolean }
@@ -240,8 +260,9 @@ function toEvent(message: Record<string, unknown>): GoblinEvent | null {
     case 'dm-reconnected':
       return { type: 'dm-reconnected' }
     case 'state-update':
-      if (message.module !== 'doors') return null
-      return { type: 'doors', state: message.state as DoorsState }
+      if (message.module === 'doors') return { type: 'doors', state: message.state as DoorsState }
+      if (message.module === 'tokens') return { type: 'tokens', state: message.state as TokensState }
+      return null
     default:
       return null
   }
