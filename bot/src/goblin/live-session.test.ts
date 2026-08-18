@@ -3,7 +3,7 @@ import { createSessionRunner, throttle, EMBED_EDIT_MS } from './live-session'
 import type { GoblinEvent, Observer } from './observer'
 import type { GoblinRest } from './rest'
 import { openDb } from '../db/db'
-import { createCalendar, createCampaigns, createSessions, type Campaign } from '../db/stores'
+import { createCalendar, createCampaigns, createCharacters, createSessions, type Campaign } from '../db/stores'
 import type { AttachedFile, ContainerSpec } from '../lib/ui'
 import { playerMap } from '../render/__fixtures__/two-rooms'
 
@@ -47,6 +47,7 @@ function harness(
   })
   const campaign: Campaign = campaigns.setTokens('camp-1', 'dm-token', 'player-token')
   const sessions = createSessions(db)
+  const characters = createCharacters(db)
 
   const posted: Posted[] = []
   const edited: Edited[] = []
@@ -69,6 +70,7 @@ function harness(
     },
     sessions,
     calendar: createCalendar(db),
+    characters,
     announce: async (channelId, spec, files) => {
       over.onAnnounce?.(spec)
       posted.push({ channelId, spec, files })
@@ -97,7 +99,7 @@ function harness(
     logger: { warn, info: vi.fn() },
   })
 
-  return { runner, campaign, campaigns, sessions, posted, edited, observers, endCalls, warn }
+  return { runner, campaign, campaigns, sessions, characters, posted, edited, observers, endCalls, warn }
 }
 
 const snapshot: GoblinEvent = {
@@ -245,6 +247,33 @@ describe('session runner', () => {
     // The board stops advertising a table that is over.
     expect(text(edited.at(-1)!.spec)).toContain('Doors opened')
     expect(observers[0].stopped()).toBe(true)
+  })
+
+  // ── last_played stamping (finalize's name-match heuristic) ─────────────────────────────
+
+  it('stamps last_played for characters whose name matches a session player', async () => {
+    const { runner, campaign, characters, observers } = harness()
+    const zed = characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Zed', className: 'Fighter', level: 1 })
+    const mira = characters.create({ discordId: 'user-2', campaignId: 'camp-1', name: 'Mira', className: 'Cleric', level: 1 })
+    await runner.start(campaign)
+    observers[0].emit(snapshot) // player 'Zed', per the fixture
+    observers[0].emit({ type: 'session-ended' })
+    await settle()
+
+    expect(characters.byId(zed.id)?.lastPlayed).not.toBeNull()
+    // No player in the recap named Mira — the heuristic never touches an unmatched character.
+    expect(characters.byId(mira.id)?.lastPlayed).toBeNull()
+  })
+
+  it('matches names case-insensitively', async () => {
+    const { runner, campaign, characters, observers } = harness()
+    const zed = characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'ZED', className: 'Fighter', level: 1 })
+    await runner.start(campaign)
+    observers[0].emit(snapshot)
+    observers[0].emit({ type: 'session-ended' })
+    await settle()
+
+    expect(characters.byId(zed.id)?.lastPlayed).not.toBeNull()
   })
 
   it('ends from the DM command and cannot end the same table twice', async () => {

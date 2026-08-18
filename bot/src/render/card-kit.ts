@@ -3,7 +3,7 @@
 // concern so renderCharacterCard itself never touches the network.
 
 import { readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Resvg } from '@resvg/resvg-js'
 import satori from 'satori'
@@ -74,22 +74,44 @@ export async function renderCharacterCard(input: CharacterCardInput): Promise<Bu
   return new Resvg(svg, { fitTo: { mode: 'width', value: WIDTH * 2 } }).render().asPng()
 }
 
+const MIME_BY_EXT: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+}
+
 /**
- * Fetches a stored portrait URL and returns a data: URI, or undefined on any failure (missing
- * url, network error, non-2xx) — the card falls back to the monogram placeholder either way.
+ * Resolves a stored `characters.portrait_url` to a data: URI, or undefined on any failure
+ * (missing value, missing file, network error, non-2xx) — the card falls back to the monogram
+ * placeholder either way. Handles all three shapes the column can hold: a local relative path
+ * under `botData` (current rows, read from disk), a legacy http(s) Discord CDN link (rows saved
+ * before portraits were persisted to disk — still fetched so old cards keep working until they
+ * expire), or null.
  *
- * ponytail: embeds whatever content-type the response gives (Discord attachments can be PNG
- * or JPEG); the plan's "prefer JPEG, PNG blocks resvg's Linux event loop" note applies to large
- * backgrounds, not small portraits — revisit only if a portrait render is measurably slow.
+ * ponytail: embeds whatever content-type the legacy-fetch response gives (Discord attachments
+ * can be PNG or JPEG); the plan's "prefer JPEG, PNG blocks resvg's Linux event loop" note
+ * applies to large backgrounds, not small portraits — revisit only if a portrait render is
+ * measurably slow.
  */
-export async function fetchPortraitDataUri(url: string | null | undefined): Promise<string | undefined> {
-  if (!url) return undefined
+export async function fetchPortraitDataUri(botData: string, portraitUrl: string | null | undefined): Promise<string | undefined> {
+  if (!portraitUrl) return undefined
+  if (/^https?:\/\//i.test(portraitUrl)) {
+    try {
+      const res = await fetch(portraitUrl, { signal: AbortSignal.timeout(5000) })
+      if (!res.ok) return undefined
+      const contentType = res.headers.get('content-type') ?? 'image/png'
+      const buf = Buffer.from(await res.arrayBuffer())
+      return `data:${contentType};base64,${buf.toString('base64')}`
+    } catch {
+      return undefined
+    }
+  }
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
-    if (!res.ok) return undefined
-    const contentType = res.headers.get('content-type') ?? 'image/png'
-    const buf = Buffer.from(await res.arrayBuffer())
-    return `data:${contentType};base64,${buf.toString('base64')}`
+    const buf = readFileSync(join(botData, portraitUrl))
+    const ext = portraitUrl.split('.').pop()?.toLowerCase() ?? ''
+    return `data:${MIME_BY_EXT[ext] ?? 'application/octet-stream'};base64,${buf.toString('base64')}`
   } catch {
     return undefined
   }

@@ -15,6 +15,7 @@ const unused = (): never => {
 function depsFor(registry: Registry, overrides: Partial<RouterDeps> = {}): RouterDeps {
   return {
     ownerId: 'owner-1',
+    botData: 'unused-bot-data',
     campaigns: {
       byChannel: () => undefined,
       byId: () => undefined,
@@ -37,6 +38,7 @@ function depsFor(registry: Registry, overrides: Partial<RouterDeps> = {}): Route
       byCampaignAndName: () => undefined,
       byOwner: () => [],
       byCampaign: () => [],
+      touchLastPlayed: unused,
     },
     quests: {
       add: () => {

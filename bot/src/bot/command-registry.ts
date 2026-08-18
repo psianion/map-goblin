@@ -24,7 +24,17 @@ import type { SessionRunner } from '../goblin/live-session'
 import type { GoblinRest } from '../goblin/rest'
 import { calendarAdvanceAnnouncement, calendarSetConfirmation, calendarShow } from '../features/calendar'
 import { campaignSetupConfirmation, campaignSetupTokenFailure } from '../features/campaign'
-import { characterCreatedReply, characterUpdatedReply, filterAutocomplete, leveledUp, levelUpAnnouncement, myCharactersList } from '../features/character'
+import {
+  characterCreatedReply,
+  characterUpdatedReply,
+  deleteLocalPortrait,
+  downloadPortrait,
+  filterAutocomplete,
+  leveledUp,
+  levelUpAnnouncement,
+  myCharactersList,
+  writePortraitFile,
+} from '../features/character'
 import { rollExpression, rollReply, summarizeFaces } from '../features/dice'
 import { goldSplitAnnouncement, goldSplitConfirmation, lootAddedReply, lootListEmbed, splitNote, splitShares } from '../features/economy'
 import { feedbackCard, feedbackThanks } from '../features/feedback'
@@ -82,6 +92,8 @@ import {
 export interface Deps {
   /** DISCORD_OWNER_ID — the bot operator. */
   ownerId: string
+  /** BOT_DATA — portraits are saved under `<botData>/portraits/` (see features/character.ts). */
+  botData: string
   campaigns: Campaigns
   characters: Characters
   quests: Quests
@@ -363,6 +375,7 @@ export const registry: Registry = {
         isCrit: result.isCrit,
         isFail: result.isFail,
       })
+      if (characterId !== null) deps.characters.touchLastPlayed([characterId], Date.now())
 
       await interaction.editReply({
         components: [container(rollReply(rollerLabel, result))],
@@ -672,14 +685,24 @@ async function sendHandout(interaction: ChatInputCommandInteraction, deps: Deps)
 async function createCharacter(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
   const campaign = requireCampaign(interaction, deps)
   const portrait = interaction.options.getAttachment('portrait')
+  // Downloaded and validated before the row exists: a bad attachment (network failure, wrong
+  // content-type, too large) must fail the command with no character created — not create one
+  // with a portrait link that never resolves.
+  const download = portrait ? await downloadPortrait(portrait.url) : undefined
+
   const character = deps.characters.create({
     discordId: interaction.user.id,
     campaignId: campaign.goblinCampaignId,
     name: interaction.options.getString('name', true),
     className: interaction.options.getString('class', true),
     level: interaction.options.getInteger('level', true),
-    portraitUrl: portrait?.url ?? null,
+    portraitUrl: null,
   })
+
+  if (download) {
+    character.portraitUrl = writePortraitFile(deps.botData, character.id, download.bytes, download.ext)
+    deps.characters.update(character.id, { portraitUrl: character.portraitUrl })
+  }
 
   const member = await guildMemberOf(interaction)
   if (member) await trySyncNickname(member, character.name)
@@ -687,7 +710,7 @@ async function createCharacter(interaction: ChatInputCommandInteraction, deps: D
   // The card render rides along on a best-effort basis: the character row is already
   // committed, so a satori/portrait hiccup degrades to the text confirmation.
   try {
-    const portraitDataUri = await fetchPortraitDataUri(character.portraitUrl)
+    const portraitDataUri = await fetchPortraitDataUri(deps.botData, character.portraitUrl)
     const png = await renderCharacterCard({
       name: character.name,
       className: character.className,
@@ -714,17 +737,26 @@ async function updateCharacter(interaction: ChatInputCommandInteraction, deps: D
   if (!existing) throw notFound(`No character named "${currentName}" here.`)
   if (existing.discordId !== interaction.user.id) throw notAuthorized("That's not your character.")
 
+  const portrait = interaction.options.getAttachment('portrait')
+  // Downloaded before anything is patched — a bad attachment leaves the existing row untouched.
+  const download = portrait ? await downloadPortrait(portrait.url) : undefined
+
   const patch: CharacterPatch = {}
   const newClass = interaction.options.getString('class')
   if (newClass) patch.className = newClass
   const newLevel = interaction.options.getInteger('level')
   if (newLevel !== null) patch.level = newLevel
-  const portrait = interaction.options.getAttachment('portrait')
-  if (portrait) patch.portraitUrl = portrait.url
+  if (download) patch.portraitUrl = writePortraitFile(deps.botData, existing.id, download.bytes, download.ext)
   const rename = interaction.options.getString('rename')
   if (rename) patch.name = rename
 
   const updated = deps.characters.update(existing.id, patch)
+
+  // Best-effort cleanup of the file the new portrait replaced — skipped when the new file
+  // overwrote the old one in place (same character id, same extension).
+  if (download && existing.portraitUrl && existing.portraitUrl !== updated.portraitUrl) {
+    deleteLocalPortrait(deps.botData, existing.portraitUrl)
+  }
 
   if (rename) {
     const member = await guildMemberOf(interaction)
@@ -743,7 +775,7 @@ async function showCharacter(interaction: ChatInputCommandInteraction, deps: Dep
   const character = deps.characters.byCampaignAndName(campaign.goblinCampaignId, name)
   if (!character) throw notFound(`No character named "${name}" here.`)
 
-  const portraitDataUri = await fetchPortraitDataUri(character.portraitUrl)
+  const portraitDataUri = await fetchPortraitDataUri(deps.botData, character.portraitUrl)
   const png = await renderCharacterCard({
     name: character.name,
     className: character.className,

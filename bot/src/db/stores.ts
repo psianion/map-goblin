@@ -171,6 +171,9 @@ export interface Characters {
   byOwner: (campaignId: string, discordId: string) => Character[]
   /** Every character in a campaign, name-sorted — autocomplete's pool for `/character show`. */
   byCampaign: (campaignId: string) => Character[]
+  /** Stamps last_played (epoch ms) for these ids — /roll's attribution and session finalize's
+   * name-match heuristic. A no-op for an empty array. */
+  touchLastPlayed: (ids: number[], at: number) => void
 }
 
 interface CharacterRow {
@@ -228,6 +231,7 @@ export function createCharacters(db: Database): Characters {
   const byCampaignStmt = db.prepare<[string], CharacterRow>(
     `SELECT ${CHARACTER_COLUMNS} FROM characters WHERE campaign_id = ? ORDER BY name`,
   )
+  const touchLastPlayedStmt = db.prepare<[number, number]>('UPDATE characters SET last_played = ? WHERE id = ?')
 
   function applyPatch(id: number, patch: CharacterPatch): void {
     const sets: string[] = []
@@ -281,6 +285,9 @@ export function createCharacters(db: Database): Characters {
     },
     byOwner: (campaignId, discordId) => byOwnerStmt.all(campaignId, discordId).map(toCharacter),
     byCampaign: (campaignId) => byCampaignStmt.all(campaignId).map(toCharacter),
+    touchLastPlayed: (ids, at) => {
+      for (const id of ids) touchLastPlayedStmt.run(at, id)
+    },
   }
 }
 

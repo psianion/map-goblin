@@ -229,6 +229,17 @@ describe('createCharacters', () => {
     characters.create({ discordId: 'user-2', campaignId: 'camp-1', name: 'Anna', className: 'Cleric', level: 1 })
     expect(characters.byCampaign('camp-1').map((c) => c.name)).toEqual(['Anna', 'Zed'])
   })
+
+  it('touchLastPlayed stamps only the given ids', () => {
+    const characters = charactersStore()
+    const zed = characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Zed', className: 'Fighter', level: 1 })
+    const anna = characters.create({ discordId: 'user-2', campaignId: 'camp-1', name: 'Anna', className: 'Cleric', level: 1 })
+    expect(zed.lastPlayed).toBeNull()
+
+    characters.touchLastPlayed([zed.id], 12_345)
+    expect(characters.byId(zed.id)?.lastPlayed).toBe(12_345)
+    expect(characters.byId(anna.id)?.lastPlayed).toBeNull()
+  })
 })
 
 /** Every M3 store FK-references campaigns; camp-1 exists in every db these tests open. */

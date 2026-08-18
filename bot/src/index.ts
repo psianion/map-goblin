@@ -47,6 +47,7 @@ installExitFlush(channelLog)
 const campaigns = createCampaigns(db)
 const sessions = createSessions(db)
 const calendar = createCalendar(db)
+const characters = createCharacters(db)
 const goblin = createGoblinRest({ baseUrl: env.GOBLIN_SERVER_URL })
 
 /** The only place `ws` is named: the observer takes a socket factory so its own tests can
@@ -80,6 +81,7 @@ const sessionRunner = createSessionRunner({
   rest: goblin,
   sessions,
   calendar,
+  characters,
   announce,
   edit,
   createObserver: (token) =>
@@ -93,8 +95,9 @@ const sessionRunner = createSessionRunner({
 
 const deps: RouterDeps = {
   ownerId: env.DISCORD_OWNER_ID,
+  botData: env.BOT_DATA,
   campaigns,
-  characters: createCharacters(db),
+  characters,
   quests: createQuests(db),
   notes: createNotes(db),
   rolls: createRolls(db),

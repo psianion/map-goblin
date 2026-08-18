@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { dmOnly, memberOnly, ownerOnly, registry, type AuthContext, type Deps } from './command-registry'
 import { openDb } from '../db/db'
 import {
@@ -35,6 +38,7 @@ const campaign: Campaign = {
 
 const deps = (byChannel: (id: string) => Campaign | undefined): Deps => ({
   ownerId: 'owner-1',
+  botData: 'unused-bot-data',
   campaigns: {
     byChannel,
     byId: () => undefined,
@@ -57,6 +61,9 @@ const deps = (byChannel: (id: string) => Campaign | undefined): Deps => ({
     byCampaignAndName: () => undefined,
     byOwner: () => [],
     byCampaign: () => [],
+    touchLastPlayed: () => {
+      throw new Error('not used in this test')
+    },
   },
   quests: {
     add: () => {
@@ -265,6 +272,7 @@ function seededDeps(over: Partial<Deps> = {}): { deps: Deps; sent: Sent[] } {
   const sent: Sent[] = []
   const deps: Deps = {
     ownerId: 'owner-1',
+    botData: mkdtempSync(join(tmpdir(), 'map-goblin-bot-')),
     campaigns,
     characters: createCharacters(db),
     quests: createQuests(db),
@@ -303,6 +311,7 @@ function chatInteraction(over: {
   userId?: string
   subcommand?: string
   strings?: Record<string, string | null>
+  integers?: Record<string, number | null>
   focused?: string
   attachments?: Record<string, FakeAttachment>
 }) {
@@ -315,6 +324,11 @@ function chatInteraction(over: {
       getSubcommand: () => over.subcommand ?? '',
       getString: (name: string, required?: boolean) => {
         const value = over.strings?.[name] ?? null
+        if (required && value === null) throw new Error(`missing required option ${name}`)
+        return value
+      },
+      getInteger: (name: string, required?: boolean) => {
+        const value = over.integers?.[name] ?? null
         if (required && value === null) throw new Error(`missing required option ${name}`)
         return value
       },
@@ -715,5 +729,191 @@ describe('/handout â€” the DM pushes to the player channel', () => {
     )
     expect(sent[0].files).toEqual([])
     expect(sent[0].spec.media).toBeUndefined()
+  })
+})
+
+// ── portrait persistence (create/update download+save, legacy fallback, replacement cleanup) ──
+
+function mockImageFetch(bytes: Buffer, contentType = 'image/png'): void {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+    ok: true,
+    headers: new Headers({ 'content-type': contentType }),
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  } as Response)
+}
+
+const portraitAttachment = (url: string, contentType: string) => ({
+  portrait: { url, name: url.split('/').pop()!, contentType },
+})
+
+// 1x1 transparent PNG — real bytes, since a rendered card's satori pass actually decodes them.
+const FIXTURE_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+
+describe('/character create|update — portrait persistence', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('downloads and saves the attachment under BOT_DATA, storing the relative path', async () => {
+    const { deps } = seededDeps()
+    mockImageFetch(Buffer.from([1, 2, 3]))
+    await registry.character.execute(
+      chatInteraction({
+        subcommand: 'create',
+        strings: { name: 'Thalor', class: 'Ranger' },
+        integers: { level: 1 },
+        attachments: portraitAttachment('https://cdn.discordapp.com/att/1.png', 'image/png'),
+      }) as never,
+      deps,
+    )
+
+    const saved = deps.characters.byCampaignAndName('camp-1', 'Thalor')!
+    expect(saved.portraitUrl).toBe(`portraits/${saved.id}.png`)
+    expect(readFileSync(join(deps.botData, saved.portraitUrl!))).toEqual(Buffer.from([1, 2, 3]))
+  })
+
+  it('rejects a non-image attachment before the character row is created', async () => {
+    const { deps } = seededDeps()
+    mockImageFetch(Buffer.from([1, 2, 3, 4]), 'application/pdf')
+    await expect(
+      registry.character.execute(
+        chatInteraction({
+          subcommand: 'create',
+          strings: { name: 'Thalor', class: 'Ranger' },
+          integers: { level: 1 },
+          attachments: portraitAttachment('https://cdn.discordapp.com/att/1.pdf', 'application/pdf'),
+        }) as never,
+        deps,
+      ),
+    ).rejects.toThrow(/image file/)
+    expect(deps.characters.byCampaignAndName('camp-1', 'Thalor')).toBeUndefined()
+  })
+
+  it('leaves the row unchanged when an update portrait download fails', async () => {
+    const { deps } = seededDeps()
+    await registry.character.execute(
+      chatInteraction({
+        subcommand: 'create',
+        strings: { name: 'Thalor', class: 'Ranger' },
+        integers: { level: 1 },
+      }) as never,
+      deps,
+    )
+    const before = deps.characters.byCampaignAndName('camp-1', 'Thalor')!
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({ ok: false } as Response)
+    await expect(
+      registry.character.execute(
+        chatInteraction({
+          subcommand: 'update',
+          strings: { name: 'Thalor' },
+          attachments: portraitAttachment('https://cdn.discordapp.com/att/bad.png', 'image/png'),
+        }) as never,
+        deps,
+      ),
+    ).rejects.toThrow(/download/)
+    expect(deps.characters.byCampaignAndName('camp-1', 'Thalor')).toEqual(before)
+  })
+
+  it('deletes the old file on a replacement with a different extension', async () => {
+    const { deps } = seededDeps()
+    mockImageFetch(Buffer.from([1]), 'image/png')
+    await registry.character.execute(
+      chatInteraction({
+        subcommand: 'create',
+        strings: { name: 'Thalor', class: 'Ranger' },
+        integers: { level: 1 },
+        attachments: portraitAttachment('https://cdn.discordapp.com/1.png', 'image/png'),
+      }) as never,
+      deps,
+    )
+    const created = deps.characters.byCampaignAndName('camp-1', 'Thalor')!
+    const oldPath = join(deps.botData, created.portraitUrl!)
+    expect(existsSync(oldPath)).toBe(true)
+
+    mockImageFetch(Buffer.from([2]), 'image/jpeg')
+    await registry.character.execute(
+      chatInteraction({
+        subcommand: 'update',
+        strings: { name: 'Thalor' },
+        attachments: portraitAttachment('https://cdn.discordapp.com/2.jpg', 'image/jpeg'),
+      }) as never,
+      deps,
+    )
+
+    const updated = deps.characters.byCampaignAndName('camp-1', 'Thalor')!
+    expect(updated.portraitUrl).toBe(`portraits/${created.id}.jpg`)
+    expect(existsSync(oldPath)).toBe(false)
+    expect(existsSync(join(deps.botData, updated.portraitUrl!))).toBe(true)
+  })
+
+  it('overwrites in place (no delete) on a same-extension replacement', async () => {
+    const { deps } = seededDeps()
+    mockImageFetch(Buffer.from([1]), 'image/png')
+    await registry.character.execute(
+      chatInteraction({
+        subcommand: 'create',
+        strings: { name: 'Thalor', class: 'Ranger' },
+        integers: { level: 1 },
+        attachments: portraitAttachment('https://cdn.discordapp.com/1.png', 'image/png'),
+      }) as never,
+      deps,
+    )
+    const created = deps.characters.byCampaignAndName('camp-1', 'Thalor')!
+
+    mockImageFetch(Buffer.from([2]), 'image/png')
+    await registry.character.execute(
+      chatInteraction({
+        subcommand: 'update',
+        strings: { name: 'Thalor' },
+        attachments: portraitAttachment('https://cdn.discordapp.com/2.png', 'image/png'),
+      }) as never,
+      deps,
+    )
+
+    const updated = deps.characters.byCampaignAndName('camp-1', 'Thalor')!
+    expect(updated.portraitUrl).toBe(created.portraitUrl)
+    expect(readFileSync(join(deps.botData, updated.portraitUrl!))).toEqual(Buffer.from([2]))
+  })
+
+  it('/character show still fetches a legacy http(s) portrait_url', async () => {
+    const { deps } = seededDeps()
+    deps.characters.create({
+      discordId: 'user-1',
+      campaignId: 'camp-1',
+      name: 'Legacy',
+      className: 'Bard',
+      level: 1,
+      portraitUrl: 'https://cdn.discordapp.com/legacy.png',
+    })
+    const pngBytes = Buffer.from(FIXTURE_PNG_BASE64, 'base64')
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      headers: new Headers({ 'content-type': 'image/png' }),
+      arrayBuffer: async () => pngBytes.buffer.slice(pngBytes.byteOffset, pngBytes.byteOffset + pngBytes.byteLength),
+    } as Response)
+
+    await registry.character.execute(chatInteraction({ subcommand: 'show', strings: { name: 'Legacy' } }) as never, deps)
+    expect(fetchSpy).toHaveBeenCalledWith('https://cdn.discordapp.com/legacy.png', expect.anything())
+  })
+})
+
+// ── last_played stamping ────────────────────────────────────────────────────────────────────
+
+describe('/roll — stamps last_played on the attributed character', () => {
+  it("stamps the roller's own single character", async () => {
+    const { deps } = seededDeps()
+    const zed = deps.characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Zed', className: 'Fighter', level: 1 })
+    expect(zed.lastPlayed).toBeNull()
+
+    await registry.roll.execute(chatInteraction({ strings: { expr: '1d20' } }) as never, deps)
+
+    expect(deps.characters.byId(zed.id)?.lastPlayed).not.toBeNull()
+  })
+
+  it('stamps nothing when no character can be resolved for the roller', async () => {
+    const { deps } = seededDeps()
+    const zed = deps.characters.create({ discordId: 'user-2', campaignId: 'camp-1', name: 'Zed', className: 'Fighter', level: 1 })
+    await registry.roll.execute(chatInteraction({ strings: { expr: '1d20' } }) as never, deps) // user-1 owns none here
+    expect(deps.characters.byId(zed.id)?.lastPlayed).toBeNull()
   })
 })

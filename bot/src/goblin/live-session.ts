@@ -4,7 +4,7 @@
 // Discord-free by construction — `announce`/`edit` are injected callbacks and the observer
 // factory is too, so the whole lifecycle runs in a unit test with no socket and no gateway.
 
-import type { BotSession, Calendar, Campaign, SessionRecap, Sessions } from '../db/stores'
+import type { BotSession, Calendar, Campaign, Characters, SessionRecap, Sessions } from '../db/stores'
 import { calendarLine } from '../features/calendar'
 import {
   joinUrl,
@@ -34,6 +34,7 @@ export interface SessionRunnerDeps {
   rest: GoblinRest
   sessions: Sessions
   calendar: Calendar
+  characters: Characters
   announce: (
     channelId: string,
     spec: ContainerSpec,
@@ -178,6 +179,17 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
       scenes: recap.scenes.length,
       durationMs: recap.durationMs,
     })
+
+    // ponytail: last_played by exact (case-insensitive) name match against the recap's player
+    // list — nickname sync (features/nickname.ts) keeps table display names lined up with
+    // character names often enough to be useful. Ceiling: a player whose nickname doesn't match
+    // their character name is silently skipped. Proper fix is an identity mapping once
+    // Discord-auth joins exist and a session player can be tied to a discord_id directly.
+    const playerNames = new Set(recap.players.map((name) => name.toLowerCase()))
+    const played = deps.characters
+      .byCampaign(campaign.goblinCampaignId)
+      .filter((c) => playerNames.has(c.name.toLowerCase()))
+    if (played.length) deps.characters.touchLastPlayed(played.map((c) => c.id), row.endedAt ?? Date.now())
 
     // The evening's last map, inside the recap rather than beside it (plan §7). The render
     // reaches the game server, so it is the one part of a recap that can fail — and a lost
