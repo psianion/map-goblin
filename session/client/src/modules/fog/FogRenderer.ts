@@ -1072,11 +1072,14 @@ export function drawFog(
           new FillGradient({
             type: 'radial',
             center: { x: eye.x, y: eye.y },
-            innerRadius: eye.range * 0.5,
+            // Full sight to 80% of the range, then one long ease past the limit — a lamp's
+            // pool running out, which is the look the map's own lights set.
+            innerRadius: eye.range * 0.8,
             outerCenter: { x: eye.x, y: eye.y },
-            outerRadius: eye.range + 0.75,
+            outerRadius: eye.range + 0.5,
             colorStops: [
               { offset: 0, color: 'rgba(255,255,255,1)' },
+              { offset: 0.45, color: 'rgba(255,255,255,0.72)' },
               { offset: 1, color: 'rgba(255,255,255,0)' },
             ],
             textureSpace: 'global',
