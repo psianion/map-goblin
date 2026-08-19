@@ -160,6 +160,12 @@ const FRAGMENT = /* glsl */ `
     float hiddenness = 1.0 - smoothstep(0.10, 0.62, m);
     float aBody = mix(uMist * (0.45 + 0.55 * den), uDense, hiddenness);
     float alpha = clamp(body * aBody + wisp * aBody * 0.28, 0.0, 1.0);
+
+    // Thin cover dims, thick cover clouds. Translucent fog painted in the strata's own
+    // light colours over dark ground reads as a glowing halo (the sight fade's ring at
+    // night); shading it toward deep shadow as coverage thins makes an edge read as sight
+    // running out rather than as fog lighting up.
+    col = mix(uDeep * 0.55, col, smoothstep(0.05, 0.90, alpha / max(uDense, 0.001)));
     gl_FragColor = vec4(col * alpha, alpha);
   }
 `;
