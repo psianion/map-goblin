@@ -27,7 +27,7 @@ import { registerPanel } from '../../session/panels';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { UNDO_TOAST_MS, showToast } from '../../session/toasts';
 import { useActiveTool } from '../../session/tools';
-import { useFogBrush, type BrushOp } from './brush';
+import { useFogBrush, type BrushOp, type BrushShape } from './brush';
 import {
   FOG_STATUS_LABEL,
   fogActionFor,
@@ -68,6 +68,13 @@ const BRUSH_OPS: readonly { value: BrushOp; label: string }[] = [
   { value: 'hide', label: 'Hide' },
 ];
 
+// The reference build's two clearing tools: a radius eraser dragged along a path, and a
+// selection box for an area or a room at once. Same op switch, same Alt modifier.
+const BRUSH_SHAPES: readonly { value: BrushShape; label: string }[] = [
+  { value: 'stroke', label: 'Stroke' },
+  { value: 'box', label: 'Box' },
+];
+
 export function FogTool() {
   const fogState = useModuleState<FogState>('fog');
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
@@ -77,8 +84,12 @@ export function FogTool() {
   const setToolDetail = useActiveTool((s) => s.setToolDetail);
   const brushOn = useFogBrush((s) => s.on);
   const brushOp = useFogBrush((s) => s.op);
+  const brushSize = useFogBrush((s) => s.size);
+  const brushShape = useFogBrush((s) => s.shape);
   const setBrushOn = useFogBrush((s) => s.setOn);
   const setBrushOp = useFogBrush((s) => s.setOp);
+  const setBrushSize = useFogBrush((s) => s.setSize);
+  const setBrushShape = useFogBrush((s) => s.setShape);
 
   // Mount for as long as the table is on screen; the helper handles the engine appearing
   // late and going away again.
@@ -96,8 +107,8 @@ export function FogTool() {
   // brush has to reach it. One effect in both directions rather than a write inside the brush
   // store: disarming the tool must clear the detail even though the brush flag is untouched.
   useEffect(() => {
-    setToolDetail(armed && vision && brushOn ? 'Brush' : null);
-  }, [armed, vision, brushOn, setToolDetail]);
+    setToolDetail(armed && vision && brushOn ? (brushShape === 'box' ? 'Box' : 'Brush') : null);
+  }, [armed, vision, brushOn, brushShape, setToolDetail]);
 
   /**
    * §1 — the two things the room list says that the fog record alone cannot.
@@ -229,9 +240,36 @@ export function FogTool() {
                     options={BRUSH_OPS}
                     onPick={setBrushOp}
                   />
+                  <Segmented
+                    label="Shape"
+                    testId="fog-brush-shape"
+                    value={brushShape}
+                    options={BRUSH_SHAPES}
+                    onPick={setBrushShape}
+                  />
+                  {brushShape === 'stroke' && (
+                    <label className="flex items-center gap-2 text-xs text-text-secondary">
+                      <span>Size</span>
+                      <input
+                        type="range"
+                        min={1}
+                        max={5}
+                        step={1}
+                        value={brushSize}
+                        data-testid="fog-brush-size"
+                        aria-label="Brush size in cells"
+                        onChange={(e) => setBrushSize(Number(e.target.value))}
+                        className="min-w-0 flex-1"
+                      />
+                      <span className="w-3 text-right tabular-nums text-text-primary">
+                        {brushSize}
+                      </span>
+                    </label>
+                  )}
                   <p className="text-xs text-text-secondary">
-                    Paint on the map to reveal less than a room. Alt paints the other way. Esc
-                    leaves the tool.
+                    {brushShape === 'box'
+                      ? 'Drag a box on the map to reveal the area at once. Alt paints the other way. Esc leaves the tool.'
+                      : 'Paint on the map to reveal less than a room. Alt paints the other way. Esc leaves the tool.'}
                   </p>
                 </>
               )}

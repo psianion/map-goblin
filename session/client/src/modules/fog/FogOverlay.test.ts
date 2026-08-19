@@ -81,6 +81,9 @@ function fakeEngine(canvas: HTMLCanvasElement, ticker: Ticker): RenderEngine {
     canvas: () => canvas,
     ticker: () => ticker,
     screenToWorld: (sx: number, sy: number) => ({ x: sx, y: sy }),
+    // The haze rasterises its tier mask through this on every redraw. What lands in the
+    // texture is the GPU's business — jsdom asserts the geometry, not the paint.
+    renderToTexture: () => {},
   } as unknown as RenderEngine;
 }
 

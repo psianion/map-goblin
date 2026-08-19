@@ -62,6 +62,7 @@ import {
   type RoomView,
   type VoidStyle,
 } from './FogRenderer';
+import { MASK_MEMORY } from './livingFog';
 import { tokenLightId } from '../triggers/lightSync';
 
 /** A fixed void look for fixtures — drawFog paints hidden map with `fill`, not black. */
@@ -313,7 +314,7 @@ describe('roomViews — what each room is doing', () => {
 
     const fills = fillsOf(scrim);
     expect(fills).toHaveLength(1);
-    expect(fills[0].style.color).toBe(VOID.fill);
+    expect(fills[0].style.color).toBe(0x000000);
     expect(fills[0].style.alpha).toBe(1);
     expect(fills[0].hole).toBeUndefined();
   });
@@ -758,18 +759,25 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
         (i) => (i.data as { style: { alpha: number; width: number; alignment: number } }).style,
       );
 
-  it('cuts one merged hole and ramps the fog back in over it', () => {
+  it('cuts one merged hole and ramps the cloud mask back in over it', () => {
     const scrim = new Graphics();
-    drawFog(scrim, scene({ [WEST.id]: 'visible', [EAST.id]: 'dark' }));
+    const mask = new Graphics();
+    drawFog(scrim, scene({ [WEST.id]: 'visible', [EAST.id]: 'dark' }), mask);
 
-    // One void-coloured fill for the map, with the earned region taken out of it.
+    // One black backstop fill for the map, with the earned region taken out of it — and no
+    // falloff of its own: a stepped ramp on a fill the cloud hides was paint nobody saw.
     const fills = fillsOf(scrim);
-    expect(fills[0].style.color).toBe(VOID.fill);
+    expect(fills[0].style.color).toBe(0x000000);
     expect(fills[0].hole).toBeDefined();
+    expect(strokesOf(scrim)).toHaveLength(0);
 
-    // The falloff: nested strokes laid inside the reach, thickening towards its rim. Alpha
-    // 1/k is what makes them composite to an even ramp — see `featherEdge`.
-    const strokes = strokesOf(scrim);
+    // The falloff lives in the mask the cloud reads: black over the cover, white over the
+    // earned region, and nested strokes inside its rim. Alpha 1/k is what makes them
+    // composite to an even ramp — see `featherEdge`.
+    const tiers = fillsOf(mask);
+    expect(tiers[0].style.color).toBe(0x000000);
+    expect(tiers.some((f) => f.style.color === 0xffffff)).toBe(true);
+    const strokes = strokesOf(mask);
     expect(strokes.length).toBeGreaterThan(0);
     expect(strokes.every((s) => s.alignment === 1)).toBe(true);
     expect(strokes[0].alpha).toBe(1); // solid at the outer rim…
@@ -780,14 +788,15 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
 
   it('gives a memory the same padded footprint at its own darkness', () => {
     const scrim = new Graphics();
-    drawFog(scrim, scene({ [WEST.id]: 'explored', [EAST.id]: 'dark' }));
+    const mask = new Graphics();
+    drawFog(scrim, scene({ [WEST.id]: 'explored', [EAST.id]: 'dark' }), mask);
 
     const wash = fillsOf(scrim).find((f) => f.style.color === EXPLORED_TINT);
     expect(wash).toBeDefined();
     expect(wash!.style.alpha).toBe(EXPLORED_TINT_ALPHA);
-    // Padded and feathered like a lit room — the wash runs out to the reach so the ramp has
-    // something to thicken over rather than a gap between the two to fall through.
-    expect(strokesOf(scrim).length).toBeGreaterThan(0);
+    // …and the same footprint lands in the cloud's mask at the memory tier's grey, which is
+    // where the mist over a memory comes from.
+    expect(fillsOf(mask).some((f) => f.style.color === MASK_MEMORY)).toBe(true);
   });
 
   it('leaves an all-dark map one unbroken fill, padded or not', () => {
@@ -1004,18 +1013,19 @@ describe('drawFog in vision mode', () => {
     ...over,
   });
 
-  it('cuts the sweep out of the void and ramps the fog back in over it', () => {
+  it('cuts the sweep out of the cover and ramps the cloud mask back in over it', () => {
     const scrim = new Graphics();
-    const drawn = drawFog(scrim, visionScene({ sight: [LOOKING] }));
+    const mask = new Graphics();
+    const drawn = drawFog(scrim, visionScene({ sight: [LOOKING] }), mask);
 
     const fills = fillsOf(scrim);
-    expect(fills[0].style.color).toBe(VOID.fill);
+    expect(fills[0].style.color).toBe(0x000000);
     expect(fills[0].hole).toBeDefined();
     // No memory: nothing has been swept into the record and no room was revealed.
     expect(fills.some((f) => f.style.color === EXPLORED_TINT)).toBe(false);
     expect(drawn.cells).toBe(0);
     expect(
-      scrim.context.instructions.filter((i) => i.action === 'stroke').length,
+      mask.context.instructions.filter((i) => i.action === 'stroke').length,
     ).toBeGreaterThan(0);
   });
 
@@ -1617,6 +1627,9 @@ describe('the lighting composite each seat is mounted with', () => {
         // The dot pass measures the visible cell range off these on every rebuild.
         viewport: () => ({ width: 800, height: 600 }),
         screenToWorld: (x: number, y: number) => ({ x: x / 20, y: y / 20 }),
+        // The living fog rasterises its tier mask through this on every rebuild. What lands
+        // in the texture is the GPU's business — jsdom asserts the geometry, not the paint.
+        renderToTexture: () => {},
       } as unknown as RenderEngine,
       sceneGraph,
     );
