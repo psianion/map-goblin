@@ -35,10 +35,12 @@ export const MASK_MEMORY = 0x808080;
  * How far the coastline may wander, in world units (= grid cells).
  *
  * This is the *inward* reach of a cloud lobe over revealed ground — the `min()` above means
- * it is never an outward reveal. Roughly a cell keeps the lobes readable at play zoom
- * without swallowing a doorway whole.
+ * it is never an outward reveal. Held under the mask's own margin-plus-feather so a lobe
+ * plays in the dark past a room's claim and does not lap over the outer stones of a wall
+ * the room has paid for: a revealed room shows its complete wall, and a light inside it
+ * pools to the wall's far face rather than to half the band.
  */
-const EDGE_WARP = 1.1;
+const EDGE_WARP = 0.65;
 
 /** One noise unit ≈ this many cells — the drift and billow scales below are tuned to it. */
 const NOISE_CELLS = 28;
@@ -143,7 +145,9 @@ const FRAGMENT = /* glsl */ `
     // The coastline. min() is the security half — lobes eat inward, bays never open outward.
     float m = min(maskAt(vWorld), maskAt(vWorld + w * uWarp));
 
-    float d = den - (m * 1.7 - 0.42) + (top - 0.5) * 0.10;
+    // The steeper slope holds the contour to the outer half of the mask's feather ramp, so
+    // the fog spends itself past the margin instead of on the wall band inside it.
+    float d = den - (m * 2.0 - 0.42) + (top - 0.5) * 0.10;
     float body = smoothstep(-0.08, 0.14, d);
     float wisp = smoothstep(-0.20, -0.06, d) * (1.0 - body);
 

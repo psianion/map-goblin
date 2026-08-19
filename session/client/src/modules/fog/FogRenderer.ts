@@ -2,12 +2,16 @@
 // fog, the doors or the party's rooms move.
 //
 // Three states. A room nobody has entered — and every scrap of unzoned map (D6) — is
-// painted as the *void*: the background's own colour and dot grid, pre-multiplied by the
-// player's lighting strength (`VoidStyle`), so hidden map and empty background are one
-// indistinguishable surface and the map's edge is not a tell. A room the party has seen
-// but cannot see now is a memory: the same room, desaturated and dimmed to well under what
-// it reads at live, so the state carries on brightness rather than on colour and survives
-// a bad panel in a dim room. A room they can see is simply not drawn on.
+// covered by the *living fog*: the animated cloud `livingFog.ts` paints over one flat black
+// scrim, opaque and identical over hidden map and empty background alike, so the map's edge
+// is not a tell. The scrim is the fail-dark backstop, nothing more — if the shader never
+// draws, unearned map is still black. (It once imitated the background's own colour and dot
+// grid so fogged map could pass for empty void; an opaque cloud hides both the same, so the
+// imitation retired with the grey halo it left at the cloud's rim.) A room the party has
+// seen but cannot see now is a memory: the same room, desaturated and dimmed to well under
+// what it reads at live, thin mist breathing over it, so the state carries on brightness
+// rather than on colour and survives a bad panel in a dim room. A room they can see is
+// simply not drawn on.
 //
 // Where this sits is load-bearing. The engine composites lighting as a screen-space
 // multiply *after* the world container (LightingRenderer adds its sprite to
@@ -898,10 +902,10 @@ function fillLand(
  * cut to the fill instruction before it and a second one on the same fill reaches back a
  * further instruction as well.
  *
- * ponytail: the fill is flat black, which is the placeholder the animated fog replaces. Every
- * decision about *where* the fog is lives in the region above and the falloff below; the fill
- * and the wash are two colours passed to `fill`, and swapping them for an animated treatment
- * touches neither.
+ * The animated fog this fill was always the placeholder for has landed (`livingFog.ts`): the
+ * cloud reads the same tiers out of `maskPaint`, and the fill is now exactly what it claims —
+ * a flat black backstop the player only ever sees if the shader fails. Every decision about
+ * *where* the fog is still lives in the region geometry, shared by both.
  */
 /**
  * D3's three tiers, room by room — the mask this layer has always drawn, lifted out of
@@ -968,15 +972,11 @@ function visionTiers(scene: FogScene): {
 export function drawFog(
   scrim: Graphics,
   scene: FogScene,
-  dotsMask?: Graphics,
   maskPaint?: Graphics,
 ): { cells: number; cover: Bounds | null } {
   scrim.clear();
-  dotsMask?.clear();
   maskPaint?.clear();
   if (!scene.isPlayer || !scene.bounds) return { cells: 0, cover: null };
-
-  const voidFill = scene.void.fill;
   // Drawn one pad + feather wider than the frame: a hole that crosses the filled rect's
   // outer contour is dropped whole by the triangulator, and the frame is content-tight
   // (one square of air) while a room's padded reach can poke past it. The overhang is
@@ -1001,11 +1001,9 @@ export function drawFog(
     }
   }
   const [w, h] = [maxX - minX, maxY - minY];
-  scrim.rect(minX, minY, w, h).fill({ color: voidFill, alpha: 1 });
-  // The dots mask is the never-revealed region — the same shapes the scrim keeps covered.
-  // The dot layer above clips to it, so the imitation void gets the background's dot grid
-  // and nothing the player has earned does.
-  dotsMask?.rect(minX, minY, w, h).fill(0xffffff);
+  // Flat black: the backstop under the cloud, never a look of its own. The living fog above
+  // is opaque over everything hidden, so the one job left down here is failing dark.
+  scrim.rect(minX, minY, w, h).fill({ color: 0x000000, alpha: 1 });
 
   // The one fork in this file. Everything either side of it — the fill, the cut, the wash and
   // the falloff — is the same four instructions in the same order; the tiers are what differ.
@@ -1014,16 +1012,14 @@ export function drawFog(
       ? visionTiers(scene)
       : { ...roomTiers(scene), drained: [] as FogRing[], cells: 0 };
 
-  cutLand(scrim, earned, { color: voidFill, alpha: 1 });
-  if (dotsMask) cutLand(dotsMask, earned, { color: 0xffffff });
+  cutLand(scrim, earned, { color: 0x000000, alpha: 1 });
 
   fillLand(scrim, memory, { color: scene.void.memory, alpha: EXPLORED_TINT_ALPHA });
   // §4 — inside the hole, not instead of it: the party can see this ground, so it keeps the
-  // room's own render underneath and takes the grade on top. Drawn after the memory wash and
-  // before the falloff, which thickens over both.
+  // room's own render underneath and takes the grade on top. Drawn after the memory wash;
+  // the falloff that used to thicken over both lives in the mask below now, where the cloud
+  // reads it — a stepped ramp on an invisible backstop was paint nobody saw.
   fillLand(scrim, drained, { color: scene.void.drained, alpha: DARKVISION_TINT_ALPHA });
-
-  for (const { outline } of earned) featherEdge(scrim, outline, voidFill);
 
   // The living fog's tier mask: the same rings, as texel values the cloud shader reads —
   // black is hidden, `MASK_MEMORY` grey the memory tier, white everything the player has
@@ -1048,17 +1044,10 @@ interface Fade {
 function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => void {
   const layer = new Container();
   const scrim = new Graphics();
-  // The imitation void's dot grid: its own layer clipped to the never-revealed region
-  // (the mask is rebuilt with the scrim), redrawn from the tick when the visible cell
-  // range moves — dot radius is ~1.5 *screen* pixels, so zoom changes its world size.
-  const dots = new Graphics();
-  const dotsMask = new Graphics();
-  dots.mask = dotsMask;
   // The animated cover, above the scrim: the scrim stays the authority on what is hidden
-  // (flat, fail-dark), the mesh is the weather drawn over it. Dense fog is opaque, so the
-  // imitation void beneath it costs nothing to keep and covers any day the shader cannot.
+  // (flat black, fail-dark), the mesh is the weather drawn over it.
   const fog = createLivingFog(engine, { dense: 1, mist: 0.55, rim: 0.75 });
-  layer.addChild(scrim, dots, dotsMask, fog.mesh);
+  layer.addChild(scrim, fog.mesh);
   // Nothing here is clickable; the fog tool and the doors read the DOM canvas directly.
   layer.eventMode = 'none';
   addScreenOverlay(sceneGraph, layer, 'playerFog');
@@ -1076,14 +1065,6 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   const fades: Fade[] = [];
   let views: Map<string, RoomView> | null = null;
   let sceneId: string | null = null;
-  let voidLook: VoidStyle = {
-    fill: 0,
-    memory: 0,
-    drained: 0,
-    dot: 0,
-    dotAlpha: 0.45,
-    dotsVisible: false,
-  };
   /** What the last rebuild drew with, for the vision probe below. */
   let sources = 0;
   let cells = 0;
@@ -1114,43 +1095,6 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     screenOf: (x: number, y: number): { x: number; y: number } => engine.worldToScreen(x, y),
   };
   (window as Window & { __fogProbe?: typeof fogProbe }).__fogProbe = fogProbe;
-
-  // GridRenderer's redraw discipline, transplanted: only when the visible cell range
-  // shifts by a full cell (which any zoom worth redrawing for causes) or a rebuild
-  // invalidates the range. Dots are drawn across the visible range and clipped to the
-  // never-revealed region by the mask.
-  let lastDots = { minX: NaN, maxX: NaN, minY: NaN, maxY: NaN };
-  const redrawDots = (force: boolean): void => {
-    const vp = engine.viewport();
-    const tl = engine.screenToWorld(0, 0);
-    const br = engine.screenToWorld(vp.width, vp.height);
-    const pad = 2;
-    const minX = Math.floor(tl.x) - pad;
-    const maxX = Math.ceil(br.x) + pad;
-    const minY = Math.floor(tl.y) - pad;
-    const maxY = Math.ceil(br.y) + pad;
-    if (
-      !force &&
-      Math.abs(minX - lastDots.minX) < 1 &&
-      Math.abs(maxX - lastDots.maxX) < 1 &&
-      Math.abs(minY - lastDots.minY) < 1 &&
-      Math.abs(maxY - lastDots.maxY) < 1
-    ) {
-      return;
-    }
-    lastDots = { minX, maxX, minY, maxY };
-
-    dots.clear();
-    if (!voidLook.dotsVisible) return;
-    const zoomPx = world.scale.x;
-    const dotR = Math.max(0.02, 1.5 / Math.max(1, zoomPx));
-    for (let x = minX; x <= maxX; x++) {
-      for (let y = minY; y <= maxY; y++) {
-        dots.circle(x, y, dotR);
-      }
-    }
-    dots.fill({ color: voidLook.dot, alpha: voidLook.dotAlpha });
-  };
 
   const clearFades = (): void => {
     for (const fade of fades) fade.graphic.destroy();
@@ -1190,8 +1134,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // The imitation has to match the void as it actually renders — including a table with no
     // lighting pass at all, where there is no multiply for the void to have gone through.
     const drawn = lit?.visible ? scene : { ...scene, void: voidStyle(0, false, scene.grade) };
-    voidLook = drawn.void;
-    const built = drawFog(scrim, drawn, dotsMask, fog.maskPaint);
+    const built = drawFog(scrim, drawn, fog.maskPaint);
     cells = built.cells;
     // …and the living fog over it: the same tiers as a texture, the palette pulled toward
     // the scene's grade (a torchlit scene fogs warm, a night forest cold), and one render
@@ -1205,7 +1148,6 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     fogProbe.rebuilds += 1;
     fogProbe.lastRebuildMs = performance.now() - startedAt;
     sources = scene.sight?.length ?? 0;
-    redrawDots(true);
 
     // Rooms mode only. A fade paints a room's whole footprint dark and lifts it — over live
     // sight, in vision mode, on every room transition and every door swing, which is exactly
@@ -1235,7 +1177,6 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     layer.position.copyFrom(world.position);
     layer.scale.copyFrom(world.scale);
     if (layer.visible) {
-      redrawDots(false);
       // The cover quad tracks the viewport — in world coordinates, since the layer mirrors
       // the camera — so the fog lies over map and void alike and the map's extent is not a
       // tell. Reduced motion freezes the clock, never the cover.
