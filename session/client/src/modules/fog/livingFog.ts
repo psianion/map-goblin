@@ -40,7 +40,7 @@ export const MASK_MEMORY = 0x808080;
  * the room has paid for: a revealed room shows its complete wall, and a light inside it
  * pools to the wall's far face rather than to half the band.
  */
-const EDGE_WARP = 0.65;
+const EDGE_WARP = 0.7;
 
 /** One noise unit ≈ this many cells — the drift and billow scales below are tuned to it. */
 const NOISE_CELLS = 28;
@@ -146,10 +146,12 @@ const FRAGMENT = /* glsl */ `
     float m = min(maskAt(vWorld), maskAt(vWorld + w * uWarp));
 
     // The steeper slope holds the contour to the outer half of the mask's feather ramp, so
-    // the fog spends itself past the margin instead of on the wall band inside it.
+    // the fog spends itself past the margin instead of on the wall band inside it. The wide
+    // smoothstep is the felt softness: the contour stays put, the alpha across it breathes
+    // over a broad band — a crisp POSITION with a soft RAMP, never a hard line.
     float d = den - (m * 2.0 - 0.42) + (top - 0.5) * 0.10;
-    float body = smoothstep(-0.08, 0.14, d);
-    float wisp = smoothstep(-0.20, -0.06, d) * (1.0 - body);
+    float body = smoothstep(-0.26, 0.20, d);
+    float wisp = smoothstep(-0.40, -0.22, d) * (1.0 - body);
 
     // The fog is denser and darker right at its cut edge.
     float rim = smoothstep(0.0, 0.12, d) * (1.0 - smoothstep(0.12, 0.36, d));

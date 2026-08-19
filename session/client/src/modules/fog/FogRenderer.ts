@@ -243,7 +243,7 @@ const BOUNDS_PAD = 20;
  * everything the room owns — floor, wall band, margin — is already at full strength before
  * any of this is drawn, and the ramp spends itself on map the room does not own.
  */
-export const FOG_FEATHER = 0.4;
+export const FOG_FEATHER = 0.7;
 
 /**
  * How many steps that falloff is cut into.
