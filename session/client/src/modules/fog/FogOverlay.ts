@@ -32,9 +32,12 @@ import {
   mountWhenEngineReady,
   worldPointOf,
 } from '../../renderer/overlayLayer';
+import { prefersReducedMotion } from '../../session/motion';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
 import { BRUSH_FLUSH_CELLS, useFogBrush, type BrushOp } from './brush';
+import { featherEdge } from './FogRenderer';
+import { MASK_MEMORY, createLivingFog } from './livingFog';
 import {
   DM_FOG_LOOK,
   cellAt,
@@ -76,7 +79,12 @@ const send = (action: string, payload: unknown): void =>
 function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => void {
   const layer = new Container();
   const paint = new Graphics();
-  layer.addChild(paint);
+  // The DM's breathing haze: the same cloud shader as the player's fog at a fraction of
+  // the weight, drawn *over* the tint — which stays, both as the state's flat reading and
+  // as the look this seat falls back to if the shader never draws. The mesh lives in the
+  // world container, so the lighting composite grades it along with the map beneath it.
+  const haze = createLivingFog(engine, { dense: 0.26, mist: 0.13, rim: 0.3 });
+  layer.addChild(paint, haze.mesh);
   addWorldOverlay(sceneGraph, layer, 'fogOverlay');
 
   // The hover highlight is the DM's cursor, not map content, and it is the one thing this
@@ -193,6 +201,30 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
       }
     }
 
+    // The haze's own tier mask: white is clear, black an unrevealed room, `MASK_MEMORY` an
+    // explored one — the same vocabulary the tint speaks, as texels. Feathered in white so
+    // the coastline has a ramp to meander across at each room's rim.
+    const hazeFrame = frameNow();
+    haze.mesh.visible = hazeFrame !== null;
+    if (hazeFrame) {
+      haze.maskPaint.clear();
+      haze.maskPaint
+        .rect(hazeFrame.minX, hazeFrame.minY, hazeFrame.maxX - hazeFrame.minX, hazeFrame.maxY - hazeFrame.minY)
+        .fill({ color: 0xffffff, alpha: 1 });
+      for (const room of rooms) {
+        if (room.boundary.length < 3) continue;
+        const status = roomFog(fog, room.id).status;
+        if (status === 'revealed') continue;
+        haze.maskPaint
+          .poly(room.boundary.flat())
+          .fill({ color: status === 'never_revealed' ? 0x000000 : MASK_MEMORY, alpha: 1 });
+        featherEdge(haze.maskPaint, room.boundary, 0xffffff);
+      }
+      haze.setMaskBounds(hazeFrame);
+      haze.renderMask();
+      haze.cover(hazeFrame);
+    }
+
     // …and over that, in vision mode, the cells themselves — drawn from the same record the
     // player's mask reads, as merged row runs rather than a square per cell (`regionRects`).
     // Rooms mode has no cell tier at all, and painting one there would say something the
@@ -204,14 +236,34 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     }
 
     // The brush replaces the room highlight rather than adding to it: with the brush armed a
-    // click writes one cell, so a whole room lit under the cursor would promise an act the
-    // click is not about to perform.
+    // drag writes cells, so a whole room lit under the cursor would promise an act the drag
+    // is not about to perform. The cursor is the write's exact footprint — the eraser's disc
+    // of cells, or the box marquee mid-drag.
     const frame = hoverCell && brushArmed() ? frameNow() : null;
     if (frame && hoverCell) {
-      const path = cellRect(frame, hoverCell).flat();
-      hover.poly(path).fill({ color: BRUSH_CURSOR.color, alpha: BRUSH_CURSOR.fillAlpha });
+      const { size, shape } = useFogBrush.getState();
+      if (shape === 'box' && boxStart && boxEnd) {
+        const [c0, r0, c1, r1] = boxSpan(boxStart, boxEnd);
+        const [x0, y0] = cellRect(frame, [c0, r0])[0];
+        const [x1, y1] = cellRect(frame, [c1, r1])[2];
+        const rect = [x0, y0, x1, y0, x1, y1, x0, y1];
+        hover.poly(rect).fill({ color: BRUSH_CURSOR.color, alpha: BRUSH_CURSOR.fillAlpha });
+        hover
+          .poly(rect)
+          .stroke({ color: BRUSH_CURSOR.color, width: BRUSH_CURSOR.width, alpha: BRUSH_CURSOR.alpha });
+        return;
+      }
+      const footprint = shape === 'box' ? 1 : size;
+      for (const cell of disc(hoverCell, footprint)) {
+        hover
+          .poly(cellRect(frame, cell).flat())
+          .fill({ color: BRUSH_CURSOR.color, alpha: BRUSH_CURSOR.fillAlpha });
+      }
+      // One ring around the whole footprint rather than a stroke per cell — the brush is
+      // one instrument, and its rim is where the next stamp lands.
+      const [cx, cy] = [frame.minX + hoverCell[0] + 0.5, frame.minY + hoverCell[1] + 0.5];
       hover
-        .poly(path)
+        .circle(cx, cy, footprint / 2)
         .stroke({ color: BRUSH_CURSOR.color, width: BRUSH_CURSOR.width, alpha: BRUSH_CURSOR.alpha });
       return;
     }
@@ -234,6 +286,8 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   const tick = (): void => {
     cursor.position.copyFrom(world.position);
     cursor.scale.copyFrom(world.scale);
+    // The haze's clock — the one per-frame cost this layer has. Reduced motion freezes it.
+    if (layer.visible && !prefersReducedMotion()) haze.advance(ticker.deltaMS / 1000);
   };
   const ticker = engine.ticker();
   ticker.add(tick);
@@ -254,9 +308,13 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
       useActiveTool.getState().activeTool,
       hoverRoomId,
       useFogBrush.getState().on,
+      // The cursor's footprint moves with these two, so they redraw it like a move does.
+      useFogBrush.getState().size,
+      useFogBrush.getState().shape,
       // The cell as a key: the tuple is compared by identity, and a fresh `[col, row]` on
       // every pointermove would redraw the whole layer for a cursor that has not moved.
       hoverCell?.join(),
+      boxEnd?.join(),
     ];
     if (next.length === last.length && next.every((v, i) => v === last[i])) return;
     last = next;
@@ -275,6 +333,12 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   let batch: Cell[] = [];
   const painted = new Set<string>();
   let lastCell: Cell | null = null;
+  /** The frame the stroke opened on — measured once, not per stamp (the DM's copy has no
+   * stamped frame, so `frameNow` recomputes it from the layers every call). */
+  let strokeFrame: Frame | null = null;
+  /** The box marquee's two corners, in cells. Non-null exactly while a box drag runs. */
+  let boxStart: Cell | null = null;
+  let boxEnd: Cell | null = null;
 
   const flush = () => {
     if (batch.length === 0) return;
@@ -287,7 +351,64 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     if (painted.has(key)) return;
     painted.add(key);
     batch.push(cell);
-    if (batch.length >= BRUSH_FLUSH_CELLS) flush();
+    // The flush pace scales with the brush: a wide eraser lays cells an order faster than
+    // the one-cell brush the constant was tuned for, and the point of the number is "the
+    // players watch the reveal appear at the pace the DM paints it".
+    if (batch.length >= BRUSH_FLUSH_CELLS * useFogBrush.getState().size) flush();
+  };
+
+  /** The eraser's footprint: the cells inside a disc of `size` cells diameter. */
+  const disc = (center: Cell, size: number): Cell[] => {
+    const r = size / 2;
+    const reach = Math.ceil(r - 0.5);
+    const cells: Cell[] = [];
+    for (let dr = -reach; dr <= reach; dr++) {
+      for (let dc = -reach; dc <= reach; dc++) {
+        if (dc * dc + dr * dr <= r * r) cells.push([center[0] + dc, center[1] + dr]);
+      }
+    }
+    return cells;
+  };
+
+  /** Stamp the disc at one path cell, clamped to the frame — the referee refuses any cell
+   * outside the scene, and one bad cell refuses the whole write. */
+  const stamp = (cell: Cell) => {
+    if (!strokeFrame) return;
+    const cols = Math.round(strokeFrame.maxX - strokeFrame.minX);
+    const rows = Math.round(strokeFrame.maxY - strokeFrame.minY);
+    for (const [col, row] of disc(cell, useFogBrush.getState().size)) {
+      if (col >= 0 && row >= 0 && col < cols && row < rows) mark([col, row]);
+    }
+  };
+
+  // ponytail: 128 cells per side is the box's ceiling — the marquee simply stops growing
+  // there, which the DM sees as they drag. Bigger asks exist ("Reveal all") and a full
+  // 512×512 rectangle is a multi-megabyte write nobody means by a drag.
+  const BOX_MAX = 128;
+
+  /** The marquee's cell span, clamped to the ceiling from its anchor corner. */
+  const boxSpan = (a: Cell, b: Cell): [number, number, number, number] => {
+    const held = (from: number, to: number) =>
+      from + Math.max(1 - BOX_MAX, Math.min(BOX_MAX - 1, to - from));
+    const [c1, r1] = [held(a[0], b[0]), held(a[1], b[1])];
+    return [Math.min(a[0], c1), Math.min(a[1], r1), Math.max(a[0], c1), Math.max(a[1], r1)];
+  };
+
+  /** Release writes the whole rectangle, in slices the wire is comfortable with. */
+  const commitBox = () => {
+    if (!boxStart || !boxEnd || !strokeFrame) return;
+    const cols = Math.round(strokeFrame.maxX - strokeFrame.minX);
+    const rows = Math.round(strokeFrame.maxY - strokeFrame.minY);
+    const [c0, r0, c1, r1] = boxSpan(boxStart, boxEnd);
+    const cells: Cell[] = [];
+    for (let row = Math.max(0, r0); row <= Math.min(rows - 1, r1); row++) {
+      for (let col = Math.max(0, c0); col <= Math.min(cols - 1, c1); col++) {
+        cells.push([col, row]);
+      }
+    }
+    for (let i = 0; i < cells.length; i += 1024) {
+      send('region-set', { op: strokeOp, cells: cells.slice(i, i + 1024) });
+    }
   };
 
   /**
@@ -301,11 +422,11 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   const paintTo = (cell: Cell) => {
     const from = lastCell;
     lastCell = cell;
-    if (!from) return mark(cell);
+    if (!from) return stamp(cell);
     const [dc, dr] = [cell[0] - from[0], cell[1] - from[1]];
     const steps = Math.max(Math.abs(dc), Math.abs(dr));
     for (let i = 1; i <= steps; i++) {
-      mark([from[0] + Math.round((dc * i) / steps), from[1] + Math.round((dr * i) / steps)]);
+      stamp([from[0] + Math.round((dc * i) / steps), from[1] + Math.round((dr * i) / steps)]);
     }
   };
 
@@ -329,6 +450,12 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     }
     if (brushArmed()) {
       const cell = cellUnder(e);
+      if (boxStart && cell) {
+        // The drag owns the pointer, and the marquee follows it.
+        e.stopPropagation();
+        e.preventDefault();
+        boxEnd = cell;
+      }
       if (painting && cell) {
         // The drag owns the pointer: releasing it to the canvas mid-stroke would pan the map
         // out from under the cells being painted.
@@ -336,7 +463,7 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
         e.preventDefault();
         paintTo(cell);
       }
-      if (cell?.join() === hoverCell?.join()) return;
+      if (!boxStart && cell?.join() === hoverCell?.join()) return;
       hoverCell = cell;
       hoverRoomId = null;
       sync();
@@ -359,11 +486,19 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
       if (!cell) return;
       e.stopPropagation();
       e.preventDefault();
-      painting = true;
       // Alt is the modifier, read once at the start: a stroke is one op end to end, so
       // letting go of the key halfway cannot leave half of it revealed and half hidden.
-      const { op } = useFogBrush.getState();
+      const { op, shape } = useFogBrush.getState();
       strokeOp = e.altKey ? (op === 'reveal' ? 'hide' : 'reveal') : op;
+      strokeFrame = frameNow();
+      if (shape === 'box') {
+        boxStart = cell;
+        boxEnd = cell;
+        hoverCell = cell;
+        sync();
+        return;
+      }
+      painting = true;
       painted.clear();
       batch = [];
       lastCell = null;
@@ -392,6 +527,12 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   // Anywhere, not only on the canvas: a stroke that ends off-screen still has to land, or the
   // cells the DM painted on the way out are lost with the pointer.
   const onUp = () => {
+    if (boxStart) {
+      commitBox();
+      boxStart = null;
+      boxEnd = null;
+      sync();
+    }
     if (!painting) return;
     painting = false;
     lastCell = null;
@@ -438,6 +579,7 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     // destroyed and touching them throws.
     try {
       ticker.remove(tick);
+      haze.destroy();
       if (!layer.destroyed) layer.destroy({ children: true });
       if (!cursor.destroyed) cursor.destroy({ children: true });
     } catch {

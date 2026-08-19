@@ -11,24 +11,34 @@ import { create } from 'zustand';
 /** Which way the brush paints. The other one is a modifier away (Alt) mid-stroke. */
 export type BrushOp = 'reveal' | 'hide';
 
-// ponytail: one cell, no size and no shape. A DM opening a doorway wants one cell and a DM
-// opening half a hall drags; a size slider is a third control on the panel for the middle
-// case, and the stroke machinery below already paints whatever set of cells it is handed.
-// The upgrade, if a table asks for it, is a `size` here and a disc of cells in `paintTo` —
-// nothing else changes.
+/**
+ * What a drag lays down: a stroke stamps a disc of cells along the pointer's path (the
+ * eraser), a box marquees a rectangle and writes it on release (the selection box). The
+ * upgrade path the one-cell brush named, taken — `size` is the disc's diameter in cells,
+ * and the stroke machinery in FogOverlay paints whatever set of cells it is handed.
+ */
+export type BrushShape = 'stroke' | 'box';
 
 interface BrushStore {
   on: boolean;
   op: BrushOp;
+  size: number;
+  shape: BrushShape;
   setOn: (on: boolean) => void;
   setOp: (op: BrushOp) => void;
+  setSize: (size: number) => void;
+  setShape: (shape: BrushShape) => void;
 }
 
 export const useFogBrush = create<BrushStore>()((set) => ({
   on: false,
   op: 'reveal',
+  size: 1,
+  shape: 'stroke',
   setOn: (on) => set({ on }),
   setOp: (op) => set({ op }),
+  setSize: (size) => set({ size: Math.max(1, Math.min(5, Math.round(size))) }),
+  setShape: (shape) => set({ shape }),
 }));
 
 /**

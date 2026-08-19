@@ -90,6 +90,7 @@ import {
   visionRegion,
 } from './fog';
 import { placedLights, sightCache, sighted } from './visionSight';
+import { MASK_MEMORY, createLivingFog, fogPalette } from './livingFog';
 
 /** What the player's canvas does with one room. */
 export type RoomView = 'visible' | 'explored' | 'dark';
@@ -818,7 +819,7 @@ export function subscribeFogScene(onChange: () => void): () => void {
  * band's share of the way to solid. Colour is uniform, so the order they are drawn in does
  * not matter.
  */
-function featherEdge(g: Graphics, ring: Polygon, color: number): void {
+export function featherEdge(g: Graphics, ring: Polygon, color: number): void {
   const path = ring.flat();
   for (let step = 1; step <= FEATHER_STEPS; step++) {
     g.poly(path).stroke({
@@ -831,24 +832,20 @@ function featherEdge(g: Graphics, ring: Polygon, color: number): void {
 }
 
 /**
- * One room's covering, for the fade out of a reveal.
+ * One room's covering, for the fade out of a reveal — drawn into the living fog's *mask*,
+ * so the reveal is the cloud dissolving over the room rather than a flat cover lifting.
  *
  * Drawn on the padded footprint the mask cuts, not on the floor polygon: fading the floor
  * alone would clear the wall band on the first frame and then dissolve the room out from
- * inside a ring that was already lit.
- *
- * ponytail: hard-edged where the mask is feathered. It is a 300ms transient dissolving to
- * nothing over the shape it is covering, and a rim that never sits still is not one anybody
- * can read.
+ * inside a ring that was already lit. The colours are mask tiers, not paint: black holds
+ * the room hidden, `MASK_MEMORY` holds it at the mist, and the graphic's alpha easing to
+ * nothing is what hands the ground to whatever the rebuilt mask says underneath.
  */
-function paintRoom(g: Graphics, room: Room, view: RoomView, pad: number, look: VoidStyle): void {
+function fadeCover(g: Graphics, room: Room, view: RoomView, pad: number): void {
   if (room.boundary.length < 3 || view === 'visible') return;
-  const style =
-    view === 'dark'
-      ? { color: look.fill, alpha: 1 }
-      : { color: look.memory, alpha: EXPLORED_TINT_ALPHA };
+  const color = view === 'dark' ? 0x000000 : MASK_MEMORY;
   for (const ring of fogRegion([room.boundary], [], pad, FOG_FEATHER).reach) {
-    g.poly(ring.flat()).fill(style);
+    g.poly(ring.flat()).fill({ color, alpha: 1 });
   }
 }
 
@@ -972,10 +969,12 @@ export function drawFog(
   scrim: Graphics,
   scene: FogScene,
   dotsMask?: Graphics,
-): { cells: number } {
+  maskPaint?: Graphics,
+): { cells: number; cover: Bounds | null } {
   scrim.clear();
   dotsMask?.clear();
-  if (!scene.isPlayer || !scene.bounds) return { cells: 0 };
+  maskPaint?.clear();
+  if (!scene.isPlayer || !scene.bounds) return { cells: 0, cover: null };
 
   const voidFill = scene.void.fill;
   // Drawn one pad + feather wider than the frame: a hole that crosses the filled rect's
@@ -1025,7 +1024,20 @@ export function drawFog(
   fillLand(scrim, drained, { color: scene.void.drained, alpha: DARKVISION_TINT_ALPHA });
 
   for (const { outline } of earned) featherEdge(scrim, outline, voidFill);
-  return { cells };
+
+  // The living fog's tier mask: the same rings, as texel values the cloud shader reads —
+  // black is hidden, `MASK_MEMORY` grey the memory tier, white everything the player has
+  // earned (drained ground included; its wash is the scrim's business). The feather is the
+  // same six-stroke ramp the scrim uses, drawn in black so the shader's coastline has a
+  // gradient to meander across instead of a one-texel cliff. The scrim above stays the
+  // authority on cover — if the shader never draws, hidden map is still hidden.
+  if (maskPaint) {
+    maskPaint.rect(minX, minY, w, h).fill({ color: 0x000000, alpha: 1 });
+    fillLand(maskPaint, earned, { color: 0xffffff, alpha: 1 });
+    fillLand(maskPaint, memory, { color: MASK_MEMORY, alpha: 1 });
+    for (const { outline } of earned) featherEdge(maskPaint, outline, 0x000000);
+  }
+  return { cells, cover: { minX, minY, maxX, maxY } };
 }
 
 interface Fade {
@@ -1042,8 +1054,11 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   const dots = new Graphics();
   const dotsMask = new Graphics();
   dots.mask = dotsMask;
-  const fadeLayer = new Container();
-  layer.addChild(scrim, dots, dotsMask, fadeLayer);
+  // The animated cover, above the scrim: the scrim stays the authority on what is hidden
+  // (flat, fail-dark), the mesh is the weather drawn over it. Dense fog is opaque, so the
+  // imitation void beneath it costs nothing to keep and covers any day the shader cannot.
+  const fog = createLivingFog(engine, { dense: 1, mist: 0.55, rim: 0.75 });
+  layer.addChild(scrim, dots, dotsMask, fog.mesh);
   // Nothing here is clickable; the fog tool and the doors read the DOM canvas directly.
   layer.eventMode = 'none';
   addScreenOverlay(sceneGraph, layer, 'playerFog');
@@ -1176,7 +1191,14 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // lighting pass at all, where there is no multiply for the void to have gone through.
     const drawn = lit?.visible ? scene : { ...scene, void: voidStyle(0, false, scene.grade) };
     voidLook = drawn.void;
-    cells = drawFog(scrim, drawn, dotsMask).cells;
+    const built = drawFog(scrim, drawn, dotsMask, fog.maskPaint);
+    cells = built.cells;
+    // …and the living fog over it: the same tiers as a texture, the palette pulled toward
+    // the scene's grade (a torchlit scene fogs warm, a night forest cold), and one render
+    // of the mask — per mutation, exactly like the geometry it rasterises.
+    fog.setMaskBounds(built.cover);
+    fog.setPalette(fogPalette(scene.grade, scene.bite));
+    fog.renderMask();
     // Stamped before the dots and the fades: those are draws, and what §4 budgets is what one
     // mutation costs to *build* — the sweeps inside `fogScene` and the Clipper pass above.
     fogProbe.mode = scene.mode ?? 'rooms';
@@ -1196,11 +1218,12 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
         const room = roomById.get(roomId);
         if (!room) continue;
         const graphic = new Graphics();
-        paintRoom(graphic, room, before, scene.pad, drawn.void);
-        fadeLayer.addChild(graphic);
+        fadeCover(graphic, room, before, scene.pad);
+        fog.fadePaint.addChild(graphic);
         fades.push({ graphic, startedAt: performance.now() });
         fogProbe.fadesStarted += 1;
       }
+      if (fades.length > 0) fog.renderMask();
     }
     views = scene.views;
   };
@@ -1211,7 +1234,17 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   const tick = (): void => {
     layer.position.copyFrom(world.position);
     layer.scale.copyFrom(world.scale);
-    if (layer.visible) redrawDots(false);
+    if (layer.visible) {
+      redrawDots(false);
+      // The cover quad tracks the viewport — in world coordinates, since the layer mirrors
+      // the camera — so the fog lies over map and void alike and the map's extent is not a
+      // tell. Reduced motion freezes the clock, never the cover.
+      const vp = engine.viewport();
+      const tl = engine.screenToWorld(0, 0);
+      const br = engine.screenToWorld(vp.width, vp.height);
+      fog.cover({ minX: tl.x - 2, minY: tl.y - 2, maxX: br.x + 2, maxY: br.y + 2 });
+      if (!prefersReducedMotion()) fog.advance(ticker.deltaMS / 1000);
+    }
     if (fades.length === 0) return;
     const now = performance.now();
     for (let i = fades.length - 1; i >= 0; i--) {
@@ -1223,6 +1256,9 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
       }
       fades[i].graphic.alpha = 1 - easeOutQuart(t);
     }
+    // A fade is mask animation now: re-rasterise while one runs (and once more on the frame
+    // the last one ends), so the reveal is the cloud thinning rather than a cover lifting.
+    fog.renderMask();
   };
 
   const ticker = engine.ticker();
@@ -1242,6 +1278,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
       lighting()?.setAmbientLevel(null);
       // The grade needs no handing back — this file no longer sets it. The clock goes back with
       // `syncWorldToScene`'s own cleanup, and the render loop recomposes from there.
+      fog.destroy();
       if (!layer.destroyed) layer.destroy({ children: true });
     } catch {
       /* engine torn down first */

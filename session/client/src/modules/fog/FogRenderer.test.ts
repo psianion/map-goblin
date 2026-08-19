@@ -1617,6 +1617,9 @@ describe('the lighting composite each seat is mounted with', () => {
         // The dot pass measures the visible cell range off these on every rebuild.
         viewport: () => ({ width: 800, height: 600 }),
         screenToWorld: (x: number, y: number) => ({ x: x / 20, y: y / 20 }),
+        // The living fog rasterises its tier mask through this on every rebuild. What lands
+        // in the texture is the GPU's business — jsdom asserts the geometry, not the paint.
+        renderToTexture: () => {},
       } as unknown as RenderEngine,
       sceneGraph,
     );
