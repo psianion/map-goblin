@@ -40,7 +40,7 @@
 // rather than information — `GRADE_STRENGTH` against `LIGHTING_STRENGTH` is that split.
 //
 // ponytail: pixi through @dnd/core, the same reach-through TokenRenderer documents.
-import { Container, FillGradient, Graphics } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import type { Room } from '@dnd/core/src/shared/types';
 import type { BackgroundLayer, Layer, SerializedMapData } from '@dnd/core/src/store/types';
@@ -243,7 +243,7 @@ const BOUNDS_PAD = 20;
  * everything the room owns — floor, wall band, margin — is already at full strength before
  * any of this is drawn, and the ramp spends itself on map the room does not own.
  */
-export const FOG_FEATHER = 0.7;
+export const FOG_FEATHER = 0.4;
 
 /**
  * How many steps that falloff is cut into.
@@ -319,12 +319,6 @@ export interface FogScene {
   mode?: FogMode;
   /** Vision only (§1): one sweep polygon per sighted party token — the clear tier. */
   sight?: Polygon[];
-  /**
-   * Vision only: the eye behind each sweep, index-aligned with `sight`. The mask paints
-   * each one's clear ground as a radial falloff from here — sight fades with distance the
-   * way light does, instead of stopping on the sweep's arc like a stencil.
-   */
-  eyes?: { x: number; y: number; range: number }[];
   /** Vision only (§1): the scene's fog as *stored*, for the memory tier's cells and reveals. */
   fog?: SceneFog;
   /**
@@ -705,7 +699,6 @@ export function fogScene(): FogScene {
     pad: fogPad(serverLayers(mapData)),
     sceneId,
     isPlayer,
-    eyes: eyes.map((t) => ({ x: t.x, y: t.y, range: t.sight!.range })),
     // The imitation bites exactly as hard as the real composite does: the sheet renders above
     // the same multiply, and §4 just made that multiply a dial. Left at full strength the
     // fogged sheet reads as a *darker* patch of the same map at daylight and dusk (D1).
@@ -888,7 +881,7 @@ function cutLand(
 function fillLand(
   g: Graphics,
   land: readonly FogRing[],
-  style: { color: number; alpha?: number } | FillGradient,
+  style: { color: number; alpha?: number },
 ): void {
   for (const { outline, holes } of land) {
     g.poly(outline.flat()).fill(style);
@@ -948,9 +941,7 @@ function roomTiers(scene: FogScene): { earned: FogRing[]; memory: FogRing[] } {
  */
 function visionTiers(scene: FogScene): {
   earned: FogRing[];
-  clear: FogRing[];
   memory: FogRing[];
-  remembered: FogRing[];
   drained: FogRing[];
   cells: number;
 } {
@@ -972,36 +963,19 @@ function visionTiers(scene: FogScene): {
   );
   return {
     earned: ringsWithHoles(region.shown),
-    clear: ringsWithHoles(region.clear),
     memory: ringsWithHoles(region.memory),
-    remembered: ringsWithHoles(region.remembered),
     drained: ringsWithHoles(region.drained),
     cells: region.cells,
   };
 }
 
-/**
- * `FillGradient` rasterises through a 2D canvas; without one (jsdom, a headless probe) the
- * radial sight below falls back to the flat fill. That direction is safe: the clear region
- * is ground the sweep already earned, so flat is merely brighter at the rim — never a reveal.
- */
-const canPaintGradients = ((): boolean => {
-  try {
-    return document.createElement('canvas').getContext('2d') !== null;
-  } catch {
-    return false;
-  }
-})();
-
 export function drawFog(
   scrim: Graphics,
   scene: FogScene,
   maskPaint?: Graphics,
-  sightPaint?: Graphics,
 ): { cells: number; cover: Bounds | null } {
   scrim.clear();
   maskPaint?.clear();
-  sightPaint?.clear();
   if (!scene.isPlayer || !scene.bounds) return { cells: 0, cover: null };
   // Drawn one pad + feather wider than the frame: a hole that crosses the filled rect's
   // outer contour is dropped whole by the triangulator, and the frame is content-tight
@@ -1033,16 +1007,10 @@ export function drawFog(
 
   // The one fork in this file. Everything either side of it — the fill, the cut, the wash and
   // the falloff — is the same four instructions in the same order; the tiers are what differ.
-  const { earned, clear, memory, remembered, drained, cells } =
+  const { earned, memory, drained, cells } =
     scene.mode === 'vision'
       ? visionTiers(scene)
-      : {
-          ...roomTiers(scene),
-          clear: [] as FogRing[],
-          remembered: [] as FogRing[],
-          drained: [] as FogRing[],
-          cells: 0,
-        };
+      : { ...roomTiers(scene), drained: [] as FogRing[], cells: 0 };
 
   cutLand(scrim, earned, { color: 0x000000, alpha: 1 });
 
@@ -1061,49 +1029,8 @@ export function drawFog(
   // authority on cover — if the shader never draws, hidden map is still hidden.
   if (maskPaint) {
     maskPaint.rect(minX, minY, w, h).fill({ color: 0x000000, alpha: 1 });
-    const eyes =
-      scene.mode === 'vision' && canPaintGradients && sightPaint ? (scene.eyes ?? []) : [];
-    if (eyes.length > 0 && sightPaint) {
-      // R carries the ground's own standing — what the cover would be with no eye open:
-      // everything remembered (swept cells, DM-revealed rooms) at the mist grey, the rest
-      // black. Live sight goes into G as *light*: one pool per eye with the lighting
-      // engine's own recipe (`LightingRenderer` — intensity plateau to 80% of range, then
-      // quadratic 1 − t² falloff in six stops), drawn additively so overlapping eyes
-      // brighten like overlapping lamps. The shader thins the local cover by exactly that
-      // brightness, so a fade runs from clear to whatever truly stands beyond the sweep —
-      // mist or dense — with no cap and no seam, and a wall mid-pool still cuts crisp:
-      // occlusion is a fact, range is a falloff.
-      fillLand(maskPaint, remembered, { color: MASK_MEMORY, alpha: 1 });
-      for (const eye of eyes) {
-        const stops = [
-          { offset: 0, color: 'rgba(0,255,0,1)' },
-          { offset: 0.8, color: 'rgba(0,255,0,1)' },
-        ];
-        for (let i = 1; i <= 6; i++) {
-          const t = i / 6;
-          stops.push({
-            offset: 0.8 + 0.2 * t,
-            color: `rgba(0,255,0,${(1 - t * t).toFixed(4)})`,
-          });
-        }
-        fillLand(
-          sightPaint,
-          clear,
-          new FillGradient({
-            type: 'radial',
-            center: { x: eye.x, y: eye.y },
-            innerRadius: 0,
-            outerCenter: { x: eye.x, y: eye.y },
-            outerRadius: eye.range + 0.5,
-            colorStops: stops,
-            textureSpace: 'global',
-          }),
-        );
-      }
-    } else {
-      fillLand(maskPaint, earned, { color: 0xffffff, alpha: 1 });
-      fillLand(maskPaint, memory, { color: MASK_MEMORY, alpha: 1 });
-    }
+    fillLand(maskPaint, earned, { color: 0xffffff, alpha: 1 });
+    fillLand(maskPaint, memory, { color: MASK_MEMORY, alpha: 1 });
     for (const { outline } of earned) featherEdge(maskPaint, outline, 0x000000);
   }
   return { cells, cover: { minX, minY, maxX, maxY } };
@@ -1207,7 +1134,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // The imitation has to match the void as it actually renders — including a table with no
     // lighting pass at all, where there is no multiply for the void to have gone through.
     const drawn = lit?.visible ? scene : { ...scene, void: voidStyle(0, false, scene.grade) };
-    const built = drawFog(scrim, drawn, fog.maskPaint, fog.sightPaint);
+    const built = drawFog(scrim, drawn, fog.maskPaint);
     cells = built.cells;
     // …and the living fog over it: the same tiers as a texture, the palette pulled toward
     // the scene's grade (a torchlit scene fogs warm, a night forest cold), and one render

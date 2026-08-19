@@ -40,7 +40,7 @@ export const MASK_MEMORY = 0x808080;
  * the room has paid for: a revealed room shows its complete wall, and a light inside it
  * pools to the wall's far face rather than to half the band.
  */
-const EDGE_WARP = 0.7;
+const EDGE_WARP = 0.65;
 
 /** One noise unit ≈ this many cells — the drift and billow scales below are tuned to it. */
 const NOISE_CELLS = 28;
@@ -117,10 +117,10 @@ const FRAGMENT = /* glsl */ `
     for (int i = 0; i < 4; i++) { s += a * abs(2.0 * vnoise(p) - 1.0); p = r * p * 1.94 + 11.7; a *= 0.52; }
     return s;
   }
-  vec2 maskAt(vec2 world) {
+  float maskAt(vec2 world) {
     vec2 uv = (world - uMaskRect.xy) * uMaskRect.zw;
-    if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return vec2(0.0);
-    return texture(uMask, uv).rg;
+    if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 0.0;
+    return texture(uMask, uv).r;
   }
 
   void main() {
@@ -143,17 +143,13 @@ const FRAGMENT = /* glsl */ `
     col = mix(col, uHigh, 0.32 * smoothstep(0.50, 0.95, top));
 
     // The coastline. min() is the security half — lobes eat inward, bays never open outward.
-    vec2 t0 = maskAt(vWorld);
-    float m = min(t0.x, maskAt(vWorld + w * uWarp).x);
-    float g = t0.y;
+    float m = min(maskAt(vWorld), maskAt(vWorld + w * uWarp));
 
     // The steeper slope holds the contour to the outer half of the mask's feather ramp, so
-    // the fog spends itself past the margin instead of on the wall band inside it. The wide
-    // smoothstep is the felt softness: the contour stays put, the alpha across it breathes
-    // over a broad band — a crisp POSITION with a soft RAMP, never a hard line.
+    // the fog spends itself past the margin instead of on the wall band inside it.
     float d = den - (m * 2.0 - 0.42) + (top - 0.5) * 0.10;
-    float body = smoothstep(-0.26, 0.20, d);
-    float wisp = smoothstep(-0.40, -0.22, d) * (1.0 - body);
+    float body = smoothstep(-0.08, 0.14, d);
+    float wisp = smoothstep(-0.20, -0.06, d) * (1.0 - body);
 
     // The fog is denser and darker right at its cut edge.
     float rim = smoothstep(0.0, 0.12, d) * (1.0 - smoothstep(0.12, 0.36, d));
@@ -164,19 +160,6 @@ const FRAGMENT = /* glsl */ `
     float hiddenness = 1.0 - smoothstep(0.10, 0.62, m);
     float aBody = mix(uMist * (0.45 + 0.55 * den), uDense, hiddenness);
     float alpha = clamp(body * aBody + wisp * aBody * 0.28, 0.0, 1.0);
-
-    // Sight suppresses the local cover the way light burns fog off: G carries each eye's
-    // pool (the lighting engine's own plateau + 1 − t² curve), and the cover — mist or
-    // dense alike — thins by exactly that brightness. A fade therefore runs from clear
-    // all the way to whatever truly stands beyond it, with no cap and no seam, and adds
-    // no colour of its own.
-    alpha *= 1.0 - g;
-
-    // Thin cover dims, thick cover clouds. Translucent fog painted in the strata's own
-    // light colours over dark ground reads as a glowing halo (the sight fade's ring at
-    // night); shading it toward deep shadow as coverage thins makes an edge read as sight
-    // running out rather than as fog lighting up.
-    col = mix(uDeep * 0.55, col, smoothstep(0.05, 0.90, alpha / max(uDense, 0.001)));
     gl_FragColor = vec4(col * alpha, alpha);
   }
 `;
@@ -235,8 +218,6 @@ export interface LivingFog {
   mesh: Mesh<Geometry, Shader>;
   /** Draw the tier mask into this, in world coordinates, then call `renderMask`. */
   maskPaint: Graphics;
-  /** Vision only: each eye's light pool, drawn additively into the mask's G channel. */
-  sightPaint: Graphics;
   /** Reveal fades draw here, above the tiers; render per frame only while one runs. */
   fadePaint: Container;
   /** Point the mask texture at this world rect (null ⇒ everything is hidden). */
@@ -259,15 +240,11 @@ export function createLivingFog(engine: RenderEngine, look: LivingFogLook): Livi
     indexBuffer: [0, 1, 2, 0, 2, 3],
   });
 
-  let maskRT = RenderTexture.create({ width: 4, height: 4 });
+  const maskRT = RenderTexture.create({ width: 4, height: 4 });
   const maskScene = new Container();
   const maskPaint = new Graphics();
-  // Additive, so G accumulates per-eye light pools without disturbing the tier channel in
-  // R — overlapping eyes brighten like overlapping lamps.
-  const sightPaint = new Graphics();
-  sightPaint.blendMode = 'add';
   const fadePaint = new Container();
-  maskScene.addChild(maskPaint, sightPaint, fadePaint);
+  maskScene.addChild(maskPaint, fadePaint);
 
   const shader = Shader.from({
     gl: { vertex: VERTEX, fragment: FRAGMENT },
@@ -318,7 +295,6 @@ export function createLivingFog(engine: RenderEngine, look: LivingFogLook): Livi
   return {
     mesh,
     maskPaint,
-    sightPaint,
     fadePaint,
     setMaskBounds(bounds) {
       const w = bounds ? bounds.maxX - bounds.minX : 0;
