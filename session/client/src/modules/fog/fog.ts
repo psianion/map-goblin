@@ -418,6 +418,12 @@ export interface VisionRegion {
   drained: Polygon[];
   /** The explored wash — swept cells and DM-revealed rooms, minus whatever is live. */
   memory: Polygon[];
+  /**
+   * Everything remembered regardless of live sight — `memory` before the clear subtraction.
+   * The living fog's base tier: what the cover would be if no eye were open, which is what
+   * a sight pool's falloff has to land on.
+   */
+  remembered: Polygon[];
   /** Both of them as one region, which is the hole the scrim cuts and the dots clip to. */
   shown: Polygon[];
   /**
@@ -522,6 +528,7 @@ export function visionRegion(
     clear,
     drained,
     memory,
+    remembered: inside,
     // Unioned rather than drawn as two holes: `cut` takes a set of holes on the promise that
     // they do not overlap, and the feather runs round the outside of everything the party
     // holds — a rim between a lit sweep and its own memory would be a line drawn where the

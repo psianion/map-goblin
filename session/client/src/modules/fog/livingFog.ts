@@ -117,10 +117,10 @@ const FRAGMENT = /* glsl */ `
     for (int i = 0; i < 4; i++) { s += a * abs(2.0 * vnoise(p) - 1.0); p = r * p * 1.94 + 11.7; a *= 0.52; }
     return s;
   }
-  float maskAt(vec2 world) {
+  vec2 maskAt(vec2 world) {
     vec2 uv = (world - uMaskRect.xy) * uMaskRect.zw;
-    if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 0.0;
-    return texture(uMask, uv).r;
+    if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return vec2(0.0);
+    return texture(uMask, uv).rg;
   }
 
   void main() {
@@ -143,7 +143,9 @@ const FRAGMENT = /* glsl */ `
     col = mix(col, uHigh, 0.32 * smoothstep(0.50, 0.95, top));
 
     // The coastline. min() is the security half — lobes eat inward, bays never open outward.
-    float m = min(maskAt(vWorld), maskAt(vWorld + w * uWarp));
+    vec2 t0 = maskAt(vWorld);
+    float m = min(t0.x, maskAt(vWorld + w * uWarp).x);
+    float g = t0.y;
 
     // The steeper slope holds the contour to the outer half of the mask's feather ramp, so
     // the fog spends itself past the margin instead of on the wall band inside it. The wide
@@ -163,16 +165,12 @@ const FRAGMENT = /* glsl */ `
     float aBody = mix(uMist * (0.45 + 0.55 * den), uDense, hiddenness);
     float alpha = clamp(body * aBody + wisp * aBody * 0.28, 0.0, 1.0);
 
-    // Sight running out is LIGHT running out. The mask's radial fade (the light-pool
-    // curve, painted per eye) reaches the shader as the top half of the mask range; here
-    // it becomes a veil of pure darkness beneath the cloud — no fog colour, exactly how
-    // a lamp's pool dims to nothing. It rises to the local mist level so the hand-off to
-    // the tier fog beyond the sweep is seamless, and (1 - body) retires it wherever the
-    // cloud itself already covers.
-    float veil = uMist * (0.45 + 0.55 * den) * clamp((1.0 - m) * 2.0, 0.0, 1.0) * (1.0 - body);
-    float outA = alpha + veil * (1.0 - alpha);
-    col = col * (alpha / max(outA, 0.001));
-    alpha = outA;
+    // Sight suppresses the local cover the way light burns fog off: G carries each eye's
+    // pool (the lighting engine's own plateau + 1 − t² curve), and the cover — mist or
+    // dense alike — thins by exactly that brightness. A fade therefore runs from clear
+    // all the way to whatever truly stands beyond it, with no cap and no seam, and adds
+    // no colour of its own.
+    alpha *= 1.0 - g;
 
     // Thin cover dims, thick cover clouds. Translucent fog painted in the strata's own
     // light colours over dark ground reads as a glowing halo (the sight fade's ring at
@@ -237,6 +235,8 @@ export interface LivingFog {
   mesh: Mesh<Geometry, Shader>;
   /** Draw the tier mask into this, in world coordinates, then call `renderMask`. */
   maskPaint: Graphics;
+  /** Vision only: each eye's light pool, drawn additively into the mask's G channel. */
+  sightPaint: Graphics;
   /** Reveal fades draw here, above the tiers; render per frame only while one runs. */
   fadePaint: Container;
   /** Point the mask texture at this world rect (null ⇒ everything is hidden). */
@@ -262,8 +262,12 @@ export function createLivingFog(engine: RenderEngine, look: LivingFogLook): Livi
   let maskRT = RenderTexture.create({ width: 4, height: 4 });
   const maskScene = new Container();
   const maskPaint = new Graphics();
+  // Additive, so G accumulates per-eye light pools without disturbing the tier channel in
+  // R — overlapping eyes brighten like overlapping lamps.
+  const sightPaint = new Graphics();
+  sightPaint.blendMode = 'add';
   const fadePaint = new Container();
-  maskScene.addChild(maskPaint, fadePaint);
+  maskScene.addChild(maskPaint, sightPaint, fadePaint);
 
   const shader = Shader.from({
     gl: { vertex: VERTEX, fragment: FRAGMENT },
@@ -314,6 +318,7 @@ export function createLivingFog(engine: RenderEngine, look: LivingFogLook): Livi
   return {
     mesh,
     maskPaint,
+    sightPaint,
     fadePaint,
     setMaskBounds(bounds) {
       const w = bounds ? bounds.maxX - bounds.minX : 0;
