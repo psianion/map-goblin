@@ -163,13 +163,16 @@ const FRAGMENT = /* glsl */ `
     float aBody = mix(uMist * (0.45 + 0.55 * den), uDense, hiddenness);
     float alpha = clamp(body * aBody + wisp * aBody * 0.28, 0.0, 1.0);
 
-    // Light-like dimming across the top of the mask range: from clear (m = 1) the cover
-    // climbs linearly to the mist level by m = 0.5. The tier response alone is a cliff
-    // near the mist threshold, which rendered every smooth mask ramp — the radial sight
-    // fade above all — as a sharp arc; this is what makes a fade read the way a lamp's
-    // pool runs out instead.
-    float toMist = uMist * (0.45 + 0.55 * den) * clamp((1.0 - m) * 2.0, 0.0, 1.0);
-    alpha = max(alpha, toMist);
+    // Sight running out is LIGHT running out. The mask's radial fade (the light-pool
+    // curve, painted per eye) reaches the shader as the top half of the mask range; here
+    // it becomes a veil of pure darkness beneath the cloud — no fog colour, exactly how
+    // a lamp's pool dims to nothing. It rises to the local mist level so the hand-off to
+    // the tier fog beyond the sweep is seamless, and (1 - body) retires it wherever the
+    // cloud itself already covers.
+    float veil = uMist * (0.45 + 0.55 * den) * clamp((1.0 - m) * 2.0, 0.0, 1.0) * (1.0 - body);
+    float outA = alpha + veil * (1.0 - alpha);
+    col = col * (alpha / max(outA, 0.001));
+    alpha = outA;
 
     // Thin cover dims, thick cover clouds. Translucent fog painted in the strata's own
     // light colours over dark ground reads as a glowing halo (the sight fade's ring at

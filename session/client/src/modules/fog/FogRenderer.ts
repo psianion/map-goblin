@@ -1066,22 +1066,30 @@ export function drawFog(
       // sweep says, never brighter.
       fillLand(maskPaint, clear, { color: MASK_MEMORY, alpha: 1 });
       for (const eye of eyes) {
+        // The lighting engine's own pool recipe (`LightingRenderer`): full intensity to the
+        // feather offset, then quadratic falloff in six stops. Sight is treated exactly as
+        // a light — intensity plateau to 80% of range, then the same 1 − t² decay.
+        const stops = [
+          { offset: 0, color: 'rgba(255,255,255,1)' },
+          { offset: 0.8, color: 'rgba(255,255,255,1)' },
+        ];
+        for (let i = 1; i <= 6; i++) {
+          const t = i / 6;
+          stops.push({
+            offset: 0.8 + 0.2 * t,
+            color: `rgba(255,255,255,${(1 - t * t).toFixed(4)})`,
+          });
+        }
         fillLand(
           maskPaint,
           clear,
           new FillGradient({
             type: 'radial',
             center: { x: eye.x, y: eye.y },
-            // Full sight to 80% of the range, then one long ease past the limit — a lamp's
-            // pool running out, which is the look the map's own lights set.
-            innerRadius: eye.range * 0.8,
+            innerRadius: 0,
             outerCenter: { x: eye.x, y: eye.y },
             outerRadius: eye.range + 0.5,
-            colorStops: [
-              { offset: 0, color: 'rgba(255,255,255,1)' },
-              { offset: 0.45, color: 'rgba(255,255,255,0.72)' },
-              { offset: 1, color: 'rgba(255,255,255,0)' },
-            ],
+            colorStops: stops,
             textureSpace: 'global',
           }),
         );
