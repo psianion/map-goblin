@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
+import { PROTOCOL_VERSION } from './config'
 import type { ServerMessage, SessionState } from '@dnd/core/src/shared/protocol'
 import type { DoorChild, Room } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
@@ -138,7 +139,7 @@ async function seat(base: string, token: string) {
   await once(socket, 'open')
   const rejoin = async (): Promise<SessionState> => {
     const answered = waitFor(socket, (m) => m.type === 'session-state')
-    socket.send(JSON.stringify({ type: 'join', protocolVersion: 4 }))
+    socket.send(JSON.stringify({ type: 'join', protocolVersion: PROTOCOL_VERSION }))
     return (await answered as Extract<ServerMessage, { type: 'session-state' }>).state
   }
   return {

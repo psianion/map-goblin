@@ -1,6 +1,5 @@
 /**
- * The one motion switch for the editor's Pixi-driven animations (light flicker, and
- * anything that follows). Mirrors `session/client/src/session/motion.ts` — CSS still
+ * The one motion switch for the editor's Pixi-driven animations. Mirrors `session/client/src/session/motion.ts` — CSS still
  * gets its own `prefers-reduced-motion` block, but Pixi tweens need the answer in script.
  *
  * Read at draw time rather than cached: a viewer who flips the OS setting mid-session

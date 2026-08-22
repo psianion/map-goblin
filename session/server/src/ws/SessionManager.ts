@@ -301,20 +301,22 @@ export class SessionManager {
   }
 
   private sessionFor(id: string, campaignId: string): Session {
-    let session = this.sessions.get(id)
-    if (!session) {
-      session = { id, campaignId, players: new Map(), clients: new Set(), dmSeen: false }
-      this.sessions.set(id, session)
-      // P4 — the world clock is campaign-global and ticks for as long as the table is open,
-      // unaffected by which scene is active or who is in it (read fresh on every tick below).
-      this.worldTicker.start({
-        sessionId: session.id,
-        campaignId: session.campaignId,
-        activeSceneId: () => this.scenes(session).activeSceneId,
-        players: () => [...session.players.values()],
-        broadcast: (msg) => this.broadcaster.broadcast(session.id, msg),
-      })
-    }
+    const existing = this.sessions.get(id)
+    if (existing) return existing
+
+    // A `const` rather than reassigning the lookup: the ticker callbacks below close over it,
+    // and a `let` that started out possibly-undefined stays possibly-undefined inside a closure.
+    const session: Session = { id, campaignId, players: new Map(), clients: new Set(), dmSeen: false }
+    this.sessions.set(id, session)
+    // P4 — the world clock is campaign-global and ticks for as long as the table is open,
+    // unaffected by which scene is active or who is in it (read fresh on every tick below).
+    this.worldTicker.start({
+      sessionId: session.id,
+      campaignId: session.campaignId,
+      activeSceneId: () => this.scenes(session).activeSceneId,
+      players: () => [...session.players.values()],
+      broadcast: (msg) => this.broadcaster.broadcast(session.id, msg),
+    })
     return session
   }
 

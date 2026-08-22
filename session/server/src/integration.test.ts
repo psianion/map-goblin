@@ -15,6 +15,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { once } from 'node:events'
 import type { Role, ServerMessage } from '@dnd/core/src/shared/protocol'
+import { PROTOCOL_VERSION } from './config'
 import type { AnyChild, AssetChild, DoorChild, Room } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import type { Token, TokensState } from '@dnd/mechanics/tokens'
@@ -147,7 +148,7 @@ function nextState<S>(socket: WebSocket, module: string, where: (state: S) => bo
   })
 }
 
-function sendJoin(socket: WebSocket, protocolVersion = 4): void {
+function sendJoin(socket: WebSocket, protocolVersion: number = PROTOCOL_VERSION): void {
   socket.send(JSON.stringify({ type: 'join', protocolVersion }))
 }
 

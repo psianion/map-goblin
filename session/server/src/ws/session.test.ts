@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import type { Role, ServerMessage } from '@dnd/core/src/shared/protocol'
+import { PROTOCOL_VERSION } from '../config'
 import { ANY_ROLE, type GameModule } from '@dnd/mechanics/contract'
 import { issueToken, startSession } from '../auth'
 import type { SessionRow } from '../db/stores'
@@ -111,7 +112,7 @@ function next<T extends ServerMessage['type']>(
   })
 }
 
-function sendJoin(socket: WebSocket, protocolVersion = 4): void {
+function sendJoin(socket: WebSocket, protocolVersion: number = PROTOCOL_VERSION): void {
   socket.send(JSON.stringify({ type: 'join', protocolVersion }))
 }
 

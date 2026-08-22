@@ -52,6 +52,7 @@ describe('migrations', () => {
       'passes',
       'scenes',
       'sessions',
+      'waitlist',
     ])
   })
 

@@ -82,6 +82,8 @@ async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse)
   if (method === 'POST' && resource === 'campaigns' && !id) return createCampaign(deps, req, res)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'dm-token')
     return mintDmToken(deps, req, res, id)
+  if (method === 'POST' && resource === 'campaigns' && id && sub === 'service-token')
+    return mintServiceToken(deps, req, res, id)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'maps')
     return uploadMap(deps, req, res, id)
   if (method === 'POST' && resource === 'campaigns' && id && sub === 'assets')
@@ -95,6 +97,7 @@ async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse)
     return getMapImage(deps, req, res, id, sub2)
   if (method === 'GET' && resource === 'assets' && id && !sub) return getAsset(deps, req, res, id)
   if (method === 'GET' && resource === 'resolve' && id) return resolveCode(deps, req, res, id)
+  if (method === 'POST' && resource === 'waitlist' && !id) return joinWaitlist(deps, req, res)
   if (method === 'POST' && resource === 'join' && !id) return joinSession(deps, req, res)
   if (method === 'POST' && resource === 'sessions' && !id) return openSession(deps, req, res)
   if (method === 'POST' && resource === 'identities' && id && sub === 'ban')
@@ -183,6 +186,52 @@ function mintDmToken(
     token: issueToken(deps.hmacSecret, dm.id, campaignId, 'dm'),
     campaignId,
     name: campaign.name,
+  })
+}
+
+/** The Discord bot's seat at a campaign. Named, so a second mint reuses it rather than
+ * leaving a new permanent credential behind on every call. */
+const SERVICE_IDENTITY_NAME = 'Goblin Bot'
+
+/**
+ * POST /api/campaigns/:id/service-token — admin pass in, a long-lived token for the Discord
+ * bot out (bot plan §4). Same gate and shape as `mintDmToken`, unbound to any session for
+ * the same reason: the bot watches whatever table this campaign is running.
+ *
+ * `{role}` picks the seat. The player one exists so anything the bot repeats into a public
+ * channel comes out of the same redaction choke point a player's own client reads from —
+ * the bot never filters map data itself.
+ */
+async function mintServiceToken(
+  deps: RouteDeps,
+  req: IncomingMessage,
+  res: ServerResponse,
+  campaignId: string,
+): Promise<void> {
+  if (rateLimited(deps, req, res)) return
+  if (!isAdminPass(deps.stores.passes, credential(req))) {
+    return json(res, 401, { error: 'invalid admin pass' })
+  }
+  const campaign = deps.stores.campaigns.get(campaignId)
+  if (!campaign) return json(res, 404, { error: 'no such campaign' })
+
+  const body = await readJson(req, res)
+  if (!body) return
+  const role = text(body.role) ?? 'dm'
+  if (role !== 'dm' && role !== 'player') return json(res, 400, { error: "role must be 'dm' or 'player'" })
+
+  // Reused by name *and* role: `findByCampaignAndRole` would hand back the human DM's
+  // identity (or an arbitrary player's), and the bot's activity belongs to the bot.
+  const bot =
+    deps.stores.identities
+      .listByCampaign(campaignId)
+      .find((i) => i.name === SERVICE_IDENTITY_NAME && i.role === role && i.banned === 0) ??
+    deps.stores.identities.mint(randomUUID(), campaignId, SERVICE_IDENTITY_NAME, role)
+  json(res, 200, {
+    token: issueToken(deps.hmacSecret, bot.id, campaignId, role),
+    campaignId,
+    role,
+    name: SERVICE_IDENTITY_NAME,
   })
 }
 
@@ -621,6 +670,28 @@ function resolveCode(deps: RouteDeps, req: IncomingMessage, res: ServerResponse,
   const session = resolveInviteCode(deps.stores.sessions, code)
   if (!session) return json(res, 404, { error: 'no active session for that code' })
   json(res, 200, { campaignId: session.campaign_id, sessionId: session.id })
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/**
+ * POST /api/waitlist — public; `{email}` in, `{duplicate}` out (P5a). Same shared budget
+ * as `/api/join`/`/api/resolve`: all three are unauthenticated, and a script hammering
+ * this one is exactly the traffic that limiter exists for.
+ *
+ * The only thing this route ever says about the list is whether *this* address is
+ * already on it — never a count, never another address, never anything else.
+ */
+async function joinWaitlist(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (rateLimited(deps, req, res)) return
+  const body = await readJson(req, res)
+  if (!body) return
+
+  const email = text(body.email)?.toLowerCase() ?? null
+  if (!email || !EMAIL_RE.test(email)) return json(res, 400, { error: 'invalid email' })
+
+  const { duplicate } = deps.stores.waitlist.add(email)
+  json(res, duplicate ? 200 : 201, { duplicate })
 }
 
 /** POST /api/join — public; `{code, name}` in, player session token out. */

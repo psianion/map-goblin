@@ -8,7 +8,9 @@
  * label, so nothing here needs to know who you are.
  */
 
+import type { InitiativeState } from '@dnd/mechanics/initiative'
 import type { RollPost } from '@dnd/mechanics/rolls'
+import { captureFromRoll } from '../../session/initiativeView'
 import { useSessionStore } from '../../session/store'
 
 /** Mirrors the server's caps (§2.2) so an overlong roll is trimmed, not rejected. */
@@ -78,7 +80,18 @@ export function translateRenderedRoll(detail: unknown): RollPost | null {
 
 const onRenderedRoll = (event: Event) => {
   const post = translateRenderedRoll((event as CustomEvent).detail)
-  if (post) useSessionStore.getState().sendCommand('rolls', 'post', post)
+  if (!post) return
+  const store = useSessionStore.getState()
+  store.sendCommand('rolls', 'post', post)
+  // Auto-track: Beyond20 already titles the roll "Initiative", so a party rolling on D&D
+  // Beyond fills the tracker without touching the table at all. Capture belongs at the
+  // sender, not in the initiative module — and the rule for what counts is that module's.
+  const set = captureFromRoll(
+    store.session?.modules?.initiative as InitiativeState | undefined,
+    store.you?.identityId,
+    post,
+  )
+  if (set) store.sendCommand('initiative', 'set', set)
 }
 
 // Beyond20 dispatches a *non-bubbling* CustomEvent on `document`, so a default window

@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
 import { ActiveToolIndicator } from '../components/ActiveToolIndicator';
 import { ReconnectingBanner } from '../components/ConnectionStatus';
+import { InitiativePrompt } from '../components/InitiativePrompt';
 import { ToastHost } from '../components/Toast';
 import { TriggerPrompts } from '../components/TriggerPrompts';
+import { mountTurnRingWhenReady } from '../modules/initiative/TurnRing';
 import { GameRenderer } from '../renderer/GameRenderer';
 import { FitScreenButton, TableStatusBar } from '../components/TableStatusBar';
 import { usePanels } from '../session/panels';
@@ -16,6 +18,7 @@ import { useTriggerToasts } from '../session/useTriggerToasts';
 import '../components/SessionControls';
 import '../components/PlayerScenes';
 import '../components/GameLog';
+import '../components/InitiativeTracker';
 import '../modules/rolls/beyond20';
 import '../modules/tokens';
 import '../modules/doors';
@@ -42,6 +45,10 @@ export default function GameTable() {
   // or any panel at all is on screen.
   useTriggerToasts();
 
+  // Mounted here rather than from a panel for the same reason: whose turn it is has to be
+  // marked on the map for every seat, however the sidebar happens to be filtered.
+  useEffect(() => mountTurnRingWhenReady(), []);
+
   return (
     <div data-page="table" className="flex h-full flex-col bg-surface-0 text-text-primary md:flex-row">
       {/* min-w-0/min-h-0: without them the canvas's intrinsic size pins this flex
@@ -56,6 +63,7 @@ export default function GameTable() {
         <TableStatusBar />
         <ToastHost />
         <TriggerPrompts />
+        <InitiativePrompt />
       </main>
 
       <aside className="flex shrink-0 flex-col gap-4 border-border-default p-3 max-md:border-t md:w-64 md:overflow-y-auto md:border-l">

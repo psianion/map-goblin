@@ -41,6 +41,12 @@ describe('rolls.post validation', () => {
     expect(ctx.state.log).toHaveLength(0)
   })
 
+  it("accepts 'discord' — the bot forwarding a /roll over its own seat", () => {
+    const { post, ctx } = harness()
+    expect(post({ source: 'discord', characterName: 'Zed', total: 17, visibility: 'public' })).toBeUndefined()
+    expect(ctx.state.log[0]).toMatchObject({ source: 'discord', characterName: 'Zed', total: 17 })
+  })
+
   it('rejects an unknown visibility', () => {
     const { post } = harness()
     expect(post({ source: 'manual', text: 'hi' })).toMatchObject({ code: 'invalid-command' })

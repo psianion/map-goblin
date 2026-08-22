@@ -69,13 +69,7 @@ vi.mock('../../assets/textureLoader', () => ({
   resolveTexture: () => ({ width: mockMaskWidth, height: mockMaskWidth }),
 }));
 
-// Mutable for the same reason: tests toggle the OS reduced-motion answer.
-let mockReducedMotion = false;
-vi.mock('../motion', () => ({
-  prefersReducedMotion: () => mockReducedMotion,
-}));
-
-import { LightingRenderer, lightingSignature, flickerFactor, cullLightsByDistance, MAX_RENDERED_LIGHTS, rgb, gradedLight, headroom, W_LIGHT_GRADE } from './LightingRenderer';
+import { LightingRenderer, lightingSignature, cullLightsByDistance, MAX_RENDERED_LIGHTS, rgb, gradedLight, headroom, W_LIGHT_GRADE } from './LightingRenderer';
 import { LightManager } from './LightManager';
 import type { RenderEngine } from '../RenderEngine';
 import type { LightChild } from '../../store/types';
@@ -111,12 +105,10 @@ const sig = (
   size: [number, number] = [1280, 720],
   ambient = '#0d0e12',
   isDirty: (id: string) => boolean = clean,
-  nowMs = 0,
-) => lightingSignature(cam[0], cam[1], cam[2], size[0], size[1], ambient, lights, isDirty, nowMs);
+) => lightingSignature(cam[0], cam[1], cam[2], size[0], size[1], ambient, lights, isDirty);
 
 beforeEach(() => {
   mockMaskWidth = 1;
-  mockReducedMotion = false;
 });
 
 describe('lightingSignature', () => {
@@ -138,13 +130,13 @@ describe('lightingSignature', () => {
     // S3 P3 §4 — the dial changes the picture without changing a light, so it changes the key.
     [
       'ambient level (the DM’s dial)',
-      () => lightingSignature(100, 200, 1.5, 1280, 720, '#0d0e12', [light()], clean, 0, 0.45),
+      () => lightingSignature(100, 200, 1.5, 1280, 720, '#0d0e12', [light()], clean, 0.45),
     ],
     // P2 — the world clock, bucketed. The grade colour covers the picture this pass draws
     // today; the bucket is what the sun/moon direction (P3) moves inside one grade colour.
     [
       'the world clock’s bucket',
-      () => lightingSignature(100, 200, 1.5, 1280, 720, '#0d0e12', [light()], clean, 0, 1, 7),
+      () => lightingSignature(100, 200, 1.5, 1280, 720, '#0d0e12', [light()], clean, 1, 7),
     ],
     ['light moved', () => sig([light({ position: { x: 13, y: 20 } })])],
     ['light radius', () => sig([light({ radius: 41 })])],
@@ -188,53 +180,6 @@ describe('lightingSignature', () => {
     expect(sig([withMask])).toBe(sig([withMask]));
   });
 
-  it('is unaffected by time for a light with flicker off', () => {
-    expect(sig([light()], undefined, undefined, undefined, undefined, 0)).toBe(
-      sig([light()], undefined, undefined, undefined, undefined, 5000),
-    );
-  });
-
-  it('changes over time for a flickering light', () => {
-    const flickering = light({ flicker: true });
-    expect(sig([flickering], undefined, undefined, undefined, undefined, 0)).not.toBe(
-      sig([flickering], undefined, undefined, undefined, undefined, 500),
-    );
-  });
-
-  it('stays put over time when reduced motion is set, even with flicker on', () => {
-    mockReducedMotion = true;
-    const flickering = light({ flicker: true });
-    expect(sig([flickering], undefined, undefined, undefined, undefined, 0)).toBe(
-      sig([flickering], undefined, undefined, undefined, undefined, 5000),
-    );
-  });
-});
-
-describe('flickerFactor', () => {
-  it('is exactly 1 when the light has flicker off', () => {
-    expect(flickerFactor(light(), 1234)).toBe(1);
-  });
-
-  it('is exactly 1 under reduced motion, regardless of time', () => {
-    mockReducedMotion = true;
-    expect(flickerFactor(light({ flicker: true }), 1234)).toBe(1);
-  });
-
-  it('wobbles within amplitude of the requested flickerIntensity', () => {
-    const amount = 0.4;
-    const flickering = light({ flicker: true, flickerIntensity: amount, flickerSpeed: 2 });
-    for (let t = 0; t < 5000; t += 137) {
-      const factor = flickerFactor(flickering, t);
-      expect(factor).toBeGreaterThanOrEqual(1 - amount - 1e-9);
-      expect(factor).toBeLessThanOrEqual(1 + amount + 1e-9);
-    }
-  });
-
-  it('gives two lights placed at the same moment different phases', () => {
-    const a = flickerFactor(light({ id: 'light-a', flicker: true }), 400);
-    const b = flickerFactor(light({ id: 'light-b', flicker: true }), 400);
-    expect(a).not.toBe(b);
-  });
 });
 
 describe('cullLightsByDistance', () => {

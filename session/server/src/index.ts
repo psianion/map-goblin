@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 import type { GameModule } from '@dnd/mechanics/contract'
 import { doorsModule } from '@dnd/mechanics/doors'
 import { fogModule } from '@dnd/mechanics/fog'
+import { initiativeModule } from '@dnd/mechanics/initiative'
 import { rollsModule } from '@dnd/mechanics/rolls'
 import { tokensModule } from '@dnd/mechanics/tokens'
 import { triggersModule } from '@dnd/mechanics/triggers'
@@ -100,6 +101,7 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   modules.register(pingModule)
   modules.register(scenesModule(stores))
   modules.register(rollsModule)
+  modules.register(initiativeModule)
   modules.register(tokensModule(vision.visionOf))
   modules.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf))
   modules.register(doorsModule(vision.doorsOf, vision.playerDoors))

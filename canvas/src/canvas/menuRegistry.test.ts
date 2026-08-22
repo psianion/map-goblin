@@ -75,7 +75,7 @@ beforeEach(() => {
 });
 
 describe('buildChildMenu', () => {
-  it('builds a light menu: header, sliders, swatches, flicker, shared verbs, danger last', () => {
+  it('builds a light menu: header, sliders, swatches, shared verbs, danger last', () => {
     const light = makeLight();
     useStore.getState().addChild(layer().id, light);
     const rows = buildChildMenu(ctx(light));
@@ -83,7 +83,6 @@ describe('buildChildMenu', () => {
     expect(types[0]).toBe('header');
     expect(types).toContain('slider');
     expect(types).toContain('swatches');
-    expect(types).toContain('toggle');
     const last = rows[rows.length - 1] as ContextMenuItem;
     expect(last.label).toBe('Delete');
     expect(last.danger).toBe(true);

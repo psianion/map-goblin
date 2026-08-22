@@ -36,7 +36,16 @@ import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
  * layer that must beat the fog has to be in the same container as the fog. They keep their
  * places here because this list is where "what draws over what" is decided.
  */
-export const OVERLAY_STACK = ['fogOverlay', 'tokenLayer', 'playerFog', 'doorOverlay'] as const;
+export const OVERLAY_STACK = [
+  'fogOverlay',
+  'tokenLayer',
+  // Above the tokens it marks and above the DM's fog tint, so whose turn it is reads at the
+  // same strength as the token itself. Only the world-space ranks matter to it — `playerFog`
+  // and `doorOverlay` below are screen-space, which a world layer can never beat anyway.
+  'turnRing',
+  'playerFog',
+  'doorOverlay',
+] as const;
 
 export type OverlayLabel = (typeof OVERLAY_STACK)[number];
 

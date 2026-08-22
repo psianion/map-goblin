@@ -12,6 +12,7 @@ import { once } from 'node:events'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import type { ServerMessage } from '@dnd/core/src/shared/protocol'
+import { PROTOCOL_VERSION } from './config'
 import type { ScenePrep, TriggerDef } from '@dnd/core/src/shared/prep'
 import type { AnyChild, DungeonLayer, Room, SerializedMapData } from '@dnd/core/src/store/types'
 import type { TriggersState } from '@dnd/mechanics/triggers'
@@ -154,7 +155,7 @@ async function connect(server: RunningServer, token: string): Promise<WebSocket>
   return socket
 }
 
-function sendJoin(socket: WebSocket, protocolVersion = 4): void {
+function sendJoin(socket: WebSocket, protocolVersion: number = PROTOCOL_VERSION): void {
   socket.send(JSON.stringify({ type: 'join', protocolVersion }))
 }
 
@@ -222,19 +223,22 @@ async function runDrained(
   return bySocket
 }
 
-describe('protocol bump (M4 v4)', () => {
-  it('hard-closes a v3 join and accepts v4', async () => {
+// Stated against `PROTOCOL_VERSION` rather than the literals it was born with (v3/v4): the
+// gate is "one behind is refused, current is let in", and pinning that to two hard-coded
+// numbers means every future bump lands as a spurious failure in a file about triggers.
+describe('protocol bump', () => {
+  it('hard-closes a join one version behind and accepts the current one', async () => {
     await withServer(async (server) => {
       const { campaignId, dmToken } = seed(server)
       await openSession(server, dmToken, campaignId)
 
       const old = await connect(server, dmToken)
-      sendJoin(old, 3)
+      sendJoin(old, PROTOCOL_VERSION - 1)
       expect((await next(old, 'error')).code).toBe('protocol-mismatch')
       await once(old, 'close')
 
       const current = await connect(server, dmToken)
-      sendJoin(current, 4)
+      sendJoin(current, PROTOCOL_VERSION)
       expect((await next(current, 'session-state')).you.role).toBe('dm')
     })
   })

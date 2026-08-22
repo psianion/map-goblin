@@ -11,7 +11,9 @@ export interface RollEvent {
   /** Server-stamped from the sender's identity and the session roster. */
   identityId: string
   playerName: string
-  source: 'dndbeyond' | 'manual'
+  /** `discord` is the bot forwarding a `/roll` over its own seat — same untrusted display
+   *  data, arriving from the other room. */
+  source: 'dndbeyond' | 'manual' | 'discord'
   /** ≤ 60 chars, display only. */
   characterName?: string
   /** e.g. "Longsword: Attack", ≤ 100. */

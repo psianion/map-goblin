@@ -3,7 +3,6 @@ import type { RenderEngine } from '../RenderEngine'
 import type { LightChild } from '../../store/types'
 import type { LightManager } from './LightManager'
 import { resolveTexture } from '../../assets/textureLoader'
-import { prefersReducedMotion } from '../motion'
 
 /**
  * Everything the composite below is a function of, as one comparable string.
@@ -22,10 +21,6 @@ import { prefersReducedMotion } from '../motion'
  * real texture lands — that used to leave a late-loading mask stuck on the fallback gradient
  * until something else invalidated the frame.
  *
- * `nowMs` only moves the string for a light with `flicker` on — `flickerFactor` answers a
- * constant 1 for everything else (and for any light when reduced-motion is set), so an idle
- * table with no flickering lights still settles onto the cached frame.
- *
  * `timeBucket` is the world clock, already coarsened to a bucket by whoever composed the grade
  * (`shared/world.ts`). A raw clock reading here would defeat the whole memo; a bucket moves the
  * string a few times a second while a DM scrubs and never while the clock is paused. The grade
@@ -41,7 +36,6 @@ export function lightingSignature(
   ambientColor: string,
   lights: LightChild[],
   isDirty: (lightId: string) => boolean,
-  nowMs: number,
   darkness = 1,
   timeBucket = 0,
 ): string {
@@ -60,34 +54,9 @@ export function lightingSignature(
       l.maskTextureId ?? '',
       maskWidth,
       isDirty(l.id) ? 'dirty' : '',
-      l.flicker ? flickerFactor(l, nowMs).toFixed(3) : '',
     )
   }
   return parts.join('|')
-}
-
-/**
- * Deterministic per-light wobble around 1.0, applied to `intensity` at draw time — never
- * written back to the light. Two out-of-phase sine waves keep it from reading like a strobe;
- * the id-derived seed keeps a room full of torches from flickering in lockstep.
- *
- * Answers a flat 1 (no wobble) when the light has flicker off, or when the OS asks for
- * reduced motion — same switch the fog reveal fade respects.
- */
-export function flickerFactor(light: LightChild, nowMs: number): number {
-  if (!light.flicker || prefersReducedMotion()) return 1
-  const speed = light.flickerSpeed ?? 1.5
-  const amount = Math.min(1, Math.max(0, light.flickerIntensity ?? 0.3))
-  const seed = seedFromId(light.id)
-  const t = (nowMs / 1000) * speed
-  const wobble = Math.sin(t * 2.3 + seed) * 0.6 + Math.sin(t * 5.7 + seed * 2.1) * 0.4
-  return 1 + wobble * amount
-}
-
-function seedFromId(id: string): number {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0
-  return ((h >>> 0) % 1000 / 1000) * Math.PI * 2
 }
 
 /**
@@ -397,7 +366,6 @@ export class LightingRenderer {
 
     const bite = darkness
     const grade = this.grade ?? ambientColor
-    const now = performance.now()
     const signature = lightingSignature(
       camX,
       camY,
@@ -407,7 +375,6 @@ export class LightingRenderer {
       grade,
       visibleLights,
       (id) => lightManager.isDirty(id),
-      now,
       bite,
       this.timeBucket,
     )
@@ -463,10 +430,7 @@ export class LightingRenderer {
       // still cools when the night does, where grading the whole composite instead would
       // drag every torch toward the sky's colour.
       const [lr, lg, lb] = gradedLight(light.color, grade)
-      const alpha = Math.min(
-        1,
-        Math.max(0, light.intensity * flickerFactor(light, now) * lightRoom),
-      )
+      const alpha = Math.min(1, Math.max(0, light.intensity * lightRoom))
       const toRgba = (a: number): string => `rgba(${lr},${lg},${lb},${a.toFixed(4)})`
 
       const screenFeather = (light.featherRadius ?? 0) * zoom * S

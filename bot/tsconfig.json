@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    // Node runtime, no renderer: dropping DOM from `lib` is what makes a stray
+    // browser-only API fail to compile instead of at 3am in production.
+    "lib": ["ES2022"],
+    "types": ["node"]
+  },
+  "include": ["src", "smoke"]
+}

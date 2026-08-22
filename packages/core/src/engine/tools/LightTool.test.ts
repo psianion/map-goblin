@@ -67,24 +67,6 @@ describe('LightTool', () => {
     expect(placed.falloff).toBe('linear');
   });
 
-  it('carries the flicker defaults onto the placed light', () => {
-    useStore.getState().updateLightDefaults({
-      flicker: true,
-      flickerIntensity: 0.6,
-      flickerSpeed: 2.4,
-    });
-    tool.onPointerDown({ x: 5, y: 8 });
-    const placed = lights()[0];
-    expect(placed.flicker).toBe(true);
-    expect(placed.flickerIntensity).toBe(0.6);
-    expect(placed.flickerSpeed).toBe(2.4);
-  });
-
-  it('places a light with flicker off by default', () => {
-    tool.onPointerDown({ x: 5, y: 8 });
-    expect(lights()[0].flicker).toBe(false);
-  });
-
   it('is visible and undoable in a single step', () => {
     tool.onPointerDown({ x: 5, y: 8 });
     expect(lights()).toHaveLength(1);
