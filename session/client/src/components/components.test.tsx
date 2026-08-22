@@ -1,7 +1,8 @@
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
-import { act, fireEvent, render, screen, cleanup } from '@testing-library/react';
+import { act, fireEvent, render, screen, cleanup, waitFor } from '@testing-library/react';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
+import { fetchActiveSession } from '../session/auth';
 import { useSessionStore } from '../session/store';
 import { DEFAULT_TOAST_MS, useToasts } from '../session/toasts';
 import { useActiveTool } from '../session/tools';
@@ -11,6 +12,8 @@ import { GameLog } from './GameLog';
 import { PlayerList } from './PlayerList';
 import { InviteCodeChip } from './InviteCodeChip';
 import { ToastHost } from './Toast';
+
+vi.mock('../session/auth', () => ({ fetchActiveSession: vi.fn() }));
 
 const dm: PlayerInfo = { identityId: 'dm-1', name: 'Ayla', role: 'dm', connected: true };
 const gone: PlayerInfo = { identityId: 'p-2', name: 'Borin', role: 'player', connected: false };
@@ -35,9 +38,11 @@ beforeEach(() => {
     session: null,
     you: null,
     inviteCode: null,
+    token: null,
   });
   useToasts.setState({ toast: null });
   useActiveTool.getState().setActiveTool(null);
+  vi.mocked(fetchActiveSession).mockReset();
 });
 
 describe('GameLog', () => {
@@ -138,6 +143,40 @@ describe('PlayerList', () => {
     render(<PlayerList />);
     expect(screen.getByTestId('player-list').querySelectorAll('li')).toHaveLength(2);
   });
+
+  /** M3 review finding 16: the claimed token's name, muted, beside a connected player; a
+   *  muted "away" label instead for one who isn't — never both at once. */
+  it('shows the claimed character beside a connected player, and "away" instead of one for a disconnected player', () => {
+    const here: PlayerInfo = { identityId: 'p-4', name: 'Willow', role: 'player', connected: true };
+    const s = session([dm, here, gone]);
+    s.activeSceneId = 'sc-1';
+    s.modules = {
+      tokens: {
+        library: {},
+        byScene: { 'sc-1': { t1: { id: 't1', name: 'Karlach', x: 1, y: 1, ownerId: 'p-4' } } },
+      },
+    };
+    useSessionStore.setState({ session: s, you: dm });
+    render(<PlayerList />);
+
+    const rows = screen.getByTestId('player-list').querySelectorAll('li');
+    const willowRow = [...rows].find((r) => r.textContent?.includes('Willow'))!;
+    expect(willowRow.textContent).toContain('— Karlach');
+    expect(willowRow.textContent).not.toContain('away');
+
+    const borinRow = [...rows].find((r) => r.textContent?.includes('Borin'))!;
+    expect(borinRow.textContent).toContain('away');
+    expect(borinRow.textContent).not.toContain('—');
+  });
+
+  it('badges the DM in outline, not warning colour', () => {
+    useSessionStore.setState({ session: session([dm]), you: dm });
+    render(<PlayerList />);
+    const badge = screen.getByText('DM');
+    expect(badge.className).toContain('border-border-default');
+    expect(badge.className).toContain('text-text-dim');
+    expect(badge.className).not.toContain('warning');
+  });
 });
 
 describe('ToastHost', () => {
@@ -234,6 +273,7 @@ describe('InviteCodeChip', () => {
     useSessionStore.setState({ you: dm, inviteCode: 'K7QM2X' });
     render(<InviteCodeChip />);
     expect(screen.getByTestId('invite-code-chip').textContent).toContain('K7QM2X');
+    expect(screen.getByTestId('invite-code').textContent).toBe('K7QM2X');
 
     cleanup();
     useSessionStore.setState({ you: { ...gone, connected: true } });
@@ -241,9 +281,33 @@ describe('InviteCodeChip', () => {
     expect(screen.queryByTestId('invite-code-chip')).toBeNull();
   });
 
-  it('hides itself when there is no code', () => {
+  it('hides itself when there is no code and nothing has been fetched yet', () => {
     useSessionStore.setState({ you: dm, inviteCode: null });
     render(<InviteCodeChip />);
     expect(screen.queryByTestId('invite-code-chip')).toBeNull();
+  });
+
+  /** M3 review finding 3: a DM seat that resumed or was minted fresh has `inviteCode: null`
+   *  in the store — this is what fills it back in instead of showing no invite row at all. */
+  it('fetches the active session once for a DM seat with no stored code, then shows it', async () => {
+    vi.mocked(fetchActiveSession).mockResolvedValue({ sessionId: 's1', inviteCode: 'ZQ7F2K' });
+    useSessionStore.setState({ you: dm, inviteCode: null, token: 't1', session: session([dm]) });
+    render(<InviteCodeChip />);
+
+    await waitFor(() => expect(screen.getByTestId('invite-code-chip')).not.toBeNull());
+    expect(screen.getByTestId('invite-code').textContent).toBe('ZQ7F2K');
+    expect(fetchActiveSession).toHaveBeenCalledWith('c1', 't1');
+    expect(fetchActiveSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('never asks for a player, or when a code is already in the store', () => {
+    useSessionStore.setState({ you: { ...gone, connected: true }, inviteCode: null, token: 't1', session: session([dm]) });
+    render(<InviteCodeChip />);
+    expect(fetchActiveSession).not.toHaveBeenCalled();
+
+    cleanup();
+    useSessionStore.setState({ you: dm, inviteCode: 'K7QM2X', token: 't1', session: session([dm]) });
+    render(<InviteCodeChip />);
+    expect(fetchActiveSession).not.toHaveBeenCalled();
   });
 });

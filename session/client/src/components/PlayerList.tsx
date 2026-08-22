@@ -1,5 +1,7 @@
 import type { PlayerInfo } from '@dnd/core/src/shared/protocol';
-import { useSessionStore } from '../session/store';
+import type { TokensState } from '@dnd/mechanics/tokens';
+import { tokensOf } from '../modules/tokens/TokenRenderer';
+import { useModuleState, useSessionStore } from '../session/store';
 
 /**
  * The seat a player left behind on their way back in.
@@ -28,44 +30,59 @@ function withoutSupersededSeats(players: readonly PlayerInfo[]): PlayerInfo[] {
 export function PlayerList() {
   const roster = useSessionStore((s) => s.session?.players);
   const youId = useSessionStore((s) => s.you?.identityId);
+  const activeSceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
+  const tokensState = useModuleState<TokensState>('tokens');
 
   if (!roster || roster.length === 0) {
     return <p className="text-sm text-text-muted">No one at the table yet.</p>;
   }
   const players = withoutSupersededSeats(roster);
+  // M3 review finding 16: the claimed token's name, so the roster reads "Willow — Karlach"
+  // instead of the account name alone — the same `ownerId` link `MePanel`'s title reads.
+  const claimed = tokensOf(tokensState, activeSceneId);
 
   return (
     <ul className="flex flex-col gap-1" data-testid="player-list">
-      {players.map((p) => (
-        <li
-          key={p.identityId}
-          data-connected={p.connected}
-          className={`flex items-center gap-2 rounded px-2 py-1 text-sm ${
-            p.connected ? 'text-text-secondary' : 'text-text-muted opacity-60'
-          }`}
-        >
-          {/* Presence as shape (chrome-style-guide.md "State encoding"), not colour: a filled
-              disc reads as "here" without leaning on green meaning "fine" everywhere else. */}
-          <span
-            aria-hidden
-            className={
-              p.connected
-                ? 'h-1.5 w-1.5 shrink-0 rounded-full bg-text-secondary'
-                : 'h-1.5 w-1.5 shrink-0 rounded-full border border-text-muted'
-            }
-          />
-          <span className="truncate">{p.name}</span>
-          {p.identityId === youId && <span className="text-xs text-text-muted">(you)</span>}
-          {p.role === 'dm' && (
+      {players.map((p) => {
+        const character = claimed.find((t) => t.ownerId === p.identityId)?.name;
+        return (
+          <li
+            key={p.identityId}
+            data-connected={p.connected}
+            className={`flex items-center gap-2 rounded px-2 py-1 text-sm ${
+              p.connected ? 'text-text-secondary' : 'text-text-muted opacity-60'
+            }`}
+          >
+            {/* Presence as shape (chrome-style-guide.md "State encoding"), not colour: a
+                filled disc reads as "here" without leaning on green meaning "fine" elsewhere
+                (the ring glyph carries "away" on its own — the muted label beside it is what
+                names it, not a colour). */}
             <span
-              title="Dungeon Master"
-              className="ml-auto rounded border border-warning/50 px-1.5 text-xs font-medium text-warning"
-            >
-              DM
-            </span>
-          )}
-        </li>
-      ))}
+              aria-hidden
+              className={
+                p.connected
+                  ? 'h-1.5 w-1.5 shrink-0 rounded-full bg-text-secondary'
+                  : 'h-1.5 w-1.5 shrink-0 rounded-full border border-text-muted'
+              }
+            />
+            <span className="truncate">{p.name}</span>
+            {p.identityId === youId && <span className="text-xs text-text-muted">(you)</span>}
+            {character && p.connected && (
+              <span className="min-w-0 truncate text-xs text-text-muted">— {character}</span>
+            )}
+            {p.role === 'dm' ? (
+              <span
+                title="Dungeon Master"
+                className="ml-auto shrink-0 rounded border border-border-default px-1.5 text-xs font-medium text-text-dim"
+              >
+                DM
+              </span>
+            ) : (
+              !p.connected && <span className="ml-auto shrink-0 text-xs text-text-muted">away</span>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }

@@ -58,6 +58,7 @@ export function TokenMenu() {
   const draggingId = useTokenInteraction((s) => s.draggingId);
   const openPanel = useShell((s) => s.openPanel);
   const you = useSessionStore((s) => s.you);
+  const players = useSessionStore((s) => s.session?.players);
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const state = useModuleState<TokensState>('tokens');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -122,12 +123,19 @@ export function TokenMenu() {
   // M3 finding 16 — labelled, not the raw enum: "Medium", and disposition as the same
   // coloured dot the Tokens panel uses, never the bare word.
   const sizeLabel = token.size.charAt(0).toUpperCase() + token.size.slice(1);
+  // M3 review finding 8 — a player who selects someone else's claimed token used to get an
+  // empty menu with the reason only ever reaching them as a toast. Named inline instead, off
+  // the roster the same way `PlayerList` reads it, and no action row at all underneath.
+  const heldBy =
+    !isDm && token.ownerId !== null && token.ownerId !== you?.identityId
+      ? (players?.find((p) => p.identityId === token.ownerId)?.name ?? 'another player')
+      : null;
 
   return (
     <div
       ref={rootRef}
       data-testid="token-menu"
-      role="menu"
+      role="group"
       aria-label={`${token.name} actions`}
       onPointerDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
@@ -144,48 +152,52 @@ export function TokenMenu() {
         </span>
       </div>
 
-      <div className="flex items-center gap-1">
-        {isDm ? (
-          <>
-            <button
-              type="button"
-              data-testid="token-menu-hide"
-              onClick={() => send('hide', { id: token.id, hidden: !token.hidden })}
-              className={actionButtonClass}
-            >
-              <Icon name={token.hidden ? 'reveal' : 'hide'} size={13} />
-              {token.hidden ? 'Reveal' : 'Hide'}
-            </button>
-            <button
-              type="button"
-              data-testid="token-menu-frame"
-              onClick={() => frameWorldPoint(token.x, token.y)}
-              className={actionButtonClass}
-            >
-              <Icon name="frame" size={13} />
-              Frame
-            </button>
-            <MoreMenu
-              key={token.id}
-              onDelete={() => {
-                send('delete', { id: token.id });
-                select(null);
-              }}
-            />
-          </>
-        ) : (
-          token.ownerId === null && (
-            <button
-              type="button"
-              data-testid="token-menu-claim"
-              onClick={() => send('claim', { id: token.id })}
-              className={actionButtonClass}
-            >
-              Claim
-            </button>
-          )
-        )}
-      </div>
+      {heldBy ? (
+        <p className="text-[11px] text-text-muted">Held by {heldBy}</p>
+      ) : (
+        <div className="flex items-center gap-1">
+          {isDm ? (
+            <>
+              <button
+                type="button"
+                data-testid="token-menu-hide"
+                onClick={() => send('hide', { id: token.id, hidden: !token.hidden })}
+                className={actionButtonClass}
+              >
+                <Icon name={token.hidden ? 'reveal' : 'hide'} size={13} />
+                {token.hidden ? 'Reveal' : 'Hide'}
+              </button>
+              <button
+                type="button"
+                data-testid="token-menu-frame"
+                onClick={() => frameWorldPoint(token.x, token.y)}
+                className={actionButtonClass}
+              >
+                <Icon name="frame" size={13} />
+                Frame
+              </button>
+              <MoreMenu
+                key={token.id}
+                onDelete={() => {
+                  send('delete', { id: token.id });
+                  select(null);
+                }}
+              />
+            </>
+          ) : (
+            token.ownerId === null && (
+              <button
+                type="button"
+                data-testid="token-menu-claim"
+                onClick={() => send('claim', { id: token.id })}
+                className={actionButtonClass}
+              >
+                Claim
+              </button>
+            )
+          )}
+        </div>
+      )}
     </div>
   );
 }

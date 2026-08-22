@@ -92,6 +92,8 @@ async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse)
     return reorderScenes(deps, req, res, id)
   if (method === 'GET' && resource === 'campaigns' && id && sub === 'scenes' && !sub2)
     return listScenes(deps, req, res, id)
+  if (method === 'GET' && resource === 'campaigns' && id && sub === 'session' && !sub2)
+    return getActiveSession(deps, req, res, id)
   if (method === 'GET' && resource === 'maps' && id && !sub) return getMap(deps, req, res, id)
   if (method === 'GET' && resource === 'maps' && id && sub === 'images' && sub2)
     return getMapImage(deps, req, res, id, sub2)
@@ -302,6 +304,19 @@ function listScenes(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, c
     updatedAt: scene.updated_at,
   }))
   json(res, 200, { scenes })
+}
+
+/**
+ * GET /api/campaigns/:id/session — DM only. The invite code for whatever table is already
+ * open (M3 review finding 3): a DM seat that resumed, or was minted fresh via `dm-token`,
+ * never saw `openSession`'s own response — this is the only other place that code is handed
+ * out, so the client can ask for it again instead of showing no invite row at all.
+ */
+function getActiveSession(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, campaignId: string): void {
+  if (!requireSession(deps, req, res, { campaignId, role: 'dm' })) return
+  const session = deps.stores.sessions.getActiveByCampaign(campaignId)
+  if (!session) return json(res, 404, { error: 'no active session for this campaign' })
+  json(res, 200, { sessionId: session.id, inviteCode: session.invite_code })
 }
 
 /** PUT /api/campaigns/:id/scenes/order — `{order: [sceneId, ...]}`, every scene once (#47 D4). */

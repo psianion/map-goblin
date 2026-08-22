@@ -7,10 +7,12 @@
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { SessionState } from '@dnd/core/src/shared/protocol';
+import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import type { TriggersState } from '@dnd/mechanics/triggers';
 import { usePanels } from '../../session/panels';
 import { useSessionStore } from '../../session/store';
+import { Popover } from '../../shell/Popover';
+import { useShell } from '../../shell/shellStore';
 import { ScenePanel, SceneFooter } from './ScenePanel';
 import { useSceneLibrary } from './store';
 
@@ -36,6 +38,8 @@ function session(activeSceneId: string | null, modules: SessionState['modules'] 
     modules,
   };
 }
+
+const dm: PlayerInfo = { identityId: 'd', name: 'DM', role: 'dm', connected: true };
 
 const HALL = { id: 'sc-1', name: 'Great Hall', sortIndex: 0, visibleToPlayers: false, mapId: 'm-1', updatedAt: 1 };
 const CRYPT = { id: 'sc-2', name: 'Crypt', sortIndex: 1, visibleToPlayers: true, mapId: 'm-2', updatedAt: 2 };
@@ -82,6 +86,7 @@ const menuOf = (sceneId: string) => within(screen.getByTestId(`scene-menu-${scen
 
 beforeEach(() => {
   cleanup();
+  useShell.setState({ openPanel: null });
   useSceneLibrary.setState({ scenes: [], busy: false, error: null });
   vi.mocked(listScenes).mockReset().mockResolvedValue({ scenes: [HALL, CRYPT] });
   vi.mocked(patchScene).mockReset().mockResolvedValue({ id: HALL.id, name: HALL.name, visibleToPlayers: false });
@@ -203,14 +208,89 @@ describe('ScenePanel scene library (#47)', () => {
     await screen.findByText('Great Hall');
 
     openMenu('sc-1');
-    expect(screen.getByTestId('scene-menu-sc-1').className).toContain('flex');
+    expect(screen.getByTestId('scene-menu-sc-1')).not.toBeNull();
     fireEvent.keyDown(window, { key: 'Escape' });
-    expect(screen.getByTestId('scene-menu-sc-1').className).toContain('hidden');
+    expect(screen.queryByTestId('scene-menu-sc-1')).toBeNull();
 
     openMenu('sc-1');
-    expect(screen.getByTestId('scene-menu-sc-1').className).toContain('flex');
+    expect(screen.getByTestId('scene-menu-sc-1')).not.toBeNull();
     fireEvent.pointerDown(screen.getByText('Crypt'));
-    expect(screen.getByTestId('scene-menu-sc-1').className).toContain('hidden');
+    expect(screen.queryByTestId('scene-menu-sc-1')).toBeNull();
+  });
+
+  it('opens the ⋯ menu with a keyboard Enter on the button, the same as a click', async () => {
+    renderPopover();
+    await screen.findByText('Great Hall');
+
+    const moreBtn = screen.getByTestId('scene-more-sc-1');
+    moreBtn.focus();
+    fireEvent.keyDown(moreBtn, { key: 'Enter' });
+    // jsdom never synthesizes the native click a real browser derives from Enter on a
+    // focused <button> (that's why `@testing-library/user-event` exists) — fire it directly;
+    // the button's own onClick handler is what a real browser would end up calling too.
+    fireEvent.click(moreBtn);
+
+    expect(screen.getByTestId('scene-menu-sc-1')).not.toBeNull();
+  });
+
+  // M3 review finding 1 — rendered through `document.body`, this menu is reachable past
+  // every `overflow-hidden` ancestor a plain nested dropdown was clipped by, and its own
+  // Escape closes just itself rather than taking the whole popover down too.
+  describe('the ⋯ menu escapes the popover’s overflow-hidden (M3 review finding 1)', () => {
+    beforeEach(() => {
+      useShell.setState({ openPanel: 'session-controls' });
+      useSessionStore.setState({
+        session: session(HALL.id),
+        you: dm,
+        token: 'dm-token',
+        client: { send: vi.fn() } as unknown as ReturnType<typeof useSessionStore.getState>['client'],
+      });
+    });
+
+    it('renders the menu under document.body, not inside popover-body, once open', async () => {
+      render(<Popover />);
+      await screen.findByText('Great Hall');
+
+      openMenu('sc-1');
+      const menu = screen.getByTestId('scene-menu-sc-1');
+      expect(document.body.contains(menu)).toBe(true);
+      expect(screen.getByTestId('popover-body').contains(menu)).toBe(false);
+      expect(screen.getByTestId('scene-list').contains(menu)).toBe(false);
+      // Every item is reachable, not just present — none of it sits in a clipped subtree.
+      expect(within(menu).getByText('Rename')).not.toBeNull();
+      expect(within(menu).getByText('Move up')).not.toBeNull();
+    });
+
+    it('closes on Escape without closing the popover itself', async () => {
+      render(<Popover />);
+      await screen.findByText('Great Hall');
+
+      openMenu('sc-1');
+      const menu = screen.getByTestId('scene-menu-sc-1');
+      expect(menu).not.toBeNull();
+
+      // Dispatched on the menu itself, not on `window` directly — a real Escape press
+      // originates from whatever has focus and *capture*s down through `window` before
+      // reaching it, which is the ordering this test (and the fix) depends on. Firing
+      // straight at `window` would skip that capturing leg and race registration order
+      // instead, the wrong thing to assert against.
+      fireEvent.keyDown(menu, { key: 'Escape' });
+      expect(screen.queryByTestId('scene-menu-sc-1')).toBeNull();
+      expect(screen.getByTestId('popover')).not.toBeNull();
+      expect(useShell.getState().openPanel).toBe('session-controls');
+    });
+
+    it('does not close the popover when a menu item is pressed', async () => {
+      render(<Popover />);
+      await screen.findByText('Great Hall');
+
+      openMenu('sc-1');
+      // `Popover` treats any pointerdown landing outside its own root as "click away, close
+      // it" — this menu physically renders outside that root now, so it needs its own
+      // stopPropagation to still read as "inside" (the comment on `SceneRowMenu`).
+      fireEvent.pointerDown(menuOf('sc-1').getByLabelText('Move down'));
+      expect(useShell.getState().openPanel).toBe('session-controls');
+    });
   });
 
   it('surfaces a failed request as the footer’s error text', async () => {

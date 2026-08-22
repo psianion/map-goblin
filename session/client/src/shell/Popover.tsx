@@ -26,6 +26,7 @@ export function Popover() {
 
   const rootRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
   const [top, setTop] = useState(12);
   // Rail icons can register their DOM node after this effect has already run once (mount
   // order, HMR, a panel opened before Rail exists at all) — this is what wakes it back up.
@@ -49,14 +50,28 @@ export function Popover() {
 
   // Focus the body's first control on open; hand focus back to whatever opened this panel on
   // close — the rail icon, or (a `status-left` panel has none) the scene-name button.
+  //
+  // M3 review findings 11/14/15: a panel that seeds its own list from a `useEffect` (Scene's
+  // cold open) has not painted it yet on this same pass — querying `bodyRef` synchronously
+  // found whatever *was* there first (the Weather select) and never looked again. One frame
+  // later is enough for that child effect to have landed; a body with nothing focusable at
+  // all (an empty Triggers list, Session before the roster or invite code has anything to
+  // click) falls back to the popover's own close button rather than leaving focus stranded
+  // on `document.body`. Same fix for every anchor kind, `status-left` included.
   useEffect(() => {
     if (!openPanel) return;
-    bodyRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+    const raf = requestAnimationFrame(() => {
+      const target = bodyRef.current?.querySelector<HTMLElement>(FOCUSABLE) ?? closeRef.current;
+      target?.focus();
+    });
     const returnFocusTo =
       anchorKind === 'status-left'
         ? document.querySelector<HTMLElement>('[data-testid="scene-name"]')
         : railRefs.get(openPanel);
-    return () => returnFocusTo?.focus();
+    return () => {
+      cancelAnimationFrame(raf);
+      returnFocusTo?.focus();
+    };
   }, [openPanel, anchorKind]);
 
   // Esc closes — a dialog's own guarantee, independent of the global hotkey listener (which
@@ -138,6 +153,7 @@ export function Popover() {
           </div>
         )}
         <button
+          ref={closeRef}
           type="button"
           aria-label="Close"
           onClick={closePanel}

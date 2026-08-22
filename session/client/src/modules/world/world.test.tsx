@@ -184,10 +184,8 @@ describe('the quick jumps', () => {
 });
 
 describe('worldProvenance reports what the map authored, never a control', () => {
-  it('reads an outdoor map on the clock', () => {
-    expect(worldProvenance({ environment: 'outdoor' }, 'Fieldstone Keep')).toBe(
-      'Fieldstone Keep · outdoor · follows the clock',
-    );
+  it('reads an outdoor map on the clock, saying nothing about the default (M3 review finding 6)', () => {
+    expect(worldProvenance({ environment: 'outdoor' }, 'Fieldstone Keep')).toBe('Fieldstone Keep · outdoor');
   });
 
   it('reads an indoor map pinned in the Editor', () => {
@@ -207,12 +205,12 @@ describe('worldProvenance reports what the map authored, never a control', () =>
 
   it('appends the natural-light tell when a map casts a sun or moon', () => {
     expect(worldProvenance({ environment: 'outdoor', naturalLight: true }, 'Fieldstone Keep')).toBe(
-      'Fieldstone Keep · outdoor · follows the clock · sun & moon on',
+      'Fieldstone Keep · outdoor · sun & moon',
     );
   });
 
   it('defaults an absent environment to indoor, same as the resolver', () => {
-    expect(worldProvenance({}, 'Nameless Cell')).toBe('Nameless Cell · indoor · follows the clock');
+    expect(worldProvenance({}, 'Nameless Cell')).toBe('Nameless Cell · indoor');
   });
 });
 
@@ -258,10 +256,7 @@ describe('WorldPanel', () => {
 
   it('shows the provenance line built from the map, and locks it once the gate is overridden', () => {
     render(<WorldPanel />);
-    expect(screen.getByTestId('world-provenance')).toHaveProperty(
-      'textContent',
-      'Fieldstone Keep · outdoor · follows the clock',
-    );
+    expect(screen.getByTestId('world-provenance')).toHaveProperty('textContent', 'Fieldstone Keep · outdoor');
     expect(screen.queryByText('override')).toBeNull();
 
     cleanup();
@@ -271,16 +266,29 @@ describe('WorldPanel', () => {
       ]),
     });
     render(<WorldPanel />);
-    expect(screen.getByTestId('world-provenance').textContent).toBe(
-      'Fieldstone Keep · outdoor · follows the clockoverride',
-    );
+    expect(screen.getByTestId('world-provenance').textContent).toBe('Fieldstone Keep · outdooroverride');
     expect(screen.getByTestId('world-override-level')).not.toBeNull();
+  });
+
+  it('carries the full provenance string as a title too, for when line-clamp-2 still isn’t enough (M3 review finding 6)', () => {
+    render(<WorldPanel />);
+    const line = screen.getByTestId('world-provenance').querySelector('span')!;
+    expect(line.title).toBe('Fieldstone Keep · outdoor');
+    expect(line.className).toContain('line-clamp-2');
+    expect(line.className).not.toContain('truncate');
   });
 
   it('puts the full trace and consequence on the badge row as a hover title', () => {
     render(<WorldPanel />);
     expect(screen.getByTestId('world-badge').title).toContain('Outdoor › Day › sky n/a → Daylight');
     expect(screen.getByTestId('world-badge').title).toContain('Players see the whole map.');
+  });
+
+  it('lets the trace wrap onto a second line rather than truncating it to a sliver (M3 review finding 5)', () => {
+    render(<WorldPanel />);
+    const trace = screen.getByText('Outdoor › Day › sky n/a');
+    expect(trace.className).toContain('whitespace-normal');
+    expect(trace.className).not.toContain('truncate');
   });
 
   it('keeps the sky segmented on screen while outdoor and dormant, with no note at all', () => {

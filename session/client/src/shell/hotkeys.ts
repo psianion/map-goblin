@@ -34,16 +34,24 @@ function nextTurn(): void {
   store.sendCommand('initiative', 'next', {});
 }
 
-/** `/` (M4): a player's roll bar is always mounted, so a focus is a synchronous DOM read; the
- *  DM has no roll bar — this opens the log drawer first and focuses its composer once the
- *  drawer's own render has landed (`setDrawer` is a zustand `set`, not a synchronous DOM
- *  write, so the input does not exist yet on the same tick that opens it). */
+/** `/` (M4, review finding 2): focuses whichever composer is actually on screen. The drawer's
+ *  composer wins whenever the drawer is open — the roll bar unmounts itself in that case
+ *  (`RollBar.tsx`), so a player who opened the drawer gets its `Composer`, not a hidden one.
+ *  Otherwise a player's roll bar is always mounted (a synchronous DOM read); the DM has no
+ *  roll bar at all — this opens the drawer first and focuses its composer once the drawer's
+ *  own render has landed (`setDrawer` is a zustand `set`, not a synchronous DOM write, so the
+ *  input does not exist yet on the same tick that opens it). */
 function focusComposer(): void {
+  const focusDrawerComposer = (): void => {
+    document.querySelector<HTMLInputElement>('[data-testid="log-drawer"] [data-testid="manual-roll"]')?.focus();
+  };
+  if (useShell.getState().drawerOpen) {
+    focusDrawerComposer();
+    return;
+  }
   if (useSessionStore.getState().you?.role === 'dm') {
     useShell.getState().setDrawer(true);
-    requestAnimationFrame(() => {
-      document.querySelector<HTMLInputElement>('[data-testid="log-drawer"] [data-testid="manual-roll"]')?.focus();
-    });
+    requestAnimationFrame(focusDrawerComposer);
     return;
   }
   document.querySelector<HTMLInputElement>('[data-testid="roll-bar"] [data-testid="manual-roll"]')?.focus();
@@ -60,14 +68,21 @@ const BINDINGS: Binding[] = [
   { key: '/', run: focusComposer },
 ];
 
-/** Esc order: close an open popover; else clear an on-map selection (door, then token); else
- *  disarm the active tool. One listener owns the whole thing (M3 review finding 12) — neither
- *  on-map menu keeps its own window Escape handler anymore, so a single press never does two
- *  of these at once (close the popover *and* drop the selection it was showing). */
+/** Esc order: close an open popover; else close the drawer; else clear an on-map selection
+ *  (door, then token); else disarm the active tool. One listener owns the whole thing (M3
+ *  review finding 12) — neither on-map menu keeps its own window Escape handler anymore, so a
+ *  single press never does two of these at once (close the popover *and* drop the selection
+ *  it was showing). The drawer sits between the popover and the selections (finding 18): it
+ *  has its own `Escape` guarantee too (`Popover`'s dialog gets one; the drawer is not a
+ *  dialog, so this listener is the only thing that closes it on Esc). */
 function onEscape(): void {
   const shell = useShell.getState();
   if (shell.openPanel) {
     shell.closePanel();
+    return;
+  }
+  if (shell.drawerOpen) {
+    shell.setDrawer(false);
     return;
   }
   const doors = useDoorSelection.getState();

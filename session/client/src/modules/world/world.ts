@@ -166,14 +166,16 @@ function mirrorOf(
  */
 export function worldProvenance(map: MapEnvironment, sceneName: string): string {
   const environment = environmentOf(map);
+  // "Follows the clock" is the default every map starts in — said only when it isn't true
+  // (M3 review finding 6), the same "omit the boring" rule the status bar mirror plays by.
   const time =
     environment === 'underground'
       ? 'no sky'
       : map.timeMode === 'fixed'
         ? `pinned to ${hhmm(map.fixedTime ?? NOON)} in the Editor`
-        : 'follows the clock';
-  const sun = map.naturalLight === true ? ' · sun & moon on' : '';
-  return `${sceneName} · ${environment} · ${time}${sun}`;
+        : null;
+  const sun = map.naturalLight === true ? 'sun & moon' : null;
+  return [`${sceneName} · ${environment}`, time, sun].filter((part): part is string => part !== null).join(' · ');
 }
 
 // ─── The ribbon ───────────────────────────────────────────

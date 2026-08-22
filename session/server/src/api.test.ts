@@ -827,6 +827,39 @@ describe('dm-token (M3)', () => {
   })
 })
 
+describe('active session (M3 review finding 3)', () => {
+  it('answers the invite code for a resumed or freshly-minted DM seat, DM-only, 404 with nothing running', async () => {
+    await withServer(async ({ base, adminPass }) => {
+      const campaign = await api(base, 'POST', '/api/campaigns', { token: adminPass, body: { name: 'Lost Mine' } })
+      const campaignId = campaign.body.campaignId as string
+      const dmToken = campaign.body.token as string
+
+      // Nothing open yet.
+      expect((await api(base, 'GET', `/api/campaigns/${campaignId}/session`, { token: dmToken })).status).toBe(404)
+
+      const started = await api(base, 'POST', '/api/sessions', { token: dmToken, body: { campaignId } })
+      const sessionId = started.body.sessionId as string
+      const inviteCode = started.body.inviteCode as string
+
+      // A DM seat minted fresh — as a seat that resumed with no `store.inviteCode` would be —
+      // sees the same table the original token opened.
+      const minted = await api(base, 'POST', `/api/campaigns/${campaignId}/dm-token`, { token: adminPass })
+      const resumed = await api(base, 'GET', `/api/campaigns/${campaignId}/session`, {
+        token: minted.body.token as string,
+      })
+      expect(resumed.status).toBe(200)
+      expect(resumed.body).toEqual({ sessionId, inviteCode })
+
+      // A player of that table, and an unauthenticated caller, do not get to ask.
+      const joined = await api(base, 'POST', '/api/join', { body: { code: inviteCode, name: 'Bob' } })
+      expect(
+        (await api(base, 'GET', `/api/campaigns/${campaignId}/session`, { token: joined.body.token as string })).status,
+      ).toBe(403)
+      expect((await api(base, 'GET', `/api/campaigns/${campaignId}/session`)).status).toBe(401)
+    })
+  })
+})
+
 describe('scene prep (M3)', () => {
   const PREP = {
     version: 1,

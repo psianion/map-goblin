@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSessionStore } from '../session/store';
 import { RollBar } from './RollBar';
+import { useShell } from './shellStore';
 
 function session(modules: SessionState['modules']): SessionState {
   return {
@@ -46,6 +47,7 @@ function triggersWithPrompt(): TriggersState {
 
 beforeEach(() => {
   useSessionStore.setState({ session: null, presence: [], mapData: null, you: null, sendCommand: vi.fn() });
+  useShell.setState({ drawerOpen: false });
 });
 afterEach(() => cleanup());
 
@@ -55,6 +57,15 @@ describe('RollBar', () => {
     render(<RollBar />);
     expect(screen.getByTestId('manual-roll')).toBeTruthy();
     expect(screen.getByLabelText('Roll or say something')).toBeTruthy();
+  });
+
+  // M3 review finding 2: the drawer keeps its own composer once it is open — the roll bar
+  // used to stay mounted underneath it, reachable but visually buried.
+  it('renders nothing while the drawer is open', () => {
+    useSessionStore.setState({ session: session({}) });
+    useShell.setState({ drawerOpen: true });
+    render(<RollBar />);
+    expect(screen.queryByTestId('roll-bar')).toBeNull();
   });
 
   it('posts a public line on submit and clears the draft', () => {

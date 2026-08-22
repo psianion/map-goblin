@@ -55,9 +55,19 @@ function initiativeSubtitle(): string | null {
   return state.status === 'running' ? `Round ${state.round} · ${n} combatants` : `Rolling · ${n} combatants`;
 }
 
+/**
+ * The rail's corner badge. DM: the round number, so glancing at the rail says how far the
+ * fight has gone. Player (M3 review finding 13, "green budget" — the accent is for *your*
+ * turn, not table bookkeeping): a bare turn marker only while it is actually their turn, the
+ * same glyph the row itself uses, never the round count.
+ */
 function initiativeBadge(): string | null {
   const state = rawState();
-  return state?.status === 'running' ? `R${state.round}` : null;
+  if (state?.status !== 'running') return null;
+  if (useSessionStore.getState().you?.role !== 'player') return `R${state.round}`;
+  const identityId = useSessionStore.getState().you?.identityId;
+  const isMyTurn = state.entries[state.turn]?.identityId === identityId;
+  return isMyTurn ? '▶' : null;
 }
 
 function initiativeWidth(): 320 | 360 {

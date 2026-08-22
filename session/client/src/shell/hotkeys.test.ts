@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, renderHook } from '@testing-library/react';
 import { PROTOCOL_VERSION, type PlayerInfo, type SessionState } from '@dnd/core/src/shared/protocol';
 import type { WebSocketClient } from '../session/WebSocketClient';
@@ -124,6 +124,41 @@ describe('shell hotkeys', () => {
     expect(useActiveTool.getState().activeTool).toBeNull();
   });
 
+  // M3 review finding 18: the drawer sits between the popover and the on-map selections.
+  it('Esc closes the drawer straight away when no popover is open', () => {
+    useShell.setState({ drawerOpen: true });
+    renderHook(() => useHotkeys());
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useShell.getState().drawerOpen).toBe(false);
+  });
+
+  it('Esc order: popover, then the drawer, then a door selection, then a token selection, then the tool', () => {
+    useActiveTool.getState().setActiveTool('fog');
+    useDoorSelection.setState({ selectedId: 'd1' });
+    useTokenInteraction.setState({ selectedId: 't1' });
+    useShell.setState({ openPanel: 'hk-panel', drawerOpen: true });
+    renderHook(() => useHotkeys());
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useShell.getState().openPanel).toBeNull();
+    expect(useShell.getState().drawerOpen).toBe(true);
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useShell.getState().drawerOpen).toBe(false);
+    expect(useDoorSelection.getState().selectedId).toBe('d1');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useDoorSelection.getState().selectedId).toBeNull();
+    expect(useTokenInteraction.getState().selectedId).toBe('t1');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useTokenInteraction.getState().selectedId).toBeNull();
+    expect(useActiveTool.getState().activeTool).toBe('fog');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useActiveTool.getState().activeTool).toBeNull();
+  });
+
   it('Esc order: popover, then a door selection, then a token selection, then the tool — one thing per press', () => {
     useActiveTool.getState().setActiveTool('fog');
     useDoorSelection.setState({ selectedId: 'd1' });
@@ -176,5 +211,56 @@ describe('shell hotkeys', () => {
     renderHook(() => useHotkeys());
     fireEvent.keyDown(window, { key: 'n' });
     expect(sent).toHaveLength(0);
+  });
+
+  describe('"/" focuses whichever composer is on screen (M3 review finding 2)', () => {
+    function stubComposer(hostTestId: string): HTMLInputElement {
+      const host = document.createElement('div');
+      host.setAttribute('data-testid', hostTestId);
+      const input = document.createElement('input');
+      input.setAttribute('data-testid', 'manual-roll');
+      input.focus = vi.fn();
+      host.appendChild(input);
+      document.body.appendChild(host);
+      return input;
+    }
+
+    it('focuses the drawer composer straight away when the drawer is already open, for either role', () => {
+      useShell.setState({ drawerOpen: true });
+      const input = stubComposer('log-drawer');
+      renderHook(() => useHotkeys());
+
+      fireEvent.keyDown(window, { key: '/' });
+      expect(input.focus).toHaveBeenCalled();
+
+      document.body.removeChild(input.closest('[data-testid="log-drawer"]')!);
+    });
+
+    it('focuses the roll bar directly for a player when the drawer is closed', () => {
+      useSessionStore.setState({ you: player });
+      const input = stubComposer('roll-bar');
+      renderHook(() => useHotkeys());
+
+      fireEvent.keyDown(window, { key: '/' });
+      expect(input.focus).toHaveBeenCalled();
+      expect(useShell.getState().drawerOpen).toBe(false);
+
+      document.body.removeChild(input.closest('[data-testid="roll-bar"]')!);
+    });
+
+    it('opens the drawer and focuses its composer for the DM, once it has rendered', async () => {
+      useSessionStore.setState({ you: dm });
+      const input = stubComposer('log-drawer');
+      renderHook(() => useHotkeys());
+
+      fireEvent.keyDown(window, { key: '/' });
+      expect(useShell.getState().drawerOpen).toBe(true);
+      expect(input.focus).not.toHaveBeenCalled(); // not yet — the drawer's own render lands next frame
+
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      expect(input.focus).toHaveBeenCalled();
+
+      document.body.removeChild(input.closest('[data-testid="log-drawer"]')!);
+    });
   });
 });

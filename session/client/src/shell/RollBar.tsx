@@ -1,8 +1,11 @@
 // M4 — the player's composer, replacing the drawer's at the bottom of the map instead of the
 // bottom of a scrolling column: always visible, always reachable with `/` (hotkeys.ts), and
 // the one place a player types a roll without opening anything. The drawer keeps its own
-// composer (`LogDrawer.tsx`) for the DM and for a player who has it open too — both post
-// through the same `usePostRoll()` (`logFeed.ts`), so there is one submit rule, not two.
+// composer (`LogDrawer.tsx`) for the DM and for a player who has it open too — both render
+// `Composer` below and post through the same `usePostRoll()` (`logFeed.ts`), so there is one
+// submit rule and one look, not two (M3 review finding 17). Only one composer is ever mounted
+// at a time: `RollBar` stands down while the drawer is open (finding 2) rather than sitting
+// underneath it.
 
 import { useState } from 'react';
 import type { InitiativeState } from '@dnd/mechanics/initiative';
@@ -12,6 +15,72 @@ import { useModuleState, useSessionStore } from '../session/store';
 import { visiblePrompts } from '../session/triggerVisibility';
 import { Icon } from './icons';
 import { usePostRoll } from './logFeed';
+import { useShell } from './shellStore';
+
+const WHISPER_BTN_BASE =
+  'inline-flex h-7 shrink-0 items-center gap-1 rounded-full border px-2.5 text-xs font-medium transition-colors duration-150 ease-settle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none';
+
+/**
+ * The typed line itself: input, Whisper toggle, Post — identical in the roll bar and the
+ * drawer (M3 review finding 17). `manual-roll` stays the input's testid regardless of which
+ * shell renders it, since finding 2 guarantees only one is ever mounted at once.
+ */
+export function Composer() {
+  const postRoll = usePostRoll();
+  const [draft, setDraft] = useState('');
+  const [whisper, setWhisper] = useState(false);
+
+  const post = () => {
+    const trimmed = draft.trim();
+    if (!trimmed) return;
+    postRoll(trimmed, whisper ? 'private' : 'public');
+    setDraft('');
+    // One whisper at a time — the next line defaults back to public rather than a toggle
+    // silently staying on for a table line the player meant everyone to see.
+    setWhisper(false);
+  };
+
+  return (
+    <form
+      className="flex min-w-0 flex-1 items-center gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        post();
+      }}
+    >
+      <input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        aria-label="Roll or say something"
+        placeholder="Roll or say something · stealth 17 · 1d20+2"
+        maxLength={200}
+        data-testid="manual-roll"
+        className="min-w-0 flex-1 bg-transparent text-[13px] text-text-primary placeholder:text-text-muted focus:outline-none"
+      />
+      <button
+        type="button"
+        aria-pressed={whisper}
+        title="Send this line to only you and the DM"
+        onClick={() => setWhisper((v) => !v)}
+        className={`${WHISPER_BTN_BASE} ${
+          whisper
+            ? 'border-accent-active bg-surface-3 text-accent-active'
+            : 'border-border-default bg-transparent text-text-secondary hover:bg-surface-2'
+        }`}
+      >
+        <Icon name="whisper" size={12} />
+        Whisper
+      </button>
+      <button
+        type="submit"
+        disabled={!draft.trim()}
+        className="inline-flex h-7 shrink-0 items-center rounded-full border border-accent-active bg-accent-active px-3 text-xs font-medium text-on-accent transition-colors duration-150 ease-settle hover:bg-accent-active/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none"
+      >
+        Post
+      </button>
+    </form>
+  );
+}
 
 /** True while `InitiativePrompt` or `TriggerPrompts` has a card up for this seat — read the
  *  same store state those two components gate on, not a flag of our own, so this can never
@@ -29,20 +98,13 @@ function usePromptOpen(): boolean {
 }
 
 export function RollBar() {
-  const postRoll = usePostRoll();
-  const [draft, setDraft] = useState('');
-  const [whisper, setWhisper] = useState(false);
+  const drawerOpen = useShell((s) => s.drawerOpen);
   const shifted = usePromptOpen();
 
-  const post = () => {
-    const trimmed = draft.trim();
-    if (!trimmed) return;
-    postRoll(trimmed, whisper ? 'private' : 'public');
-    setDraft('');
-    // One whisper at a time — the next line defaults back to public rather than a toggle
-    // silently staying on for a table line the player meant everyone to see.
-    setWhisper(false);
-  };
+  // M3 review finding 2: the drawer keeps its own `Composer` once it is open, and the roll
+  // bar sitting on underneath it — reachable but visually buried — is what let `/` focus a
+  // hidden input and a stray "l" get eaten by the typing guard instead of closing the drawer.
+  if (drawerOpen) return null;
 
   return (
     <div
@@ -54,44 +116,7 @@ export function RollBar() {
       }`}
     >
       <Icon name="dice" size={16} className="shrink-0 text-text-muted" />
-      <form
-        className="flex min-w-0 flex-1 items-center gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          post();
-        }}
-      >
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          aria-label="Roll or say something"
-          placeholder="Roll or say something · stealth 17 · 1d20+2"
-          maxLength={200}
-          data-testid="manual-roll"
-          className="min-w-0 flex-1 bg-transparent text-[13px] text-text-primary placeholder:text-text-muted focus:outline-none"
-        />
-        <button
-          type="button"
-          aria-pressed={whisper}
-          title="Send this line to only you and the DM"
-          onClick={() => setWhisper((v) => !v)}
-          className={`inline-flex h-7 shrink-0 items-center gap-1 rounded-full border px-2.5 text-xs font-medium transition-colors duration-150 ease-settle focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none ${
-            whisper
-              ? 'border-accent-active bg-surface-3 text-accent-active'
-              : 'border-border-default bg-transparent text-text-secondary hover:bg-surface-2'
-          }`}
-        >
-          <Icon name="whisper" size={12} />
-          Whisper
-        </button>
-        <button
-          type="submit"
-          disabled={!draft.trim()}
-          className="inline-flex h-7 shrink-0 items-center rounded-full border border-accent-active bg-accent-active px-3 text-xs font-medium text-on-accent transition-colors duration-150 ease-settle hover:bg-accent-active/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none"
-        >
-          Post
-        </button>
-      </form>
+      <Composer />
     </div>
   );
 }

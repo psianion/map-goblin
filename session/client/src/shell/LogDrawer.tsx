@@ -4,8 +4,9 @@
 // `GameLog.tsx` still renders in its own popover body until M3 retires it.
 
 import { useEffect, useRef, useState } from 'react';
+import { Composer } from './RollBar';
 import { Icon } from './icons';
-import { markLogSeen, usePostRoll, useLogEntries, type Entry } from './logFeed';
+import { markLogSeen, useLogEntries, type Entry } from './logFeed';
 import { useShell } from './shellStore';
 
 type FilterKind = 'all' | Entry['kind'];
@@ -20,6 +21,14 @@ const FILTERS: ReadonlyArray<{ id: Exclude<FilterKind, 'presence'>; label: strin
 
 const fmtTime = (at: number): string =>
   new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+
+/** First half / second half — column-major reading order (M3 review finding 7): down the
+ *  left column, then down the right, so the newest line lands bottom-right instead of the
+ *  row-major zig-zag a plain `grid-cols-2` auto-placed it into. */
+function splitColumns<T>(items: readonly T[]): [T[], T[]] {
+  const half = Math.ceil(items.length / 2);
+  return [items.slice(0, half), items.slice(half)];
+}
 
 /** One feed line, shared by the drawer's two columns and the ticker's single one. */
 export function LogLine({ e }: { e: Entry }) {
@@ -48,10 +57,8 @@ export function LogDrawer() {
   const drawerOpen = useShell((s) => s.drawerOpen);
   const setDrawer = useShell((s) => s.setDrawer);
   const entries = useLogEntries();
-  const postRoll = usePostRoll();
   const [filter, setFilter] = useState<FilterKind>('all');
-  const [draft, setDraft] = useState('');
-  const feedRef = useRef<HTMLOListElement>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
   // Follows the newest line unless the reader scrolled up to read back — the same rule
   // GameLog's plain autoscroll approximated by always pinning; the drawer holds more lines
   // at once so it has to ask.
@@ -78,10 +85,7 @@ export function LogDrawer() {
     stickToBottom.current = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 24;
   };
 
-  const post = () => {
-    postRoll(draft);
-    setDraft('');
-  };
+  const [left, right] = splitColumns(shown);
 
   return (
     <div
@@ -122,46 +126,38 @@ export function LogDrawer() {
         </button>
       </div>
 
-      <ol
+      {/* Column-major (M3 review finding 7): two independent ordered lists, left then right,
+          each bottom-anchored so a short feed still hugs the composer instead of the header. */}
+      <div
         ref={feedRef}
         onScroll={onScroll}
         data-testid="game-log"
-        className="grid flex-1 grid-cols-1 content-end gap-x-6 gap-y-0.5 overflow-y-auto px-3 py-1.5 text-[12.5px] min-[900px]:grid-cols-2"
+        className="flex min-h-0 flex-1 flex-col justify-end gap-y-0.5 overflow-y-auto px-3 py-1.5 text-[12.5px] min-[900px]:flex-row min-[900px]:items-end min-[900px]:gap-x-6 min-[900px]:gap-y-0"
       >
-        {shown.length === 0 && <li className="text-text-muted">Nothing has happened yet.</li>}
-        {shown.map((e) => (
-          <li key={e.key} data-whisper={e.whisper || undefined} className="min-w-0 leading-[22px]">
-            <LogLine e={e} />
-          </li>
-        ))}
-      </ol>
+        {shown.length === 0 && <p className="text-text-muted">Nothing has happened yet.</p>}
+        {left.length > 0 && (
+          <ol data-testid="log-column" className="flex min-w-0 flex-col justify-end gap-y-0.5 min-[900px]:flex-1">
+            {left.map((e) => (
+              <li key={e.key} data-whisper={e.whisper || undefined} className="min-w-0 leading-[22px]">
+                <LogLine e={e} />
+              </li>
+            ))}
+          </ol>
+        )}
+        {right.length > 0 && (
+          <ol data-testid="log-column" className="flex min-w-0 flex-col justify-end gap-y-0.5 min-[900px]:flex-1">
+            {right.map((e) => (
+              <li key={e.key} data-whisper={e.whisper || undefined} className="min-w-0 leading-[22px]">
+                <LogLine e={e} />
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
 
-      <form
-        className="flex shrink-0 gap-2 border-t border-border-default px-3 py-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          post();
-        }}
-      >
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Roll or note, e.g. stealth 17 · initiative 1d20+2"
-          aria-label="Post a roll"
-          // §2.2 caps `text` at 200; without this the server rejects the command and the
-          // typed line is gone. The native attribute is the whole fix.
-          maxLength={200}
-          data-testid="manual-roll"
-          className="min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-2 py-1 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none"
-        />
-        <button
-          type="submit"
-          disabled={!draft.trim()}
-          className="rounded bg-surface-2 px-2 py-1 text-sm text-text-secondary transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:opacity-40 motion-reduce:transition-none"
-        >
-          Post
-        </button>
-      </form>
+      <div className="flex shrink-0 items-center gap-2 border-t border-border-default px-3 py-2">
+        <Composer />
+      </div>
     </div>
   );
 }

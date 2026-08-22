@@ -69,6 +69,55 @@ describe('LogDrawer', () => {
     expect(input.value).toBe('');
   });
 
+  // M3 review finding 17: the drawer's composer is the same `Composer` the roll bar renders,
+  // so it gets the Whisper toggle too — the drawer used to have none.
+  it('posts a whisper through the same shared composer the roll bar uses', () => {
+    useShell.setState({ drawerOpen: true });
+    const sendCommand = vi.fn();
+    useSessionStore.setState({ sendCommand, session: session({}) });
+    render(<LogDrawer />);
+
+    const whisper = screen.getByRole('button', { name: 'Whisper' });
+    fireEvent.click(whisper);
+    expect(whisper.getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.change(screen.getByTestId('manual-roll'), { target: { value: 'a secret note' } });
+    fireEvent.click(screen.getByText('Post'));
+
+    expect(sendCommand).toHaveBeenCalledWith('rolls', 'post', {
+      source: 'manual',
+      text: 'a secret note',
+      visibility: 'private',
+    });
+  });
+
+  // M3 review finding 7: down the left column, then down the right — not the row-major
+  // zig-zag a plain `grid-cols-2` auto-placed entries into.
+  it('splits the feed column-major, so the newest line lands in the second column', () => {
+    useShell.setState({ drawerOpen: true });
+    useSessionStore.setState({
+      session: session({
+        rolls: {
+          log: [
+            { id: 'r1', at: 1, playerName: 'A', total: 1, visibility: 'public' },
+            { id: 'r2', at: 2, playerName: 'B', total: 2, visibility: 'public' },
+            { id: 'r3', at: 3, playerName: 'C', total: 3, visibility: 'public' },
+            { id: 'r4', at: 4, playerName: 'D', total: 4, visibility: 'public' },
+          ],
+        },
+      }),
+    });
+    render(<LogDrawer />);
+
+    const columns = screen.getAllByTestId('log-column');
+    expect(columns).toHaveLength(2);
+    expect(columns[0].textContent).toContain('A');
+    expect(columns[0].textContent).toContain('B');
+    expect(columns[0].textContent).not.toContain('C');
+    expect(columns[1].textContent).toContain('C');
+    expect(columns[1].textContent).toContain('D');
+  });
+
   it('closes on the header button', () => {
     useShell.setState({ drawerOpen: true });
     render(<LogDrawer />);

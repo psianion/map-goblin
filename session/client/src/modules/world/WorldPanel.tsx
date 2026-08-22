@@ -210,9 +210,11 @@ export function WorldPanel() {
 
       {sceneId ? (
         <>
-          <p data-testid="world-provenance" className="flex items-center gap-1.5 text-xs text-text-muted">
-            <Icon name="scene" size={12} className="shrink-0" />
-            <span className="min-w-0 flex-1 truncate">{worldProvenance(map, sceneName || 'This scene')}</span>
+          <p data-testid="world-provenance" className="flex items-start gap-1.5 text-xs text-text-muted">
+            <Icon name="scene" size={12} className="mt-0.5 shrink-0" />
+            <span className="line-clamp-2 min-w-0 flex-1" title={worldProvenance(map, sceneName || 'This scene')}>
+              {worldProvenance(map, sceneName || 'This scene')}
+            </span>
             {badge.overridden && (
               <span className="flex shrink-0 items-center gap-1 text-text-primary">
                 <Icon name="lock" size={11} />
@@ -231,14 +233,18 @@ export function WorldPanel() {
                 {badge.glyph}
               </span>
               <span className="shrink-0 font-semibold text-text-primary">{badge.level}</span>
-              <span className="min-w-0 flex-1 truncate text-text-secondary">{badge.trace.join(' › ')}</span>
-              <Switch
-                testId="world-override"
-                checked={view.override !== null}
-                onToggle={() => setOverride(view.override === null ? 'darkness' : null)}
-              >
-                Override the light level
-              </Switch>
+              {/* M3 review finding 5 — the trace wraps to a second line inside the row rather
+                  than truncating to an unreadable sliver; the switch keeps its own column. */}
+              <span className="min-w-0 flex-1 whitespace-normal text-text-secondary">{badge.trace.join(' › ')}</span>
+              <span className="shrink-0">
+                <Switch
+                  testId="world-override"
+                  checked={view.override !== null}
+                  onToggle={() => setOverride(view.override === null ? 'darkness' : null)}
+                >
+                  Override the light level
+                </Switch>
+              </span>
             </div>
             {view.override !== null && (
               <div className="mt-1 rounded border border-border-default px-2 py-1.5">

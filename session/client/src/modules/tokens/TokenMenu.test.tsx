@@ -257,5 +257,33 @@ describe('TokenMenu', () => {
       expect(screen.queryByTestId('token-menu-frame')).toBeNull();
       expect(screen.queryByTestId('token-menu-more')).toBeNull();
     });
+
+    // M3 review finding 8 — the reason used to arrive only as a toast, behind an empty menu.
+    it('names the owner instead of an empty menu on someone else’s claimed token', () => {
+      useSessionStore.setState({
+        session: session([token({ ownerId: 'dm-1' })]),
+        you: player,
+        client: null,
+        lastError: null,
+      });
+      useTokenInteraction.getState().select('t1');
+      render(<TokenMenu />);
+
+      const menu = screen.getByTestId('token-menu');
+      expect(menu.textContent).toContain('Held by Ayla');
+      expect(menu.querySelector('button')).toBeNull();
+    });
+  });
+
+  // The plain button row is a group of actions, not a keyboard-navigable menu — this
+  // component never implements arrow-key traversal, so `role="menu"` overclaimed semantics
+  // (M3 review finding 8).
+  it('exposes the whole card as a group, not a menu', () => {
+    mountMapElement();
+    screenOf.mockReturnValue({ x: 100, y: 50 });
+    useSessionStore.setState({ session: session([token()]), you: dm, client: null, lastError: null });
+    useTokenInteraction.getState().select('t1');
+    render(<TokenMenu />);
+    expect(screen.getByTestId('token-menu').getAttribute('role')).toBe('group');
   });
 });

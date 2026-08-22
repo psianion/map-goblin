@@ -118,7 +118,7 @@ describe('PartyStrip — encounter', () => {
     };
   }
 
-  it('marks the current turn, shows the round chip, and dims a downed combatant', () => {
+  it('marks the current turn, shows the round chip, and dims a downed combatant without touching the current-turn ring', () => {
     useSessionStore.setState({
       session: session({
         initiative: initiative(),
@@ -127,15 +127,38 @@ describe('PartyStrip — encounter', () => {
     });
     render(<PartyStrip />);
 
-    expect(screen.getByTestId('party-disc-e2').getAttribute('data-current')).toBe('true');
+    const disc = screen.getByTestId('party-disc-e2');
+    expect(disc.getAttribute('data-current')).toBe('true');
     expect(screen.getByTestId('party-disc-e1').getAttribute('data-current')).toBeNull();
     expect(screen.getByTestId('party-strip').textContent).toContain('R3');
-    // Downed: the ring/portrait carry the dim treatment (contrast, P1) and the strike line
-    // shows, but the initials text itself is never dimmed — it has to clear 4.5:1 on
-    // bg-surface-3.
-    expect(screen.getByTestId('party-disc-e2').innerHTML).toContain('opacity-50');
-    const initialsEl = screen.getByTestId('party-disc-e2').querySelector('.font-mono')!;
-    expect(initialsEl.className).not.toContain('opacity');
+    // Downed: the backdrop dims and the initials mute (M3 review finding 9) — no opacity
+    // anywhere, and specifically not on the ring, since this disc is also the current turn's
+    // accent ring and dimming that would hide whose turn it is.
+    expect(disc.innerHTML).not.toContain('opacity-50');
+    expect(disc.querySelector('.bg-surface-2')).not.toBeNull();
+    const initialsEl = disc.querySelector('.font-mono')!;
+    expect(initialsEl.className).toContain('text-text-muted');
+    // The strike bar is gone — a small close glyph marks it down instead.
+    expect(disc.querySelector('svg')).not.toBeNull();
+  });
+
+  it('dims the ring for a downed combatant whose turn is not current', () => {
+    useSessionStore.setState({
+      session: session({
+        initiative: initiative({
+          entries: [
+            { key: 'e1', name: 'Willow', kind: 'pc', tokenId: 'w', initiative: 18, hp: { current: 0, max: 10 } },
+            { key: 'e2', name: 'Goblin', kind: 'npc', tokenId: 'g', initiative: 12 },
+          ],
+        }),
+        tokens: tokensState({ w: mkToken('w'), g: mkToken('g', { disposition: 'hostile' }) }),
+      }),
+    });
+    render(<PartyStrip />);
+
+    const disc = screen.getByTestId('party-disc-e1');
+    expect(disc.getAttribute('data-current')).toBeNull();
+    expect(disc.innerHTML).toContain('opacity-50'); // the dispositional ring, not an accent one
   });
 
   it('renders turn order and skips the frame click for an off-board combatant', () => {

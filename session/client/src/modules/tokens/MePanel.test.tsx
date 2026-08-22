@@ -106,7 +106,7 @@ describe('MePanel — one claimed token', () => {
     });
     render(<MePanel />);
     const panel = screen.getByTestId('me-panel');
-    // The name is the popover's own title (`meTitle`), not repeated in the body.
+    // The name is the popover's own title/subtitle, not repeated in the body.
     expect(panel.textContent).not.toContain('Karlach');
     expect(panel.textContent).toContain('—');
     expect(panel.textContent).toContain('Medium · friendly');
@@ -164,6 +164,40 @@ describe('MePanel — one claimed token', () => {
     expect(panel.textContent).toContain('12 cells · darkvision');
     expect(panel.textContent).toContain('torch · 4 / 8 cells');
   });
+
+  // M3 review finding 10 — `{0, 0}` is the wire's redacted/unset shape, not a real empty
+  // pool; reading it as "down" for the player's OWN token was the bug.
+  it('reads a {0, 0} entry as unset ("—"), not as downed', () => {
+    useSessionStore.setState({
+      session: session({
+        tokens: tokensState({ a: mkToken('a', { ownerId: 'me' }) }),
+        initiative: {
+          status: 'running',
+          sceneId: 'sc-1',
+          round: 1,
+          turn: 0,
+          entries: [
+            {
+              key: 'k1',
+              name: 'Karlach',
+              kind: 'pc',
+              identityId: 'me',
+              tokenId: 'a',
+              initiative: 14,
+              hp: { current: 0, max: 0 },
+            },
+          ],
+          log: [],
+        } satisfies InitiativeState,
+      }),
+    });
+    render(<MePanel />);
+    const panel = screen.getByTestId('me-panel');
+    expect(panel.textContent).toContain('—');
+    expect(panel.textContent).not.toContain('0 / 0');
+    // No HP bar drawn for an unset pool.
+    expect(panel.querySelector('.bg-danger, .bg-text-secondary')).toBeNull();
+  });
 });
 
 describe('MePanel — multiple claimed tokens', () => {
@@ -203,13 +237,15 @@ describe('MePanel footer', () => {
     expect(frameWorldPoint).toHaveBeenCalledWith(7, 9);
   });
 
-  it('title is the claimed token’s name for one, and "Me" otherwise', () => {
+  it('title is always "Me"; the claimed token’s name is the subtitle instead (M3 review finding 4)', () => {
     useSessionStore.setState({
       session: session({ tokens: tokensState({ a: mkToken('a', { name: 'Karlach', ownerId: 'me' }) }) }),
     });
-    expect(resolvePanelTitle(usePanel('me')!)).toBe('Karlach');
+    expect(resolvePanelTitle(usePanel('me')!)).toBe('Me');
+    expect(usePanel('me')!.subtitle?.()).toBe('Karlach');
 
     useSessionStore.setState({ session: session({ tokens: tokensState({}) }) });
     expect(resolvePanelTitle(usePanel('me')!)).toBe('Me');
+    expect(usePanel('me')!.subtitle?.()).toBeNull();
   });
 });

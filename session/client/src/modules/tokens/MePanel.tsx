@@ -41,6 +41,13 @@ function lightLabel(light: Light | null, scale: MapScale): string {
 const entryFor = (entries: InitiativeEntry[] | undefined, tokenId: string): InitiativeEntry | undefined =>
   entries?.find((e) => e.tokenId === tokenId);
 
+/** `{current: 0, max: 0}` is the wire's redacted/unset shape (same one `PartyStrip` reads as
+ *  an NPC's hidden pool) — for a player reading their OWN claimed token that means "nothing
+ *  set", not "at zero", so it reads as "—" here rather than as downed (M3 review finding 10;
+ *  `PartyStrip` keeps its own `{0,0}` → down rule, that redaction signal is real for an NPC). */
+const realHp = (hp: { current: number; max: number } | undefined): { current: number; max: number } | null =>
+  hp && !(hp.current === 0 && hp.max === 0) ? hp : null;
+
 /** Which claimed token the footer's "Find me" targets, and which row's detail is open — a
  *  sibling to the panel body (`PanelDef.footer`, see `Popover.tsx`), so this is a store like
  *  `tokensUi.ts`'s rather than component state either one owns alone. */
@@ -87,7 +94,7 @@ function TokenDetail({
   entries: InitiativeEntry[] | undefined;
 }) {
   const entry = entryFor(entries, token.id);
-  const hp = entry?.hp ?? null;
+  const hp = realHp(entry?.hp);
   const conditions = entry?.conditions ?? [];
   const barPct = hp && hp.max > 0 ? Math.round((hp.current / hp.max) * 100) : null;
 
@@ -157,7 +164,7 @@ function CompactRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const hp = entryFor(entries, token.id)?.hp ?? null;
+  const hp = realHp(entryFor(entries, token.id)?.hp);
   return (
     <button
       type="button"
@@ -272,17 +279,20 @@ function MeFooter() {
   );
 }
 
-function meTitle(): string {
+/** The rail label is always "Me" (M3 review finding 4 — a long character name used to wrap
+ *  past the rail item's 46px and shift every anchor below it); the claimed token's own name
+ *  shows as the popover's subtitle instead, same slot `sceneSubtitle`/`worldSubtitle` use. */
+function meSubtitle(): string | null {
   const { session, you } = useSessionStore.getState();
   const tokens = tokensOf(session?.modules?.tokens as TokensState | undefined, session?.activeSceneId).filter(
     (t) => t.ownerId === you?.identityId,
   );
-  return tokens.length === 1 ? tokens[0].name : 'Me';
+  return tokens.length === 1 ? tokens[0].name : null;
 }
 
 registerPanel({
   id: 'me',
-  title: meTitle,
+  title: 'Me',
   icon: 'me',
   key: 'M',
   group: 'play',
@@ -290,4 +300,5 @@ registerPanel({
   order: 45,
   component: MePanel,
   footer: MeFooter,
+  subtitle: meSubtitle,
 });

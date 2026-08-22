@@ -406,4 +406,28 @@ describe('the header chrome', () => {
     expect(def.subtitle?.()).toBe('Round 3 · 2 combatants');
     expect(def.badge?.()).toBe('R3');
   });
+
+  // M3 review finding 13: the round number is DM bookkeeping — a player's rail badge only
+  // ever marks their own turn, the same glyph the row itself uses.
+  it("badges the round for the DM, but only a player's own turn — never the round — for a player", () => {
+    const def = usePanel('initiative')!;
+    const running = stateOf({
+      status: 'running',
+      round: 5,
+      turn: 0,
+      entries: [entry({ key: 'a', identityId: 'p-1' }), entry({ key: 'b', identityId: 'other' })],
+    });
+
+    useSessionStore.setState({ session: session({ initiative: running }), you: dm });
+    expect(def.badge?.()).toBe('R5');
+
+    useSessionStore.setState({ session: session({ initiative: running }), you: player });
+    expect(def.badge?.()).toBe('▶');
+
+    useSessionStore.setState({
+      session: session({ initiative: stateOf({ ...running, turn: 1 }) }),
+      you: player,
+    });
+    expect(def.badge?.()).toBeNull();
+  });
 });

@@ -17,6 +17,15 @@ function TallBody() {
   return <div data-testid="pt-tall" />;
 }
 
+/** Nothing focusable at all — an empty Triggers list, or Session before there is a code or a
+ *  roster row (M3 review findings 14/15). */
+function EmptyBody() {
+  return <p>Nothing here yet.</p>;
+}
+
+/** Flushes the `requestAnimationFrame` `Popover`'s focus effect defers to. */
+const nextFrame = () => act(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+
 /** A ResizeObserver double: jsdom has none, so `Popover`'s overflow effect no-ops without it.
  *  Tests that need to exercise the observed path install this and trigger it by hand. */
 class TestResizeObserver {
@@ -58,6 +67,16 @@ beforeEach(() => {
     roles: ['dm'],
     component: TallBody,
   });
+  registerPanel({
+    id: 'pt-empty-panel',
+    title: 'Empty Panel',
+    icon: 'fog',
+    key: '',
+    group: 'play',
+    order: 4,
+    roles: ['dm', 'player'],
+    component: EmptyBody,
+  });
 });
 
 describe('Popover', () => {
@@ -95,6 +114,30 @@ describe('Popover', () => {
     render(<Popover />);
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(useShell.getState().openPanel).toBeNull();
+  });
+
+  // M3 review finding 11: a body that seeds its own first control from a `useEffect` (the
+  // Scene cold-open) has not painted it on the same pass Popover mounted — focusing
+  // synchronously grabbed whatever was there first instead. Deferring a frame means the
+  // synchronous read here has nothing to find yet; only the RAF flush moves focus in.
+  it('defers focus to the next animation frame instead of grabbing whatever exists synchronously on open', async () => {
+    useShell.setState({ openPanel: 'pt-panel' });
+    render(<Popover />);
+    expect(document.activeElement).not.toBe(screen.getByTestId('pt-first-control'));
+
+    await nextFrame();
+    expect(document.activeElement).toBe(screen.getByTestId('pt-first-control'));
+  });
+
+  // M3 review findings 14/15: an empty Triggers list, or Session before the invite code or a
+  // roster row exists, leaves nothing focusable in the body — the popover falls back to its
+  // own close button instead of leaving focus stranded on `document.body`.
+  it('falls back to the close button when the body has nothing focusable', async () => {
+    useShell.setState({ openPanel: 'pt-empty-panel' });
+    render(<Popover />);
+
+    await nextFrame();
+    expect(screen.getByRole('button', { name: 'Close' })).toBe(document.activeElement);
   });
 
   it('does not warn in dev when the body fits', () => {
@@ -195,6 +238,15 @@ describe('Popover', () => {
       const { unmount } = render(<Popover />);
       unmount();
       expect(screen.getByTestId('scene-name').focus).toHaveBeenCalled();
+    });
+
+    // M3 review finding 15: the Session popover (a `status-left` panel) did not move focus in
+    // at all — same fix, same fallback, as the rail-anchored path.
+    it('moves focus in on open, same as a rail-anchored popover', async () => {
+      useShell.setState({ openPanel: 'pt-status-left' });
+      render(<Popover />);
+      await nextFrame();
+      expect(screen.getByTestId('pt-first-control')).toBe(document.activeElement);
     });
   });
 });

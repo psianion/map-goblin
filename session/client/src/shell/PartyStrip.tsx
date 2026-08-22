@@ -6,6 +6,7 @@ import { ordered, type InitiativeEntry, type InitiativeState } from '@dnd/mechan
 import type { Disposition, Token, TokensState } from '@dnd/mechanics/tokens';
 import { frameWorldPoint } from '../renderer/camera';
 import { useModuleState, useSessionStore } from '../session/store';
+import { Icon } from './icons';
 import { usePortraitUrl } from './portrait';
 
 const DISPOSITION_RING: Record<Disposition, string> = {
@@ -50,12 +51,15 @@ function PartyDisc({ d }: { d: DiscData }) {
       ? `ring-[1.5px] ${DISPOSITION_RING[d.disposition]}`
       : '';
 
-  // Downed fades the ring and the portrait only — the bg-surface-3 backdrop and the
-  // initials text stay at full opacity, since that pairing is what clears 4.5:1 (a
-  // dimmed disc used to drop 11px initials to 2.82:1).
+  // Downed dims the backdrop and the initials/portrait rather than striking through them
+  // (M3 review finding 9) — bg-surface-2 with text-muted initials clears 4.5:1 (~6:1). The
+  // ring only dims when it is not also the current-turn ring: that accent is the "whose turn
+  // is it" signal and must never read as faded, down or not.
   const face = (
     <span className="relative flex h-7 w-7 shrink-0 items-center justify-center">
-      <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-surface-3">
+      <span
+        className={`flex h-full w-full items-center justify-center overflow-hidden rounded-full ${d.down ? 'bg-surface-2' : 'bg-surface-3'}`}
+      >
         {portrait ? (
           <img
             src={portrait}
@@ -63,16 +67,25 @@ function PartyDisc({ d }: { d: DiscData }) {
             className={`h-full w-full object-cover ${d.down ? 'opacity-50' : ''}`}
           />
         ) : (
-          <span className="font-mono text-[11px] text-text-secondary">{d.text ?? initials(d.name)}</span>
+          <span className={`font-mono text-[11px] ${d.down ? 'text-text-muted' : 'text-text-secondary'}`}>
+            {d.text ?? initials(d.name)}
+          </span>
         )}
       </span>
       {ring && (
         <span
           aria-hidden
-          className={`pointer-events-none absolute inset-0 rounded-full ${ring} ${d.down ? 'opacity-50' : ''}`}
+          className={`pointer-events-none absolute inset-0 rounded-full ${ring} ${d.down && !d.current ? 'opacity-50' : ''}`}
         />
       )}
-      {d.down && <span className="absolute inset-x-1 top-1/2 h-px -translate-y-1/2 bg-text-primary" />}
+      {d.down && (
+        <span
+          aria-hidden
+          className="absolute -bottom-0.5 -right-0.5 flex h-[10px] w-[10px] items-center justify-center rounded-full bg-surface-1 text-text-muted shadow-[0_0_0_1.5px_rgb(var(--surface-1))]"
+        >
+          <Icon name="close" size={8} />
+        </span>
+      )}
     </span>
   );
 

@@ -14,23 +14,13 @@ function sessionTitle(): string {
   return scene?.name ?? 'Session';
 }
 
-/** Invite code (DM), roster, and — for a player — what's on the table right now. */
+/** Invite code (DM) and the roster — the popover's own title already carries the scene name
+ *  (M3 review finding 16), so a player's body has nothing left to repeat it with. */
 export function SessionPopover() {
-  const isDm = useSessionStore((s) => s.you?.role) === 'dm';
-  const sceneName = useSessionStore((s) => {
-    const session = s.session;
-    return session?.scenes.find((sc) => sc.id === session.activeSceneId)?.name;
-  });
-
   return (
     <div className="flex flex-col gap-2">
       <InviteCodeChip />
       <PlayerList />
-      {!isDm && (
-        <p className="text-sm text-text-secondary">
-          Now playing: <span className="text-text-primary">{sceneName ?? 'nothing yet'}</span>
-        </p>
-      )}
     </div>
   );
 }
@@ -71,9 +61,13 @@ function SessionFooter() {
 
   if (!confirming) {
     return (
-      <button type="button" data-testid="end-session" onClick={() => setConfirming(true)} className={dangerGhost}>
-        End session
-      </button>
+      <>
+        <button type="button" data-testid="end-session" onClick={() => setConfirming(true)} className={dangerGhost}>
+          End session
+        </button>
+        <span className="flex-1" />
+        <span className="text-xs text-text-muted">Players keep the link until you do</span>
+      </>
     );
   }
 

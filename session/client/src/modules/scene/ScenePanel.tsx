@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { WEATHERS, vocabLabel, type Weather } from '@dnd/core/src/shared/prep';
 import type { TriggersState } from '@dnd/mechanics/triggers';
 import { sceneTriggersOf } from '@dnd/mechanics/triggers';
@@ -6,6 +6,7 @@ import type { SceneMeta } from '../../session/auth';
 import { registerPanel } from '../../session/panels';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { Icon } from '../../shell/icons';
+import { Portal } from '../../shell/Portal';
 import { useSceneLibrary } from './store';
 
 /**
@@ -33,24 +34,40 @@ function sceneSubtitle(): string {
   return `${useSceneLibrary.getState().scenes.length} in this campaign`;
 }
 
+/** Fallback width — jsdom lays nothing out, and the very first paint, so `offsetWidth` isn't
+ *  trustworthy yet. `w-44` below. */
+const MENU_FALLBACK_WIDTH = 176;
+const MENU_GAP = 4;
+
+/** Below-right of `btn` (right edges aligned, matching the old `absolute right-0 top-full`);
+ *  flips above when the menu would cross the viewport's bottom edge (M3 review finding 1). */
+function placeRowMenu(btn: HTMLElement, menu: HTMLElement | null): { top: number; left: number } {
+  const rect = btn.getBoundingClientRect();
+  const width = menu?.offsetWidth || MENU_FALLBACK_WIDTH;
+  const height = menu?.offsetHeight ?? 0;
+  const openUp = rect.bottom + MENU_GAP + height > window.innerHeight;
+  return {
+    left: Math.max(4, rect.right - width),
+    top: openUp ? Math.max(4, rect.top - MENU_GAP - height) : rect.bottom + MENU_GAP,
+  };
+}
+
 /**
  * The `⋯` button and its dropdown: Rename, Move up/down, Replace map, Delete (with an
  * in-popover confirm, never `window.confirm`).
  *
- * The dropdown itself stays mounted at all times — only a CSS class toggles its visibility
- * — rather than the more common `{open && (...)}` mount/unmount every other menu in this app
- * uses (`DoorMenu`, `TokenMenu`'s own inner `MoreMenu`). Reason: `scene-switch.spec.ts` drives
- * "Replace map" (the `<label>` wrapping the file input) directly, without ever opening this
- * menu first — `setInputFiles` doesn't require visibility, only that the element be attached,
- * so an unmount would break that spec outright.
+ * The visible menu renders through a `Portal` to `document.body` (M3 review finding 1) —
+ * `scene-list`, `popover-body` and `popover` all clip with `overflow-hidden`, so a menu
+ * positioned inside the row was never reachable past the third or fourth row. `Portal` keeps
+ * it a React descendant of this component in every way that isn't the physical DOM (context,
+ * event bubbling through the React tree), which is why `Popover`'s own "click outside closes
+ * it" listener still treats a click in here as inside; the `stopPropagation` below is belt
+ * and braces for that, matching every other on-map/overlay menu's own convention.
  *
- * Both listeners use the document's *capture* phase, not bubble — this menu lives inside the
- * popover, and `Popover`'s own root stops pointerdown from bubbling any further, which would
- * swallow a bubble-phase listener before it ever reached `document`. Capture runs top-down,
- * ahead of that stop, so it still sees every click (`FogOverlay` uses the same trick over the
- * canvas). Escape needs it for a second reason too — `FogHeaderActions`' own comment: capture
- * beats the shell's bubble-phase Escape, so this menu closes on its own rather than taking the
- * whole popover down with it.
+ * The hidden "Replace map" file input stays mounted in the row itself, never inside the
+ * portal — `scene-switch.spec.ts` drives it directly with `setInputFiles` without ever
+ * opening this menu, so it must be attached (if invisible) start to finish, menu open or
+ * not. The portal's own "Replace map" item just forwards a click to it.
  */
 function SceneRowMenu({
   scene,
@@ -75,20 +92,41 @@ function SceneRowMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const close = () => {
     setOpen(false);
     setConfirming(false);
   };
 
+  // Measured after the portal has committed (same render, before paint), and again whenever
+  // the confirm row changes the menu's own height, or the window resizes under it.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const recalc = () => {
+      if (btnRef.current) setPos(placeRowMenu(btnRef.current, menuRef.current));
+    };
+    recalc();
+    window.addEventListener('resize', recalc);
+    return () => window.removeEventListener('resize', recalc);
+  }, [open, confirming]);
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close();
+      if (e.key !== 'Escape') return;
+      // This menu's own Escape, not the popover's — without this, the popover's bubble-phase
+      // listener (which only backs off when `defaultPrevented`) would take the whole popover
+      // down too. Capture runs ahead of that bubble-phase listener regardless of DOM position.
+      e.preventDefault();
+      close();
     };
     const onPointerDown = (e: PointerEvent) => {
-      if (rootRef.current?.contains(e.target as Node)) return;
+      const target = e.target as Node;
+      if (btnRef.current?.contains(target) || menuRef.current?.contains(target)) return;
       close();
     };
     window.addEventListener('keydown', onKeyDown, true);
@@ -100,8 +138,9 @@ function SceneRowMenu({
   }, [open]);
 
   return (
-    <div ref={rootRef} className="relative shrink-0">
+    <div className="shrink-0">
       <button
+        ref={btnRef}
         type="button"
         aria-label={`More actions for ${scene.name}`}
         aria-haspopup="menu"
@@ -113,86 +152,108 @@ function SceneRowMenu({
         <Icon name="more" size={15} />
       </button>
 
-      <div
-        role="menu"
-        data-testid={`scene-menu-${scene.id}`}
-        className={`absolute right-0 top-full z-toolbar mt-1 w-44 flex-col gap-0.5 rounded border border-border-structure bg-surface-1 p-1 shadow-panel motion-safe:animate-panel-in ${
-          open ? 'flex' : 'hidden'
-        }`}
-      >
-        <button
-          type="button"
+      <label className="hidden">
+        Replace map
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".mapbuilder,.json,application/json"
           disabled={busy}
-          onClick={() => {
-            close();
-            onRename();
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file) onReplace(file);
           }}
-          className={menuItem}
-        >
-          Rename
-        </button>
-        <button
-          type="button"
-          aria-label="Move up"
-          disabled={busy || !canMoveUp}
-          onClick={() => {
-            close();
-            onMoveUp();
-          }}
-          className={menuItem}
-        >
-          Move up
-        </button>
-        <button
-          type="button"
-          aria-label="Move down"
-          disabled={busy || !canMoveDown}
-          onClick={() => {
-            close();
-            onMoveDown();
-          }}
-          className={menuItem}
-        >
-          Move down
-        </button>
-        <label className={`${menuItem} cursor-pointer`}>
-          Replace map
-          <input
-            type="file"
-            accept=".mapbuilder,.json,application/json"
-            disabled={busy}
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = '';
-              close();
-              if (file) onReplace(file);
-            }}
-          />
-        </label>
-        {confirming ? (
-          <div className="flex items-center gap-0.5">
+        />
+      </label>
+
+      {open && (
+        <Portal>
+          <div
+            ref={menuRef}
+            role="menu"
+            data-testid={`scene-menu-${scene.id}`}
+            onPointerDown={(e) => e.stopPropagation()}
+            onWheel={(e) => e.stopPropagation()}
+            style={{ top: pos?.top ?? -9999, left: pos?.left ?? -9999 }}
+            className="fixed z-toolbar flex w-44 flex-col gap-0.5 rounded border border-border-structure bg-surface-1 p-1 shadow-panel motion-safe:animate-panel-in"
+          >
             <button
               type="button"
               disabled={busy}
               onClick={() => {
                 close();
-                onDelete();
+                onRename();
               }}
-              className={`${menuItem} flex-1 text-danger`}
+              className={menuItem}
             >
-              Delete {scene.name}?
+              Rename
             </button>
-            <button type="button" onClick={() => setConfirming(false)} className={menuItem}>
-              Cancel
+            <button
+              type="button"
+              aria-label="Move up"
+              disabled={busy || !canMoveUp}
+              onClick={() => {
+                close();
+                onMoveUp();
+              }}
+              className={menuItem}
+            >
+              Move up
             </button>
+            <button
+              type="button"
+              aria-label="Move down"
+              disabled={busy || !canMoveDown}
+              onClick={() => {
+                close();
+                onMoveDown();
+              }}
+              className={menuItem}
+            >
+              Move down
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                close();
+                fileInputRef.current?.click();
+              }}
+              className={menuItem}
+            >
+              Replace map
+            </button>
+            {confirming ? (
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    close();
+                    onDelete();
+                  }}
+                  className={`${menuItem} flex-1 text-danger`}
+                >
+                  Delete {scene.name}?
+                </button>
+                <button type="button" onClick={() => setConfirming(false)} className={menuItem}>
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setConfirming(true)}
+                className={`${menuItem} text-danger`}
+              >
+                Delete
+              </button>
+            )}
           </div>
-        ) : (
-          <button type="button" disabled={busy} onClick={() => setConfirming(true)} className={`${menuItem} text-danger`}>
-            Delete
-          </button>
-        )}
-      </div>
+        </Portal>
+      )}
     </div>
   );
 }

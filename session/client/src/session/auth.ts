@@ -139,6 +139,18 @@ export function resolveInviteCode(code: string): Promise<{ campaignId: string; s
   return request(`/api/resolve/${encodeURIComponent(code)}`, { method: 'GET' });
 }
 
+/**
+ * GET /api/campaigns/:id/session — the invite code for whatever table is already open (M3
+ * review finding 3). A DM seat that resumed, or was minted fresh via `mintDmToken`, never saw
+ * `startSession`'s own response; this is the only other place the code is handed out.
+ */
+export function fetchActiveSession(
+  campaignId: string,
+  token: string,
+): Promise<{ sessionId: string; inviteCode: string }> {
+  return request(`/api/campaigns/${encodeURIComponent(campaignId)}/session`, { method: 'GET' }, token);
+}
+
 // ─── Scene management (#47) — the DM's own library, not the wire snapshot ────
 
 export interface SceneMeta {
