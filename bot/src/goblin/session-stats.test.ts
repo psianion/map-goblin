@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createSessionStats } from './session-stats'
-import type { DoorsState, GoblinEvent, SessionState } from './observer'
+import { PROTOCOL_VERSION, type DoorsState, type GoblinEvent, type SessionState } from './observer'
 
 const SCENES = [
   { id: 'scene-1', name: 'Cragmaw Hideout', mapId: 'map-1' },
@@ -8,7 +8,7 @@ const SCENES = [
 ]
 
 const state = (over: Partial<SessionState> = {}): SessionState => ({
-  protocolVersion: 4,
+  protocolVersion: PROTOCOL_VERSION,
   sessionId: 'sess-1',
   campaignId: 'camp-1',
   activeSceneId: 'scene-1',

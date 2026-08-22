@@ -8,6 +8,7 @@
     "./dice": "./src/dice/roll.ts",
     "./doors": "./src/doors/module.ts",
     "./fog": "./src/fog/module.ts",
+    "./initiative": "./src/initiative/module.ts",
     "./log": "./src/log.ts",
     "./rolls": "./src/rolls/module.ts",
     "./tokens": "./src/tokens/module.ts",

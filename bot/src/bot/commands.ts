@@ -137,6 +137,20 @@ export const roll = guildOnly(
     ),
 )
 
+/** The bounds are the initiative module's own (INITIATIVE_MIN/MAX), so a number Discord accepts
+ * is a number the table accepts — the refusal happens in the client, not two hops away. */
+export const initiative = guildOnly(
+  new SlashCommandBuilder()
+    .setName('initiative')
+    .setDescription('Send your initiative roll to the table')
+    .addIntegerOption((o) =>
+      o.setName('value').setDescription('What you rolled').setMinValue(-99).setMaxValue(999).setRequired(true),
+    )
+    .addStringOption((o) =>
+      o.setName('character').setDescription('Whose initiative').setRequired(false).setAutocomplete(true),
+    ),
+)
+
 export const loot = guildOnly(
   new SlashCommandBuilder()
     .setName('loot')

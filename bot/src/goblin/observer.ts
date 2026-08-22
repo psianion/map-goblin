@@ -9,7 +9,7 @@
 import { log as defaultLog } from '../lib/log'
 
 /** Must match the server's PROTOCOL_VERSION, or the join frame is refused outright. */
-export const PROTOCOL_VERSION = 4
+export const PROTOCOL_VERSION = 5
 
 export interface PlayerInfo {
   identityId: string
@@ -93,6 +93,27 @@ export interface TriggersState {
   byScene?: Record<string, { log?: WireTriggerEntry[] }>
 }
 
+/** A combatant, narrowed to what `/initiative` needs to find the right one. */
+export interface WireInitiativeEntry {
+  key: string
+  name: string
+  /** The table seat that owns it, when a linked player claimed the token. */
+  identityId?: string
+  initiative: number | null
+}
+
+/**
+ * The initiative tracker, narrowed to what the bot reads: the sentences it mirrors into the
+ * thread, and the roster `/initiative` resolves a Discord member against. The sentences are
+ * composed server-side for exactly this reason — the table's log and this thread say the same
+ * words because neither of them writes any.
+ */
+export interface InitiativeState {
+  status?: 'idle' | 'gathering' | 'running'
+  entries?: WireInitiativeEntry[]
+  log?: WireTriggerEntry[]
+}
+
 /** A placed token, narrowed to the fields the map snapshot draws (plan §5). */
 export interface WireToken {
   id: string
@@ -126,6 +147,7 @@ export type GoblinEvent =
   | { type: 'rolls'; state: RollsState }
   | { type: 'fog'; state: FogState }
   | { type: 'triggers'; state: TriggersState }
+  | { type: 'initiative'; state: InitiativeState }
   /** The socket went away. `fatal` means it is not coming back — a version the bot cannot
    *  speak — so the caller should surface it rather than wait for a reconnect. */
   | { type: 'closed'; fatal: boolean }
@@ -152,6 +174,20 @@ export interface ObserverOptions {
 export interface Observer {
   /** Returns the unsubscribe. */
   subscribe: (listener: (event: GoblinEvent) => void) => () => void
+  /**
+   * Run a command on the table over the seat this observer already holds.
+   *
+   * The bot was receive-only until initiative gave it something to say. It does not need a
+   * second credential or an HTTP route to say it: the socket is open, authenticated with the
+   * campaign's service token, and its seat carries the DM role — so a Discord player's
+   * initiative arrives by exactly the frame the DM's own client would have sent.
+   *
+   * False means there was no live seat to say it through (mid-reconnect, or the table closed);
+   * the caller should tell the person in Discord rather than assume it landed. Delivery past
+   * that point is the socket's business — the server answers a refusal with an `error` frame,
+   * which nothing here is waiting on.
+   */
+  command: (module: string, action: string, payload: unknown) => boolean
   stop: () => void
 }
 
@@ -182,6 +218,9 @@ export function createObserver(options: ObserverOptions): Observer {
   let stopped = false
   /** A ping is outstanding. A second heartbeat finding it still true means nobody is home. */
   let awaitingPong = false
+  /** The server has answered the join frame; only then will it accept a command. */
+  let joined = false
+  let seq = 0
 
   function emit(event: GoblinEvent): void {
     for (const listener of listeners) listener(event)
@@ -192,6 +231,7 @@ export function createObserver(options: ObserverOptions): Observer {
     heartbeat = null
     socket = null
     awaitingPong = false
+    joined = false
   }
 
   function reconnect(fatal: boolean): void {
@@ -257,7 +297,10 @@ export function createObserver(options: ObserverOptions): Observer {
       const event = toEvent(message)
       if (!event) return
       // A snapshot means the socket is healthy — the next drop starts its backoff over.
-      if (event.type === 'session-state') attempts = 0
+      if (event.type === 'session-state') {
+        attempts = 0
+        joined = true
+      }
       emit(event)
     })
 
@@ -271,6 +314,20 @@ export function createObserver(options: ObserverOptions): Observer {
     subscribe: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
+    },
+    command: (module, action, payload) => {
+      // `joined`, not merely "the socket object exists": the server refuses everything sent
+      // before the join frame is answered, so a command posted into that window is dropped
+      // silently — worse than reporting it never went.
+      const live = socket
+      if (!live || !joined) return false
+      seq += 1
+      try {
+        live.send(JSON.stringify({ type: 'command', module, action, payload, seq }))
+        return true
+      } catch {
+        return false
+      }
     },
     stop: () => {
       stopped = true
@@ -320,6 +377,8 @@ function toEvent(message: Record<string, unknown>): GoblinEvent | null {
       if (message.module === 'fog') return { type: 'fog', state: message.state as FogState }
       if (message.module === 'triggers')
         return { type: 'triggers', state: message.state as TriggersState }
+      if (message.module === 'initiative')
+        return { type: 'initiative', state: message.state as InitiativeState }
       return null
     default:
       return null

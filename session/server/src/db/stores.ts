@@ -523,6 +523,27 @@ export class ModuleStateStore {
   }
 }
 
+/** Landing-page waitlist (P5a) — email + when, nothing else. */
+export class WaitlistStore {
+  readonly #insert
+
+  constructor(db: Database) {
+    // ON CONFLICT DO NOTHING rather than a SELECT-then-INSERT: the unique index is the
+    // only thing that needs to know whether this email is already in, and `changes`
+    // says so atomically — no race between two submissions of the same address.
+    this.#insert = db.prepare<[string, string, number]>(
+      `INSERT INTO waitlist (id, email, created_at) VALUES (?, ?, ?)
+       ON CONFLICT (email) DO NOTHING`,
+    )
+  }
+
+  /** `email` is caller-normalized (trimmed, lowercased) — this class just stores it. */
+  add(email: string): { duplicate: boolean } {
+    const result = this.#insert.run(randomUUID(), email, Date.now())
+    return { duplicate: result.changes === 0 }
+  }
+}
+
 export interface Stores {
   campaigns: CampaignStore
   maps: MapStore
@@ -532,6 +553,7 @@ export interface Stores {
   passes: PassStore
   assets: AssetStore
   moduleState: ModuleStateStore
+  waitlist: WaitlistStore
 }
 
 /** One prepared-statement set per open database — boot calls this once (src/index.ts). */
@@ -545,5 +567,6 @@ export function createStores(db: Database): Stores {
     passes: new PassStore(db),
     assets: new AssetStore(db),
     moduleState: new ModuleStateStore(db),
+    waitlist: new WaitlistStore(db),
   }
 }

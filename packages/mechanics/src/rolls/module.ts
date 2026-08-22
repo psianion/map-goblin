@@ -35,8 +35,8 @@ export const rollsModule: GameModule<RollsState> = {
   handler(_action, payload, ctx) {
     const p = (payload ?? {}) as Record<string, unknown>
 
-    if (p.source !== 'dndbeyond' && p.source !== 'manual') {
-      return invalid("rolls.post needs source 'dndbeyond' or 'manual'")
+    if (p.source !== 'dndbeyond' && p.source !== 'manual' && p.source !== 'discord') {
+      return invalid("rolls.post needs source 'dndbeyond', 'manual' or 'discord'")
     }
     if (p.visibility !== 'public' && p.visibility !== 'private') {
       return invalid("rolls.post needs visibility 'public' or 'private'")

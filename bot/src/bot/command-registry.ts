@@ -8,6 +8,7 @@ import type {
   Calendar,
   Campaign,
   Campaigns,
+  Character,
   CharacterPatch,
   Characters,
   Feedback,
@@ -21,6 +22,7 @@ import type {
   Sessions,
 } from '../db/stores'
 import type { SessionRunner } from '../goblin/live-session'
+import type { WireInitiativeEntry } from '../goblin/observer'
 import type { GoblinRest } from '../goblin/rest'
 import { calendarAdvanceAnnouncement, calendarSetConfirmation, calendarShow } from '../features/calendar'
 import { campaignSetupConfirmation, campaignSetupTokenFailure } from '../features/campaign'
@@ -76,6 +78,7 @@ import {
   feedback as feedbackCommand,
   gold as goldCommand,
   handout as handoutCommand,
+  initiative as initiativeCommand,
   lfg as lfgCommand,
   map as mapCommand,
   loot as lootCommand,
@@ -209,6 +212,26 @@ function requireCampaign(interaction: ChatInputCommandInteraction, deps: Deps): 
 async function guildMemberOf(interaction: ChatInputCommandInteraction): Promise<GuildMember | undefined> {
   if (!interaction.guild) return undefined
   return interaction.guild.members.fetch(interaction.user.id).catch(() => undefined)
+}
+
+/**
+ * Who a Discord member is speaking as: the explicit `character:` option, else the single
+ * character they own here. Undefined when they own none, or several and did not say which —
+ * `/roll` then rolls under their Discord name, `/initiative` has to ask.
+ */
+function speakingAs(
+  interaction: ChatInputCommandInteraction,
+  deps: Deps,
+  campaign: Campaign,
+): Character | undefined {
+  const explicitName = interaction.options.getString('character')
+  if (explicitName) {
+    const char = deps.characters.byCampaignAndName(campaign.goblinCampaignId, explicitName)
+    if (!char) throw notFound(`No character named "${explicitName}" here.`)
+    return char
+  }
+  const mine = deps.characters.byOwner(campaign.goblinCampaignId, interaction.user.id)
+  return mine.length === 1 ? mine[0] : undefined
 }
 
 /** Same role read as the router's contextOf, duplicated locally rather than imported —
@@ -349,48 +372,66 @@ export const registry: Registry = {
       const expr = interaction.options.getString('expr', true)
       const result = rollExpression(expr)
 
-      let characterId: number | null = null
-      let rollerLabel = interaction.user.username
-      const explicitName = interaction.options.getString('character')
-      if (explicitName) {
-        const char = deps.characters.byCampaignAndName(campaign.goblinCampaignId, explicitName)
-        if (!char) throw notFound(`No character named "${explicitName}" here.`)
-        characterId = char.id
-        rollerLabel = char.name
-      } else {
-        const mine = deps.characters.byOwner(campaign.goblinCampaignId, interaction.user.id)
-        if (mine.length === 1) {
-          characterId = mine[0].id
-          rollerLabel = mine[0].name
-        }
-      }
+      const char = speakingAs(interaction, deps, campaign)
+      const faces = summarizeFaces(result)
 
       deps.rolls.record({
         campaignId: campaign.goblinCampaignId,
-        characterId,
+        characterId: char?.id ?? null,
         discordId: interaction.user.id,
         expr,
         total: result.total,
-        faces: summarizeFaces(result),
+        faces,
         isCrit: result.isCrit,
         isFail: result.isFail,
       })
-      if (characterId !== null) deps.characters.touchLastPlayed([characterId], Date.now())
+      if (char) deps.characters.touchLastPlayed([char.id], Date.now())
+
+      // Onto the table's own log, and from there into the session thread — so a player rolling
+      // from their phone shows up where everyone else's dice do. Best-effort by design: a
+      // campaign with no live table still rolls dice in Discord.
+      deps.sessionRunner.command(campaign.goblinCampaignId, 'rolls', 'post', {
+        source: 'discord',
+        characterName: char && cap(char.name, 60),
+        title: 'rolled in Discord',
+        formula: cap(expr, 100),
+        total: result.total,
+        text: cap(faces, 200),
+        visibility: 'public',
+      })
 
       await interaction.editReply({
-        components: [container(rollReply(rollerLabel, result))],
+        components: [container(rollReply(char?.name ?? interaction.user.username, result))],
         flags: MessageFlags.IsComponentsV2,
       })
     },
-    autocomplete: async (interaction, deps) => {
-      const campaign = deps.campaigns.byChannel(interaction.channelId)
-      if (!campaign) return interaction.respond([])
-      const names = filterAutocomplete(
-        deps.characters.byCampaign(campaign.goblinCampaignId).map((c) => c.name),
-        interaction.options.getFocused(),
-      )
-      await interaction.respond(names.map((name) => ({ name, value: name })))
+    autocomplete: characterAutocomplete,
+  },
+
+  initiative: {
+    data: initiativeCommand,
+    // The number's real home is the table's tracker and the session thread; this is a receipt,
+    // and every way it can fail is something only the player needs to read.
+    ephemeral: true,
+    authorize: memberOnly,
+    execute: async (interaction, deps) => {
+      const campaign = requireCampaign(interaction, deps)
+      const value = interaction.options.getInteger('value', true)
+      const entries = deps.sessionRunner.encounter(campaign.goblinCampaignId)?.entries ?? []
+      if (entries.length === 0) throw notFound("There's no encounter running at the table right now.")
+
+      // The seat wins when there is one: a claimed token says which combatant is this person's,
+      // and no name has to agree with any other name for that to be true.
+      const seat = tableIdentityOf(interaction.user.id)
+      const entry =
+        entries.find((e) => seat !== undefined && e.identityId === seat) ??
+        namedBy(entries, interaction, deps, campaign)
+      if (!deps.sessionRunner.command(campaign.goblinCampaignId, 'initiative', 'set', { key: entry.key, value }))
+        throw internal("I couldn't reach the table — say the number out loud and try again.")
+
+      await interaction.editReply(`Sent: **${entry.name}**, initiative ${value}.`)
     },
+    autocomplete: characterAutocomplete,
   },
 
   loot: {
@@ -589,6 +630,57 @@ export const registry: Registry = {
       await interaction.editReply(feedbackThanks())
     },
   },
+}
+
+/** Every character in the campaign, for the commands that take a `character:` — anyone may
+ * roll or answer initiative for a party member who is away from their phone. */
+async function characterAutocomplete(interaction: AutocompleteInteraction, deps: Deps): Promise<void> {
+  const campaign = deps.campaigns.byChannel(interaction.channelId)
+  if (!campaign) return interaction.respond([])
+  const names = filterAutocomplete(
+    deps.characters.byCampaign(campaign.goblinCampaignId).map((c) => c.name),
+    interaction.options.getFocused(),
+  )
+  await interaction.respond(names.map((name) => ({ name, value: name })))
+}
+
+/** The rolls module rejects an over-cap string outright rather than trimming it, so anything
+ * the bot forwards is cut to fit here — a long roll is worth showing shortened, not losing. */
+const cap = (text: string, max: number): string => (text.length <= max ? text : `${text.slice(0, max - 1)}…`)
+
+/**
+ * The table identity a Discord member holds, if any — the seam `/initiative` prefers over a
+ * name match, because a claimed combatant is a fact and a matching name is a guess.
+ *
+ * ponytail: always undefined. Nothing maps a Discord id to a table identity yet — no
+ * discord_id column exists on any seat — so the name path carries the command. Ceiling: two
+ * characters with the same name in one encounter are indistinguishable. When the column lands
+ * this becomes that lookup, returns the seat's `identityId`, and nothing else here changes.
+ */
+function tableIdentityOf(_discordId: string): string | undefined {
+  return undefined
+}
+
+/** The combatant whose name is the member's character's. Throws saying which of the three
+ * ways it failed — mid-fight, "no match" is not something a player can act on. */
+function namedBy(
+  entries: WireInitiativeEntry[],
+  interaction: ChatInputCommandInteraction,
+  deps: Deps,
+  campaign: Campaign,
+): WireInitiativeEntry {
+  const char = speakingAs(interaction, deps, campaign)
+  if (!char) {
+    const mine = deps.characters.byOwner(campaign.goblinCampaignId, interaction.user.id)
+    throw userInput(
+      mine.length > 1
+        ? `You have ${mine.length} characters here — add \`character:\` to say which one rolled.`
+        : "You don't have a character in this campaign — make one with `/character create`.",
+    )
+  }
+  const entry = entries.find((e) => e.name.toLowerCase() === char.name.toLowerCase())
+  if (!entry) throw notFound(`${char.name} isn't in this encounter — ask the DM to add them.`)
+  return entry
 }
 
 /** The scene library lives on the game server, not in the bot DB — the one autocomplete that

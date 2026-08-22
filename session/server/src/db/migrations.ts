@@ -114,4 +114,15 @@ export const MIGRATIONS: readonly string[] = [
   `
   ALTER TABLE scenes ADD COLUMN prep TEXT;
   `,
+
+  // 005 — landing page waitlist (P5a): one row per email, nothing else. The unique
+  // index is what makes a duplicate signup detectable without a read-then-write race.
+  `
+  CREATE TABLE waitlist (
+    id         TEXT    PRIMARY KEY,
+    email      TEXT    NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE UNIQUE INDEX idx_waitlist_email ON waitlist(email);
+  `,
 ]

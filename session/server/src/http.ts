@@ -97,6 +97,7 @@ async function route(deps: RouteDeps, req: IncomingMessage, res: ServerResponse)
     return getMapImage(deps, req, res, id, sub2)
   if (method === 'GET' && resource === 'assets' && id && !sub) return getAsset(deps, req, res, id)
   if (method === 'GET' && resource === 'resolve' && id) return resolveCode(deps, req, res, id)
+  if (method === 'POST' && resource === 'waitlist' && !id) return joinWaitlist(deps, req, res)
   if (method === 'POST' && resource === 'join' && !id) return joinSession(deps, req, res)
   if (method === 'POST' && resource === 'sessions' && !id) return openSession(deps, req, res)
   if (method === 'POST' && resource === 'identities' && id && sub === 'ban')
@@ -669,6 +670,28 @@ function resolveCode(deps: RouteDeps, req: IncomingMessage, res: ServerResponse,
   const session = resolveInviteCode(deps.stores.sessions, code)
   if (!session) return json(res, 404, { error: 'no active session for that code' })
   json(res, 200, { campaignId: session.campaign_id, sessionId: session.id })
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/**
+ * POST /api/waitlist — public; `{email}` in, `{duplicate}` out (P5a). Same shared budget
+ * as `/api/join`/`/api/resolve`: all three are unauthenticated, and a script hammering
+ * this one is exactly the traffic that limiter exists for.
+ *
+ * The only thing this route ever says about the list is whether *this* address is
+ * already on it — never a count, never another address, never anything else.
+ */
+async function joinWaitlist(deps: RouteDeps, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (rateLimited(deps, req, res)) return
+  const body = await readJson(req, res)
+  if (!body) return
+
+  const email = text(body.email)?.toLowerCase() ?? null
+  if (!email || !EMAIL_RE.test(email)) return json(res, 400, { error: 'invalid email' })
+
+  const { duplicate } = deps.stores.waitlist.add(email)
+  json(res, duplicate ? 200 : 201, { duplicate })
 }
 
 /** POST /api/join — public; `{code, name}` in, player session token out. */

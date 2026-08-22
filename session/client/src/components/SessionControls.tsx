@@ -1,6 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { WEATHERS, vocabLabel, type Weather } from '@dnd/core/src/shared/prep';
+import {
+  CONDITIONS,
+  HP_MAX,
+  conditionLabel,
+  type Condition,
+  type InitiativeEntry,
+  type InitiativeState,
+} from '@dnd/mechanics/initiative';
+import type { TokensState } from '@dnd/mechanics/tokens';
 import type { TriggersState } from '@dnd/mechanics/triggers';
 import { sceneTriggersOf } from '@dnd/mechanics/triggers';
 import {
@@ -12,6 +21,7 @@ import {
   uploadMapFile,
   type SceneMeta,
 } from '../session/auth';
+import { combatantCandidates } from '../session/initiativeView';
 import { readMapFile } from '../session/mapFile';
 import { ALL_ROLES, registerPanel } from '../session/panels';
 import { useModuleState, useSessionStore } from '../session/store';
@@ -25,6 +35,13 @@ const textInput =
   'w-full rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 text-sm text-neutral-100 focus:border-neutral-500 focus:outline-none';
 const selectInput =
   'min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 text-sm text-neutral-100 focus:border-neutral-500 focus:outline-none';
+// Its own constant rather than `${textInput} w-16`: both are width utilities, so which one
+// wins is down to their order in the generated stylesheet, not the order written here — and
+// `w-full` was winning, letting the field eat the row and truncate its own label to nothing.
+const numberInput =
+  'w-16 shrink-0 rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 text-sm text-neutral-100 focus:border-neutral-500 focus:outline-none';
+const actionButton =
+  'rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40';
 
 // A pending environment pick the module state never confirms (dropped command,
 // disconnect) must not show forever — each field's own timer falls it back to the
@@ -325,6 +342,11 @@ export function SessionControls() {
         )}
       </div>
 
+      <div className="border-t border-neutral-800 pt-2">
+        <p className="mb-1 text-xs uppercase tracking-wide text-neutral-500">Initiative</p>
+        <InitiativeControls activeSceneId={activeSceneId} />
+      </div>
+
       {/*
         The map editor's own publish is the primary way a scene gets here now (M3) — this
         is the backup path for a file that never went through it, so it reads as one rather
@@ -352,6 +374,234 @@ export function SessionControls() {
           {error}
         </p>
       )}
+    </div>
+  );
+}
+
+const sendInitiative = (action: string, payload: unknown): void =>
+  useSessionStore.getState().sendCommand('initiative', action, payload);
+
+/**
+ * The DM's half of the tracker: pick the fight, take the numbers, walk the turns. The number
+ * inputs are the *only* way an NPC gets an initiative — nothing here rolls dice (D7), so the
+ * DM types what they rolled at the table.
+ *
+ * The party's own numbers arrive on their own: a player's roll is captured where it is sent
+ * (the Beyond20 bridge, the roll box) and the prompt card catches whoever did not roll.
+ */
+function InitiativeControls({ activeSceneId }: { activeSceneId: string | null }) {
+  const state = useModuleState<InitiativeState>('initiative');
+  const tokens = useModuleState<TokensState>('tokens');
+  const candidates = useMemo(
+    () => combatantCandidates(tokens, activeSceneId),
+    [tokens, activeSceneId],
+  );
+  // Overrides on top of "every claimed token is in, no unclaimed one is", rather than a
+  // seeded selection — so the list needs no sync pass when a token is claimed mid-pick.
+  const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [newName, setNewName] = useState('');
+
+  if (!state || state.status === 'idle') {
+    if (!activeSceneId) {
+      return <p className="text-sm text-neutral-500">Activate a scene to start an encounter.</p>;
+    }
+    if (candidates.length === 0) {
+      return <p className="text-sm text-neutral-500">No tokens on this scene yet.</p>;
+    }
+    const chosen = candidates.filter((c) => picked[c.tokenId] ?? c.kind === 'pc');
+    return (
+      <div className="flex flex-col gap-1">
+        <ul className="flex flex-col gap-0.5" data-testid="initiative-candidates">
+          {candidates.map((c) => (
+            <li key={c.tokenId}>
+              <label className="flex items-center gap-1 text-sm text-neutral-300">
+                <input
+                  type="checkbox"
+                  checked={picked[c.tokenId] ?? c.kind === 'pc'}
+                  onChange={(e) =>
+                    setPicked((p) => ({ ...p, [c.tokenId]: e.target.checked }))
+                  }
+                />
+                <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                <span className="text-xs text-neutral-500">
+                  {c.kind === 'pc' ? 'Player' : 'NPC'}
+                </span>
+              </label>
+            </li>
+          ))}
+        </ul>
+        <button
+          type="button"
+          disabled={chosen.length === 0}
+          // `tokenId` rides on every entry: the turn ring on the map has nothing else to
+          // find the combatant's token by.
+          onClick={() =>
+            sendInitiative('start', {
+              sceneId: activeSceneId,
+              entries: chosen.map(({ tokenId, name, kind, identityId }) => ({
+                tokenId,
+                name,
+                kind,
+                ...(identityId ? { identityId } : {}),
+              })),
+            })
+          }
+          className={actionButton}
+        >
+          Start encounter
+        </button>
+      </div>
+    );
+  }
+
+  const gathering = state.status === 'gathering';
+  return (
+    <div className="flex flex-col gap-1">
+      <ul className="flex flex-col gap-0.5" data-testid="initiative-entries">
+        {state.entries.map((entry) => (
+          <li key={entry.key} className="flex flex-wrap items-center gap-1">
+            <span className="min-w-0 flex-1 truncate text-sm text-neutral-300">{entry.name}</span>
+            <input
+              // Uncontrolled, re-keyed on the value the server holds: while the DM types, the
+              // DOM owns the text; when anyone else's number lands, the row remounts showing
+              // it. No draft state, and no round-trip flicker on the way back.
+              key={`${entry.key}:${entry.initiative}`}
+              type="number"
+              defaultValue={entry.initiative ?? ''}
+              aria-label={`Initiative for ${entry.name}`}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+              }}
+              // Only on an actual change: re-sending the same number would put a second
+              // "rolls initiative" line in the log for a blur nobody edited.
+              onBlur={(e) => {
+                const value = Number(e.target.value);
+                if (e.target.value.trim() && Number.isFinite(value) && value !== entry.initiative) {
+                  sendInitiative('set', { key: entry.key, value });
+                }
+              }}
+              className={numberInput}
+            />
+            <button
+              type="button"
+              aria-label={`Remove ${entry.name}`}
+              onClick={() => sendInitiative('remove', { key: entry.key })}
+              className={iconButton}
+            >
+              ✕
+            </button>
+            <Bookkeeping entry={entry} />
+          </li>
+        ))}
+      </ul>
+
+      <form
+        className="flex gap-1"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const name = newName.trim();
+          if (!name) return;
+          // No token: a reinforcement the DM names mid-fight is off-board until they place
+          // one, and `add` takes it either way.
+          sendInitiative('add', { name, kind: 'npc' });
+          setNewName('');
+        }}
+      >
+        <input
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          aria-label="Add a combatant"
+          placeholder="Add a combatant"
+          maxLength={60}
+          className={textInput}
+        />
+        <button type="submit" disabled={!newName.trim()} className={actionButton}>
+          Add
+        </button>
+      </form>
+
+      <div className="flex gap-1">
+        <button
+          type="button"
+          onClick={() => sendInitiative(gathering ? 'begin' : 'next', {})}
+          className={actionButton}
+        >
+          {gathering ? 'Begin' : 'Next turn'}
+        </button>
+        <button
+          type="button"
+          onClick={() => sendInitiative('end', {})}
+          className={`${actionButton} ml-auto`}
+        >
+          End encounter
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The second line of a combatant's row: the pool, a damage box, a condition toggle. The
+ * numbers and chips themselves are read off the tracker panel above, which both seats share
+ * — so this line is inputs only, and stays the same width whether or not anything is set.
+ */
+function Bookkeeping({ entry }: { entry: InitiativeEntry }) {
+  const has = entry.conditions ?? [];
+  return (
+    <div className="flex basis-full items-center gap-1 pl-2">
+      <input
+        key={`${entry.key}:${entry.hp?.max ?? ''}`}
+        type="number"
+        min={1}
+        max={HP_MAX}
+        defaultValue={entry.hp?.max ?? ''}
+        placeholder="max"
+        aria-label={`Max HP for ${entry.name}`}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
+        onBlur={(e) => {
+          const max = Number(e.target.value);
+          if (e.target.value.trim() && Number.isInteger(max) && max > 0 && max !== entry.hp?.max) {
+            // A corrected max keeps the damage already taken; the module clamps the rest.
+            sendInitiative('hp', { key: entry.key, max, ...(entry.hp ? { current: entry.hp.current } : {}) });
+          }
+        }}
+        className={numberInput}
+      />
+      <input
+        type="number"
+        placeholder="dmg"
+        title="Damage taken — a negative number heals"
+        aria-label={`Damage to ${entry.name}`}
+        disabled={!entry.hp}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter') return;
+          const amount = Number(e.currentTarget.value);
+          if (Number.isInteger(amount) && amount !== 0) {
+            sendInitiative('damage', { key: entry.key, amount });
+            e.currentTarget.value = '';
+          }
+        }}
+        className={`${numberInput} disabled:opacity-40`}
+      />
+      <select
+        value=""
+        aria-label={`Conditions for ${entry.name}`}
+        onChange={(e) => {
+          const name = e.target.value;
+          if (name) sendInitiative('condition', { key: entry.key, name, on: !has.includes(name as Condition) });
+        }}
+        className={selectInput}
+      >
+        <option value="">{has.length ? has.map(conditionLabel).join(', ') : 'Condition…'}</option>
+        {CONDITIONS.map((c) => (
+          <option key={c} value={c}>
+            {has.includes(c) ? '✓ ' : ''}
+            {conditionLabel(c)}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

@@ -8,7 +8,7 @@ import { triggersModule, worldOf, type TriggersState } from '@dnd/mechanics/trig
 import { openDb } from '../db/db'
 import { createStores } from '../db/stores'
 import { ModuleRegistry } from '../modules/registry'
-import { DEFAULT_TICK_MS, WorldTicker, type TickSession } from './WorldTicker'
+import { WorldTicker, type TickSession } from './WorldTicker'
 
 const SCENE = 'scene-1'
 

@@ -100,8 +100,9 @@ describe('observer', () => {
     latest().deliver({ type: 'state-update', module: 'rolls', state: { log: [] } })
     latest().deliver({ type: 'state-update', module: 'fog', state: { log: [] } })
     latest().deliver({ type: 'state-update', module: 'triggers', state: { byScene: {} } })
+    latest().deliver({ type: 'state-update', module: 'initiative', state: { log: [] } })
     // A module the bot has no use for, and a message type that does not exist yet.
-    latest().deliver({ type: 'state-update', module: 'initiative', state: {} })
+    latest().deliver({ type: 'state-update', module: 'scenes', state: {} })
     latest().deliver({ type: 'some-future-thing' })
     expect(events.map((e) => e.type)).toEqual([
       'session-state',
@@ -111,6 +112,7 @@ describe('observer', () => {
       'rolls',
       'fog',
       'triggers',
+      'initiative',
     ])
   })
 

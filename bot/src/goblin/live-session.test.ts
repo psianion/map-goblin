@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createSessionRunner, throttle, EMBED_EDIT_MS } from './live-session'
-import type { GoblinEvent, Observer } from './observer'
+import { PROTOCOL_VERSION, type GoblinEvent, type Observer } from './observer'
 import type { GoblinRest } from './rest'
 import { openDb } from '../db/db'
 import { createCalendar, createCampaigns, createCharacters, createSessions, type Campaign } from '../db/stores'
@@ -52,7 +52,12 @@ function harness(
 
   const posted: Posted[] = []
   const edited: Edited[] = []
-  const observers: { emit: (event: GoblinEvent) => void; stopped: () => boolean }[] = []
+  const observers: {
+    emit: (event: GoblinEvent) => void
+    stopped: () => boolean
+    /** What the bot ran on the table through this seat — initiative arrives this way. */
+    sent: { module: string; action: string; payload: unknown }[]
+  }[] = []
   const endCalls: string[] = []
   const threads: { channelId: string; name: string }[] = []
   const archived: string[] = []
@@ -94,11 +99,21 @@ function harness(
     createObserver: () => {
       const listeners = new Set<(event: GoblinEvent) => void>()
       let stopped = false
-      observers.push({ emit: (event) => listeners.forEach((l) => l(event)), stopped: () => stopped })
+      const sent: { module: string; action: string; payload: unknown }[] = []
+      observers.push({
+        emit: (event) => listeners.forEach((l) => l(event)),
+        stopped: () => stopped,
+        sent,
+      })
       const observer: Observer = {
         subscribe: (listener) => {
           listeners.add(listener)
           return () => listeners.delete(listener)
+        },
+        command: (module, action, payload) => {
+          if (stopped) return false
+          sent.push({ module, action, payload })
+          return true
         },
         stop: () => {
           stopped = true
@@ -117,7 +132,7 @@ function harness(
 const snapshot: GoblinEvent = {
   type: 'session-state',
   state: {
-    protocolVersion: 4,
+    protocolVersion: PROTOCOL_VERSION,
     sessionId: 'sess-1',
     campaignId: 'camp-1',
     activeSceneId: 'scene-1',
@@ -411,6 +426,27 @@ describe('session runner', () => {
       tokens: [{ id: 't1', name: 'Zed', x: 1, y: 2, cells: 2, disposition: 'hostile', hidden: true }],
     })
     expect(runner.liveState('camp-nope')).toBeUndefined()
+  })
+
+  it('holds the encounter for /initiative and sends commands through the live seat', async () => {
+    const { runner, campaign, observers } = harness()
+    await runner.start(campaign)
+    observers[0].emit(snapshot)
+    expect(runner.encounter('camp-1')).toBeUndefined()
+
+    observers[0].emit({
+      type: 'initiative',
+      state: { status: 'gathering', entries: [{ key: 'e1', name: 'Zed', initiative: null }] },
+    })
+    expect(runner.encounter('camp-1')?.entries).toEqual([{ key: 'e1', name: 'Zed', initiative: null }])
+    expect(runner.encounter('camp-nope')).toBeUndefined()
+
+    expect(runner.command('camp-1', 'initiative', 'set', { key: 'e1', value: 17 })).toBe(true)
+    expect(observers[0].sent).toEqual([
+      { module: 'initiative', action: 'set', payload: { key: 'e1', value: 17 } },
+    ])
+    // Nothing watching that campaign: the caller has to hear "it did not land".
+    expect(runner.command('camp-nope', 'initiative', 'set', { key: 'e1', value: 17 })).toBe(false)
   })
 
   // ── the session log thread ──────────────────────────────────────────────────────────────

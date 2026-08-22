@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { GoblinEvent } from './observer'
+import { PROTOCOL_VERSION, type GoblinEvent } from './observer'
 import { chunkLines, createSessionLog, mapNames } from './session-log'
 
 const noNames = (): undefined => undefined
@@ -7,7 +7,7 @@ const noNames = (): undefined => undefined
 const snapshot = (modules: Record<string, unknown> = {}): GoblinEvent => ({
   type: 'session-state',
   state: {
-    protocolVersion: 4,
+    protocolVersion: PROTOCOL_VERSION,
     sessionId: 'sess-1',
     campaignId: 'camp-1',
     activeSceneId: 'scene-1',

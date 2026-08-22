@@ -17,7 +17,7 @@ import { log as defaultLog } from '../lib/log'
 import type { AttachedFile, ContainerSpec } from '../lib/ui'
 import { mapSvg, type MapToken } from '../render/map-svg'
 import { rasterize } from '../render/raster'
-import type { Observer } from './observer'
+import type { InitiativeState, Observer } from './observer'
 import type { GoblinRest } from './rest'
 import { chunkLines, createSessionLog, mapNames, type LogLine } from './session-log'
 import { createSessionStats, type SessionStats } from './session-stats'
@@ -63,6 +63,11 @@ export interface SessionRunner {
   /** What the observer currently knows about a campaign's table — the scene `/map` defaults
    * to, and the tokens it overlays. Undefined when no session is being watched. */
   liveState: (campaignId: string) => { sceneId: string | null; tokens: MapToken[] } | undefined
+  /** The encounter the table is running, if any — what `/initiative` resolves a name against. */
+  encounter: (campaignId: string) => InitiativeState | undefined
+  /** Runs a command on that campaign's table through the seat the observer holds. False means
+   * there was nothing live to say it through, so the caller must not claim it landed. */
+  command: (campaignId: string, module: string, action: string, payload: unknown) => boolean
 }
 
 /** The recap's map file name; `media` references it as `attachment://` (plan §7). */
@@ -84,6 +89,9 @@ interface Running {
   logFlush: Throttled
   /** Only set for a resumed session: a live one has a socket that already worked. */
   deadTries: number | null
+  /** The last initiative snapshot, kept whole so `/initiative` matches against the same roster
+   * the table is looking at. Undefined until an encounter starts. */
+  encounter: InitiativeState | undefined
   /** Flushes a refresh that fired — and found no live message id yet, so did nothing — before
    *  the initial announce() finished. The observer's own snapshot routinely beats that Discord
    *  round-trip, and without this the throttle's one guaranteed leading edge is spent on
@@ -171,6 +179,7 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
       refresh,
       logFlush,
       deadTries: resumed ? 0 : null,
+      encounter: undefined,
       flushIfMissed: () => {
         if (missedBeforeReady) refresh.call()
       },
@@ -205,6 +214,7 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
         })
       }
       stats.apply(event)
+      if (event.type === 'initiative') entry.encounter = event.state
       if (event.type === 'session-state') void loadNames(event.state.activeSceneId)
       if (event.type === 'scene-changed') void loadNames(event.sceneId)
       const lines = sessionLog.apply(event)
@@ -369,13 +379,24 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
     },
 
     liveState: (campaignId) => {
-      for (const entry of running.values()) {
-        if (entry.campaign.goblinCampaignId !== campaignId) continue
-        const sceneId = entry.stats.live().sceneId
-        return { sceneId, tokens: sceneId ? entry.stats.tokens(sceneId) : [] }
-      }
-      return undefined
+      const entry = watching(campaignId)
+      if (!entry) return undefined
+      const sceneId = entry.stats.live().sceneId
+      return { sceneId, tokens: sceneId ? entry.stats.tokens(sceneId) : [] }
     },
+
+    encounter: (campaignId) => watching(campaignId)?.encounter,
+
+    command: (campaignId, module, action, payload) =>
+      watching(campaignId)?.observer.command(module, action, payload) ?? false,
+  }
+
+  /** The one session being watched for a campaign — a campaign runs at most one table. */
+  function watching(campaignId: string): Running | undefined {
+    for (const entry of running.values()) {
+      if (entry.campaign.goblinCampaignId === campaignId) return entry
+    }
+    return undefined
   }
 }
 

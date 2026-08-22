@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
+import { PROTOCOL_VERSION } from './config'
 import type { ServerMessage } from '@dnd/core/src/shared/protocol'
 import { createAdminPass, signToken } from './auth'
 import { MAX_ASSET_BYTES, MAX_MAP_BYTES } from './db/stores'
@@ -94,7 +95,7 @@ async function joinSocket(
 ): Promise<{ socket: WebSocket; state: Extract<ServerMessage, { type: 'session-state' }> }> {
   const socket = new WebSocket(`ws://127.0.0.1:${port}/?token=${token}`)
   await once(socket, 'open')
-  socket.send(JSON.stringify({ type: 'join', protocolVersion: 4 }))
+  socket.send(JSON.stringify({ type: 'join', protocolVersion: PROTOCOL_VERSION }))
   return { socket, state: await nextMessage(socket, 'session-state') }
 }
 
@@ -1238,7 +1239,7 @@ describe('a session that has ended stays ended', () => {
 
       // The socket cannot join the session back into existence...
       const ended = nextMessage(idle, 'session-ended')
-      idle.send(JSON.stringify({ type: 'join', protocolVersion: 4 }))
+      idle.send(JSON.stringify({ type: 'join', protocolVersion: PROTOCOL_VERSION }))
       await ended
       await once(idle, 'close')
 
@@ -1318,6 +1319,24 @@ describe('banning', () => {
       expect((await ban('no-such-identity', mine.dmToken)).status).toBe(404)
       // And a DM cannot lock themselves out of their own campaign with one typo.
       expect((await ban(otherDm, other.body.token as string)).status).toBe(400)
+    })
+  })
+})
+
+describe('waitlist (P5a)', () => {
+  it('creates on first submission, flags a duplicate, rejects a bad address', async () => {
+    await withServer(async ({ base }) => {
+      const first = await api(base, 'POST', '/api/waitlist', { body: { email: 'dm@yourtable.com' } })
+      expect(first.status).toBe(201)
+      expect(first.body).toEqual({ duplicate: false })
+
+      // Case/whitespace does not buy a second row — same address, same person.
+      const again = await api(base, 'POST', '/api/waitlist', { body: { email: '  DM@yourtable.com  ' } })
+      expect(again.status).toBe(200)
+      expect(again.body).toEqual({ duplicate: true })
+
+      const bad = await api(base, 'POST', '/api/waitlist', { body: { email: 'not-an-email' } })
+      expect(bad.status).toBe(400)
     })
   })
 })

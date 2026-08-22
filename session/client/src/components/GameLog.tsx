@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DoorsState } from '@dnd/mechanics/doors';
 import type { FogState } from '@dnd/mechanics/fog';
+import type { InitiativeState } from '@dnd/mechanics/initiative';
 import type { RollEvent } from '@dnd/mechanics/rolls';
 import type { TriggersState } from '@dnd/mechanics/triggers';
 import { sceneTriggersOf } from '@dnd/mechanics/triggers';
+import { captureFromRoll } from '../session/initiativeView';
 import { ALL_ROLES, registerPanel } from '../session/panels';
 import { useModuleState, useSessionStore } from '../session/store';
 import { tableLogLines } from '../session/tableLog';
@@ -40,8 +42,12 @@ export function GameLog() {
   // Already redacted for this viewer server-side (players: `toPlayers` lines plus their own
   // outcomes; the DM: everything) — nothing to filter again here, unlike doors/fog above.
   const triggers = useModuleState<TriggersState>('triggers');
+  // Composed server-side, printed verbatim — the table and the bot's thread word the fight
+  // identically because neither of them writes the sentence.
+  const initiative = useModuleState<InitiativeState>('initiative');
   const mapData = useSessionStore((s) => s.mapData);
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
+  const identityId = useSessionStore((s) => s.you?.identityId);
   const [draft, setDraft] = useState('');
   const feedRef = useRef<HTMLOListElement>(null);
 
@@ -79,10 +85,22 @@ export function GameLog() {
     const triggerEntries = (sceneId && triggers ? sceneTriggersOf(triggers, sceneId).log : []).map(
       (e) => ({ key: e.id, at: e.at, who: '', text: e.text, whisper: false, presence: true }),
     );
-    return [...rollEntries, ...presenceEntries, ...tableEntries, ...triggerEntries].sort(
-      (a, b) => a.at - b.at,
-    );
-  }, [rolls, presence, doors, fog, triggers, mapData, sceneId]);
+    const initiativeEntries = (Array.isArray(initiative?.log) ? initiative.log : []).map((e) => ({
+      key: e.id,
+      at: e.at,
+      who: '',
+      text: e.text,
+      whisper: false,
+      presence: true,
+    }));
+    return [
+      ...rollEntries,
+      ...presenceEntries,
+      ...tableEntries,
+      ...triggerEntries,
+      ...initiativeEntries,
+    ].sort((a, b) => a.at - b.at);
+  }, [rolls, presence, doors, fog, triggers, initiative, mapData, sceneId]);
 
   // Newest at the bottom, so follow it. Not setState — no render loop.
   useEffect(() => {
@@ -97,6 +115,11 @@ export function GameLog() {
     useSessionStore
       .getState()
       .sendCommand('rolls', 'post', { source: 'manual', text, visibility: 'public' });
+    // Auto-track: "initiative 17" typed here is also this seat's initiative, so it lands in
+    // the tracker without anyone typing the number twice. Capture happens at the sender —
+    // same call the Beyond20 bridge makes, same rule deciding what counts.
+    const set = captureFromRoll(initiative, identityId, { text });
+    if (set) useSessionStore.getState().sendCommand('initiative', 'set', set);
     setDraft('');
   };
 

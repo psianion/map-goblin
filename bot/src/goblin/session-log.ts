@@ -105,6 +105,10 @@ export function createSessionLog(nameOf: NameOf): SessionLog {
     return lines
   }
 
+  /** A line whose sentence was written server-side; the mirror only decides where it goes. */
+  const writtenLine = (entry: WireTriggerEntry): LogLine | null =>
+    entry.text ? quiet(entry.at, entry.text) : null
+
   const doorFogLine = (entry: WireLogEntry): LogLine | null => {
     const sentence = logSentence(entry.action, entry.targetId ? nameOf(entry.targetId) : undefined)
     return sentence ? quiet(entry.at, `${entry.actor || 'Someone'} ${sentence}`) : null
@@ -119,6 +123,10 @@ export function createSessionLog(nameOf: NameOf): SessionLog {
       ...diff(
         triggerLogsOf((modules?.triggers as { byScene?: Record<string, { log?: unknown }> }) ?? {}),
         speak ? (e) => (e.text ? quiet(e.at, e.text) : null) : null,
+      ),
+      ...diff(
+        listOf<WireTriggerEntry>((modules?.initiative as { log?: unknown })?.log),
+        speak ? writtenLine : null,
       ),
     ].sort((a, b) => a.at - b.at)
   }
@@ -151,6 +159,8 @@ export function createSessionLog(nameOf: NameOf): SessionLog {
           return diff(listOf<WireLogEntry>(event.state.log), doorFogLine)
         case 'triggers':
           return diff(triggerLogsOf(event.state), (e) => (e.text ? quiet(e.at, e.text) : null))
+        case 'initiative':
+          return diff(listOf<WireTriggerEntry>(event.state.log), writtenLine)
         default:
           return []
       }

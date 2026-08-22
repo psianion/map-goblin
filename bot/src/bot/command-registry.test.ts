@@ -19,6 +19,7 @@ import {
   createSessions,
   type Campaign,
 } from '../db/stores'
+import type { WireInitiativeEntry } from '../goblin/observer'
 import { parse } from '../lib/custom-id'
 import type { AttachedFile, ContainerSpec } from '../lib/ui'
 import { dmMap, playerMap } from '../render/__fixtures__/two-rooms'
@@ -174,6 +175,9 @@ const stubRunner = (): Deps['sessionRunner'] => ({
   start: unused,
   end: unused,
   liveState: () => undefined,
+  encounter: () => undefined,
+  // No live table by default — the /roll forward is best-effort, so it must not throw here.
+  command: () => false,
   resume: unused,
   stopAll: unused,
 })
@@ -916,5 +920,118 @@ describe('/roll — stamps last_played on the attributed character', () => {
     const zed = deps.characters.create({ discordId: 'user-2', campaignId: 'camp-1', name: 'Zed', className: 'Fighter', level: 1 })
     await registry.roll.execute(chatInteraction({ strings: { expr: '1d20' } }) as never, deps) // user-1 owns none here
     expect(deps.characters.byId(zed.id)?.lastPlayed).toBeNull()
+  })
+})
+
+// ── the table bridge: /roll forwarding and /initiative ──────────────────────────────────────
+
+interface TableCall {
+  campaignId: string
+  module: string
+  action: string
+  payload: unknown
+}
+
+/** Deps whose runner is watching a table: `sent` is what the bot ran on it. */
+function tableDeps(over: { entries?: WireInitiativeEntry[]; reachable?: boolean } = {}) {
+  const sentToTable: TableCall[] = []
+  const { deps } = seededDeps({
+    sessionRunner: {
+      ...stubRunner(),
+      encounter: () => (over.entries ? { status: 'gathering', entries: over.entries } : undefined),
+      command: (campaignId, module, action, payload) => {
+        sentToTable.push({ campaignId, module, action, payload })
+        return over.reachable ?? true
+      },
+    },
+  })
+  return { deps, sentToTable }
+}
+
+const entry = (key: string, name: string): WireInitiativeEntry => ({ key, name, initiative: null })
+
+describe('/roll — mirrored onto the table', () => {
+  it("forwards the roll as the character, tagged as Discord's", async () => {
+    const { deps, sentToTable } = tableDeps()
+    deps.characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Zed', className: 'Fighter', level: 1 })
+
+    await registry.roll.execute(chatInteraction({ strings: { expr: '2d6+3' } }) as never, deps)
+
+    expect(sentToTable).toHaveLength(1)
+    expect(sentToTable[0]).toMatchObject({ campaignId: 'camp-1', module: 'rolls', action: 'post' })
+    expect(sentToTable[0].payload).toMatchObject({
+      source: 'discord',
+      characterName: 'Zed',
+      formula: '2d6+3',
+      visibility: 'public',
+    })
+  })
+
+  it('still rolls dice when no table is listening', async () => {
+    const { deps } = seededDeps() // stubRunner's command answers false
+    const interaction = chatInteraction({ strings: { expr: '1d20' } })
+    await expect(registry.roll.execute(interaction as never, deps)).resolves.toBeUndefined()
+    expect(interaction.calls).toHaveLength(1)
+  })
+})
+
+describe('/initiative — a Discord roll into the live encounter', () => {
+  it("matches the roller's one character by name and sets its key", async () => {
+    const { deps, sentToTable } = tableDeps({ entries: [entry('e1', 'Goblin'), entry('e2', 'Zed')] })
+    deps.characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Zed', className: 'Fighter', level: 1 })
+
+    const interaction = chatInteraction({ integers: { value: 17 } })
+    await registry.initiative.execute(interaction as never, deps)
+
+    expect(sentToTable).toEqual([
+      { campaignId: 'camp-1', module: 'initiative', action: 'set', payload: { key: 'e2', value: 17 } },
+    ])
+    expect(String(interaction.calls[0][1])).toContain('Zed')
+  })
+
+  it('takes the character option when the member owns several', async () => {
+    const { deps, sentToTable } = tableDeps({ entries: [entry('e1', 'Marra')] })
+    deps.characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Zed', className: 'Fighter', level: 1 })
+    deps.characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Marra', className: 'Cleric', level: 1 })
+
+    await registry.initiative.execute(
+      chatInteraction({ integers: { value: 8 }, strings: { character: 'Marra' } }) as never,
+      deps,
+    )
+    expect(sentToTable[0].payload).toEqual({ key: 'e1', value: 8 })
+  })
+
+  it('names the actual problem rather than failing generically', async () => {
+    const noFight = tableDeps()
+    noFight.deps.characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Zed', className: 'Fighter', level: 1 })
+    await expect(
+      registry.initiative.execute(chatInteraction({ integers: { value: 17 } }) as never, noFight.deps),
+    ).rejects.toThrowError(/no encounter running/i)
+
+    const ambiguous = tableDeps({ entries: [entry('e1', 'Zed')] })
+    ambiguous.deps.characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Zed', className: 'Fighter', level: 1 })
+    ambiguous.deps.characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Marra', className: 'Cleric', level: 1 })
+    await expect(
+      registry.initiative.execute(chatInteraction({ integers: { value: 17 } }) as never, ambiguous.deps),
+    ).rejects.toThrowError(/character:/)
+
+    const bystander = tableDeps({ entries: [entry('e1', 'Goblin')] })
+    bystander.deps.characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Zed', className: 'Fighter', level: 1 })
+    await expect(
+      registry.initiative.execute(chatInteraction({ integers: { value: 17 } }) as never, bystander.deps),
+    ).rejects.toThrowError(/isn't in this encounter/)
+
+    const noCharacter = tableDeps({ entries: [entry('e1', 'Goblin')] })
+    await expect(
+      registry.initiative.execute(chatInteraction({ integers: { value: 17 } }) as never, noCharacter.deps),
+    ).rejects.toThrowError(/character create/)
+  })
+
+  it('admits the number never landed when the seat is gone', async () => {
+    const { deps } = tableDeps({ entries: [entry('e1', 'Zed')], reachable: false })
+    deps.characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Zed', className: 'Fighter', level: 1 })
+    await expect(
+      registry.initiative.execute(chatInteraction({ integers: { value: 17 } }) as never, deps),
+    ).rejects.toThrowError(/couldn't reach the table/)
   })
 })
