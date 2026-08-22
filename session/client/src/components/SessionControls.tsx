@@ -30,18 +30,18 @@ import { PlayerList } from './PlayerList';
 
 const row = 'flex items-center gap-2 rounded px-2 py-1';
 const iconButton =
-  'shrink-0 rounded px-1.5 py-0.5 text-xs text-neutral-400 hover:bg-neutral-700 hover:text-neutral-100 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-neutral-400';
+  'shrink-0 rounded px-1.5 py-0.5 text-xs text-text-secondary hover:bg-surface-3 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-text-secondary';
 const textInput =
-  'w-full rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 text-sm text-neutral-100 focus:border-neutral-500 focus:outline-none';
+  'w-full rounded border border-border-default bg-surface-1 px-1.5 py-0.5 text-sm text-text-primary focus:border-border-focus focus:outline-none';
 const selectInput =
-  'min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 text-sm text-neutral-100 focus:border-neutral-500 focus:outline-none';
+  'min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1.5 py-0.5 text-sm text-text-primary focus:border-border-focus focus:outline-none';
 // Its own constant rather than `${textInput} w-16`: both are width utilities, so which one
 // wins is down to their order in the generated stylesheet, not the order written here — and
 // `w-full` was winning, letting the field eat the row and truncate its own label to nothing.
 const numberInput =
-  'w-16 shrink-0 rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 text-sm text-neutral-100 focus:border-neutral-500 focus:outline-none';
+  'w-16 shrink-0 rounded border border-border-default bg-surface-1 px-1.5 py-0.5 text-sm text-text-primary focus:border-border-focus focus:outline-none';
 const actionButton =
-  'rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40';
+  'rounded border border-border-default bg-surface-1 px-2 py-1 text-xs text-text-secondary hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40';
 
 // A pending environment pick the module state never confirms (dropped command,
 // disconnect) must not show forever — each field's own timer falls it back to the
@@ -206,13 +206,13 @@ export function SessionControls() {
       <InviteCodeChip />
 
       <div>
-        <p className="mb-1 text-xs uppercase tracking-wide text-neutral-500">Scenes</p>
+        <p className="mb-1 text-xs uppercase tracking-wide text-text-muted">Scenes</p>
         {scenes.length === 0 ? (
-          <p className="text-sm text-neutral-500">No maps published yet.</p>
+          <p className="text-sm text-text-muted">No maps published yet.</p>
         ) : (
           <ul className="flex flex-col gap-1" data-testid="scene-list">
             {scenes.map((scene, index) => (
-              <li key={scene.id} className="rounded bg-neutral-900/60">
+              <li key={scene.id} className="rounded bg-surface-2/60">
                 <div className={row}>
                   <button
                     type="button"
@@ -254,8 +254,8 @@ export function SessionControls() {
                       onClick={() => activate(scene.id)}
                       className={`min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-sm ${
                         scene.id === activeSceneId
-                          ? 'bg-neutral-800 text-neutral-100'
-                          : 'text-neutral-400 hover:bg-neutral-800/60 hover:text-neutral-200'
+                          ? 'bg-surface-3 text-text-primary'
+                          : 'text-text-secondary hover:bg-surface-2/60 hover:text-text-primary'
                       }`}
                     >
                       {scene.name}
@@ -263,7 +263,7 @@ export function SessionControls() {
                   )}
                 </div>
 
-                <div className={`${row} flex-wrap text-xs text-neutral-500`}>
+                <div className={`${row} flex-wrap text-xs text-text-muted`}>
                   <label className="flex items-center gap-1">
                     <input
                       type="checkbox"
@@ -299,7 +299,7 @@ export function SessionControls() {
                     type="button"
                     disabled={busy}
                     onClick={() => void remove(scene)}
-                    className={`${iconButton} ml-auto hover:text-red-400`}
+                    className={`${iconButton} ml-auto hover:text-danger`}
                   >
                     Delete
                   </button>
@@ -310,12 +310,12 @@ export function SessionControls() {
         )}
       </div>
 
-      <div className="border-t border-neutral-800 pt-2">
-        <p className="mb-1 text-xs uppercase tracking-wide text-neutral-500">Environment</p>
+      <div className="border-t border-border-default pt-2">
+        <p className="mb-1 text-xs uppercase tracking-wide text-text-muted">Environment</p>
         {activeSceneId ? (
           <div className="flex min-w-0 flex-col gap-0.5">
             {/* Sentence case, no tracking — a field under the ENVIRONMENT header, not a peer section. */}
-            <label htmlFor="env-weather-select" className="text-xs text-neutral-500">
+            <label htmlFor="env-weather-select" className="text-xs text-text-muted">
               Weather
             </label>
             <select
@@ -338,12 +338,12 @@ export function SessionControls() {
             </select>
           </div>
         ) : (
-          <p className="text-sm text-neutral-500">Activate a scene to set its environment.</p>
+          <p className="text-sm text-text-muted">Activate a scene to set its environment.</p>
         )}
       </div>
 
-      <div className="border-t border-neutral-800 pt-2">
-        <p className="mb-1 text-xs uppercase tracking-wide text-neutral-500">Initiative</p>
+      <div className="border-t border-border-default pt-2">
+        <p className="mb-1 text-xs uppercase tracking-wide text-text-muted">Initiative</p>
         <InitiativeControls activeSceneId={activeSceneId} />
       </div>
 
@@ -352,7 +352,7 @@ export function SessionControls() {
         is the backup path for a file that never went through it, so it reads as one rather
         than the main "add a scene" affordance it used to be.
       */}
-      <label className="border-t border-neutral-800 pt-2 text-xs text-neutral-500">
+      <label className="border-t border-border-default pt-2 text-xs text-text-muted">
         {busy ? 'Working…' : 'Import a map file'}
         <input
           type="file"
@@ -365,12 +365,12 @@ export function SessionControls() {
             e.target.value = ''; // so re-picking the same file fires again
             if (file) void upload(file);
           }}
-          className="mt-1 w-full text-xs text-neutral-400 file:mr-2 file:rounded file:border-0 file:bg-neutral-800 file:px-2 file:py-1 file:text-xs file:text-neutral-100 hover:file:bg-neutral-700"
+          className="mt-1 w-full text-xs text-text-secondary file:mr-2 file:rounded file:border-0 file:bg-surface-3 file:px-2 file:py-1 file:text-xs file:text-text-primary hover:file:bg-surface-2"
         />
       </label>
 
       {error && (
-        <p role="alert" className="rounded border border-red-900 bg-red-950/60 px-2 py-1 text-xs text-red-200">
+        <p role="alert" className="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-xs text-danger">
           {error}
         </p>
       )}
@@ -403,10 +403,10 @@ function InitiativeControls({ activeSceneId }: { activeSceneId: string | null })
 
   if (!state || state.status === 'idle') {
     if (!activeSceneId) {
-      return <p className="text-sm text-neutral-500">Activate a scene to start an encounter.</p>;
+      return <p className="text-sm text-text-muted">Activate a scene to start an encounter.</p>;
     }
     if (candidates.length === 0) {
-      return <p className="text-sm text-neutral-500">No tokens on this scene yet.</p>;
+      return <p className="text-sm text-text-muted">No tokens on this scene yet.</p>;
     }
     const chosen = candidates.filter((c) => picked[c.tokenId] ?? c.kind === 'pc');
     return (
@@ -414,7 +414,7 @@ function InitiativeControls({ activeSceneId }: { activeSceneId: string | null })
         <ul className="flex flex-col gap-0.5" data-testid="initiative-candidates">
           {candidates.map((c) => (
             <li key={c.tokenId}>
-              <label className="flex items-center gap-1 text-sm text-neutral-300">
+              <label className="flex items-center gap-1 text-sm text-text-secondary">
                 <input
                   type="checkbox"
                   checked={picked[c.tokenId] ?? c.kind === 'pc'}
@@ -423,7 +423,7 @@ function InitiativeControls({ activeSceneId }: { activeSceneId: string | null })
                   }
                 />
                 <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                <span className="text-xs text-neutral-500">
+                <span className="text-xs text-text-muted">
                   {c.kind === 'pc' ? 'Player' : 'NPC'}
                 </span>
               </label>
@@ -460,7 +460,7 @@ function InitiativeControls({ activeSceneId }: { activeSceneId: string | null })
       <ul className="flex flex-col gap-0.5" data-testid="initiative-entries">
         {state.entries.map((entry) => (
           <li key={entry.key} className="flex flex-wrap items-center gap-1">
-            <span className="min-w-0 flex-1 truncate text-sm text-neutral-300">{entry.name}</span>
+            <span className="min-w-0 flex-1 truncate text-sm text-text-secondary">{entry.name}</span>
             <input
               // Uncontrolled, re-keyed on the value the server holds: while the DM types, the
               // DOM owns the text; when anyone else's number lands, the row remounts showing

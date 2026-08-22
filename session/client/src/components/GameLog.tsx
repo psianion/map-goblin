@@ -130,30 +130,30 @@ export function GameLog() {
         data-testid="game-log"
         className="flex max-h-64 flex-col gap-1 overflow-y-auto text-sm"
       >
-        {entries.length === 0 && <li className="text-neutral-500">Nothing has happened yet.</li>}
+        {entries.length === 0 && <li className="text-text-muted">Nothing has happened yet.</li>}
         {entries.map((e) => (
           <li
             key={e.key}
             data-whisper={e.whisper || undefined}
             className={
               e.presence
-                ? 'text-xs italic text-neutral-500'
-                : 'rounded bg-neutral-900/60 px-2 py-1 text-neutral-300'
+                ? 'text-xs italic text-text-muted'
+                : 'rounded bg-surface-2/60 px-2 py-1 text-text-secondary'
             }
           >
-            <span className={e.presence ? '' : 'font-medium text-neutral-100'}>{e.who}</span>{' '}
+            <span className={e.presence ? '' : 'font-medium text-text-primary'}>{e.who}</span>{' '}
             {e.title && <span>{e.title}</span>}
             {e.text && <span>{e.text}</span>}
             {e.whisper && (
-              <span className="ml-1 rounded bg-neutral-800 px-1 text-xs text-neutral-400">
+              <span className="ml-1 rounded bg-surface-3 px-1 text-xs text-text-secondary">
                 🔒 whisper
               </span>
             )}
             {e.total !== undefined && (
-              <span className="ml-1 font-mono font-semibold text-neutral-100">{e.total}</span>
+              <span className="ml-1 font-mono font-semibold text-text-primary">{e.total}</span>
             )}
             {(e.formula || e.breakdown) && (
-              <span className="ml-1 font-mono text-xs text-neutral-500">
+              <span className="ml-1 font-mono text-xs text-text-muted">
                 {[e.formula, e.breakdown].filter(Boolean).join(' = ')}
               </span>
             )}
@@ -177,12 +177,12 @@ export function GameLog() {
           // typed line is gone. The native attribute is the whole fix.
           maxLength={200}
           data-testid="manual-roll"
-          className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none"
+          className="min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-2 py-1 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none"
         />
         <button
           type="submit"
           disabled={!draft.trim()}
-          className="rounded bg-neutral-800 px-2 py-1 text-sm text-neutral-200 hover:bg-neutral-700 disabled:opacity-40"
+          className="rounded bg-surface-2 px-2 py-1 text-sm text-text-secondary hover:bg-surface-3 disabled:opacity-40"
         >
           Post
         </button>

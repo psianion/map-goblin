@@ -42,10 +42,10 @@ function serverUrlError(value: string): string | null {
 }
 
 const field =
-  'w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none';
-const label = 'mb-1 block text-xs font-semibold uppercase tracking-wide text-neutral-500';
+  'w-full rounded-md border border-border-default bg-surface-1 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none';
+const label = 'mb-1 block text-xs font-semibold uppercase tracking-wide text-text-muted';
 const primary =
-  'rounded-md bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-white disabled:cursor-not-allowed disabled:opacity-40';
+  'rounded-md bg-accent-active px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-40';
 
 /**
  * §2.6 — the DM's four steps: server → campaign → map → invite code.
@@ -197,7 +197,7 @@ export default function HostSetup() {
   return (
     <div
       data-page="host"
-      className="h-full overflow-y-auto bg-neutral-950 p-6 text-neutral-100"
+      className="h-full overflow-y-auto bg-surface-0 p-6 text-text-primary"
     >
       <div className="mx-auto flex max-w-xl flex-col gap-6">
         <header>
@@ -208,10 +208,10 @@ export default function HostSetup() {
                 key={name}
                 className={`flex-1 rounded border px-2 py-1 text-center ${
                   i + 1 === step
-                    ? 'border-neutral-500 bg-neutral-800 text-neutral-100'
+                    ? 'border-border-focus bg-surface-3 text-text-primary'
                     : i + 1 < step
-                      ? 'border-neutral-800 text-neutral-500'
-                      : 'border-neutral-900 text-neutral-700'
+                      ? 'border-border-default text-text-muted'
+                      : 'border-border-subtle text-text-muted/70'
                 }`}
               >
                 {i + 1}. {name}
@@ -223,12 +223,12 @@ export default function HostSetup() {
         {step === 1 && (
           <section className="flex flex-col gap-4">
             {/* D4 — Quick Host is a copy-paste command, not a child process. */}
-            <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
-              <p className="text-sm text-neutral-300">No server yet? Run one:</p>
+            <div className="rounded-lg border border-border-default bg-surface-1 p-4">
+              <p className="text-sm text-text-secondary">No server yet? Run one:</p>
               <Command value="pnpm --filter @dnd/game-server start" />
               {/* The service docker-compose.yml defines for session/server/Dockerfile. */}
               <Command value="docker compose up game-server" />
-              <p className="mt-3 text-xs text-neutral-500">
+              <p className="mt-3 text-xs text-text-muted">
                 It prints an admin pass on first run — that is what goes below.
               </p>
             </div>
@@ -251,12 +251,12 @@ export default function HostSetup() {
                 placeholder used to say :8787 while the field held :8090, which read as a
                 wrong default and sent a gate walk hunting for a bug that was not there.
               */}
-              <p className="mt-1 text-xs text-neutral-500">
+              <p className="mt-1 text-xs text-text-muted">
                 Optional — pre-filled with this page’s own address, which is where the server
                 answers unless you are running it somewhere else. Empty means the same thing.
               </p>
               {serverError && (
-                <p className="mt-1 text-xs text-red-400" data-testid="server-url-error">
+                <p className="mt-1 text-xs text-danger" data-testid="server-url-error">
                   {serverError}
                 </p>
               )}
@@ -305,17 +305,17 @@ export default function HostSetup() {
                         type="button"
                         disabled={busy}
                         onClick={() => void hostExisting(c)}
-                        className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-left text-sm hover:border-neutral-600 hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="w-full rounded-md border border-border-default bg-surface-1 px-3 py-2 text-left text-sm hover:border-text-muted hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        <span className="font-medium text-neutral-100">{c.name}</span>
-                        <span className="ml-2 text-xs text-neutral-500">
+                        <span className="font-medium text-text-primary">{c.name}</span>
+                        <span className="ml-2 text-xs text-text-muted">
                           Created {new Date(c.createdAt).toLocaleDateString()}
                         </span>
                       </button>
                     </li>
                   ))}
                 </ul>
-                <p className="mt-2 text-xs text-neutral-500">
+                <p className="mt-2 text-xs text-text-muted">
                   Picking one opens its scene library on the next step.
                 </p>
               </div>
@@ -365,10 +365,10 @@ export default function HostSetup() {
                   {scenes.map((scene) => (
                     <label
                       key={scene.id}
-                      className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-neutral-400 ${
+                      className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-border-focus ${
                         selectedSceneId === scene.id
-                          ? 'border-neutral-500 bg-neutral-800 text-neutral-100'
-                          : 'border-neutral-800 bg-neutral-900 text-neutral-300 hover:border-neutral-700'
+                          ? 'border-border-focus bg-surface-3 text-text-primary'
+                          : 'border-border-default bg-surface-1 text-text-secondary hover:border-text-muted'
                       }`}
                     >
                       <input
@@ -381,12 +381,12 @@ export default function HostSetup() {
                       />
                       <span className="min-w-0 flex-1 truncate">{scene.name}</span>
                       {!scene.visibleToPlayers && (
-                        <span className="shrink-0 text-xs text-neutral-500">Hidden</span>
+                        <span className="shrink-0 text-xs text-text-muted">Hidden</span>
                       )}
                     </label>
                   ))}
                 </div>
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-text-muted">
                   Opens the table on this scene. Switch scenes any time once you're at the table.
                 </p>
               </fieldset>
@@ -405,9 +405,9 @@ export default function HostSetup() {
                   const file = e.target.files?.[0];
                   if (file) void uploadMap(file);
                 }}
-                className="w-full text-sm text-neutral-400 file:mr-3 file:rounded-md file:border-0 file:bg-neutral-800 file:px-3 file:py-2 file:text-sm file:text-neutral-100 hover:file:bg-neutral-700"
+                className="w-full text-sm text-text-secondary file:mr-3 file:rounded-md file:border-0 file:bg-surface-3 file:px-3 file:py-2 file:text-sm file:text-text-primary hover:file:bg-surface-2"
               />
-              <p className="mt-1 text-xs text-neutral-500">
+              <p className="mt-1 text-xs text-text-muted">
                 {scenes.length > 0 ? (
                   <>A backup path — most tables are already in the library above.</>
                 ) : (
@@ -419,9 +419,9 @@ export default function HostSetup() {
             </div>
 
             {map && (
-              <p data-testid="uploaded-map" className="text-sm text-neutral-300">
+              <p data-testid="uploaded-map" className="text-sm text-text-secondary">
                 Uploaded <span className="font-medium">{map.name}</span>{' '}
-                <span className="text-neutral-500">({(map.sizeBytes / 1024).toFixed(1)} KB)</span>
+                <span className="text-text-muted">({(map.sizeBytes / 1024).toFixed(1)} KB)</span>
               </p>
             )}
 
@@ -449,7 +449,7 @@ export default function HostSetup() {
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-xs text-neutral-500">
+                <p className="mt-1 text-xs text-text-muted">
                   Revealed when players join. Every other room stays dark until you reveal it.
                 </p>
               </div>
@@ -474,12 +474,12 @@ export default function HostSetup() {
               </button>
             ) : (
               <>
-                <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+                <div className="rounded-lg border border-border-default bg-surface-1 p-4">
                   <p className={label}>Invite code</p>
                   <div className="flex items-center gap-3">
                     <code
                       data-testid="invite-code"
-                      className="font-mono text-2xl tracking-[0.3em] text-neutral-100"
+                      className="font-mono text-2xl tracking-[0.3em] text-text-primary"
                     >
                       {inviteCode}
                     </code>
@@ -488,7 +488,7 @@ export default function HostSetup() {
 
                   <p className={`${label} mt-4`}>Join link</p>
                   <div className="flex items-center gap-3">
-                    <code className="truncate font-mono text-xs text-neutral-400">{joinLink}</code>
+                    <code className="truncate font-mono text-xs text-text-secondary">{joinLink}</code>
                     <CopyButton value={joinLink} />
                   </div>
                 </div>
@@ -502,7 +502,7 @@ export default function HostSetup() {
         )}
 
         {error && (
-          <p role="alert" className="rounded-md border border-red-900 bg-red-950/60 px-3 py-2 text-sm text-red-200">
+          <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
             {error}
           </p>
         )}
@@ -513,8 +513,8 @@ export default function HostSetup() {
 
 function Command({ value }: { value: string }) {
   return (
-    <div className="mt-2 flex items-center gap-2 rounded border border-neutral-800 bg-neutral-950 px-2 py-1.5">
-      <code className="flex-1 truncate font-mono text-xs text-neutral-300">{value}</code>
+    <div className="mt-2 flex items-center gap-2 rounded border border-border-default bg-surface-0 px-2 py-1.5">
+      <code className="flex-1 truncate font-mono text-xs text-text-secondary">{value}</code>
       <CopyButton value={value} />
     </div>
   );
@@ -526,7 +526,7 @@ function CopyButton({ value }: { value: string }) {
     <button
       type="button"
       aria-label={`Copy ${value}`}
-      className="shrink-0 rounded px-1.5 py-0.5 text-xs text-neutral-400 hover:bg-neutral-700 hover:text-neutral-100"
+      className="shrink-0 rounded px-1.5 py-0.5 text-xs text-text-secondary hover:bg-surface-3 hover:text-text-primary"
       onClick={() => {
         navigator.clipboard?.writeText(value).then(
           () => {

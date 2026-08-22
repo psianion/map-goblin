@@ -36,7 +36,7 @@ const blank = {
 };
 
 const defInput =
-  'w-14 min-w-0 rounded border border-neutral-700 bg-neutral-900 px-1 py-0.5 text-right tabular-nums text-neutral-100 focus:border-neutral-500 focus:outline-none';
+  'w-14 min-w-0 rounded border border-border-default bg-surface-1 px-1 py-0.5 text-right tabular-nums text-text-primary focus:border-border-focus focus:outline-none';
 
 /** D11 — same shape as the map upload: raw bytes, bearer token, `{id}` back. */
 async function uploadPortrait(file: File): Promise<string> {
@@ -100,7 +100,7 @@ export function TokenLibraryPanel() {
   return (
     <div className="flex flex-col gap-2 text-sm">
       {defs.length === 0 ? (
-        <p className="text-neutral-500">No token types yet.</p>
+        <p className="text-text-muted">No token types yet.</p>
       ) : (
         <ul data-testid="token-library" className="flex max-h-40 flex-col gap-0.5 overflow-y-auto">
           {defs.map((def) => (
@@ -112,8 +112,8 @@ export function TokenLibraryPanel() {
                 onClick={() => setPlacing(placingDefId === def.id ? null : def.id)}
                 className={`min-w-0 flex-1 truncate rounded px-2 py-0.5 text-left ${
                   placingDefId === def.id
-                    ? 'bg-neutral-700 text-neutral-100'
-                    : 'text-neutral-300 hover:bg-neutral-800/60'
+                    ? 'bg-surface-3 text-text-primary'
+                    : 'text-text-secondary hover:bg-surface-2/60'
                 }`}
               >
                 {def.name}
@@ -132,7 +132,7 @@ export function TokenLibraryPanel() {
                     light: def.light,
                   })
                 }
-                className="rounded px-1 text-xs text-neutral-500 hover:text-neutral-200"
+                className="rounded px-1 text-xs text-text-muted hover:text-text-primary"
               >
                 edit
               </button>
@@ -140,7 +140,7 @@ export function TokenLibraryPanel() {
                 type="button"
                 aria-label={`Delete ${def.name}`}
                 onClick={() => send('library-delete', { id: def.id })}
-                className="rounded px-1 text-xs text-neutral-600 hover:text-red-300"
+                className="rounded px-1 text-xs text-text-muted hover:text-danger"
               >
                 ✕
               </button>
@@ -150,14 +150,14 @@ export function TokenLibraryPanel() {
       )}
 
       {placingDefId && (
-        <p data-testid="place-hint" className="rounded bg-neutral-800 px-2 py-1 text-xs text-neutral-300">
+        <p data-testid="place-hint" className="rounded bg-surface-3 px-2 py-1 text-xs text-text-secondary">
           Click the map to place it.
         </p>
       )}
 
       <form
         data-testid="token-def-form"
-        className="flex flex-col gap-1 border-t border-neutral-800 pt-2"
+        className="flex flex-col gap-1 border-t border-border-default pt-2"
         onSubmit={(e) => {
           e.preventDefault();
           save();
@@ -170,7 +170,7 @@ export function TokenLibraryPanel() {
           placeholder="Goblin"
           aria-label="Token name"
           data-testid="token-name"
-          className="rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none"
+          className="rounded border border-border-default bg-surface-1 px-2 py-1 text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none"
         />
         <div className="flex gap-1">
           <select
@@ -178,7 +178,7 @@ export function TokenLibraryPanel() {
             onChange={(e) => setForm({ ...form, size: e.target.value as TokenSize })}
             aria-label="Size"
             data-testid="token-size"
-            className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-1 py-1 text-xs text-neutral-100"
+            className="min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1 py-1 text-xs text-text-primary"
           >
             {SIZES.map((s) => (
               <option key={s} value={s}>
@@ -191,7 +191,7 @@ export function TokenLibraryPanel() {
             onChange={(e) => setForm({ ...form, disposition: e.target.value as Disposition })}
             aria-label="Disposition"
             data-testid="token-disposition"
-            className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-1 py-1 text-xs text-neutral-100"
+            className="min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1 py-1 text-xs text-text-primary"
           >
             {DISPOSITIONS.map((d) => (
               <option key={d} value={d}>
@@ -201,7 +201,7 @@ export function TokenLibraryPanel() {
           </select>
         </div>
 
-        <label className="text-xs text-neutral-500">
+        <label className="text-xs text-text-muted">
           {busy ? 'Uploading…' : form.imageAssetId ? 'Portrait ready' : 'Portrait (optional)'}
           <input
             type="file"
@@ -213,14 +213,14 @@ export function TokenLibraryPanel() {
               e.target.value = '';
               if (file) void pickPortrait(file);
             }}
-            className="mt-1 w-full text-xs text-neutral-400 file:mr-2 file:rounded file:border-0 file:bg-neutral-800 file:px-2 file:py-1 file:text-xs file:text-neutral-100 hover:file:bg-neutral-700"
+            className="mt-1 w-full text-xs text-text-secondary file:mr-2 file:rounded file:border-0 file:bg-surface-3 file:px-2 file:py-1 file:text-xs file:text-text-primary hover:file:bg-surface-2"
           />
         </label>
 
         {/* P4 §3 — live, and folded away: most defs are a name and a portrait, and a DM
             authoring a torchbearer opens this once. Ranges are in the map's own unit; the def
             stores cells, the way the sweep and the light pool measure. */}
-        <details data-testid="token-def-sight" className="text-xs text-neutral-500">
+        <details data-testid="token-def-sight" className="text-xs text-text-muted">
           <summary className="cursor-pointer">Sight &amp; light</summary>
           <div className="mt-1 flex flex-col gap-1">
             <label className="flex items-center gap-1">
@@ -263,7 +263,7 @@ export function TokenLibraryPanel() {
                       sight: { ...(form.sight as Sight), visionMode: e.target.value as Sight['visionMode'] },
                     })
                   }
-                  className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-1 py-0.5 text-neutral-100"
+                  className="min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1 py-0.5 text-text-primary"
                 >
                   {VISION_MODES.map((m) => (
                     <option key={m.value} value={m.value}>
@@ -331,7 +331,7 @@ export function TokenLibraryPanel() {
                   onChange={(e) =>
                     setForm({ ...form, light: { ...(form.light as Light), color: e.target.value } })
                   }
-                  className="h-6 w-6 shrink-0 cursor-pointer rounded border border-neutral-700 bg-neutral-900"
+                  className="h-6 w-6 shrink-0 cursor-pointer rounded border border-border-default bg-surface-1"
                 />
               </div>
             )}
@@ -343,7 +343,7 @@ export function TokenLibraryPanel() {
             type="submit"
             disabled={!form.name.trim() || busy}
             data-testid="token-save"
-            className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-100 hover:bg-neutral-700 disabled:opacity-40"
+            className="rounded bg-surface-3 px-2 py-0.5 text-xs text-text-primary hover:bg-surface-2 disabled:opacity-40"
           >
             {form.id ? 'Save' : 'Add'}
           </button>
@@ -351,7 +351,7 @@ export function TokenLibraryPanel() {
             <button
               type="button"
               onClick={() => setForm(blank)}
-              className="rounded px-2 py-0.5 text-xs text-neutral-500 hover:text-neutral-200"
+              className="rounded px-2 py-0.5 text-xs text-text-muted hover:text-text-primary"
             >
               Cancel
             </button>
@@ -360,7 +360,7 @@ export function TokenLibraryPanel() {
       </form>
 
       {error && (
-        <p role="alert" className="rounded border border-red-900 bg-red-950/60 px-2 py-1 text-xs text-red-200">
+        <p role="alert" className="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-xs text-danger">
           {error}
         </p>
       )}

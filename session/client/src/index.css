@@ -1,3 +1,13 @@
+/* Self-hosted, no CDN — a live session must never wait on or fail against a font host.
+   font-display: swap is fontsource's default per-face rule. @import must come before
+   @tailwind or postcss refuses to place the font-face rules. */
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+@import '@fontsource-variable/newsreader/wght.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -9,46 +19,104 @@ body,
   height: 100%;
 }
 
+/*
+ * Moss — the Good Goblin chrome palette, night only. The table has one theme: a DM runs a
+ * session in a dim room with the map carrying every bright pixel, so a light chrome would be
+ * the thing you squint past all evening. Values are the editor's `.dark` block
+ * (`canvas/src/index.css`), declared on `:root` here since there is no toggle to hang a
+ * `.dark` class from.
+ *
+ * Raw RGB channels, not hex, so Tailwind's `/opacity` modifier works on every token
+ * (`bg-surface-1/80`, `ring-ring/50`). Raw CSS reads them as `rgb(var(--x))`.
+ *
+ * Two vocabularies point at the same values: the Tailwind names components use (surface-*,
+ * text-*, border-*, accent-*) and the shadcn names (primary, muted, ring, border, ...) that
+ * future shell primitives will use. The canvas gotcha: when only one vocabulary is declared
+ * in tailwind.config.ts, the other compiles to nothing — `bg-muted`, `ring-ring` and
+ * `border-border` silently vanish across every call site. Declare both, always.
+ */
 @layer base {
-  /*
-   * The editor's shadcn token block (canvas/src/index.css, `.dark`), copied so the runner
-   * and the editor render the same greys. Declared on `:root` rather than `.dark`: the
-   * table has one theme. A DM runs a session in a dim room with the map carrying every
-   * bright pixel — a light chrome would be the thing you squint past all evening.
-   */
   :root {
-    --background: #0e0e0e; /* surface-0 */
-    --foreground: #e8e8e8; /* text-primary */
-    --card: #141414; /* surface-1 */
-    --card-foreground: #e8e8e8;
-    --popover: #141414;
-    --popover-foreground: #e8e8e8;
-    --primary: #e8e8e8;
-    --primary-foreground: #0e0e0e;
-    --secondary: #1e1e1e; /* surface-2 */
-    --secondary-foreground: #e8e8e8;
-    --muted: #1e1e1e;
-    --muted-foreground: #666666; /* text-muted */
-    --accent: #282828; /* surface-3 */
-    --accent-foreground: #e8e8e8;
-    --destructive: #c0392b; /* danger */
-    --border: #252525; /* border-default */
-    --input: #252525;
-    --ring: #ffffff; /* border-focus */
+    /* — surfaces: tinted greys, wider steps than day so panels keep reading as panels on a
+         near-black ground — */
+    --surface-0: 15 16 14;
+    --surface-1: 24 26 23;
+    --surface-2: 35 37 34;
+    --surface-3: 48 51 46;
+    /* — text — */
+    --text-primary: 234 236 233;
+    --text-secondary: 182 188 179;
+    --text-muted: 151 158 148;
+    /* Dim/disabled text, for content shown at reduced opacity (hidden rows, disabled
+       controls) — text-muted only just clears 4.5:1 at full opacity, so fading it further
+       breaks contrast outright. text-dim stays closer to text-primary. */
+    --text-dim: 213 217 211;
+    /* — ink weights: heavier on structure, lighter on clutter — */
+    --border-structure: 77 84 74;
+    --border-default: 58 62 56;
+    --border-subtle: 35 37 34;
+    --border-focus: 145 196 100;
+    /* — accent: the ONLY saturated colour. Active tool, selection, primary action, live
+         state — nothing decorative, nothing ambient. — */
+    --accent-active: 145 196 100;
+    --accent-dim: 102 139 75;
+    --on-accent: 15 17 14;
+    /* — semantic: distinct hues, used only to carry meaning — */
+    --danger: 224 133 123;
+    --warning: 212 174 84;
+    --success: 145 196 100;
+    --info: 114 165 202;
+
+    /* shadcn vocabulary, mapped onto the same values */
+    --background: var(--surface-0);
+    --foreground: var(--text-primary);
+    --card: var(--surface-1);
+    --card-foreground: var(--text-primary);
+    --popover: var(--surface-1);
+    --popover-foreground: var(--text-primary);
+    --primary: var(--accent-active);
+    --primary-foreground: var(--on-accent);
+    --secondary: var(--surface-2);
+    --secondary-foreground: var(--text-primary);
+    --muted: var(--surface-2);
+    --muted-foreground: var(--text-muted);
+    --accent: var(--surface-3);
+    --accent-foreground: var(--text-primary);
+    --destructive: var(--danger);
+    --border: var(--border-default);
+    --input: var(--border-default);
+    --ring: var(--border-focus);
+
     /* One radius scale, shared with canvas: 6px buttons, 4px controls, 2px chips */
     --radius: 0.375rem;
     --radius-md: 0.25rem;
     --radius-sm: 0.125rem;
+
+    /* Hover reads as light rising from below at night — a flat tint reads as a printing
+       error on a near-black ground. */
+    --hover-glow: radial-gradient(
+      120% 160% at 50% 120%,
+      rgb(var(--accent-active) / 0.18) 0%,
+      transparent 70%
+    );
+    --panel-shadow: 0 10px 26px -14px rgb(0 0 0 / 0.9);
   }
 
   * {
-    border-color: var(--border);
-    outline-color: color-mix(in oklch, var(--ring) 50%, transparent);
+    border-color: rgb(var(--border));
+    outline-color: rgb(var(--ring) / 0.5);
   }
 
   body {
-    background-color: var(--background);
-    color: var(--foreground);
+    background-color: rgb(var(--background));
+    color: rgb(var(--foreground));
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  }
+
+  /* Coordinates, latency, zoom — numbers that must not jitter as they tick. */
+  .font-mono,
+  [class*='tabular'] {
+    font-variant-numeric: tabular-nums;
   }
 }
 
@@ -76,8 +144,8 @@ body,
   border-radius: 2px;
   background: linear-gradient(
     to right,
-    var(--foreground) var(--slider-fill, 0%),
-    var(--border) var(--slider-fill, 0%)
+    rgb(var(--text-primary)) var(--slider-fill, 0%),
+    rgb(var(--border-default)) var(--slider-fill, 0%)
   );
   outline: none;
   cursor: pointer;
@@ -88,8 +156,8 @@ body,
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--foreground);
-  border: 1px solid var(--border);
+  background: rgb(var(--text-primary));
+  border: 1px solid rgb(var(--border-default));
   cursor: pointer;
 }
 
@@ -97,8 +165,8 @@ body,
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--foreground);
-  border: 1px solid var(--border);
+  background: rgb(var(--text-primary));
+  border: 1px solid rgb(var(--border-default));
   cursor: pointer;
 }
 
@@ -132,6 +200,6 @@ body,
 }
 
 .clock-ribbon:focus-visible {
-  outline: 2px solid var(--foreground);
+  outline: 2px solid rgb(var(--text-primary));
   outline-offset: 2px;
 }

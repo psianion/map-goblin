@@ -266,11 +266,11 @@ export function GameRenderer() {
               : null;
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-neutral-950">
+    <div className="relative h-full w-full overflow-hidden bg-surface-0">
       <div ref={containerRef} className="h-full w-full touch-none" data-testid="game-canvas" />
       {status && (
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
-          <p className="rounded-md bg-neutral-900/80 px-4 py-2 text-sm text-neutral-300">
+          <p className="rounded-md bg-surface-1/80 px-4 py-2 text-sm text-text-secondary">
             {status}
           </p>
         </div>

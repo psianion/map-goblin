@@ -322,7 +322,7 @@ export function TokenPanel() {
   return (
     <div className="flex flex-col gap-2 text-sm">
       {tokens.length === 0 ? (
-        <p className="text-neutral-500">No tokens on this scene.</p>
+        <p className="text-text-muted">No tokens on this scene.</p>
       ) : (
         <ul data-testid="token-layer" className="flex max-h-40 flex-col gap-0.5 overflow-y-auto">
           {tokens.map((t) => (
@@ -340,12 +340,12 @@ export function TokenPanel() {
                 onClick={() => select(t.id)}
                 className={`w-full truncate rounded px-2 py-0.5 text-left ${
                   t.id === selectedId
-                    ? 'bg-neutral-800 text-neutral-100'
-                    : 'text-neutral-400 hover:bg-neutral-800/60'
+                    ? 'bg-surface-3 text-text-primary'
+                    : 'text-text-secondary hover:bg-surface-2/60'
                 }`}
               >
                 {t.name}
-                {t.hidden && <span className="ml-1 text-xs text-neutral-500">hidden</span>}
+                {t.hidden && <span className="ml-1 text-xs text-text-muted">hidden</span>}
               </button>
             </li>
           ))}
@@ -353,9 +353,9 @@ export function TokenPanel() {
       )}
 
       {selected && (
-        <div data-testid="token-selection" className="flex flex-col gap-1 border-t border-neutral-800 pt-2">
-          <p className="truncate text-neutral-200">{selected.name}</p>
-          <p className="text-xs text-neutral-500">
+        <div data-testid="token-selection" className="flex flex-col gap-1 border-t border-border-default pt-2">
+          <p className="truncate text-text-secondary">{selected.name}</p>
+          <p className="text-xs text-text-muted">
             {selected.size} · {selected.disposition} · {owner ? `held by ${owner.name}` : 'unclaimed'}
           </p>
           <div className="flex flex-wrap gap-1">
@@ -364,7 +364,7 @@ export function TokenPanel() {
                 type="button"
                 data-testid="claim-button"
                 onClick={() => send('claim', { id: selected.id })}
-                className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-100 hover:bg-neutral-700"
+                className="rounded bg-surface-3 px-2 py-0.5 text-xs text-text-primary hover:bg-surface-2"
               >
                 Claim
               </button>
@@ -375,7 +375,7 @@ export function TokenPanel() {
                   type="button"
                   data-testid="token-hide"
                   onClick={() => send('hide', { id: selected.id, hidden: !selected.hidden })}
-                  className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-100 hover:bg-neutral-700"
+                  className="rounded bg-surface-3 px-2 py-0.5 text-xs text-text-primary hover:bg-surface-2"
                 >
                   {selected.hidden ? 'Reveal' : 'Hide'}
                 </button>
@@ -386,7 +386,7 @@ export function TokenPanel() {
                     send('delete', { id: selected.id });
                     select(null);
                   }}
-                  className="rounded bg-neutral-800 px-2 py-0.5 text-xs text-red-300 hover:bg-neutral-700"
+                  className="rounded bg-surface-3 px-2 py-0.5 text-xs text-danger hover:bg-surface-2"
                 >
                   Delete
                 </button>

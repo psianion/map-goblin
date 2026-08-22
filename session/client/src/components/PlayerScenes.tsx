@@ -16,7 +16,7 @@ export function PlayerScenes() {
   const activeSceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
 
   if (!scenes || scenes.length === 0) {
-    return <p className="text-sm text-neutral-500">The DM hasn’t published a scene yet.</p>;
+    return <p className="text-sm text-text-muted">The DM hasn’t published a scene yet.</p>;
   }
 
   return (
@@ -26,17 +26,17 @@ export function PlayerScenes() {
           key={scene.id}
           aria-current={scene.id === activeSceneId}
           className={`flex items-center gap-2 truncate rounded px-2 py-1 text-sm ${
-            scene.id === activeSceneId ? 'text-neutral-100' : 'text-neutral-500'
+            scene.id === activeSceneId ? 'text-text-primary' : 'text-text-muted'
           }`}
         >
           <span
             className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-              scene.id === activeSceneId ? 'bg-emerald-400' : 'bg-neutral-700'
+              scene.id === activeSceneId ? 'bg-success' : 'bg-surface-3'
             }`}
             aria-hidden
           />
           <span className="truncate">{scene.name}</span>
-          {scene.id === activeSceneId && <span className="ml-auto text-xs text-neutral-500">now playing</span>}
+          {scene.id === activeSceneId && <span className="ml-auto text-xs text-text-muted">now playing</span>}
         </li>
       ))}
     </ul>

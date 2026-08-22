@@ -36,8 +36,8 @@ export async function prepareTableForJoin(
 }
 
 const field =
-  'w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none';
-const label = 'mb-1 block text-xs font-semibold uppercase tracking-wide text-neutral-500';
+  'w-full rounded-md border border-border-default bg-surface-1 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none';
+const label = 'mb-1 block text-xs font-semibold uppercase tracking-wide text-text-muted';
 
 /**
  * §2.6 — code + name in, a seat at the table out.
@@ -87,7 +87,7 @@ export default function JoinSession({ code: linkCode }: { code?: string }) {
   return (
     <div
       data-page="join"
-      className="flex h-full items-center justify-center bg-neutral-950 p-6 text-neutral-100"
+      className="flex h-full items-center justify-center bg-surface-0 p-6 text-text-primary"
     >
       <form
         className="flex w-full max-w-sm flex-col gap-4"
@@ -99,7 +99,7 @@ export default function JoinSession({ code: linkCode }: { code?: string }) {
         <header>
           <h1 className="text-2xl font-semibold tracking-tight">Join a game</h1>
           {found && (
-            <p className="mt-1 text-sm text-emerald-400">Table found — who are you?</p>
+            <p className="mt-1 text-sm text-success">Table found — who are you?</p>
           )}
         </header>
 
@@ -140,13 +140,13 @@ export default function JoinSession({ code: linkCode }: { code?: string }) {
         <button
           type="submit"
           disabled={busy || code.trim().length === 0 || name.trim().length === 0}
-          className="rounded-md bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-md bg-accent-active px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-40"
         >
           {preparing ? 'Preparing map…' : busy ? 'Joining…' : 'Join'}
         </button>
 
         {error && (
-          <p role="alert" className="rounded-md border border-red-900 bg-red-950/60 px-3 py-2 text-sm text-red-200">
+          <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
             {error}
           </p>
         )}

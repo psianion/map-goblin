@@ -5,11 +5,11 @@ export default function Landing() {
   return (
     <div
       data-page="landing"
-      className="flex h-full flex-col items-center justify-center gap-8 bg-neutral-950 p-6 text-neutral-100"
+      className="flex h-full flex-col items-center justify-center gap-8 bg-surface-0 p-6 text-text-primary"
     >
       <header className="text-center">
         <h1 className="text-3xl font-semibold tracking-tight">Good Goblin</h1>
-        <p className="mt-1 text-sm text-neutral-400">One map, one table, everyone looking at it.</p>
+        <p className="mt-1 text-sm text-text-secondary">One map, one table, everyone looking at it.</p>
       </header>
 
       <div className="grid w-full max-w-2xl gap-4 sm:grid-cols-2">
@@ -25,7 +25,7 @@ export default function Landing() {
         />
       </div>
 
-      <p className="max-w-md text-center text-xs leading-relaxed text-neutral-500">
+      <p className="max-w-md text-center text-xs leading-relaxed text-text-muted">
         How it works: the DM runs the game server, uploads a <code>.mapbuilder</code> map and
         shares a six-character code. Everyone who types it in sees the same table.
       </p>
@@ -43,10 +43,10 @@ function Card({ to, title, body }: { to: string; title: string; body: string }) 
         e.preventDefault();
         navigate(to);
       }}
-      className="flex flex-col gap-2 rounded-lg border border-neutral-800 bg-neutral-900 p-5 transition hover:border-neutral-600 hover:bg-neutral-800/60"
+      className="flex flex-col gap-2 rounded-lg border border-border-default bg-surface-1 p-5 transition hover:border-text-muted hover:bg-surface-2/60"
     >
       <span className="text-lg font-medium">{title}</span>
-      <span className="text-sm text-neutral-400">{body}</span>
+      <span className="text-sm text-text-secondary">{body}</span>
     </a>
   );
 }

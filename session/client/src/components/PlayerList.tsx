@@ -30,7 +30,7 @@ export function PlayerList() {
   const youId = useSessionStore((s) => s.you?.identityId);
 
   if (!roster || roster.length === 0) {
-    return <p className="text-sm text-neutral-500">No one at the table yet.</p>;
+    return <p className="text-sm text-text-muted">No one at the table yet.</p>;
   }
   const players = withoutSupersededSeats(roster);
 
@@ -41,21 +41,21 @@ export function PlayerList() {
           key={p.identityId}
           data-connected={p.connected}
           className={`flex items-center gap-2 rounded px-2 py-1 text-sm ${
-            p.connected ? 'text-neutral-200' : 'text-neutral-500 opacity-60'
+            p.connected ? 'text-text-secondary' : 'text-text-muted opacity-60'
           }`}
         >
           <span
             className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-              p.connected ? 'bg-emerald-400' : 'bg-neutral-600'
+              p.connected ? 'bg-success' : 'bg-surface-3'
             }`}
             aria-hidden
           />
           <span className="truncate">{p.name}</span>
-          {p.identityId === youId && <span className="text-xs text-neutral-500">(you)</span>}
+          {p.identityId === youId && <span className="text-xs text-text-muted">(you)</span>}
           {p.role === 'dm' && (
             <span
               title="Dungeon Master"
-              className="ml-auto rounded bg-amber-500/15 px-1.5 text-xs font-medium text-amber-400"
+              className="ml-auto rounded bg-warning/15 px-1.5 text-xs font-medium text-warning"
             >
               DM
             </span>
