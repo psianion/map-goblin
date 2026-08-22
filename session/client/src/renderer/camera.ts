@@ -61,3 +61,15 @@ export function frameWorldPoint(x: number, y: number): void {
   };
   step();
 }
+
+/**
+ * Where a world point sits on the map element right now, in CSS pixels from its top-left.
+ * Null before the engine exists. Anchoring chrome to a token or a door reads this every
+ * frame it is open, so it stays a pure read with no allocation beyond the result.
+ */
+export function worldToScreen(x: number, y: number): { x: number; y: number } | null {
+  const engine = getEngineSingleton()?.engine;
+  if (!engine) return null;
+  const stage = engine.stage();
+  return { x: stage.position.x + x * stage.scale.x, y: stage.position.y + y * stage.scale.y };
+}
