@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import type { InitiativeState } from '@dnd/mechanics/initiative';
 import { armFogBrush, armFogHide, armFogReveal } from '../modules/fog/brush';
+import { useDoorSelection } from '../modules/doors/selection';
+import { useTokenInteraction } from '../modules/tokens/drag';
 import { panelsForRole } from '../session/panels';
 import { useSessionStore } from '../session/store';
 import { useActiveTool } from '../session/tools';
@@ -32,22 +34,50 @@ function nextTurn(): void {
   store.sendCommand('initiative', 'next', {});
 }
 
-// Fixed bindings that are not a panel's own `PanelDef.key`. / (focus the roll bar/composer)
-// and M (Me panel) are M4 — add them here once their targets exist; this table is the whole
-// point of keeping them out of the switch below.
+/** `/` (M4): a player's roll bar is always mounted, so a focus is a synchronous DOM read; the
+ *  DM has no roll bar — this opens the log drawer first and focuses its composer once the
+ *  drawer's own render has landed (`setDrawer` is a zustand `set`, not a synchronous DOM
+ *  write, so the input does not exist yet on the same tick that opens it). */
+function focusComposer(): void {
+  if (useSessionStore.getState().you?.role === 'dm') {
+    useShell.getState().setDrawer(true);
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLInputElement>('[data-testid="log-drawer"] [data-testid="manual-roll"]')?.focus();
+    });
+    return;
+  }
+  document.querySelector<HTMLInputElement>('[data-testid="roll-bar"] [data-testid="manual-roll"]')?.focus();
+}
+
+// Fixed bindings that are not a panel's own `PanelDef.key`. M (Me panel) needs none of these —
+// it is a plain `PanelDef.key` and already flows through the generic lookup below.
 const BINDINGS: Binding[] = [
   { key: 'd', shift: true, run: () => useShell.getState().toggleDiagnostics() },
   { key: 'r', run: () => dmOnly(armFogReveal) },
   { key: 'h', run: () => dmOnly(armFogHide) },
   { key: 'b', run: () => dmOnly(armFogBrush) },
   { key: 'n', run: nextTurn },
+  { key: '/', run: focusComposer },
 ];
 
-/** Esc order: close an open popover first; only disarm the tool on a second press. */
+/** Esc order: close an open popover; else clear an on-map selection (door, then token); else
+ *  disarm the active tool. One listener owns the whole thing (M3 review finding 12) — neither
+ *  on-map menu keeps its own window Escape handler anymore, so a single press never does two
+ *  of these at once (close the popover *and* drop the selection it was showing). */
 function onEscape(): void {
   const shell = useShell.getState();
   if (shell.openPanel) {
     shell.closePanel();
+    return;
+  }
+  const doors = useDoorSelection.getState();
+  if (doors.selectedId) {
+    doors.select(null);
+    return;
+  }
+  const tokens = useTokenInteraction.getState();
+  if (tokens.selectedId) {
+    tokens.select(null);
     return;
   }
   useActiveTool.getState().setActiveTool(null);

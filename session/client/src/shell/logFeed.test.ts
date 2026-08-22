@@ -98,6 +98,18 @@ describe('usePostRoll', () => {
     expect(sendCommand).toHaveBeenCalledWith('initiative', 'set', { key: 'k1', value: 17 });
   });
 
+  it('posts private when asked — RollBar’s whisper toggle', () => {
+    const sendCommand = vi.fn();
+    useSessionStore.setState({ sendCommand, you: null, session: session({}) });
+    const { result } = renderHook(() => usePostRoll());
+    act(() => result.current('stealth 17', 'private'));
+    expect(sendCommand).toHaveBeenCalledWith('rolls', 'post', {
+      source: 'manual',
+      text: 'stealth 17',
+      visibility: 'private',
+    });
+  });
+
   it('does nothing for a blank line', () => {
     const sendCommand = vi.fn();
     useSessionStore.setState({ sendCommand, session: session({}) });

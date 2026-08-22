@@ -265,15 +265,8 @@ describe('registration', () => {
     expect(def?.footer).toBe(FogFooter);
   });
 
-  it('subtitles the hidden/revealed count, null with no rooms', () => {
-    useSessionStore.setState({ session: session(), mapData: { layers: [dungeonLayer([])] } });
-    expect(usePanel('fog')?.subtitle?.()).toBeNull();
-
-    useSessionStore.setState({
-      session: session({ fog: fogWith({ 'r-crypt': { status: 'revealed', wasEverRevealed: true } }) }),
-      mapData: { layers: [dungeonLayer([CRYPT, HALL])] },
-    });
-    expect(usePanel('fog')?.subtitle?.()).toBe('1 hidden · 1 revealed');
+  it('carries no subtitle — the header is title, mode segment, settings, close', () => {
+    expect(usePanel('fog')?.subtitle).toBeUndefined();
   });
 });
 
@@ -695,6 +688,14 @@ describe('FogFooter', () => {
     useSessionStore.setState({ session: session({ fog: fogWith({}, true) }), you: dm });
     render(<FogFooter />);
     expect(screen.getByText('Conceal behind doors · on')).not.toBeNull();
+  });
+
+  it('keeps the footer to one row — buttons never wrap, the conceal line truncates instead', () => {
+    useSessionStore.setState({ session: session({ fog: fogWith({}, true) }), you: dm });
+    render(<FogFooter />);
+    expect(screen.getByTestId('fog-reveal-all').className).toContain('whitespace-nowrap');
+    expect(screen.getByTestId('fog-hide-all').className).toContain('whitespace-nowrap');
+    expect(screen.getByText('Conceal behind doors · on').className).toContain('truncate');
   });
 
   it('disables the bulk buttons with no rooms', () => {

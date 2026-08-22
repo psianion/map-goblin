@@ -31,12 +31,28 @@ export interface PanelDef {
   width?: 320 | 360 | (() => 320 | 360);
   /** false hides this panel from the rail — still openable via `openPanelById`. Default true. */
   rail?: boolean;
+  /** Narrows which roles see this panel's rail icon, without touching `roles` (hotkeys and
+   *  `openPanelById` still work for a role left out — M4: Doors/Tokens stay reachable to a
+   *  player from an on-map menu or their key, just not from the rail). Default: every role
+   *  in `roles`. */
+  railRoles?: readonly Role[];
+  /** Where the popover anchors. 'rail' (default) reads its icon's position off `railRefs`;
+   *  'status-left' sits bottom-left, above the status bar — for a panel with no rail icon
+   *  (`rail: false`) whose trigger lives there instead, e.g. the scene-name button. */
+  anchor?: 'rail' | 'status-left';
   /** Live text for the rail item's corner badge, e.g. "R1" or an unread count. */
   badge?: () => string | null;
   /** Rendered in the popover's footer strip, if present. */
   footer?: ComponentType;
   /** Rendered in the popover header, right of the title, left of the close button. */
   headerActions?: ComponentType;
+  /**
+   * Map-side companion the module needs whether or not its popover is open (a Pixi overlay,
+   * a sync loop). Run once per seat by the shell for every panel the role can see; returns
+   * the teardown. A popover only exists while open, so nothing like this may live in a
+   * panel component.
+   */
+  mount?: () => (() => void) | void;
 }
 
 /** Convenience for the common "everyone sees it" case. */
@@ -67,9 +83,10 @@ export { panelsForRole };
 
 export const usePanels = panelsForRole;
 
-/** The rail's own subset — everything but the panels opened only programmatically. */
+/** The rail's own subset — everything but the panels opened only programmatically, or (M4)
+ *  narrowed to fewer roles than `roles` itself via `railRoles`. */
 export const useRailPanels = (role: Role | undefined): readonly PanelDef[] =>
-  panelsForRole(role).filter((p) => p.rail !== false);
+  panelsForRole(role).filter((p) => p.rail !== false && (!p.railRoles || (!!role && p.railRoles.includes(role))));
 
 /** One panel by id, regardless of role — Popover looks up whatever `shellStore` has open. */
 export const usePanel = (id: string): PanelDef | undefined => panels.find((p) => p.id === id);

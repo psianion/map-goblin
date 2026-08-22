@@ -127,17 +127,21 @@ export function useLogEntries(): Entry[] {
  * their own draft string (they are separate inputs), but posting — and the auto-capture into
  * a running initiative — is one rule, made here once (D7: no dice engine, a manual entry is a
  * string someone typed, posted as-is).
+ *
+ * `visibility` defaults to `'public'` — every existing caller posts to the table. The rolls
+ * module accepts `'private'` from any role (M4 — a player's own whisper reaches them and the
+ * DM, same as a whispered Beyond20 roll); `RollBar` is the first caller to pass it.
  */
-export function usePostRoll(): (text: string) => void {
+export function usePostRoll(): (text: string, visibility?: 'public' | 'private') => void {
   const initiative = useModuleState<InitiativeState>('initiative');
   const identityId = useSessionStore((s) => s.you?.identityId);
   return useCallback(
-    (text: string) => {
+    (text: string, visibility: 'public' | 'private' = 'public') => {
       const trimmed = text.trim();
       if (!trimmed) return;
       useSessionStore
         .getState()
-        .sendCommand('rolls', 'post', { source: 'manual', text: trimmed, visibility: 'public' });
+        .sendCommand('rolls', 'post', { source: 'manual', text: trimmed, visibility });
       // Auto-track: "initiative 17" typed here is also this seat's initiative, so it lands in
       // the tracker without anyone typing the number twice. Same rule the Beyond20 bridge uses.
       const set = captureFromRoll(initiative, identityId, { text: trimmed });

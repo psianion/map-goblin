@@ -7,18 +7,15 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { SIZE_CELLS, type TokensState } from '@dnd/mechanics/tokens';
 import { frameWorldPoint, worldToScreen } from '../../renderer/camera';
 import { useModuleState, useSessionStore } from '../../session/store';
+import { applyPlacement, boundsOf, FALLBACK_SIZE, NOTCH_LEFT_CLASS, NOTCH_REST, placeBeside } from '../../shell/anchor';
 import { Icon } from '../../shell/icons';
 import { useShell } from '../../shell/shellStore';
 import { useTokenInteraction } from './drag';
 import { tokensOf } from './TokenRenderer';
+import { DOT_CLASS } from './tokensUi';
 
 const send = (action: string, payload: unknown): void =>
   useSessionStore.getState().sendCommand('tokens', action, payload);
-
-/** CSS px clear of the token's right edge — `DoorMenu`'s own gap. */
-const GAP = 12;
-const FALLBACK_W = 180;
-const FALLBACK_H = 76;
 
 const actionButtonClass =
   'flex h-6 shrink-0 items-center gap-1 whitespace-nowrap rounded px-1.5 text-[11px] text-text-secondary transition-colors duration-150 ease-settle hover:bg-surface-2 hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none';
@@ -64,6 +61,7 @@ export function TokenMenu() {
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const state = useModuleState<TokensState>('tokens');
   const rootRef = useRef<HTMLDivElement>(null);
+  const notchRef = useRef<HTMLSpanElement>(null);
 
   const tokens = tokensOf(state, sceneId);
   const token = tokens.find((t) => t.id === selectedId) ?? null;
@@ -71,27 +69,20 @@ export function TokenMenu() {
   // while the Tokens popover itself is open (its own detail block is the same controls).
   const visible = !!token && draggingId === null && openPanel !== 'tokens';
 
-  // Esc clears the selection — this menu's own answer to the key, independent of the
-  // shell's popover/tool order (`hotkeys.ts`), which has no idea a token is selected. A
-  // pointerdown that lands on the map but hits nothing also clears it, same as `DoorMenu`;
-  // a press that *does* hit a token never reaches here — `drag.ts`'s own handler stops
-  // propagation first.
+  // A pointerdown that lands on the map but hits nothing clears the selection, same as
+  // `DoorMenu`; a press that *does* hit a token never reaches here — `drag.ts`'s own handler
+  // stops propagation first. Escape is not this component's own business anymore —
+  // `hotkeys.ts` owns the one Esc order for the whole shell (M3 review finding 12): popover,
+  // then this selection, then the active tool.
   useEffect(() => {
     if (!visible) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') select(null);
-    };
     const onPointerDown = (e: PointerEvent) => {
       const target = e.target as HTMLElement | null;
       if (rootRef.current?.contains(target)) return;
       if (target?.closest('[data-testid="game-canvas"]')) select(null);
     };
-    window.addEventListener('keydown', onKeyDown);
     document.addEventListener('pointerdown', onPointerDown);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      document.removeEventListener('pointerdown', onPointerDown);
-    };
+    return () => document.removeEventListener('pointerdown', onPointerDown);
   }, [visible, select]);
 
   // rAF-refreshed while mounted: the camera can pan or zoom on any frame this is open, and
@@ -109,10 +100,8 @@ export function TokenMenu() {
       const anchor = worldToScreen(token.x + r, token.y);
       if (el && mapEl && anchor) {
         const map = mapEl.getBoundingClientRect();
-        const w = el.offsetWidth || FALLBACK_W;
-        const h = el.offsetHeight || FALLBACK_H;
-        el.style.left = `${Math.min(Math.max(anchor.x + GAP, 0), Math.max(0, map.width - w))}px`;
-        el.style.top = `${Math.min(Math.max(anchor.y - h / 2, 0), Math.max(0, map.height - h))}px`;
+        const size = { width: el.offsetWidth || FALLBACK_SIZE.width, height: el.offsetHeight || FALLBACK_SIZE.height };
+        applyPlacement(el, notchRef.current, placeBeside(anchor, size, boundsOf(map)));
         el.style.visibility = 'visible';
       } else if (el) {
         // No engine yet (§4) — nothing to anchor to.
@@ -130,7 +119,9 @@ export function TokenMenu() {
   if (!visible || !token) return null;
 
   const isDm = you?.role === 'dm';
-  const meta = `${token.size} · ${token.disposition}`;
+  // M3 finding 16 — labelled, not the raw enum: "Medium", and disposition as the same
+  // coloured dot the Tokens panel uses, never the bare word.
+  const sizeLabel = token.size.charAt(0).toUpperCase() + token.size.slice(1);
 
   return (
     <div
@@ -143,14 +134,14 @@ export function TokenMenu() {
       className="absolute z-toolbar flex min-w-[180px] flex-col gap-1.5 rounded-md border border-border-structure bg-surface-1 px-2.5 py-2 shadow-panel motion-safe:animate-panel-in"
       style={{ visibility: 'hidden' }}
     >
-      <span
-        aria-hidden
-        className="absolute -left-[6px] top-[14px] h-[10px] w-[10px] rotate-45 border-b border-l border-border-structure bg-surface-1"
-      />
+      <span ref={notchRef} aria-hidden className={NOTCH_LEFT_CLASS} style={{ top: NOTCH_REST }} />
 
       <div className="flex items-center gap-2 text-xs text-text-primary">
         <span className="min-w-0 flex-1 truncate">{token.name}</span>
-        <span className="shrink-0 text-[11px] text-text-muted">{meta}</span>
+        <span className="flex shrink-0 items-center gap-1 text-[11px] text-text-muted">
+          {sizeLabel}
+          <i aria-hidden className={`h-1.5 w-1.5 rounded-full ${DOT_CLASS[token.disposition] ?? DOT_CLASS.neutral}`} />
+        </span>
       </div>
 
       <div className="flex items-center gap-1">

@@ -127,16 +127,7 @@ describe('DoorMenu', () => {
     expect(screen.getByTestId('door-menu')).not.toBeNull();
   });
 
-  it('closes on Escape', () => {
-    mountMapElement();
-    screenOf.mockReturnValue({ x: 100, y: 50 });
-    useDoorSelection.getState().select('d1');
-    render(<DoorMenu />);
-    expect(screen.getByTestId('door-menu')).not.toBeNull();
-
-    fireEvent.keyDown(window, { key: 'Escape' });
-    expect(useDoorSelection.getState().selectedId).toBeNull();
-  });
+  // Escape is `hotkeys.ts`'s job now (M3 review finding 12) — see `shell/hotkeys.test.ts`.
 
   it('closes on a click that lands on the map but hits nothing', () => {
     const map = mountMapElement();

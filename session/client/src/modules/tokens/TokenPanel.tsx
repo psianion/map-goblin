@@ -39,7 +39,9 @@ import {
   filterInputClass,
   ghostButtonClass,
   ghostDangerButtonClass,
+  numberFieldClass,
   quietButtonClass,
+  selectFieldClass,
   useTokenLibraryUi,
   useTokensUi,
 } from './tokensUi';
@@ -67,8 +69,6 @@ function useTokenFeedback(): void {
 // DM-only, and that is enforced on the server rather than by hiding the controls: `sight`
 // and `light` are in `UPDATE_FIELDS`, which a non-DM may not touch even on a token they own.
 
-const numberInput =
-  'w-14 min-w-0 rounded border border-border-default bg-surface-1 px-1 py-0.5 text-right text-xs tabular-nums text-text-primary focus:border-border-focus focus:outline-none';
 const unitLabel = 'shrink-0 text-[11px] text-text-muted';
 
 /**
@@ -115,7 +115,7 @@ function RangeField({
       onKeyDown={(e) => {
         if (e.key === 'Enter') commit();
       }}
-      className={numberInput}
+      className={numberFieldClass}
     />
   );
 }
@@ -142,7 +142,7 @@ function VisionRow({ token, scale }: { token: Token; scale: MapScale }) {
             data-testid="token-vision-mode"
             value={sight.visionMode}
             onChange={(e) => setSight({ visionMode: e.target.value as Sight['visionMode'] })}
-            className="min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1 py-0.5 text-xs text-text-primary focus:border-border-focus focus:outline-none"
+            className={selectFieldClass}
           >
             {VISION_MODES.map((m) => (
               <option key={m.value} value={m.value}>
@@ -215,7 +215,7 @@ function LinkPicker({ token, tokens }: { token: Token; tokens: readonly Token[] 
             if (e.target.value) link(e.target.value, true);
             setLinking('');
           }}
-          className="min-w-0 rounded-chip border border-dashed border-border-default bg-transparent px-1.5 py-0.5 text-[11px] text-text-secondary focus:border-border-focus focus:outline-none"
+          className="min-w-0 rounded-chip border border-dashed border-border-default bg-transparent px-1.5 py-0.5 text-[11px] text-text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
         >
           <option value="">+ Link token…</option>
           {linkable.map((t) => (
@@ -429,7 +429,7 @@ function OnMapTab() {
                   data-testid="token-owner"
                   value={selected.ownerId ?? ''}
                   onChange={(e) => send('assign', { id: selected.id, identityId: e.target.value || null })}
-                  className="min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1 py-0.5 text-xs text-text-primary focus:border-border-focus focus:outline-none"
+                  className={selectFieldClass}
                 >
                   <option value="">Unassigned</option>
                   {players
@@ -473,7 +473,6 @@ function OnMapTab() {
 export function TokenPanel() {
   // Mount for as long as the table is on screen; the helper handles the engine appearing
   // late and going away again. Runs regardless of which tab is active.
-  useEffect(() => mountTokenLayerWhenReady(), []);
   useTokenFeedback();
 
   const tab = useTokensUi((s) => s.tab);
@@ -493,7 +492,7 @@ export function TokenPanel() {
           data-testid="tokens-tab-onmap"
           onClick={() => setTab('map')}
           className={`-mb-px border-b py-2 text-xs transition-colors duration-150 ease-settle ${
-            tab === 'map' ? 'border-accent-active text-text-primary' : 'border-transparent text-text-secondary hover:text-text-primary'
+            tab === 'map' ? 'border-text-primary text-text-primary' : 'border-transparent text-text-secondary hover:text-text-primary'
           }`}
         >
           On map · {onMapCount}
@@ -504,7 +503,7 @@ export function TokenPanel() {
             data-testid="tokens-tab-library"
             onClick={() => setTab('library')}
             className={`-mb-px border-b py-2 text-xs transition-colors duration-150 ease-settle ${
-              tab === 'library' ? 'border-accent-active text-text-primary' : 'border-transparent text-text-secondary hover:text-text-primary'
+              tab === 'library' ? 'border-text-primary text-text-primary' : 'border-transparent text-text-secondary hover:text-text-primary'
             }`}
           >
             Library · {libraryCount}
@@ -584,15 +583,11 @@ registerPanel({
   key: 'T',
   group: 'play',
   roles: ALL_ROLES,
+  // M4 — the player's fast path is the on-map TokenMenu (Claim); the rail stays DM-only
+  // clutter otherwise (a player still opens this with the T key).
+  railRoles: ['dm'],
   order: 40,
   component: TokenPanel,
+  mount: mountTokenLayerWhenReady,
   footer: TokenPanelFooter,
-  subtitle: () => {
-    const { session, you } = useSessionStore.getState();
-    const tokensState = session?.modules?.tokens as TokensState | undefined;
-    const onMap = tokensOf(tokensState, session?.activeSceneId).length;
-    if (you?.role !== 'dm') return `${onMap} on map`;
-    const defs = tokensState?.library && typeof tokensState.library === 'object' ? Object.keys(tokensState.library).length : 0;
-    return `${onMap} on map · ${defs} in library`;
-  },
 });

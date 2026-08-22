@@ -12,9 +12,12 @@ import { LogDrawer } from '../shell/LogDrawer';
 import { PartyStrip } from '../shell/PartyStrip';
 import { Popover } from '../shell/Popover';
 import { Rail } from '../shell/Rail';
+import { RollBar } from '../shell/RollBar';
 import { Ticker } from '../shell/Ticker';
+import { TurnPill } from '../shell/TurnPill';
 import { useHotkeys } from '../shell/hotkeys';
-import { resumeSeat } from '../session/store';
+import { usePanels } from '../session/panels';
+import { resumeSeat, useRole } from '../session/store';
 import { useTriggerToasts } from '../session/useTriggerToasts';
 
 // Side-effect imports: each of these calls `registerPanel` at module scope. This
@@ -39,6 +42,10 @@ import '../shell/SessionPopover';
  * D9: the whole page is `h-full` off `#root`, never `100vh`.
  */
 export default function GameTable() {
+  // M4 — the player shell swaps the party strip for a turn pill + roll bar; the DM keeps the
+  // strip and gets neither (InitiativePanel/PartyStrip already answer both questions there).
+  const role = useRole();
+
   // A refresh unmounts everything but the seat is in sessionStorage — take it back.
   useEffect(() => {
     resumeSeat();
@@ -53,6 +60,14 @@ export default function GameTable() {
   // marked on the map for every seat, however the rail happens to be filtered.
   useEffect(() => mountTurnRingWhenReady(), []);
 
+  // Every module's map-side companion (token layer, door layer, fog overlay) — a popover
+  // renders only while open, so the overlays mount from here, once per seat.
+  const panels = usePanels(role);
+  useEffect(() => {
+    const downs = panels.map((p) => p.mount?.()).filter((d): d is () => void => typeof d === 'function');
+    return () => downs.forEach((d) => d());
+  }, [panels]);
+
   // One shell-wide keydown listener (panel letters, L, Shift+D, Esc order) — see hotkeys.ts.
   useHotkeys();
 
@@ -66,14 +81,21 @@ export default function GameTable() {
         </div>
 
         <ReconnectingBanner />
-        <PartyStrip />
+        {role === 'player' ? (
+          <>
+            <TurnPill />
+            <RollBar />
+          </>
+        ) : (
+          <PartyStrip />
+        )}
         <Ticker />
         <LogDrawer />
         <TableStatusBar />
         <DoorMenu />
         <TokenMenu />
-        <Popover />
         <Rail />
+        <Popover />
         <ToastHost />
         <TriggerPrompts />
         <InitiativePrompt />

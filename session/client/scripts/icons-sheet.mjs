@@ -14,7 +14,6 @@ const src = readFileSync(iconsSrc, 'utf8');
 const match = src.match(/const GLYPHS: Record<IconName, string> = (\{[\s\S]*?\n\});/);
 if (!match) throw new Error('GLYPHS literal not found in icons.tsx');
 
-// eslint-disable-next-line no-new-func -- trusted local source file, not user input
 const glyphs = new Function(`return ${match[1]};`)();
 
 const body = `window.GLYPHS = ${JSON.stringify(glyphs, null, 2)};\n`;

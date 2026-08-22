@@ -247,7 +247,6 @@ export function FogTool() {
 
   // Mount for as long as the table is on screen; the helper handles the engine appearing
   // late and going away again.
-  useEffect(() => mountFogOverlayWhenReady(), []);
 
   // The server's rooms, not core's re-detected ones — same rule as FogOverlay: core invents
   // rooms on unzoned maps that no fog command can name.
@@ -495,7 +494,7 @@ export function FogFooter() {
   };
 
   const ghostClass =
-    'h-7 rounded border border-transparent bg-transparent px-2.5 text-xs text-text-secondary transition-colors duration-150 ease-settle hover:bg-surface-2 hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none';
+    'h-7 shrink-0 whitespace-nowrap rounded border border-transparent bg-transparent px-2.5 text-xs text-text-secondary transition-colors duration-150 ease-settle hover:bg-surface-2 hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none';
 
   return (
     <>
@@ -518,23 +517,11 @@ export function FogFooter() {
         Hide all
       </button>
       <span className="flex-1" />
-      <span className="text-xs text-text-muted">
+      <span className="min-w-0 truncate text-xs text-text-muted">
         Conceal behind doors · {fog.concealBehindDoors ? 'on' : 'off'}
       </span>
     </>
   );
-}
-
-function fogSubtitle(): string | null {
-  const { session, mapData } = useSessionStore.getState();
-  const rooms = serverRooms(mapData);
-  if (rooms.length === 0) return null;
-  const fog = sceneFog(
-    session?.modules?.fog as FogState | undefined,
-    session?.activeSceneId ?? null,
-  );
-  const unrevealed = rooms.filter((r) => roomFog(fog, r.id).status === 'never_revealed').length;
-  return `${unrevealed} hidden · ${rooms.length - unrevealed} revealed`;
 }
 
 registerPanel({
@@ -546,7 +533,7 @@ registerPanel({
   roles: ['dm'],
   order: 20,
   component: FogTool,
+  mount: mountFogOverlayWhenReady,
   headerActions: FogHeaderActions,
   footer: FogFooter,
-  subtitle: fogSubtitle,
 });

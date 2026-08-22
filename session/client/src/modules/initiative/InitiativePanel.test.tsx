@@ -130,12 +130,31 @@ describe('gathering — bookkeeping on the selected row', () => {
     ],
   });
 
+  it('is a plain <li> with a dedicated select button — the initiative input never sits inside it (finding 13)', () => {
+    useSessionStore.setState({ session: session({ initiative }), you: dm });
+    render(<InitiativePanel />);
+
+    const row = screen.getByTestId('initiative-row-a');
+    expect(row.tagName).toBe('LI');
+    expect(row.getAttribute('role')).toBeNull();
+
+    const selectButton = within(row).getByRole('button');
+    expect(selectButton.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(selectButton);
+    expect(selectButton.getAttribute('aria-pressed')).toBe('true');
+
+    const input = screen.getByLabelText('Initiative for Marra');
+    expect(selectButton.contains(input)).toBe(false);
+    expect(row.contains(input)).toBe(true);
+  });
+
   it('opens the bookkeeping line on click, and applies damage on Enter', () => {
     useSessionStore.setState({ session: session({ initiative }), you: dm });
     const sent = captureCommands();
     render(<InitiativePanel />);
 
-    fireEvent.click(screen.getByTestId('initiative-row-a'));
+    fireEvent.click(within(screen.getByTestId('initiative-row-a')).getByRole('button'));
     const damage = screen.getByTestId('initiative-damage') as HTMLInputElement;
     // No pool yet — the damage field is disabled, "Set max HP" appears instead.
     expect(damage.disabled).toBe(true);
@@ -155,7 +174,7 @@ describe('gathering — bookkeeping on the selected row', () => {
     const sent = captureCommands();
     render(<InitiativePanel />);
 
-    fireEvent.click(screen.getByTestId('initiative-row-a'));
+    fireEvent.click(within(screen.getByTestId('initiative-row-a')).getByRole('button'));
     const damage = screen.getByTestId('initiative-damage');
     fireEvent.change(damage, { target: { value: '5' } });
     fireEvent.keyDown(damage, { key: 'Enter' });
@@ -177,9 +196,13 @@ describe('gathering — bookkeeping on the selected row', () => {
     const sent = captureCommands();
     render(<InitiativePanel />);
 
-    fireEvent.click(screen.getByTestId('initiative-row-a'));
+    fireEvent.click(within(screen.getByTestId('initiative-row-a')).getByRole('button'));
     fireEvent.click(screen.getByLabelText('Add a condition'));
-    fireEvent.click(screen.getByText('Blinded'));
+    // Inline chips (finding 7), never an absolutely-positioned menu the popover's
+    // `overflow-hidden` body could clip.
+    const blinded = screen.getByText('Blinded');
+    expect(blinded.closest('.absolute')).toBeNull();
+    fireEvent.click(blinded);
     expect(sent).toContainEqual(
       expect.objectContaining({ action: 'condition', payload: { key: 'a', name: 'blinded', on: true } }),
     );
@@ -190,7 +213,7 @@ describe('gathering — bookkeeping on the selected row', () => {
     const sent = captureCommands();
     render(<InitiativePanel />);
 
-    fireEvent.click(screen.getByTestId('initiative-row-b'));
+    fireEvent.click(within(screen.getByTestId('initiative-row-b')).getByRole('button'));
     const input = screen.getByLabelText('Initiative for Goblin');
     fireEvent.change(input, { target: { value: '15' } });
     fireEvent.blur(input);

@@ -50,14 +50,27 @@ function PartyDisc({ d }: { d: DiscData }) {
       ? `ring-[1.5px] ${DISPOSITION_RING[d.disposition]}`
       : '';
 
+  // Downed fades the ring and the portrait only — the bg-surface-3 backdrop and the
+  // initials text stay at full opacity, since that pairing is what clears 4.5:1 (a
+  // dimmed disc used to drop 11px initials to 2.82:1).
   const face = (
-    <span
-      className={`relative flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-3 ${ring} ${d.down ? 'opacity-50' : ''}`}
-    >
-      {portrait ? (
-        <img src={portrait} alt="" className="h-full w-full object-cover" />
-      ) : (
-        <span className="font-mono text-[11px] text-text-secondary">{d.text ?? initials(d.name)}</span>
+    <span className="relative flex h-7 w-7 shrink-0 items-center justify-center">
+      <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-surface-3">
+        {portrait ? (
+          <img
+            src={portrait}
+            alt=""
+            className={`h-full w-full object-cover ${d.down ? 'opacity-50' : ''}`}
+          />
+        ) : (
+          <span className="font-mono text-[11px] text-text-secondary">{d.text ?? initials(d.name)}</span>
+        )}
+      </span>
+      {ring && (
+        <span
+          aria-hidden
+          className={`pointer-events-none absolute inset-0 rounded-full ${ring} ${d.down ? 'opacity-50' : ''}`}
+        />
       )}
       {d.down && <span className="absolute inset-x-1 top-1/2 h-px -translate-y-1/2 bg-text-primary" />}
     </span>

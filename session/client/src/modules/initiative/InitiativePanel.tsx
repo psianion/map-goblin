@@ -39,7 +39,7 @@ const BTN_PRIMARY = `${BTN_BASE} border-accent-active bg-accent-active text-on-a
 const BTN_GHOST = `${BTN_BASE} border-transparent bg-transparent text-text-secondary hover:bg-surface-2 hover:text-text-primary`;
 const BTN_GHOST_DANGER = `${BTN_BASE} border-transparent bg-transparent text-danger hover:bg-surface-2`;
 const INPUT =
-  'h-7 rounded border border-border-default bg-surface-0 px-2 text-[13px] text-text-primary focus:border-border-focus focus:outline-none';
+  'h-7 rounded border border-border-default bg-surface-0 px-2 text-[13px] text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus';
 const COND_CHIP =
   'shrink-0 rounded border border-border-default px-1 text-[9px] uppercase tracking-[.06em] text-text-secondary';
 
@@ -133,35 +133,35 @@ function Bookkeeping({ entry }: { entry: InitiativeEntry }) {
         </button>
       ))}
 
-      <div className="relative shrink-0">
-        <button
-          type="button"
-          aria-haspopup="true"
-          aria-expanded={menuOpen}
-          aria-label="Add a condition"
-          onClick={() => setMenuOpen((v) => !v)}
-          className="flex h-5 w-6 items-center justify-center rounded border border-border-default text-text-secondary hover:bg-surface-1"
-        >
-          <Icon name="plus" size={11} />
-        </button>
-        {menuOpen && available.length > 0 && (
-          <div className="absolute bottom-full right-0 z-10 mb-1 grid w-40 grid-cols-3 gap-1 rounded border border-border-structure bg-surface-1 p-1.5 shadow-panel">
-            {available.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => {
-                  send('condition', { key: entry.key, name: c, on: true });
-                  setMenuOpen(false);
-                }}
-                className="truncate rounded border border-border-default px-1 py-0.5 text-[9px] uppercase tracking-[.04em] text-text-secondary hover:bg-surface-2"
-              >
-                {conditionLabel(c)}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      <button
+        type="button"
+        aria-haspopup="true"
+        aria-expanded={menuOpen}
+        aria-label="Add a condition"
+        onClick={() => setMenuOpen((v) => !v)}
+        className="flex h-5 w-6 shrink-0 items-center justify-center rounded border border-border-default text-text-secondary hover:bg-surface-1"
+      >
+        <Icon name="plus" size={11} />
+      </button>
+
+      {/* M3 finding 7 — inline, not an absolutely-positioned dropdown: the popover body clips
+          `overflow-hidden`, so a menu near the top used to render off-screen. Rendering the
+          available conditions as ordinary chips lets the bookkeeping line's own `flex-wrap`
+          push them onto a second row instead — clip-proof by construction. */}
+      {menuOpen &&
+        available.map((c) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => {
+              send('condition', { key: entry.key, name: c, on: true });
+              setMenuOpen(false);
+            }}
+            className="shrink-0 rounded border border-dashed border-border-default px-1.5 py-0.5 text-[9px] uppercase tracking-[.04em] text-text-secondary hover:bg-surface-2"
+          >
+            {conditionLabel(c)}
+          </button>
+        ))}
     </div>
   );
 }
@@ -205,66 +205,71 @@ function Row({
   const clickable = isDm;
   const highlighted = isCurrent || selected;
 
-  return (
-    <div>
-      <div
-        data-testid={`initiative-row-${entry.key}`}
-        role={clickable ? 'button' : undefined}
-        tabIndex={clickable ? 0 : undefined}
-        aria-current={isCurrent ? 'true' : undefined}
-        aria-pressed={clickable ? selected : undefined}
-        onClick={clickable ? () => onSelect(selected ? null : entry.key) : undefined}
-        onKeyDown={
-          clickable
-            ? (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onSelect(selected ? null : entry.key);
-                }
-              }
-            : undefined
-        }
-        className={`flex items-center gap-1.5 rounded px-2 text-[13px] transition-colors duration-150 ease-settle motion-reduce:transition-none ${
-          dense ? 'h-7' : 'h-9'
-        } ${highlighted ? 'bg-surface-3' : ''} ${
-          clickable
-            ? 'cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus'
-            : ''
+  // The name + chips + hp block, shared by the clickable (DM) and inert (player) renders —
+  // finding 13: this lives inside a real `<button>` now, never a `role="button"` div, so the
+  // initiative-number input beside it (a sibling, not a descendant) is never nested inside
+  // anything with button semantics.
+  const rowInner = (
+    <>
+      <span className="w-2.5 shrink-0 text-center text-[10px] text-accent-active">{isCurrent ? '▶' : ''}</span>
+      <span className={`min-w-0 flex-1 truncate text-left ${down ? 'text-text-muted line-through' : 'text-text-primary'}`}>
+        {entry.name}
+        {isOwn && <span className="ml-1 text-xs font-normal text-text-muted">(you)</span>}
+      </span>
+
+      {conditions.length > 0 &&
+        (dense ? (
+          <span className={COND_CHIP}>+{conditions.length}</span>
+        ) : (
+          conditions.map((c) => (
+            <span key={c} className={COND_CHIP}>
+              {conditionLabel(c)}
+            </span>
+          ))
+        ))}
+
+      <span
+        aria-label={hpText ? `HP ${hpText}` : barPct !== null ? `HP ${barPct}%` : undefined}
+        className={`ml-auto flex shrink-0 items-center gap-1.5 font-mono text-xs ${
+          down ? 'text-text-muted' : 'text-text-secondary'
         }`}
       >
-        <span className="w-2.5 shrink-0 text-center text-[10px] text-accent-active">{isCurrent ? '▶' : ''}</span>
-        <span className={`min-w-0 flex-1 truncate ${down ? 'text-text-muted line-through' : 'text-text-primary'}`}>
-          {entry.name}
-          {isOwn && <span className="ml-1 text-xs font-normal text-text-muted">(you)</span>}
-        </span>
+        {hpText && <span>{hpText}</span>}
+        {barPct !== null && (
+          <span className="h-[3px] w-9 shrink-0 overflow-hidden rounded-full bg-surface-3">
+            <span
+              className={`block h-full rounded-full ${barPct <= 25 ? 'bg-danger' : 'bg-text-secondary'}`}
+              style={{ width: `${barPct}%` }}
+            />
+          </span>
+        )}
+      </span>
+    </>
+  );
 
-        {conditions.length > 0 &&
-          (dense ? (
-            <span className={COND_CHIP}>+{conditions.length}</span>
-          ) : (
-            conditions.map((c) => (
-              <span key={c} className={COND_CHIP}>
-                {conditionLabel(c)}
-              </span>
-            ))
-          ))}
-
-        <span
-          aria-label={hpText ? `HP ${hpText}` : barPct !== null ? `HP ${barPct}%` : undefined}
-          className={`ml-auto flex shrink-0 items-center gap-1.5 font-mono text-xs ${
-            down ? 'text-text-muted' : 'text-text-secondary'
-          }`}
-        >
-          {hpText && <span>{hpText}</span>}
-          {barPct !== null && (
-            <span className="h-[3px] w-9 shrink-0 overflow-hidden rounded-full bg-surface-3">
-              <span
-                className={`block h-full rounded-full ${barPct <= 25 ? 'bg-danger' : 'bg-text-secondary'}`}
-                style={{ width: `${barPct}%` }}
-              />
-            </span>
-          )}
-        </span>
+  return (
+    <>
+      <li
+        data-testid={`initiative-row-${entry.key}`}
+        className={`flex items-center gap-1.5 rounded px-2 text-[13px] transition-colors duration-150 ease-settle motion-reduce:transition-none ${
+          dense ? 'h-7' : 'h-9'
+        } ${highlighted ? 'bg-surface-3' : ''}`}
+      >
+        {clickable ? (
+          <button
+            type="button"
+            aria-current={isCurrent ? 'true' : undefined}
+            aria-pressed={selected}
+            onClick={() => onSelect(selected ? null : entry.key)}
+            className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+          >
+            {rowInner}
+          </button>
+        ) : (
+          <div aria-current={isCurrent ? 'true' : undefined} className="flex h-full min-w-0 flex-1 items-center gap-1.5">
+            {rowInner}
+          </div>
+        )}
 
         {selected && isDm ? (
           <input
@@ -272,7 +277,6 @@ function Row({
             type="number"
             defaultValue={entry.initiative ?? ''}
             aria-label={`Initiative for ${entry.name}`}
-            onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               if (e.key === 'Enter') e.currentTarget.blur();
             }}
@@ -282,7 +286,7 @@ function Row({
                 send('set', { key: entry.key, value });
               }
             }}
-            className="h-6 w-9 shrink-0 rounded border border-border-default bg-surface-1 px-1 text-right font-mono text-[13px] text-text-primary focus:border-border-focus focus:outline-none"
+            className="h-6 w-9 shrink-0 rounded border border-border-default bg-surface-1 px-1 text-right font-mono text-[13px] text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
           />
         ) : (
           <span
@@ -293,9 +297,13 @@ function Row({
             {entry.initiative ?? '—'}
           </span>
         )}
-      </div>
-      {selected && isDm && <Bookkeeping entry={entry} />}
-    </div>
+      </li>
+      {selected && isDm && (
+        <li className="list-none">
+          <Bookkeeping entry={entry} />
+        </li>
+      )}
+    </>
   );
 }
 
@@ -409,15 +417,15 @@ export function InitiativePanel() {
       {wide ? (
         <div data-testid="initiative-rows" className="grid grid-cols-2 gap-x-2">
           {splitHalf(indexed).map((col, ci) => (
-            <div key={ci} className="flex flex-col gap-0.5">
+            <ul key={ci} className="flex flex-col gap-0.5">
               {col.map(rowFor)}
-            </div>
+            </ul>
           ))}
         </div>
       ) : (
-        <div data-testid="initiative-rows" className="flex flex-col gap-0.5">
+        <ul data-testid="initiative-rows" className="flex flex-col gap-0.5">
           {indexed.map(rowFor)}
-        </div>
+        </ul>
       )}
       {overflow > 0 && <p className="px-2 text-xs text-text-muted">+{overflow} more</p>}
       {isDm && <AddCombatantRow />}

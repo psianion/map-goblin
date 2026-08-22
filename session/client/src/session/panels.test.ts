@@ -33,6 +33,23 @@ describe('panel registry', () => {
     expect(usePanel('does-not-exist')).toBeUndefined();
   });
 
+  it('narrows the rail to fewer roles than `roles` via railRoles, but keeps every role\'s hotkey/openPanelById', () => {
+    registerPanel({
+      id: 't-dm-rail',
+      roles: ALL_ROLES,
+      order: 97,
+      component: stub,
+      ...base,
+      railRoles: ['dm'],
+    });
+
+    expect(useRailPanels('dm').map((p) => p.id)).toContain('t-dm-rail');
+    expect(useRailPanels('player').map((p) => p.id)).not.toContain('t-dm-rail');
+    // Still a real panel for a player — just not on their rail.
+    expect(usePanels('player').map((p) => p.id)).toContain('t-dm-rail');
+    expect(usePanel('t-dm-rail')?.id).toBe('t-dm-rail');
+  });
+
   it('resolves a function title live and falls back to the id', () => {
     let name = 'Fieldstone Keep';
     registerPanel({

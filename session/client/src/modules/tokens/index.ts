@@ -4,3 +4,5 @@
 // is the one exception, mounted directly by GameTable as an on-map overlay rather than a
 // registered panel.
 import './TokenPanel';
+// M4 — the player's own "Me" panel; registers itself the same way.
+import './MePanel';

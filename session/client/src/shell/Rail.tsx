@@ -121,7 +121,7 @@ export function Rail() {
     >
       {play.map(item)}
       {play.length > 0 && prep.length > 0 && (
-        <div className="my-2 h-px w-7 bg-border-default" aria-hidden />
+        <div className="my-2 h-px w-7 bg-border-structure" aria-hidden />
       )}
       {prep.map(item)}
       <div className="flex-1" />

@@ -89,4 +89,13 @@ export const armedButtonClass =
 export const quietButtonClass =
   'shrink-0 rounded-chip border border-border-default px-1.5 py-0.5 text-[11px] text-text-secondary transition-colors duration-150 ease-settle hover:bg-surface-3 hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none'
 export const filterInputClass =
-  'h-7 shrink-0 rounded border border-border-default bg-surface-0 px-2 text-[13px] text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none'
+  'h-7 shrink-0 rounded border border-border-default bg-surface-0 px-2 text-[13px] text-text-primary placeholder:text-text-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus'
+
+// M3 finding 4 — one input vocabulary. These two are near-identical strings that used to be
+// hand-duplicated in TokenPanel.tsx (`numberInput`) and TokenLibraryPanel.tsx (`defInput`);
+// merged into the one shared constant a module's inputs are supposed to reuse.
+export const numberFieldClass =
+  'w-14 min-w-0 rounded border border-border-default bg-surface-1 px-1 py-0.5 text-right text-xs tabular-nums text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus'
+
+export const selectFieldClass =
+  'min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1 py-0.5 text-xs text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus'

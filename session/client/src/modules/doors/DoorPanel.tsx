@@ -7,14 +7,12 @@
 // that is off-screen or buried in a long list, and it is what puts `DoorActions` on screen —
 // shared with the on-map `DoorMenu`, so the rule for what a door's buttons do lives once.
 
-import { useEffect, useMemo } from 'react';
-import { useStore } from '@dnd/core/src/store/store';
+import { useEffect } from 'react';
 import type { DoorChild } from '@dnd/core/src/shared/types';
-import type { DoorsState } from '@dnd/mechanics/doors';
 import { frameWorldPoint } from '../../renderer/camera';
 import { Icon } from '../../shell/icons';
 import { ALL_ROLES, registerPanel } from '../../session/panels';
-import { useModuleState, useSessionStore } from '../../session/store';
+import { useSessionStore } from '../../session/store';
 import { showToast } from '../../session/toasts';
 import {
   DOOR_CHIP_CEILING,
@@ -24,23 +22,14 @@ import {
   doorStatusLabel,
   filterDoors,
   groupDoors,
-  liveDoors,
   type LiveDoor,
 } from './doors';
 import { liveSceneDoors, mountDoorLayerWhenReady } from './DoorRenderer';
 import { useDoorSelection } from './selection';
+import { useLiveDoors } from './useLiveDoors';
 
 const send = (action: string, payload: unknown): void =>
   useSessionStore.getState().sendCommand('doors', action, payload);
-
-/** Reactive version of `liveSceneDoors` — shared by the panel, its footer, and `DoorMenu` so
- *  none of them repeats the store-reading wiring. */
-export function useLiveDoors(): LiveDoor[] {
-  const doorsState = useModuleState<DoorsState>('doors');
-  const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
-  const layers = useStore((s) => s.layers);
-  return useMemo(() => liveDoors(layers, doorsState, sceneId), [layers, doorsState, sceneId]);
-}
 
 /** Turns the server's refusal into the one toast the table has, naming the door it names. */
 function useDoorFeedback(doors: readonly LiveDoor[]): void {
@@ -200,7 +189,6 @@ export function DoorPanel() {
   const filter = useDoorSelection((s) => s.filter);
   const setFilter = useDoorSelection((s) => s.setFilter);
 
-  useEffect(() => mountDoorLayerWhenReady(), []);
   useDoorFeedback(doors);
 
   // Selecting a door also brings it into view — the panel is the keyboard/overview route to
@@ -290,8 +278,12 @@ registerPanel({
   key: 'D',
   group: 'play',
   roles: ALL_ROLES,
+  // M4 — the player's fast path is the on-map DoorMenu; the rail stays DM-only clutter
+  // otherwise (a player still opens this with the D key).
+  railRoles: ['dm'],
   order: 30,
   component: DoorPanel,
+  mount: mountDoorLayerWhenReady,
   footer: DoorFooter,
   subtitle: doorsSubtitle,
 });

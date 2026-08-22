@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, renderHook } from '@testing-library/react';
 import { PROTOCOL_VERSION, type PlayerInfo, type SessionState } from '@dnd/core/src/shared/protocol';
 import type { WebSocketClient } from '../session/WebSocketClient';
+import { useDoorSelection } from '../modules/doors/selection';
+import { useTokenInteraction } from '../modules/tokens/drag';
 import { registerPanel } from '../session/panels';
 import { useSessionStore } from '../session/store';
 import { useActiveTool } from '../session/tools';
@@ -60,6 +62,8 @@ beforeEach(() => {
   useShell.setState({ openPanel: null, drawerOpen: false, diagnostics: false });
   useSessionStore.setState({ you: dm });
   useActiveTool.getState().setActiveTool(null);
+  useDoorSelection.setState({ selectedId: null, filter: '' });
+  useTokenInteraction.setState({ selectedId: null, placingDefId: null, draggingId: null });
 });
 
 describe('shell hotkeys', () => {
@@ -118,6 +122,38 @@ describe('shell hotkeys', () => {
     renderHook(() => useHotkeys());
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(useActiveTool.getState().activeTool).toBeNull();
+  });
+
+  it('Esc order: popover, then a door selection, then a token selection, then the tool — one thing per press', () => {
+    useActiveTool.getState().setActiveTool('fog');
+    useDoorSelection.setState({ selectedId: 'd1' });
+    useTokenInteraction.setState({ selectedId: 't1' });
+    useShell.setState({ openPanel: 'hk-panel' });
+    renderHook(() => useHotkeys());
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useShell.getState().openPanel).toBeNull();
+    expect(useDoorSelection.getState().selectedId).toBe('d1');
+    expect(useTokenInteraction.getState().selectedId).toBe('t1');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useDoorSelection.getState().selectedId).toBeNull();
+    expect(useTokenInteraction.getState().selectedId).toBe('t1');
+    expect(useActiveTool.getState().activeTool).toBe('fog');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useTokenInteraction.getState().selectedId).toBeNull();
+    expect(useActiveTool.getState().activeTool).toBe('fog');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useActiveTool.getState().activeTool).toBeNull();
+  });
+
+  it('Esc clears a token selection straight away when no door is selected', () => {
+    useTokenInteraction.setState({ selectedId: 't1' });
+    renderHook(() => useHotkeys());
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useTokenInteraction.getState().selectedId).toBeNull();
   });
 
   it('N sends next-turn for the DM once the order is locked, and does nothing before it', () => {

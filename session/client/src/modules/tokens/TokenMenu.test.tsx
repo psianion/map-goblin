@@ -95,7 +95,11 @@ describe('TokenMenu', () => {
 
     const menu = screen.getByTestId('token-menu');
     expect(menu.textContent).toContain('Goblin Boss');
-    expect(menu.textContent).toContain('medium · hostile');
+    // Labelled, not the raw enum (finding 16): "Medium", disposition as the coloured dot.
+    expect(menu.textContent).toContain('Medium');
+    expect(menu.textContent).not.toContain('medium');
+    expect(menu.textContent).not.toContain('hostile');
+    expect(menu.querySelector('.bg-danger')).not.toBeNull(); // DOT_CLASS.hostile
     // 12px right of the token, vertically centred, clamped inside the 800x600 map — the
     // fallback size (jsdom never lays anything out, so offsetWidth/offsetHeight are 0).
     expect(menu.style.left).toBe('112px');
@@ -122,17 +126,7 @@ describe('TokenMenu', () => {
     expect(screen.queryByTestId('token-menu')).toBeNull();
   });
 
-  it('closes on Escape', () => {
-    mountMapElement();
-    screenOf.mockReturnValue({ x: 100, y: 50 });
-    useSessionStore.setState({ session: session([token()]), you: dm, client: null, lastError: null });
-    useTokenInteraction.getState().select('t1');
-    render(<TokenMenu />);
-    expect(screen.getByTestId('token-menu')).not.toBeNull();
-
-    fireEvent.keyDown(window, { key: 'Escape' });
-    expect(useTokenInteraction.getState().selectedId).toBeNull();
-  });
+  // Escape is `hotkeys.ts`'s job now (M3 review finding 12) — see `shell/hotkeys.test.ts`.
 
   it('closes on a click that lands on the map but hits nothing, not on a click inside itself', () => {
     const map = mountMapElement();

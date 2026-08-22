@@ -8,7 +8,7 @@ import { worldBadge } from '../modules/world/world';
 import { useShell } from '../shell/shellStore';
 import { toolLabel, useActiveTool } from '../session/tools';
 import type { ConnectionStatus } from '../session/WebSocketClient';
-import { useModuleState, useSessionStore } from '../session/store';
+import { useModuleState, useRole, useSessionStore } from '../session/store';
 import { MAX_ZOOM } from '../renderer/camera';
 import { fitMap, minZoom, zoomAbout } from '../renderer/cameraInput';
 
@@ -143,6 +143,10 @@ function ZoomSlider() {
 }
 
 export function TableStatusBar() {
+  // M4 — the player variant: scene name, presence, and env badge only. Latency, diagnostics
+  // and the armed-tool segment are DM chrome (a player never arms a tool, and Shift+D reads
+  // as doing nothing rather than as a hidden control that happens to render empty).
+  const isPlayer = useRole() === 'player';
   const diagnostics = useShell((s) => s.diagnostics);
   const openPanelById = useShell((s) => s.openPanelById);
   const [fpsStr, setFpsStr] = useState('—');
@@ -210,15 +214,9 @@ export function TableStatusBar() {
       className="absolute bottom-0 left-0 right-14 z-toolbar flex h-7 items-center justify-between border-t border-border-default bg-surface-1/80 px-3 font-mono text-xs text-text-muted backdrop-blur-sm"
     >
       {/* Left: scene name (opens the Session popover), presence, latency, world light,
-          diagnostics (Shift+D, off by default), armed tool */}
+          diagnostics (Shift+D, off by default — after the env badge, never before the scene
+          name), armed tool */}
       <div className="flex items-center gap-3 tabular-nums" data-testid="connection-status">
-        {diagnostics && (
-          <>
-            <span className={fpsColor}>{fpsStr} FPS</span>
-            <span>{ftStr}ms</span>
-            <span>&middot;</span>
-          </>
-        )}
         <button
           type="button"
           data-testid="scene-name"
@@ -230,7 +228,7 @@ export function TableStatusBar() {
         <span>&middot;</span>
         <ConnectionShape connection={connection} />
         <span>{sessionEnded ? 'Session ended' : conn.label}</span>
-        {connection === 'open' && latencyMs !== null && (
+        {!isPlayer && connection === 'open' && latencyMs !== null && (
           <span className="text-text-secondary">{Math.round(latencyMs)} ms</span>
         )}
         {envLabel && (
@@ -241,7 +239,14 @@ export function TableStatusBar() {
             </span>
           </>
         )}
-        {activeTool && (
+        {!isPlayer && diagnostics && (
+          <>
+            <span>&middot;</span>
+            <span className={fpsColor}>{fpsStr} FPS</span>
+            <span>{ftStr}ms</span>
+          </>
+        )}
+        {!isPlayer && activeTool && (
           <>
             <span>&middot;</span>
             <span data-testid="active-tool" className="flex items-center gap-1.5 text-accent-active">

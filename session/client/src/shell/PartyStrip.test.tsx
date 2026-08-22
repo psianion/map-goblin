@@ -130,8 +130,12 @@ describe('PartyStrip — encounter', () => {
     expect(screen.getByTestId('party-disc-e2').getAttribute('data-current')).toBe('true');
     expect(screen.getByTestId('party-disc-e1').getAttribute('data-current')).toBeNull();
     expect(screen.getByTestId('party-strip').textContent).toContain('R3');
-    // Downed: the disc face carries the dim + strike treatment.
+    // Downed: the ring/portrait carry the dim treatment (contrast, P1) and the strike line
+    // shows, but the initials text itself is never dimmed — it has to clear 4.5:1 on
+    // bg-surface-3.
     expect(screen.getByTestId('party-disc-e2').innerHTML).toContain('opacity-50');
+    const initialsEl = screen.getByTestId('party-disc-e2').querySelector('.font-mono')!;
+    expect(initialsEl.className).not.toContain('opacity');
   });
 
   it('renders turn order and skips the frame click for an off-board combatant', () => {

@@ -117,6 +117,7 @@ registerPanel({
   key: '',
   group: 'prep',
   rail: false,
+  anchor: 'status-left',
   roles: ALL_ROLES,
   order: 55,
   component: SessionPopover,

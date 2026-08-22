@@ -29,6 +29,8 @@ import {
   buttonClass,
   filterInputClass,
   ghostButtonClass,
+  numberFieldClass,
+  selectFieldClass,
   useTokenLibraryUi,
 } from './tokensUi';
 
@@ -47,8 +49,11 @@ const blank = {
   light: null as Light | null,
 };
 
-const defInput =
-  'w-14 min-w-0 rounded border border-border-default bg-surface-1 px-1 py-0.5 text-right tabular-nums text-text-primary focus:border-border-focus focus:outline-none';
+// The select vocabulary local to this form (size, disposition, vision mode) — distinct
+// visual weight from `numberFieldClass`'s narrow numeric fields, so it stays its own atom
+// rather than forcing a merge with a shape it doesn't share.
+const selectClass =
+  'min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1 py-1 text-xs text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus';
 
 /** D11 — same shape as the map upload: raw bytes, bearer token, `{id}` back. */
 async function uploadPortrait(file: File): Promise<string> {
@@ -217,7 +222,7 @@ export function TokenLibraryPanel() {
             placeholder="Goblin"
             aria-label="Token name"
             data-testid="token-name"
-            className="rounded border border-border-default bg-surface-1 px-2 py-1 text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none"
+            className="rounded border border-border-default bg-surface-1 px-2 py-1 text-text-primary placeholder:text-text-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
           />
           <div className="flex gap-1">
             <select
@@ -225,7 +230,7 @@ export function TokenLibraryPanel() {
               onChange={(e) => setForm({ ...form, size: e.target.value as TokenSize })}
               aria-label="Size"
               data-testid="token-size"
-              className="min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1 py-1 text-xs text-text-primary"
+              className={selectClass}
             >
               {SIZES.map((s) => (
                 <option key={s} value={s}>
@@ -238,7 +243,7 @@ export function TokenLibraryPanel() {
               onChange={(e) => setForm({ ...form, disposition: e.target.value as Disposition })}
               aria-label="Disposition"
               data-testid="token-disposition"
-              className="min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1 py-1 text-xs text-text-primary"
+              className={selectClass}
             >
               {DISPOSITIONS.map((d) => (
                 <option key={d} value={d}>
@@ -297,7 +302,7 @@ export function TokenLibraryPanel() {
                         },
                       })
                     }
-                    className={defInput}
+                    className={numberFieldClass}
                   />
                   <span className="shrink-0">{scale.unit}</span>
                   <select
@@ -310,7 +315,7 @@ export function TokenLibraryPanel() {
                         sight: { ...(form.sight as Sight), visionMode: e.target.value as Sight['visionMode'] },
                       })
                     }
-                    className="min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1 py-0.5 text-text-primary"
+                    className={selectFieldClass}
                   >
                     {VISION_MODES.map((m) => (
                       <option key={m.value} value={m.value}>
@@ -348,7 +353,7 @@ export function TokenLibraryPanel() {
                         },
                       })
                     }
-                    className={defInput}
+                    className={numberFieldClass}
                   />
                   <span className="shrink-0">bright</span>
                   <input
@@ -367,7 +372,7 @@ export function TokenLibraryPanel() {
                         },
                       })
                     }
-                    className={defInput}
+                    className={numberFieldClass}
                   />
                   <span className="shrink-0">dim</span>
                   <input

@@ -169,3 +169,37 @@ describe('TableStatusBar — M1 shell', () => {
     }
   });
 });
+
+describe('TableStatusBar — M4 player variant', () => {
+  const player: PlayerInfo = { identityId: 'p1', name: 'Iris', role: 'player', connected: true };
+
+  it('drops latency, diagnostics and the armed tool, but keeps scene name and env badge', () => {
+    useSessionStore.setState({
+      you: player,
+      connection: 'open',
+      latencyMs: 42,
+      session: session(
+        { triggers: triggersState('sc-1', {}, { clock: NIGHT }) },
+        [{ id: 'sc-1', name: 'Fieldstone Keep', mapId: 'm1' }],
+      ),
+    });
+    useShell.setState({ diagnostics: true });
+    useActiveTool.getState().setActiveTool('fog');
+
+    render(<TableStatusBar />);
+
+    expect(screen.getByTestId('scene-name').textContent).toBe('Fieldstone Keep');
+    expect(screen.getByTestId('env-badge')).not.toBeNull();
+    expect(screen.queryByText(/ ms$/)).toBeNull();
+    expect(screen.queryByText(/FPS/)).toBeNull();
+    expect(screen.queryByTestId('active-tool')).toBeNull();
+  });
+
+  it('keeps the DM chrome for any non-player seat, including before the join snapshot lands', () => {
+    useSessionStore.setState({ you: null, connection: 'open', latencyMs: 42, session: session({}) });
+    useShell.setState({ diagnostics: true });
+    render(<TableStatusBar />);
+    expect(screen.getByText(/FPS/)).not.toBeNull();
+    expect(screen.getByText('42 ms')).not.toBeNull();
+  });
+});

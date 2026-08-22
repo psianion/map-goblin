@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { resolvePanelTitle, usePanel } from '../session/panels';
 import { useRole, useSessionStore } from '../session/store';
 import { useShell } from './shellStore';
@@ -27,10 +27,15 @@ export function Popover() {
   const rootRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [top, setTop] = useState(12);
+  // Rail icons can register their DOM node after this effect has already run once (mount
+  // order, HMR, a panel opened before Rail exists at all) — this is what wakes it back up.
+  const railVersion = useSyncExternalStore(railRefs.subscribe, railRefs.getVersion);
+  const anchorKind = def?.anchor ?? 'rail';
 
   // Anchor to the rail icon's own position, clamped so the popover never runs off the bottom.
+  // `status-left` panels (no rail icon at all) skip this — they anchor off the status bar.
   useLayoutEffect(() => {
-    if (!openPanel) return;
+    if (!openPanel || anchorKind !== 'rail') return;
     const recalc = () => {
       const anchor = railRefs.get(openPanel);
       const raw = anchor ? anchor.getBoundingClientRect().top : 12;
@@ -40,15 +45,19 @@ export function Popover() {
     recalc();
     window.addEventListener('resize', recalc);
     return () => window.removeEventListener('resize', recalc);
-  });
+  }, [openPanel, anchorKind, railVersion]);
 
-  // Focus the body's first control on open; hand focus back to the rail icon on close.
+  // Focus the body's first control on open; hand focus back to whatever opened this panel on
+  // close — the rail icon, or (a `status-left` panel has none) the scene-name button.
   useEffect(() => {
     if (!openPanel) return;
     bodyRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
-    const anchor = railRefs.get(openPanel);
-    return () => anchor?.focus();
-  }, [openPanel]);
+    const returnFocusTo =
+      anchorKind === 'status-left'
+        ? document.querySelector<HTMLElement>('[data-testid="scene-name"]')
+        : railRefs.get(openPanel);
+    return () => returnFocusTo?.focus();
+  }, [openPanel, anchorKind]);
 
   // Esc closes — a dialog's own guarantee, independent of the global hotkey listener (which
   // additionally decides *not* to disarm a tool on the same press when a popover was open).
@@ -72,16 +81,25 @@ export function Popover() {
   }, [openPanel, closePanel]);
 
   // Dev-only: the no-scroll ledger is a promise, not a CSS accident — warn instead of a
-  // scrollbar quietly reappearing on a panel that outgrew its ceiling.
+  // scrollbar quietly reappearing on a panel that outgrew its ceiling. Checked on open and
+  // again whenever the body's own size changes (a filter field narrowing a list, a densified
+  // row height) rather than on every render.
   useLayoutEffect(() => {
     if (!import.meta.env.DEV || !openPanel) return;
     const body = bodyRef.current;
     if (!body) return;
-    const overflow = body.scrollHeight - body.clientHeight;
-    if (overflow > 0) {
-      console.warn(`[shell] panel "${openPanel}" overflows its popover by ${overflow}px`);
-    }
-  });
+    const check = () => {
+      const overflow = body.scrollHeight - body.clientHeight;
+      if (overflow > 0) {
+        console.warn(`[shell] panel "${openPanel}" overflows its popover by ${overflow}px`);
+      }
+    };
+    check();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(check);
+    ro.observe(body);
+    return () => ro.disconnect();
+  }, [openPanel]);
 
   if (!openPanel || !def || !role || !def.roles.includes(role)) return null;
 
@@ -98,11 +116,16 @@ export function Popover() {
       data-testid="popover"
       data-panel={def.id}
       role="dialog"
+      aria-modal="false"
       aria-labelledby={titleId}
       onPointerDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
-      className="absolute right-[66px] z-toolbar flex flex-col overflow-hidden rounded-lg border border-border-structure bg-surface-1 shadow-panel motion-safe:animate-panel-in"
-      style={{ width, top, maxHeight: `calc(100vh - ${top + 12}px)` }}
+      className={`absolute z-toolbar flex flex-col overflow-hidden rounded-lg border border-border-structure bg-surface-1 shadow-panel motion-safe:animate-panel-in ${anchorKind === 'status-left' ? '' : 'right-[66px]'}`}
+      style={
+        anchorKind === 'status-left'
+          ? { width, left: 12, bottom: 40 }
+          : { width, top, maxHeight: `calc(100vh - ${top + 12}px)` }
+      }
     >
       <div className="flex h-10 shrink-0 items-center gap-2.5 border-b border-border-default py-0 pl-3.5 pr-2">
         <span id={titleId} className="truncate font-serif text-[16px] text-text-primary">

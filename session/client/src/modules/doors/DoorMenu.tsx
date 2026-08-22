@@ -5,15 +5,12 @@
 
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { worldToScreen } from '../../renderer/camera';
+import { applyPlacement, boundsOf, FALLBACK_SIZE, NOTCH_LEFT_CLASS, NOTCH_REST, placeBeside } from '../../shell/anchor';
 import { useShell } from '../../shell/shellStore';
 import { doorLabel, visibleDoorChips } from './doors';
-import { DoorActions, useLiveDoors } from './DoorPanel';
+import { DoorActions } from './DoorPanel';
+import { useLiveDoors } from './useLiveDoors';
 import { useDoorSelection } from './selection';
-
-/** Screen px between the door's own point and the menu's left edge. */
-const GAP = 12;
-const FALLBACK_W = 180;
-const FALLBACK_H = 76;
 
 export function DoorMenu() {
   const doors = useLiveDoors();
@@ -25,27 +22,23 @@ export function DoorMenu() {
   const index = doors.findIndex((d) => d.door.id === selectedId);
   const selected = index >= 0 ? doors[index] : undefined;
   const rootRef = useRef<HTMLDivElement>(null);
+  const notchRef = useRef<HTMLSpanElement>(null);
 
-  // Esc, and a click that lands on the map but hits nothing. A click that *does* hit a door
-  // never reaches here at all: `DoorRenderer`'s own pointerdown handler stops propagation
-  // before it bubbles this far, so the only clicks a document-level listener ever sees are
-  // ones that missed every door (or landed on chrome, which the id check below excludes).
+  // A click that lands on the map but hits nothing. A click that *does* hit a door never
+  // reaches here at all: `DoorRenderer`'s own pointerdown handler stops propagation before it
+  // bubbles this far, so the only clicks a document-level listener ever sees are ones that
+  // missed every door (or landed on chrome, which the id check below excludes). Escape is not
+  // this component's own business anymore — `hotkeys.ts` owns the one Esc order for the whole
+  // shell (M3 review finding 12): popover, then this selection, then the active tool.
   useEffect(() => {
     if (!selected) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') select(null);
-    };
     const onPointerDown = (e: PointerEvent) => {
       const target = e.target as HTMLElement | null;
       if (rootRef.current?.contains(target)) return;
       if (target?.closest('[data-testid="game-canvas"]')) select(null);
     };
-    window.addEventListener('keydown', onKeyDown);
     document.addEventListener('pointerdown', onPointerDown);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      document.removeEventListener('pointerdown', onPointerDown);
-    };
+    return () => document.removeEventListener('pointerdown', onPointerDown);
   }, [selected, select]);
 
   // Re-read the camera every frame the menu is open, written straight to the DOM rather than
@@ -62,10 +55,8 @@ export function DoorMenu() {
       const screen = worldToScreen(selected.door.position[0], selected.door.position[1]);
       if (el && mapEl && screen) {
         const map = mapEl.getBoundingClientRect();
-        const w = el.offsetWidth || FALLBACK_W;
-        const h = el.offsetHeight || FALLBACK_H;
-        el.style.left = `${Math.min(Math.max(screen.x + GAP, 0), Math.max(0, map.width - w))}px`;
-        el.style.top = `${Math.min(Math.max(screen.y - h / 2, 0), Math.max(0, map.height - h))}px`;
+        const size = { width: el.offsetWidth || FALLBACK_SIZE.width, height: el.offsetHeight || FALLBACK_SIZE.height };
+        applyPlacement(el, notchRef.current, placeBeside(screen, size, boundsOf(map)));
         el.style.visibility = 'visible';
       } else if (el) {
         el.style.visibility = 'hidden';
@@ -97,10 +88,7 @@ export function DoorMenu() {
       style={{ visibility: 'hidden' }}
       className="absolute z-toolbar flex min-w-[180px] flex-col gap-1.5 rounded-md border border-border-structure bg-surface-1 px-2.5 py-2 shadow-panel motion-safe:animate-panel-in"
     >
-      <span
-        aria-hidden
-        className="absolute -left-[6px] top-[14px] h-[10px] w-[10px] rotate-45 border-b border-l border-border-structure bg-surface-1"
-      />
+      <span ref={notchRef} aria-hidden className={NOTCH_LEFT_CLASS} style={{ top: NOTCH_REST }} />
       <div className="flex items-baseline gap-2 text-xs">
         <span className="min-w-0 flex-1 truncate text-text-primary">{doorLabel(selected.door, index)}</span>
         <span className="shrink-0 text-text-muted">{selected.live.open ? 'Open' : 'Closed'}</span>
