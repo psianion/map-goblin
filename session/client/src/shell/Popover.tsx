@@ -88,7 +88,7 @@ export function Popover() {
   const Panel = def.component;
   const Footer = def.footer;
   const HeaderActions = def.headerActions;
-  const width = def.width ?? 320;
+  const width = (typeof def.width === 'function' ? def.width() : def.width) ?? 320;
   const subtitle = def.subtitle?.() ?? null;
   const titleId = `popover-title-${def.id}`;
 

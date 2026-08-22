@@ -1,4 +1,6 @@
 import { useEffect } from 'react';
+import type { InitiativeState } from '@dnd/mechanics/initiative';
+import { armFogBrush, armFogHide, armFogReveal } from '../modules/fog/brush';
 import { panelsForRole } from '../session/panels';
 import { useSessionStore } from '../session/store';
 import { useActiveTool } from '../session/tools';
@@ -14,11 +16,31 @@ interface Binding {
   run: () => void;
 }
 
-// Fixed bindings that are not a panel's own `PanelDef.key`. N (next turn), / (focus the roll
-// bar/composer), R/H/B (fog tools) and M (Me panel) are M3/M4 — add them here once their
-// targets exist; this table is the whole point of keeping them out of the switch below.
+/** DM-only bindings (the fog tools): the fog module is never registered for a player, and
+ *  its commands are refused server-side regardless, but a stray press should not arm a tool
+ *  a player's shell has no chrome to show. */
+const dmOnly = (run: () => void): void => {
+  if (useSessionStore.getState().you?.role === 'dm') run();
+};
+
+/** Next turn — same guard the footer button uses (DM, and only once the order is locked). */
+function nextTurn(): void {
+  const store = useSessionStore.getState();
+  if (store.you?.role !== 'dm') return;
+  const state = store.session?.modules.initiative as InitiativeState | undefined;
+  if (state?.status !== 'running') return;
+  store.sendCommand('initiative', 'next', {});
+}
+
+// Fixed bindings that are not a panel's own `PanelDef.key`. / (focus the roll bar/composer)
+// and M (Me panel) are M4 — add them here once their targets exist; this table is the whole
+// point of keeping them out of the switch below.
 const BINDINGS: Binding[] = [
   { key: 'd', shift: true, run: () => useShell.getState().toggleDiagnostics() },
+  { key: 'r', run: () => dmOnly(armFogReveal) },
+  { key: 'h', run: () => dmOnly(armFogHide) },
+  { key: 'b', run: () => dmOnly(armFogBrush) },
+  { key: 'n', run: nextTurn },
 ];
 
 /** Esc order: close an open popover first; only disarm the tool on a second press. */

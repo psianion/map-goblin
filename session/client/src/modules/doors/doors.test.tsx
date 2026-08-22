@@ -15,14 +15,19 @@ import { useSessionStore } from '../../session/store';
 import { useToasts } from '../../session/toasts';
 import {
   DM_ENTITY_ALPHA,
+  DOOR_CHIP_CEILING,
+  DOOR_FILTER_THRESHOLD,
   doorAt,
   doorLabel,
   doorLook,
   doorRefusal,
   doorStatusLabel,
+  filterDoors,
+  groupDoors,
   liveDoors,
+  visibleDoorChips,
 } from './doors';
-import { DoorPanel } from './DoorPanel';
+import { DoorFooter, DoorPanel } from './DoorPanel';
 import { mountDoorLayer, trackDoorIds } from './DoorRenderer';
 import { useDoorSelection } from './selection';
 
@@ -84,12 +89,23 @@ function captureCommands(): Sent[] {
   return sent;
 }
 
+/** `[data-door-id]` chips inside `door-list`, in the order the popover draws them. */
+const chipIds = (): string[] =>
+  Array.from(screen.getByTestId('door-list').querySelectorAll('[data-door-id]')).map(
+    (el) => el.getAttribute('data-door-id')!,
+  );
+
+const chipButton = (id: string): HTMLButtonElement =>
+  screen
+    .getByTestId('door-list')
+    .querySelector(`[data-door-id="${id}"] button`) as HTMLButtonElement;
+
 beforeEach(() => {
   cleanup();
   framed.mockClear();
   useSessionStore.setState({ session: null, you: null, client: null, lastError: null });
   useToasts.setState({ toast: null });
-  useDoorSelection.getState().select(null);
+  useDoorSelection.setState({ selectedId: null, filter: '' });
   useStore.setState({ layers: [dungeonLayer([PLAIN, LOCKED, SECRET])] });
 });
 
@@ -275,18 +291,60 @@ describe('doorAt', () => {
   });
 });
 
+describe('grouping, filtering and the popover ceiling (M3 §Doors)', () => {
+  it('sorts open over secret over plain closed — Closed group is drawn first', () => {
+    const state: DoorsState = {
+      byScene: { 'scene-1': { d1: { open: true, locked: false, revealed: true } } },
+    };
+    const grouped = groupDoors(liveDoors(useStore.getState().layers, state, 'scene-1'));
+    expect(grouped.open.map((d) => d.door.id)).toEqual(['d1']);
+    expect(grouped.closed.map((d) => d.door.id)).toEqual(['d2']);
+    expect(grouped.secret.map((d) => d.door.id)).toEqual(['d3']);
+  });
+
+  it('filters by name and falls back to the "Door N" index untouched', () => {
+    const named = [door({ id: 'a', name: '' }), door({ id: 'b', name: 'Vault Door', position: [1, 0] })];
+    const entries = liveDoors([dungeonLayer(named)], undefined, 'scene-1');
+    expect(filterDoors(entries, 'vault').map((d) => d.door.id)).toEqual(['b']);
+    expect(filterDoors(entries, '').map((d) => d.door.id)).toEqual(['a', 'b']);
+  });
+
+  it('stays uncapped under the threshold, caps Closed-first at and past it', () => {
+    const plainDoors = (n: number, offset = 0) =>
+      Array.from({ length: n }, (_, i) => door({ id: `d${i + offset}`, position: [i, 0] }));
+
+    const below = liveDoors([dungeonLayer(plainDoors(24))], undefined, 'scene-1');
+    expect(below).toHaveLength(24);
+    expect(visibleDoorChips(below, '')).toHaveLength(24);
+
+    const secretOne = door({ id: 's', isSecret: true, position: [99, 0] });
+    const at = liveDoors([dungeonLayer([...plainDoors(24), secretOne])], undefined, 'scene-1');
+    expect(at).toHaveLength(DOOR_FILTER_THRESHOLD);
+    const capped = visibleDoorChips(at, '');
+    expect(capped).toHaveLength(DOOR_CHIP_CEILING);
+    // The 24 plain closed doors filled the cap first — the secret door lost its seat, the
+    // same "Closed group first" priority the ledger names.
+    expect(capped.some((d) => d.door.id === 's')).toBe(false);
+  });
+});
+
 describe('DoorPanel', () => {
-  it('lists the scene’s doors and selects one on click, without touching its state', () => {
+  it('lists the scene’s doors grouped, and selects one on click, without touching its state', () => {
     useSessionStore.setState({ session: session(), you: player });
     const sent = captureCommands();
     render(<DoorPanel />);
 
-    const rows = screen.getByTestId('door-list').querySelectorAll('li');
-    expect(rows).toHaveLength(3);
-    expect(rows[1].getAttribute('data-locked')).toBe('true');
-    expect(rows[2].getAttribute('data-secret')).toBe('true');
+    expect(chipIds().sort()).toEqual(['d1', 'd2', 'd3']);
+    expect(screen.getByText('Closed · 2')).not.toBeNull();
+    expect(screen.getByText('Secret · 1')).not.toBeNull();
+    expect(screen.queryByText(/^Open ·/)).toBeNull();
 
-    fireEvent.click(rows[0].querySelector('button')!);
+    const row = screen.getByTestId('door-list').querySelector('[data-door-id="d2"]')!;
+    expect(row.getAttribute('data-locked')).toBe('true');
+    const secretRow = screen.getByTestId('door-list').querySelector('[data-door-id="d3"]')!;
+    expect(secretRow.getAttribute('data-secret')).toBe('true');
+
+    fireEvent.click(chipButton('d1'));
     expect(sent).toHaveLength(0);
     expect(useDoorSelection.getState().selectedId).toBe('d1');
   });
@@ -296,61 +354,128 @@ describe('DoorPanel', () => {
     const sent = captureCommands();
     render(<DoorPanel />);
 
-    const rows = screen.getByTestId('door-list').querySelectorAll('li');
-    const row = rows[1].querySelector('button')!;
+    const btn = chipButton('d2');
     // A real <button>, so Enter and Space reach the same handler the pointer does — the
     // keyboard route to a door needs no separate key handling.
-    expect(row.tagName).toBe('BUTTON');
-    fireEvent.click(row);
+    expect(btn.tagName).toBe('BUTTON');
+    fireEvent.click(btn);
 
     expect(framed.mock.calls).toEqual([[10, 4]]);
     // Framing is local: nothing about it goes on the wire, so no other seat moves.
     expect(sent).toHaveLength(0);
   });
 
-  it('says a revealed secret door is still closed, until it is opened', () => {
-    const revealed = (open: boolean): DoorsState => ({
-      byScene: { 'scene-1': { d3: { open, locked: false, revealed: true } } },
-    });
-    useSessionStore.setState({ session: session({ doors: revealed(false) }), you: dm });
+  it('hides an empty group instead of drawing "Open · 0"', () => {
+    useSessionStore.setState({ session: session(), you: dm });
+    render(<DoorPanel />);
+    expect(screen.queryByText(/Open ·/)).toBeNull();
+  });
+
+  it('says there are no doors, and nothing else, when the scene has none', () => {
+    useStore.setState({ layers: [dungeonLayer([])] });
+    useSessionStore.setState({ session: session(), you: player });
+    render(<DoorPanel />);
+    expect(screen.getByText('No doors on this scene.')).not.toBeNull();
+    expect(screen.queryByTestId('door-list')).toBeNull();
+  });
+});
+
+describe('DoorPanel — the no-scroll ceiling', () => {
+  const plainDoors = (n: number) =>
+    Array.from({ length: n }, (_, i) => door({ id: `d${i}`, name: `Door ${i}`, position: [i, 0] }));
+
+  it('9 doors: no filter field, every chip on screen', () => {
+    useStore.setState({ layers: [dungeonLayer(plainDoors(9))] });
+    useSessionStore.setState({ session: session(), you: dm });
+    render(<DoorPanel />);
+    expect(screen.queryByTestId('door-filter')).toBeNull();
+    expect(chipIds()).toHaveLength(9);
+    expect(screen.queryByText(/more$/)).toBeNull();
+  });
+
+  it('24 doors: still fits, still no filter field', () => {
+    useStore.setState({ layers: [dungeonLayer(plainDoors(24))] });
+    useSessionStore.setState({ session: session(), you: dm });
+    render(<DoorPanel />);
+    expect(screen.queryByTestId('door-filter')).toBeNull();
+    expect(chipIds()).toHaveLength(24);
+    expect(screen.queryByText(/more$/)).toBeNull();
+  });
+
+  it('40 doors: filter field appears, chips cap at 24, the rest count themselves', () => {
+    useStore.setState({ layers: [dungeonLayer(plainDoors(40))] });
+    useSessionStore.setState({ session: session(), you: dm });
+    render(<DoorPanel />);
+    expect(screen.getByTestId('door-filter')).not.toBeNull();
+    expect(chipIds()).toHaveLength(DOOR_CHIP_CEILING);
+    expect(screen.getByText('+16 more')).not.toBeNull();
+  });
+
+  it('40 doors: typing in the filter narrows the chips and the overflow count with them', () => {
+    const mixed = Array.from({ length: 40 }, (_, i) =>
+      door({ id: `d${i}`, name: i < 30 ? `Vault ${i}` : `Chamber ${i}`, position: [i, 0] }),
+    );
+    useStore.setState({ layers: [dungeonLayer(mixed)] });
+    useSessionStore.setState({ session: session(), you: dm });
+    render(<DoorPanel />);
+
+    fireEvent.change(screen.getByTestId('door-filter'), { target: { value: 'Chamber' } });
+    expect(chipIds()).toHaveLength(10);
+    expect(screen.queryByText(/more$/)).toBeNull();
+
+    fireEvent.change(screen.getByTestId('door-filter'), { target: { value: 'Vault' } });
+    expect(chipIds()).toHaveLength(DOOR_CHIP_CEILING);
+    expect(screen.getByText('+6 more')).not.toBeNull();
+
+    fireEvent.change(screen.getByTestId('door-filter'), { target: { value: 'nothing here' } });
+    expect(chipIds()).toHaveLength(0);
+    expect(screen.getByText('No doors match “nothing here”.')).not.toBeNull();
+  });
+});
+
+describe('DoorFooter', () => {
+  it('says to pick a door when nothing is selected', () => {
+    useSessionStore.setState({ session: session(), you: player });
+    render(<DoorFooter />);
+    expect(screen.getByText('Select a door, or click one on the map.')).not.toBeNull();
+    expect(screen.queryByTestId('door-actions')).toBeNull();
+  });
+
+  it('names the selected door and its state, secret or not', () => {
+    const revealed: DoorsState = {
+      byScene: { 'scene-1': { d3: { open: false, locked: false, revealed: true } } },
+    };
+    useSessionStore.setState({ session: session({ doors: revealed }), you: dm });
     useDoorSelection.getState().select('d3');
-    render(<DoorPanel />);
-    expect(screen.getByTestId('door-status').textContent).toBe('Revealed — still closed');
-
-    // Not once it is open, and never for a door that was never a secret.
-    cleanup();
-    useSessionStore.setState({ session: session({ doors: revealed(true) }) });
-    render(<DoorPanel />);
-    expect(screen.queryByTestId('door-status')).toBeNull();
-
-    cleanup();
-    useDoorSelection.getState().select('d1');
-    render(<DoorPanel />);
-    expect(screen.queryByTestId('door-status')).toBeNull();
+    render(<DoorFooter />);
+    expect(screen.getByText('Hidden Door')).not.toBeNull();
+    expect(screen.getByText('· Closed')).not.toBeNull();
   });
 
   it('toggles the selected door only via the explicit control', () => {
     useSessionStore.setState({ session: session(), you: player });
     useDoorSelection.getState().select('d1');
     const sent = captureCommands();
-    render(<DoorPanel />);
+    render(<DoorFooter />);
 
     fireEvent.click(screen.getByTestId('door-toggle'));
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ module: 'doors', action: 'toggle', payload: { id: 'd1' } });
   });
 
-  it('offers lock and reveal-secret to the DM only, but toggle to anyone', () => {
+  it('offers lock and reveal-secret to the DM only, but toggle and frame to anyone', () => {
     useSessionStore.setState({ session: session(), you: dm });
     useDoorSelection.getState().select('d3');
-    render(<DoorPanel />);
+    render(<DoorFooter />);
     expect(screen.getByTestId('door-lock').textContent).toBe('Lock');
     expect(screen.getByTestId('door-reveal-secret')).not.toBeNull();
+    expect(screen.getByTestId('door-frame')).not.toBeNull();
 
     cleanup();
     useSessionStore.setState({ you: player });
-    render(<DoorPanel />);
+    render(<DoorFooter />);
     expect(screen.getByTestId('door-toggle')).not.toBeNull();
+    expect(screen.getByTestId('door-frame')).not.toBeNull();
     expect(screen.queryByTestId('door-lock')).toBeNull();
     expect(screen.queryByTestId('door-reveal-secret')).toBeNull();
   });
@@ -359,7 +484,7 @@ describe('DoorPanel', () => {
     useSessionStore.setState({ session: session(), you: dm });
     useDoorSelection.getState().select('d2');
     const sent = captureCommands();
-    render(<DoorPanel />);
+    render(<DoorFooter />);
 
     expect(screen.getByTestId('door-lock').textContent).toBe('Unlock');
     fireEvent.click(screen.getByTestId('door-lock'));
@@ -377,7 +502,7 @@ describe('DoorPanel', () => {
     useSessionStore.setState({ session: session(), you: dm });
     useDoorSelection.getState().select('d2');
     const sent = captureCommands();
-    render(<DoorPanel />);
+    render(<DoorFooter />);
 
     const toggle = screen.getByTestId('door-toggle') as HTMLButtonElement;
     expect(toggle.textContent).toBe('Locked');
@@ -391,7 +516,7 @@ describe('DoorPanel', () => {
     useSessionStore.setState({ session: session(), you: player });
     useDoorSelection.getState().select('d2');
     const sent = captureCommands();
-    render(<DoorPanel />);
+    render(<DoorFooter />);
 
     const toggle = screen.getByTestId('door-toggle') as HTMLButtonElement;
     expect(toggle.disabled).toBe(false);
@@ -406,10 +531,20 @@ describe('DoorPanel', () => {
     };
     useSessionStore.setState({ session: session({ doors: state }), you: dm });
     useDoorSelection.getState().select('d3');
-    render(<DoorPanel />);
+    render(<DoorFooter />);
     const button = screen.getByTestId('door-reveal-secret') as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(button.textContent).toBe('Secret revealed');
+  });
+
+  it('frames the door on this client only, and never sends anything', () => {
+    useSessionStore.setState({ session: session(), you: dm });
+    useDoorSelection.getState().select('d3');
+    const sent = captureCommands();
+    render(<DoorFooter />);
+    fireEvent.click(screen.getByTestId('door-frame'));
+    expect(framed.mock.calls).toEqual([[16, 4]]);
+    expect(sent).toHaveLength(0);
   });
 });
 

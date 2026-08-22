@@ -26,8 +26,9 @@ export interface PanelDef {
   group: 'play' | 'prep' | 'log';
   /** Optional live line under the popover title, e.g. "Round 1 · 4 combatants". */
   subtitle?: () => string | null;
-  /** Popover width; defaults to 320. */
-  width?: 320 | 360;
+  /** Popover width; defaults to 320. A function for a panel whose ceiling widens past a row
+   *  count (read live, the same way `subtitle`/`badge` are). */
+  width?: 320 | 360 | (() => 320 | 360);
   /** false hides this panel from the rail — still openable via `openPanelById`. Default true. */
   rail?: boolean;
   /** Live text for the rail item's corner badge, e.g. "R1" or an unread count. */

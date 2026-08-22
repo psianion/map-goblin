@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, renderHook } from '@testing-library/react';
-import type { PlayerInfo } from '@dnd/core/src/shared/protocol';
+import { PROTOCOL_VERSION, type PlayerInfo, type SessionState } from '@dnd/core/src/shared/protocol';
+import type { WebSocketClient } from '../session/WebSocketClient';
 import { registerPanel } from '../session/panels';
 import { useSessionStore } from '../session/store';
 import { useActiveTool } from '../session/tools';
@@ -8,7 +9,31 @@ import { useShell } from './shellStore';
 import { useHotkeys } from './hotkeys';
 
 const dm: PlayerInfo = { identityId: 'd', name: 'DM', role: 'dm', connected: true };
+const player: PlayerInfo = { identityId: 'p', name: 'Player', role: 'player', connected: true };
 const stub = () => null;
+
+function sessionWithInitiative(status: 'gathering' | 'running'): SessionState {
+  return {
+    protocolVersion: PROTOCOL_VERSION,
+    sessionId: 's1',
+    campaignId: 'c1',
+    activeSceneId: null,
+    scenes: [],
+    players: [],
+    modules: { initiative: { status, sceneId: null, round: 1, turn: 0, entries: [], log: [] } },
+  };
+}
+
+interface Sent {
+  module: string;
+  action: string;
+  payload: unknown;
+}
+function captureCommands(): Sent[] {
+  const sent: Sent[] = [];
+  useSessionStore.setState({ client: { send: (msg: Sent) => sent.push(msg) } as unknown as WebSocketClient });
+  return sent;
+}
 
 beforeEach(() => {
   cleanup();
@@ -93,5 +118,27 @@ describe('shell hotkeys', () => {
     renderHook(() => useHotkeys());
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(useActiveTool.getState().activeTool).toBeNull();
+  });
+
+  it('N sends next-turn for the DM once the order is locked, and does nothing before it', () => {
+    useSessionStore.setState({ session: sessionWithInitiative('gathering') });
+    const sent = captureCommands();
+    renderHook(() => useHotkeys());
+
+    fireEvent.keyDown(window, { key: 'n' });
+    expect(sent).toHaveLength(0);
+
+    useSessionStore.setState({ session: sessionWithInitiative('running') });
+    fireEvent.keyDown(window, { key: 'n' });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ module: 'initiative', action: 'next', payload: {} });
+  });
+
+  it('N does nothing for a player, running or not', () => {
+    useSessionStore.setState({ you: player, session: sessionWithInitiative('running') });
+    const sent = captureCommands();
+    renderHook(() => useHotkeys());
+    fireEvent.keyDown(window, { key: 'n' });
+    expect(sent).toHaveLength(0);
   });
 });

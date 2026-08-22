@@ -3,7 +3,7 @@ import { createElement } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { DOOR_CLOSED, DOOR_LOCKED } from '@dnd/mechanics/doors';
-import type { Token } from '@dnd/mechanics/tokens';
+import type { Token, TokenDef } from '@dnd/mechanics/tokens';
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import type { Layer } from '@dnd/core/src/store/types';
 import { liveDoors } from '../doors/doors';
@@ -26,6 +26,7 @@ import {
 } from './drag';
 import { mapScale, toCells, toUnits } from './sight';
 import { TokenPanel } from './TokenPanel';
+import { useTokenLibraryUi, useTokensUi } from './tokensUi';
 import { DISPOSITION_COLOR, initials, tokenAppearance, tokensOf } from './TokenRenderer';
 
 const token = (over: Partial<Token> = {}): Token => ({
@@ -44,6 +45,14 @@ const token = (over: Partial<Token> = {}): Token => ({
   hidden: false,
   ownerId: null,
   ...over,
+});
+
+// The tab/filter/editing state a popover would normally remember between opens is
+// module-level (M3 — the footer is a sibling component, not a child, and needs the same
+// tab); every test starts from the same place regardless of what an earlier one left it at.
+beforeEach(() => {
+  useTokensUi.setState({ tab: 'map', mapFilter: '', detailExpanded: false });
+  useTokenLibraryUi.setState({ filter: '', editingId: null });
 });
 
 describe('move throttle (D9 — ~10 Hz + a final on drop)', () => {
@@ -345,6 +354,7 @@ describe('a refused drag rubber-bands to where the pointer picked the token up',
   beforeEach(() => {
     cleanup();
     useToasts.setState({ toast: null });
+    useTokenInteraction.setState({ selectedId: null, placingDefId: null, draggingId: null });
   });
 
   it('undoes the hops the drag already got past the server, not just the last one', async () => {
@@ -438,7 +448,7 @@ describe('a refused drag rubber-bands to where the pointer picked the token up',
   /**
    * The door overlay listens on this same canvas, and it registers after token input on
    * purpose — tokens are dragged, doors are only tapped. `stopPropagation` never enforced
-   * that: propagation is between nodes, so a listener on the same element ran anyway, and
+   * that: propagation is between *nodes*: a same-element listener ran anyway, and
    * pressing down on a token standing in a doorway both grabbed the token and swung the
    * door open under it. A door opens because somebody chose to open it.
    */
@@ -462,6 +472,17 @@ describe('a refused drag rubber-bands to where the pointer picked the token up',
 
     h.canvas.fire('pointerdown', 0.5, 0.5);
     expect(useToasts.getState().toast?.message).toBe('Another player is holding that token.');
+    h.detach();
+  });
+
+  it('marks the seat as dragging while the gesture is live, and clears it on drop', () => {
+    const h = harness([mine({ x: 0.5, y: 0.5 })]);
+
+    h.canvas.fire('pointerdown', 0.5, 0.5);
+    expect(useTokenInteraction.getState().draggingId).toBe('t1');
+
+    h.canvas.fire('pointerup', 0.5, 0.5);
+    expect(useTokenInteraction.getState().draggingId).toBeNull();
     h.detach();
   });
 });
@@ -574,7 +595,7 @@ describe('mapScale / the unit a DM reads ranges in', () => {
   });
 });
 
-describe('TokenPanel — the DM’s section (owner, sight & light)', () => {
+describe('TokenPanel — On map tab, the DM’s detail block (owner, sight & light)', () => {
   const dm: PlayerInfo = { identityId: 'dm-1', name: 'Ayla', role: 'dm', connected: true };
   const player: PlayerInfo = { identityId: 'p-1', name: 'Borin', role: 'player', connected: true };
 
@@ -614,6 +635,7 @@ describe('TokenPanel — the DM’s section (owner, sight & light)', () => {
   beforeEach(() => {
     cleanup();
     useToasts.setState({ toast: null });
+    useTokenInteraction.setState({ selectedId: null, placingDefId: null, draggingId: null });
   });
 
   it('is the DM’s section alone — a player who owns the token never sees it', () => {
@@ -728,6 +750,8 @@ describe('TokenPanel — the DM’s section (owner, sight & light)', () => {
   it('links a token to another and unlinks it from the chip', () => {
     const familiar = token({ id: 't2', name: 'Hawk' });
     const sent = panel([token(), familiar]);
+    // The picker is tucked behind "Link sight" until there is something to show.
+    fireEvent.click(screen.getByTestId('token-link-toggle'));
     // Offered, not linked: no chip yet.
     expect(screen.getByTestId('token-links').querySelector('[data-link-id]')).toBeNull();
 
@@ -738,7 +762,8 @@ describe('TokenPanel — the DM’s section (owner, sight & light)', () => {
       payload: { id: 't1', otherId: 't2', linked: true },
     });
 
-    // With the link stored, the chip names the other token and its × unlinks.
+    // With the link stored, the picker starts open on its own and the chip names the other
+    // token; its × unlinks.
     cleanup();
     const linked = panel([token({ sharesSightWith: ['t2'] }), familiar]);
     expect(screen.getByTestId('token-links').textContent).toContain('Hawk');
@@ -749,5 +774,139 @@ describe('TokenPanel — the DM’s section (owner, sight & light)', () => {
     });
     // A token cannot be offered to itself, nor offered twice.
     expect(screen.queryByLabelText('Link a token')).toBeNull();
+  });
+});
+
+// ── M3 no-scroll ledger — Tokens · On map / Library ─────────────────────────
+
+describe('Tokens · On map ceiling (M3 no-scroll ledger)', () => {
+  const dm: PlayerInfo = { identityId: 'dm-1', name: 'Ayla', role: 'dm', connected: true };
+  const many = (n: number) => Array.from({ length: n }, (_, i) => token({ id: `t${i}`, name: `Token ${i}` }));
+
+  function renderTokens(n: number) {
+    const tokens = many(n);
+    useSessionStore.setState({
+      session: {
+        protocolVersion: PROTOCOL_VERSION,
+        sessionId: 's1',
+        campaignId: 'c1',
+        activeSceneId: 'scene-1',
+        scenes: [{ id: 'scene-1', name: 'Crypt', mapId: 'scene-1' }],
+        players: [dm],
+        modules: { tokens: { library: {}, byScene: { 'scene-1': Object.fromEntries(tokens.map((t) => [t.id, t])) } } },
+      },
+      you: dm,
+      lastError: null,
+      mapData: null,
+      client: { send: () => {} } as unknown as WebSocketClient,
+    });
+    return render(createElement(TokenPanel));
+  }
+
+  beforeEach(() => {
+    cleanup();
+    useTokenInteraction.setState({ selectedId: null, placingDefId: null, draggingId: null });
+  });
+
+  it('shows every row and no filter under the ceiling (10 tokens)', () => {
+    renderTokens(10);
+    expect(screen.getAllByRole('button', { name: /^Token \d+$/ })).toHaveLength(10);
+    expect(screen.queryByTestId('token-filter')).toBeNull();
+  });
+
+  it('collapses the detail block to one line once the list passes 13, expandable per row', () => {
+    renderTokens(13);
+    fireEvent.click(screen.getByText('Token 0'));
+
+    expect(screen.getByTestId('token-detail-toggle')).toBeTruthy();
+    expect(screen.queryByTestId('token-owner')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('token-detail-toggle'));
+    expect(screen.getByTestId('token-owner')).toBeTruthy();
+
+    // Picking a different row starts collapsed again rather than carrying the expansion over.
+    fireEvent.click(screen.getByText('Token 1'));
+    expect(screen.queryByTestId('token-owner')).toBeNull();
+  });
+
+  it('adds a filter and caps the visible rows once the list passes 21 (25 tokens)', () => {
+    renderTokens(25);
+    expect(screen.getByTestId('token-filter')).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /^Token \d+$/ })).toHaveLength(20);
+    expect(screen.getByText('+5 more')).toBeTruthy();
+
+    fireEvent.change(screen.getByTestId('token-filter'), { target: { value: 'Token 24' } });
+    expect(screen.getAllByRole('button', { name: /^Token \d+$/ })).toHaveLength(1);
+  });
+});
+
+describe('Tokens · Library ceiling (M3 no-scroll ledger)', () => {
+  const dm: PlayerInfo = { identityId: 'dm-1', name: 'Ayla', role: 'dm', connected: true };
+  const manyDefs = (n: number): Record<string, TokenDef> =>
+    Object.fromEntries(
+      Array.from({ length: n }, (_, i): [string, TokenDef] => [
+        `d${i}`,
+        {
+          id: `d${i}`,
+          name: `Def ${i}`,
+          imageAssetId: null,
+          size: 'medium',
+          disposition: 'neutral',
+          sight: null,
+          light: null,
+        },
+      ]),
+    );
+
+  function renderLibrary(n: number) {
+    useSessionStore.setState({
+      session: {
+        protocolVersion: PROTOCOL_VERSION,
+        sessionId: 's1',
+        campaignId: 'c1',
+        activeSceneId: 'scene-1',
+        scenes: [{ id: 'scene-1', name: 'Crypt', mapId: 'scene-1' }],
+        players: [dm],
+        modules: { tokens: { library: manyDefs(n), byScene: {} } },
+      },
+      you: dm,
+      lastError: null,
+      mapData: null,
+      client: { send: () => {} } as unknown as WebSocketClient,
+    });
+    useTokensUi.setState({ tab: 'library' });
+    return render(createElement(TokenPanel));
+  }
+
+  beforeEach(() => {
+    cleanup();
+    useTokenInteraction.setState({ selectedId: null, placingDefId: null, draggingId: null });
+  });
+
+  it('fits every def with no filter under the ceiling (16 defs)', () => {
+    renderLibrary(16);
+    expect(screen.queryByTestId('token-library-filter')).toBeNull();
+    expect(screen.getAllByText(/^Def \d+$/)).toHaveLength(16);
+  });
+
+  it('adds a filter and caps rows once the library passes 17 (30 defs), and editing collapses the list', () => {
+    renderLibrary(30);
+    expect(screen.getByTestId('token-library-filter')).toBeTruthy();
+    expect(screen.getAllByText(/^Def \d+$/).length).toBeLessThanOrEqual(16);
+
+    fireEvent.click(screen.getAllByLabelText(/^Edit Def \d+$/)[0]);
+    expect(screen.getByTestId('token-def-form')).toBeTruthy();
+    // Only the row being edited remains — the rest of the list made room for the form.
+    expect(screen.getAllByText(/^Def \d+$/)).toHaveLength(1);
+  });
+
+  it('hides the list entirely for a brand-new def', () => {
+    // "New token" lives in the popover's footer (`PanelDef.footer`, a sibling of this body —
+    // see `Popover.tsx`), not inside `TokenPanel` itself; driving the same store action it
+    // calls exercises exactly what that click does.
+    renderLibrary(30);
+    act(() => useTokenLibraryUi.getState().openNew());
+    expect(screen.getByTestId('token-def-form')).toBeTruthy();
+    expect(screen.queryAllByText(/^Def \d+$/)).toHaveLength(0);
   });
 });

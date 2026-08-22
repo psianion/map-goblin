@@ -4,6 +4,8 @@ import { InitiativePrompt } from '../components/InitiativePrompt';
 import { ToastHost } from '../components/Toast';
 import { TriggerPrompts } from '../components/TriggerPrompts';
 import { mountTurnRingWhenReady } from '../modules/initiative/TurnRing';
+import { TokenMenu } from '../modules/tokens/TokenMenu';
+import { DoorMenu } from '../modules/doors/DoorMenu';
 import { GameRenderer } from '../renderer/GameRenderer';
 import { TableStatusBar } from '../components/TableStatusBar';
 import { LogDrawer } from '../shell/LogDrawer';
@@ -22,7 +24,7 @@ import { useTriggerToasts } from '../session/useTriggerToasts';
 import '../components/SessionControls';
 import '../components/PlayerScenes';
 import '../components/GameLog';
-import '../components/InitiativeTracker';
+import '../modules/initiative';
 import '../modules/rolls/beyond20';
 import '../modules/tokens';
 import '../modules/doors';
@@ -69,6 +71,8 @@ export default function GameTable() {
         <Ticker />
         <LogDrawer />
         <TableStatusBar />
+        <DoorMenu />
+        <TokenMenu />
         <Popover />
         <Rail />
         <ToastHost />
