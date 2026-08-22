@@ -122,9 +122,6 @@ export function createDefaultState(): MapBuilderState {
           featherRadius: 0,
           intensity: 0.2,
           falloff: 'quadratic' as const,
-          flicker: false,
-          flickerIntensity: 0.3,
-          flickerSpeed: 1.5,
         },
         scatterBrush: {
           assetIds: [],

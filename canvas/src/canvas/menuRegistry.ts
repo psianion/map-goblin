@@ -209,13 +209,6 @@ registerMenu('light', (ctx) => {
       onPick: (color) =>
         commitChild('Light colour', layerId, child.id, { color: child.color }, { color }),
     },
-    {
-      type: 'toggle',
-      label: 'Flicker',
-      checked: child.flicker ?? false,
-      onToggle: (next) =>
-        commitChild('Light flicker', layerId, child.id, { flicker: child.flicker ?? false }, { flicker: next }),
-    },
   ]
   return [...rows, ...sharedVerbs(ctx)]
 })

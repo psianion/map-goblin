@@ -76,10 +76,6 @@ export const isTokenLight = (id: string): boolean => id.startsWith('token-light:
  * camera), and the mask sweeps them all — so a big party on a lamp-lit map can push an authored
  * lamp out of the *render* while the fog still clears its pool. Errs open, and the eviction
  * follows the camera. Revisit if the P6 gate map plus a full party crosses 24 (D3).
- *
- * ponytail: no flicker on a carried torch. `flicker` puts `nowMs` in the lighting signature,
- * which is a full FBO recomposite every frame for every seat at the table; the day a carried
- * torch should gutter, it should gutter on a budget measured first.
  */
 export function tokenLights(tokens: readonly Token[]): LightChild[] {
   return tokens
