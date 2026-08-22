@@ -426,4 +426,13 @@ export function TokenPanel() {
   );
 }
 
-registerPanel({ id: 'tokens', title: 'Tokens', roles: ALL_ROLES, order: 15, component: TokenPanel });
+registerPanel({
+  id: 'tokens',
+  title: 'Tokens',
+  icon: 'tokens',
+  key: 'T',
+  group: 'play',
+  roles: ALL_ROLES,
+  order: 40,
+  component: TokenPanel,
+});

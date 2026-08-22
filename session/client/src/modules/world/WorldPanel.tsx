@@ -350,4 +350,13 @@ function Lock() {
   );
 }
 
-registerPanel({ id: 'world', title: 'World', roles: ['dm'], order: 5, component: WorldPanel });
+registerPanel({
+  id: 'world',
+  title: 'World',
+  icon: 'world',
+  key: 'W',
+  group: 'prep',
+  roles: ['dm'],
+  order: 60,
+  component: WorldPanel,
+});

@@ -358,4 +358,13 @@ export function FogTool() {
   );
 }
 
-registerPanel({ id: 'fog', title: 'Fog', roles: ['dm'], order: 25, component: FogTool });
+registerPanel({
+  id: 'fog',
+  title: 'Fog',
+  icon: 'fog',
+  key: 'F',
+  group: 'play',
+  roles: ['dm'],
+  order: 20,
+  component: FogTool,
+});

@@ -44,18 +44,22 @@ export function PlayerList() {
             p.connected ? 'text-text-secondary' : 'text-text-muted opacity-60'
           }`}
         >
+          {/* Presence as shape (chrome-style-guide.md "State encoding"), not colour: a filled
+              disc reads as "here" without leaning on green meaning "fine" everywhere else. */}
           <span
-            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-              p.connected ? 'bg-success' : 'bg-surface-3'
-            }`}
             aria-hidden
+            className={
+              p.connected
+                ? 'h-1.5 w-1.5 shrink-0 rounded-full bg-text-secondary'
+                : 'h-1.5 w-1.5 shrink-0 rounded-full border border-text-muted'
+            }
           />
           <span className="truncate">{p.name}</span>
           {p.identityId === youId && <span className="text-xs text-text-muted">(you)</span>}
           {p.role === 'dm' && (
             <span
               title="Dungeon Master"
-              className="ml-auto rounded bg-warning/15 px-1.5 text-xs font-medium text-warning"
+              className="ml-auto rounded border border-warning/50 px-1.5 text-xs font-medium text-warning"
             >
               DM
             </span>

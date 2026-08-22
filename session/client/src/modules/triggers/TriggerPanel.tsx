@@ -160,7 +160,10 @@ export function TriggerPanel() {
 registerPanel({
   id: 'triggers',
   title: 'Triggers',
+  icon: 'triggers',
+  key: 'G',
+  group: 'prep',
   roles: ['dm'],
-  order: 35,
+  order: 70,
   component: TriggerPanel,
 });

@@ -163,4 +163,13 @@ export function DoorPanel() {
   );
 }
 
-registerPanel({ id: 'doors', title: 'Doors', roles: ALL_ROLES, order: 30, component: DoorPanel });
+registerPanel({
+  id: 'doors',
+  title: 'Doors',
+  icon: 'doors',
+  key: 'D',
+  group: 'play',
+  roles: ALL_ROLES,
+  order: 30,
+  component: DoorPanel,
+});

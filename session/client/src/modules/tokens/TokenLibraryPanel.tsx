@@ -369,9 +369,15 @@ export function TokenLibraryPanel() {
 }
 
 registerPanel({
-  id: 'token-library',
+  // Renamed from `token-library` (M1): folds into the Tokens popover proper in M3, opened
+  // programmatically from there — `rail: false` is what keeps it off the rail meanwhile.
+  id: 'tokens-library',
   title: 'Token library',
+  icon: 'tokens',
+  key: '',
+  group: 'play',
+  rail: false,
   roles: ['dm'],
-  order: 20,
+  order: 41,
   component: TokenLibraryPanel,
 });

@@ -210,6 +210,13 @@ export function getScenePrep(
   return request(`/api/scenes/${encodeURIComponent(sceneId)}/prep`, { method: 'GET' }, token);
 }
 
+/** DELETE /api/sessions/:id — the DM closes the table (M1 Session popover). Broadcasts
+ *  `session-ended` to every seat, including the caller's own — the store's existing handler
+ *  is what actually tears the socket down; this just asks the server to send it. */
+export function endSession(sessionId: string, token: string): Promise<{ sessionId: string; active: false }> {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }, token);
+}
+
 /** PUT /api/campaigns/:id/scenes/order — every scene id, in the new order (D4). */
 export function reorderScenes(
   campaignId: string,

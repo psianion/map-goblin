@@ -28,6 +28,14 @@ import {
 } from './fog';
 import { useFogBrush } from './brush';
 import { FogTool } from './FogTool';
+import { useHotkeys } from '../../shell/hotkeys';
+
+// Escape-exits-the-tool now lives in `shell/hotkeys.ts`'s single listener, not in `tools.ts`
+// itself (M1) — mount it alongside the panel wherever a test presses Escape.
+function Hotkeys() {
+  useHotkeys();
+  return null;
+}
 
 const room = (id: string, x: number, name = id): Room => ({
   id,
@@ -171,7 +179,12 @@ describe('FogTool — a mode, never a dialog (D11)', () => {
 
   it('Escape exits the tool — the guarantee every later tool inherits', () => {
     useSessionStore.setState({ session: session(), you: dm });
-    render(<FogTool />);
+    render(
+      <>
+        <FogTool />
+        <Hotkeys />
+      </>,
+    );
     fireEvent.click(screen.getByTestId('fog-tool-toggle'));
     expect(useActiveTool.getState().activeTool).toBe('fog');
 
@@ -432,7 +445,12 @@ describe('Fog panel v2 — mode, and what the mode brings with it', () => {
       mapData: { frame: FRAME, layers: [dungeonLayer([CRYPT, HALL])] },
     });
     const sent = captureCommands();
-    render(<FogTool />);
+    render(
+      <>
+        <FogTool />
+        <Hotkeys />
+      </>,
+    );
     fireEvent.click(screen.getByTestId('fog-tool-toggle'));
     return sent;
   };

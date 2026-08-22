@@ -110,9 +110,21 @@ export default {
           from: { opacity: '0', transform: 'translateY(6px)' },
           to: { opacity: '1', transform: 'translateY(0)' },
         },
+        // The drawer/popover entrance (M1): settle in, not slide.
+        'panel-in': {
+          from: { opacity: '0', transform: 'translateY(4px)' },
+          to: { opacity: '1', transform: 'none' },
+        },
+        // The ticker's line crossfade — opacity only, no motion.
+        'fade-in': {
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
       },
       animation: {
         'toast-in': 'toast-in 200ms cubic-bezier(0.25, 1, 0.5, 1) both',
+        'panel-in': 'panel-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both',
+        'fade-in': 'fade-in 150ms cubic-bezier(0.25, 1, 0.5, 1) both',
       },
     },
   },

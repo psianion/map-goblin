@@ -5,7 +5,6 @@ import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import { useSessionStore } from '../session/store';
 import { DEFAULT_TOAST_MS, useToasts } from '../session/toasts';
 import { useActiveTool } from '../session/tools';
-import { ActiveToolIndicator } from './ActiveToolIndicator';
 import { ReconnectingBanner } from './ConnectionStatus';
 import { TableStatusBar } from './TableStatusBar';
 import { GameLog } from './GameLog';
@@ -227,33 +226,6 @@ describe('ToastHost', () => {
     expect(quiet.getAttribute('data-animated')).toBe('false');
     // The message still arrives — reduced motion removes the movement, never the content.
     expect(quiet.textContent).toContain('Hid every explored room.');
-  });
-});
-
-describe('ActiveToolIndicator', () => {
-  it('is the DM’s, and is on screen whether or not a tool is armed', () => {
-    useSessionStore.setState({ you: dm });
-    render(<ActiveToolIndicator />);
-    const chip = screen.getByTestId('active-tool');
-    expect(chip.getAttribute('data-tool')).toBe('none');
-    expect(chip.textContent).toContain('None');
-
-    cleanup();
-    useSessionStore.setState({ you: { ...gone, role: 'player', connected: true } });
-    render(<ActiveToolIndicator />);
-    expect(screen.queryByTestId('active-tool')).toBeNull();
-  });
-
-  it('names the armed tool and hands back the key that exits it', () => {
-    useSessionStore.setState({ you: dm });
-    act(() => useActiveTool.getState().setActiveTool('fog'));
-    render(<ActiveToolIndicator />);
-    expect(screen.getByTestId('active-tool').getAttribute('data-tool')).toBe('fog');
-    expect(screen.getByTestId('active-tool').textContent).toContain('Fog');
-
-    fireEvent.click(screen.getByTestId('active-tool-exit'));
-    expect(useActiveTool.getState().activeTool).toBeNull();
-    expect(screen.getByTestId('active-tool').getAttribute('data-tool')).toBe('none');
   });
 });
 

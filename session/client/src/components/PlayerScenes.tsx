@@ -43,9 +43,15 @@ export function PlayerScenes() {
   );
 }
 
+// M1: `rail: false` — folds into the player's Session popover in M3. Kept registered so
+// nothing that already looks it up (or a future `openPanelById`) breaks in the meantime.
 registerPanel({
   id: 'player-scenes',
   title: 'Scenes',
+  icon: 'scene',
+  key: '',
+  group: 'prep',
+  rail: false,
   roles: ['player'],
   order: 5,
   component: PlayerScenes,

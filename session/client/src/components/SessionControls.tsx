@@ -608,18 +608,29 @@ function Bookkeeping({ entry }: { entry: InitiativeEntry }) {
 
 registerPanel({
   id: 'session-controls',
-  title: 'Session',
+  title: 'Scene',
+  icon: 'scene',
+  key: 'S',
+  group: 'prep',
   roles: ['dm'],
-  order: 0,
+  order: 50,
   component: SessionControls,
 });
 
 // ponytail: the roster is the one piece of "session info" every role sees, so it
 // registers as its own shared panel instead of being duplicated into a DM copy
 // and a player copy. PlayerList itself needed no changes to become one.
+//
+// M1: the roster now shows inside the Session popover (shell/SessionPopover.tsx) instead —
+// `rail: false` keeps this registration off the rail without deleting it (nothing opens it
+// programmatically today, but nothing breaks if something does later).
 registerPanel({
   id: 'players',
   title: 'Players',
+  icon: 'session',
+  key: '',
+  group: 'prep',
+  rail: false,
   roles: ALL_ROLES,
   order: 10,
   component: PlayerList,

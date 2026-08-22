@@ -7,6 +7,13 @@ import { trackerView } from '../session/initiativeView';
 import { ALL_ROLES, registerPanel } from '../session/panels';
 import { useModuleState, useSessionStore } from '../session/store';
 
+/** Rail badge: the round number while an encounter is running, otherwise nothing. Not a
+ *  hook — `Rail` calls this as a plain function at render time. */
+function initiativeBadge(): string | null {
+  const state = useSessionStore.getState().session?.modules.initiative as InitiativeState | undefined;
+  return state?.status === 'running' ? `R${state.round}` : null;
+}
+
 export function InitiativeTracker() {
   const state = useModuleState<InitiativeState>('initiative');
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
@@ -58,4 +65,14 @@ export function InitiativeTracker() {
   );
 }
 
-registerPanel({ id: 'initiative', roles: ALL_ROLES, order: 5, component: InitiativeTracker });
+registerPanel({
+  id: 'initiative',
+  title: 'Initiative',
+  icon: 'initiative',
+  key: 'I',
+  group: 'play',
+  roles: ALL_ROLES,
+  order: 10,
+  component: InitiativeTracker,
+  badge: initiativeBadge,
+});
