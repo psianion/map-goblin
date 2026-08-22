@@ -29,9 +29,12 @@ const rowIconBtn =
 const menuItem =
   'flex h-7 w-full shrink-0 items-center rounded px-2 text-left text-xs text-text-secondary transition-colors duration-150 ease-settle hover:bg-surface-2 hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none';
 
-/** Raw module state, read outside React — what `subtitle` needs. */
+/** Read off the session snapshot (present before the library has been fetched) so the
+ *  count is right on the popover's first paint; the library store catches up a tick later. */
 function sceneSubtitle(): string {
-  return `${useSceneLibrary.getState().scenes.length} in this campaign`;
+  const fetched = useSceneLibrary.getState().scenes.length;
+  const known = useSessionStore.getState().session?.scenes.length ?? 0;
+  return `${Math.max(fetched, known)} in this campaign`;
 }
 
 /** Fallback width — jsdom lays nothing out, and the very first paint, so `offsetWidth` isn't
