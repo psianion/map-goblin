@@ -15,6 +15,10 @@ import type { ReactNode } from 'react';
  * sits *above* the label, never instead of it, so the choice never depends on the picture.
  * `disabled` is the inapplicable case: the control stays on screen, spelled out and unusable,
  * because a missing control teaches a DM nothing about why it is missing.
+ *
+ * `inline` sets the label beside the control (a fixed 64px column) instead of stacked above
+ * it — the World block's row idiom, where the label reads once for the whole row rather than
+ * over every dial in it. Default stays stacked; existing callers are untouched.
  */
 export function Segmented<T extends string>({
   label,
@@ -24,6 +28,7 @@ export function Segmented<T extends string>({
   onPick,
   disabled,
   describedBy,
+  inline,
 }: {
   label: string;
   testId: string;
@@ -34,10 +39,14 @@ export function Segmented<T extends string>({
   /** The id of the sentence that says why this control is unusable — read with the group,
    *  not left as a paragraph a keyboard user never lands on. */
   describedBy?: string;
+  inline?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-0.5">
-      <span id={`${testId}-label`} className="text-xs text-text-secondary">
+    <div className={inline ? 'flex items-center gap-2' : 'flex flex-col gap-0.5'}>
+      <span
+        id={`${testId}-label`}
+        className={inline ? 'w-16 shrink-0 text-xs text-text-muted' : 'text-xs text-text-secondary'}
+      >
         {label}
       </span>
       <div
@@ -47,7 +56,7 @@ export function Segmented<T extends string>({
         aria-disabled={disabled || undefined}
         data-testid={testId}
         data-value={value ?? ''}
-        className="flex gap-0.5 rounded border border-border-default bg-surface-1 p-0.5"
+        className={`flex gap-0.5 rounded border border-border-default bg-surface-1 p-0.5 ${inline ? 'flex-1' : ''}`}
       >
         {options.map((option) => (
           <button
@@ -79,17 +88,24 @@ export function Segmented<T extends string>({
   );
 }
 
-/** The conceal toggle's own markup, lifted so every switch in this chrome is one thing. */
+/** The conceal toggle's own markup, lifted so every switch in this chrome is one thing.
+ *  `disabled`/`title` are for a row-level switch with no room for a visible label (the
+ *  Triggers list): the label rides in `children` as `sr-only` instead, and `title` gives it
+ *  back as a hover tooltip. */
 export function Switch({
   testId,
   checked,
   onToggle,
   children,
+  disabled,
+  title,
 }: {
   testId: string;
   checked: boolean;
   onToggle: () => void;
   children: ReactNode;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
@@ -97,8 +113,10 @@ export function Switch({
       role="switch"
       data-testid={testId}
       aria-checked={checked}
+      disabled={disabled}
+      title={title}
       onClick={onToggle}
-      className="flex items-center gap-2 rounded px-1 py-1 text-left text-xs text-text-secondary transition-colors duration-150 ease-out-quart hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none"
+      className="flex items-center gap-2 rounded px-1 py-1 text-left text-xs text-text-secondary transition-colors duration-150 ease-out-quart hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-text-secondary motion-reduce:transition-none"
     >
       <span
         aria-hidden

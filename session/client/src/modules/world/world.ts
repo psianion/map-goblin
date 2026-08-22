@@ -11,6 +11,7 @@ import {
   DAMPING,
   DAY_MINUTES,
   KEY_MINUTES,
+  NOON,
   TIME_KEYS,
   composeGrade,
   environmentOf,
@@ -153,6 +154,26 @@ function mirrorOf(
   if (environment === 'outdoor' && light.timeOfDay === 'night') parts.push(SKY_LABEL[sky]);
   if (light.effectiveLevel !== 'daylight') parts.push(level);
   return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+/**
+ * The read-only line the popover's provenance row shows: what the *map itself* authored in
+ * the Editor, independent of the campaign clock or any DM override sitting on top of it — the
+ * plan's own rule that the Table honours what a map authored and never re-authors it here.
+ *
+ * Underground ignores the clock entirely (`resolveWorldLight` never lets it in), so its line
+ * says so rather than reporting a follows/pinned split that would never apply.
+ */
+export function worldProvenance(map: MapEnvironment, sceneName: string): string {
+  const environment = environmentOf(map);
+  const time =
+    environment === 'underground'
+      ? 'no sky'
+      : map.timeMode === 'fixed'
+        ? `pinned to ${hhmm(map.fixedTime ?? NOON)} in the Editor`
+        : 'follows the clock';
+  const sun = map.naturalLight === true ? ' · sun & moon on' : '';
+  return `${sceneName} · ${environment} · ${time}${sun}`;
 }
 
 // ─── The ribbon ───────────────────────────────────────────

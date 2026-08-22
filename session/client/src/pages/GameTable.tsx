@@ -21,14 +21,13 @@ import { useTriggerToasts } from '../session/useTriggerToasts';
 // list is the only thing a new module adds to the shell (D8) — the rail below
 // never learns their names. Module folders (`src/modules/*`) register from their
 // own index; nothing here needs to change for them.
-import '../components/SessionControls';
-import '../components/PlayerScenes';
 import '../components/GameLog';
 import '../modules/initiative';
 import '../modules/rolls/beyond20';
 import '../modules/tokens';
 import '../modules/doors';
 import '../modules/fog';
+import '../modules/scene';
 import '../modules/triggers';
 import '../modules/world';
 import '../shell/SessionPopover';

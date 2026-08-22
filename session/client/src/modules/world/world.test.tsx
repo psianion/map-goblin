@@ -1,6 +1,7 @@
-// P2 — the World block. Two halves: what the badge *says* about a resolver answer (the
-// provenance/trace half, which is where a DM's trust in the coupling lives), and the panel
-// wiring that turns a click into a world command.
+// P2/M3 — the World block. Three things live here: what the badge *says* about a resolver
+// answer (the provenance/trace half, which is where a DM's trust in the coupling lives), the
+// read-only line that reports what the map itself authored (`worldProvenance`), and the panel
+// wiring that turns a click into a world command plus the popover's no-scroll ceiling.
 //
 // The coupling itself is not retested here — `resolveWorldLight` owns that, and this suite
 // calls it rather than restating its table.
@@ -12,9 +13,9 @@ import { resolveWorldLight, type MapEnvironment, type NightSky } from '@dnd/core
 import { useStore } from '@dnd/core/src/store/store';
 import type { TriggersState } from '@dnd/mechanics/triggers';
 import { useSessionStore } from '../../session/store';
-import { usePanels } from '../../session/panels';
+import { usePanels, usePanel } from '../../session/panels';
 import { WorldPanel } from './WorldPanel';
-import { nearestJump, ribbonGradient, worldBadge } from './world';
+import { nearestJump, ribbonGradient, worldBadge, worldProvenance } from './world';
 
 const NIGHT = 1330; // 22:10 — the mockup's night frame
 const NOON = 740; //  12:20
@@ -31,13 +32,17 @@ function badgeFor(
 
 const OUTDOOR: MapEnvironment = { environment: 'outdoor' };
 
-function session(activeSceneId: string | null, modules: SessionState['modules'] = {}): SessionState {
+function session(
+  activeSceneId: string | null,
+  modules: SessionState['modules'] = {},
+  scenes: SessionState['scenes'] = [],
+): SessionState {
   return {
     protocolVersion: PROTOCOL_VERSION,
     sessionId: 's1',
     campaignId: 'c1',
     activeSceneId,
-    scenes: [],
+    scenes,
     players: [],
     modules,
   };
@@ -63,7 +68,9 @@ function triggers(world?: Partial<{ clock: number; nightSky: NightSky }>, ambien
 beforeEach(() => {
   cleanup();
   useStore.setState({ mapSettings: { ...useStore.getState().mapSettings, environment: 'outdoor' } });
-  useSessionStore.setState({ session: session('sc-1', { triggers: triggers() }) });
+  useSessionStore.setState({
+    session: session('sc-1', { triggers: triggers() }, [{ id: 'sc-1', name: 'Fieldstone Keep', mapId: 'm1' }]),
+  });
 });
 
 describe('the badge reads its provenance off the resolver', () => {
@@ -176,19 +183,63 @@ describe('the quick jumps', () => {
   });
 });
 
+describe('worldProvenance reports what the map authored, never a control', () => {
+  it('reads an outdoor map on the clock', () => {
+    expect(worldProvenance({ environment: 'outdoor' }, 'Fieldstone Keep')).toBe(
+      'Fieldstone Keep · outdoor · follows the clock',
+    );
+  });
+
+  it('reads an indoor map pinned in the Editor', () => {
+    expect(
+      worldProvenance({ environment: 'indoor', timeMode: 'fixed', fixedTime: 1260 }, 'Lamplight Cell'),
+    ).toBe('Lamplight Cell · indoor · pinned to 21:00 in the Editor');
+  });
+
+  it('reads underground as having no sky, regardless of time mode', () => {
+    expect(worldProvenance({ environment: 'underground', timeMode: 'fixed', fixedTime: 0 }, 'Emberhold Crypt')).toBe(
+      'Emberhold Crypt · underground · no sky',
+    );
+    expect(worldProvenance({ environment: 'underground' }, 'Emberhold Crypt')).toBe(
+      'Emberhold Crypt · underground · no sky',
+    );
+  });
+
+  it('appends the natural-light tell when a map casts a sun or moon', () => {
+    expect(worldProvenance({ environment: 'outdoor', naturalLight: true }, 'Fieldstone Keep')).toBe(
+      'Fieldstone Keep · outdoor · follows the clock · sun & moon on',
+    );
+  });
+
+  it('defaults an absent environment to indoor, same as the resolver', () => {
+    expect(worldProvenance({}, 'Nameless Cell')).toBe('Nameless Cell · indoor · follows the clock');
+  });
+});
+
 describe('WorldPanel', () => {
   it('is registered DM-only, so a player never gets the world dials at all', () => {
     expect(usePanels('dm').find((p) => p.id === 'world')?.roles).toEqual(['dm']);
     expect(usePanels('player').some((p) => p.id === 'world')).toBe(false);
   });
 
-  it('sends the clock as a world command, and shows the jump before the wire confirms', () => {
+  it('carries the resolved word and hour in the header subtitle, off the same resolver', () => {
+    const def = usePanel('world')!;
+    expect(def.subtitle?.()).toBe('Day · 12:00');
+
+    useSessionStore.setState({
+      session: session('sc-1', { triggers: triggers({ clock: NIGHT }) }, [
+        { id: 'sc-1', name: 'Fieldstone Keep', mapId: 'm1' },
+      ]),
+    });
+    expect(def.subtitle?.()).toBe('Night · 22:10');
+  });
+
+  it('sends the clock as a world command, and jumps land as a world command too', () => {
     render(<WorldPanel />);
     const sendCommand = vi.spyOn(useSessionStore.getState(), 'sendCommand');
 
     fireEvent.click(screen.getByText('Night'));
     expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-world', { clock: 0 });
-    expect(screen.getByTestId('world-clock-readout')).toHaveProperty('textContent', '00:00');
   });
 
   it('sends the sky as a world command and the gate override as a scene command', () => {
@@ -205,51 +256,89 @@ describe('WorldPanel', () => {
     expect(sendCommand).toHaveBeenCalledWith('triggers', 'set-environment', { ambient: null });
   });
 
-  it('renders the override’s provenance and its replacement line from the wire state', () => {
+  it('shows the provenance line built from the map, and locks it once the gate is overridden', () => {
+    render(<WorldPanel />);
+    expect(screen.getByTestId('world-provenance')).toHaveProperty(
+      'textContent',
+      'Fieldstone Keep · outdoor · follows the clock',
+    );
+    expect(screen.queryByText('override')).toBeNull();
+
+    cleanup();
     useSessionStore.setState({
-      session: session('sc-1', { triggers: triggers({ clock: 720 }, 'darkness') }),
+      session: session('sc-1', { triggers: triggers({ clock: 720 }, 'darkness') }, [
+        { id: 'sc-1', name: 'Fieldstone Keep', mapId: 'm1' },
+      ]),
     });
     render(<WorldPanel />);
-
-    expect(screen.getByTestId('world-provenance')).toHaveProperty('textContent', 'Override · you');
-    expect(screen.getByTestId('world-trace')).toHaveProperty('textContent', 'Outdoor › Day › sky n/a → Daylight');
-    expect(screen.getByTestId('world-override-line')).toHaveProperty(
-      'textContent',
-      'You set Darkness. The clock would say Daylight.',
+    expect(screen.getByTestId('world-provenance').textContent).toBe(
+      'Fieldstone Keep · outdoor · follows the clockoverride',
     );
+    expect(screen.getByTestId('world-override-level')).not.toBeNull();
   });
 
-  it('keeps the sky on screen when it is dormant, with the reason', () => {
+  it('puts the full trace and consequence on the badge row as a hover title', () => {
     render(<WorldPanel />);
-    expect(screen.getByTestId('world-sky-note')).toHaveProperty(
-      'textContent',
-      'Takes effect at night. Set it now if you like.',
-    );
+    expect(screen.getByTestId('world-badge').title).toContain('Outdoor › Day › sky n/a → Daylight');
+    expect(screen.getByTestId('world-badge').title).toContain('Players see the whole map.');
+  });
+
+  it('keeps the sky segmented on screen while outdoor and dormant, with no note at all', () => {
+    render(<WorldPanel />);
+    expect(screen.queryByTestId('world-sky-note')).toBeNull();
     expect(screen.getByTestId('world-sky').getAttribute('aria-disabled')).toBeNull();
   });
 
-  it('spells out why the sky is inapplicable underground, and never hides the control', () => {
+  it('notes why the sky is inapplicable once a map is indoor or underground', () => {
     useStore.setState({ mapSettings: { ...useStore.getState().mapSettings, environment: 'underground' } });
     render(<WorldPanel />);
-
     expect(screen.getByTestId('world-sky-note')).toHaveProperty(
       'textContent',
       'This map is underground. It has no sky and takes no auto gate.',
     );
     expect(screen.getByTestId('world-sky').getAttribute('aria-disabled')).toBe('true');
-    expect(screen.getByTestId('world-auto-line')).toHaveProperty(
-      'textContent',
-      "Manual — this map doesn't follow the sky",
-    );
   });
 
-  it('says a fixed map ignores the clock, while the clock keeps running for the rest', () => {
-    useStore.setState({
-      mapSettings: { ...useStore.getState().mapSettings, environment: 'outdoor', timeMode: 'fixed', fixedTime: 1110 },
-    });
+  it('reads an untouched scene as muted, with none of the gate chrome on screen', () => {
+    useSessionStore.setState({ session: session(null) });
     render(<WorldPanel />);
+    expect(screen.getByText('Activate a scene to set its light level.')).not.toBeNull();
+    expect(screen.queryByTestId('world-provenance')).toBeNull();
+    expect(screen.queryByTestId('world-badge')).toBeNull();
+    expect(screen.queryByTestId('world-hint')).toBeNull();
+    // The dials stay: they're campaign-global, not scene-scoped.
+    expect(screen.getByTestId('world-clock')).not.toBeNull();
+  });
+});
 
-    expect(screen.getByTestId('world-fixed-note').textContent).toContain('pinned to 18:30');
-    expect(screen.getByTestId('world-provenance')).toHaveProperty('textContent', 'Fixed · 18:30');
+describe('the popover ceiling (M3 §World — 300px fixed, n/a past it)', () => {
+  /** The panel's own top-level row count — bounded regardless of state, because every
+   *  conditional line (the sky note, the override level picker) nests inside an existing
+   *  row's wrapper rather than adding a new one. jsdom has no layout, so this is the
+   *  structural stand-in for "never overflows its 300px budget". */
+  function rowCount(): number {
+    const { container } = render(<WorldPanel />);
+    return container.firstElementChild!.children.length;
+  }
+
+  it('holds at 7 rows with a scene active, sky note and override both showing at once', () => {
+    useStore.setState({ mapSettings: { ...useStore.getState().mapSettings, environment: 'underground' } });
+    useSessionStore.setState({
+      session: session('sc-1', { triggers: triggers({ clock: 720 }, 'darkness') }, [
+        { id: 'sc-1', name: 'Emberhold Crypt', mapId: 'm1' },
+      ]),
+    });
+    expect(rowCount()).toBe(7);
+    expect(screen.getByTestId('world-sky-note')).not.toBeNull();
+    expect(screen.getByTestId('world-override-level')).not.toBeNull();
+  });
+
+  it('holds at 7 rows outdoor, dormant sky, no override — the least-decorated scene case', () => {
+    expect(rowCount()).toBe(7);
+  });
+
+  it('drops to 5 rows with no scene active', () => {
+    useSessionStore.setState({ session: session(null) });
+    expect(rowCount()).toBe(5);
   });
 });
