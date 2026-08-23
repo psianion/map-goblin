@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand';
-import type { MapBuilderStore, ModalState, UISlice } from '../types';
+import type { MapBuilderStore, ModalState, NightSky, UISlice } from '../types';
 
 export interface UIActions {
   setActiveLayerId: (id: string) => void;
@@ -13,6 +13,7 @@ export interface UIActions {
   toggleSoloLayer: (id: string) => void;
   clearSolo: () => void;
   setPreviewClock: (minutes: number | null) => void;
+  setPreviewSky: (sky: NightSky | null) => void;
 }
 
 export const createUISlice: StateCreator<
@@ -82,5 +83,11 @@ export const createUISlice: StateCreator<
   setPreviewClock: (minutes) =>
     set((state) => {
       state.ui.previewClock = minutes;
+    }),
+  // Same tier as setPreviewClock: a view convenience, never undoable, never serialized,
+  // never sent to anybody.
+  setPreviewSky: (sky) =>
+    set((state) => {
+      state.ui.previewSky = sky;
     }),
 });

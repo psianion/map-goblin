@@ -190,7 +190,7 @@ export function setupRenderLoop(
     lightManager.rebuildIfDirty(cachedDungeonLayers);
 
     // The one clock this tick stands at — the campaign's, or the map's own (`worldOverride`).
-    const frame = worldFrame(storeState.mapSettings, storeState.ui.previewClock);
+    const frame = worldFrame(storeState.mapSettings, storeState.ui.previewClock, storeState.ui.previewSky);
 
     // (6b) Directional shadows (P3a) — the sun's own pass, over the same wall set the sweep
     // above was just rebuilt from. Memoized on (wall epoch, sun step, orientation): an

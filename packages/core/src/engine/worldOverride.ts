@@ -28,9 +28,11 @@ export interface WorldFrame {
 }
 
 /**
- * The night sky is a campaign value the Editor has no copy of, so its preview stands under the
- * same default a campaign nobody has touched plays at (`WORLD_DEFAULT`, mechanics/triggers —
- * core cannot reach it, so the value is written once here rather than imported).
+ * The night sky is a campaign value the Editor has no copy of, so its preview defaults to the
+ * same sky a campaign nobody has touched plays at (`WORLD_DEFAULT`, mechanics/triggers — core
+ * cannot reach it, so the value is written once here rather than imported). An author previewing
+ * a crescent or moonless night passes it through `worldFrame`'s `previewSky`, same as they scrub
+ * `previewClock` to preview an hour — this is only the fallback for when they have not.
  */
 const EDITOR_SKY: NightSky = 'full-moon';
 
@@ -45,10 +47,15 @@ export function setTableWorld(frame: WorldFrame | null): void {
 }
 
 /** The clock this frame is drawn at: the campaign's if one was installed, else the map's own. */
-export function worldFrame(map: MapEnvironment, previewClock: number | null): WorldFrame {
+export function worldFrame(
+  map: MapEnvironment,
+  previewClock: number | null,
+  previewSky: NightSky | null = null,
+): WorldFrame {
   if (installed) return installed;
   const minutes = mapClock(map, previewClock);
-  return { minutes, sun: resolveWorldLight({ ...map, clockMinutes: minutes, nightSky: EDITOR_SKY }).sun };
+  const nightSky = previewSky ?? EDITOR_SKY;
+  return { minutes, sun: resolveWorldLight({ ...map, clockMinutes: minutes, nightSky }).sun };
 }
 
 /** The composed grade at that clock — the map's mood carrying the hour, damped by its sky. */
