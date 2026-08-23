@@ -13,7 +13,7 @@ import { SIZE_CELLS, type Disposition, type Token, type TokensState } from '@dnd
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { endpoints } from '../../endpoints';
-import { addWorldOverlay, mountWhenEngineReady } from '../../renderer/overlayLayer';
+import { addScreenOverlay, mountWhenEngineReady, sightMaskOf } from '../../renderer/overlayLayer';
 import { useSessionStore } from '../../session/store';
 import {
   SETTLE_MS,
@@ -206,11 +206,15 @@ function eyeSlash(r: number): Graphics {
 function mountTokenLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => void {
   const layer = new Container();
   layer.sortableChildren = true;
-  // Topmost of the world-space session overlays, so the DM's fog tint never draws over a
-  // token (see `OVERLAY_STACK` — that ordering is PRODUCT principle 3 as a draw order).
-  // Deliberately still under the *player's* mask, which is screen space: a token in a room
-  // the party cannot see is hidden, and that is the mask doing its job.
-  addWorldOverlay(sceneGraph, layer, 'tokenLayer');
+  // Screen space, above the player's mask and the lighting multiply, mirroring the camera: a
+  // chip is a label, and it reads at full strength wherever the seat can see at all — under
+  // darkvision the floor goes grey and the chip does not (`OVERLAY_STACK`). A token in a room
+  // the party cannot see is still hidden: on a player's seat this layer wears the mask's own
+  // stencil (`sightMaskOf`), which is the same rule the draw order used to enforce. The DM
+  // wears none — their seat draws no mask, and a sight preview must not take their tokens.
+  addScreenOverlay(sceneGraph, layer, 'tokenLayer');
+  const world = sceneGraph.worldContainer;
+  const isPlayer = () => useSessionStore.getState().you?.role !== 'dm';
 
   const views = new Map<string, View>();
   let tokens: Token[] = [];
@@ -280,6 +284,12 @@ function mountTokenLayer(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   };
 
   const tick = (ticker: Ticker) => {
+    layer.position.copyFrom(world.position);
+    layer.scale.copyFrom(world.scale);
+    // Looked up per frame rather than once: the fog layer mounts on its own schedule, and the
+    // seat is not known until the join snapshot lands.
+    const stencil = isPlayer() ? sightMaskOf(sceneGraph) : null;
+    if (layer.mask !== stencil) layer.mask = stencil;
     const now = Date.now();
     for (const view of views.values()) {
       if (view.pending && now > view.pending.until) {

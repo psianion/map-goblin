@@ -1030,6 +1030,25 @@ describe('drawFog in vision mode', () => {
     ).toBeGreaterThan(0);
   });
 
+  // The stencil the chip and ring layers wear above the mask: filled wherever the seat may
+  // see — the sweep and its memory — and empty where it may not, so a chip drawn above the
+  // dark never outruns it.
+  it('fills the sight stencil with the shown tiers and leaves the hidden map out of it', () => {
+    const stencil = new Graphics();
+    drawFog(new Graphics(), visionScene({ sight: [LOOKING] }), undefined, stencil);
+    const shown = fillsOf(stencil);
+    expect(shown.length).toBeGreaterThan(0);
+    expect(shown.every((f) => f.style.color === 0xffffff)).toBe(true);
+
+    // Nothing seen, nothing remembered: an empty stencil, which hides every chip.
+    drawFog(new Graphics(), visionScene({ sight: [] }), undefined, stencil);
+    expect(fillsOf(stencil)).toEqual([]);
+
+    // A seat that draws no mask clears it too — the DM wears none, so nothing reads it.
+    drawFog(new Graphics(), visionScene({ sight: [LOOKING], isPlayer: false }), undefined, stencil);
+    expect(fillsOf(stencil)).toEqual([]);
+  });
+
   it('washes the memory tier at the explored look, over the cells and the reveals', () => {
     const scrim = new Graphics();
     const drawn = drawFog(

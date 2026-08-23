@@ -14,8 +14,10 @@ import { Container } from 'pixi.js';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import {
   OVERLAY_STACK,
+  SIGHT_MASK,
   addScreenOverlay,
   addWorldOverlay,
+  sightMaskOf,
   type OverlayLabel,
 } from './overlayLayer';
 
@@ -41,10 +43,12 @@ const labels = (parent: Container): string[] => parent.children.map((c) => Strin
 const rank = (label: OverlayLabel): number => OVERLAY_STACK.indexOf(label);
 
 describe('OVERLAY_STACK', () => {
-  it('draws door marks over the player mask and tokens under it', () => {
-    // Tokens under the mask: a token in a room the party cannot see stays hidden, and
-    // moving it behind the dark must not leak where it went.
-    expect(rank('tokenLayer')).toBeLessThan(rank('playerFog'));
+  it('draws tokens, the turn ring and door marks over the player mask', () => {
+    // Tokens above the mask and the lighting multiply: a chip is a label and reads at full
+    // strength wherever the seat can see. A token in a room the party cannot see still stays
+    // hidden — the chip layer wears the mask's own stencil on a player's seat (`sightMaskOf`).
+    expect(rank('tokenLayer')).toBeGreaterThan(rank('playerFog'));
+    expect(rank('turnRing')).toBeGreaterThan(rank('tokenLayer'));
     // Door marks over it: what a player holds has already been redacted by the referee
     // (PRODUCT principle 2) — only doors bound to an explored room are ever sent, and an
     // unrevealed secret never is — so a mark above the mask shows only what was earned.
@@ -57,15 +61,15 @@ describe('OVERLAY_STACK', () => {
 describe('addWorldOverlay', () => {
   it('ranks overlays whatever order the panels mount them in', () => {
     for (const order of [
-      ['tokenLayer', 'fogOverlay'],
-      ['fogOverlay', 'tokenLayer'],
+      ['doorOverlay', 'fogOverlay'],
+      ['fogOverlay', 'doorOverlay'],
     ] as OverlayLabel[][]) {
       const sceneGraph = fakeSceneGraph();
       for (const label of order) addWorldOverlay(sceneGraph, new Container(), label);
       expect(labels(sceneGraph.worldContainer)).toEqual([
         'layerContainer',
         'fogOverlay',
-        'tokenLayer',
+        'doorOverlay',
       ]);
     }
   });
@@ -74,8 +78,9 @@ describe('addWorldOverlay', () => {
 describe('addScreenOverlay', () => {
   it('puts door marks above the fog mask whichever mounts first', () => {
     for (const order of [
-      ['playerFog', 'doorOverlay'],
-      ['doorOverlay', 'playerFog'],
+      ['playerFog', 'tokenLayer', 'doorOverlay'],
+      ['doorOverlay', 'tokenLayer', 'playerFog'],
+      ['tokenLayer', 'doorOverlay', 'playerFog'],
     ] as OverlayLabel[][]) {
       const sceneGraph = fakeSceneGraph();
       for (const label of order) addScreenOverlay(sceneGraph, new Container(), label);
@@ -85,6 +90,7 @@ describe('addScreenOverlay', () => {
       expect(drawn).toEqual([
         'lightingComposite',
         'playerFog',
+        'tokenLayer',
         'doorOverlay',
         'fogTransition',
       ]);
@@ -99,3 +105,17 @@ describe('addScreenOverlay', () => {
     expect(labels(overlayContainer)).toEqual(['playerFog', 'doorOverlay']);
   });
 });
+
+describe('sightMaskOf', () => {
+  it('finds the fog layer’s stencil once it has mounted, and nothing before', () => {
+    const sceneGraph = fakeSceneGraph();
+    expect(sightMaskOf(sceneGraph)).toBeNull();
+    const fog = new Container();
+    const stencil = new Container();
+    stencil.label = SIGHT_MASK;
+    fog.addChild(stencil);
+    addScreenOverlay(sceneGraph, fog, 'playerFog');
+    expect(sightMaskOf(sceneGraph)).toBe(stencil);
+  });
+});
+

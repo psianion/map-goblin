@@ -75,7 +75,7 @@ import {
   type BiteLevel,
   type WorldLight,
 } from '@dnd/core/src/shared/world';
-import { addScreenOverlay, mountWhenEngineReady } from '../../renderer/overlayLayer';
+import { SIGHT_MASK, addScreenOverlay, mountWhenEngineReady } from '../../renderer/overlayLayer';
 import { prefersReducedMotion } from '../../session/motion';
 import { useSessionStore } from '../../session/store';
 import type { LiveDoor } from '../doors/doors';
@@ -1027,9 +1027,11 @@ export function drawFog(
   scrim: Graphics,
   scene: FogScene,
   maskPaint?: Graphics,
+  sightMask?: Graphics,
 ): { cells: number; cover: Bounds | null } {
   scrim.clear();
   maskPaint?.clear();
+  sightMask?.clear();
   if (!(scene.isPlayer || scene.preview) || !scene.bounds) return { cells: 0, cover: null };
   // Drawn one pad + feather wider than the frame: a hole that crosses the filled rect's
   // outer contour is dropped whole by the triangulator, and the frame is content-tight
@@ -1087,6 +1089,11 @@ export function drawFog(
     fillLand(maskPaint, memory, { color: MASK_MEMORY, alpha: 1 });
     for (const { outline } of earned) featherEdge(maskPaint, outline, 0x000000);
   }
+  // Everything this seat may see, as a stencil for the overlays that draw above the mask
+  // (`SIGHT_MASK`): the token chips and the turn ring. Clear and memory alike — what is
+  // hidden is the one thing they must not outrun; what is only dimmed is still theirs to
+  // label at full strength.
+  if (sightMask) fillLand(sightMask, [...earned, ...memory], { color: 0xffffff, alpha: 1 });
   return { cells, cover: { minX, minY, maxX, maxY } };
 }
 
@@ -1101,7 +1108,15 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   // The animated cover, above the scrim: the scrim stays the authority on what is hidden
   // (flat black, fail-dark), the mesh is the weather drawn over it.
   const fog = createLivingFog(engine, { dense: 1, mist: 0.55, rim: 0.75 });
-  layer.addChild(scrim, fog.mesh);
+  // The stencil the chip and ring layers wear (`sightMaskOf`). A child here so it shares this
+  // layer's camera mirror; Pixi keeps a mask out of the normal draw, so it paints nothing.
+  const sightMask = new Graphics();
+  sightMask.label = SIGHT_MASK;
+  // …and kept out of the build from the first frame, not from the frame a wearer turns up:
+  // Pixi clears this flag itself when a mask is assigned, and a white fill drawn as content
+  // in between would be one frame of the whole map.
+  sightMask.includeInBuild = false;
+  layer.addChild(scrim, fog.mesh, sightMask);
   // Nothing here is clickable; the fog tool and the doors read the DOM canvas directly.
   layer.eventMode = 'none';
   addScreenOverlay(sceneGraph, layer, 'playerFog');
@@ -1190,7 +1205,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // The imitation has to match the void as it actually renders — including a table with no
     // lighting pass at all, where there is no multiply for the void to have gone through.
     const drawn = lit?.visible ? scene : { ...scene, void: voidStyle(0, false, scene.grade) };
-    const built = drawFog(scrim, drawn, fog.maskPaint);
+    const built = drawFog(scrim, drawn, fog.maskPaint, sightMask);
     cells = built.cells;
     // …and the living fog over it: the same tiers as a texture, the palette pulled toward
     // the scene's grade (a torchlit scene fogs warm, a night forest cold), and one render
