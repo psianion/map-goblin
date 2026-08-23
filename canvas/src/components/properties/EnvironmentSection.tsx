@@ -551,18 +551,16 @@ export function EnvironmentSection({ openSections, onToggleSection }: SectionCon
               {/* The sky is a campaign value, not this map's own — only worth previewing where
                   it can reach the sun at all (indoor/underground never see it). */}
               {outdoor && (
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="text-panel-label uppercase tracking-[0.1em] text-text-secondary">
+                <div className="mt-3">
+                  <p className="mb-1.5 text-panel-label uppercase tracking-[0.1em] text-text-secondary">
                     Preview sky
-                  </span>
-                  <div className="ml-auto">
-                    <Segmented
-                      label="Preview sky"
-                      value={previewSky ?? 'full-moon'}
-                      options={NIGHT_SKIES.map((sky) => [sky, SKY_LABEL[sky]] as const)}
-                      onPick={(sky) => setPreviewSky(sky === 'full-moon' ? null : sky)}
-                    />
-                  </div>
+                  </p>
+                  <Segmented
+                    label="Preview sky"
+                    value={previewSky ?? 'full-moon'}
+                    options={NIGHT_SKIES.map((sky) => [sky, SKY_LABEL[sky]] as const)}
+                    onPick={(sky) => setPreviewSky(sky === 'full-moon' ? null : sky)}
+                  />
                 </div>
               )}
             </>
