@@ -182,6 +182,41 @@ describe('TokenMenu', () => {
       expect(sent[0]).toMatchObject({ action: 'hide', payload: { id: 't1', hidden: true } });
     });
 
+    // The DM's sight preview: a flag in this tab's own store, read by the DM's fog layer and
+    // by nothing on the wire — the players' seats see exactly what they saw before the click.
+    it('toggles the sight preview locally and sends nothing for it', () => {
+      const sent: { action: string; payload: unknown }[] = [];
+      const base = session([token({ sight: { range: 30, angle: 360, visionMode: 'darkvision' } })]);
+      useSessionStore.setState({
+        session: {
+          ...base,
+          modules: { ...base.modules, fog: { byScene: { 'scene-1': { rooms: {}, mode: 'vision' } } } },
+        },
+        you: dm,
+        lastError: null,
+        client: { send: (m: { module: string; action: string; payload: unknown }) => sent.push(m) } as never,
+      });
+      useTokenInteraction.getState().select('t1');
+      render(<TokenMenu />);
+
+      const toggle = screen.getByTestId('token-menu-preview-sight');
+      expect(toggle.getAttribute('aria-pressed')).toBe('false');
+      fireEvent.click(toggle);
+      expect(useTokenInteraction.getState().previewSight).toBe(true);
+      expect(toggle.getAttribute('aria-pressed')).toBe('true');
+      expect(sent).toEqual([]);
+      useTokenInteraction.setState({ previewSight: false });
+    });
+
+    it('disables the preview, and says why, for a token with no sight or a rooms-mode scene', () => {
+      useSessionStore.setState({ session: session([token()]), you: dm, client: null, lastError: null });
+      useTokenInteraction.getState().select('t1');
+      render(<TokenMenu />);
+      const toggle = screen.getByTestId('token-menu-preview-sight');
+      expect((toggle as HTMLButtonElement).disabled).toBe(true);
+      expect(toggle.title).toMatch(/Rooms mode/);
+    });
+
     it('deletes from behind the more menu, and clears the selection', () => {
       const sent: { action: string; payload: unknown }[] = [];
       useSessionStore.setState({
@@ -256,6 +291,7 @@ describe('TokenMenu', () => {
       expect(screen.queryByTestId('token-menu-hide')).toBeNull();
       expect(screen.queryByTestId('token-menu-frame')).toBeNull();
       expect(screen.queryByTestId('token-menu-more')).toBeNull();
+      expect(screen.queryByTestId('token-menu-preview-sight')).toBeNull();
     });
 
     // M3 review finding 8 — the reason used to arrive only as a toast, behind an empty menu.

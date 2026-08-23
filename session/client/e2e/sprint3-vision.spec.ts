@@ -1121,4 +1121,54 @@ test.describe.serial('@sprint3-vision', () => {
     // The standing gate condition, on the rows this phase added too.
     expect(pageErrors, pageErrors.join('\n')).toEqual([])
   })
+  /**
+   * The DM's sight preview: one token's eyes drawn on the DM's own canvas, and nothing else.
+   * The DM's seat draws no mask at all (principle 3), so the whole frame starts "clear"; with
+   * the preview on, only what the scout can see is. The player's canvas is the other half of
+   * the claim — the flag is local to the DM's tab, so their frame reads the same before and
+   * after, to the living fog's own drift.
+   */
+  test('the DM previews one token’s sight on their own canvas and the player’s does not move', async () => {
+    await openTokens(dm)
+    await dm.getByTestId('token-layer').locator(`[data-token-id="${scout}"] button`).click()
+    const toggle = dm.getByTestId('token-preview-sight')
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+    await frameUp(player)
+    const playerBefore = await look(player)
+    await frameUp(dm)
+    const dmBefore = await look(dm)
+
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    // The DM's mask is a rebuild like any other: wait for its frame, then read both seats.
+    await dm.waitForTimeout(REVEAL_MS * 3)
+    const dmAfter = await look(dm)
+    const playerAfter = await look(player)
+
+    record(
+      'the DM’s sight preview, measured on both canvases',
+      `DM ${show(dmBefore)} → ${show(dmAfter)} with the scout’s sight previewed; ` +
+        `player ${show(playerBefore)} → ${show(playerAfter)} over the same beat`,
+      'the DM sees what one token sees; the player sees what they saw',
+    )
+    // The DM's frame goes from the whole map clear to the scout's sweep — a drop of several
+    // percent of the frame at least, against a whole-frame drift well under one.
+    expect(dmAfter.clear, `DM ${show(dmBefore)} → ${show(dmAfter)}`).toBeLessThan(
+      dmBefore.clear - 0.05,
+    )
+    // …and the player's does not move beyond the clouds' own drift between two reads.
+    expect(
+      Math.abs(playerAfter.clear - playerBefore.clear),
+      `player ${show(playerBefore)} → ${show(playerAfter)}`,
+    ).toBeLessThan(0.01)
+
+    // Off again: the DM's canvas is the DM's again.
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await dm.waitForTimeout(REVEAL_MS * 3)
+    expect((await look(dm)).clear).toBeGreaterThan(dmAfter.clear + 0.05)
+
+    expect(pageErrors, pageErrors.join('\n')).toEqual([])
+  })
 })

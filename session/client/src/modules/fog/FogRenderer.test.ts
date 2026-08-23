@@ -23,6 +23,7 @@ import { regionOf, setCells, type RoomFog, type SceneFog } from '@dnd/mechanics/
 import type { Token } from '@dnd/mechanics/tokens';
 import type { LiveDoor } from '../doors/doors';
 import { useSessionStore } from '../../session/store';
+import { useTokenInteraction } from '../tokens/drag';
 import {
   FOG_MARGIN,
   cellsIn,
@@ -1336,6 +1337,92 @@ describe('fogScene', () => {
     // The stored record rides along whole — the memory tier reads its cells and its reveals,
     // not the reachability classification `views` carries.
     expect(scene.fog?.mode).toBe('vision');
+  });
+
+  // ── the DM's sight preview ─────────────────────────────────────────────
+  // Local to the DM's tab: the flag and the selection live in `useTokenInteraction`, and the
+  // only thing they change is what the DM's own fog layer draws. A player's seat ignores
+  // both, whatever they are set to.
+
+  const previewScene = (tokens: Record<string, Token>, fogOver: Partial<SceneFog> = {}) =>
+    useSessionStore.setState({
+      session: session({
+        fog: { byScene: { 'scene-1': { ...fogOf({}), mode: 'vision', ...fogOver } } },
+        tokens: { library: {}, byScene: { 'scene-1': tokens } },
+      }),
+    });
+
+  afterEach(() => useTokenInteraction.setState({ previewSight: false, selectedId: null }));
+
+  it('draws the DM the selected token’s sight when the preview is on, and nothing otherwise', () => {
+    useSessionStore.setState({ you: { ...player, role: 'dm' } });
+    previewScene({
+      npc: sightedToken({ id: 'npc', ownerId: null }),
+      pc: sightedToken({ id: 'pc', x: 12, y: 2 }),
+    });
+
+    // Off: the DM's seat draws no mask at all, as ever.
+    useTokenInteraction.setState({ selectedId: 'npc', previewSight: false });
+    expect(fogScene().preview).toBe(false);
+    expect(fogScene().sight).toBeUndefined();
+
+    // On: one sweep, the selected token's — not the party's (the claimed `pc` is left out).
+    useTokenInteraction.setState({ previewSight: true });
+    const scene = fogScene();
+    expect(scene.preview).toBe(true);
+    expect(scene.sight).toHaveLength(1);
+    // …and through that seat's lighting: the preview is what the holder would see.
+    expect(scene.bite).toBe(LIGHTING_STRENGTH.player);
+
+    // On with nothing selected: nothing to look through.
+    useTokenInteraction.setState({ selectedId: null });
+    expect(fogScene().preview).toBe(false);
+  });
+
+  it('looks through a hidden token too — an ambusher’s sight is the question being asked', () => {
+    useSessionStore.setState({ you: { ...player, role: 'dm' } });
+    previewScene({ lurker: sightedToken({ id: 'lurker', ownerId: null, hidden: true }) });
+    useTokenInteraction.setState({ selectedId: 'lurker', previewSight: true });
+    expect(fogScene().sight).toHaveLength(1);
+  });
+
+  it('never previews on a player’s seat, and never in rooms mode', () => {
+    previewScene({ pc: sightedToken({ id: 'pc' }) });
+    useTokenInteraction.setState({ selectedId: 'pc', previewSight: true });
+    // A player: their own mask, drawn through the party's eyes as always, preview ignored.
+    const theirs = fogScene();
+    expect(theirs.preview).toBe(false);
+    expect(theirs.isPlayer).toBe(true);
+
+    // The DM in rooms mode: no sweep exists to preview.
+    useSessionStore.setState({ you: { ...player, role: 'dm' } });
+    previewScene({ pc: sightedToken({ id: 'pc' }) }, { mode: 'rooms' });
+    expect(fogScene().preview).toBe(false);
+    expect(fogScene().sight).toBeUndefined();
+  });
+
+  it('reads the memory tier through the token’s own record in individual share', () => {
+    useSessionStore.setState({ you: { ...player, role: 'dm' } });
+    const theirs = regionOf({ minX: 0, minY: 0, maxX: 40, maxY: 40 })!;
+    previewScene(
+      { pc: sightedToken({ id: 'pc', ownerId: 'p2' }) },
+      { visionShare: 'individual', regions: { p2: theirs } },
+    );
+    useTokenInteraction.setState({ selectedId: 'pc', previewSight: true });
+    expect(fogScene().fog?.region).toBe(theirs);
+  });
+
+  it('gives a token nobody holds no memory at all — live sight is the whole preview', () => {
+    useSessionStore.setState({ you: { ...player, role: 'dm' } });
+    previewScene(
+      { npc: sightedToken({ id: 'npc', ownerId: null }) },
+      { region: regionOf({ minX: 0, minY: 0, maxX: 40, maxY: 40 })!, rooms: { [VESTIBULE.id]: seen } },
+    );
+    useTokenInteraction.setState({ selectedId: 'npc', previewSight: true });
+    const scene = fogScene();
+    expect(scene.sight).toHaveLength(1);
+    expect(scene.fog?.region).toBeUndefined();
+    expect(scene.fog?.rooms).toEqual({});
   });
 
   // ── individual vision (S3 P5) ────────────────────────────────────────────

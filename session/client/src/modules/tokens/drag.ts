@@ -45,9 +45,17 @@ interface TokenInteraction {
   /** Token this seat is actively dragging, or null. M3's on-map `TokenMenu` hides while
    *  set — its buttons would otherwise float over a token mid-repositioning. */
   draggingId: string | null;
+  /**
+   * The DM's sight preview: draw the selected token's own sight on *this* canvas, the way
+   * the seat holding it would see the scene. Local to this tab — never sent, never part of
+   * the redaction the referee runs — so a player's seat neither reads it nor is changed by
+   * it; it only ever chooses what the DM's fog layer draws (`fogScene`).
+   */
+  previewSight: boolean;
   select: (id: string | null) => void;
   setPlacing: (defId: string | null) => void;
   setDraggingId: (id: string | null) => void;
+  setPreviewSight: (on: boolean) => void;
 }
 
 // ponytail: a zustand store instead of React context — the Pixi layer is outside
@@ -56,9 +64,11 @@ export const useTokenInteraction = create<TokenInteraction>()((set) => ({
   selectedId: null,
   placingDefId: null,
   draggingId: null,
+  previewSight: false,
   select: (selectedId) => set({ selectedId }),
   setPlacing: (placingDefId) => set({ placingDefId }),
   setDraggingId: (draggingId) => set({ draggingId }),
+  setPreviewSight: (previewSight) => set({ previewSight }),
 }));
 
 /** D9: ~10 Hz while the pointer is down. */

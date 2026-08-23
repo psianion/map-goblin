@@ -829,6 +829,29 @@ describe('Tokens · On map ceiling (M3 no-scroll ledger)', () => {
     expect(screen.queryByTestId('token-owner')).toBeNull();
   });
 
+  // A token whose owner is no longer at the table used to read "Unassigned" in the select
+  // while staying that seat's — and picking "Unassigned" was then no change at all.
+  it('names an owner who left, so the token can actually be unassigned', () => {
+    const sent: { action: string; payload: unknown }[] = [];
+    renderTokens(1);
+    useSessionStore.setState((s) => ({
+      session: {
+        ...s.session!,
+        modules: {
+          tokens: { library: {}, byScene: { 'scene-1': { t0: token({ id: 't0', name: 'Token 0', ownerId: 'gone' }) } } },
+        },
+      },
+      client: { send: (m: { action: string; payload: unknown }) => sent.push(m) } as unknown as WebSocketClient,
+    }));
+    fireEvent.click(screen.getByText('Token 0'));
+    const owner = screen.getByTestId('token-owner') as HTMLSelectElement;
+    expect(owner.value).toBe('gone');
+    expect(owner.options[owner.selectedIndex].textContent).toBe('Someone who left');
+
+    fireEvent.change(owner, { target: { value: '' } });
+    expect(sent[0]).toMatchObject({ action: 'assign', payload: { id: 't0', identityId: null } });
+  });
+
   it('adds a filter and caps the visible rows once the list passes 21 (25 tokens)', () => {
     renderTokens(25);
     expect(screen.getByTestId('token-filter')).toBeTruthy();

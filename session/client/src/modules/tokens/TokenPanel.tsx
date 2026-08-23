@@ -18,6 +18,7 @@ import { showToast } from '../../session/toasts';
 import { Icon } from '../../shell/icons';
 import { liveSceneDoors } from '../doors/DoorRenderer';
 import { tokenRefusal, useTokenInteraction } from './drag';
+import { useSightPreview } from './sightPreview';
 import {
   DEFAULT_LIGHT,
   DEFAULT_SIGHT,
@@ -35,6 +36,7 @@ import {
   MAP_DETAIL_COLLAPSE_AT,
   MAP_FILTER_AT,
   MAP_ROW_CAP,
+  armedButtonClass,
   buttonClass,
   filterInputClass,
   ghostButtonClass,
@@ -446,6 +448,13 @@ function OnMapTab() {
                         {p.name}
                       </option>
                     ))}
+                  {/* An owner who is not at the table — a seat from an earlier session. Listed
+                      so the select says what the token actually is, and so "Unassigned" is a
+                      change the DM can make; with the value missing, the control read
+                      "Unassigned" while the token stayed somebody's. */}
+                  {selected.ownerId && !players?.some((p) => p.identityId === selected.ownerId) && (
+                    <option value={selected.ownerId}>Someone who left</option>
+                  )}
                 </select>
                 <button
                   type="button"
@@ -533,6 +542,7 @@ function MapFooter({ isDm }: { isDm: boolean }) {
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const tokens = useMemo(() => tokensOf(state, sceneId), [state, sceneId]);
   const selected = tokens.find((t) => t.id === selectedId);
+  const preview = useSightPreview(selected);
   if (!selected) return null;
 
   return (
@@ -551,6 +561,21 @@ function MapFooter({ isDm }: { isDm: boolean }) {
         </button>
       )}
       <span className="flex-1" />
+      {isDm && (
+        // The DM's own canvas through this token's eyes — the players' seats are untouched.
+        <button
+          type="button"
+          data-testid="token-preview-sight"
+          aria-pressed={preview.on}
+          disabled={preview.reason !== null}
+          title={preview.reason ?? (preview.on ? 'Stop drawing this token’s sight on your map' : 'Draw what this token can see on your map')}
+          onClick={preview.toggle}
+          className={`${preview.on && preview.reason === null ? armedButtonClass : ghostButtonClass} flex items-center gap-1.5`}
+        >
+          <Icon name="reveal" size={15} />
+          {preview.on ? 'Showing sight' : 'Show sight'}
+        </button>
+      )}
       <button
         type="button"
         data-testid="token-frame"

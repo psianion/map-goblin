@@ -11,6 +11,7 @@ import { applyPlacement, boundsOf, FALLBACK_SIZE, NOTCH_LEFT_CLASS, NOTCH_REST, 
 import { Icon } from '../../shell/icons';
 import { useShell } from '../../shell/shellStore';
 import { useTokenInteraction } from './drag';
+import { useSightPreview } from './sightPreview';
 import { tokensOf } from './TokenRenderer';
 import { DOT_CLASS } from './tokensUi';
 
@@ -119,6 +120,8 @@ export function TokenMenu() {
     return () => cancelAnimationFrame(raf);
   }, [visible, token]);
 
+  const preview = useSightPreview(token ?? undefined);
+
   if (!visible || !token) return null;
 
   const isDm = you?.role === 'dm';
@@ -168,6 +171,18 @@ export function TokenMenu() {
               >
                 <Icon name={token.hidden ? 'reveal' : 'hide'} size={13} />
                 {token.hidden ? 'Reveal' : 'Hide'}
+              </button>
+              <button
+                type="button"
+                data-testid="token-menu-preview-sight"
+                aria-pressed={preview.on}
+                disabled={preview.reason !== null}
+                title={preview.reason ?? (preview.on ? 'Stop drawing this token’s sight on your map' : 'Draw what this token can see on your map')}
+                onClick={preview.toggle}
+                className={`${actionButtonClass} ${preview.on && preview.reason === null ? 'text-accent-active' : ''} disabled:cursor-not-allowed disabled:opacity-40`}
+              >
+                <Icon name="reveal" size={13} />
+                Sight
               </button>
               <button
                 type="button"
