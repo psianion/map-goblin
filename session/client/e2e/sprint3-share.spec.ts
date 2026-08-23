@@ -148,10 +148,25 @@ const shoot = (page: Page): Promise<Buffer> =>
 interface Look {
   /** Mean luminance over the whole canvas, 0–255. */
   mean: number
-  /** Fraction of pixels above the black floor — how much of the map is drawn at all. */
+  /** Fraction of pixels a light source reaches — brighter than the fog's brightest cloud. */
   lit: number
+  /** Fraction of pixels the fog is not covering — outside its colour band on either side. */
+  clear: number
 }
 
+/**
+ * sprint3-vision's instrument, and the same two floors for the same measured reasons.
+ *
+ * This file read a single 120/255 floor until #101 on the claim that the map's floor was the
+ * editor default (#F1ECDF, ~236) and nothing else could clear it. Neither half of that holds
+ * now: #100's ambient grade puts an unlit hall's floor at ~36/255, so *nothing* on this map
+ * clears 120 — every reading below came back at a flat 0.05%, which is the token art and the
+ * door furniture — and #101 filled the void the floor was being compared against with an
+ * animated cloud that runs 22.0–59.1/255 (measured on a frame that is nothing but fog).
+ *
+ * So the fog's own band is what the readings are taken against instead: `clear` (under 16 or
+ * over 64) is ground this seat has earned, and `lit` (over 64) is ground a light reaches.
+ */
 function develop(page: Page, shot: Buffer): Promise<Look> {
   return page.evaluate(async (url: string) => {
     const bitmap = await createImageBitmap(await (await fetch(url)).blob())
@@ -161,19 +176,22 @@ function develop(page: Page, shot: Buffer): Promise<Look> {
     const { data } = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
     let sum = 0
     let lit = 0
+    let dark = 0
     for (let i = 0; i < data.length; i += 4) {
       const luminance = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]
       sum += luminance
-      // This map's floor is the editor default (#F1ECDF, luminance ~236) and its void is the
-      // background's own #2d2d2d at ~45, so the floor is the only thing that clears 120.
-      if (luminance > 120) lit++
+      if (luminance > 64) lit++
+      else if (luminance < 16) dark++
     }
-    return { mean: sum / (data.length / 4), lit: lit / (data.length / 4) }
+    const pixels = data.length / 4
+    return { mean: sum / pixels, lit: lit / pixels, clear: (lit + dark) / pixels }
   }, `data:image/png;base64,${shot.toString('base64')}`)
 }
 
 const look = async (page: Page): Promise<Look> => develop(page, await shoot(page))
-const show = (l: Look) => `mean ${l.mean.toFixed(1)}/255, ${(l.lit * 100).toFixed(1)}% floor`
+const show = (l: Look) =>
+  `mean ${l.mean.toFixed(1)}/255, ${(l.clear * 100).toFixed(1)}% clear of fog, ` +
+  `${(l.lit * 100).toFixed(1)}% lit`
 
 /** What fraction of the canvas differs between two shots. sprint3-fog's, for its reasons. */
 function changed(page: Page, before: Buffer, after: Buffer): Promise<number> {
@@ -319,8 +337,11 @@ test.describe.serial('@sprint3-share', () => {
     // Both seats swept something of their own…
     expect((await read(alda)).cells, 'Alda swept nothing into her own record').toBeGreaterThan(0)
     expect((await read(bran)).cells, 'Bran swept nothing into his own record').toBeGreaterThan(0)
-    expect(aldaLook.lit).toBeGreaterThan(0.005)
-    expect(branLook.lit).toBeGreaterThan(0.005)
+    // …and each canvas is showing them what they swept. Measured 3.3% and 4.3% of the frame
+    // clear of fog against a seat that has swept nothing at 0.000% (sprint3-vision's `dark`),
+    // so 0.5% is well under either hall and well over an unearned canvas.
+    expect(aldaLook.clear, `Alda drew ${show(aldaLook)}`).toBeGreaterThan(0.005)
+    expect(branLook.clear, `Bran drew ${show(branLook)}`).toBeGreaterThan(0.005)
 
     // …and the two pictures are not one picture. Same map, same camera, same moment.
     const noise = await changed(alda, aldaShot, await shoot(alda))
@@ -392,10 +413,12 @@ test.describe.serial('@sprint3-share', () => {
       'the linked seat sees the far hall; the other sees void where it stands',
     )
 
-    // Bran can see a hall Alda cannot, so there is measurably more map on his canvas.
-    expect(branLook.lit, `Bran ${show(branLook)} against Alda ${show(aldaLook)}`).toBeGreaterThan(
-      aldaLook.lit + 0.005,
-    )
+    // Bran can see a hall Alda cannot, so there is measurably less fog on his canvas: measured
+    // 11.1% clear against her 2.3%, which is the far hall and nothing else.
+    expect(
+      branLook.clear,
+      `Bran ${show(branLook)} against Alda ${show(aldaLook)}`,
+    ).toBeGreaterThan(aldaLook.clear + 0.005)
     // …and the cultist the hawk is looking at is Bran's alone, on the canvas and on the wire.
     expect(await tokenIds(bran)).toEqual([ids.bran, ids.spider, ids.hawk, ids.cultist].sort())
     expect(await tokenIds(alda)).toEqual([ids.alda, ids.rat].sort())

@@ -93,8 +93,24 @@ export async function createDef(page: Page, name: string): Promise<void> {
  * DM: arm the def, click the map. Resolves once the table has been told about the new
  * token — the server mints the id and snaps the position, so both are read back after.
  */
+/**
+ * How many tokens the active scene holds, per the On Map tab: its rows plus the "+N more"
+ * line past the tab's no-scroll cap (`MAP_ROW_CAP`, 20) — `tokenPositions` alone goes blind
+ * there, and a crowd row stands more than that.
+ */
+export async function tokenCount(page: Page): Promise<number> {
+  await openOnMap(page)
+  return page.evaluate(() => {
+    const rows = document.querySelectorAll('[data-testid="token-layer"] [data-token-id]').length
+    const more = document
+      .querySelector('[data-testid="token-layer"]')
+      ?.parentElement?.textContent?.match(/\+(\d+) more/)
+    return rows + (more ? Number(more[1]) : 0)
+  })
+}
+
 export async function placeToken(page: Page, defName: string, at: Point): Promise<void> {
-  const before = Object.keys(await tokenPositions(page)).length
+  const before = await tokenCount(page)
   await openLibrary(page)
   await page.getByTestId('token-library').getByRole('button', { name: `Place ${defName}`, exact: true }).click()
   await expect(page.getByTestId('place-hint')).toBeVisible()
@@ -103,10 +119,7 @@ export async function placeToken(page: Page, defName: string, at: Point): Promis
   // The hint clears on pointerdown (the click was taken as a placement, not a pan); the row
   // arrives with the server's `state-update`.
   await expect(page.getByTestId('place-hint')).toHaveCount(0)
-  await openOnMap(page)
-  await expect(page.getByTestId('token-layer').locator('[data-token-id]')).toHaveCount(before + 1, {
-    timeout: 15_000,
-  })
+  await expect.poll(() => tokenCount(page), { timeout: 15_000 }).toBe(before + 1)
 }
 
 /**
