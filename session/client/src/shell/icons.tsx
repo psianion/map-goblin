@@ -8,6 +8,7 @@
  * in sync with docs/mockups/2026-08-22-table-ui/icons-data.js via
  * scripts/icons-sheet.mjs (run manually, not part of the build).
  */
+import { useMemo } from 'react';
 
 export type IconName =
   | 'initiative'
@@ -107,7 +108,14 @@ export function Icon({
   className?: string;
   title?: string;
 }) {
-  const markup = (title ? `<title>${escapeXml(title)}</title>` : '') + GLYPHS[name];
+  // One object per markup string, not per render: React re-sets innerHTML whenever the
+  // `dangerouslySetInnerHTML` prop is a new object, which replaces the paths mid-press — a
+  // mousedown on a stroke then finds its target gone by mouseup and the browser drops the
+  // click (the rail re-renders on focus, so every icon click on a stroke used to vanish).
+  const html = useMemo(
+    () => ({ __html: (title ? `<title>${escapeXml(title)}</title>` : '') + GLYPHS[name] }),
+    [name, title],
+  );
   return (
     <svg
       viewBox="0 0 24 24"
@@ -121,7 +129,7 @@ export function Icon({
       className={className}
       aria-hidden={!title}
       role={title ? 'img' : undefined}
-      dangerouslySetInnerHTML={{ __html: markup }}
+      dangerouslySetInnerHTML={html}
     />
   );
 }

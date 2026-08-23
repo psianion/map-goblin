@@ -177,6 +177,7 @@ export function TokenLibraryPanel() {
                 <span className="min-w-0 flex-1 truncate">{def.name}</span>
                 <button
                   type="button"
+                  aria-label={`Place ${def.name}`}
                   data-testid="token-place"
                   aria-pressed={placingDefId === def.id}
                   onClick={() => setPlacing(placingDefId === def.id ? null : def.id)}

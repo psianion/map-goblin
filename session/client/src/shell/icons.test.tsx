@@ -68,4 +68,12 @@ describe('Icon', () => {
     expect(svg.getAttribute('role')).toBe('img');
     expect(svg.querySelector('title')?.textContent).toBe('Close');
   });
+  it('keeps the same path nodes across a parent re-render (a click must not lose its target)', () => {
+    const { container, rerender } = render(<Icon name="scene" size={20} />);
+    const before = container.querySelector('path')!;
+    rerender(<Icon name="scene" size={20} />);
+    expect(container.querySelector('path')).toBe(before);
+    rerender(<Icon name="world" size={20} />);
+    expect(container.querySelector('path')).not.toBe(before);
+  });
 });

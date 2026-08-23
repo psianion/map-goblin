@@ -123,6 +123,7 @@ function ZoomSlider() {
       <button
         onClick={fitToScreen}
         className="min-w-[3ch] text-right tabular-nums text-text-muted transition-colors hover:text-text-primary"
+        aria-label="Fit to screen"
         title="Fit to screen (0)"
       >
         {pct}%

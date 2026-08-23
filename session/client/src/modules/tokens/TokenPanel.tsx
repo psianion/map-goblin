@@ -359,7 +359,14 @@ function OnMapTab() {
         <>
           <ul data-testid="token-layer" className="flex flex-col">
             {shown.map((t) => (
-              <li key={t.id} data-token-id={t.id} data-hidden={t.hidden || undefined} data-owner={t.ownerId ?? undefined}>
+              <li
+                key={t.id}
+                data-token-id={t.id}
+                data-x={t.x}
+                data-y={t.y}
+                data-hidden={t.hidden || undefined}
+                data-owner={t.ownerId ?? undefined}
+              >
                 <button
                   type="button"
                   aria-current={t.id === selectedId}
@@ -459,10 +466,12 @@ function OnMapTab() {
               onClick={() => send('claim', { id: selected.id })}
               className={buttonClass}
             >
-              Claim
+              Claim {selected.name}
             </button>
           ) : (
-            <p className="text-xs text-text-muted">Claimed by {owner?.name ?? 'another player'}</p>
+            <p className="text-xs text-text-muted">
+              {selected.name} · claimed by {owner?.name ?? 'another player'}
+            </p>
           )}
         </div>
       )}
