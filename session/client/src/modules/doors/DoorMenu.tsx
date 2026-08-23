@@ -24,12 +24,14 @@ export function DoorMenu() {
   const rootRef = useRef<HTMLDivElement>(null);
   const notchRef = useRef<HTMLSpanElement>(null);
 
-  // A click that lands on the map but hits nothing. A click that *does* hit a door never
-  // reaches here at all: `DoorRenderer`'s own pointerdown handler stops propagation before it
-  // bubbles this far, so the only clicks a document-level listener ever sees are ones that
-  // missed every door (or landed on chrome, which the id check below excludes). Escape is not
-  // this component's own business anymore — `hotkeys.ts` owns the one Esc order for the whole
-  // shell (M3 review finding 12): popover, then this selection, then the active tool.
+  // A press on the map closes the menu. Capture phase, so it sees every press before the
+  // canvas's own listeners do: token input claims a placement or a grab with
+  // `stopImmediatePropagation`, and a bubble listener here never heard those — placing a token
+  // left the menu up, over the map, eating the next click. A press that does hit a door is
+  // cleared here and selected again by `DoorRenderer`'s handler a moment later in the same
+  // event, so the menu follows the door. Chrome is excluded by the id check. Escape is not
+  // this component's own business — `hotkeys.ts` owns the one Esc order for the whole shell
+  // (M3 review finding 12): popover, then this selection, then the active tool.
   useEffect(() => {
     if (!selected) return;
     const onPointerDown = (e: PointerEvent) => {
@@ -37,8 +39,8 @@ export function DoorMenu() {
       if (rootRef.current?.contains(target)) return;
       if (target?.closest('[data-testid="game-canvas"]')) select(null);
     };
-    document.addEventListener('pointerdown', onPointerDown);
-    return () => document.removeEventListener('pointerdown', onPointerDown);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, [selected, select]);
 
   // Re-read the camera every frame the menu is open, written straight to the DOM rather than

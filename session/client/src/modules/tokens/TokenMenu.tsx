@@ -70,11 +70,13 @@ export function TokenMenu() {
   // while the Tokens popover itself is open (its own detail block is the same controls).
   const visible = !!token && draggingId === null && openPanel !== 'tokens';
 
-  // A pointerdown that lands on the map but hits nothing clears the selection, same as
-  // `DoorMenu`; a press that *does* hit a token never reaches here — `drag.ts`'s own handler
-  // stops propagation first. Escape is not this component's own business anymore —
-  // `hotkeys.ts` owns the one Esc order for the whole shell (M3 review finding 12): popover,
-  // then this selection, then the active tool.
+  // A press on the map clears the selection, same as `DoorMenu`, and in the capture phase for
+  // the same reason: `drag.ts` claims a press with `stopImmediatePropagation`, so a bubble
+  // listener here never heard a placement land while this was open. A press that hits a token
+  // is cleared here and selected again by `drag.ts` in the same event, so the menu follows the
+  // token. Escape is not this component's own business — `hotkeys.ts` owns the one Esc order
+  // for the whole shell (M3 review finding 12): popover, then this selection, then the active
+  // tool.
   useEffect(() => {
     if (!visible) return;
     const onPointerDown = (e: PointerEvent) => {
@@ -82,8 +84,8 @@ export function TokenMenu() {
       if (rootRef.current?.contains(target)) return;
       if (target?.closest('[data-testid="game-canvas"]')) select(null);
     };
-    document.addEventListener('pointerdown', onPointerDown);
-    return () => document.removeEventListener('pointerdown', onPointerDown);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, [visible, select]);
 
   // rAF-refreshed while mounted: the camera can pan or zoom on any frame this is open, and

@@ -139,6 +139,22 @@ describe('DoorMenu', () => {
     expect(useDoorSelection.getState().selectedId).toBeNull();
   });
 
+  /**
+   * Token input claims a placement or a grab on the map with `stopImmediatePropagation`
+   * (tokens/drag.ts). The menu has to close on those presses too — it listens in the capture
+   * phase so it hears them first — or placing a token leaves the menu up, over the map.
+   */
+  it('closes on a press the token layer claims before it bubbles', () => {
+    const map = mountMapElement();
+    map.addEventListener('pointerdown', (e) => e.stopImmediatePropagation(), true);
+    screenOf.mockReturnValue({ x: 100, y: 50 });
+    useDoorSelection.getState().select('d1');
+    render(<DoorMenu />);
+
+    fireEvent.pointerDown(map);
+    expect(useDoorSelection.getState().selectedId).toBeNull();
+  });
+
   it('does not close on a click inside the menu itself', () => {
     mountMapElement();
     screenOf.mockReturnValue({ x: 100, y: 50 });

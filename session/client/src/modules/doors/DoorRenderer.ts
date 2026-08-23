@@ -232,9 +232,12 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
     if (fading.size > 0) draw();
   };
 
-  // Canvas capture, like token input — and registered after it, because TokenPanel mounts
-  // first (a lower panel order). A token standing in a doorway therefore wins the click,
-  // which is the right way round: tokens are dragged, doors are only tapped.
+  // The bubble phase, where token input takes the capture phase on this same canvas. At the
+  // target the capture listeners run first whatever order they were added in, so a token
+  // standing in a doorway wins the press (its `stopImmediatePropagation` ends the event before
+  // this runs) — tokens are dragged, doors are only tapped. This used to ride on registration
+  // order instead, with both in capture: the old sidebar mounted TokenPanel before DoorPanel,
+  // the rail mounts Doors before Tokens, and placing a token on a door then swung the door.
   const canvas = engine.canvas();
   const onDown = (e: PointerEvent) => {
     if (e.button !== 0 || isToolActive()) return;
@@ -248,7 +251,7 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
     send('toggle', { id: hit.door.id });
   };
 
-  canvas.addEventListener('pointerdown', onDown, true);
+  canvas.addEventListener('pointerdown', onDown);
   const ticker = engine.ticker();
   ticker.add(tick);
   // Same feed the lighting lane will read, so there is one answer to "what are the doors
@@ -268,7 +271,7 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
   });
 
   return () => {
-    canvas.removeEventListener('pointerdown', onDown, true);
+    canvas.removeEventListener('pointerdown', onDown);
     ticker.remove(tick);
     unsubDoors();
     unsubSelection();

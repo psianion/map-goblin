@@ -149,6 +149,65 @@ describe('live door state', () => {
   });
 });
 
+describe('a press on a door, with token input on the same canvas', () => {
+  /** The real canvas and a world that is the screen — one pixel per world unit. */
+  function harness() {
+    const canvas = document.createElement('canvas');
+    document.body.appendChild(canvas);
+    const worldContainer = new Container();
+    const layerContainer = new Container();
+    layerContainer.label = 'layerContainer';
+    worldContainer.addChild(layerContainer);
+    const sceneGraph = {
+      worldContainer,
+      layerContainer,
+      overlayContainer: new Container(),
+    } as unknown as SceneGraph;
+    const engine = {
+      canvas: () => canvas,
+      screenToWorld: (x: number, y: number) => ({ x, y }),
+      ticker: () => ({ add: () => {}, remove: () => {} }),
+    } as unknown as RenderEngine;
+    const press = (x: number, y: number) =>
+      canvas.dispatchEvent(new PointerEvent('pointerdown', { button: 0, clientX: x, clientY: y, bubbles: true }));
+    return { canvas, sceneGraph, engine, press, detach: () => canvas.remove() };
+  }
+
+  /**
+   * Token input claims a press with `stopImmediatePropagation` from a capture listener on
+   * this canvas (tokens/drag.ts), and the door overlay has to lose to it whichever of the two
+   * mounted first: the rail mounts Doors before Tokens, the old sidebar the other way round.
+   * Placing a token on a door used to place the token *and* swing the door.
+   */
+  it('lets token input win the press even when the door overlay registered first', () => {
+    useSessionStore.setState({ session: session(), you: dm });
+    const sent = captureCommands();
+    const h = harness();
+    const unmount = mountDoorLayer(h.engine, h.sceneGraph);
+    // Token input, registered after the overlay — what the shell's mount order does.
+    h.canvas.addEventListener('pointerdown', (e) => e.stopImmediatePropagation(), true);
+
+    h.press(PLAIN.position[0], PLAIN.position[1]);
+    expect(sent, 'the press that placed a token also swung the door under it').toEqual([]);
+
+    unmount();
+    h.detach();
+  });
+
+  it('still toggles a door nobody else claimed', () => {
+    useSessionStore.setState({ session: session(), you: dm });
+    const sent = captureCommands();
+    const h = harness();
+    const unmount = mountDoorLayer(h.engine, h.sceneGraph);
+
+    h.press(PLAIN.position[0], PLAIN.position[1]);
+    expect(sent.map((m) => m.action)).toEqual(['toggle']);
+
+    unmount();
+    h.detach();
+  });
+});
+
 describe('the door art a player is shown', () => {
   /** Overlay container plus the multiply the screen overlays rank against. */
   function harness() {
