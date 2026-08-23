@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { assertMapRendered, hostTable, joinTable } from './table'
+import { assertMapRendered, hostTable, joinTable, openSession } from './table'
 
 /**
  * @sprint1-flow — the ⭐ demo as a test: create campaign → upload a lit dungeon → start
@@ -24,6 +24,7 @@ test('@sprint1-flow DM hosts a lit dungeon and a player joins the same table', a
   await dm.getByRole('button', { name: 'Enter table' }).click()
   await expect(dm.locator('[data-page="table"]')).toBeVisible()
   await assertMapRendered(dm)
+  await openSession(dm)
   await expect(dm.getByTestId('player-list').getByRole('listitem')).toHaveCount(1)
 
   // Second context = a second browser as far as storage and sockets are concerned.
@@ -37,6 +38,7 @@ test('@sprint1-flow DM hosts a lit dungeon and a player joins the same table', a
   // Both rosters, both contexts: the player's from its own snapshot, the DM's from the
   // `player-joined` broadcast it received while sitting on the table.
   for (const page of [dm, player]) {
+    await openSession(page)
     const roster = page.getByTestId('player-list')
     await expect(roster.getByRole('listitem')).toHaveCount(2, { timeout: 10_000 })
     await expect(roster).toContainText('Borin')

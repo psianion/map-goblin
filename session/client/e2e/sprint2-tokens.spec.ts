@@ -4,6 +4,7 @@ import {
   canvasPoint,
   createDef,
   dragToken,
+  openOnMap,
   placeToken,
   selectOnCanvas,
   tokenPositions,
@@ -153,6 +154,7 @@ test.describe.serial('@sprint2-tokens', () => {
     spots = await Promise.all([0.25, 0.5, 0.75].map((fy) => canvasPoint(dm, 0.25, fy)))
     for (const spot of spots) await placeToken(dm, 'Borin', spot)
 
+    await openOnMap(alice)
     await expect(alice.getByTestId('token-layer').locator('[data-token-id]')).toHaveCount(3)
     const placed = await tokenPositions(alice)
     ids = Object.keys(placed)
@@ -181,6 +183,8 @@ test.describe.serial('@sprint2-tokens', () => {
     // The *observer* is what is being timed, so it gets the foreground: the render that
     // flips `data-x` is scheduled off a frame, and a background tab throttles those.
     await bob.bringToFront()
+    // The row whose cell the observer watches lives in his Tokens popover (On map tab).
+    await openOnMap(bob)
 
     const latencies: number[] = []
     for (let i = 0; i < ids.length; i++) {
@@ -232,9 +236,10 @@ test.describe.serial('@sprint2-tokens', () => {
     const before = await measureFps(dm)
 
     // A 5×4 spread over the map rather than a stack: 20 sprites the overlay has to sort,
-    // tween and draw is what the metric is about.
+    // tween and draw is what the metric is about. Kept left of the Tokens popover, which
+    // covers the right ~25% of the canvas while a placement is armed.
     for (let i = placed; i < 20; i++) {
-      const spot = await canvasPoint(dm, 0.15 + (i % 5) * 0.16, 0.2 + Math.floor(i / 5) * 0.2)
+      const spot = await canvasPoint(dm, 0.1 + (i % 5) * 0.14, 0.2 + Math.floor(i / 5) * 0.2)
       await placeToken(dm, 'Borin', spot)
     }
     await expect(dm.getByTestId('token-layer').locator('[data-token-id]')).toHaveCount(20)

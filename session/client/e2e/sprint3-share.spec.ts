@@ -5,7 +5,16 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 // `exports` map, so the subpath is resolved on the filesystem and needs its real extension.
 import type { Room } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
-import { assertMapLoaded, assertMapRendered, hostTable, joinTable, type MapUnderTest } from './table'
+import {
+  OVERLAY_CHROME,
+  assertMapLoaded,
+  assertMapRendered,
+  hostTable,
+  joinTable,
+  openPanel,
+  type MapUnderTest,
+} from './table'
+import { openTokens } from './tokens'
 
 /**
  * @sprint3-share — `visionShare: 'individual'` at the table (S3 P5), which is the one thing
@@ -113,12 +122,16 @@ const read = async (page: Page): Promise<ProbeRead> => {
   return now as ProbeRead
 }
 
-/** Every token id on a seat's canvas — which is every token that seat was sent. */
-const tokenIds = (page: Page): Promise<string[]> =>
-  page
+/** Every token id on a seat's canvas — which is every token that seat was sent. `token-layer`
+ *  lives inside the Tokens popover's On Map tab now (M3); nothing in this file ever touches
+ *  the Library tab, so opening the popover is the whole fix. */
+const tokenIds = async (page: Page): Promise<string[]> => {
+  await openTokens(page)
+  return page
     .getByTestId('token-layer')
     .locator('[data-token-id]')
     .evaluateAll((els) => els.map((el) => el.getAttribute('data-token-id') as string).sort())
+}
 
 /** Place a token from the DM's seat and hand back the id the server minted for it. */
 async function place(dm: Page, payload: Record<string, unknown>): Promise<string> {
@@ -129,8 +142,6 @@ async function place(dm: Page, payload: Record<string, unknown>): Promise<string
 }
 
 /** sprint3-vision's shutter and its reasons — chrome hidden so it is not in frame. */
-const OVERLAY_CHROME =
-  '[data-testid="table-status-bar"],[aria-label="Fit to screen"],[data-testid="active-tool"],[data-testid="toast"],[data-testid="reconnecting-banner"]{display:none}'
 const shoot = (page: Page): Promise<Buffer> =>
   page.locator('[data-testid="game-canvas"] canvas').screenshot({ style: OVERLAY_CHROME })
 
@@ -424,8 +435,10 @@ test.describe.serial('@sprint3-share', () => {
     const [aldaBefore, branBefore] = [await read(alda), await read(bran)]
     expect(aldaBefore.cells).not.toBe(branBefore.cells)
 
-    await dm.getByTestId('fog-tool-toggle').click()
-    await expect(dm.getByTestId('fog-bar')).toBeVisible()
+    // `fog-share` lives behind the popover's own settings menu now (`FogHeaderActions`), not
+    // directly on the bar.
+    await openPanel(dm, 'fog')
+    await dm.getByRole('button', { name: 'Fog settings' }).click()
     await dm.getByTestId('fog-share').getByRole('radio', { name: 'Party' }).click()
 
     // One record now, and both seats read it: the union of everything either of them swept.

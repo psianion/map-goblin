@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { FIXTURE, assertMapRendered, hostTable, loadedMapName } from './table'
-import { canvasPoint, createDef, placeToken, tokenPositions } from './tokens'
+import { FIXTURE, assertMapRendered, hostTable, loadedMapName, openPanel } from './table'
+import { canvasPoint, createDef, openOnMap, placeToken, tokenPositions } from './tokens'
 
 /**
  * @sprint2-scenes — §2.6 "Scene switch < 2s". One DM context, two maps, a stopwatch on the
@@ -46,10 +46,12 @@ function secondMap(): { name: string; mimeType: string; buffer: Buffer } {
 }
 
 const sceneButton = (page: Page, name: string) =>
-  page.getByTestId('scene-list').getByRole('button', { name })
+  page.getByTestId('scene-list').getByRole('button', { name, exact: true })
 
 /** Click → the named document is what core has loaded. Returns the elapsed ms. */
 async function switchTo(page: Page, name: string): Promise<number> {
+  // The list lives in the Scene popover; whatever else was open (Tokens) gives way to it.
+  await openPanel(page, 'session-controls')
   const started = Date.now()
   await sceneButton(page, name).click()
   // 50ms intervals rather than Playwright's default backoff: a 1s poll gap would be half
@@ -74,6 +76,7 @@ async function tableWithTwoScenes(browser: Browser): Promise<{ context: BrowserC
 
   // D6: an in-session import is the existing upload endpoint plus a snapshot refetch, so
   // the second scene appears in the list without a server round of its own.
+  await openPanel(dm, 'session-controls')
   await dm.getByTestId('scene-upload').setInputFiles(secondMap())
   // `getByRole('button')` also catches each row's move/rename/delete controls (5 per row) —
   // `data-scene-id` is unique to the activate button, so this counts scenes, not buttons.
@@ -125,7 +128,8 @@ test.describe.serial('@sprint2-scenes', () => {
       // D5: `byScene[sceneId]` is what makes this free — the upper level is a different
       // key, so it starts empty rather than inheriting the great hall's goblins.
       const away = await switchTo(dm, SCENE_B)
-      await expect(dm.getByTestId('token-layer')).toHaveCount(0)
+      await openOnMap(dm)
+      await expect(dm.getByTestId('token-layer').locator('[data-token-id]')).toHaveCount(0)
 
       const home = await switchTo(dm, 'Demo Dungeon')
       // Not "a token is there": the same ids on the same cells, in the same order.

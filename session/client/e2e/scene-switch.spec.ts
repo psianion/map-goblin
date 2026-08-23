@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { FIXTURE, assertMapRendered, hostTable, loadedMapName } from './table'
+import { FIXTURE, assertMapRendered, hostTable, loadedMapName, openPanel } from './table'
 
 /**
  * @scene-switch — the M1 contract: a live scene switch never renders nothing (F1), the
@@ -36,9 +36,10 @@ function fixtureVariant(name: string, strip: RegExp | null): {
 }
 
 const sceneButton = (page: Page, name: string) =>
-  page.getByTestId('scene-list').getByRole('button', { name })
+  page.getByTestId('scene-list').getByRole('button', { name, exact: true })
 
 async function switchTo(page: Page, name: string): Promise<void> {
+  await openPanel(page, 'session-controls')
   await sceneButton(page, name).click()
   await expect.poll(() => loadedMapName(page), { timeout: 30_000, intervals: [50] }).toBe(name)
 }
@@ -88,6 +89,7 @@ async function tableWithTwoScenes(
   await expect(dm.locator('[data-page="table"]')).toBeVisible()
   await assertMapRendered(dm)
 
+  await openPanel(dm, 'session-controls')
   await dm.getByTestId('scene-upload').setInputFiles(fixtureVariant(SCENE_B, /crypt|south/))
   await expect(dm.getByTestId('scene-list').locator('li')).toHaveCount(2, {
     timeout: 30_000,

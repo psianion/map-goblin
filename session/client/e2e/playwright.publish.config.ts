@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { defineConfig } from '@playwright/test'
-import { CLIENT_PORT, CLIENT_URL, viteApiEnv } from './ports'
+import { CLIENT_PORT, CLIENT_URL, GPU_ARGS, viteApiEnv } from './ports'
 
 /**
  * The M3 publish-to-library scenario (`e2e/publish-library.spec.ts`).
@@ -30,7 +30,7 @@ export default defineConfig({
   use: {
     baseURL: CLIENT_URL,
     channel: 'chromium',
-    launchOptions: { args: ['--use-angle=default', '--ignore-gpu-blocklist'] },
+    launchOptions: { args: GPU_ARGS },
   },
   timeout: 120_000,
   webServer: {

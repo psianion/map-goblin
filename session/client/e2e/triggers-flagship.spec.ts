@@ -1,8 +1,8 @@
-import { expect, test, type BrowserContext, type Page } from '@playwright/test'
+import { expect, test, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import type { TriggerLogEntry, TriggerPrompt } from '@dnd/mechanics/triggers'
 import { TRIGGERS_FIXTURE, triggersFlagshipDoc } from './library'
-import { assertMapLoaded, hostTable, joinTable, type MapUnderTest } from './table'
-import { canvasPoint, createDef, placeToken, tokenPositions } from './tokens'
+import { assertMapLoaded, hostTable, joinTable, openDrawer, openPanel, type MapUnderTest } from './table'
+import { canvasPoint, createDef, openTokens, placeToken, tokenPositions } from './tokens'
 
 /**
  * @triggers — M4's flagship: the row the contract has carried as "never executed end to
@@ -41,19 +41,11 @@ const sendCommand = (page: Page, module: string, action: string, payload: unknow
 const sendMove = (page: Page, id: string, at: { x: number; y: number }): Promise<void> =>
   sendCommand(page, 'tokens', 'move', { id, x: at.x, y: at.y })
 
-/** The fog tool is a mode: arming it is what puts the room list on screen. */
-async function armFog(dm: Page): Promise<void> {
-  if ((await dm.getByTestId('fog-bar').count()) === 0) {
-    await dm.getByTestId('fog-tool-toggle').click()
-    await expect(dm.getByTestId('fog-bar')).toBeVisible()
-  }
-}
-
 async function revealRoom(dm: Page, roomId: string): Promise<void> {
-  await armFog(dm)
+  await openPanel(dm, 'fog')
   const row = dm.getByTestId('fog-rooms').locator(`[data-room-id="${roomId}"]`)
   if ((await row.getAttribute('data-fog-status')) !== 'revealed') {
-    await row.getByRole('button').click()
+    await row.click()
   }
   await expect(row).toHaveAttribute('data-fog-status', 'revealed')
 }
@@ -106,6 +98,14 @@ function fullTriggersJson(page: Page): Promise<string> {
 const triggerRow = (page: Page, name: string) =>
   page.getByTestId('trigger-list').locator('li', { hasText: name })
 
+/** The old `trigger-log` panel testid is gone — its rows moved into the log drawer's own
+ *  "Triggers" filter (M3 §Triggers plan note). */
+async function triggerLog(page: Page): Promise<Locator> {
+  await openDrawer(page)
+  await page.getByTestId('log-filter-trigger').click()
+  return page.getByTestId('game-log')
+}
+
 // ── The table ──────────────────────────────────────────────────────────────
 
 test.describe.serial('@triggers flagship', () => {
@@ -155,6 +155,7 @@ test.describe.serial('@triggers flagship', () => {
     await revealRoom(dm, F.roomId)
 
     await expect(player.getByTestId('toast')).toContainText(F.roomText, { timeout: 20_000 })
+    await openPanel(dm, 'triggers')
     await expect(triggerRow(dm, 'Room revealed narration')).toContainText('Fired', { timeout: 20_000 })
   })
 
@@ -169,7 +170,7 @@ test.describe.serial('@triggers flagship', () => {
     // moves, here for the fog command a `fog reset` UI control does not exist on.
     await sendCommand(dm, 'fog', 'reset', {})
     const row = dm.getByTestId('fog-rooms').locator(`[data-room-id="${F.roomId}"]`)
-    await armFog(dm)
+    await openPanel(dm, 'fog')
     await expect(row).toHaveAttribute('data-fog-status', 'never_revealed', { timeout: 20_000 })
 
     // The bulk path (`set-bulk`, not a single-room `reveal`) is what this test is for — both
@@ -184,10 +185,12 @@ test.describe.serial('@triggers flagship', () => {
         { timeout: 20_000 },
       )
       .toBe(before + 1)
+    await openPanel(dm, 'triggers')
     await expect(triggerRow(dm, 'Room revealed narration')).toContainText('Fired')
   })
 
   test('trap flow: the prompt lands only on the claimant, rolls to an outcome, and clears both sides', async () => {
+    await openTokens(player)
     const row = player.getByTestId('token-layer').locator(`[data-token-id="${tokenId}"]`)
     await expect(row).toHaveCount(1, { timeout: 20_000 })
     await row.getByRole('button').click()
@@ -214,7 +217,7 @@ test.describe.serial('@triggers flagship', () => {
     await rollButton.click()
 
     await expect(player.getByTestId('toast')).toContainText(`vs DC ${F.trapDc}`, { timeout: 20_000 })
-    await expect(dm.getByTestId('trigger-log')).toContainText(`vs DC ${F.trapDc}`, { timeout: 20_000 })
+    await expect(await triggerLog(dm)).toContainText(`vs DC ${F.trapDc}`, { timeout: 20_000 })
 
     await expect(player.getByTestId('trigger-prompt')).toHaveCount(0)
     await expect(dm.getByTestId('trigger-prompt')).toHaveCount(0)
@@ -225,8 +228,9 @@ test.describe.serial('@triggers flagship', () => {
     // the DM's own button, never by the automatic cascade (module.ts skips a disabled
     // trigger's `event` evaluation outright, and `fireCommand` is the one path that does not
     // care).
+    await openPanel(dm, 'triggers')
     await dm.getByRole('button', { name: `Fire: ${F.secretName}` }).click()
-    await expect(dm.getByTestId('trigger-log')).toContainText(F.secretPromptText, { timeout: 20_000 })
+    await expect(await triggerLog(dm)).toContainText(F.secretPromptText, { timeout: 20_000 })
 
     const playerHtml = await player.content()
     expect(playerHtml).not.toContain(F.secretPromptText)

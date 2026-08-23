@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
-import { assertMapLoaded, assertMapRendered, GATE, hostTable, joinTable } from './table'
+import { assertMapLoaded, assertMapRendered, GATE, hostTable, joinTable, openPanel } from './table'
 
 /**
  * @doors — the seat stays quiet when nobody is touching it.
@@ -113,6 +113,7 @@ test.describe.serial('@doors focus', () => {
     // is guaranteed to swing (an archway is authored open and stays open). Pinned to its id
     // before anything moves — a locator that filters on `data-open` slides to the next door
     // the moment this one opens.
+    await openPanel(dm, 'doors')
     const id = await dm
       .getByTestId('door-list')
       .locator('[data-door-id][data-locked="false"][data-open="false"]:not([data-secret])')
@@ -152,8 +153,9 @@ test.describe.serial('@doors focus', () => {
 
     // The fog tool is a mode with two destructive buttons behind it (Reveal all, Hide all),
     // so "not armed" is part of the same guarantee: nothing armed it, nothing pressed them.
-    await expect(dm.getByTestId('fog-tool-toggle')).toHaveAttribute('aria-pressed', 'false')
-    await expect(dm.getByTestId('fog-bar')).toHaveCount(0)
+    // `active-tool` (status bar) only mounts while a tool is armed — its absence is the
+    // "none" reading now, replacing the old always-mounted indicator's `data-tool="none"`.
+    await expect(dm.getByTestId('active-tool')).toHaveCount(0)
   })
 
   test('a seat that joins afterwards is handed no room the DM never revealed', async ({
@@ -169,6 +171,7 @@ test.describe.serial('@doors focus', () => {
       await joinTable(late, invite, 'Nyx')
       await assertMapLoaded(late, GATE)
 
+      await openPanel(late, 'doors')
       await expect(late.getByTestId('door-list').locator('[data-door-id]')).toHaveCount(0)
       expect(await commandLines(late)).toEqual([])
       expect(lateSent).toEqual([])

@@ -5,8 +5,17 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { getChildBounds, pointInPolygon } from '@dnd/core/src/engine/hitTest.ts'
 import type { AssetChild, DoorChild, LightChild, Room } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
-import { assertMapLoaded, assertMapRendered, GATE, hostTable, joinTable, measureFps } from './table'
-import { canvasPoint, createDef, placeToken, tokenPositions, type Point } from './tokens'
+import {
+  OVERLAY_CHROME,
+  assertMapLoaded,
+  assertMapRendered,
+  GATE,
+  hostTable,
+  joinTable,
+  measureFps,
+  openPanel,
+} from './table'
+import { canvasPoint, createDef, openTokens, placeToken, tokenPositions, type Point } from './tokens'
 
 /**
  * @sprint3-fog — the §2.6 rows that only a browser can answer.
@@ -208,8 +217,6 @@ interface Look {
  * few tenths of a point). Hidden for the duration of the shot only; metrics.spec.ts does the
  * same for its active-tool chip.
  */
-const OVERLAY_CHROME =
-  '[data-testid="table-status-bar"],[aria-label="Fit to screen"],[data-testid="active-tool"],[data-testid="toast"],[data-testid="reconnecting-banner"]{display:none}'
 const shoot = (page: Page): Promise<Buffer> =>
   page.locator('[data-testid="game-canvas"] canvas').screenshot({ style: OVERLAY_CHROME })
 
@@ -403,32 +410,22 @@ function record(name: string, measured: string, target: string): void {
   console.log(`[metric] ${name}: ${measured} (target: ${target})`)
 }
 
-/** The fog tool is a mode (D11): arming it is what puts the room list on screen. */
+/** The Fog popover (table-shell M3): the room list is always there once it is open — no
+ *  separate "arm the tool" step any more (that button now arms the Reveal tool itself). */
 async function armFog(dm: Page): Promise<void> {
-  if ((await dm.getByTestId('fog-bar').count()) === 0) {
-    await dm.getByTestId('fog-tool-toggle').click()
-    await expect(dm.getByTestId('fog-bar')).toBeVisible()
-  }
+  await openPanel(dm, 'fog')
 }
 
 /**
- * …and putting it away again, which has to happen before anything places a token: an armed
- * tool changes what a click on the map means (D11), so a placement click lands on the fog
- * tool and the placement hint never clears.
- *
- * The toggle rather than Escape, deliberately. Escape is the S4.7 guarantee and it works —
- * but a key press is delivered to the focused window, and this spec drives two *contexts*
- * (two windows), so `bringToFront` on the DM's tab does not reliably win the keyboard back
- * from the player's. Pointer events are dispatched by coordinate and land either way. The
- * Escape path is pinned where focus is not a variable: `src/modules/fog/fog.test.tsx`.
+ * A room-chip click or a bulk button (`fog-reveal-all`/`fog-hide-all`) never arms a map tool
+ * under the new shell — only `fog-tool-toggle`/`fog-hide-toggle`/`fog-brush` do, and nothing
+ * in this file clicks those. So there is nothing left to "put away" before a placement click;
+ * this just keeps the row's original assertion that no tool is armed (the status-bar
+ * indicator is only mounted at all while one is — see `active-tool` in the plan's preserved
+ * ids list).
  */
 async function disarmFog(dm: Page): Promise<void> {
-  if ((await dm.getByTestId('fog-bar').count()) === 0) return
-  await dm.getByTestId('fog-tool-toggle').click()
-  await expect(dm.getByTestId('fog-bar')).toHaveCount(0)
-  // The indicator is permanently on screen for a DM (pain-point #1) — it says `none`, it
-  // does not go away.
-  await expect(dm.getByTestId('active-tool')).toHaveAttribute('data-tool', 'none')
+  await expect(dm.getByTestId('active-tool')).toHaveCount(0)
 }
 
 const roomRow = (dm: Page, roomId: string) =>
@@ -443,7 +440,7 @@ async function fogStatus(dm: Page, roomId: string): Promise<string | null> {
 /** Clicking a room in the list reveals it if it is dark and re-hides it if it is lit. */
 async function toggleRoom(dm: Page, roomId: string, want: 'revealed' | 're_hidden'): Promise<void> {
   await armFog(dm)
-  await roomRow(dm, roomId).getByRole('button').click()
+  await roomRow(dm, roomId).click()
   await expect(roomRow(dm, roomId)).toHaveAttribute('data-fog-status', want)
 }
 
@@ -471,6 +468,7 @@ const doorRow = (page: Page, doorId: string) =>
  * helper — this row was still clicking the row and expecting a swing.
  */
 async function swingDoor(page: Page, doorId: string): Promise<void> {
+  await openPanel(page, 'doors')
   await doorRow(page, doorId).getByRole('button').click()
   await page.getByTestId('door-toggle').click()
 }
@@ -566,6 +564,7 @@ test.describe.serial('@sprint3-fog', () => {
     expect(virgin.lit, `the player's canvas is drawing ${show(virgin)}`).toBeLessThan(0.02)
 
     // No room, no doors either — a door is bound to a room.
+    await openPanel(player, 'doors')
     expect(await player.getByTestId('door-list').locator('[data-door-id]').count()).toBe(0)
 
     await toggleRoom(dm, UNLENT.id, 'revealed')
@@ -585,6 +584,7 @@ test.describe.serial('@sprint3-fog', () => {
     expect(after.walls).toBeLessThan(layer.standaloneWalls.length)
 
     // The doors of the room they have now seen arrived with it, and not one more.
+    await openPanel(player, 'doors')
     const held = await player.getByTestId('door-list').locator('[data-door-id]').count()
     expect(held).toBeGreaterThan(0)
     expect(held).toBeLessThan(doors.length)
@@ -647,6 +647,10 @@ test.describe.serial('@sprint3-fog', () => {
     await placeToken(dm, 'Ambusher', await canvasPoint(dm, 0.5, 0.5))
     const tokenId = Object.keys(await tokenPositions(dm)).find((id) => !before.has(id))!
 
+    // `createDef`/`placeToken` work from the Library tab; the row and `token-hide` below are
+    // On Map tab content.
+    await openTokens(dm)
+    await dm.getByTestId('tokens-tab-onmap').click()
     await dm.getByTestId('token-layer').locator(`[data-token-id="${tokenId}"]`).click()
     await dm.getByTestId('token-hide').click()
 
@@ -657,6 +661,7 @@ test.describe.serial('@sprint3-fog', () => {
     await expect(row).toContainText('hidden')
 
     // The secret door is a door on the DM's map, not a hint.
+    await openPanel(dm, 'doors')
     await expect(doorRow(dm, SECRET.id)).toHaveAttribute('data-secret', 'true')
 
     // On the player's side neither exists — checked against the whole document, so a
@@ -684,6 +689,7 @@ test.describe.serial('@sprint3-fog', () => {
         await toggleRoom(dm, room.id, 'revealed')
       }
     }
+    await openPanel(player, 'doors')
     await expect(doorRow(player, SHUT.door.id)).toHaveAttribute('data-open', 'false')
 
     await swingDoor(dm, SHUT.door.id)
@@ -861,6 +867,7 @@ test.describe.serial('@sprint3-fog', () => {
     const noise = await changed(player, shut, shutAgain)
 
     await swingDoor(dm, SHUT.door.id)
+    await openPanel(player, 'doors')
     await expect(doorRow(player, SHUT.door.id)).toHaveAttribute('data-open', 'true')
     await player.waitForTimeout(REVEAL_MS * 2)
     const open = await shoot(player)
@@ -961,7 +968,7 @@ test.describe.serial('@sprint3-fog', () => {
         moving: ((await probe(player)) as ProbeRead).started,
       }
 
-      await roomRow(dm, subject.id).getByRole('button').click()
+      await roomRow(dm, subject.id).click()
       await expect(roomRow(dm, subject.id)).toHaveAttribute('data-fog-status', 'revealed')
 
       // The reveal reaches both seats…
@@ -1053,6 +1060,10 @@ test.describe.serial('@sprint3-fog', () => {
      * exact number to settle on instead of a timeout.
      */
     const party = async (): Promise<number> => {
+      // `placeToken` leaves the DM's Tokens popover on its Library tab; the On Map mirror
+      // this reads is the other one.
+      await openTokens(dm)
+      await dm.getByTestId('tokens-tab-onmap').click()
       const standing = await dm.evaluate(() =>
         Array.from(
           document.querySelectorAll('[data-testid="token-layer"] [data-token-id]'),
@@ -1088,6 +1099,7 @@ test.describe.serial('@sprint3-fog', () => {
         seen = now
       }
       const carried = await party()
+      await openTokens(player)
       await expect
         .poll(() => player.getByTestId('token-layer').locator('[data-token-id]').count(), {
           message: 'the tokens the DM placed never reached the player’s canvas',

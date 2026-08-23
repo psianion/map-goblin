@@ -6,13 +6,16 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import type { DoorChild, Room } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import {
+  OVERLAY_CHROME,
   assertMapLoaded,
   assertMapRendered,
   hostTable,
   joinTable,
   measureFps,
+  openPanel,
   type MapUnderTest,
 } from './table'
+import { openTokens } from './tokens'
 
 /**
  * @sprint3-vision — token vision (S3 P2) at the table, which is the only place the two halves
@@ -183,8 +186,6 @@ async function cellsOf(page: Page, room: Room): Promise<[number, number][]> {
 }
 
 /** sprint3-fog's shutter and its reasons — chrome hidden so the status bar is not in frame. */
-const OVERLAY_CHROME =
-  '[data-testid="table-status-bar"],[aria-label="Fit to screen"],[data-testid="active-tool"],[data-testid="toast"],[data-testid="reconnecting-banner"]{display:none}'
 const shoot = (page: Page): Promise<Buffer> =>
   page.locator('[data-testid="game-canvas"] canvas').screenshot({ style: OVERLAY_CHROME })
 
@@ -280,12 +281,17 @@ function sample(page: Page, shot: Buffer, mask: Buffer): Promise<Patch> {
 const showPatch = (p: Patch) =>
   `mean ${p.mean.toFixed(1)}/255, chroma ${p.chroma.toFixed(1)} over ${(p.covered * 100).toFixed(1)}% of the frame`
 
-/** Every token id on a seat's canvas, which is how a freshly placed one is picked out. */
-const tokenIds = (page: Page): Promise<string[]> =>
-  page
+/** Every token id on a seat's canvas, which is how a freshly placed one is picked out.
+ *  `token-layer` lives inside the Tokens popover's On Map tab now (M3); every placement in
+ *  this file goes through `command()` (a direct dispatch), never the Library tab, so opening
+ *  the popover is the whole fix. */
+const tokenIds = async (page: Page): Promise<string[]> => {
+  await openTokens(page)
+  return page
     .getByTestId('token-layer')
     .locator('[data-token-id]')
     .evaluateAll((els) => els.map((el) => el.getAttribute('data-token-id') as string))
+}
 
 /** Place a token and hand back the id the server minted for it. */
 async function place(page: Page, payload: Record<string, unknown>): Promise<string> {
@@ -383,6 +389,7 @@ test.describe.serial('@sprint3-vision', () => {
 
     // A sighted scout in the near hall, and the seat that claims it is the one being masked.
     await command(dm, 'tokens', 'place', { name: 'Scout', ...AT_DOOR, sight: SIGHT })
+    await openTokens(dm)
     await expect
       .poll(() => dm.getByTestId('token-layer').locator('[data-token-id]').count())
       .toBe(1)
@@ -444,12 +451,14 @@ test.describe.serial('@sprint3-vision', () => {
    * far hall auto-explores through it, and its geometry arrives in the same beat (D5).
    */
   test('opening the door grows the clear area, live on two contexts', async () => {
+    await openPanel(player, 'doors')
     await expect(doorRow(player, DOOR.id)).toHaveAttribute('data-open', 'false')
     const shut = await shoot(player)
     const shutAgain = await shoot(player)
     const noise = await changed(player, shut, shutAgain)
 
     await command(dm, 'doors', 'toggle', { id: DOOR.id })
+    await openPanel(dm, 'doors')
     await expect(doorRow(dm, DOOR.id)).toHaveAttribute('data-open', 'true')
     await expect(doorRow(player, DOOR.id)).toHaveAttribute('data-open', 'true')
 
@@ -756,7 +765,7 @@ test.describe.serial('@sprint3-vision', () => {
     const night = await shoot(player)
     const nightAgain = await shoot(player)
     const noise = await changed(player, night, nightAgain)
-    await expect(player.getByTestId('env-badge')).toHaveText('Darkness')
+    await expect(player.getByTestId('env-badge')).toHaveText(/^Darkness/)
 
     await command(dm, 'triggers', 'set-environment', { ambient: 'daylight' })
     await expect.poll(async () => (await read(player)).rebuilds).toBeGreaterThan(before.rebuilds)
@@ -777,7 +786,7 @@ test.describe.serial('@sprint3-vision', () => {
     await expect(player.getByTestId('env-badge')).toHaveCount(0)
 
     await command(dm, 'triggers', 'set-environment', { ambient: 'darkness' })
-    await expect(player.getByTestId('env-badge')).toHaveText('Darkness')
+    await expect(player.getByTestId('env-badge')).toHaveText(/^Darkness/)
     await player.waitForTimeout(REVEAL_MS * 2)
     expect((await look(player)).lit).toBeLessThan((await develop(player, day)).lit)
   })
@@ -855,18 +864,19 @@ test.describe.serial('@sprint3-vision', () => {
     await expect.poll(async () => (await read(player)).sources).toBe(1)
 
     // The mode, off the segmented control — both ways, so the control is not write-once.
+    await openPanel(dm, 'fog')
     const mode = dm.getByTestId('fog-mode')
     await mode.getByRole('radio', { name: 'Rooms' }).click()
     await expect.poll(async () => (await probe(player))?.mode).toBe('rooms')
-    await mode.getByRole('radio', { name: 'Token vision' }).click()
+    await mode.getByRole('radio', { name: 'Vision' }).click()
     await expect.poll(async () => (await probe(player))?.mode).toBe('vision')
 
     // Arm the tool, then the brush — a sub-mode of it, which the indicator has to say.
+    // `fog-tool-toggle` (the Reveal button) arms the tool by itself now; `fog-bar` is simply
+    // visible whenever the popover is, with no separate "arm" step in front of it.
     await dm.getByTestId('fog-tool-toggle').click()
-    await expect(dm.getByTestId('fog-bar')).toBeVisible()
     await dm.getByTestId('fog-brush').click()
     await expect(dm.getByTestId('active-tool')).toContainText('Fog · Brush')
-    await expect(dm.getByTestId('active-tool')).toHaveAttribute('data-tool', 'fog')
 
     // Rub the map back to void, so what the brush paints is the only thing on it. The rooms
     // go under as well as the cells: an earlier row revealed the far hall by hand, and a
@@ -903,10 +913,13 @@ test.describe.serial('@sprint3-vision', () => {
     expect(moved, 'the brushed cells never reached the player canvas').toBeGreaterThan(0.0005)
     expect(await fogStatus(player, FAR.id)).toBe('re_hidden')
 
-    // Esc leaves the tool, and the brush with it.
+    // Esc leaves the tool, and the brush with it — but the shell's own Esc order (M3 review
+    // finding 12) closes an open popover first, so the first press only does that; the
+    // second is the one that actually disarms the brush.
     await dm.keyboard.press('Escape')
-    await expect(dm.getByTestId('active-tool')).toContainText('None')
-    await expect(dm.getByTestId('fog-bar')).toHaveCount(0)
+    await expect(dm.getByTestId('popover')).toHaveCount(0)
+    await dm.keyboard.press('Escape')
+    await expect(dm.getByTestId('active-tool')).toHaveCount(0)
   })
 
   /**
@@ -918,6 +931,7 @@ test.describe.serial('@sprint3-vision', () => {
    */
   test('a seat with no token is not stranded: the DM hands one over from the panel', async () => {
     await command(dm, 'tokens', 'move', { id: scout, ...AT_DOOR })
+    await openTokens(dm)
     await dm.getByTestId('token-layer').locator(`[data-token-id="${scout}"] button`).click()
     const owner = dm.getByLabel('Owner')
     await expect(owner).not.toHaveValue('')
@@ -926,6 +940,7 @@ test.describe.serial('@sprint3-vision', () => {
     // Take it away and the player is the seat that joins late: no eyes, so no tokens, so
     // nothing to claim. This is the deadlock, reproduced through the real UI.
     await owner.selectOption('')
+    await openTokens(player)
     await expect(player.getByTestId('token-layer').locator('[data-token-id]')).toHaveCount(0)
     await expect(player.getByText('No tokens on this scene.')).toBeVisible()
     await expect.poll(async () => (await read(player)).sources).toBe(0)
@@ -954,6 +969,7 @@ test.describe.serial('@sprint3-vision', () => {
     await expect.poll(async () => (await read(player)).rebuilds).toBeGreaterThan(0)
 
     // Select the scout in the DM's own token list — the section is part of the selection.
+    await openTokens(dm)
     await dm.getByTestId('token-layer').locator(`[data-token-id="${scout}"] button`).click()
     await expect(dm.getByTestId('token-sight')).toBeVisible()
     // 8 cells at this map's 5 ft a cell: the panel quotes the unit, the wire stores cells.

@@ -5,7 +5,17 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 // `exports` map, so the subpath is resolved on the filesystem and needs its real extension.
 import type { DoorChild } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
-import { assertMapLoaded, assertMapRendered, hostTable, joinTable, type MapUnderTest } from './table'
+import {
+  OVERLAY_CHROME,
+  assertMapLoaded,
+  assertMapRendered,
+  closePanel,
+  hostTable,
+  joinTable,
+  openDrawer,
+  openPanel,
+  type MapUnderTest,
+} from './table'
 
 /**
  * @doors — the door-overhaul §6 table rows, the half only two live seats can answer.
@@ -44,7 +54,8 @@ const SECRET = floorAnchored.find((d) => d.id === 'door-ossuary-cache')!
 const doorRow = (page: Page, id: string) =>
   page.getByTestId('door-list').locator(`[data-door-id="${id}"]`)
 
-const shoot = (page: Page) => page.locator('[data-testid="game-canvas"] canvas').screenshot()
+const shoot = (page: Page) =>
+  page.locator('[data-testid="game-canvas"] canvas').screenshot({ style: OVERLAY_CHROME })
 
 /**
  * What fraction of the canvas moved between two shots. Doors change a corner of a frame,
@@ -77,6 +88,26 @@ function changed(page: Page, before: Buffer, after: Buffer): Promise<number> {
 }
 
 /**
+ * What fraction of the canvas is lit floor — any channel above 96/255. The living fog (PR
+ * #101) drifts its clouds across the dark every second, so "how many pixels moved" can no
+ * longer tell a wipe from six seconds of weather (measured: 21% idle). Clouds never produce
+ * a lit pixel; a wipe takes every floor and wall sprite off and leaves none.
+ */
+function litFraction(page: Page, shot: Buffer): Promise<number> {
+  return page.evaluate(async (base64: string) => {
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+    const surface = new OffscreenCanvas(bitmap.width, bitmap.height)
+    const ctx = surface.getContext('2d')!
+    ctx.drawImage(bitmap, 0, 0)
+    const px = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data
+    let lit = 0
+    for (let i = 0; i < px.length; i += 4) if (Math.max(px[i], px[i + 1], px[i + 2]) > 96) lit++
+    return lit / (px.length / 4)
+  }, shot.toString('base64'))
+}
+
+/**
  * Whether an id is anywhere in this tab's copy of the map: core's store — the scene it
  * has loaded — and the session store's `mapData`, the redacted payload the server sent.
  * Two copies filled by two different code paths, one string. Searched inside the page:
@@ -103,19 +134,11 @@ function holds(page: Page, needle: string): Promise<boolean> {
   }, needle)
 }
 
-/** The fog tool is a mode: arming it is what puts the room list on screen. */
-async function armFog(dm: Page): Promise<void> {
-  if ((await dm.getByTestId('fog-bar').count()) === 0) {
-    await dm.getByTestId('fog-tool-toggle').click()
-    await expect(dm.getByTestId('fog-bar')).toBeVisible()
-  }
-}
-
 async function revealRoom(dm: Page, roomId: string): Promise<void> {
-  await armFog(dm)
+  await openPanel(dm, 'fog')
   const row = dm.getByTestId('fog-rooms').locator(`[data-room-id="${roomId}"]`)
   if ((await row.getAttribute('data-fog-status')) !== 'revealed') {
-    await row.getByRole('button').click()
+    await row.click()
   }
   await expect(row).toHaveAttribute('data-fog-status', 'revealed')
 }
@@ -125,12 +148,14 @@ async function revealRoom(dm: Page, roomId: string): Promise<void> {
  * the row itself only selects (D10: select and toggle are separate gestures).
  */
 async function toggleDoor(page: Page, id: string): Promise<void> {
+  await openPanel(page, 'doors')
   await doorRow(page, id).getByRole('button').click()
   await page.getByTestId('door-toggle').click()
 }
 
 /** Selecting a door is what puts the DM's lock / reveal affordances beside it. */
 async function selectDoorAsDm(dm: Page, id: string): Promise<void> {
+  await openPanel(dm, 'doors')
   await doorRow(dm, id).getByRole('button').click()
   await expect(dm.getByTestId('door-actions')).toBeVisible()
 }
@@ -180,17 +205,20 @@ test.describe.serial('@doors', () => {
 
   test('a floor-anchored door reaches both seats, and a secret one reaches neither', async () => {
     // The DM holds the whole map, so every authored door is in their list.
+    await openPanel(dm, 'doors')
     await expect(doorRow(dm, HALLWAY.id)).toHaveCount(1)
     await expect(doorRow(dm, FLOOR.id)).toHaveCount(1)
     await expect(doorRow(dm, SECRET.id)).toHaveCount(1)
 
     // A player is handed nothing until the DM reveals something, so their list starts empty
     // — a door is bound to a room and they hold none.
+    await openPanel(player, 'doors')
     await expect(player.getByTestId('door-list').locator('[data-door-id]')).toHaveCount(0)
 
     // The chamber is both of these doors' room, so revealing it hands both over — and a door
     // with no wall id is a door at the table like any other.
     await revealRoom(dm, FLOOR.roomA!)
+    await openPanel(player, 'doors')
     await expect(doorRow(player, HALLWAY.id)).toHaveCount(1)
     await expect(doorRow(player, FLOOR.id)).toHaveCount(1)
 
@@ -200,34 +228,43 @@ test.describe.serial('@doors', () => {
   })
 
   test('selecting a door row only highlights it, and never swings the door', async () => {
+    await openPanel(dm, 'doors')
     await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-open', 'false')
 
     await doorRow(dm, FLOOR.id).getByRole('button').click()
     await expect(dm.getByTestId('door-actions')).toBeVisible()
     await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-open', 'false')
+    await openPanel(player, 'doors')
     await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-open', 'false')
   })
 
   test('the DM opens a floor-ring door and both seats agree', async () => {
+    await openPanel(dm, 'doors')
     await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-open', 'false')
+    await openPanel(player, 'doors')
     await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-open', 'false')
 
     await toggleDoor(dm, FLOOR.id)
     await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-open', 'true')
+    await openPanel(player, 'doors')
     await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-open', 'true')
 
     await toggleDoor(dm, FLOOR.id)
+    await openPanel(player, 'doors')
     await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-open', 'false')
   })
 
   test('a player opens the hallway door from their own seat', async () => {
+    await openPanel(player, 'doors')
     await expect(doorRow(player, HALLWAY.id)).toHaveAttribute('data-open', 'false')
 
     await toggleDoor(player, HALLWAY.id)
     await expect(doorRow(player, HALLWAY.id)).toHaveAttribute('data-open', 'true')
+    await openPanel(dm, 'doors')
     await expect(doorRow(dm, HALLWAY.id)).toHaveAttribute('data-open', 'true')
 
     await toggleDoor(player, HALLWAY.id)
+    await openPanel(dm, 'doors')
     await expect(doorRow(dm, HALLWAY.id)).toHaveAttribute('data-open', 'false')
   })
 
@@ -235,6 +272,7 @@ test.describe.serial('@doors', () => {
     await selectDoorAsDm(dm, FLOOR.id)
     await dm.getByTestId('door-lock').click()
     await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-locked', 'true')
+    await openPanel(player, 'doors')
     await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-locked', 'true')
 
     await toggleDoor(player, FLOOR.id)
@@ -243,14 +281,18 @@ test.describe.serial('@doors', () => {
     await expect(player.getByTestId('toast')).toContainText(`${FLOOR.name} is locked.`)
     // The refusal is the server's: the door did not move on either seat.
     await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-open', 'false')
+    await openPanel(dm, 'doors')
     await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-open', 'false')
 
     // The DM's key still works, and unlocking hands the door back.
     await dm.getByTestId('door-lock').click()
+    await openPanel(player, 'doors')
     await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-locked', 'false')
     await toggleDoor(player, FLOOR.id)
+    await openPanel(dm, 'doors')
     await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-open', 'true')
     await toggleDoor(player, FLOOR.id)
+    await openPanel(dm, 'doors')
     await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-open', 'false')
   })
 
@@ -290,7 +332,10 @@ test.describe.serial('@doors', () => {
 
     await selectDoorAsDm(dm, SECRET.id)
     await dm.getByTestId('door-reveal-secret').click()
+    await openPanel(player, 'doors')
     await expect(doorRow(player, SECRET.id)).toHaveCount(1, { timeout: 20_000 })
+    // The popover sits over the canvas the shots compare, and the baseline had none up.
+    await closePanel(player)
     await player.waitForTimeout(1500)
 
     // The union survived the merge — this is the store value the whole wipe came out of.
@@ -316,14 +361,16 @@ test.describe.serial('@doors', () => {
     )
     expect(inMap, 'the revealed door reached the map the canvas draws from').toBe(true)
 
-    // The pixels are bounded above only: a wipe took every floor and wall sprite off the
-    // canvas at once and measured tens of percent.
-    const moved = await changed(player, settled, await shoot(player))
+    // A wipe took every floor and wall sprite off the canvas at once: the lit floor is gone.
+    // Read as lit area, not moved pixels — see `litFraction`.
+    const litBefore = await litFraction(player, settled)
+    const litAfter = await litFraction(player, await shoot(player))
     console.log(
-      `[metric] secret revealed: player canvas moved ${(moved * 100).toFixed(3)}% ` +
-        `(noise ${(noise * 100).toFixed(3)}%)`,
+      `[metric] secret revealed: player canvas lit ${(litBefore * 100).toFixed(2)}% → ` +
+        `${(litAfter * 100).toFixed(2)}% (shot noise ${(noise * 100).toFixed(3)}%)`,
     )
-    expect(moved, 'the map did not come off the canvas').toBeLessThan(0.05)
+    expect(litBefore, 'the floor was lit to begin with').toBeGreaterThan(0.02)
+    expect(litAfter, 'the map did not come off the canvas').toBeGreaterThan(litBefore * 0.5)
   })
 
   test('a revealed secret door works for the player it was revealed to', async () => {
@@ -331,6 +378,7 @@ test.describe.serial('@doors', () => {
     // could not do this, because the door it is about is one the player did not hold yet. Now
     // that they do, the mark is on screen and the swing below is measurable, which is what
     // turns "the child reached the map" into "the art reached the canvas".
+    await openPanel(player, 'doors')
     await doorRow(player, SECRET.id).getByRole('button').click()
     await player.waitForTimeout(1500)
     const shut = await shoot(player)
@@ -338,6 +386,7 @@ test.describe.serial('@doors', () => {
     const noise = await changed(player, shut, shutAgain)
 
     await toggleDoor(player, SECRET.id)
+    await openPanel(dm, 'doors')
     await expect(doorRow(dm, SECRET.id)).toHaveAttribute('data-open', 'true')
     await player.waitForTimeout(1500)
 
@@ -354,6 +403,7 @@ test.describe.serial('@doors', () => {
     )
 
     await toggleDoor(player, SECRET.id)
+    await openPanel(dm, 'doors')
     await expect(doorRow(dm, SECRET.id)).toHaveAttribute('data-open', 'false')
   })
 
@@ -380,6 +430,7 @@ test.describe.serial('@doors', () => {
       // measurement is a function of the suite's order. Selecting the row is the product's
       // own "take me to it" (D8, `DoorPanel.pick`) and moves this seat's stage alone; the
       // row only selects, never swings (D10), so the door is still shut here.
+      await openPanel(player, 'doors')
       await doorRow(player, door.id).getByRole('button').click()
       await player.waitForTimeout(1500)
       const playerShut = await shoot(player)
@@ -387,6 +438,7 @@ test.describe.serial('@doors', () => {
       const playerNoise = await changed(player, playerShut, playerShutAgain)
 
       await toggleDoor(dm, door.id)
+      await openPanel(player, 'doors')
       await expect(doorRow(player, door.id)).toHaveAttribute('data-open', 'true')
       await dm.waitForTimeout(1500)
       await player.waitForTimeout(1500)
@@ -407,6 +459,7 @@ test.describe.serial('@doors', () => {
       // player's mask (`OVERLAY_STACK`); under it, a door on a room boundary is ~95% scrim.
       expect(playerMoved).toBeGreaterThan(Math.max(playerNoise * 4, 0.00002))
       await toggleDoor(dm, door.id)
+      await openPanel(player, 'doors')
       await expect(doorRow(player, door.id)).toHaveAttribute('data-open', 'false')
       await dm.waitForTimeout(1000)
       await player.waitForTimeout(1000)
@@ -420,6 +473,7 @@ test.describe.serial('@doors', () => {
    * grow. The name and the *count* both stay on the DM's side of the wire.
    */
   test('the log names what the table did, and only what a seat could see', async () => {
+    await openPanel(player, 'doors')
     const held = await player
       .getByTestId('door-list')
       .locator('[data-door-id]')
@@ -427,6 +481,7 @@ test.describe.serial('@doors', () => {
 
     // An archway refuses every command by design (D2) and a locked door refuses the swing,
     // so the unseen door is picked from what the fixture will actually let move.
+    await openPanel(dm, 'doors')
     let unseen: DoorChild | undefined
     for (const door of doors) {
       if (door.style === 'archway' || door.isSecret || held.includes(door.id)) continue
@@ -437,10 +492,14 @@ test.describe.serial('@doors', () => {
     }
     expect(unseen, 'the fixture holds a door the party has not been given').toBeTruthy()
 
+    // The old `trigger-log`/always-on log panel is gone — the feed lives in the bottom
+    // drawer now (`rail-game-log` / `L`), same on every seat.
+    await openDrawer(player)
     const playerLog = () => player.getByTestId('game-log').innerText()
     const before = await playerLog()
 
     await toggleDoor(dm, unseen!.id)
+    await openDrawer(dm)
     await expect(dm.getByTestId('game-log')).toContainText(`opened ${unseen!.name}`)
     // Long enough for the frame that would have carried it, had one been sent.
     await player.waitForTimeout(1000)
@@ -450,18 +509,24 @@ test.describe.serial('@doors', () => {
 
     // A door they do hold reaches both logs, named, with the seat that moved it in front.
     await toggleDoor(dm, HALLWAY.id)
+    await openDrawer(dm)
     await expect(dm.getByTestId('game-log')).toContainText(`opened ${HALLWAY.name}`)
+    await openDrawer(player)
     await expect(player.getByTestId('game-log')).toContainText(`opened ${HALLWAY.name}`)
     await toggleDoor(dm, HALLWAY.id)
+    await openDrawer(player)
     await expect(player.getByTestId('game-log')).toContainText(`closed ${HALLWAY.name}`)
 
     // …and the fog moves write lines of their own, named from the same map.
     const room = layer.rooms!.find((r) => r.id === HALLWAY.roomA)!
-    await armFog(dm)
+    await openPanel(dm, 'fog')
     const row = dm.getByTestId('fog-rooms').locator(`[data-room-id="${room.id}"]`)
-    await row.getByRole('button').click()
+    await row.click()
+    await openDrawer(dm)
     await expect(dm.getByTestId('game-log')).toContainText(`hid ${room.name}`)
-    await row.getByRole('button').click()
+    await openPanel(dm, 'fog')
+    await row.click()
+    await openDrawer(dm)
     await expect(dm.getByTestId('game-log')).toContainText(`revealed ${room.name}`)
   })
 })

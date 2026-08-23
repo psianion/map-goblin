@@ -29,3 +29,12 @@ export const viteApiEnv = (): Record<string, string> => ({
   VITE_HTTP_BASE: GAME_SERVER,
   VITE_WS_BASE: `${GAME_SERVER.replace(/^http/, 'ws')}/ws`,
 })
+
+/**
+ * Chromium on a real GPU stack. `--use-angle=default` + the blocklist override keep the
+ * asset-pack install off SwiftShader; `--force_high_performance_gpu` makes a hybrid laptop
+ * hand the tab its discrete card rather than the power-saving default (Windows gives any
+ * app not listed under Graphics settings the integrated GPU, which is what the fps and
+ * drag-latency lanes were measuring).
+ */
+export const GPU_ARGS = ['--use-angle=default', '--ignore-gpu-blocklist', '--force_high_performance_gpu']
