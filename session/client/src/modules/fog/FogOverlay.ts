@@ -37,7 +37,7 @@ import { frameWorldPoint } from '../../renderer/camera';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
 import { BRUSH_FLUSH_CELLS, useFogBrush, type BrushOp } from './brush';
-import { FOG_FADE, featherEdge } from './FogRenderer';
+import { FOG_FADE } from './FogRenderer';
 import { MASK_MEMORY, createLivingFog } from './livingFog';
 import {
   DM_FOG_LOOK,
@@ -241,7 +241,6 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
         haze.maskPaint
           .poly(room.boundary.flat())
           .fill({ color: status === 'never_revealed' ? 0x000000 : MASK_MEMORY, alpha: 1 });
-        featherEdge(haze.maskPaint, room.boundary, 0xffffff);
       }
       haze.setMaskBounds(hazeFrame);
       haze.renderMask();
