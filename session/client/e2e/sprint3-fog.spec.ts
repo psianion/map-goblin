@@ -5,8 +5,17 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { getChildBounds, pointInPolygon } from '@dnd/core/src/engine/hitTest.ts'
 import type { AssetChild, DoorChild, LightChild, Room } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
-import { assertMapLoaded, assertMapRendered, GATE, hostTable, joinTable, measureFps } from './table'
-import { canvasPoint, createDef, placeToken, tokenPositions, type Point } from './tokens'
+import {
+  OVERLAY_CHROME,
+  assertMapLoaded,
+  assertMapRendered,
+  GATE,
+  hostTable,
+  joinTable,
+  measureFps,
+  openPanel,
+} from './table'
+import { canvasPoint, createDef, openTokens, placeToken, tokenPositions, type Point } from './tokens'
 
 /**
  * @sprint3-fog — the §2.6 rows that only a browser can answer.
@@ -194,8 +203,10 @@ const showScene = (s: Scene) => `${s.rooms} room(s), ${s.children} child(ren), $
 interface Look {
   /** Mean luminance over the whole canvas, 0–255. */
   mean: number
-  /** Fraction of pixels above the black floor — how much of the map is drawn at all. */
+  /** Fraction of pixels a light source reaches — brighter than the fog's brightest cloud. */
   lit: number
+  /** Fraction of pixels the fog is not covering — outside its colour band on either side. */
+  clear: number
 }
 
 /**
@@ -208,8 +219,6 @@ interface Look {
  * few tenths of a point). Hidden for the duration of the shot only; metrics.spec.ts does the
  * same for its active-tool chip.
  */
-const OVERLAY_CHROME =
-  '[data-testid="table-status-bar"],[aria-label="Fit to screen"],[data-testid="active-tool"],[data-testid="toast"],[data-testid="reconnecting-banner"]{display:none}'
 const shoot = (page: Page): Promise<Buffer> =>
   page.locator('[data-testid="game-canvas"] canvas').screenshot({ style: OVERLAY_CHROME })
 
@@ -222,8 +231,23 @@ const shoot = (page: Page): Promise<Buffer> =>
  * browser already ships a PNG decoder — no new dependency and no golden files (every number
  * is compared against another number this same run produced).
  *
- * The floor is 32/255, not 0: the map's ambient is #0d0e12 and an undrawn canvas measures a
- * flat 8.9, so "not exactly black" is not the same question as "something is drawn".
+ * ── The two floors, and why one is not enough any more ─────────────────────────────────
+ * Until #101 an unexplored map was a flat black scrim and a single 32/255 floor answered
+ * everything: below it the fog, above it the map. The living fog put an animated cloud there
+ * instead, and the cloud is *brighter* than that floor across the whole frame — the same
+ * instrument came back reading a virgin canvas as 40.2% drawn against a fully revealed one at
+ * 27.5%, which is the measure inverted rather than merely shifted.
+ *
+ * What replaces it is the cloud's own colour band, read off `virgin` — a frame that is
+ * nothing but fog. Measured 21.6–58.5/255 on this map, and it cannot leave that band whatever
+ * the clock does: the darkest pixel the shader can produce is `uDeep` mixed 30% toward `uMid`
+ * and the brightest is one lobe of `uHigh` (`livingFog.ts`), both palette constants that the
+ * time uniform never touches. Two shots six seconds apart measure 21.6–58.5 both times.
+ *
+ *   `clear` — under 16 or over 64 — is "the fog is not covering this pixel", i.e. ground the
+ *   player has earned. Virgin reads 0.000%; one revealed room is percentage points.
+ *   `lit` — over 64 — is "a light reaches this pixel". Virgin reads 0.000%; the whole map
+ *   lit reads 1.5%, which on this crypt is the one room with torches in it.
  */
 function develop(page: Page, shot: Buffer): Promise<Look> {
   return page.evaluate(async (url: string) => {
@@ -234,18 +258,22 @@ function develop(page: Page, shot: Buffer): Promise<Look> {
     const { data } = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
     let sum = 0
     let lit = 0
+    let dark = 0
     for (let i = 0; i < data.length; i += 4) {
       const luminance = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]
       sum += luminance
-      if (luminance > 32) lit++
+      if (luminance > 64) lit++
+      else if (luminance < 16) dark++
     }
     const pixels = data.length / 4
-    return { mean: sum / pixels, lit: lit / pixels }
+    return { mean: sum / pixels, lit: lit / pixels, clear: (lit + dark) / pixels }
   }, `data:image/png;base64,${shot.toString('base64')}`)
 }
 
 const look = async (page: Page): Promise<Look> => develop(page, await shoot(page))
-const show = (l: Look) => `mean ${l.mean.toFixed(1)}/255, ${(l.lit * 100).toFixed(1)}% drawn`
+const show = (l: Look) =>
+  `mean ${l.mean.toFixed(1)}/255, ${(l.clear * 100).toFixed(1)}% clear of fog, ` +
+  `${(l.lit * 100).toFixed(1)}% lit`
 
 interface Patch {
   /** Mean luminance over the sampled pixels, 0–255. */
@@ -287,9 +315,12 @@ function sample(page: Page, shot: Buffer, mask: Buffer): Promise<Patch> {
       let chroma = 0
       let counted = 0
       for (let i = 0; i < target.length; i += 4) {
-        // The same 32/255 floor `develop` uses: "is anything drawn here", asked of the lit
-        // frame, so both samples cover one identical set of pixels.
-        if (luminance(reference, i) <= 32) continue
+        // `develop`'s `lit` floor, asked of the lit frame, so both samples cover one identical
+        // set of pixels. Above the fog's ceiling rather than the old 32 for the reason
+        // `develop` gives: at 32 the mask swallowed the cloud outside the map's bounds, and
+        // since that cloud is *identical* in both states it dragged live and memory together —
+        // live read 40.8 against memory's 33.6 (0.82x) where the target is half.
+        if (luminance(reference, i) <= 64) continue
         counted++
         sum += luminance(target, i)
         chroma +=
@@ -403,32 +434,22 @@ function record(name: string, measured: string, target: string): void {
   console.log(`[metric] ${name}: ${measured} (target: ${target})`)
 }
 
-/** The fog tool is a mode (D11): arming it is what puts the room list on screen. */
+/** The Fog popover (table-shell M3): the room list is always there once it is open — no
+ *  separate "arm the tool" step any more (that button now arms the Reveal tool itself). */
 async function armFog(dm: Page): Promise<void> {
-  if ((await dm.getByTestId('fog-bar').count()) === 0) {
-    await dm.getByTestId('fog-tool-toggle').click()
-    await expect(dm.getByTestId('fog-bar')).toBeVisible()
-  }
+  await openPanel(dm, 'fog')
 }
 
 /**
- * …and putting it away again, which has to happen before anything places a token: an armed
- * tool changes what a click on the map means (D11), so a placement click lands on the fog
- * tool and the placement hint never clears.
- *
- * The toggle rather than Escape, deliberately. Escape is the S4.7 guarantee and it works —
- * but a key press is delivered to the focused window, and this spec drives two *contexts*
- * (two windows), so `bringToFront` on the DM's tab does not reliably win the keyboard back
- * from the player's. Pointer events are dispatched by coordinate and land either way. The
- * Escape path is pinned where focus is not a variable: `src/modules/fog/fog.test.tsx`.
+ * A room-chip click or a bulk button (`fog-reveal-all`/`fog-hide-all`) never arms a map tool
+ * under the new shell — only `fog-tool-toggle`/`fog-hide-toggle`/`fog-brush` do, and nothing
+ * in this file clicks those. So there is nothing left to "put away" before a placement click;
+ * this just keeps the row's original assertion that no tool is armed (the status-bar
+ * indicator is only mounted at all while one is — see `active-tool` in the plan's preserved
+ * ids list).
  */
 async function disarmFog(dm: Page): Promise<void> {
-  if ((await dm.getByTestId('fog-bar').count()) === 0) return
-  await dm.getByTestId('fog-tool-toggle').click()
-  await expect(dm.getByTestId('fog-bar')).toHaveCount(0)
-  // The indicator is permanently on screen for a DM (pain-point #1) — it says `none`, it
-  // does not go away.
-  await expect(dm.getByTestId('active-tool')).toHaveAttribute('data-tool', 'none')
+  await expect(dm.getByTestId('active-tool')).toHaveCount(0)
 }
 
 const roomRow = (dm: Page, roomId: string) =>
@@ -443,7 +464,7 @@ async function fogStatus(dm: Page, roomId: string): Promise<string | null> {
 /** Clicking a room in the list reveals it if it is dark and re-hides it if it is lit. */
 async function toggleRoom(dm: Page, roomId: string, want: 'revealed' | 're_hidden'): Promise<void> {
   await armFog(dm)
-  await roomRow(dm, roomId).getByRole('button').click()
+  await roomRow(dm, roomId).click()
   await expect(roomRow(dm, roomId)).toHaveAttribute('data-fog-status', want)
 }
 
@@ -471,6 +492,7 @@ const doorRow = (page: Page, doorId: string) =>
  * helper — this row was still clicking the row and expecting a swing.
  */
 async function swingDoor(page: Page, doorId: string): Promise<void> {
+  await openPanel(page, 'doors')
   await doorRow(page, doorId).getByRole('button').click()
   await page.getByTestId('door-toggle').click()
 }
@@ -556,16 +578,16 @@ test.describe.serial('@sprint3-fog', () => {
     expect(lightsIn(CHAMBER), 'the chamber has no light to leak in the first place').toBeGreaterThan(
       0,
     )
-    // …and the pixels agree: nothing on the player's canvas is map. Not `toBe(0)` since
-    // #51 (d59d965): the void deliberately shows the background's own dot lattice so a
-    // hidden map and an empty table are one indistinguishable surface, and with zero
-    // visible lights the lighting multiply is off, so those dots
-    // measure ~1.3% at luminance ~66. A leaked
-    // room is a different universe — the smallest one ever caught here drew 16.7% — so 2%
-    // still convicts structure while acquitting the lattice.
-    expect(virgin.lit, `the player's canvas is drawing ${show(virgin)}`).toBeLessThan(0.02)
+    // …and the pixels agree: nothing on the player's canvas is map. `clear` rather than the
+    // 32/255 floor this read until #101 — the living fog covers the frame edge to edge, so
+    // the question is no longer "is anything brighter than black" but "is there a hole in the
+    // cover", and a hole is the one thing a cloud cannot draw (see `develop`). Measured 0.000%
+    // here, twice, six seconds apart; the smallest patch of real map anywhere in this lane is
+    // one hall at 2.3%, so 0.2% convicts a leak while acquitting the weather.
+    expect(virgin.clear, `the player's canvas is drawing ${show(virgin)}`).toBeLessThan(0.002)
 
     // No room, no doors either — a door is bound to a room.
+    await openPanel(player, 'doors')
     expect(await player.getByTestId('door-list').locator('[data-door-id]').count()).toBe(0)
 
     await toggleRoom(dm, UNLENT.id, 'revealed')
@@ -585,6 +607,7 @@ test.describe.serial('@sprint3-fog', () => {
     expect(after.walls).toBeLessThan(layer.standaloneWalls.length)
 
     // The doors of the room they have now seen arrived with it, and not one more.
+    await openPanel(player, 'doors')
     const held = await player.getByTestId('door-list').locator('[data-door-id]').count()
     expect(held).toBeGreaterThan(0)
     expect(held).toBeLessThan(doors.length)
@@ -647,6 +670,10 @@ test.describe.serial('@sprint3-fog', () => {
     await placeToken(dm, 'Ambusher', await canvasPoint(dm, 0.5, 0.5))
     const tokenId = Object.keys(await tokenPositions(dm)).find((id) => !before.has(id))!
 
+    // `createDef`/`placeToken` work from the Library tab; the row and `token-hide` below are
+    // On Map tab content.
+    await openTokens(dm)
+    await dm.getByTestId('tokens-tab-onmap').click()
     await dm.getByTestId('token-layer').locator(`[data-token-id="${tokenId}"]`).click()
     await dm.getByTestId('token-hide').click()
 
@@ -657,6 +684,7 @@ test.describe.serial('@sprint3-fog', () => {
     await expect(row).toContainText('hidden')
 
     // The secret door is a door on the DM's map, not a hint.
+    await openPanel(dm, 'doors')
     await expect(doorRow(dm, SECRET.id)).toHaveAttribute('data-secret', 'true')
 
     // On the player's side neither exists — checked against the whole document, so a
@@ -684,6 +712,7 @@ test.describe.serial('@sprint3-fog', () => {
         await toggleRoom(dm, room.id, 'revealed')
       }
     }
+    await openPanel(player, 'doors')
     await expect(doorRow(player, SHUT.door.id)).toHaveAttribute('data-open', 'false')
 
     await swingDoor(dm, SHUT.door.id)
@@ -810,19 +839,15 @@ test.describe.serial('@sprint3-fog', () => {
       'explored is neither the black map nor the lit one, and survives the reload',
     )
 
-    // A sample of nothing would pass every assertion below it.
-    expect(live.covered, 'the lit map drew almost none of the frame').toBeGreaterThan(0.02)
-    // 50, not the 60 this read for three gates. Nothing about the lit room dimmed: the mask
-    // stopped cropping it. It used to be cut to `room.boundary`, which is the room's *floor*
-    // — so a lit room's own wall stones fell outside the hole and measured as black, below
-    // the 32 floor, and never entered this sample at all. The mask now clears the wall band
-    // and a margin past it (`fogPad`), so the stones are in frame and in the sample, and
-    // stone is darker than a torchlit floor: 60.3 → 57.9 measured, on a wider set of pixels.
-    // The product rows below are ratios against `live` and are unmoved by that; this one is
-    // an absolute, and an absolute over a changed sample has to be restated or it is asserting
-    // about the old crop. Explored lands in the twenties and never-revealed at a true 0, so
-    // there is still daylight under it.
-    expect(live.mean, 'the lit map is not lit').toBeGreaterThan(50)
+    // A sample of nothing would pass every assertion below it. 0.005, not the 0.02 this read
+    // against the old 32 floor: the mask is the torchlit floor now and not every pixel the
+    // map draws, so 27.5% of the frame became 1.5% — ~13k pixels, and three times this bound.
+    expect(live.covered, 'the lit map drew almost none of the frame').toBeGreaterThan(0.005)
+    // 70, and it means something narrower than it used to. The mask floor is 64 now, so every
+    // pixel in this sample clears 64 by construction and only the *headroom* is a claim: a
+    // torchlit floor has to sit well clear of the fog's ceiling rather than skim it. Measured
+    // 80.3 (60.3 → 57.9 in the three gates before, over a sample that also held wall stone).
+    expect(live.mean, 'the lit map is not lit').toBeGreaterThan(70)
 
     // Dimmer: the product target, and the direction the third gate had inverted.
     expect(memory.mean, `explored read ${memory.mean.toFixed(1)} against live ${live.mean.toFixed(1)}`)
@@ -831,9 +856,9 @@ test.describe.serial('@sprint3-fog', () => {
     expect(memory.chroma, 'explored kept the torch in it').toBeLessThan(live.chroma * 0.7)
     // …and still a room, not a hole in the map. Never-revealed is the black to beat.
     expect(memory.mean, 'explored came back as black').toBeGreaterThan(8)
-    // Not `toBe(0)`: same post-#51 void semantics as the zero-setup row above — the dot
-    // lattice with the lighting multiply off measures ~1% lit against a 16.7% smallest-leak.
-    expect(virgin.lit, 'the unexplored map was not black to begin with').toBeLessThan(0.02)
+    // …against a canvas with no hole in the fog at all: the zero-setup row's measurement and
+    // its bound, so "clearly above black" is read against a real never-revealed frame.
+    expect(virgin.clear, 'the unexplored map was not black to begin with').toBeLessThan(0.002)
 
     // The reload keeps all of it (D4).
     expect(Math.abs(remembered.mean - memory.mean)).toBeLessThan(memory.mean * 0.1)
@@ -855,28 +880,36 @@ test.describe.serial('@sprint3-fog', () => {
       }
     }
     await player.waitForTimeout(REVEAL_MS * 2)
-    // Two shots of the same shut door: whatever moves between them is the instrument.
+    // Two shots of the same shut door: whatever moves between them is the instrument. The wait
+    // between them is the same one the swing below spends, and it is there because of #101 —
+    // the clouds drift on their own, so a back-to-back pair reads a 0.00% floor that any
+    // elapsed time at all clears and the row would then be measuring the weather.
     const shut = await shoot(player)
+    await player.waitForTimeout(REVEAL_MS * 2)
     const shutAgain = await shoot(player)
     const noise = await changed(player, shut, shutAgain)
 
     await swingDoor(dm, SHUT.door.id)
+    await openPanel(player, 'doors')
     await expect(doorRow(player, SHUT.door.id)).toHaveAttribute('data-open', 'true')
     await player.waitForTimeout(REVEAL_MS * 2)
     const open = await shoot(player)
     const moved = await changed(player, shutAgain, open)
 
+    const [before, after] = [await develop(player, shutAgain), await develop(player, open)]
+
     record(
       'door → lighting on the player canvas',
       `${SHUT.door.id} (${SHUT.lit} light(s) adjacent): ${(moved * 100).toFixed(2)}% of the ` +
         `canvas moved on opening (still frame to still frame: ${(noise * 100).toFixed(2)}%), ` +
-        `${show(await develop(player, open))}`,
+        `shut ${show(before)} → open ${show(after)}`,
       'opening a door changes what the sweep lights on both clients',
     )
-    // Measured: 0.04% moves on the swing against a 0.00% still-frame floor — a few hundred
-    // pixels of leaf and the light that gets past it, on a 1280×720 canvas whose repeat
-    // frames are bit-identical. The floor is the comparison; the margin only keeps a single
-    // stray pixel from carrying the row.
+    // Measured: 1.15% moves on the swing against a 0.25% still-frame floor over the same
+    // wait — the leaf, the light that gets past it, and in both numbers the same amount of
+    // cloud drift. The floor is the comparison; the margin only keeps a single stray pixel
+    // from carrying the row. (0.04% against 0.00% before #101, when repeat frames of a still
+    // canvas were bit-identical and any motion at all was the door.)
     expect(moved, 'opening the door changed nothing on the player canvas').toBeGreaterThan(
       noise + 0.0002,
     )
@@ -961,7 +994,7 @@ test.describe.serial('@sprint3-fog', () => {
         moving: ((await probe(player)) as ProbeRead).started,
       }
 
-      await roomRow(dm, subject.id).getByRole('button').click()
+      await roomRow(dm, subject.id).click()
       await expect(roomRow(dm, subject.id)).toHaveAttribute('data-fog-status', 'revealed')
 
       // The reveal reaches both seats…
@@ -1042,59 +1075,87 @@ test.describe.serial('@sprint3-fog', () => {
     await measureFps(player, 500)
     const bare = await measureFps(player)
 
-    // A 5×4 spread over the map rather than a stack: sprites the overlay has to sort, tween
-    // and draw is what the number is about.
-    const spot = (i: number) =>
-      canvasPoint(dm, 0.15 + (i % 5) * 0.16, 0.2 + Math.floor(i / 5) * 0.2)
     /**
-     * How many of the DM's tokens reach the seat being measured: not hidden, and standing in
-     * a room — one on unzoned map is the DM's alone (D7), placed but never drawn here. Worked
-     * out from the map the way the server's redactor works it out, so the wait below has an
-     * exact number to settle on instead of a timeout.
+     * Screen → world, read off two placements rather than the camera: `__pixiApp` is DEV-only
+     * and these production-build specs hold no other handle on the transform. The server
+     * snaps each anchor to its cell centre, so the fit carries up to half a cell of error at
+     * either end — the cells aimed at below keep a margin that covers it. Both anchors sit
+     * left of the Tokens popover, which is an overlay *on* the map since M3 (320px of panel
+     * plus the rail): the right ~330px of the canvas cannot take a click at all.
      */
-    const party = async (): Promise<number> => {
-      const standing = await dm.evaluate(() =>
-        Array.from(
-          document.querySelectorAll('[data-testid="token-layer"] [data-token-id]'),
-          (li) => {
-            const { x, y, hidden } = (li as HTMLElement).dataset
-            return { x: Number(x), y: Number(y), hidden: hidden === 'true' }
-          },
-        ),
-      )
-      return standing.filter(
-        (t) => !t.hidden && rooms.some((r) => pointInPolygon([t.x, t.y], r.boundary)),
-      ).length
-    }
-    let next = 0
-    let reuse = 0
-    /** The spread's spots that turned out to be over a room — measured, not assumed. */
-    const landed: Point[] = []
-    /**
-     * Stands tokens until the player's own canvas carries `want` of them: the spread first,
-     * and then the spots it proved land in a room, cycled. Most of a crypt is corridor and
-     * void — 7 of the 20 spread points are over a room on this map — so a fixed spread runs
-     * out of party long before it runs out of spots, and the crowd stacks where the rooms
-     * are rather than standing on map nobody zoned.
-     */
-    const stand = async (want: number): Promise<number> => {
-      let seen = await party()
-      while (seen < want && (next < 20 || landed.length > 0)) {
-        const fresh = next < 20
-        const at = fresh ? await spot(next++) : landed[reuse++ % landed.length]
+    const calibrate = async (): Promise<(w: Point) => Point> => {
+      const anchors: [Point, Point][] = []
+      for (const [fx, fy] of [
+        [0.15, 0.15],
+        [0.6, 0.8],
+      ] as const) {
+        const at = await canvasPoint(dm, fx, fy)
+        const before = await tokenPositions(dm)
         await placeToken(dm, 'Ambusher', at)
-        const now = await party()
-        if (fresh && now > seen) landed.push(at)
-        seen = now
+        const after = await tokenPositions(dm)
+        const id = Object.keys(after).find((k) => !(k in before))!
+        anchors.push([at, after[id]])
       }
-      const carried = await party()
-      await expect
-        .poll(() => player.getByTestId('token-layer').locator('[data-token-id]').count(), {
-          message: 'the tokens the DM placed never reached the player’s canvas',
-          timeout: 15_000,
-        })
-        .toBe(carried)
-      return carried
+      const [[s1, w1], [s2, w2]] = anchors
+      const scale = ((s2.x - s1.x) / (w2.x - w1.x) + (s2.y - s1.y) / (w2.y - w1.y)) / 2
+      return (w) => ({ x: s1.x + (w.x - w1.x) * scale, y: s1.y + (w.y - w1.y) * scale })
+    }
+    /**
+     * Cell centres with two cells of the same room on every side, two cells apart: a
+     * placement aimed here lands in the room after the snap and the fit's error, and no two
+     * share a cell — the server refuses a token on an occupied one (`occupyRefusal`), and
+     * the old blind spread found that out at its 21st placement.
+     */
+    const cellsIn = (room: Room): Point[] => {
+      const xs = room.boundary.map((p) => p[0])
+      const ys = room.boundary.map((p) => p[1])
+      const inside = (x: number, y: number) => pointInPolygon([x, y], room.boundary)
+      const cells: Point[] = []
+      for (let y = Math.floor(Math.min(...ys)) + 0.5; y < Math.max(...ys); y += 2)
+        for (let x = Math.floor(Math.min(...xs)) + 0.5; x < Math.max(...xs); x += 2)
+          if ([-2, -1, 0, 1, 2].every((dx) => [-2, -1, 0, 1, 2].every((dy) => inside(x + dx, y + dy))))
+            cells.push({ x, y })
+      return cells
+    }
+    /**
+     * Stands tokens in rooms, biggest room first and round-robin from there, until the
+     * player's own canvas carries `want` of them. Cells a token already holds are skipped; a
+     * crowd spread over the rooms is what the sort/tween/draw number is about.
+     */
+    /** What the seat being measured carries: its own On Map tab, the redacted set. */
+    const carried = async (): Promise<number> => {
+      await openTokens(player)
+      return player.getByTestId('token-layer').locator('[data-token-id]').count()
+    }
+    const stand = async (want: number): Promise<number> => {
+      let seen = await carried()
+      const toScreen = await calibrate()
+      const taken = Object.values(await tokenPositions(dm))
+      const free = (c: Point) => taken.every((t) => Math.hypot(t.x - c.x, t.y - c.y) > 1.5)
+      const perRoom = [...rooms].sort((a, b) => b.area - a.area).map((r) => cellsIn(r).filter(free))
+      // Only cells whose screen point the map can take: left of the popover, inside the
+      // canvas. A click that lands on the popover instead can hit the armed Place button and
+      // put the placement away — the hint clears and nothing stands.
+      const limit = await canvasPoint(dm, 0.68, 0.95)
+      const origin = await canvasPoint(dm, 0.02, 0.02)
+      const onMap = (p: Point) => p.x > origin.x && p.x < limit.x && p.y > origin.y && p.y < limit.y
+      const queue: Point[] = []
+      for (let i = 0; perRoom.some((cells) => i < cells.length); i++)
+        for (const cells of perRoom) if (i < cells.length) queue.push(cells[i])
+      const reachable = queue.filter((c) => onMap(toScreen(c)))
+      while (seen < want && reachable.length) {
+        await placeToken(dm, 'Ambusher', toScreen(reachable.shift()!))
+        // Every cell aimed at is inside a revealed room, so this seat has to carry it — one
+        // at a time, which is also the wait the next placement needs.
+        await expect
+          .poll(carried, {
+            message: 'a token the DM stood in a revealed room never reached the player’s canvas',
+            timeout: 15_000,
+          })
+          .toBe(seen + 1)
+        seen += 1
+      }
+      return seen
     }
 
     /**
@@ -1254,9 +1315,9 @@ test.describe.serial('@sprint3-fog starting room', () => {
     // …and the canvas is drawing it. Not the frame mean: `look` averages the whole viewport
     // and one room of thirteen leaves that in the single digits however bright the room is
     // (this row asserted mean > 8 once and failed at 4.6 on a room that was plainly lit).
-    // What the reveal actually moves is how much of the frame clears the black floor at all
-    // — the table with no starting room in the block above sits at exactly 0 (`virgin.lit`),
-    // and nothing but the DM's pick puts anything above it.
-    expect(lit.lit, `the player's canvas is drawing ${show(lit)}`).toBeGreaterThan(0.01)
+    // What the reveal actually moves is how much of the frame the fog has stopped covering —
+    // the table with no starting room in the block above sits at 0.000% (`virgin.clear`), and
+    // nothing but the DM's pick puts a hole in the cover. Measured 19.6% for this one room.
+    expect(lit.clear, `the player's canvas is drawing ${show(lit)}`).toBeGreaterThan(0.01)
   })
 })

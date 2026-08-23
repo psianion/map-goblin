@@ -6,13 +6,16 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import type { DoorChild, Room } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import {
+  OVERLAY_CHROME,
   assertMapLoaded,
   assertMapRendered,
   hostTable,
   joinTable,
   measureFps,
+  openPanel,
   type MapUnderTest,
 } from './table'
+import { openTokens } from './tokens'
 
 /**
  * @sprint3-vision — token vision (S3 P2) at the table, which is the only place the two halves
@@ -183,18 +186,42 @@ async function cellsOf(page: Page, room: Room): Promise<[number, number][]> {
 }
 
 /** sprint3-fog's shutter and its reasons — chrome hidden so the status bar is not in frame. */
-const OVERLAY_CHROME =
-  '[data-testid="table-status-bar"],[aria-label="Fit to screen"],[data-testid="active-tool"],[data-testid="toast"],[data-testid="reconnecting-banner"]{display:none}'
 const shoot = (page: Page): Promise<Buffer> =>
   page.locator('[data-testid="game-canvas"] canvas').screenshot({ style: OVERLAY_CHROME })
 
 interface Look {
   /** Mean luminance over the whole canvas, 0–255. */
   mean: number
-  /** Fraction of pixels above the black floor — how much of the map is drawn at all. */
+  /** Fraction of pixels a light source reaches — brighter than the fog's brightest cloud. */
   lit: number
+  /** Fraction of pixels the fog is not covering — outside its colour band on either side. */
+  clear: number
 }
 
+/**
+ * What the canvas looked like, as three numbers — and two questions, not one.
+ *
+ * This read a single 120/255 floor until #101, on the claim that the map's floor was the
+ * editor default (#F1ECDF, ~236) and the void the background's own #2d2d2d at ~45, so nothing
+ * but floor could clear 120. Both halves of that are gone. #100's ambient grade puts an unlit
+ * hall's floor at ~36/255, so *nothing* on this map clears 120 any more — every reading below
+ * came back at a flat 0.052%, the same token art and door furniture in every state, which is
+ * how two frames a look-away apart measured bit-identical. And #101 replaced the void the
+ * floor was being read against with an animated cloud.
+ *
+ * The cloud is what the readings are taken against instead, because it is the one thing on
+ * this canvas with a *bounded* colour: measured 22.0–59.1/255 over a frame that is nothing
+ * but fog (`dark`), and it cannot leave that band whatever the clock does — its darkest pixel
+ * is `uDeep` mixed 30% toward `uMid` and its brightest one lobe of `uHigh` (`livingFog.ts`),
+ * both palette constants the time uniform never touches.
+ *
+ *   `clear` — under 16 or over 64 — is "the fog is not covering this pixel": ground the seat
+ *   has earned, whether a light reaches it or not. A seat that has swept nothing reads
+ *   0.000%; one swept hall reads ~15%.
+ *   `lit` — over 64 — is "a light reaches this pixel", which is the question the §4 rows
+ *   about the ambient dial, a torch and darkvision are actually asking. The graded floor at
+ *   ~36 is below it, so only a light source or a lit prop counts.
+ */
 function develop(page: Page, shot: Buffer): Promise<Look> {
   return page.evaluate(async (url: string) => {
     const bitmap = await createImageBitmap(await (await fetch(url)).blob())
@@ -204,19 +231,25 @@ function develop(page: Page, shot: Buffer): Promise<Look> {
     const { data } = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
     let sum = 0
     let lit = 0
+    let dark = 0
     for (let i = 0; i < data.length; i += 4) {
       const luminance = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]
       sum += luminance
-      // This map's floor is the editor default (#F1ECDF, luminance ~236) and its void is the
-      // background's own #2d2d2d at ~45, so the floor is the only thing that clears 120.
-      if (luminance > 120) lit++
+      if (luminance > 64) lit++
+      else if (luminance < 16) dark++
     }
-    return { mean: sum / (data.length / 4), lit: lit / (data.length / 4) }
+    const pixels = data.length / 4
+    return { mean: sum / pixels, lit: lit / pixels, clear: (lit + dark) / pixels }
   }, `data:image/png;base64,${shot.toString('base64')}`)
 }
 
+/** `clear`'s dark half on its own: the map's own black, below anything the fog can paint. */
+const blackOf = (l: Look) => l.clear - l.lit
+
 const look = async (page: Page): Promise<Look> => develop(page, await shoot(page))
-const show = (l: Look) => `mean ${l.mean.toFixed(1)}/255, ${(l.lit * 100).toFixed(1)}% floor`
+const show = (l: Look) =>
+  `mean ${l.mean.toFixed(1)}/255, ${(l.clear * 100).toFixed(1)}% clear of fog, ` +
+  `${(l.lit * 100).toFixed(1)}% lit`
 
 interface Patch {
   /** Mean luminance over the sampled pixels, 0–255. */
@@ -280,12 +313,17 @@ function sample(page: Page, shot: Buffer, mask: Buffer): Promise<Patch> {
 const showPatch = (p: Patch) =>
   `mean ${p.mean.toFixed(1)}/255, chroma ${p.chroma.toFixed(1)} over ${(p.covered * 100).toFixed(1)}% of the frame`
 
-/** Every token id on a seat's canvas, which is how a freshly placed one is picked out. */
-const tokenIds = (page: Page): Promise<string[]> =>
-  page
+/** Every token id on a seat's canvas, which is how a freshly placed one is picked out.
+ *  `token-layer` lives inside the Tokens popover's On Map tab now (M3); every placement in
+ *  this file goes through `command()` (a direct dispatch), never the Library tab, so opening
+ *  the popover is the whole fix. */
+const tokenIds = async (page: Page): Promise<string[]> => {
+  await openTokens(page)
+  return page
     .getByTestId('token-layer')
     .locator('[data-token-id]')
     .evaluateAll((els) => els.map((el) => el.getAttribute('data-token-id') as string))
+}
 
 /** Place a token and hand back the id the server minted for it. */
 async function place(page: Page, payload: Record<string, unknown>): Promise<string> {
@@ -383,6 +421,7 @@ test.describe.serial('@sprint3-vision', () => {
 
     // A sighted scout in the near hall, and the seat that claims it is the one being masked.
     await command(dm, 'tokens', 'place', { name: 'Scout', ...AT_DOOR, sight: SIGHT })
+    await openTokens(dm)
     await expect
       .poll(() => dm.getByTestId('token-layer').locator('[data-token-id]').count())
       .toBe(1)
@@ -430,10 +469,16 @@ test.describe.serial('@sprint3-vision', () => {
         `cell(s): ${show(dark)} at join → ${show(lit)} once claimed`,
       'the hall the party can see, and nothing through the shut door',
     )
-    // The floor of one hall is now on a canvas that was pure void a moment ago.
-    expect(dark.lit, `the player's canvas drew ${show(dark)} before anyone claimed a token`)
-      .toBeLessThan(0.01)
-    expect(lit.lit, `the sweep drew ${show(lit)}`).toBeGreaterThan(0.02)
+    // One hall is now on a canvas the fog covered edge to edge a moment ago. Read as `clear`
+    // and not `lit`: #100's grade puts this hall's unlit floor at ~36/255, which is inside the
+    // fog's own 22–59 band, so no brightness floor can tell the two apart — what the sweep
+    // actually did is cut a hole in the cover, and a hole is the one thing a cloud cannot
+    // draw. Measured 0.000% before the claim (the frame is nothing but fog) and 15.0% after.
+    expect(
+      dark.clear,
+      `the player's canvas drew ${show(dark)} before anyone claimed a token`,
+    ).toBeLessThan(0.002)
+    expect(lit.clear, `the sweep drew ${show(lit)}`).toBeGreaterThan(0.02)
   })
 
   /**
@@ -444,12 +489,14 @@ test.describe.serial('@sprint3-vision', () => {
    * far hall auto-explores through it, and its geometry arrives in the same beat (D5).
    */
   test('opening the door grows the clear area, live on two contexts', async () => {
+    await openPanel(player, 'doors')
     await expect(doorRow(player, DOOR.id)).toHaveAttribute('data-open', 'false')
     const shut = await shoot(player)
     const shutAgain = await shoot(player)
     const noise = await changed(player, shut, shutAgain)
 
     await command(dm, 'doors', 'toggle', { id: DOOR.id })
+    await openPanel(dm, 'doors')
     await expect(doorRow(dm, DOOR.id)).toHaveAttribute('data-open', 'true')
     await expect(doorRow(player, DOOR.id)).toHaveAttribute('data-open', 'true')
 
@@ -460,19 +507,19 @@ test.describe.serial('@sprint3-vision', () => {
 
     const open = await shoot(player)
     const moved = await changed(player, shutAgain, open)
-    const after = await develop(player, open)
+    const [before, after] = [await develop(player, shutAgain), await develop(player, open)]
 
     record(
       'door → sweep on the player canvas',
       `${DOOR.id}: ${(moved * 100).toFixed(2)}% of the canvas moved on opening (still frame ` +
-        `to still frame: ${(noise * 100).toFixed(2)}%), ${show(after)}`,
+        `to still frame: ${(noise * 100).toFixed(2)}%), shut ${show(before)} → open ${show(after)}`,
       'the clear area grows through the doorway on both seats',
     )
-    expect(moved, 'opening the door changed nothing on the player canvas').toBeGreaterThan(
-      noise + 0.0002,
-    )
-    // …and it grew rather than merely moved: there is more map drawn than there was.
-    expect(after.lit).toBeGreaterThan((await develop(player, shutAgain)).lit)
+    // Area, not motion. `changed` counts pixels that differ, and since #101 the clouds differ
+    // on their own — a canvas left alone for six seconds moves ~21% of itself — so a bound of
+    // "more than a still-frame sample" is a bound the weather clears without a door in it.
+    // What the row claims is that the clear area *grew*, and that is what is asserted.
+    expect(after.clear, `shut ${show(before)} → open ${show(after)}`).toBeGreaterThan(before.clear)
   })
 
   /**
@@ -526,15 +573,21 @@ test.describe.serial('@sprint3-vision', () => {
     )
 
     // Dimmer than live: the party's own sight is the only thing that makes anything current.
-    expect(away.lit, `looked away read ${show(away)} against live ${show(looking)}`).toBeLessThan(
-      looking.lit,
+    // On `clear`, because the memory tier is not a *dimmer* tier on the canvas any more — it
+    // is a thinner fog. `MASK_MEMORY` puts the cloud at roughly half alpha over remembered
+    // ground where live ground carries none at all (`livingFog.ts`), so what a look-away costs
+    // is cover the fog takes back: 13.1% clear looking, 10.5% looked away. On `lit` both read
+    // an identical 0.141% — the props, in every state — which is the reading that used to be
+    // taken and could not tell these two frames apart at all.
+    expect(away.clear, `looked away read ${show(away)} against live ${show(looking)}`).toBeLessThan(
+      looking.clear,
     )
-    // …and brighter than void: what they swept is still on the canvas. On `mean` alone, not
-    // on `lit`: the wash puts the far hall's floor at ~78/255 (EXPLORED_TINT over a 236 floor
-    // at its 0.7 alpha), which is on the same side of the 120 threshold as the void — the
-    // whole point of the tier is that it is neither of the other two, so counting floor
-    // pixels cannot see it and the mean is what the ordering has to be read off.
-    expect(away.mean, 'the memory came back as void').toBeGreaterThan(blanked.mean)
+    // …and clearer than void: what they swept is still on the canvas. Not on `mean` any more,
+    // which #101 turned upside down — the cloud is *brighter* than this map's graded floor, so
+    // rubbing a memory out now RAISES the frame mean (31.1 remembered against 32.0 rubbed out)
+    // and the row was reading the fog rather than the map. `clear` reads the same two frames
+    // 10.5% against 8.4%, and the 8.4% is the live sweep the scout is still standing in.
+    expect(away.clear, 'the memory came back as void').toBeGreaterThan(blanked.clear)
     // The reload keeps it — the record is the server's and the mask rebuilds from it.
     expect(Math.abs(reloaded.mean - away.mean)).toBeLessThan(away.mean * 0.1)
     // Region memory only ever ORs: walking away takes no ground back.
@@ -596,11 +649,15 @@ test.describe.serial('@sprint3-vision', () => {
       `the doorway sweep recorded ${swept} of the hall’s ${farRoomCells.length} cells`,
     ).toBeLessThan(farRoomCells.length / 2)
     // …and the canvas agrees: revealing the room by hand is visibly more map than the sliver.
+    // On `clear`, and not on the mean it used to read, for the reason the row above gives —
+    // #101's cloud is brighter than this map's graded floor, so taking the fog off a whole
+    // room LOWERS the frame mean (23.8 washed against the sliver's 31.1) and the old reading
+    // had the sign backwards. The hole in the cover is the thing: 10.1% → 40.0%.
     expect(
-      washed.mean,
+      washed.clear,
       `the swept sliver read ${show(partial)} and the DM's whole-room reveal ${show(washed)} — ` +
         'a mask washing every explored room whole reads them the same',
-    ).toBeGreaterThan(partial.mean + 1)
+    ).toBeGreaterThan(partial.clear + 0.01)
   })
 
   /** §2.6's standing gate condition, on this map too: zero uncaught errors. */
@@ -672,7 +729,9 @@ test.describe.serial('@sprint3-vision', () => {
 
     // One dial, no token moved, no door touched.
     await command(dm, 'triggers', 'set-environment', { ambient: 'darkness' })
-    await expect.poll(async () => (await look(player)).lit).toBeLessThan(seeing.lit / 2)
+    // The badge is the settle signal, not a pixel poll: this dial does not move `lit` at all
+    // (see below), so polling on it waited for something that was never going to happen.
+    await expect(player.getByTestId('env-badge')).toHaveText(/^Darkness/)
     await player.waitForTimeout(REVEAL_MS * 2)
     const blind = await look(player)
 
@@ -685,19 +744,36 @@ test.describe.serial('@sprint3-vision', () => {
     record(
       'the ambient dial and the torch under it',
       `sweep-lit ${show(seeing)} → darkness ${show(blind)} → one torch ${show(pool)}; the DM's ` +
-        `own canvas ${dmSeeing.mean.toFixed(1)} → ${dmDark.mean.toFixed(1)} mean`,
+        `own canvas ${show(dmSeeing)} → ${show(dmDark)}`,
       'the pool is what they see, and the DM stages the dark rather than sitting in it',
     )
 
-    // Pitch dark is pitch dark: nothing of the map is drawn at floor brightness.
+    // The dial took the light off the ground the party can see: 24.5 → 20.0 mean. On the mean
+    // and not on `lit`, because after #100 this hall was never *lit* to begin with — an unlit
+    // floor grades to ~36/255 with or without a sweep over it, so `lit` reads an identical
+    // 0.1% either side of the dial and the row that used to halve it was halving token art.
+    expect(blind.mean, `the dark still drew ${show(blind)}`).toBeLessThan(seeing.mean)
+    // Pitch dark is pitch dark: nothing on the frame is at light-source brightness. 0.1%
+    // measured, which is the scout's own disc and the door's furniture.
     expect(blind.lit, `the dark still drew ${show(blind)}`).toBeLessThan(0.005)
-    // The torch opens a pool — and only a pool. The sweep reaches eight cells, the torch four.
-    expect(pool.lit).toBeGreaterThan(blind.lit)
+    // The torch opens a pool — and only a pool: 10.6% of the frame at light-source brightness
+    // inside the 46.7% the party can see at all (the sweep reaches eight cells, the torch
+    // four). Against 0.1% in the dark a moment earlier.
+    expect(pool.lit).toBeGreaterThan(blind.lit + 0.01)
     expect(pool.lit, `the torch lit ${show(pool)} against the sweep's ${show(seeing)}`)
-      .toBeLessThan(seeing.lit)
-    // …while the DM never loses the map (principle 3): darkness is something they stage. The
-    // tolerance is the torchbearer's own token, which is new on both canvases.
-    expect(Math.abs(dmDark.mean - dmSeeing.mean)).toBeLessThan(Math.max(1, dmSeeing.mean * 0.1))
+      .toBeLessThan(pool.clear)
+    // …while the DM never loses the map (principle 3): darkness is something they stage.
+    // Asserted as a direction now, not as a tolerance on the mean. The tolerance was ±10% and
+    // the measurement is 16.9 → 22.7 — but that 5.8 is the torch, which is a real light on a
+    // real map the DM is looking straight at, and a bound wide enough to allow it says
+    // nothing. What the claim actually is: the dial did not take the DM's map away (their
+    // canvas got *brighter* over a step that blacked the player's out) and the pool is on it
+    // (8.0% of their frame at light-source brightness, against 0.1% before the torch).
+    expect(
+      dmDark.mean,
+      `the DM's canvas went dark with the room: ${show(dmSeeing)} → ${show(dmDark)}`,
+    ).toBeGreaterThan(dmSeeing.mean)
+    expect(dmDark.lit, `the DM lost the torch pool: ${show(dmDark)}`).toBeGreaterThan(0.01)
   })
 
   /**
@@ -714,7 +790,9 @@ test.describe.serial('@sprint3-vision', () => {
     await command(dm, 'tokens', 'delete', { id: torchId })
     await expect.poll(async () => (await look(player)).lit).toBeLessThan(0.005)
     await player.waitForTimeout(REVEAL_MS * 2)
-    const dark = await sample(player, await shoot(player), litShot)
+    const darkShot = await shoot(player)
+    const dark = await sample(player, darkShot, litShot)
+    const unlit = await develop(player, darkShot)
 
     // …and again, seen by an owl's eyes alone. Nothing is burning anywhere on this map.
     owlId = await place(dm, {
@@ -725,16 +803,29 @@ test.describe.serial('@sprint3-vision', () => {
     await command(player, 'tokens', 'claim', { id: owlId })
     await expect.poll(async () => (await read(player)).sources).toBe(2)
     await player.waitForTimeout(REVEAL_MS * 2)
-    const drained = await sample(player, await shoot(player), litShot)
+    const drainedShot = await shoot(player)
+    const drained = await sample(player, drainedShot, litShot)
+    const owled = await develop(player, drainedShot)
 
     record(
       'the darkvision grade against torchlight and void, on one patch of floor',
-      `torchlit ${showPatch(lit)} → unlit ${showPatch(dark)} → darkvision ${showPatch(drained)}`,
+      `torchlit ${showPatch(lit)} → unlit ${showPatch(dark)} → darkvision ${showPatch(drained)}; ` +
+        `the map's own black over the frame: ${(blackOf(unlit) * 100).toFixed(1)}% → ` +
+        `${(blackOf(owled) * 100).toFixed(1)}%`,
       'above the void, below the pool, and drained of the pool’s colour',
     )
 
-    // Shape: the party can see this ground, so it is not void.
-    expect(drained.mean, 'the darkvision area came back as void').toBeGreaterThan(dark.mean + 4)
+    // Shape: the party can see this ground, so it is not void — read as the black the owl's
+    // arc takes off the frame (44.0% → 33.7%) rather than as a lift on the patch. On the patch
+    // the two states sit 18.4 against 19.1, because what the row calls "void" is the memory
+    // tier and since #101 that carries a cloud at half alpha — brighter than the darkvision
+    // grade under `darkness`, which all but cancels the lift the row is claiming. The ten
+    // points of black the arc lifts off the floor is the arc, and nothing else moved.
+    expect(
+      blackOf(owled),
+      `darkvision left ${(blackOf(owled) * 100).toFixed(1)}% of the frame at the map's black, ` +
+        `against ${(blackOf(unlit) * 100).toFixed(1)}% with no eyes on it`,
+    ).toBeLessThan(blackOf(unlit) - 0.02)
     // …but not as light: a lit room still reads as the brighter thing.
     expect(drained.mean).toBeLessThan(lit.mean)
     // …and not as colour, which is the half a dimming alone would fail (art guide: night is
@@ -756,7 +847,7 @@ test.describe.serial('@sprint3-vision', () => {
     const night = await shoot(player)
     const nightAgain = await shoot(player)
     const noise = await changed(player, night, nightAgain)
-    await expect(player.getByTestId('env-badge')).toHaveText('Darkness')
+    await expect(player.getByTestId('env-badge')).toHaveText(/^Darkness/)
 
     await command(dm, 'triggers', 'set-environment', { ambient: 'daylight' })
     await expect.poll(async () => (await read(player)).rebuilds).toBeGreaterThan(before.rebuilds)
@@ -772,14 +863,19 @@ test.describe.serial('@sprint3-vision', () => {
     )
 
     expect(moved, 'the dial changed nothing on the player canvas').toBeGreaterThan(noise + 0.01)
-    // Daylight is what every scene is at until a DM says otherwise, so the badge stops
-    // saying anything at all rather than reading "Daylight" at a table nobody has darkened.
-    await expect(player.getByTestId('env-badge')).toHaveCount(0)
+    // Daylight *dialled by the DM* is not the same state as a table nobody has touched, and
+    // since the world clock (#100) the badge says which: an explicit ambient is an override
+    // and reads as one, while only a scene running on the clock alone goes quiet
+    // (`world.ts`'s `mirrorOf`, and both halves are pinned in TableStatusBar.test.tsx).
+    await expect(player.getByTestId('env-badge')).toHaveText(/^Daylight \(override\)/)
 
     await command(dm, 'triggers', 'set-environment', { ambient: 'darkness' })
-    await expect(player.getByTestId('env-badge')).toHaveText('Darkness')
+    await expect(player.getByTestId('env-badge')).toHaveText(/^Darkness/)
     await player.waitForTimeout(REVEAL_MS * 2)
-    expect((await look(player)).lit).toBeLessThan((await develop(player, day)).lit)
+    // …and the dial that put it back reads on the canvas: 29.2 against daylight's 34.0 mean.
+    // On the mean, not on `lit`: the torch pool this scene is carrying is the only thing above
+    // the fog's ceiling either side of the dial, and a torch burns the same in both (10.4%).
+    expect((await look(player)).mean).toBeLessThan((await develop(player, day)).mean)
   })
 
   test('a carried light moves with the token carrying it', async () => {
@@ -855,18 +951,19 @@ test.describe.serial('@sprint3-vision', () => {
     await expect.poll(async () => (await read(player)).sources).toBe(1)
 
     // The mode, off the segmented control — both ways, so the control is not write-once.
+    await openPanel(dm, 'fog')
     const mode = dm.getByTestId('fog-mode')
     await mode.getByRole('radio', { name: 'Rooms' }).click()
     await expect.poll(async () => (await probe(player))?.mode).toBe('rooms')
-    await mode.getByRole('radio', { name: 'Token vision' }).click()
+    await mode.getByRole('radio', { name: 'Vision' }).click()
     await expect.poll(async () => (await probe(player))?.mode).toBe('vision')
 
     // Arm the tool, then the brush — a sub-mode of it, which the indicator has to say.
+    // `fog-tool-toggle` (the Reveal button) arms the tool by itself now; `fog-bar` is simply
+    // visible whenever the popover is, with no separate "arm" step in front of it.
     await dm.getByTestId('fog-tool-toggle').click()
-    await expect(dm.getByTestId('fog-bar')).toBeVisible()
     await dm.getByTestId('fog-brush').click()
     await expect(dm.getByTestId('active-tool')).toContainText('Fog · Brush')
-    await expect(dm.getByTestId('active-tool')).toHaveAttribute('data-tool', 'fog')
 
     // Rub the map back to void, so what the brush paints is the only thing on it. The rooms
     // go under as well as the cells: an earlier row revealed the far hall by hand, and a
@@ -879,8 +976,12 @@ test.describe.serial('@sprint3-vision', () => {
     const before = await read(player)
     const dark = await shoot(player)
 
-    // Four cell centres along one row of the far hall, which nobody is looking at.
-    const [row, first] = [FAR.centroid[1] + 0.5, Math.floor(FAR.centroid[0]) - 1.5]
+    // Four cell centres along one row of the far hall, which nobody is looking at. In its LEFT
+    // half, not across its centre: the Fog popover this stroke is armed from is an overlay on
+    // the map since M3 and measures 320×333 at x=894, and the old row's last two cell centres
+    // (918 and 965 on this camera) landed under it — the pointer moved onto the panel mid-drag
+    // and the stroke painted 2 of its 4 cells. These four sit at 682–824, clear of it.
+    const [row, first] = [FAR.centroid[1] + 0.5, Math.floor(FAR.centroid[0]) - 4.5]
     await brush(dm, [first, row], [first + 3, row])
 
     // Exactly four cells: the panel's op, the overlay's arithmetic and the server's frame all
@@ -903,10 +1004,13 @@ test.describe.serial('@sprint3-vision', () => {
     expect(moved, 'the brushed cells never reached the player canvas').toBeGreaterThan(0.0005)
     expect(await fogStatus(player, FAR.id)).toBe('re_hidden')
 
-    // Esc leaves the tool, and the brush with it.
+    // Esc leaves the tool, and the brush with it — but the shell's own Esc order (M3 review
+    // finding 12) closes an open popover first, so the first press only does that; the
+    // second is the one that actually disarms the brush.
     await dm.keyboard.press('Escape')
-    await expect(dm.getByTestId('active-tool')).toContainText('None')
-    await expect(dm.getByTestId('fog-bar')).toHaveCount(0)
+    await expect(dm.getByTestId('popover')).toHaveCount(0)
+    await dm.keyboard.press('Escape')
+    await expect(dm.getByTestId('active-tool')).toHaveCount(0)
   })
 
   /**
@@ -918,6 +1022,7 @@ test.describe.serial('@sprint3-vision', () => {
    */
   test('a seat with no token is not stranded: the DM hands one over from the panel', async () => {
     await command(dm, 'tokens', 'move', { id: scout, ...AT_DOOR })
+    await openTokens(dm)
     await dm.getByTestId('token-layer').locator(`[data-token-id="${scout}"] button`).click()
     const owner = dm.getByLabel('Owner')
     await expect(owner).not.toHaveValue('')
@@ -926,6 +1031,7 @@ test.describe.serial('@sprint3-vision', () => {
     // Take it away and the player is the seat that joins late: no eyes, so no tokens, so
     // nothing to claim. This is the deadlock, reproduced through the real UI.
     await owner.selectOption('')
+    await openTokens(player)
     await expect(player.getByTestId('token-layer').locator('[data-token-id]')).toHaveCount(0)
     await expect(player.getByText('No tokens on this scene.')).toBeVisible()
     await expect.poll(async () => (await read(player)).sources).toBe(0)
@@ -946,7 +1052,14 @@ test.describe.serial('@sprint3-vision', () => {
         `1 token, 1 sight source, ${show(handed)}`,
       'a player with no token can be handed one, and it lights their mask',
     )
-    expect(handed.lit, `the handed token lit ${show(handed)}`).toBeGreaterThan(stranded.lit)
+    // A new mask arrived with the token: 24.6% of the frame clear of fog with no eyes on it
+    // against 13.3% with one pair. Read on cover and not on brightness — after #100 nothing in
+    // this hall is at light-source brightness either way (0.1% in both readings) — and *down*
+    // rather than up, because what a pair of eyes does here is turn memory-tier ground live:
+    // under the memory cloud at half alpha the map's own black still lands under 16/255 and
+    // counts, while live it is the graded floor at ~36, inside the fog's band where nothing
+    // sees it. Eleven points of frame is a different mask; nothing else on this table moved.
+    expect(handed.clear, `the handed token lit ${show(handed)}`).toBeLessThan(stranded.clear - 0.05)
   })
 
   test('the DM edits Sight & light on the panel and the player’s mask follows', async () => {
@@ -954,6 +1067,7 @@ test.describe.serial('@sprint3-vision', () => {
     await expect.poll(async () => (await read(player)).rebuilds).toBeGreaterThan(0)
 
     // Select the scout in the DM's own token list — the section is part of the selection.
+    await openTokens(dm)
     await dm.getByTestId('token-layer').locator(`[data-token-id="${scout}"] button`).click()
     await expect(dm.getByTestId('token-sight')).toBeVisible()
     // 8 cells at this map's 5 ft a cell: the panel quotes the unit, the wire stores cells.
@@ -965,7 +1079,7 @@ test.describe.serial('@sprint3-vision', () => {
     // Down to two cells, through the real input.
     await dm.getByLabel('Sight range').fill('10')
     await dm.getByLabel('Sight range').blur()
-    await expect.poll(async () => (await look(player)).lit).toBeLessThan(wide.lit)
+    await expect.poll(async () => (await look(player)).clear).toBeGreaterThan(wide.clear)
     await player.waitForTimeout(REVEAL_MS * 3)
     const narrow = await look(player)
 
@@ -996,9 +1110,65 @@ test.describe.serial('@sprint3-vision', () => {
       `40 ft of sight read ${show(wide)}; 10 ft read ${show(narrow)}`,
       'a smaller eye is a smaller mask, off the panel alone',
     )
-    expect(narrow.lit, `40 ft ${show(wide)} against 10 ft ${show(narrow)}`).toBeLessThan(wide.lit)
+    // 10 ft leaves more of the frame under the memory tier than 40 ft does: 19.6% clear
+    // against 13.4%, the same direction and the same reason as the Owner row above. Read on
+    // cover rather than on brightness for that row's reason too — 0.1% of this frame is at
+    // light-source brightness whatever the range is, so `lit` cannot see a sight radius.
+    expect(narrow.clear, `40 ft ${show(wide)} against 10 ft ${show(narrow)}`).toBeGreaterThan(
+      wide.clear + 0.02,
+    )
 
     // The standing gate condition, on the rows this phase added too.
+    expect(pageErrors, pageErrors.join('\n')).toEqual([])
+  })
+  /**
+   * The DM's sight preview: one token's eyes drawn on the DM's own canvas, and nothing else.
+   * The DM's seat draws no mask at all (principle 3), so the whole frame starts "clear"; with
+   * the preview on, only what the scout can see is. The player's canvas is the other half of
+   * the claim — the flag is local to the DM's tab, so their frame reads the same before and
+   * after, to the living fog's own drift.
+   */
+  test('the DM previews one token’s sight on their own canvas and the player’s does not move', async () => {
+    await openTokens(dm)
+    await dm.getByTestId('token-layer').locator(`[data-token-id="${scout}"] button`).click()
+    const toggle = dm.getByTestId('token-preview-sight')
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+    await frameUp(player)
+    const playerBefore = await look(player)
+    await frameUp(dm)
+    const dmBefore = await look(dm)
+
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    // The DM's mask is a rebuild like any other: wait for its frame, then read both seats.
+    await dm.waitForTimeout(REVEAL_MS * 3)
+    const dmAfter = await look(dm)
+    const playerAfter = await look(player)
+
+    record(
+      'the DM’s sight preview, measured on both canvases',
+      `DM ${show(dmBefore)} → ${show(dmAfter)} with the scout’s sight previewed; ` +
+        `player ${show(playerBefore)} → ${show(playerAfter)} over the same beat`,
+      'the DM sees what one token sees; the player sees what they saw',
+    )
+    // The DM's frame goes from the whole map clear to the scout's sweep — a drop of several
+    // percent of the frame at least, against a whole-frame drift well under one.
+    expect(dmAfter.clear, `DM ${show(dmBefore)} → ${show(dmAfter)}`).toBeLessThan(
+      dmBefore.clear - 0.05,
+    )
+    // …and the player's does not move beyond the clouds' own drift between two reads.
+    expect(
+      Math.abs(playerAfter.clear - playerBefore.clear),
+      `player ${show(playerBefore)} → ${show(playerAfter)}`,
+    ).toBeLessThan(0.01)
+
+    // Off again: the DM's canvas is the DM's again.
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await dm.waitForTimeout(REVEAL_MS * 3)
+    expect((await look(dm)).clear).toBeGreaterThan(dmAfter.clear + 0.05)
+
     expect(pageErrors, pageErrors.join('\n')).toEqual([])
   })
 })

@@ -242,3 +242,95 @@ export async function joinTable(page: Page, code: string, name: string): Promise
     page.locator('[data-page="table"]'),
   )
 }
+
+/**
+ * A rail click's own effect can land many seconds late — a click racing the bundled
+ * asset-pack install (this file's own note on `assertMapRendered`: seconds of main-thread
+ * IndexedDB work, worse with several contexts installing at once, e.g. a DM + two players)
+ * can sit unprocessed well past Playwright's 5s default before the browser gets around to
+ * running React's handler at all. `assertMapRendered` itself polls for up to 60s for the
+ * same reason; this is the panel-open equivalent of that patience.
+ */
+const PANEL_TIMEOUT = 30_000
+
+/**
+ * Everything the shell paints over the map. A canvas screenshot is a screenshot of the
+ * canvas's box, chrome included — so a popover closing, the ticker naming a new line or an
+ * on-map menu appearing would all read as "the map moved". Hidden for the duration of the
+ * shot (`screenshot({ style })`), which touches nothing the page keeps.
+ */
+export const OVERLAY_CHROME =
+  '[data-testid="table-status-bar"],[aria-label="Fit to screen"],[data-testid="active-tool"],[data-testid="toast"],[data-testid="reconnecting-banner"],[data-testid="popover"],[data-testid="rail"],[data-testid="ticker"],[data-testid="log-drawer"],[data-testid="roll-bar"],[data-testid="party-strip"],[data-testid="turn-pill"],[data-testid="door-menu"],[data-testid="token-menu"],[data-testid="trigger-prompt"],[data-testid="initiative-prompt"]{display:none}'
+
+
+/**
+ * Table shell (docs/2026-08-22-table-shell-plan.md M1): every panel lives behind a rail icon
+ * and opens as a popover, one at a time. `openPanel` is idempotent — a spec calling it twice
+ * for the same id (once to open, once out of habit) does not toggle the popover shut.
+ */
+/** Each panel's hotkey (`PanelDef.key`), for seats whose rail hides the icon (`railRoles`:
+  * a player has no Doors or Tokens icon) but still own the panel. */
+const PANEL_KEY: Record<string, string> = {
+  initiative: 'i',
+  fog: 'f',
+  doors: 'd',
+  tokens: 't',
+  'session-controls': 's',
+  world: 'w',
+  triggers: 'g',
+  me: 'm',
+}
+
+export async function openPanel(page: Page, id: string): Promise<Locator> {
+  const popover = page.locator('[data-testid="popover"][data-panel="' + id + '"]')
+  if (!(await popover.isVisible())) {
+    const icon = page.locator(`[data-testid="rail-${id}"]`)
+    if (await icon.count()) await icon.click()
+    else await page.keyboard.press(PANEL_KEY[id] ?? id[0])
+    await expect(popover).toBeVisible({ timeout: PANEL_TIMEOUT })
+  }
+  return popover
+}
+
+/** Esc closes whatever popover is open (`Popover.tsx`'s own listener, not the tool-escape one). */
+export async function closePanel(page: Page): Promise<void> {
+  await page.keyboard.press('Escape')
+  await expect(page.locator('[data-testid="popover"]')).toHaveCount(0)
+}
+
+/** The bottom log drawer (`rail-game-log` / `L`) — a separate flag from the popover, can be open
+ *  alongside one. */
+export async function openDrawer(page: Page): Promise<Locator> {
+  const drawer = page.locator('[data-testid="log-drawer"]')
+  if (!(await drawer.isVisible())) {
+    await page.locator('[data-testid="rail-game-log"]').click()
+    await expect(drawer).toBeVisible({ timeout: PANEL_TIMEOUT })
+  }
+  return drawer
+}
+
+export async function closeDrawer(page: Page): Promise<void> {
+  const drawer = page.locator('[data-testid="log-drawer"]')
+  if (await drawer.isVisible()) {
+    await page.locator('[data-testid="rail-game-log"]').click()
+    await expect(drawer).toHaveCount(0)
+  }
+}
+
+/** The Session popover has no rail icon (`anchor: 'status-left'`) — its trigger is the scene
+ *  name in the status bar. */
+export async function openSession(page: Page): Promise<Locator> {
+  const popover = page.locator('[data-testid="popover"][data-panel="session"]')
+  if (!(await popover.isVisible())) {
+    await page.locator('[data-testid="scene-name"]').click()
+    await expect(popover).toBeVisible({ timeout: PANEL_TIMEOUT })
+  }
+  return popover
+}
+
+/** A player's composer: the always-on roll bar, or — while the log drawer is open, which
+ *  hides the roll bar (`RollBar.tsx`) — the drawer's own. Both carry `manual-roll`, and
+ *  exactly one is in the DOM at a time. */
+export function asPlayerComposer(page: Page): Locator {
+  return page.locator('[data-testid="roll-bar"] [data-testid="manual-roll"], [data-testid="log-drawer"] [data-testid="manual-roll"]')
+}

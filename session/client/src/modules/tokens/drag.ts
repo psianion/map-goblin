@@ -42,17 +42,33 @@ interface TokenInteraction {
   selectedId: string | null;
   /** Library def armed for click-to-place, or null. */
   placingDefId: string | null;
+  /** Token this seat is actively dragging, or null. M3's on-map `TokenMenu` hides while
+   *  set — its buttons would otherwise float over a token mid-repositioning. */
+  draggingId: string | null;
+  /**
+   * The DM's sight preview: draw the selected token's own sight on *this* canvas, the way
+   * the seat holding it would see the scene. Local to this tab — never sent, never part of
+   * the redaction the referee runs — so a player's seat neither reads it nor is changed by
+   * it; it only ever chooses what the DM's fog layer draws (`fogScene`).
+   */
+  previewSight: boolean;
   select: (id: string | null) => void;
   setPlacing: (defId: string | null) => void;
+  setDraggingId: (id: string | null) => void;
+  setPreviewSight: (on: boolean) => void;
 }
 
-// ponytail: a 4-field zustand store instead of React context — the Pixi layer is outside
-// React and needs the same two values, and zustand is already a dependency.
+// ponytail: a zustand store instead of React context — the Pixi layer is outside
+// React and needs the same values, and zustand is already a dependency.
 export const useTokenInteraction = create<TokenInteraction>()((set) => ({
   selectedId: null,
   placingDefId: null,
+  draggingId: null,
+  previewSight: false,
   select: (selectedId) => set({ selectedId }),
   setPlacing: (placingDefId) => set({ placingDefId }),
+  setDraggingId: (draggingId) => set({ draggingId }),
+  setPreviewSight: (previewSight) => set({ previewSight }),
 }));
 
 /** D9: ~10 Hz while the pointer is down. */
@@ -257,6 +273,7 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
     // `endedAt: 0` is "the pointer is still down" — nothing can be this gesture's verdict yet.
     gesture = { id: token.id, from: { x: token.x, y: token.y }, to: { x: token.x, y: token.y }, endedAt: 0 };
     layer.setDragging(token.id, true);
+    useTokenInteraction.getState().setDraggingId(token.id);
     canvas.setPointerCapture(e.pointerId);
     throttle.reset();
   };
@@ -284,6 +301,7 @@ export function attachTokenInput(engine: RenderEngine, layer: TokenLayer): () =>
     // The throttle may have dropped the last move — the drop is always sent.
     if (drag.moved) send('move', { id: drag.id, x: drag.x, y: drag.y });
     layer.setDragging(drag.id, false);
+    useTokenInteraction.getState().setDraggingId(null);
     // A gesture that never moved sent nothing, so there is nothing a refusal could undo.
     if (gesture && drag.moved) {
       gesture.to = { x: drag.x, y: drag.y };

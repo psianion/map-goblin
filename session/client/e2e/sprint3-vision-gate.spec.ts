@@ -4,7 +4,17 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 // `exports` map, so the subpath is resolved on the filesystem and needs its real extension.
 import type { Room, ZoneChild } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
-import { assertMapLoaded, assertMapRendered, GATE, hostTable, joinTable, measureFps } from './table'
+import {
+  assertMapLoaded,
+  assertMapRendered,
+  closePanel,
+  GATE,
+  hostTable,
+  joinTable,
+  measureFps,
+  openPanel,
+} from './table'
+import { openTokens } from './tokens'
 
 /**
  * @sprint3-vision-gate — the three claims the S3 gate makes that no other row can settle, on
@@ -342,12 +352,17 @@ function dump(page: Page, needles: string[]): Promise<Dump> {
   }, needles)
 }
 
-/** Every token id on a seat's canvas, which is how a freshly placed one is picked out. */
-const tokenIds = (page: Page): Promise<string[]> =>
-  page
+/** Every token id on a seat's canvas, which is how a freshly placed one is picked out.
+ *  `token-layer` lives inside the Tokens popover's On Map tab now (M3); every placement in
+ *  this file goes through `command()` (a direct dispatch), never the Library tab, so opening
+ *  the popover is the whole fix. */
+const tokenIds = async (page: Page): Promise<string[]> => {
+  await openTokens(page)
+  return page
     .getByTestId('token-layer')
     .locator('[data-token-id]')
     .evaluateAll((els) => els.map((el) => el.getAttribute('data-token-id') as string))
+}
 
 /** Place a token and hand back the id the server minted for it. */
 async function place(page: Page, payload: Record<string, unknown>): Promise<string> {
@@ -550,8 +565,7 @@ test.describe.serial('@sprint3-vision-gate', () => {
     // offers it as theirs to give.
     expect(await fogStatus(dm, SEALED.id)).toBeNull()
     // …and the DM is told why, on the room's own row (P4 §5's badge).
-    await dm.getByTestId('fog-tool-toggle').click()
-    await expect(dm.getByTestId('fog-bar')).toBeVisible()
+    await openPanel(dm, 'fog')
     const sealedRow = dm.getByTestId('fog-rooms').locator(`[data-room-id="${SEALED.id}"]`)
     await expect(sealedRow).toHaveAttribute('data-locked', 'true')
     await expect(sealedRow).toHaveAttribute('data-fog-status', 'never_revealed')
@@ -576,7 +590,7 @@ test.describe.serial('@sprint3-vision-gate', () => {
     expect(memory.inside, 'the sealed vault’s floor was written into the party’s memory').toBe(0)
 
     // …and the DM's own hand still opens it, which is the point of a lock rather than a wall.
-    await sealedRow.getByRole('button').click()
+    await sealedRow.click()
     await expect(sealedRow).toHaveAttribute('data-fog-status', 'revealed')
     await expect.poll(() => heldRooms(player)).toContain(SEALED.id)
     await expect.poll(() => fogStatus(player, SEALED.id)).toBe('revealed')
@@ -590,10 +604,9 @@ test.describe.serial('@sprint3-vision-gate', () => {
     )
 
     // Put the vault back under, so the rows below run on the fog the party actually earned.
-    await sealedRow.getByRole('button').click()
+    await sealedRow.click()
     await expect(sealedRow).toHaveAttribute('data-fog-status', 're_hidden')
-    await dm.getByTestId('fog-tool-toggle').click()
-    await expect(dm.getByTestId('fog-bar')).toHaveCount(0)
+    await closePanel(dm)
   })
 
   /**
@@ -700,7 +713,7 @@ test.describe.serial('@sprint3-vision-gate', () => {
 
     // …and once more with the lights out, where the light gate is on the same pipeline.
     await command(dm, 'triggers', 'set-environment', { ambient: 'darkness' })
-    await expect(player.getByTestId('env-badge')).toHaveText('Darkness')
+    await expect(player.getByTestId('env-badge')).toHaveText(/^Darkness/)
     const night = median(await drag())
     const nightSeat = await measureFps(player)
     await command(dm, 'triggers', 'set-environment', { ambient: 'daylight' })

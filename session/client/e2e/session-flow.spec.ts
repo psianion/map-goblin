@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { assertMapRendered, hostTable, joinTable } from './table'
+import { assertMapRendered, hostTable, joinTable, openSession } from './table'
 
 /**
  * @sprint1-flow — the ⭐ demo as a test: create campaign → upload a lit dungeon → start
@@ -24,6 +24,31 @@ test('@sprint1-flow DM hosts a lit dungeon and a player joins the same table', a
   await dm.getByRole('button', { name: 'Enter table' }).click()
   await expect(dm.locator('[data-page="table"]')).toBeVisible()
   await assertMapRendered(dm)
+
+  // A rail icon opens its panel when the press lands on a stroke of the glyph, not only on
+  // the padding around it (8f3a7cd). `Icon` handed React a fresh `dangerouslySetInnerHTML`
+  // object every render and the rail re-renders on focus, so the <path> under the finger was
+  // replaced between mousedown and mouseup, the browser had no common ancestor to fire
+  // `click` on, and the panel silently never opened. `icons.test.tsx` pins the object
+  // identity; only a real browser can pin the gesture, which is this row.
+  //
+  // Initiative because its first path is the M5 5 → L19 19 diagonal: the centre of that
+  // path's box is *on* the stroke, where every other rail glyph's centre is in a hole and
+  // the press would land on the button instead — which never broke.
+  const railIcon = dm.getByTestId('rail-initiative')
+  const stroke = await railIcon.locator('path').first().boundingBox()
+  const button = await railIcon.boundingBox()
+  expect(stroke && button, 'the Initiative rail icon drew no glyph to press').toBeTruthy()
+  await railIcon.click({
+    position: {
+      x: stroke!.x + stroke!.width / 2 - button!.x,
+      y: stroke!.y + stroke!.height / 2 - button!.y,
+    },
+  })
+  await expect(dm.locator('[data-testid="popover"][data-panel="initiative"]')).toBeVisible()
+  await dm.keyboard.press('Escape')
+
+  await openSession(dm)
   await expect(dm.getByTestId('player-list').getByRole('listitem')).toHaveCount(1)
 
   // Second context = a second browser as far as storage and sockets are concerned.
@@ -37,6 +62,7 @@ test('@sprint1-flow DM hosts a lit dungeon and a player joins the same table', a
   // Both rosters, both contexts: the player's from its own snapshot, the DM's from the
   // `player-joined` broadcast it received while sitting on the table.
   for (const page of [dm, player]) {
+    await openSession(page)
     const roster = page.getByTestId('player-list')
     await expect(roster.getByRole('listitem')).toHaveCount(2, { timeout: 10_000 })
     await expect(roster).toContainText('Borin')

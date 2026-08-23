@@ -7,6 +7,10 @@
 // next to the panel that sets them.
 
 import { create } from 'zustand';
+import { fogModeOf, regionOf, type FogState } from '@dnd/mechanics/fog';
+import { useSessionStore } from '../../session/store';
+import { useActiveTool } from '../../session/tools';
+import { fogFrame, sceneFog } from './fog';
 
 /** Which way the brush paints. The other one is a modifier away (Alt) mid-stroke. */
 export type BrushOp = 'reveal' | 'hide';
@@ -50,3 +54,60 @@ export const useFogBrush = create<BrushStore>()((set) => ({
  * doorway, and the rest of the stroke always lands on pointerup however short it was.
  */
 export const BRUSH_FLUSH_CELLS = 12;
+
+// ── Arming, as three plain functions (table-shell M3 item 2) ────────────────
+// Not component methods: `FogTool`'s tool-row buttons and `shell/hotkeys.ts`'s R/H/B call
+// these exact functions, so a keyboard press and a button click are the same act rather than
+// two paths that can drift apart. A second press of the button/key that armed the current
+// direction disarms instead — the old single-toggle's behaviour, now per-button. Plain
+// functions rather than exports off `FogTool.tsx` for the same reason `useFogBrush` lives
+// here and not there: a file `shell/hotkeys.ts` imports has to stay outside React's fast-
+// refresh boundary, which a component file mixing JSX and helper exports is not.
+
+function armedDetail(): { armed: boolean; brushOn: boolean; detail: string | null } {
+  const { activeTool, toolDetail } = useActiveTool.getState();
+  return { armed: activeTool === 'fog', brushOn: useFogBrush.getState().on, detail: toolDetail };
+}
+
+export function armFogReveal(): void {
+  const { armed, brushOn, detail } = armedDetail();
+  if (armed && !brushOn && detail === 'Reveal') {
+    useActiveTool.getState().setActiveTool(null);
+    return;
+  }
+  if (brushOn) useFogBrush.getState().setOn(false);
+  useActiveTool.getState().setActiveTool('fog');
+  useActiveTool.getState().setToolDetail('Reveal');
+}
+
+export function armFogHide(): void {
+  const { armed, brushOn, detail } = armedDetail();
+  if (armed && !brushOn && detail === 'Hide') {
+    useActiveTool.getState().setActiveTool(null);
+    return;
+  }
+  if (brushOn) useFogBrush.getState().setOn(false);
+  useActiveTool.getState().setActiveTool('fog');
+  useActiveTool.getState().setToolDetail('Hide');
+}
+
+/** The brush is a vision-mode sub-mode with cell memory (P4 §2) — unchanged by this pass. */
+export function brushAvailable(): boolean {
+  const { session, mapData } = useSessionStore.getState();
+  const fog = sceneFog(session?.modules?.fog as FogState | undefined, session?.activeSceneId ?? null);
+  if (fogModeOf(fog) !== 'vision') return false;
+  const frame = fogFrame(mapData);
+  return frame !== null && regionOf(frame) !== undefined;
+}
+
+export function armFogBrush(): void {
+  if (!brushAvailable()) return;
+  const { armed, brushOn } = armedDetail();
+  if (armed && brushOn) {
+    useActiveTool.getState().setActiveTool(null);
+    useFogBrush.getState().setOn(false);
+    return;
+  }
+  useActiveTool.getState().setActiveTool('fog');
+  useFogBrush.getState().setOn(true);
+}

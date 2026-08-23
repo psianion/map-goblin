@@ -1,22 +1,32 @@
-// §2.4.3 — the doors panel: every door in the scene, what it is doing, and the DM's
-// lock / unlock / reveal-secret affordances inline beside the selected one. No modal —
-// a dialog to unlock a door is a dialog nobody at the table asked for.
+// §2.4.3 — the doors popover: every door in the scene, grouped by what needs attention, plus
+// the DM's lock / unlock / reveal-secret affordances beside whichever one is selected. No
+// modal — a dialog to unlock a door is a dialog nobody at the table asked for.
 //
-// The list is also the keyboard route to a door: the canvas marks answer a pointer, these
-// answer a Tab. It is where the door layer gets mounted from, too, because a panel is this
-// module's only React lifecycle (D8).
+// Selecting a door here does two things a click on the map also does (`DoorRenderer`'s own
+// pointerdown handler sets the same selection): it is the keyboard/overview route to a door
+// that is off-screen or buried in a long list, and it is what puts `DoorActions` on screen —
+// shared with the on-map `DoorMenu`, so the rule for what a door's buttons do lives once.
 
-import { useEffect, useMemo } from 'react';
-import { useStore } from '@dnd/core/src/store/store';
+import { useEffect } from 'react';
 import type { DoorChild } from '@dnd/core/src/shared/types';
-import type { DoorsState } from '@dnd/mechanics/doors';
 import { frameWorldPoint } from '../../renderer/camera';
+import { Icon } from '../../shell/icons';
 import { ALL_ROLES, registerPanel } from '../../session/panels';
-import { useModuleState, useSessionStore } from '../../session/store';
+import { useSessionStore } from '../../session/store';
 import { showToast } from '../../session/toasts';
-import { doorLabel, doorRefusal, doorStatusLabel, liveDoors, type LiveDoor } from './doors';
-import { mountDoorLayerWhenReady } from './DoorRenderer';
+import {
+  DOOR_CHIP_CEILING,
+  DOOR_FILTER_THRESHOLD,
+  doorLabel,
+  doorRefusal,
+  doorStatusLabel,
+  filterDoors,
+  groupDoors,
+  type LiveDoor,
+} from './doors';
+import { liveSceneDoors, mountDoorLayerWhenReady } from './DoorRenderer';
 import { useDoorSelection } from './selection';
+import { useLiveDoors } from './useLiveDoors';
 
 const send = (action: string, payload: unknown): void =>
   useSessionStore.getState().sendCommand('doors', action, payload);
@@ -34,26 +44,155 @@ function useDoorFeedback(doors: readonly LiveDoor[]): void {
   }, [lastError]);
 }
 
-export function DoorPanel() {
-  const doorsState = useModuleState<DoorsState>('doors');
-  const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
+const BTN =
+  'flex h-7 shrink-0 items-center gap-1 rounded border border-border-default bg-surface-2 px-2.5 text-xs text-text-primary transition-colors duration-150 ease-settle hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:cursor-not-allowed disabled:text-text-muted disabled:hover:bg-surface-2 motion-reduce:transition-none';
+const GHOST_BTN =
+  'flex h-7 shrink-0 items-center gap-1 rounded border border-transparent px-2.5 text-xs text-text-secondary transition-colors duration-150 ease-settle hover:bg-surface-2 hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none';
+
+/**
+ * A door's own controls — the DM's lock/reveal affordances beside the toggle every seat
+ * gets. One component so the panel footer and the on-map menu can never say two different
+ * things about the same door (M3 §Doors).
+ */
+export function DoorActions({ entry }: { entry: LiveDoor }) {
   const isDm = useSessionStore((s) => s.you?.role === 'dm');
-  const layers = useStore((s) => s.layers);
+  const { door, live } = entry;
+
+  return (
+    <div data-testid="door-actions" className="flex flex-wrap items-center gap-1.5">
+      {/*
+        The DM only. A locked door refuses every toggle, and the DM is the one holding the
+        key — `door-lock` is the next control along — so Open spending a round trip to be
+        told "locked" is a no-op they can see coming. It says the state instead.
+
+        A player keeps a live button on purpose: rattling a locked door and being told it is
+        locked is the discovery, not a mis-click. That refusal is the server's and arrives as
+        a toast (`useDoorFeedback`).
+      */}
+      <button
+        type="button"
+        data-testid="door-toggle"
+        disabled={isDm && live.locked}
+        onClick={() => send('toggle', { id: door.id })}
+        className={BTN}
+      >
+        {isDm && live.locked ? 'Locked' : live.open ? 'Close' : 'Open'}
+      </button>
+      {isDm && (
+        <button
+          type="button"
+          data-testid="door-lock"
+          onClick={() => send(live.locked ? 'unlock' : 'lock', { id: door.id })}
+          className={BTN}
+        >
+          <Icon name={live.locked ? 'unlock' : 'lock'} size={12} />
+          {live.locked ? 'Unlock' : 'Lock'}
+        </button>
+      )}
+      {isDm && door.isSecret && (
+        <button
+          type="button"
+          data-testid="door-reveal-secret"
+          disabled={live.revealed}
+          onClick={() => send('reveal-secret', { id: door.id })}
+          className={BTN}
+        >
+          {live.revealed ? 'Secret revealed' : 'Reveal secret'}
+        </button>
+      )}
+      <button
+        type="button"
+        data-testid="door-frame"
+        onClick={() => frameWorldPoint(door.position[0], door.position[1])}
+        className={GHOST_BTN}
+      >
+        Frame
+      </button>
+    </div>
+  );
+}
+
+function DoorChip({
+  label,
+  entry,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  entry: LiveDoor;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const { door, live } = entry;
+  return (
+    <div
+      data-door-id={door.id}
+      data-open={live.open}
+      data-locked={live.locked}
+      data-secret={door.isSecret ? 'true' : undefined}
+    >
+      <button
+        type="button"
+        aria-pressed={selected}
+        aria-label={`Select ${label} · ${doorStatusLabel(door, live)}`}
+        onClick={onSelect}
+        className={`flex h-7 w-full items-center gap-1 rounded border px-2 text-xs transition-colors duration-150 ease-settle hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none ${
+          selected ? 'border-border-structure bg-surface-3' : 'border-border-default bg-surface-2'
+        }`}
+      >
+        <span className="min-w-0 flex-1 truncate text-left text-text-primary">{label}</span>
+        {live.locked && <Icon name="lock" size={12} className="shrink-0 text-text-muted" />}
+        {door.isSecret && <Icon name="secret" size={12} className="shrink-0 text-text-muted" />}
+      </button>
+    </div>
+  );
+}
+
+function DoorGroup({
+  title,
+  entries,
+  labels,
+  selectedId,
+  onPick,
+}: {
+  title: string;
+  entries: LiveDoor[];
+  labels: Map<string, string>;
+  selectedId: string | null;
+  onPick: (door: DoorChild) => void;
+}) {
+  if (entries.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[11px] text-text-muted">
+        {title} · {entries.length}
+      </span>
+      <div className="grid grid-cols-2 gap-1">
+        {entries.map((entry) => (
+          <DoorChip
+            key={entry.door.id}
+            label={labels.get(entry.door.id) ?? entry.door.name ?? ''}
+            entry={entry}
+            selected={entry.door.id === selectedId}
+            onSelect={() => onPick(entry.door)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function DoorPanel() {
+  const doors = useLiveDoors();
   const selectedId = useDoorSelection((s) => s.selectedId);
   const select = useDoorSelection((s) => s.select);
+  const filter = useDoorSelection((s) => s.filter);
+  const setFilter = useDoorSelection((s) => s.setFilter);
 
-  useEffect(() => mountDoorLayerWhenReady(), []);
-
-  const doors = useMemo(
-    () => liveDoors(layers, doorsState, sceneId),
-    [layers, doorsState, sceneId],
-  );
   useDoorFeedback(doors);
-  const selected = doors.find((d) => d.door.id === selectedId);
 
-  // Selecting a door also brings it into view — the panel is the keyboard route to a door
-  // (D8) and hunting for the mark by hand was the standing complaint from every walk. The
-  // row is a real <button>, so Enter and Space arrive here as a click and behave the same.
+  // Selecting a door also brings it into view — the panel is the keyboard/overview route to
+  // a door (D8) and hunting for the mark by hand was the standing complaint from every walk.
   // Per-client by construction: `frameWorldPoint` moves this stage, never the table's.
   const pick = (door: DoorChild): void => {
     select(door.id);
@@ -64,103 +203,87 @@ export function DoorPanel() {
     return <p className="text-sm text-text-secondary">No doors on this scene.</p>;
   }
 
+  const labels = new Map(doors.map((d, i) => [d.door.id, doorLabel(d.door, i)]));
+  const showFilter = doors.length >= DOOR_FILTER_THRESHOLD;
+  const matched = filterDoors(doors, filter);
+  const groups = groupDoors(matched);
+  const ordered = [...groups.closed, ...groups.secret, ...groups.open];
+  const visible = showFilter ? ordered.slice(0, DOOR_CHIP_CEILING) : ordered;
+  const overflow = matched.length - visible.length;
+  const shown = groupDoors(visible);
+
   return (
     <div className="flex flex-col gap-2 text-sm">
-      <ul data-testid="door-list" className="flex max-h-40 flex-col gap-0.5 overflow-y-auto">
-        {doors.map(({ door, live }, i) => (
-          <li
-            key={door.id}
-            data-door-id={door.id}
-            data-open={live.open}
-            data-locked={live.locked}
-            data-secret={door.isSecret && !live.revealed ? 'true' : undefined}
-          >
-            <button
-              type="button"
-              aria-current={door.id === selectedId}
-              aria-label={`Select ${doorLabel(door, i)} · ${doorStatusLabel(door, live)}`}
-              onClick={() => pick(door)}
-              className={`flex w-full items-baseline gap-2 rounded px-2 py-0.5 text-left text-xs transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 motion-reduce:transition-none ${
-                door.id === selectedId ? 'bg-surface-3' : ''
-              }`}
-            >
-              {/* Wraps rather than truncates. A door row is read to answer "which door is
-                  that", and "Hidden Pantr…" answers it for no one — the sidebar is narrow
-                  enough that an authored name of ordinary length lost its last word. Two
-                  lines cost the list one row of height and give the name back; the title
-                  still carries the whole string for a name long enough to run past both. */}
-              <span title={doorLabel(door, i)} className="min-w-0 flex-1 break-words text-text-primary">
-                {doorLabel(door, i)}
-              </span>
-              <span
-                title={doorStatusLabel(door, live)}
-                className="shrink-0 text-right text-text-secondary"
-              >
-                {doorStatusLabel(door, live)}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <div className="flex items-center gap-1.5 text-xs text-text-muted">
+        <Icon name="frame" size={15} className="shrink-0" />
+        <span>Click a door on the map to act on it.</span>
+      </div>
 
-      {selected && (
-        <div
-          data-testid="door-actions"
-          className="flex flex-wrap gap-1 border-t border-border-default pt-2"
-        >
-          {/* Reveal and Open are two moves, and the panel says so rather than leaving the
-              DM to wonder why the party still cannot walk through what they just revealed.
-              No combined button: the DM may well want the reveal without the swing. */}
-          {selected.door.isSecret && selected.live.revealed && !selected.live.open && (
-            <p data-testid="door-status" className="basis-full pb-1 text-xs text-text-secondary">
-              Revealed — still closed
-            </p>
-          )}
-          {/*
-            The DM only. A locked door refuses every toggle, and the DM is the one holding
-            the key — `door-lock` is the next control along — so Open spending a round trip
-            to be told "locked" is a no-op they can see coming. It says the state instead.
-
-            A player keeps a live button on purpose: rattling a locked door and being told it
-            is locked is the discovery, not a mis-click. That refusal is the server's and
-            arrives as a toast.
-          */}
-          <button
-            type="button"
-            data-testid="door-toggle"
-            disabled={isDm && selected.live.locked}
-            onClick={() => send('toggle', { id: selected.door.id })}
-            className="rounded border border-border-default bg-surface-2 px-2 py-0.5 text-xs text-text-primary transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 disabled:cursor-not-allowed disabled:text-text-muted disabled:hover:bg-surface-2 motion-reduce:transition-none"
-          >
-            {isDm && selected.live.locked ? 'Locked' : selected.live.open ? 'Close' : 'Open'}
-          </button>
-          {isDm && (
-            <button
-              type="button"
-              data-testid="door-lock"
-              onClick={() =>
-                send(selected.live.locked ? 'unlock' : 'lock', { id: selected.door.id })
-              }
-              className="rounded border border-border-default bg-surface-2 px-2 py-0.5 text-xs text-text-primary transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 motion-reduce:transition-none"
-            >
-              {selected.live.locked ? 'Unlock' : 'Lock'}
-            </button>
-          )}
-          {isDm && selected.door.isSecret && (
-            <button
-              type="button"
-              data-testid="door-reveal-secret"
-              disabled={selected.live.revealed}
-              onClick={() => send('reveal-secret', { id: selected.door.id })}
-              className="rounded border border-border-default bg-surface-2 px-2 py-0.5 text-xs text-text-primary transition-colors duration-150 ease-out-quart hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 disabled:cursor-not-allowed disabled:text-text-muted disabled:hover:bg-surface-2 motion-reduce:transition-none"
-            >
-              {selected.live.revealed ? 'Secret revealed' : 'Reveal secret'}
-            </button>
-          )}
-        </div>
+      {showFilter && (
+        <input
+          type="text"
+          data-testid="door-filter"
+          placeholder="Filter doors"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="h-7 shrink-0 rounded border border-border-default bg-surface-0 px-2 text-[13px] text-text-primary placeholder:text-text-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+        />
       )}
+
+      <div data-testid="door-list" className="flex min-h-0 flex-col gap-2 overflow-hidden">
+        <DoorGroup title="Closed" entries={shown.closed} labels={labels} selectedId={selectedId} onPick={pick} />
+        <DoorGroup title="Secret" entries={shown.secret} labels={labels} selectedId={selectedId} onPick={pick} />
+        <DoorGroup title="Open" entries={shown.open} labels={labels} selectedId={selectedId} onPick={pick} />
+        {matched.length === 0 && (
+          <p className="text-xs text-text-muted">No doors match &ldquo;{filter}&rdquo;.</p>
+        )}
+      </div>
+
+      {overflow > 0 && <p className="text-[11px] text-text-muted">+{overflow} more</p>}
     </div>
   );
 }
 
-registerPanel({ id: 'doors', title: 'Doors', roles: ALL_ROLES, order: 30, component: DoorPanel });
+export function DoorFooter() {
+  const doors = useLiveDoors();
+  const selectedId = useDoorSelection((s) => s.selectedId);
+  const index = doors.findIndex((d) => d.door.id === selectedId);
+  const selected = index >= 0 ? doors[index] : undefined;
+
+  if (!selected) {
+    return <p className="text-xs text-text-muted">Select a door, or click one on the map.</p>;
+  }
+
+  return (
+    <>
+      <span className="min-w-0 truncate text-[12.5px] text-text-primary">
+        {doorLabel(selected.door, index)}{' '}
+        <span className="text-text-muted">· {selected.live.open ? 'Open' : 'Closed'}</span>
+      </span>
+      <span className="flex-1" />
+      <DoorActions entry={selected} />
+    </>
+  );
+}
+
+/** `${n} on this scene` — plain function, not a hook: `Popover` calls it outside React. */
+function doorsSubtitle(): string {
+  return `${liveSceneDoors().length} on this scene`;
+}
+
+registerPanel({
+  id: 'doors',
+  title: 'Doors',
+  icon: 'doors',
+  key: 'D',
+  group: 'play',
+  roles: ALL_ROLES,
+  // M4 — the player's fast path is the on-map DoorMenu; the rail stays DM-only clutter
+  // otherwise (a player still opens this with the D key).
+  railRoles: ['dm'],
+  order: 30,
+  component: DoorPanel,
+  mount: mountDoorLayerWhenReady,
+  footer: DoorFooter,
+  subtitle: doorsSubtitle,
+});

@@ -139,6 +139,18 @@ export function resolveInviteCode(code: string): Promise<{ campaignId: string; s
   return request(`/api/resolve/${encodeURIComponent(code)}`, { method: 'GET' });
 }
 
+/**
+ * GET /api/campaigns/:id/session — the invite code for whatever table is already open (M3
+ * review finding 3). A DM seat that resumed, or was minted fresh via `mintDmToken`, never saw
+ * `startSession`'s own response; this is the only other place the code is handed out.
+ */
+export function fetchActiveSession(
+  campaignId: string,
+  token: string,
+): Promise<{ sessionId: string; inviteCode: string }> {
+  return request(`/api/campaigns/${encodeURIComponent(campaignId)}/session`, { method: 'GET' }, token);
+}
+
 // ─── Scene management (#47) — the DM's own library, not the wire snapshot ────
 
 export interface SceneMeta {
@@ -208,6 +220,13 @@ export function getScenePrep(
   token: string,
 ): Promise<{ prep: ScenePrep | null; resolved: { id: string; inert?: string }[] }> {
   return request(`/api/scenes/${encodeURIComponent(sceneId)}/prep`, { method: 'GET' }, token);
+}
+
+/** DELETE /api/sessions/:id — the DM closes the table (M1 Session popover). Broadcasts
+ *  `session-ended` to every seat, including the caller's own — the store's existing handler
+ *  is what actually tears the socket down; this just asks the server to send it. */
+export function endSession(sessionId: string, token: string): Promise<{ sessionId: string; active: false }> {
+  return request(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }, token);
 }
 
 /** PUT /api/campaigns/:id/scenes/order — every scene id, in the new order (D4). */

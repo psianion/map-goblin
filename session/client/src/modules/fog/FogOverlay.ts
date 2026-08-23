@@ -33,6 +33,7 @@ import {
   worldPointOf,
 } from '../../renderer/overlayLayer';
 import { prefersReducedMotion } from '../../session/motion';
+import { frameWorldPoint } from '../../renderer/camera';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
 import { BRUSH_FLUSH_CELLS, useFogBrush, type BrushOp } from './brush';
@@ -75,6 +76,19 @@ const REGION_WASH = { color: 0xd8cfc0, alpha: 0.1 };
 /** Where the fog tool sends its clicks. */
 const send = (action: string, payload: unknown): void =>
   useSessionStore.getState().sendCommand('fog', action, payload);
+
+/**
+ * The room grid's own hover (`FogTool`'s chip list), reaching onto the map without the
+ * pointer ever leaving the panel. A module slot rather than a store: one DM tab has one grid
+ * and one map, and the mounted overlay is the only thing that ever reads it.
+ */
+let chipHoverRoomId: string | null = null;
+let redrawForHover: (() => void) | null = null;
+/** Call from the room grid's pointer enter/leave. A no-op before the overlay has mounted. */
+export function setHighlightedRoom(id: string | null): void {
+  chipHoverRoomId = id;
+  redrawForHover?.();
+}
 
 function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => void {
   const layer = new Container();
@@ -271,7 +285,13 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     // D11 asks the hover to name the room's *state*, not merely its outline, so it is drawn
     // from the same table the tint is: torchlight on a lit room, parchment on a memory, cold
     // slate on one nobody has seen. Both are what the click is about to change.
-    const hovered = toolArmed() ? rooms.find((r) => r.id === hoverRoomId) : undefined;
+    //
+    // The room grid's own hover lands the same way the pointer does (`chipHoverRoomId`, set
+    // from outside via `setHighlightedRoom`): a DM scanning the list by eye still sees which
+    // room a chip names. It works whether or not the tool is armed; the pointer's own hover
+    // only counts while it is, unchanged.
+    const hoveredId = (toolArmed() ? hoverRoomId : null) ?? chipHoverRoomId;
+    const hovered = hoveredId ? rooms.find((r) => r.id === hoveredId) : undefined;
     if (hovered && hovered.boundary.length >= 3) {
       const look = DM_FOG_LOOK[roomFog(fog, hovered.id).status];
       const path = hovered.boundary.flat();
@@ -307,6 +327,7 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
       mapData,
       useActiveTool.getState().activeTool,
       hoverRoomId,
+      chipHoverRoomId,
       useFogBrush.getState().on,
       // The cursor's footprint moves with these two, so they redraw it like a move does.
       useFogBrush.getState().size,
@@ -521,7 +542,18 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
       sceneFog(useSessionStore.getState().session?.modules?.fog as FogState | undefined, sceneId),
       room.id,
     ).status;
-    send(fogActionFor(status), { roomId: room.id });
+    // The armed button decides the direction (Reveal / Hide); with neither armed the click
+    // toggles, which is what the tool did before the direction existed. A no-op direction
+    // (revealing a revealed room) sends nothing.
+    const detail = useActiveTool.getState().toolDetail;
+    const action =
+      detail === 'Reveal' ? 'reveal' : detail === 'Hide' ? 'hide' : fogActionFor(status);
+    const noop =
+      (action === 'reveal' && status === 'revealed') ||
+      (action === 'hide' && status !== 'revealed');
+    if (!noop) send(action, { roomId: room.id });
+    // Shift frames the room on the DM's own view — the Fog popover's hint promises it.
+    if (e.shiftKey) frameWorldPoint(room.centroid[0], room.centroid[1]);
   };
 
   // Anywhere, not only on the canvas: a stroke that ends off-screen still has to land, or the
@@ -562,11 +594,14 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   // The brush is a thing this layer *draws* (the cell cursor instead of the room highlight),
   // so toggling it has to repaint now rather than on the next pointer event.
   const unsubBrush = useFogBrush.subscribe(sync);
+  redrawForHover = sync;
   sync();
 
   return () => {
     // A stroke in flight when the table unmounts is still the DM's act: send it.
     onUp();
+    redrawForHover = null;
+    chipHoverRoomId = null;
     document.removeEventListener('pointermove', onMove, true);
     document.removeEventListener('pointerdown', onDown, true);
     document.removeEventListener('pointerup', onUp, true);

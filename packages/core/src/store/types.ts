@@ -3,7 +3,7 @@ export * from '../shared/prep';
 export * from '../shared/world';
 import type { AnyChild, WallSegment, WallEdits, WallType, WallDirection, DoorStyle, MaskData, Room } from '../shared/types';
 import type { ScenePrep, TriggerDef } from '../shared/prep';
-import type { MapEnvironment } from '../shared/world';
+import type { MapEnvironment, NightSky } from '../shared/world';
 import type { Polygon } from '../types/geometry';
 
 // ─── Map Settings ─────────────────────────────────────────
@@ -291,6 +291,12 @@ export interface UISlice {
    * and midday on one that follows the clock it cannot see from here.
    */
   previewClock: number | null;
+  /**
+   * The Editor's preview of the campaign's night sky — same tier as `previewClock`: local,
+   * never persisted, never sent anywhere. Null is "not previewing": the Editor draws under
+   * the default full moon, same as an untouched campaign does at the Table.
+   */
+  previewSky: NightSky | null;
 }
 
 // ─── Assets ───────────────────────────────────────────────
@@ -537,6 +543,7 @@ export interface MapBuilderStore {
   /** Drops solo bookkeeping without touching any layer's visibility. */
   clearSolo: () => void;
   setPreviewClock: (minutes: number | null) => void;
+  setPreviewSky: (sky: NightSky | null) => void;
 
   // asset actions
   toggleFavorite: (assetId: string) => void;

@@ -74,7 +74,7 @@ type MapBuilderState = Omit<
   | 'setNodeEditWall' | 'selectNode' | 'toggleNodeSelection' | 'setShapeNodeEdit' | 'selectVertex'
   | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
   | 'showModal' | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
-  | 'toggleSoloLayer' | 'clearSolo' | 'setPreviewClock'
+  | 'toggleSoloLayer' | 'clearSolo' | 'setPreviewClock' | 'setPreviewSky'
   | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
   | 'setSelectedIds' | 'setHoveredId' | 'setSelectedRegion'
@@ -172,6 +172,7 @@ export function createDefaultState(): MapBuilderState {
       highlightedRoomId: null,
       solo: null,
       previewClock: null,
+      previewSky: null,
     },
     assets: {
       manifest: null,

@@ -53,6 +53,7 @@ import type { AuthoredDoor, DoorLiveState, DoorsState } from '@dnd/mechanics/doo
 import {
   effectiveFog,
   fogModeOf,
+  identityRegion,
   lightSources,
   visibleRooms,
   visionShareOf,
@@ -74,10 +75,11 @@ import {
   type BiteLevel,
   type WorldLight,
 } from '@dnd/core/src/shared/world';
-import { addScreenOverlay, mountWhenEngineReady } from '../../renderer/overlayLayer';
+import { SIGHT_MASK, addScreenOverlay, mountWhenEngineReady } from '../../renderer/overlayLayer';
 import { prefersReducedMotion } from '../../session/motion';
 import { useSessionStore } from '../../session/store';
 import type { LiveDoor } from '../doors/doors';
+import { useTokenInteraction } from '../tokens/drag';
 import { tokensOf } from '../tokens/TokenRenderer';
 import {
   fogPad,
@@ -311,6 +313,12 @@ export interface FogScene {
   sceneId: string | null;
   /** The DM keeps full lighting and no mask (PRODUCT principle 3). Unknown role ⇒ masked. */
   isPlayer: boolean;
+  /**
+   * The DM's sight preview is on and aimed at a token with eyes: the mask is drawn on the
+   * DM's own canvas through that one token, as the seat holding it would draw it. Never true
+   * on a player's seat. Local to the DM's tab — nothing here reaches the wire. Absent ⇒ off.
+   */
+  preview?: boolean;
   void: VoidStyle;
   /**
    * S3 P2 — which presentation the mask draws. Absent ⇒ `'rooms'`, exactly as the wire field
@@ -628,6 +636,18 @@ export function fogScene(): FogScene {
   const mode = fogModeOf(fog);
   const isPlayer = you?.role !== 'dm';
   const isVision = mode === 'vision';
+  // The DM's sight preview: the selected token, if it has eyes and the preview is on. The
+  // flag and the selection are this tab's own (`useTokenInteraction`), so a player's seat
+  // never takes this branch and the referee never hears of it — what the DM previews is
+  // computed here from the document the DM already holds, and changes nothing anyone is sent.
+  const { previewSight, selectedId } = useTokenInteraction.getState();
+  const previewed =
+    !isPlayer && isVision && previewSight && selectedId
+      ? tokens.find((t) => t.id === selectedId && (t.sight?.range ?? 0) > 0)
+      : undefined;
+  const preview = previewed !== undefined;
+  /** Drawn through somebody's eyes: a player, or the DM looking through one token's. */
+  const masked = isPlayer || preview;
   // The table's light state, both halves of it: the scene's ambient dial and every light the
   // triggers have relit. The same slice the referee reads (`vision.ts`), so the mask and the
   // redaction cannot disagree about what is burning.
@@ -644,7 +664,7 @@ export function fogScene(): FogScene {
   // void's look because the imitation is drawn *through* that same composite (`voidStyle`).
   // `null` from the resolver is still "nobody has stated a level", which bites at full: an
   // indoor map nobody has dialled composites exactly as it did before the clock existed.
-  const bite = biteStrength(light?.biteLevel ?? undefined, isPlayer ? 'player' : 'dm');
+  const bite = biteStrength(light?.biteLevel ?? undefined, masked ? 'player' : 'dm');
   // The composed grade — mood × hour × how much sky this map has — and the bucket the lighting
   // pass memoizes it on. One colour, every seat.
   // Midday until the join snapshot lands: an unknown clock must not paint the first frame of
@@ -661,14 +681,24 @@ export function fogScene(): FogScene {
     visionShareOf(fog) === 'individual' && you
       ? (token: Token) => token.ownerId === you.identityId
       : undefined;
-  const eyes = isVision && isPlayer ? sighted(tokens, mine) : [];
+  // A preview seeds on the one token and carries its linked familiars, the way the referee's
+  // own per-seat sweep does — and un-hides it for its own sweep: a hidden ambusher's sight
+  // is exactly the question a DM previews.
+  const eyes = previewed
+    ? sighted(
+        tokens.map((t) => (t.id === previewed.id ? { ...t, hidden: false } : t)),
+        (t) => t.id === previewed.id,
+      )
+    : isVision && isPlayer
+      ? sighted(tokens, mine)
+      : [];
   //
   // Off *core's* layers rather than the document's, which is the one place this file reads
   // core on purpose: the table's live door state is stamped onto them for the lighting pass
   // (`syncDoorsToLighting`), and a sweep through a door the map file still calls shut is a
   // sweep the referee never took. Rooms and the door graph stay the document's for the
   // reason `serverRooms` gives — those are what core re-detects, and walls are not.
-  const sight = isVision && isPlayer ? sightCache.partySight(layers, eyes) : undefined;
+  const sight = isVision && masked ? sightCache.partySight(layers, eyes) : undefined;
 
   return {
     rooms,
@@ -699,12 +729,29 @@ export function fogScene(): FogScene {
     pad: fogPad(serverLayers(mapData)),
     sceneId,
     isPlayer,
+    preview,
     // The imitation bites exactly as hard as the real composite does: the sheet renders above
     // the same multiply, and §4 just made that multiply a dial. Left at full strength the
     // fogged sheet reads as a *darker* patch of the same map at daylight and dusk (D1).
     void: voidStyle(bite, true, grade),
     mode,
-    fog,
+    // The memory tier the preview draws is the record the token's own seat reads through
+    // (`identityRegion`: its owner's in individual share, the party's otherwise) — the DM's
+    // copy carries every record, a player's wire only ever their own. A token nobody holds
+    // has no seat and no memory: the DM's own goblin previews what it can see right now, not
+    // the party's explored rooms washed in around it.
+    fog:
+      preview && fog
+        ? previewed.ownerId
+          ? {
+              ...fog,
+              region:
+                visionShareOf(fog) === 'individual'
+                  ? identityRegion(fog, previewed.ownerId)
+                  : fog.region,
+            }
+          : { ...fog, region: undefined, rooms: {} }
+        : fog,
     sight,
     // §3 — the light gate, taken only where it is the answer: a vision scene the DM has turned
     // to `darkness`. Every light source's own sweep (placed lights the table has left on, plus
@@ -779,6 +826,11 @@ export function subscribeFogScene(onChange: () => void): () => void {
       // the time mode all compose into the grade the imitation is drawn through.
       useStore.getState().mapSettings,
       useStore.getState().grid.visible,
+      // The DM's sight preview and the token it is aimed at. A player's selection is not a
+      // mask input — their mask is never drawn through a selection — so it is left out of the
+      // comparison there rather than rebuilding a sweep on every click.
+      useTokenInteraction.getState().previewSight,
+      you?.role === 'dm' ? useTokenInteraction.getState().selectedId : null,
     ];
     if (next.length === last.length && next.every((v, i) => v === last[i])) return false;
     last = next;
@@ -803,10 +855,12 @@ export function subscribeFogScene(onChange: () => void): () => void {
   if (changed()) onChange();
   const unsubSession = useSessionStore.subscribe(check);
   const unsubMap = useStore.subscribe(check);
+  const unsubInteraction = useTokenInteraction.subscribe(check);
   return () => {
     queued = false;
     unsubSession();
     unsubMap();
+    unsubInteraction();
   };
 }
 
@@ -973,10 +1027,12 @@ export function drawFog(
   scrim: Graphics,
   scene: FogScene,
   maskPaint?: Graphics,
+  sightMask?: Graphics,
 ): { cells: number; cover: Bounds | null } {
   scrim.clear();
   maskPaint?.clear();
-  if (!scene.isPlayer || !scene.bounds) return { cells: 0, cover: null };
+  sightMask?.clear();
+  if (!(scene.isPlayer || scene.preview) || !scene.bounds) return { cells: 0, cover: null };
   // Drawn one pad + feather wider than the frame: a hole that crosses the filled rect's
   // outer contour is dropped whole by the triangulator, and the frame is content-tight
   // (one square of air) while a room's padded reach can poke past it. The overhang is
@@ -1033,6 +1089,11 @@ export function drawFog(
     fillLand(maskPaint, memory, { color: MASK_MEMORY, alpha: 1 });
     for (const { outline } of earned) featherEdge(maskPaint, outline, 0x000000);
   }
+  // Everything this seat may see, as a stencil for the overlays that draw above the mask
+  // (`SIGHT_MASK`): the token chips and the turn ring. Clear and memory alike — what is
+  // hidden is the one thing they must not outrun; what is only dimmed is still theirs to
+  // label at full strength.
+  if (sightMask) fillLand(sightMask, [...earned, ...memory], { color: 0xffffff, alpha: 1 });
   return { cells, cover: { minX, minY, maxX, maxY } };
 }
 
@@ -1047,7 +1108,15 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   // The animated cover, above the scrim: the scrim stays the authority on what is hidden
   // (flat black, fail-dark), the mesh is the weather drawn over it.
   const fog = createLivingFog(engine, { dense: 1, mist: 0.55, rim: 0.75 });
-  layer.addChild(scrim, fog.mesh);
+  // The stencil the chip and ring layers wear (`sightMaskOf`). A child here so it shares this
+  // layer's camera mirror; Pixi keeps a mask out of the normal draw, so it paints nothing.
+  const sightMask = new Graphics();
+  sightMask.label = SIGHT_MASK;
+  // …and kept out of the build from the first frame, not from the frame a wearer turns up:
+  // Pixi clears this flag itself when a mask is assigned, and a white fill drawn as content
+  // in between would be one frame of the whole map.
+  sightMask.includeInBuild = false;
+  layer.addChild(scrim, fog.mesh, sightMask);
   // Nothing here is clickable; the fog tool and the doors read the DOM canvas directly.
   layer.eventMode = 'none';
   addScreenOverlay(sceneGraph, layer, 'playerFog');
@@ -1112,7 +1181,9 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
       clearFades();
     }
 
-    layer.visible = scene.isPlayer;
+    // …or the DM looking through one token's eyes (`scene.preview`): the same layer, the same
+    // tiers, drawn on the DM's canvas for as long as the preview is on.
+    layer.visible = scene.isPlayer || scene.preview === true;
 
     // Set every rebuild rather than once at mount: the seat is not known until the join
     // snapshot lands, and the composite itself is created asynchronously with the engine.
@@ -1134,7 +1205,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // The imitation has to match the void as it actually renders — including a table with no
     // lighting pass at all, where there is no multiply for the void to have gone through.
     const drawn = lit?.visible ? scene : { ...scene, void: voidStyle(0, false, scene.grade) };
-    const built = drawFog(scrim, drawn, fog.maskPaint);
+    const built = drawFog(scrim, drawn, fog.maskPaint, sightMask);
     cells = built.cells;
     // …and the living fog over it: the same tiers as a texture, the palette pulled toward
     // the scene's grade (a torchlit scene fogs warm, a night forest cold), and one render

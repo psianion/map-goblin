@@ -1,43 +1,13 @@
 import { useEffect, useState } from 'react';
 import { navigate } from '../router';
 import { joinAsPlayer, resolveInviteCode } from '../session/auth';
-import { prefetchSceneMap } from '../session/loadSceneMap';
-import { useSessionStore, waitForSessionSnapshot } from '../session/store';
+import { prepareTableForJoin } from '../session/prepareTableForJoin';
+import { useSessionStore } from '../session/store';
 
-const SNAPSHOT_TIMEOUT_MS = 5000;
-const PREFETCH_CAP_MS = 10000;
-
-/**
- * Warm the table's active scene before `/table` ever mounts `GameRenderer` — the WS
- * `session-state` snapshot (`activeSceneId` + `scenes[].mapId`) only exists once
- * `connect()`'s socket has round-tripped, so this is the earliest point a prefetch can
- * start. An optimization only: no active scene, a snapshot that never arrives, or a
- * prefetch that fails or overruns the cap all fall through to the same place — nothing
- * to await, `join()` navigates regardless. Timeouts are parameters so tests don't pay
- * the production ones.
- */
-export async function prepareTableForJoin(
-  token: string,
-  { snapshotTimeoutMs = SNAPSHOT_TIMEOUT_MS, capMs = PREFETCH_CAP_MS } = {},
-): Promise<void> {
-  const attempt = async () => {
-    try {
-      const session = await waitForSessionSnapshot(snapshotTimeoutMs);
-      const sceneId = session?.activeSceneId;
-      if (!sceneId) return;
-      const mapId = session.scenes.find((s) => s.id === sceneId)?.mapId;
-      if (!mapId) return;
-      await prefetchSceneMap(sceneId, mapId, token);
-    } catch (err) {
-      console.warn('[JoinSession] table prefetch failed:', err);
-    }
-  };
-  await Promise.race([attempt(), new Promise<void>((resolve) => setTimeout(resolve, capMs))]);
-}
 
 const field =
-  'w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none';
-const label = 'mb-1 block text-xs font-semibold uppercase tracking-wide text-neutral-500';
+  'w-full rounded-md border border-border-default bg-surface-1 px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none';
+const label = 'mb-1 block text-xs font-semibold uppercase tracking-wide text-text-muted';
 
 /**
  * §2.6 — code + name in, a seat at the table out.
@@ -87,7 +57,7 @@ export default function JoinSession({ code: linkCode }: { code?: string }) {
   return (
     <div
       data-page="join"
-      className="flex h-full items-center justify-center bg-neutral-950 p-6 text-neutral-100"
+      className="flex h-full items-center justify-center bg-surface-0 p-6 text-text-primary"
     >
       <form
         className="flex w-full max-w-sm flex-col gap-4"
@@ -99,7 +69,7 @@ export default function JoinSession({ code: linkCode }: { code?: string }) {
         <header>
           <h1 className="text-2xl font-semibold tracking-tight">Join a game</h1>
           {found && (
-            <p className="mt-1 text-sm text-emerald-400">Table found — who are you?</p>
+            <p className="mt-1 text-sm text-success">Table found — who are you?</p>
           )}
         </header>
 
@@ -140,13 +110,13 @@ export default function JoinSession({ code: linkCode }: { code?: string }) {
         <button
           type="submit"
           disabled={busy || code.trim().length === 0 || name.trim().length === 0}
-          className="rounded-md bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-md bg-accent-active px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-40"
         >
           {preparing ? 'Preparing map…' : busy ? 'Joining…' : 'Join'}
         </button>
 
         {error && (
-          <p role="alert" className="rounded-md border border-red-900 bg-red-950/60 px-3 py-2 text-sm text-red-200">
+          <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
             {error}
           </p>
         )}

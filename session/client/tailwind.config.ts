@@ -1,16 +1,21 @@
 import type { Config } from 'tailwindcss'
 
-// The runner's chrome speaks the editor's visual language: this colour scale, the radius
-// and the semantic vocabulary are copied verbatim from `canvas/tailwind.config.ts`
-// (the editor's "Achromatic Shell" block, mirrored by the shadcn variables in index.css).
-// Copied deliberately rather than imported — canvas is an app, not a shared package, and a
-// build-time dependency from the runner onto it would be worse than 20 lines of colours.
-//
-// Two things of canvas's are *not* copied. Its type scale (10–12px panel sizes) is an
-// authoring-app density the runner cannot use: this chrome is read across a table in a dim
-// room. And its font families (Cinzel/Raleway) come with a Google Fonts request — a table
-// mid-session must never wait on, or fail against, a CDN, and display faces are wrong on UI
-// labels anyway. System sans it is.
+/**
+ * Moss — the Good Goblin chrome theme, table side.
+ *
+ * Every colour resolves to a CSS variable declared in `src/index.css` (`:root`, night only —
+ * the table has one theme), written as `rgb(var(--x) / <alpha-value>)` so Tailwind's opacity
+ * modifier works on all of them: `bg-surface-1/80`, `ring-ring/50`, `bg-destructive/10`.
+ *
+ * Both vocabularies are declared here on purpose. Components use the Tailwind names
+ * (surface-*, text-*, border-*, accent-*) today; the shadcn names (primary, muted, ring,
+ * border, ...) are for the shell primitives to come. The canvas gotcha: when only one
+ * vocabulary is declared, the other compiles to nothing — `bg-muted`, `bg-primary`,
+ * `ring-ring` and `border-border` silently vanish. Declaring both against one set of values
+ * is what makes hovers, focus rings and destructive tints exist at all.
+ */
+const token = (name: string) => `rgb(var(--${name}) / <alpha-value>)`
+
 export default {
   darkMode: 'class',
   content: ['./index.html', './src/**/*.{ts,tsx}'],
@@ -18,34 +23,67 @@ export default {
     extend: {
       colors: {
         // Surface hierarchy — deepest first. The map is the stage; chrome sits quietly on it.
-        'surface-0': '#0E0E0E',
-        'surface-1': '#141414',
-        'surface-2': '#1E1E1E',
-        'surface-3': '#282828',
-        // Text hierarchy. `text-muted` clears 4.5:1 only against surface-0/1 at ≥18px —
-        // body copy uses primary or secondary.
-        'text-primary': '#E8E8E8',
-        'text-secondary': '#999999',
-        'text-muted': '#666666',
-        // Borders
-        'border-subtle': '#1E1E1E',
-        'border-default': '#252525',
-        'border-focus': '#FFFFFF',
-        // Accent — achromatic, so colour never becomes the only state encoding.
-        'accent-active': '#FFFFFF',
-        'accent-dim': '#999999',
-        // Tailwind's own `neutral-500` is #737373, which is 4.07:1 on surface-0 — under
-        // AA for the 12–14px lines it carries everywhere in this chrome ("(you)", the
-        // token meta line, every empty-state placeholder). Lifted here rather than at each
-        // call site, because the shade *is* the token: 27 uses, one definition. #8A8A8A is
-        // 5.59:1 on surface-0 and still reads as the quiet tier next to neutral-400.
-        // Merged into the default scale — every other neutral shade is untouched
-        // (`theme.test.ts` pins both the ratio and the merge).
-        neutral: { 500: '#8A8A8A' },
-        // Semantic
-        danger: '#C0392B',
-        warning: '#D4A017',
-        success: '#2ECC71',
+        'surface-0': token('surface-0'),
+        'surface-1': token('surface-1'),
+        'surface-2': token('surface-2'),
+        'surface-3': token('surface-3'),
+        // Text hierarchy
+        'text-primary': token('text-primary'),
+        'text-secondary': token('text-secondary'),
+        'text-muted': token('text-muted'),
+        'text-dim': token('text-dim'),
+        // Ink weights — heavier on structure, lighter on ground clutter
+        'border-structure': token('border-structure'),
+        'border-default': token('border-default'),
+        'border-subtle': token('border-subtle'),
+        'border-focus': token('border-focus'),
+        // Accent — one focal per screen: active tool, selection, primary action, live state
+        'accent-active': token('accent-active'),
+        'accent-dim': token('accent-dim'),
+        'on-accent': token('on-accent'),
+        // Semantic — distinct from the accent by hue AND by shape at the call site, because
+        // with a green accent `success` and `accent-active` are the same hue.
+        danger: token('danger'),
+        warning: token('warning'),
+        success: token('success'),
+        info: token('info'),
+
+        // shadcn vocabulary — same values, the names future shell primitives will use
+        background: token('background'),
+        foreground: token('foreground'),
+        card: {
+          DEFAULT: token('card'),
+          foreground: token('card-foreground'),
+        },
+        popover: {
+          DEFAULT: token('popover'),
+          foreground: token('popover-foreground'),
+        },
+        primary: {
+          DEFAULT: token('primary'),
+          foreground: token('primary-foreground'),
+        },
+        secondary: {
+          DEFAULT: token('secondary'),
+          foreground: token('secondary-foreground'),
+        },
+        muted: {
+          DEFAULT: token('muted'),
+          foreground: token('muted-foreground'),
+        },
+        accent: {
+          DEFAULT: token('accent'),
+          foreground: token('accent-foreground'),
+        },
+        destructive: token('destructive'),
+        border: token('border'),
+        input: token('input'),
+        ring: token('ring'),
+      },
+      fontFamily: {
+        sans: ['IBM Plex Sans', 'system-ui', 'sans-serif'],
+        serif: ['Newsreader', 'Georgia', 'serif'],
+        mono: ['IBM Plex Mono', 'ui-monospace', 'Consolas', 'monospace'],
       },
       borderRadius: {
         chip: '2px',
@@ -58,18 +96,35 @@ export default {
         banner: '30',
         toast: '40',
       },
+      boxShadow: {
+        panel: 'var(--panel-shadow)',
+      },
       transitionTimingFunction: {
         // ease-out-quart: state settles fast and stops. No bounce, no elastic.
         'out-quart': 'cubic-bezier(0.25, 1, 0.5, 1)',
+        // ease-settle: the Moss popover/drawer curve — quint ease-out.
+        settle: 'cubic-bezier(0.16, 1, 0.3, 1)',
       },
       keyframes: {
         'toast-in': {
           from: { opacity: '0', transform: 'translateY(6px)' },
           to: { opacity: '1', transform: 'translateY(0)' },
         },
+        // The drawer/popover entrance (M1): settle in, not slide.
+        'panel-in': {
+          from: { opacity: '0', transform: 'translateY(4px)' },
+          to: { opacity: '1', transform: 'none' },
+        },
+        // The ticker's line crossfade — opacity only, no motion.
+        'fade-in': {
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
       },
       animation: {
         'toast-in': 'toast-in 200ms cubic-bezier(0.25, 1, 0.5, 1) both',
+        'panel-in': 'panel-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both',
+        'fade-in': 'fade-in 150ms cubic-bezier(0.25, 1, 0.5, 1) both',
       },
     },
   },

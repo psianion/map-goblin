@@ -8,7 +8,7 @@ import { regionOf, setCells, type FogState, type RoomFog, type SceneFog } from '
 import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import type { WebSocketClient } from '../../session/WebSocketClient';
 import { useSessionStore } from '../../session/store';
-import { usePanels } from '../../session/panels';
+import { usePanel, usePanels } from '../../session/panels';
 import { useToasts } from '../../session/toasts';
 import { useActiveTool } from '../../session/tools';
 import {
@@ -27,7 +27,15 @@ import {
   sceneFog,
 } from './fog';
 import { useFogBrush } from './brush';
-import { FogTool } from './FogTool';
+import { FogFooter, FogHeaderActions, FogTool } from './FogTool';
+import { useHotkeys } from '../../shell/hotkeys';
+
+// Escape-exits-the-tool lives in `shell/hotkeys.ts`'s single listener, not in `tools.ts`
+// itself (M1) — mount it alongside the panel wherever a test presses Escape or a fog hotkey.
+function Hotkeys() {
+  useHotkeys();
+  return null;
+}
 
 const room = (id: string, x: number, name = id): Room => ({
   id,
@@ -82,6 +90,39 @@ const fogWith = (rooms: Record<string, RoomFog>, concealBehindDoors = true): Fog
   byScene: { 'scene-1': { rooms, concealBehindDoors } },
 });
 
+const visionScene = (over: Partial<SceneFog> = {}): FogState => ({
+  byScene: { 'scene-1': { rooms: {}, concealBehindDoors: true, mode: 'vision', ...over } },
+});
+
+/** The two fixture rooms sit at x 0..4 and 10..14, y 0..4 — one shape covers both. */
+const FRAME = { minX: -1, minY: -1, maxX: 15, maxY: 5 };
+
+const shapeChild = (x0: number, y0: number, x1: number, y1: number) => ({
+  id: 'floor',
+  childType: 'shape',
+  visible: true,
+  contours: [
+    [
+      [x0, y0],
+      [x1, y0],
+      [x1, y1],
+      [x0, y1],
+    ],
+  ],
+});
+
+const zoneChild = (id: string, shape: unknown, blocksAutoExplore = true) => ({
+  id,
+  name: id,
+  childType: 'zone',
+  visible: true,
+  shape,
+  blocksAutoExplore,
+});
+
+const layerWith = (children: unknown[], rooms: Room[] = [CRYPT, HALL]): Layer =>
+  ({ id: 'l1', type: 'dungeon', children, standaloneWalls: [], rooms }) as unknown as Layer;
+
 beforeEach(() => {
   cleanup();
   // FogTool lists the server document's rooms, never core's re-detected ones.
@@ -94,7 +135,7 @@ beforeEach(() => {
   });
   useActiveTool.getState().setActiveTool(null);
   useToasts.setState({ toast: null });
-  useFogBrush.setState({ on: false, op: 'reveal' });
+  useFogBrush.setState({ on: false, op: 'reveal', size: 1, shape: 'stroke' });
   useStore.setState({ layers: [dungeonLayer([CRYPT, HALL])] });
 });
 
@@ -111,12 +152,8 @@ describe('fog geometry and vocabulary', () => {
   it('encodes every state twice over, so none of them is colour alone (D11)', () => {
     expect(DM_FOG_LOOK.never_revealed).toMatchObject({ tintAlpha: 0.62 });
     expect(DM_FOG_LOOK.revealed).toMatchObject({ tintAlpha: 0 });
-    // The hover is a third reading of the same three states, and three separate colours —
-    // an outline that means "you are over a room" and nothing more is D11 half-built.
     const hovers = Object.values(DM_FOG_LOOK).map((look) => look.hoverColor);
     expect(new Set(hovers).size).toBe(3);
-    // Three separate tint weights, so the state is brightness and not hue — this is what
-    // seconds the colour now that no mark is stamped at the centroid to do it.
     const tints = Object.values(DM_FOG_LOOK).map((look) => look.tintAlpha);
     expect(new Set(tints).size).toBe(3);
     expect(DM_FOG_LOOK.re_hidden.tintAlpha).toBeGreaterThan(0);
@@ -149,182 +186,8 @@ describe('fog geometry and vocabulary', () => {
   });
 });
 
-describe('FogTool — a mode, never a dialog (D11)', () => {
-  it('is the DM’s tool alone: players are not offered the panel', () => {
-    expect(usePanels('dm').map((p) => p.id)).toContain('fog');
-    expect(usePanels('player').map((p) => p.id)).not.toContain('fog');
-  });
-
-  it('arms and disarms on the switch, and shows nothing of its bar until armed', () => {
-    useSessionStore.setState({ session: session(), you: dm });
-    render(<FogTool />);
-    expect(screen.queryByTestId('fog-bar')).toBeNull();
-
-    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
-    expect(useActiveTool.getState().activeTool).toBe('fog');
-    expect(screen.getByTestId('fog-bar')).not.toBeNull();
-    expect(screen.getByTestId('fog-tool-toggle').getAttribute('aria-pressed')).toBe('true');
-
-    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
-    expect(useActiveTool.getState().activeTool).toBeNull();
-  });
-
-  it('Escape exits the tool — the guarantee every later tool inherits', () => {
-    useSessionStore.setState({ session: session(), you: dm });
-    render(<FogTool />);
-    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
-    expect(useActiveTool.getState().activeTool).toBe('fog');
-
-    fireEvent.keyDown(window, { key: 'Escape' });
-    expect(useActiveTool.getState().activeTool).toBeNull();
-    expect(screen.queryByTestId('fog-bar')).toBeNull();
-  });
-
-  it('spells each room’s state out in words beside the canvas tint', () => {
-    useSessionStore.setState({
-      session: session({
-        fog: fogWith({
-          'r-crypt': { status: 'revealed', wasEverRevealed: true },
-          'r-hall': { status: 're_hidden', wasEverRevealed: true },
-        }),
-      }),
-      you: dm,
-    });
-    render(<FogTool />);
-    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
-
-    const rows = screen.getByTestId('fog-rooms').querySelectorAll('li');
-    expect(rows[0].getAttribute('data-fog-status')).toBe('revealed');
-    expect(rows[0].textContent).toContain('Revealed');
-    expect(rows[1].getAttribute('data-fog-status')).toBe('re_hidden');
-    expect(rows[1].textContent).toContain('Explored');
-  });
-
-  it('toggles the room a list row names', () => {
-    useSessionStore.setState({
-      session: session({ fog: fogWith({ 'r-crypt': { status: 'revealed', wasEverRevealed: true } }) }),
-      you: dm,
-    });
-    const sent = captureCommands();
-    render(<FogTool />);
-    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
-
-    const rows = screen.getByTestId('fog-rooms').querySelectorAll('button');
-    fireEvent.click(rows[0]); // revealed → hide
-    fireEvent.click(rows[1]); // never revealed → reveal
-    expect(sent.map((s) => [s.action, s.payload])).toEqual([
-      ['hide', { roomId: 'r-crypt' }],
-      ['reveal', { roomId: 'r-hall' }],
-    ]);
-  });
-
-  it('flips concealment behind doors for the scene', () => {
-    useSessionStore.setState({ session: session({ fog: fogWith({}, true) }), you: dm });
-    const sent = captureCommands();
-    render(<FogTool />);
-    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
-
-    expect(screen.getByTestId('fog-conceal').getAttribute('aria-checked')).toBe('true');
-    fireEvent.click(screen.getByTestId('fog-conceal'));
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({
-      module: 'fog',
-      action: 'set-conceal',
-      payload: { concealBehindDoors: false },
-    });
-  });
-});
-
-describe('Reveal all / Hide all — instant, with a way back (D9)', () => {
-  const before: Record<string, RoomFog> = {
-    'r-crypt': { status: 'revealed', wasEverRevealed: true },
-    'r-hall': { status: 're_hidden', wasEverRevealed: true },
-  };
-
-  function armed() {
-    useSessionStore.setState({ session: session({ fog: fogWith(before) }), you: dm });
-    const sent = captureCommands();
-    render(<FogTool />);
-    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
-    return sent;
-  }
-
-  it('applies at once and offers undo instead of asking first', () => {
-    const sent = armed();
-    fireEvent.click(screen.getByTestId('fog-reveal-all'));
-
-    expect(sent).toHaveLength(1);
-    expect(sent[0].action).toBe('set-bulk');
-    expect(sent[0].payload).toEqual({ rooms: revealAllRooms([CRYPT, HALL]) });
-
-    const toast = useToasts.getState().toast;
-    expect(toast?.action?.label).toBe('Undo');
-    expect(toast?.durationMs).toBe(5000);
-  });
-
-  it('undo replays the exact rooms record captured before the bulk op', () => {
-    const sent = armed();
-    fireEvent.click(screen.getByTestId('fog-hide-all'));
-    expect(sent[0].payload).toEqual({ rooms: hideAllRooms(before) });
-
-    useToasts.getState().toast?.action?.onAction();
-    // Not an approximation of the old state — the record itself, byte for byte.
-    expect(sent[1]).toMatchObject({ module: 'fog', action: 'set-bulk', payload: { rooms: before } });
-    expect(sent[1].payload).toEqual({ rooms: before });
-  });
-
-  it('undo survives the slice having moved on — the capture is a value, not a read', () => {
-    const sent = armed();
-    fireEvent.click(screen.getByTestId('fog-reveal-all'));
-    // The server's echo lands before the DM reaches for undo.
-    act(() =>
-      useSessionStore.setState({ session: session({ fog: fogWith(revealAllRooms([CRYPT, HALL])) }) }),
-    );
-
-    useToasts.getState().toast?.action?.onAction();
-    expect(sent[1].payload).toEqual({ rooms: before });
-  });
-});
-
-// ── P4 — the DM controls ───────────────────────────────────────────────────
-
-/** The two fixture rooms sit at x 0..4 and 10..14, y 0..4 — one shape covers both. */
-const FRAME = { minX: -1, minY: -1, maxX: 15, maxY: 5 };
-
-const shapeChild = (x0: number, y0: number, x1: number, y1: number) => ({
-  id: 'floor',
-  childType: 'shape',
-  visible: true,
-  contours: [
-    [
-      [x0, y0],
-      [x1, y0],
-      [x1, y1],
-      [x0, y1],
-    ],
-  ],
-});
-
-const zoneChild = (id: string, shape: unknown, blocksAutoExplore = true) => ({
-  id,
-  name: id,
-  childType: 'zone',
-  visible: true,
-  shape,
-  blocksAutoExplore,
-});
-
-const layerWith = (children: unknown[], rooms: Room[] = [CRYPT, HALL]): Layer =>
-  ({ id: 'l1', type: 'dungeon', children, standaloneWalls: [], rooms }) as unknown as Layer;
-
-const visionScene = (over: Partial<SceneFog> = {}): FogState => ({
-  byScene: { 'scene-1': { rooms: {}, concealBehindDoors: true, mode: 'vision', ...over } },
-});
-
 describe('the frame a brushed cell is counted against', () => {
   it('measures the DM’s own document with the function the server measured it with', () => {
-    // The DM's copy is the authored file and carries no stamped frame — this is the half that
-    // has to agree with `sceneMap.frame` or every brushed cell lands one square off.
     expect(fogFrame({ layers: [layerWith([shapeChild(0, 0, 14, 4)])] })).toEqual(FRAME);
   });
 
@@ -337,15 +200,11 @@ describe('the frame a brushed cell is counted against', () => {
   });
 
   it('converts a world point to the cell the region record means by it', () => {
-    // A non-zero origin is the whole test: with minX 0 every off-by-one hides.
     expect(cellAt(FRAME, 0.5, 0.5)).toEqual([1, 1]);
     expect(cellAt(FRAME, -0.5, -0.5)).toEqual([0, 0]);
     expect(cellAt(FRAME, 13.9, 4.9)).toEqual([14, 5]);
-    // The convention is `cellsCoveredByPolygon`'s: cell [c, r] is the square whose centre is
-    // minX + c + 0.5, so `cellRect` has to be the square that contains it.
     expect(cellRect(FRAME, [1, 1])[0]).toEqual([0, 0]);
     expect(cellRect(FRAME, [1, 1])[2]).toEqual([1, 1]);
-    // Off the frame in every direction is not a cell at all.
     expect(cellAt(FRAME, -1.5, 0)).toBeNull();
     expect(cellAt(FRAME, 0, -1.5)).toBeNull();
     expect(cellAt(FRAME, 15.5, 0)).toBeNull();
@@ -357,7 +216,6 @@ describe('what the room list derives that the fog record does not hold', () => {
   const region = () => regionOf(FRAME)!;
 
   it('reads “partly seen” off the region record, per room', () => {
-    // One cell inside the crypt (world 0.5, 0.5) and nothing in the hall.
     const painted = setCells(region(), [[1, 1]]);
     expect([...partlySeenRooms([CRYPT, HALL], painted)]).toEqual(['r-crypt']);
     expect([...partlySeenRooms([CRYPT, HALL], region())]).toEqual([]);
@@ -373,7 +231,6 @@ describe('what the room list derives that the fog record does not hold', () => {
     ]);
     expect([...lockedRooms([CRYPT, HALL], [circle])]).toEqual(['r-crypt']);
 
-    // A point has no area to lock, and an unflagged zone is not a lock at all.
     expect(
       [...lockedRooms([CRYPT, HALL], [layerWith([zoneChild('z3', { kind: 'point', position: { x: 2, y: 2 } })])])],
     ).toEqual([]);
@@ -386,8 +243,311 @@ describe('what the room list derives that the fog record does not hold', () => {
       ],
     ).toEqual([]);
   });
+});
 
-  it('shows both in the list — and never calls a DM-revealed room partly seen', () => {
+// ── Registration ─────────────────────────────────────────────────────────────
+
+describe('registration', () => {
+  it('is the DM’s tool alone: players are not offered the panel', () => {
+    expect(usePanels('dm').map((p) => p.id)).toContain('fog');
+    expect(usePanels('player').map((p) => p.id)).not.toContain('fog');
+  });
+
+  it('wires the header actions and footer slots', () => {
+    const def = usePanel('fog');
+    expect(def?.title).toBe('Fog');
+    expect(def?.icon).toBe('fog');
+    expect(def?.key).toBe('F');
+    expect(def?.group).toBe('play');
+    expect(def?.order).toBe(20);
+    expect(def?.roles).toEqual(['dm']);
+    expect(def?.headerActions).toBe(FogHeaderActions);
+    expect(def?.footer).toBe(FogFooter);
+  });
+
+  it('carries no subtitle — the header is title, mode segment, settings, close', () => {
+    expect(usePanel('fog')?.subtitle).toBeUndefined();
+  });
+});
+
+// ── FogHeaderActions — mode, and the settings menu ──────────────────────────
+
+describe('FogHeaderActions', () => {
+  it('shows the mode and sends set-mode on a pick, not on the mode already showing', () => {
+    useSessionStore.setState({ session: session({ fog: fogWith({}) }), you: dm });
+    const sent = captureCommands();
+    render(<FogHeaderActions />);
+
+    expect(screen.getByTestId('fog-mode').getAttribute('data-value')).toBe('rooms');
+    fireEvent.click(screen.getByRole('radio', { name: 'Vision' }));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ module: 'fog', action: 'set-mode', payload: { mode: 'vision' } });
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Rooms' }));
+    expect(sent).toHaveLength(1); // still shows 'rooms' — no state actually flipped here
+  });
+
+  it('keeps auto-explore and the vision share out of a rooms-mode table; conceal always shows', () => {
+    useSessionStore.setState({ session: session({ fog: fogWith({}) }), you: dm });
+    render(<FogHeaderActions />);
+    fireEvent.click(screen.getByRole('button', { name: 'Fog settings' }));
+
+    expect(screen.getByTestId('fog-conceal')).not.toBeNull();
+    expect(screen.queryByTestId('fog-auto-explore')).toBeNull();
+    expect(screen.queryByTestId('fog-share')).toBeNull();
+  });
+
+  it('sends set-auto-explore and set-share from the vision-mode controls', () => {
+    useSessionStore.setState({ session: session({ fog: visionScene() }), you: dm });
+    const sent = captureCommands();
+    render(<FogHeaderActions />);
+    fireEvent.click(screen.getByRole('button', { name: 'Fog settings' }));
+
+    expect(screen.getByTestId('fog-auto-explore').getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(screen.getByTestId('fog-auto-explore'));
+    expect(sent[0]).toMatchObject({ action: 'set-auto-explore', payload: { autoExplore: false } });
+
+    expect(screen.getByTestId('fog-share').getAttribute('data-value')).toBe('party');
+    fireEvent.click(screen.getByRole('radio', { name: 'Individual' }));
+    expect(sent[1]).toMatchObject({ action: 'set-share', payload: { visionShare: 'individual' } });
+  });
+
+  it('flips concealment behind doors', () => {
+    useSessionStore.setState({ session: session({ fog: fogWith({}, true) }), you: dm });
+    const sent = captureCommands();
+    render(<FogHeaderActions />);
+    fireEvent.click(screen.getByRole('button', { name: 'Fog settings' }));
+
+    expect(screen.getByTestId('fog-conceal').getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(screen.getByTestId('fog-conceal'));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      module: 'fog',
+      action: 'set-conceal',
+      payload: { concealBehindDoors: false },
+    });
+  });
+
+  it('closes the menu on an outside click', () => {
+    useSessionStore.setState({ session: session({ fog: fogWith({}) }), you: dm });
+    render(
+      <div>
+        <FogHeaderActions />
+        <button type="button">elsewhere</button>
+      </div>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Fog settings' }));
+    expect(screen.getByTestId('fog-conceal')).not.toBeNull();
+
+    fireEvent.pointerDown(screen.getByText('elsewhere'));
+    expect(screen.queryByTestId('fog-conceal')).toBeNull();
+  });
+
+  it('closes the menu on Escape', () => {
+    useSessionStore.setState({ session: session({ fog: fogWith({}) }), you: dm });
+    render(<FogHeaderActions />);
+    fireEvent.click(screen.getByRole('button', { name: 'Fog settings' }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('fog-conceal')).toBeNull();
+  });
+});
+
+// ── FogTool — the tool row, hint, and room grid ↔ brush swap ────────────────
+
+describe('FogTool — the tool row', () => {
+  it('the tool row renders whether or not a tool is armed', () => {
+    useSessionStore.setState({ session: session(), you: dm });
+    render(<FogTool />);
+    expect(screen.getByTestId('fog-bar')).not.toBeNull();
+    expect(screen.getByTestId('fog-tool-toggle').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('Reveal arms the tool with a direction, and a second press disarms it', () => {
+    useSessionStore.setState({ session: session(), you: dm });
+    render(<FogTool />);
+    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
+    expect(useActiveTool.getState().activeTool).toBe('fog');
+    expect(useActiveTool.getState().toolDetail).toBe('Reveal');
+    expect(screen.getByTestId('fog-tool-toggle').getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
+    expect(useActiveTool.getState().activeTool).toBeNull();
+  });
+
+  it('Hide arms the opposite direction, replacing Reveal in one click', () => {
+    useSessionStore.setState({ session: session(), you: dm });
+    render(<FogTool />);
+    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
+    fireEvent.click(screen.getByTestId('fog-hide-toggle'));
+    expect(useActiveTool.getState().activeTool).toBe('fog');
+    expect(useActiveTool.getState().toolDetail).toBe('Hide');
+    expect(screen.getByTestId('fog-tool-toggle').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByTestId('fog-hide-toggle').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('Escape exits the tool — the guarantee every later tool inherits', () => {
+    useSessionStore.setState({ session: session(), you: dm });
+    render(
+      <>
+        <FogTool />
+        <Hotkeys />
+      </>,
+    );
+    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
+    expect(useActiveTool.getState().activeTool).toBe('fog');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useActiveTool.getState().activeTool).toBeNull();
+  });
+
+  it('R and H hotkeys call the same handlers the buttons do', () => {
+    useSessionStore.setState({ session: session(), you: dm });
+    render(
+      <>
+        <FogTool />
+        <Hotkeys />
+      </>,
+    );
+    fireEvent.keyDown(window, { key: 'r' });
+    expect(useActiveTool.getState().activeTool).toBe('fog');
+    expect(useActiveTool.getState().toolDetail).toBe('Reveal');
+    fireEvent.keyDown(window, { key: 'h' });
+    expect(useActiveTool.getState().toolDetail).toBe('Hide');
+  });
+
+  it('disables Brush outside vision mode', () => {
+    useSessionStore.setState({
+      session: session({ fog: fogWith({}) }),
+      you: dm,
+      mapData: { frame: FRAME, layers: [dungeonLayer([CRYPT, HALL])] },
+    });
+    render(<FogTool />);
+    expect((screen.getByTestId('fog-brush') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('arms the brush as a sub-mode of the same tool once vision mode has a region', () => {
+    useSessionStore.setState({
+      session: session({ fog: visionScene() }),
+      you: dm,
+      mapData: { frame: FRAME, layers: [dungeonLayer([CRYPT, HALL])] },
+    });
+    render(<FogTool />);
+    const brush = screen.getByTestId('fog-brush') as HTMLButtonElement;
+    expect(brush.disabled).toBe(false);
+
+    fireEvent.click(brush);
+    expect(useFogBrush.getState().on).toBe(true);
+    expect(useActiveTool.getState().activeTool).toBe('fog');
+    expect(useActiveTool.getState().toolDetail).toBe('Brush');
+    expect(brush.getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(brush);
+    expect(useFogBrush.getState().on).toBe(false);
+    expect(useActiveTool.getState().activeTool).toBeNull();
+  });
+
+  it('does not offer the brush on a scene that keeps no cell memory, and says why', () => {
+    useSessionStore.setState({
+      session: session({ fog: visionScene() }),
+      you: dm,
+      mapData: { frame: { minX: 0, minY: 0, maxX: 4000, maxY: 4000 }, layers: [layerWith([])] },
+    });
+    const sent = captureCommands();
+    render(<FogTool />);
+
+    const brush = screen.getByTestId('fog-brush') as HTMLButtonElement;
+    expect(brush.disabled).toBe(true);
+    expect(screen.getByTestId('fog-brush-unavailable').textContent).toContain('too large');
+    fireEvent.click(brush);
+    expect(useFogBrush.getState().on).toBe(false);
+    expect(sent).toEqual([]);
+  });
+
+  it('swaps the room grid for the brush controls while armed, same height budget', () => {
+    useSessionStore.setState({
+      session: session({ fog: visionScene() }),
+      you: dm,
+      mapData: { frame: FRAME, layers: [dungeonLayer([CRYPT, HALL])] },
+    });
+    render(<FogTool />);
+    expect(screen.getByTestId('fog-rooms')).not.toBeNull();
+
+    fireEvent.click(screen.getByTestId('fog-brush'));
+    expect(screen.queryByTestId('fog-rooms')).toBeNull();
+    expect(screen.getByTestId('fog-brush-op')).not.toBeNull();
+    expect(screen.getByTestId('fog-brush-shape')).not.toBeNull();
+    expect(screen.getByTestId('fog-brush-size')).not.toBeNull(); // stroke is the default shape
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Box' }));
+    expect(useFogBrush.getState().shape).toBe('box');
+    expect(screen.queryByTestId('fog-brush-size')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('fog-brush')); // disarm entirely
+    expect(useActiveTool.getState().activeTool).toBeNull();
+    expect(screen.getByTestId('fog-rooms')).not.toBeNull();
+  });
+});
+
+describe('the hint line', () => {
+  it('reads the click/shift-click hint', () => {
+    useSessionStore.setState({ session: session(), you: dm });
+    render(<FogTool />);
+    expect(screen.getByText('Click a room on the map. Shift-click frames it.')).not.toBeNull();
+  });
+});
+
+// ── The room grid — status as shape, direction-aware chip clicks ───────────
+
+describe('the room grid', () => {
+  it('groups Unrevealed then Revealed, with counts, unrevealed first', () => {
+    useSessionStore.setState({
+      session: session({ fog: fogWith({ 'r-crypt': { status: 'revealed', wasEverRevealed: true } }) }),
+      you: dm,
+    });
+    render(<FogTool />);
+    expect(screen.getByText('Unrevealed · 1')).not.toBeNull();
+    expect(screen.getByText('Revealed · 1')).not.toBeNull();
+
+    const chips = screen.getByTestId('fog-rooms').querySelectorAll('[data-room-id]');
+    expect(chips[0].getAttribute('data-room-id')).toBe('r-hall');
+    expect(chips[1].getAttribute('data-room-id')).toBe('r-crypt');
+  });
+
+  it('toggles a room when no tool is armed', () => {
+    useSessionStore.setState({
+      session: session({ fog: fogWith({ 'r-crypt': { status: 'revealed', wasEverRevealed: true } }) }),
+      you: dm,
+    });
+    const sent = captureCommands();
+    render(<FogTool />);
+    const grid = screen.getByTestId('fog-rooms');
+    fireEvent.click(grid.querySelector('[data-room-id="r-crypt"]')!); // revealed → hide
+    fireEvent.click(grid.querySelector('[data-room-id="r-hall"]')!); // never revealed → reveal
+    expect(sent.map((s) => [s.action, s.payload])).toEqual([
+      ['hide', { roomId: 'r-crypt' }],
+      ['reveal', { roomId: 'r-hall' }],
+    ]);
+  });
+
+  it('sends the armed direction regardless of the room’s own state', () => {
+    useSessionStore.setState({
+      session: session({ fog: fogWith({ 'r-crypt': { status: 'revealed', wasEverRevealed: true } }) }),
+      you: dm,
+    });
+    const sent = captureCommands();
+    render(<FogTool />);
+
+    fireEvent.click(screen.getByTestId('fog-tool-toggle')); // arm Reveal
+    fireEvent.click(screen.getByTestId('fog-rooms').querySelector('[data-room-id="r-crypt"]')!);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ module: 'fog', action: 'reveal', payload: { roomId: 'r-crypt' } });
+
+    fireEvent.click(screen.getByTestId('fog-hide-toggle')); // arm Hide instead
+    fireEvent.click(screen.getByTestId('fog-rooms').querySelector('[data-room-id="r-hall"]')!);
+    expect(sent[1]).toMatchObject({ module: 'fog', action: 'hide', payload: { roomId: 'r-hall' } });
+  });
+
+  it('marks a zone-locked room, and never calls a DM-revealed room partly seen', () => {
+    const region = () => regionOf(FRAME)!;
     act(() =>
       useSessionStore.setState({
         mapData: {
@@ -409,136 +569,143 @@ describe('what the room list derives that the fog record does not hold', () => {
       }),
     );
     render(<FogTool />);
-    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
+    const grid = screen.getByTestId('fog-rooms');
+    const crypt = grid.querySelector('[data-room-id="r-crypt"]')!;
+    expect(crypt.getAttribute('data-fog-label')).toBe('Partly seen');
+    expect(crypt.getAttribute('data-locked')).toBeNull();
+    const hall = grid.querySelector('[data-room-id="r-hall"]')!;
+    expect(hall.getAttribute('data-fog-label')).toBe('Revealed');
+    expect(hall.getAttribute('data-locked')).toBe('true');
+  });
 
-    const rows = screen.getByTestId('fog-rooms').querySelectorAll('li');
-    expect(rows[0].getAttribute('data-fog-label')).toBe('Partly seen');
-    expect(rows[0].getAttribute('data-locked')).toBeNull();
-    // The hall has cells too, but the DM lit it: a revealed room is washed whole, so the
-    // word for it stays "Revealed".
-    expect(rows[1].getAttribute('data-fog-label')).toBe('Revealed');
-    expect(rows[1].getAttribute('data-locked')).toBe('true');
-    expect(rows[1].textContent).toContain('Locked');
+  it('reaches the map hover on a chip hover, without throwing', () => {
+    useSessionStore.setState({ session: session({ fog: fogWith({}) }), you: dm });
+    render(<FogTool />);
+    const chip = screen.getByTestId('fog-rooms').querySelector('[data-room-id]')!;
+    expect(() => {
+      fireEvent.mouseEnter(chip);
+      fireEvent.mouseLeave(chip);
+    }).not.toThrow();
   });
 });
 
-describe('Fog panel v2 — mode, and what the mode brings with it', () => {
-  const arm = (fog: FogState) => {
-    // A stamped frame, because the brush is only offered where the scene can keep a region
-    // record — measured off this map with the function the referee measures it with.
+// ── The room grid ceiling (25+ rooms) ───────────────────────────────────────
+
+describe('the room grid ceiling', () => {
+  const manyRooms = (n: number): Room[] =>
+    Array.from({ length: n }, (_, i) => room(`r-${i}`, i * 10, `Room ${i}`));
+
+  function renderWith(n: number) {
+    const rooms = manyRooms(n);
     useSessionStore.setState({
-      session: session({ fog }),
+      session: session({ fog: fogWith({}) }),
       you: dm,
-      mapData: { frame: FRAME, layers: [dungeonLayer([CRYPT, HALL])] },
+      mapData: { layers: [dungeonLayer(rooms)] },
     });
-    const sent = captureCommands();
+    useStore.setState({ layers: [dungeonLayer(rooms)] });
     render(<FogTool />);
-    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
-    return sent;
+  }
+
+  it('12 rooms: grouped, no filter, all show', () => {
+    renderWith(12);
+    expect(screen.queryByTestId('fog-filter')).toBeNull();
+    expect(screen.getByTestId('fog-rooms').querySelectorAll('[data-room-id]')).toHaveLength(12);
+  });
+
+  it('24 rooms: still fits without scrolling — no filter, all 24 show', () => {
+    renderWith(24);
+    expect(screen.queryByTestId('fog-filter')).toBeNull();
+    expect(screen.getByTestId('fog-rooms').querySelectorAll('[data-room-id]')).toHaveLength(24);
+  });
+
+  it('40 rooms: a filter appears, at most 24 chips show, and the rest are counted', () => {
+    renderWith(40);
+    expect(screen.getByTestId('fog-filter')).not.toBeNull();
+    expect(screen.getByTestId('fog-rooms').querySelectorAll('[data-room-id]')).toHaveLength(24);
+    expect(screen.getByText('+16 more, keep typing')).not.toBeNull();
+  });
+
+  it('40 rooms: typing narrows the grid to the match', () => {
+    renderWith(40);
+    fireEvent.change(screen.getByTestId('fog-filter'), { target: { value: 'Room 1' } });
+    // "Room 1" and "Room 10".."Room 19" — 11 rooms, all fit under the ceiling.
+    const chips = screen.getByTestId('fog-rooms').querySelectorAll('[data-room-id]');
+    expect(chips).toHaveLength(11);
+    chips.forEach((c) => expect(c.getAttribute('title')).toMatch(/Room 1/));
+    expect(screen.queryByText(/more, keep typing/)).toBeNull();
+  });
+});
+
+// ── FogFooter — bulk ops with undo, and the conceal line ────────────────────
+
+describe('FogFooter', () => {
+  const before: Record<string, RoomFog> = {
+    'r-crypt': { status: 'revealed', wasEverRevealed: true },
+    'r-hall': { status: 're_hidden', wasEverRevealed: true },
   };
 
-  it('offers the mode without taking the map hostage, and sends set-mode', () => {
-    useSessionStore.setState({ session: session({ fog: fogWith({}) }), you: dm });
+  function armed() {
+    useSessionStore.setState({ session: session({ fog: fogWith(before) }), you: dm });
     const sent = captureCommands();
-    render(<FogTool />);
-    // Not inside the armed bar: which fog the table plays is a table setting.
-    expect(screen.queryByTestId('fog-bar')).toBeNull();
-    expect(screen.getByTestId('fog-mode').getAttribute('data-value')).toBe('rooms');
+    render(<FogFooter />);
+    return sent;
+  }
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Token vision' }));
+  it('reveals every room at once and offers undo', () => {
+    const sent = armed();
+    fireEvent.click(screen.getByTestId('fog-reveal-all'));
+
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ module: 'fog', action: 'set-mode', payload: { mode: 'vision' } });
-    // Picking the mode it is already in is not a command.
-    fireEvent.click(screen.getByRole('radio', { name: 'Rooms' }));
-    expect(sent).toHaveLength(1);
+    expect(sent[0].action).toBe('set-bulk');
+    expect(sent[0].payload).toEqual({ rooms: revealAllRooms([CRYPT, HALL]) });
+
+    const toast = useToasts.getState().toast;
+    expect(toast?.action?.label).toBe('Undo');
+    expect(toast?.durationMs).toBe(5000);
   });
 
-  it('keeps auto-explore, the share and the brush off a rooms-mode table entirely', () => {
-    arm(fogWith({}));
-    expect(screen.queryByTestId('fog-auto-explore')).toBeNull();
-    expect(screen.queryByTestId('fog-share')).toBeNull();
-    expect(screen.queryByTestId('fog-brush')).toBeNull();
-    // …while everything that was already here is untouched.
-    expect(screen.getByTestId('fog-conceal')).not.toBeNull();
-    expect(screen.getByTestId('fog-reveal-all')).not.toBeNull();
+  it('undo replays the exact rooms record captured before the bulk op', () => {
+    const sent = armed();
+    fireEvent.click(screen.getByTestId('fog-hide-all'));
+    expect(sent[0].payload).toEqual({ rooms: hideAllRooms(before) });
+
+    useToasts.getState().toast?.action?.onAction();
+    expect(sent[1]).toMatchObject({ module: 'fog', action: 'set-bulk', payload: { rooms: before } });
+    expect(sent[1].payload).toEqual({ rooms: before });
   });
 
-  it('sends set-auto-explore and set-share from the vision-mode controls', () => {
-    const sent = arm(visionScene());
-    // Absent reads as on, which is what the switch has to show before anyone touches it.
-    expect(screen.getByTestId('fog-auto-explore').getAttribute('aria-checked')).toBe('true');
-    fireEvent.click(screen.getByTestId('fog-auto-explore'));
-    expect(sent[0]).toMatchObject({ action: 'set-auto-explore', payload: { autoExplore: false } });
-
-    expect(screen.getByTestId('fog-share').getAttribute('data-value')).toBe('party');
-    fireEvent.click(screen.getByRole('radio', { name: 'Individual' }));
-    expect(sent[1]).toMatchObject({ action: 'set-share', payload: { visionShare: 'individual' } });
+  it('undo survives the slice having moved on — the capture is a value, not a read', () => {
+    const sent = armed();
+    fireEvent.click(screen.getByTestId('fog-reveal-all'));
+    act(() =>
+      useSessionStore.setState({ session: session({ fog: fogWith(revealAllRooms([CRYPT, HALL])) }) }),
+    );
+    useToasts.getState().toast?.action?.onAction();
+    expect(sent[1].payload).toEqual({ rooms: before });
   });
 
-  it('arms the brush as a sub-mode — no second tool, and the indicator says so', () => {
-    arm(visionScene());
-    expect(useFogBrush.getState().on).toBe(false);
-    expect(useActiveTool.getState().toolDetail).toBeNull();
-
-    fireEvent.click(screen.getByTestId('fog-brush'));
-    expect(useFogBrush.getState().on).toBe(true);
-    // Still the fog tool: a brush is what a click means, not a tool of its own.
-    expect(useActiveTool.getState().activeTool).toBe('fog');
-    expect(useActiveTool.getState().toolDetail).toBe('Brush');
-    expect(screen.getByTestId('fog-brush').textContent).toContain('revealing');
-
-    fireEvent.click(screen.getByRole('radio', { name: 'Hide' }));
-    expect(useFogBrush.getState().op).toBe('hide');
-    expect(screen.getByTestId('fog-brush').textContent).toContain('hiding');
-
-    // Leaving the tool leaves the brush behind with it.
-    fireEvent.keyDown(window, { key: 'Escape' });
-    expect(useActiveTool.getState().toolDetail).toBeNull();
+  it('shows whether concealment behind doors is on', () => {
+    useSessionStore.setState({ session: session({ fog: fogWith({}, true) }), you: dm });
+    render(<FogFooter />);
+    expect(screen.getByText('Conceal behind doors · on')).not.toBeNull();
   });
 
-  it('does not offer the brush on a scene that keeps no cell memory, and says why', () => {
-    // A frame past `REGION_CELL_MAX`: the referee refuses every `region-set` on it, so a brush
-    // here paints into a void and the DM finds out from a rejection they never see.
+  it('keeps the footer to one row — buttons never wrap, the conceal line truncates instead', () => {
+    useSessionStore.setState({ session: session({ fog: fogWith({}, true) }), you: dm });
+    render(<FogFooter />);
+    expect(screen.getByTestId('fog-reveal-all').className).toContain('whitespace-nowrap');
+    expect(screen.getByTestId('fog-hide-all').className).toContain('whitespace-nowrap');
+    expect(screen.getByText('Conceal behind doors · on').className).toContain('truncate');
+  });
+
+  it('disables the bulk buttons with no rooms', () => {
     useSessionStore.setState({
-      session: session({ fog: visionScene() }),
+      session: session({ fog: fogWith({}) }),
       you: dm,
-      mapData: { frame: { minX: 0, minY: 0, maxX: 4000, maxY: 4000 }, layers: [layerWith([])] },
+      mapData: { layers: [dungeonLayer([])] },
     });
-    const sent = captureCommands();
-    render(<FogTool />);
-    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
-
-    const brush = screen.getByTestId('fog-brush') as HTMLButtonElement;
-    expect(brush.disabled).toBe(true);
-    expect(screen.getByTestId('fog-brush-unavailable').textContent).toContain('too large');
-    fireEvent.click(brush);
-    expect(useFogBrush.getState().on).toBe(false);
-    expect(sent).toEqual([]);
-  });
-
-  it('tints “Partly seen” on its own, per the mockup — the one status that is mid-way', () => {
-    useSessionStore.setState({
-      session: session({
-        fog: visionScene({
-          rooms: {
-            'r-crypt': { status: 're_hidden', wasEverRevealed: true },
-            'r-hall': { status: 're_hidden', wasEverRevealed: true },
-          },
-          region: setCells(regionOf(FRAME)!, [[1, 1]]),
-        }),
-      }),
-      you: dm,
-      mapData: { frame: FRAME, layers: [layerWith([])] },
-    });
-    render(<FogTool />);
-    fireEvent.click(screen.getByTestId('fog-tool-toggle'));
-
-    const rows = screen.getByTestId('fog-rooms').querySelectorAll('li');
-    const statusOf = (row: Element) => row.querySelectorAll('span')[row.querySelectorAll('span').length - 1];
-    expect(rows[0].getAttribute('data-fog-label')).toBe('Partly seen');
-    expect(statusOf(rows[0]).className).toContain('text-warning');
-    // Every other status stays the quiet tier — the tint is the state, not decoration.
-    expect(rows[1].getAttribute('data-fog-label')).toBe('Explored');
-    expect(statusOf(rows[1]).className).toContain('text-text-secondary');
+    render(<FogFooter />);
+    expect((screen.getByTestId('fog-reveal-all') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('fog-hide-all') as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -5,14 +5,19 @@ import { sceneTriggersOf, worldLightOf, worldOf } from '@dnd/mechanics/triggers'
 import { useStore } from '@dnd/core/src/store/store';
 import { vocabLabel } from '@dnd/core/src/shared/prep';
 import { worldBadge } from '../modules/world/world';
-import { useModuleState, useSessionStore } from '../session/store';
+import { useShell } from '../shell/shellStore';
+import { toolLabel, useActiveTool } from '../session/tools';
+import type { ConnectionStatus } from '../session/WebSocketClient';
+import { useModuleState, useRole, useSessionStore } from '../session/store';
 import { MAX_ZOOM } from '../renderer/camera';
 import { fitMap, minZoom, zoomAbout } from '../renderer/cameraInput';
 
 /**
- * The editor's status bar, at the table: FPS and frame time on the left, the connection
- * where the editor shows cursor coordinates (the table's equivalent vital sign), and the
- * same exponential zoom slider on the right. No X/Y — nobody authors here.
+ * The table's status bar: the scene name (opens the Session popover), presence and
+ * connection, latency, world light, and — while a tool is armed — its name and the key
+ * that exits it. FPS/frame-time are diagnostics, off by default (Shift+D), where the
+ * editor's equivalent bar always shows cursor coordinates. Same exponential zoom slider
+ * on the right.
  */
 const SLIDER_MIN = 10;
 
@@ -27,12 +32,46 @@ const fpsColorClass = (fps: number): string => {
   return 'text-text-muted';
 };
 
-const CONNECTION = {
-  connecting: { label: 'Connecting', dot: 'bg-amber-400' },
-  open: { label: 'Connected', dot: 'bg-emerald-400' },
-  reconnecting: { label: 'Reconnecting', dot: 'bg-amber-400 animate-pulse' },
-  closed: { label: 'Disconnected', dot: 'bg-red-500' },
-} as const;
+const CONNECTION: Record<ConnectionStatus, { label: string }> = {
+  connecting: { label: 'Connecting' },
+  open: { label: 'Connected' },
+  reconnecting: { label: 'Reconnecting' },
+  closed: { label: 'Disconnected' },
+};
+
+/**
+ * Presence as shape, not colour (chrome-style-guide.md "State encoding"): filled disc =
+ * open, hollow ring = connecting/reconnecting, triangle = closed. `data-shape` is a test
+ * hook only — nothing reads it at runtime.
+ */
+function ConnectionShape({ connection }: { connection: ConnectionStatus }) {
+  if (connection === 'open') {
+    return (
+      <span
+        aria-hidden
+        data-shape="disc"
+        className="h-2 w-2 shrink-0 rounded-full bg-text-secondary"
+      />
+    );
+  }
+  if (connection === 'closed') {
+    return (
+      <span
+        aria-hidden
+        data-shape="triangle"
+        className="h-2 w-2 shrink-0 bg-text-muted"
+        style={{ clipPath: 'polygon(50% 0%, 0% 100%, 100% 100%)' }}
+      />
+    );
+  }
+  return (
+    <span
+      aria-hidden
+      data-shape="ring"
+      className="h-2 w-2 shrink-0 rounded-full border border-text-muted"
+    />
+  );
+}
 
 const fitToScreen = (): void => {
   const engine = getEngineSingleton()?.engine;
@@ -84,6 +123,7 @@ function ZoomSlider() {
       <button
         onClick={fitToScreen}
         className="min-w-[3ch] text-right tabular-nums text-text-muted transition-colors hover:text-text-primary"
+        aria-label="Fit to screen"
         title="Fit to screen (0)"
       >
         {pct}%
@@ -104,6 +144,12 @@ function ZoomSlider() {
 }
 
 export function TableStatusBar() {
+  // M4 — the player variant: scene name, presence, and env badge only. Latency, diagnostics
+  // and the armed-tool segment are DM chrome (a player never arms a tool, and Shift+D reads
+  // as doing nothing rather than as a hidden control that happens to render empty).
+  const isPlayer = useRole() === 'player';
+  const diagnostics = useShell((s) => s.diagnostics);
+  const openPanelById = useShell((s) => s.openPanelById);
   const [fpsStr, setFpsStr] = useState('—');
   const [ftStr, setFtStr] = useState('—');
   const [fpsColor, setFpsColor] = useState('text-text-muted');
@@ -111,6 +157,11 @@ export function TableStatusBar() {
   const latencyMs = useSessionStore((s) => s.latencyMs);
   const sessionEnded = useSessionStore((s) => s.sessionEnded);
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
+  const sceneName = useSessionStore(
+    (s) => s.session?.scenes.find((scene) => scene.id === s.session?.activeSceneId)?.name ?? null,
+  );
+  const activeTool = useActiveTool((s) => s.activeTool);
+  const toolDetail = useActiveTool((s) => s.toolDetail);
   const triggersState = useModuleState<TriggersState>('triggers');
   const map = useStore((s) => s.mapSettings);
   const env = sceneId && triggersState ? sceneTriggersOf(triggersState, sceneId).env : {};
@@ -159,17 +210,26 @@ export function TableStatusBar() {
   return (
     <div
       data-testid="table-status-bar"
-      className="absolute inset-x-0 bottom-0 z-10 flex h-7 items-center justify-between border-t border-border-default bg-surface-1/80 px-3 font-mono text-xs text-text-muted backdrop-blur-sm"
+      onPointerDown={(e) => e.stopPropagation()}
+      onWheel={(e) => e.stopPropagation()}
+      className="absolute bottom-0 left-0 right-14 z-toolbar flex h-7 items-center justify-between border-t border-border-default bg-surface-1/80 px-3 font-mono text-xs text-text-muted backdrop-blur-sm"
     >
-      {/* Left: FPS metrics + connection */}
+      {/* Left: scene name (opens the Session popover), presence, latency, world light,
+          diagnostics (Shift+D, off by default — after the env badge, never before the scene
+          name), armed tool */}
       <div className="flex items-center gap-3 tabular-nums" data-testid="connection-status">
-        <span className={fpsColor}>{fpsStr} FPS</span>
+        <button
+          type="button"
+          data-testid="scene-name"
+          onClick={() => openPanelById('session')}
+          className="rounded font-serif text-[13px] text-text-primary transition-colors duration-150 ease-settle hover:text-accent-active focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none"
+        >
+          {sceneName ?? 'No scene'}
+        </button>
         <span>&middot;</span>
-        <span>{ftStr}ms</span>
-        <span>&middot;</span>
-        <span className={`h-2 w-2 shrink-0 rounded-full ${conn.dot}`} aria-hidden />
+        <ConnectionShape connection={connection} />
         <span>{sessionEnded ? 'Session ended' : conn.label}</span>
-        {connection === 'open' && latencyMs !== null && (
+        {!isPlayer && connection === 'open' && latencyMs !== null && (
           <span className="text-text-secondary">{Math.round(latencyMs)} ms</span>
         )}
         {envLabel && (
@@ -180,39 +240,28 @@ export function TableStatusBar() {
             </span>
           </>
         )}
+        {!isPlayer && diagnostics && (
+          <>
+            <span>&middot;</span>
+            <span className={fpsColor}>{fpsStr} FPS</span>
+            <span>{ftStr}ms</span>
+          </>
+        )}
+        {!isPlayer && activeTool && (
+          <>
+            <span>&middot;</span>
+            <span data-testid="active-tool" className="flex items-center gap-1.5 text-accent-active">
+              {toolLabel(activeTool, toolDetail)}
+              <kbd className="rounded border border-border-default bg-surface-2 px-1 font-mono text-[10px] text-text-dim">
+                Esc
+              </kbd>
+            </span>
+          </>
+        )}
       </div>
 
       {/* Right: zoom controls, the editor's */}
       <ZoomSlider />
     </div>
-  );
-}
-
-/** Fit-to-screen, top-left over the map — the editor's Maximize control. */
-export function FitScreenButton() {
-  return (
-    <button
-      onClick={fitToScreen}
-      title="Fit to screen (0)"
-      aria-label="Fit to screen"
-      className="absolute left-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded border border-border-default bg-surface-1/80 text-text-secondary backdrop-blur-sm transition-colors hover:text-text-primary"
-    >
-      <svg
-        width="15"
-        height="15"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden
-      >
-        <path d="M8 3H5a2 2 0 0 0-2 2v3" />
-        <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
-        <path d="M3 16v3a2 2 0 0 0 2 2h3" />
-        <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
-      </svg>
-    </button>
   );
 }

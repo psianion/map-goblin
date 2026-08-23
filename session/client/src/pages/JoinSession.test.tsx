@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useSessionStore } from '../session/store';
-import JoinSession, { prepareTableForJoin } from './JoinSession';
+import JoinSession from './JoinSession';
+import { prepareTableForJoin } from '../session/prepareTableForJoin';
 
 vi.mock('../session/auth', () => ({
   resolveInviteCode: vi.fn().mockResolvedValue({ campaignId: 'c1', sessionId: 's1' }),

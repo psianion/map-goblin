@@ -1,6 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { TIME_WEATHER_FIXTURE, timeWeatherDoc } from './library'
-import { assertMapLoaded, hostTable, joinTable, type MapUnderTest } from './table'
+import { assertMapLoaded, hostTable, joinTable, openPanel, type MapUnderTest } from './table'
 import { canvasPoint, createDef, placeToken, tokenPositions } from './tokens'
 
 /**
@@ -104,15 +104,14 @@ test.describe.serial('@time-weather flagship', () => {
     }
   })
 
-  test('DM sets time and weather from the real control: every seat sees the badge and hears it', async () => {
-    await expect(dm.getByTestId('env-time')).toBeVisible()
-
-    await dm.getByTestId('env-time').selectOption('dusk')
-    await expect(player.getByTestId('env-badge')).toHaveText('Dusk', { timeout: 20_000 })
-    await expect(player.getByTestId('toast')).toContainText('Dusk settles', { timeout: 20_000 })
-
+  test('DM sets the weather from the real control: every seat sees the badge and hears it', async () => {
+    await openPanel(dm, 'session-controls')
+    // Weather only. The per-scene time-of-day select (`env-time`, 'dusk') left `src` at main
+    // c0e068f (PR #99) for the campaign-global World clock — a continuous dial, so there is no
+    // discrete 'dusk' to pick and no 'Dusk settles' line to hear; the badge carries the clock's
+    // own word for the hour instead.
     await dm.getByTestId('env-weather').selectOption('rain')
-    await expect(player.getByTestId('env-badge')).toHaveText('Dusk, Rain', { timeout: 20_000 })
+    await expect(player.getByTestId('env-badge')).toContainText('Rain', { timeout: 20_000 })
     await expect(player.getByTestId('toast')).toContainText('Rain begins to fall', { timeout: 20_000 })
   })
 

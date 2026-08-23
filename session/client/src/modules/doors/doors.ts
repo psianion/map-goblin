@@ -135,6 +135,60 @@ export function doorsOfLayers(layers: readonly Layer[]): DoorChild[] {
   );
 }
 
+/** The Doors popover's three chip groups (M3 plan §3). */
+export interface DoorGroups {
+  closed: LiveDoor[];
+  secret: LiveDoor[];
+  open: LiveDoor[];
+}
+
+/**
+ * Open beats secret beats plain closed. A door goes to Open the moment it swings, whatever
+ * else is true of it; a still-closed secret gets its own group so it reads as the thing that
+ * needs a decision, not buried among every other closed door.
+ */
+export function groupDoors(doors: readonly LiveDoor[]): DoorGroups {
+  const closed: LiveDoor[] = [];
+  const secret: LiveDoor[] = [];
+  const open: LiveDoor[] = [];
+  for (const entry of doors) {
+    if (entry.live.open) open.push(entry);
+    else if (entry.door.isSecret) secret.push(entry);
+    else closed.push(entry);
+  }
+  return { closed, secret, open };
+}
+
+/** Past this many doors the popover grows a filter field (M3 no-scroll ledger). */
+export const DOOR_FILTER_THRESHOLD = 25;
+/** How many chips fit in the popover without it scrolling. */
+export const DOOR_CHIP_CEILING = 24;
+
+/**
+ * Doors whose name matches `filter`. Filters, never reorders — a door's index in `doors` is
+ * what the "Door N" fallback name counts from, and `Array.filter`'s callback index is that
+ * same original-array index, so the fallback stays stable whatever is typed.
+ */
+export function filterDoors(doors: readonly LiveDoor[], filter: string): LiveDoor[] {
+  const query = filter.trim().toLowerCase();
+  if (!query) return [...doors];
+  return doors.filter((entry, i) => doorLabel(entry.door, i).toLowerCase().includes(query));
+}
+
+/**
+ * What the popover actually draws: every match under the ledger's threshold, else capped to
+ * the ceiling with Closed first — the same priority the chip groups already draw in, so
+ * capping the concatenation caps the right doors without a second sort. Shared with the
+ * on-map menu (`DoorMenu`), which uses it to tell whether the panel is already showing the
+ * selected door's chip, or whether it owes the DM/player a menu of its own.
+ */
+export function visibleDoorChips(doors: readonly LiveDoor[], filter: string): LiveDoor[] {
+  const matched = filterDoors(doors, filter);
+  if (doors.length < DOOR_FILTER_THRESHOLD) return matched;
+  const { closed, secret, open } = groupDoors(matched);
+  return [...closed, ...secret, ...open].slice(0, DOOR_CHIP_CEILING);
+}
+
 /**
  * The scene's doors at their live state — the one reading of "what are the doors doing"
  * this client has. The lighting lane feeds ClockwiseSweep's wall input from exactly this

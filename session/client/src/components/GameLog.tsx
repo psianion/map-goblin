@@ -1,106 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { DoorsState } from '@dnd/mechanics/doors';
-import type { FogState } from '@dnd/mechanics/fog';
-import type { InitiativeState } from '@dnd/mechanics/initiative';
-import type { RollEvent } from '@dnd/mechanics/rolls';
-import type { TriggersState } from '@dnd/mechanics/triggers';
-import { sceneTriggersOf } from '@dnd/mechanics/triggers';
-import { captureFromRoll } from '../session/initiativeView';
+import { useEffect, useRef, useState } from 'react';
 import { ALL_ROLES, registerPanel } from '../session/panels';
-import { useModuleState, useSessionStore } from '../session/store';
-import { tableLogLines } from '../session/tableLog';
-
-interface Entry {
-  key: string;
-  at: number;
-  /** Bold lead-in: who rolled, or who came and went. */
-  who: string;
-  title?: string;
-  formula?: string;
-  breakdown?: string;
-  total?: string;
-  text?: string;
-  whisper: boolean;
-  presence: boolean;
-}
-
-const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
-
-const withCharacter = (player: string, character: string | undefined): string =>
-  character && character !== player ? `${player} (${character})` : player;
+import { useLogEntries, usePostRoll } from '../shell/logFeed';
 
 export function GameLog() {
-  // `log?` deliberately loosens `RollsState`: the slice is absent before the join snapshot
-  // and is untrusted wire data after it. Nothing below does arithmetic on a roll — the
-  // server already capped every string (§2.2) and this panel only prints them.
-  const rolls = useModuleState<{ log?: RollEvent[] }>('rolls');
-  const presence = useSessionStore((s) => s.presence);
-  // The doors and fog lines (§2.4.3). They ride their modules' state, so this seat only
-  // ever holds the ones it is allowed to read — there is nothing to filter here.
-  const doors = useModuleState<DoorsState>('doors');
-  const fog = useModuleState<FogState>('fog');
-  // Already redacted for this viewer server-side (players: `toPlayers` lines plus their own
-  // outcomes; the DM: everything) — nothing to filter again here, unlike doors/fog above.
-  const triggers = useModuleState<TriggersState>('triggers');
-  // Composed server-side, printed verbatim — the table and the bot's thread word the fight
-  // identically because neither of them writes the sentence.
-  const initiative = useModuleState<InitiativeState>('initiative');
-  const mapData = useSessionStore((s) => s.mapData);
-  const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
-  const identityId = useSessionStore((s) => s.you?.identityId);
+  // Merge model lives in shell/logFeed.ts — LogDrawer (M1) renders the same entries.
+  const entries = useLogEntries();
+  const postRoll = usePostRoll();
   const [draft, setDraft] = useState('');
   const feedRef = useRef<HTMLOListElement>(null);
-
-  const entries = useMemo<Entry[]>(() => {
-    const rollEntries = (Array.isArray(rolls?.log) ? rolls.log : []).map((e, i) => ({
-      key: str(e?.id) ?? `roll-${i}`,
-      at: typeof e?.at === 'number' ? e.at : 0,
-      // D7: attribution is the server-stamped sender, never client-supplied. The DDB
-      // character name is flavour riding along, so a forged one can't impersonate a seat.
-      who: withCharacter(str(e?.playerName) ?? 'Someone', str(e?.characterName)),
-      title: str(e?.title),
-      formula: str(e?.formula),
-      breakdown: str(e?.breakdown),
-      total: Number.isFinite(e?.total) ? String(e.total) : undefined,
-      text: str(e?.text),
-      whisper: e?.visibility === 'private',
-      presence: false,
-    }));
-    const presenceEntries = presence.map((p) => ({
-      key: p.id,
-      at: p.at,
-      who: p.name,
-      text: p.kind === 'joined' ? 'joined the table' : 'left the table',
-      whisper: false,
-      presence: true,
-    }));
-    // Same quiet register as a join line: what the table did, not what it rolled.
-    const tableEntries = tableLogLines(doors, fog, mapData, sceneId).map((line) => ({
-      ...line,
-      whisper: false,
-      presence: true,
-    }));
-    // Room narration and trap/check outcomes read the same quiet register as a door or fog
-    // line — what the table did, not a roll anyone made.
-    const triggerEntries = (sceneId && triggers ? sceneTriggersOf(triggers, sceneId).log : []).map(
-      (e) => ({ key: e.id, at: e.at, who: '', text: e.text, whisper: false, presence: true }),
-    );
-    const initiativeEntries = (Array.isArray(initiative?.log) ? initiative.log : []).map((e) => ({
-      key: e.id,
-      at: e.at,
-      who: '',
-      text: e.text,
-      whisper: false,
-      presence: true,
-    }));
-    return [
-      ...rollEntries,
-      ...presenceEntries,
-      ...tableEntries,
-      ...triggerEntries,
-      ...initiativeEntries,
-    ].sort((a, b) => a.at - b.at);
-  }, [rolls, presence, doors, fog, triggers, initiative, mapData, sceneId]);
 
   // Newest at the bottom, so follow it. Not setState — no render loop.
   useEffect(() => {
@@ -109,17 +16,7 @@ export function GameLog() {
   }, [entries]);
 
   const post = () => {
-    const text = draft.trim();
-    if (!text) return;
-    // D7: no dice engine. A manual entry is a string someone typed, posted as-is.
-    useSessionStore
-      .getState()
-      .sendCommand('rolls', 'post', { source: 'manual', text, visibility: 'public' });
-    // Auto-track: "initiative 17" typed here is also this seat's initiative, so it lands in
-    // the tracker without anyone typing the number twice. Capture happens at the sender —
-    // same call the Beyond20 bridge makes, same rule deciding what counts.
-    const set = captureFromRoll(initiative, identityId, { text });
-    if (set) useSessionStore.getState().sendCommand('initiative', 'set', set);
+    postRoll(draft);
     setDraft('');
   };
 
@@ -130,30 +27,30 @@ export function GameLog() {
         data-testid="game-log"
         className="flex max-h-64 flex-col gap-1 overflow-y-auto text-sm"
       >
-        {entries.length === 0 && <li className="text-neutral-500">Nothing has happened yet.</li>}
+        {entries.length === 0 && <li className="text-text-muted">Nothing has happened yet.</li>}
         {entries.map((e) => (
           <li
             key={e.key}
             data-whisper={e.whisper || undefined}
             className={
               e.presence
-                ? 'text-xs italic text-neutral-500'
-                : 'rounded bg-neutral-900/60 px-2 py-1 text-neutral-300'
+                ? 'text-xs italic text-text-muted'
+                : 'rounded bg-surface-2/60 px-2 py-1 text-text-secondary'
             }
           >
-            <span className={e.presence ? '' : 'font-medium text-neutral-100'}>{e.who}</span>{' '}
+            <span className={e.presence ? '' : 'font-medium text-text-primary'}>{e.who}</span>{' '}
             {e.title && <span>{e.title}</span>}
             {e.text && <span>{e.text}</span>}
             {e.whisper && (
-              <span className="ml-1 rounded bg-neutral-800 px-1 text-xs text-neutral-400">
+              <span className="ml-1 rounded bg-surface-3 px-1 text-xs text-text-secondary">
                 🔒 whisper
               </span>
             )}
             {e.total !== undefined && (
-              <span className="ml-1 font-mono font-semibold text-neutral-100">{e.total}</span>
+              <span className="ml-1 font-mono font-semibold text-text-primary">{e.total}</span>
             )}
             {(e.formula || e.breakdown) && (
-              <span className="ml-1 font-mono text-xs text-neutral-500">
+              <span className="ml-1 font-mono text-xs text-text-muted">
                 {[e.formula, e.breakdown].filter(Boolean).join(' = ')}
               </span>
             )}
@@ -177,12 +74,12 @@ export function GameLog() {
           // typed line is gone. The native attribute is the whole fix.
           maxLength={200}
           data-testid="manual-roll"
-          className="min-w-0 flex-1 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-500 focus:outline-none"
+          className="min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-2 py-1 text-sm text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none"
         />
         <button
           type="submit"
           disabled={!draft.trim()}
-          className="rounded bg-neutral-800 px-2 py-1 text-sm text-neutral-200 hover:bg-neutral-700 disabled:opacity-40"
+          className="rounded bg-surface-2 px-2 py-1 text-sm text-text-secondary hover:bg-surface-3 disabled:opacity-40"
         >
           Post
         </button>
@@ -191,4 +88,13 @@ export function GameLog() {
   );
 }
 
-registerPanel({ id: 'game-log', title: 'Log', roles: ALL_ROLES, order: 50, component: GameLog });
+registerPanel({
+  id: 'game-log',
+  title: 'Log',
+  icon: 'log',
+  key: 'L',
+  group: 'log',
+  roles: ALL_ROLES,
+  order: 90,
+  component: GameLog,
+});

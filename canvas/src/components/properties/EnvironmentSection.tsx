@@ -10,6 +10,7 @@ import {
   DEFAULT_PALETTE,
   ENVIRONMENTS,
   KEY_MINUTES,
+  NIGHT_SKIES,
   TIME_KEYS,
   TIME_PALETTES,
   composeGrade,
@@ -20,6 +21,7 @@ import {
   timeOfDayAt,
   type Environment,
   type MapEnvironment,
+  type NightSky,
   type TimeKey,
 } from '@/store/types'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
@@ -53,6 +55,13 @@ const ENV_LABEL: Record<Environment, string> = {
   underground: 'Under',
 }
 const ENV_ICON = { outdoor: Sun, indoor: Home, underground: Mountain } as const
+
+/** The Table's own three (`NIGHT_SKIES`, shared/world.ts) — the sky the preview picker offers. */
+const SKY_LABEL: Record<NightSky, string> = {
+  'full-moon': 'Full moon',
+  crescent: 'Crescent',
+  moonless: 'Moonless',
+}
 
 const KEY_LABEL: Record<TimeKey, string> = {
   dawn: 'Dawn',
@@ -178,6 +187,8 @@ export function EnvironmentSection({ openSections, onToggleSection }: SectionCon
   const map = useStore(useShallow((s) => s.mapSettings))
   const previewClock = useStore((s) => s.ui.previewClock)
   const setPreviewClock = useStore((s) => s.setPreviewClock)
+  const previewSky = useStore((s) => s.ui.previewSky)
+  const setPreviewSky = useStore((s) => s.setPreviewSky)
   const [selectedKey, setSelectedKey] = useState<TimeKey>('noon')
 
   const environment = environmentOf(map)
@@ -536,6 +547,22 @@ export function EnvironmentSection({ openSections, onToggleSection }: SectionCon
                     : 'Local to this window. Does not touch the session clock — the Table keeps its own time.'}
                 </p>
               </div>
+
+              {/* The sky is a campaign value, not this map's own — only worth previewing where
+                  it can reach the sun at all (indoor/underground never see it). */}
+              {outdoor && (
+                <div className="mt-3">
+                  <p className="mb-1.5 text-panel-label uppercase tracking-[0.1em] text-text-secondary">
+                    Preview sky
+                  </p>
+                  <Segmented
+                    label="Preview sky"
+                    value={previewSky ?? 'full-moon'}
+                    options={NIGHT_SKIES.map((sky) => [sky, SKY_LABEL[sky]] as const)}
+                    onPick={(sky) => setPreviewSky(sky === 'full-moon' ? null : sky)}
+                  />
+                </div>
+              )}
             </>
           ) : (
             <Inapplicable reason="There is no hour to pin underground — the clock never reaches this map.">

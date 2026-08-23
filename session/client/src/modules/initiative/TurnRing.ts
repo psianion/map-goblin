@@ -6,7 +6,7 @@
 // state: at most one ring exists at a time, and rebuilding a token sprite every time the turn
 // advances would throw away its portrait texture and its in-flight drag.
 
-import { Graphics, type Ticker } from 'pixi.js';
+import { Container, Graphics, type Ticker } from 'pixi.js';
 import type { InitiativeState } from '@dnd/mechanics/initiative';
 import { SIZE_CELLS, type Token, type TokensState } from '@dnd/mechanics/tokens';
 import {
@@ -18,7 +18,7 @@ import {
 } from '@dnd/core/src/engine/overlayPalette';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
-import { addWorldOverlay, mountWhenEngineReady } from '../../renderer/overlayLayer';
+import { addScreenOverlay, mountWhenEngineReady, sightMaskOf } from '../../renderer/overlayLayer';
 import { useSessionStore } from '../../session/store';
 import { tokensOf } from '../tokens/TokenRenderer';
 
@@ -101,7 +101,13 @@ const prefersReducedMotion = (): boolean =>
 function mountTurnRing(engine: RenderEngine, sceneGraph: SceneGraph): () => void {
   const world = sceneGraph.worldContainer;
   const g = new Graphics();
-  addWorldOverlay(sceneGraph, g, 'turnRing');
+  // Screen space above the token chips it marks, mirroring the camera, and on a player's seat
+  // wearing the mask's own stencil like the chips do (`sightMaskOf`) — a ring around a token
+  // the party cannot see would say where it stands.
+  const layer = new Container();
+  layer.addChild(g);
+  addScreenOverlay(sceneGraph, layer, 'turnRing');
+  const isPlayer = () => useSessionStore.getState().you?.role !== 'dm';
 
   const still = prefersReducedMotion();
   let target: Token | null = null;
@@ -111,7 +117,7 @@ function mountTurnRing(engine: RenderEngine, sceneGraph: SceneGraph): () => void
 
   /** The live sprite, so the ring rides an in-flight drag instead of the last synced x/y. */
   const spritePosition = (token: Token): { x: number; y: number } =>
-    world.getChildByLabel('tokenLayer')?.getChildByLabel(`token-${token.id}`) ?? token;
+    sceneGraph.overlayContainer.getChildByLabel('tokenLayer')?.getChildByLabel(`token-${token.id}`) ?? token;
 
   const sync = () => {
     const { session } = useSessionStore.getState();
@@ -140,6 +146,10 @@ function mountTurnRing(engine: RenderEngine, sceneGraph: SceneGraph): () => void
   };
 
   const tick = (ticker: Ticker) => {
+    layer.position.copyFrom(world.position);
+    layer.scale.copyFrom(world.scale);
+    const stencil = isPlayer() ? sightMaskOf(sceneGraph) : null;
+    if (layer.mask !== stencil) layer.mask = stencil;
     // Zoom is plain Pixi stage state with nothing in the store to subscribe to, so a per-frame
     // poll against the last-seen value is what notices the camera moved.
     const zoom = engine.stage().scale.x;
@@ -167,7 +177,7 @@ function mountTurnRing(engine: RenderEngine, sceneGraph: SceneGraph): () => void
     // and touching them throws.
     try {
       ticker.remove(tick);
-      if (!g.destroyed) g.destroy();
+      if (!layer.destroyed) layer.destroy({ children: true });
     } catch {
       /* engine torn down first */
     }

@@ -8,8 +8,8 @@ import type { DoorChild, Room } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import type { AuthoredDoor, DoorLiveState } from '@dnd/mechanics/doors'
 import { effectiveFog, roomFogOf, visibleRooms, type SceneFog } from '@dnd/mechanics/fog'
-import { assertMapLoaded, assertMapRendered, hostTable, joinTable, type MapUnderTest } from './table'
-import { canvasPoint, createDef, placeToken, tokenPositions } from './tokens'
+import { assertMapLoaded, assertMapRendered, hostTable, joinTable, openPanel, type MapUnderTest } from './table'
+import { canvasPoint, createDef, openTokens, placeToken, tokenPositions } from './tokens'
 
 /**
  * @doors — THE flagship flow, the one row the contract doc (§3) has carried as "never
@@ -174,25 +174,18 @@ async function roomViews(page: Page): Promise<Record<string, RoomView>> {
 const viewOf = async (page: Page, room: Room): Promise<RoomView> =>
   (await roomViews(page))[room.id] ?? 'withheld'
 
-/** The fog tool is a mode: arming it is what puts the room list on screen. */
-async function armFog(dm: Page): Promise<void> {
-  if ((await dm.getByTestId('fog-bar').count()) === 0) {
-    await dm.getByTestId('fog-tool-toggle').click()
-    await expect(dm.getByTestId('fog-bar')).toBeVisible()
-  }
-}
-
 async function revealRoom(dm: Page, roomId: string): Promise<void> {
-  await armFog(dm)
+  await openPanel(dm, 'fog')
   const row = dm.getByTestId('fog-rooms').locator(`[data-room-id="${roomId}"]`)
   if ((await row.getAttribute('data-fog-status')) !== 'revealed') {
-    await row.getByRole('button').click()
+    await row.click()
   }
   await expect(row).toHaveAttribute('data-fog-status', 'revealed')
 }
 
 /** Select the door row, then swing it with the control beside it (D10: two gestures). */
 async function toggleDoor(page: Page, id: string): Promise<void> {
+  await openPanel(page, 'doors')
   await doorRow(page, id).getByRole('button').click()
   await page.getByTestId('door-toggle').click()
 }
@@ -279,9 +272,11 @@ test.describe.serial('@doors flagship', () => {
     // The party's own room first. Nothing is lent to a player at join, so until the DM
     // reveals the chamber the token standing in it is redacted off the player's seat
     // altogether (D4/D7) — that is the fog working, not a token gone missing.
+    await openTokens(player)
     await expect(player.getByTestId('token-layer').locator('[data-token-id]')).toHaveCount(0)
     await revealRoom(dm, CHAMBER.id)
 
+    await openTokens(player)
     const row = player.getByTestId('token-layer').locator(`[data-token-id="${tokenId}"]`)
     await expect(row).toHaveCount(1, { timeout: 20_000 })
     await row.getByRole('button').click()
@@ -293,6 +288,7 @@ test.describe.serial('@doors flagship', () => {
 
     await expect.poll(() => viewOf(player, GALLERY), { timeout: 20_000 }).toBe('explored')
     expect(await viewOf(player, CHAMBER)).toBe('visible')
+    await openPanel(player, 'doors')
     await expect(doorRow(player, DOOR.id)).toHaveAttribute('data-open', 'false')
   })
 
@@ -321,6 +317,7 @@ test.describe.serial('@doors flagship', () => {
     const noise = await changed(player, before, settled)
 
     await toggleDoor(player, DOOR.id)
+    await openPanel(dm, 'doors')
     await expect(doorRow(dm, DOOR.id)).toHaveAttribute('data-open', 'true')
     await expect.poll(() => viewOf(player, GALLERY), { timeout: 20_000 }).toBe('visible')
 
@@ -351,6 +348,7 @@ test.describe.serial('@doors flagship', () => {
     const noise = await changed(player, before, settled)
 
     await toggleDoor(player, DOOR.id)
+    await openPanel(dm, 'doors')
     await expect(doorRow(dm, DOOR.id)).toHaveAttribute('data-open', 'false')
 
     // The room they walked out of is no longer live — and is still theirs: `explored` is

@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test'
+import { openPanel } from './table'
 
 /**
  * The token steps the sprint-2 specs share: put a def in the library, place one on the map
@@ -30,8 +31,18 @@ export async function canvasPoint(page: Page, fx: number, fy: number): Promise<P
   return { x: box.x + box.width * fx, y: box.y + box.height * fy }
 }
 
-/** The active scene's tokens as `{id: {x, y}}` — world units, server-snapped. */
-export function tokenPositions(page: Page): Promise<Record<string, Point>> {
+/**
+ * The active scene's tokens as `{id: {x, y}}` — world units, server-snapped.
+ *
+ * `token-layer` lives inside the Tokens popover's On Map tab now (M3), not a persistent
+ * mirror, so this opens it first — cheap and idempotent (`openTokens` no-ops once it is
+ * already up) — rather than making every caller remember to. Only one popover is open at a
+ * time, so this can silently switch a page away from whatever else was open; every helper
+ * that reads a *different* popover's content already re-opens its own right before it does,
+ * which is what makes that safe.
+ */
+export async function tokenPositions(page: Page): Promise<Record<string, Point>> {
+  await openOnMap(page)
   return page.evaluate(() =>
     Object.fromEntries(
       Array.from(
@@ -45,8 +56,34 @@ export function tokenPositions(page: Page): Promise<Record<string, Point>> {
   )
 }
 
+/** Opens the Tokens popover for whichever seat this is — `openPanel` clicks the DM's rail icon
+ *  and falls back to the `T` hotkey on a player's narrowed rail. Exported:
+ *  `token-layer`/`token-selection`/`claim-button` all live inside this popover's On Map
+ *  tab now, and other specs (doors, triggers) select a token the same way this file does. */
+export async function openTokens(page: Page): Promise<void> {
+  await openPanel(page, 'tokens')
+}
+
+/** DM: the Tokens popover's Library tab, opened and selected — every helper below reads or
+ *  writes it. A placement/selection click on the canvas does not close it (`drag.ts`'s own
+ *  `claim()` stops the pointerdown from ever reaching `Popover`'s outside-click listener),
+ *  but opening a *different* popover elsewhere on the page does, so callers re-open rather
+ *  than assume it is still up. */
+export async function openLibrary(page: Page): Promise<void> {
+  await openTokens(page)
+  await page.getByTestId('tokens-tab-library').click()
+}
+
+/** The On map tab — `token-layer`, `token-selection`, `claim-button` render only here. */
+export async function openOnMap(page: Page): Promise<void> {
+  await openTokens(page)
+  await page.getByTestId('tokens-tab-onmap').click()
+}
+
 /** DM: library form → one def. */
 export async function createDef(page: Page, name: string): Promise<void> {
+  await openLibrary(page)
+  await page.getByTestId('token-new').click()
   await page.getByTestId('token-name').fill(name)
   await page.getByTestId('token-save').click()
   await expect(page.getByTestId('token-library')).toContainText(name)
@@ -56,18 +93,33 @@ export async function createDef(page: Page, name: string): Promise<void> {
  * DM: arm the def, click the map. Resolves once the table has been told about the new
  * token — the server mints the id and snaps the position, so both are read back after.
  */
+/**
+ * How many tokens the active scene holds, per the On Map tab: its rows plus the "+N more"
+ * line past the tab's no-scroll cap (`MAP_ROW_CAP`, 20) — `tokenPositions` alone goes blind
+ * there, and a crowd row stands more than that.
+ */
+export async function tokenCount(page: Page): Promise<number> {
+  await openOnMap(page)
+  return page.evaluate(() => {
+    const rows = document.querySelectorAll('[data-testid="token-layer"] [data-token-id]').length
+    const more = document
+      .querySelector('[data-testid="token-layer"]')
+      ?.parentElement?.textContent?.match(/\+(\d+) more/)
+    return rows + (more ? Number(more[1]) : 0)
+  })
+}
+
 export async function placeToken(page: Page, defName: string, at: Point): Promise<void> {
-  const before = Object.keys(await tokenPositions(page)).length
-  await page.getByTestId('token-library').getByRole('button', { name: defName, exact: true }).click()
+  const before = await tokenCount(page)
+  await openLibrary(page)
+  await page.getByTestId('token-library').getByRole('button', { name: `Place ${defName}`, exact: true }).click()
   await expect(page.getByTestId('place-hint')).toBeVisible()
 
   await page.mouse.click(at.x, at.y)
   // The hint clears on pointerdown (the click was taken as a placement, not a pan); the row
   // arrives with the server's `state-update`.
   await expect(page.getByTestId('place-hint')).toHaveCount(0)
-  await expect(page.getByTestId('token-layer').locator('[data-token-id]')).toHaveCount(before + 1, {
-    timeout: 15_000,
-  })
+  await expect.poll(() => tokenCount(page), { timeout: 15_000 }).toBe(before + 1)
 }
 
 /**
@@ -79,6 +131,7 @@ export async function placeToken(page: Page, defName: string, at: Point): Promis
  * selected, which is also what the claim button needs.
  */
 export async function selectOnCanvas(page: Page, at: Point, name: string): Promise<void> {
+  await openTokens(page)
   await expect
     .poll(
       async () => {

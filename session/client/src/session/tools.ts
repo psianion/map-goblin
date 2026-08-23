@@ -29,37 +29,17 @@ interface ToolStore {
   setToolDetail: (detail: string | null) => void;
 }
 
-// Escape exits the active tool. It lives with the state rather than in a component so the
-// guarantee cannot be forgotten by whoever adds the next tool: nothing has to be wired,
-// and there is no mounted component the key depends on.
-let detachEscape: (() => void) | null = null;
-
-function armEscape(): void {
-  if (detachEscape || typeof window === 'undefined') return;
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key !== 'Escape' || e.defaultPrevented) return;
-    e.preventDefault();
-    useActiveTool.getState().setActiveTool(null);
-  };
-  window.addEventListener('keydown', onKeyDown);
-  detachEscape = () => window.removeEventListener('keydown', onKeyDown);
-}
-
-function disarmEscape(): void {
-  detachEscape?.();
-  detachEscape = null;
-}
-
+// Escape exits the active tool — guaranteed by `shell/hotkeys.ts`'s single listener, not by
+// this store. It used to arm/disarm its own `window` listener here; centralizing it let the
+// shell decide the M1 ordering (close a popover first, only disarm the tool on a second
+// press) without this module knowing popovers exist.
 export const useActiveTool = create<ToolStore>()((set) => ({
   activeTool: null,
   toolDetail: null,
-  setActiveTool: (activeTool) => {
+  setActiveTool: (activeTool) =>
     // The detail belongs to the tool that set it: leaving it behind would have the indicator
     // announce a sub-mode of a tool nobody is holding the next time one is armed.
-    set({ activeTool, toolDetail: null });
-    if (activeTool) armEscape();
-    else disarmEscape();
-  },
+    set({ activeTool, toolDetail: null }),
   setToolDetail: (toolDetail) => set({ toolDetail }),
 }));
 

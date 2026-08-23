@@ -38,12 +38,15 @@ import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
  */
 export const OVERLAY_STACK = [
   'fogOverlay',
-  'tokenLayer',
-  // Above the tokens it marks and above the DM's fog tint, so whose turn it is reads at the
-  // same strength as the token itself. Only the world-space ranks matter to it — `playerFog`
-  // and `doorOverlay` below are screen-space, which a world layer can never beat anyway.
-  'turnRing',
   'playerFog',
+  // Screen space, above the player's mask and the lighting multiply: a chip is a label, not
+  // ground, and it reads at full strength wherever the seat can see at all — under darkvision
+  // the floor goes grey and the chip does not. What keeps a token in a room the party cannot
+  // see hidden is the mask's own `sightMask` (`sightMaskOf`), which this layer wears on a
+  // player's seat: the rule is the same, the draw order is no longer what enforces it.
+  'tokenLayer',
+  // Above the tokens it marks, so whose turn it is reads at the same strength as the token.
+  'turnRing',
   'doorOverlay',
 ] as const;
 
@@ -132,3 +135,18 @@ export function worldPointOf(engine: RenderEngine, e: PointerEvent): { x: number
   const rect = canvas.getBoundingClientRect();
   return engine.screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
 }
+
+/**
+ * The label the player fog gives the graphic it fills with everything this seat may see (the
+ * clear tier and the memory tier together — what `drawFog` calls `shown`). Overlays that draw
+ * above the mask but must not outrun it wear this as their Pixi mask; it shares the fog
+ * layer's camera mirror, so a screen overlay mirroring the camera the same way lines up.
+ */
+export const SIGHT_MASK = 'sightMask';
+
+/** The player fog's sight mask, once the fog layer has mounted; null before, and on seats that draw no mask. */
+export function sightMaskOf(sceneGraph: SceneGraph): Container | null {
+  const fog = sceneGraph.overlayContainer.children.find((c) => c.label === 'playerFog');
+  return (fog?.children.find((c) => c.label === SIGHT_MASK) as Container | undefined) ?? null;
+}
+

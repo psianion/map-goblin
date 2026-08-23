@@ -57,6 +57,13 @@ describe('worldOverride', () => {
     expect(worldGrade(MAP, null)).toBe(composeGrade(MAP, NOON));
   });
 
+  it('a previewed sky reaches the sun, same as a previewed hour reaches the clock', () => {
+    const moonless = resolveWorldLight({ ...MAP, clockMinutes: MIDNIGHT, nightSky: 'moonless' }).sun;
+    const fullMoon = resolveWorldLight({ ...MAP, clockMinutes: MIDNIGHT, nightSky: 'full-moon' }).sun;
+    expect(worldFrame(MAP, MIDNIGHT, 'moonless').sun).toEqual(moonless);
+    expect(worldFrame(MAP, MIDNIGHT, 'moonless').sun).not.toEqual(fullMoon);
+  });
+
   it('the sun comes from the same clock as the grade — one hour per frame, not two', () => {
     setTableWorld(campaign(MIDNIGHT));
     const frame = worldFrame(MAP, 300);

@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { defineConfig } from '@playwright/test'
-import { CLIENT_PORT, CLIENT_URL, viteApiEnv } from './ports'
+import { CLIENT_PORT, CLIENT_URL, GPU_ARGS, viteApiEnv } from './ports'
 
 /**
  * The door-overhaul table scenarios (`e2e/doors-table.spec.ts`).
@@ -23,7 +23,7 @@ export default defineConfig({
   use: {
     baseURL: CLIENT_URL,
     channel: 'chromium',
-    launchOptions: { args: ['--use-angle=default', '--ignore-gpu-blocklist'] },
+    launchOptions: { args: GPU_ARGS },
   },
   timeout: 240_000,
   webServer: {

@@ -11,6 +11,7 @@
 // next tick instead of being rounded away.
 
 import type { PlayerInfo } from '@dnd/core/src/shared/protocol'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- D3 waiver, same as shared/mapBounds: shared/world is pure clock math, pixi-free by design, and @dnd/mechanics/triggers (already runtime-imported here) loads it anyway
 import { advanceClock } from '@dnd/core/src/shared/world'
 import type { Viewer } from '@dnd/mechanics/contract'
 import { worldOf, type TriggersState } from '@dnd/mechanics/triggers'

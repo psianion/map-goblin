@@ -4,7 +4,7 @@ import {
   DAMAGE_ROLL,
   WHISPER_ROLL,
 } from '../src/modules/rolls/beyond20.fixtures'
-import { hostTable, joinTable } from './table'
+import { asPlayerComposer, hostTable, joinTable, openDrawer, openSession } from './table'
 
 /**
  * @sprint2-rolls — §2.6 "Roll sync + whisper privacy", three contexts: DM, player A,
@@ -74,6 +74,7 @@ test.describe.serial('@sprint2-rolls', () => {
     // All three are at the table before anything is rolled, so an absent line later is a
     // redaction and not a race with a join.
     for (const page of [dm, alice, bob]) {
+      await openSession(page)
       await expect(page.getByTestId('player-list').getByRole('listitem')).toHaveCount(3, {
         timeout: 15_000,
       })
@@ -89,6 +90,7 @@ test.describe.serial('@sprint2-rolls', () => {
     await dispatchRoll(alice, ATTACK_ROLL)
 
     for (const page of [alice, dm, bob]) {
+      await openDrawer(page)
       const log = page.getByTestId(LOG)
       await expect(log).toContainText('Longsword: Attack', { timeout: 10_000 })
       // The kept d20, not the raw dice: the total is display data the server never recomputes.
@@ -102,6 +104,7 @@ test.describe.serial('@sprint2-rolls', () => {
     await dispatchRoll(alice, WHISPER_ROLL)
 
     for (const page of [alice, dm]) {
+      await openDrawer(page)
       const log = page.getByTestId(LOG)
       await expect(log).toContainText('Wisdom Saving Throw', { timeout: 10_000 })
       await expect(log.locator('[data-whisper]')).toHaveCount(1)
@@ -111,6 +114,7 @@ test.describe.serial('@sprint2-rolls', () => {
     // sent after the whisper, on the same socket. Frames are ordered, so once Bob's log
     // shows this one, whatever the server decided about the whisper has already arrived.
     await dispatchRoll(alice, DAMAGE_ROLL)
+    await openDrawer(bob)
     await expect(bob.getByTestId(LOG)).toContainText('Fireball: Damage', { timeout: 10_000 })
 
     await expect(bob.getByTestId(LOG)).not.toContainText('Wisdom Saving Throw')
@@ -127,13 +131,17 @@ test.describe.serial('@sprint2-rolls', () => {
   })
 
   test('the manual input posts a line everyone sees', async () => {
-    await bob.getByTestId('manual-roll').fill('stealth 17')
-    await bob.getByTestId('manual-roll').press('Enter')
+    // Bob is a player: his roll bar (M4), or the drawer's composer while the drawer he opened
+    // above is still up — the roll bar hides under an open drawer.
+    const composer = asPlayerComposer(bob)
+    await composer.fill('stealth 17')
+    await composer.press('Enter')
 
     for (const page of [bob, dm, alice]) {
+      await openDrawer(page)
       await expect(page.getByTestId(LOG)).toContainText('stealth 17', { timeout: 10_000 })
     }
     // Cleared on submit, so the next roll is not appended to the last one.
-    await expect(bob.getByTestId('manual-roll')).toHaveValue('')
+    await expect(composer).toHaveValue('')
   })
 })

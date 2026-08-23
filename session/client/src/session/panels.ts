@@ -1,22 +1,58 @@
 import type { ComponentType } from 'react';
 import type { Role } from '@dnd/core/src/shared/protocol';
+import type { IconName } from '../shell/icons';
 
 /**
  * D8 — the client plug-in point. A module folder owns its own UI: it calls
- * `registerPanel` at import time and GameTable's sidebar picks it up. Adding a
+ * `registerPanel` at import time and the rail/popover shell picks it up. Adding a
  * module never edits the shell again (D2's third-party test), which is the whole
- * point of this file existing instead of another `<SomePanel />` in the aside.
+ * point of this file existing instead of another `<SomePanel />` in a sidebar.
  */
 export interface PanelDef {
   /** Stable id; re-registering the same id replaces (HMR, and no duplicates). */
   id: string;
-  /** Rendered as the panel heading. Omit for a chrome-less panel. */
-  title?: string;
+  /** Popover header. A function reads live state (e.g. the active scene's name); a
+   *  string is the common case. Omit to fall back to `id`. */
+  title?: string | (() => string);
   /** Roles that see this panel. */
   roles: readonly Role[];
   /** Ascending. Session controls 0, token library 10, log 50. */
   order: number;
   component: ComponentType;
+  icon: IconName;
+  /** Single uppercase letter that opens this panel from the keyboard; '' for none. */
+  key: string;
+  /** Rail grouping: play items, then prep (divider between), then log (pinned bottom). */
+  group: 'play' | 'prep' | 'log';
+  /** Optional live line under the popover title, e.g. "Round 1 · 4 combatants". */
+  subtitle?: () => string | null;
+  /** Popover width; defaults to 320. A function for a panel whose ceiling widens past a row
+   *  count (read live, the same way `subtitle`/`badge` are). */
+  width?: 320 | 360 | (() => 320 | 360);
+  /** false hides this panel from the rail — still openable via `openPanelById`. Default true. */
+  rail?: boolean;
+  /** Narrows which roles see this panel's rail icon, without touching `roles` (hotkeys and
+   *  `openPanelById` still work for a role left out — M4: Doors/Tokens stay reachable to a
+   *  player from an on-map menu or their key, just not from the rail). Default: every role
+   *  in `roles`. */
+  railRoles?: readonly Role[];
+  /** Where the popover anchors. 'rail' (default) reads its icon's position off `railRefs`;
+   *  'status-left' sits bottom-left, above the status bar — for a panel with no rail icon
+   *  (`rail: false`) whose trigger lives there instead, e.g. the scene-name button. */
+  anchor?: 'rail' | 'status-left';
+  /** Live text for the rail item's corner badge, e.g. "R1" or an unread count. */
+  badge?: () => string | null;
+  /** Rendered in the popover's footer strip, if present. */
+  footer?: ComponentType;
+  /** Rendered in the popover header, right of the title, left of the close button. */
+  headerActions?: ComponentType;
+  /**
+   * Map-side companion the module needs whether or not its popover is open (a Pixi overlay,
+   * a sync loop). Run once per seat by the shell for every panel the role can see; returns
+   * the teardown. A popover only exists while open, so nothing like this may live in a
+   * panel component.
+   */
+  mount?: () => (() => void) | void;
 }
 
 /** Convenience for the common "everyone sees it" case. */
@@ -35,8 +71,26 @@ export function registerPanel(panel: PanelDef): void {
   panels.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
 }
 
-/** Panels this role may see, already ordered. `undefined` role ⇒ nothing yet. */
-export function usePanels(role: Role | undefined): readonly PanelDef[] {
+/** Panels this role may see, already ordered. `undefined` role ⇒ nothing yet. Not a real
+ *  hook (nothing here subscribes) — safe to call from a plain function too, but named
+ *  `use*` for the components that read it. `hotkeys.ts` uses {@link panelsForRole} instead,
+ *  since a `use`-named call from a non-component function trips the hooks lint rule. */
+function panelsForRole(role: Role | undefined): readonly PanelDef[] {
   if (!role) return [];
   return panels.filter((p) => p.roles.includes(role));
 }
+export { panelsForRole };
+
+export const usePanels = panelsForRole;
+
+/** The rail's own subset — everything but the panels opened only programmatically, or (M4)
+ *  narrowed to fewer roles than `roles` itself via `railRoles`. */
+export const useRailPanels = (role: Role | undefined): readonly PanelDef[] =>
+  panelsForRole(role).filter((p) => p.rail !== false && (!p.railRoles || (!!role && p.railRoles.includes(role))));
+
+/** One panel by id, regardless of role — Popover looks up whatever `shellStore` has open. */
+export const usePanel = (id: string): PanelDef | undefined => panels.find((p) => p.id === id);
+
+/** `PanelDef.title` resolved to today's string. */
+export const resolvePanelTitle = (def: PanelDef): string =>
+  (typeof def.title === 'function' ? def.title() : def.title) ?? def.id;
