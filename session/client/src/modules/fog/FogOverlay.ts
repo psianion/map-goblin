@@ -37,7 +37,7 @@ import { frameWorldPoint } from '../../renderer/camera';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
 import { BRUSH_FLUSH_CELLS, useFogBrush, type BrushOp } from './brush';
-import { featherEdge } from './FogRenderer';
+import { FOG_FADE, featherEdge } from './FogRenderer';
 import { MASK_MEMORY, createLivingFog } from './livingFog';
 import {
   DM_FOG_LOOK,
@@ -97,7 +97,7 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   // the weight, drawn *over* the tint — which stays, both as the state's flat reading and
   // as the look this seat falls back to if the shader never draws. The mesh lives in the
   // world container, so the lighting composite grades it along with the map beneath it.
-  const haze = createLivingFog(engine, { dense: 0.26, mist: 0.13, rim: 0.3 });
+  const haze = createLivingFog(engine, { dense: 0.26, mist: 0.13, rim: 0.3, fade: FOG_FADE / 2 });
   layer.addChild(paint, haze.mesh);
   addWorldOverlay(sceneGraph, layer, 'fogOverlay');
 
@@ -207,18 +207,27 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     hover.clear();
     if (!layer.visible) return;
 
-    for (const room of rooms) {
-      if (room.boundary.length < 3) continue;
-      const look = DM_FOG_LOOK[roomFog(fog, room.id).status];
-      if (look.tintAlpha > 0) {
-        paint.poly(room.boundary.flat()).fill({ color: FOG_TINT, alpha: look.tintAlpha });
+    // The state grammar — tints and haze by room status — is drawn only while the fog tool
+    // is armed. It is the DM's instrument for *changing* fog, and left on it was the DM's
+    // whole map through a near-black tint wherever the party had swept a room nobody had
+    // revealed: the players saw the hall lit and warm, the DM saw it grey (principle 3 says
+    // the DM keeps full lighting, and the grammar was taking it away). Off the tool the DM
+    // sees the map as authored; the Fog panel still names every room's state.
+    const showState = toolArmed();
+    if (showState) {
+      for (const room of rooms) {
+        if (room.boundary.length < 3) continue;
+        const look = DM_FOG_LOOK[roomFog(fog, room.id).status];
+        if (look.tintAlpha > 0) {
+          paint.poly(room.boundary.flat()).fill({ color: FOG_TINT, alpha: look.tintAlpha });
+        }
       }
     }
 
     // The haze's own tier mask: white is clear, black an unrevealed room, `MASK_MEMORY` an
     // explored one — the same vocabulary the tint speaks, as texels. Feathered in white so
     // the coastline has a ramp to meander across at each room's rim.
-    const hazeFrame = frameNow();
+    const hazeFrame = showState ? frameNow() : null;
     haze.mesh.visible = hazeFrame !== null;
     if (hazeFrame) {
       haze.maskPaint.clear();
@@ -243,7 +252,12 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     // player's mask reads, as merged row runs rather than a square per cell (`regionRects`).
     // Rooms mode has no cell tier at all, and painting one there would say something the
     // player's canvas does not.
-    if (fogModeOf(fog) === 'vision') {
+    //
+    // Only while the fog tool is armed. The wash is the brush's instrument, and left on it
+    // was a 0.1 parchment lift over every explored cell — measured as the DM's map running
+    // ~12% lighter and warmer than the player's on the same ground. Off the tool the two
+    // seats are meant to show the same pixels wherever the party can see.
+    if (fogModeOf(fog) === 'vision' && toolArmed()) {
       for (const rect of rectsOf(fog, mapData)) {
         paint.poly(rect.flat()).fill(REGION_WASH);
       }
