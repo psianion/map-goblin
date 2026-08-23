@@ -22,6 +22,7 @@ import {
   type SceneFog,
 } from '@dnd/mechanics/fog';
 import { liveDoors, type LiveDoor } from '../doors/doors';
+import type { FogPool } from './livingFog';
 import { maskField, maskRings, regionCells } from './memoryMask';
 
 /** What a DM reads for each status. The word is the state; colour never carries it alone. */
@@ -403,19 +404,21 @@ export interface NightSight {
   lit: readonly Polygon[];
   /** The sweeps of the party's darkvision eyes — unlit ground they alone reach. */
   darkvision: readonly Polygon[];
+  /**
+   * Both of the above as pools, for the cloud to fade the clear tier out over
+   * (`LivingFog.setPools`). The polygons say *where* the party can see; these say how each
+   * source runs out. A light is whole to its radius and gone a pad past it, where its own
+   * gradient already is — the edge the geometry alone drew, kept. A darkvision eye eases out
+   * over the last quarter of its range on the lighting pass's rim curve (`RIM_START`), so the
+   * ring reads like a dim pool the token carries rather than a circle with a blurred edge.
+   */
+  pools: readonly FogPool[];
 }
 
 /** What the vision mask draws. Void is everything neither tier covers, as it always was. */
 export interface VisionRegion {
   /** Live sight: the party's sweep union, out to the falloff's limit. Nothing is drawn here. */
   clear: Polygon[];
-  /**
-   * The part of `clear` no light actually reaches (§4) — a subset of it, never a tier of its
-   * own: the party is looking at that ground, they just have no colour to see it in. That is
-   * mostly what a darkvision eye buys unlit, plus the wall band the pad opens around a pool
-   * past where the light itself has fallen to nothing. Empty outside darkness.
-   */
-  drained: Polygon[];
   /** The explored wash — swept cells and DM-revealed rooms, minus whatever is live. */
   memory: Polygon[];
   /** Both of them as one region, which is the hole the scrim cuts and the dots clip to. */
@@ -494,18 +497,9 @@ export function visionRegion(
     : sweptHeld.length > 0 && seeable.length > 0
       ? clipper2Engine.intersection(sweptHeld, seeable)
       : [];
-  // …and §4 grades everything that gate let through which no light actually reaches — which is
-  // the *unpadded* pools' complement, not `litReach`'s (D8). The pad above deliberately opens
-  // the wall band around a torch, and the renderer's own gradient has fallen to zero by
-  // `radius`, so subtracting the padded reach would leave a thin ring of clear-but-unlit,
-  // ungraded ground around every pool. Subtracting the pools as swept folds that band into the
-  // drained treatment, where it belongs, and it keeps the darkvision rule intact for free: a
-  // darkvision eye standing in torchlight still sees the pool in colour like anybody else.
-  const drained = !night
-    ? []
-    : clear.length > 0 && night.lit.length > 0
-      ? clipper2Engine.difference(clear, [...night.lit])
-      : clear;
+  // Nothing grades what that gate let through: unlit ground a darkvision eye reaches is the
+  // map's own floor under the night grade, exactly as the referee sees it, and how a pool runs
+  // out at its rim is the cloud's to draw (`NightSight.pools`), not a fill's.
   // Everything the party has *already* earned, which is the half a moving token never touches:
   // one union and one intersection, memoized on the three answers they are built from.
   const revealedGrown = revealedReach([pad, feather, ...revealed], () =>
@@ -520,7 +514,6 @@ export function visionRegion(
   const memory = clear.length > 0 ? clipper2Engine.difference(inside, clear) : inside;
   return {
     clear,
-    drained,
     memory,
     // Unioned rather than drawn as two holes: `cut` takes a set of holes on the promise that
     // they do not overlap, and the feather runs round the outside of everything the party

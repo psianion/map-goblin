@@ -26,6 +26,21 @@ export interface LightCarrier {
   light: { dim: number; bright: number } | null
 }
 
+/**
+ * How far line of sight is swept, in cells — the whole map, from anywhere on it.
+ *
+ * An eye's reach is not a radius. What bounds sight is the walls and, in the dark, the light:
+ * a lit hall is seen to the far wall by anyone standing in its doorway, and a torch is seen
+ * from across a cavern. A token's `sight.range` is how far it can see *without* light, which
+ * is darkvision's ring and nothing else — capping the sweep on it drew that ring across every
+ * lit room as an arc the referee's own view never had.
+ *
+ * ponytail: a constant rather than the map's frame. The sweep clamps its rays at this
+ * distance and tessellates the rim at a fixed 64 steps, so the number only has to be larger
+ * than any map; the cell enumeration and the mask both clip to what the map actually holds.
+ */
+export const SIGHT_REACH = 1000
+
 /** Where a light stands and how far it reaches. Lit/unlit is binary in v1 (plan §Visibility). */
 export interface LightSource {
   x: number

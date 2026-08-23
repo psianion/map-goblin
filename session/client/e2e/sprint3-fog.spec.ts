@@ -830,7 +830,7 @@ test.describe.serial('@sprint3-fog', () => {
       'explored versus live, over the pixels the lit map draws',
       `live ${showPatch(live)} → explored ${showPatch(memory)} → reloaded ` +
         `${showPatch(remembered)}; unexplored map ${show(virgin)}`,
-      'explored ≤50% of live luminance, chroma visibly down, and clearly above black',
+      'explored dimmer than live, chroma down, and clearly above black',
     )
     record(
       'explored look across a player reload (whole frame)',
@@ -849,9 +849,12 @@ test.describe.serial('@sprint3-fog', () => {
     // 80.3 (60.3 → 57.9 in the three gates before, over a sample that also held wall stone).
     expect(live.mean, 'the lit map is not lit').toBeGreaterThan(70)
 
-    // Dimmer: the product target, and the direction the third gate had inverted.
+    // Dimmer — the direction the third gate had inverted — but the room itself, still
+    // readable: the user's call on the live table was a thin haze over the map, not a wash
+    // that replaces it (`EXPLORED_TINT_ALPHA` 0.7 → 0.3, `MEMORY_MIST` 0.55 → 0.25). Measured
+    // 62.1 against 81.4 — three quarters — where the old wash read under a half.
     expect(memory.mean, `explored read ${memory.mean.toFixed(1)} against live ${live.mean.toFixed(1)}`)
-      .toBeLessThanOrEqual(live.mean * 0.5)
+      .toBeLessThanOrEqual(live.mean * 0.85)
     // Drained: the same pixels, with the torchlight pulled out of them.
     expect(memory.chroma, 'explored kept the torch in it').toBeLessThan(live.chroma * 0.7)
     // …and still a room, not a hole in the map. Never-revealed is the black to beat.

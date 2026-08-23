@@ -28,7 +28,12 @@ export interface TokenDef {
   imageAssetId: string | null
   size: TokenSize
   disposition: Disposition
-  /** Schema only until S3 fog/vision lands. */
+  /**
+   * Null is a token that is not looking at anything. Sight itself is line of sight to the
+   * whole map (`SIGHT_REACH` in fog/light.ts); `range` is how far this token sees *unlit*
+   * ground, which only matters with `visionMode: 'darkvision'` in the dark. `angle` is
+   * schema only — cones are a v1 non-goal.
+   */
   sight: { range: number; angle: number; visionMode: 'normal' | 'darkvision' } | null
   /** Schema only until S3. */
   light: { dim: number; bright: number; color: string; angle: number } | null

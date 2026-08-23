@@ -1370,15 +1370,20 @@ describe('token redaction by vision on the wire (§2.6, S3 P1)', () => {
       const mode = nextState(dm, 'fog')
       sendCommand(dm, 'fog', 'set-mode', { sceneId, mode: 'vision' })
       await mode
+      // Lights out: sight reaches the whole room by line of sight in daylight, and the only
+      // ring `range` still draws is darkvision's in the dark.
+      const dark = nextState(dm, 'triggers')
+      sendCommand(dm, 'triggers', 'set-environment', { sceneId, ambient: 'darkness' })
+      await dark
 
-      // A scout in the middle of the west room, looking only three cells…
+      // A scout in the middle of the west room, seeing only three cells of it…
       const placed = nextState<TokensState>(dm, 'tokens')
       sendCommand(dm, 'tokens', 'place', {
         sceneId,
         name: 'Scout',
         x: 5.5,
         y: 5.5,
-        sight: { range: 3, angle: 360, visionMode: 'normal' },
+        sight: { range: 3, angle: 360, visionMode: 'darkvision' },
       })
       const scout = Object.values((await placed).byScene[sceneId])[0]
 

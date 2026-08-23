@@ -132,14 +132,29 @@ function wired(children: AnyChild[] = [], extra: { walls?: WallSegment[]; prep?:
 }
 
 /** A claimed scout with 8 cells of sight, standing in the west room, and the room lit. */
-function scouted(table: ReturnType<typeof wired>, mode: 'rooms' | 'vision' = 'vision'): string {
+/**
+ * Sight reaches the whole map by line of sight (`SIGHT_REACH`); a token's `range` bounds
+ * only what it sees *unlit*. So a row that needs an eye with a short reach — ground in the
+ * same room it cannot see — turns the lights off and gives it darkvision of that radius,
+ * which is the one ring `range` still draws.
+ */
+const DARKVISION = (range: number) => ({ range, angle: 360, visionMode: 'darkvision' as const })
+
+function inTheDark(table: ReturnType<typeof wired>) {
+  table.run(DM, 'triggers', 'set-environment', { ambient: 'darkness' })
+}
+
+function scouted(
+  table: ReturnType<typeof wired>,
+  mode: 'rooms' | 'vision' = 'vision',
+  sight: { range: number; angle: number; visionMode: 'normal' | 'darkvision' } = {
+    range: 8,
+    angle: 360,
+    visionMode: 'normal',
+  },
+): string {
   table.run(DM, 'fog', 'set-mode', { mode })
-  table.run(DM, 'tokens', 'place', {
-    name: 'Scout',
-    x: 2.5,
-    y: 5.5,
-    sight: { range: 8, angle: 360, visionMode: 'normal' },
-  })
+  table.run(DM, 'tokens', 'place', { name: 'Scout', x: 2.5, y: 5.5, sight })
   const id = Object.keys(table.tokensOf())[0]
   expect(table.run(P1, 'tokens', 'claim', { id })).toBeNull()
   return id
@@ -262,7 +277,10 @@ describe('the party sweep the server keeps (S3 P1 §3)', () => {
 describe('party-mode auto-explore (§4)', () => {
   it('writes region bits and latches the room a move swept, through the fog module', () => {
     const table = wired()
-    const id = scouted(table)
+    // In the dark on darkvision, so the room has a far corner at all: in daylight the claim
+    // already sees to every wall of the west room from the doorway.
+    inTheDark(table)
+    const id = scouted(table, 'vision', DARKVISION(8))
     // The claim already swept from where the scout was standing (§4's trigger table), so
     // what this move has to earn is the ground the far corner of the room hid.
     expect(table.fogOf().rooms.east).toBeUndefined()
@@ -330,14 +348,10 @@ describe('party-mode auto-explore (§4)', () => {
   it('writes on a claim and on a resize, not only on a step', () => {
     const table = wired()
     table.run(DM, 'fog', 'set-mode', { mode: 'vision' })
-    // Short sight on purpose: a two-cell circle is small enough that half a cell of
-    // re-snapping visibly moves it, which a room-filling radius would hide.
-    table.run(DM, 'tokens', 'place', {
-      name: 'Scout',
-      x: 5.5,
-      y: 5.5,
-      sight: { range: 2, angle: 360, visionMode: 'normal' },
-    })
+    // Short darkvision in the dark on purpose: a two-cell ring is small enough that half a
+    // cell of re-snapping visibly moves it, which a room-filling sweep would hide.
+    inTheDark(table)
+    table.run(DM, 'tokens', 'place', { name: 'Scout', x: 5.5, y: 5.5, sight: DARKVISION(2) })
     const id = Object.keys(table.tokensOf())[0]
     // Unclaimed, so nobody is looking yet and the place earned nothing.
     expect(table.fogOf().region).toBeUndefined()
@@ -637,15 +651,13 @@ describe('token redaction by vision (§6)', () => {
   /**
    * A short-sighted scout in the middle of the west room, and an ambusher in the far corner
    * of the *same* room: the room is auto-explored and visible, and only the sweep says no.
+   * Short sight is a darkvision ring in an unlit room — by daylight the scout would see to
+   * every wall of it.
    */
   function sameRoom(table: ReturnType<typeof wired>, mode: 'rooms' | 'vision') {
     table.run(DM, 'fog', 'set-mode', { mode })
-    table.run(DM, 'tokens', 'place', {
-      name: 'Scout',
-      x: 5.5,
-      y: 5.5,
-      sight: { range: 3, angle: 360, visionMode: 'normal' },
-    })
+    inTheDark(table)
+    table.run(DM, 'tokens', 'place', { name: 'Scout', x: 5.5, y: 5.5, sight: DARKVISION(3) })
     table.run(DM, 'tokens', 'place', { name: 'Ambusher', x: 1.5, y: 1.5, sight: null })
     const by = (name: string) => Object.entries(table.tokensOf()).find(([, t]) => t.name === name)![0]
     const scout = by('Scout')
@@ -1002,7 +1014,8 @@ describe('individual vision (S3 P5)', () => {
   /** Where those two stand, in the region record's own cells (the frame starts at -1, -1). */
   const SCOUT_CELL: [number, number] = [3, 6]
   const GUARD_CELL: [number, number] = [9, 9]
-  const SHORT = { range: 3, angle: 360, visionMode: 'normal' }
+  /** In the dark (`twoSeats`), so three cells is all either eye reaches. */
+  const SHORT = DARKVISION(3)
 
   const idOf = (table: ReturnType<typeof wired>, name: string) =>
     Object.entries(table.tokensOf()).find(([, t]) => t.name === name)![0]
@@ -1015,6 +1028,7 @@ describe('individual vision (S3 P5)', () => {
   function twoSeats(share: 'party' | 'individual' = 'individual') {
     const table = wired()
     table.run(DM, 'fog', 'set-mode', { mode: 'vision' })
+    inTheDark(table)
     table.run(DM, 'fog', 'set-share', { visionShare: share })
     table.run(DM, 'tokens', 'place', { name: 'Scout', ...SCOUT, sight: SHORT })
     table.run(DM, 'tokens', 'place', { name: 'Guard', ...GUARD, sight: SHORT })
@@ -1033,14 +1047,9 @@ describe('individual vision (S3 P5)', () => {
     return { table, ...ids }
   }
 
-  /** An unclaimed familiar deep in the far hall, behind the shut door. */
+  /** An unclaimed familiar deep in the far hall, behind the shut door — eyes for the dark. */
   function hawk(table: ReturnType<typeof wired>): string {
-    table.run(DM, 'tokens', 'place', {
-      name: 'Hawk',
-      x: 17.5,
-      y: 5.5,
-      sight: { range: 6, angle: 360, visionMode: 'normal' },
-    })
+    table.run(DM, 'tokens', 'place', { name: 'Hawk', x: 17.5, y: 5.5, sight: DARKVISION(6) })
     return idOf(table, 'Hawk')
   }
 

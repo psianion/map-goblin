@@ -34,9 +34,9 @@
 //
 // The DM is not in that hierarchy at all. PRODUCT principle 3 — the DM never loses
 // visibility — makes darkness a thing the DM *stages*, never a thing imposed on them, so
-// their *bite* is dialled to nothing and the fog state reaches them as the overlay's tints
-// (FogOverlay) instead of as an unreadable stage. Their grade is not: dialling the whole
-// composite off used to take every brazier on the map with it, and mood is presentation
+// no tier of this layer is drawn on their seat and the fog state reaches them as the
+// overlay's tints (FogOverlay) instead of as an unreadable stage. Their grade is not: dialling
+// the whole composite off used to take every brazier on the map with it, and mood is presentation
 // rather than information — `GRADE_STRENGTH` against `LIGHTING_STRENGTH` is that split.
 //
 // ponytail: pixi through @dnd/core, the same reach-through TokenRenderer documents.
@@ -46,8 +46,8 @@ import type { Room } from '@dnd/core/src/shared/types';
 import type { BackgroundLayer, Layer, SerializedMapData } from '@dnd/core/src/store/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
-import type { LightingRenderer } from '@dnd/core/src/engine/lighting/LightingRenderer';
 import { useStore } from '@dnd/core/src/store/store';
+import { RIM_START } from '@dnd/core/src/engine/lighting/LightingRenderer';
 import { computeMapWorldBounds } from '@dnd/core/src/engine/export/exportPipeline';
 import type { AuthoredDoor, DoorLiveState, DoorsState } from '@dnd/mechanics/doors';
 import {
@@ -55,6 +55,7 @@ import {
   fogModeOf,
   identityRegion,
   lightSources,
+  type LightSource,
   visibleRooms,
   visionShareOf,
   type FogMode,
@@ -93,6 +94,7 @@ import {
   serverDoors,
   serverLayers,
   serverRooms,
+  sightPad,
   visionRegion,
 } from './fog';
 import { placedLights, sightCache, sighted } from './visionSight';
@@ -143,93 +145,57 @@ export const EXPLORED_TINT = 0x0b0e14;
  * knob to turn on a map that reads flat is this pair and `LIGHTING_STRENGTH` together — they
  * trade against each other and neither is meaningful alone.
  */
-export const EXPLORED_TINT_ALPHA = 0.7;
+export const EXPLORED_TINT_ALPHA = 0.3;
 /**
- * How hard the engine's lighting multiply is allowed to bite, per seat.
- *
- * `LightingRenderer` composites its full-screen sprite at `alpha` 0.95 and never writes that
- * field again (it only toggles `visible`), so this is a stable dial and not a fight with the
- * render loop. On a multiply the alpha is a strength: the result is `dst · lerp(1, src, a)`,
- * so a=0 is no darkening at all and a=1 is the raw ambient. Dialling it back raises the
- * floor under *unlit* map without touching what a torch reaches, which is exactly the knob
- * this needs — the art guide wants grey floors and warm glows, not black floors.
- *
- * The DM gets 0: principle 3, and the reason their stage came back from the gate ~90%
- * near-black with everything revealed.
+ * How much of that alpha a memory keeps on the brightest scene, 0..1 — the wash follows the
+ * light level (`memoryAlpha`). The pair above was tuned for a dark crypt; on a noon map it
+ * put explored rooms at a third of live, which reads as night in daylight. At daylight the
+ * wash lands near half strength (memories ~60% of live), and a `darkness` scene keeps the
+ * full 0.7 — the brightness order (void < memory < lit) holds at every level because the live
+ * room brightens with the level faster than the wash eases.
  */
-export const LIGHTING_STRENGTH = { dm: 0, player: 0.7 };
-
+export const MEMORY_WASH_FLOOR = 0.45;
+/** The living fog's mist over the memory tier on the darkest scene; it eases by the same floor. */
+export const MEMORY_MIST = 0.25;
+/** The explored wash for one scene, by how dark it is (`FogScene.darkness`). */
+export const memoryAlpha = (darkness: number): number =>
+  EXPLORED_TINT_ALPHA * (MEMORY_WASH_FLOOR + (1 - MEMORY_WASH_FLOOR) * darkness);
 /**
- * How hard the *grade* composites, per seat — and it is the same for every seat, which is the
- * whole of the split above.
- *
- * The bite is vision: a player is being told what they cannot see, so it is dialled per seat
- * and the DM's is nothing. The grade is presentation: the world is cold tonight for everyone
- * at the table, referee included, and a DM staring at a flat unlit map all session (W2) was
- * only ever a side effect of one number doing both jobs. The editor's own value — the sprite
- * is created at 0.95 and this hands it back there on unmount.
+ * How hard the grade composites — the same for every seat. The world is cold tonight for
+ * everyone at the table, referee included; what a player cannot see is this layer's tiers,
+ * never a darker multiply. The editor's own value: the sprite is created at 0.95 and this hands
+ * it back there on unmount.
  */
 export const GRADE_STRENGTH = 0.95;
 
-/**
- * S3 P3 §4 — the drained grade a darkvision eye reads unlit ground through.
- *
- * A wash, not a filter. The art guide's dungeon is "near-black surround, grey floors, 1-2
- * strong warm glows doing all the color work" and its night is "desaturated, low contrast" —
- * which is a statement about *chroma*, and a near-neutral wash is the cheapest thing that
- * makes one: EXPLORED_TINT's own pair already measures 24.7 → 7.2 chroma on this canvas
- * (see EXPLORED_TINT_ALPHA), so the primitive is known to drain colour rather than merely dim.
- * A `ColorMatrixFilter` would grade the pixels properly and re-run every frame the stage draws
- * — the one thing this layer is built never to do (`FEATHER_STEPS`) — and it has no precedent
- * in core outside water's displacement.
- *
- * Cooler and lighter than the memory tint on purpose: the three states have to stay three
- * brightnesses (void < memory < drained < lit), because the party IS looking at this ground.
- * Tuned against the screenshot the darkvision e2e row takes, not against arithmetic.
+/*
+ * S3 P3 §4 used to grade unlit ground a darkvision eye reaches through a navy wash, ramped in
+ * from every pool's radius. Gone: that ground is the map's own floor under the night grade,
+ * exactly as the referee sees it — the grade already leaves it near-grey, which is all the art
+ * guide's "shape without colour" asks — and the wash's ramp drew the pool's radius as a tint
+ * boundary where the DM only ever sees light running out. How a pool or a darkvision ring runs
+ * out on the player's seat is the cloud's now, on the lighting pass's own rim curve
+ * (`LivingFog.setPools`).
  */
-export const DARKVISION_TINT = 0x151b24;
-export const DARKVISION_TINT_ALPHA = 0.55;
 
 /**
- * How hard the lighting composite's ambient fill bites, per ambient level (§4).
+ * How dark a scene is at each light level, 0..1 — the same on every seat. The memory wash and
+ * the mist ease with it (`memoryAlpha`) and the cloud's palette settles a step darker on it.
+ * Nobody having stated a level reads as full dark: the map as authored, which is what every
+ * table played before the dial existed. The three dial levels land monotonically under it, and
+ * a crescent night (`darkness-soft`, the sky's own) sits between dusk and a moonless one.
  *
- * `LightingRenderer` clears its FBO to the map's ambient colour and the lights add on top, so
- * the fill's alpha is a strength on the *unlit* base alone — a torch pool's own alpha comes
- * from the additive draw and is untouched. Dialling the fill back therefore lifts the surround
- * without touching the glows, which is the knob the art guide's "ambient is underused for
- * scene mood" is asking for.
- *
- * An untouched scene reads 1 — the value the renderer has always used — so every scene played
- * before the dial existed, and every rooms-mode table, composites byte-identically. The three
- * levels then land monotonically under it: darkness is the map as authored, daylight lifts the
- * unlit map most, dusk sits between.
- */
-/**
- * The gate's three levels plus the one the *sky* adds — defined with the world rules now that
- * the clock and the sky exist to set it (`shared/world.ts`), and re-exported here because this
- * is where the strengths below live.
+ * `BiteLevel` is the world's name for the level (`shared/world.ts`), re-exported here because
+ * this is where its strengths live.
  */
 export type { BiteLevel };
 
-export const AMBIENT_BITE: Record<BiteLevel, number> = {
+export const SCENE_DARKNESS: Record<BiteLevel, number> = {
   daylight: 0.45,
   dusk: 0.75,
   'darkness-soft': 0.9,
   darkness: 1,
 };
-
-/**
- * How hard the composite's ambient fill bites for one seat on one scene — the two halves of
- * §4's statement multiplied out, and the only number the lighting pass is ever handed.
- *
- * No level is "the DM has not turned the dial", which bites at full: the map as authored, the
- * value the renderer has always used. The DM's own seat is 0 at every level (principle 3),
- * which is not the same as the composite being off — their grade still lands.
- */
-export function biteStrength(level: BiteLevel | undefined, role: 'dm' | 'player'): number {
-  const seat = role === 'dm' ? LIGHTING_STRENGTH.dm : LIGHTING_STRENGTH.player;
-  return seat * (level ? AMBIENT_BITE[level] : 1);
-}
 /** Black extends this far past the map so the edge of the world is not a tell. */
 const BOUNDS_PAD = 20;
 
@@ -244,22 +210,25 @@ const BOUNDS_PAD = 20;
  * Held under the pad on purpose. The falloff starts where the room's own claim ends, so
  * everything the room owns — floor, wall band, margin — is already at full strength before
  * any of this is drawn, and the ramp spends itself on map the room does not own.
+ *
+ * This is the *geometry* — how far past its claim a region's reach runs — and it stays small
+ * because every offset in `visionRegion` grows with it (round joins on a sweep's hundreds of
+ * corners: 0.4 → 1.2 here measured the mask rebuild 12ms → 30ms on the gate map). The look
+ * of the edge is `FOG_FADE`, which costs nothing.
  */
 export const FOG_FEATHER = 0.4;
 
 /**
- * How many steps that falloff is cut into.
+ * How wide the edge *reads*, in cells — the blur the living fog takes of its own mask, which
+ * is what the cloud's coastline and the memory wash ramp over (`LivingFogLook.fade`).
  *
- * A blur would be the obvious answer and is the wrong one here: a filter re-runs every frame
- * the stage draws, and the whole discipline of this layer is that the mask is built on a fog
- * change and then only drawn (the fps bar is 25-30 on integrated graphics). Six nested
- * strokes are geometry — they cost what any other shape costs, once, at rebuild.
- *
- * ponytail: six bands over 0.4 of a cell is ~2-4 screen pixels each at play zoom, which is
- * under what banding needs to be visible against art this dark. The upgrade, if the animated
- * fog ever wants a true gradient, is a cached texture — not more bands.
+ * Wider than the reach on purpose: the fade runs inward from the rim, over the feather band
+ * and the wall band and a little of the floor, the way sight dims at the end of its range. At
+ * 0.4 it was ~6 screen pixels at play zoom from finished art to cloud, and the player's sight
+ * read as a stencil where the DM's torches faded. Drawn inward it leaks nothing — the rim is
+ * still solid, the reach is unchanged — and it costs one blur per rebuild, not per frame.
  */
-const FEATHER_STEPS = 6;
+export const FOG_FADE = 1.2;
 
 /** LightingRenderer's label for its full-screen multiply sprite (overlayLayer knows it too). */
 const LIGHTING_COMPOSITE = 'lightingComposite';
@@ -291,11 +260,10 @@ export interface VoidStyle {
    * standing whatever the map is doing, and once the grade multiplies the live room below
    * that, a memory reads *brighter* than the room it remembers — the third gate's inversion,
    * back through the door P1 opened by making the grade universal. Composited, the wash is
-   * always a strict share of what the room shows live, at any grade and any bite, which is
+   * always a strict share of what the room shows live, at any grade, which is
    * the order holding by construction rather than by two constants agreeing.
    */
   memory: number;
-  drained: number;
   /** GridRenderer's dot colour (0x888888), through the same multiply. */
   dot: number;
   dotAlpha: number;
@@ -336,11 +304,11 @@ export interface FogScene {
    */
   night?: NightSight;
   /**
-   * §4 — how hard the lighting composite's ambient fill bites for *this seat*: the scene's
-   * ambient level through the seat's own strength (`biteStrength`). Always a number now, and
-   * always 0 for the DM — the grade is the half that reaches every seat, and it is not in here.
+   * How dark the scene is, by its light level alone (`SCENE_DARKNESS`; 1 when nobody stated
+   * one) — the same on every seat, so the DM's sight preview draws the tiers exactly as the
+   * player's seat does. The memory wash, the mist and the cloud's palette follow it.
    */
-  bite: number;
+  darkness: number;
   /** P2 — the one composed colour the lighting pass fills its base with (`composeGrade`). */
   grade: string;
   /** …and the coarsened clock it was composed at, which is what the pass memoizes on. */
@@ -573,7 +541,7 @@ const channels = (hex: string): [number, number, number] => {
 /**
  * A colour as it lands after the lighting multiply: `c · lerp(1, m, s)` per channel — the
  * same arithmetic LightingRenderer's composite performs on the real void, where `m` is the
- * FBO's unlit base at this bite (`graded`) and `s` is the sprite's alpha.
+ * FBO's unlit base (`graded`) and `s` is the sprite's alpha.
  */
 const lit = (hex: string, ambient: [number, number, number], s: number): number => {
   const [r, g, b] = channels(hex);
@@ -585,40 +553,24 @@ const lit = (hex: string, ambient: [number, number, number], s: number): number 
 const UNCOMPOSITED: [number, number, number] = [255, 255, 255];
 
 /**
- * The FBO's unlit base, per channel 0..255 — the grade, and then the bite's second pass of
- * the same colour over it (`LightingRenderer`, step 1). The imitation void is drawn *above*
- * that composite and has to land on the same pixels the real one does.
- */
-const graded = (grade: [number, number, number], bite: number): [number, number, number] => {
-  const ch = (c: number): number => c * (1 - bite * (1 - c / 255));
-  return [ch(grade[0]), ch(grade[1]), ch(grade[2])];
-};
-
-/**
- * The void's look, off the same store the real background renders from. `bite` is how hard
- * the composite's fill is actually biting for this seat (`biteStrength`) — the grade's tint
- * lands either way, which is why 0 is no longer "no multiply". `composited` is: a table with
- * no lighting engine has no multiply to imitate, and the mount checks which is true.
+ * The void's look, off the same store the real background renders from. The imitation is
+ * drawn *above* the lighting composite and has to land on the same pixels the real void does,
+ * so every colour here is pre-multiplied by the composite's unlit base — the grade, the same
+ * on every seat (`LightingRenderer`, step 1). `composited` is: a table with no lighting
+ * engine has no multiply to imitate, and the mount checks which is true.
  *
  * `grade` is the colour the composite is actually filled with — the mood carrying the hour
  * (`composeGrade`). Omitted, it falls back to the mood alone, which is what the composite
  * shows on a surface with no clock behind it.
  */
-export function voidStyle(
-  bite: number = LIGHTING_STRENGTH.player,
-  composited = true,
-  grade?: string,
-): VoidStyle {
+export function voidStyle(composited = true, grade?: string): VoidStyle {
   const { layers, mapSettings, grid } = useStore.getState();
   const bg = layers.find((l): l is BackgroundLayer => l.type === 'background');
-  const ambient = composited
-    ? graded(channels(grade ?? mapSettings.ambientLight), bite)
-    : UNCOMPOSITED;
+  const ambient = composited ? channels(grade ?? mapSettings.ambientLight) : UNCOMPOSITED;
   const hex = (n: number): string => `#${n.toString(16).padStart(6, '0')}`;
   return {
     fill: lit(bg?.backgroundColor ?? '#2d2d2d', ambient, GRADE_STRENGTH),
     memory: lit(hex(EXPLORED_TINT), ambient, GRADE_STRENGTH),
-    drained: lit(hex(DARKVISION_TINT), ambient, GRADE_STRENGTH),
     dot: lit('#888888', ambient, GRADE_STRENGTH),
     dotAlpha: 0.45,
     dotsVisible: grid.visible,
@@ -660,11 +612,10 @@ export function fogScene(): FogScene {
   const mapSettings = useStore.getState().mapSettings;
   const light =
     sceneId && triggers ? worldLightOf(mapSettings, triggers, sceneId) : undefined;
-  // §4 — how hard the lighting composite's ambient fill bites for this seat. Read before the
-  // void's look because the imitation is drawn *through* that same composite (`voidStyle`).
-  // `null` from the resolver is still "nobody has stated a level", which bites at full: an
-  // indoor map nobody has dialled composites exactly as it did before the clock existed.
-  const bite = biteStrength(light?.biteLevel ?? undefined, masked ? 'player' : 'dm');
+  // How dark the scene is. `null` from the resolver is still "nobody has stated a level",
+  // which is full dark: an indoor map nobody has dialled draws exactly as it did before the
+  // clock existed.
+  const darkness = light?.biteLevel ? SCENE_DARKNESS[light.biteLevel] : 1;
   // The composed grade — mood × hour × how much sky this map has — and the bucket the lighting
   // pass memoizes it on. One colour, every seat.
   // Midday until the join snapshot lands: an unknown clock must not paint the first frame of
@@ -700,6 +651,29 @@ export function fogScene(): FogScene {
   // reason `serverRooms` gives — those are what core re-detects, and walls are not.
   const sight = isVision && masked ? sightCache.partySight(layers, eyes) : undefined;
 
+  // S3 P3 §2 — the light gate, when the scene is turned to `darkness`. Every light source's
+  // own sweep (placed lights the table has left on, plus token-carried ones), and separately
+  // the party's darkvision eyes swept at their own `range` — the one radius that still means
+  // anything, now that line of sight itself reaches the whole map. A darkvision eye is the
+  // same sweep from the same spot at a shorter reach, so it shares the memo a torch there
+  // would. Both go to the cloud as pools too, for the rim fade (`NightSight.pools`).
+  const pad = fogPad(serverLayers(mapData));
+  const nightSight = (): NightSight => {
+    const sources = lightSources(placedLights(layers), tokens, scene!.lightOverrides);
+    const dark: LightSource[] = eyes
+      .filter((t) => t.sight!.visionMode === 'darkvision')
+      .map((t) => ({ x: t.x, y: t.y, radius: t.sight!.range }));
+    const reach = sightPad(pad) + FOG_FEATHER;
+    return {
+      lit: sightCache.litArea(layers, sources),
+      darkvision: sightCache.litArea(layers, dark),
+      pools: [
+        ...sources.map((s) => ({ x: s.x, y: s.y, inner: s.radius, outer: s.radius + reach })),
+        ...dark.map((d) => ({ x: d.x, y: d.y, inner: d.radius * RIM_START, outer: d.radius })),
+      ],
+    };
+  };
+
   return {
     rooms,
     // Rooms and the door graph off the *same* document, so the BFS this runs is the BFS the
@@ -726,14 +700,12 @@ export function fogScene(): FogScene {
       : null,
     // Off the referee's document, like the rooms it pads: the wall band a player's mask has
     // to clear is the one the referee sent them, not whatever core relaid underneath.
-    pad: fogPad(serverLayers(mapData)),
+    pad,
     sceneId,
     isPlayer,
     preview,
-    // The imitation bites exactly as hard as the real composite does: the sheet renders above
-    // the same multiply, and §4 just made that multiply a dial. Left at full strength the
-    // fogged sheet reads as a *darker* patch of the same map at daylight and dusk (D1).
-    void: voidStyle(bite, true, grade),
+    // The imitation is drawn through the same grade the real composite multiplies by.
+    void: voidStyle(true, grade),
     mode,
     // The memory tier the preview draws is the record the token's own seat reads through
     // (`identityRegion`: its owner's in individual share, the party's otherwise) — the DM's
@@ -757,20 +729,11 @@ export function fogScene(): FogScene {
     // to `darkness`. Every light source's own sweep (placed lights the table has left on, plus
     // token-carried ones), and separately the sweeps of the party's darkvision eyes, which are
     // the polygons already computed above — a darkvision eye is not swept twice.
-    night:
-      sight && scene && light?.effectiveLevel === 'darkness'
-        ? {
-            lit: sightCache.litArea(
-              layers,
-              lightSources(placedLights(layers), tokens, scene.lightOverrides),
-            ),
-            darkvision: sight.filter((_, i) => eyes[i].sight!.visionMode === 'darkvision'),
-          }
-        : undefined,
+    night: sight && scene && light?.effectiveLevel === 'darkness' ? nightSight() : undefined,
     // …and the presentation half, which is not gated on vision mode at all: a rooms-mode scene
     // the DM calls dark should read dark too. Deliberate (D6): the dial is world state, not a
     // vision-mode feature, so it reaches every scene the DM turns it on.
-    bite,
+    darkness,
     grade,
     timeBucket: timeBucket(light?.minutes ?? NOON),
     light,
@@ -865,31 +828,6 @@ export function subscribeFogScene(onChange: () => void): () => void {
 }
 
 /**
- * The soft edge, cut into geometry rather than blurred.
- *
- * `alignment: 1` puts a stroke wholly *inside* a closed path, so these all sit within the
- * region's reach and thicken the fog back up as they approach its rim. Each step is wider
- * than the last, so a point one band deep is covered by every stroke but the narrowest, and a
- * point at the inner lip only by the widest — the overlap is the ramp.
- *
- * `1 / step` is the alpha that makes those overlaps land on an even one: source-over of the
- * strokes covering a band composites to `1 - Π(1 - 1/k)`, which telescopes to exactly that
- * band's share of the way to solid. Colour is uniform, so the order they are drawn in does
- * not matter.
- */
-export function featherEdge(g: Graphics, ring: Polygon, color: number): void {
-  const path = ring.flat();
-  for (let step = 1; step <= FEATHER_STEPS; step++) {
-    g.poly(path).stroke({
-      color,
-      alpha: 1 / step,
-      width: (FOG_FEATHER * step) / FEATHER_STEPS,
-      alignment: 1,
-    });
-  }
-}
-
-/**
  * One room's covering, for the fade out of a reveal — drawn into the living fog's *mask*,
  * so the reveal is the cloud dissolving over the room rather than a flat cover lifting.
  *
@@ -912,9 +850,8 @@ function fadeCover(g: Graphics, room: Room, view: RoomView, pad: number): void {
  * be that fill — then paint each pocket of water inside them back solid, and recurse, so an
  * island inside the pocket is cut clear again at any depth.
  *
- * ponytail: pockets and islands are hard-edged. `featherEdge` thickens fog towards a rim
- * from the inside, a pocket wants the opposite, and it takes a closed ring of revealed
- * rooms to make one at all.
+ * ponytail: pockets and islands are hard-edged in the geometry; the living fog's blur
+ * softens every tier's edge the same way once the mask is a texture.
  */
 function cutLand(
   g: Graphics,
@@ -996,7 +933,6 @@ function roomTiers(scene: FogScene): { earned: FogRing[]; memory: FogRing[] } {
 function visionTiers(scene: FogScene): {
   earned: FogRing[];
   memory: FogRing[];
-  drained: FogRing[];
   cells: number;
 } {
   const stored = scene.fog?.rooms ?? {};
@@ -1018,7 +954,6 @@ function visionTiers(scene: FogScene): {
   return {
     earned: ringsWithHoles(region.shown),
     memory: ringsWithHoles(region.memory),
-    drained: ringsWithHoles(region.drained),
     cells: region.cells,
   };
 }
@@ -1042,14 +977,19 @@ export function drawFog(
   let minY = scene.bounds.minY - grow;
   let maxX = scene.bounds.maxX + grow;
   let maxY = scene.bounds.maxY + grow;
-  // …and further still for a sweep, which is the one hole the frame does not bound. A room's
-  // reach pokes a pad past a content-tight frame and no more; a token standing a step inside
-  // the map's edge sees straight out of it, and that hole crossing the contour takes the
-  // whole hole with it — the mask came back as unbroken black with the sweep computed and
-  // discarded. Growing the cover is cheaper than clipping the hole, and the overhang costs
-  // nothing: the fill imitates the void it overpaints.
-  for (const polygon of scene.sight ?? []) {
-    for (const [x, y] of polygon) {
+  // The one fork in this file. Everything either side of it — the fill, the cut, the wash and
+  // the falloff — is the same four instructions in the same order; the tiers are what differ.
+  const { earned, memory, cells } =
+    scene.mode === 'vision' ? visionTiers(scene) : { ...roomTiers(scene), cells: 0 };
+
+  // …and further still for whatever is actually cut out of it: a hole that crosses the filled
+  // rect's outer contour is dropped whole by the triangulator, and the mask came back as
+  // unbroken black with the hole computed and discarded. Measured off the *drawn* rings, not
+  // the raw sweep — a sweep reaches the whole map by line of sight (`SIGHT_REACH`) and its
+  // rays run a thousand cells out before the region clips them to what the player holds;
+  // growing the cover to those put the map in a corner of a mask the size of a county.
+  for (const ring of earned) {
+    for (const [x, y] of ring.outline) {
       minX = Math.min(minX, x - grow);
       minY = Math.min(minY, y - grow);
       maxX = Math.max(maxX, x + grow);
@@ -1061,33 +1001,23 @@ export function drawFog(
   // is opaque over everything hidden, so the one job left down here is failing dark.
   scrim.rect(minX, minY, w, h).fill({ color: 0x000000, alpha: 1 });
 
-  // The one fork in this file. Everything either side of it — the fill, the cut, the wash and
-  // the falloff — is the same four instructions in the same order; the tiers are what differ.
-  const { earned, memory, drained, cells } =
-    scene.mode === 'vision'
-      ? visionTiers(scene)
-      : { ...roomTiers(scene), drained: [] as FogRing[], cells: 0 };
-
   cutLand(scrim, earned, { color: 0x000000, alpha: 1 });
 
-  fillLand(scrim, memory, { color: scene.void.memory, alpha: EXPLORED_TINT_ALPHA });
-  // §4 — inside the hole, not instead of it: the party can see this ground, so it keeps the
-  // room's own render underneath and takes the grade on top. Drawn after the memory wash;
-  // the falloff that used to thicken over both lives in the mask below now, where the cloud
-  // reads it — a stepped ramp on an invisible backstop was paint nobody saw.
-  fillLand(scrim, drained, { color: scene.void.drained, alpha: DARKVISION_TINT_ALPHA });
+  // The memory wash is the cloud's (`LivingFog.setWash`), read off the same mask as the
+  // mist, so it ramps in along live sight's rim with the tiers instead of stepping on it. The
+  // scrim keeps the backstop alone: everything the party can see shows the map as rendered.
 
   // The living fog's tier mask: the same rings, as texel values the cloud shader reads —
   // black is hidden, `MASK_MEMORY` grey the memory tier, white everything the player has
-  // earned (drained ground included; its wash is the scrim's business). The feather is the
-  // same six-stroke ramp the scrim uses, drawn in black so the shader's coastline has a
-  // gradient to meander across instead of a one-texel cliff. The scrim above stays the
-  // authority on cover — if the shader never draws, hidden map is still hidden.
+  // earned. Hard-edged here on
+  // purpose: the living fog softens the texture itself, inward only (`LivingFogLook.fade`),
+  // so every tier's rim — hidden, memory, live — fades over the same distance without a
+  // stroke in sight. The scrim above stays the authority on cover — if the shader never
+  // draws, hidden map is still hidden.
   if (maskPaint) {
     maskPaint.rect(minX, minY, w, h).fill({ color: 0x000000, alpha: 1 });
     fillLand(maskPaint, earned, { color: 0xffffff, alpha: 1 });
     fillLand(maskPaint, memory, { color: MASK_MEMORY, alpha: 1 });
-    for (const { outline } of earned) featherEdge(maskPaint, outline, 0x000000);
   }
   // Everything this seat may see, as a stencil for the overlays that draw above the mask
   // (`SIGHT_MASK`): the token chips and the turn ring. Clear and memory alike — what is
@@ -1107,7 +1037,9 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   const scrim = new Graphics();
   // The animated cover, above the scrim: the scrim stays the authority on what is hidden
   // (flat black, fail-dark), the mesh is the weather drawn over it.
-  const fog = createLivingFog(engine, { dense: 1, mist: 0.55, rim: 0.75 });
+  // The rim is the darker band the cloud draws right at its cut. At 0.75 it underlined every
+  // sight line as a stroke; a third of that keeps the edge reading as weather.
+  const fog = createLivingFog(engine, { dense: 1, mist: MEMORY_MIST, rim: 0.25, fade: FOG_FADE / 2 });
   // The stencil the chip and ring layers wear (`sightMaskOf`). A child here so it shares this
   // layer's camera mirror; Pixi keeps a mask out of the normal draw, so it paints nothing.
   const sightMask = new Graphics();
@@ -1126,9 +1058,6 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     (sceneGraph.overlayContainer.children.find((c) => c.label === LIGHTING_COMPOSITE) as
       | Container
       | undefined) ?? null;
-
-  /** …and the pass behind it, for the ambient dial. Absent on a scene graph with no lighting. */
-  const lighting = (): LightingRenderer | null => sceneGraph.lightingRenderer ?? null;
 
   const world = sceneGraph.worldContainer;
   const fades: Fade[] = [];
@@ -1188,15 +1117,11 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // Set every rebuild rather than once at mount: the seat is not known until the join
     // snapshot lands, and the composite itself is created asynchronously with the engine.
     const lit = composite();
-    // The grade at full strength for everyone; the bite carries the seat. Dialling the whole
-    // sprite off for the DM was one number doing both jobs, and what it cost them was every
-    // brazier on the map (W2) — the multiply is where the light pools live too.
+    // The grade at full strength for everyone; what a seat cannot see is this layer's tiers.
+    // Dialling the whole sprite off for the DM was one number doing both jobs, and what it
+    // cost them was every brazier on the map (W2) — the multiply is where the light pools live.
     if (lit) lit.alpha = GRADE_STRENGTH;
     // §4 — the ambient dial, reaching the lighting pass the same way: this layer already owns
-    // how hard that composite bites (`LIGHTING_STRENGTH`), and the scene's light level is the
-    // other half of the same statement. A table always knows its seat, so it always states a
-    // bite — 0 for the DM, so darkness stays something they stage (principle 3).
-    lighting()?.setAmbientLevel(scene.bite);
     // The grade is not set here. It is composed once a frame by core's render loop, at the
     // clock this seat installed (`modules/world/worldSync`) — one writer, because a per-frame
     // one always beats an on-mutation one and this call was being stomped back to midday.
@@ -1204,14 +1129,21 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
 
     // The imitation has to match the void as it actually renders — including a table with no
     // lighting pass at all, where there is no multiply for the void to have gone through.
-    const drawn = lit?.visible ? scene : { ...scene, void: voidStyle(0, false, scene.grade) };
+    const drawn = lit?.visible ? scene : { ...scene, void: voidStyle(false, scene.grade) };
     const built = drawFog(scrim, drawn, fog.maskPaint, sightMask);
     cells = built.cells;
     // …and the living fog over it: the same tiers as a texture, the palette pulled toward
-    // the scene's grade (a torchlit scene fogs warm, a night forest cold), and one render
+    // the scene's grade (a torchlit scene fogs warm, a night forest cold), the mist over the
+    // memory tier easing with the light level the way the wash under it does, and one render
     // of the mask — per mutation, exactly like the geometry it rasterises.
     fog.setMaskBounds(built.cover);
-    fog.setPalette(fogPalette(scene.grade, scene.bite));
+    fog.setPalette(fogPalette(scene.grade, scene.darkness));
+    fog.setMist(MEMORY_MIST * (MEMORY_WASH_FLOOR + (1 - MEMORY_WASH_FLOOR) * scene.darkness));
+    fog.setWash(drawn.void.memory, memoryAlpha(scene.darkness));
+    // …and in the dark, the pools the clear tier runs out over, so the cloud closes in on the
+    // lighting pass's own rim curve rather than on a cut at a radius. Outside darkness the
+    // geometry is the whole statement.
+    fog.setPools(scene.night?.pools ?? []);
     fog.renderMask();
     // Stamped before the dots and the fades: those are draws, and what §4 budgets is what one
     // mutation costs to *build* — the sweeps inside `fogScene` and the Clipper pass above.
@@ -1287,7 +1219,6 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
       // Hand the lighting back at the strength the editor and every other mount expects.
       const lit = composite();
       if (lit) lit.alpha = GRADE_STRENGTH;
-      lighting()?.setAmbientLevel(null);
       // The grade needs no handing back — this file no longer sets it. The clock goes back with
       // `syncWorldToScene`'s own cleanup, and the render loop recomposes from there.
       fog.destroy();

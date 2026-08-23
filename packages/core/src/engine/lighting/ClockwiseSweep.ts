@@ -114,7 +114,34 @@ export function clockwiseSweep(
 
   if (rawVerts.length < 3) return rawVerts
 
-  return tessellateArcs(rawVerts, origin, radius)
+  return dropCollinear(tessellateArcs(rawVerts, origin, radius))
+}
+
+/**
+ * Every wall gets three rays per endpoint and one per boundary step, and each ray that lands on
+ * the same wall as its neighbours adds a vertex on a straight edge the polygon already has.
+ * Those are most of a sweep's vertices once its reach is the whole map (a keep's 200 walls
+ * read ~650 a sweep, ~170 of them corners), and everything downstream pays per vertex —
+ * Clipper offsets and booleans on the fog mask, point-in-polygon per cell on the server, the
+ * gradient fill's triangulation. Arc points are kept: consecutive ones are never collinear.
+ */
+function dropCollinear(verts: VisibilityVertex[]): VisibilityVertex[] {
+  const n = verts.length
+  if (n < 4) return verts
+  const kept: VisibilityVertex[] = []
+  for (let i = 0; i < n; i++) {
+    const [px, py] = verts[(i + n - 1) % n].point
+    const [cx, cy] = verts[i].point
+    const [nx, ny] = verts[(i + 1) % n].point
+    const [ax, ay, bx, by] = [cx - px, cy - py, nx - cx, ny - cy]
+    const cross = ax * by - ay * bx
+    const scale = Math.hypot(ax, ay) * Math.hypot(bx, by)
+    // On the line through its neighbours, and between them (a dot product says it is not a
+    // spike folding back on itself): drop it.
+    if (scale > 0 && Math.abs(cross) <= 1e-7 * scale && ax * bx + ay * by > 0) continue
+    kept.push(verts[i])
+  }
+  return kept.length >= 3 ? kept : verts
 }
 
 function tessellateArcs(

@@ -1,4 +1,4 @@
-import { Container, FillGradient, Graphics, RenderTexture, Sprite } from 'pixi.js'
+import { BlurFilter, Container, FillGradient, Graphics, RenderTexture, Sprite } from 'pixi.js'
 import type { RenderEngine } from '../RenderEngine'
 import type { LightChild } from '../../store/types'
 import type { LightManager } from './LightManager'
@@ -36,10 +36,9 @@ export function lightingSignature(
   ambientColor: string,
   lights: LightChild[],
   isDirty: (lightId: string) => boolean,
-  darkness = 1,
   timeBucket = 0,
 ): string {
-  const parts = [camX, camY, zoom, width, height, ambientColor, darkness, timeBucket]
+  const parts = [camX, camY, zoom, width, height, ambientColor, timeBucket]
   for (const l of lights) {
     const maskWidth = l.maskTextureId ? resolveTexture(l.maskTextureId).width : 0
     parts.push(
@@ -154,13 +153,49 @@ export function headroom(grade: string): number {
 }
 
 /**
+ * Where the rim starts rounding off, as a share of the falloff zone. Inside it the curves
+ * below are exactly what they always were, so a pool is as bright as it was authored.
+ */
+export const RIM_START = 0.75
+
+/**
+ * How much of a light is left at `t` of the way from the flat core to the rim, 0..1.
+ *
+ * The authored curves — `1 - t²` and `1 - t` — were still falling at t = 1, so every pool
+ * ended on a visible ring where the gradient stopped and the grade took over; a torch does
+ * not have an edge, it runs out. Multiplying the last quarter by an ease-out lands both on
+ * the rim with zero slope and leaves the plateau alone: a pool's brightness at half radius is
+ * untouched (a steeper curve throughout, tried first, dimmed every torch on a dark map by a
+ * third and read as the lights being turned down rather than softened).
+ */
+export function falloffAt(falloff: LightChild['falloff'], t: number): number {
+  const u = Math.min(1, Math.max(0, t))
+  const authored = falloff === 'linear' ? 1 - u : 1 - u * u
+  const r = Math.min(1, Math.max(0, (u - RIM_START) / (1 - RIM_START)))
+  return authored * (1 - r * r * (3 - 2 * r))
+}
+
+/** Stops per gradient. Twelve, because the curves above are now smooth enough to show banding at six. */
+const FALLOFF_STOPS = 12
+
+/**
+ * The penumbra, in world units: how far a wall's shadow edge and the rim of a mask-textured
+ * pool are softened. A quarter cell reads as light wrapping a corner rather than as a blur.
+ * Applied per light at rebuild, never per frame — the FBO is memoised (`lightingSignature`).
+ */
+export const PENUMBRA_CELLS = 0.25
+/** Hard cap on the blur in FBO pixels — past this a zoomed-in torch is paying for nothing. */
+const PENUMBRA_MAX_PX = 12
+
+/**
  * LightingRenderer — FBO-based light compositing pass.
  *
  * Compositing architecture:
- *  1. Clear lightFBO with the grade, plus the player's bite as a second pass of it.
+ *  1. Clear lightFBO with the grade.
  *  2. For each visible light, render into an isolated per-light RT:
  *     a. Draw the visibility polygon directly with a radial FillGradient.
- *  3. Composite each per-light RT into lightFBO with additive blend (clear:false).
+ *  3. Composite each per-light RT into lightFBO with additive blend (clear:false),
+ *     through the penumbra blur.
  *  4. Composite lightFBO over the scene via a multiply-blended full-screen Sprite.
  *
  * Per-light isolation prevents cross-light erasure: each light's visibility
@@ -190,15 +225,12 @@ export class LightingRenderer {
   private lastSignature = ''
   private lastIconSignature = ''
   /**
-   * How hard the ambient fill bites *on top of the grade*, 0..1 (S3 P3 §4) — a second pass of
-   * the grade over the base, and the whole of what a player's seat gets that a DM's does not.
-   *
-   * 0 is nobody having asked for one, which is every editor frame and the DM's seat at every
-   * level: the base is then the grade alone, exactly what this pass has always drawn. It bites
-   * the *unlit* base only — a light adds into the same FBO and washes the fill out inside its
-   * own pool — so dialling it back lifts the surround without touching the glows.
+   * The penumbra — one filter, re-sized per rebuild, shared by every light's blit. A filter
+   * composites its output with its *own* blend mode, not the sprite's, so the add lives here:
+   * left at Pixi's 'normal' the blurred light landed source-over and every pool lost the
+   * grade under it (measured as the torch pools dropping from 1.5% to 0.2% of the frame).
    */
-  private ambientDarkness = 0
+  private penumbra = new BlurFilter({ strength: 0, quality: 2, blendMode: 'add' })
   /**
    * The composed grade, when something has composed one — the mood tint alone today, and mood
    * × time × environment damping once the world clock exists. `null` is "nobody has composed
@@ -305,24 +337,14 @@ export class LightingRenderer {
   }
 
   /**
-   * The scene's light level, as a strength on the ambient fill (S3 P3 §4). The session sets it
-   * from the DM's ambient dial; the editor never touches it.
-   *
-   * `null` is "no dial set" — no bite, which is the only state the editor is ever in and
-   * leaves the base as the grade alone, exactly what this pass drew before the dial existed.
-   * A number is clamped, because a value outside 0..1 is a caller bug that would otherwise
-   * show up as a black table or an unlit one.
-   */
-  setAmbientLevel(darkness: number | null): void {
-    this.ambientDarkness = darkness === null ? 0 : Math.min(1, Math.max(0, darkness))
-  }
-
-  /**
    * The scene's grade — one final composed colour, applied to every seat including the DM's.
    *
-   * Separate from `setAmbientLevel` on purpose: the grade is *presentation* (what the world
-   * looks like) and the bite is *vision* (what a player is allowed to see), and only the
-   * second is ever dialled per seat. `null` hands the frame's own `ambientLight` back.
+   * Presentation, not vision: the world is cold tonight for everyone at the table, referee
+   * included. What a player is *allowed to see* is the fog layer's business (the session's
+   * `FogRenderer`), never this pass's — the per-seat "bite" that used to ride here was a second
+   * source-over fill of the same colour, which is arithmetic for nothing, and the seats are
+   * meant to show the same pixels wherever a player can see at all. `null` hands the frame's
+   * own `ambientLight` back.
    *
    * `timeBucket` is the clock the colour was composed at, coarsened (`shared/world.ts`) — it
    * rides along here rather than through `updateAndRender` because it is an input to the same
@@ -333,14 +355,13 @@ export class LightingRenderer {
     this.timeBucket = timeBucket
   }
 
-  /** Called each frame from renderLoop. `darkness` defaults to whatever the dial last set. */
+  /** Called each frame from renderLoop. */
   updateAndRender(
     lightManager: LightManager,
     camX: number,
     camY: number,
     zoom: number,
     ambientColor: string,
-    darkness = this.ambientDarkness,
   ): void {
     this.updateIcons(lightManager, camX, camY, zoom)
 
@@ -364,7 +385,6 @@ export class LightingRenderer {
     // the old no-lights shortcut is why a lightless map was the one map with no mood at all.
     this.compositingSprite.visible = true
 
-    const bite = darkness
     const grade = this.grade ?? ambientColor
     const signature = lightingSignature(
       camX,
@@ -375,7 +395,6 @@ export class LightingRenderer {
       grade,
       visibleLights,
       (id) => lightManager.isDirty(id),
-      bite,
       this.timeBucket,
     )
     if (signature === this.lastSignature) return
@@ -390,29 +409,27 @@ export class LightingRenderer {
     // resolution factor. The composite sprite stretches the result back out.
     const S = LIGHT_FBO_SCALE
 
-    // ── Step 1: Fill lightFBO with the grade, then the bite ──
-    // The grade is universal — every seat, every scene, opaque, whatever the bite says. The
-    // bite is a *second* pass of the same colour and it is the player's alone: a DM (or the
-    // editor) is at 0 and lands on the grade as authored, which is the mood and is theirs to
-    // see. Both are the grade, so a neutral white grade still composites to nothing at any
-    // bite — the anchor that keeps a map nobody has graded looking untouched.
+    // ── Step 1: Fill lightFBO with the grade ──
+    // Universal — every seat, every scene, opaque. A neutral white grade composites to
+    // nothing, the anchor that keeps a map nobody has graded looking untouched.
     this.ambientContainer.removeChildren()
     const ambientG2 = new Graphics()
     const fbw = Math.ceil(this.width * S)
     const fbh = Math.ceil(this.height * S)
     ambientG2.rect(0, 0, fbw, fbh)
     ambientG2.fill({ color: gradeColorNum, alpha: 1 })
-    if (bite > 0) {
-      ambientG2.rect(0, 0, fbw, fbh)
-      ambientG2.fill({ color: gradeColorNum, alpha: bite })
-    }
     this.ambientContainer.addChild(ambientG2)
     this.engine.renderToTexture(this.ambientContainer, this.lightFBO, true)
 
     // Sprite used to composite each per-light RT into lightFBO — natural size,
-    // both RTs share the same scaled dimensions.
+    // both RTs share the same scaled dimensions. The penumbra rides on the blit: the
+    // per-light RT is black wherever the light is not, so blurring it bleeds nothing but
+    // the light's own edges (wall shadows, the rim of a mask pool), and a blurred black
+    // border adds nothing. Blurring the final FBO instead would smear its edge texels in.
+    this.penumbra.strength = Math.min(PENUMBRA_MAX_PX, PENUMBRA_CELLS * zoom * S)
     const blitSprite = new Sprite(this.perLightRT)
     blitSprite.blendMode = 'add'
+    blitSprite.filters = this.penumbra.strength >= 0.5 ? [this.penumbra] : []
     const blitContainer = new Container()
     blitContainer.addChild(blitSprite)
 
@@ -441,19 +458,13 @@ export class LightingRenderer {
         { offset: 0,             color: toRgba(alpha) },
         { offset: featherOffset, color: toRgba(alpha) },
       ]
-
-      if (light.falloff === 'linear') {
-        const zone = 1 - featherOffset
-        for (let i = 1; i <= 4; i++) {
-          const t = i / 4
-          colorStops.push({ offset: featherOffset + zone * t, color: toRgba(alpha * (1 - t)) })
-        }
-      } else {
-        const zone = 1 - featherOffset
-        for (let i = 1; i <= 6; i++) {
-          const t = i / 6
-          colorStops.push({ offset: featherOffset + zone * t, color: toRgba(alpha * (1 - t * t)) })
-        }
+      const zone = 1 - featherOffset
+      for (let i = 1; i <= FALLOFF_STOPS; i++) {
+        const t = i / FALLOFF_STOPS
+        colorStops.push({
+          offset: featherOffset + zone * t,
+          color: toRgba(alpha * falloffAt(light.falloff, t)),
+        })
       }
 
       const gradient = new FillGradient({
@@ -546,6 +557,7 @@ export class LightingRenderer {
     this.iconMap.clear()
     this.engine.overlay().removeChild(this.compositingSprite)
     this.compositingSprite.destroy()
+    this.penumbra.destroy()
     this.lightFBO.destroy(true)
     this.perLightRT.destroy(true)
     this.perLightContainer.destroy({ children: true })

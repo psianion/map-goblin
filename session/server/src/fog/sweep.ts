@@ -7,7 +7,7 @@
 // about, and to remember the answers until something moves.
 
 import { seedDoor, type DoorLiveState } from '@dnd/mechanics/doors'
-import { lightSources, pointInPolygon } from '@dnd/mechanics/fog'
+import { lightSources, pointInPolygon, SIGHT_REACH } from '@dnd/mechanics/fog'
 import { sightParty, type Token } from '@dnd/mechanics/tokens'
 // D3's runtime waivers, in the same targeted per-line style redactMap.ts uses for
 // shared/mapBounds: the sweep subtree (ClockwiseSweep → raycaster → occlusion, wallResolve,
@@ -129,18 +129,18 @@ export function createSweeps(): Sweeps {
         return polygon
       }
 
-      const eyes = claimed.map((token) => {
-        const range = token.sight!.range
-        // `sight.angle` is ignored — cones are a v1 non-goal. Darkvision sweeps the same
-        // geometry as a normal eye; what it changes is the light test, not the shadowcast.
-        return {
-          x: token.x,
-          y: token.y,
-          range,
-          darkvision: token.sight!.visionMode === 'darkvision',
-          polygon: sweep(token.x, token.y, range),
-        }
-      })
+      // Every eye is swept to the whole map (`SIGHT_REACH`): what bounds sight is the walls,
+      // and in the dark the light. `range` is kept on the eye for the one clause it governs —
+      // how far *this* eye sees unlit ground, which is `seen`'s darkvision test.
+      // `sight.angle` is ignored — cones are a v1 non-goal. Darkvision sweeps the same
+      // geometry as a normal eye; what it changes is the light test, not the shadowcast.
+      const eyes = claimed.map((token) => ({
+        x: token.x,
+        y: token.y,
+        range: token.sight!.range,
+        darkvision: token.sight!.visionMode === 'darkvision',
+        polygon: sweep(token.x, token.y, SIGHT_REACH),
+      }))
       return {
         eyes,
         lit: lights ? litIn(map, tokens, lights).map((l) => sweep(l.x, l.y, l.radius)) : null,
@@ -176,8 +176,10 @@ const litIn = (map: SceneMap, tokens: Record<string, Token>, overrides: Record<s
  *
  *   seen(p) = inSweep(p) AND (ambient ≠ darkness OR lit(p) OR (darkvision eye AND p in range))
  *
- * Party entitlement is the union over the party's eyes, but the darkvision clause is not:
- * only the eye that *has* darkvision may claim unlit ground, and only out to its own range.
+ * `inSweep` is line of sight alone — the eye's sweep reaches the whole map — so in daylight
+ * and in any light a player sees as far as the referee does. Party entitlement is the union
+ * over the party's eyes, but the darkvision clause is not: only the eye that *has* darkvision
+ * may claim unlit ground, and only out to its own range, which is the one thing `range` bounds.
  */
 export function seen(vision: PartyVision, x: number, y: number): boolean {
   const looking = vision.eyes.filter((eye) => pointInPolygon(eye.polygon, x, y))

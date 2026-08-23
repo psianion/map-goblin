@@ -56,7 +56,11 @@ const DOOR = layer.children.find(
   (child): child is DoorChild => child.childType === 'door' && !child.isSecret,
 )!
 
-/** Where the scout stands to see through the doorway, and where it cannot. */
+/**
+ * Where the scout stands to see through the doorway, and a corner of the same hall. Sight is
+ * line of sight to the whole map, so there is no spot in this open hall that cannot see the
+ * doorway — what takes the far hall out of sight is the door shutting (`lookAway`).
+ */
 const AT_DOOR = { x: NEAR.centroid[0] + 0.5, y: NEAR.centroid[1] + 0.5 }
 const AWAY = { x: 1.5, y: 1.5 }
 const SIGHT = { range: 8, angle: 360, visionMode: 'normal' }
@@ -273,6 +277,50 @@ interface Patch {
  * is "desaturated, low contrast" with "glows doing all the colour work" — a treatment that is
  * merely darker has taken the light away without taking the colour.
  */
+/**
+ * Luminance at a grid of world points, read off a screenshot of the canvas — the map through
+ * whatever the fog draws over it, at a *place* rather than over the frame. World coordinates
+ * through the probe's own `screenOf`, so two shots with different cameras (a reload re-fits)
+ * read the same ground. Quarter-cell steps: enough of the floor's texture to correlate on.
+ */
+async function patchRead(page: Page, box: [number, number, number, number]): Promise<number[]> {
+  const shot = await shoot(page)
+  return page.evaluate(
+    async ([url, x0, y0, x1, y1]: [string, number, number, number, number]) => {
+      const probe = (
+        window as Window & { __fogProbe?: { screenOf(x: number, y: number): { x: number; y: number } } }
+      ).__fogProbe
+      if (!probe) throw new Error('no fog probe on this seat — rebuild')
+      const canvas = document.querySelector('[data-testid="game-canvas"] canvas') as HTMLCanvasElement
+      const bitmap = await createImageBitmap(await (await fetch(url)).blob())
+      const surface = new OffscreenCanvas(bitmap.width, bitmap.height)
+      const ctx = surface.getContext('2d')!
+      ctx.drawImage(bitmap, 0, 0)
+      const { data, width } = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
+      // The shot is of the canvas element alone, so its pixels are the canvas's CSS box.
+      const sx = bitmap.width / canvas.clientWidth
+      const sy = bitmap.height / canvas.clientHeight
+      const out: number[] = []
+      for (let y = y0; y < y1; y += 0.25) {
+        for (let x = x0; x < x1; x += 0.25) {
+          const at = probe.screenOf(x, y)
+          const i = (Math.round(at.y * sy) * width + Math.round(at.x * sx)) * 4
+          out.push(0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2])
+        }
+      }
+      return out
+    },
+    [`data:image/png;base64,${shot.toString('base64')}`, ...box] as [string, number, number, number, number],
+  )
+}
+
+const meanOf = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length
+/** How much the reading varies across the strip — the floor's grain; hidden ground renders flat. */
+const spreadOf = (xs: readonly number[]): number => {
+  const m = meanOf(xs)
+  return Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / xs.length)
+}
+
 function sample(page: Page, shot: Buffer, mask: Buffer): Promise<Patch> {
   return page.evaluate(
     async ([a, b]: string[]) => {
@@ -531,17 +579,34 @@ test.describe.serial('@sprint3-vision', () => {
    * — because it is the only thing that takes memory away, and it is what makes "wash" a
    * measurable claim instead of a hopeful one.
    */
-  test('what the party swept is a memory: dimmer than live, brighter than void', async () => {
+  /**
+   * A strip of the far hall just inside the doorway — inside the sightline the scout has
+   * through it from `AT_DOOR` (a 2-cell gap 5.5 cells away opens to ±1.4 cells by x = 13),
+   * so every point of it is live when the door is open, memory when it shuts, and void once
+   * the cells are rubbed out.
+   */
+  const FAR_STRIP: [number, number, number, number] = [12.5, 4.5, 15.5, 6.5]
+  /** A patch of the near hall's floor beside where the scout stands at `AT_DOOR`. */
+  const NEAR_PATCH: [number, number, number, number] = [2.5, 2.5, 5.5, 4.5]
+
+  test('what the party swept is a memory: the same floor, dimmed — and void is not', async () => {
+    // In front, so the canvas actually repaints between the four shots below: a background
+    // page's ticker is paused, and a screenshot of a paused canvas is the last frame it drew.
+    await player.bringToFront()
     await frameUp(player)
     const lookingShot = await shoot(player)
     const looking = await develop(player, lookingShot)
+    const live = await patchRead(player, FAR_STRIP)
 
-    // Out of sight of the doorway — the far hall is remembered now, not seen.
-    await command(dm, 'tokens', 'move', { id: scout, ...AWAY })
-    await expect.poll(async () => (await read(player)).rebuilds).toBeGreaterThan(0)
+    // The door shuts behind them — the far hall is remembered now, not seen.
+    const before = await read(player)
+    await command(dm, 'doors', 'toggle', { id: DOOR.id })
+    await expect(doorRow(player, DOOR.id)).toHaveAttribute('data-open', 'false')
+    await expect.poll(async () => (await read(player)).rebuilds).toBeGreaterThan(before.rebuilds)
     await player.waitForTimeout(REVEAL_MS * 4)
     const awayShot = await shoot(player)
     const away = await develop(player, awayShot)
+    const memory = await patchRead(player, FAR_STRIP)
     const remembered = await read(player)
 
     await player.reload()
@@ -549,6 +614,7 @@ test.describe.serial('@sprint3-vision', () => {
     await expect.poll(async () => (await probe(player))?.mode).toBe('vision')
     await frameUp(player)
     const reloaded = await look(player)
+    const back = await patchRead(player, FAR_STRIP)
 
     // The one thing that takes a memory back (P4's brush, driven here as commands): the room
     // goes under *and* the cells the party earned are rubbed out. Only then is it void again.
@@ -564,33 +630,33 @@ test.describe.serial('@sprint3-vision', () => {
     await expect.poll(async () => (await read(player)).cells).toBeLessThan(remembered.cells)
     await player.waitForTimeout(REVEAL_MS * 4)
     const blanked = await look(player)
+    const gone = await patchRead(player, FAR_STRIP)
 
+    const sd = (xs: number[]) => spreadOf(xs).toFixed(1)
     record(
       'the memory tier across a look-away, a reload and a region-hide',
-      `looking ${show(looking)} → looked away ${show(away)} → reloaded ${show(reloaded)} → ` +
-        `room hidden and cells rubbed out ${show(blanked)} (${remembered.cells} swept cell(s))`,
-      'live > memory ≈ memory after a reload > void',
+      `looking ${show(looking)} → door shut ${show(away)} → reloaded ${show(reloaded)} → ` +
+        `room hidden and cells rubbed out ${show(blanked)} (${remembered.cells} swept cell(s)); ` +
+        `the strip inside the doorway: live ${meanOf(live).toFixed(1)} ±${sd(live)} → memory ` +
+        `${meanOf(memory).toFixed(1)} ±${sd(memory)} → reloaded ${meanOf(back).toFixed(1)} → void ` +
+        `${meanOf(gone).toFixed(1)} ±${sd(gone)}`,
+      'memory is the live floor, a step dimmer; void is the flat cover, not the floor',
     )
 
-    // Dimmer than live: the party's own sight is the only thing that makes anything current.
-    // On `clear`, because the memory tier is not a *dimmer* tier on the canvas any more — it
-    // is a thinner fog. `MASK_MEMORY` puts the cloud at roughly half alpha over remembered
-    // ground where live ground carries none at all (`livingFog.ts`), so what a look-away costs
-    // is cover the fog takes back: 13.1% clear looking, 10.5% looked away. On `lit` both read
-    // an identical 0.141% — the props, in every state — which is the reading that used to be
-    // taken and could not tell these two frames apart at all.
-    expect(away.clear, `looked away read ${show(away)} against live ${show(looking)}`).toBeLessThan(
-      looking.clear,
-    )
-    // …and clearer than void: what they swept is still on the canvas. Not on `mean` any more,
-    // which #101 turned upside down — the cloud is *brighter* than this map's graded floor, so
-    // rubbing a memory out now RAISES the frame mean (31.1 remembered against 32.0 rubbed out)
-    // and the row was reading the fog rather than the map. `clear` reads the same two frames
-    // 10.5% against 8.4%, and the 8.4% is the live sweep the scout is still standing in.
-    expect(away.clear, 'the memory came back as void').toBeGreaterThan(blanked.clear)
+    // Read at a place, not over the frame: whole-frame shares could not tell these states
+    // apart once the memory tier stopped being near-black (it is the map under a thin haze
+    // now) and the dense cloud started being the darkest thing on the canvas. A memory is the
+    // live floor a step dimmer — the same flat floor this fixture draws, under a 30% wash —
+    // and the void is the cover, which renders flat (`livingFog.ts`: hidden ground at exactly
+    // uDense, so nothing beneath it telegraphs through) where the floor keeps its grain. (The
+    // cover's *mean* is no use here: on this map it lands within a point of the floor.)
+    expect(meanOf(memory), 'the memory is not dimmer than live').toBeLessThan(meanOf(live))
+    expect(meanOf(memory), 'the memory is not the floor any more').toBeGreaterThan(meanOf(live) * 0.6)
+    expect(spreadOf(memory), 'the memory lost the floor’s grain').toBeGreaterThan(spreadOf(live) * 0.5)
+    expect(spreadOf(gone), 'the void still shows the floor’s grain').toBeLessThan(spreadOf(memory) * 0.5)
     // The reload keeps it — the record is the server's and the mask rebuilds from it.
-    expect(Math.abs(reloaded.mean - away.mean)).toBeLessThan(away.mean * 0.1)
-    // Region memory only ever ORs: walking away takes no ground back.
+    expect(Math.abs(meanOf(back) - meanOf(memory))).toBeLessThan(meanOf(memory) * 0.15)
+    // Region memory only ever ORs: the door shutting takes no ground back.
     expect(remembered.cells).toBeGreaterThan(0)
   })
 
@@ -608,13 +674,13 @@ test.describe.serial('@sprint3-vision', () => {
     const farRoomCells = await cellsOf(player, FAR)
     const before = await read(player)
 
-    // Look through the doorway again — the row above rubbed both halls' cells out, so what
-    // comes back now is exactly what this one sightline reaches.
-    await command(dm, 'tokens', 'move', { id: scout, ...AT_DOOR })
+    // Open the door again — the row above rubbed both halls' cells out, so what comes back
+    // now is exactly what this one sightline through the doorway reaches.
+    await command(dm, 'doors', 'toggle', { id: DOOR.id })
     await expect.poll(async () => (await read(player)).cells).toBeGreaterThan(before.cells)
 
-    // …then stop looking at it, so the far hall is memory alone with nothing live in it.
-    await command(dm, 'tokens', 'move', { id: scout, ...AWAY })
+    // …then shut it, so the far hall is memory alone with nothing live in it.
+    await command(dm, 'doors', 'toggle', { id: DOOR.id })
     await expect.poll(async () => (await read(player)).rebuilds).toBeGreaterThan(before.rebuilds)
     await player.waitForTimeout(REVEAL_MS * 4)
     await frameUp(player)
@@ -1035,7 +1101,9 @@ test.describe.serial('@sprint3-vision', () => {
     await expect(player.getByTestId('token-layer').locator('[data-token-id]')).toHaveCount(0)
     await expect(player.getByText('No tokens on this scene.')).toBeVisible()
     await expect.poll(async () => (await read(player)).sources).toBe(0)
+    await player.waitForTimeout(REVEAL_MS * 4)
     const stranded = await look(player)
+    const strandedFloor = await patchRead(player, NEAR_PATCH)
 
     // One select on the DM's panel, and the seat has a token and a pair of eyes again.
     await owner.selectOption({ label: 'Borin' })
@@ -1045,45 +1113,41 @@ test.describe.serial('@sprint3-vision', () => {
     await expect.poll(async () => (await read(player)).sources).toBe(1)
     await player.waitForTimeout(REVEAL_MS * 4)
     const handed = await look(player)
+    const handedFloor = await patchRead(player, NEAR_PATCH)
 
     record(
       'the DM assignment (Owner select → the player’s panel and mask)',
-      `unassigned: no tokens listed, 0 sight source(s), ${show(stranded)} → assigned: ` +
-        `1 token, 1 sight source, ${show(handed)}`,
+      `unassigned: no tokens listed, 0 sight source(s), ${show(stranded)}, the hall's floor at ` +
+        `${meanOf(strandedFloor).toFixed(1)} → assigned: 1 token, 1 sight source, ${show(handed)}, ` +
+        `the floor at ${meanOf(handedFloor).toFixed(1)}`,
       'a player with no token can be handed one, and it lights their mask',
     )
-    // A new mask arrived with the token: 24.6% of the frame clear of fog with no eyes on it
-    // against 13.3% with one pair. Read on cover and not on brightness — after #100 nothing in
-    // this hall is at light-source brightness either way (0.1% in both readings) — and *down*
-    // rather than up, because what a pair of eyes does here is turn memory-tier ground live:
-    // under the memory cloud at half alpha the map's own black still lands under 16/255 and
-    // counts, while live it is the graded floor at ~36, inside the fog's band where nothing
-    // sees it. Eleven points of frame is a different mask; nothing else on this table moved.
-    expect(handed.clear, `the handed token lit ${show(handed)}`).toBeLessThan(stranded.clear - 0.05)
+    // A new mask arrived with the token: with no eyes on it the hall is a memory — the floor
+    // under the explored wash — and with one pair it is live, the floor as rendered. Read on
+    // the floor around the token rather than over the frame: since the memory tier became the
+    // map under a thin haze, whole-frame shares no longer tell the two masks apart (the old
+    // reading counted a memory's near-black floor; it is not near-black any more). Nothing
+    // else on this table moved.
+    expect(
+      meanOf(handedFloor),
+      `the handed token lit the floor to ${meanOf(handedFloor).toFixed(1)} against ` +
+        `${meanOf(strandedFloor).toFixed(1)} with no eyes on it`,
+    ).toBeGreaterThan(meanOf(strandedFloor) * 1.1)
   })
 
   test('the DM edits Sight & light on the panel and the player’s mask follows', async () => {
     await command(dm, 'tokens', 'move', { id: scout, ...AT_DOOR })
     await expect.poll(async () => (await read(player)).rebuilds).toBeGreaterThan(0)
+    // In the dark: sight is line of sight to the whole map, so the one number on the panel
+    // that still shapes the mask is a darkvision eye's range, and only with the lights out.
+    await command(dm, 'triggers', 'set-environment', { ambient: 'darkness' })
+    await expect(player.getByTestId('env-badge')).toHaveText(/^Darkness/)
 
-    // Select the scout in the DM's own token list — the section is part of the selection.
+    // The panel, on the scout: the authored 40 ft (8 cells) of sight.
     await openTokens(dm)
     await dm.getByTestId('token-layer').locator(`[data-token-id="${scout}"] button`).click()
     await expect(dm.getByTestId('token-sight')).toBeVisible()
-    // 8 cells at this map's 5 ft a cell: the panel quotes the unit, the wire stores cells.
     await expect(dm.getByLabel('Sight range')).toHaveValue('40')
-
-    await frameUp(player)
-    const wide = await look(player)
-
-    // Down to two cells, through the real input.
-    await dm.getByLabel('Sight range').fill('10')
-    await dm.getByLabel('Sight range').blur()
-    await expect.poll(async () => (await look(player)).clear).toBeGreaterThan(wide.clear)
-    await player.waitForTimeout(REVEAL_MS * 3)
-    const narrow = await look(player)
-
-    // …and the mode select, which the wire has to carry as `darkvision`.
     await dm.getByLabel('Vision mode').selectOption('darkvision')
     await expect
       .poll(() =>
@@ -1105,18 +1169,41 @@ test.describe.serial('@sprint3-vision', () => {
       )
       .toBe('darkvision')
 
+    // The hall's far corner, three to six cells from the scout: inside an 8-cell ring, past
+    // the end of a 2-cell one — where it is a memory (the floor, a step dimmer), since the
+    // party has stood here.
+    const CORNER: [number, number, number, number] = [0.5, 0.5, 2.5, 2.5]
+    await frameUp(player)
+    await player.bringToFront()
+    await expect.poll(async () => meanOf(await patchRead(player, CORNER))).toBeGreaterThan(20)
+    const wide = await patchRead(player, CORNER)
+
+    // 10 ft, typed on the panel and committed on blur.
+    await dm.getByLabel('Sight range').fill('10')
+    await dm.getByLabel('Sight range').blur()
+    await expect
+      .poll(async () => meanOf(await patchRead(player, CORNER)))
+      .toBeLessThan(meanOf(wide) * 0.9)
+    const narrow = await patchRead(player, CORNER)
+
     record(
       'a sight range edited on the panel, measured on the player canvas',
-      `40 ft of sight read ${show(wide)}; 10 ft read ${show(narrow)}`,
+      `the hall's corner read ${meanOf(wide).toFixed(1)} under 40 ft of darkvision and ` +
+        `${meanOf(narrow).toFixed(1)} under 10 ft`,
       'a smaller eye is a smaller mask, off the panel alone',
     )
-    // 10 ft leaves more of the frame under the memory tier than 40 ft does: 19.6% clear
-    // against 13.4%, the same direction and the same reason as the Owner row above. Read on
-    // cover rather than on brightness for that row's reason too — 0.1% of this frame is at
-    // light-source brightness whatever the range is, so `lit` cannot see a sight radius.
-    expect(narrow.clear, `40 ft ${show(wide)} against 10 ft ${show(narrow)}`).toBeGreaterThan(
-      wide.clear + 0.02,
+    // Dimmer — and still the floor: what the ring no longer reaches is remembered, not void.
+    expect(meanOf(narrow), `40 ft read ${meanOf(wide).toFixed(1)}, 10 ft ${meanOf(narrow).toFixed(1)}`).toBeLessThan(
+      meanOf(wide) * 0.9,
     )
+    expect(meanOf(narrow)).toBeGreaterThan(meanOf(wide) * 0.5)
+
+    // Put the table back the way the rows below expect it: a normal 40 ft eye by daylight.
+    await dm.getByLabel('Sight range').fill('40')
+    await dm.getByLabel('Sight range').blur()
+    await dm.getByLabel('Vision mode').selectOption('normal')
+    await command(dm, 'triggers', 'set-environment', { ambient: 'daylight' })
+    await expect(player.getByTestId('env-badge')).toHaveText(/^Daylight/)
 
     // The standing gate condition, on the rows this phase added too.
     expect(pageErrors, pageErrors.join('\n')).toEqual([])

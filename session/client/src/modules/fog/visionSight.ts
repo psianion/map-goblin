@@ -22,7 +22,7 @@ import { extractWallSegments } from '@dnd/core/src/engine/lighting/raycaster';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import type { LightChild } from '@dnd/core/src/shared/types';
 import type { DungeonLayer, Layer } from '@dnd/core/src/store/types';
-import type { LightSource, PlacedLight } from '@dnd/mechanics/fog';
+import { SIGHT_REACH, type LightSource, type PlacedLight } from '@dnd/mechanics/fog';
 import { sightParty, type Token } from '@dnd/mechanics/tokens';
 import { isTokenLight } from '../triggers/lightSync';
 
@@ -116,7 +116,7 @@ export const placedLights = (layers: readonly Layer[]): PlacedLight[] =>
     );
 
 export interface SightCache {
-  /** One polygon per token given, in that order. Feed it {@link sighted}. */
+  /** One line-of-sight polygon per token given, in that order. Feed it {@link sighted}. */
   partySight(layers: readonly Layer[], tokens: readonly Token[]): Polygon[];
   /** One polygon per light source given, in that order. Feed it `lightSources`. */
   litArea(layers: readonly Layer[], sources: readonly LightSource[]): Polygon[];
@@ -178,10 +178,13 @@ export function createSightCache(): SightCache {
   return {
     sweeps: () => sweeps,
 
+    // Line of sight, to the whole map — the referee's own reach (`sweep.ts`). A token's
+    // `range` bounds only what it sees *unlit*, which is the darkvision sweep the renderer
+    // takes through `litArea` at that radius.
     partySight: (layers, tokens) =>
       sweepAll(
         layers,
-        tokens.map((token) => ({ x: token.x, y: token.y, radius: token.sight!.range })),
+        tokens.map((token) => ({ x: token.x, y: token.y, radius: SIGHT_REACH })),
       ),
 
     litArea: (layers, sources) => sweepAll(layers, sources),

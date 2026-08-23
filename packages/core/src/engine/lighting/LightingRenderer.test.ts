@@ -54,7 +54,15 @@ vi.mock('pixi.js', () => {
     destroy(): void {}
   }
   class MockRenderTexture {}
+  class MockBlurFilter {
+    strength: number;
+    constructor(o: { strength: number }) {
+      this.strength = o.strength;
+    }
+    destroy(): void {}
+  }
   return {
+    BlurFilter: MockBlurFilter,
     Container: MockContainer,
     Graphics: MockGraphics,
     Sprite: MockSprite,
@@ -69,7 +77,7 @@ vi.mock('../../assets/textureLoader', () => ({
   resolveTexture: () => ({ width: mockMaskWidth, height: mockMaskWidth }),
 }));
 
-import { LightingRenderer, lightingSignature, cullLightsByDistance, MAX_RENDERED_LIGHTS, rgb, gradedLight, headroom, W_LIGHT_GRADE } from './LightingRenderer';
+import { LightingRenderer, lightingSignature, cullLightsByDistance, MAX_RENDERED_LIGHTS, rgb, gradedLight, headroom, falloffAt, W_LIGHT_GRADE } from './LightingRenderer';
 import { LightManager } from './LightManager';
 import type { RenderEngine } from '../RenderEngine';
 import type { LightChild } from '../../store/types';
@@ -127,16 +135,11 @@ describe('lightingSignature', () => {
     ['viewport width', () => sig([light()], [100, 200, 1.5], [1281, 720])],
     ['viewport height', () => sig([light()], [100, 200, 1.5], [1280, 721])],
     ['ambient colour', () => sig([light()], [100, 200, 1.5], [1280, 720], '#101014')],
-    // S3 P3 §4 — the dial changes the picture without changing a light, so it changes the key.
-    [
-      'ambient level (the DM’s dial)',
-      () => lightingSignature(100, 200, 1.5, 1280, 720, '#0d0e12', [light()], clean, 0.45),
-    ],
     // P2 — the world clock, bucketed. The grade colour covers the picture this pass draws
     // today; the bucket is what the sun/moon direction (P3) moves inside one grade colour.
     [
       'the world clock’s bucket',
-      () => lightingSignature(100, 200, 1.5, 1280, 720, '#0d0e12', [light()], clean, 1, 7),
+      () => lightingSignature(100, 200, 1.5, 1280, 720, '#0d0e12', [light()], clean, 7),
     ],
     ['light moved', () => sig([light({ position: { x: 13, y: 20 } })])],
     ['light radius', () => sig([light({ radius: 41 })])],
@@ -227,7 +230,7 @@ function table(initialLights: LightChild[] = [light()]) {
   };
   const viewport = { width: 1280, height: 720, dpr: 1 };
   const drawnInto: FakeTexture[] = [];
-  /** The FBO's base fills, frame by frame — the grade, and the bite's second pass of it. */
+  /** The FBO's base fills, frame by frame — the grade. */
   const baseFills: { color: number; alpha: number }[][] = [];
   const engine = {
     overlay: () => overlay,
@@ -317,53 +320,18 @@ describe('LightingRenderer composite guard', () => {
     expect(t.drawnInto.length).toBeGreaterThan(settled);
   });
 
-  // ── S3 P3 §4 — the scene's ambient dial ──────────────────────────────────
-
-  it('recomposites when the DM turns the ambient dial, with nothing else moving', () => {
-    const t = table();
-    const settled = t.drawnInto.length;
-    t.renderer.setAmbientLevel(0.45);
-    t.frame();
-    expect(t.drawnInto.length).toBeGreaterThan(settled);
-  });
-
-  it('keeps composing a dial-set scene after its last light goes out', () => {
-    const t = table();
-    t.renderer.setAmbientLevel(1);
-    t.lights.syncFromStore([]);
-    const settled = t.drawnInto.length;
-    t.frame();
-    // The ambient fill IS the picture now — a `darkness` scene whose torch just went out has
-    // to go dark, not hand back a fully lit map.
-    expect(t.drawnInto.length).toBeGreaterThan(settled);
-    expect(t.overlay.children.find((c) => c.label === 'lightingComposite')).toMatchObject({
-      visible: true,
-    });
-  });
-
-  // P1 — the grade/bite split. A map's mood is not conditional on it owning a torch, and the
-  // old shortcut (no lights, no dial ⇒ no composite at all) is why a lightless map was the one
-  // map with no mood.
-  it('still composites a lightless, dial-less scene — for its grade, at no bite', () => {
+  // P1 — a map's mood is not conditional on it owning a torch, and the old shortcut (no
+  // lights ⇒ no composite at all) is why a lightless map was the one map with no mood.
+  it('still composites a lightless scene — for its grade', () => {
     const t = table();
     t.lights.syncFromStore([]);
     const settled = t.drawnInto.length;
     t.frame('#2d2d44');
     expect(t.drawnInto.length).toBeGreaterThan(settled);
     expect(t.sprite().visible).toBe(true);
-    // The grade as authored, opaque — and nothing else. No dial is no bite.
+    // The grade as authored, opaque — and nothing else. The seats share this base: what a
+    // player may see is the fog layer's job, not a second fill here.
     expect(t.baseFills.at(-1)).toEqual([{ color: 0x2d2d44, alpha: 1 }]);
-  });
-
-  it('lays the bite over the grade as a second pass of the same colour', () => {
-    const t = table();
-    t.lights.syncFromStore([]);
-    t.renderer.setAmbientLevel(0.7);
-    t.frame('#2d2d44');
-    expect(t.baseFills.at(-1)).toEqual([
-      { color: 0x2d2d44, alpha: 1 },
-      { color: 0x2d2d44, alpha: 0.7 },
-    ]);
   });
 
   it('takes the composed grade over the frame’s own ambient once one is set', () => {
@@ -404,21 +372,18 @@ describe('LightingRenderer composite guard', () => {
 });
 
 // ── P1 — what the grade does to the picture ─────────────────────────────────
-// The composite needs a GPU, but its arithmetic does not: the FBO is the grade (plus the
-// bite's second pass of it) with each light's graded colour added on top, and the sprite
+// The composite needs a GPU, but its arithmetic does not: the FBO is the grade with each
+// light's graded colour added on top, and the sprite
 // multiplies the result over the map. Modelled here per channel so the requirements can be
 // asserted as *properties* of the output rather than as identities of the intermediates —
 // W1 explicitly changes what a lit floor looks like, so nothing about it is byte-stable.
 
-/** The FBO's unlit base: the grade, then the bite's second pass of it. 0..1 per channel. */
-const base = (grade: string, bite: number): number[] =>
-  rgb(grade).map((c) => (c / 255) * (1 - bite * (1 - c / 255)));
+/** The FBO's unlit base: the grade, 0..1 per channel. */
+const base = (grade: string): number[] => rgb(grade).map((c) => c / 255);
 
 /** The FBO inside a pool: the base with the light's graded colour added at `intensity`. */
-const pool = (grade: string, light: string, bite: number, intensity = 0.8): number[] =>
-  gradedLight(light, grade).map((c, i) =>
-    Math.min(1, base(grade, bite)[i] + (c / 255) * intensity),
-  );
+const pool = (grade: string, light: string, intensity = 0.8): number[] =>
+  gradedLight(light, grade).map((c, i) => Math.min(1, base(grade)[i] + (c / 255) * intensity));
 
 /** What the map's own pixels come out as: `dst · lerp(1, fbo, 0.95)`, the sprite's multiply. */
 const SPRITE_ALPHA = 0.95;
@@ -461,8 +426,8 @@ describe('the grade, as properties of the output', () => {
   it('(b) changes the LIT floor when the grade goes from day to night (W1)', () => {
     // The whole point of P1. Lit ground used to escape the grade almost entirely — the pool
     // washed the fill out from under itself and the composite never got another word in.
-    const day = out(FLOOR, pool(DAY, TORCH, 0));
-    const night = out(FLOOR, pool(NIGHT, TORCH, 0));
+    const day = out(FLOOR, pool(DAY, TORCH));
+    const night = out(FLOOR, pool(NIGHT, TORCH));
     const drop = 1 - night[0] / day[0];
     expect(drop).toBeGreaterThan(0.2);
     // …and what is left standing in the pool is the torch, not the sky: the night takes the
@@ -473,23 +438,19 @@ describe('the grade, as properties of the output', () => {
   });
 
   it('(c) gives the DM a dark night map with pools burning in it (W2 + finding 2)', () => {
-    // Their bite is 0 — no vision-darkness is ever imposed on a referee — but the grade is
-    // not vision, and a night map is *supposed* to be dark. What they must not lose is the
-    // map: the braziers are right there, several times brighter than the ground around them.
-    const dm = { unlit: out(FLOOR, base(NIGHT, 0)), lit: out(FLOOR, pool(NIGHT, TORCH, 0)) };
+    // The grade is not vision, and a night map is *supposed* to be dark. What they must not
+    // lose is the map: the braziers are right there, several times brighter than the ground
+    // around them.
+    const dm = { unlit: out(FLOOR, base(NIGHT)), lit: out(FLOOR, pool(NIGHT, TORCH)) };
     expect(dm.unlit[0]).toBeLessThan(FLOOR[0] * 0.25);
     expect(dm.lit[0]).toBeGreaterThan(dm.unlit[0] * 3);
-    // …and a player's bite lands strictly under the DM on the same ground, never over it.
-    expect(out(FLOOR, base(NIGHT, 0.7))[0]).toBeLessThan(dm.unlit[0]);
   });
 
   it('(d) leaves a map with a neutral white grade exactly as it was', () => {
-    // The compat anchor. White is "no grade", and no grade must cost nothing at any bite —
-    // both fills are the grade, so both are white, and the multiply is the identity.
-    for (const bite of [0, 0.45, 0.7, 1]) {
-      expect(base('#ffffff', bite)).toEqual([1, 1, 1]);
-      expect(out(FLOOR, base('#ffffff', bite))).toEqual(FLOOR);
-    }
+    // The compat anchor. White is "no grade", and no grade must cost nothing — the fill is
+    // white, and the multiply is the identity.
+    expect(base('#ffffff')).toEqual([1, 1, 1]);
+    expect(out(FLOOR, base('#ffffff'))).toEqual(FLOOR);
     // …and an ungraded torch is the torch as authored.
     expect(gradedLight(TORCH, '#ffffff')).toEqual(rgb(TORCH));
   });
@@ -527,6 +488,34 @@ describe('LightingRenderer light-count perf', () => {
     t.frame();
     // Not 2*n+1: however many are on the table, the redraw cost tops out at the cap.
     expect(t.drawnInto.length - settled).toBe(2 * MAX_RENDERED_LIGHTS + 1);
+  });
+});
+
+describe('falloffAt — a pool runs out, it does not end', () => {
+  for (const falloff of ['quadratic', 'linear'] as const) {
+    it(`${falloff}: full at the core, nothing at the rim, flat on arrival, never rising`, () => {
+      expect(falloffAt(falloff, 0)).toBe(1);
+      expect(falloffAt(falloff, 1)).toBe(0);
+      // Zero slope at the rim — the ring every pool used to end on was this slope being ~2.
+      expect(falloffAt(falloff, 1) - falloffAt(falloff, 0.98)).toBeGreaterThan(-0.002);
+      let prev = 1;
+      for (let t = 0.05; t <= 1; t += 0.05) {
+        const v = falloffAt(falloff, t);
+        expect(v).toBeLessThanOrEqual(prev);
+        prev = v;
+      }
+    });
+  }
+  it('is the authored curve inside the rim — a pool is as bright as it was', () => {
+    for (const t of [0, 0.25, 0.5, 0.7]) {
+      expect(falloffAt('quadratic', t)).toBeCloseTo(1 - t * t, 10);
+      expect(falloffAt('linear', t)).toBeCloseTo(1 - t, 10);
+    }
+    expect(falloffAt('quadratic', 0.5)).toBeGreaterThan(falloffAt('linear', 0.5));
+  });
+  it('clamps a stop outside the gradient rather than bending the curve back up', () => {
+    expect(falloffAt('quadratic', 1.2)).toBe(0);
+    expect(falloffAt('linear', -0.2)).toBe(1);
   });
 });
 
