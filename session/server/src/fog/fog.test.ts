@@ -213,6 +213,23 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
     expect(layerOf(redacted()).standaloneWalls.map((w) => w.id)).toEqual(['wall-hall'])
   })
 
+  // A wall belongs to every room it runs along — probed per cell, at half a cell and a whole
+  // one: a long wall whose midpoint is beside no room at all, and a wall a full cell back from
+  // the room it encloses, both went to nobody, and the player's own sweep, with nothing to stop
+  // it, cleared whatever lay beyond them.
+  it('attributes a long wall to the rooms along it, and a set-back wall to its room', () => {
+    const scene = sceneMap()
+    // Along the top of the hall, the corridor gap and the inner room, then far past them: its
+    // midpoint is at x = 20 beside the inner room, but a shorter probe reads only that.
+    const long = wall('wall-long', -30, 0, 70, 0)
+    expect([...scene.roomsAlong(long)].sort()).toEqual(['hall', 'inner', 'vault'])
+    // One cell above the hall's floor — authored with a gap, as some maps are.
+    const setBack = wall('wall-set-back', 0, -1, 10, -1)
+    expect(scene.roomsAlong(setBack)).toEqual(['hall'])
+    // …and a wall nowhere near a room still belongs to nobody.
+    expect(scene.roomsAlong(wall('wall-nowhere', 0, 50, 10, 50))).toEqual([])
+  })
+
   it('drops the merged floor, which is one union across every room', () => {
     expect(layerOf(redacted()).mergedFloor).toBeNull()
   })

@@ -120,15 +120,31 @@ function index(campaignId: string, data: SerializedMapData): SceneMap {
     lights,
     lightNames,
     roomAt: (x, y) => rooms.find((room) => contains(room, x, y))?.id ?? null,
+    // Probed once per cell along the wall, not at its midpoint alone, and at two depths: a
+    // wall belongs to every room it runs along, a long one can run past several — or, on a
+    // wall that outlasts the rooms it divides, have its midpoint beside none of them — and a
+    // room authored a whole cell back from its wall is still that wall's room. A wall that
+    // matched nothing shipped to nobody, and a player's own sweep, with nothing to stop it,
+    // cleared the whole hall on the far side the moment its door opened.
     roomsAlong: (wall) => {
       const [ax, ay] = wall.points[0]
       const [bx, by] = wall.points[wall.points.length - 1]
-      const [mx, my] = [(ax + bx) / 2, (ay + by) / 2]
       const length = Math.hypot(bx - ax, by - ay) || 1
       const [nx, ny] = [((ay - by) / length) * WALL_PROBE, ((bx - ax) / length) * WALL_PROBE]
-      return rooms
-        .filter((room) => contains(room, mx + nx, my + ny) || contains(room, mx - nx, my - ny))
-        .map((room) => room.id)
+      const steps = Math.max(1, Math.ceil(length))
+      const along = new Set<string>()
+      for (let k = 0; k < steps; k++) {
+        const t = (k + 0.5) / steps
+        const [px, py] = [ax + (bx - ax) * t, ay + (by - ay) * t]
+        for (const room of rooms) {
+          for (const d of [1, 2]) {
+            if (contains(room, px + nx * d, py + ny * d) || contains(room, px - nx * d, py - ny * d)) {
+              along.add(room.id)
+            }
+          }
+        }
+      }
+      return [...along]
     },
   }
 }

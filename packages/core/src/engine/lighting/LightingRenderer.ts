@@ -156,7 +156,7 @@ export function headroom(grade: string): number {
  * Where the rim starts rounding off, as a share of the falloff zone. Inside it the curves
  * below are exactly what they always were, so a pool is as bright as it was authored.
  */
-const RIM_START = 0.75
+export const RIM_START = 0.75
 
 /**
  * How much of a light is left at `t` of the way from the flat core to the rim, 0..1.
