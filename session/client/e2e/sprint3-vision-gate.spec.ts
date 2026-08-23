@@ -107,15 +107,17 @@ const WALKED = roomNamed('Ossuary')
  * Where the DM's own monsters stand: rooms this party has no token in and no sightline into.
  *
  * Every one is behind something the sweep cannot cross — a closed portcullis and a locked door
- * (Reliquary), an unfound secret door (Vault Creep), or simply further than the nearest eye can
- * reach down an open passage (the cistern, the stair). A token *inside* a locked zone would be
- * the wrong probe for row 2: the lock stops the party earning the ground, never their eyes
+ * (Reliquary), an unfound secret door (Vault Creep), or a corner of a room the nearest eye
+ * looks into down a passage but cannot see round (the cistern, the approach). Sight is line of
+ * sight to the whole map, so distance alone hides nothing: each of these was checked against
+ * every party member's sweep on this geometry. A token *inside* a locked zone would be the
+ * wrong probe for row 2: the lock stops the party earning the ground, never their eyes
  * reaching what is standing on it.
  */
 const UNSEEN: { name: string; x: number; y: number }[] = [
   { name: 'Reliquary Wraith', ...centre(roomNamed('Reliquary')) },
-  { name: 'Drowned One', ...centre(roomNamed('Drowned Cistern')) },
-  { name: 'Crypt Rat', x: 9, y: 3 },
+  { name: 'Drowned One', x: 6.5, y: 27.5 },
+  { name: 'Crypt Rat', x: 36.5, y: 12.5 },
   { name: 'Vault Guard', x: 36, y: 32 },
 ]
 

@@ -47,22 +47,33 @@ const REVEAL_MS = 300
 
 const FILE = join(import.meta.dirname, '../../testdata/vision-two-rooms.mapbuilder')
 const doc = JSON.parse(readFileSync(FILE, 'utf8')) as SerializedMapData
-const VISION: MapUnderTest = { file: FILE, name: doc.mapSettings.name }
-
 const layer = doc.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!
+// Sight is line of sight to the whole map, so two seats in one open hall always see each
+// other — what keeps them apart here is a wall down the middle of the near hall, not a short
+// range. One room record still: the partition is a standalone wall, and the room it stands in
+// is the room both seats hold.
+layer.standaloneWalls.push({
+  ...layer.standaloneWalls[0],
+  id: 'wall-split',
+  points: [
+    [5.5, -1],
+    [5.5, 11],
+  ],
+})
+const VISION: MapUnderTest = { doc: doc as unknown as Record<string, unknown>, name: doc.mapSettings.name }
 /** West first, east second — both seats start in the near one; the far one is the familiar's. */
 const [NEAR, FAR] = [...(layer.rooms ?? [])].sort((a, b) => a.centroid[0] - b.centroid[0])
 
-/** Three cells of sight: small enough that two tokens in one hall cannot see each other. */
+/** Ordinary eyes. Sight reaches the whole map; the partition is what keeps the seats apart. */
 const SHORT = { range: 3, angle: 360, visionMode: 'normal' }
 const at = (room: Room, dx: number, dy: number) => ({
   x: room.centroid[0] + dx,
   y: room.centroid[1] + dy,
 })
-/** Opposite corners of the near hall — 8.5 cells apart, well past either one's reach. */
+/** Opposite corners of the near hall, one on each side of the partition. */
 const ALDA = at(NEAR, -2.5, -2.5)
 const BRAN = at(NEAR, 3.5, 3.5)
-/** One thing standing in each seat's sight, and nowhere near the other's. */
+/** One thing standing in each seat's sight, on its own side of the wall. */
 const ALDA_SEES = at(NEAR, -3.5, -1.5)
 const BRAN_SEES = at(NEAR, 4.5, 2.5)
 /** The familiar, deep in the far hall behind the shut door, and what it is looking at. */
