@@ -573,21 +573,22 @@ test.describe.serial('@sprint3-vision', () => {
     )
 
     // Dimmer than live: the party's own sight is the only thing that makes anything current.
-    // On `clear`, because the memory tier is not a *dimmer* tier on the canvas any more — it
-    // is a thinner fog. `MASK_MEMORY` puts the cloud at roughly half alpha over remembered
-    // ground where live ground carries none at all (`livingFog.ts`), so what a look-away costs
-    // is cover the fog takes back: 13.1% clear looking, 10.5% looked away. On `lit` both read
-    // an identical 0.141% — the props, in every state — which is the reading that used to be
-    // taken and could not tell these two frames apart at all.
-    expect(away.clear, `looked away read ${show(away)} against live ${show(looking)}`).toBeLessThan(
-      looking.clear,
-    )
-    // …and clearer than void: what they swept is still on the canvas. Not on `mean` any more,
-    // which #101 turned upside down — the cloud is *brighter* than this map's graded floor, so
-    // rubbing a memory out now RAISES the frame mean (31.1 remembered against 32.0 rubbed out)
-    // and the row was reading the fog rather than the map. `clear` reads the same two frames
-    // 10.5% against 8.4%, and the 8.4% is the live sweep the scout is still standing in.
-    expect(away.clear, 'the memory came back as void').toBeGreaterThan(blanked.clear)
+    // Read on the frame's near-black share (`blackOf`): a memory is the map's own floor under
+    // the explored wash and the mist, and on this map that lands under 16/255 — while live
+    // ground is the graded floor at ~36 and its rim is misted, not black. On `lit` both read
+    // an identical share — the props, in every state — which is the reading that used to be
+    // taken and could not tell these two frames apart at all. (`clear` carried this row until
+    // the fog's edge started fading inward: the wall band inside live sight then stopped
+    // reading as black and the comparison inverted — 7.1% looking, 13.2% looked away.)
+    expect(
+      blackOf(away),
+      `looked away read ${show(away)} against live ${show(looking)}`,
+    ).toBeGreaterThan(blackOf(looking))
+    // …and not void: what they swept is still on the canvas. Not on `mean`, which #101 turned
+    // upside down — the cloud is *brighter* than this map's graded floor, so rubbing a memory
+    // out RAISES the frame mean and the row was reading the fog rather than the map. Void is
+    // the dense cloud, which is never near-black; a memory shows the floor through it.
+    expect(blackOf(away), 'the memory came back as void').toBeGreaterThan(blackOf(blanked))
     // The reload keeps it — the record is the server's and the mask rebuilds from it.
     expect(Math.abs(reloaded.mean - away.mean)).toBeLessThan(away.mean * 0.1)
     // Region memory only ever ORs: walking away takes no ground back.
