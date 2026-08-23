@@ -41,6 +41,10 @@ import {
   biteStrength,
   DARKVISION_TINT,
   DARKVISION_TINT_ALPHA,
+  DRAINED_RAMP,
+  DRAINED_RAMP_STEPS,
+  memoryAlpha,
+  rampAlpha,
   EXPLORED_TINT,
   EXPLORED_TINT_ALPHA,
   FOG_FEATHER,
@@ -308,6 +312,7 @@ describe('roomViews — what each room is doing', () => {
       sceneId: 's1',
       isPlayer: true,
       bite: LIGHTING_STRENGTH.player,
+      darkness: 1,
       grade: '#ffffff',
       timeBucket: 0,
       void: VOID,
@@ -331,6 +336,7 @@ describe('roomViews — what each room is doing', () => {
       sceneId: 's1',
       isPlayer: true,
       bite: LIGHTING_STRENGTH.player,
+      darkness: 1,
       grade: '#ffffff',
       timeBucket: 0,
       void: VOID,
@@ -470,7 +476,7 @@ const over = (base: number, color: number, alpha: number): number =>
  * texture — which is what the two lost gates were actually about — and they are stated as
  * shares of the live room rather than as levels of 255.
  */
-const AMBIENT = 0x0d * (1 - LIGHTING_STRENGTH.player * (1 - 0x0d / 255));
+const AMBIENT = 0x0d;
 const unlit = (base: number): number =>
   base * (1 - GRADE_STRENGTH + GRADE_STRENGTH * (AMBIENT / 255));
 
@@ -534,25 +540,22 @@ describe('the lighting strength each seat composites at', () => {
     // P1's split. The DM used to lose the whole multiply to that zero above, and with it every
     // brazier on the map: the light pools live in the same composite the mood does.
     expect(GRADE_STRENGTH).toBeGreaterThan(0);
-    // A DM at the darkest level still composites the grade as authored — and only the grade,
-    // their bite being 0, so the map is the mood and never the vision-darkness on top of it.
-    const dmVoid = voidStyle(biteStrength('darkness', 'dm'));
-    expect(dmVoid).toEqual(voidStyle(0));
-    // …and a player's seat lands strictly under it on the same background.
-    expect(voidStyle(biteStrength('darkness', 'player')).fill).toBeLessThan(dmVoid.fill);
+    // …and the imitation void is drawn through that grade alone, on every seat: the lighting
+    // pass has no per-seat fill any more, so the map under a player's clear tier is the DM's
+    // map to the pixel. The old "player lands strictly under the DM" was a second fill of the
+    // same colour that never changed a pixel — the seats were measured identical at the base.
+    expect(voidStyle()).toEqual(voidStyle(true));
+    expect(unlit(160)).toBe(160 * (1 - GRADE_STRENGTH + GRADE_STRENGTH * (0x0d / 255)));
   });
 
-  it('keeps drama for the player without a floor of pure black', () => {
-    // Above 0, so the dial means something; below 1, so a player's unlit ground is a step
-    // under the map as authored rather than a second full pass of the grade on top of it.
-    expect(LIGHTING_STRENGTH.player).toBeGreaterThan(0);
-    expect(LIGHTING_STRENGTH.player).toBeLessThan(1);
-    // P1 handed the absolute level to the *grade* — a map authored at #0d0e12 is a map the
-    // author asked to be near-black, and the DM now sees that too. What stays this side's
-    // business is the step: strictly darker than the DM's, and strictly above nothing.
-    const dm = 160 * (1 - GRADE_STRENGTH + GRADE_STRENGTH * (0x0d / 255));
-    expect(unlit(160)).toBeLessThan(dm);
-    expect(unlit(160)).toBeGreaterThan(0);
+  it('keeps the memory tier a step under live at every light level (F)', () => {
+    // The wash eases with the level so a noon memory is not a night one — but it never
+    // reaches zero, and it is the full pair on the darkest scene the pair was tuned against.
+    expect(memoryAlpha(1)).toBe(EXPLORED_TINT_ALPHA);
+    expect(memoryAlpha(AMBIENT_BITE.daylight)).toBeLessThan(memoryAlpha(AMBIENT_BITE.dusk));
+    expect(memoryAlpha(AMBIENT_BITE.dusk)).toBeLessThan(memoryAlpha(1));
+    expect(memoryAlpha(0)).toBeGreaterThan(0.25);
+    for (const v of FLOOR) expect(over(v, washedTint, memoryAlpha(0))).toBeLessThan(v);
   });
 });
 
@@ -748,6 +751,7 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     sceneId: 's1',
     isPlayer: true,
     bite: LIGHTING_STRENGTH.player,
+    darkness: 1,
       grade: '#ffffff',
       timeBucket: 0,
     void: VOID,
@@ -772,19 +776,14 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     expect(fills[0].hole).toBeDefined();
     expect(strokesOf(scrim)).toHaveLength(0);
 
-    // The falloff lives in the mask the cloud reads: black over the cover, white over the
-    // earned region, and nested strokes inside its rim. Alpha 1/k is what makes them
-    // composite to an even ramp — see `featherEdge`.
+    // The tiers live in the mask the cloud reads: black over the cover, white over the
+    // earned region — hard-edged, because the living fog softens the *texture* (inward only,
+    // `LivingFogLook.fade`). A stroke ladder used to draw the ramp here; at the width the
+    // fade wants now it combed every sweep's rim, so nothing is stroked any more.
     const tiers = fillsOf(mask);
     expect(tiers[0].style.color).toBe(0x000000);
     expect(tiers.some((f) => f.style.color === 0xffffff)).toBe(true);
-    const strokes = strokesOf(mask);
-    expect(strokes.length).toBeGreaterThan(0);
-    expect(strokes.every((s) => s.alignment === 1)).toBe(true);
-    expect(strokes[0].alpha).toBe(1); // solid at the outer rim…
-    expect(strokes[strokes.length - 1].alpha).toBeLessThan(0.2); // …and barely there at the lip
-    // No stroke reaches further in than the falloff is wide.
-    expect(Math.max(...strokes.map((s) => s.width))).toBeCloseTo(FOG_FEATHER);
+    expect(strokesOf(mask)).toHaveLength(0);
   });
 
   it('gives a memory the same padded footprint at its own darkness', () => {
@@ -792,12 +791,11 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     const mask = new Graphics();
     drawFog(scrim, scene({ [WEST.id]: 'explored', [EAST.id]: 'dark' }), mask);
 
-    const wash = fillsOf(scrim).find((f) => f.style.color === EXPLORED_TINT);
-    expect(wash).toBeDefined();
-    expect(wash!.style.alpha).toBe(EXPLORED_TINT_ALPHA);
-    // …and the same footprint lands in the cloud's mask at the memory tier's grey, which is
-    // where the mist over a memory comes from.
+    // The memory's footprint lands in the cloud's mask at the memory tier's grey — which is
+    // where both the mist and the wash over a memory come from now (`LivingFog.setWash`).
+    // The scrim draws no wash of its own: a flat fill there stepped on the sight line.
     expect(fillsOf(mask).some((f) => f.style.color === MASK_MEMORY)).toBe(true);
+    expect(fillsOf(scrim).find((f) => f.style.color === EXPLORED_TINT)).toBeUndefined();
   });
 
   it('leaves an all-dark map one unbroken fill, padded or not', () => {
@@ -1005,6 +1003,7 @@ describe('drawFog in vision mode', () => {
     sceneId: 's1',
     isPlayer: true,
     bite: LIGHTING_STRENGTH.player,
+    darkness: 1,
       grade: '#ffffff',
       timeBucket: 0,
     void: VOID,
@@ -1025,9 +1024,9 @@ describe('drawFog in vision mode', () => {
     // No memory: nothing has been swept into the record and no room was revealed.
     expect(fills.some((f) => f.style.color === EXPLORED_TINT)).toBe(false);
     expect(drawn.cells).toBe(0);
-    expect(
-      mask.context.instructions.filter((i) => i.action === 'stroke').length,
-    ).toBeGreaterThan(0);
+    // The sweep lands in the mask as a white tier; the cloud's own blur is the ramp.
+    expect(fillsOf(mask).some((f) => f.style.color === 0xffffff)).toBe(true);
+    expect(mask.context.instructions.filter((i) => i.action === 'stroke')).toHaveLength(0);
   });
 
   // The stencil the chip and ring layers wear above the mask: filled wherever the seat may
@@ -1066,9 +1065,10 @@ describe('drawFog in vision mode', () => {
       }),
     );
 
-    const wash = fillsOf(scrim).find((f) => f.style.color === EXPLORED_TINT);
-    expect(wash).toBeDefined();
-    expect(wash!.style.alpha).toBe(EXPLORED_TINT_ALPHA);
+    // The wash is the cloud's (`setWash`); here the scrim cuts the memory into its hole and
+    // draws nothing over it.
+    expect(fillsOf(scrim).find((f) => f.style.color === EXPLORED_TINT)).toBeUndefined();
+    expect(fillsOf(scrim)[0].hole).toBeDefined();
     expect(drawn.cells).toBe(2);
   });
 
@@ -1672,23 +1672,18 @@ describe('fogScene', () => {
     });
   });
 
-  it('imitates the void at the dial’s own bite, not always at full strength', () => {
-    // The fogged sheet is drawn *above* the same composite the real void renders through, so
-    // the two only land on the same pixels while they agree about how hard it bites. Left at
-    // full strength (D1), a daylight scene fogs darker than the map beside it.
-    // …and through the same *grade*, which is the colour the composite is actually filled
-    // with now that the world clock composes one (P2).
+  it('imitates the void through the grade, the same on every seat and at every level', () => {
+    // The fogged sheet is drawn *above* the same composite the real void renders through, and
+    // that composite is the grade alone — the colour the world clock composes (P2). The dial
+    // changes what the *tiers* do, not what the void under them looks like.
     for (const level of ['daylight', 'dusk', 'darkness'] as const) {
       const scene = nightTable(level);
-      expect(scene.void).toEqual(voidStyle(biteStrength(level, 'player'), true, scene.grade));
+      expect(scene.void).toEqual(voidStyle(true, scene.grade));
+      expect(scene.darkness).toBe(AMBIENT_BITE[level]);
     }
-    // Lifting the composite lifts the imitation with it…
-    expect(nightTable('daylight').void.fill).toBeGreaterThan(nightTable('darkness').void.fill);
-    expect(nightTable('daylight').void.dot).toBeGreaterThan(nightTable('darkness').void.dot);
-    // …and an untouched scene still bites at full, exactly as the layer has always drawn it.
     const untouched = nightTable(undefined);
-    expect(untouched.void).toEqual(voidStyle(undefined, true, untouched.grade));
-    expect(nightTable('darkness').void).toEqual(voidStyle(undefined, true, untouched.grade));
+    expect(untouched.void).toEqual(voidStyle(true, untouched.grade));
+    expect(untouched.darkness).toBe(1);
   });
 });
 
@@ -1928,9 +1923,15 @@ describe('visionRegion in the dark', () => {
     [8.4, 2],
     [8, 2],
   ];
-  /** Inside the torch pool, and inside the sweep but well past it. */
-  const LIT_SPOT: [number, number] = [6.5, 1];
-  const DARK_SPOT: [number, number] = [8.5, 1];
+  /** How far past its edge a pool (or an eye) reaches on the mask — the pad plus the feather. */
+  const REACH = sightPad(PAD) + FOG_FEATHER;
+  /**
+   * Inside the torch pool (and short of where the owl's reach starts), and inside the sweep
+   * but past everything the torch reaches. Stated against `REACH` so the feather can widen
+   * without moving the line the rows draw.
+   */
+  const LIT_SPOT: [number, number] = [6.2, 1];
+  const DARK_SPOT: [number, number] = [7 + REACH + 0.3, 1];
 
   const at = (night?: { lit: Polygon[]; darkvision: Polygon[] }) =>
     visionRegion([LOOKING], undefined, [], [WEST.boundary], PAD, FOG_FEATHER, night);
@@ -1961,13 +1962,13 @@ describe('visionRegion in the dark', () => {
     // does not open the mask.
     expect(inRegion(night.clear, [6.5, 4])).toBe(false);
     // The pool itself is lit ground and takes no grade…
-    expect(inRegion(night.drained, LIT_SPOT)).toBe(false);
+    expect(inRegion(night.drained.flat(), LIT_SPOT)).toBe(false);
     // …but the band the pad opens past its edge, so a torch lights the room's wall stones, is
     // past where the light itself has fallen to zero. Cleared and unlit is drained, not raw —
     // otherwise every pool wears a thin ungraded ring (D8).
     const RING_SPOT: [number, number] = [7 + sightPad(PAD) / 2, 1];
     expect(inRegion(night.clear, RING_SPOT)).toBe(true);
-    expect(inRegion(night.drained, RING_SPOT)).toBe(true);
+    expect(inRegion(night.drained.flat(), RING_SPOT)).toBe(true);
   });
 
   it('gives darkvision its own ground, graded apart from the lit pool', () => {
@@ -1977,21 +1978,21 @@ describe('visionRegion in the dark', () => {
     expect(inRegion(night.clear, DARK_SPOT)).toBe(true);
     // …but only the unlit half takes the drained grade: a darkvision eye standing in
     // torchlight sees the pool in colour like anybody else.
-    expect(inRegion(night.drained, DARK_SPOT)).toBe(true);
-    expect(inRegion(night.drained, LIT_SPOT)).toBe(false);
+    expect(inRegion(night.drained.flat(), DARK_SPOT)).toBe(true);
+    expect(inRegion(night.drained.flat(), LIT_SPOT)).toBe(false);
   });
 
   it('drains the whole clear area when nothing is burning at all', () => {
     const night = at({ lit: [], darkvision: [OWL_REACH] });
     expect(inRegion(night.clear, DARK_SPOT)).toBe(true);
-    expect(inRegion(night.drained, DARK_SPOT)).toBe(true);
+    expect(inRegion(night.drained.flat(), DARK_SPOT)).toBe(true);
     // And a normal eye's ground is still dark: the ring is the darkvision token's, not the
     // party's (the referee draws the same line — `seen` in fog/sweep.ts).
     expect(inRegion(night.clear, LIT_SPOT)).toBe(false);
   });
 
   it('keeps the unlit ground the party remembers as memory rather than void', () => {
-    const swept = setCells(regionOf(VISION_FRAME)!, [[8, 1]]);
+    const swept = setCells(regionOf(VISION_FRAME)!, [[9, 1]]);
     const night = visionRegion(
       [LOOKING],
       swept,
@@ -2002,8 +2003,8 @@ describe('visionRegion in the dark', () => {
       { lit: [TORCH_POOL], darkvision: [] },
     );
     // The cell they swept before the light went out: not live, still theirs.
-    expect(inRegion(night.memory, [8.5, 1.5])).toBe(true);
-    expect(inRegion(night.clear, [8.5, 1.5])).toBe(false);
+    expect(inRegion(night.memory, [9.3, 1.5])).toBe(true);
+    expect(inRegion(night.clear, [9.3, 1.5])).toBe(false);
   });
 });
 
@@ -2016,6 +2017,7 @@ describe('drawFog — the drained grade (§4)', () => {
     sceneId: 's1',
     isPlayer: true,
     bite: LIGHTING_STRENGTH.player,
+    darkness: 1,
       grade: '#ffffff',
       timeBucket: 0,
     void: VOID,
@@ -2041,12 +2043,52 @@ describe('drawFog — the drained grade (§4)', () => {
         ],
       }),
     );
+    // No pool to ramp out from, so the whole area is the far end of the ramp: the nested fills
+    // are all the whole of it, and their source-over lands on the full wash exactly.
     const wash = fillsOf(scrim).filter((f) => f.style.color === DARKVISION_TINT);
-    expect(wash).toHaveLength(1);
-    expect(wash[0].style.alpha).toBe(DARKVISION_TINT_ALPHA);
+    expect(wash.length).toBeGreaterThan(0);
+    const landed = 1 - wash.reduce((left, f) => left * (1 - f.style.alpha), 1);
+    expect(landed).toBeCloseTo(DARKVISION_TINT_ALPHA, 10);
     // Above the void's own floor and below the lit map: three states, three brightnesses.
     expect(DARKVISION_TINT_ALPHA).toBeLessThan(EXPLORED_TINT_ALPHA);
     expect(DARKVISION_TINT).toBeGreaterThan(EXPLORED_TINT);
+  });
+
+  it('ramps the wash in from a pool’s rim rather than stepping up on the radius', () => {
+    // The j-th fill is the drained ground past j/N of the ramp from any pool, so a point at
+    // depth d is under the first d·N fills and the wash there is A·d — zero at the rim, and
+    // the full wash only once the ramp has run out. That is the rim the DM's gradient fades
+    // to, on the player's seat.
+    const after = (j: number): number =>
+      1 - Array.from({ length: j }, (_, i) => 1 - rampAlpha(i + 1)).reduce((a, b) => a * b, 1);
+    for (let j = 0; j <= DRAINED_RAMP_STEPS; j++) {
+      expect(after(j)).toBeCloseTo((DARKVISION_TINT_ALPHA * j) / DRAINED_RAMP_STEPS, 10);
+    }
+    // A torch at (6.5, 1) with a one-cell reach, and the same torch swept again a step further
+    // each time — squares standing in for sweeps.
+    const pool = (r: number): Polygon => [
+      [6.5 - r, 1 - r],
+      [6.5 + r, 1 - r],
+      [6.5 + r, 1 + r],
+      [6.5 - r, 1 + r],
+    ];
+    const region = visionRegion([LOOKING], undefined, [], [WEST.boundary], fogPad([]), FOG_FEATHER, {
+      lit: [pool(0.5)],
+      litRamp: Array.from({ length: DRAINED_RAMP_STEPS }, (_, i) => [
+        pool(0.5 + (DRAINED_RAMP * (i + 1)) / DRAINED_RAMP_STEPS),
+      ]),
+      darkvision: [],
+    });
+    expect(region.drained).toHaveLength(DRAINED_RAMP_STEPS);
+    // Nested outward: what the first fill leaves out, every later one leaves out too. Half a
+    // cell out from the pool's edge, so half the fills cover it.
+    const RING_SPOT: [number, number] = [7.5 + 0.01, 1];
+    const covering = region.drained.filter((fill) => inRegion(fill, RING_SPOT)).length;
+    expect(covering).toBeGreaterThan(0);
+    expect(covering).toBeLessThan(DRAINED_RAMP_STEPS);
+    for (let j = 1; j < region.drained.length; j++) {
+      expect(inRegion(region.drained[j], RING_SPOT)).toBe(j < covering);
+    }
   });
 
   it('grades the band past a pool’s edge, and leaves the pool itself alone', () => {
@@ -2067,10 +2109,11 @@ describe('drawFog — the drained grade (§4)', () => {
     );
     // The mask opens the wall band around a torch (`sightPad`) and the light's own gradient
     // has fallen to zero by `radius`, so that band is cleared ground no light reaches — the
-    // drained grade covers it rather than leaving a thin ungraded ring (D8). One wash: the
-    // ring, drawn as a fill with the pool cut out of it.
+    // drained grade covers it rather than leaving a thin ungraded ring (D8) — as the ramp's
+    // nested fills, each with the pool cut out of it.
     const wash = fillsOf(scrim).filter((f) => f.style.color === DARKVISION_TINT);
-    expect(wash).toHaveLength(1);
+    expect(wash.length).toBeGreaterThan(0);
+    expect(wash.length).toBeLessThanOrEqual(DRAINED_RAMP_STEPS);
     // …and the pool itself is a hole in the scrim, like any other clear ground.
     expect(fillsOf(scrim)[0].hole).toBeDefined();
   });

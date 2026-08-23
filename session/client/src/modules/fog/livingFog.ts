@@ -24,7 +24,7 @@
 // scrim beneath it (FogRenderer) still covers everything unearned on its own.
 //
 // ponytail: pixi through @dnd/core, the same reach-through TokenRenderer documents.
-import { Container, Geometry, Graphics, Mesh, RenderTexture, Shader } from 'pixi.js';
+import { BlurFilter, Container, Geometry, Graphics, Mesh, RenderTexture, Shader, Sprite } from 'pixi.js';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { Bounds } from './FogRenderer';
 
@@ -79,6 +79,7 @@ const FRAGMENT = /* glsl */ `
   precision mediump float;
   in vec2 vWorld;
   uniform sampler2D uMask;
+  uniform sampler2D uMaskSoft;
   uniform float uTime;
   uniform float uNoise;
   uniform float uWarp;
@@ -89,6 +90,8 @@ const FRAGMENT = /* glsl */ `
   uniform vec3 uDeep;
   uniform vec3 uMid;
   uniform vec3 uHigh;
+  uniform vec3 uWash;
+  uniform float uWashAlpha;
 
   float hash(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
@@ -117,10 +120,18 @@ const FRAGMENT = /* glsl */ `
     for (int i = 0; i < 4; i++) { s += a * abs(2.0 * vnoise(p) - 1.0); p = r * p * 1.94 + 11.7; a *= 0.52; }
     return s;
   }
+  // The tier mask, softened inward only. Live texels read the blurred copy, remapped so the
+  // fade lands exactly on the neighbour's level at the line (a 1|0 edge blurs to 0.5 there,
+  // a 1|0.5 edge to 0.75 — so 2b−1 is 0 against hidden and 0.5 against a memory); memory and
+  // hidden texels read themselves, flat. Nothing is ever lifted above what the geometry says,
+  // and a remembered room a few cells wide is not misted to void by the dark around it,
+  // which a plain min(sharp, blurred) did.
   float maskAt(vec2 world) {
     vec2 uv = (world - uMaskRect.xy) * uMaskRect.zw;
     if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 0.0;
-    return texture(uMask, uv).r;
+    float s = texture(uMask, uv).r;
+    if (s < 0.99) return s;
+    return clamp(2.0 * texture(uMaskSoft, uv).r - 1.0, 0.0, 1.0);
   }
 
   void main() {
@@ -146,7 +157,9 @@ const FRAGMENT = /* glsl */ `
     float m = min(maskAt(vWorld), maskAt(vWorld + w * uWarp));
 
     // The steeper slope holds the contour to the outer half of the mask's feather ramp, so
-    // the fog spends itself past the margin instead of on the wall band inside it.
+    // the fog spends itself past the margin instead of on the wall band inside it. (The
+    // memory tier sits on this same line at m = 0.5 — a gentler slope, tried for a wider
+    // ramp, thickened the mist over every remembered room as a side effect.)
     float d = den - (m * 2.0 - 0.42) + (top - 0.5) * 0.10;
     float body = smoothstep(-0.08, 0.14, d);
     float wisp = smoothstep(-0.20, -0.06, d) * (1.0 - body);
@@ -160,7 +173,14 @@ const FRAGMENT = /* glsl */ `
     float hiddenness = 1.0 - smoothstep(0.10, 0.62, m);
     float aBody = mix(uMist * (0.45 + 0.55 * den), uDense, hiddenness);
     float alpha = clamp(body * aBody + wisp * aBody * 0.28, 0.0, 1.0);
-    gl_FragColor = vec4(col * alpha, alpha);
+
+    // The memory wash, under the cloud: the explored tier's own darkening, read off the mask
+    // so it ramps exactly where the tiers do. Full from the memory grey down; nothing where
+    // the mask is white; in between it follows the ramp the rim strokes draw inside live
+    // sight. (It used to be a flat fill on the scrim beneath, which stepped on the sight line
+    // and drew the cut the cloud's rim then underlined.)
+    float washA = uWashAlpha * (1.0 - smoothstep(0.5, 0.95, m));
+    gl_FragColor = vec4(col * alpha + uWash * washA * (1.0 - alpha), alpha + washA * (1.0 - alpha));
   }
 `;
 
@@ -207,6 +227,12 @@ export function fogPalette(grade: string, bite: number): FogPalette {
 export interface LivingFogLook {
   /** Cover over never-explored ground. The player seat passes exactly 1 — see the shader. */
   dense: number;
+  /**
+   * How far a tier's edge fades inward, in cells — the blur radius of the soft mask. A
+   * stroke ladder was the previous answer and combed every sweep's rim at this width; a
+   * blurred texture is the ramp the mask always wanted (`FEATHER_STEPS` said so).
+   */
+  fade: number;
   /** The mist over the memory tier. */
   mist: number;
   /** How dark the cut edge's rim goes. */
@@ -225,6 +251,14 @@ export interface LivingFog {
   /** Rasterise `maskPaint` + `fadePaint` into the mask texture. */
   renderMask(): void;
   setPalette(palette: FogPalette): void;
+  /** The mist over the memory tier, 0..1 — the caller eases it with the light level. */
+  setMist(mist: number): void;
+  /**
+   * The wash under the cloud on the memory tier — a 0xrrggbb colour already graded the way
+   * the map beneath it is, and its strength. 0 (the default) draws none: the DM's haze wants
+   * the cloud alone.
+   */
+  setWash(color: number, alpha: number): void;
   /** Stretch the cover quad over a world rect (the visible viewport, plus margin). */
   cover(bounds: Bounds): void;
   /** Advance the clock. The caller decides whether reduced motion freezes it. */
@@ -241,6 +275,13 @@ export function createLivingFog(engine: RenderEngine, look: LivingFogLook): Livi
   });
 
   const maskRT = RenderTexture.create({ width: 4, height: 4 });
+  // The softened copy: `maskRT` through one blur, re-rendered whenever the mask is.
+  const maskSoftRT = RenderTexture.create({ width: 4, height: 4 });
+  const soften = new BlurFilter({ strength: 0, quality: 2 });
+  const softSprite = new Sprite(maskRT);
+  softSprite.filters = [soften];
+  const softScene = new Container();
+  softScene.addChild(softSprite);
   const maskScene = new Container();
   const maskPaint = new Graphics();
   const fadePaint = new Container();
@@ -250,6 +291,7 @@ export function createLivingFog(engine: RenderEngine, look: LivingFogLook): Livi
     gl: { vertex: VERTEX, fragment: FRAGMENT },
     resources: {
       uMask: maskRT.source,
+      uMaskSoft: maskSoftRT.source,
       fogUniforms: {
         uTime: { value: 0, type: 'f32' },
         uNoise: { value: 1 / NOISE_CELLS, type: 'f32' },
@@ -262,11 +304,16 @@ export function createLivingFog(engine: RenderEngine, look: LivingFogLook): Livi
         uDeep: { value: [...SMOKE.deep], type: 'vec3<f32>' },
         uMid: { value: [...SMOKE.mid], type: 'vec3<f32>' },
         uHigh: { value: [...SMOKE.high], type: 'vec3<f32>' },
+        uWash: { value: [0, 0, 0], type: 'vec3<f32>' },
+        uWashAlpha: { value: 0, type: 'f32' },
       },
     },
   });
   const uniforms = shader.resources.fogUniforms.uniforms as {
     uTime: number;
+    uMist: number;
+    uWashAlpha: number;
+    uWash: Float32Array | number[];
     uMaskRect: Float32Array | number[];
     uCoverRect: Float32Array | number[];
     uDeep: Float32Array | number[];
@@ -282,7 +329,7 @@ export function createLivingFog(engine: RenderEngine, look: LivingFogLook): Livi
   // is wrong — the geometry or the texture".
   if (import.meta.env.DEV) {
     const dbg = ((window as Window & { __livingFog?: unknown[] }).__livingFog ??= []);
-    dbg.push({ rt: () => maskRT, scene: maskScene, mesh });
+    dbg.push({ rt: () => maskRT, soft: () => maskSoftRT, scene: maskScene, mesh });
   }
 
   let rect: { minX: number; minY: number; w: number; h: number } | null = null;
@@ -311,18 +358,33 @@ export function createLivingFog(engine: RenderEngine, look: LivingFogLook): Livi
         // Resize in place rather than recreate: the shader's bind group holds the texture
         // *source*, and a fresh RenderTexture is a fresh source the bind does not follow.
         maskRT.resize(tw, th);
+        maskSoftRT.resize(tw, th);
       }
+      soften.strength = look.fade * s;
       maskScene.scale.set(tw / w, th / h);
       maskScene.position.set(-bounds.minX * (tw / w), -bounds.minY * (th / h));
       setVec(uniforms.uMaskRect, [bounds.minX, bounds.minY, 1 / w, 1 / h]);
     },
     renderMask() {
-      if (rect) engine.renderToTexture(maskScene, maskRT, true);
+      if (!rect) return;
+      engine.renderToTexture(maskScene, maskRT, true);
+      engine.renderToTexture(softScene, maskSoftRT, true);
     },
     setPalette(palette) {
       setVec(uniforms.uDeep, palette.deep);
       setVec(uniforms.uMid, palette.mid);
       setVec(uniforms.uHigh, palette.high);
+    },
+    setMist(mist) {
+      uniforms.uMist = Math.min(1, Math.max(0, mist));
+    },
+    setWash(color, alpha) {
+      setVec(uniforms.uWash, [
+        ((color >> 16) & 0xff) / 255,
+        ((color >> 8) & 0xff) / 255,
+        (color & 0xff) / 255,
+      ]);
+      uniforms.uWashAlpha = Math.min(1, Math.max(0, alpha));
     },
     cover(bounds) {
       const [w, h] = [bounds.maxX - bounds.minX, bounds.maxY - bounds.minY];
@@ -337,7 +399,10 @@ export function createLivingFog(engine: RenderEngine, look: LivingFogLook): Livi
     destroy() {
       if (!mesh.destroyed) mesh.destroy();
       maskScene.destroy({ children: true });
+      softScene.destroy({ children: true });
+      soften.destroy();
       maskRT.destroy(true);
+      maskSoftRT.destroy(true);
       geometry.destroy();
       shader.destroy();
     },
