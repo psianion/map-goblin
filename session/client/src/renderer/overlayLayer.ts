@@ -40,10 +40,11 @@ export const OVERLAY_STACK = [
   'fogOverlay',
   'playerFog',
   // Screen space, above the player's mask and the lighting multiply: a chip is a label, not
-  // ground, and it reads at full strength wherever the seat can see at all — under darkvision
-  // the floor goes grey and the chip does not. What keeps a token in a room the party cannot
-  // see hidden is the mask's own `sightMask` (`sightMaskOf`), which this layer wears on a
-  // player's seat: the rule is the same, the draw order is no longer what enforces it.
+  // ground, and it reads at full strength wherever the seat can currently see — under
+  // darkvision the floor goes grey and the chip does not. What keeps a token out of sight
+  // hidden is the mask's own `sightMask` (`sightMaskOf`), which this layer wears on a
+  // player's seat. That stencil is LIVE sight only — a remembered room shows what it looked
+  // like, never who is standing in it now.
   'tokenLayer',
   // Above the tokens it marks, so whose turn it is reads at the same strength as the token.
   'turnRing',

@@ -28,6 +28,7 @@ function triggersWithPrompt(): TriggersState {
         armed: {},
         disabled: {},
         lightOverrides: {},
+        lightEdits: {},
         env: {},
         log: [],
         prompts: [

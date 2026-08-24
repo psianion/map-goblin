@@ -775,7 +775,13 @@ describe('scenes (#47)', () => {
       })
       const { socket, state } = await joinSocket(server.port, joined.body.token as string)
       expect(state.state.activeSceneId).toBe(hiddenId) // still loads
-      expect(state.state.scenes).toEqual([{ id: shownId, name: 'Cragmaw Hideout', mapId: shownId }]) // hiddenId absent
+      // The hidden-but-ACTIVE scene keeps its list entry — the player is looking
+      // at it, and its name feeds the status bar. Only *other* hidden scenes
+      // stay off the player's list.
+      const ids = state.state.scenes.map((s: { id: string }) => s.id)
+      expect(ids).toContain(shownId)
+      expect(ids).toContain(hiddenId)
+      expect(ids).toHaveLength(2)
       socket.terminate()
     })
   })

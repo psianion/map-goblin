@@ -14,7 +14,7 @@ const prompt = (over: Partial<TriggerPrompt> = {}): TriggerPrompt => ({
 
 const stateOf = (prompts: TriggerPrompt[]): TriggersState => ({
   byScene: {
-    s1: { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, env: {}, prompts, log: [] },
+    s1: { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, lightEdits: {}, env: {}, prompts, log: [] },
   },
 });
 

@@ -498,6 +498,37 @@ export function createWallRemovalCommand(layerId: string, wallId: string): Comma
   return new CompositeCommand('Remove wall', commands);
 }
 
+/**
+ * Creates a child removal command that cascade-deletes any lights attached
+ * to it (M1 — a `LightChild.attachedTo` pointing at an asset). Returns a
+ * CompositeCommand when there are attached lights, or a plain
+ * RemoveChildCommand otherwise.
+ *
+ * Always use this helper instead of constructing RemoveChildCommand directly
+ * for a child that could have lights glued to it, so a deleted lamp never
+ * leaves its light behind.
+ */
+export function createChildRemovalCommand(layerId: string, childId: string, label = 'Delete'): Command {
+  const state = useStore.getState();
+  const layer = state.layers.find((l) => l.id === layerId);
+  if (!layer || layer.type !== 'dungeon') {
+    return new RemoveChildCommand(label, layerId, childId);
+  }
+  const dungeonLayer = layer as import('./types').DungeonLayer;
+  const attachedLights = dungeonLayer.children.filter(
+    (c): c is import('../shared/types').LightChild =>
+      c.childType === 'light' && (c as import('../shared/types').LightChild).attachedTo === childId,
+  );
+  if (attachedLights.length === 0) {
+    return new RemoveChildCommand(label, layerId, childId);
+  }
+  const commands: Command[] = [
+    ...attachedLights.map((l) => new RemoveChildCommand(label, layerId, l.id)),
+    new RemoveChildCommand(label, layerId, childId),
+  ];
+  return new CompositeCommand(label, commands);
+}
+
 export class CloseAllDoorsCommand implements Command {
   readonly label = 'Close all doors';
   previousStates: Record<string, import('../shared/types').DoorState> = {};

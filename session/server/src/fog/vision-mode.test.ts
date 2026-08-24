@@ -881,6 +881,49 @@ describe('the light gate (S3 P3 §3)', () => {
     // off the triggers write on its own — no token moved, no door swung.
     expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(true)
   })
+
+  it('sees further when the DM enlarges a light’s radius with a live edit', () => {
+    // 4 cells from the lamp: outside a radius of 3, inside a radius of 6.
+    const table = wired([light('west-lamp', 5.5, 5.5, 3)])
+    nightWatch(table)
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(false)
+
+    expect(
+      table.run(DM, 'triggers', 'set-light', { lightId: 'west-lamp', patch: { radius: 6 } }),
+    ).toBeNull()
+    // No token moved and no door swung — the sweep re-derives off the edit alone, and the
+    // cached `SceneMap` still authors the lamp at radius 3 (`sceneMapOf` is never invalidated).
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(true)
+  })
+
+  it('sees nothing from a light the DM has turned off with a live edit', () => {
+    const table = wired([light('west-lamp', 9.5, 5.5, 6)])
+    nightWatch(table)
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(true)
+
+    expect(
+      table.run(DM, 'triggers', 'set-light', { lightId: 'west-lamp', patch: { visible: false } }),
+    ).toBeNull()
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(false)
+  })
+
+  it('lights a different spot when the DM moves a light with a live edit', () => {
+    const table = wired([light('west-lamp', 5.5, 5.5, 3)])
+    nightWatch(table)
+    // Under the lamp's authored position — the scout's own feet — and dark 4 cells over.
+    expect(table.vision.visionOf(SCENE)!.canSee!(5.5, 5.5)).toBe(true)
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(false)
+
+    expect(
+      table.run(DM, 'triggers', 'set-light', {
+        lightId: 'west-lamp',
+        patch: { position: { x: 9.5, y: 5.5 } },
+      }),
+    ).toBeNull()
+    // The pool moved with it: dark where the lamp used to stand, lit where it stands now.
+    expect(table.vision.visionOf(SCENE)!.canSee!(5.5, 5.5)).toBe(false)
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(true)
+  })
 })
 
 describe('auto-explore and redaction in the dark (S3 P3 §3.2, §3.1)', () => {

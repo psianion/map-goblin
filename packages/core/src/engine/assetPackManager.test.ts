@@ -42,6 +42,32 @@ describe('AssetPackManager', () => {
     expect(manager.getTextureOrNull('nonexistent')).toBeNull()
   })
 
+  it('waitForTexture resolves on registration, resolves null on timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      type Internals = { textureCache: Map<string, unknown>; flushTextureWaiters: () => void }
+      const internals = manager as unknown as Internals
+      const tex = { width: 4 }
+
+      // Already-cached: resolves immediately.
+      internals.textureCache.set('p:cached', tex)
+      await expect(manager.waitForTexture('p:cached')).resolves.toBe(tex)
+
+      // Pending: resolves when a pack load registers the entry and flushes.
+      const pending = manager.waitForTexture('p:late', 5_000)
+      const doomed = manager.waitForTexture('p:never', 1_000)
+      internals.textureCache.set('p:late', tex)
+      internals.flushTextureWaiters()
+      await expect(pending).resolves.toBe(tex)
+
+      // Never registered: the timeout answers null instead of hanging the loader.
+      vi.advanceTimersByTime(1_001)
+      await expect(doomed).resolves.toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('getFrame returns null for unknown entry', () => {
     expect(manager.getFrame('nonexistent')).toBeNull()
   })

@@ -14,9 +14,11 @@ import { computeBoundingBox } from './transformMath';
 import {
   anchorForHandle,
   isIdentity,
+  mapPoint,
   snapshotChild,
   transformChild,
   type ChildSnapshot,
+  type WorldTransform,
 } from './childTransform';
 import {
   hitTestAllLayers,
@@ -146,7 +148,19 @@ export class SelectTool implements DrawingTool {
    */
   private transformSession: {
     anchor: { x: number; y: number };
-    entries: { layerId: string; childId: string; snap: ChildSnapshot; before: Partial<AnyChild> }[];
+    entries: {
+      layerId: string;
+      childId: string;
+      snap: ChildSnapshot;
+      before: Partial<AnyChild>;
+      /**
+       * A light pulled in because it's attached to a selected asset (M1),
+       * not selected itself. Its position tracks the asset like any other
+       * point under the transform, but its radius never scales with a
+       * resize — only the asset it's glued to changes size.
+       */
+      attached?: boolean;
+    }[];
   } | null = null;
   /** Last delta applied this gesture — what gets committed on pointer up. */
   private lastTransform: import('./childTransform').WorldTransform | null = null;
@@ -214,7 +228,7 @@ export class SelectTool implements DrawingTool {
       (l): l is DungeonLayer => l.type === 'dungeon' && isLayerEffectivelyVisible(store, l) && !l.locked,
     );
     const worldPt: [number, number] = [point.x, point.y];
-    const hit = hitTestAllLayers(dungeonLayers, worldPt);
+    const hit = hitTestAllLayers(dungeonLayers, worldPt, { zoom: this.engine.stage().scale.x });
 
     if (hit) {
       if (event?.shiftKey) {
@@ -598,6 +612,30 @@ export class SelectTool implements DrawingTool {
       }
     }
 
+    // M1: a selected asset drags its attached lights along in the same
+    // gesture/undo. Skip lights already in the selection — moving a light
+    // directly keeps the link but goes through the normal 'radius' path above.
+    for (const layer of dungeonLayers) {
+      const attachedAssetIds = new Set(
+        layer.children.filter((c) => c.childType === 'asset' && idSet.has(c.id)).map((c) => c.id),
+      );
+      if (attachedAssetIds.size === 0) continue;
+      for (const child of layer.children) {
+        if (idSet.has(child.id)) continue;
+        if (child.childType !== 'light') continue;
+        if (!child.attachedTo || !attachedAssetIds.has(child.attachedTo)) continue;
+        const snap = snapshotChild(child);
+        if (snap.kind !== 'radius') continue;
+        entries.push({
+          layerId: layer.id,
+          childId: child.id,
+          snap,
+          before: { position: snap.position, radius: snap.radius } as Partial<AnyChild>,
+          attached: true,
+        });
+      }
+    }
+
     if (entries.length === 0) {
       this.transformSession = null;
       return;
@@ -610,6 +648,23 @@ export class SelectTool implements DrawingTool {
       ? { x: box.x + box.width / 2, y: box.y + box.height / 2 }
       : anchorForHandle(handle, box);
     this.transformSession = { anchor, entries };
+  }
+
+  /**
+   * The patch for one session entry. An attached light tracks its host
+   * asset's point under the transform (translate, rotate and scale about the
+   * anchor, same as the asset's own position) but keeps its own radius —
+   * only the asset resizes, the light doesn't.
+   */
+  private patchForEntry(
+    e: { snap: ChildSnapshot; attached?: boolean },
+    t: WorldTransform,
+  ): Partial<AnyChild> {
+    if (e.attached && e.snap.kind === 'radius') {
+      const [x, y] = mapPoint(e.snap.position.x, e.snap.position.y, t);
+      return { position: { x, y } } as Partial<AnyChild>;
+    }
+    return transformChild(e.snap, t);
   }
 
   private applyTransformSession(delta: {
@@ -634,7 +689,7 @@ export class SelectTool implements DrawingTool {
     // Live preview only — no undo entry per frame.
     const updateChild = useStore.getState().updateChild;
     for (const e of session.entries) {
-      updateChild(e.layerId, e.childId, transformChild(e.snap, t));
+      updateChild(e.layerId, e.childId, this.patchForEntry(e, t));
     }
     this.lastTransform = t;
   }
@@ -660,7 +715,7 @@ export class SelectTool implements DrawingTool {
     }
     const label = session.entries.length > 1 ? 'Transform objects' : 'Transform object';
     const commands = session.entries.map(
-      (e) => new UpdateChildCommand(label, e.layerId, e.childId, e.before, transformChild(e.snap, t)),
+      (e) => new UpdateChildCommand(label, e.layerId, e.childId, e.before, this.patchForEntry(e, t)),
     );
     // One gesture, one undo entry. Executed separately, dragging three selected
     // shapes took three presses to put back.
@@ -688,7 +743,7 @@ export class SelectTool implements DrawingTool {
       (l): l is DungeonLayer => l.type === 'dungeon' && isLayerEffectivelyVisible(store, l) && !l.locked,
     );
     const pt: [number, number] = [worldPoint.x, worldPoint.y];
-    const hit = hitTestAllLayers(dungeonLayers, pt);
+    const hit = hitTestAllLayers(dungeonLayers, pt, { zoom: this.engine.stage().scale.x });
     const newHoveredId = hit?.child.id ?? null;
 
     // Only update store if value changed (avoid spurious re-renders)

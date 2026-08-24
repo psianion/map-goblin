@@ -9,6 +9,7 @@
 import { seedDoor, type DoorLiveState } from '@dnd/mechanics/doors'
 import { lightSources, pointInPolygon, SIGHT_REACH } from '@dnd/mechanics/fog'
 import { sightParty, type Token } from '@dnd/mechanics/tokens'
+import { effectiveLight, type LightEdit } from '@dnd/mechanics/triggers'
 // D3's runtime waivers, in the same targeted per-line style redactMap.ts uses for
 // shared/mapBounds: the sweep subtree (ClockwiseSweep → raycaster → occlusion, wallResolve,
 // wallSnap) is pure segment math, pixi-free by design, and re-implementing shadowcasting
@@ -70,13 +71,13 @@ export interface Sweeps {
    * the lit area the §3 rule measures against. Empty when nobody is looking, which is a party
    * that sees nothing rather than everything.
    *
-   * `lights` is null outside `darkness` — pass the scene's live `lightOverrides` to gate.
+   * `lights` is null outside `darkness` — pass the scene's live `lightEdits` to gate.
    */
   partyVision(
     map: SceneMap,
     tokens: Record<string, Token>,
     doors: Doors,
-    lights: Record<string, boolean> | null,
+    lights: Record<string, LightEdit> | null,
     /**
      * S3 P5 — whose eyes to start the closure from. Omitted is every claimed token, which is
      * the party. `individual` share passes one seat's own (`t.ownerId === identityId`) and
@@ -149,8 +150,9 @@ export function createSweeps(): Sweeps {
   }
 }
 
-/** §2's shared rule, fed the map's own light children. The rule itself lives in mechanics so
- *  the canvas runs the identical one over the document it holds.
+/** §2's shared rule, fed the map's own light children with the DM's live `lightEdits`
+ *  overlaid (`effectiveLight`, M2) — the cached `SceneMap` itself is never touched, so a
+ *  radius/position/visible edit is a per-request read, not an invalidation.
  *
  *  ponytail: the DM's whole map, where the client runs the same rule over the *redacted* copy
  *  — the wall asymmetry `visionSight`'s `sightLayers` carries, on the light side (D5). A lamp
@@ -158,17 +160,20 @@ export function createSweeps(): Sweeps {
  *  cleared, so a cell auto-explores as seen and then draws as void until they actually reach
  *  it. It errs to void and it self-heals; the fix, the day it matters, is the server sending
  *  the mask rather than the client sweeping a second time. */
-const litIn = (map: SceneMap, tokens: Record<string, Token>, overrides: Record<string, boolean>) =>
+const litIn = (map: SceneMap, tokens: Record<string, Token>, edits: Record<string, LightEdit>) =>
   lightSources(
-    map.lights.map((light) => ({
-      id: light.id,
-      x: light.position.x,
-      y: light.position.y,
-      radius: light.radius,
-      visible: light.visible,
-    })),
+    map.lights.map((light) => {
+      const effective = effectiveLight(light, edits[light.id])
+      return {
+        id: effective.id,
+        x: effective.position.x,
+        y: effective.position.y,
+        radius: effective.radius,
+        visible: effective.visible,
+      }
+    }),
     Object.values(tokens),
-    overrides,
+    {},
   )
 
 /**

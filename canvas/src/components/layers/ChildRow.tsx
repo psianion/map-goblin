@@ -6,7 +6,7 @@ import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
 import { selectSelectedIds } from '@/store/selectors'
 import { undoManager } from '@/store/undoManager'
-import { PropertyCommand, AddChildCommand, RemoveChildCommand, UpdateChildCommand } from '@/store/commands'
+import { PropertyCommand, AddChildCommand, UpdateChildCommand, createChildRemovalCommand } from '@/store/commands'
 import type { AnyChild, DungeonLayer } from '@/store/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -147,7 +147,7 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
     }
     // H1: capture the neighbor to focus BEFORE this row is removed from the DOM.
     const focusNeighbor = captureNeighborFocus(rowRef.current)
-    undoManager.execute(new RemoveChildCommand('Delete', layerId, child.id))
+    undoManager.execute(createChildRemovalCommand(layerId, child.id, 'Delete'))
     notify.action('Deleted', { label: 'Undo', onClick: () => undoManager.undo(), icon: 'trash' })
     setSelectedIds(selectedIds.filter((id) => id !== child.id))
     focusNeighbor()

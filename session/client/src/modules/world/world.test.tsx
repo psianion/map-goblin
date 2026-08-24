@@ -56,6 +56,7 @@ function triggers(world?: Partial<{ clock: number; nightSky: NightSky }>, ambien
         armed: {},
         disabled: {},
         lightOverrides: {},
+        lightEdits: {},
         env: ambient ? { ambient } : {},
         prompts: [],
         log: [],

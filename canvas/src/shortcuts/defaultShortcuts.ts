@@ -5,7 +5,7 @@ import { saveMap } from '@/io/saveLoad';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { notify, notifyCoalesce } from '@/lib/toast';
-import { AddChildCommand, RemoveChildCommand, CompositeCommand, UpdateChildCommand } from '@/store/commands';
+import { AddChildCommand, CompositeCommand, UpdateChildCommand, createChildRemovalCommand } from '@/store/commands';
 import type { AnyChild, DungeonLayer } from '@/store/types';
 import { selectLayerForChild } from '@/store/selectors';
 import { noEditableLayerMessage } from '@dnd/core/src/engine/tools/layerGuard';
@@ -598,7 +598,7 @@ const toolKeyMap: Record<string, () => void | false> = {
       warnOrphanedTriggers(store, store.selection.selectedIds);
       const commands = store.selection.selectedIds.map((id) => {
         const layer = selectLayerForChild(store, id);
-        return new RemoveChildCommand('Cut', layer?.id ?? '', id);
+        return createChildRemovalCommand(layer?.id ?? '', id, 'Cut');
       });
       const cutCount = store.selection.selectedIds.length;
       undoManager.execute(new CompositeCommand('Cut', commands));
@@ -638,7 +638,7 @@ const toolKeyMap: Record<string, () => void | false> = {
     const delCount = store.selection.selectedIds.length;
     const delCmds = store.selection.selectedIds.map((id) => {
       const layer = selectLayerForChild(store, id);
-      return new RemoveChildCommand('Delete', layer?.id ?? '', id);
+      return createChildRemovalCommand(layer?.id ?? '', id, 'Delete');
     });
     undoManager.execute(new CompositeCommand('Delete selected', delCmds));
     notify.action(delCount === 1 ? 'Deleted 1 shape' : `Deleted ${delCount} shapes`, {

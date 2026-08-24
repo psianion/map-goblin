@@ -567,7 +567,9 @@ export function useCanvasInput(
       );
       let hit: { child: { id: string }; layer: DungeonLayer } | null = null;
       for (let i = layers.length - 1; i >= 0; i--) {
-        const h = hitTestChildren(layers[i].children, [world.x, world.y], layers[i]);
+        const h = hitTestChildren(layers[i].children, [world.x, world.y], layers[i], {
+          zoom: engine.stage().scale.x,
+        });
         if (h) {
           hit = { child: h, layer: layers[i] };
           break;

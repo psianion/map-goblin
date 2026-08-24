@@ -7,7 +7,7 @@ import { getTextureEntry, GRID_CELL_PX } from '../../assets/textureManifest';
 import { resolveTexture } from '../../assets/textureLoader';
 import { poissonDiskSample } from '../../geometry/poissonDisk';
 import { mulberry32, hashPosition } from '../../geometry/seededRng';
-import { AddChildCommand, RemoveChildCommand, CompositeCommand } from '../../store/commands';
+import { AddChildCommand, CompositeCommand, createChildRemovalCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
 
 /** Max items per scatter click */
@@ -376,7 +376,7 @@ export class StampScatterTool implements DrawingTool {
     if (children.length === 0) return;
 
     const commands = children.map(
-      (c) => new RemoveChildCommand('Remove asset', layerId, c.id),
+      (c) => createChildRemovalCommand(layerId, c.id, 'Remove asset'),
     );
     if (commands.length === 1) {
       undoManager.execute(commands[0]);

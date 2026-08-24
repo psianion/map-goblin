@@ -50,7 +50,7 @@ function mapAt(environment: Environment, timeMode: 'clock' | 'fixed', minute: nu
  *  wrapper `WorldPanel` and `worldSync.ts` call. */
 function tableLight(map: MapEnvironment, minute: number, sky: NightSky) {
   const state: TriggersState = {
-    byScene: { s1: { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, env: {}, prompts: [], log: [] } },
+    byScene: { s1: { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, lightEdits: {}, env: {}, prompts: [], log: [] } },
     world: { clock: minute, nightSky: sky, timeSpeed: 'paused' },
   };
   return worldLightOf(map, state, 's1');

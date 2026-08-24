@@ -258,6 +258,24 @@ export async function loadMap(): Promise<boolean> {
     }
   }
 
+  // Create the map entry BEFORE loading the file into the store: createNewMap
+  // saves the outgoing map and resets the canvas to blank, so running it after
+  // loadFromFile wiped the just-loaded document and left a blank entry wearing
+  // the file's name.
+  const store = useStore.getState();
+  const mapName = data.mapSettings.name || 'Imported Map';
+  let newMapId: string | null = null;
+  try {
+    newMapId = await store.createNewMap(mapName);
+    // Associate the FSA handle with the new map for Ctrl+S overwrite
+    if (fsaHandle) {
+      fileHandles.set(newMapId, fsaHandle);
+    }
+  } catch (err) {
+    console.warn('[loadMap] Failed to create map entry:', err);
+    notify.error('Map loaded but could not be saved to your map list');
+  }
+
   // Load data into the store
   useStore.getState().loadFromFile(data);
 
@@ -270,18 +288,14 @@ export async function loadMap(): Promise<boolean> {
     console.warn('[loadMap] ensureTexturesForMap failed:', err);
   }
 
-  // Create a new map entry in the multi-map system
-  const store = useStore.getState();
-  const mapName = data.mapSettings.name || 'Imported Map';
-  try {
-    const newMapId = await store.createNewMap(mapName);
-    // Associate the FSA handle with the new map for Ctrl+S overwrite
-    if (fsaHandle) {
-      fileHandles.set(newMapId, fsaHandle);
+  // Persist the loaded document into the entry created above, which is still
+  // holding the blank-state blob createNewMap serialized.
+  if (newMapId) {
+    try {
+      await useStore.getState().saveCurrentMap();
+    } catch (err) {
+      console.warn('[loadMap] Failed to persist loaded map:', err);
     }
-  } catch (err) {
-    console.warn('[loadMap] Failed to create map entry:', err);
-    notify.error('Map loaded but could not be saved to your map list');
   }
 
   return true;

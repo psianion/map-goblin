@@ -3,6 +3,7 @@ import type { RenderEngine } from '../RenderEngine'
 import type { LightChild } from '../../store/types'
 import type { LightManager } from './LightManager'
 import { resolveTexture } from '../../assets/textureLoader'
+import { LIGHT_ICON_RADIUS_PX } from '../hitTest'
 
 /**
  * Everything the composite below is a function of, as one comparable string.
@@ -330,7 +331,7 @@ export class LightingRenderer {
       const color = parseInt(light.color.replace('#', ''), 16)
       const alpha = light.visible !== false ? 0.9 : 0.4
       icon.setStrokeStyle({ color: 0xffffff, alpha: alpha * 0.7, width: 1.5 })
-      icon.circle(sp.x, sp.y, 12)
+      icon.circle(sp.x, sp.y, LIGHT_ICON_RADIUS_PX)
       icon.fill({ color, alpha })
       icon.stroke()
     }

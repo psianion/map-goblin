@@ -278,6 +278,31 @@ describe('hitTestChildren', () => {
     expect(hitTestChildren([light], [5.1, 5.1])).toBe(light);
   });
 
+  it('picks a light over an asset at the same position — lights draw on top', () => {
+    const asset = makeAsset({ x: 5, y: 5 }, 4, 4, 1, 0, { id: 'asset-1' });
+    const light = makeLight({ x: 5, y: 5 }, 5);
+    expect(hitTestChildren([asset, light], [5, 5])?.id).toBe('light-1');
+    expect(hitTestChildren([light, asset], [5, 5])?.id).toBe('light-1');
+  });
+
+  it('hits a light at low zoom within ICON_PX/zoom, beyond the default 0.5-cell radius', () => {
+    const light = makeLight({ x: 5, y: 5 }, 5);
+    // At 12% zoom, ICON_PX/zoom = 12/0.12 = 100 world cells.
+    // 3 cells away misses the default 0.5-cell radius but hits at this zoom.
+    expect(hitTestChildren([light], [8, 5])).toBeNull();
+    expect(hitTestChildren([light], [8, 5], undefined, { zoom: 0.12 })).toBe(light);
+  });
+
+  it('still picks the asset when the click is outside the light radius', () => {
+    // Both centred at (5,5). Asset is 4x4 (half-width 2), light hit radius
+    // at zoom 20 is max(0.5, 12/20) = 0.6 cells — well inside the asset.
+    const asset = makeAsset({ x: 5, y: 5 }, 4, 4, 1, 0, { id: 'asset-1' });
+    const light = makeLight({ x: 5, y: 5 }, 5);
+    expect(
+      hitTestChildren([asset, light], [5.9, 5], undefined, { zoom: 20 }),
+    ).toBe(asset);
+  });
+
   it('returns door child within its hit radius', () => {
     const door = makeDoor([5, 5], { width: 1 });
     // half-width 0.5 > DOOR_MIN_HIT_RADIUS; dist ≈ 0.42 < 0.5 — hit

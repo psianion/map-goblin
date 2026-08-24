@@ -10,14 +10,14 @@
   "ambientLight": "#e8e4d8",
   "environment": "outdoor",
   "naturalLight": true,
-  "orientation": 90
+  "orientation": 90,
+  "timeMode": "fixed",
+  "fixedTime": 1380
  },
  "grid": {
   "visible": true,
-  "snapDivision": 2,
-  "style": "clean"
+  "snapDivision": 2
  },
- "customImages": {},
  "layers": [
   {
    "id": "bg-fieldstone-keep",
@@ -39,7 +39,6 @@
    "visible": true,
    "locked": false,
    "opacity": 1,
-   "mergedFloor": null,
    "style": {
     "floorColor": "#b8ac92",
     "wallColor": "#26221c",
@@ -3151,8 +3150,335 @@
       "height": 10
      },
      "blocksAutoExplore": true
+    },
+    {
+     "id": "light-guard",
+     "name": "Guard Lamp",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffc38a",
+     "radius": 6,
+     "featherRadius": 1.5,
+     "intensity": 0.65,
+     "falloff": "quadratic",
+     "position": {
+      "x": 15.2,
+      "y": 32.2
+     },
+     "attachedTo": "asset-lamp-guard"
+    },
+    {
+     "id": "light-barracks",
+     "name": "Barracks Sconce",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffb877",
+     "radius": 5.5,
+     "featherRadius": 1.2,
+     "intensity": 0.6,
+     "falloff": "quadratic",
+     "position": {
+      "x": 32.2,
+      "y": 14.2
+     },
+     "attachedTo": "asset-lamp-barracks"
+    },
+    {
+     "id": "light-cistern",
+     "name": "Cistern Lamp",
+     "childType": "light",
+     "visible": true,
+     "color": "#d9b78a",
+     "radius": 4.5,
+     "featherRadius": 1,
+     "intensity": 0.5,
+     "falloff": "quadratic",
+     "position": {
+      "x": 46.2,
+      "y": 14.2
+     },
+     "attachedTo": "asset-lamp-cistern"
+    },
+    {
+     "id": "asset-lamp-armoury",
+     "name": "Armoury Lamp",
+     "childType": "asset",
+     "objectType": "asset",
+     "visible": true,
+     "assetId": "dungeon-classic:Lamp_Metal_Brass_A_1x1_1x1_object_A",
+     "position": {
+      "x": 26.5,
+      "y": 4.5
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "light-armoury",
+     "name": "Armoury Lamp",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffc38a",
+     "radius": 5.5,
+     "featherRadius": 1.5,
+     "intensity": 0.6,
+     "falloff": "quadratic",
+     "position": {
+      "x": 26.5,
+      "y": 4.5
+     },
+     "attachedTo": "asset-lamp-armoury"
+    },
+    {
+     "id": "asset-candle-scriptorium",
+     "name": "Scriptorium Candles",
+     "childType": "asset",
+     "objectType": "asset",
+     "visible": true,
+     "assetId": "dungeon-classic:Campfire_Embers_B1_1x1_1x1_object_A",
+     "position": {
+      "x": 37,
+      "y": 7
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "light-scriptorium",
+     "name": "Scriptorium Candles",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffe0b0",
+     "radius": 4,
+     "featherRadius": 2,
+     "intensity": 0.5,
+     "falloff": "quadratic",
+     "position": {
+      "x": 37,
+      "y": 7
+     },
+     "attachedTo": "asset-candle-scriptorium"
+    },
+    {
+     "id": "asset-lamp-scriptorium-e",
+     "name": "Scriptorium Lamp",
+     "childType": "asset",
+     "objectType": "asset",
+     "visible": true,
+     "assetId": "dungeon-classic:Lamp_Metal_Brass_A_1x1_1x1_object_A",
+     "position": {
+      "x": 43.8,
+      "y": 3.2
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "light-scriptorium-e",
+     "name": "Scriptorium Lamp",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffd9a0",
+     "radius": 4.5,
+     "featherRadius": 1,
+     "intensity": 0.55,
+     "falloff": "quadratic",
+     "position": {
+      "x": 43.8,
+      "y": 3.2
+     },
+     "attachedTo": "asset-lamp-scriptorium-e"
+    },
+    {
+     "id": "asset-sconce-barracks-s",
+     "name": "Barracks Sconce South",
+     "childType": "asset",
+     "objectType": "asset",
+     "visible": true,
+     "assetId": "dungeon-classic:Lamp_Street_Metal_Brass_A_1x1_1x1_object_A",
+     "position": {
+      "x": 43.8,
+      "y": 29.8
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "light-barracks-s",
+     "name": "Barracks Sconce South",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffb877",
+     "radius": 5,
+     "featherRadius": 1.2,
+     "intensity": 0.55,
+     "falloff": "quadratic",
+     "position": {
+      "x": 43.8,
+      "y": 29.8
+     },
+     "attachedTo": "asset-sconce-barracks-s"
+    },
+    {
+     "id": "asset-lamp-crypt",
+     "name": "Crypt Stair Lamp",
+     "childType": "asset",
+     "objectType": "asset",
+     "visible": true,
+     "assetId": "dungeon-classic:Lamp_Metal_Brass_A_1x1_1x1_object_A",
+     "position": {
+      "x": 46.2,
+      "y": 32.2
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "light-crypt",
+     "name": "Crypt Stair Lamp",
+     "childType": "light",
+     "visible": true,
+     "color": "#b9c8d8",
+     "radius": 4,
+     "featherRadius": 0.8,
+     "intensity": 0.45,
+     "falloff": "quadratic",
+     "position": {
+      "x": 46.2,
+      "y": 32.2
+     },
+     "attachedTo": "asset-lamp-crypt"
+    },
+    {
+     "id": "asset-lamp-kitchen-w",
+     "name": "Kitchen Lamp",
+     "childType": "asset",
+     "objectType": "asset",
+     "visible": true,
+     "assetId": "dungeon-classic:Lamp_Metal_Brass_A_1x1_1x1_object_A",
+     "position": {
+      "x": 31.2,
+      "y": 41.8
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "light-kitchen-w",
+     "name": "Kitchen Lamp",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffc38a",
+     "radius": 5,
+     "featherRadius": 1.2,
+     "intensity": 0.55,
+     "falloff": "quadratic",
+     "position": {
+      "x": 31.2,
+      "y": 41.8
+     },
+     "attachedTo": "asset-lamp-kitchen-w"
+    },
+    {
+     "id": "light-hall-sconce-n",
+     "name": "Hall Sconce North",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffb877",
+     "radius": 5.5,
+     "featherRadius": 1.2,
+     "intensity": 0.55,
+     "falloff": "quadratic",
+     "position": {
+      "x": 16,
+      "y": 14.2
+     },
+     "attachedTo": "asset-lamp-hall-n"
+    },
+    {
+     "id": "light-hall-sconce-s",
+     "name": "Hall Sconce South",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffb877",
+     "radius": 5.5,
+     "featherRadius": 1.2,
+     "intensity": 0.55,
+     "falloff": "quadratic",
+     "position": {
+      "x": 27,
+      "y": 29.8
+     },
+     "attachedTo": "asset-lamp-hall-s"
+    },
+    {
+     "id": "asset-lamp-guard-e",
+     "name": "Guard Room Lamp East",
+     "childType": "asset",
+     "objectType": "asset",
+     "visible": true,
+     "assetId": "dungeon-classic:Lamp_Metal_Brass_A_1x1_1x1_object_A",
+     "position": {
+      "x": 28.8,
+      "y": 41.8
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1,
+     "height": 1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false
+    },
+    {
+     "id": "light-guard-e",
+     "name": "Guard Room Lamp East",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffc38a",
+     "radius": 5,
+     "featherRadius": 1,
+     "intensity": 0.55,
+     "falloff": "quadratic",
+     "position": {
+      "x": 28.8,
+      "y": 41.8
+     },
+     "attachedTo": "asset-lamp-guard-e"
     }
-   ]
+   ],
+   "mergedFloor": null
   }
- ]
+ ],
+ "customImages": {}
 }

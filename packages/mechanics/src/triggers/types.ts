@@ -72,6 +72,19 @@ export interface TriggerLogEntry {
   detail?: Record<string, unknown>
 }
 
+/**
+ * A DM's live edit to one light (M2) — every field it can touch, all optional: a patch merges
+ * onto whatever the light was, `set-light` shallow-merges onto whatever it already had.
+ */
+export type LightEdit = Partial<{
+  visible: boolean
+  radius: number
+  featherRadius: number
+  intensity: number
+  color: string
+  position: { x: number; y: number }
+}>
+
 export interface SceneTriggers {
   /** triggerId → the `now()` it last fired. */
   fired: Record<string, number>
@@ -79,7 +92,12 @@ export interface SceneTriggers {
   armed: Record<string, boolean>
   /** Runtime overrides from `set-enabled` — `true` blocks a trigger regardless of `def.enabled`. */
   disabled: Record<string, boolean>
+  /** Superseded by `lightEdits[id].visible` — kept only so a `module_state` row saved before
+   *  M2 still reads (`sceneTriggersOf` folds it in). Never written to again. */
   lightOverrides: Record<string, boolean>
+  /** DM's live per-light edits (M2), keyed by light id — the table's own truth for a light,
+   *  overlaid on whatever the map authored it as (`effectiveLight` in module.ts). */
+  lightEdits: Record<string, LightEdit>
   /** `ambient` absent ⇒ `'daylight'` — a scene played before the dial existed keeps the
    *  purely geometric vision it was played with (S3 P3 §1). */
   env: { time?: TimeOfDay; weather?: Weather; ambient?: AmbientLevel }
@@ -159,17 +177,37 @@ export function worldLightOf(
   })
 }
 
+/**
+ * Read-compat for M2: a `module_state` row saved before `lightEdits` existed carries only the
+ * boolean `lightOverrides`. Fold each into `lightEdits[id].visible` so a scene loaded from a
+ * pre-M2 row reads exactly like one that always had `lightEdits` — every other field of the
+ * edit stays whatever it already was (or absent, meaning "as authored"). `lightOverrides`
+ * itself is never written to again, so once an id has a real `visible` in `lightEdits`, that's
+ * the one that wins here too.
+ */
+function foldLightOverrides(scene: SceneTriggers): SceneTriggers {
+  const stale = Object.keys(scene.lightOverrides).filter(
+    (id) => scene.lightEdits[id]?.visible === undefined,
+  )
+  if (stale.length === 0) return scene
+  const lightEdits = { ...scene.lightEdits }
+  for (const id of stale) lightEdits[id] = { ...lightEdits[id], visible: scene.lightOverrides[id] }
+  return { ...scene, lightEdits }
+}
+
 /** An untouched scene: nothing fired, nothing armed, no overrides. */
 export function sceneTriggersOf(state: TriggersState, sceneId: string): SceneTriggers {
-  return (
-    state.byScene[sceneId] ?? {
-      fired: {},
-      armed: {},
-      disabled: {},
-      lightOverrides: {},
-      env: {},
-      prompts: [],
-      log: [],
-    }
-  )
+  const raw = state.byScene[sceneId] ?? {
+    fired: {},
+    armed: {},
+    disabled: {},
+    lightOverrides: {},
+    lightEdits: {},
+    env: {},
+    prompts: [],
+    log: [],
+  }
+  // `lightEdits` is absent on a `module_state` row saved before M2 — the type says otherwise
+  // because everything written since has it, so the default lands here rather than in the shape.
+  return foldLightOverrides(raw.lightEdits ? raw : { ...raw, lightEdits: {} })
 }

@@ -37,7 +37,7 @@ describe('useLogEntries', () => {
         doors: { log: [{ id: 'd1', at: 20, sceneId: 'sc-1', actor: 'Ayla', action: 'opened' }] },
         triggers: {
           byScene: {
-            'sc-1': { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, env: {}, prompts: [], log: [{ id: 't1', at: 40, text: 'The floor cracks.' }] },
+            'sc-1': { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, lightEdits: {}, env: {}, prompts: [], log: [{ id: 't1', at: 40, text: 'The floor cracks.' }] },
           },
         },
         initiative: {

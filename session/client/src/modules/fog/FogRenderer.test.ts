@@ -775,6 +775,23 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     expect(fillsOf(scrim)[0].hole).toBeUndefined();
     expect(strokesOf(scrim)).toHaveLength(0);
   });
+
+  it('keeps a memory OUT of the chip stencil — a remembered room never shows who is in it now', () => {
+    const scrim = new Graphics();
+    const mask = new Graphics();
+    const sightMask = new Graphics();
+    drawFog(scrim, scene({ [WEST.id]: 'visible', [EAST.id]: 'explored' }), mask, sightMask);
+
+    // The cloud mask still knows both tiers…
+    expect(fillsOf(mask).some((f) => f.style.color === MASK_MEMORY)).toBe(true);
+    // …but the stencil the token chips and turn ring wear covers LIVE sight only: one
+    // white fill for the visible room, and nothing for the explored one. With the memory
+    // ring in here, a hostile walking through a room the party had merely explored
+    // broadcast its live position on the player's canvas.
+    const stencilFills = fillsOf(sightMask);
+    expect(stencilFills).toHaveLength(1);
+    expect(stencilFills[0].style.color).toBe(0xffffff);
+  });
 });
 
 // ── Vision mode's three tiers (S3 P2 §1) ────────────────────────────────────
@@ -1483,7 +1500,7 @@ describe('fogScene', () => {
    */
   const nightTable = (
     ambient?: string,
-    overrides: Record<string, boolean> = {},
+    switches: Record<string, boolean> = {},
     world?: { clock: number; nightSky: 'full-moon' | 'crescent' | 'moonless'; timeSpeed: 'paused' },
   ) => {
     useStore.setState({
@@ -1515,7 +1532,11 @@ describe('fogScene', () => {
               fired: {},
               armed: {},
               disabled: {},
-              lightOverrides: overrides,
+              lightOverrides: {},
+              // M2 — the table's own switch lives in `lightEdits` now (`FogRenderer.ts`).
+              lightEdits: Object.fromEntries(
+                Object.entries(switches).map(([id, visible]) => [id, { visible }]),
+              ),
               env: ambient ? { ambient } : {},
               prompts: [],
               log: [],

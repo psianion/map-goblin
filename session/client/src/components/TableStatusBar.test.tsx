@@ -18,7 +18,7 @@ function triggersState(
 ): TriggersState {
   return {
     byScene: {
-      [sceneId]: { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, env, prompts: [], log: [] },
+      [sceneId]: { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, lightEdits: {}, env, prompts: [], log: [] },
     },
     ...(world ? { world: { clock: 720, nightSky: 'full-moon', timeSpeed: 'paused', ...world } } : {}),
   } as TriggersState;
