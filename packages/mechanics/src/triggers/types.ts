@@ -82,6 +82,7 @@ export type LightEdit = Partial<{
   featherRadius: number
   intensity: number
   color: string
+  falloff: 'linear' | 'quadratic'
   position: { x: number; y: number }
 }>
 

@@ -742,6 +742,14 @@ describe('set-light / reset-light (M2)', () => {
 
     state = run(mod, state, DM, 'set-light', { lightId: 'l1', patch: { intensity: 0.5 } }).next
     expect(sceneOf(state).lightEdits).toEqual({ l1: { radius: 6, color: '#ff0000', intensity: 0.5 } })
+
+    state = run(mod, state, DM, 'set-light', { lightId: 'l1', patch: { falloff: 'linear' } }).next
+    expect(sceneOf(state).lightEdits.l1).toEqual({
+      radius: 6,
+      color: '#ff0000',
+      intensity: 0.5,
+      falloff: 'linear',
+    })
   })
 
   it('reset-light drops the whole edit, not one field', () => {
@@ -772,6 +780,7 @@ describe('set-light / reset-light (M2)', () => {
     ['intensity above 1', { intensity: 1.1 }],
     ['non-hex color word', { color: 'red' }],
     ['short hex color', { color: '#fff' }],
+    ['a falloff curve nothing renders', { falloff: 'exponential' }],
     ['non-numeric position', { position: { x: 'nope', y: 0 } }],
   ] as const)('rejects %s', (_label, patch) => {
     const mod = triggersModule(makeDeps())
@@ -786,6 +795,7 @@ describe('set-light / reset-light (M2)', () => {
       featherRadius: 3,
       intensity: 0.8,
       color: '#A0C4FF',
+      falloff: 'quadratic',
       position: { x: 1, y: 2 },
     }
     const { next, error } = run(mod, empty, DM, 'set-light', { lightId: 'l1', patch })
@@ -852,6 +862,7 @@ describe('effectiveLight (M2)', () => {
     featherRadius: 1,
     intensity: 1,
     color: '#fff',
+    falloff: 'quadratic' as const,
     position: { x: 0, y: 0 },
   }
 
@@ -861,6 +872,7 @@ describe('effectiveLight (M2)', () => {
 
   it('overlays only the fields the edit touches', () => {
     expect(effectiveLight(light, { radius: 9 })).toEqual({ ...light, radius: 9 })
+    expect(effectiveLight(light, { falloff: 'linear' })).toEqual({ ...light, falloff: 'linear' })
   })
 
   it('overlays every field at once', () => {
@@ -870,6 +882,7 @@ describe('effectiveLight (M2)', () => {
       featherRadius: 1,
       intensity: 0.4,
       color: '#000',
+      falloff: 'linear' as const,
       position: { x: 3, y: 3 },
     }
     expect(effectiveLight(light, edit)).toEqual(edit)

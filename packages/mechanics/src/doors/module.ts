@@ -1,9 +1,9 @@
-// The doors module (§2.2, D2). Anyone at the table may open a door; only the DM may lock
-// one or let the room in on a secret. The authored door list lives in the map file, so the
-// module is built with a lookup the server backs with its map store — the shape
-// `scenesModule(stores)` already uses.
+// The doors module (§2.2, D2). The DM works the doors — open, lock, or let the room in on a
+// secret; a player reads what the table is playing and asks for the rest out loud. The
+// authored door list lives in the map file, so the module is built with a lookup the server
+// backs with its map store — the shape `scenesModule(stores)` already uses.
 
-import { ANY_ROLE, type GameModule, type ModuleContext } from '../contract'
+import { type GameModule, type ModuleContext } from '../contract'
 import { actorOf, logged, type LogAction } from '../log'
 import { ID_MAX, Reject, bad, obj, str } from '../tokens/validate'
 import {
@@ -40,7 +40,9 @@ export function doorsModule(
   return {
     name: 'doors',
     commands: {
-      toggle: ANY_ROLE,
+      // D2 — the DM's call. Gated centrally by `ModuleRegistry.dispatch`, so the handler
+      // below never sees a player's toggle; the seat-blind checks in `run` stay as they are.
+      toggle: ['dm'],
       lock: ['dm'],
       unlock: ['dm'],
       'reveal-secret': ['dm'],

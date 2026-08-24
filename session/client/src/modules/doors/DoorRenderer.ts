@@ -2,14 +2,18 @@
 // at, and the click that changes it.
 //
 // The map's own door art (core's `doorRenderer`) draws the authored state and knows nothing
-// about the session, so this sits above it: a small mark that says open / shut / locked /
-// secret right now. Anyone may click one (D2); the DM's lock and reveal-secret affordances
-// live inline in the panel, never behind a modal.
+// about the session, so this sits above it: a door glyph that says open / shut / secret right
+// now. The DM's overlay alone (D2 — they work the doors, and the server refuses everyone
+// else), so a player's canvas carries no mark and no click target at all; their fast path is
+// the art redraw below and asking out loud. Lock and reveal-secret live inline in the panel,
+// never behind a modal.
 
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Sprite } from 'pixi.js';
 import { renderDoors } from '@dnd/core/src/engine/doorRenderer';
+import { lucideTexture } from '@dnd/core/src/engine/lucideIcons';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
+import { isDoubleClick } from '@dnd/core/src/engine/tools/DrawingTool';
 import { resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve';
 import { useStore } from '@dnd/core/src/store/store';
 import type { DoorsState } from '@dnd/mechanics/doors';
@@ -22,6 +26,13 @@ import { useDoorSelection } from './selection';
 
 /** World units (grid cells). Readable at the editor's default zoom without shouting. */
 const MARK_RADIUS = 0.26;
+/**
+ * The glyph's height in world units — a shade over a half-square, so a door still reads as a
+ * door at the zoom a table plays at, where the old disc only read as "a dot".
+ */
+const GLYPH_WU = 0.75;
+/** Rasterized once at this size and sized in world units, so zoom costs nothing. */
+const GLYPH_PX = 48;
 
 const send = (action: string, payload: unknown): void =>
   useSessionStore.getState().sendCommand('doors', action, payload);
@@ -83,9 +94,13 @@ export function trackDoorIds(
   };
 }
 
-/** A four-point star — "there is more here than the map says". */
+/**
+ * A four-point star — "there is more here than the map says". It rides the glyph's top-right
+ * corner rather than its middle: gold alone would leave the secret to colour, and a star over
+ * the door art would leave it unreadable.
+ */
 function drawSecretBadge(g: Graphics, x: number, y: number, color: number, alpha: number): void {
-  const s = MARK_RADIUS * 0.85;
+  const s = GLYPH_WU * 0.16;
   for (const [dx, dy] of [
     [1, 0],
     [0, 1],
@@ -93,7 +108,7 @@ function drawSecretBadge(g: Graphics, x: number, y: number, color: number, alpha
     g.moveTo(x - dx * s, y - dy * s);
     g.lineTo(x + dx * s, y + dy * s);
   }
-  g.stroke({ color, width: MARK_RADIUS * 0.22, alpha, cap: 'round' });
+  g.stroke({ color, width: s * 0.28, alpha, cap: 'round' });
 }
 
 /** Exported for the tests; production mounts it through `mountDoorLayerWhenReady`. */
@@ -101,10 +116,14 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
   const layer = new Container();
   const art = new Container();
   const paint = new Graphics();
+  const marks = new Container();
+  marks.label = 'doorMarks';
   // Art first, marks over it: the mark is the interaction affordance and has to stay legible
-  // on top of whatever the door is drawn as.
+  // on top of whatever the door is drawn as. `paint` carries what is drawn *around* a glyph —
+  // the selection ring and the secret badge — so the glyph sprites sort above it.
   layer.addChild(art);
   layer.addChild(paint);
+  layer.addChild(marks);
   // Screen space, not the world, and that is the whole of the fix for "the player's canvas
   // never moved when a door opened". The player's fog mask is a screen-space layer (D12 —
   // the lighting is composited beneath it), and no world-space child can sort above one,
@@ -116,6 +135,8 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
   addScreenOverlay(sceneGraph, layer, 'doorOverlay');
 
   let doors: LiveDoor[] = [];
+  /** One reused sprite per door — never a new one per frame (frame budget, as below). */
+  const glyphs = new Map<string, Sprite>();
   // The reveal beat (PRODUCT — the one dramatic play beat): a door mark that was not on the
   // player's map last frame fades in over the same 300ms the fog reveal takes. The DM is
   // exempt: their secret door was always there, at full opacity, badge and all.
@@ -169,7 +190,11 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
   };
 
   const draw = () => {
-    doors = liveSceneDoors();
+    // Archways are dropped here rather than in each consumer: a hole in a wall has nothing to
+    // open, close or lock (the server refuses every command on one), so it gets no mark and
+    // no click target. `doors` is the overlay's list, not the scene's — the lighting lane
+    // reads `liveSceneDoors()` for that.
+    doors = liveSceneDoors().filter(({ door }) => door.style !== 'archway');
     const selectedId = useDoorSelection.getState().selectedId;
     const now = performance.now();
 
@@ -189,33 +214,49 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
 
     paint.clear();
 
-    for (const { door, live } of doors) {
-      const look = doorLook(door, live);
-      const [x, y] = door.position;
-      // Full opacity, always. A secret door on the DM's map is not a hint, it is a door.
-      // The only thing that ever moves this number is the arrival fade above.
-      const alpha = look.alpha * fadeAlpha(door.id, now);
+    // D2 — the DM's overlay alone. A player has nothing to click (the server refuses their
+    // toggle) and nothing to read that the door art above the fog does not already say.
+    const drawn = new Set<string>();
+    if (useSessionStore.getState().you?.role === 'dm') {
+      for (const { door, live } of doors) {
+        const look = doorLook(door, live);
+        const [x, y] = door.position;
+        // Full opacity, always. A secret door on the DM's map is not a hint, it is a door.
+        // The only thing that ever moves this number is the arrival fade above.
+        const alpha = look.alpha * fadeAlpha(door.id, now);
 
-      if (look.filled) {
-        paint.circle(x, y, MARK_RADIUS).fill({ color: look.color, alpha });
-      } else {
-        paint
-          .circle(x, y, MARK_RADIUS)
-          .stroke({ color: look.color, width: MARK_RADIUS * 0.34, alpha });
-      }
+        // The glyph is the state: a door standing open, or one shut in its frame. Colour only
+        // seconds it (parchment, or gold for a secret) — the same two looks `doorLook` names.
+        let glyph = glyphs.get(door.id);
+        if (!glyph) {
+          glyph = new Sprite();
+          glyph.anchor.set(0.5);
+          marks.addChild(glyph);
+          glyphs.set(door.id, glyph);
+        }
+        drawn.add(door.id);
+        glyph.texture = lucideTexture(live.open ? 'door-open' : 'door-closed', GLYPH_PX);
+        glyph.setSize(GLYPH_WU);
+        glyph.position.set(x, y);
+        glyph.tint = look.color;
+        glyph.alpha = alpha;
 
-      // The badge is drawn in the mark's counter-colour so it reads on either fill. Only the
-      // DM ever has one to draw (`doorLook`): a player's canvas carries no state colour at
-      // all, and locked lives in the door panel and the bump toast instead.
-      if (look.badge === 'secret') {
-        drawSecretBadge(paint, x, y, look.filled ? 0x141414 : look.color, alpha);
-      }
+        if (look.badge === 'secret') {
+          drawSecretBadge(paint, x + GLYPH_WU * 0.44, y - GLYPH_WU * 0.44, look.color, alpha);
+        }
 
-      if (door.id === selectedId) {
-        paint
-          .circle(x, y, MARK_RADIUS * 1.7)
-          .stroke({ color: 0xffffff, width: MARK_RADIUS * 0.16, alpha: 0.85 * alpha });
+        if (door.id === selectedId) {
+          paint
+            .circle(x, y, GLYPH_WU * 0.72)
+            .stroke({ color: 0xffffff, width: MARK_RADIUS * 0.16, alpha: 0.85 * alpha });
+        }
       }
+    }
+
+    for (const [id, glyph] of glyphs) {
+      if (drawn.has(id)) continue;
+      glyph.destroy();
+      glyphs.delete(id);
     }
   };
 
@@ -239,16 +280,31 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
   // order instead, with both in capture: the old sidebar mounted TokenPanel before DoorPanel,
   // the rail mounts Doors before Tokens, and placing a token on a door then swung the door.
   const canvas = engine.canvas();
+  // One click picks the door up (the menu opens off the selection), two swing it — the same
+  // split, and the same detector, the canvas's own DoorTool uses. A press that only ever
+  // toggled meant no way to read a door without changing it, and no way to reach the DM's
+  // lock/reveal buttons without one.
+  let lastClick: { point: { x: number; y: number }; time: number } | null = null;
   const onDown = (e: PointerEvent) => {
     if (e.button !== 0 || isToolActive()) return;
+    if (useSessionStore.getState().you?.role !== 'dm') return;
     const point = worldPointOf(engine, e);
     if (!point) return;
     const hit = doorAt(doors, point.x, point.y);
     if (!hit) return;
     e.stopPropagation();
     e.preventDefault();
+    // Re-selected on both clicks: `DoorMenu`'s capture listener clears the selection on every
+    // press over the map, so the second click of a double would otherwise close the menu it
+    // just acted through.
     useDoorSelection.getState().select(hit.door.id);
-    send('toggle', { id: hit.door.id });
+    const now = Date.now();
+    if (isDoubleClick(lastClick, point, now)) {
+      lastClick = null;
+      send('toggle', { id: hit.door.id });
+      return;
+    }
+    lastClick = { point, time: now };
   };
 
   canvas.addEventListener('pointerdown', onDown);

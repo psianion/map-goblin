@@ -300,6 +300,7 @@ function setEnabled(p: Payload, ctx: Ctx): void {
 }
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i
+const FALLOFFS = ['linear', 'quadratic'] as const
 
 /** Everything a DM's live edit can touch (M2), validated field-by-field — same shape as
  *  `parseDefFields`/`parseLight` in tokens/validate.ts, kept here since it is this module's
@@ -328,6 +329,7 @@ function parseLightPatch(v: unknown): LightEdit {
     if (!HEX_COLOR.test(color)) bad('patch.color must be a 6-digit hex colour, e.g. #a0c4ff')
     patch.color = color
   }
+  if (p.falloff !== undefined) patch.falloff = oneOf(p.falloff, FALLOFFS, 'patch.falloff')
   if (p.position !== undefined) {
     const pos = obj(p.position, 'patch.position')
     patch.position = { x: num(pos.x, 'patch.position.x'), y: num(pos.y, 'patch.position.y') }
