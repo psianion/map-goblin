@@ -27,6 +27,7 @@ import {
   handleNodeKey,
 } from './wallNodeEdit';
 import { outlineHitAt } from '@/engine/shapeNodeOverlay';
+import { toggleFixtureAt } from './doubleClickToggle';
 import {
   applyOutlineEdit,
   beginOutlineDrag,
@@ -342,6 +343,12 @@ export function useCanvasInput(
           e.preventDefault();
           return;
         }
+      }
+      // Lights and doors first: both are things you flip, not things you edit the nodes of,
+      // and the fallthrough below would otherwise put a double-clicked light into outline edit.
+      if (toggleFixtureAt(world, engine.stage().scale.x)) {
+        e.preventDefault();
+        return;
       }
       if (toggleNodeEditAt(world) || toggleShapeNodeEditAt(world)) e.preventDefault();
     };

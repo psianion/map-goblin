@@ -1,9 +1,9 @@
-// M2 table UI (plan design decision 5) — the DM's own "Lights" rail entry. Opening it is what
-// "enters" the mode: the body's own effect turns the map's light icons on and starts reading
-// clicks/drags off them (`LightEditor.ts`); closing the popover — the rail icon again, Esc, a
-// press elsewhere — unmounts the body and tears both back down, the same way every other
-// popover close already works (`Popover.tsx`, `hotkeys.ts`'s Esc order). Nothing lights-specific
-// had to be taught to either file.
+// M2 table UI (plan design decision 5) — the DM's own "Lights" rail entry. The map side is a
+// standing overlay, like the doors' marks: it registers as the panel's `mount`, so the shell
+// runs it once per seat that can see this panel (`GameTable.tsx` mounts `usePanels(role)`, and
+// `roles` below is DM-only — a player seat never gets the panel, so it never mounts the editor).
+// The icons and their clicks/drags are therefore live whether or not this popover is open; the
+// popover is a summary, and the real controls are `LightPopover.tsx` on the map.
 //
 // DM only, by `roles` rather than a `railRoles` narrowing: a player must never see this rail
 // entry, and there is no on-map fast path for a player to reach it from either (unlike Doors),
@@ -13,7 +13,6 @@
 // map — the same split `DoorPanel`/`DoorMenu` already draw between "the rail's own summary"
 // and "the on-map popover with the real controls".
 
-import { useEffect } from 'react';
 import { useStore } from '@dnd/core/src/store/store';
 import { mountWhenEngineReady } from '../../renderer/overlayLayer';
 import { registerPanel } from '../../session/panels';
@@ -22,14 +21,13 @@ import { mountLightsEditor } from './LightEditor';
 import { mapLights } from './lights';
 
 export function LightsBody() {
-  useEffect(() => mountWhenEngineReady(mountLightsEditor), []);
   const count = useStore((s) => mapLights(s.layers).length);
 
   return (
     <div className="flex flex-col gap-2 text-sm">
       <div className="flex items-center gap-1.5 text-xs text-text-muted">
-        <Icon name="frame" size={15} />
-        Click a light on the map to edit it. Drag it to move.
+        <Icon name="frame" size={15} className="shrink-0" />
+        <span>Click a light on the map to edit it, double-click to switch it on or off. Drag to move.</span>
       </div>
       {count === 0 && <p className="text-xs text-text-secondary">This map has no lights placed.</p>}
     </div>
@@ -45,4 +43,5 @@ registerPanel({
   roles: ['dm'],
   order: 35,
   component: LightsBody,
+  mount: () => mountWhenEngineReady(mountLightsEditor),
 });

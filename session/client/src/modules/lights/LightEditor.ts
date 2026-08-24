@@ -1,12 +1,13 @@
-// M2 table UI (plan design decision 5) — the DM's Lights mode owns the map while its popover
-// is open: it turns on core's own light icons (editor chrome, off by default at the table
-// boot — `GameRenderer.tsx`) and reads clicks/drags off them the same way `DoorRenderer` reads
-// door marks. No canvas-tool import, no new render code: a `LightChild`'s fields are already
-// everything `LightingRenderer` draws, which is the whole point of M2 (`lightSync.ts` header).
+// M2 table UI (plan design decision 5) — the DM's light handles: it turns on core's own light
+// icons (off by default at the table boot — `GameRenderer.tsx`) and reads clicks/drags off them
+// the same way `DoorRenderer` reads door marks. No canvas-tool import, no new render code: a
+// `LightChild`'s fields are already everything `LightingRenderer` draws, which is the whole
+// point of M2 (`lightSync.ts` header).
 //
-// Mounted only while the Lights popover is on screen (`LightsPanel.tsx`'s effect), unlike the
-// doors/tokens/fog overlays, which run for the life of the seat — a light icon is authoring
-// chrome, not something either seat should see the rest of the time.
+// Standing overlay, like the door marks: mounted for the life of the seat from the Lights
+// panel's `mount` (`LightsPanel.tsx`), and only on seats that can see that DM-only panel — so a
+// player never sees an icon or has a light claim their click. The teardown below is the seat's,
+// not a popover's: closing the Lights popover leaves the icons up.
 
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';

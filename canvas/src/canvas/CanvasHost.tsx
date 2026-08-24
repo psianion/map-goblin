@@ -8,6 +8,7 @@ import { subscribeToAssets } from '@/engine/subscribeToAssets';
 import { subscribeToTextLabels } from '@/engine/subscribeToTextLabels';
 import { setEngineSingleton, clearEngineSingleton } from '@/engine/engineSingleton';
 import { LightManager } from '@dnd/core/src/engine/lighting/index';
+import { mountDoorIcons } from '@dnd/core/src/engine/doorIconRenderer';
 import { setTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
 import { destroyWaterAnimation } from '@dnd/core/src/engine/water/waterAnimation';
 import { useCanvasResize } from './useCanvasResize';
@@ -147,6 +148,10 @@ export function CanvasHost() {
       // Zone markers — editor-only, never present in the session/table bundle
       const unmountZoneOverlay = mountZoneOverlay(sceneGraph.worldContainer);
 
+      // Door marks — same opt-in reasoning: the table draws its own live ones (DoorRenderer),
+      // so core only ever has them where a surface asks.
+      const unmountDoorIcons = mountDoorIcons(pixiEngine);
+
       // Wire fog transition resize to engine resize events
       const unregFogResize = pixiEngine.onResize((w, h) => {
         sceneGraph.fogTransition.resize(w, h);
@@ -172,6 +177,7 @@ export function CanvasHost() {
         setDimensionHud(null);
         dimensionHud.destroy();
         unmountZoneOverlay();
+        unmountDoorIcons();
         sceneGraph.toolManager.destroy();
         sceneGraph.lightingRenderer.destroy();
         sceneGraph.fogTransition.destroy();

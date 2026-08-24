@@ -259,6 +259,11 @@ describe('hitTestChildren', () => {
     expect(hitTestChildren([shape], [5, 5])).toBeNull();
   });
 
+  it('still picks a light that has been switched off — its struck-out icon is still drawn', () => {
+    const light = { ...makeLight({ x: 5, y: 5 }), visible: false };
+    expect(hitTestChildren([light], [5.1, 5.1])).toBe(light);
+  });
+
   it('returns topmost (last in array) when stacked', () => {
     const bottom = makeShape(square, { id: 'bottom' });
     const top = makeShape(square, { id: 'top' });
