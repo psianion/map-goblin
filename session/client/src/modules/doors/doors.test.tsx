@@ -56,6 +56,7 @@ const door = (over: Partial<DoorChild> = {}): DoorChild =>
 const PLAIN = door();
 const LOCKED = door({ id: 'd2', name: 'Reliquary Door', state: 'locked', position: [10, 4] });
 const SECRET = door({ id: 'd3', name: 'Hidden Door', isSecret: true, position: [16, 4] });
+const ARCHWAY = door({ id: 'd4', name: 'Crypt Arch', style: 'archway', position: [22, 4] });
 
 const dungeonLayer = (children: DoorChild[]): Layer =>
   ({ id: 'l1', type: 'dungeon', children, standaloneWalls: [], rooms: [] }) as unknown as Layer;
@@ -94,6 +95,12 @@ const chipIds = (): string[] =>
   Array.from(screen.getByTestId('door-list').querySelectorAll('[data-door-id]')).map(
     (el) => el.getAttribute('data-door-id')!,
   );
+
+/** The overlay's glyph container — one sprite per door the seat may work. */
+const marksOf = (overlay: Container): Container =>
+  (overlay.children.find((c) => String(c.label) === 'doorOverlay') as Container).children.find(
+    (c) => String(c.label) === 'doorMarks',
+  ) as Container;
 
 const chipButton = (id: string): HTMLButtonElement =>
   screen
@@ -158,10 +165,11 @@ describe('a press on a door, with token input on the same canvas', () => {
     const layerContainer = new Container();
     layerContainer.label = 'layerContainer';
     worldContainer.addChild(layerContainer);
+    const overlayContainer = new Container();
     const sceneGraph = {
       worldContainer,
       layerContainer,
-      overlayContainer: new Container(),
+      overlayContainer,
     } as unknown as SceneGraph;
     const engine = {
       canvas: () => canvas,
@@ -170,7 +178,7 @@ describe('a press on a door, with token input on the same canvas', () => {
     } as unknown as RenderEngine;
     const press = (x: number, y: number) =>
       canvas.dispatchEvent(new PointerEvent('pointerdown', { button: 0, clientX: x, clientY: y, bubbles: true }));
-    return { canvas, sceneGraph, engine, press, detach: () => canvas.remove() };
+    return { canvas, sceneGraph, engine, overlayContainer, press, detach: () => canvas.remove() };
   }
 
   /**
@@ -188,20 +196,103 @@ describe('a press on a door, with token input on the same canvas', () => {
     h.canvas.addEventListener('pointerdown', (e) => e.stopImmediatePropagation(), true);
 
     h.press(PLAIN.position[0], PLAIN.position[1]);
+    h.press(PLAIN.position[0], PLAIN.position[1]);
     expect(sent, 'the press that placed a token also swung the door under it').toEqual([]);
+    expect(useDoorSelection.getState().selectedId).toBeNull();
 
     unmount();
     h.detach();
   });
 
-  it('still toggles a door nobody else claimed', () => {
+  /**
+   * One click reads a door, two work it — the same split the canvas's DoorTool has. A single
+   * press used to toggle, which meant no way to reach a door's lock/reveal buttons (they hang
+   * off the selection) without also swinging it.
+   */
+  it('selects on one press and toggles on the second', () => {
     useSessionStore.setState({ session: session(), you: dm });
     const sent = captureCommands();
     const h = harness();
     const unmount = mountDoorLayer(h.engine, h.sceneGraph);
 
     h.press(PLAIN.position[0], PLAIN.position[1]);
-    expect(sent.map((m) => m.action)).toEqual(['toggle']);
+    expect(sent).toEqual([]);
+    expect(useDoorSelection.getState().selectedId).toBe('d1');
+
+    h.press(PLAIN.position[0], PLAIN.position[1]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ module: 'doors', action: 'toggle', payload: { id: 'd1' } });
+    // Still selected, so the menu the double-click acted through stays on screen.
+    expect(useDoorSelection.getState().selectedId).toBe('d1');
+
+    unmount();
+    h.detach();
+  });
+
+  it('treats two slow presses as two single clicks, never a toggle', () => {
+    vi.useFakeTimers();
+    useSessionStore.setState({ session: session(), you: dm });
+    const sent = captureCommands();
+    const h = harness();
+    const unmount = mountDoorLayer(h.engine, h.sceneGraph);
+
+    h.press(PLAIN.position[0], PLAIN.position[1]);
+    vi.advanceTimersByTime(600);
+    h.press(PLAIN.position[0], PLAIN.position[1]);
+    expect(sent).toEqual([]);
+
+    unmount();
+    h.detach();
+    vi.useRealTimers();
+  });
+
+  /** D2 — the DM works the doors. A player's press has nothing to hit. */
+  it('gives a player no click target and no mark', () => {
+    useSessionStore.setState({ session: session(), you: player });
+    const sent = captureCommands();
+    const h = harness();
+    const unmount = mountDoorLayer(h.engine, h.sceneGraph);
+
+    h.press(PLAIN.position[0], PLAIN.position[1]);
+    h.press(PLAIN.position[0], PLAIN.position[1]);
+    expect(sent).toEqual([]);
+    expect(useDoorSelection.getState().selectedId).toBeNull();
+    expect(marksOf(h.overlayContainer).children).toEqual([]);
+
+    unmount();
+    h.detach();
+  });
+
+  /** An archway is a hole in a wall: nothing to mark, nothing to swing (the server agrees). */
+  it('draws no mark for an archway, and will not toggle one', () => {
+    useStore.setState({ layers: [dungeonLayer([ARCHWAY, PLAIN])] });
+    useSessionStore.setState({ session: session(), you: dm });
+    const sent = captureCommands();
+    const h = harness();
+    const unmount = mountDoorLayer(h.engine, h.sceneGraph);
+
+    expect(marksOf(h.overlayContainer).children).toHaveLength(1);
+    h.press(ARCHWAY.position[0], ARCHWAY.position[1]);
+    h.press(ARCHWAY.position[0], ARCHWAY.position[1]);
+    expect(sent).toEqual([]);
+    expect(useDoorSelection.getState().selectedId).toBeNull();
+
+    unmount();
+    h.detach();
+  });
+
+  it('draws one glyph per door for the DM, and reuses it across redraws', () => {
+    useSessionStore.setState({ session: session(), you: dm });
+    const h = harness();
+    const unmount = mountDoorLayer(h.engine, h.sceneGraph);
+
+    const marks = marksOf(h.overlayContainer);
+    expect(marks.children).toHaveLength(3);
+    const first = marks.children[0];
+
+    act(() => useDoorSelection.getState().select('d1'));
+    expect(marks.children).toHaveLength(3);
+    expect(marks.children[0], 'a redraw minted a fresh sprite per door').toBe(first);
 
     unmount();
     h.detach();
@@ -494,10 +585,16 @@ describe('DoorPanel — the no-scroll ceiling', () => {
 
 describe('DoorFooter', () => {
   it('says to pick a door when nothing is selected', () => {
-    useSessionStore.setState({ session: session(), you: player });
+    useSessionStore.setState({ session: session(), you: dm });
     render(<DoorFooter />);
     expect(screen.getByText('Select a door, or click one on the map.')).not.toBeNull();
     expect(screen.queryByTestId('door-actions')).toBeNull();
+
+    // A player has no map click to be pointed at — the panel is their only route to a door.
+    cleanup();
+    useSessionStore.setState({ you: player });
+    render(<DoorFooter />);
+    expect(screen.getByText('Select a door to frame it.')).not.toBeNull();
   });
 
   it('names the selected door and its state, secret or not', () => {
@@ -512,7 +609,7 @@ describe('DoorFooter', () => {
   });
 
   it('toggles the selected door only via the explicit control', () => {
-    useSessionStore.setState({ session: session(), you: player });
+    useSessionStore.setState({ session: session(), you: dm });
     useDoorSelection.getState().select('d1');
     const sent = captureCommands();
     render(<DoorFooter />);
@@ -522,10 +619,11 @@ describe('DoorFooter', () => {
     expect(sent[0]).toMatchObject({ module: 'doors', action: 'toggle', payload: { id: 'd1' } });
   });
 
-  it('offers lock and reveal-secret to the DM only, but toggle and frame to anyone', () => {
+  it('offers toggle, lock and reveal-secret to the DM only, and frame to anyone', () => {
     useSessionStore.setState({ session: session(), you: dm });
     useDoorSelection.getState().select('d3');
     render(<DoorFooter />);
+    expect(screen.getByTestId('door-toggle')).not.toBeNull();
     expect(screen.getByTestId('door-lock').textContent).toBe('Lock');
     expect(screen.getByTestId('door-reveal-secret')).not.toBeNull();
     expect(screen.getByTestId('door-frame')).not.toBeNull();
@@ -533,8 +631,8 @@ describe('DoorFooter', () => {
     cleanup();
     useSessionStore.setState({ you: player });
     render(<DoorFooter />);
-    expect(screen.getByTestId('door-toggle')).not.toBeNull();
     expect(screen.getByTestId('door-frame')).not.toBeNull();
+    expect(screen.queryByTestId('door-toggle')).toBeNull();
     expect(screen.queryByTestId('door-lock')).toBeNull();
     expect(screen.queryByTestId('door-reveal-secret')).toBeNull();
   });
@@ -570,18 +668,18 @@ describe('DoorFooter', () => {
     expect(sent.filter((s) => s.action === 'toggle')).toEqual([]);
   });
 
-  /** A player keeps the button: rattling a locked door and being told so is the discovery. */
-  it('still lets a player pull a locked door, and be refused for it', () => {
+  /**
+   * A player used to keep a live Open button — rattling a locked door was the discovery. The
+   * server refuses every player toggle now (D2), so a button that can only be refused is a
+   * worse answer than no button: they ask the DM, and the answer is the door swinging.
+   */
+  it('gives a player no toggle to be refused for', () => {
     useSessionStore.setState({ session: session(), you: player });
     useDoorSelection.getState().select('d2');
-    const sent = captureCommands();
     render(<DoorFooter />);
 
-    const toggle = screen.getByTestId('door-toggle') as HTMLButtonElement;
-    expect(toggle.disabled).toBe(false);
-    expect(toggle.textContent).toBe('Open');
-    fireEvent.click(toggle);
-    expect(sent[0]).toMatchObject({ action: 'toggle', payload: { id: 'd2' } });
+    expect(screen.queryByTestId('door-toggle')).toBeNull();
+    expect(screen.getByTestId('door-frame')).not.toBeNull();
   });
 
   it('disables reveal-secret once the secret is out', () => {

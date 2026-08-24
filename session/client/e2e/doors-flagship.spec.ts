@@ -183,11 +183,15 @@ async function revealRoom(dm: Page, roomId: string): Promise<void> {
   await expect(row).toHaveAttribute('data-fog-status', 'revealed')
 }
 
-/** Select the door row, then swing it with the control beside it (D10: two gestures). */
-async function toggleDoor(page: Page, id: string): Promise<void> {
-  await openPanel(page, 'doors')
-  await doorRow(page, id).getByRole('button').click()
-  await page.getByTestId('door-toggle').click()
+/**
+ * Select the door row, then swing it with the control beside it (D10: two gestures).
+ * The DM's seat only (D2): the server refuses everyone else, and a player's row has no
+ * toggle beside it to click.
+ */
+async function toggleDoorAsDm(dm: Page, id: string): Promise<void> {
+  await openPanel(dm, 'doors')
+  await doorRow(dm, id).getByRole('button').click()
+  await dm.getByTestId('door-toggle').click()
 }
 
 /**
@@ -311,13 +315,15 @@ test.describe.serial('@doors flagship', () => {
     expect((await tokenPositions(dm))[tokenId]).toEqual(START)
   })
 
-  test('the player opens the door and their sight runs into the gallery', async () => {
+  test('the DM opens the door, and the sight that runs into the gallery is the player seat', async () => {
     const before = await shoot(player)
     const settled = await shoot(player)
     const noise = await changed(player, before, settled)
 
-    await toggleDoor(player, DOOR.id)
-    await openPanel(dm, 'doors')
+    // The swing is the DM's (D2) — the player asked for it out loud, which is the half of
+    // this flow no seat can be driven through. Everything below is the player receiving the
+    // answer: their sight, their canvas, their token walking through it in the row after.
+    await toggleDoorAsDm(dm, DOOR.id)
     await expect(doorRow(dm, DOOR.id)).toHaveAttribute('data-open', 'true')
     await expect.poll(() => viewOf(player, GALLERY), { timeout: 20_000 }).toBe('visible')
 
@@ -330,6 +336,11 @@ test.describe.serial('@doors flagship', () => {
     // The corridor stops being a memory and starts being a room — the explored wash comes
     // off it and the chamber's torchlight reaches through the doorway.
     expect(moved).toBeGreaterThan(Math.max(noise * 4, 0.0002))
+
+    // Read after the shots, so the row this is asserted on cannot be a popover moving over
+    // the canvas the measurement was taken from.
+    await openPanel(player, 'doors')
+    await expect(doorRow(player, DOOR.id)).toHaveAttribute('data-open', 'true')
   })
 
   test('the token walks through the doorway', async () => {
@@ -342,13 +353,13 @@ test.describe.serial('@doors flagship', () => {
     await expect(player.getByTestId('toast')).toHaveCount(0)
   })
 
+  // The DM shuts it behind them, the same way it was opened.
   test('the door shut behind them leaves the chamber explored, not black', async () => {
     const before = await shoot(player)
     const settled = await shoot(player)
     const noise = await changed(player, before, settled)
 
-    await toggleDoor(player, DOOR.id)
-    await openPanel(dm, 'doors')
+    await toggleDoorAsDm(dm, DOOR.id)
     await expect(doorRow(dm, DOOR.id)).toHaveAttribute('data-open', 'false')
 
     // The room they walked out of is no longer live — and is still theirs: `explored` is

@@ -194,6 +194,7 @@ describe('lightingDrift with a preview in flight', () => {
     featherRadius: l.featherRadius,
     intensity: l.intensity,
     color: l.color,
+    falloff: l.falloff,
     position: { ...l.position },
   })
 

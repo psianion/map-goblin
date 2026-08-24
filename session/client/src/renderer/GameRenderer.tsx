@@ -109,7 +109,9 @@ export function GameRenderer() {
       }
 
       const sceneGraph = buildSceneGraph(pixiEngine);
-      // The runner has no light-editing tool; icons are editor chrome (the map is the stage).
+      // Off for every seat at boot; the DM's own light overlay (`LightEditor.ts`, mounted from
+      // the DM-only Lights panel) turns them back on. A player seat leaves them off — the map
+      // is the stage, and a light icon is the DM's handle on it.
       sceneGraph.lightingRenderer.setIconsVisible(false);
       const lightManager = new LightManager();
       setupRenderLoop(pixiEngine, sceneGraph, lightManager);

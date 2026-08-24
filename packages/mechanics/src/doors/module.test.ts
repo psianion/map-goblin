@@ -58,6 +58,17 @@ function run(
   const roles = doors.commands[action]
   if (!roles) return { error: { code: 'invalid-command', message: '' }, next: state }
   if (!roles.includes(sender.role)) return { error: { code: 'unauthorized', message: '' }, next: state }
+  return handled(state, sender, action, payload, activeSceneId)
+}
+
+/** `run` without the role gate — for the seat-blind rules the handler keeps on its own. */
+function handled(
+  state: DoorsState,
+  sender: Viewer,
+  action: string,
+  payload: unknown,
+  activeSceneId: string | null = SCENE,
+) {
   let next = state
   const error = doors.handler(action, payload, {
     campaignId: 'c-1',
@@ -78,6 +89,7 @@ const scene = (state: DoorsState) => state.byScene[SCENE]
 
 describe('authz matrix', () => {
   const dmOnly = [
+    ['toggle', { id: 'oak' }],
     ['lock', { id: 'oak' }],
     ['unlock', { id: 'oak' }],
     ['reveal-secret', { id: 'bookcase' }],
@@ -88,8 +100,9 @@ describe('authz matrix', () => {
     expect(run(empty, DM, action, payload).error?.code).not.toBe('unauthorized')
   })
 
-  it('toggle is open to both roles at the table', () => {
-    expect(doors.commands.toggle).toEqual(['dm', 'player'])
+  it('leaves a player no door command at all', () => {
+    expect(doors.commands.toggle).toEqual(['dm'])
+    expect(Object.values(doors.commands).every((roles) => !roles.includes('player'))).toBe(true)
   })
 
   it('rejects an unknown action and a non-object payload', () => {
@@ -110,7 +123,7 @@ describe('authz matrix', () => {
 
 describe('lazy seeding (D2)', () => {
   it('seeds the whole scene from the map on the first command that touches it', () => {
-    const { next } = run(empty, P1, 'toggle', { id: 'oak' })
+    const { next } = run(empty, DM, 'toggle', { id: 'oak' })
     expect(scene(next)).toEqual({
       oak: { open: true, locked: false, revealed: true },
       iron: { open: false, locked: true, revealed: true },
@@ -134,14 +147,14 @@ describe('lazy seeding (D2)', () => {
 })
 
 describe('toggle', () => {
-  it('opens and closes for a player', () => {
-    const opened = run(empty, P1, 'toggle', { id: 'oak' }).next
+  it('opens and closes for the DM', () => {
+    const opened = run(empty, DM, 'toggle', { id: 'oak' }).next
     expect(scene(opened).oak.open).toBe(true)
-    expect(scene(run(opened, P1, 'toggle', { id: 'oak' }).next).oak.open).toBe(false)
+    expect(scene(run(opened, DM, 'toggle', { id: 'oak' }).next).oak.open).toBe(false)
   })
 
   it('refuses a locked door, names which one, and leaves it shut', () => {
-    const { error, next } = run(empty, P1, 'toggle', { id: 'iron' })
+    const { error, next } = run(empty, DM, 'toggle', { id: 'iron' })
     expect(error?.code).toBe('invalid-command')
     expect(error?.message).toContain(DOOR_LOCKED)
     // The id, not the name: the client turns it into the name that seat is allowed to
@@ -154,9 +167,12 @@ describe('toggle', () => {
     expect(run(empty, DM, 'toggle', { id: 'iron' }).error?.message).toContain(DOOR_LOCKED)
   })
 
+  // Dispatch refuses a player's toggle before the handler runs, so this probe is unreachable
+  // from a seat today — the equal refusal stays pinned at the handler, where the next
+  // player-facing door command would land on it.
   it('answers a player on an unrevealed secret door exactly as it answers a made-up id', () => {
-    const secret = run(empty, P1, 'toggle', { id: 'bookcase' })
-    const ghost = run(empty, P1, 'toggle', { id: 'no-such-door' })
+    const secret = handled(empty, P1, 'toggle', { id: 'bookcase' })
+    const ghost = handled(empty, P1, 'toggle', { id: 'no-such-door' })
     expect(secret.error).toEqual(ghost.error)
     expect(secret.error?.message).toContain(UNKNOWN_DOOR)
     // nothing is written either — a probe cannot even be timed off a state change
@@ -174,18 +190,18 @@ describe('lock, unlock and reveal-secret', () => {
   it('locks and unlocks without touching whether the door is open', () => {
     const locked = run(empty, DM, 'lock', { id: 'oak' }).next
     expect(scene(locked).oak).toEqual({ open: false, locked: true, revealed: true })
-    expect(run(locked, P1, 'toggle', { id: 'oak' }).error?.message).toContain(DOOR_LOCKED)
+    expect(run(locked, DM, 'toggle', { id: 'oak' }).error?.message).toContain(DOOR_LOCKED)
     const unlocked = run(locked, DM, 'unlock', { id: 'oak' }).next
     expect(scene(unlocked).oak.locked).toBe(false)
-    expect(run(unlocked, P1, 'toggle', { id: 'oak' }).error).toBeNull()
+    expect(run(unlocked, DM, 'toggle', { id: 'oak' }).error).toBeNull()
   })
 
   it('reveals a secret door, and only a door the map authored secret', () => {
     expect(run(empty, DM, 'reveal-secret', { id: 'oak' }).error?.code).toBe('invalid-command')
     const revealed = run(empty, DM, 'reveal-secret', { id: 'bookcase' }).next
     expect(scene(revealed).bookcase.revealed).toBe(true)
-    // and now the players can work it
-    expect(run(revealed, P1, 'toggle', { id: 'bookcase' }).error).toBeNull()
+    // and now it is a door like any other — the table can see it, the DM swings it
+    expect(run(revealed, DM, 'toggle', { id: 'bookcase' }).error).toBeNull()
   })
 
   it('refuses an unknown door on every command', () => {
@@ -199,8 +215,10 @@ describe('lock, unlock and reveal-secret', () => {
 
 describe('archways', () => {
   it('refuses to open or close one, for the DM as well as the table', () => {
+    // Handler-level, both seats: dispatch already stops a player, and the archway rule is
+    // the DM's refusal too.
     for (const sender of [P1, DM]) {
-      const { error, next } = run(empty, sender, 'toggle', { id: 'arch' })
+      const { error, next } = handled(empty, sender, 'toggle', { id: 'arch' })
       expect(error?.code).toBe('invalid-command')
       // deliberately none of the prefixes the client toasts — the refusal is silent
       expect(error?.message).not.toContain(DOOR_LOCKED)

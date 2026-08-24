@@ -35,7 +35,10 @@ import { tokensOf } from '../tokens/TokenRenderer';
 
 /** The fields a DM edit can touch and `effectiveLight` overlays — a light child is one, an
  *  authored snapshot is exactly this much of one. */
-export type EditableLight = Pick<LightChild, 'visible' | 'radius' | 'featherRadius' | 'intensity' | 'color' | 'position'>;
+export type EditableLight = Pick<
+  LightChild,
+  'visible' | 'radius' | 'featherRadius' | 'intensity' | 'color' | 'falloff' | 'position'
+>;
 
 const snapshotOf = (child: LightChild): EditableLight => ({
   visible: child.visible,
@@ -43,6 +46,7 @@ const snapshotOf = (child: LightChild): EditableLight => ({
   featherRadius: child.featherRadius,
   intensity: child.intensity,
   color: child.color,
+  falloff: child.falloff,
   position: { ...child.position },
 });
 
@@ -80,6 +84,7 @@ const sameFields = (child: LightChild, want: EditableLight): boolean =>
   child.featherRadius === want.featherRadius &&
   child.intensity === want.intensity &&
   child.color === want.color &&
+  child.falloff === want.falloff &&
   child.position.x === want.position.x &&
   child.position.y === want.position.y;
 
@@ -285,6 +290,7 @@ export function syncLightsToScene(): () => void {
           c.featherRadius = next.featherRadius;
           c.intensity = next.intensity;
           c.color = next.color;
+          c.falloff = next.falloff;
           c.position = { ...next.position };
         }
         // A token that stopped carrying light, was hidden, or left the scene.

@@ -61,23 +61,25 @@ export function DoorActions({ entry }: { entry: LiveDoor }) {
   return (
     <div data-testid="door-actions" className="flex flex-wrap items-center gap-1.5">
       {/*
-        The DM only. A locked door refuses every toggle, and the DM is the one holding the
-        key — `door-lock` is the next control along — so Open spending a round trip to be
-        told "locked" is a no-op they can see coming. It says the state instead.
+        The DM only, as the server now has it (D2): a player's toggle comes back
+        `unauthorized`, so a button that can only be refused is worse than no button. What a
+        player does with a door is ask, and the table's answer arrives as the door swinging.
 
-        A player keeps a live button on purpose: rattling a locked door and being told it is
-        locked is the discovery, not a mis-click. That refusal is the server's and arrives as
-        a toast (`useDoorFeedback`).
+        A locked door refuses every toggle, and the DM is the one holding the key —
+        `door-lock` is the next control along — so Open spending a round trip to be told
+        "locked" is a no-op they can see coming. It says the state instead.
       */}
-      <button
-        type="button"
-        data-testid="door-toggle"
-        disabled={isDm && live.locked}
-        onClick={() => send('toggle', { id: door.id })}
-        className={BTN}
-      >
-        {isDm && live.locked ? 'Locked' : live.open ? 'Close' : 'Open'}
-      </button>
+      {isDm && (
+        <button
+          type="button"
+          data-testid="door-toggle"
+          disabled={live.locked}
+          onClick={() => send('toggle', { id: door.id })}
+          className={BTN}
+        >
+          {live.locked ? 'Locked' : live.open ? 'Close' : 'Open'}
+        </button>
+      )}
       {isDm && (
         <button
           type="button"
@@ -184,6 +186,7 @@ function DoorGroup({
 
 export function DoorPanel() {
   const doors = useLiveDoors();
+  const isDm = useSessionStore((s) => s.you?.role === 'dm');
   const selectedId = useDoorSelection((s) => s.selectedId);
   const select = useDoorSelection((s) => s.select);
   const filter = useDoorSelection((s) => s.filter);
@@ -216,7 +219,11 @@ export function DoorPanel() {
     <div className="flex flex-col gap-2 text-sm">
       <div className="flex items-center gap-1.5 text-xs text-text-muted">
         <Icon name="frame" size={15} className="shrink-0" />
-        <span>Click a door on the map to act on it.</span>
+        <span>
+          {isDm
+            ? 'Click a door on the map to select it, double-click to open or close it.'
+            : 'What the table is playing each door at. The DM works them.'}
+        </span>
       </div>
 
       {showFilter && (
@@ -246,12 +253,17 @@ export function DoorPanel() {
 
 export function DoorFooter() {
   const doors = useLiveDoors();
+  const isDm = useSessionStore((s) => s.you?.role === 'dm');
   const selectedId = useDoorSelection((s) => s.selectedId);
   const index = doors.findIndex((d) => d.door.id === selectedId);
   const selected = index >= 0 ? doors[index] : undefined;
 
   if (!selected) {
-    return <p className="text-xs text-text-muted">Select a door, or click one on the map.</p>;
+    return (
+      <p className="text-xs text-text-muted">
+        {isDm ? 'Select a door, or click one on the map.' : 'Select a door to frame it.'}
+      </p>
+    );
   }
 
   return (

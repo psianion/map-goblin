@@ -4,6 +4,7 @@ import type { LightChild } from '../../store/types'
 import type { LightManager } from './LightManager'
 import { resolveTexture } from '../../assets/textureLoader'
 import { LIGHT_ICON_RADIUS_PX } from '../hitTest'
+import { lucideTexture } from '../lucideIcons'
 
 /**
  * Everything the composite below is a function of, as one comparable string.
@@ -212,6 +213,9 @@ const PENUMBRA_MAX_PX = 12
  */
 const LIGHT_FBO_SCALE = 0.5
 
+/** The bulb glyph's on-screen box — the hit radius (`LIGHT_ICON_RADIUS_PX`) is its half-width. */
+const ICON_SIZE_PX = LIGHT_ICON_RADIUS_PX * 2
+
 export class LightingRenderer {
   private engine: RenderEngine
   private lightFBO: RenderTexture
@@ -221,7 +225,7 @@ export class LightingRenderer {
   private compositingSprite: Sprite
   private width: number
   private height: number
-  private iconMap = new Map<string, Graphics>()
+  private iconMap = new Map<string, Sprite>()
   private iconsVisible = true
   private lastSignature = ''
   private lastIconSignature = ''
@@ -287,13 +291,13 @@ export class LightingRenderer {
   }
 
   /**
-   * Updates per-light icon circles in the overlay. Runs every frame.
+   * Updates the per-light bulb glyphs in the overlay. Runs every frame.
    *
    * Guarded the same way the composite below is, and for the same reason: the
    * icons are drawn in *screen* space, so the camera decides where they land as
    * much as the lights do — and on an idle editor neither moves. Unguarded this
-   * cleared and re-traced every light's Graphics 60 times a second to draw the
-   * identical circle.
+   * re-positioned and re-tinted every light's Sprite 60 times a second to land
+   * it on the identical pixel.
    */
   private updateIcons(lightManager: LightManager, camX: number, camY: number, zoom: number): void {
     if (!this.iconsVisible) return
@@ -320,20 +324,25 @@ export class LightingRenderer {
     for (const light of allLights) {
       let icon = this.iconMap.get(light.id)
       if (!icon) {
-        icon = new Graphics()
+        icon = new Sprite()
         icon.label = `light-icon-${light.id}`
+        icon.anchor.set(0.5)
         this.engine.overlay().addChild(icon)
         this.iconMap.set(light.id, icon)
       }
 
-      icon.clear()
+      const on = light.visible !== false
+      // The glyph is white with its halo baked in, so the on/off swap is a texture swap and
+      // the light's own colour is a tint — no re-rasterizing per light or per colour.
+      const texture = lucideTexture(on ? 'lightbulb' : 'lightbulb-off', ICON_SIZE_PX)
+      if (icon.texture !== texture) icon.texture = texture
       const sp = this.engine.worldToScreen(light.position.x, light.position.y)
-      const color = parseInt(light.color.replace('#', ''), 16)
-      const alpha = light.visible !== false ? 0.9 : 0.4
-      icon.setStrokeStyle({ color: 0xffffff, alpha: alpha * 0.7, width: 1.5 })
-      icon.circle(sp.x, sp.y, LIGHT_ICON_RADIUS_PX)
-      icon.fill({ color, alpha })
-      icon.stroke()
+      icon.position.set(sp.x, sp.y)
+      // Screen-space, fixed size whatever the texture's device-pixel resolution came out as.
+      icon.width = ICON_SIZE_PX
+      icon.height = ICON_SIZE_PX
+      icon.tint = parseInt(light.color.replace('#', ''), 16)
+      icon.alpha = on ? 0.9 : 0.4
     }
   }
 

@@ -68,6 +68,9 @@ vi.mock('pixi.js', () => {
     Sprite: MockSprite,
     FillGradient: MockFillGradient,
     RenderTexture: MockRenderTexture,
+    // The icon glyphs rasterize through `lucideIcons`, which falls back to `Texture.WHITE`
+    // wherever there is no 2D context — jsdom, i.e. here.
+    Texture: { WHITE: { width: 1, height: 1 }, from: () => ({ width: 1, height: 1 }) },
   };
 });
 // Mutable so a single test can simulate a mask texture's width changing mid-session —

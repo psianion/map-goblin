@@ -127,7 +127,10 @@ export function hitTestChildren(
   // without a layer the authored position is the best available approximation.
   let doorPositions: Map<string, [number, number]> | null = null;
   for (const child of bucketChildrenForHitTest(children)) {
-    if (!child.visible) continue;
+    // A light switched off still draws its icon — the struck-out bulb `LightingRenderer`
+    // swaps in — so it stays pickable. Skipping it made switching one off a one-way trip:
+    // the bulb sat there on screen with nothing behind it to click.
+    if (!child.visible && child.childType !== 'light') continue;
     switch (child.childType) {
       case 'shape':
         if (pointInShape(child, point)) return child;
