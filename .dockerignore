@@ -5,3 +5,12 @@
 **/test-results
 **/playwright-report
 coverage
+# Secrets and runtime state stay out of every image layer. The Dockerfiles copy whole
+# package dirs, so without these the host's bot token, the dev server's signing secret,
+# and both sqlite files shipped inside the images.
+**/.env
+**/.env.*
+!**/.env.example
+bot/data
+bot/test-output
+session/server/data

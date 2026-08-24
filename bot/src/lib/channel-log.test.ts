@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createChannelLog, packLines } from './channel-log'
-import type { LogEvent } from './log'
+import { createChannelLog, installExitFlush, packLines } from './channel-log'
+import { subscribe, type LogEvent } from './log'
 
 const event = (level: LogEvent['level'], msg: string, data?: Record<string, unknown>): LogEvent => ({
   ts: 0,
@@ -77,5 +77,19 @@ describe('createChannelLog', () => {
     log.audit('pending')
     await log.flush()
     expect(send).toHaveBeenCalledWith('pending')
+  })
+})
+
+describe('installExitFlush', () => {
+  it('logs a crash, flushes it, and exits 1', async () => {
+    const send = vi.fn<(text: string) => Promise<void>>(async () => {})
+    const channelLog = createChannelLog({ send, debounceMs: 60_000 })
+    const unsubscribe = subscribe(channelLog.mirror)
+    const exit = vi.fn()
+    installExitFlush(channelLog, exit as never)
+    process.emit('uncaughtException', new Error('bad token'))
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1))
+    expect(send.mock.calls[0]?.[0]).toContain('bad token')
+    unsubscribe()
   })
 })

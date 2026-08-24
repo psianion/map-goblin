@@ -4,7 +4,7 @@
 // Two rules it must not break: it never logs its own send failures (that is the loop that
 // takes a bot down), and it flushes before the process dies.
 
-import type { LogEvent } from './log'
+import { log, type LogEvent } from './log'
 
 export interface ChannelLogOptions {
   /** Posts one message to the log channel. Rejections are swallowed on purpose. */
@@ -94,11 +94,16 @@ export function createChannelLog(options: ChannelLogOptions): ChannelLog {
 }
 
 /** Last-gasp flush. Called from index.ts — this module stays side-effect free on import. */
-export function installExitFlush(channelLog: ChannelLog): void {
-  const drain = () => {
-    void channelLog.flush().finally(() => process.exit(0))
+export function installExitFlush(channelLog: ChannelLog, exit = process.exit): void {
+  const drain = (code: number) => {
+    void channelLog.flush().finally(() => exit(code))
   }
-  process.once('SIGTERM', drain)
-  process.once('SIGINT', drain)
-  process.once('uncaughtException', drain)
+  process.once('SIGTERM', () => drain(0))
+  process.once('SIGINT', () => drain(0))
+  // A crash must say so and exit non-zero: exiting 0 silently turned a bad token into a
+  // quiet `restart: unless-stopped` loop with nothing in `docker logs`.
+  process.once('uncaughtException', (err) => {
+    log.error('crashed', { error: String(err) })
+    drain(1)
+  })
 }
