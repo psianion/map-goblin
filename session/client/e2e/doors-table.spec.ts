@@ -146,12 +146,37 @@ async function revealRoom(dm: Page, roomId: string): Promise<void> {
 /**
  * Selects a door row, then swings it with the explicit open/close control beside it —
  * the row itself only selects (D10: select and toggle are separate gestures).
+ *
+ * The DM's seat only, and named for it: the swing is theirs (D2), the server refuses
+ * everyone else, and a player's row has no toggle beside it to click.
  */
-async function toggleDoor(page: Page, id: string): Promise<void> {
-  await openPanel(page, 'doors')
-  await doorRow(page, id).getByRole('button').click()
-  await page.getByTestId('door-toggle').click()
+async function toggleDoorAsDm(dm: Page, id: string): Promise<void> {
+  await openPanel(dm, 'doors')
+  await doorRow(dm, id).getByRole('button').click()
+  await dm.getByTestId('door-toggle').click()
 }
+
+/**
+ * A door command put on the socket without a button behind it.
+ *
+ * The one way left to ask for a swing the table will not offer: a locked door's toggle is
+ * drawn disabled and says the state instead of spending a round trip to be told it. The
+ * refusal underneath is the referee's and is worth a row of its own either way.
+ */
+const sendDoorCommand = (page: Page, action: string, id: string): Promise<void> =>
+  page.evaluate(
+    ([verb, doorId]) => {
+      interface Tab {
+        __sessionStore?: {
+          getState(): { sendCommand(module: string, action: string, payload: unknown): void }
+        }
+      }
+      ;(window as unknown as Tab).__sessionStore!.getState().sendCommand('doors', verb, {
+        id: doorId,
+      })
+    },
+    [action, id] as [string, string],
+  )
 
 /** Selecting a door is what puts the DM's lock / reveal affordances beside it. */
 async function selectDoorAsDm(dm: Page, id: string): Promise<void> {
@@ -244,56 +269,84 @@ test.describe.serial('@doors', () => {
     await openPanel(player, 'doors')
     await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-open', 'false')
 
-    await toggleDoor(dm, FLOOR.id)
+    await toggleDoorAsDm(dm, FLOOR.id)
     await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-open', 'true')
     await openPanel(player, 'doors')
     await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-open', 'true')
 
-    await toggleDoor(dm, FLOOR.id)
+    await toggleDoorAsDm(dm, FLOOR.id)
     await openPanel(player, 'doors')
     await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-open', 'false')
   })
 
-  test('a player opens the hallway door from their own seat', async () => {
+  test('a player gets no toggle of their own, and watches the DM swing the door', async () => {
     await openPanel(player, 'doors')
     await expect(doorRow(player, HALLWAY.id)).toHaveAttribute('data-open', 'false')
 
-    await toggleDoor(player, HALLWAY.id)
-    await expect(doorRow(player, HALLWAY.id)).toHaveAttribute('data-open', 'true')
-    await openPanel(dm, 'doors')
-    await expect(doorRow(dm, HALLWAY.id)).toHaveAttribute('data-open', 'true')
+    // Selecting the row is the whole of what a player's seat does with a door (D2): the
+    // actions beside it are the frame control alone. A toggle that could only ever come back
+    // `unauthorized` is worse than no toggle, so there is none — asserted as absence, since
+    // a disabled button and a missing one are two different products.
+    await doorRow(player, HALLWAY.id).getByRole('button').click()
+    await expect(player.getByTestId('door-actions')).toBeVisible()
+    await expect(player.getByTestId('door-frame')).toBeVisible()
+    await expect(player.getByTestId('door-toggle')).toHaveCount(0)
+    await expect(player.getByTestId('door-lock')).toHaveCount(0)
+    // …and the door did not move for the looking.
+    await expect(doorRow(player, HALLWAY.id)).toHaveAttribute('data-open', 'false')
 
-    await toggleDoor(player, HALLWAY.id)
-    await openPanel(dm, 'doors')
+    // The swing is the DM's, and it reaches the player as the door swinging — which is the
+    // whole of what a player does with a door: ask out loud, and watch the table answer.
+    await toggleDoorAsDm(dm, HALLWAY.id)
+    await expect(doorRow(dm, HALLWAY.id)).toHaveAttribute('data-open', 'true')
+    await openPanel(player, 'doors')
+    await expect(doorRow(player, HALLWAY.id)).toHaveAttribute('data-open', 'true')
+
+    await toggleDoorAsDm(dm, HALLWAY.id)
     await expect(doorRow(dm, HALLWAY.id)).toHaveAttribute('data-open', 'false')
+    await openPanel(player, 'doors')
+    await expect(doorRow(player, HALLWAY.id)).toHaveAttribute('data-open', 'false')
   })
 
-  test('a locked floor door refuses the player and says why', async () => {
+  test('a locked floor door says so on both seats, and refuses the swing anyway', async () => {
     await selectDoorAsDm(dm, FLOOR.id)
     await dm.getByTestId('door-lock').click()
     await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-locked', 'true')
     await openPanel(player, 'doors')
     await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-locked', 'true')
 
-    await toggleDoor(player, FLOOR.id)
-    // By name: the player is standing in the room this door is in, holds its name in the
-    // list beside the toast, and "The door is locked." leaves them matching one to the other.
-    await expect(player.getByTestId('toast')).toContainText(`${FLOOR.name} is locked.`)
-    // The refusal is the server's: the door did not move on either seat.
-    await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-open', 'false')
-    await openPanel(dm, 'doors')
-    await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-open', 'false')
+    // The player reads the lock off their own row and that is all there is for them to do
+    // with it — there is no toggle beside a player's door, locked or otherwise.
+    await doorRow(player, FLOOR.id).getByRole('button').click()
+    await expect(player.getByTestId('door-toggle')).toHaveCount(0)
 
-    // The DM's key still works, and unlocking hands the door back.
+    // The DM has the toggle, and on a locked door it says the state instead of offering a
+    // round trip that can only come back refused.
+    await openPanel(dm, 'doors')
+    await expect(dm.getByTestId('door-toggle')).toBeDisabled()
+    await expect(dm.getByTestId('door-toggle')).toHaveText('Locked')
+
+    // The lock is the referee's, not the button's: asked for outright, the swing is refused
+    // and the toast names the door it is about — the door is in the list beside it, so the
+    // seat reading the toast can match one to the other.
+    await sendDoorCommand(dm, 'toggle', FLOOR.id)
+    await expect(dm.getByTestId('toast')).toContainText(`${FLOOR.name} is locked.`)
+    // The door did not move on either seat.
+    await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-open', 'false')
+    await openPanel(player, 'doors')
+    await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-open', 'false')
+
+    // The DM's key still works, and unlocking hands the door back to the DM's own toggle.
+    await openPanel(dm, 'doors')
     await dm.getByTestId('door-lock').click()
     await openPanel(player, 'doors')
     await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-locked', 'false')
-    await toggleDoor(player, FLOOR.id)
-    await openPanel(dm, 'doors')
-    await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-open', 'true')
-    await toggleDoor(player, FLOOR.id)
-    await openPanel(dm, 'doors')
-    await expect(doorRow(dm, FLOOR.id)).toHaveAttribute('data-open', 'false')
+    await toggleDoorAsDm(dm, FLOOR.id)
+    await openPanel(player, 'doors')
+    await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-open', 'true')
+    await toggleDoorAsDm(dm, FLOOR.id)
+    await openPanel(player, 'doors')
+    await expect(doorRow(player, FLOOR.id)).toHaveAttribute('data-open', 'false')
   })
 
   test('a secret floor door does not exist for the player while it is still secret', async () => {
@@ -373,21 +426,24 @@ test.describe.serial('@doors', () => {
     expect(litAfter, 'the map did not come off the canvas').toBeGreaterThan(litBefore * 0.5)
   })
 
-  test('a revealed secret door works for the player it was revealed to', async () => {
+  test('a revealed secret door swings for the DM, on the player canvas too', async () => {
     // Framed first, on this seat's own "take me to it" (D8, `DoorPanel.pick`) — the row above
     // could not do this, because the door it is about is one the player did not hold yet. Now
-    // that they do, the mark is on screen and the swing below is measurable, which is what
+    // that they do, the door is on screen and the swing below is measurable, which is what
     // turns "the child reached the map" into "the art reached the canvas".
     await openPanel(player, 'doors')
     await doorRow(player, SECRET.id).getByRole('button').click()
+    // A door they now hold, and still nothing to press: framing it is the whole gesture.
+    await expect(player.getByTestId('door-toggle')).toHaveCount(0)
     await player.waitForTimeout(1500)
     const shut = await shoot(player)
     const shutAgain = await shoot(player)
     const noise = await changed(player, shut, shutAgain)
 
-    await toggleDoor(player, SECRET.id)
-    await openPanel(dm, 'doors')
+    await toggleDoorAsDm(dm, SECRET.id)
     await expect(doorRow(dm, SECRET.id)).toHaveAttribute('data-open', 'true')
+    await openPanel(player, 'doors')
+    await expect(doorRow(player, SECRET.id)).toHaveAttribute('data-open', 'true')
     await player.waitForTimeout(1500)
 
     const moved = await changed(player, shutAgain, await shoot(player))
@@ -395,16 +451,19 @@ test.describe.serial('@doors', () => {
       `[metric] revealed secret swung: player canvas moved ${(moved * 100).toFixed(3)}% ` +
         `(noise ${(noise * 100).toFixed(3)}%)`,
     )
-    // Same reading and the same floor as the two floor-ring doors below: a mark drawn above
-    // the player's mask is the whole of what moves. Zero here is the door's art missing from
-    // the canvas, which is what a reveal that handed over a row and no child would look like.
+    // Same reading and the same floor as the two floor-ring doors below. A player's canvas
+    // carries no door mark — the marks are the DM's overlay — so what moves here is the door
+    // art itself, redrawn above the player's mask (`DoorRenderer.drawArt`). Zero is the art
+    // missing from the canvas, which is what a reveal that handed over a row and no child
+    // would look like.
     expect(moved, 'the revealed door is drawn on the player canvas').toBeGreaterThan(
       Math.max(noise * 4, 0.00002),
     )
 
-    await toggleDoor(player, SECRET.id)
-    await openPanel(dm, 'doors')
+    await toggleDoorAsDm(dm, SECRET.id)
     await expect(doorRow(dm, SECRET.id)).toHaveAttribute('data-open', 'false')
+    await openPanel(player, 'doors')
+    await expect(doorRow(player, SECRET.id)).toHaveAttribute('data-open', 'false')
   })
 
   test('both canvases redraw when a floor-ring door opens', async () => {
@@ -437,7 +496,7 @@ test.describe.serial('@doors', () => {
       const playerShutAgain = await shoot(player)
       const playerNoise = await changed(player, playerShut, playerShutAgain)
 
-      await toggleDoor(dm, door.id)
+      await toggleDoorAsDm(dm, door.id)
       await openPanel(player, 'doors')
       await expect(doorRow(player, door.id)).toHaveAttribute('data-open', 'true')
       await dm.waitForTimeout(1500)
@@ -451,14 +510,16 @@ test.describe.serial('@doors', () => {
       )
       // The DM's canvas draws the light through the doorway either way.
       expect(dmMoved).toBeGreaterThan(Math.max(dmNoise * 4, 0.0002))
-      // The player's redraws too, for the door's own mark. Both of these doors open onto
+      // The player's redraws too, for the door's own art. Both of these doors open onto
       // the map's exterior — a floor-ring door always does, since the union gives it a room
-      // on one side only — so the light itself lands where their fog covers it and the mark
+      // on one side only — so the light itself lands where their fog covers it and the door
       // is the whole of what moves: an order of magnitude smaller, against a renderer whose
-      // noise floor is zero. It is only readable at all because the mark draws *above* the
-      // player's mask (`OVERLAY_STACK`); under it, a door on a room boundary is ~95% scrim.
+      // noise floor is zero. A player's canvas carries no mark — the marks are the DM's
+      // overlay — so what is readable here is the art redrawn *above* their mask
+      // (`DoorRenderer.drawArt`, `OVERLAY_STACK`); under it, a door on a room boundary is
+      // ~95% scrim.
       expect(playerMoved).toBeGreaterThan(Math.max(playerNoise * 4, 0.00002))
-      await toggleDoor(dm, door.id)
+      await toggleDoorAsDm(dm, door.id)
       await openPanel(player, 'doors')
       await expect(doorRow(player, door.id)).toHaveAttribute('data-open', 'false')
       await dm.waitForTimeout(1000)
@@ -498,22 +559,22 @@ test.describe.serial('@doors', () => {
     const playerLog = () => player.getByTestId('game-log').innerText()
     const before = await playerLog()
 
-    await toggleDoor(dm, unseen!.id)
+    await toggleDoorAsDm(dm, unseen!.id)
     await openDrawer(dm)
     await expect(dm.getByTestId('game-log')).toContainText(`opened ${unseen!.name}`)
     // Long enough for the frame that would have carried it, had one been sent.
     await player.waitForTimeout(1000)
     expect(await playerLog()).toBe(before)
     expect(await playerLog()).not.toContain(unseen!.name!)
-    await toggleDoor(dm, unseen!.id)
+    await toggleDoorAsDm(dm, unseen!.id)
 
     // A door they do hold reaches both logs, named, with the seat that moved it in front.
-    await toggleDoor(dm, HALLWAY.id)
+    await toggleDoorAsDm(dm, HALLWAY.id)
     await openDrawer(dm)
     await expect(dm.getByTestId('game-log')).toContainText(`opened ${HALLWAY.name}`)
     await openDrawer(player)
     await expect(player.getByTestId('game-log')).toContainText(`opened ${HALLWAY.name}`)
-    await toggleDoor(dm, HALLWAY.id)
+    await toggleDoorAsDm(dm, HALLWAY.id)
     await openDrawer(player)
     await expect(player.getByTestId('game-log')).toContainText(`closed ${HALLWAY.name}`)
 

@@ -89,7 +89,7 @@ describe('mountLightsEditor', () => {
       patch: { visible: false },
     });
     // The preview lands locally too, so the icon flips before the round trip.
-    expect((useStore.getState().layers[0]!.children[0] as LightChild).visible).toBe(false);
+    expect((useStore.getState().layers[0] as unknown as { children: LightChild[] }).children[0]!.visible).toBe(false);
     h.stop();
   });
 
