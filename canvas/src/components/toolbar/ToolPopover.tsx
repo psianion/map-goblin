@@ -79,6 +79,7 @@ export function ToolPopover({ tool, anchorY, onClose }: ToolPopoverProps) {
       if (panelRef.current.contains(e.target as Node)) return;
       const target = e.target as HTMLElement;
       if (target.closest('[data-toolbar-button]')) return;
+      if (target.closest('[data-color-picker]')) return;
       onClose();
     };
     document.addEventListener('pointerdown', handler, true);

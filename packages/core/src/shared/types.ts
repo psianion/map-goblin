@@ -11,6 +11,13 @@ export type Polygon = [number, number][];
 
 // ---- Wall Types ----
 export type WallType = 'normal' | 'terrain' | 'invisible' | 'ethereal' | 'window';
+
+/**
+ * Texture scale a freshly drawn shape starts at. The floor sources are large
+ * (600px = 3 cells at scale 1) and read as noise until zoomed — 4 is the
+ * smallest value where they render as recognisable floor at the default view.
+ */
+export const DEFAULT_TEXTURE_SCALE = 4;
 export type WallDirection = 'both' | 'left' | 'right';
 
 /**
@@ -140,6 +147,7 @@ export interface ShapeChild extends LayerChild {
     scale: [number, number];
   };
   textureId?: string;
+  /** Tile-size multiplier over the 200px-per-cell base (`PX_PER_GRID_CELL`). */
   textureScale: number;
   textureOffsetX: number;
   textureOffsetY: number;
@@ -174,6 +182,8 @@ export interface LightChild extends LayerChild {
   position: { x: number; y: number };
   /** Pack light-mask texture ID — replaces default circular shape with custom mask */
   maskTextureId?: string;
+  /** Asset child id this light is glued to — moves with it, deleted with it. Authoring convenience only; absent on lights placed free-standing or on old saves. */
+  attachedTo?: string;
 }
 
 export interface DoorChild extends LayerChild {

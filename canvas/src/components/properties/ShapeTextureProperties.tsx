@@ -1,5 +1,7 @@
 import { useRef, useCallback } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '@/store/store'
+import { selectSelectedIds } from '@/store/selectors'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { PropertyField } from './PropertyField'
 import { TexturePicker } from './TexturePicker'
@@ -22,11 +24,28 @@ type TexturePatch = Partial<Pick<ShapeChild,
 >>
 
 const DEFAULTS = {
-  textureScale: 0.25,
+  // Matches the renderer's own fallback (`shape.textureScale || 1`) — a shape
+  // missing the field renders at 1, so 1 is what the slider must show for it.
+  textureScale: 1,
   textureOffsetX: 0,
   textureOffsetY: 0,
   textureFillRotation: 0,
   textureTint: '#ffffff',
+}
+
+/**
+ * The shape ids an edit applies to, read at call time: the selected shapes on
+ * the layer, or every shape when none are selected. Call-time (not render-time)
+ * so a live drag and its commit agree even if the selection changed between.
+ */
+function targetShapeIds(layerId: string): Set<string> {
+  const state = useStore.getState()
+  const layer = state.layers.find((l) => l.id === layerId) as DungeonLayer | undefined
+  const shapeIds = (layer?.children ?? [])
+    .filter((c) => c.childType === 'shape')
+    .map((c) => c.id)
+  const selected = shapeIds.filter((id) => state.selection.selectedIds.includes(id))
+  return new Set(selected.length > 0 ? selected : shapeIds)
 }
 
 /** Wrapper that fires commit on blur with start value captured on focus */
@@ -73,9 +92,17 @@ export function ShapeTextureProperties({
 }: ShapeTexturePropertiesProps) {
   const shapes = layer.children.filter((c): c is ShapeChild => c.childType === 'shape')
 
-  // Read display values from the first shape, falling back to defaults
-  const ref = shapes[0]
-  const displayTextureId = layer.style.defaultTextureId ?? ref?.textureId
+  // Per-room scope: with shapes selected, the panel edits ONLY those shapes.
+  // With nothing selected it keeps the old behaviour — every shape on the
+  // layer plus the layer default (what the next drawn shape inherits).
+  const selectedIds = useStore(useShallow(selectSelectedIds))
+  const selectedShapes = shapes.filter((s) => selectedIds.includes(s.id))
+  const scoped = selectedShapes.length > 0
+  const targets = scoped ? selectedShapes : shapes
+
+  // Read display values from the first target shape, falling back to defaults
+  const ref = targets[0]
+  const displayTextureId = scoped ? ref?.textureId : (layer.style.defaultTextureId ?? ref?.textureId)
   const displayScale = ref?.textureScale ?? DEFAULTS.textureScale
   const displayOffsetX = ref?.textureOffsetX ?? DEFAULTS.textureOffsetX
   const displayOffsetY = ref?.textureOffsetY ?? DEFAULTS.textureOffsetY
@@ -101,13 +128,14 @@ export function ShapeTextureProperties({
   // an entry per tick would bury the stack. `commitAll` records the one entry.
   const applyLive = useCallback((patch: TexturePatch) => {
     const keys = Object.keys(patch) as (keyof TexturePatch)[]
+    const ids = targetShapeIds(layer.id)
     if (!priorRef.current) {
       const current = useStore.getState().layers.find((l) => l.id === layer.id) as
         | DungeonLayer
         | undefined
       const prior = new Map<string, TexturePatch>()
       for (const c of current?.children ?? []) {
-        if (c.childType !== 'shape') continue
+        if (c.childType !== 'shape' || !ids.has(c.id)) continue
         const snap: TexturePatch = {}
         for (const k of keys) snap[k] = (c as ShapeChild)[k] as never
         prior.set(c.id, snap)
@@ -118,7 +146,7 @@ export function ShapeTextureProperties({
       const l = state.layers.find((l) => l.id === layer.id) as DungeonLayer | undefined
       if (!l) return
       l.children.forEach((c) => {
-        if (c.childType === 'shape') Object.assign(c, patch)
+        if (c.childType === 'shape' && ids.has(c.id)) Object.assign(c, patch)
       })
     })
   }, [layer.id])
@@ -130,8 +158,11 @@ export function ShapeTextureProperties({
     const current = useStore.getState().layers.find((l) => l.id === layer.id) as
       | DungeonLayer
       | undefined
+    // Commit exactly what the drag touched (the snapshot's keys); a dragless
+    // commit resolves its own scope the same way applyLive would have.
+    const ids = prior ? new Set(prior.keys()) : targetShapeIds(layer.id)
     const shapes = (current?.children ?? []).filter(
-      (c): c is ShapeChild => c.childType === 'shape',
+      (c): c is ShapeChild => c.childType === 'shape' && ids.has(c.id),
     )
     if (shapes.length === 0) return
     const cmds = shapes.map(
@@ -143,28 +174,36 @@ export function ShapeTextureProperties({
   }, [layer.id])
 
   function handleTextureChange(textureId: string | undefined) {
-    // The layer default and every shape move together in ONE undo entry. The layer
-    // write used to go straight through `updateLayer`, outside the undo system, so
-    // undoing a texture change restored the shapes and left the layer still
-    // pointing at the new texture — and the next shape drawn inherited it.
-    const cmds = [
-      new LayerStyleChangeCommand(
+    const ids = targetShapeIds(layer.id)
+    const targetShapes = shapes.filter((s) => ids.has(s.id))
+    const shapeCmds = targetShapes.map(
+      (s) => new UpdateChildCommand(
         'Set Texture',
         layer.id,
-        'defaultTextureId',
-        layer.style.defaultTextureId,
-        textureId,
+        s.id,
+        { textureId: s.textureId },
+        { textureId },
       ),
-      ...shapes.map(
-        (s) => new UpdateChildCommand(
-          'Set Texture',
-          layer.id,
-          s.id,
-          { textureId: s.textureId },
-          { textureId },
-        ),
-      ),
-    ]
+    )
+    // Selected shapes are a per-room override — the layer default (what the next
+    // drawn shape inherits) only moves on a whole-layer change. In that case the
+    // default and every shape move together in ONE undo entry. The layer write
+    // used to go straight through `updateLayer`, outside the undo system, so
+    // undoing a texture change restored the shapes and left the layer still
+    // pointing at the new texture — and the next shape drawn inherited it.
+    const cmds = scoped
+      ? shapeCmds
+      : [
+          new LayerStyleChangeCommand(
+            'Set Texture',
+            layer.id,
+            'defaultTextureId',
+            layer.style.defaultTextureId,
+            textureId,
+          ),
+          ...shapeCmds,
+        ]
+    if (cmds.length === 0) return
     undoManager.execute(cmds.length === 1 ? cmds[0] : new CompositeCommand('Set Texture', cmds))
   }
 
@@ -181,6 +220,14 @@ export function ShapeTextureProperties({
         <PropertyField label="Texture">
           <TexturePicker value={displayTextureId} onChange={handleTextureChange} />
         </PropertyField>
+
+        {shapes.length > 0 && (
+          <p className="text-[10px] font-mono text-text-muted" data-testid="texture-scope">
+            {scoped
+              ? `Applies to ${selectedShapes.length} selected shape${selectedShapes.length === 1 ? '' : 's'}`
+              : 'Applies to all shapes — select shapes to edit just those'}
+          </p>
+        )}
 
         {hasTexture && (
           <>

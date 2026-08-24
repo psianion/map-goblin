@@ -6,6 +6,7 @@ import type { GameModule, Viewer } from '../contract'
 import type { RollResult } from '../dice/roll'
 import {
   ambientOf,
+  effectiveLight,
   needsLight,
   sceneTriggersOf,
   triggersModule,
@@ -101,6 +102,8 @@ describe('authz matrix', () => {
     ['fire', { triggerId: 'x' }],
     ['set-enabled', { triggerId: 'x', enabled: false }],
     ['dismiss-prompt', { promptId: 'x' }],
+    ['set-light', { lightId: 'l1', patch: { visible: true } }],
+    ['reset-light', { lightId: 'l1' }],
   ] as const
 
   it.each(dmOnly)('%s is dm-only', (action, payload) => {
@@ -377,7 +380,9 @@ describe('light fire-action (M5)', () => {
     expect(error).toBeNull()
     const line = sceneOf(next).log.at(-1)!
     expect(line).toMatchObject({ text: 'Brazier lights', toPlayers: true })
-    expect(sceneOf(next).lightOverrides).toEqual({ l1: true })
+    // M2 — the fire-action writes lightEdits now; lightOverrides is read-compat only.
+    expect(sceneOf(next).lightEdits).toEqual({ l1: { visible: true } })
+    expect(sceneOf(next).lightOverrides).toEqual({})
   })
 
   it('narrates turning a named light off', () => {
@@ -480,6 +485,7 @@ describe('redact', () => {
         armed: { t1: true },
         disabled: { t2: true },
         lightOverrides: { l1: true },
+        lightEdits: { l1: { visible: true } },
         env: { weather: 'rain' },
         prompts: [
           { id: 'pr1', triggerId: 't1', kind: 'trap', targetIdentityId: 'p-1', text: 'a', at: 1 },
@@ -508,6 +514,7 @@ describe('redact', () => {
     expect(seen.armed).toEqual({})
     expect(seen.disabled).toEqual({})
     expect(seen.lightOverrides).toEqual({ l1: true })
+    expect(seen.lightEdits).toEqual({ l1: { visible: true } })
     expect(seen.env).toEqual({ weather: 'rain' })
   })
 
@@ -724,5 +731,147 @@ describe('manual fire', () => {
     expect(sceneOf(state).log).toHaveLength(1)
     state = run(mod, state, DM, 'fire', { triggerId: 'x' }).next
     expect(sceneOf(state).log).toHaveLength(2) // once + already-fired do not block a manual fire
+  })
+})
+
+describe('set-light / reset-light (M2)', () => {
+  it('shallow-merges a patch onto whatever the light already had', () => {
+    const mod = triggersModule(makeDeps())
+    let state = run(mod, empty, DM, 'set-light', { lightId: 'l1', patch: { radius: 6, color: '#ff0000' } }).next
+    expect(sceneOf(state).lightEdits).toEqual({ l1: { radius: 6, color: '#ff0000' } })
+
+    state = run(mod, state, DM, 'set-light', { lightId: 'l1', patch: { intensity: 0.5 } }).next
+    expect(sceneOf(state).lightEdits).toEqual({ l1: { radius: 6, color: '#ff0000', intensity: 0.5 } })
+  })
+
+  it('reset-light drops the whole edit, not one field', () => {
+    const mod = triggersModule(makeDeps())
+    let state = run(mod, empty, DM, 'set-light', { lightId: 'l1', patch: { radius: 6, color: '#ff0000' } }).next
+    state = run(mod, state, DM, 'reset-light', { lightId: 'l1' }).next
+    expect(sceneOf(state).lightEdits).toEqual({})
+  })
+
+  it('reset-light on an id with no edit is a quiet no-op', () => {
+    const mod = triggersModule(makeDeps())
+    const { next, error } = run(mod, empty, DM, 'reset-light', { lightId: 'nope' })
+    expect(error).toBeNull()
+    expect(next).toBe(empty)
+  })
+
+  it('rejects a patch with no fields', () => {
+    const mod = triggersModule(makeDeps())
+    expect(run(mod, empty, DM, 'set-light', { lightId: 'l1', patch: {} }).error?.code).toBe('invalid-command')
+  })
+
+  it.each([
+    ['radius <= 0', { radius: 0 }],
+    ['negative radius', { radius: -1 }],
+    ['non-finite radius', { radius: 'five' }],
+    ['negative featherRadius', { featherRadius: -1 }],
+    ['intensity below 0', { intensity: -0.1 }],
+    ['intensity above 1', { intensity: 1.1 }],
+    ['non-hex color word', { color: 'red' }],
+    ['short hex color', { color: '#fff' }],
+    ['non-numeric position', { position: { x: 'nope', y: 0 } }],
+  ] as const)('rejects %s', (_label, patch) => {
+    const mod = triggersModule(makeDeps())
+    expect(run(mod, empty, DM, 'set-light', { lightId: 'l1', patch }).error?.code).toBe('invalid-command')
+  })
+
+  it('accepts every field at once, all valid', () => {
+    const mod = triggersModule(makeDeps())
+    const patch = {
+      visible: false,
+      radius: 8,
+      featherRadius: 3,
+      intensity: 0.8,
+      color: '#A0C4FF',
+      position: { x: 1, y: 2 },
+    }
+    const { next, error } = run(mod, empty, DM, 'set-light', { lightId: 'l1', patch })
+    expect(error).toBeNull()
+    expect(sceneOf(next).lightEdits.l1).toEqual(patch)
+  })
+
+  it('checks featherRadius <= radius against the merged edit, not just the one payload', () => {
+    const mod = triggersModule(makeDeps())
+    const state = run(mod, empty, DM, 'set-light', { lightId: 'l1', patch: { radius: 5 } }).next
+    // featherRadius alone, compared against the radius a separate earlier patch set.
+    expect(
+      run(mod, state, DM, 'set-light', { lightId: 'l1', patch: { featherRadius: 6 } }).error?.code,
+    ).toBe('invalid-command')
+    expect(
+      run(mod, state, DM, 'set-light', { lightId: 'l1', patch: { featherRadius: 5 } }).error,
+    ).toBeNull()
+  })
+})
+
+describe('lightEdits / lightOverrides read-compat (M2)', () => {
+  const legacyScene = (over: Partial<TriggersState['byScene'][string]>) => ({
+    byScene: {
+      [SCENE]: {
+        fired: {},
+        armed: {},
+        disabled: {},
+        lightOverrides: {},
+        lightEdits: {},
+        env: {},
+        prompts: [],
+        log: [],
+        ...over,
+      },
+    },
+  })
+
+  it('folds a pre-M2 lightOverrides row into lightEdits.visible on read', () => {
+    const state = legacyScene({ lightOverrides: { l1: false, l2: true } })
+    expect(sceneTriggersOf(state, SCENE).lightEdits).toEqual({
+      l1: { visible: false },
+      l2: { visible: true },
+    })
+  })
+
+  it('a real lightEdits.visible wins over the stale override for the same id', () => {
+    const state = legacyScene({
+      lightOverrides: { l1: false },
+      lightEdits: { l1: { visible: true, radius: 4 } },
+    })
+    expect(sceneTriggersOf(state, SCENE).lightEdits).toEqual({ l1: { visible: true, radius: 4 } })
+  })
+
+  it('an untouched scene has both, empty', () => {
+    expect(sceneTriggersOf(empty, SCENE).lightEdits).toEqual({})
+    expect(sceneTriggersOf(empty, SCENE).lightOverrides).toEqual({})
+  })
+})
+
+describe('effectiveLight (M2)', () => {
+  const light = {
+    visible: true,
+    radius: 5,
+    featherRadius: 1,
+    intensity: 1,
+    color: '#fff',
+    position: { x: 0, y: 0 },
+  }
+
+  it('returns the light untouched with no edit', () => {
+    expect(effectiveLight(light, undefined)).toBe(light)
+  })
+
+  it('overlays only the fields the edit touches', () => {
+    expect(effectiveLight(light, { radius: 9 })).toEqual({ ...light, radius: 9 })
+  })
+
+  it('overlays every field at once', () => {
+    const edit = {
+      visible: false,
+      radius: 2,
+      featherRadius: 1,
+      intensity: 0.4,
+      color: '#000',
+      position: { x: 3, y: 3 },
+    }
+    expect(effectiveLight(light, edit)).toEqual(edit)
   })
 })

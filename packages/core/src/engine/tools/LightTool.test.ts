@@ -3,7 +3,30 @@ import { LightTool } from './LightTool';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
 import type { DungeonLayer } from '../../store/types';
-import type { LightChild } from '../../shared/types';
+import type { AssetChild, LightChild } from '../../shared/types';
+
+function addAsset(position: { x: number; y: number }): AssetChild {
+  const l = useStore.getState().layers.find((x): x is DungeonLayer => x.type === 'dungeon');
+  if (!l) throw new Error('default state has no dungeon layer');
+  const asset: AssetChild = {
+    id: crypto.randomUUID(),
+    name: 'Lamp',
+    childType: 'asset',
+    visible: true,
+    objectType: 'asset',
+    assetId: 'lamp',
+    position,
+    rotation: 0,
+    scale: 1,
+    width: 1,
+    height: 1,
+    tint: '#ffffff',
+    flipX: false,
+    flipY: false,
+  };
+  useStore.getState().addChild(l.id, asset);
+  return asset;
+}
 
 function layer(): DungeonLayer {
   const l = useStore.getState().layers.find((x): x is DungeonLayer => x.type === 'dungeon');
@@ -94,5 +117,17 @@ describe('LightTool', () => {
     tool.onPointerMove({ x: 3, y: 4 });
     tool.onKeyDown(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(tool.getPreview()).toBeNull();
+  });
+
+  it('attaches to an asset placed within 0.5 cells of the click', () => {
+    const asset = addAsset({ x: 5, y: 5 });
+    tool.onPointerDown({ x: 5.3, y: 5 });
+    expect(lights()[0].attachedTo).toBe(asset.id);
+  });
+
+  it('leaves attachedTo unset when placed away from any asset', () => {
+    addAsset({ x: 5, y: 5 });
+    tool.onPointerDown({ x: 8, y: 8 });
+    expect(lights()[0].attachedTo).toBeUndefined();
   });
 });

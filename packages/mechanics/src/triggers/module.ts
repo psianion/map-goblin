@@ -11,10 +11,11 @@
 
 import { ANY_ROLE, type GameModule, type ModuleContext } from '../contract'
 import { roll, type RollResult } from '../dice/roll'
-import { ID_MAX, Reject, bad, bool, denied, num, obj, oneOf, str } from '../tokens/validate'
+import { COLOR_MAX, ID_MAX, Reject, bad, bool, denied, num, obj, oneOf, str } from '../tokens/validate'
 import {
   sceneTriggersOf,
   worldOf,
+  type LightEdit,
   type ResolvedTrigger,
   type SceneTriggers,
   type TriggerLogEntry,
@@ -74,6 +75,8 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
       'set-world': ['dm'],
       fire: ['dm'],
       'set-enabled': ['dm'],
+      'set-light': ['dm'],
+      'reset-light': ['dm'],
       'roll-prompt': ANY_ROLE,
       'dismiss-prompt': ['dm'],
       // no 'event' entry — see the file header.
@@ -106,6 +109,7 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
           armed: {},
           disabled: {},
           lightOverrides: scene.lightOverrides,
+          lightEdits: scene.lightEdits,
           env: scene.env,
           prompts: scene.prompts.filter((p) => p.targetIdentityId === viewer.identityId),
           log: scene.log.filter((e) => e.toPlayers || e.forIdentityId === viewer.identityId),
@@ -126,6 +130,10 @@ function run(action: string, p: Payload, ctx: Ctx, deps: TriggerDeps): void {
       return fireCommand(p, ctx, deps)
     case 'set-enabled':
       return setEnabled(p, ctx)
+    case 'set-light':
+      return setLight(p, ctx)
+    case 'reset-light':
+      return resetLight(p, ctx)
     case 'roll-prompt':
       return rollPrompt(p, ctx, deps)
     case 'dismiss-prompt':
@@ -289,6 +297,100 @@ function setEnabled(p: Payload, ctx: Ctx): void {
   const triggerId = str(p.triggerId, 'triggerId', ID_MAX)
   const enabled = bool(p.enabled, 'enabled')
   setScene(ctx, sceneId, { ...scene, disabled: { ...scene.disabled, [triggerId]: !enabled } })
+}
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i
+
+/** Everything a DM's live edit can touch (M2), validated field-by-field — same shape as
+ *  `parseDefFields`/`parseLight` in tokens/validate.ts, kept here since it is this module's
+ *  own payload, not a token's. */
+function parseLightPatch(v: unknown): LightEdit {
+  const p = obj(v, 'patch')
+  const patch: LightEdit = {}
+  if (p.visible !== undefined) patch.visible = bool(p.visible, 'patch.visible')
+  if (p.radius !== undefined) {
+    const radius = num(p.radius, 'patch.radius')
+    if (radius <= 0) bad('patch.radius must be > 0')
+    patch.radius = radius
+  }
+  if (p.featherRadius !== undefined) {
+    const featherRadius = num(p.featherRadius, 'patch.featherRadius')
+    if (featherRadius < 0) bad('patch.featherRadius must be >= 0')
+    patch.featherRadius = featherRadius
+  }
+  if (p.intensity !== undefined) {
+    const intensity = num(p.intensity, 'patch.intensity')
+    if (intensity < 0 || intensity > 1) bad('patch.intensity must be 0..1')
+    patch.intensity = intensity
+  }
+  if (p.color !== undefined) {
+    const color = str(p.color, 'patch.color', COLOR_MAX)
+    if (!HEX_COLOR.test(color)) bad('patch.color must be a 6-digit hex colour, e.g. #a0c4ff')
+    patch.color = color
+  }
+  if (p.position !== undefined) {
+    const pos = obj(p.position, 'patch.position')
+    patch.position = { x: num(pos.x, 'patch.position.x'), y: num(pos.y, 'patch.position.y') }
+  }
+  if (Object.keys(patch).length === 0) bad('patch needs at least one field')
+  return patch
+}
+
+/**
+ * DM-only live light edit (M2). Shallow-merges onto whatever `lightId` already had — a DM
+ * nudging just the colour does not disturb a radius someone else already set. The one
+ * cross-field rule (`featherRadius <= radius`) is checked against the *merged* result, because
+ * a patch that only ever touches one of the two is still comparing against the other's real
+ * current value, not a stale one the payload happens not to mention.
+ */
+function setLight(p: Payload, ctx: Ctx): void {
+  const sceneId = sceneOf(p, ctx)
+  const lightId = str(p.lightId, 'lightId', ID_MAX)
+  const patch = parseLightPatch(p.patch)
+  const scene = sceneTriggersOf(ctx.state, sceneId)
+  const merged: LightEdit = { ...scene.lightEdits[lightId], ...patch }
+  if (
+    merged.featherRadius !== undefined &&
+    merged.radius !== undefined &&
+    merged.featherRadius > merged.radius
+  ) {
+    bad('patch.featherRadius must be <= radius')
+  }
+  setScene(ctx, sceneId, { ...scene, lightEdits: { ...scene.lightEdits, [lightId]: merged } })
+}
+
+/** Drops a light back to however the map authored it — the DM's whole edit, not one field. */
+function resetLight(p: Payload, ctx: Ctx): void {
+  const sceneId = sceneOf(p, ctx)
+  const lightId = str(p.lightId, 'lightId', ID_MAX)
+  const scene = sceneTriggersOf(ctx.state, sceneId)
+  if (!(lightId in scene.lightEdits)) return // nothing edited — quiet no-op
+  const lightEdits = { ...scene.lightEdits }
+  delete lightEdits[lightId]
+  setScene(ctx, sceneId, { ...scene, lightEdits })
+}
+
+/**
+ * A light as a DM's live edit leaves it (M2) — an edit's absent fields fall back to the
+ * light's own (authored) values, and no edit at all is the light untouched. One function so
+ * the server's vision sweep and the client's renderer never answer "what does this light look
+ * like right now" two different ways.
+ *
+ * Generic over the light shape on purpose: the server's fog code and the client's `LightChild`
+ * are different types that happen to share these fields, and this module has no reason to
+ * import either just to name one.
+ */
+export function effectiveLight<
+  T extends {
+    visible: boolean
+    radius: number
+    featherRadius: number
+    intensity: number
+    color: string
+    position: { x: number; y: number }
+  },
+>(light: T, edit: LightEdit | undefined): T {
+  return edit ? { ...light, ...edit } : light
 }
 
 /**
@@ -497,6 +599,7 @@ function cloneScene(scene: SceneTriggers): SceneTriggers {
     armed: { ...scene.armed },
     disabled: { ...scene.disabled },
     lightOverrides: { ...scene.lightOverrides },
+    lightEdits: { ...scene.lightEdits },
     env: { ...scene.env },
     prompts: [...scene.prompts],
     log: [...scene.log],
@@ -531,7 +634,8 @@ function runFireAction(
       return
 
     case 'light':
-      scene.lightOverrides[action.lightId] = action.on
+      // M2 — writes go to `lightEdits` now; `lightOverrides` is read-compat only (types.ts).
+      scene.lightEdits[action.lightId] = { ...scene.lightEdits[action.lightId], visible: action.on }
       // M5 — the client's relight is live (lightSync.ts), so the log line rides along with
       // it: player-visible, and never a raw light-child id (an unnamed light still reads as
       // a light, never as a UUID).

@@ -330,6 +330,7 @@ export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
                     Scene: <span className="font-mono text-foreground">{summary.sceneId}</span>
                   </div>
                   <div>{changedLabel[summary.changed]}</div>
+                  <div>Light edits made at the table are kept on republish.</div>
                 </div>
 
                 {error && <p className="text-xs text-destructive">{error}</p>}

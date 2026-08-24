@@ -74,35 +74,52 @@ export function pointInAsset(asset: BoxChild, point: [number, number]): boolean 
   return Math.abs(px) <= halfW && Math.abs(py) <= halfH;
 }
 
-export function pointInLight(light: LightChild, point: [number, number]): boolean {
+/**
+ * Screen-space radius of the light icon drawn by `LightingRenderer` — shared
+ * so the hit radius below can't drift from what's actually on screen.
+ */
+export const LIGHT_ICON_RADIUS_PX = 12;
+
+export function pointInLight(
+  light: LightChild,
+  point: [number, number],
+  zoom?: number,
+): boolean {
   const dx = point[0] - light.position.x;
   const dy = point[1] - light.position.y;
-  const hitRadius = 0.5;
+  const hitRadius = zoom ? Math.max(0.5, LIGHT_ICON_RADIUS_PX / zoom) : 0.5;
   return dx * dx + dy * dy <= hitRadius * hitRadius;
 }
 
 /**
- * Orders children for hit-testing to match draw order: sublayers stack
- * floor < walls < doors < objects(assets) < labels, so the topmost picks
- * must be labels, then assets, then doors, then everything else (shapes,
- * water, lights) — the flat children array only reflects relative order
- * *within* one of those buckets, not across them.
+ * Orders children for hit-testing to match draw order: light icons always
+ * draw on top of everything (`LightingRenderer`'s overlay pass), then
+ * sublayers stack floor < walls < doors < objects(assets) < labels — so the
+ * topmost picks must be lights, then labels, then assets, then doors, then
+ * everything else (shapes, water) — the flat children array only reflects
+ * relative order *within* one of those buckets, not across them.
  */
 function bucketChildrenForHitTest(children: AnyChild[]): AnyChild[] {
   const reversed = [...children].reverse();
+  const lights = reversed.filter((c) => c.childType === 'light');
   const labels = reversed.filter((c) => c.childType === 'text');
   const assets = reversed.filter((c) => c.childType === 'asset');
   const doors = reversed.filter((c) => c.childType === 'door');
   const rest = reversed.filter(
-    (c) => c.childType !== 'text' && c.childType !== 'asset' && c.childType !== 'door',
+    (c) =>
+      c.childType !== 'text' &&
+      c.childType !== 'asset' &&
+      c.childType !== 'door' &&
+      c.childType !== 'light',
   );
-  return [...labels, ...assets, ...doors, ...rest];
+  return [...lights, ...labels, ...assets, ...doors, ...rest];
 }
 
 export function hitTestChildren(
   children: AnyChild[],
   point: [number, number],
   layer?: DungeonLayer,
+  opts?: { zoom?: number },
 ): AnyChild | null {
   // Doors hit-test at their *resolved* position (a floor-ring door draws where
   // the resolver projects it, not where it was authored), which needs the whole
@@ -120,7 +137,7 @@ export function hitTestChildren(
         if (pointInAsset(child, point)) return child;
         break;
       case 'light':
-        if (pointInLight(child, point)) return child;
+        if (pointInLight(child, point, opts?.zoom)) return child;
         break;
       case 'door': {
         if (doorPositions === null) {
@@ -144,12 +161,13 @@ export function hitTestChildren(
 export function hitTestAllLayers(
   layers: DungeonLayer[],
   point: [number, number],
+  opts?: { zoom?: number },
 ): { child: AnyChild; layerId: string } | null {
   const state = useStore.getState();
   for (let i = layers.length - 1; i >= 0; i--) {
     const layer = layers[i];
     if (!isLayerEffectivelyVisible(state, layer) || layer.locked) continue;
-    const hit = hitTestChildren(layer.children, point, layer);
+    const hit = hitTestChildren(layer.children, point, layer, opts);
     if (hit) return { child: hit, layerId: layer.id };
   }
   return null;

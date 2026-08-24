@@ -120,7 +120,12 @@ export function createDefaultState(): MapBuilderState {
           color: '#ffdd88',
           radius: 6,
           featherRadius: 0,
-          intensity: 0.2,
+          // 0.2 predates the diffuse-lighting rework: under the multiply
+          // composite it reads as no light at all on real (dark) floor art —
+          // the "authored lights don't render" gate finding was exactly a
+          // fresh light at this default. 0.9 matches the hand-tuned lights
+          // that shipped on the demo keep.
+          intensity: 0.9,
           falloff: 'quadratic' as const,
         },
         scatterBrush: {

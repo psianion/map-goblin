@@ -49,12 +49,21 @@ export async function load(textureId: string): Promise<Texture> {
   // not shipped with the app, so loading entry.path would just 404.
   const mapped = resolveLegacyId(textureId);
   if (mapped && mapped !== textureId) {
-    const packTex = getAssetPackManager().getTextureOrNull(mapped);
+    // Wait for the pack rather than falling through: at a cold load the atlas
+    // may still be installing/rehydrating, and the fallback fetch below would
+    // hit the SPA fallback (index.html served as a JPEG → decode error) and
+    // leave the shape a solid fill until the next unrelated rebuild.
+    const packTex =
+      getAssetPackManager().getTextureOrNull(mapped) ??
+      (await getAssetPackManager().waitForTexture(mapped));
     if (packTex) {
       const texture = applyContentRect(textureId, mapped, packTex);
       cache.set(textureId, texture);
       return texture;
     }
+    // Pack never delivered (install failed / entry gone). entry.path is dead
+    // for mapped ids — return EMPTY uncached so a later rebuild can retry.
+    return Texture.EMPTY;
   }
 
   const baseTexture = await Assets.load<Texture>(entry.path);

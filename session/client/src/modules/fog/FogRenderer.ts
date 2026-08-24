@@ -659,7 +659,15 @@ export function fogScene(): FogScene {
   // would. Both go to the cloud as pools too, for the rim fade (`NightSight.pools`).
   const pad = fogPad(serverLayers(mapData));
   const nightSight = (): NightSight => {
-    const sources = lightSources(placedLights(layers), tokens, scene!.lightOverrides);
+    // The table's own switch is `lightEdits` since M2 — `lightOverrides` is a pre-M2 row that
+    // `sceneTriggersOf` has already folded in, and reading it directly would let a stale `false`
+    // outvote a light the DM has since turned back on. `lightSync` writes the same answer onto
+    // the children this reads, but this pass can run before that write lands.
+    const switches: Record<string, boolean> = {};
+    for (const [id, edit] of Object.entries(scene!.lightEdits)) {
+      if (edit.visible !== undefined) switches[id] = edit.visible;
+    }
+    const sources = lightSources(placedLights(layers), tokens, switches);
     const dark: LightSource[] = eyes
       .filter((t) => t.sight!.visionMode === 'darkvision')
       .map((t) => ({ x: t.x, y: t.y, radius: t.sight!.range }));
@@ -1019,11 +1027,13 @@ export function drawFog(
     fillLand(maskPaint, earned, { color: 0xffffff, alpha: 1 });
     fillLand(maskPaint, memory, { color: MASK_MEMORY, alpha: 1 });
   }
-  // Everything this seat may see, as a stencil for the overlays that draw above the mask
-  // (`SIGHT_MASK`): the token chips and the turn ring. Clear and memory alike — what is
-  // hidden is the one thing they must not outrun; what is only dimmed is still theirs to
-  // label at full strength.
-  if (sightMask) fillLand(sightMask, [...earned, ...memory], { color: 0xffffff, alpha: 1 });
+  // LIVE sight only, as a stencil for the overlays that draw above the mask
+  // (`SIGHT_MASK`): the token chips and the turn ring. Memory deliberately NOT
+  // included: a remembered room shows what the room looked like, never what is
+  // in it right now — with memory in this stencil, a hostile walking through a
+  // room the party had merely explored broadcast its live position (chip and
+  // turn ring both), which a two-seat walk caught on the player's canvas.
+  if (sightMask) fillLand(sightMask, earned, { color: 0xffffff, alpha: 1 });
   return { cells, cover: { minX, minY, maxX, maxY } };
 }
 

@@ -148,6 +148,7 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
             zIndex: 9999,
           }}
           className="gg-grain rounded border border-border-structure bg-surface-1 p-3 shadow-panel"
+          data-color-picker
         >
           <HexColorPicker color={value} onChange={handlePickerChange} />
           <input

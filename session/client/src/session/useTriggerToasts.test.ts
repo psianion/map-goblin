@@ -82,7 +82,7 @@ function session(log: TriggerLogEntry[]): SessionState {
     modules: {
       triggers: {
         byScene: {
-          'scene-1': { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, env: {}, prompts: [], log },
+          'scene-1': { fired: {}, armed: {}, disabled: {}, lightOverrides: {}, lightEdits: {}, env: {}, prompts: [], log },
         },
       } satisfies TriggersState,
     },

@@ -331,9 +331,13 @@ export class SessionManager {
       // published/made visible to them. The currently active scene still loads either
       // way (fog and door redaction are what actually gate its content) — this only
       // gates which *other* scenes a player can tell exist before the DM switches to one.
-      scenes: (viewer.role === 'dm' ? scenes : scenes.filter((s) => s.visibleToPlayers)).map(
-        ({ id, name, mapId }) => ({ id, name, mapId }),
-      ),
+      // The active scene is always in a player's list — they are looking at it,
+      // and hiding its entry only broke the name lookup ("No scene" in the
+      // status bar). visibleToPlayers keeps gating the rest of the library.
+      scenes: (viewer.role === 'dm'
+        ? scenes
+        : scenes.filter((s) => s.visibleToPlayers || s.id === activeSceneId)
+      ).map(({ id, name, mapId }) => ({ id, name, mapId })),
       activeSceneId,
       players: [...session.players.values()],
       modules: this.modules.snapshotModules(session.campaignId, viewer),

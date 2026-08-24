@@ -2,7 +2,7 @@ import { Container } from 'pixi.js';
 import type { Point } from '../../types/geometry';
 import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
-import { UpdateChildCommand, RemoveChildCommand, CompositeCommand } from '../../store/commands';
+import { UpdateChildCommand, CompositeCommand, createChildRemovalCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
 import type { AssetChild, DungeonLayer } from '../../store/types';
 import { notify } from '../../shared/notify';
@@ -156,7 +156,7 @@ export class ObjectTool implements DrawingTool {
 
     const commands = selectedIds
       .filter((id) => activeLayer.children.some((c) => c.id === id))
-      .map((id) => new RemoveChildCommand('Delete asset', activeLayerId, id));
+      .map((id) => createChildRemovalCommand(activeLayerId, id, 'Delete asset'));
 
     if (commands.length === 0) return;
 

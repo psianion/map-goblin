@@ -18,6 +18,7 @@ export type IconName =
   | 'scene'
   | 'world'
   | 'triggers'
+  | 'lights'
   | 'log'
   | 'me'
   | 'session'
@@ -54,6 +55,11 @@ const GLYPHS: Record<IconName, string> = {
     '<path d="M14.5 3a8.5 8.5 0 1 0 6.5 14.5A7 7 0 0 1 14.5 3z"/><circle cx="18" cy="5" r="1" fill="currentColor" stroke="none"/>',
   triggers:
     '<path d="M5.5 15H18.5A1.5 1.5 0 0 1 20 16.5V18.5A1.5 1.5 0 0 1 18.5 20H5.5A1.5 1.5 0 0 1 4 18.5V16.5A1.5 1.5 0 0 1 5.5 15Z"/><path d="M12 12V5"/><path d="M8 12.5L5 8"/><path d="M16 12.5L19 8"/><circle cx="12" cy="3" r=".8" fill="currentColor" stroke="none"/><circle cx="3.5" cy="6" r=".8" fill="currentColor" stroke="none"/><circle cx="20.5" cy="6" r=".8" fill="currentColor" stroke="none"/>',
+  // M2 table UI — unreviewed placeholder (a lamp), not yet run through the icons.html
+  // sign-off sheet this file's own header describes; swap for the reviewed glyph when M2
+  // gets its own icon pass.
+  lights:
+    '<path d="M9 18.5H15"/><path d="M10 21H14"/><path d="M12 3A6 6 0 0 0 8.4 13.8C9.1 14.4 9.5 15.1 9.5 16H14.5C14.5 15.1 14.9 14.4 15.6 13.8A6 6 0 0 0 12 3Z"/>',
   log:
     '<path d="M4 20h8"/><path d="M4 16h6"/><path d="M4 12h5"/><path d="M21 3c-5 0-9 4-10 9l-2 5 5-2c5-1 8-6 7-12z"/><path d="M11 12l-3.5 5"/><path d="M13 10c2-1 4-1 6-2"/>',
   me:

@@ -6,6 +6,7 @@ import { TriggerPrompts } from '../components/TriggerPrompts';
 import { mountTurnRingWhenReady } from '../modules/initiative/TurnRing';
 import { TokenMenu } from '../modules/tokens/TokenMenu';
 import { DoorMenu } from '../modules/doors/DoorMenu';
+import { LightPopover } from '../modules/lights/LightPopover';
 import { GameRenderer } from '../renderer/GameRenderer';
 import { TableStatusBar } from '../components/TableStatusBar';
 import { LogDrawer } from '../shell/LogDrawer';
@@ -30,6 +31,7 @@ import '../modules/rolls/beyond20';
 import '../modules/tokens';
 import '../modules/doors';
 import '../modules/fog';
+import '../modules/lights';
 import '../modules/scene';
 import '../modules/triggers';
 import '../modules/world';
@@ -94,6 +96,7 @@ export default function GameTable() {
         <TableStatusBar />
         <DoorMenu />
         <TokenMenu />
+        <LightPopover />
         <Rail />
         <Popover />
         <ToastHost />

@@ -33,6 +33,7 @@ const sceneOf = (over: Partial<SceneTriggers> = {}): SceneTriggers => ({
   armed: {},
   disabled: {},
   lightOverrides: {},
+  lightEdits: {},
   env: {},
   prompts: [],
   log: [],

@@ -85,6 +85,8 @@ export class AssetPackManager {
   private config: PackManagerConfig
   private installedPacks: Map<string, PackSummary> = new Map()
   private textureCache: Map<string, Texture> = new Map()
+  /** Pending `waitForTexture` resolvers, keyed by pack entry id. */
+  private textureWaiters: Map<string, Array<(t: Texture) => void>> = new Map()
   private frameCache: Map<string, FrameData> = new Map()
   // Shared cap for CDN downloads and texture decode/upload — the two never overlap
   // within one install, and 8 matches what browsers keep in flight per host anyway.
@@ -180,6 +182,46 @@ export class AssetPackManager {
    */
   getTextureOrNull(entryId: string): Texture | null {
     return this.textureCache.get(entryId) ?? null
+  }
+
+  /**
+   * Resolves when `entryId` lands in the texture cache — i.e. when the pack
+   * install/rehydrate in flight (or a later one) registers it — or with null
+   * after `timeoutMs`. This is what lets `textureLoader.load` wait for a pack
+   * texture instead of falling back to the bundled `/textures/` paths, which
+   * ship in no build and 404 into the SPA fallback (a JPEG decode error).
+   */
+  waitForTexture(entryId: string, timeoutMs = 30_000): Promise<Texture | null> {
+    const now = this.textureCache.get(entryId)
+    if (now) return Promise.resolve(now)
+    return new Promise((resolve) => {
+      const waiters = this.textureWaiters.get(entryId) ?? []
+      this.textureWaiters.set(entryId, waiters)
+      const timer = setTimeout(() => {
+        const arr = this.textureWaiters.get(entryId)
+        if (arr) {
+          const i = arr.indexOf(entry)
+          if (i !== -1) arr.splice(i, 1)
+          if (arr.length === 0) this.textureWaiters.delete(entryId)
+        }
+        resolve(null)
+      }, timeoutMs)
+      const entry = (t: Texture) => {
+        clearTimeout(timer)
+        resolve(t)
+      }
+      waiters.push(entry)
+    })
+  }
+
+  /** Wake every waiter whose texture is now in the cache. */
+  private flushTextureWaiters(): void {
+    for (const [entryId, waiters] of [...this.textureWaiters]) {
+      const tex = this.textureCache.get(entryId)
+      if (!tex) continue
+      this.textureWaiters.delete(entryId)
+      for (const w of waiters) w(tex)
+    }
   }
 
   getFrame(entryId: string): FrameData | null {
@@ -474,6 +516,7 @@ export class AssetPackManager {
     )
 
     await Promise.all([...atlasTasks, ...fileTasks])
+    this.flushTextureWaiters()
   }
 
   /**

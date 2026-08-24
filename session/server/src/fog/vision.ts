@@ -210,7 +210,7 @@ export function createVision(stores: Stores): Vision {
     const triggersState = read(campaignId, 'triggers', NO_TRIGGERS)
     const triggers = sceneTriggersOf(triggersState, sceneId)
     const world = worldLightOf(map.data.mapSettings ?? {}, triggersState, sceneId)
-    const lights = world.effectiveLevel === 'darkness' ? triggers.lightOverrides : null
+    const lights = world.effectiveLevel === 'darkness' ? triggers.lightEdits : null
     const vision = fogModeOf(fog) === 'vision'
     const sight = vision ? sweeps.partyVision(map, tokens, doors, lights) : null
     // P5 — one seat's eyes, on demand and once per revision. Lazy because most tables never

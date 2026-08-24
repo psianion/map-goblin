@@ -142,3 +142,71 @@ describe('ShapeTextureProperties — texture edits are undoable', () => {
     expect(shapeById('b').textureOffsetX).toBe(3)
   })
 })
+
+describe('ShapeTextureProperties — selection scopes the edit', () => {
+  beforeEach(() => {
+    undoManager.clear()
+    useStore.getState().resetToDefault()
+    useStore.getState().addChild(dungeon().id, shape('a', 1))
+    useStore.getState().addChild(dungeon().id, shape('b', 7))
+  })
+
+  it('with a shape selected, the picker changes only that shape and leaves the layer default', () => {
+    act(() => {
+      useStore.getState().setSelectedIds(['a'])
+    })
+    const before = dungeon().style.defaultTextureId
+    renderPanel()
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('texture-picker'))
+    })
+
+    expect(shapeById('a').textureId).toBe('cave-floor-b-02')
+    expect(shapeById('b').textureId).toBe('large-flagstone-a-01')
+    expect(dungeon().style.defaultTextureId).toBe(before)
+    expect(screen.getByTestId('texture-scope').textContent).toContain('1 selected shape')
+  })
+
+  it('with nothing selected, the picker changes every shape and the layer default', () => {
+    renderPanel()
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('texture-picker'))
+    })
+
+    expect(shapeById('a').textureId).toBe('cave-floor-b-02')
+    expect(shapeById('b').textureId).toBe('cave-floor-b-02')
+    expect(dungeon().style.defaultTextureId).toBe('cave-floor-b-02')
+  })
+
+  it('a live edit with a selection touches only the selected shape, and undo restores it', () => {
+    act(() => {
+      useStore.getState().setSelectedIds(['b'])
+    })
+    const sync = renderPanel()
+
+    // With 'b' selected, the Offset X box shows b's value (7).
+    const input = screen
+      .getAllByRole('spinbutton')
+      .find((el) => (el as HTMLInputElement).value === '7') as HTMLInputElement
+    expect(input).toBeTruthy()
+
+    act(() => {
+      fireEvent.focus(input)
+      fireEvent.change(input, { target: { value: '9' } })
+    })
+    sync()
+    expect(shapeById('a').textureOffsetX).toBe(1)
+    expect(shapeById('b').textureOffsetX).toBe(9)
+
+    act(() => {
+      fireEvent.blur(input)
+    })
+    act(() => {
+      undoManager.undo()
+    })
+    expect(shapeById('a').textureOffsetX).toBe(1)
+    expect(shapeById('b').textureOffsetX).toBe(7)
+  })
+})

@@ -262,6 +262,14 @@ async function getOrFetchSceneDoc(sceneId: string, mapId: string, token: string)
  * fails to load.
  */
 async function warmSceneTextures(doc: SceneDoc): Promise<void> {
+  // Pack sets first: preloadLayerTextures resolves legacy ids against the
+  // installed pack, so installing after preloading raced the loader straight
+  // onto its dead-path fallback.
+  try {
+    await getAssetPackManager().ensureTexturesForMap(doc.data);
+  } catch (err) {
+    console.warn('[loadSceneMap] ensureTexturesForMap failed:', err);
+  }
   try {
     await Promise.all(
       doc.data.layers
@@ -270,11 +278,6 @@ async function warmSceneTextures(doc: SceneDoc): Promise<void> {
     );
   } catch {
     /* textures load lazily during rebuild instead */
-  }
-  try {
-    await getAssetPackManager().ensureTexturesForMap(doc.data);
-  } catch (err) {
-    console.warn('[loadSceneMap] ensureTexturesForMap failed:', err);
   }
 }
 

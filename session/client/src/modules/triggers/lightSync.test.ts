@@ -10,7 +10,15 @@ import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol'
 import { useStore } from '@dnd/core/src/store/store'
 import { useSessionStore } from '../../session/store'
 import type { Token } from '@dnd/mechanics/tokens'
-import { lightingDrift, syncLightsToScene, tokenLightDrift, tokenLightId, tokenLights } from './lightSync'
+import type { LightEdit } from '@dnd/mechanics/triggers'
+import {
+  lightingDrift,
+  syncLightsToScene,
+  tokenLightDrift,
+  tokenLightId,
+  tokenLights,
+  type EditableLight,
+} from './lightSync'
 
 const light = (over: Partial<LightChild> = {}): LightChild =>
   ({
@@ -84,26 +92,144 @@ const session = (
     },
   }) as unknown as SessionState
 
-const isVisible = (): boolean =>
-  ((useStore.getState().layers[0] as unknown as { children: LightChild[] }).children[0]).visible
+/** Same shape as `session`, but for a live `lightEdits` (M2) instead of a boolean override —
+ *  radius/color/position/etc, not just visible. */
+const sessionWithEdits = (lightEdits: Record<string, LightEdit>, tokens: Token[] = []): SessionState =>
+  ({
+    protocolVersion: PROTOCOL_VERSION,
+    sessionId: 's1',
+    campaignId: 'c1',
+    activeSceneId: 'scene-1',
+    scenes: [{ id: 'scene-1', name: 'Crypt' }],
+    players: [dm],
+    modules: {
+      triggers: {
+        byScene: {
+          'scene-1': {
+            fired: {},
+            armed: {},
+            disabled: {},
+            lightOverrides: {},
+            lightEdits,
+            env: {},
+            prompts: [],
+            log: [],
+          },
+        },
+      },
+      tokens: {
+        library: {},
+        byScene: { 'scene-1': Object.fromEntries(tokens.map((t) => [t.id, t])) },
+      },
+    },
+  }) as unknown as SessionState
+
+const firstLight = (): LightChild =>
+  (useStore.getState().layers[0] as unknown as { children: LightChild[] }).children[0]
+
+const isVisible = (): boolean => firstLight().visible
+const radiusOf = (): number => firstLight().radius
 
 describe('lightingDrift', () => {
-  it('is empty when the map already says what the scene overrides say', () => {
-    const drift = lightingDrift({ l1: true }, [dungeon([light({ visible: true })])])
+  it('is empty when the map already says what the scene edits say', () => {
+    const drift = lightingDrift({ l1: { visible: true } }, [dungeon([light({ visible: true })])], new Map())
     expect(drift.size).toBe(0)
   })
 
-  it('names only the lights that moved', () => {
+  it('names only the lights that moved, carrying every field of the light', () => {
     const drift = lightingDrift(
-      { l1: false, l2: true },
+      { l1: { visible: false }, l2: { visible: true } },
       [dungeon([light({ id: 'l1', visible: true }), light({ id: 'l2', visible: true })])],
+      new Map(),
     )
-    expect([...drift]).toEqual([['l1', false]])
+    expect([...drift.keys()]).toEqual(['l1'])
+    expect(drift.get('l1')).toMatchObject({ visible: false, radius: 5, featherRadius: 1 })
   })
 
-  it('ignores a light with no override at all — the map keeps its authored visibility', () => {
-    const drift = lightingDrift({}, [dungeon([light({ visible: false })])])
+  it('ignores a light with no edit and no edit history — the map keeps its authored values', () => {
+    const drift = lightingDrift({}, [dungeon([light({ visible: false })])], new Map())
     expect(drift.size).toBe(0)
+  })
+
+  it('overlays radius, color and position, not just visibility', () => {
+    const drift = lightingDrift(
+      { l1: { radius: 9, color: '#ff0000', position: { x: 3, y: 4 } } },
+      [dungeon([light({ id: 'l1' })])],
+      new Map(),
+    )
+    expect(drift.get('l1')).toMatchObject({ radius: 9, color: '#ff0000', position: { x: 3, y: 4 } })
+  })
+
+  it('shallow-overlays — a field the edit leaves alone keeps the light’s own value', () => {
+    const drift = lightingDrift(
+      { l1: { radius: 9 } },
+      [dungeon([light({ id: 'l1', color: '#abcdef' })])],
+      new Map(),
+    )
+    expect(drift.get('l1')).toMatchObject({ radius: 9, color: '#abcdef' })
+  })
+
+  it('captures the authored values on first edit, and reads them back once the edit is gone', () => {
+    const authored = new Map<string, EditableLight>()
+    const layers = [dungeon([light({ id: 'l1', radius: 5, color: '#fff' })])]
+
+    let drift = lightingDrift({ l1: { radius: 9 } }, layers, authored)
+    expect(drift.get('l1')).toMatchObject({ radius: 9, color: '#fff' })
+    expect(authored.get('l1')).toMatchObject({ radius: 5, color: '#fff' })
+
+    // The caller applies the write in real use — simulate that before asking again.
+    ;(layers[0] as unknown as { children: LightChild[] }).children[0].radius = 9
+
+    // The edit is gone (reset), but the light was touched before — its authored snapshot
+    // is still on file, and reverting reads it back rather than the now-edited 9.
+    drift = lightingDrift({}, layers, authored)
+    expect(drift.get('l1')).toMatchObject({ radius: 5, color: '#fff' })
+  })
+})
+
+describe('lightingDrift with a preview in flight', () => {
+  const snapshot = (l: LightChild): EditableLight => ({
+    visible: l.visible,
+    radius: l.radius,
+    featherRadius: l.featherRadius,
+    intensity: l.intensity,
+    color: l.color,
+    position: { ...l.position },
+  })
+
+  it('leaves a previewed child alone even though it disagrees with the standing edit', () => {
+    const child = light({ radius: 24 }) // mid-drag preview
+    const previewed = new Map([['l1', snapshot(child)]])
+    const authored = new Map<string, EditableLight>([['l1', snapshot(light({ radius: 5 }))]])
+    const drift = lightingDrift({ l1: { radius: 8.5 } }, [dungeon([child])], authored, previewed)
+    expect(drift.size).toBe(0)
+    expect(previewed.has('l1')).toBe(true) // still in flight
+  })
+
+  it('also protects the first preview of a never-edited light from the authored snapback', () => {
+    const child = light({ radius: 9 })
+    const previewed = new Map([['l1', snapshot(child)]])
+    const authored = new Map<string, EditableLight>([['l1', snapshot(light({ radius: 5 }))]])
+    const drift = lightingDrift({}, [dungeon([child])], authored, previewed)
+    expect(drift.size).toBe(0)
+  })
+
+  it('spends the mark once the committed edit says the same thing', () => {
+    const child = light({ radius: 24 })
+    const previewed = new Map([['l1', snapshot(child)]])
+    const authored = new Map<string, EditableLight>([['l1', snapshot(light({ radius: 5 }))]])
+    const drift = lightingDrift({ l1: { radius: 24 } }, [dungeon([child])], authored, previewed)
+    expect(drift.size).toBe(0)
+    expect(previewed.has('l1')).toBe(false) // commit landed, mark consumed
+  })
+
+  it('drops a superseded mark and reconciles when something else wrote the child', () => {
+    const child = light({ radius: 12 }) // no longer what the preview wrote
+    const previewed = new Map([['l1', snapshot(light({ radius: 24 }))]])
+    const authored = new Map<string, EditableLight>([['l1', snapshot(light({ radius: 5 }))]])
+    const drift = lightingDrift({ l1: { radius: 8.5 } }, [dungeon([child])], authored, previewed)
+    expect(drift.get('l1')?.radius).toBe(8.5)
+    expect(previewed.has('l1')).toBe(false)
   })
 })
 
@@ -163,6 +289,28 @@ describe('syncLightsToScene', () => {
     syncLightsToScene()()
     useSessionStore.setState({ session: session({ l1: false }) })
     expect(isVisible()).toBe(true)
+  })
+
+  it('applies a radius edit, not just visibility', () => {
+    const stop = syncLightsToScene()
+    expect(radiusOf()).toBe(5) // light()'s own authored default
+
+    useSessionStore.setState({ session: sessionWithEdits({ l1: { radius: 9 } }) })
+
+    expect(radiusOf()).toBe(9)
+    stop()
+  })
+
+  it('reverts to the authored radius once the edit is reset, with no map reload', () => {
+    const stop = syncLightsToScene()
+    useSessionStore.setState({ session: sessionWithEdits({ l1: { radius: 9 } }) })
+    expect(radiusOf()).toBe(9)
+
+    // The DM's `reset-light` — the id simply drops out of `lightEdits`.
+    useSessionStore.setState({ session: sessionWithEdits({}) })
+
+    expect(radiusOf()).toBe(5)
+    stop()
   })
 })
 

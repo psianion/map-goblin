@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from './store';
-import { AddChildCommand, PresetApplyCommand, PropertyCommand, RemoveChildCommand, ReorderChildCommand, SetAmbientLightCommand, SetEnvironmentSettingsCommand, ShapeStyleCommand, UpdateChildCommand } from './commands';
+import { AddChildCommand, PresetApplyCommand, PropertyCommand, RemoveChildCommand, ReorderChildCommand, SetAmbientLightCommand, SetEnvironmentSettingsCommand, ShapeStyleCommand, UpdateChildCommand, createChildRemovalCommand } from './commands';
 import { undoManager } from './undoManager';
 import { DUNGEON_STYLE_PRESETS } from './presetRegistry';
 import { resolveStyle } from '../engine/styleResolver';
-import type { DoorChild, ShapeChild, WallSegment, ZoneChild } from '../shared/types';
+import type { AssetChild, DoorChild, LightChild, ShapeChild, WallSegment, ZoneChild } from '../shared/types';
 import type { DungeonLayer, DungeonStyle } from './types';
 
 describe('PropertyCommand', () => {
@@ -747,5 +747,72 @@ describe('AddChildCommand/RemoveChildCommand.affectsRooms — zones are inert', 
     const removeDoor = new RemoveChildCommand('Remove door', layer.id, DOOR.id);
     removeDoor.execute();
     expect(removeDoor.affectsRooms).toBe(true);
+  });
+});
+
+describe('createChildRemovalCommand — M1 asset/light attachment cascade', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+  });
+
+  const ASSET: AssetChild = {
+    id: 'asset-1',
+    name: 'Lamp',
+    childType: 'asset',
+    visible: true,
+    objectType: 'asset',
+    assetId: 'lamp',
+    position: { x: 5, y: 5 },
+    rotation: 0,
+    scale: 1,
+    width: 1,
+    height: 1,
+    tint: '#ffffff',
+    flipX: false,
+    flipY: false,
+  };
+
+  const LIGHT: LightChild = {
+    id: 'light-1',
+    name: 'Light 1',
+    childType: 'light',
+    visible: true,
+    color: '#ffcc66',
+    radius: 4,
+    featherRadius: 2,
+    intensity: 0.8,
+    falloff: 'linear',
+    position: { x: 5.2, y: 5 },
+    attachedTo: ASSET.id,
+  };
+
+  it('deleting an asset cascades to its attached light', () => {
+    const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    useStore.getState().addChild(layer.id, ASSET);
+    useStore.getState().addChild(layer.id, LIGHT);
+
+    undoManager.execute(createChildRemovalCommand(layer.id, ASSET.id, 'Delete'));
+
+    const after = useStore.getState().layers.find((l) => l.id === layer.id) as DungeonLayer;
+    expect(after.children.find((c) => c.id === ASSET.id)).toBeUndefined();
+    expect(after.children.find((c) => c.id === LIGHT.id)).toBeUndefined();
+
+    undoManager.undo();
+    const restored = useStore.getState().layers.find((l) => l.id === layer.id) as DungeonLayer;
+    expect(restored.children.find((c) => c.id === ASSET.id)).toBeDefined();
+    expect(restored.children.find((c) => c.id === LIGHT.id)).toBeDefined();
+  });
+
+  it('deleting an unattached child stays a plain removal — no cascade', () => {
+    const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    const freeLight: LightChild = { ...LIGHT, id: 'light-2', attachedTo: undefined };
+    useStore.getState().addChild(layer.id, ASSET);
+    useStore.getState().addChild(layer.id, freeLight);
+
+    undoManager.execute(createChildRemovalCommand(layer.id, ASSET.id, 'Delete'));
+
+    const after = useStore.getState().layers.find((l) => l.id === layer.id) as DungeonLayer;
+    expect(after.children.find((c) => c.id === ASSET.id)).toBeUndefined();
+    expect(after.children.find((c) => c.id === freeLight.id)).toBeDefined();
   });
 });

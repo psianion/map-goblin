@@ -481,18 +481,42 @@ describe('scenes module (D6)', () => {
       expect((await onDm).state.scenes.map((s) => s.name)).toEqual(['Renamed'])
       expect((await onPlayer).state.scenes.map((s) => s.name)).toEqual(['Renamed'])
 
-      // …hiding the scene drops it from the player's copy only…
+      // …hiding the ACTIVE scene does not drop it from the player's copy — they
+      // are looking at it, and losing its entry only broke the name lookup
+      // ("No scene"). D5's gate is about which *other* scenes a player can
+      // tell exist (covered below).
       server.stores.scenes.setVisibleToPlayers(first, false)
       const dmAgain = next(dm, 'session-state')
       const playerAgain = next(player, 'session-state')
       server.sessions.refreshScenes(campaignId)
       expect((await dmAgain).state.scenes).toHaveLength(1)
-      expect((await playerAgain).state.scenes).toHaveLength(0)
+      expect((await playerAgain).state.scenes).toHaveLength(1)
 
       // …and re-publishing the scene the table is on tells everyone to reload its map.
       const onReload = next(player, 'scene-changed')
       server.sessions.refreshScenes(campaignId, first)
       expect((await onReload).sceneId).toBe(first)
+    })
+  })
+
+  it('hides non-active unpublished scenes from players, but never the active one', async () => {
+    await withServer({}, async (server) => {
+      const [active, other] = seedMaps(server, 'SV', 2)
+      const [dm, player] = await joinedPair(server, 'SV')
+      const campaignId = table(server, 'SV').campaign_id
+
+      server.stores.scenes.setVisibleToPlayers(active, false)
+      server.stores.scenes.setVisibleToPlayers(other, false)
+      const onDm = next(dm, 'session-state')
+      const onPlayer = next(player, 'session-state')
+      server.sessions.refreshScenes(campaignId)
+
+      // The DM keeps the whole library; the player keeps exactly the scene
+      // the table is standing on — name included, for the status bar.
+      expect((await onDm).state.scenes.map((s) => s.id)).toEqual([active, other])
+      const playerScenes = (await onPlayer).state.scenes
+      expect(playerScenes.map((s) => s.id)).toEqual([active])
+      expect(playerScenes[0].name).toBe('Map 0')
     })
   })
 

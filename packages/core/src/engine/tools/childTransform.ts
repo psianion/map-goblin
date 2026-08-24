@@ -45,7 +45,8 @@ export function anchorForHandle(handle: HandleType, box: WorldBox): { x: number;
   return { x, y };
 }
 
-function mapPoint(x: number, y: number, t: WorldTransform): [number, number] {
+/** A point put through a WorldTransform — the same math a box's position uses. */
+export function mapPoint(x: number, y: number, t: WorldTransform): [number, number] {
   const px = (x - t.anchorX) * t.scaleX;
   const py = (y - t.anchorY) * t.scaleY;
   const cos = Math.cos(t.rotation);

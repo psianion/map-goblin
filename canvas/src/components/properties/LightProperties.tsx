@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 import { Sun, X } from 'lucide-react'
 import { UpdateChildCommand } from '@/store/commands'
 import { undoManager } from '@/store/undoManager'
-import { selectLayerForChild } from '@/store/selectors'
+import { selectLayerForChild, selectChildById } from '@/store/selectors'
 
 interface LightPropertiesProps {
   light: LightChild
@@ -34,6 +34,7 @@ export function LightProperties({ light, onDeselect, openSections, onToggleSecti
 
   // Locate the parent layer so we can call updateChild(layerId, childId, patch)
   const parentLayer = useStore((s) => selectLayerForChild(s, light.id))
+  const attachedAsset = useStore((s) => (light.attachedTo ? selectChildById(s, light.attachedTo) : undefined))
 
   const patchLight = (patch: Partial<LightChild>): void => {
     if (!parentLayer) return
@@ -83,6 +84,21 @@ export function LightProperties({ light, onDeselect, openSections, onToggleSecti
             className="w-full h-7 px-2 bg-surface-2 text-panel-body text-text-primary rounded border border-border-default focus:border-border-focus focus:outline-none"
           />
         </PropertyField>
+
+        {attachedAsset ? (
+          <PropertyField label="Attached to">
+            <div className="flex items-center gap-2">
+              <span className="flex-1 truncate text-panel-body text-text-secondary">{attachedAsset.name}</span>
+              <button
+                type="button"
+                className="h-7 px-2 text-panel-small rounded border border-border-default bg-surface-2 text-text-secondary hover:bg-surface-3 transition-colors"
+                onClick={() => commitLight('Detach light', { attachedTo: light.attachedTo }, { attachedTo: undefined })}
+              >
+                Detach
+              </button>
+            </div>
+          </PropertyField>
+        ) : null}
 
         <PropertyField label="Color">
           <ColorField

@@ -1,47 +1,139 @@
-// M5 — the live relight a DM's `light` trigger actually paints. A light child's on/off is
-// nothing but its own `visible` flag: LightingRenderer's `getVisibleLights` (backed by
-// LightManager) filters on it every frame, and the flag rides in that renderer's own cache
-// signature, so a value flip alone earns a recomposite. (LightManager's dirty set tracks only
-// geometry — position/radius/falloff — not visibility.) So playing `lightOverrides` back onto
-// the core store's light children *is* the relight — no new pipeline, same shape as
-// doors→lighting (D3 layer 1, `modules/doors/doorLighting.ts`).
+// M5/M2 — the live relight a DM's `light` trigger, and now a DM's own live edit at the table,
+// actually paint. A light child's fields are exactly what LightingRenderer reads every frame
+// (backed by LightManager — visibility rides that renderer's own cache signature, geometry
+// rides LightManager's dirty set), so playing `lightEdits` back onto the core store's light
+// children *is* the relight — no new pipeline, same shape as doors→lighting (D3 layer 1,
+// `modules/doors/doorLighting.ts`).
 //
 // Two triggers, one drift check, mirroring the door lane exactly: a triggers command landing
-// changes the overrides, and a fresh map load / scene switch changes the children back to
-// their authored visibility out from under any override already in play. Either has to
-// reapply the same drift, so both are watched and the empty-drift return is the recursion
-// guard (writing the store re-enters this callback and the second pass finds nothing left).
+// changes the edits, and a fresh map load / scene switch changes the children back to their
+// authored values out from under any edit already in play. Either has to reapply the same
+// drift, so both are watched and the empty-drift return is the recursion guard (writing the
+// store re-enters this callback and the second pass finds nothing left).
+//
+// Unlike the old boolean-only override, an edit can touch radius/color/position too, and those
+// get overwritten in place on the child — so a `reset-light` needs something to put back that
+// isn't just "whatever the child happens to hold right now" (that's the *edited* value, not the
+// authored one). `lightingDrift`'s `authored` map is that something: the fields a light had the
+// first time anything edited it — `authoredLights` below, seeded either here on the first drift
+// or by the table's own live preview just before it writes (`modules/lights/lights.ts`).
+//
+// ponytail: `authoredLights` is never invalidated on a map/scene reload, so a light id that happens to
+// be reused by a *different* document while the same subscription is alive would revert to the
+// wrong snapshot. Core's own store is Immer-backed, so every in-place write here already gives
+// `layers` a new top-level reference too — array identity can't tell "we just wrote" from "a
+// real reload landed" apart, and light ids are generated per-document, so a same-session id
+// collision is not a real-world case. Revisit with a real per-load generation id if that changes.
 
 import type { LightChild } from '@dnd/core/src/shared/types';
 import type { Layer } from '@dnd/core/src/store/types';
 import { useStore } from '@dnd/core/src/store/store';
 import type { Token, TokensState } from '@dnd/mechanics/tokens';
-import { sceneTriggersOf, type TriggersState } from '@dnd/mechanics/triggers';
+import { effectiveLight, sceneTriggersOf, type LightEdit, type TriggersState } from '@dnd/mechanics/triggers';
 import { useSessionStore } from '../../session/store';
 import { tokensOf } from '../tokens/TokenRenderer';
 
-/** This scene's light overrides, or none while there is no scene/triggers state yet. */
-function activeOverrides(): Record<string, boolean> {
+/** The fields a DM edit can touch and `effectiveLight` overlays — a light child is one, an
+ *  authored snapshot is exactly this much of one. */
+export type EditableLight = Pick<LightChild, 'visible' | 'radius' | 'featherRadius' | 'intensity' | 'color' | 'position'>;
+
+const snapshotOf = (child: LightChild): EditableLight => ({
+  visible: child.visible,
+  radius: child.radius,
+  featherRadius: child.featherRadius,
+  intensity: child.intensity,
+  color: child.color,
+  position: { ...child.position },
+});
+
+/** Every light this seat has edited, as it looked *before* its first edit — the map's own
+ *  authored values, which nothing else can recover once an edit has been written onto the
+ *  child. Module-scoped rather than owned by `syncLightsToScene` so the table's live preview
+ *  (`modules/lights/lights.ts`) can seed it before it writes; otherwise the first previewed
+ *  edit is what a later `reset-light` would restore to. */
+const authoredLights = new Map<string, EditableLight>();
+
+/** Snapshot a light's authored fields, unless something already did. Cheap and idempotent —
+ *  call it immediately before any local write to a light child. */
+export function rememberAuthored(child: LightChild): void {
+  if (!authoredLights.has(child.id)) authoredLights.set(child.id, snapshotOf(child));
+}
+
+/** Lights with a local preview in flight, and the exact fields that preview wrote. Without
+ *  this, `syncLightsToScene` re-enters on the preview's own store write, sees the child
+ *  disagree with the standing edits (or the authored values), and stomps the preview mid-drag
+ *  — the live bug: a slider that snapped back on every input tick. The mark is consumed the
+ *  moment the scene's edits catch up (the commit landed) or the child stops matching it
+ *  (something else wrote the light).
+ *  ponytail: two DMs previewing the same light concurrently can hold off each other's edit
+ *  until their own commit lands — one popover per seat makes that a non-case today. */
+const previewedLights = new Map<string, EditableLight>();
+
+/** Record the fields a local preview just wrote — call right after the store write. */
+export function rememberPreviewed(child: LightChild): void {
+  previewedLights.set(child.id, snapshotOf(child));
+}
+
+const sameFields = (child: LightChild, want: EditableLight): boolean =>
+  child.visible === want.visible &&
+  child.radius === want.radius &&
+  child.featherRadius === want.featherRadius &&
+  child.intensity === want.intensity &&
+  child.color === want.color &&
+  child.position.x === want.position.x &&
+  child.position.y === want.position.y;
+
+/** This scene's live light edits, or none while there is no scene/triggers state yet. Already
+ *  folds a pre-M2 `lightOverrides` row (`sceneTriggersOf`), so a saved scene reads the same
+ *  either way. */
+function activeLightEdits(): Record<string, LightEdit> {
   const session = useSessionStore.getState().session;
   const sceneId = session?.activeSceneId;
   const triggers = session?.modules?.triggers as TriggersState | undefined;
   if (!sceneId || !triggers) return {};
-  return sceneTriggersOf(triggers, sceneId).lightOverrides;
+  return sceneTriggersOf(triggers, sceneId).lightEdits;
 }
 
-/** Light ids whose map visibility disagrees with the scene's overrides, and what it should
- *  say instead. */
+/**
+ * Light ids whose map fields disagree with what the scene's edits (overlaid on the light's own
+ * authored values) say they should be, and the full field set to write instead — a light with
+ * no edit and no history of one is left alone entirely.
+ *
+ * `authored` is the caller's own memory of what each edited light looked like before its first
+ * edit — the caller owns and keeps it (`syncLightsToScene` does, one map for the lifetime of
+ * its subscription) because this function has no other way to tell "authored" from "already
+ * edited" once a write has landed on the child. A `reset-light` (its id drops out of `edits`
+ * with an entry still in `authored`) reads back exactly that snapshot.
+ */
 export function lightingDrift(
-  overrides: Record<string, boolean>,
+  edits: Record<string, LightEdit>,
   layers: readonly Layer[],
-): Map<string, boolean> {
-  const drift = new Map<string, boolean>();
+  authored: Map<string, EditableLight>,
+  previewed?: Map<string, EditableLight>,
+): Map<string, EditableLight> {
+  const drift = new Map<string, EditableLight>();
   for (const layer of layers) {
     if (layer.type !== 'dungeon') continue;
     for (const child of layer.children) {
       if (child.childType !== 'light') continue;
-      const on = overrides[child.id];
-      if (on !== undefined && child.visible !== on) drift.set(child.id, on);
+      const edit = edits[child.id];
+      let base = authored.get(child.id);
+      if (!edit && !base) continue; // never edited — the map keeps its own values.
+      if (edit && !base) {
+        // First time this light is touched: the child is still holding authored values.
+        base = snapshotOf(child);
+        authored.set(child.id, base);
+      }
+      const want = effectiveLight(base!, edit);
+      const pv = previewed?.get(child.id);
+      if (pv && previewed && sameFields(child, pv)) {
+        // The child holds exactly what a local preview wrote. Until the committed edit says
+        // the same thing, reconciling would stomp a drag in flight — leave the child alone.
+        if (sameFields(child, want)) previewed.delete(child.id); // commit landed; mark spent.
+        continue;
+      }
+      if (pv) previewed?.delete(child.id); // superseded — something else wrote this light.
+      if (!sameFields(child, want)) drift.set(child.id, want);
     }
   }
   return drift;
@@ -167,7 +259,7 @@ function subscribeLiveLights(onChange: () => void): () => void {
 export function syncLightsToScene(): () => void {
   return subscribeLiveLights(() => {
     const layers = useStore.getState().layers;
-    const drift = lightingDrift(activeOverrides(), layers);
+    const drift = lightingDrift(activeLightEdits(), layers, authoredLights, previewedLights);
     const carried = tokenLightDrift(activeTokens(), layers);
     // The recursion guard, and the reason both drifts are answered in one write: this callback
     // re-enters on the store write it makes, and the second pass has to find nothing left.
@@ -183,7 +275,17 @@ export function syncLightsToScene(): () => void {
         for (const child of layer.children) {
           if (child.childType !== 'light') continue;
           const next = drift.get(child.id);
-          if (next !== undefined) (child as LightChild).visible = next;
+          if (next === undefined) continue;
+          // Field-by-field, not a wholesale reassignment of `child`: `position` gets its own
+          // fresh object so a later in-place move can never alias — and corrupt — the
+          // authored snapshot `next` may itself be pointing at.
+          const c = child as LightChild;
+          c.visible = next.visible;
+          c.radius = next.radius;
+          c.featherRadius = next.featherRadius;
+          c.intensity = next.intensity;
+          c.color = next.color;
+          c.position = { ...next.position };
         }
         // A token that stopped carrying light, was hidden, or left the scene.
         if (rewriting.size > 0) {

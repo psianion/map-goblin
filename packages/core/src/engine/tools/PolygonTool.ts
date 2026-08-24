@@ -6,6 +6,7 @@ import { AddChildCommand, CompositeCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
 import { eraseShapeCommands } from './eraseShapes';
 import type { DungeonLayer, ShapeChild } from '../../store/types';
+import { DEFAULT_TEXTURE_SCALE } from '../../store/types';
 import { resolveEditableLayer } from './layerGuard';
 
 const CLOSE_THRESHOLD = 0.2;
@@ -118,7 +119,7 @@ export class PolygonTool implements DrawingTool {
         roughnessEnabled: store.tools.roughMode,
         roughnessAmplitude: store.tools.roughMode ? activeLayer.style.roughnessAmplitude : 0,
         textureId: activeLayer.style.defaultTextureId ?? lastTextured?.textureId,
-        textureScale: lastTextured?.textureScale ?? 1,
+        textureScale: lastTextured?.textureScale ?? DEFAULT_TEXTURE_SCALE,
         textureOffsetX: 0,
         textureOffsetY: 0,
         textureFillRotation: 0,
