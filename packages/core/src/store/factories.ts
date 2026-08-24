@@ -22,6 +22,12 @@ const DEFAULT_DUNGEON_STYLE: DungeonStyle = {
   // Existing saves keep whatever their style says — this only seeds new layers.
   wallTextureSetId: 'stone-slate',
   wallTextureTint: '#ffffff',
+  // Same zero-setup rule for the ground: without this a first-time map draws
+  // every room as flat fill — walls, doors, and lights all arrive dressed while
+  // the floor stays paint — and the rescue path (picking a texture with nothing
+  // selected) repaints every room at once. The stone presets' floor, so the
+  // out-of-the-box look matches the default walls.
+  defaultTextureId: 'large-flagstone-a-01',
 };
 
 const DEFAULT_SUBLAYER_VISIBILITY = {
