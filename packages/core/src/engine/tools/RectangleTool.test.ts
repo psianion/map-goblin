@@ -39,6 +39,20 @@ describe('RectangleTool — commit-layer capture (F2)', () => {
     expect(warning).not.toHaveBeenCalled();
   });
 
+  it('a first-time map draws its first room already textured, at the readable scale', () => {
+    const a = useStore.getState().layers.find((l) => l.type === 'dungeon')!;
+    useStore.getState().setActiveLayerId(a.id);
+
+    tool.onPointerDown({ x: 0, y: 0 });
+    tool.onPointerUp({ x: 5, y: 5 });
+
+    const shape = layerById(a.id).children.find((c) => c.childType === 'shape')!;
+    // The zero-setup floor default (factories) — without it walls and doors
+    // arrived dressed while every room stayed flat paint until a manual pick.
+    expect(shape.textureId).toBe('large-flagstone-a-01');
+    expect(shape.textureScale).toBe(4);
+  });
+
   it('lands the rectangle on the layer active at press, not one switched to mid-drag', () => {
     const a = useStore.getState().layers.find((l) => l.type === 'dungeon')!;
     const b = createDungeonLayer('Layer B');
