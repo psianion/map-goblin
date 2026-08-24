@@ -54,5 +54,38 @@ services:
       - game-server
     restart: unless-stopped
 
+  # The Discord bot. Opt-in (`docker compose --profile bot up -d`): it logs into Discord
+  # with the real token, and two instances on one token answer every command twice, so it
+  # must not come up while `pnpm dev` is running the bot on the host. It binds no port.
+  bot:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    image: map-goblin-bot:dev
+    profiles: [bot]
+    env_file:
+      - bot/.env
+      # Docker-only overrides, gitignored like every .env.*. Must carry GOBLIN_ADMIN_PASS
+      # for *this* game-server — the dev lane's pass in bot/.env is a different server.
+      - path: bot/.env.docker
+        required: false
+    # Shares game-server's network namespace, so the server really is on loopback. The
+    # bot refuses plain http to any other host (its bearer token rides that URL — see
+    # bot/src/env.ts), and nothing here needs the bot reachable by name.
+    network_mode: service:game-server
+    environment:
+      # bot/.env says ./data for the host; the image and the volume below say /data.
+      BOT_DATA: /data
+      GOBLIN_SERVER_URL: http://127.0.0.1:8787
+      # What the bot puts in invite links — must be reachable from the players' machines,
+      # so on a LAN this is the host's address, not localhost.
+      PUBLIC_TABLE_URL: "${PUBLIC_TABLE_URL:-http://localhost:5622}"
+    volumes:
+      - bot-data:/data
+    depends_on:
+      - game-server
+    restart: unless-stopped
+
 volumes:
   game-server-data:
+  bot-data:
