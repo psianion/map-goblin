@@ -3,7 +3,7 @@ import type { DrawingTool, PreviewShape } from './DrawingTool';
 import type { Point } from '../../types/geometry';
 import type { AssetChild, DungeonLayer, ScatterBrushSettings } from '../../store/types';
 import { useStore } from '../../store/store';
-import { getTextureEntry, GRID_CELL_PX } from '../../assets/textureManifest';
+import { getCatalogEntry, GRID_CELL_PX } from '../../assets/packCatalog';
 import { resolveTexture } from '../../assets/textureLoader';
 import { poissonDiskSample } from '../../geometry/poissonDisk';
 import { mulberry32, hashPosition } from '../../geometry/seededRng';
@@ -38,7 +38,6 @@ export class StampScatterTool implements DrawingTool {
   private textureCache = new Map<string, Texture>();
   private unsubSettings: (() => void) | null = null;
   private unsubErase: (() => void) | null = null;
-  private destroyed = false;
   /** Quantized cursor position — used to skip redundant preview rebuilds */
   private lastQuantizedX = NaN;
   private lastQuantizedY = NaN;
@@ -79,12 +78,12 @@ export class StampScatterTool implements DrawingTool {
   }
 
   /**
-   * Natural size in grid cells for any asset id. Legacy manifest entries carry
-   * naturalWidth/Height; pack entries (id contains ':') have no manifest entry,
-   * so derive the size from the resolved texture's pixel dimensions.
+   * Natural size in grid cells for any asset id. Catalog entries carry
+   * naturalWidth/Height; imported images have no entry, so derive the size
+   * from the resolved texture's pixel dimensions.
    */
   private getAssetSize(assetId: string): { width: number; height: number } | null {
-    const entry = getTextureEntry(assetId);
+    const entry = getCatalogEntry(assetId);
     if (entry) {
       return {
         width: entry.naturalWidth / GRID_CELL_PX,
@@ -247,25 +246,13 @@ export class StampScatterTool implements DrawingTool {
       }
     }
     if (!tex) {
-      // Legacy bundled path: load from the manifest entry's file URL
-      const entry = getTextureEntry(placement.assetId);
-      if (!entry) return;
-      const maybeTex = Assets.get<Texture>(entry.path);
+      // Imported image path: the alias is registered with Pixi's Assets cache
+      const maybeTex = Assets.get<Texture>(placement.assetId);
       if (maybeTex) {
         tex = maybeTex;
         this.textureCache.set(placement.assetId, tex);
       } else {
-        // Not cached yet — trigger async load with error handling and destroyed guard
-        void Assets.load(entry.path)
-          .then((loaded: Texture) => {
-            if (this.destroyed) return;
-            this.textureCache.set(placement.assetId, loaded);
-            this.refreshPreview();
-          })
-          .catch(() => {
-            // Texture failed to load — silently use placeholder, user sees white rect
-            // which is acceptable since textures load on next hover
-          });
+        // Not resolvable yet — placeholder; textures load on next hover
         tex = Texture.WHITE;
       }
     }
@@ -439,7 +426,6 @@ export class StampScatterTool implements DrawingTool {
   }
 
   destroy(): void {
-    this.destroyed = true;
     // Unsubscribe BEFORE destroying PixiJS objects to prevent race conditions
     this.unsubSettings?.();
     this.unsubErase?.();

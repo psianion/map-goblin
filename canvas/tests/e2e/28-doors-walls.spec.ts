@@ -142,7 +142,7 @@ function installKit(page: Page): Promise<void> {
         // A wall set, because a bare layer has none and `renderNodeWalls`
         // returns early without one: no stones to gap, nothing to look at.
         s.updateLayer(lid, {
-          style: { ...(layer().style as Any), wallTextureSetId: 'stone-slate' },
+          style: { ...(layer().style as Any), wallTextureSetId: 'GG_Fieldstone' },
         })
         for (const wall of spec.walls ?? []) {
           s.addWall(lid, {

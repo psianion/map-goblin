@@ -46,10 +46,10 @@ vi.mock('../assets/textureLoader', () => ({
   load: vi.fn(() => Promise.resolve(null)),
 }));
 
-vi.mock('../assets/textureManifest', () => ({
+vi.mock('../assets/packCatalog', () => ({
   getWallPieces: (_set: string, piece: string) =>
     piece === 'straight'
-      ? [{ id: 'straight-a', naturalWidth: 200, naturalHeight: 200, contentRect: { x: 0, y: 0, w: 200, h: 60 } }]
+      ? [{ id: 'straight-a', naturalWidth: 200, naturalHeight: 200, contentRect: { x: 0, y: 0, w: 200, h: 60 }, tags: [] }]
       : [],
 }));
 

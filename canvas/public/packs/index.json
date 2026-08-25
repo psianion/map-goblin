@@ -1,22 +1,30 @@
 {
   "version": 1,
   "packs": {
-    "dungeon-classic": {
-      "version": "1.3.0",
-      "bundleSize": 8343072,
-      "entryCount": 167,
+    "gg-demo": {
+      "version": "0.1.0",
+      "bundleSize": 18927710,
+      "entryCount": 829,
       "themes": [
-        "dungeon",
-        "cave",
-        "ruin"
+        "fantasy"
       ],
-      "preview": "dungeon-classic/preview-9e0e45e5.webp",
-      "manifest": "dungeon-classic/pack-820544e4.json"
+      "preview": "gg-demo/preview-46d3ab4d.webp",
+      "manifest": "gg-demo/pack-91e1cc72.json"
+    },
+    "gg-forge": {
+      "version": "1.0.0",
+      "bundleSize": 285552,
+      "entryCount": 58,
+      "themes": [
+        "fantasy"
+      ],
+      "preview": "gg-forge/preview-2d8ce6b3.webp",
+      "manifest": "gg-forge/pack-83105e89.json"
     }
   },
   "catalog": {
-    "totalEntries": 167,
+    "totalEntries": 887,
     "chunkCount": 0,
-    "lastUpdated": "2026-08-13T09:07:19.318Z"
+    "lastUpdated": "2026-08-25T13:17:34.610Z"
   }
 }

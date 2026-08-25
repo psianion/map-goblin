@@ -21,6 +21,8 @@ function fakeManager(
   return {
     getInstalledPacks: () => installed,
     getPackManifests: () => manifests,
+    // No packDB behind the fake — nothing counts as a bundled leftover.
+    bundledInstalledIds: async () => [],
     registerPack: vi.fn(async () => {}),
     uninstallPack: vi.fn(async () => {}),
   } as unknown as AssetPackManager & {
@@ -224,12 +226,12 @@ describe('ensureBundledPack', () => {
     await expect(ensureBundledPack(mgr)).rejects.toThrow('Bundled pack index not found')
   })
 
-  it('throws when the bundled index has no entry for the bundled pack id', async () => {
+  it('installs nothing when the bundled index lists no packs', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({ ok: true, json: async () => ({ packs: {} }) }) as unknown as Response),
     )
     const mgr = fakeManager()
-    await expect(ensureBundledPack(mgr)).rejects.toThrow('no manifest entry')
+    await expect(ensureBundledPack(mgr)).resolves.toBe(false)
   })
 })

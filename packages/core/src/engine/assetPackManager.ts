@@ -27,20 +27,31 @@ export interface PackManagerConfig {
   packDB?: AssetPackDB
 }
 
-// SYNC: these types align with map-assets canonical pack schema — update when upstream changes
+// SYNC: mirrors vault-engine's PackManifestSchema (packages/vault-engine/src/schemas/pack-manifest.ts)
 export interface FileRef {
   checksum: string
   size: number
 }
 
+export interface EntryRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
 export interface ManifestEntry {
   type: string
-  localId: string
-  atlas: string
-  frame: string
+  material: string
   gridSize: string
-  tags: string[]
+  pieceType: string
+  variant: string
+  atlas?: string
+  frame?: EntryRect
+  /** Opaque-content bounds within the entry's cell — renderer trims to this. */
+  contentRect?: EntryRect
   set?: string
+  tags: string[]
 }
 
 export interface PackManifest {
@@ -51,7 +62,7 @@ export interface PackManifest {
   entries: Record<string, ManifestEntry>
   atlases: Record<string, FileRef>
   files: Record<string, FileRef>
-  themes?: string[]
+  theme?: string[]
 }
 
 export interface IndexEntry {
@@ -96,6 +107,12 @@ export class AssetPackManager {
   private cachedIndex: PackIndex | null = null
   private manifestCache: Map<string, PackManifest> = new Map()
   private static FALLBACK_TEXTURE: Texture | null = null
+
+  /**
+   * Bumped whenever the set of installed packs or loaded textures changes.
+   * packCatalog memoizes its derived views against this.
+   */
+  catalogVersion = 0
 
   constructor(config: PackManagerConfig) {
     this.config = config
@@ -154,6 +171,21 @@ export class AssetPackManager {
 
   getInstalledPacks(): PackSummary[] {
     return Array.from(this.installedPacks.values())
+  }
+
+  /**
+   * Ids of installed packs that came from the bundled first-boot install (as
+   * opposed to a CDN install). firstBootInstall uses this to retire bundled
+   * packs a newer build no longer ships.
+   */
+  async bundledInstalledIds(): Promise<string[]> {
+    if (!this.packDB) return []
+    const out: string[] = []
+    for (const packId of this.installedPacks.keys()) {
+      const stored = await this.packDB.getPack(packId)
+      if (stored?.bundled) out.push(packId)
+    }
+    return out
   }
 
   /**
@@ -374,7 +406,7 @@ export class AssetPackManager {
       packId,
       version: manifest.version,
       entryCount,
-      themes: manifest.themes ?? [],
+      themes: manifest.theme ?? [],
       bundleSize: packSize,
     })
 
@@ -416,7 +448,7 @@ export class AssetPackManager {
       packId,
       version: manifest.version,
       entryCount,
-      themes: manifest.themes ?? [],
+      themes: manifest.theme ?? [],
       bundleSize: packSize,
     })
 
@@ -516,6 +548,7 @@ export class AssetPackManager {
     )
 
     await Promise.all([...atlasTasks, ...fileTasks])
+    this.catalogVersion++
     this.flushTextureWaiters()
   }
 
@@ -666,7 +699,7 @@ export class AssetPackManager {
       packId,
       version: newManifest.version,
       entryCount,
-      themes: newManifest.themes ?? [],
+      themes: newManifest.theme ?? [],
       bundleSize: packSize,
     })
     // The cache backs getPackManifests(), which firstBootInstall reads to decide whether
@@ -817,6 +850,8 @@ export class AssetPackManager {
     }
 
     this.installedPacks.delete(packId)
+    this.manifestCache.delete(packId)
+    this.catalogVersion++
   }
 
   getCacheUsage(): { used: number; limit: number } {
@@ -827,6 +862,7 @@ export class AssetPackManager {
     this.textureCache.clear()
     this.frameCache.clear()
     this.installedPacks.clear()
+    this.catalogVersion++
   }
 
   /**
@@ -853,7 +889,7 @@ export class AssetPackManager {
           packId: stored.packId,
           version: stored.version,
           entryCount,
-          themes: manifest.themes ?? [],
+          themes: manifest.theme ?? [],
           bundleSize: stored.bundleSize,
         })
         this.manifestCache.set(stored.packId, manifest)
@@ -926,15 +962,12 @@ export class AssetPackManager {
 }
 
 /** `material_gridSize_variant-` prefix a loose file must start with to belong to `entry`. */
-function loosePrefixFor(entry: ManifestEntry & { material?: string; variant?: string }): string | undefined {
-  return entry.material ? `${entry.material}_${entry.gridSize}_${entry.variant ?? 'A'}-` : entry.localId
+function loosePrefixFor(entry: ManifestEntry): string {
+  return `${entry.material}_${entry.gridSize}_${entry.variant}-`
 }
 
 /** Every file (atlas json + image, or loose files) one manifest entry needs. */
-function entryFiles(
-  manifest: PackManifest,
-  entry: ManifestEntry & { material?: string; variant?: string; atlas?: string },
-): string[] {
+function entryFiles(manifest: PackManifest, entry: ManifestEntry): string[] {
   if (entry.atlas) {
     const files = [entry.atlas]
     // The atlas image and its frame-data JSON share a basename — loadPackTextures
@@ -944,7 +977,6 @@ function entryFiles(
     return files
   }
   const prefix = loosePrefixFor(entry)
-  if (!prefix) return []
   return Object.keys(manifest.files).filter((f) => f.startsWith(prefix))
 }
 

@@ -198,6 +198,78 @@ describe('integrateSets', () => {
     ).rejects.toThrow(/Overflow.*atlas sheets/);
   });
 
+  it('mints loose-file entries for non-atlas types declared per set', async () => {
+    const looseSet = join(TEST_DIR, 'loose-set');
+    await mkdir(looseSet, { recursive: true });
+    await writeFile(join(looseSet, 'chair_simple.png'), await makePng(104, 110, 70));
+    await writeFile(join(looseSet, 'door_plain.png'), await makePng(160, 52, 40));
+    await writeFile(
+      join(looseSet, 'manifest.json'),
+      JSON.stringify({
+        set: 'demo-stuff',
+        type: 'object',
+        pieces: [
+          { file: 'chair_simple.png', piece: 'object', gridSize: '1x1', naturalWidth: 104, naturalHeight: 110, tags: ['furniture'] },
+          // Runtime-contract key (door sprites) — overrides the stem-derived id.
+          { file: 'door_plain.png', piece: 'door', gridSize: '1x1', naturalWidth: 160, naturalHeight: 52, entryKey: 'door-single-closed', tags: ['door'] },
+        ],
+      }),
+    );
+
+    const result = await integrateSets({ basePackDir, setDirs: [looseSet], version: '1.1.0', output: join(TEST_DIR, 'loose-out') });
+
+    const chair = result.manifest.entries['chair_simple_1x1_object_A']!;
+    expect(chair).toMatchObject({
+      type: 'object',
+      material: 'chair_simple',
+      frame: { x: 0, y: 0, w: 104, h: 110 },
+      set: 'demo-stuff',
+      tags: ['furniture'],
+    });
+    expect(chair.atlas).toBeUndefined();
+
+    const door = result.manifest.entries['door-single-closed']!;
+    expect(door.material).toBe('door-single-closed');
+
+    // Loose files must land in files (not atlases) and prefix-match their entry
+    // (`{material}_{gridSize}_{variant}-` — that's how the runtime pairs them up).
+    const fileNames = Object.keys(result.manifest.files);
+    expect(fileNames.some((f) => f.startsWith('chair_simple_1x1_A-') && f.endsWith('.webp'))).toBe(true);
+    expect(fileNames.some((f) => f.startsWith('door-single-closed_1x1_A-'))).toBe(true);
+    expect(Object.keys(result.manifest.atlases).some((f) => f.includes('demo-stuff'))).toBe(false);
+
+    // The webp bytes are on disk and tracked with a real checksum.
+    const chairFile = fileNames.find((f) => f.startsWith('chair_simple_'))!;
+    const onDisk = await readFile(join(TEST_DIR, 'loose-out', 'test-pack', chairFile));
+    expect(`sha256:${sha256File(onDisk)}`).toBe(result.manifest.files[chairFile]!.checksum);
+  });
+
+  it('routes an atlas type through the loose path when the set says loose', async () => {
+    const bigFloorSet = join(TEST_DIR, 'big-floor-set');
+    await mkdir(bigFloorSet, { recursive: true });
+    await writeFile(join(bigFloorSet, 'plaster.png'), await makePng(300, 300, 90));
+    await writeFile(
+      join(bigFloorSet, 'manifest.json'),
+      JSON.stringify({
+        set: 'demo-floors',
+        type: 'floor',
+        loose: true,
+        pieces: [{ file: 'plaster.png', piece: 'floor', gridSize: '8x8', naturalWidth: 300, naturalHeight: 300, tags: ['stone'] }],
+      }),
+    );
+
+    const result = await integrateSets({ basePackDir, setDirs: [bigFloorSet], version: '1.1.0', output: join(TEST_DIR, 'floor-out') });
+    const entry = result.manifest.entries['plaster_8x8_floor_A']!;
+    expect(entry.atlas).toBeUndefined();
+    expect(Object.keys(result.manifest.files).some((f) => f.startsWith('plaster_8x8_A-'))).toBe(true);
+  });
+
+  it('throws when neither the set manifest nor the CLI provides a type', async () => {
+    await expect(
+      integrateSets({ basePackDir, setDirs: [setDir], version: '1.1.0', output: join(TEST_DIR, 'no-type-out') }),
+    ).rejects.toThrow(/no usable entry type/);
+  });
+
   it('refuses to drop a file still referenced by an entry that is not being replaced', async () => {
     const dir = join(TEST_DIR, 'shared-file-base');
     await mkdir(dir, { recursive: true });

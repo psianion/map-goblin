@@ -1,35 +1,41 @@
-// SYNC: these schemas are copied from map-assets — update when upstream changes
+// SYNC: mirrors vault-engine's PackManifestSchema — update when it changes
 //
 // Integration type tests validating that builder interfaces are structurally
-// compatible with the canonical map-assets schema output.
+// compatible with the pack build pipeline's output.
 
 import { describe, it, expect } from 'vitest'
 import type { PackManifest, ManifestEntry, FileRef } from './assetPackManager'
 import type { CatalogMeta, CatalogEntry, InvertedIndex } from './catalogBrowser'
 
-// ─── Sample canonical data (mirrors map-assets output) ───────────────
+// ─── Sample canonical data (mirrors vault-engine build output) ───────
 
 const SAMPLE_PACK_MANIFEST: PackManifest = {
-  name: 'Dungeon Classic',
-  description: 'Core dungeon tileset with stone, wood, and dirt textures.',
+  name: 'gg-forge',
+  description: 'Good Goblin forge-generated asset sets',
   version: '1.0.0',
   bundleSize: 25_600_000,
   entries: {
     'stone_1x1_floor_A': {
       type: 'floor',
-      localId: 'stone_1x1_floor_A',
-      atlas: 'floors.json',
-      frame: 'stone_1x1_floor_A',
+      material: 'stone',
       gridSize: '1x1',
+      pieceType: 'tile',
+      variant: 'A',
+      atlas: 'floors.webp',
+      frame: { x: 0, y: 0, w: 200, h: 200 },
       tags: ['indoor', 'dungeon'],
     },
-    'stone-slate_straight_wall_A': {
+    'GG_Fieldstone_Straight_3x1_A_3x1_wall_A': {
       type: 'wall',
-      localId: 'stone-slate_straight_wall_A',
-      atlas: 'walls.json',
-      frame: 'stone-slate_straight_wall_A',
-      gridSize: '1x1',
-      tags: ['indoor', 'dungeon'],
+      material: 'GG_Fieldstone_Straight_3x1_A',
+      gridSize: '3x1',
+      pieceType: 'straight',
+      variant: 'A',
+      atlas: 'walls.webp',
+      frame: { x: 0, y: 0, w: 600, h: 200 },
+      contentRect: { x: 0, y: 66, w: 600, h: 68 },
+      set: 'GG_Fieldstone',
+      tags: ['fantasy'],
     },
   },
   atlases: {
@@ -41,7 +47,7 @@ const SAMPLE_PACK_MANIFEST: PackManifest = {
   files: {
     'preview.webp': { checksum: 'sha256:aaa111', size: 50_000 },
   },
-  themes: ['dungeon'],
+  theme: ['dungeon'],
 }
 
 const SAMPLE_CATALOG_META: CatalogMeta = {
@@ -88,16 +94,16 @@ describe('map-assets schema compatibility', () => {
       expect(typeof SAMPLE_PACK_MANIFEST.files).toBe('object')
     })
 
-    it('entries are keyed by localId with correct structure', () => {
+    it('entries carry the build pipeline structure', () => {
       const entries = Object.entries(SAMPLE_PACK_MANIFEST.entries)
       expect(entries.length).toBeGreaterThan(0)
 
-      for (const [key, entry] of entries) {
-        expect(key).toBe(entry.localId)
+      for (const [, entry] of entries) {
         expect(typeof entry.type).toBe('string')
-        expect(typeof entry.atlas).toBe('string')
-        expect(typeof entry.frame).toBe('string')
+        expect(typeof entry.material).toBe('string')
         expect(typeof entry.gridSize).toBe('string')
+        expect(typeof entry.pieceType).toBe('string')
+        expect(typeof entry.variant).toBe('string')
         expect(Array.isArray(entry.tags)).toBe(true)
       }
     })
@@ -115,10 +121,10 @@ describe('map-assets schema compatibility', () => {
       }
     })
 
-    it('themes is optional string array', () => {
-      if (SAMPLE_PACK_MANIFEST.themes !== undefined) {
-        expect(Array.isArray(SAMPLE_PACK_MANIFEST.themes)).toBe(true)
-        for (const theme of SAMPLE_PACK_MANIFEST.themes) {
+    it('theme is optional string array', () => {
+      if (SAMPLE_PACK_MANIFEST.theme !== undefined) {
+        expect(Array.isArray(SAMPLE_PACK_MANIFEST.theme)).toBe(true)
+        for (const theme of SAMPLE_PACK_MANIFEST.theme) {
           expect(typeof theme).toBe('string')
         }
       }

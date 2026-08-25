@@ -46,9 +46,6 @@ vi.mock('pixi.js', () => {
 vi.mock('../assets/textureLoader', () => ({
   resolveTexture: (id: string) => ({ id, width: 200, height: 200 }),
 }));
-vi.mock('../assets/textureManifest', () => ({
-  getTextureEntry: () => null,
-}));
 vi.mock('./sceneGraph', () => ({ getLayerEntry: vi.fn() }));
 // The shadow pass is the sun's, not this loop's — it draws with the real PixiJS this file has
 // mocked away. Its own contract is covered in shared/shadows.test.ts.

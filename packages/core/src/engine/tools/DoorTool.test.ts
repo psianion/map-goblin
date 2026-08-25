@@ -36,7 +36,7 @@ vi.mock('pixi.js', () => {
 
 // No pack art in a unit run: every door falls back to its vector glyph.
 vi.mock('../assetPackInstance', () => ({
-  getAssetPackManager: () => ({ getTextureOrNull: () => null }),
+  getAssetPackManager: () => ({ getTextureOrNull: () => null, getInstalledPacks: () => [] }),
 }));
 vi.mock('../../assets/textureLoader', () => ({ resolveTexture: () => ({ width: 0 }) }));
 

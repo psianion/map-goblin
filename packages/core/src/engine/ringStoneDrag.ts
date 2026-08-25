@@ -25,7 +25,6 @@ import {
 import { currentWallNodes } from './wallNodeOverlay';
 import { buildPieceSpecs } from './wallNodeRenderer';
 import { pieceWorldLength } from './wallLayout';
-import type { WallCategory } from '../assets/textureManifest';
 
 let dragging = false;
 let dx = 0;
@@ -44,7 +43,7 @@ export function beginRingStoneDrag(layer: DungeonLayer, ring: number, ts: number
   const target = resolveRingOutline(layer, ring);
   if (!target) return false;
 
-  const setId = layer.style.wallTextureSetId as WallCategory | undefined;
+  const setId = layer.style.wallTextureSetId;
   if (!setId) return false;
   const specs = new Map(buildPieceSpecs(setId).map((s) => [s.id, s]));
   const wallWidth = layer.style.wallWidth;

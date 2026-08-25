@@ -7,9 +7,10 @@ vi.mock('../assets/textureLoader', () => ({
   getSync: () => null,
   load: vi.fn(() => Promise.resolve(null)),
 }));
-vi.mock('../assets/textureManifest', () => ({
+vi.mock('../assets/packCatalog', () => ({
   getWallPieces: () => [],
-  getTextureEntry: () => null,
+  getCatalogEntry: () => undefined,
+  GRID_CELL_PX: 200,
 }));
 
 import { Container, Mesh } from 'pixi.js';

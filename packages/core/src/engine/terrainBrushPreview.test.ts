@@ -51,7 +51,11 @@ describe('terrain brush preview', () => {
   it('fills the disc with the slot texture, so the ghost shows what will paint', () => {
     const { g, fills } = fakeGraphics();
     initToolPreview(g as never);
-    // Slot 0 of the default palette is a real texture id.
+    // The default palette ships empty (gg-demo has no floors yet) — assign a
+    // texture to slot 0 the way the picker would.
+    useStore.getState().setTerrainData({
+      palette: ['gg-demo:grass_1x1_floor_A', null, null, null, null, null],
+    });
     expect(terrainSlotTexture(0)).toBeTruthy();
 
     showToolPreview({ tool: 'terrain', terrainBrush: { radius: 2, slot: 0, erase: false } });

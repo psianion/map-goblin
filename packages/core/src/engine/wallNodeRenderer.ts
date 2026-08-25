@@ -9,11 +9,7 @@ import type { WallEdits } from '../shared/types';
 import type { Polygon } from '../types/geometry';
 import * as textureLoader from '../assets/textureLoader';
 import { resolveTexture } from '../assets/textureLoader';
-import {
-  getWallPieces,
-  type WallCategory,
-  type TextureEntry,
-} from '../assets/textureManifest';
+import { getWallPieces, type CatalogEntry } from '../assets/packCatalog';
 import {
   layoutWall,
   applyWallEdits,
@@ -45,7 +41,7 @@ export interface DoorGap {
  * carry no contentRect (corners, endings) are scaled against this so their arms
  * match the straights they join.
  */
-function referenceBandPx(setId: WallCategory): number {
+function referenceBandPx(setId: string): number {
   const straights = getWallPieces(setId, 'straight');
   const longest = [...straights].sort(
     (a, b) => (b.contentRect?.w ?? b.naturalWidth) - (a.contentRect?.w ?? a.naturalWidth),
@@ -53,7 +49,7 @@ function referenceBandPx(setId: WallCategory): number {
   return longest?.contentRect?.h ?? longest?.naturalHeight ?? 200;
 }
 
-function toSpec(entry: TextureEntry, role: WallPieceSpec['role'], bandPx: number): WallPieceSpec {
+function toSpec(entry: CatalogEntry, role: WallPieceSpec['role'], bandPx: number): WallPieceSpec {
   // resolveTexture trims to contentRect when one exists, so a piece that has one
   // is measured by its own content. One that does not arrives as a full padded
   // tile and is scaled against the set's band instead.
@@ -66,7 +62,7 @@ function toSpec(entry: TextureEntry, role: WallPieceSpec['role'], bandPx: number
     authoredTurn: role === 'corner' ? Math.PI / 2 : undefined,
     // 'standalone' marks pieces drawn with chipped free ends (they don't reach
     // their tile edge) — offered for manual swap, never auto-placed.
-    swapOnly: entry.tags?.includes('standalone') || undefined,
+    swapOnly: entry.tags.includes('standalone') || undefined,
   };
 }
 
@@ -81,7 +77,7 @@ function toSpec(entry: TextureEntry, role: WallPieceSpec['role'], bandPx: number
  *   not detect.
  * - `path` — the 8x1 seamless strip the old renderer tiled.
  */
-export function buildPieceSpecs(setId: WallCategory): WallPieceSpec[] {
+export function buildPieceSpecs(setId: string): WallPieceSpec[] {
   const bandPx = referenceBandPx(setId);
   const specs: WallPieceSpec[] = [];
 
@@ -89,11 +85,11 @@ export function buildPieceSpecs(setId: WallCategory): WallPieceSpec[] {
     specs.push(toSpec(e, 'straight', bandPx));
   }
   for (const e of getWallPieces(setId, 'connector')) {
-    if (e.id.includes('diag')) continue;
+    if (/diag/i.test(e.id)) continue;
     specs.push(toSpec(e, 'rock', bandPx));
   }
   for (const e of getWallPieces(setId, 'corner')) {
-    if ((e.gridSize ?? '1x1') !== '1x1') continue;
+    if (e.gridSize !== '1x1') continue;
     specs.push(toSpec(e, 'corner', bandPx));
   }
   for (const e of getWallPieces(setId, 'ending')) {
@@ -465,7 +461,7 @@ export function renderNodeWalls(
   /** Hand edits for floor rings, keyed by ring index. */
   floorEdits: Record<string, WallEdits> = {},
 ): void {
-  const layerSetId = style.wallTextureSetId as WallCategory | '' | undefined;
+  const layerSetId = style.wallTextureSetId;
   // A standalone wall may pin its own set — see `WallSegment.textureSetId`. It only
   // ever does so to hold the look it already had when a preset moved the layer on,
   // so in practice every run shares one set and this cache is hit every time.
@@ -474,7 +470,7 @@ export function renderNodeWalls(
     if (!id) return null;
     const hit = specCache.get(id);
     if (hit !== undefined) return hit;
-    const specs = buildPieceSpecs(id as WallCategory);
+    const specs = buildPieceSpecs(id);
     const resolved = specs.length
       ? { specs, specById: new Map(specs.map((s) => [s.id, s])) }
       : null;
@@ -548,7 +544,7 @@ export function renderNodeWalls(
 /** Preload every piece the layout engine can place. */
 export function preloadWallTextures(style: DungeonStyle): Promise<boolean> {
   if (!style.wallTextureSetId) return Promise.resolve(false);
-  const specs = buildPieceSpecs(style.wallTextureSetId as WallCategory);
+  const specs = buildPieceSpecs(style.wallTextureSetId);
   if (specs.length === 0) return Promise.resolve(false);
   return Promise.all(specs.map((s) => textureLoader.load(s.id)))
     .then(() => true)

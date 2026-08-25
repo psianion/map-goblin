@@ -23,7 +23,6 @@ import {
   cancelRingStoneDrag,
   isDraggingRingStone,
 } from '@/engine/ringStoneDrag';
-import type { WallCategory } from '@/assets/textureManifest';
 import { snapToNearestWall } from '@/shared/wallSnap';
 import { isLayerEffectivelyVisible } from '@/store/selectors';
 import type { DungeonLayer } from '@/store/types';
@@ -144,7 +143,7 @@ function commitEdits(run: EditableRun, before: WallEdits, after: WallEdits): voi
  * it back keeps this honest if the interpolation rule ever changes.
  */
 function materialisedInserts(run: EditableRun, edits: WallEdits): WallNodeInsert[] | undefined {
-  const setId = run.layer.style.wallTextureSetId as WallCategory | undefined;
+  const setId = run.layer.style.wallTextureSetId;
   if (!setId) return edits.nodeInserts;
   const pieces = buildPieceSpecs(setId);
   if (pieces.length === 0) return edits.nodeInserts;
@@ -282,7 +281,7 @@ function cyclePiece(t: number, direction: number): void {
       isLayerEffectivelyVisible(state, l) &&
       !l.locked,
   );
-  const setId = layer?.style.wallTextureSetId as WallCategory | undefined;
+  const setId = layer?.style.wallTextureSetId;
   if (!setId) return;
 
   const node = currentWallNodes().find((n) => Math.abs(n.t - t) < 1e-9);

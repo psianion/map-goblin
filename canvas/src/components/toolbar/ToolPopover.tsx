@@ -25,7 +25,7 @@ import type { MapStylePreset } from '@/store/presetRegistry';
 import { PresetApplyCommand, LayerStyleChangeCommand } from '@/store/commands';
 import { undoManager } from '@/store/undoManager';
 import { notify } from '@/lib/toast';
-import { getTextureEntry } from '@/assets/textureManifest';
+import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import { DEFAULT_TERRAIN_PALETTE } from '@/store/slices/mapSettings';
 import { TERRAIN_BRUSH_RANGES, WATER_RANGES } from '@/store/slices/tools';
 import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas';
@@ -716,7 +716,7 @@ function TerrainBrushContent({ onValueChange }: { onValueChange: () => void }) {
         <div className="grid grid-cols-3 gap-1">
           {palette.map((id, slot) => {
             if (!id) return <div key={slot} className="aspect-square rounded bg-surface-2" />;
-            const entry = getTextureEntry(id);
+            const entry = getCatalogEntry(id);
             const selected = settings.slot === slot;
             return (
               <button

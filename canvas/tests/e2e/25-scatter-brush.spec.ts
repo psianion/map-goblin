@@ -41,11 +41,12 @@ async function activateScatterBrush(page: import('@playwright/test').Page): Prom
 /**
  * Arm the brush with an asset it can actually size.
  *
- * It has to be a real id: the tool asks the manifest (or a loaded texture) for
+ * It has to be a real id: the tool asks the catalog (or a loaded texture) for
  * the asset's natural size and drops the placement when neither answers, so the
  * made-up 'test-scatter-asset' this used to inject produced no placements at
- * all and every row below asserted on an empty layer. 'grass-a-01' is a bundled
- * manifest entry, so its size is known without waiting on a texture download.
+ * all and every row below asserted on an empty layer. A gg-forge wall entry is
+ * a bundled catalog entry, so its size is known without waiting on a texture
+ * download. (gg-demo will carry real scatter objects once its art lands.)
  */
 async function injectScatterAsset(page: import('@playwright/test').Page): Promise<void> {
   await page.evaluate(() => {
@@ -57,7 +58,7 @@ async function injectScatterAsset(page: import('@playwright/test').Page): Promis
     const state = store.getState()
     const current = state.tools.settings.scatterBrush
     state.updateToolSettings({
-      scatterBrush: { ...current, assetIds: ['grass-a-01'] },
+      scatterBrush: { ...current, assetIds: ['gg-forge:GG_Fieldstone_Corner_A_1x1_1x1_wall_A'] },
     })
   })
   await waitFrame(page, 1)

@@ -5,12 +5,16 @@
 // wrote (forge/build-pack-files*.mjs), and everything else is carried byte-identical.
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import sharp from 'sharp';
 import { packSprites, type SpriteInput } from './pack-sprites.js';
 import { writeBundle } from './bundle.js';
 import { contentHash, sha256File } from '../hash.js';
 import { ATLAS_TYPES } from '../types.js';
 import type { AssetType } from '../types.js';
 import { PackManifestSchema, type PackManifest, type ManifestEntry } from '../schemas/pack-manifest.js';
+
+/** 'door' lives in the manifest schema but predates types.ts — accept it here too. */
+type EntryType = AssetType | 'door';
 
 interface ForgePiece {
   file: string;
@@ -19,17 +23,31 @@ interface ForgePiece {
   naturalWidth: number;
   naturalHeight: number;
   variant?: string;
+  contentRect?: { x: number; y: number; w: number; h: number };
+  tags?: string[];
+  /**
+   * Exact manifest key to mint instead of the stem-derived one. Used for entries
+   * whose id is a runtime contract (door sprites: `door-<style>-<state>`).
+   * Loose sets only — the entry's material is set to this key so the loose file
+   * prefix-matches it.
+   */
+  entryKey?: string;
 }
 
 interface ForgeSetManifest {
   set: string;
   pieces: ForgePiece[];
+  /** Per-set entry type; falls back to the CLI-level type when absent. */
+  type?: EntryType;
+  /** Force loose files for an atlas type (e.g. a floor tile too big for one sheet). */
+  loose?: boolean;
 }
 
 export interface IntegrateOptions {
   basePackDir: string;
   setDirs: string[];
-  type: AssetType;
+  /** Default entry type for sets whose manifest doesn't declare its own. */
+  type?: EntryType;
   version: string;
   output: string;
   /** Atlas bin cap in px, one side. Defaults to 4096, same ceiling as buildPack. */
@@ -69,10 +87,11 @@ function sortRecord<T>(rec: Record<string, T>): Record<string, T> {
   return out;
 }
 
+const KNOWN_TYPES = new Set<string>([
+  'floor', 'wall', 'pattern', 'edge', 'object', 'scatter', 'path', 'portal', 'light-mask', 'door',
+]);
+
 export async function integrateSets(opts: IntegrateOptions): Promise<IntegrateResult> {
-  if (!ATLAS_TYPES.has(opts.type)) {
-    throw new Error(`integrateSets only packs atlas types, got "${opts.type}"`);
-  }
   const maxAtlasSize = opts.maxAtlasSize ?? 4096;
 
   const baseManifestFile = await findManifestFile(opts.basePackDir);
@@ -83,14 +102,75 @@ export async function integrateSets(opts: IntegrateOptions): Promise<IntegrateRe
 
   const mintedEntries: Record<string, ManifestEntry> = {};
   const mintedAtlases: Record<string, { checksum: string; size: number }> = {};
-  const newFiles = new Map<string, Buffer>(); // atlas webp+json for minted sets
+  const mintedFiles: Record<string, { checksum: string; size: number }> = {};
+  const newFiles = new Map<string, Buffer>(); // atlas webp+json / loose webp for minted sets
   const mintedKeySources = new Map<string, string>();
   const droppedFiles = new Set<string>();
+
+  // Replacing an existing entry: drop the loose file it used to reference.
+  const dropReplacedEntryFiles = (key: string): void => {
+    const oldEntry = baseManifest.entries[key];
+    if (!oldEntry) return;
+    if (oldEntry.atlas) {
+      throw new Error(`Cannot replace atlas-backed entry "${key}" — expected a loose-file entry`);
+    }
+    const oldFiles = looseFilesFor(oldEntry, baseFileNames);
+    if (oldFiles.length !== 1) {
+      throw new Error(`Expected exactly one loose file for entry "${key}", found ${oldFiles.length}`);
+    }
+    droppedFiles.add(oldFiles[0]!);
+  };
 
   for (const setDir of opts.setDirs) {
     const forgeManifest: ForgeSetManifest = JSON.parse(
       await readFile(join(setDir, 'manifest.json'), 'utf-8'),
     );
+    const setType = forgeManifest.type ?? opts.type;
+    if (!setType || !KNOWN_TYPES.has(setType)) {
+      throw new Error(
+        `Set "${forgeManifest.set}" has no usable entry type — declare "type" in its manifest ` +
+          `or pass -t (got "${setType ?? 'none'}")`,
+      );
+    }
+    const loose = forgeManifest.loose === true || !ATLAS_TYPES.has(setType as AssetType);
+
+    if (loose) {
+      for (const piece of forgeManifest.pieces) {
+        const stem = piece.file.replace(/\.png$/, '');
+        const gridSize = piece.gridSize ?? deriveGridSize(piece.naturalWidth, piece.naturalHeight);
+        const variant = piece.variant ?? 'A';
+        const material = piece.entryKey ?? stem;
+        const key = piece.entryKey ?? `${stem}_${gridSize}_${setType}_${variant}`;
+
+        const clash = mintedKeySources.get(key);
+        if (clash) throw new Error(`Duplicate minted id '${key}': ${clash} and ${setDir}/${piece.file}`);
+        mintedKeySources.set(key, `${setDir}/${piece.file}`);
+
+        const webp = await sharp(await readFile(join(setDir, piece.file)))
+          .webp({ quality: 90, alphaQuality: 90 })
+          .toBuffer();
+        const fileName = `${material}_${gridSize}_${variant}-${contentHash(webp)}.webp`;
+        newFiles.set(fileName, webp);
+        mintedFiles[fileName] = { checksum: `sha256:${sha256File(webp)}`, size: webp.length };
+
+        mintedEntries[key] = {
+          type: setType as ManifestEntry['type'],
+          material,
+          gridSize,
+          pieceType: piece.piece,
+          variant,
+          // Loose entries carry no atlas frame; record real pixel size here so the
+          // catalog's natural-size fallback (gridSize × 200) doesn't misreport
+          // trimmed art that fills only part of its footprint.
+          frame: { x: 0, y: 0, w: piece.naturalWidth, h: piece.naturalHeight },
+          contentRect: piece.contentRect,
+          set: forgeManifest.set,
+          tags: piece.tags ?? baseManifest.theme,
+        };
+        dropReplacedEntryFiles(key);
+      }
+      continue;
+    }
 
     const sprites: SpriteInput[] = [];
     // piece metadata keyed by minted key, joined back to the frame once packSprites places it
@@ -104,7 +184,7 @@ export async function integrateSets(opts: IntegrateOptions): Promise<IntegrateRe
       // every piece regardless of that letter — always 'A' — which is what makes the
       // 58 ids already live in the pack reproduce exactly.
       const variant = 'A';
-      const key = `${stem}_${gridSize}_${opts.type}_${variant}`;
+      const key = `${stem}_${gridSize}_${setType}_${variant}`;
 
       const clash = mintedKeySources.get(key);
       if (clash) throw new Error(`Duplicate minted id '${key}': ${clash} and ${setDir}/${piece.file}`);
@@ -132,8 +212,8 @@ export async function integrateSets(opts: IntegrateOptions): Promise<IntegrateRe
 
     const atlas = packResult.atlases[0]!;
     const hash = contentHash(atlas.imageData);
-    const imgFilename = `atlas-${forgeManifest.set}-${opts.type}-${hash}.webp`;
-    const jsonFilename = `atlas-${forgeManifest.set}-${opts.type}-${hash}.json`;
+    const imgFilename = `atlas-${forgeManifest.set}-${setType}-${hash}.webp`;
+    const jsonFilename = `atlas-${forgeManifest.set}-${setType}-${hash}.json`;
     atlas.meta.image = imgFilename;
     const jsonData = Buffer.from(JSON.stringify({ frames: atlas.frames, meta: atlas.meta }));
 
@@ -145,31 +225,18 @@ export async function integrateSets(opts: IntegrateOptions): Promise<IntegrateRe
     for (const [key, frame] of Object.entries(atlas.frames)) {
       const meta = pieceByKey.get(key)!;
       mintedEntries[key] = {
-        type: opts.type,
+        type: setType as ManifestEntry['type'],
         material: meta.stem,
         gridSize: meta.gridSize,
         pieceType: meta.piece.piece,
         variant: 'A',
         atlas: imgFilename,
         frame: frame.frame,
+        contentRect: meta.piece.contentRect,
         set: forgeManifest.set,
-        tags: baseManifest.theme,
+        tags: meta.piece.tags ?? baseManifest.theme,
       };
-
-      // Replacing an existing entry: drop the loose file it used to reference.
-      const oldEntry = baseManifest.entries[key];
-      if (oldEntry) {
-        if (oldEntry.atlas) {
-          throw new Error(`Cannot replace atlas-backed entry "${key}" — expected a loose-file entry`);
-        }
-        const oldFiles = looseFilesFor(oldEntry, baseFileNames);
-        if (oldFiles.length !== 1) {
-          throw new Error(
-            `Expected exactly one loose file for entry "${key}", found ${oldFiles.length}`,
-          );
-        }
-        droppedFiles.add(oldFiles[0]!);
-      }
+      dropReplacedEntryFiles(key);
     }
   }
 
@@ -186,9 +253,10 @@ export async function integrateSets(opts: IntegrateOptions): Promise<IntegrateRe
 
   const finalEntries = sortRecord({ ...baseManifest.entries, ...mintedEntries });
   const finalAtlases = sortRecord({ ...baseManifest.atlases, ...mintedAtlases });
-  const finalFiles = sortRecord(
-    Object.fromEntries(Object.entries(baseManifest.files).filter(([f]) => !droppedFiles.has(f))),
-  );
+  const finalFiles = sortRecord({
+    ...Object.fromEntries(Object.entries(baseManifest.files).filter(([f]) => !droppedFiles.has(f))),
+    ...mintedFiles,
+  });
   const bundleSize =
     Object.values(finalAtlases).reduce((s, f) => s + f.size, 0) +
     Object.values(finalFiles).reduce((s, f) => s + f.size, 0);

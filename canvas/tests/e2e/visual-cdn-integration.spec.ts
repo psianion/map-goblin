@@ -14,10 +14,11 @@
  *
  * Coverage:
  * 1. CDN connectivity — index.json reachable at the configured base
- * 2. Pack loading — dungeon-classic pack manifest downloads and registers
- * 3. Asset browser displays CDN assets — floors, walls, objects, edges in catalog
+ * 2. Pack loading — gg-forge pack manifest downloads and registers
+ * 3. Asset browser displays CDN assets — wall entries in catalog (gg-forge is
+ *    wall-only until gg-demo ships the other types)
  * 4. Asset placement from CDN — select and place a CDN asset on canvas
- * 5. Atlas textures — spritesheet atlases for wall/floor/edge load
+ * 5. Atlas textures — per-set wall spritesheet atlases load
  * 6. CDN failure resilience — app survives missing CDN, fallback texture is magenta 1x1
  */
 import { test, expect, type Page } from '@playwright/test'
@@ -25,7 +26,7 @@ import { gotoApp, waitFrame, firePointer, getPixelColor } from './helpers'
 
 /** Must stay in step with `cdnConfig.baseUrl` (src/config/cdnConfig.ts). */
 const CDN_BASE = '/packs'
-const PACK_ID = 'dungeon-classic'
+const PACK_ID = 'gg-forge'
 
 type PackManifestBody = {
   version: string
@@ -50,12 +51,12 @@ async function getPackManifestFilename(page: Page): Promise<string> {
   cachedManifestFilename = await page.evaluate(async (cdnBase) => {
     const res = await fetch(`${cdnBase}/index.json`)
     const body = (await res.json()) as { packs: Record<string, { manifest?: string }> }
-    const raw = body.packs['dungeon-classic']?.manifest
-    if (!raw) throw new Error('index.json has no manifest entry for dungeon-classic')
-    // index.json stores CDN-root-relative paths ("dungeon-classic/pack-<hash>.json");
+    const raw = body.packs['gg-forge']?.manifest
+    if (!raw) throw new Error('index.json has no manifest entry for gg-forge')
+    // index.json stores CDN-root-relative paths ("gg-forge/pack-<hash>.json");
     // callers join `${cdnBase}/${packId}/${filename}`, so the pack directory has to
     // come off first or the fetch doubles it up.
-    const prefix = 'dungeon-classic/'
+    const prefix = 'gg-forge/'
     return raw.startsWith(prefix) ? raw.slice(prefix.length) : raw
   }, CDN_BASE)
   return cachedManifestFilename
@@ -76,7 +77,7 @@ async function getPackManifestBody(page: Page): Promise<PackManifestBody> {
 async function getAtlasBaseName(page: Page, type: string): Promise<string> {
   const manifest = await getPackManifestBody(page)
   const jsonKey = Object.keys(manifest.atlases).find(
-    (f) => f.startsWith(`atlas-${type}-`) && f.endsWith('.json'),
+    (f) => f.startsWith('atlas-') && f.includes(`-${type}-`) && f.endsWith('.json'),
   )
   if (!jsonKey) throw new Error(`No "${type}" atlas found in manifest`)
   return jsonKey.slice(0, -'.json'.length)
@@ -114,20 +115,20 @@ async function getInstalledPacks(page: Page) {
  * rows are supposed to be checking for.
  */
 async function blockPackCdn(page: Page): Promise<void> {
-  await page.route(/\/packs\/(index\.json|dungeon-classic\/)/, (route) => route.abort())
+  await page.route(/\/packs\/(index\.json|gg-)/, (route) => route.abort())
 }
 
-/** The version the CDN currently publishes for dungeon-classic. */
+/** The version the CDN currently publishes for gg-forge. */
 async function publishedPackVersion(page: Page): Promise<string> {
   return page.evaluate(async (cdnBase) => {
     const res = await fetch(`${cdnBase}/index.json`)
     const body = (await res.json()) as { packs: Record<string, { version: string }> }
-    return body.packs['dungeon-classic'].version
+    return body.packs['gg-forge'].version
   }, CDN_BASE)
 }
 
-/** Install dungeon-classic pack via the store's installPack action */
-async function installDungeonClassic(page: Page): Promise<boolean> {
+/** Install gg-forge pack via the store's installPack action */
+async function installGgForge(page: Page): Promise<boolean> {
   const result = await page.evaluate(async () => {
     const store = (
       window as {
@@ -140,7 +141,7 @@ async function installDungeonClassic(page: Page): Promise<boolean> {
     ).__store
     if (!store) return false
     try {
-      await store.getState().installPack('dungeon-classic')
+      await store.getState().installPack('gg-forge')
       return true
     } catch (e) {
       console.error('[test] installPack failed:', e)
@@ -216,7 +217,7 @@ test.describe('CDN Connectivity', () => {
     expect(result.hasPacks).toBe(true)
   })
 
-  test('index.json contains dungeon-classic pack', async ({ page }) => {
+  test('index.json contains gg-forge pack', async ({ page }) => {
     await gotoApp(page)
 
     // The version and entry count are cross-checked against the manifest the
@@ -232,10 +233,10 @@ test.describe('CDN Connectivity', () => {
           { version: string; entryCount: number; bundleSize: number; manifest: string }
         >
       }
-      const pack = body.packs['dungeon-classic']
+      const pack = body.packs['gg-forge']
       if (!pack) return { found: false }
 
-      // pack.manifest is CDN-root-relative ("dungeon-classic/pack-<hash>.json") —
+      // pack.manifest is CDN-root-relative ("gg-forge/pack-<hash>.json") —
       // fetch it directly off cdnBase rather than joining another packId in.
       const manRes = await fetch(`${cdnBase}/${pack.manifest}`)
       const manifest = (await manRes.json()) as {
@@ -308,19 +309,19 @@ test.describe('CDN Connectivity', () => {
 
     expect(result.ok).toBe(true)
     expect(result.version).toBe(await publishedPackVersion(page))
-    expect(result.name).toBe('dungeon-classic')
+    expect(result.name).toBe('gg-forge')
     // Pinned regression tripwire — verified against the committed manifest.
-    expect(result.entryCount).toBe(167)
+    expect(result.entryCount).toBe(58)
     expect(result.atlasCount).toBeGreaterThan(0)
   })
 
   test('atlas WebP files are fetchable from CDN', async ({ page }) => {
     await gotoApp(page)
 
-    const floorAtlas = await getAtlasBaseName(page, 'floor')
+    const wallAtlas = await getAtlasBaseName(page, 'wall')
     const result = await page.evaluate(
-      async ({ cdnBase, packId, floorAtlas }) => {
-        const atlasUrl = `${cdnBase}/${packId}/${floorAtlas}.webp`
+      async ({ cdnBase, packId, wallAtlas }) => {
+        const atlasUrl = `${cdnBase}/${packId}/${wallAtlas}.webp`
         const res = await fetch(atlasUrl)
         return {
           ok: res.ok,
@@ -329,7 +330,7 @@ test.describe('CDN Connectivity', () => {
           size: Number(res.headers.get('content-length') ?? 0),
         }
       },
-      { cdnBase: CDN_BASE, packId: PACK_ID, floorAtlas },
+      { cdnBase: CDN_BASE, packId: PACK_ID, wallAtlas },
     )
 
     expect(result.ok).toBe(true)
@@ -356,34 +357,34 @@ test.describe('Pack Loading from CDN', () => {
     expect(storeOk).toBe(true)
   })
 
-  test('installPack downloads dungeon-classic from CDN and registers it', async ({ page }) => {
+  test('installPack downloads gg-forge from CDN and registers it', async ({ page }) => {
     await gotoApp(page)
 
     const packsBefore = await getInstalledPacks(page)
-    const hadDungeonClassic = packsBefore.some((p) => p.packId === 'dungeon-classic')
+    const hadGgForge = packsBefore.some((p) => p.packId === 'gg-forge')
 
-    if (!hadDungeonClassic) {
+    if (!hadGgForge) {
       // Intercept to verify the right CDN URLs are requested
       const manifestRequested = page.waitForRequest(
-        (req) => req.url().includes('dungeon-classic') && req.url().includes('pack-'),
+        (req) => req.url().includes('gg-forge') && req.url().includes('pack-'),
         { timeout: 15000 },
       )
 
-      const installed = await installDungeonClassic(page)
+      const installed = await installGgForge(page)
 
       // If CDN is live, install should succeed
       if (installed) {
         await manifestRequested
 
         const packsAfter = await getInstalledPacks(page)
-        const pack = packsAfter.find((p) => p.packId === 'dungeon-classic')
+        const pack = packsAfter.find((p) => p.packId === 'gg-forge')
         expect(pack).toBeDefined()
         expect(pack?.version).toBe(await publishedPackVersion(page))
         expect(pack?.sizeBytes).toBeGreaterThan(0)
       }
     } else {
       // Already installed — verify it's correctly registered
-      const pack = packsBefore.find((p) => p.packId === 'dungeon-classic')
+      const pack = packsBefore.find((p) => p.packId === 'gg-forge')
       expect(pack).toBeDefined()
       expect(pack?.version).toBe(await publishedPackVersion(page))
     }
@@ -395,27 +396,27 @@ test.describe('Pack Loading from CDN', () => {
     const capturedUrls: string[] = []
     page.on('request', (req) => {
       const url = req.url()
-      if (url.includes(`${CDN_BASE}/`) && url.includes('dungeon-classic')) {
+      if (url.includes(`${CDN_BASE}/`) && url.includes('gg-forge')) {
         capturedUrls.push(url)
       }
     })
 
     const packsAfter = await getInstalledPacks(page)
-    const alreadyInstalled = packsAfter.some((p) => p.packId === 'dungeon-classic')
+    const alreadyInstalled = packsAfter.some((p) => p.packId === 'gg-forge')
 
     if (!alreadyInstalled) {
-      await installDungeonClassic(page)
+      await installGgForge(page)
       await waitFrame(page, 10)
 
       // Pack install should have fetched the manifest from CDN
       const manifestHit = capturedUrls.some(
-        (u) => u.includes('dungeon-classic') && u.match(/pack-[0-9a-f]+\.json/),
+        (u) => u.includes('gg-forge') && u.match(/pack-[0-9a-f]+\.json/),
       )
       expect(manifestHit).toBe(true)
     } else {
       // Pack already installed — just verify store state is correct
-      const pack = packsAfter.find((p) => p.packId === 'dungeon-classic')
-      expect(pack?.packId).toBe('dungeon-classic')
+      const pack = packsAfter.find((p) => p.packId === 'gg-forge')
+      expect(pack?.packId).toBe('gg-forge')
     }
   })
 
@@ -506,7 +507,7 @@ test.describe('Asset Browser Displays CDN Assets', () => {
         // Catalog meta endpoint not present — fall back to pack manifest check
         const indexRes = await fetch(`${cdnBase}/index.json`)
         const index = (await indexRes.json()) as { packs: Record<string, { manifest: string }> }
-        const manifestPath = index.packs['dungeon-classic']!.manifest
+        const manifestPath = index.packs['gg-forge']!.manifest
         const manifestRes = await fetch(`${cdnBase}/${manifestPath}`)
         const manifest = (await manifestRes.json()) as {
           entries: Record<string, { type: string }>
@@ -524,16 +525,13 @@ test.describe('Asset Browser Displays CDN Assets', () => {
     }, CDN_BASE)
 
     expect(result.totalEntries).toBeGreaterThan(0)
-    // Verify all expected asset types are present
+    // gg-forge carries walls only until gg-demo ships the other types
     if (!result.hasMeta && result.types) {
-      expect(result.types['floor']).toBeGreaterThan(0)
       expect(result.types['wall']).toBeGreaterThan(0)
-      expect(result.types['object']).toBeGreaterThan(0)
-      expect(result.types['edge']).toBeGreaterThan(0)
     }
   })
 
-  test('pack manifest entry counts match expected dungeon-classic spec', async ({ page }) => {
+  test('pack manifest entry counts match expected gg-forge spec', async ({ page }) => {
     await gotoApp(page)
 
     const manifestFilename = await getPackManifestFilename(page)
@@ -560,15 +558,15 @@ test.describe('Asset Browser Displays CDN Assets', () => {
       { cdnBase: CDN_BASE, packId: PACK_ID, manifest: manifestFilename },
     )
 
-    // Verify known dungeon-classic composition — pinned regression tripwire,
-    // verified against the committed manifest (167 entries).
-    expect(counts.total).toBe(167)
-    expect(counts.floor).toBe(22)
-    expect(counts.wall).toBe(100)
-    expect(counts.object).toBe(21)
-    expect(counts.edge).toBe(17)
-    expect(counts.scatter).toBe(1)
-    expect(counts.door).toBe(6)
+    // Verify known gg-forge composition — pinned regression tripwire,
+    // verified against the committed manifest (58 wall entries, two sets).
+    expect(counts.total).toBe(58)
+    expect(counts.wall).toBe(58)
+    expect(counts.floor).toBe(0)
+    expect(counts.object).toBe(0)
+    expect(counts.edge).toBe(0)
+    expect(counts.scatter).toBe(0)
+    expect(counts.door).toBe(0)
   })
 
   test('asset search/filter works in asset browser without crash', async ({ page }) => {
@@ -581,7 +579,7 @@ test.describe('Asset Browser Displays CDN Assets', () => {
     await expect(searchInput).toBeVisible()
 
     // Search for a term that should match CDN assets
-    await searchInput.fill('cobblestone')
+    await searchInput.fill('straight')
     await waitFrame(page, 3)
 
     // App should not crash — canvas and search box still visible
@@ -601,7 +599,7 @@ test.describe('Asset Browser Displays CDN Assets', () => {
     await waitFrame(page, 2)
 
     const searchInput = page.getByPlaceholder('Search assets…')
-    await searchInput.fill('zzz_definitely_not_in_dungeon_classic_xyz')
+    await searchInput.fill('zzz_definitely_not_in_gg_forge_xyz')
     await waitFrame(page, 3)
 
     // Either shows empty state or no results — app doesn't crash
@@ -648,19 +646,19 @@ test.describe('Asset Placement from CDN', () => {
         ).__store
         if (!store) return false
 
-        // Fetch actual atlas thumbnail from CDN (floor atlas)
+        // Fetch actual atlas thumbnail from CDN (wall atlas)
         let thumbUrl = ''
         try {
           const res = await fetch(`${cdnBase}/${packId}/${manifestFile}`)
           const mf = (await res.json()) as {
             entries: Record<string, { type: string; atlas?: string }>
           }
-          // Find first floor entry with an atlas
-          const floorEntry = Object.values(mf.entries).find(
-            (e) => e.type === 'floor' && e.atlas,
+          // Find first wall entry with an atlas
+          const wallEntry = Object.values(mf.entries).find(
+            (e) => e.type === 'wall' && e.atlas,
           )
-          if (floorEntry?.atlas) {
-            thumbUrl = `${cdnBase}/${packId}/${floorEntry.atlas}`
+          if (wallEntry?.atlas) {
+            thumbUrl = `${cdnBase}/${packId}/${wallEntry.atlas}`
           }
         } catch {
           thumbUrl = ''
@@ -680,7 +678,7 @@ test.describe('Asset Placement from CDN', () => {
           childType: 'asset',
           visible: true,
           objectType: 'asset',
-          assetId: `${packId}:cobblestone-a-01_1x1_floor_A`,
+          assetId: `${packId}:GG_Fieldstone_Straight_1x1_A_1x1_wall_A`,
           position: { x: 400, y: 300 },
           scale: 1,
           width: 64,
@@ -736,7 +734,7 @@ test.describe('Asset Placement from CDN', () => {
           childType: 'asset',
           visible: true,
           objectType: 'asset',
-          assetId: `${packId}:cobblestone-a-01_1x1_floor_A`,
+          assetId: `${packId}:GG_Fieldstone_Straight_1x1_A_1x1_wall_A`,
           position: { x: 400, y: 300 },
           scale: 1,
           width: 128,
@@ -786,43 +784,14 @@ test.describe('Asset Placement from CDN', () => {
 // ─── Suite 5: Atlas Textures from CDN ────────────────────────────────────────
 
 test.describe('Atlas Textures from CDN', () => {
-  test('floor atlas JSON and WebP are both fetchable', async ({ page }) => {
-    await gotoApp(page)
-
-    const floorAtlas = await getAtlasBaseName(page, 'floor')
-    const result = await page.evaluate(
-      async ({ cdnBase, floorAtlas }) => {
-        const jsonRes = await fetch(`${cdnBase}/dungeon-classic/${floorAtlas}.json`)
-        const webpRes = await fetch(`${cdnBase}/dungeon-classic/${floorAtlas}.webp`)
-        const json = (await jsonRes.json()) as {
-          frames: Record<string, unknown>
-          meta?: { image?: string; size?: { w: number; h: number } }
-        }
-        return {
-          jsonOk: jsonRes.ok,
-          webpOk: webpRes.ok,
-          frameCount: Object.keys(json.frames ?? {}).length,
-          metaImage: json.meta?.image,
-          metaSize: json.meta?.size,
-        }
-      },
-      { cdnBase: CDN_BASE, floorAtlas },
-    )
-
-    expect(result.jsonOk).toBe(true)
-    expect(result.webpOk).toBe(true)
-    expect(result.frameCount).toBeGreaterThan(0)
-    expect(result.metaImage).toBeTruthy()
-  })
-
   test('wall atlas JSON and WebP are both fetchable', async ({ page }) => {
     await gotoApp(page)
 
     const wallAtlas = await getAtlasBaseName(page, 'wall')
     const result = await page.evaluate(
       async ({ cdnBase, wallAtlas }) => {
-        const jsonRes = await fetch(`${cdnBase}/dungeon-classic/${wallAtlas}.json`)
-        const webpRes = await fetch(`${cdnBase}/dungeon-classic/${wallAtlas}.webp`)
+        const jsonRes = await fetch(`${cdnBase}/gg-forge/${wallAtlas}.json`)
+        const webpRes = await fetch(`${cdnBase}/gg-forge/${wallAtlas}.webp`)
         const json = (await jsonRes.json()) as {
           frames: Record<string, unknown>
           meta?: { image?: string }
@@ -843,62 +812,12 @@ test.describe('Atlas Textures from CDN', () => {
     expect(result.metaImage).toBeTruthy()
   })
 
-  test('edge atlas JSON and WebP are both fetchable', async ({ page }) => {
+  test('AssetPackManager loads wall atlas frames into texture cache', async ({ page }) => {
     await gotoApp(page)
 
-    const edgeAtlas = await getAtlasBaseName(page, 'edge')
+    const wallAtlas = await getAtlasBaseName(page, 'wall')
     const result = await page.evaluate(
-      async ({ cdnBase, edgeAtlas }) => {
-        const jsonRes = await fetch(`${cdnBase}/dungeon-classic/${edgeAtlas}.json`)
-        const webpRes = await fetch(`${cdnBase}/dungeon-classic/${edgeAtlas}.webp`)
-        const json = (await jsonRes.json()) as {
-          frames: Record<string, unknown>
-        }
-        return {
-          jsonOk: jsonRes.ok,
-          webpOk: webpRes.ok,
-          frameCount: Object.keys(json.frames ?? {}).length,
-        }
-      },
-      { cdnBase: CDN_BASE, edgeAtlas },
-    )
-
-    expect(result.jsonOk).toBe(true)
-    expect(result.webpOk).toBe(true)
-    expect(result.frameCount).toBeGreaterThan(0)
-  })
-
-  test('scatter atlas JSON and WebP are both fetchable', async ({ page }) => {
-    await gotoApp(page)
-
-    const scatterAtlas = await getAtlasBaseName(page, 'scatter')
-    const result = await page.evaluate(
-      async ({ cdnBase, scatterAtlas }) => {
-        const jsonRes = await fetch(`${cdnBase}/dungeon-classic/${scatterAtlas}.json`)
-        const webpRes = await fetch(`${cdnBase}/dungeon-classic/${scatterAtlas}.webp`)
-        const json = (await jsonRes.json()) as {
-          frames: Record<string, unknown>
-        }
-        return {
-          jsonOk: jsonRes.ok,
-          webpOk: webpRes.ok,
-          frameCount: Object.keys(json.frames ?? {}).length,
-        }
-      },
-      { cdnBase: CDN_BASE, scatterAtlas },
-    )
-
-    expect(result.jsonOk).toBe(true)
-    expect(result.webpOk).toBe(true)
-    expect(result.frameCount).toBeGreaterThan(0)
-  })
-
-  test('AssetPackManager loads floor atlas frames into texture cache', async ({ page }) => {
-    await gotoApp(page)
-
-    const floorAtlas = await getAtlasBaseName(page, 'floor')
-    const result = await page.evaluate(
-      async ({ cdnBase, floorAtlas }) => {
+      async ({ cdnBase, wallAtlas }) => {
         const { AssetPackManager } = (await import(
           '/src/engine/assetPackManager.ts'
         )) as typeof import('@/engine/assetPackManager')
@@ -906,7 +825,7 @@ test.describe('Atlas Textures from CDN', () => {
         const manager = new AssetPackManager({ cdnBaseUrl: cdnBase })
 
         // Load atlas JSON
-        const jsonRes = await fetch(`${cdnBase}/dungeon-classic/${floorAtlas}.json`)
+        const jsonRes = await fetch(`${cdnBase}/gg-forge/${wallAtlas}.json`)
         const json = (await jsonRes.json()) as {
           frames: Record<string, unknown>
           meta?: { image?: string }
@@ -914,7 +833,7 @@ test.describe('Atlas Textures from CDN', () => {
         const frameCount = Object.keys(json.frames ?? {}).length
 
         // Before any pack install, the texture cache should be empty
-        const beforeCount = manager.getEntryIds('dungeon-classic').length
+        const beforeCount = manager.getEntryIds('gg-forge').length
 
         return {
           frameCount,
@@ -922,7 +841,7 @@ test.describe('Atlas Textures from CDN', () => {
           atlasHasFrames: frameCount > 0,
         }
       },
-      { cdnBase: CDN_BASE, floorAtlas },
+      { cdnBase: CDN_BASE, wallAtlas },
     )
 
     expect(result.frameCount).toBeGreaterThan(0)
@@ -931,13 +850,13 @@ test.describe('Atlas Textures from CDN', () => {
     expect(result.beforeCount).toBe(0)
   })
 
-  test('floor atlas frames reference correct atlas image filename', async ({ page }) => {
+  test('wall atlas frames reference correct atlas image filename', async ({ page }) => {
     await gotoApp(page)
 
-    const floorAtlas = await getAtlasBaseName(page, 'floor')
+    const wallAtlas = await getAtlasBaseName(page, 'wall')
     const result = await page.evaluate(
-      async ({ cdnBase, floorAtlas }) => {
-        const res = await fetch(`${cdnBase}/dungeon-classic/${floorAtlas}.json`)
+      async ({ cdnBase, wallAtlas }) => {
+        const res = await fetch(`${cdnBase}/gg-forge/${wallAtlas}.json`)
         const json = (await res.json()) as {
           frames: Record<string, { frame: { x: number; y: number; w: number; h: number } }>
           meta?: { image?: string; size?: { w: number; h: number } }
@@ -951,7 +870,7 @@ test.describe('Atlas Textures from CDN', () => {
           firstFrameData: firstFrame?.[1]?.frame,
         }
       },
-      { cdnBase: CDN_BASE, floorAtlas },
+      { cdnBase: CDN_BASE, wallAtlas },
     )
 
     // meta.image should reference a .webp file
@@ -1012,8 +931,8 @@ test.describe('CDN Failure Resilience', () => {
 
       // Simulate having installed pack
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(manager as any).installedPacks.set('dungeon-classic', {
-        packId: 'dungeon-classic',
+      ;(manager as any).installedPacks.set('gg-forge', {
+        packId: 'gg-forge',
         version: '1.0.0',
         entryCount: 109,
         themes: [],
@@ -1039,7 +958,7 @@ test.describe('CDN Failure Resilience', () => {
       const manager = new AssetPackManager({ cdnBaseUrl: cdnBase })
 
       // Request a texture that was never loaded
-      const tex = manager.getTexture('dungeon-classic:nonexistent-asset')
+      const tex = manager.getTexture('gg-forge:nonexistent-asset')
 
       // Must not be null
       if (!tex) return { ok: false, reason: 'texture was null' }
@@ -1059,7 +978,7 @@ test.describe('CDN Failure Resilience', () => {
 
   test('installPack rejects gracefully when CDN returns 404', async ({ page }) => {
     // Route CDN to return 404 for the pack manifest
-    await page.route('**/packs/dungeon-classic/pack-*.json', (route) =>
+    await page.route('**/packs/gg-forge/pack-*.json', (route) =>
       route.fulfill({ status: 404, body: 'Not Found' }),
     )
 
@@ -1072,7 +991,7 @@ test.describe('CDN Failure Resilience', () => {
       const manager = new AssetPackManager({ cdnBaseUrl: cdnBase })
 
       try {
-        await manager.installPack('dungeon-classic')
+        await manager.installPack('gg-forge')
         return { threw: false }
       } catch (e) {
         return { threw: true, message: String(e) }
