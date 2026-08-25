@@ -215,9 +215,9 @@ describe('doorSpriteFit', () => {
   const WALL = 0.4;
 
   it('spans the door width on tight art and never thins below the wall', () => {
-    // 200x200 canvas, 200x45 of paint.
-    const fit = doorSpriteFit('door-single-closed', 200, 200, 1, WALL);
-    expect(fit.frame).toEqual({ x: 0, y: 77, w: 200, h: 45 });
+    // gg-demo's closed-door art ships alpha-trimmed, so the whole canvas is paint.
+    const fit = doorSpriteFit('door-single-closed', 157, 51, 1, WALL);
+    expect(fit.frame).toEqual({ x: 0, y: 0, w: 157, h: 51 });
     expect(fit.rotate).toBe(0);
     expect(fit.frame.w * fit.scaleX).toBeCloseTo(1);
     expect(fit.frame.h * fit.scaleY).toBeCloseTo(WALL);
@@ -245,14 +245,15 @@ describe('doorSpriteFit', () => {
   });
 
   it('keeps thickness independent of width, with the wall as its floor', () => {
-    const narrow = doorSpriteFit('door-single-closed', 200, 200, 0.5, WALL);
-    const wide = doorSpriteFit('door-single-closed', 200, 200, 4, WALL);
+    // A measured padded row: 400x200 canvas, 400x54 of paint at (0,73).
+    const narrow = doorSpriteFit('door-portcullis-closed', 400, 200, 0.5, WALL);
+    const wide = doorSpriteFit('door-portcullis-closed', 400, 200, 4, WALL);
     // Halving the door does not halve its thickness — the old uniform scale did.
     expect(narrow.frame.h * narrow.scaleY).toBeCloseTo(WALL);
     expect(narrow.frame.w * narrow.scaleX).toBeCloseTo(0.5);
     // A wide door is allowed to be thicker than the wall: the art's own
     // proportions take over once they exceed the floor.
-    expect(wide.frame.h * wide.scaleY).toBeCloseTo(45 * (4 / 200));
+    expect(wide.frame.h * wide.scaleY).toBeCloseTo(54 * (4 / 400));
     expect(wide.frame.w * wide.scaleX).toBeCloseTo(4);
   });
 

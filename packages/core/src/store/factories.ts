@@ -22,8 +22,8 @@ const DEFAULT_DUNGEON_STYLE: DungeonStyle = {
   // Existing saves keep whatever their style says — this only seeds new layers.
   wallTextureSetId: 'GG_Fieldstone',
   wallTextureTint: '#b09878',
-  // No default floor texture: gg-demo carries the floor art and is empty until
-  // its first asset drop. Seed one here again once gg-demo ships floors.
+  // gg-demo's first drop ships two floor tiles; the small plaster is the seed.
+  defaultTextureId: 'gg-demo:floor_small_8x8_floor_A',
 };
 
 const DEFAULT_SUBLAYER_VISIBILITY = {

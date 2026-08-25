@@ -168,12 +168,12 @@ export interface DoorSpriteMeta {
  * authored tight and is no worse than the alternative for art that was not.
  */
 const SPRITE_META: Record<string, DoorSpriteMeta> = {
-  // 200x200 canvas, 200x45 of paint at (0,77).
-  'door-single-closed': { x: 0, y: 0.385, w: 1, h: 0.225 },
+  // gg-demo ships door-single-closed and door-double-closed as alpha-trimmed art
+  // (the intake pipeline trims to the opaque box), so those use the whole canvas —
+  // no row needed. The rows below describe art no pack ships yet; they carry the
+  // old padded-canvas measurements and must be re-measured when that art lands.
   // 400x200, 281x81 at (60,59).
   'door-single-open': { x: 0.15, y: 0.295, w: 0.7025, h: 0.405 },
-  // 400x200, 400x54 at (0,73).
-  'door-double-closed': { x: 0, y: 0.365, w: 1, h: 0.27 },
   // 600x200, 481x81 at (60,59).
   'door-double-open': { x: 0.1, y: 0.295, w: 481 / 600, h: 0.405 },
   // 400x200, 400x54 at (0,73).

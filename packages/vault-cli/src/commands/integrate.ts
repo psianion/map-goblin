@@ -11,13 +11,13 @@ export function integrateCommand(): Command {
     .description('Fold forge sets into a built pack, replacing hand-patched loose entries')
     .requiredOption('-b, --base <dir>', 'Existing built pack directory (holds pack-*.json)')
     .option('-s, --set <dir>', 'Forge set directory (repeatable)', collect, [])
-    .requiredOption('-t, --type <type>', 'Asset type the sets pack as (e.g. wall)')
+    .option('-t, --type <type>', 'Default asset type for sets whose manifest declares none (e.g. wall)')
     // No -v/-p short flag: the root program already owns -V/--version, and a short
     // flag here reads too easily as an alias for it.
     .requiredOption('--pack-version <semver>', 'Version to stamp on the new manifest')
     .requiredOption('-o, --output <dir>', 'Output directory for the new pack')
     .action(
-      async (opts: { base: string; set: string[]; type: string; packVersion: string; output: string }) => {
+      async (opts: { base: string; set: string[]; type?: string; packVersion: string; output: string }) => {
         try {
           if (opts.set.length === 0) {
             throw new Error('At least one --set <dir> is required');
@@ -25,7 +25,7 @@ export function integrateCommand(): Command {
           const result = await integrateSets({
             basePackDir: opts.base,
             setDirs: opts.set,
-            type: opts.type as AssetType,
+            type: opts.type as AssetType | undefined,
             version: opts.packVersion,
             output: opts.output,
           });
