@@ -3,6 +3,7 @@ import { render, screen, within, fireEvent } from '@testing-library/react'
 import { LayerProperties } from './LayerProperties'
 import { useStore } from '@/store/store'
 import { undoManager } from '@/store/undoManager'
+import { seedTestWallSets, resetAssetPackManager } from '@dnd/core/src/testing/seedCatalog'
 import type { DungeonLayer } from '@/store/types'
 
 function dungeon(): DungeonLayer {
@@ -71,6 +72,8 @@ describe('LayerProperties — discrete-control undo (F4)', () => {
   beforeEach(() => {
     undoManager.clear()
     useStore.getState().resetToDefault()
+    resetAssetPackManager()
+    seedTestWallSets(['GG_Fieldstone', 'GG_Palisade'])
   })
 
   it('changing the Wall Texture select commits one undo entry and sets the set-default width', () => {
@@ -80,13 +83,13 @@ describe('LayerProperties — discrete-control undo (F4)', () => {
     const select = screen.getByRole('combobox')
     expect(undoManager.canUndo()).toBe(false)
 
-    fireEvent.change(select, { target: { value: 'wood-ashen' } })
+    fireEvent.change(select, { target: { value: 'GG_Palisade' } })
 
-    expect(dungeon().style.wallTextureSetId).toBe('wood-ashen')
+    expect(dungeon().style.wallTextureSetId).toBe('GG_Palisade')
     expect(undoManager.canUndo()).toBe(true)
 
     undoManager.undo()
-    expect(dungeon().style.wallTextureSetId).not.toBe('wood-ashen')
+    expect(dungeon().style.wallTextureSetId).not.toBe('GG_Palisade')
   })
 
   it('toggling "Enable edge transitions" commits one undo entry', () => {

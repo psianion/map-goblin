@@ -19,6 +19,8 @@ interface ForgePiece {
   naturalWidth: number;
   naturalHeight: number;
   variant?: string;
+  contentRect?: { x: number; y: number; w: number; h: number };
+  tags?: string[];
 }
 
 interface ForgeSetManifest {
@@ -152,8 +154,9 @@ export async function integrateSets(opts: IntegrateOptions): Promise<IntegrateRe
         variant: 'A',
         atlas: imgFilename,
         frame: frame.frame,
+        contentRect: meta.piece.contentRect,
         set: forgeManifest.set,
-        tags: baseManifest.theme,
+        tags: meta.piece.tags ?? baseManifest.theme,
       };
 
       // Replacing an existing entry: drop the loose file it used to reference.

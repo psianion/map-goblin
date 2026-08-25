@@ -53,12 +53,9 @@ export const createMapSettingsSlice: StateCreator<
     }),
 });
 
-/** Default splat-slot palette — bundled seamless outdoor floor textures. */
-export const DEFAULT_TERRAIN_PALETTE: (string | null)[] = [
-  'grass-a-01',
-  'dirt-b-04',
-  'grassy-dirt-a-02',
-  'gravel-06-c',
-  'rock-ground-c-06',
-  'cracked-dirt-a-01',
-];
+/**
+ * Default splat-slot palette. Empty until gg-demo ships floor textures — the
+ * terrain brush UI renders unassigned slots as blanks the user fills from the
+ * picker.
+ */
+export const DEFAULT_TERRAIN_PALETTE: (string | null)[] = [null, null, null, null, null, null];

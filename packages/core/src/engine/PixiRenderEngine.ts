@@ -1,8 +1,6 @@
 import { Application, Container, RenderTexture, type Renderer, type Ticker } from 'pixi.js';
 import type { RenderEngine, CameraState } from './RenderEngine';
 import type { Point, Viewport } from '../types/geometry';
-import { registerManifestBundles, getManifest } from './assetManifest';
-import { useStore } from '../store/store';
 
 /** True when the page was opened with ?e2e=1 — opts into the perf costs E2E pixel-sampling needs. */
 function isE2E(): boolean {
@@ -48,9 +46,8 @@ export class PixiRenderEngine implements RenderEngine {
     // Guard: destroy() may have been called during async init (React Strict Mode)
     if (!this.app) return;
 
-    await registerManifestBundles();
-    useStore.getState().setManifest(getManifest());
-
+    // Asset-browser manifest comes from the installed packs — CanvasHost sets
+    // it after rehydrate/first-boot install (buildMergedManifest).
     this.app.stage.addChild(this.worldContainer);
     this.app.stage.addChild(this.overlayContainer);
 

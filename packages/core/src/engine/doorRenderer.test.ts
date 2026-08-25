@@ -69,7 +69,10 @@ vi.mock('../assets/textureLoader', () => ({
 
 const getTextureOrNull = vi.fn<(id: string) => unknown>(() => null);
 vi.mock('./assetPackInstance', () => ({
-  getAssetPackManager: () => ({ getTextureOrNull }),
+  getAssetPackManager: () => ({
+    getTextureOrNull,
+    getInstalledPacks: () => [{ packId: 'gg-demo' }],
+  }),
 }));
 
 const { renderDoors, doorSpriteFit } = await import('./doorRenderer');
@@ -124,13 +127,13 @@ describe('renderDoors sprite dispatch', () => {
       resolved('single', { state: 'locked' }),
     ]);
     expect(new Set(getTextureOrNull.mock.calls.map((c) => c[0]))).toEqual(new Set([
-      'dungeon-classic:door-single-closed',
-      'dungeon-classic:door-double-open',
-      'dungeon-classic:door-portcullis-closed',
-      'dungeon-classic:door-portcullis-open',
+      'gg-demo:door-single-closed',
+      'gg-demo:door-double-open',
+      'gg-demo:door-portcullis-closed',
+      'gg-demo:door-portcullis-open',
       // Locked asks for the closed art; a closed archway still asks for the open
       // art, so there is no `door-archway-closed` key to ship.
-      'dungeon-classic:door-archway-open',
+      'gg-demo:door-archway-open',
     ]));
   });
 

@@ -122,13 +122,24 @@ export function renderResolvedDoor(
  * whatever its state maps to, at full strength, and wears the badge on top.
  * Portals are excluded; they carry an authored `portalTextureId` instead.
  *
- * No installed pack ships these yet, so `getTextureOrNull` returns null and
+ * No installed pack ships these yet, so `doorSpriteTexture` returns null and
  * every door falls back to the Graphics glyphs below. Dropping the entries into
- * a pack manifest is the whole switch-over — nothing else here changes.
+ * any pack manifest is the whole switch-over — nothing else here changes.
  * (`getTextureOrNull`, not `resolveTexture`: a miss must be a quiet null, not a
  * magenta placeholder plastered over the map.)
+ *
+ * Every installed pack is searched — any pack may carry door art (gg-demo and
+ * gg-forge both will, eventually); first hit wins.
  */
-const DOOR_SPRITE_PACK = 'dungeon-classic';
+function doorSpriteTexture(localKey: string): { entryId: string; tex: Texture } | null {
+  const manager = getAssetPackManager();
+  for (const pack of manager.getInstalledPacks()) {
+    const entryId = `${pack.packId}:${localKey}`;
+    const tex = manager.getTextureOrNull(entryId);
+    if (tex && tex.width > 1) return { entryId, tex };
+  }
+  return null;
+}
 
 /** Where an entry's paint actually is, and which way round it was drawn. */
 export interface DoorSpriteMeta {
@@ -248,9 +259,9 @@ function renderDoorSprite(
 ): boolean {
   const spriteState =
     door.style === 'archway' || door.state === 'open' ? 'open' : 'closed';
-  const entryId = `${DOOR_SPRITE_PACK}:door-${door.style}-${spriteState}`;
-  const tex = getAssetPackManager().getTextureOrNull(entryId);
-  if (!tex || tex.width <= 1) return false;
+  const hit = doorSpriteTexture(`door-${door.style}-${spriteState}`);
+  if (!hit) return false;
+  const { entryId, tex } = hit;
 
   const fit = doorSpriteFit(
     `door-${door.style}-${spriteState}`, tex.width, tex.height, door.width, wallWidth,

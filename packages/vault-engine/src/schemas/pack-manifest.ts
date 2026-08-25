@@ -25,6 +25,9 @@ const ManifestEntrySchema = z.object({
   variant: z.string().min(1),
   atlas: z.string().optional(),
   frame: FrameSchema.optional(),
+  // Opaque-content bounds within the entry's own cell (walls ship transparent
+  // padding around a band of paint); the renderer trims to this at load time.
+  contentRect: FrameSchema.optional(),
   // Forge-set provenance (set integration writes this; hand-authored packs don't have it).
   set: z.string().min(1).optional(),
   tags: z.array(z.string()),

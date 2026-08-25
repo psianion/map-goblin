@@ -1,0 +1,1266 @@
+{
+  "name": "gg-forge",
+  "version": "1.0.0",
+  "description": "Good Goblin forge-generated asset sets",
+  "theme": [
+    "fantasy"
+  ],
+  "entries": {
+    "GG_Fieldstone_Connector_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Connector_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1005,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 51,
+        "y": 66,
+        "w": 99,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Connector_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Connector_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1005,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 80,
+        "y": 66,
+        "w": 40,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Connector_DIAG_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Connector_DIAG_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1204,
+        "y": 1005,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 16,
+        "y": 66,
+        "w": 151,
+        "h": 114
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Corner_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 402,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "standalone"
+      ]
+    },
+    "GG_Fieldstone_Corner_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 603,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "standalone"
+      ]
+    },
+    "GG_Fieldstone_Corner_C_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_C_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1002,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Corner_D_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_D_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1002,
+        "y": 201,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Corner_E_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_E_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1002,
+        "y": 402,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Corner_F_2x2_2x2_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_F_2x2",
+      "gridSize": "2x2",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 0,
+        "y": 1005,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Corner_G_2x2_2x2_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_G_2x2",
+      "gridSize": "2x2",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 401,
+        "y": 1005,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Corner_H_3x3_3x3_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Corner_H_3x3",
+      "gridSize": "3x3",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1203,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Ending_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Ending_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "ending",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1405,
+        "y": 601,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Joint_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Joint_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 802,
+        "y": 1005,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Joint_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Joint_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 804,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Joint_C_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Joint_C_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 804,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Joint_D_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Joint_D_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 1003,
+        "y": 1005,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_1x1_A_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_1x1_A",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 0,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 200,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_1x1_B_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_1x1_B",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 201,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 200,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_1x1_C_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_1x1_C",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 402,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 200,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_2x1_A_2x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_2x1_A",
+      "gridSize": "2x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 601,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 400,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_2x1_B_2x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_2x1_B",
+      "gridSize": "2x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 601,
+        "y": 201,
+        "w": 400,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 400,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_2x1_C_2x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_2x1_C",
+      "gridSize": "2x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 601,
+        "y": 402,
+        "w": 400,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 400,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_3x1_A_3x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_3x1_A",
+      "gridSize": "3x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 600,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_3x1_B_3x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_3x1_B",
+      "gridSize": "3x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 0,
+        "y": 201,
+        "w": 600,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 600,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_3x1_C_3x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_3x1_C",
+      "gridSize": "3x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 0,
+        "y": 402,
+        "w": 600,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 600,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_Half_A_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_Half_A",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 603,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 100,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_Half_B_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_Half_B",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 0,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 100,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_Half_C_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_Half_C",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 201,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 100,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Fieldstone_Straight_Path_8x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Fieldstone_Straight_Path",
+      "gridSize": "8x1",
+      "pieceType": "path",
+      "variant": "A",
+      "atlas": "atlas-GG_Fieldstone-wall-dcc789c1.webp",
+      "frame": {
+        "x": 0,
+        "y": 1406,
+        "w": 1650,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 1650,
+        "h": 68
+      },
+      "set": "GG_Fieldstone",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Connector_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Connector_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1005,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 51,
+        "y": 78,
+        "w": 99,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Connector_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Connector_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1005,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 82,
+        "y": 78,
+        "w": 36,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Connector_DIAG_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Connector_DIAG_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "connector",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1204,
+        "y": 1005,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 26,
+        "y": 78,
+        "w": 140,
+        "h": 97
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Corner_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Corner_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 402,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "standalone"
+      ]
+    },
+    "GG_Palisade_Corner_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Corner_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 603,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "standalone"
+      ]
+    },
+    "GG_Palisade_Corner_C_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Corner_C_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1002,
+        "y": 0,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Corner_D_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Corner_D_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1002,
+        "y": 201,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Corner_E_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Corner_E_1x1",
+      "gridSize": "1x1",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1002,
+        "y": 402,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Corner_F_2x2_2x2_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Corner_F_2x2",
+      "gridSize": "2x2",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 0,
+        "y": 1005,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Corner_G_2x2_2x2_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Corner_G_2x2",
+      "gridSize": "2x2",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 401,
+        "y": 1005,
+        "w": 400,
+        "h": 400
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Corner_H_3x3_3x3_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Corner_H_3x3",
+      "gridSize": "3x3",
+      "pieceType": "corner",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1203,
+        "y": 0,
+        "w": 600,
+        "h": 600
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Ending_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Ending_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "ending",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1405,
+        "y": 601,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Joint_A_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Joint_A_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 802,
+        "y": 1005,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Joint_B_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Joint_B_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 804,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Joint_C_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Joint_C_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 804,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Joint_D_1x1_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Joint_D_1x1",
+      "gridSize": "1x1",
+      "pieceType": "joint",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 1003,
+        "y": 1005,
+        "w": 200,
+        "h": 200
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_1x1_A_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_1x1_A",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 0,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 200,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_1x1_B_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_1x1_B",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 201,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 200,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_1x1_C_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_1x1_C",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 402,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 200,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_2x1_A_2x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_2x1_A",
+      "gridSize": "2x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 601,
+        "y": 0,
+        "w": 400,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 400,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_2x1_B_2x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_2x1_B",
+      "gridSize": "2x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 601,
+        "y": 201,
+        "w": 400,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 400,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_2x1_C_2x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_2x1_C",
+      "gridSize": "2x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 601,
+        "y": 402,
+        "w": 400,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 400,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_3x1_A_3x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_3x1_A",
+      "gridSize": "3x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 600,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 600,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_3x1_B_3x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_3x1_B",
+      "gridSize": "3x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 0,
+        "y": 201,
+        "w": 600,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 600,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_3x1_C_3x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_3x1_C",
+      "gridSize": "3x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 0,
+        "y": 402,
+        "w": 600,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 600,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_Half_A_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_Half_A",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 603,
+        "y": 603,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 100,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_Half_B_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_Half_B",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 0,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 100,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_Half_C_1x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_Half_C",
+      "gridSize": "1x1",
+      "pieceType": "straight",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 201,
+        "y": 804,
+        "w": 200,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 100,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    },
+    "GG_Palisade_Straight_Path_8x1_wall_A": {
+      "type": "wall",
+      "material": "GG_Palisade_Straight_Path",
+      "gridSize": "8x1",
+      "pieceType": "path",
+      "variant": "A",
+      "atlas": "atlas-GG_Palisade-wall-b5255e09.webp",
+      "frame": {
+        "x": 0,
+        "y": 1406,
+        "w": 1650,
+        "h": 200
+      },
+      "contentRect": {
+        "x": 0,
+        "y": 78,
+        "w": 1650,
+        "h": 44
+      },
+      "set": "GG_Palisade",
+      "tags": [
+        "fantasy"
+      ]
+    }
+  },
+  "atlases": {
+    "atlas-GG_Fieldstone-wall-dcc789c1.json": {
+      "checksum": "sha256:dfd567a0f27a75ddcc3efd296815c65316db3b3d9cddae1bedc63be7f2e865cd",
+      "size": 5847
+    },
+    "atlas-GG_Fieldstone-wall-dcc789c1.webp": {
+      "checksum": "sha256:dcc789c1afd346fab68c6022e8e8990d79607a3afd52fdaee0c3a78d22af28d3",
+      "size": 179690
+    },
+    "atlas-GG_Palisade-wall-b5255e09.json": {
+      "checksum": "sha256:ab1a18fecb12d709578c3830b8a3fc1ddf06f686c26c5f5252b74bc0e27dabd0",
+      "size": 5787
+    },
+    "atlas-GG_Palisade-wall-b5255e09.webp": {
+      "checksum": "sha256:b5255e09245b3a0072d8c3c506847e535536f95e0d385f00a6adc8bce84efaf9",
+      "size": 94228
+    }
+  },
+  "files": {},
+  "bundleSize": 285552
+}

@@ -5,21 +5,6 @@ vi.mock('../engine/assetPackInstance', () => ({
   getAssetPackManager: vi.fn(),
 }));
 
-vi.mock('./textureManifest', () => ({
-  getTextureEntry: vi.fn(() => null),
-  GRID_CELL_PX: 200,
-}));
-
-vi.mock('../engine/legacyAssetMapping', () => ({
-  resolveLegacyId: vi.fn((id: string) => {
-    const map: Record<string, string> = {
-      'grass-a-01': 'dungeon-classic:grass-a-01_1x1_floor_A',
-      'stone-slate': 'dungeon-classic:stone-slate_1x1_floor_A',
-    };
-    return map[id] ?? null;
-  }),
-}));
-
 // Sentinel texture returned by the fallback path
 const FALLBACK_TEX = { __fallback: true } as unknown as Texture;
 
@@ -46,43 +31,59 @@ vi.stubGlobal('document', {
 
 import { resolveTexture, unitTexture, reset as resetTextureLoader } from './textureLoader';
 import { getAssetPackManager } from '../engine/assetPackInstance';
-import { getTextureEntry } from './textureManifest';
+import type { PackManifest } from '../engine/assetPackManager';
 import { Texture } from 'pixi.js';
 
 function makeTex(label: string, width = 64, height = 64) {
   return { __label: label, width, height } as unknown as Texture;
 }
 
-function createMockPackManager(textures: Record<string, Texture>) {
+let versionCounter = 0;
+
+/**
+ * Mock manager with a texture map and, optionally, a manifest backing the
+ * catalog (unitTexture reads natural sizes off it).
+ */
+function createMockPackManager(
+  textures: Record<string, Texture>,
+  manifests: Array<{ packId: string; manifest: PackManifest }> = [],
+) {
   return {
     getTexture: (id: string) => textures[id] ?? Texture.EMPTY,
+    getPackManifests: () => manifests,
+    // Fresh version per manager so the catalog memo never leaks across tests.
+    catalogVersion: ++versionCounter,
+  };
+}
+
+function manifestWith(entries: PackManifest['entries']): PackManifest {
+  return {
+    name: 'gg-forge',
+    description: '',
+    version: '1.0.0',
+    bundleSize: 0,
+    entries,
+    atlases: {},
+    files: {},
   };
 }
 
 describe('resolveTexture', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetTextureLoader();
   });
 
   it('resolves pack-format IDs (containing colon) via pack manager', () => {
     const mockTex = makeTex('pack-grass');
-    const pm = createMockPackManager({ 'dungeon-classic:grass-a-01_1x1_floor_A': mockTex });
+    const pm = createMockPackManager({ 'gg-forge:grass_1x1_floor_A': mockTex });
     vi.mocked(getAssetPackManager).mockReturnValue(pm as never);
 
-    const result = resolveTexture('dungeon-classic:grass-a-01_1x1_floor_A');
+    const result = resolveTexture('gg-forge:grass_1x1_floor_A');
     expect(result).toBe(mockTex);
   });
 
-  it('resolves legacy IDs through the legacy mapping table', () => {
-    const mockTex = makeTex('legacy-grass');
-    const pm = createMockPackManager({ 'dungeon-classic:grass-a-01_1x1_floor_A': mockTex });
-    vi.mocked(getAssetPackManager).mockReturnValue(pm as never);
-
-    const result = resolveTexture('grass-a-01');
-    expect(result).toBe(mockTex);
-  });
-
-  it('returns magenta fallback for unknown IDs', () => {
+  it('returns magenta fallback for unknown non-pack IDs', () => {
     const pm = createMockPackManager({});
     vi.mocked(getAssetPackManager).mockReturnValue(pm as never);
 
@@ -120,28 +121,43 @@ describe('resolveTexture', () => {
 describe('unitTexture', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resetTextureLoader(); // unitTexture caches by id — clear between tests reusing 'grass-a-01'
+    resetTextureLoader(); // unitTexture caches by id — clear between tests reusing one id
   });
 
-  it('defaults to the whole resolved texture, sized from manifest naturalWidth/Height (no unitRect)', () => {
-    const mockTex = makeTex('grass', 999, 999); // pixel size irrelevant when the manifest has natural size
-    const pm = createMockPackManager({ 'dungeon-classic:grass-a-01_1x1_floor_A': mockTex });
+  it('sizes the unit from the catalog natural size (atlas frame w/h)', () => {
+    const mockTex = makeTex('grass', 999, 999); // pixel size irrelevant when the catalog has natural size
+    const id = 'gg-forge:grass_6x4_floor_A';
+    const pm = createMockPackManager({ [id]: mockTex }, [
+      {
+        packId: 'gg-forge',
+        manifest: manifestWith({
+          grass_6x4_floor_A: {
+            type: 'floor',
+            material: 'grass',
+            gridSize: '6x4',
+            pieceType: 'tile',
+            variant: 'A',
+            frame: { x: 0, y: 0, w: 1200, h: 800 },
+            tags: [],
+          },
+        }),
+      },
+    ]);
     vi.mocked(getAssetPackManager).mockReturnValue(pm as never);
-    vi.mocked(getTextureEntry).mockReturnValue({ naturalWidth: 1200, naturalHeight: 800 } as never);
 
-    const unit = unitTexture('grass-a-01');
+    const unit = unitTexture(id);
     expect(unit.texture).toBe(mockTex);
     expect(unit.cellsWide).toBe(6); // 1200 / 200
     expect(unit.cellsHigh).toBe(4); // 800 / 200
   });
 
-  it('falls back to the resolved texture\'s own pixel size when there is no manifest entry (pack-only id)', () => {
+  it("falls back to the resolved texture's own pixel size with no catalog entry", () => {
     const mockTex = makeTex('pack-only', 400, 200);
-    const pm = createMockPackManager({ 'dungeon-classic:grass-a-01_1x1_floor_A': mockTex });
+    const id = 'gg-forge:unlisted_1x1_floor_A';
+    const pm = createMockPackManager({ [id]: mockTex });
     vi.mocked(getAssetPackManager).mockReturnValue(pm as never);
-    vi.mocked(getTextureEntry).mockReturnValue(null as never);
 
-    const unit = unitTexture('grass-a-01');
+    const unit = unitTexture(id);
     expect(unit.texture).toBe(mockTex);
     expect(unit.cellsWide).toBe(2); // 400 / 200
     expect(unit.cellsHigh).toBe(1); // 200 / 200

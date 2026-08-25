@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { getTexturesByType, getTextureEntry } from '@/assets/textureManifest'
-import type { FloorCategory } from '@/assets/textureManifest'
+import { getEntriesByType, getCatalogEntry } from '@dnd/core/src/assets/packCatalog'
 import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas'
 
 interface TexturePickerProps {
@@ -9,22 +8,24 @@ interface TexturePickerProps {
   onChange: (textureId: string | undefined) => void
 }
 
-const FLOOR_CATEGORIES: FloorCategory[] = ['grass', 'dirt', 'stone', 'cave', 'gravel', 'wood', 'water']
-const ALL_FLOOR_TEXTURES = getTexturesByType('floor')
-
 export function TexturePicker({ value, onChange }: TexturePickerProps) {
   const [open, setOpen] = useState(false)
-  const [activeCategory, setActiveCategory] = useState<FloorCategory | 'all'>('all')
+  const [activeCategory, setActiveCategory] = useState<string | 'all'>('all')
   const [popoverPos, setPopoverPos] = useState({ x: 0, y: 0 })
   const triggerRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
 
-  const selectedEntry = value ? getTextureEntry(value) : undefined
+  const selectedEntry = value ? getCatalogEntry(value) : undefined
+
+  // Live catalog reads — the floor list follows whatever packs are installed,
+  // and the category tabs are the tags actually present on floor entries.
+  const allFloors = getEntriesByType('floor')
+  const categories = [...new Set(allFloors.flatMap((t) => t.tags))].sort()
 
   const visibleTextures =
     activeCategory === 'all'
-      ? ALL_FLOOR_TEXTURES
-      : ALL_FLOOR_TEXTURES.filter((t) => t.category === activeCategory)
+      ? allFloors
+      : allFloors.filter((t) => t.tags.includes(activeCategory))
 
   const handleOpen = useCallback(() => {
     if (open) {
@@ -94,7 +95,7 @@ export function TexturePicker({ value, onChange }: TexturePickerProps) {
         >
           {/* Category tabs */}
           <div className="flex flex-wrap gap-1 p-2 border-b border-border-subtle">
-            {(['all', ...FLOOR_CATEGORIES] as const).map((cat) => (
+            {['all', ...categories].map((cat) => (
               <button
                 key={cat}
                 type="button"

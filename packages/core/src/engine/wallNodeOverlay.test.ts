@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from '../store/store';
 import { UpdateFloorWallEditsCommand } from '../store/commands';
 import { undoManager } from '../store/undoManager';
+import { seedTestWallSets, resetAssetPackManager } from '../testing/seedCatalog';
 import {
   FLOOR_WALL_PREFIX,
   floorRingIndex,
@@ -32,7 +33,7 @@ function seedFloor(rings: Polygon[] = [RING]): DungeonLayer {
   const l = layer();
   useStore.getState().updateLayer(l.id, {
     mergedFloor: rings,
-    style: { ...l.style, wallTextureSetId: 'stone-slate' },
+    style: { ...l.style, wallTextureSetId: 'GG_Test' },
   } as Partial<DungeonLayer>);
   return layer();
 }
@@ -52,6 +53,8 @@ function wall(id: string): WallSegment {
 beforeEach(() => {
   useStore.getState().resetToDefault();
   undoManager.clear();
+  resetAssetPackManager();
+  seedTestWallSets(['GG_Test']);
 });
 
 describe('floorRingIndex', () => {

@@ -20,14 +20,10 @@ const DEFAULT_DUNGEON_STYLE: DungeonStyle = {
   // Zero-setup default: without a texture set the node-wall renderer bails and
   // walls (and the door gaps cut into them) are simply invisible on new maps.
   // Existing saves keep whatever their style says — this only seeds new layers.
-  wallTextureSetId: 'stone-slate',
-  wallTextureTint: '#ffffff',
-  // Same zero-setup rule for the ground: without this a first-time map draws
-  // every room as flat fill — walls, doors, and lights all arrive dressed while
-  // the floor stays paint — and the rescue path (picking a texture with nothing
-  // selected) repaints every room at once. The stone presets' floor, so the
-  // out-of-the-box look matches the default walls.
-  defaultTextureId: 'large-flagstone-a-01',
+  wallTextureSetId: 'GG_Fieldstone',
+  wallTextureTint: '#b09878',
+  // No default floor texture: gg-demo carries the floor art and is empty until
+  // its first asset drop. Seed one here again once gg-demo ships floors.
 };
 
 const DEFAULT_SUBLAYER_VISIBILITY = {

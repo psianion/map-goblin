@@ -7,7 +7,8 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const HALF = 0.25; // half of wallWidth 0.5 — rooms inset from their walls
-const PACK = 'dungeon-classic:';
+// Floors/props/water were dungeon-classic art and left with it — rooms render
+// flat floorColor until gg-demo ships replacements. Walls are gg-forge.
 
 // ─── stable room id (mirror of core/src/shared/roomUtils) ───
 const signedArea = (b) => {
@@ -186,45 +187,13 @@ const floors = R.map((r) => ({
   shapeType: 'rectangle',
   contours: [[[r.x0, r.y0], [r.x1, r.y0], [r.x1, r.y1], [r.x0, r.y1]]],
   roughnessEnabled: false,
-  textureId: PACK + r.floor + '_1x1_floor_A',
+  textureId: undefined,
   textureScale: 1,
   textureOffsetX: 0,
   textureOffsetY: 0,
   textureFillRotation: 0,
   textureTint: '#ffffff',
 }));
-
-// courtyard ground detail, painted on top of its base grass floor above —
-// same shape/texture vocabulary as `floors`, just hand-authored since it's
-// two textures inside one room instead of one.
-const patch = (id, name, tex, x0, y0, x1, y1) => ({
-  id, name, childType: 'shape', visible: true, shapeType: 'rectangle',
-  contours: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]],
-  roughnessEnabled: false,
-  textureId: PACK + tex + '_1x1_floor_A',
-  textureScale: 1, textureOffsetX: 0, textureOffsetY: 0, textureFillRotation: 0,
-  textureTint: '#ffffff',
-});
-const courtyardFloors = [
-  patch('floor-courtyard-apron', 'Bailey Apron', 'dirt-b-04', 5, 43, 13, 49),
-  patch('floor-courtyard-path', 'Bailey Path', 'cobblestone-a-01', 7, 43, 9, 55),
-];
-
-const water = [{
-  id: 'water-cistern',
-  name: 'Cistern Pool',
-  childType: 'water',
-  visible: true,
-  waterType: 'lake',
-  contours: [[[47, 17], [56, 17], [56, 27], [47, 27]]],
-  textureId: PACK + 'Water_Still_A_01_7x7_floor_A',
-  tint: '#5f8790',
-  opacity: 0.88,
-  bankTextureId: PACK + 'Bank_Stone_Mossy_Path_A1_4x1_edge_A',
-  bankWidth: 0.6,
-  flowSpeed: 0,
-  flowAngle: 0,
-}];
 
 // 5 warm lights. Armoury, Scriptorium, Vault, Barracks, Cistern and the Crypt
 // Stair are deliberately unlit — that is the darkvision/torch half of the review.
@@ -240,74 +209,6 @@ const lights = [
   light('light-kitchen', 'Kitchen Hearth', 37, 37, 8.5, 0.9, '#ff9b52'),
   light('light-chapel', 'Chapel Candles', 9, 7, 6.5, 0.7, '#ffd9a0'),
   light('light-courtyard-gate', 'Bailey Gate Lantern', 8, 46, 8, 0.8, '#ffb877'),
-];
-
-const asset = (id, name, assetId, x, y, opts = {}) => ({
-  id, name, childType: 'asset', visible: true, objectType: 'asset',
-  assetId: PACK + assetId,
-  position: { x, y },
-  rotation: opts.rotation ?? 0,
-  scale: opts.scale ?? 1,
-  width: opts.width ?? 1,
-  height: opts.height ?? 1,
-  tint: opts.tint ?? '#ffffff',
-  flipX: false, flipY: false,
-});
-// Style guide rule 6: detail concentrated at walls and edges, floor centres left
-// open for tokens. Everything below hugs a wall except the two hall braziers,
-// which are the map's focal accent and have to sit where the light pools do.
-const ROCK = 'Rock_Stone_Mossy_C11_2x1_2x1_object_A';
-const LEAF = 'Fallen_Leaves_Piles_Green1_A1_1x1_1x1_object_A';
-const rock = (n, x, y, rot) => asset(`asset-rock-${n}`, 'Fallen Stone', ROCK, x, y, { width: 2, height: 1, rotation: rot });
-const leaf = (n, x, y, rot) => asset(`asset-leaf-${n}`, 'Blown Leaves', LEAF, x, y, { tint: '#b9c4b0', rotation: rot });
-const assets = [
-  // focal: the two hall braziers
-  asset('asset-brazier-hall-w', 'Hall Brazier West', 'Campfire_Wood_Dark_Stone_Sandstone_Lit_A1_1x1_1x1_object_A', 9, 19),
-  asset('asset-brazier-hall-e', 'Hall Brazier East', 'Campfire_Wood_Dark_Stone_Sandstone_Lit_A1_1x1_1x1_object_A', 24, 26),
-  asset('asset-hearth-kitchen', 'Kitchen Hearth', 'Campfire_Wood_Dark_Stone_Sandstone_Lit_A1_1x1_1x1_object_A', 37, 37),
-  asset('asset-embers-chapel', 'Chapel Embers', 'Campfire_Embers_B1_1x1_1x1_object_A', 9, 7),
-  asset('asset-lamp-gatehouse', 'Gatehouse Lamp', 'Lamp_Metal_Brass_A_1x1_1x1_object_A', 8, 37),
-  asset('asset-lamp-hall-n', 'Hall Sconce', 'Lamp_Street_Metal_Brass_A_1x1_1x1_object_A', 16, 14.2),
-  asset('asset-lamp-hall-s', 'Hall Sconce', 'Lamp_Street_Metal_Brass_A_1x1_1x1_object_A', 27, 29.8),
-  asset('asset-lamp-guard', 'Guard Lamp', 'Lamp_Metal_Brass_A_1x1_1x1_object_A', 15.2, 32.2),
-  asset('asset-lamp-barracks', 'Cold Sconce', 'Lamp_Street_Metal_Brass_A_1x1_1x1_object_A', 32.2, 14.2),
-  asset('asset-lamp-cistern', 'Dead Lamp', 'Lamp_Metal_Brass_A_1x1_1x1_object_A', 46.2, 14.2),
-  // firewood + logs along the hall's cold wall
-  asset('asset-log-hall', 'Firewood', 'Log_Ashen_A1_6x3_6x3_object_A', 5.5, 29.5, { width: 6, height: 3, scale: 0.5 }),
-  asset('asset-log-kitchen', 'Kitchen Logs', 'Log_Ashen_A1_6x3_6x3_object_A', 43, 41, { width: 6, height: 3, scale: 0.42, rotation: 1.57 }),
-  asset('asset-stump-crypt', 'Block', 'Stump_Ashen_A1_4x4_4x4_object_A', 56, 41.5, { width: 4, height: 4, scale: 0.35 }),
-  // rubble hugging walls
-  rock('armory-n', 27.4, 3.2, 0.3),
-  rock('scriptorium-s', 31.5, 11.8, -0.15),
-  rock('vault-e', 56.2, 4.4, 1.5),
-  rock('barracks-w', 32.4, 29.6, 0.1),
-  rock('cistern-n', 46.5, 14.5, -0.4),
-  rock('crypt-w', 46.6, 41.2, -0.2),
-  rock('crypt-e', 56.4, 33, 1.4),
-  rock('hall-nw', 3.4, 14.4, 0.2),
-  rock('guard-s', 16, 41.6, -0.3),
-  // damp: cistern seepage and the crypt stair
-  asset('asset-puddle-cistern', 'Seep', 'Puddle_Water_Muddy_A12_2x2_2x2_object_A', 46.5, 29, { width: 2, height: 2 }),
-  asset('asset-puddle-cistern-2', 'Seep', 'Puddle_Water_Muddy_A5_2x2_2x2_object_A', 56, 15.5, { width: 2, height: 2 }),
-  asset('asset-puddle-crypt', 'Crypt Seep', 'Puddle_Water_Blue_A11_1x1_1x1_object_A', 47, 35.5),
-  asset('asset-puddle-crypt-2', 'Crypt Seep', 'Puddle_Water_Blue_A1_2x2_2x2_object_A', 52, 42, { width: 2, height: 2 }),
-  asset('asset-puddle-barracks', 'Spill', 'Puddle_Water_Muddy_A5_2x2_2x2_object_A', 43, 15.5, { width: 2, height: 2 }),
-  // leaf litter blown in from the gate
-  leaf('gate-1', 3.2, 41.6, 0),
-  leaf('gate-2', 12.6, 32.2, 1.1),
-  leaf('gate-3', 6.4, 33.4, 2.3),
-  leaf('hall-1', 4.2, 22.5, 0.6),
-  leaf('guard-1', 28.6, 32.4, 1.8),
-  asset('asset-grass-crypt', 'Weeds', 'Grass_Patch_Green1_A1_1x1_1x1_object_A', 46.4, 32.4, { tint: '#8a9b7e' }),
-  asset('asset-grass-gate', 'Weeds', 'Grass_Patch_Green1_A1_1x1_1x1_object_A', 3.4, 36.5, { tint: '#8a9b7e' }),
-  // bailey courtyard dressing — spaced apart for directional prop shadows
-  asset('asset-lamp-courtyard-gate', 'Gate Lantern', 'Lamp_Metal_Brass_A_1x1_1x1_object_A', 8, 46),
-  asset('asset-tree-courtyard-1', 'Bailey Tree', 'Tree_Green_A1_6x6_6x6_object_A', 20, 47, { width: 6, height: 6 }),
-  asset('asset-tree-courtyard-2', 'Bailey Tree', 'Tree_Green_A1_6x6_6x6_object_A', 23, 53, { width: 6, height: 6 }),
-  asset('asset-logs-courtyard', 'Supply Stack', 'Log_Ashen_A1_6x3_6x3_object_A', 16, 45, { width: 6, height: 3, scale: 0.4, rotation: 0.3 }),
-  asset('asset-stump-courtyard', 'Yard Stump', 'Stump_Ashen_A1_4x4_4x4_object_A', 11, 52, { width: 4, height: 4, scale: 0.35 }),
-  rock('courtyard-1', 5, 55, 0.4),
-  asset('asset-grass-courtyard', 'Weeds', 'Grass_Patch_Green1_A1_1x1_1x1_object_A', 21, 44, { tint: '#8a9b7e' }),
 ];
 
 const zones = [{
@@ -374,10 +275,9 @@ const map = {
         shadowIntensity: 0.5,
         roughnessAmplitude: 0,
         lineWidth: 0.04,
-        defaultTextureId: PACK + 'large-flagstone-a-01_1x1_floor_A',
         edgeTransitionWidth: 0.5,
         showEdgeTransitions: true,
-        wallTextureSetId: 'fieldstone',
+        wallTextureSetId: 'GG_Fieldstone',
         wallTextureTint: '#b09878',
       },
       sublayerVisibility: { floor: true, grid: true, walls: true },
@@ -387,11 +287,11 @@ const map = {
         centroid: r.centroid, area: r.area, isPathway: false,
       })),
       roomNameOverrides: Object.fromEntries(R.map((r) => [r.id, r.name])),
-      children: [...floors, ...courtyardFloors, ...water, ...assets, ...lights, ...doors, ...zones],
+      children: [...floors, ...lights, ...doors, ...zones],
     },
   ],
 };
 
 const out = join(import.meta.dirname, '../session/testdata/fieldstone-keep.mapbuilder');
 writeFileSync(out, JSON.stringify(map, null, 1));
-console.log(`${out}\nrooms=${R.length} walls=${walls.length} doors=${doors.length} lights=${lights.length} assets=${assets.length}`);
+console.log(`${out}\nrooms=${R.length} walls=${walls.length} doors=${doors.length} lights=${lights.length}`);

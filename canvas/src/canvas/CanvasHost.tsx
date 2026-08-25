@@ -84,7 +84,9 @@ export function CanvasHost() {
             name: p.packId,
             version: p.version,
             sizeBytes: p.bundleSize,
-            bundled: p.packId === 'dungeon-classic',
+            // Everything present at boot came from the bundled /packs install
+            // (or a CDN refresh of the same pack) — there is no other source yet.
+            bundled: true,
             installedAt: Date.now(),
           })),
         );

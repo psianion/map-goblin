@@ -1,11 +1,10 @@
 // src/engine/manifestBridge.ts
 //
-// Converts installed pack manifests into AssetManifest categories,
-// merging with the legacy hardcoded manifest from assetManifest.ts.
+// Converts installed pack manifests into AssetManifest categories for the
+// asset browser. Packs are the only asset source.
 
 import type { AssetManifest, AssetCategory, AssetEntry } from '../store/types';
 import type { PackManifest } from './assetPackManager';
-import { getManifest as getLegacyManifest } from './assetManifest';
 
 /** Asset types the builder currently supports rendering */
 const SUPPORTED_TYPES = new Set(['object', 'floor', 'wall', 'edge', 'scatter', 'pattern', 'path', 'portal', 'light-mask']);
@@ -51,36 +50,13 @@ export function packToCategories(packId: string, manifest: PackManifest): AssetC
   return categories;
 }
 
-/**
- * Build a merged manifest from installed packs + legacy hardcoded manifest.
- * Pack entries with the same ID override legacy entries.
- */
+/** Build the asset-browser manifest from the installed packs. */
 export function buildMergedManifest(
   packManifests: Array<{ packId: string; manifest: PackManifest }>,
 ): AssetManifest {
-  const legacy = getLegacyManifest();
-
-  // Collect all pack entry IDs for deduplication
-  const packEntryIds = new Set<string>();
-  const packCategories: AssetCategory[] = [];
-
+  const categories: AssetCategory[] = [];
   for (const { packId, manifest } of packManifests) {
-    const categories = packToCategories(packId, manifest);
-    for (const cat of categories) {
-      for (const asset of cat.assets) {
-        packEntryIds.add(asset.id);
-      }
-      packCategories.push(cat);
-    }
+    categories.push(...packToCategories(packId, manifest));
   }
-
-  // Filter legacy categories: remove any entries that packs override
-  const filteredLegacy = legacy.categories.map((cat) => ({
-    ...cat,
-    assets: cat.assets.filter((a) => !packEntryIds.has(a.id)),
-  })).filter((cat) => cat.assets.length > 0);
-
-  return {
-    categories: [...packCategories, ...filteredLegacy],
-  };
+  return { categories };
 }

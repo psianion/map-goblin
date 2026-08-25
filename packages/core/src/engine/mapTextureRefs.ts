@@ -4,8 +4,7 @@
 // the bridge between "here's a map" and "here's what to fetch" — see
 // AssetPackManager.ensureTexturesForMap, the entry point both apps call.
 
-import { getWallSet, type WallCategory } from '../assets/textureManifest';
-import { resolveLegacyId } from './legacyAssetMapping';
+import { getWallSet } from '../assets/packCatalog';
 import type { ManifestEntry, PackManifest } from './assetPackManager';
 import type { SerializedMapData } from '../store/types';
 
@@ -39,9 +38,9 @@ export function collectMapTextureIds(mapData: MapTextureSource): string[] {
   const add = (id: string | null | undefined): void => {
     if (id) ids.add(id);
   };
-  const addWallFamily = (category: string | undefined): void => {
-    if (!category) return;
-    for (const piece of getWallSet(category as WallCategory)) ids.add(piece.id);
+  const addWallFamily = (setId: string | undefined): void => {
+    if (!setId) return;
+    for (const piece of getWallSet(setId)) ids.add(piece.id);
   };
 
   for (const id of mapData.mapSettings.terrain?.palette ?? []) add(id);
@@ -84,9 +83,8 @@ export function collectMapTextureIds(mapData: MapTextureSource): string[] {
  *
  * Setless entries and ids that don't resolve to a known manifest entry are
  * ignored on purpose — an id that resolves but has no `set` is base art that
- * ships with every install, and an id that doesn't resolve at all is either a
- * bundled-texture id (no pack manifest to check) or a legacy id with no
- * mapping. Either way there's no set to fetch for it.
+ * ships with every install, and an id that doesn't resolve at all is either an
+ * imported-image id or unknown. Either way there's no set to fetch for it.
  */
 export function resolveAssetSets(
   ids: string[],
@@ -96,12 +94,10 @@ export function resolveAssetSets(
   const result = new Map<string, Set<string>>();
 
   for (const rawId of ids) {
-    const resolved = resolveLegacyId(rawId);
-    if (!resolved) continue;
-    const sep = resolved.indexOf(':');
+    const sep = rawId.indexOf(':');
     if (sep === -1) continue;
-    const packId = resolved.slice(0, sep);
-    const entryId = resolved.slice(sep + 1);
+    const packId = rawId.slice(0, sep);
+    const entryId = rawId.slice(sep + 1);
     const entry: ManifestEntry | undefined = manifestByPack.get(packId)?.entries[entryId];
     if (!entry?.set) continue;
 

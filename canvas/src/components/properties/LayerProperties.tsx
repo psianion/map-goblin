@@ -10,7 +10,7 @@ import { SliderInput } from '@/components/inputs/SliderInput'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { ToggleSwitch } from '@/components/ui/toggle-switch'
 import { Palette, Minus, Waves, Blend, Sparkles, RotateCcw, Layers, Eye } from 'lucide-react'
-import { getWallSetDefaults, type WallCategory } from '@/assets/textureManifest'
+import { getWallSetDefaults, getWallSetIds } from '@dnd/core/src/assets/packCatalog'
 import { PresetStrip } from '@/components/shared/PresetStrip'
 import { DUNGEON_STYLE_PRESETS, matchPresetId } from '@/store/presetRegistry'
 import { resolveStyle } from '@/engine/styleResolver'
@@ -447,7 +447,7 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
                     ? {
                         ...layer.style,
                         wallTextureSetId: val,
-                        wallWidth: getWallSetDefaults(val as WallCategory).defaultWidth,
+                        wallWidth: getWallSetDefaults(val).defaultWidth,
                       }
                     : { ...layer.style, wallTextureSetId: val }
                   undoManager.execute(new PropertyCommand(
@@ -460,10 +460,11 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
                 className="w-full h-7 px-2 bg-surface-2 text-panel-body text-text-primary rounded border border-border-default focus:border-border-focus focus:outline-none"
               >
                 <option value="none">None (Invisible)</option>
-                <option value="stone-slate">Stone Slate</option>
-                <option value="wood-ashen">Wood Ashen</option>
-                <option value="fieldstone">Fieldstone</option>
-                <option value="palisade">Palisade</option>
+                {getWallSetIds().map((id) => (
+                  <option key={id} value={id}>
+                    {id.replace(/^GG_/, '').replace(/_/g, ' ')}
+                  </option>
+                ))}
               </select>
             </PropertyField>
           )}
@@ -472,7 +473,7 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
             (() => {
               const textureId = layer.style.wallTextureSetId
               if (!textureId) return null
-              const wd = getWallSetDefaults(textureId as WallCategory)
+              const wd = getWallSetDefaults(textureId)
               const wallWidthVal = s.wallWidth as number
               const wallTintVal =
                 s.wallTextureTint === MIXED ? layer.style.wallTextureTint : (s.wallTextureTint as string)

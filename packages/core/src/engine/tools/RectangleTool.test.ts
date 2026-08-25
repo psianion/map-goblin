@@ -39,17 +39,20 @@ describe('RectangleTool — commit-layer capture (F2)', () => {
     expect(warning).not.toHaveBeenCalled();
   });
 
-  it('a first-time map draws its first room already textured, at the readable scale', () => {
+  it('a first-time room follows the layer default texture when one is set', () => {
     const a = useStore.getState().layers.find((l) => l.type === 'dungeon')!;
     useStore.getState().setActiveLayerId(a.id);
+    // No bundled floor art ships until gg-demo has entries, so factories seed
+    // no default — a layer that has one still dresses its rooms.
+    useStore.getState().updateLayer(a.id, {
+      style: { ...a.style, defaultTextureId: 'gg-demo:flagstone_1x1_floor_A' },
+    } as never);
 
     tool.onPointerDown({ x: 0, y: 0 });
     tool.onPointerUp({ x: 5, y: 5 });
 
     const shape = layerById(a.id).children.find((c) => c.childType === 'shape')!;
-    // The zero-setup floor default (factories) — without it walls and doors
-    // arrived dressed while every room stayed flat paint until a manual pick.
-    expect(shape.textureId).toBe('large-flagstone-a-01');
+    expect(shape.textureId).toBe('gg-demo:flagstone_1x1_floor_A');
     expect(shape.textureScale).toBe(4);
   });
 

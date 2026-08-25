@@ -4,6 +4,7 @@ import type { AssetPackDB, StoredPack } from './assetPackDB'
 import { getAssetSetLRU } from './assetPackDB'
 import type { PackManifest, ManifestEntry } from './assetPackManager'
 import type { MapTextureSource } from './mapTextureRefs'
+import { getAssetPackManager, resetAssetPackManager } from './assetPackInstance'
 
 // ensureAssetSets/ensureTexturesForMap exercise loadPackTextures with real file
 // content — under jsdom, real PIXI.Assets.load() never resolves for a blob: URL
@@ -355,18 +356,16 @@ describe('AssetPackManager.checkForUpdates', () => {
 
 // ─── Asset sets ──────────────────────────────────────────────────────
 
-function wallEntry(id: string, material: string, gridSize: string, set?: string): ManifestEntry {
+function wallEntry(_id: string, material: string, gridSize: string, set?: string): ManifestEntry {
   return {
     type: 'wall',
-    localId: id,
-    atlas: '',
-    frame: id,
+    material,
     gridSize,
+    pieceType: 'straight',
+    variant: 'A',
     tags: [],
     set,
-    material,
-    variant: 'A',
-  } as ManifestEntry
+  }
 }
 
 const ZERO_HASH = '0'.repeat(64)
@@ -393,7 +392,7 @@ function makeSetManifest(): PackManifest {
       'GG_Palisade_Straight_3x1_A_3x1_A-hash2.webp': { checksum: `sha256:${ZERO_HASH}`, size: 3 },
       'stone-slate_1x1_A-hash3.webp': { checksum: `sha256:${ZERO_HASH}`, size: 3 },
     },
-    themes: ['dungeon'],
+    theme: ['dungeon'],
   }
 }
 
@@ -536,13 +535,16 @@ describe('AssetPackManager.assetSetsForTextureIds', () => {
   it('resolves ids through the cached manifest', () => {
     const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com' })
     mgr['manifestCache'].set('dungeon-classic', makeSetManifest())
-    const result = mgr.assetSetsForTextureIds(['wall-fieldstone-straight-3x1-a', 'wall-palisade-straight-3x1-a'])
+    const result = mgr.assetSetsForTextureIds([
+      'dungeon-classic:GG_Fieldstone_Straight_3x1_A_3x1_wall_A',
+      'dungeon-classic:GG_Palisade_Straight_3x1_A_3x1_wall_A',
+    ])
     expect(result.get('dungeon-classic')).toEqual(new Set(['GG_Fieldstone', 'GG_Palisade']))
   })
 
   it('ignores ids with no matching pack manifest', () => {
     const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com' })
-    const result = mgr.assetSetsForTextureIds(['wall-fieldstone-straight-3x1-a'])
+    const result = mgr.assetSetsForTextureIds(['dungeon-classic:GG_Fieldstone_Straight_3x1_A_3x1_wall_A'])
     expect(result.size).toBe(0)
   })
 })
@@ -571,7 +573,7 @@ describe('AssetPackManager.ensureTexturesForMap', () => {
               color: '#000',
               width: 0.5,
               roughness: 0,
-              textureSetId: 'fieldstone',
+              textureSetId: 'GG_Fieldstone',
             },
           ],
           mergedFloor: null,
@@ -613,10 +615,20 @@ describe('AssetPackManager.ensureTexturesForMap', () => {
     })
     const mgr = new AssetPackManager({ cdnBaseUrl: 'https://cdn.example.com', packDB: db })
     mgr['manifestCache'].set('dungeon-classic', makeSetManifest())
+    // Wall-family expansion reads the catalog off the global singleton — seed
+    // it with the same manifest so 'GG_Fieldstone' enumerates to pack ids.
+    resetAssetPackManager()
+    const singleton = getAssetPackManager()
+    ;(singleton as unknown as { manifestCache: Map<string, PackManifest> }).manifestCache.set(
+      'dungeon-classic',
+      makeSetManifest(),
+    )
+    singleton.catalogVersion++
     stubZeroDigest()
     stubFetchOk()
 
     await mgr.ensureTexturesForMap(mapWithFieldstone())
+    resetAssetPackManager()
 
     expect(db.mergeAssetSetBlobs).toHaveBeenCalledWith(
       'dungeon-classic',

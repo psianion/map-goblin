@@ -17,7 +17,7 @@ import {
 } from '@/store/commands'
 import type { AnyChild, DoorChild, DoorStyle, DungeonLayer, LightChild } from '@/store/types'
 import { selectLayerForChild } from '@/store/selectors'
-import { getTextureEntry, getTexturesByCategory } from '@dnd/core/src/assets/textureManifest'
+import { getCatalogEntry, getEntriesByType } from '@dnd/core/src/assets/packCatalog'
 import { translateTangents } from '@dnd/core/src/shared/bezier'
 import { handleShortcut, rotateSelection90 } from '@/shortcuts/defaultShortcuts'
 import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef'
@@ -131,19 +131,20 @@ registerMenu('asset', (ctx) => {
   if (child.childType !== 'asset') return []
   const rows: MenuRow[] = [headerRow(child)]
 
-  // Swap strip: manifest neighbours from the same category. Pack assets
-  // (`pack-id:texture`) have no manifest entry — the strip simply doesn't
-  // appear for them rather than showing an empty shelf.
-  const entry = getTextureEntry(child.assetId)
+  // Swap strip: catalog neighbours of the same type. Imported images have no
+  // catalog entry — the strip simply doesn't appear for them rather than
+  // showing an empty shelf. Empty `src` makes MenuThumb render the pack
+  // texture via PackThumbnailCanvas.
+  const entry = getCatalogEntry(child.assetId)
   if (entry) {
-    const neighbours = getTexturesByCategory(entry.category).slice(0, 8)
+    const neighbours = getEntriesByType(entry.type).slice(0, 8)
     if (neighbours.length > 1) {
       rows.push({
         type: 'thumbStrip',
         label: 'Swap',
         items: neighbours.map((n) => ({
           id: n.id,
-          src: n.path,
+          src: '',
           title: n.label,
           active: n.id === child.assetId,
         })),

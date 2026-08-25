@@ -11,7 +11,6 @@ import type { WallEdits } from '../shared/types';
 import type { Point } from '../types/geometry';
 import { layoutWall, applyWallEdits, withoutNodeOffsets, type WallNode } from './wallLayout';
 import { buildPieceSpecs, seedForPoints } from './wallNodeRenderer';
-import type { WallCategory } from '../assets/textureManifest';
 import { blockedLayerReason } from './tools/layerGuard';
 import { notify } from '../shared/notify';
 import { strokeRopeDash, drawNodeHandle, drawEditDim } from './overlayDraw';
@@ -149,7 +148,7 @@ export function activeEditableRun(): EditableRun | null {
 export function currentWallNodes(): WallNode[] {
   const run = activeWall();
   if (!run) return [];
-  const setId = run.layer.style.wallTextureSetId as WallCategory | undefined;
+  const setId = run.layer.style.wallTextureSetId;
   if (!setId) return [];
   const specs = buildPieceSpecs(setId);
   if (specs.length === 0) return [];

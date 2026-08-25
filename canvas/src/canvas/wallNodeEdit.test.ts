@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
+import { seedTestWallSets, resetAssetPackManager } from '@dnd/core/src/testing/seedCatalog';
 import { setNotify } from '@dnd/core/src/store/notify';
 import { currentWallNodes } from '@/engine/wallNodeOverlay';
 import { createDungeonLayer } from '@/store/factories';
@@ -38,7 +39,7 @@ function seed(): DungeonLayer {
   const l = layer();
   useStore.getState().updateLayer(l.id, {
     mergedFloor: [RING],
-    style: { ...l.style, wallTextureSetId: 'stone-slate' },
+    style: { ...l.style, wallTextureSetId: 'GG_Test' },
   } as Partial<DungeonLayer>);
   return layer();
 }
@@ -89,6 +90,8 @@ function selectMidStone(): number {
 beforeEach(() => {
   useStore.getState().resetToDefault();
   undoManager.clear();
+  resetAssetPackManager();
+  seedTestWallSets(['GG_Test']);
 });
 
 describe('toggleNodeEditAt', () => {

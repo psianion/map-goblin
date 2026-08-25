@@ -7,7 +7,6 @@ import { Assets, Sprite, Texture } from 'pixi.js';
 import { useStore } from '../store/store';
 import { getLayerEntry } from './sceneGraph';
 import type { AssetChild, DungeonLayer } from '../store/types';
-import { getTextureEntry } from '../assets/textureManifest';
 import { resolveTexture } from '../assets/textureLoader';
 import { syncPropShadows } from './shadowPass';
 
@@ -32,31 +31,19 @@ function syncSprite(sprite: Sprite, obj: AssetChild): void {
 }
 
 /**
- * Resolve an AssetChild's assetId to a loadable URL.
- * Manifest-based IDs (e.g. 'fallen-leaves-green1-a1') are resolved to their
- * file path via the texture manifest. Data URLs and plain URLs pass through.
+ * Ensure a custom-image URL is registered in the PixiJS Assets cache before
+ * loading. data: URLs need an Assets.add() first if not already known.
  */
-function resolveAssetUrl(assetId: string): string {
-  const entry = getTextureEntry(assetId);
-  if (entry) return entry.path;
-  return assetId;
-}
-
-/**
- * Ensure the asset URL is registered in the PixiJS Assets cache before loading.
- * For data: URLs (custom images) we need to call Assets.add() first if not already known.
- * For manifest-based IDs, register with the resolved path as src.
- */
-function ensureRegistered(assetId: string, resolvedUrl: string): void {
+function ensureRegistered(assetId: string): void {
   try {
-    const existing = Assets.get<Texture>(resolvedUrl);
+    const existing = Assets.get<Texture>(assetId);
     if (existing) return;
   } catch {
     // not cached — fall through to register
   }
-  if (assetId.startsWith('data:') || resolvedUrl !== assetId) {
+  if (assetId.startsWith('data:')) {
     try {
-      Assets.add({ alias: resolvedUrl, src: resolvedUrl });
+      Assets.add({ alias: assetId, src: assetId });
     } catch {
       // Already registered — ignore duplicate-add errors
     }
@@ -89,9 +76,8 @@ function applyTexture(sprite: Sprite, obj: AssetChild, spriteMap: Map<string, Sp
   }
   sprite.texture = cached ?? Texture.WHITE;
   if (cached) return;
-  const url = resolveAssetUrl(obj.assetId);
-  ensureRegistered(obj.assetId, url);
-  Assets.load<Texture>(url)
+  ensureRegistered(obj.assetId);
+  Assets.load<Texture>(obj.assetId)
     .then((tex) => {
       // Only if this sprite is still live and still showing this asset — a
       // second swap while the load was in flight must not be overwritten.

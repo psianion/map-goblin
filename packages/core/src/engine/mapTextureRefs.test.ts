@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { collectMapTextureIds, resolveAssetSets, type MapTextureSource } from './mapTextureRefs'
 import { createDungeonLayer, createBackgroundLayer } from '../store/factories'
+import { getAssetPackManager, resetAssetPackManager } from './assetPackInstance'
 import type { PackManifest, ManifestEntry } from './assetPackManager'
 import type {
   DoorChild,
@@ -99,6 +100,10 @@ function emptyMap(): MapTextureSource {
   }
 }
 
+afterEach(() => {
+  resetAssetPackManager()
+})
+
 describe('collectMapTextureIds', () => {
   it('returns nothing for an empty map', () => {
     expect(collectMapTextureIds(emptyMap())).toEqual([])
@@ -157,21 +162,34 @@ describe('collectMapTextureIds', () => {
   })
 
   it('expands a wall family into every piece id, from the layer default and per-wall pins', () => {
+    // Seed the pack manager singleton so the catalog can enumerate wall sets.
+    const manager = getAssetPackManager()
+    ;(manager as unknown as { manifestCache: Map<string, PackManifest> }).manifestCache.set(
+      'gg-forge',
+      makeManifest({
+        GG_Fieldstone_Straight_3x1_A_3x1_wall_A: { set: 'GG_Fieldstone' },
+        GG_Fieldstone_Corner_H_3x3_3x3_wall_A: { set: 'GG_Fieldstone', pieceType: 'corner', gridSize: '3x3' },
+        GG_Palisade_Straight_1x1_A_1x1_wall_A: { set: 'GG_Palisade' },
+        GG_Palisade_Ending_A_1x1_1x1_wall_A: { set: 'GG_Palisade', pieceType: 'ending' },
+        GG_Timber_Straight_1x1_A_1x1_wall_A: { set: 'GG_Timber' },
+      }),
+    )
+    manager.catalogVersion++
+
     const layer = createDungeonLayer('L')
     layer.style.defaultTextureId = undefined
-    layer.style.wallTextureSetId = 'fieldstone'
-    layer.standaloneWalls = [wall('w1'), wall('w2', 'palisade')]
+    layer.style.wallTextureSetId = 'GG_Fieldstone'
+    layer.standaloneWalls = [wall('w1'), wall('w2', 'GG_Palisade')]
     const map: MapTextureSource = { ...emptyMap(), layers: [layer] }
     const ids = collectMapTextureIds(map)
-    // Every fieldstone piece present (spot-check a few kinds)...
-    expect(ids).toContain('wall-fieldstone-straight-3x1-a')
-    expect(ids).toContain('wall-fieldstone-corner-h-3x3')
-    expect(ids).toContain('wall-fieldstone-straight-path')
+    // Every fieldstone piece present...
+    expect(ids).toContain('gg-forge:GG_Fieldstone_Straight_3x1_A_3x1_wall_A')
+    expect(ids).toContain('gg-forge:GG_Fieldstone_Corner_H_3x3_3x3_wall_A')
     // ...and every palisade piece too, from the standalone pin.
-    expect(ids).toContain('wall-palisade-straight-1x1-a')
-    expect(ids).toContain('wall-palisade-ending-a-1x1')
+    expect(ids).toContain('gg-forge:GG_Palisade_Straight_1x1_A_1x1_wall_A')
+    expect(ids).toContain('gg-forge:GG_Palisade_Ending_A_1x1_1x1_wall_A')
     // Not the other families.
-    expect(ids).not.toContain('wall-stone-a-straight-a-3x1')
+    expect(ids).not.toContain('gg-forge:GG_Timber_Straight_1x1_A_1x1_wall_A')
   })
 
   it('does not choke on a wall with no textureSetId pin and no layer default', () => {
@@ -196,7 +214,15 @@ describe('collectMapTextureIds', () => {
 function makeManifest(entries: Record<string, Partial<ManifestEntry>>): PackManifest {
   const full: Record<string, ManifestEntry> = {}
   for (const [id, e] of Object.entries(entries)) {
-    full[id] = { type: 'wall', localId: id, atlas: '', frame: id, gridSize: '1x1', tags: [], ...e }
+    full[id] = {
+      type: 'wall',
+      material: id,
+      gridSize: '1x1',
+      pieceType: 'straight',
+      variant: 'A',
+      tags: [],
+      ...e,
+    }
   }
   return {
     name: 'test',
@@ -216,28 +242,34 @@ describe('resolveAssetSets', () => {
       GG_Palisade_Straight_3x1_A_3x1_wall_A: { set: 'GG_Palisade' },
     })
     const result = resolveAssetSets(
-      ['wall-fieldstone-straight-3x1-a', 'wall-palisade-straight-3x1-a'],
-      [{ packId: 'dungeon-classic', manifest }],
+      [
+        'gg-forge:GG_Fieldstone_Straight_3x1_A_3x1_wall_A',
+        'gg-forge:GG_Palisade_Straight_3x1_A_3x1_wall_A',
+      ],
+      [{ packId: 'gg-forge', manifest }],
     )
-    expect(result.get('dungeon-classic')).toEqual(new Set(['GG_Fieldstone', 'GG_Palisade']))
+    expect(result.get('gg-forge')).toEqual(new Set(['GG_Fieldstone', 'GG_Palisade']))
   })
 
   it('ignores setless entries', () => {
     const manifest = makeManifest({
       'stone-slate_1x1_floor_A': {},
     })
-    const result = resolveAssetSets(['stone-slate'], [{ packId: 'dungeon-classic', manifest }])
+    const result = resolveAssetSets(
+      ['gg-forge:stone-slate_1x1_floor_A'],
+      [{ packId: 'gg-forge', manifest }],
+    )
     expect(result.size).toBe(0)
   })
 
-  it('ignores ids that fail to resolve at all', () => {
+  it('ignores ids with no pack prefix at all', () => {
     const manifest = makeManifest({})
-    const result = resolveAssetSets(['not-a-real-legacy-id'], [{ packId: 'dungeon-classic', manifest }])
+    const result = resolveAssetSets(['not-a-pack-id'], [{ packId: 'gg-forge', manifest }])
     expect(result.size).toBe(0)
   })
 
   it('ignores ids resolving to a pack with no cached manifest', () => {
-    const result = resolveAssetSets(['wall-fieldstone-straight-3x1-a'], [])
+    const result = resolveAssetSets(['gg-forge:GG_Fieldstone_Straight_3x1_A_3x1_wall_A'], [])
     expect(result.size).toBe(0)
   })
 
@@ -247,9 +279,12 @@ describe('resolveAssetSets', () => {
       GG_Fieldstone_Straight_3x1_B_3x1_wall_A: { set: 'GG_Fieldstone' },
     })
     const result = resolveAssetSets(
-      ['wall-fieldstone-straight-3x1-a', 'wall-fieldstone-straight-3x1-b'],
-      [{ packId: 'dungeon-classic', manifest }],
+      [
+        'gg-forge:GG_Fieldstone_Straight_3x1_A_3x1_wall_A',
+        'gg-forge:GG_Fieldstone_Straight_3x1_B_3x1_wall_A',
+      ],
+      [{ packId: 'gg-forge', manifest }],
     )
-    expect(result.get('dungeon-classic')?.size).toBe(1)
+    expect(result.get('gg-forge')?.size).toBe(1)
   })
 })
