@@ -106,6 +106,7 @@ export function createDefaultState(): MapBuilderState {
       snapDivision: 2,
     },
     layers: [bgLayer, dungeonLayer],
+    floorTextureEpochs: {},
     tools: {
       activeTool: 'rectangle',
       eraseMode: false,

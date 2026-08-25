@@ -476,6 +476,14 @@ export interface MapBuilderStore {
   /** Scene prep for the open map. null until the DM authors some (see SerializedMapData.prep). */
   prep: ScenePrep | null;
 
+  /**
+   * Per-layer counter bumped when a pack texture a floor bake needed lands
+   * after the bake ran (file import resolves textures after loadFromFile;
+   * CDN install-by-need is slower still). Rides into the render key so the
+   * bake re-runs. Session-local — never serialized into map files.
+   */
+  floorTextureEpochs: Record<string, number>;
+
   // mapSettings actions
   setMapName: (name: string) => void;
   setGridType: (type: MapSettings['gridType']) => void;
@@ -497,6 +505,7 @@ export interface MapBuilderStore {
 
   // child CRUD actions
   addChild: (layerId: string, child: AnyChild) => void;
+  bumpFloorTextureEpoch: (layerId: string) => void;
   removeChild: (layerId: string, childId: string) => void;
   reorderChild: (layerId: string, fromIndex: number, toIndex: number) => void;
   updateChild: (layerId: string, childId: string, patch: Partial<AnyChild>) => void;

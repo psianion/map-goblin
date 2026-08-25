@@ -1,0 +1,2105 @@
+{
+ "version": "3.1",
+ "mapSettings": {
+  "name": "Goblin Warren",
+  "gridType": "square",
+  "cellScale": {
+   "value": 5,
+   "unit": "ft"
+  },
+  "ambientLight": "#4b4552"
+ },
+ "grid": {
+  "visible": true,
+  "snapDivision": 2,
+  "style": "clean"
+ },
+ "customImages": {},
+ "layers": [
+  {
+   "id": "bg-goblin-warren",
+   "name": "Background",
+   "type": "background",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "backgroundColor": "#0a0908",
+   "backgroundTexture": null,
+   "textureScale": 0.25,
+   "textureTint": "#ffffff",
+   "presetLock": false
+  },
+  {
+   "id": "dungeon-goblin-warren",
+   "name": "Warren",
+   "type": "dungeon",
+   "visible": true,
+   "locked": false,
+   "opacity": 1,
+   "mergedFloor": null,
+   "style": {
+    "floorColor": "#6f6455",
+    "wallColor": "#211d18",
+    "wallWidth": 0.5,
+    "shadowEnabled": true,
+    "shadowColor": "#3a332b",
+    "shadowOffset": {
+     "x": 0.35,
+     "y": 0.3
+    },
+    "shadowIntensity": 0.55,
+    "roughnessAmplitude": 0,
+    "lineWidth": 0.04,
+    "edgeTransitionWidth": 0.5,
+    "showEdgeTransitions": true,
+    "wallTextureSetId": "GG_Fieldstone",
+    "wallTextureTint": "#8a7f6e",
+    "defaultTextureId": "gg-demo:floor_small_8x8_floor_A"
+   },
+   "sublayerVisibility": {
+    "floor": true,
+    "grid": true,
+    "walls": true
+   },
+   "standaloneWalls": [
+    {
+     "id": "wall-001",
+     "points": [
+      [
+       2,
+       2
+      ],
+      [
+       2,
+       32
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-002",
+     "points": [
+      [
+       38,
+       2
+      ],
+      [
+       38,
+       32
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-003",
+     "points": [
+      [
+       2,
+       2
+      ],
+      [
+       38,
+       2
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-004",
+     "points": [
+      [
+       2,
+       32
+      ],
+      [
+       38,
+       32
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-005",
+     "points": [
+      [
+       14,
+       2
+      ],
+      [
+       14,
+       6
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-006",
+     "points": [
+      [
+       14,
+       6
+      ],
+      [
+       14,
+       8
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-007",
+     "points": [
+      [
+       14,
+       8
+      ],
+      [
+       14,
+       12
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-008",
+     "points": [
+      [
+       24,
+       2
+      ],
+      [
+       24,
+       5
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-009",
+     "points": [
+      [
+       24,
+       5
+      ],
+      [
+       24,
+       7
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-010",
+     "points": [
+      [
+       24,
+       7
+      ],
+      [
+       24,
+       12
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-011",
+     "points": [
+      [
+       2,
+       12
+      ],
+      [
+       7,
+       12
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-012",
+     "points": [
+      [
+       7,
+       12
+      ],
+      [
+       9,
+       12
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-013",
+     "points": [
+      [
+       9,
+       12
+      ],
+      [
+       14,
+       12
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-014",
+     "points": [
+      [
+       14,
+       12
+      ],
+      [
+       17,
+       12
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-015",
+     "points": [
+      [
+       17,
+       12
+      ],
+      [
+       19,
+       12
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-016",
+     "points": [
+      [
+       19,
+       12
+      ],
+      [
+       24,
+       12
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-017",
+     "points": [
+      [
+       24,
+       12
+      ],
+      [
+       30,
+       12
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-018",
+     "points": [
+      [
+       30,
+       12
+      ],
+      [
+       32,
+       12
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-019",
+     "points": [
+      [
+       32,
+       12
+      ],
+      [
+       38,
+       12
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-020",
+     "points": [
+      [
+       26,
+       12
+      ],
+      [
+       26,
+       17
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-021",
+     "points": [
+      [
+       26,
+       17
+      ],
+      [
+       26,
+       19
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-022",
+     "points": [
+      [
+       26,
+       19
+      ],
+      [
+       26,
+       24
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-023",
+     "points": [
+      [
+       2,
+       24
+      ],
+      [
+       9,
+       24
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-024",
+     "points": [
+      [
+       9,
+       24
+      ],
+      [
+       11,
+       24
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-025",
+     "points": [
+      [
+       11,
+       24
+      ],
+      [
+       20,
+       24
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-026",
+     "points": [
+      [
+       20,
+       24
+      ],
+      [
+       22,
+       24
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-027",
+     "points": [
+      [
+       22,
+       24
+      ],
+      [
+       24,
+       24
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-028",
+     "points": [
+      [
+       24,
+       24
+      ],
+      [
+       26,
+       24
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-029",
+     "points": [
+      [
+       26,
+       24
+      ],
+      [
+       38,
+       24
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    },
+    {
+     "id": "wall-030",
+     "points": [
+      [
+       20,
+       24
+      ],
+      [
+       20,
+       32
+      ]
+     ],
+     "wallType": "normal",
+     "direction": "both",
+     "color": "#211d18",
+     "width": 0.5,
+     "roughness": 0
+    }
+   ],
+   "rooms": [
+    {
+     "id": "room-g8dueq",
+     "name": "Fungus Grotto",
+     "boundary": [
+      [
+       2.25,
+       2.25
+      ],
+      [
+       13.75,
+       2.25
+      ],
+      [
+       13.75,
+       11.75
+      ],
+      [
+       2.25,
+       11.75
+      ]
+     ],
+     "centroid": [
+      8,
+      7
+     ],
+     "area": 109.25,
+     "isPathway": false
+    },
+    {
+     "id": "room-1a623cq",
+     "name": "Plunder Nook",
+     "boundary": [
+      [
+       14.25,
+       2.25
+      ],
+      [
+       23.75,
+       2.25
+      ],
+      [
+       23.75,
+       11.75
+      ],
+      [
+       14.25,
+       11.75
+      ]
+     ],
+     "centroid": [
+      19,
+      7
+     ],
+     "area": 90.25,
+     "isPathway": false
+    },
+    {
+     "id": "room-1890rrs",
+     "name": "Chief's Den",
+     "boundary": [
+      [
+       24.25,
+       2.25
+      ],
+      [
+       37.75,
+       2.25
+      ],
+      [
+       37.75,
+       11.75
+      ],
+      [
+       24.25,
+       11.75
+      ]
+     ],
+     "centroid": [
+      31,
+      7
+     ],
+     "area": 128.25,
+     "isPathway": false
+    },
+    {
+     "id": "room-1m95w4d",
+     "name": "Warren Hall",
+     "boundary": [
+      [
+       2.25,
+       12.25
+      ],
+      [
+       25.75,
+       12.25
+      ],
+      [
+       25.75,
+       23.75
+      ],
+      [
+       2.25,
+       23.75
+      ]
+     ],
+     "centroid": [
+      14,
+      18
+     ],
+     "area": 270.25,
+     "isPathway": false
+    },
+    {
+     "id": "room-1pdtiud",
+     "name": "Web Gallery",
+     "boundary": [
+      [
+       26.25,
+       12.25
+      ],
+      [
+       37.75,
+       12.25
+      ],
+      [
+       37.75,
+       23.75
+      ],
+      [
+       26.25,
+       23.75
+      ]
+     ],
+     "centroid": [
+      32,
+      18
+     ],
+     "area": 132.25,
+     "isPathway": false
+    },
+    {
+     "id": "room-2s3qbn",
+     "name": "Entrance Tunnel",
+     "boundary": [
+      [
+       2.25,
+       24.25
+      ],
+      [
+       19.75,
+       24.25
+      ],
+      [
+       19.75,
+       31.75
+      ],
+      [
+       2.25,
+       31.75
+      ]
+     ],
+     "centroid": [
+      11,
+      28
+     ],
+     "area": 131.25,
+     "isPathway": false
+    },
+    {
+     "id": "room-1pskmcy",
+     "name": "Hidden Vein",
+     "boundary": [
+      [
+       20.25,
+       24.25
+      ],
+      [
+       37.75,
+       24.25
+      ],
+      [
+       37.75,
+       31.75
+      ],
+      [
+       20.25,
+       31.75
+      ]
+     ],
+     "centroid": [
+      29,
+      28
+     ],
+     "area": 131.25,
+     "isPathway": false
+    }
+   ],
+   "roomNameOverrides": {
+    "room-g8dueq": "Fungus Grotto",
+    "room-1a623cq": "Plunder Nook",
+    "room-1890rrs": "Chief's Den",
+    "room-1m95w4d": "Warren Hall",
+    "room-1pdtiud": "Web Gallery",
+    "room-2s3qbn": "Entrance Tunnel",
+    "room-1pskmcy": "Hidden Vein"
+   },
+   "children": [
+    {
+     "id": "floor-grotto",
+     "name": "Fungus Grotto Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        2,
+        2
+       ],
+       [
+        14,
+        2
+       ],
+       [
+        14,
+        12
+       ],
+       [
+        2,
+        12
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "gg-demo:floor_small_8x8_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#7f8a6d"
+    },
+    {
+     "id": "floor-storage",
+     "name": "Plunder Nook Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        14,
+        2
+       ],
+       [
+        24,
+        2
+       ],
+       [
+        24,
+        12
+       ],
+       [
+        14,
+        12
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "gg-demo:floor_small_8x8_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#8d7f6a"
+    },
+    {
+     "id": "floor-den",
+     "name": "Chief's Den Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        24,
+        2
+       ],
+       [
+        38,
+        2
+       ],
+       [
+        38,
+        12
+       ],
+       [
+        24,
+        12
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "gg-demo:floor_small_8x8_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#94806a"
+    },
+    {
+     "id": "floor-hall",
+     "name": "Warren Hall Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        2,
+        12
+       ],
+       [
+        26,
+        12
+       ],
+       [
+        26,
+        24
+       ],
+       [
+        2,
+        24
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "gg-demo:floor_small_8x8_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#857868"
+    },
+    {
+     "id": "floor-gallery",
+     "name": "Web Gallery Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        26,
+        12
+       ],
+       [
+        38,
+        12
+       ],
+       [
+        38,
+        24
+       ],
+       [
+        26,
+        24
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "gg-demo:floor_small_8x8_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#7a7370"
+    },
+    {
+     "id": "floor-entrance",
+     "name": "Entrance Tunnel Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        2,
+        24
+       ],
+       [
+        20,
+        24
+       ],
+       [
+        20,
+        32
+       ],
+       [
+        2,
+        32
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "gg-demo:floor_small_8x8_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#7f7466"
+    },
+    {
+     "id": "floor-vein",
+     "name": "Hidden Vein Floor",
+     "childType": "shape",
+     "visible": true,
+     "shapeType": "rectangle",
+     "contours": [
+      [
+       [
+        20,
+        24
+       ],
+       [
+        38,
+        24
+       ],
+       [
+        38,
+        32
+       ],
+       [
+        20,
+        32
+       ]
+      ]
+     ],
+     "roughnessEnabled": false,
+     "textureId": "gg-demo:floor_small_8x8_floor_A",
+     "textureScale": 1,
+     "textureOffsetX": 0,
+     "textureOffsetY": 0,
+     "textureFillRotation": 0,
+     "textureTint": "#6f6a72"
+    },
+    {
+     "id": "asset-001-acid",
+     "name": "acid mushroom",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:acid_mushroom_1x1_object_A",
+     "position": {
+      "x": 4.5,
+      "y": 4.5
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 0.75,
+     "height": 0.53,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-002-acid",
+     "name": "acid mushroom",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:acid_mushroom_1x1_object_A",
+     "position": {
+      "x": 7,
+      "y": 6.2
+     },
+     "rotation": 1.1,
+     "scale": 1,
+     "width": 0.75,
+     "height": 0.53,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-003-acid",
+     "name": "acid mushroom",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:acid_mushroom_1x1_object_A",
+     "position": {
+      "x": 5.2,
+      "y": 9.4
+     },
+     "rotation": 2.4,
+     "scale": 0.8,
+     "width": 0.75,
+     "height": 0.53,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-004-acid",
+     "name": "acid mushroom",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:acid_mushroom_1x1_object_A",
+     "position": {
+      "x": 11.2,
+      "y": 4.1
+     },
+     "rotation": 4.2,
+     "scale": 1.15,
+     "width": 0.75,
+     "height": 0.53,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-005-rock",
+     "name": "rock 2",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:rock_2_2x1_object_A",
+     "position": {
+      "x": 3.4,
+      "y": 7.2
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1.265,
+     "height": 0.95,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-006-rock",
+     "name": "rock 1",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:rock_1_2x1_object_A",
+     "position": {
+      "x": 12.2,
+      "y": 10.3
+     },
+     "rotation": 0.6,
+     "scale": 1,
+     "width": 1.105,
+     "height": 0.705,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-007-clutter",
+     "name": "clutter webs 1 full",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:clutter_webs_1_full_2x1_object_A",
+     "position": {
+      "x": 12.8,
+      "y": 3.2
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1.77,
+     "height": 0.9,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-008-storage",
+     "name": "storage barrel 1 dark",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:storage_barrel_1_dark_1x1_object_A",
+     "position": {
+      "x": 16,
+      "y": 4
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 0.47,
+     "height": 0.455,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-009-storage",
+     "name": "storage crates 1 dark",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:storage_crates_1_dark_1x1_object_A",
+     "position": {
+      "x": 19.3,
+      "y": 5
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 0.885,
+     "height": 0.845,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-010-sack",
+     "name": "sack stack 1",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:sack_stack_1_2x1_object_A",
+     "position": {
+      "x": 22.2,
+      "y": 8.4
+     },
+     "rotation": 0.4,
+     "scale": 1,
+     "width": 1.105,
+     "height": 0.885,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-011-storage",
+     "name": "storage keg barrels and sacks",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:storage_keg_barrels_and_sacks_2x1_object_A",
+     "position": {
+      "x": 17.2,
+      "y": 9.5
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1.9,
+     "height": 0.785,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-012-produce",
+     "name": "produce barrel cabbages",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:produce_barrel_cabbages_2x2_object_A",
+     "position": {
+      "x": 21.4,
+      "y": 3.2
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1.165,
+     "height": 1.13,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-013-storage",
+     "name": "storage crate broken 1 dark",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:storage_crate_broken_1_dark_1x1_object_A",
+     "position": {
+      "x": 15.4,
+      "y": 11
+     },
+     "rotation": 2.9,
+     "scale": 1,
+     "width": 0.815,
+     "height": 0.67,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-014-bed",
+     "name": "bed pattern 1 a",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:bed_pattern_1_a_2x3_object_A",
+     "position": {
+      "x": 35,
+      "y": 4.4
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1.655,
+     "height": 2.1,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-015-decoration",
+     "name": "decoration bear skin rug",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:decoration_bear_skin_rug_2x2_object_A",
+     "position": {
+      "x": 30,
+      "y": 6
+     },
+     "rotation": 0.3,
+     "scale": 1,
+     "width": 1.435,
+     "height": 1.695,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-016-clutter",
+     "name": "clutter skull giant",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:clutter_skull_giant_1x1_object_A",
+     "position": {
+      "x": 29.6,
+      "y": 9.2
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 0.455,
+     "height": 0.53,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-017-chest",
+     "name": "chest 1 steel",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:chest_1_steel_1x1_object_A",
+     "position": {
+      "x": 36.4,
+      "y": 9.4
+     },
+     "rotation": -0.2,
+     "scale": 1,
+     "width": 0.685,
+     "height": 0.515,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-018-weapon",
+     "name": "weapon rack 1 dark",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:weapon_rack_1_dark_1x1_object_A",
+     "position": {
+      "x": 25.4,
+      "y": 10.4
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 0.63,
+     "height": 0.8,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-019-light",
+     "name": "light brazier 1 a",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:light_brazier_1_a_1x1_object_A",
+     "position": {
+      "x": 26.2,
+      "y": 4.2
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 0.755,
+     "height": 0.8,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-020-campfire",
+     "name": "campfire",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:campfire_1x1_object_A",
+     "position": {
+      "x": 14,
+      "y": 18
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 0.84,
+     "height": 0.85,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-021-campfire",
+     "name": "campfire pot cooking",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:campfire_pot_cooking_1x1_object_A",
+     "position": {
+      "x": 15.3,
+      "y": 18.6
+     },
+     "rotation": 0.7,
+     "scale": 1,
+     "width": 0.445,
+     "height": 0.42,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-022-firewood",
+     "name": "firewood pile",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:firewood_pile_2x1_object_A",
+     "position": {
+      "x": 12.6,
+      "y": 17.3
+     },
+     "rotation": 2.1,
+     "scale": 1,
+     "width": 1.73,
+     "height": 0.985,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-023-log",
+     "name": "log seat 1",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:log_seat_1_1x1_object_A",
+     "position": {
+      "x": 13,
+      "y": 19.6
+     },
+     "rotation": 0.9,
+     "scale": 1,
+     "width": 0.52,
+     "height": 0.48,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-024-log",
+     "name": "log seat 2",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:log_seat_2_1x1_object_A",
+     "position": {
+      "x": 15.6,
+      "y": 16.9
+     },
+     "rotation": 3.6,
+     "scale": 1,
+     "width": 0.52,
+     "height": 0.48,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-025-boulder",
+     "name": "boulder",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:boulder_2x2_object_A",
+     "position": {
+      "x": 4.8,
+      "y": 14.2
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1.92,
+     "height": 1.955,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-026-rock",
+     "name": "rock outcrop",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:rock_outcrop_3x3_object_A",
+     "position": {
+      "x": 22.6,
+      "y": 22
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 2.38,
+     "height": 2.465,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-027-clutter",
+     "name": "clutter skull human",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:clutter_skull_human_1x1_object_A",
+     "position": {
+      "x": 8.2,
+      "y": 21.4
+     },
+     "rotation": 1.9,
+     "scale": 1,
+     "width": 0.27,
+     "height": 0.315,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-028-tunic",
+     "name": "tunic stack 1",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:tunic_stack_1_2x2_object_A",
+     "position": {
+      "x": 6.5,
+      "y": 16.5
+     },
+     "rotation": 0.2,
+     "scale": 1,
+     "width": 1.105,
+     "height": 1.085,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-029-spider",
+     "name": "spider web",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:spider_web_3x2_object_A",
+     "position": {
+      "x": 32,
+      "y": 18
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 2.545,
+     "height": 1.245,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-030-clutter",
+     "name": "clutter webs 2 full",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:clutter_webs_2_full_2x1_object_A",
+     "position": {
+      "x": 28.8,
+      "y": 13.2
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1.1,
+     "height": 0.815,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-031-clutter",
+     "name": "clutter webs 3 full",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:clutter_webs_3_full_2x1_object_A",
+     "position": {
+      "x": 36.6,
+      "y": 14.4
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1.085,
+     "height": 0.63,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-032-clutter",
+     "name": "clutter webs 4 full",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:clutter_webs_4_full_1x1_object_A",
+     "position": {
+      "x": 36.8,
+      "y": 22.6
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 0.67,
+     "height": 0.53,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-033-clutter",
+     "name": "clutter skull human",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:clutter_skull_human_1x1_object_A",
+     "position": {
+      "x": 34.8,
+      "y": 20.2
+     },
+     "rotation": 4.4,
+     "scale": 0.9,
+     "width": 0.27,
+     "height": 0.315,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-034-storage",
+     "name": "storage crate broken 2 dark",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:storage_crate_broken_2_dark_1x1_object_A",
+     "position": {
+      "x": 27.8,
+      "y": 22.4
+     },
+     "rotation": 0.8,
+     "scale": 1,
+     "width": 0.6,
+     "height": 0.83,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-035-campfire",
+     "name": "campfire ring",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:campfire_ring_2x2_object_A",
+     "position": {
+      "x": 6,
+      "y": 28
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1.63,
+     "height": 1.67,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-036-bear",
+     "name": "bear trap",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:bear_trap_1x1_object_A",
+     "position": {
+      "x": 12.2,
+      "y": 27.2
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 0.79,
+     "height": 0.73,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-037-rock",
+     "name": "rock small 1",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:rock_small_1_1x1_object_A",
+     "position": {
+      "x": 17.4,
+      "y": 30.2
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 0.57,
+     "height": 0.535,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-038-clutter",
+     "name": "clutter broken boards 1 dark",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:clutter_broken_boards_1_dark_1x2_object_A",
+     "position": {
+      "x": 3.6,
+      "y": 30.6
+     },
+     "rotation": 1.3,
+     "scale": 1,
+     "width": 1,
+     "height": 1.015,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-039-chest",
+     "name": "chest 2 gold",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:chest_2_gold_1x1_object_A",
+     "position": {
+      "x": 34,
+      "y": 28
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 0.745,
+     "height": 0.53,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-040-mystery",
+     "name": "mystery sack",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:mystery_sack_1x1_object_A",
+     "position": {
+      "x": 30.4,
+      "y": 27.2
+     },
+     "rotation": 0.5,
+     "scale": 1,
+     "width": 0.32,
+     "height": 0.4,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-041-clutter",
+     "name": "clutter scales gold",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:clutter_scales_gold_1x1_object_A",
+     "position": {
+      "x": 32.6,
+      "y": 29.4
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 0.715,
+     "height": 0.345,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-042-rock",
+     "name": "rock outcrop",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:rock_outcrop_3x3_object_A",
+     "position": {
+      "x": 25.6,
+      "y": 26.2
+     },
+     "rotation": 2.2,
+     "scale": 1,
+     "width": 2.38,
+     "height": 2.465,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "asset-043-stairs",
+     "name": "stairs stone short",
+     "childType": "asset",
+     "objectType": "asset",
+     "assetId": "gg-demo:stairs_stone_short_2x2_object_A",
+     "position": {
+      "x": 22.6,
+      "y": 29.6
+     },
+     "rotation": 0,
+     "scale": 1,
+     "width": 1.185,
+     "height": 2.005,
+     "tint": "#ffffff",
+     "flipX": false,
+     "flipY": false,
+     "visible": true
+    },
+    {
+     "id": "light-hall-fire",
+     "name": "Warren Hall Fire",
+     "childType": "light",
+     "visible": true,
+     "color": "#ff9b52",
+     "radius": 10.5,
+     "featherRadius": 2.5,
+     "intensity": 1,
+     "falloff": "quadratic",
+     "position": {
+      "x": 14,
+      "y": 18
+     }
+    },
+    {
+     "id": "light-den-brazier",
+     "name": "Chief Brazier",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffb877",
+     "radius": 8.5,
+     "featherRadius": 2.5,
+     "intensity": 0.95,
+     "falloff": "quadratic",
+     "position": {
+      "x": 26.2,
+      "y": 4.2
+     }
+    },
+    {
+     "id": "light-entrance-ring",
+     "name": "Entrance Fire Ring",
+     "childType": "light",
+     "visible": true,
+     "color": "#ff9b52",
+     "radius": 7.5,
+     "featherRadius": 2.5,
+     "intensity": 0.9,
+     "falloff": "quadratic",
+     "position": {
+      "x": 6,
+      "y": 28
+     }
+    },
+    {
+     "id": "light-storage-lamp",
+     "name": "Nook Lantern",
+     "childType": "light",
+     "visible": true,
+     "color": "#ffc38a",
+     "radius": 6.5,
+     "featherRadius": 2.5,
+     "intensity": 0.75,
+     "falloff": "quadratic",
+     "position": {
+      "x": 19,
+      "y": 7
+     }
+    },
+    {
+     "id": "light-grotto-glow",
+     "name": "Fungus Glow",
+     "childType": "light",
+     "visible": true,
+     "color": "#9fdc8a",
+     "radius": 5.5,
+     "featherRadius": 2.5,
+     "intensity": 0.55,
+     "falloff": "quadratic",
+     "position": {
+      "x": 7,
+      "y": 6.2
+     }
+    },
+    {
+     "id": "door-01-rope-curtain",
+     "name": "Rope Curtain",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-006",
+     "position": [
+      14,
+      7
+     ],
+     "angle": 1.5707963267948966,
+     "width": 2,
+     "style": "single",
+     "state": "open",
+     "isSecret": false,
+     "roomA": "room-g8dueq",
+     "roomB": "room-1a623cq"
+    },
+    {
+     "id": "door-02-store-door",
+     "name": "Store Door",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-009",
+     "position": [
+      24,
+      6
+     ],
+     "angle": 1.5707963267948966,
+     "width": 2,
+     "style": "single",
+     "state": "closed",
+     "isSecret": false,
+     "roomA": "room-1a623cq",
+     "roomB": "room-1890rrs"
+    },
+    {
+     "id": "door-03-low-passage",
+     "name": "Low Passage",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-012",
+     "position": [
+      8,
+      12
+     ],
+     "angle": 0,
+     "width": 2,
+     "style": "archway",
+     "state": "open",
+     "isSecret": false,
+     "roomA": "room-1m95w4d",
+     "roomB": "room-g8dueq"
+    },
+    {
+     "id": "door-04-timber-door",
+     "name": "Timber Door",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-015",
+     "position": [
+      18,
+      12
+     ],
+     "angle": 0,
+     "width": 2,
+     "style": "single",
+     "state": "closed",
+     "isSecret": false,
+     "roomA": "room-1m95w4d",
+     "roomB": "room-1a623cq"
+    },
+    {
+     "id": "door-05-chief-door",
+     "name": "Chief Door",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-018",
+     "position": [
+      31,
+      12
+     ],
+     "angle": 0,
+     "width": 2,
+     "style": "double",
+     "state": "closed",
+     "isSecret": false,
+     "roomA": "room-1pdtiud",
+     "roomB": "room-1890rrs"
+    },
+    {
+     "id": "door-06-old-gate",
+     "name": "Old Gate",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-021",
+     "position": [
+      26,
+      18
+     ],
+     "angle": 1.5707963267948966,
+     "width": 2,
+     "style": "portcullis",
+     "state": "closed",
+     "isSecret": false,
+     "roomA": "room-1m95w4d",
+     "roomB": "room-1pdtiud"
+    },
+    {
+     "id": "door-07-mouth-passage",
+     "name": "Mouth Passage",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-024",
+     "position": [
+      10,
+      24
+     ],
+     "angle": 0,
+     "width": 2,
+     "style": "archway",
+     "state": "open",
+     "isSecret": false,
+     "roomA": "room-2s3qbn",
+     "roomB": "room-1m95w4d"
+    },
+    {
+     "id": "door-08-hidden-crack",
+     "name": "Hidden Crack",
+     "childType": "door",
+     "visible": true,
+     "wallId": "wall-027",
+     "position": [
+      23,
+      24
+     ],
+     "angle": 0,
+     "width": 2,
+     "style": "single",
+     "state": "closed",
+     "isSecret": true,
+     "roomA": "room-1pskmcy",
+     "roomB": "room-1m95w4d"
+    },
+    {
+     "id": "zone-hidden-vein",
+     "name": "Hidden Vein",
+     "childType": "zone",
+     "visible": true,
+     "shape": {
+      "kind": "rect",
+      "x": 20.5,
+      "y": 24.5,
+      "width": 17,
+      "height": 7
+     },
+     "blocksAutoExplore": true
+    }
+   ]
+  }
+ ]
+}

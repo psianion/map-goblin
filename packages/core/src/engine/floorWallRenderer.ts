@@ -3,6 +3,7 @@ import type { DungeonLayer, ShapeChild } from '../store/types';
 import type { LayerEntry } from './sceneGraph';
 import type { Polygon } from '../types/geometry';
 import { useStore } from '../store/store';
+import { getAssetPackManager } from './assetPackInstance';
 import * as textureLoader from '../assets/textureLoader';
 import { unitTexture } from '../assets/textureLoader';
 import { preloadPathTextures } from './splineRenderer';
@@ -18,6 +19,29 @@ import { getTerrainRenderer } from './terrain/TerrainRenderer';
 
 function parseColor(hex: string): number {
   return parseInt(hex.replace('#', ''), 16);
+}
+
+/**
+ * A floor bake is one-shot, but its pack textures can land after it ran: a file
+ * import resolves textures only after `loadFromFile` has already rendered
+ * (saveLoad.ts), and CDN install-by-need is slower still. Every such bake used
+ * to freeze on its fallback until the user happened to touch the shape's
+ * texture. Arm one wait per (layer, texture); when the texture lands, bump the
+ * layer's epoch — subscribeToStore folds it into the render key and re-bakes.
+ */
+const armedLateTextureWaits = new Set<string>();
+export function armLateTextureRebuild(layerId: string, textureId: string): void {
+  if (!textureId.includes(':') || textureId.startsWith('data:') || textureId.startsWith('blob:')) return;
+  const key = `${layerId}|${textureId}`;
+  if (armedLateTextureWaits.has(key)) return;
+  armedLateTextureWaits.add(key);
+  getAssetPackManager()
+    .waitForTexture(textureId)
+    .then((tex) => {
+      armedLateTextureWaits.delete(key);
+      // Timed out (bad id, install failed): stay on the fallback quietly.
+      if (tex) useStore.getState().bumpFloorTextureEpoch(layerId);
+    });
 }
 
 /** Stone-gap openings for the doorways. A detached door has no wall to gap. */
@@ -414,10 +438,15 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
         // unitTexture, not resolveTexture: a variant-sheet source file must fill
         // with just its one unit — keeps the fill in scale with the palette/brush.
         const texture = unitTexture(shape.textureId).texture;
-        if (texture.width > 0) {
+        // > 1, not > 0: a pack id that hasn't landed resolves to the 1×1 magenta
+        // fallback, which used to slip into the textured branch and tile the
+        // whole room magenta instead of taking the not-loaded fill below.
+        if (texture.width > 1) {
           renderTexturedShape(floor, shape, texture);
         } else {
           // Texture not loaded yet — fall back to solid tinted fill (guard NaN)
+          // and re-bake when it lands.
+          armLateTextureRebuild(layer.id, shape.textureId);
           const tint = shape.textureTint ? parseColor(shape.textureTint) : NaN;
           renderSolidShape(floor, shape, isNaN(tint) ? shapeFloorColor : tint);
         }

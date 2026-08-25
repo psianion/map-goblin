@@ -482,6 +482,9 @@ export function subscribeToStore(
           id: l.id,
           shapeCount: l.children.filter((c) => c.childType === 'shape').length,
           wallCount: l.standaloneWalls.length,
+          // Bumped when a pack texture a floor bake needed lands after the bake
+          // (armLateTextureRebuild) — rides into renderKey so the bake re-runs.
+          floorTextureEpoch: state.floorTextureEpochs[l.id] ?? 0,
           // Track shape IDs + geometry to detect changes (NOT mergedFloor — we write that)
           shapeKeys: l.children
             .filter((c): c is ShapeChild => c.childType === 'shape')
@@ -532,7 +535,7 @@ export function subscribeToStore(
     (dungeonLayers) => {
       let geometryChanged = false;
       const lightingKeys: string[] = [];
-      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, waterSignature, doorGeometryKey, doorStateKey } of dungeonLayers) {
+      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, waterSignature, doorGeometryKey, doorStateKey, floorTextureEpoch } of dungeonLayers) {
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
@@ -551,7 +554,7 @@ export function subscribeToStore(
           // door geometry is here (not just roomKey) because withoutDoorGaps
           // needs it to cut stone gaps. Door STATE is deliberately excluded: it
           // is handled by the doors-only redraw below and must never re-run this.
-          const renderKey = `${roomKey}|${shapeKeys}|${waterSignature}|${doorGeometryKey}|${wallEditsKey}`;
+          const renderKey = `${roomKey}|${shapeKeys}|${waterSignature}|${doorGeometryKey}|${wallEditsKey}|${floorTextureEpoch}`;
           // What occlusion is a function of: the outlines light is cast against
           // (floor rings and walls) plus every door's geometry and state. A
           // texture edit is absent from all of it.
