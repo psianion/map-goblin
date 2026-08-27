@@ -216,6 +216,14 @@ const LIGHT_FBO_SCALE = 0.5
 /** The bulb glyph's on-screen box — the hit radius (`LIGHT_ICON_RADIUS_PX`) is its half-width. */
 const ICON_SIZE_PX = LIGHT_ICON_RADIUS_PX * 2
 
+/**
+ * How much of the multiply the composite is allowed — the last 5% left un-multiplied keeps a
+ * pitch-black grade off pure black, so an unlit corner is still a *dark room* and not a hole.
+ * Shared by the live sprite and the export's, which is the whole point of naming it: the two
+ * pictures differ by nothing.
+ */
+const COMPOSITE_ALPHA = 0.95
+
 export class LightingRenderer {
   private engine: RenderEngine
   private lightFBO: RenderTexture
@@ -245,6 +253,15 @@ export class LightingRenderer {
   private grade: string | null = null
   /** The clock the grade was composed at, bucketed — see `lightingSignature`. */
   private timeBucket = 0
+  /**
+   * The LightManager the last frame drew from. `renderInto` needs one and its callers do not
+   * have one: the export runs from a dialog, which reaches the engine through the singleton,
+   * and the singleton carries the engine and the scene graph only. The manager is built once
+   * per engine (`CanvasHost`, `GameRenderer`) and handed to the render loop and the store
+   * subscription both, so "whichever one is lighting the frames" is unambiguous — hold onto
+   * it here rather than threading a fourth argument through four files to say the same thing.
+   */
+  private lastLightManager: LightManager | null = null
 
   constructor(engine: RenderEngine, width: number, height: number) {
     this.engine = engine
@@ -271,7 +288,7 @@ export class LightingRenderer {
     this.compositingSprite.width = width
     this.compositingSprite.height = height
     this.compositingSprite.blendMode = 'multiply'
-    this.compositingSprite.alpha = 0.95
+    this.compositingSprite.alpha = COMPOSITE_ALPHA
 
     engine.overlay().addChild(this.compositingSprite)
   }
@@ -373,6 +390,8 @@ export class LightingRenderer {
     zoom: number,
     ambientColor: string,
   ): void {
+    // Before the guards below — an idle frame still says which manager is lighting the map.
+    this.lastLightManager = lightManager
     this.updateIcons(lightManager, camX, camY, zoom)
 
     // Viewport first — it sizes the composite, and a resize has to reach the signature
@@ -410,6 +429,93 @@ export class LightingRenderer {
     if (signature === this.lastSignature) return
     this.lastSignature = signature
 
+    this.composite(
+      lightManager,
+      visibleLights,
+      zoom,
+      grade,
+      this.lightFBO,
+      this.perLightRT,
+      this.width,
+      this.height,
+    )
+  }
+
+  /**
+   * Draw the lighting composite over `target` for whatever transform the world container is
+   * currently on, at `width`×`height` — the map export's path, where that transform is the
+   * export's rather than the viewport's.
+   *
+   * Runs the frame's own composite into throwaway FBOs so the live pass keeps the ones it
+   * memoised: `lastSignature` still describes what is in `lightFBO`, and the next tick must
+   * not have to redraw it just because someone saved a picture.
+   *
+   * No distance cull either, unlike a frame. `MAX_RENDERED_LIGHTS` is a per-frame GPU budget,
+   * and a picture of the whole map that dropped every torch past the 24th nearest the middle
+   * of it is not a picture of the map. An export pays for all of them, once.
+   *
+   * A no-op before the first frame has drawn — see `lastLightManager`.
+   */
+  renderInto(
+    target: RenderTexture,
+    zoom: number,
+    width: number,
+    height: number,
+    ambientColor: string,
+  ): void {
+    const lightManager = this.lastLightManager
+    if (!lightManager) return
+
+    const fw = Math.max(1, Math.ceil(width * LIGHT_FBO_SCALE))
+    const fh = Math.max(1, Math.ceil(height * LIGHT_FBO_SCALE))
+    const fbo = this.engine.createRenderTexture(fw, fh)
+    const perLightRT = this.engine.createRenderTexture(fw, fh)
+
+    try {
+      this.composite(
+        lightManager,
+        lightManager.getVisibleLights(),
+        zoom,
+        this.grade ?? ambientColor,
+        fbo,
+        perLightRT,
+        width,
+        height,
+      )
+
+      const sprite = new Sprite(fbo)
+      sprite.label = 'lightingCompositeExport'
+      sprite.width = width
+      sprite.height = height
+      sprite.blendMode = 'multiply'
+      sprite.alpha = COMPOSITE_ALPHA
+      const holder = new Container()
+      holder.addChild(sprite)
+      // clear: false — the world is already in there, this multiplies over it.
+      this.engine.renderToTexture(holder, target, false)
+      sprite.destroy()
+      holder.destroy()
+    } finally {
+      fbo.destroy(true)
+      perLightRT.destroy(true)
+    }
+  }
+
+  /**
+   * The composite itself: fill `fbo` with the grade, then add each light's pool into it.
+   * `width`/`height` are the *screen* box the FBO stands for — the FBO is `LIGHT_FBO_SCALE`
+   * of it, and every screen coordinate below is scaled by the same factor on its way in.
+   */
+  private composite(
+    lightManager: LightManager,
+    visibleLights: LightChild[],
+    zoom: number,
+    grade: string,
+    fbo: RenderTexture,
+    perLightRT: RenderTexture,
+    width: number,
+    height: number,
+  ): void {
     const [gradeR, gradeG, gradeB] = rgb(grade)
     const gradeColorNum = (gradeR << 16) | (gradeG << 8) | gradeB
     // What the grade leaves for the lights to burn into — see `headroom`.
@@ -419,17 +525,17 @@ export class LightingRenderer {
     // resolution factor. The composite sprite stretches the result back out.
     const S = LIGHT_FBO_SCALE
 
-    // ── Step 1: Fill lightFBO with the grade ──
+    // ── Step 1: Fill the FBO with the grade ──
     // Universal — every seat, every scene, opaque. A neutral white grade composites to
     // nothing, the anchor that keeps a map nobody has graded looking untouched.
     this.ambientContainer.removeChildren()
     const ambientG2 = new Graphics()
-    const fbw = Math.ceil(this.width * S)
-    const fbh = Math.ceil(this.height * S)
+    const fbw = Math.ceil(width * S)
+    const fbh = Math.ceil(height * S)
     ambientG2.rect(0, 0, fbw, fbh)
     ambientG2.fill({ color: gradeColorNum, alpha: 1 })
     this.ambientContainer.addChild(ambientG2)
-    this.engine.renderToTexture(this.ambientContainer, this.lightFBO, true)
+    this.engine.renderToTexture(this.ambientContainer, fbo, true)
 
     // Sprite used to composite each per-light RT into lightFBO — natural size,
     // both RTs share the same scaled dimensions. The penumbra rides on the blit: the
@@ -437,7 +543,7 @@ export class LightingRenderer {
     // the light's own edges (wall shadows, the rim of a mask pool), and a blurred black
     // border adds nothing. Blurring the final FBO instead would smear its edge texels in.
     this.penumbra.strength = Math.min(PENUMBRA_MAX_PX, PENUMBRA_CELLS * zoom * S)
-    const blitSprite = new Sprite(this.perLightRT)
+    const blitSprite = new Sprite(perLightRT)
     blitSprite.blendMode = 'add'
     blitSprite.filters = this.penumbra.strength >= 0.5 ? [this.penumbra] : []
     const blitContainer = new Container()
@@ -529,10 +635,10 @@ export class LightingRenderer {
       }
 
       // Render isolated light into perLightRT (cleared to black each time)
-      this.engine.renderToTexture(this.perLightContainer, this.perLightRT, true)
+      this.engine.renderToTexture(this.perLightContainer, perLightRT, true)
 
-      // ── Step 3: Composite perLightRT into lightFBO with additive blend ──
-      this.engine.renderToTexture(blitContainer, this.lightFBO, false)
+      // ── Step 3: Composite perLightRT into the FBO with additive blend ──
+      this.engine.renderToTexture(blitContainer, fbo, false)
     }
 
     // Cleanup

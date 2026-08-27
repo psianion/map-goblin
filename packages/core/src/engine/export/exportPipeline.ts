@@ -92,6 +92,19 @@ export async function runExportPipeline(
   // Render world to export texture
   engine.renderToTexture(sceneGraph.worldContainer, exportRT);
 
+  // The lighting pass rides on top, still under the export transform — it reads the light
+  // positions back through `engine.worldToScreen`, which is that transform, so it has to run
+  // before the restore below. Without it the file came out at the map's authored daylight
+  // brightness whatever the hour was: the composite is a screen-space overlay sprite, and
+  // the export only ever rendered the world container.
+  sceneGraph.lightingRenderer.renderInto(
+    exportRT,
+    zoom,
+    widthPx,
+    heightPx,
+    useStore.getState().mapSettings.ambientLight,
+  );
+
   // Restore original transform and grid visibility
   sceneGraph.worldContainer.position.set(origX, origY);
   sceneGraph.worldContainer.scale.set(origScale);
