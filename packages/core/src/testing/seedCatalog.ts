@@ -6,8 +6,105 @@
 
 import { getAssetPackManager, resetAssetPackManager } from '../engine/assetPackInstance';
 import type { EntryRect, ManifestEntry, PackManifest } from '../engine/assetPackManager';
+import { caveBandPieces, placeOnChord } from '../assets/caveWallKit';
+import type { AssetChild } from '../shared/types';
 
 export { resetAssetPackManager };
+
+function seedPack(packId: string, entries: Record<string, ManifestEntry>): void {
+  const manifest: PackManifest = {
+    name: packId,
+    description: '',
+    version: '1.0.0',
+    bundleSize: 0,
+    entries,
+    atlases: {},
+    files: {},
+  };
+  const manager = getAssetPackManager();
+  (manager as unknown as { manifestCache: Map<string, PackManifest> }).manifestCache.set(
+    packId,
+    manifest,
+  );
+  manager.catalogVersion++;
+}
+
+const CAVE_BAND_PACK = 'gg-demo';
+
+/**
+ * Seed a pack whose entries answer the cave kit's `material` + `gridSize` join,
+ * one per band piece, so `isCaveBandAsset` and `detectBands` have art to resolve
+ * a placed child against.
+ *
+ * A stand-in for gg-demo, not gg-demo: caveBand.test.ts covers that join against
+ * the shipped manifest on disk, which is the only place it is worth proving.
+ * Everything else only needs a band to exist.
+ */
+export function seedCaveBandPack(packId = CAVE_BAND_PACK): void {
+  const entries: Record<string, ManifestEntry> = {};
+  for (const piece of caveBandPieces()) {
+    // The key IS `<material>_<gridSize>` (see caveWallKit), so split it back at
+    // the last underscore rather than inventing a second naming rule here.
+    const cut = piece.key.lastIndexOf('_');
+    entries[`${piece.key}_A`] = {
+      type: 'object',
+      material: piece.key.slice(0, cut),
+      gridSize: piece.key.slice(cut + 1),
+      pieceType: 'object',
+      variant: 'A',
+      frame: { x: 0, y: 0, w: 200, h: 200 },
+      set: packId,
+      tags: [],
+    };
+  }
+  seedPack(packId, entries);
+}
+
+export interface CaveBandFixture {
+  children: AssetChild[];
+  /** Kit keys of the pieces laid, in walk order. */
+  keys: string[];
+  /** Where the run ends on the x axis. It starts at 0. */
+  span: number;
+}
+
+/**
+ * `count` kit straights laid nose to tail along `y`, as layer children.
+ *
+ * Small on purpose: `detectBands` is already held to the shipped Warren in
+ * caveBand.test.ts, and everything above it only needs a band that walks. Pair
+ * with {@link seedCaveBandPack} so the children's art resolves.
+ */
+export function caveBandChildren(count = 3, y = 20): CaveBandFixture {
+  const pieces = caveBandPieces()
+    .filter((p) => p.turnDeg === 0 && !p.flipY)
+    .slice(0, count);
+  const children: AssetChild[] = [];
+  let x = 0;
+  for (const [i, piece] of pieces.entries()) {
+    const at = placeOnChord(piece, [x, y], [x + piece.chordCells, y]);
+    children.push({
+      id: `rock-${i}`,
+      name: 'band piece',
+      childType: 'asset',
+      objectType: 'asset',
+      // The catalog namespaces every entry by its pack (see packCatalog), so a
+      // child's assetId is the qualified id, never the bare manifest key.
+      assetId: `${CAVE_BAND_PACK}:${piece.key}_A`,
+      position: at.position,
+      rotation: at.rotation,
+      scale: at.scale,
+      width: 1,
+      height: 1,
+      tint: '#ffffff',
+      flipX: false,
+      flipY: at.flipY ?? false,
+      visible: true,
+    });
+    x += piece.chordCells;
+  }
+  return { children, keys: pieces.map((p) => p.key), span: x };
+}
 
 /**
  * Seed one pack holding a full forge-style wall family per given set id — the
@@ -65,16 +162,5 @@ export function seedTestWallSets(setIds: string[] = ['GG_Test'], packId = 'gg-fo
     piece('Ending_A_1x1', '1x1', 'ending', 200, 200);
     piece('Straight_Path', '8x1', 'path', 1650, 200, band(1650));
   }
-  const manifest: PackManifest = {
-    name: packId,
-    description: '',
-    version: '1.0.0',
-    bundleSize: 0,
-    entries,
-    atlases: {},
-    files: {},
-  };
-  const manager = getAssetPackManager();
-  (manager as unknown as { manifestCache: Map<string, PackManifest> }).manifestCache.set(packId, manifest);
-  manager.catalogVersion++;
+  seedPack(packId, entries);
 }

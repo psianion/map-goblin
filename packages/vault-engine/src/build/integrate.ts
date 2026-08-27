@@ -26,6 +26,14 @@ interface ForgePiece {
   contentRect?: { x: number; y: number; w: number; h: number };
   tags?: string[];
   /**
+   * Material identity, when it must differ from the file's own basename — e.g.
+   * several grid-size variants of one family ("wall_short_2x2.png",
+   * "wall_short_2x4.png") are separate files on disk (each piece needs its own
+   * image) but share one material ("wall_short"), with gridSize telling them
+   * apart in the minted key. Falls back to the file's basename when absent.
+   */
+  material?: string;
+  /**
    * Exact manifest key to mint instead of the stem-derived one. Used for entries
    * whose id is a runtime contract (door sprites: `door-<style>-<state>`).
    * Loose sets only — the entry's material is set to this key so the loose file
@@ -136,7 +144,7 @@ export async function integrateSets(opts: IntegrateOptions): Promise<IntegrateRe
 
     if (loose) {
       for (const piece of forgeManifest.pieces) {
-        const stem = piece.file.replace(/\.png$/, '');
+        const stem = piece.material ?? piece.file.replace(/\.png$/, '');
         const gridSize = piece.gridSize ?? deriveGridSize(piece.naturalWidth, piece.naturalHeight);
         const variant = piece.variant ?? 'A';
         const material = piece.entryKey ?? stem;
@@ -149,6 +157,18 @@ export async function integrateSets(opts: IntegrateOptions): Promise<IntegrateRe
         const webp = await sharp(await readFile(join(setDir, piece.file)))
           .webp({ quality: 90, alphaQuality: 90 })
           .toBuffer();
+        // A loose entry ships no atlas frame — its recorded frame IS the renderer's
+        // sizing contract for this file. If the source image a set manifest points
+        // us at doesn't actually match the dimensions the manifest claims (e.g. two
+        // grid-size variants collided onto one file upstream), catch it here rather
+        // than shipping a sprite that renders squashed.
+        const minted = await sharp(webp).metadata();
+        if (minted.width !== piece.naturalWidth || minted.height !== piece.naturalHeight) {
+          throw new Error(
+            `Piece "${setDir}/${piece.file}" claims ${piece.naturalWidth}x${piece.naturalHeight} but the ` +
+              `minted image is ${minted.width}x${minted.height} — fix the set manifest or its source file.`,
+          );
+        }
         const fileName = `${material}_${gridSize}_${variant}-${contentHash(webp)}.webp`;
         newFiles.set(fileName, webp);
         mintedFiles[fileName] = { checksum: `sha256:${sha256File(webp)}`, size: webp.length };
@@ -177,7 +197,7 @@ export async function integrateSets(opts: IntegrateOptions): Promise<IntegrateRe
     const pieceByKey = new Map<string, { stem: string; gridSize: string; piece: ForgePiece }>();
 
     for (const piece of forgeManifest.pieces) {
-      const stem = piece.file.replace(/\.png$/, '');
+      const stem = piece.material ?? piece.file.replace(/\.png$/, '');
       const gridSize = piece.gridSize ?? deriveGridSize(piece.naturalWidth, piece.naturalHeight);
       // Forge already bakes each piece's real variant into the stem (…_A/_B/_C); the
       // manifest "variant" field just mirrors what the shipped hand-patch wrote for

@@ -23,6 +23,9 @@ export interface CatalogEntry {
   /** Asset-set name ('GG_Fieldstone', ...) — doubles as the wall-set id. */
   set?: string;
   pieceType?: string;
+  /** Family slug the entry belongs to ('wall_short', 'inside_bend', ...). Grid-free
+   *  by design, so `material` + `gridSize` identifies one authored piece. */
+  material: string;
   gridSize: string;
   naturalWidth: number;
   naturalHeight: number;
@@ -63,6 +66,7 @@ function build(): CatalogState {
         type: e.type,
         set: e.set,
         pieceType: e.pieceType,
+        material: e.material,
         gridSize: e.gridSize,
         // Atlas frames are untrimmed cells, so frame w/h IS the natural size;
         // loose entries are authored on the same cell grid.
