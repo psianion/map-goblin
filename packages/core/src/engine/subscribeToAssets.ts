@@ -92,14 +92,38 @@ function applyTexture(sprite: Sprite, obj: AssetChild, spriteMap: Map<string, Sp
     });
 }
 
+// Map from layerId → (childId → Sprite). Module-level so an overlay can reach a
+// live sprite without the store carrying render state for it — see
+// setAssetChildrenAlpha.
+const spriteMaps = new Map<string, Map<string, Sprite>>();
+
+/**
+ * Fade or restore placed children, by hand, for the duration of a gesture.
+ *
+ * Alpha is deliberately NOT a field on the child: the band x-ray fades the rock
+ * a drag would replace, and a cancelled drag has no command to rewind, so a
+ * persisted alpha would leave translucent stones on the map for good. `syncSprite`
+ * never touches alpha, so a store update mid-gesture leaves the fade alone; pass
+ * 1 to put it back.
+ */
+export function setAssetChildrenAlpha(
+  layerId: string,
+  childIds: readonly string[],
+  alpha: number,
+): void {
+  const spriteMap = spriteMaps.get(layerId);
+  if (!spriteMap) return;
+  for (const id of childIds) {
+    const sprite = spriteMap.get(id);
+    if (sprite) sprite.alpha = alpha;
+  }
+}
+
 /**
  * Subscribe to dungeon layer children (AssetChild nodes) and sync PixiJS sprites.
  * Called once from CanvasHost. Returns cleanup function.
  */
 export function subscribeToAssets(): () => void {
-  // Map from layerId → (childId → Sprite)
-  const spriteMaps = new Map<string, Map<string, Sprite>>();
-
   const unsub = useStore.subscribe(
     (state) =>
       state.layers

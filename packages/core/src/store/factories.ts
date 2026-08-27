@@ -69,11 +69,11 @@ type MapBuilderState = Omit<
   | 'setMapName' | 'setGridType' | 'setAmbientLight' | 'setEnvironmentSettings' | 'setTerrainData' | 'setTerrainSplats'
   | 'setGridVisible' | 'setSnapEnabled' | 'setSnapDivision'
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
-  | 'addChild' | 'removeChild' | 'reorderChild' | 'updateChild' | 'recomputeMergedFloor'
+  | 'addChild' | 'removeChild' | 'reorderChild' | 'updateChild' | 'recomputeMergedFloor' | 'bumpFloorTextureEpoch'
   | 'addWall' | 'removeWall' | 'updateWall' | 'setFloorWallEdits' | 'closeAllDoors'
   | 'setRooms' | 'renameRoom'
   | 'setActiveTool' | 'setEraseMode' | 'setRoughMode' | 'setCurveMode' | 'updateToolSettings' | 'addRecentAsset' | 'updateLightDefaults' | 'updateScatterBrushSettings' | 'updateTerrainBrushSettings' | 'updateWaterSettings'
-  | 'setNodeEditWall' | 'selectNode' | 'toggleNodeSelection' | 'setShapeNodeEdit' | 'selectVertex'
+  | 'setNodeEditWall' | 'selectNode' | 'toggleNodeSelection' | 'setShapeNodeEdit' | 'selectVertex' | 'setBandDragStatus'
   | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
   | 'showModal' | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
   | 'toggleSoloLayer' | 'clearSolo' | 'setPreviewClock' | 'setPreviewSky'
@@ -106,6 +106,7 @@ export function createDefaultState(): MapBuilderState {
       snapDivision: 2,
     },
     layers: [bgLayer, dungeonLayer],
+    floorTextureEpochs: {},
     tools: {
       activeTool: 'rectangle',
       eraseMode: false,
@@ -164,6 +165,7 @@ export function createDefaultState(): MapBuilderState {
       selectedNodeTs: [],
       shapeNodeEditId: null,
       selectedVertex: null,
+      bandDragStatus: null,
     },
     ui: {
       leftPanelOpen: true,

@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { Container } from 'pixi.js';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { Container, Graphics } from 'pixi.js';
 import { SelectTool } from './SelectTool';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
 import type { RenderEngine } from '../RenderEngine';
 import type { DungeonLayer } from '../../store/types';
-import type { AssetChild, LightChild } from '../../shared/types';
+import type { AssetChild, LightChild, ShapeChild } from '../../shared/types';
 
 // jsdom has no real <canvas> 2D context (the `canvas` npm package isn't
 // installed), but TransformGizmo's chip label measures text through one —
@@ -158,5 +158,75 @@ describe('SelectTool — M1 attached-light drag', () => {
 
     expect((findChild(asset.id) as AssetChild).position).toEqual({ x: 7, y: 8 });
     expect((findChild(light.id) as LightChild).position).toEqual({ x: 20.3, y: 20 });
+  });
+});
+
+describe('SelectTool — shape hover dwell gate', () => {
+  let tool: SelectTool;
+  let hover: Graphics;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    undoManager.clear();
+    useStore.getState().resetToDefault();
+    const engine = makeEngine();
+    tool = new SelectTool(engine);
+    hover = engine.overlay().children.find((c) => c.label === 'selectHover') as Graphics;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function addShape(): ShapeChild {
+    const shape: ShapeChild = {
+      id: crypto.randomUUID(),
+      name: 'Floor',
+      childType: 'shape',
+      visible: true,
+      shapeType: 'rectangle',
+      contours: [[[10, 10], [14, 10], [14, 14], [10, 14]]],
+      roughnessEnabled: false,
+      textureScale: 1,
+      textureOffsetX: 0,
+      textureOffsetY: 0,
+      textureFillRotation: 0,
+      textureTint: '#ffffff',
+    };
+    useStore.getState().addChild(layer().id, shape);
+    return shape;
+  }
+
+  const drawn = () => hover.getBounds().width > 0;
+
+  it('crossing a shape never shows its outline', () => {
+    addShape();
+    tool.onPointerMove({ x: 12, y: 12 });
+    expect(drawn()).toBe(false);
+    // Leaves before the dwell elapses; the pending timer must not fire late.
+    tool.onPointerMove({ x: 30, y: 30 });
+    vi.advanceTimersByTime(500);
+    expect(drawn()).toBe(false);
+  });
+
+  it('settling on a shape shows its outline after the dwell, and leaving re-arms it', () => {
+    addShape();
+    tool.onPointerMove({ x: 12, y: 12 });
+    vi.advanceTimersByTime(500);
+    expect(drawn()).toBe(true);
+    // Further moves on the same shape keep it without waiting again.
+    tool.onPointerMove({ x: 13, y: 13 });
+    expect(drawn()).toBe(true);
+    // Off the shape it clears, and coming back waits out the dwell again.
+    tool.onPointerMove({ x: 30, y: 30 });
+    expect(drawn()).toBe(false);
+    tool.onPointerMove({ x: 12, y: 12 });
+    expect(drawn()).toBe(false);
+  });
+
+  it('assets outline immediately — the gate is shapes-only', () => {
+    addAsset({ x: 5, y: 5 });
+    tool.onPointerMove({ x: 5, y: 5 });
+    expect(drawn()).toBe(true);
   });
 });

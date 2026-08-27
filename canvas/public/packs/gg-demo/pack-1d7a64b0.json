@@ -1,6 +1,6 @@
 {
   "name": "gg-demo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Good Goblin core map assets",
   "theme": [
     "fantasy"
@@ -15154,25 +15154,25 @@
       "checksum": "sha256:acb56cd98db54511cf985b62212966cfeeb39dd54ae2b892d752727c72118412",
       "size": 57172
     },
-    "crate_1_1x1_A-cb1b2f0d.webp": {
-      "checksum": "sha256:cb1b2f0dd20672134263d390c80a629af93e64fe515372c06bd2ed7360d77b41",
-      "size": 18830
+    "crate_1_1x1_A-772575b1.webp": {
+      "checksum": "sha256:772575b14b0ce1d6d0d0cf5cb4988d9f4542f08ec100c571e9e199a87aea1956",
+      "size": 4510
     },
     "crate_1_2x2_A-cb1b2f0d.webp": {
       "checksum": "sha256:cb1b2f0dd20672134263d390c80a629af93e64fe515372c06bd2ed7360d77b41",
       "size": 18830
     },
-    "crate_2_1x1_A-92450c95.webp": {
-      "checksum": "sha256:92450c95456f537ce2f1305920a476907f0142f2d423808d335dbf4a5f22a946",
-      "size": 14530
+    "crate_2_1x1_A-561b1d1b.webp": {
+      "checksum": "sha256:561b1d1b95268636cf22e4feee8f4b498937360f0a1735c46427b862b8f3a9e3",
+      "size": 3746
     },
     "crate_2_2x2_A-92450c95.webp": {
       "checksum": "sha256:92450c95456f537ce2f1305920a476907f0142f2d423808d335dbf4a5f22a946",
       "size": 14530
     },
-    "crate_3_1x1_A-c6641a7f.webp": {
-      "checksum": "sha256:c6641a7febe05a6a86c30f4beae3a049fe3db98bdd5e646dd6fbac45248af1c0",
-      "size": 19036
+    "crate_3_1x1_A-2641fc28.webp": {
+      "checksum": "sha256:2641fc28f5e21204606697de2bb0fdd0e572073592b06a769cb9e8964e1819ab",
+      "size": 5190
     },
     "crate_3_2x2_A-c6641a7f.webp": {
       "checksum": "sha256:c6641a7febe05a6a86c30f4beae3a049fe3db98bdd5e646dd6fbac45248af1c0",
@@ -15638,21 +15638,21 @@
       "checksum": "sha256:5ec6b21fe07c4477229429eb10acc6695c99b3576ce9d4d0204be509b351bec5",
       "size": 5734
     },
-    "inside_bend_2x2_A-bfe7964e.webp": {
-      "checksum": "sha256:bfe7964ec9cc1db79b9ed68412db7d0b7bf10f03fd2c317fce1853daeed77d9b",
-      "size": 72544
+    "inside_bend_2x2_A-b1cb7b38.webp": {
+      "checksum": "sha256:b1cb7b38b4783c53a22bc7ded65e949698e04fa6259d698ae0f1c89182bac1af",
+      "size": 25934
     },
-    "inside_bend_3x2_A-bfe7964e.webp": {
-      "checksum": "sha256:bfe7964ec9cc1db79b9ed68412db7d0b7bf10f03fd2c317fce1853daeed77d9b",
-      "size": 72544
+    "inside_bend_3x2_A-2fed467f.webp": {
+      "checksum": "sha256:2fed467fd43c2a7e4dcfc353a0ef3084ba4f8daa6c85c81993af601677e0ec30",
+      "size": 34842
     },
-    "inside_bend_3x3_A-bfe7964e.webp": {
-      "checksum": "sha256:bfe7964ec9cc1db79b9ed68412db7d0b7bf10f03fd2c317fce1853daeed77d9b",
-      "size": 72544
+    "inside_bend_3x3_A-3a934657.webp": {
+      "checksum": "sha256:3a93465754968b9181709c80ceb83d6a7285fd65a694de4de45f0784a0ef3c0c",
+      "size": 47744
     },
-    "inside_bend_4x4_A-bfe7964e.webp": {
-      "checksum": "sha256:bfe7964ec9cc1db79b9ed68412db7d0b7bf10f03fd2c317fce1853daeed77d9b",
-      "size": 72544
+    "inside_bend_4x4_A-51a4581f.webp": {
+      "checksum": "sha256:51a4581f67bab9a35fe7c76cb2f5434a4aa387c7149973ff5ae70d3d5d855162",
+      "size": 73804
     },
     "inside_bend_5x3_A-bfe7964e.webp": {
       "checksum": "sha256:bfe7964ec9cc1db79b9ed68412db7d0b7bf10f03fd2c317fce1853daeed77d9b",
@@ -15678,33 +15678,33 @@
       "checksum": "sha256:e93102532bda22b0de0235e324ad9685854f5ebcfe4d026d6d23571f555f8925",
       "size": 6836
     },
-    "ledge_1x2_A-0a562baf.webp": {
-      "checksum": "sha256:0a562baf3f8a79b3fd92b276d885a18fa4ea6b212310c8b2453ca04a8bce7910",
-      "size": 28446
+    "ledge_1x2_A-8bd4e4a2.webp": {
+      "checksum": "sha256:8bd4e4a2906ed31754468b4f74ad0e5eddb96f0a9ba4a3edeab9790d6c873be3",
+      "size": 9300
     },
-    "ledge_1x4_A-0a562baf.webp": {
-      "checksum": "sha256:0a562baf3f8a79b3fd92b276d885a18fa4ea6b212310c8b2453ca04a8bce7910",
-      "size": 28446
+    "ledge_1x4_A-a381291f.webp": {
+      "checksum": "sha256:a381291f7024321d72666f70782625f850db1f5ec806d9518b35f8b2adfaf5d6",
+      "size": 18878
     },
     "ledge_1x6_A-0a562baf.webp": {
       "checksum": "sha256:0a562baf3f8a79b3fd92b276d885a18fa4ea6b212310c8b2453ca04a8bce7910",
       "size": 28446
     },
-    "ledge_bend_1x1_A-ca406ae2.webp": {
-      "checksum": "sha256:ca406ae2636b28b75214c550d17e42b42e679b63080df004ca1a8b1714409a0e",
-      "size": 22798
+    "ledge_bend_1x1_A-8510351e.webp": {
+      "checksum": "sha256:8510351e3b9c3945d9159de802d18d70ca68e8982e48c26ff20ed70eb3401ca7",
+      "size": 6710
     },
-    "ledge_bend_2x1_A-ca406ae2.webp": {
-      "checksum": "sha256:ca406ae2636b28b75214c550d17e42b42e679b63080df004ca1a8b1714409a0e",
-      "size": 22798
+    "ledge_bend_2x1_A-6295029c.webp": {
+      "checksum": "sha256:6295029c63d3da8a4f7e0da760109865c177e39e306509009f430789571391ad",
+      "size": 11074
     },
-    "ledge_bend_2x2_A-ca406ae2.webp": {
-      "checksum": "sha256:ca406ae2636b28b75214c550d17e42b42e679b63080df004ca1a8b1714409a0e",
-      "size": 22798
+    "ledge_bend_2x2_A-30c6a14a.webp": {
+      "checksum": "sha256:30c6a14aadf4fec1419051a04201d59b73652f85134b92a91be99a3ac98f0b04",
+      "size": 13536
     },
-    "ledge_bend_3x3_A-ca406ae2.webp": {
-      "checksum": "sha256:ca406ae2636b28b75214c550d17e42b42e679b63080df004ca1a8b1714409a0e",
-      "size": 22798
+    "ledge_bend_3x3_A-08d93cb0.webp": {
+      "checksum": "sha256:08d93cb0c3027ce969f13e99b0ad0b15fefc8ca2f8051c0a2e19766f7e4fbdb3",
+      "size": 21830
     },
     "ledge_bend_4x2_A-ca406ae2.webp": {
       "checksum": "sha256:ca406ae2636b28b75214c550d17e42b42e679b63080df004ca1a8b1714409a0e",
@@ -15930,25 +15930,25 @@
       "checksum": "sha256:54b302a948ecf3c2697db867161fb75807e3f6a61a0b261af89d1b872c4a5151",
       "size": 13074
     },
-    "outside_bend_2x2_A-6210da02.webp": {
-      "checksum": "sha256:6210da02bc5eea0e545eee0d5d86d34ad6793b512e6d1ac8b7a19ad5bc0ab089",
-      "size": 95440
+    "outside_bend_2x2_A-648c1dea.webp": {
+      "checksum": "sha256:648c1deacd7cdf82ddbdf8ce6493ad15715a5132eb41c17c60cbc53fdc820f2f",
+      "size": 23402
     },
-    "outside_bend_3x2_A-6210da02.webp": {
-      "checksum": "sha256:6210da02bc5eea0e545eee0d5d86d34ad6793b512e6d1ac8b7a19ad5bc0ab089",
-      "size": 95440
+    "outside_bend_3x2_A-1317f98d.webp": {
+      "checksum": "sha256:1317f98d9a47ae9c2da14d4180ca4fd98d2668a29d24aeab2a7d32e089308599",
+      "size": 31204
     },
-    "outside_bend_3x3_A-6210da02.webp": {
-      "checksum": "sha256:6210da02bc5eea0e545eee0d5d86d34ad6793b512e6d1ac8b7a19ad5bc0ab089",
-      "size": 95440
+    "outside_bend_3x3_A-97ff1dc7.webp": {
+      "checksum": "sha256:97ff1dc7389e622f155c3a451c26dddba1b1c831fa29ee0028cce16afbf5073c",
+      "size": 44556
     },
-    "outside_bend_4x4_A-6210da02.webp": {
-      "checksum": "sha256:6210da02bc5eea0e545eee0d5d86d34ad6793b512e6d1ac8b7a19ad5bc0ab089",
-      "size": 95440
+    "outside_bend_4x4_A-a43ac912.webp": {
+      "checksum": "sha256:a43ac912c5ee815493b1eb219f1a343f699fa9132a7ae7fc56a13a3f9a36835e",
+      "size": 75244
     },
-    "outside_bend_5x3_A-6210da02.webp": {
-      "checksum": "sha256:6210da02bc5eea0e545eee0d5d86d34ad6793b512e6d1ac8b7a19ad5bc0ab089",
-      "size": 95440
+    "outside_bend_5x3_A-743aacbf.webp": {
+      "checksum": "sha256:743aacbfa1986e2237479d69d4829f884c962a2d5975661f12722272d9e7248b",
+      "size": 73040
     },
     "outside_bend_5x5_A-6210da02.webp": {
       "checksum": "sha256:6210da02bc5eea0e545eee0d5d86d34ad6793b512e6d1ac8b7a19ad5bc0ab089",
@@ -17242,13 +17242,13 @@
       "checksum": "sha256:5cb574d5ac5f37b910b305e97aafb188b9447803f76b7f38f3bf2e9dfac962f5",
       "size": 3624
     },
-    "wall_short_2x2_A-3da7854c.webp": {
-      "checksum": "sha256:3da7854c89d3251b4109728d1cd90a4ca7283e63387207e0cd2243bf3d8d7dcb",
-      "size": 89926
+    "wall_short_2x2_A-f8c764e4.webp": {
+      "checksum": "sha256:f8c764e48aa31704bc22e43f419749794d990b27c7c916e9a9d801037100c0fe",
+      "size": 29238
     },
-    "wall_short_2x4_A-3da7854c.webp": {
-      "checksum": "sha256:3da7854c89d3251b4109728d1cd90a4ca7283e63387207e0cd2243bf3d8d7dcb",
-      "size": 89926
+    "wall_short_2x4_A-6cf0ae8d.webp": {
+      "checksum": "sha256:6cf0ae8dbb5fdf1f37edbdceb2ed73b5e98cedfc19cc7cd5ec233d5e12acc5a7",
+      "size": 56110
     },
     "wall_short_2x6_A-3da7854c.webp": {
       "checksum": "sha256:3da7854c89d3251b4109728d1cd90a4ca7283e63387207e0cd2243bf3d8d7dcb",
@@ -17419,5 +17419,5 @@
       "size": 4040
     }
   },
-  "bundleSize": 18927710
+  "bundleSize": 18389894
 }

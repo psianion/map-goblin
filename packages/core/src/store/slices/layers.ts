@@ -12,6 +12,8 @@ export interface LayerActions {
   reorderChild: (layerId: string, fromIndex: number, toIndex: number) => void;
   updateChild: (layerId: string, childId: string, patch: Partial<AnyChild>) => void;
   recomputeMergedFloor: (layerId: string) => void;
+  /** A pack texture a floor bake needed has landed — re-key the bake. */
+  bumpFloorTextureEpoch: (layerId: string) => void;
   addWall: (layerId: string, wall: WallSegment) => void;
   removeWall: (layerId: string, wallId: string) => void;
   updateWall: (layerId: string, wallId: string, updates: Partial<WallSegment>) => void;
@@ -126,6 +128,10 @@ export const createLayersSlice: StateCreator<
       if (layer && layer.type === 'dungeon') {
         layer.mergedFloor = null;
       }
+    }),
+  bumpFloorTextureEpoch: (layerId) =>
+    set((state) => {
+      state.floorTextureEpochs[layerId] = (state.floorTextureEpochs[layerId] ?? 0) + 1;
     }),
 
   // ─── Wall actions (sublayer detail) ─────────────────────

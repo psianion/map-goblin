@@ -84,6 +84,22 @@ export interface DungeonStyle {
   showEdgeTransitions: boolean;
   wallTextureSetId?: string;
   wallTextureTint: string;
+  /**
+   * How far past the authored boundary the floor is PAINTED, in world units.
+   * Render only — the boundary itself does not move, so sight, rooms, doors and
+   * hit tests are untouched.
+   *
+   * For a wall drawn as scattered art rather than composed stones (a cave band),
+   * the rock straddles the floor edge and hides whatever is under it. Painting
+   * the floor to exactly the boundary means any sub-cell shortfall in that art
+   * shows as a hairline of void between floor and rock. Letting the paint run on
+   * underneath the rock removes the whole class of gap: the worst a shortfall can
+   * then reveal is more floor.
+   *
+   * Undefined or 0 keeps the crisp authored edge, which is what a wall-texture-set
+   * layer wants — there the floor edge IS the visible edge.
+   */
+  floorBleed?: number;
 }
 
 export interface DungeonLayer extends BaseLayer {
@@ -232,7 +248,23 @@ export interface ToolsSlice {
   shapeNodeEditId: string | null;
   /** Vertex index within that outline currently selected. */
   selectedVertex: number | null;
+  /**
+   * What the cave-band solver just answered, for the status bar. Ephemeral and
+   * never saved: it lives for one gesture, so nothing that reads a map ever
+   * sees it.
+   */
+  bandDragStatus: BandDragStatus | null;
 }
+
+/**
+ * Either the stretch the kit would lay, or why it will not.
+ *
+ * `kitPull` is how far the kit dragged the handle off the cursor — the number
+ * that tells a DM whether the constraint is helping or fighting.
+ */
+export type BandDragStatus =
+  | { pieces: string[]; kitPull: number }
+  | { refusal: string };
 
 // ─── Selection ───────────────────────────────────────────
 export interface ChildClipboard {
@@ -476,6 +508,14 @@ export interface MapBuilderStore {
   /** Scene prep for the open map. null until the DM authors some (see SerializedMapData.prep). */
   prep: ScenePrep | null;
 
+  /**
+   * Per-layer counter bumped when a pack texture a floor bake needed lands
+   * after the bake ran (file import resolves textures after loadFromFile;
+   * CDN install-by-need is slower still). Rides into the render key so the
+   * bake re-runs. Session-local — never serialized into map files.
+   */
+  floorTextureEpochs: Record<string, number>;
+
   // mapSettings actions
   setMapName: (name: string) => void;
   setGridType: (type: MapSettings['gridType']) => void;
@@ -497,6 +537,7 @@ export interface MapBuilderStore {
 
   // child CRUD actions
   addChild: (layerId: string, child: AnyChild) => void;
+  bumpFloorTextureEpoch: (layerId: string) => void;
   removeChild: (layerId: string, childId: string) => void;
   reorderChild: (layerId: string, fromIndex: number, toIndex: number) => void;
   updateChild: (layerId: string, childId: string, patch: Partial<AnyChild>) => void;
@@ -529,6 +570,7 @@ export interface MapBuilderStore {
   toggleNodeSelection: (t: number) => void;
   setShapeNodeEdit: (shapeId: string | null) => void;
   selectVertex: (index: number | null) => void;
+  setBandDragStatus: (status: BandDragStatus | null) => void;
 
   // ui actions
   setActiveLayerId: (id: string) => void;

@@ -1,0 +1,665 @@
+[
+  {
+    "key": "wall_short_2x2",
+    "file": "Wall, short (2x2).png",
+    "wPx": 299,
+    "hPx": 400,
+    "wCells": 1.495,
+    "hCells": 2,
+    "joints": [
+      [
+        146.597,
+        396.511
+      ],
+      [
+        146.834,
+        2.498
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.015,
+        0.983
+      ],
+      [
+        -0.013,
+        -0.988
+      ]
+    ],
+    "chordCells": 1.97,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -0.59,
+      -0.044
+    ],
+    "floorCentroidCells": [
+      0.318,
+      -0.076
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "wall_short_2x4",
+    "file": "Wall, short (2x4).png",
+    "wPx": 344,
+    "hPx": 800,
+    "wCells": 1.72,
+    "hCells": 4,
+    "joints": [
+      [
+        181.917,
+        796.498
+      ],
+      [
+        181.5,
+        2.5
+      ]
+    ],
+    "jointsCells": [
+      [
+        0.05,
+        1.982
+      ],
+      [
+        0.048,
+        -1.987
+      ]
+    ],
+    "chordCells": 3.97,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -0.572,
+      0.026
+    ],
+    "floorCentroidCells": [
+      0.363,
+      0.069
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "wall_short_2x6",
+    "file": "Wall, short (2x6).png",
+    "wPx": 329,
+    "hPx": 1200,
+    "wCells": 1.645,
+    "hCells": 6,
+    "joints": [
+      [
+        158.363,
+        1196.485
+      ],
+      [
+        159,
+        2.5
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.031,
+        2.982
+      ],
+      [
+        -0.027,
+        -2.987
+      ]
+    ],
+    "chordCells": 5.97,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -0.47,
+      0.012
+    ],
+    "floorCentroidCells": [
+      0.273,
+      0.338
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "inside_bend_2x2",
+    "file": "Inside bend (2x2).png",
+    "wPx": 356,
+    "hPx": 344,
+    "wCells": 1.78,
+    "hCells": 1.72,
+    "joints": [
+      [
+        144.5,
+        340.5
+      ],
+      [
+        352.495,
+        132.584
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.167,
+        0.843
+      ],
+      [
+        0.872,
+        -0.197
+      ]
+    ],
+    "chordCells": 1.47,
+    "turnDeg": 90,
+    "voidCentroidCells": [
+      -0.244,
+      -0.174
+    ],
+    "floorCentroidCells": [
+      0.484,
+      0.341
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "inside_bend_3x2",
+    "file": "Inside bend (3x2).png",
+    "wPx": 557,
+    "hPx": 334,
+    "wCells": 2.785,
+    "hCells": 1.67,
+    "joints": [
+      [
+        146.085,
+        330.5
+      ],
+      [
+        553.502,
+        122.917
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.662,
+        0.817
+      ],
+      [
+        1.375,
+        -0.22
+      ]
+    ],
+    "chordCells": 2.286,
+    "turnDeg": 90,
+    "voidCentroidCells": [
+      0.113,
+      0.113
+    ],
+    "floorCentroidCells": [
+      0.317,
+      0.395
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "inside_bend_3x3",
+    "file": "Inside bend (3x3).png",
+    "wPx": 550,
+    "hPx": 546,
+    "wCells": 2.75,
+    "hCells": 2.73,
+    "joints": [
+      [
+        138.667,
+        542.499
+      ],
+      [
+        546.5,
+        135
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.682,
+        1.347
+      ],
+      [
+        1.358,
+        -0.69
+      ]
+    ],
+    "chordCells": 2.883,
+    "turnDeg": 90,
+    "voidCentroidCells": [
+      -0.532,
+      -0.364
+    ],
+    "floorCentroidCells": [
+      0.205,
+      0.205
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "inside_bend_4x4",
+    "file": "Inside bend (4x4).png",
+    "wPx": 746,
+    "hPx": 734,
+    "wCells": 3.73,
+    "hCells": 3.67,
+    "joints": [
+      [
+        134,
+        730.5
+      ],
+      [
+        742.498,
+        122.083
+      ]
+    ],
+    "jointsCells": [
+      [
+        -1.195,
+        1.818
+      ],
+      [
+        1.847,
+        -1.225
+      ]
+    ],
+    "chordCells": 4.302,
+    "turnDeg": 90,
+    "voidCentroidCells": [
+      -0.381,
+      -0.494
+    ],
+    "floorCentroidCells": [
+      0.035,
+      0.149
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "inside_bend_5x3",
+    "file": "Inside bend (5x3).png",
+    "wPx": 929,
+    "hPx": 592,
+    "wCells": 4.645,
+    "hCells": 2.96,
+    "joints": [
+      [
+        117.5,
+        588.5
+      ],
+      [
+        925.509,
+        180.42
+      ]
+    ],
+    "jointsCells": [
+      [
+        -1.735,
+        1.463
+      ],
+      [
+        2.305,
+        -0.578
+      ]
+    ],
+    "chordCells": 4.526,
+    "turnDeg": 90,
+    "voidCentroidCells": [
+      -0.362,
+      -0.293
+    ],
+    "floorCentroidCells": [
+      0.31,
+      0.246
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "outside_bend_2x2",
+    "file": "Outside bend (2x2).png",
+    "wPx": 331,
+    "hPx": 292,
+    "wCells": 1.655,
+    "hCells": 1.46,
+    "joints": [
+      [
+        189.417,
+        288.502
+      ],
+      [
+        2.275,
+        112.887
+      ]
+    ],
+    "jointsCells": [
+      [
+        0.12,
+        0.713
+      ],
+      [
+        -0.816,
+        -0.166
+      ]
+    ],
+    "chordCells": 1.283,
+    "turnDeg": -90,
+    "voidCentroidCells": [
+      -0.535,
+      0.465
+    ],
+    "floorCentroidCells": [
+      0.111,
+      -0.03
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "outside_bend_3x2",
+    "file": "Outside bend (3x2).png",
+    "wPx": 489,
+    "hPx": 311,
+    "wCells": 2.445,
+    "hCells": 1.555,
+    "joints": [
+      [
+        386.172,
+        307.47
+      ],
+      [
+        2.5,
+        121
+      ]
+    ],
+    "jointsCells": [
+      [
+        0.708,
+        0.76
+      ],
+      [
+        -1.21,
+        -0.172
+      ]
+    ],
+    "chordCells": 2.133,
+    "turnDeg": -90,
+    "voidCentroidCells": [
+      -0.177,
+      0.132
+    ],
+    "floorCentroidCells": [
+      0.002,
+      -0.017
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "outside_bend_3x3",
+    "file": "Outside bend (3x3).png",
+    "wPx": 525,
+    "hPx": 557,
+    "wCells": 2.625,
+    "hCells": 2.785,
+    "joints": [
+      [
+        389.667,
+        553.503
+      ],
+      [
+        2.5,
+        166.916
+      ]
+    ],
+    "jointsCells": [
+      [
+        0.636,
+        1.375
+      ],
+      [
+        -1.3,
+        -0.558
+      ]
+    ],
+    "chordCells": 2.736,
+    "turnDeg": -90,
+    "voidCentroidCells": [
+      -0.606,
+      0.418
+    ],
+    "floorCentroidCells": [
+      0.108,
+      0.099
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "outside_bend_4x4",
+    "file": "Outside bend (4x4).png",
+    "wPx": 698,
+    "hPx": 713,
+    "wCells": 3.49,
+    "hCells": 3.565,
+    "joints": [
+      [
+        589.5,
+        709.5
+      ],
+      [
+        2.5,
+        122.583
+      ]
+    ],
+    "jointsCells": [
+      [
+        1.203,
+        1.765
+      ],
+      [
+        -1.733,
+        -1.17
+      ]
+    ],
+    "chordCells": 4.15,
+    "turnDeg": -90,
+    "voidCentroidCells": [
+      -0.311,
+      -0.195
+    ],
+    "floorCentroidCells": [
+      0.434,
+      -0.115
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "outside_bend_5x3",
+    "file": "Outside bend (5x3).png",
+    "wPx": 917,
+    "hPx": 504,
+    "wCells": 4.585,
+    "hCells": 2.52,
+    "joints": [
+      [
+        789.167,
+        500.502
+      ],
+      [
+        2.495,
+        113.498
+      ]
+    ],
+    "jointsCells": [
+      [
+        1.653,
+        1.243
+      ],
+      [
+        -2.28,
+        -0.693
+      ]
+    ],
+    "chordCells": 4.384,
+    "turnDeg": -90,
+    "voidCentroidCells": [
+      -0.371,
+      0.339
+    ],
+    "floorCentroidCells": [
+      0.069,
+      -0.346
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "outside_bend_5x5",
+    "file": "Outside bend (5x5).png",
+    "wPx": 919,
+    "hPx": 927,
+    "wCells": 4.595,
+    "hCells": 4.635,
+    "joints": [
+      [
+        789.751,
+        923.496
+      ],
+      [
+        2.5,
+        136
+      ]
+    ],
+    "jointsCells": [
+      [
+        1.651,
+        2.3
+      ],
+      [
+        -2.285,
+        -1.637
+      ]
+    ],
+    "chordCells": 5.568,
+    "turnDeg": -90,
+    "voidCentroidCells": [
+      0.34,
+      0.169
+    ],
+    "floorCentroidCells": [
+      0.396,
+      -0.45
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_1x2",
+    "file": "Ledge (1x2).png",
+    "wPx": 74,
+    "hPx": 400,
+    "wCells": 0.37,
+    "hCells": 2,
+    "joints": [
+      [
+        35.124,
+        395.628
+      ],
+      [
+        31.506,
+        2.929
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.009,
+        0.978
+      ],
+      [
+        -0.027,
+        -0.985
+      ]
+    ],
+    "chordCells": 1.964,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      -0.029,
+      0.015
+    ],
+    "floorCentroidCells": [
+      -0.024,
+      0.121
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_1x4",
+    "file": "Ledge (1x4).png",
+    "wPx": 129,
+    "hPx": 798,
+    "wCells": 0.645,
+    "hCells": 3.99,
+    "joints": [
+      [
+        72.178,
+        793.15
+      ],
+      [
+        69.34,
+        3.029
+      ]
+    ],
+    "jointsCells": [
+      [
+        0.038,
+        1.971
+      ],
+      [
+        0.024,
+        -1.98
+      ]
+    ],
+    "chordCells": 3.951,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      0.009,
+      -0.012
+    ],
+    "floorCentroidCells": [
+      0.031,
+      -0.159
+    ],
+    "voidSide": "left"
+  },
+  {
+    "key": "ledge_1x6",
+    "file": "Ledge (1x6).png",
+    "wPx": 149,
+    "hPx": 1200,
+    "wCells": 0.745,
+    "hCells": 6,
+    "joints": [
+      [
+        71.297,
+        2.929
+      ],
+      [
+        91.04,
+        1196
+      ]
+    ],
+    "jointsCells": [
+      [
+        -0.016,
+        -2.985
+      ],
+      [
+        0.083,
+        2.98
+      ]
+    ],
+    "chordCells": 5.966,
+    "turnDeg": 0,
+    "voidCentroidCells": [
+      0.04,
+      -0.064
+    ],
+    "floorCentroidCells": [
+      0.042,
+      0.103
+    ],
+    "voidSide": "left"
+  }
+]

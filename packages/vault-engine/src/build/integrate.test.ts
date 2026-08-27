@@ -264,6 +264,27 @@ describe('integrateSets', () => {
     expect(Object.keys(result.manifest.files).some((f) => f.startsWith('plaster_8x8_A-'))).toBe(true);
   });
 
+  it('throws when a loose piece claims dimensions its minted file does not have', async () => {
+    const badSet = join(TEST_DIR, 'bad-dims-set');
+    await mkdir(badSet, { recursive: true });
+    // Simulates the collided-family bug: the manifest claims 2x4 art (400x800) but
+    // the file on disk is actually the 2x2 art (200x400) — e.g. two size variants
+    // were minted onto the same source filename upstream.
+    await writeFile(join(badSet, 'wall_short.png'), await makePng(200, 400, 70));
+    await writeFile(
+      join(badSet, 'manifest.json'),
+      JSON.stringify({
+        set: 'demo-bad',
+        type: 'object',
+        pieces: [{ file: 'wall_short.png', piece: 'object', gridSize: '2x4', naturalWidth: 400, naturalHeight: 800 }],
+      }),
+    );
+
+    await expect(
+      integrateSets({ basePackDir, setDirs: [badSet], version: '1.1.0', output: join(TEST_DIR, 'bad-dims-out') }),
+    ).rejects.toThrow(/claims 400x800 but the minted image is 200x400/);
+  });
+
   it('throws when neither the set manifest nor the CLI provides a type', async () => {
     await expect(
       integrateSets({ basePackDir, setDirs: [setDir], version: '1.1.0', output: join(TEST_DIR, 'no-type-out') }),

@@ -77,6 +77,10 @@ export const DUNGEON_STYLE_PRESETS: MapStylePreset[] = [
       showEdgeTransitions: true,
       wallTextureSetId: undefined,
       wallTextureTint: '#ffffff',
+      // No wall texture set means the walls here are scattered rock art standing
+      // ON the floor edge rather than stones composed along it, so the edge is
+      // never the visible boundary — the rock is. Run the paint on underneath it.
+      floorBleed: 0.45,
     },
   },
   {

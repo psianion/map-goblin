@@ -337,7 +337,9 @@ const toolKeyMap: Record<string, () => void | false> = {
   // Undo / redo
   'ctrl+z': () => {
     if (!undoManager.canUndo()) {
-      notify.subtle('Nothing to undo', { icon: 'undo' });
+      // Full-weight toast, not subtle: a quiet "nothing happened" here reads
+      // as undo being broken, not as an empty history.
+      notifyCoalesce('undo', 'Nothing to undo', { duration: 1500, icon: 'undo' });
       return;
     }
     undoManager.undo();
@@ -345,7 +347,7 @@ const toolKeyMap: Record<string, () => void | false> = {
   },
   'ctrl+shift+z': () => {
     if (!undoManager.canRedo()) {
-      notify.subtle('Nothing to redo', { icon: 'redo' });
+      notifyCoalesce('redo', 'Nothing to redo', { duration: 1500, icon: 'redo' });
       return;
     }
     undoManager.redo();
@@ -353,7 +355,7 @@ const toolKeyMap: Record<string, () => void | false> = {
   },
   'ctrl+y': () => {
     if (!undoManager.canRedo()) {
-      notify.subtle('Nothing to redo', { icon: 'redo' });
+      notifyCoalesce('redo', 'Nothing to redo', { duration: 1500, icon: 'redo' });
       return;
     }
     undoManager.redo();

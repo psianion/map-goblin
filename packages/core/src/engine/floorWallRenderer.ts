@@ -3,6 +3,7 @@ import type { DungeonLayer, ShapeChild } from '../store/types';
 import type { LayerEntry } from './sceneGraph';
 import type { Polygon } from '../types/geometry';
 import { useStore } from '../store/store';
+import { getAssetPackManager } from './assetPackInstance';
 import * as textureLoader from '../assets/textureLoader';
 import { unitTexture } from '../assets/textureLoader';
 import { preloadPathTextures } from './splineRenderer';
@@ -14,10 +15,35 @@ import { resolveStyle } from './styleResolver';
 import type { DungeonStyle } from '../store/types';
 import { resolveDoors, resolveWalls, type ResolvedDoor } from '../shared/wallResolve';
 import { flattenRing } from '../shared/bezier';
+import { clipper2Engine } from '../geometry/Clipper2Engine';
+import { computeMergedFloor } from './mergedFloor';
 import { getTerrainRenderer } from './terrain/TerrainRenderer';
 
 function parseColor(hex: string): number {
   return parseInt(hex.replace('#', ''), 16);
+}
+
+/**
+ * A floor bake is one-shot, but its pack textures can land after it ran: a file
+ * import resolves textures only after `loadFromFile` has already rendered
+ * (saveLoad.ts), and CDN install-by-need is slower still. Every such bake used
+ * to freeze on its fallback until the user happened to touch the shape's
+ * texture. Arm one wait per (layer, texture); when the texture lands, bump the
+ * layer's epoch — subscribeToStore folds it into the render key and re-bakes.
+ */
+const armedLateTextureWaits = new Set<string>();
+export function armLateTextureRebuild(layerId: string, textureId: string): void {
+  if (!textureId.includes(':') || textureId.startsWith('data:') || textureId.startsWith('blob:')) return;
+  const key = `${layerId}|${textureId}`;
+  if (armedLateTextureWaits.has(key)) return;
+  armedLateTextureWaits.add(key);
+  getAssetPackManager()
+    .waitForTexture(textureId)
+    .then((tex) => {
+      armedLateTextureWaits.delete(key);
+      // Timed out (bad id, install failed): stay on the fallback quietly.
+      if (tex) useStore.getState().bumpFloorTextureEpoch(layerId);
+    });
 }
 
 /** Stone-gap openings for the doorways. A detached door has no wall to gap. */
@@ -156,14 +182,31 @@ const PX_PER_GRID_CELL = 200;
  * The TilingSprite is sized to the shape's bounding box and the texture
  * tiles seamlessly anchored to world origin.
  */
+/**
+ * The ring(s) a shape's floor is painted to: its own outline, grown outward by
+ * `bleed` when the layer asks for it (see DungeonStyle.floorBleed).
+ *
+ * Growing can only ever fatten a ring, never split one, so the usual answer is a
+ * single ring — but Clipper is free to hand back more than one and each is drawn,
+ * because a dropped ring is a hole in the floor, which is the exact defect the
+ * bleed exists to prevent.
+ */
+function fillRings(shape: ShapeChild, bleed: number): Polygon[] {
+  // Curved rooms mask their fill to the drawn curve, not the anchor chords.
+  const ring = flattenRing(shape.contours[0], shape.tangents?.[0]);
+  if (bleed <= 0) return [ring];
+  const grown = clipper2Engine.inflate([ring], bleed);
+  return grown.length > 0 ? grown : [ring];
+}
+
 function renderTexturedShape(
   parent: Container,
   shape: ShapeChild,
   texture: Texture,
+  bleed: number,
 ): void {
-  // Curved rooms mask their fill to the drawn curve, not the anchor chords.
-  const ring = flattenRing(shape.contours[0], shape.tangents?.[0]);
-  const { minX, minY, maxX, maxY } = polygonBounds(ring);
+  const rings = fillRings(shape, bleed);
+  const { minX, minY, maxX, maxY } = polygonBounds(rings.flat());
   const width = maxX - minX;
   const height = maxY - minY;
   if (width <= 0 || height <= 0) return;
@@ -197,7 +240,7 @@ function renderTexturedShape(
 
   // Mask to shape polygon (coordinates in world space, mask relative to parent)
   const mask = new Graphics();
-  traceSinglePolygon(mask, ring);
+  for (const r of rings) traceSinglePolygon(mask, r);
   mask.fill({ color: 0xffffff });
 
   const container = new Container();
@@ -214,9 +257,10 @@ function renderSolidShape(
   parent: Container,
   shape: ShapeChild,
   color: number,
+  bleed: number,
 ): void {
   const g = new Graphics();
-  traceSinglePolygon(g, flattenRing(shape.contours[0], shape.tangents?.[0]));
+  for (const r of fillRings(shape, bleed)) traceSinglePolygon(g, r);
   g.fill({ color });
   parent.addChild(g);
 }
@@ -336,6 +380,25 @@ export function redrawGrid(layer: DungeonLayer, entry: LayerEntry): void {
 export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): void {
   if (!entry.sublayers) return;
 
+  // Heal a missing union before rendering from it. A map load replaces the
+  // layers wholesale with `mergedFloor: null` (files and session payloads both
+  // ship it stripped), and the subscriber that normally recomputes it skips a
+  // layer whose scene entry isn't rebuilt yet — if no later store write moves
+  // its selector, the null union survives and every floor renders as void.
+  // Rebuilding IS the moment the entry exists, so compute it here and write it
+  // back for rooms, fog and wall resolution to read. The shapes subscriber does
+  // not select mergedFloor, so the write cannot loop this rebuild.
+  if (layer.mergedFloor == null) {
+    const computed = computeMergedFloor(layer);
+    if (computed) {
+      useStore.setState((s) => {
+        const l = s.layers.find((la) => la.id === layer.id);
+        if (l && l.type === 'dungeon') l.mergedFloor = computed;
+      });
+      layer = { ...layer, mergedFloor: computed };
+    }
+  }
+
   const { floor, walls, doors: doorsSublayer } = entry.sublayers;
 
   // Clear all sublayers (reset floor mask from prior textured render)
@@ -385,6 +448,10 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
 
   const s = layer.style;
   const floorColorNum = parseColor(s.floorColor);
+  // Paint-only overshoot. Read once here so every fill and both masks below agree
+  // on it — a fill grown past a mask that was not is just a more expensive way to
+  // draw the same crisp edge.
+  const bleed = Math.max(0, s.floorBleed ?? 0);
 
   // ── Floor fill (per-shape back-to-front) ─────────────────────
   // Render each shape individually: textured shapes get a TilingSprite
@@ -414,15 +481,20 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
         // unitTexture, not resolveTexture: a variant-sheet source file must fill
         // with just its one unit — keeps the fill in scale with the palette/brush.
         const texture = unitTexture(shape.textureId).texture;
-        if (texture.width > 0) {
-          renderTexturedShape(floor, shape, texture);
+        // > 1, not > 0: a pack id that hasn't landed resolves to the 1×1 magenta
+        // fallback, which used to slip into the textured branch and tile the
+        // whole room magenta instead of taking the not-loaded fill below.
+        if (texture.width > 1) {
+          renderTexturedShape(floor, shape, texture, bleed);
         } else {
           // Texture not loaded yet — fall back to solid tinted fill (guard NaN)
+          // and re-bake when it lands.
+          armLateTextureRebuild(layer.id, shape.textureId);
           const tint = shape.textureTint ? parseColor(shape.textureTint) : NaN;
-          renderSolidShape(floor, shape, isNaN(tint) ? shapeFloorColor : tint);
+          renderSolidShape(floor, shape, isNaN(tint) ? shapeFloorColor : tint, bleed);
         }
       } else {
-        renderSolidShape(floor, shape, shapeFloorColor);
+        renderSolidShape(floor, shape, shapeFloorColor, bleed);
       }
     }
   } else {
@@ -434,8 +506,14 @@ export function rebuildDungeonLayer(layer: DungeonLayer, entry: LayerEntry): voi
 
   // Clip the whole floor container to mergedFloor: it handles erase holes in the
   // per-shape fills, and it is what keeps the terrain quad below on the floor.
+  // Grown by the same bleed as the fills, or it would crop them straight back to
+  // the authored edge. Erase holes grow too — Clipper offsets a hole ring inward
+  // for a positive delta — so an erased opening keeps its own margin instead of
+  // being sealed shut by the overshoot.
   const floorMask = new Graphics();
-  fillPolygonsWithHoles(floorMask, polygons, { color: 0xffffff });
+  fillPolygonsWithHoles(floorMask, bleed > 0 ? clipper2Engine.inflate(polygons, bleed) : polygons, {
+    color: 0xffffff,
+  });
   floor.addChild(floorMask);
   floor.mask = floorMask;
 

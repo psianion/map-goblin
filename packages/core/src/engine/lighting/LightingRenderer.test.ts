@@ -233,6 +233,8 @@ function table(initialLights: LightChild[] = [light()]) {
   };
   const viewport = { width: 1280, height: 720, dpr: 1 };
   const drawnInto: FakeTexture[] = [];
+  /** Every pass as (what was drawn, where) — `drawnInto` is only the second half of it. */
+  const passes: { label: string; target: FakeTexture }[] = [];
   /** The FBO's base fills, frame by frame — the grade. */
   const baseFills: { color: number; alpha: number }[][] = [];
   const engine = {
@@ -245,12 +247,14 @@ function table(initialLights: LightChild[] = [light()]) {
       destroy: () => {},
     }),
     renderToTexture: (c: unknown, texture: FakeTexture) => {
-      const container = c as { label?: string; children?: { fills?: unknown[] }[] };
+      const container = c as { label?: string; children?: { label?: string; fills?: unknown[] }[] };
       if (container.label === 'ambientContainer') {
         const fills = container.children?.[0]?.fills;
         if (fills) baseFills.push([...fills] as { color: number; alpha: number }[]);
       }
       drawnInto.push(texture);
+      // The blit containers are anonymous; their one child is what identifies the pass.
+      passes.push({ label: container.label || container.children?.[0]?.label || '', target: texture });
     },
   } as unknown as RenderEngine;
 
@@ -269,7 +273,7 @@ function table(initialLights: LightChild[] = [light()]) {
     overlay.children.find((c) => c.label === 'lightingComposite') as unknown as {
       visible: boolean;
     };
-  return { renderer, lights, overlay, viewport, drawnInto, baseFills, frame, sprite };
+  return { renderer, lights, overlay, viewport, drawnInto, passes, baseFills, frame, sprite };
 }
 
 const iconCount = (overlay: { children: { label: string }[] }): number =>
@@ -571,5 +575,54 @@ describe('LightingRenderer light icons', () => {
     expect(iconCount(t.overlay)).toBe(0);
     t.frame();
     expect(iconCount(t.overlay)).toBe(0);
+  });
+});
+
+// ── The export's copy of the same picture ───────────────────────────────────
+// PNG/JPEG export renders the world container alone, and the composite is a screen-space
+// overlay sprite — so the file used to come out at the map's authored daylight brightness
+// whatever hour the map stood at. `renderInto` runs the same pass under the export's
+// transform; what is checkable here is that it sizes itself to the export rather than the
+// viewport, lands on the export texture, and leaves the live pass's memo alone.
+describe('LightingRenderer export composite', () => {
+  const target = (): FakeTexture => ({ width: 4096, height: 3072, destroy: () => {} });
+
+  it('composites at the export size and multiplies onto the export texture', () => {
+    const t = table();
+    const tex = target();
+    t.renderer.renderInto(tex as never, 128, 4096, 3072, '#0d0e12');
+
+    // The grade filled an export-sized FBO — half of 4096x3072 — not the 1280x720 viewport's.
+    const ambient = t.passes.filter((p) => p.label === 'ambientContainer').at(-1)!;
+    expect(ambient.target).toMatchObject({ width: 2048, height: 1536 });
+
+    // ...and the last thing drawn was the multiply, onto the export texture itself.
+    expect(t.passes.at(-1)).toEqual({ label: 'lightingCompositeExport', target: tex });
+  });
+
+  it('leaves the live FBO and its memo untouched, so the next frame is still free', () => {
+    const t = table();
+    t.renderer.renderInto(target() as never, 128, 4096, 3072, '#0d0e12');
+    const settled = t.drawnInto.length;
+    t.frame();
+    expect(t.drawnInto.length).toBe(settled);
+  });
+
+  it('draws every light, where a frame would cull to the per-frame budget', () => {
+    // MAX_RENDERED_LIGHTS is a GPU budget for 60 of these a second. A picture of the whole
+    // map that dropped every torch past the 24th nearest the middle is not a picture of it.
+    const many = Array.from({ length: MAX_RENDERED_LIGHTS + 6 }, (_, i) =>
+      light({ id: `light-${i}`, position: { x: i * 50, y: i * 50 } }),
+    );
+    const t = table(many);
+    const pools = (): number => t.passes.filter((p) => p.label === 'perLightContainer').length;
+
+    t.passes.length = 0;
+    t.frame('#202030'); // a fresh ambient, so the guard lets this frame redraw
+    expect(pools()).toBe(MAX_RENDERED_LIGHTS);
+
+    t.passes.length = 0;
+    t.renderer.renderInto(target() as never, 128, 4096, 3072, '#0d0e12');
+    expect(pools()).toBe(many.length);
   });
 });

@@ -157,7 +157,11 @@ export class RemoveChildCommand implements Command {
     const state = useStore.getState();
     state.addChild(this.layerId, structuredClone(this.snapshot));
     if (this.originalIndex >= 0) {
-      const layer = state.layers.find((l) => l.id === this.layerId);
+      // Re-read: `state` was captured before the add, and the store hands back a
+      // NEW layers array on every write. Searching the stale one never found the
+      // child, so the reorder below silently never ran and an undone delete came
+      // back at the end of the list — which is also its z-order on the canvas.
+      const layer = useStore.getState().layers.find((l) => l.id === this.layerId);
       if (!layer || layer.type !== 'dungeon') return;
       const currentIndex = (layer as DungeonLayer).children.findIndex(
         (c) => c.id === this.childId,
