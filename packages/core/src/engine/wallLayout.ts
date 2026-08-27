@@ -802,6 +802,27 @@ function simplifySpine(pts: Point[], minEdge: number, closed: boolean): Point[] 
 }
 
 /**
+ * True when a drawn spine loops back onto itself — its last point repeats its
+ * first.
+ *
+ * A WallSegment carries no closed flag, so the geometry is the only evidence
+ * there is. A ring laid out as an open chain drops two `ending` caps at the
+ * seam and misses the junction there, so both the renderer and the node
+ * handles ask this rather than assuming every drawn wall is a chain. The
+ * repeated point stays in the list — `layoutWall` drops it itself (see
+ * `simplifySpine`), and stripping it here would change `seedForPoints`.
+ *
+ * 1e-9 is the same tolerance point equality uses elsewhere (shapeNodeEdit).
+ * Fewer than four points is a there-and-back, not a ring.
+ */
+export function isClosedSpine(points: readonly [number, number][]): boolean {
+  if (points.length < 4) return false;
+  const [ax, ay] = points[0];
+  const [bx, by] = points[points.length - 1];
+  return Math.abs(ax - bx) < 1e-9 && Math.abs(ay - by) < 1e-9;
+}
+
+/**
  * Lay out one wall spine.
  *
  * @param points  Spine vertices in world units.

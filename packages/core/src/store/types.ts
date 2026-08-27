@@ -84,6 +84,22 @@ export interface DungeonStyle {
   showEdgeTransitions: boolean;
   wallTextureSetId?: string;
   wallTextureTint: string;
+  /**
+   * How far past the authored boundary the floor is PAINTED, in world units.
+   * Render only — the boundary itself does not move, so sight, rooms, doors and
+   * hit tests are untouched.
+   *
+   * For a wall drawn as scattered art rather than composed stones (a cave band),
+   * the rock straddles the floor edge and hides whatever is under it. Painting
+   * the floor to exactly the boundary means any sub-cell shortfall in that art
+   * shows as a hairline of void between floor and rock. Letting the paint run on
+   * underneath the rock removes the whole class of gap: the worst a shortfall can
+   * then reveal is more floor.
+   *
+   * Undefined or 0 keeps the crisp authored edge, which is what a wall-texture-set
+   * layer wants — there the floor edge IS the visible edge.
+   */
+  floorBleed?: number;
 }
 
 export interface DungeonLayer extends BaseLayer {
@@ -232,7 +248,23 @@ export interface ToolsSlice {
   shapeNodeEditId: string | null;
   /** Vertex index within that outline currently selected. */
   selectedVertex: number | null;
+  /**
+   * What the cave-band solver just answered, for the status bar. Ephemeral and
+   * never saved: it lives for one gesture, so nothing that reads a map ever
+   * sees it.
+   */
+  bandDragStatus: BandDragStatus | null;
 }
+
+/**
+ * Either the stretch the kit would lay, or why it will not.
+ *
+ * `kitPull` is how far the kit dragged the handle off the cursor — the number
+ * that tells a DM whether the constraint is helping or fighting.
+ */
+export type BandDragStatus =
+  | { pieces: string[]; kitPull: number }
+  | { refusal: string };
 
 // ─── Selection ───────────────────────────────────────────
 export interface ChildClipboard {
@@ -538,6 +570,7 @@ export interface MapBuilderStore {
   toggleNodeSelection: (t: number) => void;
   setShapeNodeEdit: (shapeId: string | null) => void;
   selectVertex: (index: number | null) => void;
+  setBandDragStatus: (status: BandDragStatus | null) => void;
 
   // ui actions
   setActiveLayerId: (id: string) => void;

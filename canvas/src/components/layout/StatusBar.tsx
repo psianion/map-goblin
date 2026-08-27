@@ -4,12 +4,29 @@ import { cursorWorldPosition } from '@/canvas/cursorPosition';
 import { fpsMetrics } from '@/engine/fpsMetrics';
 import { rulerMeasurement } from '@/engine/rulerMeasurement';
 import { useStore } from '@/store/store';
+import { bandRunIndex } from '@/engine/wallNodeOverlay';
+import type { BandDragStatus } from '@/store/types';
 import { ZoomSlider } from '@/components/toolbar/ZoomSlider';
 
 interface StatusBarProps {
   leftPanelOpen?: boolean;
   rightPanelOpen: boolean;
   faded: boolean;
+}
+
+/**
+ * What the cave-band solver just answered, in one line.
+ *
+ * The pieces are named because the kit is the whole vocabulary — a DM who can
+ * see which stones the wall is being built from can tell a good fit from a
+ * lucky one. `kitPull` is how far the kit dragged the handle off the cursor,
+ * which is the number that says whether the constraint is helping or fighting.
+ */
+function bandStatusText(status: BandDragStatus | null): string {
+  if (!status) return '';
+  if ('refusal' in status) return status.refusal;
+  const names = [...new Set(status.pieces)].join(', ').replace(/_/g, ' ');
+  return `${names} · kit pull ${status.kitPull.toFixed(2)} cells`;
 }
 
 /** Color class for FPS value based on threshold (achromatic brightness). */
@@ -30,6 +47,10 @@ export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarPro
   const nodeEditWallId = useStore((s) => s.tools.nodeEditWallId);
   const shapeNodeEditId = useStore((s) => s.tools.shapeNodeEditId);
   const wallNodeSelected = useStore((s) => s.tools.selectedNodeT !== null || s.tools.selectedNodeTs.length > 0);
+  // A cave band is a run of placed rock, not composed stones, so its mode has a
+  // different key map and a live read-out of what the kit just decided.
+  const bandEdit = useStore((s) => bandRunIndex(s.tools.nodeEditWallId ?? '') !== null);
+  const bandStatus = useStore((s) => bandStatusText(s.tools.bandDragStatus));
   const soloLayerId = useStore((s) => s.ui.solo?.layerId ?? null);
   // Falls back to a placeholder rather than the raw (possibly empty) name:
   // an empty-named soloed layer must still render the chip, or solo has no
@@ -125,6 +146,17 @@ export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarPro
       <div className="flex-1 flex justify-center">
         {rulerStr ? (
           <span className="text-text-primary tabular-nums">{rulerStr}</span>
+        ) : bandEdit ? (
+          <span className="truncate">
+            <span className="text-text-primary">Editing cave wall</span>
+            <span className="text-text-muted">
+              {bandStatus
+                ? ` · ${bandStatus}`
+                : wallNodeSelected
+                  ? ' · drag to move · { } insert · Del straighten · Tab re-lay wall · Esc done'
+                  : ' · click a joint · Shift+click groups · double-click elsewhere exits'}
+            </span>
+          </span>
         ) : nodeEditWallId ? (
           <span className="truncate">
             <span className="text-text-primary">Editing wall</span>

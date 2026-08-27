@@ -17,6 +17,7 @@ import {
   fillRun,
   nodeSpriteScale,
   pieceWorldLength,
+  isClosedSpine,
   DEFAULT_WALL_OVERLAP,
   type WallPieceSpec,
   type WallNode,
@@ -520,7 +521,10 @@ export function renderNodeWalls(
     if (!set) continue;
     const tint = wall.textureTint ? tintOf(wall.textureTint) : layerTint;
     const w = wall.width || wallWidth;
-    const auto = layoutWall(wall.points, false, set.specs, {
+    // A drawn wall that loops back onto itself is a ring, not a chain: laid out
+    // open it dropped two end caps at the seam and skipped the junction there.
+    const closed = isClosedSpine(wall.points);
+    const auto = layoutWall(wall.points, closed, set.specs, {
       wallWidth: w,
       seed: seedForPoints(wall.points),
     });
@@ -530,10 +534,15 @@ export function renderNodeWalls(
     const gaps = doorGaps.filter((g) => g.wallId === wall.id);
     placed = placeNodes(
       wallsContainer,
-      withoutDoorGaps(nodes, gaps, set.specById, w, [
-        wall.points[0],
-        wall.points[wall.points.length - 1],
-      ]),
+      // A ring has no ends to hold a nudged stone inside — both "ends" are the
+      // same seam point, so clamping to them would drag it there.
+      withoutDoorGaps(
+        nodes,
+        gaps,
+        set.specById,
+        w,
+        closed ? undefined : [wall.points[0], wall.points[wall.points.length - 1]],
+      ),
       set.specById, w, tint, placed,
     );
   }

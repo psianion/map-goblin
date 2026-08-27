@@ -8,6 +8,7 @@ import { initToolPreview } from './toolPreview';
 import { initRoomHighlight } from './roomHighlight';
 import { initWallNodeOverlay } from './wallNodeOverlay';
 import { initShapeNodeOverlay } from './shapeNodeOverlay';
+import { initBandGhostPreview } from './bandGhostPreview';
 import { TerrainRenderer, setTerrainRenderer } from './terrain/TerrainRenderer';
 import { initWaterAnimation, getWaterFilter } from './water/waterAnimation';
 
@@ -136,6 +137,13 @@ export function buildSceneGraph(engine: RenderEngine): SceneGraph {
   const shapeNodeOverlay = new Graphics();
   worldContainer.addChild(shapeNodeOverlay);
   initShapeNodeOverlay(shapeNodeOverlay);
+
+  // Cave-band x-ray — ghost sprites at the placements a live joint drag would
+  // commit. World space, beside the node handles rather than in the tool preview
+  // container: the ghosts belong to the edit mode, not to whatever tool is armed.
+  const bandGhosts = new Container();
+  worldContainer.addChild(bandGhosts);
+  initBandGhostPreview(bandGhosts);
 
   // Lighting renderer — FBO-based compositing pass
   const vp = engine.viewport();

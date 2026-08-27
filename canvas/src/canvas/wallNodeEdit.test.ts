@@ -8,7 +8,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
-import { seedTestWallSets, resetAssetPackManager } from '@dnd/core/src/testing/seedCatalog';
+import {
+  seedTestWallSets,
+  resetAssetPackManager,
+  seedCaveBandPack,
+  caveBandChildren,
+} from '@dnd/core/src/testing/seedCatalog';
 import { setNotify } from '@dnd/core/src/store/notify';
 import { currentWallNodes } from '@/engine/wallNodeOverlay';
 import { createDungeonLayer } from '@/store/factories';
@@ -136,6 +141,50 @@ describe('toggleNodeEditAt', () => {
     toggleNodeEditAt({ x: 6, y: 0 });
     exitNodeEdit();
     expect(useStore.getState().tools.nodeEditWallId).toBeNull();
+  });
+
+  // Node handles ARE wall-texture stones. A cave layer ships no wall set — its
+  // walls are invisible sight geometry under painted scatter — so the mode used
+  // to open onto nothing: map dimmed 15%, rope dash drawn, status bar asking for
+  // a click on a stone that could not exist, and Escape the only way out.
+  describe('a layer with no wall texture set', () => {
+    const warning = vi.fn();
+
+    beforeEach(() => {
+      warning.mockClear();
+      setNotify({ warning, error: vi.fn(), success: vi.fn(), info: vi.fn() });
+      const l = seed();
+      useStore.getState().updateLayer(l.id, {
+        style: { ...l.style, wallTextureSetId: undefined },
+      } as Partial<DungeonLayer>);
+    });
+
+    it('refuses to enter and says why', () => {
+      // True, not false: the double-click was aimed at a wall and answered, so
+      // it must not fall through to the outline editor instead.
+      expect(toggleNodeEditAt({ x: 6, y: 0 })).toBe(true);
+      expect(useStore.getState().tools.nodeEditWallId).toBeNull();
+      expect(warning).toHaveBeenCalledWith(
+        'Layer has no wall texture set — pick one to edit its stones',
+      );
+    });
+
+    it('stays quiet when the double-click missed every wall', () => {
+      expect(toggleNodeEditAt({ x: 6, y: 4 })).toBe(false);
+      expect(warning).not.toHaveBeenCalled();
+    });
+
+    it('enters as before once the set is back', () => {
+      const l = layer();
+      useStore.getState().updateLayer(l.id, {
+        style: { ...l.style, wallTextureSetId: 'GG_Test' },
+      } as Partial<DungeonLayer>);
+
+      expect(toggleNodeEditAt({ x: 6, y: 0 })).toBe(true);
+      expect(useStore.getState().tools.nodeEditWallId).toBe('floor:0');
+      expect(currentWallNodes().length).toBeGreaterThan(0);
+      expect(warning).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -682,6 +731,262 @@ describe('locked/hidden layer blocks node edits (F6)', () => {
 
     expect(useStore.getState().ui.canUndo).toBe(false);
     expect(layer().children).toEqual(before);
+  });
+});
+
+/**
+ * The cave case, from the other side: a layer with no wall texture set used to
+ * be a dead end, and the band under the pointer is what it has instead of
+ * composed stones. The refusal itself is still covered above, by the layer that
+ * has neither a wall set nor a band.
+ */
+describe('a cave band layer', () => {
+  function seedBand(): { span: number } {
+    const { children, span } = caveBandChildren();
+    const l = layer();
+    useStore.getState().updateLayer(l.id, {
+      children,
+      mergedFloor: [RING],
+      style: { ...l.style, wallTextureSetId: undefined },
+    } as Partial<DungeonLayer>);
+    return { span };
+  }
+
+  const warning = vi.fn();
+
+  beforeEach(() => {
+    warning.mockClear();
+    setNotify({ warning, error: vi.fn(), success: vi.fn(), info: vi.fn() });
+    seedCaveBandPack();
+  });
+
+  it('enters band mode instead of refusing for want of a wall set', () => {
+    const { span } = seedBand();
+    expect(toggleNodeEditAt({ x: span / 2, y: 20 })).toBe(true);
+    expect(useStore.getState().tools.nodeEditWallId).toBe('band:0');
+    expect(warning).not.toHaveBeenCalled();
+    // And the mode opens onto real handles, one per joint.
+    expect(currentWallNodes()).toHaveLength(4);
+  });
+
+  it('toggles off when the same band is picked again', () => {
+    const { span } = seedBand();
+    toggleNodeEditAt({ x: span / 2, y: 20 });
+    expect(toggleNodeEditAt({ x: span / 2, y: 20 })).toBe(false);
+    expect(useStore.getState().tools.nodeEditWallId).toBeNull();
+  });
+
+  it('still refuses, with the reason, where there is no band under the pointer', () => {
+    seedBand();
+    // On the floor ring, well clear of the rock: a ring hit with no wall set
+    // behind it is the old dead end, and it must still say so.
+    expect(toggleNodeEditAt({ x: 6, y: 0 })).toBe(true);
+    expect(useStore.getState().tools.nodeEditWallId).toBeNull();
+    expect(warning).toHaveBeenCalledWith(
+      'Layer has no wall texture set — pick one to edit its stones',
+    );
+  });
+
+  // The gestures themselves — solve, gates, commit — are held to the shipped
+  // cave in packages/core/src/engine/bandJointDrag.test.ts. What matters here is
+  // the routing: this fixture is rock with no floor shape under it, so every
+  // gesture reaches the solver seam and is refused there, with its reason.
+  const NO_FLOOR = 'this cave wall has no floor outline under it to move';
+  const refusal = () => useStore.getState().tools.bandDragStatus;
+
+  it('a drag on a joint with no floor to move leaves the map and the stack alone', () => {
+    const { span } = seedBand();
+    toggleNodeEditAt({ x: span / 2, y: 20 });
+    const t = currentWallNodes()[1].t;
+    useStore.getState().selectNode(t);
+    const before = structuredClone(layer().children);
+
+    beginNodeDrag([t]);
+    nudgeWallNode([t], 0.5, -0.4);
+    nudgeWallNode([t], 0.5, -0.4);
+    endNodeDrag();
+
+    expect(layer().children).toEqual(before);
+    expect(layer().standaloneWalls).toHaveLength(0);
+    expect(layer().floorWallEdits).toBeUndefined();
+    expect(useStore.getState().ui.canUndo).toBe(false);
+    expect(useStore.getState().tools.selectedNodeT).toBe(t);
+    expect(isDraggingNode()).toBe(false);
+    // The refusal is the whole answer, so it outlives the gesture rather than
+    // being wiped the instant the pointer comes up.
+    expect(refusal()).toEqual({ refusal: NO_FLOOR });
+  });
+
+  it('a cancelled joint drag is just as inert', () => {
+    const { span } = seedBand();
+    toggleNodeEditAt({ x: span / 2, y: 20 });
+    const t = currentWallNodes()[2].t;
+    const before = structuredClone(layer().children);
+
+    beginNodeDrag([t]);
+    nudgeWallNode([t], 0.5, -0.4);
+    cancelNodeDrag();
+
+    expect(layer().children).toEqual(before);
+    expect(useStore.getState().ui.canUndo).toBe(false);
+    expect(isDraggingNode()).toBe(false);
+  });
+
+  it('leaves the stone keyboard table alone — a band has no WallEdits to patch', () => {
+    const { span } = seedBand();
+    toggleNodeEditAt({ x: span / 2, y: 20 });
+    const t = currentWallNodes()[1].t;
+    const before = structuredClone(layer().children);
+
+    // Not claimed either: nothing here means anything to a band, and swallowing
+    // the key would only stop it reaching whatever else might want it.
+    for (const key of [']', '=', '.']) expect(handleNodeKey(key, t), key).toBe(false);
+
+    expect(layer().children).toEqual(before);
+    expect(layer().floorWallEdits).toBeUndefined();
+    expect(useStore.getState().ui.canUndo).toBe(false);
+  });
+
+  it('routes Delete to a straighten and Tab to a whole-wall re-lay', () => {
+    const { span } = seedBand();
+    toggleNodeEditAt({ x: span / 2, y: 20 });
+    const t = currentWallNodes()[1].t;
+    useStore.getState().selectNode(t);
+    const before = structuredClone(layer().children);
+
+    for (const key of ['Delete', 'Backspace', 'Tab']) {
+      useStore.getState().setBandDragStatus(null);
+      // Claimed even when refused, so Delete can never fall through to the
+      // global binding and take the shape selection with it.
+      expect(handleNodeKey(key, t), key).toBe(true);
+      expect(refusal(), key).toEqual({ refusal: NO_FLOOR });
+    }
+
+    expect(layer().children).toEqual(before);
+    expect(useStore.getState().ui.canUndo).toBe(false);
+    // A refused gesture leaves the DM pointing at the joint it is about.
+    expect(useStore.getState().tools.selectedNodeT).toBe(t);
+  });
+
+  /**
+   * The insert gesture, on the same keys a stone's insert uses. A joint cannot
+   * be added the way a stone can — the kit decides what the wall can be — so
+   * what `{`/`}` drop is a handle that is nothing but a selection until it is
+   * dragged.
+   */
+  describe('{ } drops a transient handle mid-span', () => {
+    it('adds a handle between two joints, touching nothing', () => {
+      const { span } = seedBand();
+      toggleNodeEditAt({ x: span / 2, y: 20 });
+      const joints = currentWallNodes();
+      useStore.getState().selectNode(joints[1].t);
+      const before = structuredClone(layer().children);
+
+      expect(handleNodeKey('}', joints[1].t)).toBe(true);
+
+      const nodes = currentWallNodes();
+      expect(nodes).toHaveLength(joints.length + 1);
+      const added = nodes[nodes.length - 1];
+      expect(added.x).toBeCloseTo((joints[1].x + joints[2].x) / 2, 9);
+      // Selected as the primary, so the drag and the keys act on it.
+      expect(useStore.getState().tools.selectedNodeT).toBe(added.t);
+      // No store write, no command: the band and the outline are untouched.
+      expect(layer().children).toEqual(before);
+      expect(useStore.getState().ui.canUndo).toBe(false);
+
+      // `{` goes the other way, and the second handle replaces the first.
+      useStore.getState().selectNode(joints[1].t);
+      handleNodeKey('{', joints[1].t);
+      const back = currentWallNodes();
+      expect(back).toHaveLength(joints.length + 1);
+      expect(back[back.length - 1].x).toBeCloseTo((joints[0].x + joints[1].x) / 2, 9);
+    });
+
+    it('does nothing where there is no span on that side', () => {
+      const { span } = seedBand();
+      toggleNodeEditAt({ x: span / 2, y: 20 });
+      const joints = currentWallNodes();
+      // Both free ends of an open run: there is no wall out there to insert in.
+      for (const [t, key] of [
+        [joints[0].t, '{'],
+        [joints[joints.length - 1].t, '}'],
+      ] as const) {
+        useStore.getState().selectNode(t);
+        expect(handleNodeKey(key, t), key).toBe(true);
+        expect(currentWallNodes(), key).toHaveLength(joints.length);
+      }
+      // And on a handle that is already transient: one at a time.
+      useStore.getState().selectNode(joints[1].t);
+      handleNodeKey('}', joints[1].t);
+      const t = useStore.getState().tools.selectedNodeT!;
+      handleNodeKey('}', t);
+      expect(useStore.getState().tools.selectedNodeT).toBe(t);
+      expect(currentWallNodes()).toHaveLength(joints.length + 1);
+    });
+
+    it('is claimed but inert once the band under it has gone', () => {
+      const { span } = seedBand();
+      toggleNodeEditAt({ x: span / 2, y: 20 });
+      const t = currentWallNodes()[1].t;
+      useStore.getState().selectNode(t);
+      // The rock removed under an open mode: the run no longer resolves, and
+      // the key still must not fall through to the global table.
+      useStore.getState().updateLayer(layer().id, { children: [] });
+
+      expect(handleNodeKey('}', t)).toBe(true);
+      expect(currentWallNodes()).toEqual([]);
+      expect(useStore.getState().ui.canUndo).toBe(false);
+    });
+
+    /**
+     * The other half of the contract, and the defect it was hiding: only the
+     * gesture makes a handle transient. A `t` keyed to a joint count that has
+     * since moved — an undo or a redo of a band command is the live case —
+     * decodes to a fraction too, and reading THAT as a handle made Delete a
+     * silent deselect instead of a straighten.
+     */
+    it('reads a `t` from a band that changed count as a joint, not a handle', () => {
+      const { span } = seedBand();
+      toggleNodeEditAt({ x: span / 2, y: 20 });
+      const joints = currentWallNodes();
+      // Four joints here; 0.3 is what a `t` keyed to a band of a different size
+      // decodes to — 1.2 joints along, and no gesture behind it.
+      const stale = 0.3;
+      expect(stale * joints.length).not.toBe(Math.round(stale * joints.length));
+      useStore.getState().selectNode(stale);
+      // No stray handle in the span: the overlay reads it as joint 1.
+      expect(currentWallNodes()).toEqual(joints);
+
+      const before = structuredClone(layer().children);
+      useStore.getState().setBandDragStatus(null);
+      expect(handleNodeKey('Delete', stale)).toBe(true);
+
+      // Routed to the straighten, which this fixture refuses for want of a floor
+      // — the point is that it was asked at all, and that the DM is still
+      // pointing at the joint the refusal is about rather than at nothing.
+      expect(refusal()).toEqual({ refusal: NO_FLOOR });
+      expect(useStore.getState().tools.selectedNodeT).toBe(stale);
+      expect(layer().children).toEqual(before);
+    });
+
+    it('Delete on a transient handle just takes it away again', () => {
+      const { span } = seedBand();
+      toggleNodeEditAt({ x: span / 2, y: 20 });
+      const joints = currentWallNodes();
+      useStore.getState().selectNode(joints[1].t);
+      handleNodeKey('}', joints[1].t);
+      const t = useStore.getState().tools.selectedNodeT!;
+      const before = structuredClone(layer().children);
+      useStore.getState().setBandDragStatus(null);
+
+      // Nothing was written for it, so there is nothing to straighten and
+      // nothing to undo — the handle simply goes.
+      expect(handleNodeKey('Delete', t)).toBe(true);
+      expect(useStore.getState().tools.selectedNodeT).toBeNull();
+      expect(currentWallNodes()).toEqual(joints);
+      expect(layer().children).toEqual(before);
+      expect(refusal()).toBeNull();
+    });
   });
 });
 
