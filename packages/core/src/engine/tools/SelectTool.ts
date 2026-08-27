@@ -112,6 +112,11 @@ class RegionOverlay {
 const HOVER_WHITE_WIDTH = 1.25;
 const HOVER_INK_WIDTH = 3;
 
+// A shape's outline only appears once the cursor has settled on it. Shapes can
+// be huge (a cave floor is one map-sized ring), so flashing the outline on
+// every crossing reads as the walls flickering, not as hover feedback.
+const SHAPE_HOVER_DWELL_MS = 150;
+
 // ─── SelectTool ───────────────────────────────────────────
 
 export class SelectTool implements DrawingTool {
@@ -130,6 +135,10 @@ export class SelectTool implements DrawingTool {
   // ── Object selection state ────────────────────────────
   /** Graphics drawn in the overlay to highlight the hovered child */
   private hoverGraphics: Graphics;
+  /** Shape whose outline is currently shown (its dwell timer has fired). */
+  private shapeHoverShownId: string | null = null;
+  /** Pending dwell timer for a shape the cursor just moved onto. */
+  private shapeHoverTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ── Gizmo (object selection) ──────────────────────────
   private gizmo: TransformGizmo | null = null;
@@ -456,6 +465,8 @@ export class SelectTool implements DrawingTool {
     this.overlay.clear();
     this.destroyGizmo();
     this.hoverGraphics.clear();
+    this.shapeHoverShownId = null;
+    this.clearShapeHoverTimer();
   }
 
   isActive(): boolean {
@@ -751,7 +762,33 @@ export class SelectTool implements DrawingTool {
       store.setHoveredId(newHoveredId);
     }
 
-    this.drawHoverHighlight(hit?.child ?? null);
+    const child = hit?.child ?? null;
+
+    // Shapes wait out the dwell before their outline shows; leaving the shape
+    // (for a wall piece, prop, or void) resets the gate so re-entry waits again.
+    if (child?.childType === 'shape' && this.shapeHoverShownId !== child.id) {
+      this.hoverGraphics.clear();
+      this.clearShapeHoverTimer();
+      this.shapeHoverTimer = setTimeout(() => {
+        this.shapeHoverTimer = null;
+        if (useStore.getState().selection.hoveredId === child.id) {
+          this.shapeHoverShownId = child.id;
+          this.drawHoverHighlight(child);
+        }
+      }, SHAPE_HOVER_DWELL_MS);
+      return;
+    }
+    if (child?.childType !== 'shape') this.shapeHoverShownId = null;
+    this.clearShapeHoverTimer();
+
+    this.drawHoverHighlight(child);
+  }
+
+  private clearShapeHoverTimer(): void {
+    if (this.shapeHoverTimer) {
+      clearTimeout(this.shapeHoverTimer);
+      this.shapeHoverTimer = null;
+    }
   }
 
   /**
