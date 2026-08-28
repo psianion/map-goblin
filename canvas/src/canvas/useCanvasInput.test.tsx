@@ -24,8 +24,9 @@ import {
 import { setNotify } from '@dnd/core/src/store/notify';
 import { currentWallNodes } from '@/engine/wallNodeOverlay';
 import { toggleNodeEditAt } from './wallNodeEdit';
-import { useCanvasInput } from './useCanvasInput';
+import { useCanvasInput, setToolManager } from './useCanvasInput';
 import type { RenderEngine } from '@/engine/RenderEngine';
+import type { ToolManager } from '@/engine/tools/ToolManager';
 import type { DungeonLayer } from '@/store/types';
 import type { Polygon } from '@/types/geometry';
 
@@ -48,14 +49,20 @@ const status = () => useStore.getState().tools.bandDragStatus;
  * the tree. The engine is only dereferenced by the pointer handlers.
  */
 let unmount: (() => void) | null = null;
+let canvasEl: HTMLCanvasElement | null = null;
 
 function mountInput(): void {
   const container = document.createElement('div');
-  container.appendChild(document.createElement('canvas'));
+  canvasEl = document.createElement('canvas');
+  // jsdom has no pointer capture; the drag paths call it unconditionally.
+  (canvasEl as unknown as Record<string, unknown>).setPointerCapture ??= () => {};
+  (canvasEl as unknown as Record<string, unknown>).releasePointerCapture ??= () => {};
+  container.appendChild(canvasEl);
   const ref = { current: container };
   const engine = {
     stage: () => ({ scale: { x: 32 }, position: { x: 0, y: 0 } }),
-    screenToWorld: () => ({ x: 0, y: 0 }),
+    // Identity mapping, so a test can aim a pointer event at a world point.
+    screenToWorld: (x: number, y: number) => ({ x, y }),
   } as unknown as RenderEngine;
   unmount = renderHook(() => useCanvasInput(ref, engine)).unmount;
 }
@@ -120,6 +127,8 @@ beforeEach(() => {
 afterEach(() => {
   unmount?.();
   unmount = null;
+  canvasEl = null;
+  setToolManager(null);
   document.body.innerHTML = '';
 });
 
@@ -278,5 +287,62 @@ describe('focus in a text field', () => {
     press('z', { ctrl: true }, focusedInput());
 
     expect(layer().children).toHaveLength(committedCount - 1);
+  });
+});
+
+// A left-click that misses every joint handle while a node-edit mode is active
+// must be consumed, not passed down to the tools: the fall-through used to
+// object-select the wall stone under the cursor, and the drag that followed a
+// missed joint grab moved or rotated it. The same guard covers the shape
+// outline mode; the band path stands in for both here.
+describe('a miss-click in band node mode never reaches the tools', () => {
+  function clickCanvas(): void {
+    // jsdom has no PointerEvent; the handler only reads MouseEvent fields.
+    // (-500, -500) maps to world (-500, -500) — a miss on any fixture joint.
+    const e = new MouseEvent('pointerdown', {
+      button: 0,
+      clientX: -500,
+      clientY: -500,
+      bubbles: true,
+      cancelable: true,
+    });
+    canvasEl!.dispatchEvent(e);
+  }
+
+  function spyManager(): { onPointerDown: ReturnType<typeof vi.fn> } {
+    const manager = {
+      onPointerDown: vi.fn(),
+      onPointerMove: vi.fn(),
+      onPointerUp: vi.fn(),
+      onKeyDown: vi.fn(() => false),
+      cancelActive: vi.fn(),
+      switchTool: vi.fn(),
+      getCursor: vi.fn(() => 'default'),
+      getHoverCursor: vi.fn(() => null),
+      getActivePreview: vi.fn(() => null),
+    };
+    setToolManager(manager as unknown as ToolManager);
+    return manager;
+  }
+
+  it('in band mode the click clears the joint selection and stops', () => {
+    seedBandInEditMode();
+    useStore.getState().selectNode(currentWallNodes()[1].t);
+    const manager = spyManager();
+
+    // The stub engine maps every click to world (0, 0), far from any joint.
+    clickCanvas();
+
+    expect(useStore.getState().tools.selectedNodeTs).toHaveLength(0);
+    expect(useStore.getState().tools.nodeEditWallId).toBe('band:0');
+    expect(manager.onPointerDown).not.toHaveBeenCalled();
+  });
+
+  it('outside node mode the same click still reaches the tools', () => {
+    const manager = spyManager();
+
+    clickCanvas();
+
+    expect(manager.onPointerDown).toHaveBeenCalledTimes(1);
   });
 });

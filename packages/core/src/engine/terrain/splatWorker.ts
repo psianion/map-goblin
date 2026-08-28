@@ -8,7 +8,7 @@
  *   flush   {}                                    → {bounds, pngs: {rtIndex, png}[]}
  *   reset   {}                                    → {ok}
  */
-import { SPLAT_SIZE, type SplatRect } from './terrainShared';
+import { SPLAT_SIZE, type SplatMapIndex, type SplatRect } from './terrainShared';
 import { createSplatState, flush, patch, reset, seed } from './splatWorkerOps';
 
 const state = createSplatState();
@@ -50,7 +50,7 @@ async function decodePng(png: ArrayBuffer): Promise<Uint8Array> {
 interface Request {
   id: number;
   op: 'seed' | 'patch' | 'flush' | 'reset';
-  rtIndex?: 0 | 1;
+  rtIndex?: SplatMapIndex;
   rect?: SplatRect;
   pixels?: ArrayBuffer;
   png?: ArrayBuffer | null;
@@ -76,7 +76,7 @@ async function handle(req: Request): Promise<void> {
     }
     case 'flush': {
       const { bounds, dirtyIndices } = flush(state);
-      const pngs: { rtIndex: 0 | 1; png: ArrayBuffer }[] = [];
+      const pngs: { rtIndex: SplatMapIndex; png: ArrayBuffer }[] = [];
       for (const rtIndex of dirtyIndices) {
         pngs.push({ rtIndex, png: await encodePng(state.splats[rtIndex]!) });
       }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import { SPLAT_SIZE, TERRAIN_EXTENT_HALF } from './terrainShared';
 import { createSplatState, flush, patch, reset, seed } from './splatWorkerOps';
 
@@ -13,7 +13,7 @@ describe('splat worker ops', () => {
   it('never allocates for a map that never paints', () => {
     const state = createSplatState();
     expect(flush(state)).toEqual({ bounds: null, dirtyIndices: [] });
-    expect(state.splats).toEqual([null, null]);
+    expect(state.splats).toEqual([null, null, null]);
   });
 
   it('patch marks dirty and flush reports bounds then clears dirty', () => {
@@ -22,7 +22,7 @@ describe('splat worker ops', () => {
     const first = flush(state);
     expect(first.dirtyIndices).toEqual([0]);
     expect(first.bounds?.minX).toBeCloseTo(-TERRAIN_EXTENT_HALF);
-    // Nothing changed since — nothing to encode, bounds still reported.
+    // Nothing changed since â€” nothing to encode, bounds still reported.
     const second = flush(state);
     expect(second.dirtyIndices).toEqual([]);
     expect(second.bounds).toEqual(first.bounds);
@@ -49,11 +49,20 @@ describe('splat worker ops', () => {
     expect(flush(state).bounds).toBeNull();
   });
 
+  it('the tint map dirties and encodes but never drives the painted bounds', () => {
+    const state = createSplatState();
+    patch(state, 2, { x: 8, y: 8, width: 1, height: 1 }, px(180));
+    const r = flush(state);
+    expect(r.dirtyIndices).toEqual([2]);
+    // Tint without weight draws nothing — bounds stay empty.
+    expect(r.bounds).toBeNull();
+  });
+
   it('reset drops both maps', () => {
     const state = createSplatState();
     patch(state, 0, { x: 0, y: 0, width: 1, height: 1 }, px(9));
     reset(state);
-    expect(state.splats).toEqual([null, null]);
+    expect(state.splats).toEqual([null, null, null]);
     expect(flush(state)).toEqual({ bounds: null, dirtyIndices: [] });
   });
 });

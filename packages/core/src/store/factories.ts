@@ -147,6 +147,9 @@ export function createDefaultState(): MapBuilderState {
           slot: 0,
           radius: 2,
           strength: 0.6,
+          // White at zero opacity = the brush paints untinted until asked.
+          tintColor: '#ffffff',
+          tintOpacity: 0,
         },
         water: {
           mode: 'river' as const,
@@ -207,7 +210,7 @@ export function createDefaultState(): MapBuilderState {
       activeUpdate: null,
     },
     terrainSplats: {
-      pngs: [null, null],
+      pngs: [null, null, null],
       rev: 0,
     },
     mapIndex: [],

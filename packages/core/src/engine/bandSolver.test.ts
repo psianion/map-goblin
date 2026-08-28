@@ -400,6 +400,23 @@ describe('solveBandDrag on the shipped Warren', () => {
     expect(hinged).toBeLessThanOrEqual(6);
   });
 
+  it('hands back a partial drag when the full pull cannot be built', () => {
+    // Five cells outward is beyond what the kit can trace at plenty of joints.
+    // The old contract snapped back to nothing; the new one walks as much of
+    // the pull as the kit affords and reports the shortfall through kitPull.
+    let partials = 0;
+    for (let m = 0; m < 127; m += 4) {
+      const f = warren();
+      const r = solveBandDrag({ ...f, joint: m, to: outward(f.band, m, 5), set: SET() });
+      if (!r.ok) continue;
+      expectGates(gates(f, r), `joint ${m}`);
+      // Stopped more than a cell short of the pointer: the bisection engaged
+      // rather than the full pull happening to close.
+      if (r.kitPull > 1) partials++;
+    }
+    expect(partials).toBeGreaterThan(0);
+  });
+
   it('refuses a drag that folds the floor through itself, and touches nothing', () => {
     const f = deepFreeze(warren());
     const before = snapshot(f);

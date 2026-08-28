@@ -12,9 +12,9 @@
 
 import type { Container } from 'pixi.js';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
-import { computeMapWorldBounds } from '@dnd/core/src/engine/export/exportPipeline';
+import { computeContentBounds, type WorldBounds } from '@dnd/core/src/shared/mapBounds';
 import { useStore } from '@dnd/core/src/store/store';
-import type { DungeonLayer, Layer } from '@dnd/core/src/store/types';
+import type { AssetChild, DungeonLayer, Layer } from '@dnd/core/src/store/types';
 import { useSessionStore } from '../session/store';
 import { MAX_ZOOM } from './camera';
 
@@ -35,24 +35,6 @@ interface Extent {
 }
 
 /**
- * Whether there is anything on this map to point a camera at.
- *
- * Asked separately because `computeMapWorldBounds` answers a map with nothing on it with a
- * 10×10 box around the origin — a sensible default for an *export*, and a trap for a camera:
- * a seat that framed it landed at zoom ~54 on empty origin, nowhere near where the map
- * actually is. The three sources are the three that function measures.
- */
-function hasGeometry(layers: Layer[]): boolean {
-  if (!isPlayerSeat() && useStore.getState().mapSettings.terrain?.bounds) return true;
-  return layers.some((layer) => {
-    if (layer.type !== 'dungeon') return false;
-    const dl = layer as DungeonLayer;
-    if (dl.mergedFloor?.length) return true;
-    return dl.children.some((c) => c.childType === 'water' && c.visible);
-  });
-}
-
-/**
  * A player's camera frames what they have revealed, nothing more. Their layers are already
  * the server's cut, but `mapSettings.terrain.bounds` rides the document unredacted (the
  * splat bitmap needs it to draw the terrain inside revealed rooms) — so it must not feed a
@@ -60,14 +42,53 @@ function hasGeometry(layers: Layer[]): boolean {
  */
 const isPlayerSeat = (): boolean => useSessionStore.getState().you?.role !== 'dm';
 
+/**
+ * Bounds of the placed art. Asked beside `computeContentBounds` because redaction strips a
+ * player's document down to children — the map-wide floor ring never ships (it would leak
+ * the unexplored extent into their fit), so on a player seat the sprites are often the only
+ * geometry there is, and a camera that only measures floors has nothing to frame.
+ * Half the diagonal per sprite: rotation-safe, and a little slack beats a cropped fit.
+ */
+function assetBounds(layers: Layer[]): WorldBounds | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const layer of layers) {
+    if (layer.type !== 'dungeon') continue;
+    for (const child of (layer as DungeonLayer).children ?? []) {
+      if (child.childType !== 'asset' || !child.visible) continue;
+      const a = child as AssetChild;
+      const r = (Math.hypot(a.width, a.height) * Math.abs(a.scale || 1)) / 2;
+      if (a.position.x - r < minX) minX = a.position.x - r;
+      if (a.position.y - r < minY) minY = a.position.y - r;
+      if (a.position.x + r > maxX) maxX = a.position.x + r;
+      if (a.position.y + r > maxY) maxY = a.position.y + r;
+    }
+  }
+  return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+}
+
 // ponytail: the bounds are recomputed per gesture rather than cached — a walk over
 // mergedFloor's points, microseconds beside the frame it precedes, and a cache would have to
 // be invalidated on every reveal. Cache it the day a map makes this show up in a profile.
 function mapExtent(): Extent | null {
-  const { layers } = useStore.getState();
-  if (!hasGeometry(layers)) return null;
-  const b = computeMapWorldBounds(layers, isPlayerSeat() ? null : undefined);
-  if (!Number.isFinite(b.minX) || !Number.isFinite(b.maxX)) return null;
+  const { layers, mapSettings } = useStore.getState();
+  // `computeContentBounds` (not `computeMapWorldBounds`) on purpose: the latter answers an
+  // empty map with a 10×10 box around the origin — a sensible default for an export, and a
+  // trap for a camera, which must refuse to frame nothing rather than frame empty origin.
+  const floors = computeContentBounds(layers, isPlayerSeat() ? null : (mapSettings.terrain?.bounds ?? null));
+  const art = assetBounds(layers);
+  const b =
+    floors && art
+      ? {
+          minX: Math.min(floors.minX, art.minX),
+          minY: Math.min(floors.minY, art.minY),
+          maxX: Math.max(floors.maxX, art.maxX),
+          maxY: Math.max(floors.maxY, art.maxY),
+        }
+      : (floors ?? art);
+  if (!b || !Number.isFinite(b.minX) || !Number.isFinite(b.maxX)) return null;
   return {
     cx: (b.minX + b.maxX) / 2,
     cy: (b.minY + b.maxY) / 2,

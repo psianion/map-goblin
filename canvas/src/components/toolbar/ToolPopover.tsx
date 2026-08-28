@@ -29,6 +29,7 @@ import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import { DEFAULT_TERRAIN_PALETTE } from '@/store/slices/mapSettings';
 import { TERRAIN_BRUSH_RANGES, WATER_RANGES } from '@/store/slices/tools';
 import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas';
+import { TexturePicker } from '@/components/properties/TexturePicker';
 
 interface ToolPopoverProps {
   tool: ToolType;
@@ -80,6 +81,7 @@ export function ToolPopover({ tool, anchorY, onClose }: ToolPopoverProps) {
       const target = e.target as HTMLElement;
       if (target.closest('[data-toolbar-button]')) return;
       if (target.closest('[data-color-picker]')) return;
+      if (target.closest('[data-texture-picker]')) return;
       onClose();
     };
     document.addEventListener('pointerdown', handler, true);
@@ -698,6 +700,7 @@ function TerrainBrushContent({ onValueChange }: { onValueChange: () => void }) {
     useShallow((s) => s.mapSettings.terrain?.palette ?? DEFAULT_TERRAIN_PALETTE),
   );
   const setSettings = useStore((s) => s.updateTerrainBrushSettings);
+  const setTerrainData = useStore((s) => s.setTerrainData);
   // Every brush control feeds the ghost — size and material are both invisible
   // until you have a disc on the canvas showing them.
   const updateSettings = (patch: Partial<typeof settings>) => {
@@ -711,28 +714,43 @@ function TerrainBrushContent({ onValueChange }: { onValueChange: () => void }) {
         {eraseMode ? 'Erase Terrain' : 'Paint Terrain'}
       </div>
 
-      {/* Terrain slot swatches */}
+      {/* Terrain slot swatches — a blank slot is still selectable, so the
+          picker below can fill it with any floor texture (cave rock included). */}
       {!eraseMode && (
-        <div className="grid grid-cols-3 gap-1">
-          {palette.map((id, slot) => {
-            if (!id) return <div key={slot} className="aspect-square rounded bg-surface-2" />;
-            const entry = getCatalogEntry(id);
-            const selected = settings.slot === slot;
-            return (
-              <button
-                key={slot}
-                title={entry?.label ?? id}
-                onClick={() => updateSettings({ slot })}
-                className={cn(
-                  'aspect-square rounded overflow-hidden border-2 transition-colors cursor-pointer',
-                  selected ? 'border-accent-active' : 'border-transparent hover:border-border-default',
-                )}
-              >
-                <PackThumbnailCanvas textureId={id} />
-              </button>
-            );
-          })}
-        </div>
+        <>
+          <div className="grid grid-cols-3 gap-1">
+            {palette.map((id, slot) => {
+              const entry = id ? getCatalogEntry(id) : undefined;
+              const selected = settings.slot === slot;
+              return (
+                <button
+                  key={slot}
+                  title={entry?.label ?? id ?? 'Empty slot — pick a texture below'}
+                  onClick={() => updateSettings({ slot })}
+                  className={cn(
+                    'aspect-square rounded overflow-hidden border-2 transition-colors cursor-pointer',
+                    !id && 'bg-surface-2',
+                    selected ? 'border-accent-active' : 'border-transparent hover:border-border-default',
+                  )}
+                >
+                  {id && <PackThumbnailCanvas textureId={id} />}
+                </button>
+              );
+            })}
+          </div>
+
+          <PropertyField label="Slot texture">
+            <TexturePicker
+              value={palette[settings.slot] ?? undefined}
+              onChange={(textureId) => {
+                const next = palette.slice();
+                next[settings.slot] = textureId ?? null;
+                setTerrainData({ palette: next });
+                onValueChange();
+              }}
+            />
+          </PropertyField>
+        </>
       )}
 
       <div>
@@ -750,6 +768,30 @@ function TerrainBrushContent({ onValueChange }: { onValueChange: () => void }) {
         </div>
         <SliderInput value={settings.strength} onChange={(v) => updateSettings({ strength: v })} {...TERRAIN_BRUSH_RANGES.strength} />
       </div>
+
+      {/* Per-stroke tint: like a light's colour, a stroke keeps the tint it
+          was painted with \u2014 these only steer strokes from here on. */}
+      {!eraseMode && (
+        <>
+          <PropertyField label="Tint">
+            <ColorField
+              value={settings.tintColor}
+              onChange={(c) => updateSettings({ tintColor: c })}
+            />
+          </PropertyField>
+          <div>
+            <div className="flex justify-between mb-1">
+              <span className="text-[11px] text-text-secondary uppercase tracking-wider">Tint Opacity</span>
+              <span className="text-xs text-text-primary font-mono">{Math.round(settings.tintOpacity * 100)}%</span>
+            </div>
+            <SliderInput
+              value={settings.tintOpacity}
+              onChange={(v) => updateSettings({ tintOpacity: v })}
+              {...TERRAIN_BRUSH_RANGES.tintOpacity}
+            />
+          </div>
+        </>
+      )}
 
       <div className="text-[10px] text-text-tertiary mt-1">
         {eraseMode ? 'Drag to clear painted terrain' : 'Drag to paint \u00b7 E toggles erase'}

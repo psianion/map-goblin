@@ -7,7 +7,7 @@ export interface MapSettingsActions {
   setAmbientLight: (color: string) => void;
   setEnvironmentSettings: (patch: Partial<MapEnvironment>) => void;
   setTerrainData: (patch: Partial<TerrainData>) => void;
-  setTerrainSplats: (pngs: [Blob | null, Blob | null]) => void;
+  setTerrainSplats: (pngs: [Blob | null, Blob | null, Blob | null]) => void;
 }
 
 export const createMapSettingsSlice: StateCreator<

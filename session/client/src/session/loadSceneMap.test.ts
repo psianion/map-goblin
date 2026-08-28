@@ -163,7 +163,7 @@ describe('swapSceneMap', () => {
       { headers: { Authorization: 'Bearer tok' } },
     );
     expect(registerImageBlob).toHaveBeenCalledWith('asset-1', picBlob);
-    expect(useSessionStore.getState().splatPngs).toEqual([splatBlob, null]);
+    expect(useSessionStore.getState().splatPngs).toEqual([splatBlob, null, null]);
     // The document itself no longer carries image payloads.
     expect(vi.mocked(restoreCustomImages).mock.calls.length).toBe(restoresBefore);
   });

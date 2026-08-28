@@ -518,22 +518,50 @@ export function solveBandDrag(input: BandDragInput): BandSolveResult {
   }
   const peak = bandJointPoint(band, joint);
   const d = sub(to, peak);
-  return solveEdit(input, {
-    kFrom: K_MIN,
-    // The anchors are the usual k joints beyond the ones the peak sits between.
-    // On a whole index floor and ceil are the same joint, and this is the ±k it
-    // has always been; a fraction holds one more piece still.
-    span: (k) => spanBetween(band, Math.floor(joint) - k, Math.ceil(joint) + k),
-    deform: (base, span) =>
-      deformPeak(
-        base,
-        sideOf(base, band, span.a, 0),
-        sideOf(base, band, span.b, band.joints.length - 1),
-        peak,
-        d,
-      ),
-    probe: to,
-  });
+  // `probe` stays the raw pointer whatever fraction of the drag walks, so
+  // kitPull honestly reports how far the kit stopped short of the cursor.
+  const solveAt = (f: number): BandSolveResult =>
+    solveEdit(input, {
+      kFrom: K_MIN,
+      // The anchors are the usual k joints beyond the ones the peak sits between.
+      // On a whole index floor and ceil are the same joint, and this is the ±k it
+      // has always been; a fraction holds one more piece still.
+      span: (k) => spanBetween(band, Math.floor(joint) - k, Math.ceil(joint) + k),
+      deform: (base, span) =>
+        deformPeak(
+          base,
+          sideOf(base, band, span.a, 0),
+          sideOf(base, band, span.b, band.joints.length - 1),
+          peak,
+          mul(d, f),
+        ),
+      probe: to,
+    });
+  const full = solveAt(1);
+  if (full.ok) return full;
+  // The full drag asked for a shape the kit cannot build. Rather than refuse
+  // outright, hand back as much of the drag as it CAN build: three bisection
+  // probes bracket the largest buildable fraction to within 1/8 of the delta.
+  // Deltas under half a cell have nothing worth giving back, and the extra
+  // solves only run in the refused regime, where nothing was moving anyway.
+  // A fold refusal keeps its all-or-nothing contract: a drag through the far
+  // side of the room is a mistake to reject, not a gesture to meet halfway.
+  if (full.reason === 'that would fold the floor outline through itself') return full;
+  if (Math.hypot(d[0], d[1]) < 0.5) return full;
+  let lo = 0;
+  let hi = 1;
+  let best: BandSolveResult | null = null;
+  for (let i = 0; i < 3; i++) {
+    const f = (lo + hi) / 2;
+    const got = solveAt(f);
+    if (got.ok) {
+      best = got;
+      lo = f;
+    } else {
+      hi = f;
+    }
+  }
+  return best ?? full;
 }
 
 export interface BandStraightenInput {

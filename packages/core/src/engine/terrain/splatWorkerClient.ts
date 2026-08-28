@@ -2,11 +2,11 @@
  * Main-thread handle on the splat worker. Lazy singleton — a session that
  * never touches terrain never spawns the worker.
  */
-import type { SplatRect, TerrainBounds } from './terrainShared';
+import type { SplatMapIndex, SplatRect, TerrainBounds } from './terrainShared';
 
 export interface SplatFlushResult {
   bounds: TerrainBounds | null;
-  pngs: { rtIndex: 0 | 1; png: ArrayBuffer }[];
+  pngs: { rtIndex: SplatMapIndex; png: ArrayBuffer }[];
 }
 
 type Reply = { id: number; error?: string } & Partial<SplatFlushResult> & { ok?: boolean };
@@ -35,12 +35,12 @@ export class SplatWorkerClient {
     });
   }
 
-  async seed(rtIndex: 0 | 1, png: ArrayBuffer | null): Promise<void> {
+  async seed(rtIndex: SplatMapIndex, png: ArrayBuffer | null): Promise<void> {
     await this.call({ op: 'seed', rtIndex, png }, png ? [png] : []);
   }
 
   /** Fire-and-forget: patches are ordered ahead of any later flush by the worker's message queue. */
-  patch(rtIndex: 0 | 1, rect: SplatRect, pixels: Uint8Array): void {
+  patch(rtIndex: SplatMapIndex, rect: SplatRect, pixels: Uint8Array): void {
     // Copy — the caller's buffer belongs to the undo snapshot.
     const buf = pixels.slice().buffer;
     this.worker.postMessage({ id: 0, op: 'patch', rtIndex, rect, pixels: buf }, [buf]);

@@ -85,12 +85,13 @@ describe('tool setting clamps', () => {
 
   it('clamps to the same ranges the sliders expose', () => {
     const s = useStore.getState();
-    s.updateTerrainBrushSettings({ radius: 999, strength: -1 });
+    s.updateTerrainBrushSettings({ radius: 999, strength: -1, tintOpacity: 2 });
     s.updateWaterSettings({ width: 999, flowSpeed: 999 });
 
     const { terrainBrush, water } = useStore.getState().tools.settings;
     expect(terrainBrush.radius).toBe(TERRAIN_BRUSH_RANGES.radius.max);
     expect(terrainBrush.strength).toBe(TERRAIN_BRUSH_RANGES.strength.min);
+    expect(terrainBrush.tintOpacity).toBe(TERRAIN_BRUSH_RANGES.tintOpacity.max);
     expect(water.width).toBe(WATER_RANGES.width.max);
     expect(water.flowSpeed).toBe(WATER_RANGES.flowSpeed.max);
   });

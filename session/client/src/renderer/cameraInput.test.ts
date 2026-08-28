@@ -61,7 +61,78 @@ function setFloor(x0: number, y0: number, x1: number, y1: number): void {
   });
 }
 
+/**
+ * Put one dungeon layer holding only placed sprites in the store — the shape of a player's
+ * redacted document, whose map-wide floor ring never ships from the server.
+ */
+function setAssetsOnly(positions: [number, number][]): void {
+  const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon');
+  if (!layer) throw new Error('default state has no dungeon layer');
+  useStore.setState({
+    layers: [
+      {
+        ...layer,
+        mergedFloor: null,
+        children: positions.map(([x, y], i) => ({
+          id: `asset-${i}`,
+          name: `asset-${i}`,
+          childType: 'asset' as const,
+          objectType: 'asset' as const,
+          assetId: 'test',
+          position: { x, y },
+          rotation: 0,
+          scale: 1,
+          width: 2,
+          height: 2,
+          tint: '#ffffff',
+          flipX: false,
+          flipY: false,
+          visible: true,
+        })),
+      },
+    ],
+  });
+}
+
 describe('fitMap', () => {
+  it('frames a player document that carries only placed sprites', () => {
+    const { stage, engine } = mount(20);
+    // Redaction strips the floor ring from a player's document; the sprites in explored
+    // rooms are the only geometry left, and joining must still open on them, not on the
+    // default camera over empty origin.
+    setAssetsOnly([
+      [100, 100],
+      [140, 120],
+    ]);
+
+    expect(fitMap(engine)).toBe(true);
+    const centre = worldUnder(stage, 400, 300);
+    expect(centre.x).toBeCloseTo(120, 8);
+    expect(centre.y).toBeCloseTo(110, 8);
+  });
+
+  it('ignores hidden sprites when measuring the map', () => {
+    const { stage, engine } = mount(20);
+    setAssetsOnly([
+      [100, 100],
+      [900, 900],
+    ]);
+    const layer = useStore.getState().layers[0] as DungeonLayer;
+    useStore.setState({
+      layers: [
+        {
+          ...layer,
+          children: layer.children.map((c, i) => (i === 1 ? { ...c, visible: false } : c)),
+        },
+      ],
+    });
+
+    expect(fitMap(engine)).toBe(true);
+    const centre = worldUnder(stage, 400, 300);
+    expect(centre.x).toBeCloseTo(100, 8);
+    expect(centre.y).toBeCloseTo(100, 8);
+  });
+
   it('refuses to frame a document with no geometry in it yet', () => {
     const { stage, engine } = mount(20);
     useStore.setState({ layers: [] });

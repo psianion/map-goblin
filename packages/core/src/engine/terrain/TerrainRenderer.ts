@@ -15,13 +15,17 @@ import { DEFAULT_TERRAIN_PALETTE } from '../../store/slices/mapSettings';
 import * as textureLoader from '../../assets/textureLoader';
 import { readPixelsAsync, warmupReadback } from '../asyncReadback';
 import {
+  SPLAT_MAP_INDICES,
   SPLAT_SIZE,
   TERRAIN_EXTENT_HALF,
   TERRAIN_SLOTS,
   TEXELS_PER_CELL,
+  TINT_MAP_INDEX,
   WORLD_SIZE,
   planWindowBake,
   splatRegionsEqual,
+  type SplatMapIndex,
+  type SplatPngs,
 } from './terrainShared';
 import { SplatWorkerClient } from './splatWorkerClient';
 
@@ -81,6 +85,7 @@ const FRAGMENT_SRC = `
   out vec4 finalColor;
   uniform sampler2D uSplat0;
   uniform sampler2D uSplat1;
+  uniform sampler2D uSplatTint;
   uniform sampler2D uTex0;
   uniform sampler2D uTex1;
   uniform sampler2D uTex2;
@@ -124,6 +129,11 @@ const FRAGMENT_SRC = `
     float sum = w0 + w1 + w2 + w3 + w4 + w5 + 1e-6;
 
     vec3 col = (c0 * w0 + c1 * w1 + c2 * w2 + c3 * w3 + c4 * w4 + c5 * w5) / sum;
+    // Brush tint layer: premultiplied colour in rgb, coverage in alpha. An
+    // untinted texel (a=0) leaves the blend untouched, so maps saved before
+    // the layer existed render exactly as they always did.
+    vec4 tnt = texture(uSplatTint, vUV);
+    col = mix(col, col * (tnt.rgb / max(tnt.a, 0.004)), tnt.a);
     float alpha = clamp(raw * 2.5, 0.0, 1.0);
     finalColor = vec4(col * alpha, alpha);
   }
@@ -144,30 +154,37 @@ const DISPLAY_FRAGMENT_SRC = `
 `;
 
 export interface StrokeRegionSnapshot {
-  rtIndex: 0 | 1;
+  rtIndex: SplatMapIndex;
   rect: { x: number; y: number; width: number; height: number };
   before: Uint8Array;
   after: Uint8Array;
 }
 
 /** Create a soft radial brush texture (white core → transparent edge). */
-function createBrushTexture(): Texture {
+function createRadialTexture(stops: [number, number][]): Texture {
   const size = 128;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d')!;
   const g = ctx.createRadialGradient(size / 2, size / 2, size * 0.15, size / 2, size / 2, size / 2);
-  g.addColorStop(0, 'rgba(255,255,255,1)');
-  // Full weight out to ~0.8r, then a short fade. The old 0.6→0.55 ramp meant a
-  // stamp only read as solid to ~0.7 of its radius, so every stroke landed
-  // visibly smaller than the size the brush ring promised.
-  g.addColorStop(0.8, 'rgba(255,255,255,0.9)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
+  for (const [offset, alpha] of stops) g.addColorStop(offset, `rgba(255,255,255,${alpha})`);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
   return Texture.from(canvas);
 }
+
+// Full weight to 0.5r, then an eased tail. The display shader's 2.5× alpha
+// gain keeps the stroke reading close to the brush ring's size (solid to
+// where weight × 2.5 ≥ 1, ~0.8r), so the long tail buys a real feather band
+// instead of shrinking the stroke the way the old short 0.6→0.55 ramp did.
+const WEIGHT_BRUSH_STOPS: [number, number][] = [[0, 1], [0.5, 1], [0.75, 0.55], [1, 0]];
+
+// The tint mask must track the stroke's VISIBLE opacity — clamp(2.5 × weight),
+// solid to ~0.82r — not the raw weight ramp. A mask that follows the weight
+// tail fades ahead of the stroke's own fade, leaving a fully-opaque but
+// untinted ring of raw stone: a light border around every tinted stroke.
+const TINT_MASK_STOPS: [number, number][] = [[0, 1], [0.82, 1], [1, 0]];
 
 export class TerrainRenderer {
   readonly container: Container;
@@ -184,8 +201,8 @@ export class TerrainRenderer {
   private floorMeshes: Mesh<MeshGeometry, Shader>[] = [];
   /** Crisp-window counterpart of `floorMeshes`, one per floor mesh once the window shader exists. */
   private floorWindowMeshes: Mesh<MeshGeometry, Shader>[] = [];
-  /** Allocated on first paint/restore — 32MB of VRAM maps that never paint don't need. */
-  private splatRTs: [RenderTexture, RenderTexture] | null = null;
+  /** Allocated on first paint/restore — 48MB of VRAM maps that never paint don't need. */
+  private splatRTs: [RenderTexture, RenderTexture, RenderTexture] | null = null;
   /** World-space baked terrain (see BAKE_TEXELS_PER_CELL) — what the meshes sample per frame. */
   private bakeRT: RenderTexture | null = null;
   /** Cheap display shader on every mesh; `shader` (the heavy blend) only runs in bake passes. */
@@ -212,9 +229,13 @@ export class TerrainRenderer {
   private lastDisturbanceTime = 0;
   private tileRTs: (RenderTexture | null)[] = new Array(TERRAIN_SLOTS).fill(null);
   private brushTexture: Texture | null = null;
+  /** Tint-mask stamp — same disc, falloff matched to the visible stroke (see TINT_MASK_STOPS). */
+  private tintMaskTexture: Texture | null = null;
   private stampSprite: Sprite | null = null;
   private stampContainer: Container | null = null;
   private strokeBackup: RenderTexture | null = null;
+  /** Per-stroke tint coverage mask — see the tint branch in paintStamp. */
+  private tintScratch: RenderTexture | null = null;
   private strokeDirty: { minX: number; minY: number; maxX: number; maxY: number } | null = null;
   private loadedPaletteKey = '';
   /** Bumped per loadPalette() call so a slow load can tell it has been superseded. */
@@ -257,15 +278,17 @@ export class TerrainRenderer {
   }
 
   /** Allocate the splatmaps on first use and bind them to the shader. */
-  private splats(): [RenderTexture, RenderTexture] {
+  private splats(): [RenderTexture, RenderTexture, RenderTexture] {
     if (!this.splatRTs) {
       this.splatRTs = [
+        RenderTexture.create({ width: SPLAT_SIZE, height: SPLAT_SIZE, resolution: 1 }),
         RenderTexture.create({ width: SPLAT_SIZE, height: SPLAT_SIZE, resolution: 1 }),
         RenderTexture.create({ width: SPLAT_SIZE, height: SPLAT_SIZE, resolution: 1 }),
       ];
       if (this.shader) {
         this.shader.resources.uSplat0 = this.splatRTs[0].source;
         this.shader.resources.uSplat1 = this.splatRTs[1].source;
+        this.shader.resources.uSplatTint = this.splatRTs[TINT_MAP_INDEX].source;
       }
     }
     return this.splatRTs;
@@ -301,6 +324,7 @@ export class TerrainRenderer {
         // sampling it yields 0 weight, so the mesh renders nothing.
         uSplat0: Texture.EMPTY.source,
         uSplat1: Texture.EMPTY.source,
+        uSplatTint: Texture.EMPTY.source,
         uTex0: white,
         uTex1: white,
         uTex2: white,
@@ -737,7 +761,8 @@ export class TerrainRenderer {
   // ─── Painting ────────────────────────────────────────────
 
   private ensureStampObjects(): void {
-    if (!this.brushTexture) this.brushTexture = createBrushTexture();
+    if (!this.brushTexture) this.brushTexture = createRadialTexture(WEIGHT_BRUSH_STOPS);
+    if (!this.tintMaskTexture) this.tintMaskTexture = createRadialTexture(TINT_MASK_STOPS);
     if (!this.stampSprite) {
       this.stampSprite = new Sprite(this.brushTexture);
       this.stampSprite.anchor.set(0.5);
@@ -756,6 +781,11 @@ export class TerrainRenderer {
   /** Call before the first stamp of a stroke: snapshots both splat RTs for undo/cancel. */
   beginStroke(): void {
     this.copyToBackup();
+    if (this.tintScratch) {
+      const empty = new Container();
+      this.engine.renderToTexture(empty, this.tintScratch, true);
+      empty.destroy();
+    }
     this.strokeDirty = null;
   }
 
@@ -763,8 +793,23 @@ export class TerrainRenderer {
    * Stamp the brush once. Painting a slot additively raises that channel while a
    * weaker normal-blend black stamp decays the others, so repainting replaces.
    * Erase stamps only the black (all channels decay).
+   *
+   * `tint`/`tintOpacity` drive the brush-tint layer: each stamp blends the
+   * current tint colour into the tint map at `strength * tintOpacity`, so the
+   * colour a stroke was painted with stays with those texels — later strokes
+   * with a different tint only recolour what they cover. A zero opacity leaves
+   * the layer alone (paint without touching existing tint).
    */
-  paintStamp(wx: number, wy: number, radius: number, strength: number, slot: number, erase: boolean): void {
+  paintStamp(
+    wx: number,
+    wy: number,
+    radius: number,
+    strength: number,
+    slot: number,
+    erase: boolean,
+    tint = 0xffffff,
+    tintOpacity = 0,
+  ): void {
     if (Math.abs(wx) > TERRAIN_EXTENT_HALF + radius || Math.abs(wy) > TERRAIN_EXTENT_HALF + radius) return;
     this.ensureStampObjects();
     const sprite = this.stampSprite!;
@@ -776,7 +821,7 @@ export class TerrainRenderer {
     sprite.width = texelRadius * 2;
     sprite.height = texelRadius * 2;
 
-    const rtIndex = (erase ? 0 : Math.floor(slot / 3)) as 0 | 1;
+    const rtIndex = (erase ? 0 : Math.floor(slot / 3)) as SplatMapIndex;
     const splats = this.splats();
 
     if (erase) {
@@ -786,6 +831,12 @@ export class TerrainRenderer {
       sprite.blendMode = 'normal';
       this.engine.renderToTexture(holder, splats[0], false);
       this.engine.renderToTexture(holder, splats[1], false);
+      // The tint layer holds coverage in alpha, so a black normal stamp would
+      // read as "tint everything black". Erase-blend takes coverage down too.
+      sprite.tint = 0xffffff;
+      sprite.blendMode = 'erase';
+      this.engine.renderToTexture(holder, splats[TINT_MAP_INDEX], false);
+      sprite.blendMode = 'normal';
     } else {
       // Soft-erase everything under the brush (both maps), then add the target channel.
       sprite.tint = 0x000000;
@@ -798,6 +849,26 @@ export class TerrainRenderer {
       sprite.alpha = Math.min(1, strength);
       sprite.blendMode = 'add';
       this.engine.renderToTexture(holder, splats[rtIndex], false);
+
+      if (tintOpacity > 0) {
+        // Tint opacity is a per-stroke ceiling, not per-stamp flow — the
+        // overlapping stamps of one drag must not compound 10% into near-100%.
+        // Stamps build a white coverage mask in a scratch RT; the live tint map
+        // is then re-laid below as backup + mask × colour × opacity.
+        if (!this.tintScratch) {
+          this.tintScratch = RenderTexture.create({ width: SPLAT_SIZE, height: SPLAT_SIZE, resolution: 1 });
+        }
+        sprite.texture = this.tintMaskTexture!;
+        sprite.tint = 0xffffff;
+        sprite.alpha = Math.min(1, strength);
+        sprite.blendMode = 'normal';
+        this.engine.renderToTexture(holder, this.tintScratch, false);
+        sprite.texture = this.brushTexture!;
+        // Texture swap resets the sprite's size — restore the stamp footprint
+        // for whoever stamps next.
+        sprite.width = texelRadius * 2;
+        sprite.height = texelRadius * 2;
+      }
     }
 
     // Track dirty texel bounds for the stroke snapshot
@@ -809,8 +880,46 @@ export class TerrainRenderer {
     d.maxY = Math.max(d.maxY, t.y + pad);
     this.strokeDirty = d;
 
+    if (!erase && tintOpacity > 0 && this.strokeBackup) this.compositeTint(tint, tintOpacity);
+
     // Live feedback: refresh the bake cache under the stamp only.
     this.bakeRegion(t.x - pad, t.y - pad, t.x + pad, t.y + pad);
+  }
+
+  /**
+   * Re-lay the live tint map over the stroke's dirty rect as
+   * pre-stroke backup + coverage mask × colour × opacity. Idempotent per
+   * stamp, so no texel a single stroke touches can exceed `tintOpacity`.
+   */
+  private compositeTint(tint: number, tintOpacity: number): void {
+    const dirty = this.strokeDirty;
+    if (!dirty || !this.tintScratch) return;
+    const x = Math.max(0, Math.floor(dirty.minX));
+    const y = Math.max(0, Math.floor(dirty.minY));
+    const w = Math.min(SPLAT_SIZE, Math.ceil(dirty.maxX)) - x;
+    const h = Math.min(SPLAT_SIZE, Math.ceil(dirty.maxY)) - y;
+    if (w <= 0 || h <= 0) return;
+
+    const backupTex = new Texture({
+      source: this.strokeBackup!.source,
+      frame: new Rectangle(x, y + TINT_MAP_INDEX * SPLAT_SIZE, w, h),
+    });
+    const before = new Sprite(backupTex);
+    before.position.set(x, y);
+    before.blendMode = 'none';
+
+    const maskTex = new Texture({ source: this.tintScratch.source, frame: new Rectangle(x, y, w, h) });
+    const strokeTint = new Sprite(maskTex);
+    strokeTint.position.set(x, y);
+    strokeTint.tint = tint;
+    strokeTint.alpha = tintOpacity;
+
+    const holder = new Container();
+    holder.addChild(before, strokeTint);
+    this.engine.renderToTexture(holder, this.splats()[TINT_MAP_INDEX], false);
+    holder.destroy({ children: true });
+    backupTex.destroy();
+    maskTex.destroy();
   }
 
   /**
@@ -836,22 +945,23 @@ export class TerrainRenderer {
 
     // Issue every read before awaiting any of them.
     const reads: Promise<Uint8Array>[] = [];
-    for (const rtIndex of [0, 1] as const) {
+    for (const rtIndex of SPLAT_MAP_INDICES) {
       // "before" pixels come from the backup copied at beginStroke —
-      // the backup is double-height: rt0 at y=0, rt1 at y=SPLAT_SIZE.
+      // the backup is stacked: each map at y = rtIndex * SPLAT_SIZE.
       const backupFrame = new Rectangle(x, y + rtIndex * SPLAT_SIZE, width, height);
       reads.push(this.extractRegion(this.strokeBackup!, backupFrame));
       reads.push(this.extractRegion(this.splats()[rtIndex], frame));
     }
-    const [before0, after0, before1, after1] = await Promise.all(reads);
+    const results = await Promise.all(reads);
     if (this.destroyed) return [];
 
     const snapshots: StrokeRegionSnapshot[] = [];
-    const pairs: [0 | 1, Uint8Array, Uint8Array][] = [
-      [0, before0, after0],
-      [1, before1, after1],
-    ];
-    for (const [rtIndex, before, after] of pairs) {
+    for (const rtIndex of SPLAT_MAP_INDICES) {
+      const before = results[rtIndex * 2];
+      const after = results[rtIndex * 2 + 1];
+      // The tint layer keeps real data in alpha (coverage), which the rgb-only
+      // compare can miss on its own — but its rgb is premultiplied by that same
+      // coverage, so any visible change moves rgb too.
       if (!splatRegionsEqual(before, after)) {
         snapshots.push({ rtIndex, rect, before, after });
         this.worker().patch(rtIndex, rect, after);
@@ -865,21 +975,25 @@ export class TerrainRenderer {
   }
 
   /**
-   * Backup handling: beginStroke() is called before any stamp, so we copy BOTH
-   * splat RTs into a single double-height backup (top = rt0, bottom = rt1).
+   * Backup handling: beginStroke() is called before any stamp, so we copy every
+   * splat RT into a single stacked backup (map n at y = n * SPLAT_SIZE).
    */
   copyToBackup(): void {
     if (!this.strokeBackup) {
-      this.strokeBackup = RenderTexture.create({ width: SPLAT_SIZE, height: SPLAT_SIZE * 2, resolution: 1 });
+      this.strokeBackup = RenderTexture.create({
+        width: SPLAT_SIZE,
+        height: SPLAT_SIZE * SPLAT_MAP_INDICES.length,
+        resolution: 1,
+      });
     }
     const splats = this.splats();
     const holder = new Container();
-    const s0 = new Sprite(splats[0]);
-    s0.blendMode = 'none';
-    const s1 = new Sprite(splats[1]);
-    s1.position.set(0, SPLAT_SIZE);
-    s1.blendMode = 'none';
-    holder.addChild(s0, s1);
+    for (const rtIndex of SPLAT_MAP_INDICES) {
+      const s = new Sprite(splats[rtIndex]);
+      s.position.set(0, rtIndex * SPLAT_SIZE);
+      s.blendMode = 'none';
+      holder.addChild(s);
+    }
     this.engine.renderToTexture(holder, this.strokeBackup, true);
     holder.destroy({ children: true });
   }
@@ -908,7 +1022,7 @@ export class TerrainRenderer {
   }
 
   /** Write raw RGBA pixels back into a splatmap region (undo/redo restore). */
-  restoreRegion(rtIndex: 0 | 1, rect: { x: number; y: number; width: number; height: number }, pixels: Uint8Array): void {
+  restoreRegion(rtIndex: SplatMapIndex, rect: { x: number; y: number; width: number; height: number }, pixels: Uint8Array): void {
     const source = new BufferImageSource({
       resource: pixels,
       width: rect.width,
@@ -930,11 +1044,11 @@ export class TerrainRenderer {
     this.schedulePersist();
   }
 
-  /** Cancel an in-flight stroke: restore both splat RTs from the backup. */
+  /** Cancel an in-flight stroke: restore every splat RT from the backup. */
   cancelStroke(): void {
     if (!this.strokeBackup) return;
     const d = this.strokeDirty;
-    for (const rtIndex of [0, 1] as const) {
+    for (const rtIndex of SPLAT_MAP_INDICES) {
       const frame = new Rectangle(0, rtIndex * SPLAT_SIZE, SPLAT_SIZE, SPLAT_SIZE);
       const tex = new Texture({ source: this.strokeBackup.source, frame });
       const sprite = new Sprite(tex);
@@ -986,7 +1100,7 @@ export class TerrainRenderer {
       const store = useStore.getState();
       store.setTerrainData({ bounds });
       if (pngs.length > 0) {
-        const next = [...store.terrainSplats.pngs] as [Blob | null, Blob | null];
+        const next = [...store.terrainSplats.pngs] as SplatPngs;
         for (const { rtIndex, png } of pngs) {
           next[rtIndex] = new Blob([png], { type: 'image/png' });
         }
@@ -1003,7 +1117,7 @@ export class TerrainRenderer {
   }
 
   /** Blit loaded splat PNGs into the splat RTs and seed the worker (map load / switch). */
-  private async restoreFromStore(pngs: [Blob | null, Blob | null]): Promise<void> {
+  private async restoreFromStore(pngs: SplatPngs): Promise<void> {
     // An incoming bitmap supersedes anything we were about to write back, and
     // any earlier restore still waiting on decode.
     const token = ++this.restoreToken;
@@ -1016,13 +1130,13 @@ export class TerrainRenderer {
     // Skipped entirely for a blank map that never spawned the worker.
     if (this.splatWorker || pngs.some(Boolean)) {
       const w = this.worker();
-      for (const rtIndex of [0, 1] as const) {
+      for (const rtIndex of SPLAT_MAP_INDICES) {
         const blob = pngs[rtIndex];
         void (blob ? blob.arrayBuffer().then((buf) => w.seed(rtIndex, buf)) : w.seed(rtIndex, null));
       }
     }
 
-    for (const rtIndex of [0, 1] as const) {
+    for (const rtIndex of SPLAT_MAP_INDICES) {
       const blob = pngs[rtIndex];
       if (!blob) {
         if (!this.splatRTs) continue; // nothing allocated = already blank
@@ -1141,8 +1255,7 @@ export class TerrainRenderer {
     this.geometry = null;
     this.mesh = null;
     this.shader = null;
-    this.splatRTs?.[0].destroy(true);
-    this.splatRTs?.[1].destroy(true);
+    if (this.splatRTs) for (const rt of this.splatRTs) rt.destroy(true);
     this.splatRTs = null;
     this.bakeRT?.destroy(true);
     this.bakeRT = null;
@@ -1158,10 +1271,14 @@ export class TerrainRenderer {
     this.windowRT = null;
     this.strokeBackup?.destroy(true);
     this.strokeBackup = null;
+    this.tintScratch?.destroy(true);
+    this.tintScratch = null;
     for (const rt of this.tileRTs) rt?.destroy(true);
     this.tileRTs.fill(null);
     this.brushTexture?.destroy(true);
     this.brushTexture = null;
+    this.tintMaskTexture?.destroy(true);
+    this.tintMaskTexture = null;
   }
 }
 
