@@ -174,7 +174,11 @@ export function useCanvasInput(
           return;
         }
         // Clicking away from any handle clears the selection but stays in mode.
+        // Consume the click: falling through to the tools would object-select
+        // the stone under the cursor, and the drag that follows a missed joint
+        // grab would move or rotate it. Escape or double-click leaves the mode.
         useStore.getState().selectNode(null);
+        return;
       }
 
       if (e.button === 0 && useStore.getState().tools.shapeNodeEditId) {
@@ -207,7 +211,10 @@ export function useCanvasInput(
             return;
           }
         }
+        // Same guard as wall-node mode above: a miss must not fall through to
+        // the tools and turn into an object move on whatever sits underneath.
         useStore.getState().selectVertex(null);
+        return;
       }
 
       const snapped = applyMiddleware(rawWorld);
