@@ -8,10 +8,26 @@
 export const TERRAIN_EXTENT_HALF = 64;
 /** Splatmap resolution — 2048 texels over 128 cells = 16 texels/cell. */
 export const SPLAT_SIZE = 2048;
-/** Number of paintable terrain slots (2 splatmaps × RGB channels). */
+/** Number of paintable terrain slots (2 weight splatmaps × RGB channels). */
 export const TERRAIN_SLOTS = 6;
+/**
+ * Splatmap layout: maps 0 and 1 hold per-slot paint weights in their RGB
+ * channels; map 2 is the brush-tint layer — premultiplied colour in RGB,
+ * coverage in alpha. A map saved before the tint layer existed simply has no
+ * third bitmap and renders untinted.
+ */
+export const SPLAT_MAP_INDICES = [0, 1, 2] as const;
+export type SplatMapIndex = (typeof SPLAT_MAP_INDICES)[number];
+/** The tint layer's index in every splat array. */
+export const TINT_MAP_INDEX = 2 as const;
 /** customImages keys the splat bitmaps persist under in .mapbuilder files. */
-export const SPLAT_IMAGE_KEYS = ['__terrain-splat-0__', '__terrain-splat-1__'] as const;
+export const SPLAT_IMAGE_KEYS = [
+  '__terrain-splat-0__',
+  '__terrain-splat-1__',
+  '__terrain-splat-tint__',
+] as const;
+/** The splat bitmaps as they ride the store — one optional PNG blob per map. */
+export type SplatPngs = [Blob | null, Blob | null, Blob | null];
 
 export const WORLD_SIZE = TERRAIN_EXTENT_HALF * 2;
 export const TEXELS_PER_CELL = SPLAT_SIZE / WORLD_SIZE;

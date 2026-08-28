@@ -38,7 +38,7 @@ export const useStore = create<MapBuilderStore>()(
       ...createPrepSlice(set, get, api),
 
       // Bulk / serialization actions
-      loadFromFile: (data: SerializedMapData, splatPngs?: [Blob | null, Blob | null]) => {
+      loadFromFile: (data: SerializedMapData, splatPngs?: [Blob | null, Blob | null, Blob | null]) => {
         if (!data.version) {
           console.warn('loadFromFile: missing version field, aborting load');
           return;
@@ -61,11 +61,11 @@ export const useStore = create<MapBuilderStore>()(
         // A caller that already fetched them as binary (session client) passes
         // Blobs directly and wins over any inline entries.
         const images = { ...(data.customImages ?? {}) };
-        const pngs: [Blob | null, Blob | null] = splatPngs ?? [null, null];
+        const pngs: [Blob | null, Blob | null, Blob | null] = splatPngs ?? [null, null, null];
         for (const [i, key] of SPLAT_IMAGE_KEYS.entries()) {
           const url = images[key];
           if (url) {
-            if (!splatPngs) pngs[i as 0 | 1] = dataUrlToBlob(url);
+            if (!splatPngs) pngs[i as 0 | 1 | 2] = dataUrlToBlob(url);
             delete images[key];
           }
         }
@@ -151,7 +151,7 @@ export const useStore = create<MapBuilderStore>()(
           state.assets = defaults.assets;
           state.selection = defaults.selection;
           state.packs = defaults.packs;
-          state.terrainSplats.pngs = [null, null];
+          state.terrainSplats.pngs = [null, null, null];
           state.terrainSplats.rev++;
         }),
     })),

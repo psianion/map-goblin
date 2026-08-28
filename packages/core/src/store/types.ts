@@ -172,6 +172,13 @@ export interface TerrainBrushSettings {
   radius: number;
   /** Paint opacity/flow per stamp, 0-1. */
   strength: number;
+  /**
+   * Brush tint colour. Like a light's colour, each stroke keeps the tint it
+   * was painted with — changing this only affects strokes from here on.
+   */
+  tintColor: string;
+  /** How strongly the tint colours the stroke, 0-1. 0 paints untinted. */
+  tintOpacity: number;
 }
 
 export interface WaterToolSettings {
@@ -374,8 +381,8 @@ export interface AssetsSlice {
  * at save time — data URLs of the splats never exist on the main thread.
  */
 export interface TerrainSplatsSlice {
-  /** Index = splatmap. null = blank/never painted. */
-  pngs: [Blob | null, Blob | null];
+  /** Index = splatmap (weights 0-1, tint layer 2). null = blank/never painted. */
+  pngs: [Blob | null, Blob | null, Blob | null];
   /** Bumped on every write — change detection for autosave and the renderer. */
   rev: number;
 }
@@ -522,7 +529,7 @@ export interface MapBuilderStore {
   setAmbientLight: (color: string) => void;
   setEnvironmentSettings: (patch: Partial<MapEnvironment>) => void;
   setTerrainData: (patch: Partial<TerrainData>) => void;
-  setTerrainSplats: (pngs: [Blob | null, Blob | null]) => void;
+  setTerrainSplats: (pngs: [Blob | null, Blob | null, Blob | null]) => void;
 
   // grid actions
   setGridVisible: (visible: boolean) => void;
@@ -637,7 +644,7 @@ export interface MapBuilderStore {
   removeTrigger: (triggerId: string) => void;
 
   // bulk / serialization
-  loadFromFile: (data: SerializedMapData, splatPngs?: [Blob | null, Blob | null]) => void;
+  loadFromFile: (data: SerializedMapData, splatPngs?: [Blob | null, Blob | null, Blob | null]) => void;
   getSerializableState: () => SerializedMapData;
   resetToDefault: () => void;
 }

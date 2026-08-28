@@ -84,6 +84,9 @@ export function TexturePicker({ value, onChange }: TexturePickerProps) {
     ? createPortal(
         <div
           ref={popoverRef}
+          // Portaled to body: hosts with outside-click dismissal (ToolPopover)
+          // must not treat clicks in here as outside — same as data-color-picker.
+          data-texture-picker
           style={{
             position: 'fixed',
             left: popoverPos.x,

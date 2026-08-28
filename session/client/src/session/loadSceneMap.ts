@@ -165,7 +165,7 @@ export function mergeMapDelta(
 
 interface SceneDoc {
   data: SerializedMapData;
-  splatPngs: [Blob | null, Blob | null];
+  splatPngs: [Blob | null, Blob | null, Blob | null];
 }
 
 /**
@@ -183,7 +183,7 @@ async function fetchSceneDoc(sceneId: string, token: string): Promise<SceneDoc> 
   if (!res.ok) throw new Error(`Map fetch failed: ${res.status} ${res.statusText}`);
   const data = (await res.json()) as SerializedMapData;
 
-  const splatPngs: [Blob | null, Blob | null] = [null, null];
+  const splatPngs: [Blob | null, Blob | null, Blob | null] = [null, null, null];
   if (data.imageKeys?.length) {
     // Binary, in parallel: splat bitmaps become Blobs for core's terrainSplats;
     // imported pictures register with Pixi so the document resolves them as it
@@ -201,7 +201,7 @@ async function fetchSceneDoc(sceneId: string, token: string): Promise<SceneDoc> 
         }
         const blob = await r.blob();
         const splatIndex = SPLAT_IMAGE_KEYS.indexOf(key as (typeof SPLAT_IMAGE_KEYS)[number]);
-        if (splatIndex >= 0) splatPngs[splatIndex as 0 | 1] = blob;
+        if (splatIndex >= 0) splatPngs[splatIndex as 0 | 1 | 2] = blob;
         else await registerImageBlob(key, blob);
       }),
     );

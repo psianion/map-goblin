@@ -5,6 +5,7 @@ import type { BandDragStatus, MapBuilderStore, ToolSettings, ToolType, LightDefa
 export const TERRAIN_BRUSH_RANGES = {
   radius: { min: 0.5, max: 12, step: 0.5 },
   strength: { min: 0.1, max: 1, step: 0.05 },
+  tintOpacity: { min: 0, max: 1, step: 0.05 },
 } as const;
 
 export const WATER_RANGES = {
@@ -160,6 +161,7 @@ export const createToolsSlice: StateCreator<
       t.slot = Math.min(Math.max(0, Math.round(t.slot)), 5);
       t.radius = clamp(t.radius, TERRAIN_BRUSH_RANGES.radius);
       t.strength = clamp(t.strength, TERRAIN_BRUSH_RANGES.strength);
+      t.tintOpacity = clamp(t.tintOpacity, TERRAIN_BRUSH_RANGES.tintOpacity);
     }),
   updateWaterSettings: (patch) =>
     set((state) => {

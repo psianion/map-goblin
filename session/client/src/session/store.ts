@@ -64,7 +64,7 @@ export interface SessionStore {
    * — the document itself no longer carries them as base64. Handed to core's
    * `loadFromFile` with the document so they land in the same store pass.
    */
-  splatPngs: [Blob | null, Blob | null];
+  splatPngs: [Blob | null, Blob | null, Blob | null];
   /** Most recent server refusal; modules interpret it (see `useDoorFeedback`). */
   lastError: ServerError | null;
   latencyMs: number | null;
@@ -78,7 +78,7 @@ export interface SessionStore {
   disconnect: () => void;
   setMapData: (
     data: unknown,
-    splatPngs?: [Blob | null, Blob | null],
+    splatPngs?: [Blob | null, Blob | null, Blob | null],
     loadedScene?: { sceneId: string; mapId: string },
   ) => void;
   setInviteCode: (code: string | null) => void;
@@ -120,7 +120,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
   presence: [],
   mapData: null,
   loadedScene: null,
-  splatPngs: [null, null],
+  splatPngs: [null, null, null],
   lastError: null,
   latencyMs: null,
   client: null,

@@ -20,6 +20,12 @@ export class TerrainTool implements DrawingTool {
   private brushCircle: Graphics;
   private painting = false;
   private lastStamp: Point | null = null;
+  /**
+   * Settings captured at stroke start, so a whole stroke paints with one
+   * radius/slot/tint even if the popover changes mid-drag — and the stroke
+   * keeps the tint it began with, the way a placed light keeps its colour.
+   */
+  private stroke: { radius: number; strength: number; slot: number; tint: number; tintOpacity: number; erase: boolean } | null = null;
 
   constructor(engine: RenderEngine, previewContainer: Container) {
     this.engine = engine;
@@ -60,19 +66,33 @@ export class TerrainTool implements DrawingTool {
     this.lastStamp = p;
     renderer.beginStroke();
     const s = this.settings();
-    renderer.paintStamp(p.x, p.y, s.radius, s.strength, s.slot, this.isErase());
+    this.stroke = {
+      radius: s.radius,
+      strength: s.strength,
+      slot: s.slot,
+      tint: Number.isNaN(parseInt(s.tintColor.replace('#', ''), 16))
+        ? 0xffffff
+        : parseInt(s.tintColor.replace('#', ''), 16),
+      tintOpacity: s.tintOpacity,
+      erase: this.isErase(),
+    };
+    this.stamp(renderer, p);
+  }
+
+  private stamp(renderer: NonNullable<ReturnType<typeof getTerrainRenderer>>, p: Point): void {
+    const s = this.stroke!;
+    renderer.paintStamp(p.x, p.y, s.radius, s.strength, s.slot, s.erase, s.tint, s.tintOpacity);
   }
 
   onPointerMove(point: Point, event?: PointerEvent): void {
     const p = this.rawWorld(point, event);
     this.drawBrushPreview(p);
 
-    if (!this.painting || !this.lastStamp) return;
+    if (!this.painting || !this.lastStamp || !this.stroke) return;
     const renderer = getTerrainRenderer();
     if (!renderer) return;
 
-    const s = this.settings();
-    const spacing = Math.max(0.05, s.radius * STAMP_SPACING);
+    const spacing = Math.max(0.05, this.stroke.radius * STAMP_SPACING);
     let dx = p.x - this.lastStamp.x;
     let dy = p.y - this.lastStamp.y;
     let dist = Math.hypot(dx, dy);
@@ -83,7 +103,7 @@ export class TerrainTool implements DrawingTool {
         x: this.lastStamp.x + dx * t,
         y: this.lastStamp.y + dy * t,
       };
-      renderer.paintStamp(this.lastStamp.x, this.lastStamp.y, s.radius, s.strength, s.slot, this.isErase());
+      this.stamp(renderer, this.lastStamp);
       dx = p.x - this.lastStamp.x;
       dy = p.y - this.lastStamp.y;
       dist = Math.hypot(dx, dy);
@@ -94,6 +114,7 @@ export class TerrainTool implements DrawingTool {
     if (!this.painting) return;
     this.painting = false;
     this.lastStamp = null;
+    this.stroke = null;
     const renderer = getTerrainRenderer();
     if (!renderer) return;
     // The GPU reads are issued synchronously inside endStroke; only the
@@ -147,6 +168,7 @@ export class TerrainTool implements DrawingTool {
       getTerrainRenderer()?.cancelStroke();
       this.painting = false;
       this.lastStamp = null;
+      this.stroke = null;
     }
     this.brushCircle.clear();
   }

@@ -126,7 +126,11 @@ describe('MapBuilderStore', () => {
   it('loadFromFile prefers caller-provided binary splats over inline entries', () => {
     const data = structuredClone(useStore.getState().getSerializableState());
     data.customImages = { [`__terrain-splat-0__`]: 'data:image/png;base64,aGk=' };
-    const provided: [Blob | null, Blob | null] = [null, new Blob(['x'], { type: 'image/png' })];
+    const provided: [Blob | null, Blob | null, Blob | null] = [
+      null,
+      new Blob(['x'], { type: 'image/png' }),
+      null,
+    ];
     useStore.getState().loadFromFile(data, provided);
     const s = useStore.getState();
     expect(s.terrainSplats.pngs[0]).toBeNull();
