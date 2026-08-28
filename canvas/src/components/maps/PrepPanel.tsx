@@ -126,6 +126,10 @@ function jumpToZone(zone: ZoneChild) {
   const targetX = cx - anchor.x * zoom;
   const targetY = cy - anchor.y * zoom;
 
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    stage.position.set(targetX, targetY);
+    return;
+  }
   const startX = stage.position.x;
   const startY = stage.position.y;
   const startTime = performance.now();
@@ -252,6 +256,7 @@ export function PrepPanel() {
               onClick={() => g.zone && jumpToZone(g.zone)}
               className={cn(
                 'flex w-full gap-2 px-3 py-1.5 text-left',
+                'focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-border-focus',
                 g.zone && 'hover:bg-surface-2',
                 !g.zone && 'cursor-default',
                 g.zone && selectedIds.includes(g.zoneId) && 'bg-accent-active/10',
@@ -275,12 +280,12 @@ export function PrepPanel() {
                 <span className="flex items-center gap-1.5">
                   <span className="min-w-0 truncate text-panel-body text-text-primary">{row.name}</span>
                   {row.pops && (
-                    <span className="shrink-0 rounded border border-accent-active/35 px-1 font-mono text-[9px] uppercase tracking-wider text-accent-active">
+                    <span className="shrink-0 rounded bg-accent-active/10 px-1 font-mono text-panel-label uppercase text-accent-active">
                       Pops
                     </span>
                   )}
                   {row.inert && (
-                    <span className="shrink-0 rounded border border-warning/45 px-1 font-mono text-[9px] uppercase tracking-wider text-warning">
+                    <span className="shrink-0 rounded bg-warning/10 px-1 font-mono text-panel-label uppercase text-warning">
                       Inert
                     </span>
                   )}

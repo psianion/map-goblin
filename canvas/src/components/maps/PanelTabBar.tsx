@@ -26,6 +26,7 @@ export function PanelTabBar({ activeTab, onTabChange }: PanelTabBarProps) {
             'flex-1 flex items-center justify-center gap-1.5 h-full',
             'font-mono text-tab-label uppercase tracking-wider',
             'border-b-2 transition-colors',
+            'focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-border-focus',
             id === activeTab
               ? 'border-accent-active text-text-primary'
               : 'border-transparent text-text-muted hover:text-text-primary',

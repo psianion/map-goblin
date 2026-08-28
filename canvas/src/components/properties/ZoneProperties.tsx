@@ -403,7 +403,7 @@ export function ZoneProperties({ layerId, childId }: ZonePropertiesProps) {
                     {n.title || 'Untitled note'}
                   </button>
                   {n.showOnReveal && (
-                    <span className="shrink-0 rounded border border-accent-active/35 px-1 font-mono text-panel-label uppercase text-accent-active">
+                    <span className="shrink-0 rounded bg-accent-active/10 px-1 font-mono text-panel-label uppercase text-accent-active">
                       Pops
                     </span>
                   )}
@@ -1050,9 +1050,9 @@ function NoteEditor({
                   type="button"
                   aria-label="Remove image"
                   onClick={() => removeImage(key)}
-                  className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-surface-3 text-text-muted hover:text-danger"
+                  className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-surface-3 text-text-muted hover:text-danger focus-visible:outline focus-visible:outline-2 focus-visible:outline-border-focus"
                 >
-                  <X size={10} />
+                  <X size={11} />
                 </button>
               </div>
             ))}
