@@ -26,7 +26,7 @@ describe('hashMapForPublish', () => {
     const withoutPrep = { ...BASE_DATA };
     const withPrep: SerializedMapData = {
       ...BASE_DATA,
-      prep: { version: 1, triggers: [] },
+      prep: { version: 2, triggers: [], notes: [] },
     };
     const hashA = await hashMapForPublish(withoutPrep);
     const hashB = await hashMapForPublish(withPrep);
@@ -58,7 +58,7 @@ describe('hashMapForPublish', () => {
     const splat = new Blob([new Uint8Array([5, 6, 7])], { type: 'image/png' });
     const hashA = await hashMapForPublish(BASE_DATA, [splat, null]);
     const hashB = await hashMapForPublish(
-      { ...BASE_DATA, prep: { version: 1, triggers: [] } },
+      { ...BASE_DATA, prep: { version: 2, triggers: [], notes: [] } },
       [splat, null],
     );
     expect(hashA).toBe(hashB);
@@ -73,9 +73,10 @@ describe('hashPrep', () => {
   });
 
   it('changes when a trigger is added', async () => {
-    const before = await hashPrep({ version: 1, triggers: [] });
+    const before = await hashPrep({ version: 2, triggers: [], notes: [] });
     const after = await hashPrep({
-      version: 1,
+      version: 2,
+      notes: [],
       triggers: [
         {
           id: 't1',

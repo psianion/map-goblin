@@ -8,6 +8,7 @@ import { getEngineSingleton } from '@/engine/engineSingleton';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { PanelTabBar } from './PanelTabBar';
 import { MapList } from './MapList';
+import { PrepPanel } from './PrepPanel';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 
 export function MapsSidePanel() {
@@ -19,7 +20,7 @@ export function MapsSidePanel() {
   const renameMap = useStore((s) => s.renameMap);
   const duplicateMap = useStore((s) => s.duplicateMap);
 
-  const [activeTab, setActiveTab] = useState<'maps' | 'scenes'>('maps');
+  const [activeTab, setActiveTab] = useState<'maps' | 'prep'>('maps');
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const handleNewMap = useCallback(async () => {
@@ -127,10 +128,10 @@ export function MapsSidePanel() {
       data-testid="maps-panel"
       className="gg-grain flex flex-col h-full w-[260px] bg-surface-1 border-r border-border-structure shrink-0 overflow-hidden"
     >
-      {/* Header with close button */}
+      {/* Header with close button — the title follows the active tab */}
       <div className="flex items-center justify-between px-3 h-9 border-b border-border-structure bg-surface-0 shrink-0">
         <span className="font-display text-tab-label uppercase tracking-wider text-text-primary">
-          Maps
+          {activeTab === 'prep' ? 'Prep' : 'Maps'}
         </span>
         <button
           type="button"
@@ -145,28 +146,34 @@ export function MapsSidePanel() {
       {/* Tab bar */}
       <PanelTabBar activeTab={activeTab} onTabChange={setActiveTab} />
 
-      {/* New Map button */}
-      <div className="px-2 py-2 shrink-0">
-        <button
-          type="button"
-          data-testid="new-map-button"
-          onClick={handleNewMap}
-          className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-accent-active/10 border border-accent-active/25 text-accent-active text-sm font-medium hover:bg-accent-active/15 transition-colors"
-        >
-          <Plus size={14} />
-          New Map
-        </button>
-      </div>
+      {activeTab === 'prep' ? (
+        <PrepPanel />
+      ) : (
+        <>
+          {/* New Map button */}
+          <div className="px-2 py-2 shrink-0">
+            <button
+              type="button"
+              data-testid="new-map-button"
+              onClick={handleNewMap}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-accent-active/10 border border-accent-active/25 text-accent-active text-sm font-medium hover:bg-accent-active/15 transition-colors"
+            >
+              <Plus size={14} />
+              New Map
+            </button>
+          </div>
 
-      {/* Map list */}
-      <MapList
-        maps={sortedMaps}
-        activeMapId={activeMapId}
-        onSwitch={handleSwitch}
-        onRename={handleRename}
-        onDuplicate={handleDuplicate}
-        onDelete={handleDelete}
-      />
+          {/* Map list */}
+          <MapList
+            maps={sortedMaps}
+            activeMapId={activeMapId}
+            onSwitch={handleSwitch}
+            onRename={handleRename}
+            onDuplicate={handleDuplicate}
+            onDelete={handleDelete}
+          />
+        </>
+      )}
 
       <ConfirmDialog
         open={pendingDeleteId !== null}

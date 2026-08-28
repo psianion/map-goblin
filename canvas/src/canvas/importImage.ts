@@ -43,6 +43,30 @@ async function resizeImageToMax(base64: string, maxPx: number): Promise<string> 
   return fileToBase64(new File([outputBlob], 'resized.png', { type: 'image/png' }));
 }
 
+/** Room-note handouts stay small — they ride the map file as base64 and only ever render
+ *  inside a panel, never on the canvas. */
+const NOTE_IMAGE_MAX_PX = 1024;
+
+/**
+ * A room note's image: validate, downscale to panel size, store in `customImages`, hand
+ * back the key the note references. No PIXI registration and no AssetChild — a note image
+ * is never drawn on the map.
+ */
+export async function importNoteImage(file: File): Promise<string> {
+  if (!VALID_TYPES.includes(file.type)) {
+    throw new Error(`Unsupported image format: ${file.type}. Use PNG, JPEG, SVG, or WebP.`);
+  }
+  let base64 = await fileToBase64(file);
+  const bitmap = await createImageBitmap(file);
+  const oversized = bitmap.width > NOTE_IMAGE_MAX_PX || bitmap.height > NOTE_IMAGE_MAX_PX;
+  bitmap.close();
+  if (oversized) base64 = await resizeImageToMax(base64, NOTE_IMAGE_MAX_PX);
+
+  const key = crypto.randomUUID();
+  useStore.getState().addCustomImage(key, base64);
+  return key;
+}
+
 /**
  * Core import pipeline. Validates format, checks dimensions, resizes if >4096px,
  * registers the image in the store and PIXI.Assets, returns an AssetChild.

@@ -9,7 +9,10 @@ import { ToggleSwitch } from '@/components/ui/toggle-switch'
 import { UpdateChildCommand } from '@/store/commands'
 import { undoManager } from '@/store/undoManager'
 import { cn } from '@/lib/utils'
-import { X } from 'lucide-react'
+import { notify } from '@/lib/toast'
+import { X, ImagePlus } from 'lucide-react'
+import { importNoteImage } from '@/canvas/importImage'
+import { getEntriesByType } from '@dnd/core/src/assets/packCatalog'
 import { TIMES, WEATHERS, vocabLabel } from '@/store/types'
 import type {
   DungeonLayer,
@@ -20,14 +23,17 @@ import type {
   TriggerCondition,
   TriggerAction,
   Ability,
+  MonsterEntry,
+  RoomNote,
   TimeOfDay,
   Weather,
 } from '@/store/types'
 
 // Ray-casting point-in-polygon — a local copy rather than importing
 // engine/hitTest.ts, which drags core's own store singleton into the
-// properties bundle for one boolean check.
-function pointInPolygon(point: [number, number], polygon: [number, number][]): boolean {
+// properties bundle for one boolean check. Exported for PrepPanel's
+// inert-badge mirror of the same rule.
+export function pointInPolygon(point: [number, number], polygon: [number, number][]): boolean {
   let inside = false
   const [px, py] = point
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
@@ -82,6 +88,16 @@ const ACTION_KIND_OPTIONS: { value: TriggerAction['kind']; label: string }[] = [
   { value: 'ability-check', label: 'Ability check' },
   { value: 'prompt', label: 'Prompt' },
   { value: 'environment', label: 'Environment' },
+  { value: 'encounter', label: 'Encounter' },
+]
+
+const SIZE_OPTIONS: { value: NonNullable<MonsterEntry['size']>; label: string }[] = [
+  { value: 'tiny', label: 'Tiny' },
+  { value: 'small', label: 'Small' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'large', label: 'Large' },
+  { value: 'huge', label: 'Huge' },
+  { value: 'gargantuan', label: 'Gargantuan' },
 ]
 
 // Flat label lookups for the raw kebab-case `kind` enums, so collapsed rows
@@ -116,6 +132,14 @@ function defaultAction(kind: TriggerAction['kind'], firstLightId: string): Trigg
       return { kind, prompt: 'initiative' }
     case 'environment':
       return { kind }
+    case 'encounter':
+      return {
+        kind,
+        name: 'Encounter',
+        monsters: [{ id: crypto.randomUUID(), name: 'Goblin', count: 1 }],
+        spawn: true,
+        seedInitiative: true,
+      }
   }
 }
 
@@ -153,8 +177,13 @@ export function ZoneProperties({ layerId, childId }: ZonePropertiesProps) {
   const zoneTriggers = useStore(
     useShallow((state) => (state.prep?.triggers ?? []).filter((t) => t.when.zoneId === childId)),
   )
+  const zoneNotes = useStore(
+    useShallow((state) => (state.prep?.notes ?? []).filter((n) => n.zoneId === childId)),
+  )
   const upsertTrigger = useStore((s) => s.upsertTrigger)
   const removeTrigger = useStore((s) => s.removeTrigger)
+  const upsertNote = useStore((s) => s.upsertNote)
+  const removeNote = useStore((s) => s.removeNote)
 
   // `null` = not being edited, so the field follows the zone. Same idiom as
   // DoorProperties' name field.
@@ -208,6 +237,32 @@ export function ZoneProperties({ layerId, childId }: ZonePropertiesProps) {
     }
     upsertTrigger(trigger)
     setExpandedId(trigger.id)
+  }
+
+  const addNote = () => {
+    const note: RoomNote = {
+      id: crypto.randomUUID(),
+      zoneId: zone.id,
+      title: `Note ${zoneNotes.length + 1}`,
+      body: '',
+      imageKeys: [],
+      showOnReveal: false,
+    }
+    upsertNote(note)
+    setExpandedId(note.id)
+  }
+
+  // A deleted note's images leave the map file with it — a note's keys are minted for that
+  // note alone (never shared with placed assets), so only sibling notes can still hold one.
+  const deleteNote = (note: RoomNote) => {
+    const state = useStore.getState()
+    const otherKeys = new Set(
+      (state.prep?.notes ?? []).filter((n) => n.id !== note.id).flatMap((n) => n.imageKeys),
+    )
+    for (const key of note.imageKeys) {
+      if (!otherKeys.has(key)) state.removeCustomImage(key)
+    }
+    removeNote(note.id)
   }
 
   return (
@@ -314,6 +369,70 @@ export function ZoneProperties({ layerId, childId }: ZonePropertiesProps) {
                 </div>
                 {expandedId === t.id && (
                   <TriggerEditor trigger={t} shapeKind={shape.kind} layer={layer} onChange={upsertTrigger} />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1.5 pt-1">
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-panel-label uppercase text-text-muted">Notes</span>
+          <button
+            type="button"
+            onClick={addNote}
+            className="rounded border border-border-default px-1.5 py-0.5 text-panel-small text-text-secondary hover:bg-surface-3"
+          >
+            Add note
+          </button>
+        </div>
+
+        {zoneNotes.length === 0 ? (
+          <p className="text-panel-body text-text-muted">No notes on this zone.</p>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {zoneNotes.map((n) => (
+              <div key={n.id} className="flex flex-col rounded border border-border-default">
+                <div className="flex items-center gap-2 px-2 py-1">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedId(expandedId === n.id ? null : n.id)}
+                    className="min-w-0 flex-1 truncate text-left text-panel-body text-text-primary"
+                  >
+                    {n.title || 'Untitled note'}
+                  </button>
+                  {n.showOnReveal && (
+                    <span className="shrink-0 rounded border border-accent-active/35 px-1 font-mono text-panel-label uppercase text-accent-active">
+                      Pops
+                    </span>
+                  )}
+                  {pendingDeleteId === n.id ? (
+                    <button
+                      type="button"
+                      aria-label={`Confirm delete ${n.title || 'note'}`}
+                      onClick={() => {
+                        setPendingDeleteId(null)
+                        deleteNote(n)
+                      }}
+                      onBlur={() => setPendingDeleteId(null)}
+                      className="shrink-0 rounded bg-danger/10 px-1 font-mono text-panel-small text-danger"
+                    >
+                      Delete?
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label={`Delete ${n.title || 'note'}`}
+                      onClick={() => armDelete(n.id)}
+                      className="shrink-0 text-text-muted hover:text-danger"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+                {expandedId === n.id && (
+                  <NoteEditor note={n} isOrphan={isOrphan} onChange={upsertNote} />
                 )}
               </div>
             ))}
@@ -498,6 +617,8 @@ function ActionEditor({ action, lights, onChange, onRemove }: ActionEditorProps)
 
       {action.kind === 'trap' && <TrapActionFields action={action} onChange={onChange} />}
 
+      {action.kind === 'encounter' && <EncounterActionFields action={action} onChange={onChange} />}
+
       {action.kind === 'ability-check' && (
         <>
           <PropertyField label="Ability">
@@ -659,5 +780,304 @@ function TrapActionFields({
         </div>
       </PropertyField>
     </>
+  )
+}
+
+function EncounterActionFields({
+  action,
+  onChange,
+}: {
+  action: Extract<TriggerAction, { kind: 'encounter' }>
+  onChange: (action: TriggerAction) => void
+}) {
+  // Installed-pack token art. Empty until a monster pack is installed — every monster
+  // without a pick spawns as a placeholder disc, so nothing here blocks.
+  const tokenArt = getEntriesByType('token')
+
+  const updateMonster = (i: number, m: MonsterEntry) => {
+    const monsters = action.monsters.slice()
+    monsters[i] = m
+    onChange({ ...action, monsters })
+  }
+  const removeMonster = (i: number) => {
+    onChange({ ...action, monsters: action.monsters.filter((_, idx) => idx !== i) })
+  }
+  const addMonster = () => {
+    onChange({
+      ...action,
+      monsters: [...action.monsters, { id: crypto.randomUUID(), name: 'Monster', count: 1 }],
+    })
+  }
+
+  return (
+    <>
+      <PropertyField label="Name">
+        <input
+          type="text"
+          value={action.name}
+          aria-label="Encounter name"
+          onChange={(e) => onChange({ ...action, name: e.target.value })}
+          className={fieldInputClass}
+        />
+      </PropertyField>
+
+      <div className="flex flex-col gap-1.5">
+        <span className="font-mono text-panel-label uppercase text-text-muted">Monsters</span>
+        {action.monsters.length === 0 && (
+          <span className="shrink-0 self-start rounded bg-warning/10 px-1 font-mono text-panel-label uppercase text-warning">
+            No monsters — trigger is inert
+          </span>
+        )}
+        {action.monsters.map((m, i) => (
+          <MonsterRow
+            key={m.id}
+            monster={m}
+            tokenArt={tokenArt}
+            onChange={(next) => updateMonster(i, next)}
+            onRemove={() => removeMonster(i)}
+          />
+        ))}
+        <button
+          type="button"
+          onClick={addMonster}
+          className="self-start rounded border border-border-default px-1.5 py-0.5 text-panel-small text-text-secondary hover:bg-surface-3"
+        >
+          Add monster
+        </button>
+      </div>
+
+      <label className="flex items-center gap-1.5 text-panel-small text-text-muted">
+        <ToggleSwitch
+          checked={action.spawn}
+          onChange={(v) => onChange({ ...action, spawn: v })}
+          label="Spawn tokens"
+        />
+        Spawn tokens at the zone
+      </label>
+      <label className="flex items-center gap-1.5 text-panel-small text-text-muted">
+        <ToggleSwitch
+          checked={action.seedInitiative}
+          onChange={(v) => onChange({ ...action, seedInitiative: v })}
+          label="Seed initiative"
+        />
+        Seed the initiative tracker
+      </label>
+    </>
+  )
+}
+
+function MonsterRow({
+  monster,
+  tokenArt,
+  onChange,
+  onRemove,
+}: {
+  monster: MonsterEntry
+  tokenArt: { id: string; packId: string; label: string }[]
+  onChange: (m: MonsterEntry) => void
+  onRemove: () => void
+}) {
+  // Same commit-on-blur draft idiom as TrapActionFields' damage formula.
+  const [hpDraft, setHpDraft] = useState(monster.hp ?? '')
+  const [seenHp, setSeenHp] = useState(monster.hp)
+  if (monster.hp !== seenHp) {
+    setSeenHp(monster.hp)
+    setHpDraft(monster.hp ?? '')
+  }
+  const hpValid = hpDraft.trim() === '' || isValidFormula(hpDraft.trim())
+
+  const artValue = monster.tokenRef ? `${monster.tokenRef.packId}:${monster.tokenRef.assetId}` : ''
+  const artOptions = [
+    { value: '', label: 'Placeholder disc' },
+    ...tokenArt.map((e) => ({ value: e.id, label: e.label })),
+  ]
+
+  return (
+    <div className="flex flex-col gap-1.5 rounded border border-border-subtle px-2 py-1.5">
+      <div className="flex items-center gap-1.5">
+        <input
+          type="text"
+          value={monster.name}
+          aria-label="Monster name"
+          onChange={(e) => onChange({ ...monster, name: e.target.value })}
+          className={cn(fieldInputClass, 'flex-1')}
+        />
+        <div className="w-14 shrink-0">
+          <NumberInput
+            value={monster.count}
+            min={1}
+            max={20}
+            aria-label="Count"
+            onChange={(v) => onChange({ ...monster, count: v })}
+          />
+        </div>
+        <button
+          type="button"
+          aria-label={`Remove ${monster.name}`}
+          onClick={onRemove}
+          className="shrink-0 text-text-muted hover:text-danger"
+        >
+          <X size={12} />
+        </button>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <SelectInput
+          value={monster.size ?? 'medium'}
+          options={SIZE_OPTIONS}
+          aria-label="Size"
+          onChange={(v) => onChange({ ...monster, size: v as MonsterEntry['size'] })}
+        />
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <input
+            type="text"
+            value={hpDraft}
+            placeholder="HP, e.g. 2d6"
+            aria-label="HP formula"
+            onChange={(e) => setHpDraft(e.target.value)}
+            onBlur={() => {
+              if (!hpValid) return
+              const trimmed = hpDraft.trim()
+              onChange({ ...monster, hp: trimmed === '' ? undefined : trimmed })
+            }}
+            className={cn(fieldInputClass, hpValid ? '' : 'border-danger')}
+          />
+          {!hpValid && (
+            <span className="text-panel-small text-danger">Format: NdM or NdM±K, e.g. 2d6+1</span>
+          )}
+        </div>
+      </div>
+      {/* One select serving both halves of tokenRef — '' is the art-less placeholder. */}
+      <SelectInput
+        value={artValue}
+        options={artOptions}
+        aria-label="Token art"
+        onChange={(v) => {
+          if (!v) return onChange({ ...monster, tokenRef: undefined })
+          const [packId, ...rest] = v.split(':')
+          onChange({ ...monster, tokenRef: { packId, assetId: rest.join(':') } })
+        }}
+      />
+    </div>
+  )
+}
+
+function NoteEditor({
+  note,
+  isOrphan,
+  onChange,
+}: {
+  note: RoomNote
+  isOrphan: boolean
+  onChange: (note: RoomNote) => void
+}) {
+  const customImages = useStore((s) => s.assets.customImages)
+  const removeCustomImage = useStore((s) => s.removeCustomImage)
+  const fileInput = useRef<HTMLInputElement>(null)
+
+  const addImage = async (file: File) => {
+    try {
+      const key = await importNoteImage(file)
+      onChange({ ...note, imageKeys: [...note.imageKeys, key] })
+    } catch (err) {
+      notify.error(err instanceof Error ? err.message : 'Image import failed')
+    }
+  }
+
+  const removeImage = (key: string) => {
+    onChange({ ...note, imageKeys: note.imageKeys.filter((k) => k !== key) })
+    // Note-image keys are minted per note and never shared with placed assets; sibling
+    // notes are the only other possible holders.
+    const held = (useStore.getState().prep?.notes ?? []).some(
+      (n) => n.id !== note.id && n.imageKeys.includes(key),
+    )
+    if (!held) removeCustomImage(key)
+  }
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-border-default px-2 py-2">
+      <PropertyField label="Title">
+        <input
+          type="text"
+          value={note.title}
+          aria-label="Note title"
+          onChange={(e) => onChange({ ...note, title: e.target.value })}
+          className={fieldInputClass}
+        />
+      </PropertyField>
+
+      <PropertyField label="Text">
+        <textarea
+          value={note.body}
+          rows={4}
+          aria-label="Note text"
+          onChange={(e) => onChange({ ...note, body: e.target.value })}
+          className={cn(fieldInputClass, 'resize-y')}
+        />
+      </PropertyField>
+
+      <label className="flex items-center gap-1.5 text-panel-small text-text-muted">
+        <ToggleSwitch
+          checked={note.showOnReveal}
+          onChange={(v) => onChange({ ...note, showOnReveal: v })}
+          label="Show when room is revealed"
+        />
+        Show when room is revealed
+      </label>
+      {note.showOnReveal && isOrphan && (
+        <span className="shrink-0 self-start rounded bg-warning/10 px-1 font-mono text-panel-label uppercase text-warning">
+          Pin is not inside a room — never pops
+        </span>
+      )}
+
+      <div className="flex flex-col gap-1.5">
+        <span className="font-mono text-panel-label uppercase text-text-muted">Images</span>
+        {note.imageKeys.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {note.imageKeys.map((key) => (
+              <div key={key} className="relative">
+                {customImages[key] ? (
+                  <img
+                    src={customImages[key]}
+                    alt=""
+                    className="h-14 w-14 rounded border border-border-default object-cover"
+                  />
+                ) : (
+                  <div className="flex h-14 w-14 items-center justify-center rounded border border-border-default text-panel-small text-text-muted">
+                    missing
+                  </div>
+                )}
+                <button
+                  type="button"
+                  aria-label="Remove image"
+                  onClick={() => removeImage(key)}
+                  className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-surface-3 text-text-muted hover:text-danger"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => fileInput.current?.click()}
+          className="flex items-center gap-1.5 self-start rounded border border-border-default px-1.5 py-0.5 text-panel-small text-text-secondary hover:bg-surface-3"
+        >
+          <ImagePlus size={12} />
+          Add image
+        </button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/svg+xml"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (file) void addImage(file)
+            e.target.value = ''
+          }}
+        />
+      </div>
+    </div>
   )
 }
