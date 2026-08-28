@@ -12,6 +12,8 @@ import { Container, Graphics, Sprite, Text, Texture, type Ticker } from 'pixi.js
 import { SIZE_CELLS, type Disposition, type Token, type TokensState } from '@dnd/mechanics/tokens';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
+import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
+import { resolveTexture } from '@dnd/core/src/assets/textureLoader';
 import { endpoints } from '../../endpoints';
 import { addScreenOverlay, mountWhenEngineReady, sightMaskOf } from '../../renderer/overlayLayer';
 import { useSessionStore } from '../../session/store';
@@ -109,7 +111,17 @@ interface View {
 }
 
 const signature = (t: Token, isDm: boolean): string =>
-  [t.name, t.size, t.disposition, t.imageAssetId, t.hidden, t.ownerId, ownerName(t.ownerId), isDm].join('|');
+  [
+    t.name,
+    t.size,
+    t.disposition,
+    t.imageAssetId,
+    t.packAsset ? `${t.packAsset.packId}:${t.packAsset.assetId}` : '',
+    t.hidden,
+    t.ownerId,
+    ownerName(t.ownerId),
+    isDm,
+  ].join('|');
 
 /**
  * How a token draws for the viewer. The alpha is here so it can be pinned: PRODUCT
@@ -131,7 +143,20 @@ function buildView(token: Token, isDm: boolean): View {
   const disc = new Graphics().circle(0, 0, r).fill({ color: 0x111827 });
   container.addChild(disc);
 
-  if (token.imageAssetId) {
+  // Pack-sourced art (prep v2 encounters) wins over an uploaded portrait; a pack the table
+  // hasn't installed (catalog miss) falls through to the portrait/initials paths rather
+  // than rendering the magenta missing-texture fallback on a creature.
+  const packAssetId = token.packAsset ? `${token.packAsset.packId}:${token.packAsset.assetId}` : null;
+  if (packAssetId && getCatalogEntry(packAssetId)) {
+    const mask = new Graphics().circle(0, 0, r).fill({ color: 0xffffff });
+    container.addChild(mask);
+    const texture = resolveTexture(packAssetId);
+    const sprite = new Sprite(texture);
+    sprite.anchor.set(0.5);
+    sprite.scale.set((r * 2) / Math.max(1, Math.min(texture.width, texture.height)));
+    sprite.mask = mask;
+    container.addChildAt(sprite, 1);
+  } else if (token.imageAssetId) {
     const mask = new Graphics().circle(0, 0, r).fill({ color: 0xffffff });
     container.addChild(mask);
     void loadTexture(token.imageAssetId).then((texture) => {

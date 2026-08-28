@@ -218,7 +218,12 @@ export function deleteScene(sceneId: string, token: string): Promise<{ sceneId: 
 export function getScenePrep(
   sceneId: string,
   token: string,
-): Promise<{ prep: ScenePrep | null; resolved: { id: string; inert?: string }[] }> {
+): Promise<{
+  prep: ScenePrep | null;
+  resolved: { id: string; inert?: string }[];
+  /** v2 — one verdict per authored note: inert = it can never pop (browse still works). */
+  resolvedNotes: { id: string; inert?: string }[];
+}> {
   return request(`/api/scenes/${encodeURIComponent(sceneId)}/prep`, { method: 'GET' }, token);
 }
 

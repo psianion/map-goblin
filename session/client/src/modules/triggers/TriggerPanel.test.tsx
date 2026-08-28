@@ -26,7 +26,7 @@ const trigger = (over: Partial<TriggerDef> = {}): TriggerDef => ({
   ...over,
 });
 
-const prepOf = (triggers: TriggerDef[]): ScenePrep => ({ version: 1, triggers });
+const prepOf = (triggers: TriggerDef[], notes: ScenePrep['notes'] = []): ScenePrep => ({ version: 2, triggers, notes });
 
 const sceneOf = (over: Partial<SceneTriggers> = {}): SceneTriggers => ({
   fired: {},
@@ -103,6 +103,7 @@ describe('the trigger list', () => {
         }),
       ]),
       resolved: [{ id: 't1' }, { id: 't2' }],
+      resolvedNotes: [],
     });
     useStore.setState({
       layers: [
@@ -128,7 +129,7 @@ describe('the trigger list', () => {
   });
 
   it('drops the zone half of the condition line when the anchor zone is gone', async () => {
-    fetchPrep.mockResolvedValue({ prep: prepOf([trigger()]), resolved: [{ id: 't1' }] });
+    fetchPrep.mockResolvedValue({ prep: prepOf([trigger()]), resolved: [{ id: 't1' }], resolvedNotes: [] });
     useSessionStore.setState({ session: session({}), you: dm });
     render(<TriggerPanel />);
     await settled();
@@ -139,6 +140,7 @@ describe('the trigger list', () => {
     fetchPrep.mockResolvedValue({
       prep: prepOf([trigger({ enabled: false })]),
       resolved: [{ id: 't1' }],
+      resolvedNotes: [],
     });
     useSessionStore.setState({ session: session({}), you: dm });
     render(<TriggerPanel />);
@@ -151,7 +153,7 @@ describe('the trigger list', () => {
   });
 
   it('lets the DM re-enable a trigger switched off at the table, without touching prep', async () => {
-    fetchPrep.mockResolvedValue({ prep: prepOf([trigger()]), resolved: [{ id: 't1' }] });
+    fetchPrep.mockResolvedValue({ prep: prepOf([trigger()]), resolved: [{ id: 't1' }], resolvedNotes: [] });
     useSessionStore.setState({
       session: session({
         triggers: { byScene: { 'scene-1': sceneOf({ disabled: { t1: true } }) } } as TriggersState,
@@ -175,7 +177,7 @@ describe('the trigger list', () => {
   });
 
   it('reads "Fired" and disables Fire once the scene has fired it this session', async () => {
-    fetchPrep.mockResolvedValue({ prep: prepOf([trigger()]), resolved: [{ id: 't1' }] });
+    fetchPrep.mockResolvedValue({ prep: prepOf([trigger()]), resolved: [{ id: 't1' }], resolvedNotes: [] });
     useSessionStore.setState({
       session: session({
         triggers: { byScene: { 'scene-1': sceneOf({ fired: { t1: 123 } }) } } as TriggersState,
@@ -194,6 +196,7 @@ describe('the trigger list', () => {
     fetchPrep.mockResolvedValue({
       prep: prepOf([trigger()]),
       resolved: [{ id: 't1', inert: 'zone was deleted' }],
+      resolvedNotes: [],
     });
     useSessionStore.setState({ session: session({}), you: dm });
     render(<TriggerPanel />);
@@ -204,11 +207,11 @@ describe('the trigger list', () => {
   });
 
   it('shows the empty state pointing at the Editor when the scene has no triggers', async () => {
-    fetchPrep.mockResolvedValue({ prep: prepOf([]), resolved: [] });
+    fetchPrep.mockResolvedValue({ prep: prepOf([]), resolved: [], resolvedNotes: [] });
     useSessionStore.setState({ session: session({}), you: dm });
     render(<TriggerPanel />);
-    await screen.findByText('No triggers authored for this scene.');
-    expect(screen.getByText('Author them in the Editor.')).not.toBeNull();
+    await screen.findByText('No prep authored for this scene.');
+    expect(screen.getByText('Author triggers and notes in the Editor.')).not.toBeNull();
   });
 });
 
@@ -219,7 +222,7 @@ describe('the no-scroll ceiling', () => {
     );
 
   it('2 triggers: full 40px rows, the condition line visible', async () => {
-    fetchPrep.mockResolvedValue({ prep: prepOf(triggersOf(2)), resolved: [] });
+    fetchPrep.mockResolvedValue({ prep: prepOf(triggersOf(2)), resolved: [], resolvedNotes: [] });
     useSessionStore.setState({ session: session({}), you: dm });
     render(<TriggerPanel />);
     await settled();
@@ -230,7 +233,7 @@ describe('the no-scroll ceiling', () => {
   });
 
   it('10 triggers: still fits, still 40px rows', async () => {
-    fetchPrep.mockResolvedValue({ prep: prepOf(triggersOf(10)), resolved: [] });
+    fetchPrep.mockResolvedValue({ prep: prepOf(triggersOf(10)), resolved: [], resolvedNotes: [] });
     useSessionStore.setState({ session: session({}), you: dm });
     render(<TriggerPanel />);
     await settled();
@@ -239,7 +242,7 @@ describe('the no-scroll ceiling', () => {
   });
 
   it('14 triggers: compacts to 32px rows, condition moves into the row title', async () => {
-    fetchPrep.mockResolvedValue({ prep: prepOf(triggersOf(14)), resolved: [] });
+    fetchPrep.mockResolvedValue({ prep: prepOf(triggersOf(14)), resolved: [], resolvedNotes: [] });
     useSessionStore.setState({ session: session({}), you: dm });
     render(<TriggerPanel />);
     await settled();
@@ -263,6 +266,7 @@ describe('the header chrome', () => {
     fetchPrep.mockResolvedValue({
       prep: prepOf([trigger(), trigger({ id: 't2', name: 'Vault whisper' })]),
       resolved: [],
+      resolvedNotes: [],
     });
     useSessionStore.setState({ session: session({}), you: dm });
     render(<TriggerPanel />);
@@ -270,9 +274,69 @@ describe('the header chrome', () => {
     expect(def.subtitle?.()).toBe('2 on this scene');
 
     cleanup();
-    fetchPrep.mockResolvedValue({ prep: prepOf([]), resolved: [] });
+    fetchPrep.mockResolvedValue({ prep: prepOf([]), resolved: [], resolvedNotes: [] });
     render(<TriggerPanel />);
-    await screen.findByText('No triggers authored for this scene.');
+    await screen.findByText('No prep authored for this scene.');
     expect(def.subtitle?.()).toBeNull();
+  });
+});
+
+describe('the notes section (prep v2)', () => {
+  const note = (over: Partial<ScenePrep['notes'][number]> = {}): ScenePrep['notes'][number] => ({
+    id: 'n1',
+    zoneId: 'z1',
+    title: 'Kitchens',
+    body: 'The cook is a spy.',
+    imageKeys: [],
+    showOnReveal: false,
+    ...over,
+  });
+
+  it('lists notes under their own header and expands one to its body', async () => {
+    fetchPrep.mockResolvedValue({
+      prep: prepOf([trigger()], [note()]),
+      resolved: [],
+      resolvedNotes: [],
+    });
+    useStore.setState({ layers: [zoneLayer([{ id: 'z1', name: 'Barrack Rows' }])] });
+    useSessionStore.setState({ session: session({}), you: dm });
+    render(<TriggerPanel />);
+    await settled();
+
+    expect(screen.getByText('Notes')).not.toBeNull();
+    const row = screen.getByRole('button', { name: /Kitchens/ });
+    expect(screen.queryByText('The cook is a spy.')).toBeNull();
+    fireEvent.click(row);
+    expect(screen.getByText('The cook is a spy.')).not.toBeNull();
+    // The anchor zone's name rides the row, same lookup the condition line uses.
+    expect(screen.getByText('Barrack Rows')).not.toBeNull();
+  });
+
+  it('badges an on-reveal note, swaps the badge for Inert when the server says it cannot pop', async () => {
+    fetchPrep.mockResolvedValue({
+      prep: prepOf([], [note({ showOnReveal: true }), note({ id: 'n2', title: 'Vault', showOnReveal: true })]),
+      resolved: [],
+      resolvedNotes: [{ id: 'n1' }, { id: 'n2', inert: 'zone is not inside a room' }],
+    });
+    useSessionStore.setState({ session: session({}), you: dm });
+    render(<TriggerPanel />);
+    await screen.findByTestId('note-list');
+
+    expect(screen.getByText('On reveal')).not.toBeNull();
+    const tag = screen.getByText('Inert');
+    expect(tag.getAttribute('title')).toBe('zone is not inside a room');
+  });
+
+  it('counts notes into the header subtitle alongside triggers', async () => {
+    const def = usePanel('triggers')!;
+    fetchPrep.mockResolvedValue({
+      prep: prepOf([trigger()], [note()]),
+      resolved: [],
+      resolvedNotes: [],
+    });
+    useSessionStore.setState({ session: session({}), you: dm });
+    render(<TriggerPanel />);
+    await settled();
+    expect(def.subtitle?.()).toBe('2 on this scene');
   });
 });

@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Disposition, TokenDef, TokenSize, TokensState } from '@dnd/mechanics/tokens';
 import { SIZE_CELLS } from '@dnd/mechanics/tokens';
+import { getEntriesByType } from '@dnd/core/src/assets/packCatalog';
 import { endpoints } from '../../endpoints';
 import { useModuleState, useSessionStore } from '../../session/store';
 import { useTokenInteraction } from './drag';
@@ -44,6 +45,9 @@ const blank = {
   size: 'medium' as TokenSize,
   disposition: 'neutral' as Disposition,
   imageAssetId: null as string | null,
+  /** Pack-sourced art (prep v2) — the "on the fly from the monster pack" half; wins over
+   *  an uploaded portrait when set. */
+  packAsset: null as { packId: string; assetId: string } | null,
   // P4 §3 — the def's own sight and light, which `place` copies onto every instance (D12).
   sight: null as Sight | null,
   light: null as Light | null,
@@ -93,6 +97,19 @@ export function TokenLibraryPanel() {
   const [form, setForm] = useState(blank);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Token-type entries from installed packs — empty until a monster pack exists, which
+  // simply hides the picker. Re-read when the form opens (packs install rarely).
+  const packTokenArt = useMemo(
+    () => {
+      try {
+        return getEntriesByType('token');
+      } catch {
+        return [];
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [formOpen],
+  );
 
   // The draft follows whichever def is being edited (or starts blank for "new") — switching
   // targets resets it rather than carrying the previous def's fields into this one.
@@ -105,6 +122,7 @@ export function TokenLibraryPanel() {
         size: editingDef.size,
         disposition: editingDef.disposition,
         imageAssetId: editingDef.imageAssetId,
+        packAsset: editingDef.packAsset ?? null,
         sight: editingDef.sight,
         light: editingDef.light,
       });
@@ -122,6 +140,7 @@ export function TokenLibraryPanel() {
       size: form.size,
       disposition: form.disposition,
       imageAssetId: form.imageAssetId,
+      packAsset: form.packAsset,
       sight: form.sight,
       light: form.light,
     });
@@ -253,6 +272,33 @@ export function TokenLibraryPanel() {
               ))}
             </select>
           </div>
+
+          {/* Pack-sourced art (prep v2) — hidden until a pack with token entries is
+              installed; a pick wins over any uploaded portrait. */}
+          {packTokenArt.length > 0 && (
+            <label className="text-xs text-text-muted">
+              Art from pack
+              <select
+                value={form.packAsset ? `${form.packAsset.packId}:${form.packAsset.assetId}` : ''}
+                aria-label="Art from pack"
+                data-testid="token-pack-art"
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (!v) return setForm({ ...form, packAsset: null });
+                  const [packId, ...rest] = v.split(':');
+                  setForm({ ...form, packAsset: { packId, assetId: rest.join(':') } });
+                }}
+                className={`mt-1 w-full ${selectClass}`}
+              >
+                <option value="">Uploaded portrait / initials</option>
+                {packTokenArt.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <label className="text-xs text-text-muted">
             {busy ? 'Uploading…' : form.imageAssetId ? 'Portrait ready' : 'Portrait (optional)'}

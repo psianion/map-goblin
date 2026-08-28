@@ -9,7 +9,7 @@
 // its own DM-only scene library.
 
 import { useEffect, useState } from 'react';
-import type { ScenePrep, TriggerCondition } from '@dnd/core/src/shared/prep';
+import type { RoomNote, ScenePrep, TriggerCondition } from '@dnd/core/src/shared/prep';
 import type { Layer } from '@dnd/core/src/store/types';
 import { useStore } from '@dnd/core/src/store/store';
 import type { TriggersState } from '@dnd/mechanics/triggers';
@@ -55,7 +55,12 @@ const DENSE_AT = 10;
 /** A fetch result tagged with the scene it answers — so a slow response for a scene the DM
  *  has already switched away from is never shown as this one's. */
 type PrepFetch =
-  | { sceneId: string; prep: ScenePrep | null; inertById: Record<string, string> }
+  | {
+      sceneId: string;
+      prep: ScenePrep | null;
+      inertById: Record<string, string>;
+      inertNoteById: Record<string, string>;
+    }
   | { sceneId: string; error: string };
 
 // `subtitle()` (session/panels.ts) is read by Popover outside React, the same way
@@ -85,8 +90,13 @@ export function TriggerPanel() {
       .then((res) => {
         const inertById: Record<string, string> = {};
         for (const r of res.resolved) if (r.inert) inertById[r.id] = r.inert;
-        subtitleCache = { sceneId, count: res.prep?.triggers.length ?? 0 };
-        setFetched({ sceneId, prep: res.prep, inertById });
+        const inertNoteById: Record<string, string> = {};
+        for (const r of res.resolvedNotes ?? []) if (r.inert) inertNoteById[r.id] = r.inert;
+        subtitleCache = {
+          sceneId,
+          count: (res.prep?.triggers.length ?? 0) + (res.prep?.notes.length ?? 0),
+        };
+        setFetched({ sceneId, prep: res.prep, inertById, inertNoteById });
       })
       .catch((e) => setFetched({ sceneId, error: e instanceof Error ? e.message : String(e) }));
   }, [sceneId]);
@@ -94,31 +104,37 @@ export function TriggerPanel() {
   const current = fetched?.sceneId === sceneId ? fetched : null;
   const prep = current && 'prep' in current ? current.prep : null;
   const inertById = current && 'inertById' in current ? current.inertById : {};
+  const inertNoteById = current && 'inertNoteById' in current ? current.inertNoteById : {};
   const error = current && 'error' in current ? current.error : null;
 
   const scene = sceneId && state ? sceneTriggersOf(state, sceneId) : undefined;
   const triggers = prep?.triggers ?? [];
+  const notes = prep?.notes ?? [];
   const dense = triggers.length > DENSE_AT;
 
   if (error) {
     return (
       <p role="alert" className="text-xs text-danger">
-        Couldn't load this scene's triggers: {error}
+        Couldn't load this scene's prep: {error}
       </p>
     );
   }
 
-  if (triggers.length === 0) {
+  if (triggers.length === 0 && notes.length === 0) {
     return (
       <div className="flex flex-col gap-0.5 text-sm">
-        <p className="text-text-secondary">No triggers authored for this scene.</p>
-        <p className="text-text-muted">Author them in the Editor.</p>
+        <p className="text-text-secondary">No prep authored for this scene.</p>
+        <p className="text-text-muted">Author triggers and notes in the Editor.</p>
       </div>
     );
   }
 
   return (
     <div className="flex min-h-0 flex-col gap-2 text-sm">
+      {notes.length > 0 && triggers.length > 0 && (
+        <p className="text-[10px] uppercase tracking-[.08em] text-text-muted">Triggers</p>
+      )}
+      {triggers.length > 0 && (
       <ul data-testid="trigger-list" className="flex min-h-0 flex-col overflow-hidden">
         {triggers.map((t) => {
           const fired = scene?.fired[t.id] !== undefined;
@@ -184,14 +200,128 @@ export function TriggerPanel() {
           );
         })}
       </ul>
-      <p className="text-xs text-text-muted">Fired triggers narrate into the log under "Triggers".</p>
+      )}
+
+      {notes.length > 0 && (
+        <>
+          <p className="text-[10px] uppercase tracking-[.08em] text-text-muted">Notes</p>
+          <ul data-testid="note-list" className="flex min-h-0 flex-col overflow-y-auto">
+            {notes.map((n) => (
+              <NoteRow
+                key={n.id}
+                note={n}
+                sceneId={sceneId!}
+                inert={inertNoteById[n.id]}
+                zone={zoneName(layers, n.zoneId)}
+              />
+            ))}
+          </ul>
+        </>
+      )}
+      {triggers.length > 0 && (
+        <p className="text-xs text-text-muted">Fired triggers narrate into the log under "Triggers".</p>
+      )}
     </div>
   );
 }
 
+/** One readable room note: title row, expand for the body and any handout images. Reveal
+ *  notes surface on their own as DM toasts when the room uncovers; this list is the
+ *  browse-any-time half. */
+function NoteRow({
+  note,
+  sceneId,
+  inert,
+  zone,
+}: {
+  note: RoomNote;
+  sceneId: string;
+  inert?: string;
+  zone?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li className="flex shrink-0 flex-col border-b border-border-subtle last:border-b-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex h-8 items-center gap-1.5 rounded px-2 text-left transition-colors duration-150 ease-settle hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none"
+      >
+        <span className="min-w-0 truncate text-[13px] text-text-primary">
+          {note.title || 'Untitled note'}
+        </span>
+        {note.showOnReveal && !inert && (
+          <span className="shrink-0 rounded border border-border-default px-1 text-[10px] uppercase tracking-[.06em] text-text-secondary">
+            On reveal
+          </span>
+        )}
+        {inert && (
+          <span
+            title={inert}
+            className="shrink-0 rounded border border-border-default px-1 text-[10px] uppercase tracking-[.06em] text-text-secondary"
+          >
+            Inert
+          </span>
+        )}
+        {zone && <span className="ml-auto shrink-0 text-[11.5px] text-text-muted">{zone}</span>}
+      </button>
+      {open && (
+        <div className="flex flex-col gap-2 px-2 pb-2">
+          {note.body && (
+            <p className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-text-secondary">
+              {note.body}
+            </p>
+          )}
+          {note.imageKeys.map((key) => (
+            <NoteImage key={key} sceneId={sceneId} imageKey={key} />
+          ))}
+        </div>
+      )}
+    </li>
+  );
+}
+
+/** Map-embedded handout image, fetched with the seat's own token (the images route is
+ *  bearer-authed like every map read). Object URL is per-mount and revoked with it. */
+function NoteImage({ sceneId, imageKey }: { sceneId: string; imageKey: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    const token = useSessionStore.getState().token;
+    if (!token) return;
+    let revoke: string | null = null;
+    let cancelled = false;
+    fetch(`/api/maps/${encodeURIComponent(sceneId)}/images/${encodeURIComponent(imageKey)}`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`image ${res.status}`);
+        const blob = await res.blob();
+        if (cancelled) return;
+        revoke = URL.createObjectURL(blob);
+        setUrl(revoke);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+      if (revoke) URL.revokeObjectURL(revoke);
+    };
+  }, [sceneId, imageKey]);
+
+  if (failed) return <p className="text-[11.5px] text-text-muted">Image unavailable.</p>;
+  if (!url) return <div className="h-24 animate-pulse rounded bg-surface-2" />;
+  return <img src={url} alt="" className="max-h-64 w-full rounded object-contain" />;
+}
+
+// Still panel id 'triggers' — hotkeys, tests and stored panel state key off the id, and a
+// rename there buys nothing. The DM-facing name grew because the panel did: it now carries
+// notes beside triggers.
 registerPanel({
   id: 'triggers',
-  title: 'Triggers',
+  title: 'Prep',
   icon: 'triggers',
   key: 'G',
   group: 'prep',
