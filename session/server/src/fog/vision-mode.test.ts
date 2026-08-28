@@ -441,7 +441,8 @@ describe('auto-explored rooms and the triggers hanging off them (M4 × §4)', ()
   } as AnyChild
 
   const PREP: ScenePrep = {
-    version: 1,
+    version: 2,
+    notes: [],
     triggers: [
       {
         id: 'trg-vault',
@@ -853,7 +854,8 @@ describe('the light gate (S3 P3 §3)', () => {
 
   it('follows a trigger’s relight without anything else happening at the table', () => {
     const LAMP_PREP: ScenePrep = {
-      version: 1,
+      version: 2,
+      notes: [],
       triggers: [
         {
           id: 'trg-lamp',

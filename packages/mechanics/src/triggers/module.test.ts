@@ -12,6 +12,7 @@ import {
   triggersModule,
   worldLightOf,
   worldOf,
+  type EncounterEffects,
   type ResolvedTrigger,
   type TriggerDeps,
   type TriggersState,
@@ -134,7 +135,7 @@ describe('enter-region / within-radius arming', () => {
     { shape: { kind: 'circle', x: 0, y: 0, radius: 5 } },
   )
   const tok = (x: number) => ({ tok1: { id: 'tok1', x, y: 0, ownerId: null } })
-  const deps = makeDeps({ prepOf: () => ({ triggers: [circle] }), tokensOf: () => tok(currentX) })
+  const deps = makeDeps({ prepOf: () => ({ triggers: [circle], notes: [] }), tokensOf: () => tok(currentX) })
   const mod = triggersModule(deps)
   let currentX = 100 // outside
 
@@ -170,7 +171,7 @@ describe('enter-region / within-radius arming', () => {
       { shape: { kind: 'circle', x: 0, y: 0, radius: 5 } },
     )
     let x = 0
-    const d = makeDeps({ prepOf: () => ({ triggers: [once] }), tokensOf: () => tok(x) })
+    const d = makeDeps({ prepOf: () => ({ triggers: [once], notes: [] }), tokensOf: () => tok(x) })
     const m = triggersModule(d)
     let state = fireEvent(m, empty, { sceneId: SCENE, source: { module: 'tokens', action: 'move' } })
     expect(sceneOf(state).log).toHaveLength(1)
@@ -183,7 +184,7 @@ describe('enter-region / within-radius arming', () => {
 
   it('a hidden token does not arm anything', () => {
     const d = makeDeps({
-      prepOf: () => ({ triggers: [circle] }),
+      prepOf: () => ({ triggers: [circle], notes: [] }),
       tokensOf: () => ({ tok1: { id: 'tok1', x: 0, y: 0, ownerId: null, hidden: true } }),
     })
     const m = triggersModule(d)
@@ -206,7 +207,7 @@ describe('fog.reset re-arms room-revealed only', () => {
   it('clears the room-revealed latch but leaves a sprung trap fired', () => {
     let explored: readonly string[] = ['room-1']
     const deps = makeDeps({
-      prepOf: () => ({ triggers: [roomRevealed, region] }),
+      prepOf: () => ({ triggers: [roomRevealed, region], notes: [] }),
       tokensOf: () => ({ t: { id: 't', x: 5, y: 5, ownerId: null } }),
       exploredOf: () => explored,
     })
@@ -244,7 +245,7 @@ describe('trap and ability-check prompts', () => {
 
   it('an owned token creates a prompt targeting its owner; success needs no damage roll', () => {
     const deps = makeDeps({
-      prepOf: () => ({ triggers: [trap] }),
+      prepOf: () => ({ triggers: [trap], notes: [] }),
       tokensOf: () => ({ tok1: { id: 'tok1', x: 0, y: 0, ownerId: 'p-1' } }),
       rollFn: rollQueue([{ formula: '1d20', rolls: [14], modifier: 0, total: 14 }]),
     })
@@ -265,7 +266,7 @@ describe('trap and ability-check prompts', () => {
 
   it('failure also rolls the trap damage and logs it', () => {
     const deps = makeDeps({
-      prepOf: () => ({ triggers: [trap] }),
+      prepOf: () => ({ triggers: [trap], notes: [] }),
       tokensOf: () => ({ tok1: { id: 'tok1', x: 0, y: 0, ownerId: 'p-1' } }),
       rollFn: rollQueue([
         { formula: '1d20', rolls: [5], modifier: 0, total: 5 },
@@ -283,7 +284,7 @@ describe('trap and ability-check prompts', () => {
 
   it('an unclaimed token targets nobody, and the DM may roll it', () => {
     const deps = makeDeps({
-      prepOf: () => ({ triggers: [abilityCheck] }),
+      prepOf: () => ({ triggers: [abilityCheck], notes: [] }),
       tokensOf: () => ({ tok1: { id: 'tok1', x: 100, y: 100, ownerId: null } }),
       rollFn: rollQueue([{ formula: '1d20', rolls: [12], modifier: 0, total: 12 }]),
     })
@@ -302,7 +303,7 @@ describe('trap and ability-check prompts', () => {
 
   it('a player cannot roll someone else\'s prompt', () => {
     const deps = makeDeps({
-      prepOf: () => ({ triggers: [trap] }),
+      prepOf: () => ({ triggers: [trap], notes: [] }),
       tokensOf: () => ({ tok1: { id: 'tok1', x: 0, y: 0, ownerId: 'p-1' } }),
       rollFn: rollQueue([{ formula: '1d20', rolls: [14], modifier: 0, total: 14 }]),
     })
@@ -324,7 +325,7 @@ describe('a malformed damage formula never crashes the module (F1)', () => {
       { shape: { kind: 'circle', x: 0, y: 0, radius: 5 } },
     )
     const deps = makeDeps({
-      prepOf: () => ({ triggers: [badTrap] }),
+      prepOf: () => ({ triggers: [badTrap], notes: [] }),
       tokensOf: () => ({ tok1: { id: 'tok1', x: 0, y: 0, ownerId: 'p-1' } }),
       rollFn: (formula: string) => {
         if (formula === 'nope') throw new Error('malformed dice formula')
@@ -353,7 +354,7 @@ describe('a malformed damage formula never crashes the module (F1)', () => {
     )
     const mod = triggersModule(
       makeDeps({
-        prepOf: () => ({ triggers: [badTrap] }),
+        prepOf: () => ({ triggers: [badTrap], notes: [] }),
         rollFn: (formula: string) => {
           if (formula === 'nope') throw new Error('malformed dice formula')
           return { formula, rolls: [1], modifier: 0, total: 1 }
@@ -375,7 +376,7 @@ describe('light fire-action (M5)', () => {
       { id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'light', lightId: 'l1', on: true }] },
       { roomId: 'r1', lightNames: { l1: 'Brazier' } },
     )
-    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }) }))
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }) }))
     const { next, error } = run(mod, empty, DM, 'fire', { triggerId: 'x' })
     expect(error).toBeNull()
     const line = sceneOf(next).log.at(-1)!
@@ -390,7 +391,7 @@ describe('light fire-action (M5)', () => {
       { id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'light', lightId: 'l1', on: false }] },
       { roomId: 'r1', lightNames: { l1: 'Brazier' } },
     )
-    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }) }))
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }) }))
     const { next } = run(mod, empty, DM, 'fire', { triggerId: 'x' })
     expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Brazier goes dark', toPlayers: true })
   })
@@ -404,7 +405,7 @@ describe('light fire-action (M5)', () => {
       { id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'light', lightId: 'l1', on: true }] },
       { roomId: 'r1', lightNames: { l1: 'Light 3' } },
     )
-    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }) }))
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }) }))
     const { next } = run(mod, empty, DM, 'fire', { triggerId: 'x' })
     const line = sceneOf(next).log.at(-1)!
     expect(line.text).toBe('A light kindles')
@@ -415,7 +416,7 @@ describe('light fire-action (M5)', () => {
       { id: 'y', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'light', lightId: 'l1', on: false }] },
       { roomId: 'r1', lightNames: { l1: 'Light 3' } },
     )
-    const m2 = triggersModule(makeDeps({ prepOf: () => ({ triggers: [off] }) }))
+    const m2 = triggersModule(makeDeps({ prepOf: () => ({ triggers: [off], notes: [] }) }))
     const offResult = run(m2, empty, DM, 'fire', { triggerId: 'y' })
     expect(offResult.next.byScene[SCENE].log.at(-1)?.text).toBe('A light goes dark')
   })
@@ -425,7 +426,7 @@ describe('light fire-action (M5)', () => {
       { id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'light', lightId: 'l1', on: true, toPlayers: false }] },
       { roomId: 'r1', lightNames: { l1: 'Brazier' } },
     )
-    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }) }))
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }) }))
     const { next } = run(mod, empty, DM, 'fire', { triggerId: 'x' })
     expect(sceneOf(next).log.at(-1)).toMatchObject({ text: 'Brazier lights', toPlayers: false })
   })
@@ -437,7 +438,7 @@ describe('environment fire-action (F3)', () => {
       { id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'environment', weather: 'fog' }] },
       { roomId: 'r1' },
     )
-    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }) }))
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }) }))
     let state = run(mod, empty, DM, 'set-environment', { time: 'dawn' }).next
     const { next } = run(mod, state, DM, 'fire', { triggerId: 'x' })
     expect(sceneOf(next).env).toEqual({ time: 'dawn', weather: 'fog' })
@@ -451,21 +452,21 @@ describe('inert and disabled triggers never fire', () => {
 
   it('an inert trigger is skipped', () => {
     const t = trigger({ id: 'x', when: { kind: 'enter-region', zoneId: 'z1' }, actions: [{ kind: 'show-text', text: 'x', toPlayers: true }] }, { shape, inert: 'zone missing' })
-    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }), tokensOf: tokens }))
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }), tokensOf: tokens }))
     const state = fireEvent(mod, empty, { sceneId: SCENE, source: { module: 'tokens', action: 'move' } })
     expect(sceneOf(state)?.fired.x).toBeUndefined()
   })
 
   it('def.enabled=false is skipped', () => {
     const t = trigger({ id: 'x', when: { kind: 'enter-region', zoneId: 'z1' }, enabled: false, actions: [{ kind: 'show-text', text: 'x', toPlayers: true }] }, { shape })
-    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }), tokensOf: tokens }))
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }), tokensOf: tokens }))
     const state = fireEvent(mod, empty, { sceneId: SCENE, source: { module: 'tokens', action: 'move' } })
     expect(sceneOf(state)?.fired.x).toBeUndefined()
   })
 
   it('a runtime set-enabled(false) blocks it, and re-enabling lets it fire on the next edge', () => {
     const t = trigger({ id: 'x', when: { kind: 'enter-region', zoneId: 'z1' }, actions: [{ kind: 'show-text', text: 'x', toPlayers: true }] }, { shape })
-    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }), tokensOf: tokens }))
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }), tokensOf: tokens }))
 
     let { next: state } = run(mod, empty, DM, 'set-enabled', { triggerId: 'x', enabled: false })
     state = fireEvent(mod, state, { sceneId: SCENE, source: { module: 'tokens', action: 'move' } })
@@ -595,7 +596,7 @@ describe('set-world', () => {
 describe('caps', () => {
   it('caps the log at 200 entries, dropping the oldest', () => {
     const t = trigger({ id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [{ kind: 'show-text', text: 'x', toPlayers: true }] }, { roomId: 'r1' })
-    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }) }))
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }) }))
     let state = empty
     for (let i = 0; i < 250; i++) {
       state = run(mod, state, DM, 'fire', { triggerId: 'x' }).next
@@ -609,7 +610,7 @@ describe('caps', () => {
       when: { kind: 'room-revealed', zoneId: 'z1' },
       actions: [{ kind: 'ability-check', ability: 'wis', dc: 10, text: 'check' }],
     })
-    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }) }))
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }) }))
     let state = empty
     for (let i = 0; i < 25; i++) {
       state = run(mod, state, DM, 'fire', { triggerId: 'x' }).next
@@ -716,7 +717,7 @@ describe('set-environment', () => {
 describe('manual fire', () => {
   it('refuses an unknown trigger id and an inert one', () => {
     const t = trigger({ id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, actions: [] }, { inert: 'broken' })
-    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }) }))
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }) }))
     expect(run(mod, empty, DM, 'fire', { triggerId: 'x' }).error?.code).toBe('invalid-command')
     expect(run(mod, empty, DM, 'fire', { triggerId: 'nope' }).error?.code).toBe('invalid-command')
   })
@@ -725,7 +726,7 @@ describe('manual fire', () => {
     const t = trigger(
       { id: 'x', when: { kind: 'room-revealed', zoneId: 'z1' }, once: true, enabled: false, actions: [{ kind: 'show-text', text: 'x', toPlayers: true }] },
     )
-    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t] }) }))
+    const mod = triggersModule(makeDeps({ prepOf: () => ({ triggers: [t], notes: [] }) }))
     let state = run(mod, empty, DM, 'set-enabled', { triggerId: 'x', enabled: false }).next
     state = run(mod, state, DM, 'fire', { triggerId: 'x' }).next
     expect(sceneOf(state).log).toHaveLength(1)
@@ -886,5 +887,153 @@ describe('effectiveLight (M2)', () => {
       position: { x: 3, y: 3 },
     }
     expect(effectiveLight(light, edit)).toEqual(edit)
+  })
+})
+
+describe('encounter action (prep v2)', () => {
+  const rollTen = (formula: string): RollResult => ({ formula, rolls: [10], modifier: 0, total: 10 })
+
+  const encTrigger = (
+    action: Partial<Extract<TriggerDef['actions'][number], { kind: 'encounter' }>> = {},
+    extra: Partial<ResolvedTrigger> = { spawnAt: { x: 10, y: 10 } },
+  ) =>
+    trigger(
+      {
+        id: 'enc1',
+        when: { kind: 'enter-region', zoneId: 'z1' },
+        actions: [
+          {
+            kind: 'encounter',
+            name: 'Goblin ambush',
+            spawn: true,
+            seedInitiative: true,
+            monsters: [
+              { id: 'm1', name: 'Goblin', count: 3, hp: '2d6' },
+              { id: 'm2', name: 'Warg', count: 1, size: 'large' },
+            ],
+            ...action,
+          },
+        ],
+      },
+      { shape: { kind: 'circle', x: 10, y: 10, radius: 5 }, ...extra },
+    )
+
+  it('manual fire hands applyEncounter a rolled, positioned roster and seeds with token ids', () => {
+    const calls: EncounterEffects[] = []
+    const deps = makeDeps({
+      prepOf: () => ({ triggers: [encTrigger()], notes: [] }),
+      rollFn: rollTen,
+      applyEncounter: (e) => calls.push(e),
+    })
+    const mod = triggersModule(deps)
+    const { next, error } = run(mod, empty, DM, 'fire', { triggerId: 'enc1' })
+
+    expect(error).toBeNull()
+    expect(calls).toHaveLength(1)
+    const e = calls[0]
+    expect(e.sceneId).toBe(SCENE)
+    expect(e.name).toBe('Goblin ambush')
+    expect(e.spawn.map((s) => s.name)).toEqual(['Goblin 1', 'Goblin 2', 'Goblin 3', 'Warg'])
+    expect(e.spawn[0]).toMatchObject({ x: 10, y: 10, size: 'medium' })
+    expect(e.spawn[3].size).toBe('large')
+    // Fan-out: four distinct cells around the anchor.
+    expect(new Set(e.spawn.map((s) => `${s.x},${s.y}`)).size).toBe(4)
+    // HP rolled per monster; the Warg authored none.
+    expect(e.seed.map((s) => s.hp)).toEqual([10, 10, 10, undefined])
+    // Every seed row names the token it walked in with.
+    expect(e.seed.map((s) => s.tokenId)).toEqual(e.spawn.map((s) => s.id))
+    // The log line is the DM's alone.
+    const log = sceneOf(next)!.log
+    const entry = log.find((l) => l.kind === 'encounter')
+    expect(entry).toMatchObject({ toPlayers: false })
+    expect(entry!.text).toContain('Goblin ambush')
+  })
+
+  it('spawn off seeds without token ids; a missing anchor places nothing', () => {
+    const calls: EncounterEffects[] = []
+    const deps = makeDeps({
+      prepOf: () => ({ triggers: [encTrigger({ spawn: false })], notes: [] }),
+      rollFn: rollTen,
+      applyEncounter: (e) => calls.push(e),
+    })
+    run(triggersModule(deps), empty, DM, 'fire', { triggerId: 'enc1' })
+    expect(calls[0].spawn).toEqual([])
+    expect(calls[0].seed.every((s) => s.tokenId === undefined)).toBe(true)
+
+    const noAnchor: EncounterEffects[] = []
+    const deps2 = makeDeps({
+      prepOf: () => ({ triggers: [encTrigger({}, { spawnAt: undefined })], notes: [] }),
+      rollFn: rollTen,
+      applyEncounter: (e) => noAnchor.push(e),
+    })
+    run(triggersModule(deps2), empty, DM, 'fire', { triggerId: 'enc1' })
+    expect(noAnchor[0].spawn).toEqual([])
+    expect(noAnchor[0].seed.length).toBe(4)
+  })
+
+  it('fires without an applyEncounter impl — the log line still lands', () => {
+    const deps = makeDeps({
+      prepOf: () => ({ triggers: [encTrigger()], notes: [] }),
+      rollFn: rollTen,
+    })
+    const { next, error } = run(triggersModule(deps), empty, DM, 'fire', { triggerId: 'enc1' })
+    expect(error).toBeNull()
+    expect(sceneOf(next)!.log.some((l) => l.kind === 'encounter')).toBe(true)
+  })
+})
+
+describe('reveal notes (prep v2)', () => {
+  const NOTE = {
+    id: 'n1',
+    zoneId: 'z1',
+    title: 'Kitchens',
+    body: 'Smells of cabbage; the cook is a spy.',
+    imageKeys: [],
+    showOnReveal: true,
+  }
+  const move = { sceneId: SCENE, source: { module: 'tokens', action: 'move' } }
+
+  it('pops once as a DM-only log line when the room reveals, and never twice', () => {
+    const deps = makeDeps({
+      prepOf: () => ({ triggers: [], notes: [{ note: NOTE, roomId: 'room-1' }] }),
+      exploredOf: () => ['room-1'],
+    })
+    const mod = triggersModule(deps)
+    const s1 = fireEvent(mod, empty, move)
+    const log = sceneOf(s1)!.log
+    expect(log).toHaveLength(1)
+    expect(log[0]).toMatchObject({ kind: 'note', toPlayers: false })
+    expect(log[0].text).toContain('Kitchens')
+    expect(log[0].text).toContain('cabbage')
+
+    const s2 = fireEvent(mod, s1, move)
+    expect(sceneOf(s2)!.log).toHaveLength(1)
+  })
+
+  it('fog.reset re-arms a popped note', () => {
+    const deps = makeDeps({
+      prepOf: () => ({ triggers: [], notes: [{ note: NOTE, roomId: 'room-1' }] }),
+      exploredOf: () => ['room-1'],
+    })
+    const mod = triggersModule(deps)
+    const popped = fireEvent(mod, empty, move)
+    const reset = fireEvent(mod, popped, { sceneId: SCENE, source: { module: 'fog', action: 'reset' } })
+    // The reset event both re-arms and (explored still lists the room) immediately re-pops.
+    expect(sceneOf(reset)!.log.filter((l) => l.kind === 'note')).toHaveLength(2)
+  })
+
+  it('browse-only and inert notes never pop', () => {
+    const deps = makeDeps({
+      prepOf: () => ({
+        triggers: [],
+        notes: [
+          { note: { ...NOTE, id: 'n2', showOnReveal: false } },
+          { note: { ...NOTE, id: 'n3' }, inert: 'zone was deleted' },
+        ],
+      }),
+      exploredOf: () => ['room-1'],
+    })
+    const state = fireEvent(triggersModule(deps), empty, move)
+    expect(sceneOf(state)).toBeUndefined()
   })
 })

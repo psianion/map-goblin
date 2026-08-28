@@ -382,3 +382,76 @@ describe('hp / damage / condition — the DM\'s bookkeeping', () => {
     expect(run(s4, DM, 'condition', { key: k, name: 'sleepy', on: true }).error?.code).toBe('invalid-command')
   })
 })
+
+describe('seed (internal, prep v2 encounters)', () => {
+  /** dispatchInternal's path — direct handler call, no role gate. */
+  function seedInternal(state: InitiativeState, payload: unknown) {
+    let next = state
+    const error =
+      initiativeModule.handler('seed', payload, {
+        campaignId: 'c-1',
+        sessionId: 's-1',
+        activeSceneId: SCENE,
+        sender: { identityId: MARRA.identityId, role: 'player' },
+        players: ROSTER,
+        state,
+        setState: (s) => {
+          next = s
+        },
+        broadcast: () => {
+          throw new Error('initiative must never broadcast directly')
+        },
+      }) ?? null
+    return { error, next }
+  }
+
+  it('is not a wire command for any role', () => {
+    for (const sender of [DM, MARRA]) {
+      expect(run(INITIAL_STATE, sender, 'seed', { entries: [{ name: 'G' }] }).error).toMatchObject({
+        code: 'invalid-command',
+      })
+    }
+  })
+
+  it('idle: opens a gathering encounter with pre-rolled HP behind the screen', () => {
+    const { error, next } = seedInternal(INITIAL_STATE, {
+      sceneId: SCENE,
+      entries: [
+        { name: 'Goblin 1', hp: 7, tokenId: 'etok1' },
+        { name: 'Goblin 2', hp: 9 },
+      ],
+    })
+    expect(error).toBeNull()
+    expect(next.status).toBe('gathering')
+    expect(next.sceneId).toBe(SCENE)
+    expect(next.entries.map((e) => e.name)).toEqual(['Goblin 1', 'Goblin 2'])
+    expect(next.entries[0]).toMatchObject({
+      kind: 'npc',
+      initiative: null,
+      tokenId: 'etok1',
+      hp: { current: 7, max: 7 },
+    })
+    // NPC pools never reach a player's copy.
+    const redacted = initiativeModule.redact!(next, { role: 'player', identityId: MARRA.identityId })
+    expect(redacted.entries.every((e) => e.hp === undefined)).toBe(true)
+  })
+
+  it('mid-fight: the roster joins the running encounter without moving the turn', () => {
+    let state = gathering()
+    for (const name of ['Marra', 'Tomen', 'Goblin']) {
+      state = run(state, DM, 'set', { key: keyOf(state, name), value: 10 }).next
+    }
+    state = run(state, DM, 'begin').next
+    const turnName = state.entries[state.turn].name
+
+    const { error, next } = seedInternal(state, {
+      sceneId: SCENE,
+      entries: [{ name: 'Warg', hp: 22, tokenId: 'etok9' }],
+    })
+    expect(error).toBeNull()
+    expect(next.status).toBe('running')
+    expect(next.entries.map((e) => e.name)).toContain('Warg')
+    expect(next.entries[next.turn].name).toBe(turnName)
+    expect(next.log[next.log.length - 1].text).toBe('Warg joins the fight.')
+  })
+})

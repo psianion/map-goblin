@@ -763,7 +763,8 @@ describe('the scene a mapDelta belongs to, with more than one in play (§2.1, D5
 
 describe('prep and zones (schema 3.1)', () => {
   const PREP: ScenePrep = {
-    version: 1,
+    version: 2,
+    notes: [],
     triggers: [
       {
         id: 't1',

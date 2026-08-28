@@ -211,7 +211,11 @@ describe('getSerializableState / loadFromFile — prep', () => {
       enabled: true,
     });
     const data = useStore.getState().getSerializableState();
-    expect(data.prep).toEqual({ version: 1, triggers: [expect.objectContaining({ id: 't1' })] });
+    expect(data.prep).toEqual({
+      version: 2,
+      triggers: [expect.objectContaining({ id: 't1' })],
+      notes: [],
+    });
   });
 
   it('an explicit empty-triggers prep survives (explicit clear, not absence)', () => {
@@ -225,7 +229,7 @@ describe('getSerializableState / loadFromFile — prep', () => {
     });
     useStore.getState().removeTrigger('t1');
     const data = useStore.getState().getSerializableState();
-    expect(data.prep).toEqual({ version: 1, triggers: [] });
+    expect(data.prep).toEqual({ version: 2, triggers: [], notes: [] });
   });
 
   it('accepts a 3.1 doc with prep and a zone child, and sets store prep', () => {
@@ -240,11 +244,13 @@ describe('getSerializableState / loadFromFile — prep', () => {
       shape: { kind: 'point', position: { x: 1, y: 1 } },
     });
     data.version = '3.1';
-    data.prep = { version: 1, triggers: [{ id: 't1', name: 'Trap', when: { kind: 'enter-region', zoneId: 'zone-1' }, actions: [], once: true, enabled: true }] };
+    // A 3.1-era file carries prep v1 — the load boundary upgrades it to v2 in place.
+    const v1Trigger = { id: 't1', name: 'Trap', when: { kind: 'enter-region', zoneId: 'zone-1' }, actions: [], once: true, enabled: true } as const;
+    (data as { prep?: unknown }).prep = { version: 1, triggers: [v1Trigger] };
 
     useStore.getState().loadFromFile(data);
 
-    expect(useStore.getState().prep).toEqual(data.prep);
+    expect(useStore.getState().prep).toEqual({ version: 2, triggers: [v1Trigger], notes: [] });
     const loadedLayer = useStore.getState().layers.find((l) => l.type === 'dungeon');
     if (!loadedLayer || loadedLayer.type !== 'dungeon') throw new Error('Dungeon layer gone');
     expect(loadedLayer.children.some((c) => c.id === 'zone-1')).toBe(true);

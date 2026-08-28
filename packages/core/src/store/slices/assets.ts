@@ -9,6 +9,8 @@ export interface AssetActions {
   setManifest: (manifest: AssetManifest) => void;
   markCategoryLoaded: (categoryId: string) => void;
   addCustomImage: (id: string, base64: string) => void;
+  /** Callers own the "nothing references this key anymore" check. */
+  removeCustomImage: (id: string) => void;
 }
 
 export const createAssetsSlice: StateCreator<
@@ -53,5 +55,9 @@ export const createAssetsSlice: StateCreator<
   addCustomImage: (id, base64) =>
     set((state) => {
       state.assets.customImages[id] = base64;
+    }),
+  removeCustomImage: (id) =>
+    set((state) => {
+      delete state.assets.customImages[id];
     }),
 });

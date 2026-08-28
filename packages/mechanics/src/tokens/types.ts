@@ -37,6 +37,12 @@ export interface TokenDef {
   sight: { range: number; angle: number; visionMode: 'normal' | 'darkvision' } | null
   /** Schema only until S3. */
   light: { dim: number; bright: number; color: string; angle: number } | null
+  /**
+   * Pack-sourced art (PR3 of the prep layer): resolved client-side from the installed
+   * pack's atlas. Wins over `imageAssetId` when both are somehow present. Optional so
+   * every row written before it existed reads unchanged.
+   */
+  packAsset?: { packId: string; assetId: string }
 }
 
 /** Placed instance (scene-scoped). */

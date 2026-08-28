@@ -111,14 +111,17 @@ function mapFile(): SerializedMapData {
 }
 
 const SCENE = 'scene-1'
-const prep: ScenePrep = { version: 1, triggers: [TRG_ROOM, TRG_TRAP] }
+const prep: ScenePrep = { version: 2, triggers: [TRG_ROOM, TRG_TRAP], notes: [] }
 
 /** A campaign with one scene/map (as above), a DM identity/token, and a fresh player identity. */
-function seed(server: RunningServer): { campaignId: string; dmToken: string; mintPlayer: (name: string) => string } {
+function seed(
+  server: RunningServer,
+  seedPrep: ScenePrep = prep,
+): { campaignId: string; dmToken: string; mintPlayer: (name: string) => string } {
   const campaign = server.stores.campaigns.create('Crypt')
   server.stores.identities.mint('dm-1', campaign.id, 'Ann', 'dm')
   server.stores.maps.insert(SCENE, campaign.id, 'Dungeon', JSON.stringify(mapFile()))
-  server.stores.scenes.create(SCENE, campaign.id, SCENE, 'Dungeon', JSON.stringify(prep))
+  server.stores.scenes.create(SCENE, campaign.id, SCENE, 'Dungeon', JSON.stringify(seedPrep))
   const hmac = server.config.secrets.hmacSecret
   return {
     campaignId: campaign.id,
@@ -362,6 +365,150 @@ describe('a token walking into a trap zone (redaction, prompts, roll-prompt)', (
       // the very same broadcast carries no roll-outcome line at all.
       const carolAfter = triggersOf(outcomeMsgs.get(carol)!.get('triggers')!).byScene[SCENE]
       expect(carolAfter.log.some((e) => e.kind === 'roll-outcome')).toBe(false)
+    })
+  })
+})
+
+// ── prep v2: a fired encounter materializes tokens + initiative, notes pop DM-only ────────
+
+describe('a fired encounter (prep v2)', () => {
+  const TRG_ENC: TriggerDef = {
+    id: 'trg-enc',
+    name: 'Goblin ambush',
+    when: { kind: 'enter-region', zoneId: 'zone-trap' },
+    actions: [
+      {
+        kind: 'encounter',
+        name: 'Goblin ambush',
+        spawn: true,
+        seedInitiative: true,
+        monsters: [
+          { id: 'm1', name: 'Goblin', count: 2, hp: '2d6' },
+          { id: 'm2', name: 'Warg', count: 1, size: 'large' },
+        ],
+      },
+    ],
+    once: true,
+    enabled: true,
+  }
+
+  it('spawns hostile tokens at the zone and seeds the tracker, HP behind the screen', async () => {
+    await withServer(async (server) => {
+      const { campaignId, dmToken, mintPlayer } = seed(server, {
+        version: 2,
+        triggers: [TRG_ENC],
+        notes: [],
+      })
+      await openSession(server, dmToken, campaignId)
+
+      const dm = await connect(server, dmToken)
+      sendJoin(dm)
+      await next(dm, 'session-state')
+      const player = await connect(server, mintPlayer('Pia'))
+      sendJoin(player)
+      await next(player, 'session-state')
+      await next(dm, 'player-joined')
+
+      // Manual fire — the same path a walk-in takes, minus the token choreography.
+      const frames = await runDrained([dm, player], ['tokens', 'initiative', 'triggers'], () =>
+        sendCommand(dm, 'triggers', 'fire', { triggerId: 'trg-enc' }),
+      )
+
+      const dmTokens = (frames.get(dm)!.get('tokens')!.state as TokensState).byScene[SCENE]
+      const spawned = Object.values(dmTokens)
+      expect(spawned.map((t) => t.name).sort()).toEqual(['Goblin 1', 'Goblin 2', 'Warg'])
+      for (const t of spawned) {
+        expect(t.disposition).toBe('hostile')
+        expect(t.ownerId).toBeNull()
+        expect(t.hidden).toBe(false)
+        // Inside/around the trap zone (anchor 12,12 with a 2-ring fan and grid snap).
+        expect(Math.abs(t.x - 12)).toBeLessThanOrEqual(3)
+        expect(Math.abs(t.y - 12)).toBeLessThanOrEqual(3)
+      }
+      expect(spawned.find((t) => t.name === 'Warg')!.size).toBe('large')
+
+      // The room is unrevealed, so a player's copy holds none of the ambush.
+      const playerTokens = (frames.get(player)!.get('tokens')!.state as TokensState).byScene[SCENE] ?? {}
+      expect(Object.keys(playerTokens)).toHaveLength(0)
+
+      type Initiative = {
+        status: string
+        entries: { name: string; kind: string; tokenId?: string; hp?: { current: number; max: number } }[]
+      }
+      const dmInit = frames.get(dm)!.get('initiative')!.state as Initiative
+      expect(dmInit.status).toBe('gathering')
+      expect(dmInit.entries.map((e) => e.name).sort()).toEqual(['Goblin 1', 'Goblin 2', 'Warg'])
+      const goblin = dmInit.entries.find((e) => e.name === 'Goblin 1')!
+      expect(goblin.kind).toBe('npc')
+      expect(goblin.hp!.max).toBeGreaterThanOrEqual(2)
+      expect(goblin.hp!.max).toBeLessThanOrEqual(12)
+      // Each seeded row names the token it spawned with.
+      expect(dmInit.entries.every((e) => e.tokenId && dmTokens[e.tokenId])).toBe(true)
+
+      // A player's copy of the tracker never carries an NPC pool.
+      const playerInit = frames.get(player)!.get('initiative')!.state as Initiative
+      expect(playerInit.entries.every((e) => e.hp === undefined)).toBe(true)
+
+      // The DM's log line; nothing about the encounter reaches the player's log.
+      const dmLog = triggersOf(frames.get(dm)!.get('triggers')!).byScene[SCENE]!.log
+      expect(dmLog.some((l) => l.kind === 'encounter' && l.text.includes('Goblin ambush'))).toBe(true)
+      const playerLog = triggersOf(frames.get(player)!.get('triggers')!).byScene[SCENE]?.log ?? []
+      expect(playerLog.some((l) => l.kind === 'encounter')).toBe(false)
+
+      dm.close()
+      player.close()
+    })
+  })
+})
+
+describe('a reveal note (prep v2)', () => {
+  it('pops once to the DM when the room reveals, and never to a player', async () => {
+    await withServer(async (server) => {
+      const { campaignId, dmToken, mintPlayer } = seed(server, {
+        version: 2,
+        triggers: [],
+        notes: [
+          {
+            id: 'n1',
+            zoneId: 'zone-room',
+            title: 'Kitchens',
+            body: 'The cook is a spy.',
+            imageKeys: [],
+            showOnReveal: true,
+          },
+        ],
+      })
+      await openSession(server, dmToken, campaignId)
+
+      const dm = await connect(server, dmToken)
+      sendJoin(dm)
+      await next(dm, 'session-state')
+      const player = await connect(server, mintPlayer('Pia'))
+      sendJoin(player)
+      await next(player, 'session-state')
+      await next(dm, 'player-joined')
+
+      const frames = await runDrained([dm, player], ['fog', 'triggers'], () =>
+        sendCommand(dm, 'fog', 'reveal', { sceneId: SCENE, roomId: ROOM.id }),
+      )
+
+      const dmLog = triggersOf(frames.get(dm)!.get('triggers')!).byScene[SCENE]!.log
+      const noteLine = dmLog.find((l) => l.kind === 'note')
+      expect(noteLine).toBeDefined()
+      expect(noteLine!.text).toBe('Kitchens — The cook is a spy.')
+      expect(noteLine!.toPlayers).toBe(false)
+
+      const playerLog = triggersOf(frames.get(player)!.get('triggers')!).byScene[SCENE]?.log ?? []
+      expect(playerLog.some((l) => l.kind === 'note')).toBe(false)
+
+      // A second reveal-shaped write changes nothing — the note is spent, and a no-op
+      // cascade skips its setState entirely, so no triggers frame arrives at all. The
+      // persisted row is the assertion surface instead.
+      await runDrained([dm], ['fog'], () =>
+        sendCommand(dm, 'fog', 'reveal', { sceneId: SCENE, roomId: ROOM.id }),
+      )
+      const stored = server.stores.moduleState.get(campaignId, 'triggers') as TriggersState
+      expect(stored.byScene[SCENE]!.log.filter((l) => l.kind === 'note')).toHaveLength(1)
     })
   })
 })

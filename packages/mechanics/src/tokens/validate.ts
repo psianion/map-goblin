@@ -179,7 +179,15 @@ export type DefFields = Omit<TokenDef, 'id'>
  * upsert) or instantiated (place); anything the payload omits falls back to it, then to a
  * default. Only `name` has no default.
  */
+/** `null` clears pack art; absent leaves it alone (parseDefFields' base fallback). */
+function parsePackAsset(v: unknown): TokenDef['packAsset'] {
+  if (v === null) return undefined
+  const o = obj(v, 'packAsset')
+  return { packId: str(o.packId, 'packAsset.packId', ID_MAX), assetId: str(o.assetId, 'packAsset.assetId', ID_MAX) }
+}
+
 export function parseDefFields(p: Record<string, unknown>, base?: TokenDef): DefFields {
+  const packAsset = p.packAsset !== undefined ? parsePackAsset(p.packAsset) : base?.packAsset
   return {
     name: p.name !== undefined ? str(p.name, 'name', NAME_MAX) : (base?.name ?? bad('name is required')),
     imageAssetId:
@@ -193,5 +201,6 @@ export function parseDefFields(p: Record<string, unknown>, base?: TokenDef): Def
         : (base?.disposition ?? 'neutral'),
     sight: p.sight !== undefined ? parseSight(p.sight) : (base?.sight ?? null),
     light: p.light !== undefined ? parseLight(p.light) : (base?.light ?? null),
+    ...(packAsset ? { packAsset } : {}),
   }
 }

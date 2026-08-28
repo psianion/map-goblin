@@ -5,6 +5,7 @@ import type { DungeonLayer, MapBuilderStore, SerializedMapData } from './types';
 import { getNotify } from './notify';
 import { createDefaultState } from './factories';
 import { CURRENT_VERSION, isSupportedVersion, migrateToLatest } from './migration';
+import { normalizePrep } from '../shared/prep';
 import { dataUrlToBlob } from '../assets/dataUrl';
 import { SPLAT_IMAGE_KEYS } from '../engine/terrain/terrainShared';
 import { createMapSettingsSlice } from './slices/mapSettings';
@@ -79,7 +80,9 @@ export const useStore = create<MapBuilderStore>()(
             snapEnabled: true,
           };
           state.layers = data.layers;
-          state.prep = data.prep ?? null;
+          // Older files stored prep v1 — upgrade here so the rest of the app
+          // only ever sees v2 (normalizePrep is the one read-boundary shim).
+          state.prep = data.prep ? normalizePrep(data.prep) : null;
           state.assets.customImages = images;
           // Always write (even [null, null]) — loading a terrain-less map over
           // a painted one must clear the renderer's splats.

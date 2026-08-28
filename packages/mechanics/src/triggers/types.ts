@@ -7,7 +7,14 @@
 // `inert` from the authored zone once (containing room, radius, missing-reference checks)
 // and hands the result in through `TriggerDeps.prepOf`; this module only ever reads it.
 
-import type { Ability, AmbientLevel, TimeOfDay, TriggerDef, Weather } from '@dnd/core/src/shared/prep'
+import type {
+  Ability,
+  AmbientLevel,
+  RoomNote,
+  TimeOfDay,
+  TriggerDef,
+  Weather,
+} from '@dnd/core/src/shared/prep'
 import {
   NOON,
   resolveWorldLight,
@@ -18,8 +25,11 @@ import {
 } from '@dnd/core/src/shared/world'
 
 // Consumers of the module (server wiring, table client) get the shared prep vocabulary from
-// here rather than deep-importing @dnd/core themselves.
-export type { Ability, AmbientLevel, TimeOfDay, TriggerDef, Weather }
+// here rather than deep-importing @dnd/core themselves. `normalizePrep` rides along as a
+// value for the same reason `resolveWorldLight` does: D3 bars the server from runtime-
+// importing @dnd/core directly, and this leaf is pure.
+export { normalizePrep } from '@dnd/core/src/shared/prep'
+export type { Ability, AmbientLevel, RoomNote, TimeOfDay, TriggerDef, Weather }
 // …and the world rules with it, so the referee and the table read the light off one import
 // (`worldLightOf` below) the way they already read `needsLight`.
 export { resolveWorldLight }
@@ -39,10 +49,23 @@ export interface ResolvedTrigger {
   /** A `light` action's lightId → the light's own display name, resolved server-side —
    *  the pure module never imports the map to look one up itself. */
   lightNames?: Record<string, string>
+  /** Set whenever the trigger carries an `encounter` action: the anchor zone's point (or an
+   *  area zone's centre), where spawned tokens fan out from. */
+  spawnAt?: { x: number; y: number }
+}
+
+/** A v2 room note, resolved the way triggers are: `roomId` set only for a `showOnReveal`
+ *  note whose anchor resolves to a room; `inert` when it cannot pop (browse still works —
+ *  a note is readable at the table regardless). */
+export interface ResolvedNote {
+  note: RoomNote
+  roomId?: string
+  inert?: string
 }
 
 export interface ResolvedPrep {
   triggers: ResolvedTrigger[]
+  notes: ResolvedNote[]
 }
 
 export interface TriggerPrompt {

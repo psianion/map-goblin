@@ -106,8 +106,10 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   modules.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf))
   modules.register(doorsModule(vision.doorsOf, vision.playerDoors))
   // Shared with http.ts's GET .../prep (F3): one memoized instance so the DM's prep panel
-  // and the live cascade resolve the same scene's triggers off the same cache.
-  const triggerDeps = createTriggerDeps(stores, vision.sceneMapOf)
+  // and the live cascade resolve the same scene's triggers off the same cache. The registry
+  // handle is what lets a fired encounter materialize (internal tokens.spawn /
+  // initiative.seed dispatches — the same door triggers.event comes in through).
+  const triggerDeps = createTriggerDeps(stores, vision.sceneMapOf, modules)
   modules.register(triggersModule(triggerDeps))
   for (const module of options.modules ?? []) modules.register(module)
 

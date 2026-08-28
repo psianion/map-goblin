@@ -36,11 +36,46 @@ export const vocabLabel = (v: TimeOfDay | Weather | AmbientLevel): string =>
  * Everything a DM authors against a map beyond its geometry.
  *
  * `version` is the prep schema's own revision, independent of the map file
- * version: encounters/monsters arrive as version 2 without a map migration.
+ * version. v2 added `notes` and the `encounter` action; v1 blobs (older files,
+ * older server rows) are upgraded in place by `normalizePrep` at every boundary
+ * where stored prep is read — nothing ever writes v1 again.
  */
 export interface ScenePrep {
+  version: 2;
+  triggers: TriggerDef[];
+  notes: RoomNote[];
+}
+
+/** The shape v1 wrote — accepted on read, never written. */
+export interface ScenePrepV1 {
   version: 1;
   triggers: TriggerDef[];
+}
+
+export function normalizePrep(prep: ScenePrep | ScenePrepV1): ScenePrep {
+  if (prep.version === 2) return prep;
+  return { version: 2, triggers: prep.triggers, notes: [] };
+}
+
+/**
+ * A DM's room note — reference text anchored to a zone, readable at the table
+ * any time. Notes are prep: stripped from every player-bound document, same as
+ * triggers.
+ */
+export interface RoomNote {
+  id: string;
+  /** Anchor `ZoneChild` id, same contract as TriggerCondition (never a room id). */
+  zoneId: string;
+  title: string;
+  body: string;
+  /** Keys into the map document's `customImages` — handout art, references. */
+  imageKeys: string[];
+  /**
+   * Surface the note as a DM toast when the anchor zone's room is revealed
+   * (point zone → containing room, resolved server-side like room-revealed
+   * triggers). Off = browse-only.
+   */
+  showOnReveal: boolean;
 }
 
 export interface TriggerDef {
@@ -83,4 +118,24 @@ export type TriggerAction =
   | { kind: 'ability-check'; ability: Ability; dc: number; text: string }
   /** Saved and fired to the DM-only trigger log in v1; table UX is deferred. */
   | { kind: 'prompt'; prompt: 'initiative' | 'attack'; text?: string }
-  | { kind: 'environment'; time?: TimeOfDay; weather?: Weather };
+  | { kind: 'environment'; time?: TimeOfDay; weather?: Weather }
+  /**
+   * v2 — a prepped token setup. On fire: DM log narration; `spawn` places the
+   * roster's tokens inside the anchor zone; `seedInitiative` adds them to the
+   * initiative tracker with rolled HP (NPC HP stays DM-only via the tracker's
+   * existing redaction).
+   */
+  | { kind: 'encounter'; name: string; monsters: MonsterEntry[]; spawn: boolean; seedInitiative: boolean };
+
+export interface MonsterEntry {
+  id: string;
+  name: string;
+  /** How many of this monster; spawned tokens are named `Name 1..N` when count > 1. */
+  count: number;
+  /** Dice formula (`NdM(+|-)K`), rolled per monster at fire time. Absent = no HP tracked. */
+  hp?: string;
+  /** Same vocabulary as the tokens module's TokenSize (core cannot import mechanics). */
+  size?: 'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'gargantuan';
+  /** Pack-sourced token art; absent = placeholder disc with the name's initial. */
+  tokenRef?: { packId: string; assetId: string };
+}

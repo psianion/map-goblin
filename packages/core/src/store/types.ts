@@ -2,7 +2,7 @@ export * from '../shared/types';
 export * from '../shared/prep';
 export * from '../shared/world';
 import type { AnyChild, WallSegment, WallEdits, WallType, WallDirection, DoorStyle, MaskData, Room } from '../shared/types';
-import type { ScenePrep, TriggerDef } from '../shared/prep';
+import type { RoomNote, ScenePrep, TriggerDef } from '../shared/prep';
 import type { MapEnvironment, NightSky } from '../shared/world';
 import type { Polygon } from '../types/geometry';
 
@@ -602,6 +602,7 @@ export interface MapBuilderStore {
   setManifest: (manifest: AssetManifest) => void;
   markCategoryLoaded: (categoryId: string) => void;
   addCustomImage: (id: string, base64: string) => void;
+  removeCustomImage: (id: string) => void;
 
   // sublayer visibility actions
   setSublayerVisibility: (layerId: string, sublayer: keyof SublayerVisibility, visible: boolean) => void;
@@ -642,6 +643,8 @@ export interface MapBuilderStore {
   // prep actions
   upsertTrigger: (trigger: TriggerDef) => void;
   removeTrigger: (triggerId: string) => void;
+  upsertNote: (note: RoomNote) => void;
+  removeNote: (noteId: string) => void;
 
   // bulk / serialization
   loadFromFile: (data: SerializedMapData, splatPngs?: [Blob | null, Blob | null, Blob | null]) => void;

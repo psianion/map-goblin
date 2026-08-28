@@ -26,7 +26,9 @@ import {
 import type { TriggerDeps } from '@dnd/mechanics/triggers'
 import type { Vision } from './fog/vision'
 import { parseMapFile, unwrapMapFile } from './mapImport'
-import type { ScenePrep, SerializedMapData } from '@dnd/core/src/store/types'
+import type { ScenePrep, ScenePrepV1, SerializedMapData } from '@dnd/core/src/store/types'
+// D3 — the value comes through mechanics (pure), never a runtime @dnd/core import.
+import { normalizePrep } from '@dnd/mechanics/triggers'
 import type { ModuleRegistry } from './modules/registry'
 import type { SessionManager } from './ws/SessionManager'
 
@@ -485,7 +487,15 @@ function getScenePrep(deps: HttpDeps, req: IncomingMessage, res: ServerResponse,
   const resolved = (resolvedPrep?.triggers ?? []).map((t) =>
     t.inert ? { id: t.def.id, inert: t.inert } : { id: t.def.id },
   )
-  json(res, 200, { prep: scene.prep ? (JSON.parse(scene.prep) as ScenePrep) : null, resolved })
+  const resolvedNotes = (resolvedPrep?.notes ?? []).map((n) =>
+    n.inert ? { id: n.note.id, inert: n.inert } : { id: n.note.id },
+  )
+  json(res, 200, {
+    // Normalized on the way out — stored blobs may still be v1, clients only see v2.
+    prep: scene.prep ? normalizePrep(JSON.parse(scene.prep) as ScenePrep | ScenePrepV1) : null,
+    resolved,
+    resolvedNotes,
+  })
 }
 
 /**
@@ -510,20 +520,26 @@ async function putScenePrep(
 
   const body = await readJson(req, res)
   if (!body) return
-  if (!isScenePrep(body)) return json(res, 400, { error: 'prep must be {version: 1, triggers: [...]}' })
+  if (!isScenePrep(body)) {
+    return json(res, 400, { error: 'prep must be {version: 2, triggers: [...], notes: [...]}' })
+  }
 
   // Only the declared shape is persisted — an extra top-level key or a malformed trigger
   // riding along in the body would otherwise be stored verbatim (N3); per-trigger validation
-  // is M4's runtime concern, not this endpoint's.
-  deps.stores.scenes.setPrep(sceneId, JSON.stringify({ version: 1, triggers: body.triggers }))
-  json(res, 200, { prep: { version: 1, triggers: body.triggers } })
+  // is M4's runtime concern, not this endpoint's. v1 bodies (older clients) upgrade here —
+  // nothing writes v1 anymore.
+  const prep = normalizePrep(body)
+  const stored: ScenePrep = { version: 2, triggers: prep.triggers, notes: prep.notes }
+  deps.stores.scenes.setPrep(sceneId, JSON.stringify(stored))
+  json(res, 200, { prep: stored })
 }
 
 /** Just enough shape-checking that a bad body 400s instead of corrupting the stored JSON. */
-function isScenePrep(value: unknown): value is ScenePrep {
+function isScenePrep(value: unknown): value is ScenePrep | ScenePrepV1 {
   if (typeof value !== 'object' || value === null) return false
-  const { version, triggers } = value as Record<string, unknown>
-  return version === 1 && Array.isArray(triggers)
+  const { version, triggers, notes } = value as Record<string, unknown>
+  if (!Array.isArray(triggers)) return false
+  return version === 1 || (version === 2 && Array.isArray(notes))
 }
 
 /** POST /api/campaigns/:id/assets — DM, ≤ 2MB, raw image bytes (D11). */

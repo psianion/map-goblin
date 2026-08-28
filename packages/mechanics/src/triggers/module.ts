@@ -16,6 +16,7 @@ import {
   sceneTriggersOf,
   worldOf,
   type LightEdit,
+  type ResolvedPrep,
   type ResolvedTrigger,
   type SceneTriggers,
   type TriggerLogEntry,
@@ -28,6 +29,7 @@ import {
   TIMES,
   WEATHERS,
   type AmbientLevel,
+  type MonsterEntry,
   type TimeOfDay,
   type TriggerAction,
   type Weather,
@@ -49,12 +51,40 @@ export interface TriggerToken {
   hidden?: boolean
 }
 
+/** What an `encounter` fire hands back to the server: concrete instances to materialize.
+ *  The ctx is the dispatch context the fire ran under — the server re-dispatches the
+ *  internal tokens/initiative writes with it. */
+export interface EncounterEffects {
+  sceneId: string
+  name: string
+  /** Empty when the action's `spawn` is off. Ids are minted here ('etok' prefix — never
+   *  colliding with the tokens module's own 'tok' mints). */
+  spawn: {
+    id: string
+    name: string
+    x: number
+    y: number
+    size: MonsterEntry['size'] & string
+    packAsset?: { packId: string; assetId: string }
+  }[]
+  /** Empty when the action's `seedInitiative` is off. `hp` is already rolled. */
+  seed: { name: string; hp?: number; tokenId?: string }[]
+}
+
+export type EncounterCtx = Omit<ModuleContext<unknown>, 'state' | 'setState'>
+
 export interface TriggerDeps {
   /** Fresh read every call — prep PUTs are quiet, so this module never caches it. */
-  prepOf(campaignId: string, sceneId: string): { triggers: ResolvedTrigger[] } | null
+  prepOf(campaignId: string, sceneId: string): ResolvedPrep | null
   tokensOf(campaignId: string, sceneId: string): Record<string, TriggerToken>
   /** Room ids currently revealed-or-explored. */
   exploredOf(campaignId: string, sceneId: string): readonly string[]
+  /**
+   * Materializes an encounter's spawn/seed lists (server: internal `tokens.spawn` and
+   * `initiative.seed` dispatches). Optional so the pure-module tests run without a server;
+   * an encounter fired with no impl still logs, it just places nothing.
+   */
+  applyEncounter?(effects: EncounterEffects, ctx: EncounterCtx): void
   /** Default `../dice/roll` — injected for tests. */
   rollFn?: typeof roll
   /** Default `Date.now` — injected for tests. */
@@ -411,7 +441,7 @@ function fireCommand(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
 
   const scene = cloneScene(sceneTriggersOf(ctx.state, sceneId))
   const now = (deps.now ?? Date.now)()
-  fireTrigger(scene, trigger, null, deps, now)
+  fireTrigger(scene, trigger, null, deps, now, sceneId, ctx)
   setScene(ctx, sceneId, scene)
 }
 
@@ -527,11 +557,18 @@ function event(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
   let changed = false
 
   // A true fog reset re-arms room-revealed triggers only — a sprung trap stays sprung, the
-  // room just goes dark again and can be walked into a second time.
+  // room just goes dark again and can be walked into a second time. Reveal-notes re-arm on
+  // the same rule (their `fired` keys are `note:`-prefixed so the two namespaces never mix).
   if (source.module === 'fog' && source.action === 'reset') {
     for (const t of prep.triggers) {
       if (t.def.when.kind === 'room-revealed' && t.def.id in scene.fired) {
         delete scene.fired[t.def.id]
+        changed = true
+      }
+    }
+    for (const n of prep.notes) {
+      if (noteKey(n.note.id) in scene.fired) {
+        delete scene.fired[noteKey(n.note.id)]
         changed = true
       }
     }
@@ -540,6 +577,26 @@ function event(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
   const tokens = Object.values(deps.tokensOf(ctx.campaignId, sceneId)).filter((t) => !t.hidden)
   const explored = deps.exploredOf(ctx.campaignId, sceneId)
 
+  // Reveal-notes: the DM's read-aloud text surfacing at exactly the moment the party uncovers
+  // the room. DM-only always — a note is prep, never player narration.
+  for (const n of prep.notes) {
+    if (!n.note.showOnReveal || n.inert || !n.roomId) continue
+    if (explored.includes(n.roomId) && !scene.fired[noteKey(n.note.id)]) {
+      pushLog(
+        scene,
+        {
+          kind: 'note',
+          text: n.note.title ? `${n.note.title} — ${n.note.body}` : n.note.body,
+          toPlayers: false,
+          detail: { noteId: n.note.id },
+        },
+        now,
+      )
+      scene.fired[noteKey(n.note.id)] = now
+      changed = true
+    }
+  }
+
   for (const t of prep.triggers) {
     if (!t.def.enabled) continue
     if (scene.disabled[t.def.id]) continue
@@ -547,7 +604,7 @@ function event(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
 
     if (t.def.when.kind === 'room-revealed') {
       if (t.roomId && explored.includes(t.roomId) && !scene.fired[t.def.id]) {
-        fireTrigger(scene, t, null, deps, now)
+        fireTrigger(scene, t, null, deps, now, sceneId, ctx)
         changed = true
       }
       continue
@@ -564,7 +621,7 @@ function event(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
       if (insideToken) {
         if (!wasArmed) {
           if (!(t.def.once && scene.fired[t.def.id])) {
-            fireTrigger(scene, t, insideToken, deps, now)
+            fireTrigger(scene, t, insideToken, deps, now, sceneId, ctx)
           }
           scene.armed[t.def.id] = true
           changed = true
@@ -608,6 +665,10 @@ function cloneScene(scene: SceneTriggers): SceneTriggers {
   }
 }
 
+/** The `fired`-map key a reveal-note uses — prefixed so the note and trigger id namespaces
+ *  can never collide in the one shared map. */
+const noteKey = (noteId: string): string => `note:${noteId}`
+
 /** Runs every action on a trigger and marks it fired. `token` is the one whose entry caused
  *  this (enter-region/within-radius) or null (room-revealed, and a manual `fire`). */
 function fireTrigger(
@@ -616,8 +677,10 @@ function fireTrigger(
   token: TriggerToken | null,
   deps: TriggerDeps,
   now: number,
+  sceneId: string,
+  ctx: Ctx,
 ): void {
-  for (const action of t.def.actions) runFireAction(scene, t, action, token, deps, now)
+  for (const action of t.def.actions) runFireAction(scene, t, action, token, deps, now, sceneId, ctx)
   scene.fired[t.def.id] = now
 }
 
@@ -628,6 +691,8 @@ function runFireAction(
   token: TriggerToken | null,
   deps: TriggerDeps,
   now: number,
+  sceneId: string,
+  ctx: Ctx,
 ): void {
   const targetIdentityId = token ? token.ownerId : null
   switch (action.kind) {
@@ -746,5 +811,85 @@ function runFireAction(
       pushLog(scene, { triggerId: t.def.id, kind: 'environment', text: envText(delta), toPlayers: true }, now)
       return
     }
+
+    case 'encounter': {
+      // The module rolls HP and lays out spawn positions (it owns the dice and the resolved
+      // anchor); materializing the token/initiative rows is the server's (`applyEncounter`).
+      const rollFn = deps.rollFn ?? roll
+      const at = t.spawnAt
+      const spawn: NonNullable<EncounterEffects['spawn']> = []
+      const seed: NonNullable<EncounterEffects['seed']> = []
+      let placed = 0
+      for (const monster of action.monsters) {
+        for (let n = 1; n <= monster.count; n++) {
+          const name = monster.count > 1 ? `${monster.name} ${n}` : monster.name
+          let hp: number | undefined
+          if (monster.hp) {
+            // Resolver validates the formula (a bad one marks the trigger inert), so this
+            // guard is only against the two drifting — skip HP, never kill the cascade.
+            try {
+              hp = rollFn(monster.hp).total
+            } catch {
+              hp = undefined
+            }
+          }
+          const id = mintId('etok')
+          const willSpawn = action.spawn && at !== undefined
+          if (willSpawn) {
+            const [dx, dy] = SPAWN_OFFSETS[Math.min(placed, SPAWN_OFFSETS.length - 1)]
+            spawn.push({
+              id,
+              name,
+              x: at!.x + dx,
+              y: at!.y + dy,
+              size: monster.size ?? 'medium',
+              ...(monster.tokenRef ? { packAsset: monster.tokenRef } : {}),
+            })
+            placed++
+          }
+          if (action.seedInitiative) {
+            seed.push({
+              name,
+              ...(hp !== undefined ? { hp } : {}),
+              ...(willSpawn ? { tokenId: id } : {}),
+            })
+          }
+        }
+      }
+      if (deps.applyEncounter && (spawn.length > 0 || seed.length > 0)) {
+        deps.applyEncounter({ sceneId, name: action.name, spawn, seed }, ctx)
+      }
+      const total = action.monsters.reduce((s, m) => s + m.count, 0)
+      const what = [
+        spawn.length > 0 ? `${spawn.length} placed` : null,
+        seed.length > 0 ? 'initiative seeded' : null,
+      ].filter(Boolean)
+      pushLog(
+        scene,
+        {
+          triggerId: t.def.id,
+          kind: 'encounter',
+          text: `${action.name} — ${total} combatant${total === 1 ? '' : 's'}${what.length ? ` (${what.join(', ')})` : ''}`,
+          toPlayers: false,
+          detail: { spawned: spawn.length, seeded: seed.length },
+        },
+        now,
+      )
+      return
+    }
   }
 }
+
+/** Grid-cell offsets fanning out from the anchor — centre first, then rings. A roster past
+ *  25 stacks on the last cell (the resolver caps rosters well below that anyway). */
+const SPAWN_OFFSETS: readonly [number, number][] = (() => {
+  const cells: [number, number][] = [[0, 0]]
+  for (let r = 1; r <= 2; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) === r) cells.push([dx, dy])
+      }
+    }
+  }
+  return cells
+})()
