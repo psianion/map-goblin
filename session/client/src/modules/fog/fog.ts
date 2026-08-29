@@ -596,34 +596,30 @@ export function fogFrame(mapData: unknown): Frame | null {
 }
 
 /**
- * The ground the map carries terrain paint on, as one rectangle — the splat's own bounds, off
- * the referee's document for the reason `serverRooms` reads that document: it is the same
- * statement both seats are drawn from, and a player's copy carries it unredacted (the whole-map
- * splat going to players is a documented decision — `http.ts`'s `getMapImage`).
+ * The ground the map carries terrain paint on: the document's own switches, and the paint
+ * itself as `decodePaintedArea` read it off the splat bitmaps (`paintedArea` on the session
+ * store). Off the referee's document for the reason `serverRooms` reads that document — it is
+ * the same statement both seats are drawn from, and a player's copy carries it unredacted (the
+ * whole-map splat going to players is a documented decision — `http.ts`'s `getMapImage`).
  *
- * The bounds are the painted region's box, not its pixels, which is the coarseness this wants:
- * it is used as a *clip* on what the party's own sight and the referee's own region record are
- * allowed to open (`visionRegion`), never as a reveal of its own. Nothing painted, nothing
+ * This is a *clip* on what the party's own sight and the referee's own region record are
+ * allowed to open (`visionRegion`), never a reveal of its own. Nothing painted, nothing
  * switched on, or an empty palette ⇒ no painted ground at all, and the clip is what it was.
  *
- * ponytail: one box, not the splat's alpha. Reading the paint per pixel means pulling the PNG
- * back off the GPU on every mask rebuild; the day a map paints two islands far apart and the
- * gap between them wants to stay dark, the fix is the authored bounds being per-stroke.
+ * It used to answer with the splat's bounding box, and a box is a claim about a rectangle
+ * rather than about paint: on the Goblin Warren it covered 1536 cells over 521 painted ones,
+ * and the cave mouth's fire ring — radius 15, through a doorless mouth — cleared a lit dome of
+ * bare void inside it on every player seat. `decoded` is the paint, cell by cell. Null while
+ * the decode is in flight, which reads here as no paint at all: a mask that has not been told
+ * where the ground is fails dark.
  */
-export function paintedGround(mapData: unknown): Polygon[] {
+export function paintedGround(mapData: unknown, decoded: Polygon[] | null): Polygon[] {
   const terrain = (mapData as SerializedMapData | null)?.mapSettings?.terrain;
   if (!terrain?.bounds || terrain.visible === false) return [];
   if (!(terrain.palette ?? []).some(Boolean)) return [];
   const { minX, minY, maxX, maxY } = terrain.bounds;
   if (!(maxX > minX && maxY > minY)) return [];
-  return [
-    [
-      [minX, minY],
-      [maxX, minY],
-      [maxX, maxY],
-      [minX, maxY],
-    ],
-  ];
+  return decoded ?? [];
 }
 
 /**

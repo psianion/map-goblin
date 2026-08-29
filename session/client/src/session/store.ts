@@ -1,7 +1,9 @@
 import { create } from 'zustand';
+import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import type { PlayerInfo, Role, ServerMessage, SessionState } from '@dnd/core/src/shared/protocol';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import { mergeMapDelta, invalidateSceneDocs, type MapDelta } from './loadSceneMap';
+import { decodePaintedArea } from './paintedArea';
 import { WebSocketClient } from './WebSocketClient';
 import type { ConnectionStatus } from './WebSocketClient';
 
@@ -65,6 +67,13 @@ export interface SessionStore {
    * `loadFromFile` with the document so they land in the same store pass.
    */
   splatPngs: [Blob | null, Blob | null, Blob | null];
+  /**
+   * Where those splats actually carry paint, decoded once per map load (`decodePaintedArea`)
+   * — the ground a player's mask may open onto beside the rooms they hold. Null until the
+   * decode lands, which the fog reads as no painted ground at all: a mask that has not been
+   * told where the paint is fails dark, for the one load it takes.
+   */
+  paintedArea: Polygon[] | null;
   /** Most recent server refusal; modules interpret it (see `useDoorFeedback`). */
   lastError: ServerError | null;
   latencyMs: number | null;
@@ -121,6 +130,7 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
   mapData: null,
   loadedScene: null,
   splatPngs: [null, null, null],
+  paintedArea: null,
   lastError: null,
   latencyMs: null,
   client: null,
@@ -147,12 +157,22 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
     set({ client: null, token: null, connection: 'closed' });
   },
 
-  setMapData: (mapData, splatPngs, loadedScene) =>
+  setMapData: (mapData, splatPngs, loadedScene) => {
     set({
       mapData,
-      ...(splatPngs ? { splatPngs } : {}),
+      ...(splatPngs ? { splatPngs, paintedArea: null } : {}),
       ...(loadedScene ? { loadedScene } : {}),
-    }),
+    });
+    // New bitmaps, new paint. Off the critical path on purpose — the document is already on
+    // screen — and it lands as a store write, which is a mask input like any other, so the
+    // fog rebuilds on it (`subscribeFogScene`). A swap that supersedes this one wins: the
+    // splats it installed are the ones this answer has to be about.
+    if (!splatPngs) return;
+    const terrain = (mapData as SerializedMapData | null)?.mapSettings?.terrain;
+    void decodePaintedArea(splatPngs, terrain).then((paintedArea) => {
+      if (get().splatPngs === splatPngs) set({ paintedArea });
+    });
+  },
 
   setInviteCode: (inviteCode) => set({ inviteCode }),
 

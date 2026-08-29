@@ -856,27 +856,46 @@ describe('regionRects — the swept cells as geometry', () => {
 describe('paintedGround — the terrain the referee sent', () => {
   const doc = (terrain: unknown) => ({ mapSettings: { terrain } }) as never;
   const BOUNDS = { minX: -5, minY: 40, maxX: 58, maxY: 64 };
+  const on = doc({ palette: ['gg:grass', null], bounds: BOUNDS });
+  /** What `decodePaintedArea` read off the splats: two strips, not the box around them. */
+  const DECODED: Polygon[] = [
+    [
+      [24, 45],
+      [31, 45],
+      [31, 61],
+      [24, 61],
+    ],
+    [
+      [40, 50],
+      [44, 50],
+      [44, 54],
+      [40, 54],
+    ],
+  ];
 
-  it('is the splat bounds as one rectangle', () => {
-    expect(paintedGround(doc({ palette: ['gg:grass', null], bounds: BOUNDS }))).toEqual([
-      [
-        [-5, 40],
-        [58, 40],
-        [58, 64],
-        [-5, 64],
-      ],
-    ]);
+  it('is the paint the splats carry, not the box around it', () => {
+    // The box is `BOUNDS` — 63 × 24 cells. What is painted inside it is these two strips, and
+    // the void between them is the dome the fire ring used to clear on the player's seat.
+    expect(paintedGround(on, DECODED)).toEqual(DECODED);
+  });
+
+  it('is nothing at all until the decode lands', () => {
+    // A mask drawn before the splats are read has not been told where the ground is, and a fog
+    // that does not know fails dark rather than open.
+    expect(paintedGround(on, null)).toEqual([]);
   });
 
   it('is nothing at all when there is no paint to reveal', () => {
-    expect(paintedGround(null)).toEqual([]);
-    expect(paintedGround(doc(undefined))).toEqual([]);
+    expect(paintedGround(null, DECODED)).toEqual([]);
+    expect(paintedGround(doc(undefined), DECODED)).toEqual([]);
     // Nothing painted yet, the whole layer switched off, and a palette with no texture in it —
     // three ways of having no art out there, and the clip stays exactly what it was for all of
-    // them.
-    expect(paintedGround(doc({ palette: ['gg:grass'], bounds: null }))).toEqual([]);
-    expect(paintedGround(doc({ palette: ['gg:grass'], bounds: BOUNDS, visible: false }))).toEqual([]);
-    expect(paintedGround(doc({ palette: [null, null], bounds: BOUNDS }))).toEqual([]);
+    // them, whatever the decode came back with.
+    expect(paintedGround(doc({ palette: ['gg:grass'], bounds: null }), DECODED)).toEqual([]);
+    expect(
+      paintedGround(doc({ palette: ['gg:grass'], bounds: BOUNDS, visible: false }), DECODED),
+    ).toEqual([]);
+    expect(paintedGround(doc({ palette: [null, null], bounds: BOUNDS }), DECODED)).toEqual([]);
   });
 });
 
@@ -1055,6 +1074,47 @@ describe('visionRegion — sweep, memory, void', () => {
       // …and paint does not reach past its own bounds: a cell the party swept off the paint
       // and outside every room is still void.
       expect(inRegion(onPaint([LOOKING]).memory, [6.5, 5.5])).toBe(false);
+    });
+
+    it('leaves the gap between two strips of paint as dark as any other void', () => {
+      // The leak: this clip used to be the splat's *bounding box*, so the space between two
+      // painted strips counted as ground the party's sight was allowed to open. On the Goblin
+      // Warren that box spanned the map's whole southern half, and the cave mouth's fire ring
+      // — radius 15, through a doorless mouth — cleared a lit dome of bare void inside it on
+      // every player seat while the referee's own map had nothing there at all.
+      const ISLANDS: Polygon[] = [
+        [
+          [18, 0],
+          [20, 0],
+          [20, 8],
+          [18, 8],
+        ],
+        [
+          [26, 0],
+          [28, 0],
+          [28, 8],
+          [26, 8],
+        ],
+      ];
+      const ACROSS: Polygon = [
+        [17, 0],
+        [29, 0],
+        [29, 8],
+        [17, 8],
+      ];
+      const { clear } = visionRegion(
+        [ACROSS],
+        swept,
+        [],
+        [WEST.boundary, EAST.boundary],
+        PAD,
+        FOG_FEATHER,
+        undefined,
+        ISLANDS,
+      );
+      expect(inRegion(clear, [19, 4])).toBe(true);
+      expect(inRegion(clear, [27, 4])).toBe(true);
+      expect(inRegion(clear, [23, 4])).toBe(false);
     });
   });
 

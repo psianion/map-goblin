@@ -589,7 +589,7 @@ export function voidStyle(composited = true, grade?: string): VoidStyle {
 
 /** Everything the fog draws from, read once per mutation. */
 export function fogScene(): FogScene {
-  const { session, you, mapData } = useSessionStore.getState();
+  const { session, you, mapData, paintedArea } = useSessionStore.getState();
   const sceneId = session?.activeSceneId ?? null;
   const layers = useStore.getState().layers;
   const rooms = serverRooms(mapData);
@@ -746,7 +746,7 @@ export function fogScene(): FogScene {
     // The painted ground the tiers may open onto, beside the rooms — read off the referee's
     // document like the rooms are, and only in vision mode, where the tiers are cut from a
     // sweep rather than from the room record. Rooms mode has no cell to put there.
-    painted: isVision && masked ? paintedGround(mapData) : undefined,
+    painted: isVision && masked ? paintedGround(mapData, paintedArea) : undefined,
     // §3 — the light gate, taken only where it is the answer: a vision scene the DM has turned
     // to `darkness`. Every light source's own sweep (placed lights the table has left on, plus
     // token-carried ones), and separately the sweeps of the party's darkvision eyes, which are
@@ -788,7 +788,7 @@ export function subscribeFogScene(onChange: () => void): () => void {
   let queued = false;
 
   const changed = (): boolean => {
-    const { session, you, mapData } = useSessionStore.getState();
+    const { session, you, mapData, paintedArea } = useSessionStore.getState();
     const next = [
       you?.role,
       // P5 — whose eyes the mask is drawn through in individual share, so a seat rebind is a
@@ -805,6 +805,10 @@ export function subscribeFogScene(onChange: () => void): () => void {
       // The document the mask's rooms come from: replaced wholesale on a load and on every
       // merged reveal delta, so identity is the whole test here too.
       mapData,
+      // …and where that document's splats carry paint, which lands one decode after the
+      // document does. Without it the first mask of a map is drawn with no painted ground and
+      // nothing ever asks again — the strip between two floors stays black for the session.
+      paintedArea,
       useStore.getState().layers,
       // The void look the fog imitates — background colour, ambient, grid toggle. The whole
       // settings object rather than the tint alone now: the environment type, the palette and
