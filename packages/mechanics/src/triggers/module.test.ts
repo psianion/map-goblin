@@ -7,8 +7,10 @@ import type { RollResult } from '../dice/roll'
 import {
   ambientOf,
   effectiveLight,
+  journalOf,
   needsLight,
   sceneTriggersOf,
+  shareReceiptsOf,
   triggersModule,
   worldLightOf,
   worldOf,
@@ -105,6 +107,8 @@ describe('authz matrix', () => {
     ['dismiss-prompt', { promptId: 'x' }],
     ['set-light', { lightId: 'l1', patch: { visible: true } }],
     ['reset-light', { lightId: 'l1' }],
+    ['share-note', { noteId: 'x' }],
+    ['share-card', { title: 'x', body: 'y' }],
   ] as const
 
   it.each(dmOnly)('%s is dm-only', (action, payload) => {
@@ -1035,5 +1039,135 @@ describe('reveal notes (prep v2)', () => {
     })
     const state = fireEvent(triggersModule(deps), empty, move)
     expect(sceneOf(state)).toBeUndefined()
+  })
+})
+
+describe('journal: share-note (snapshot semantics)', () => {
+  let noteBody = 'The cook is a spy.'
+  const NOTE = {
+    id: 'n1',
+    zoneId: 'z1',
+    title: 'Kitchens',
+    body: 'placeholder',
+    imageKeys: ['img1'],
+    showOnReveal: false,
+  }
+  // `prepOf` is a live closure over `noteBody` — the same shape the real server's resolver
+  // has (fresh read every call, N1 in prepResolver.ts) — so a share that instead stored a
+  // reference back to prep, rather than copying fields, would leak a later edit here too.
+  const deps = () =>
+    makeDeps({ prepOf: () => ({ triggers: [], notes: [{ note: { ...NOTE, body: noteBody } }] }) })
+
+  it('snapshots title/body/imageKeys — a later note edit never rewrites the published entry', () => {
+    const mod = triggersModule(deps())
+    const { next, error } = run(mod, empty, DM, 'share-note', { sceneId: SCENE, noteId: 'n1' })
+    expect(error).toBeNull()
+    const entry = journalOf(next)[0]!
+    expect(entry).toMatchObject({ title: 'Kitchens', body: 'The cook is a spy.', sourceNoteId: 'n1', sceneId: SCENE })
+    expect(entry.imageKeys).toEqual(['img1'])
+    expect(entry.imageKeys).not.toBe(NOTE.imageKeys) // copied, not aliased
+
+    noteBody = 'Edited after sharing — the cook fled.'
+    // No re-share happened: the published entry is untouched even though `prepOf` (the same
+    // live-read seam the server itself uses) would now answer differently.
+    expect(journalOf(next)[0]!.body).toBe('The cook is a spy.')
+  })
+
+  it('defaults kicker to lore, and records a DM-only share receipt', () => {
+    const mod = triggersModule(deps())
+    const { next } = run(mod, empty, DM, 'share-note', { sceneId: SCENE, noteId: 'n1' })
+    const entry = journalOf(next)[0]!
+    expect(entry.kicker).toBe('lore')
+    expect(shareReceiptsOf(next)['n1']).toEqual({ at: 1000, journalEntryId: entry.id })
+  })
+
+  it('accepts an explicit kicker and rejects one outside the vocabulary', () => {
+    const mod = triggersModule(deps())
+    const ok = run(mod, empty, DM, 'share-note', { sceneId: SCENE, noteId: 'n1', kicker: 'person' })
+    expect(journalOf(ok.next)[0]!.kicker).toBe('person')
+    expect(run(mod, empty, DM, 'share-note', { sceneId: SCENE, noteId: 'n1', kicker: 'nope' }).error?.code).toBe(
+      'invalid-command',
+    )
+  })
+
+  it('refuses an unknown note id, and never touches the journal', () => {
+    const mod = triggersModule(deps())
+    const { next, error } = run(mod, empty, DM, 'share-note', { sceneId: SCENE, noteId: 'nope' })
+    expect(error?.code).toBe('invalid-command')
+    expect(next).toBe(empty)
+  })
+})
+
+describe('journal: share-card', () => {
+  it('publishes an on-the-fly text card, no images, defaulting kicker to lore', () => {
+    const mod = triggersModule(makeDeps({ now: () => 42 }))
+    const { next } = run(mod, empty, DM, 'share-card', { sceneId: SCENE, title: 'A Warning', body: 'The bridge is out.' })
+    const entry = journalOf(next)[0]!
+    expect(entry).toMatchObject({
+      kicker: 'lore',
+      title: 'A Warning',
+      body: 'The bridge is out.',
+      sceneId: SCENE,
+      at: 42,
+    })
+    expect(entry.imageKeys).toBeUndefined()
+    expect(entry.sourceNoteId).toBeUndefined()
+  })
+
+  it('accepts an explicit kicker', () => {
+    const mod = triggersModule(makeDeps())
+    const { next } = run(mod, empty, DM, 'share-card', { kicker: 'missive', title: 'T', body: 'B' })
+    expect(journalOf(next)[0]!.kicker).toBe('missive')
+  })
+
+  it('rejects a blank title/body and a payload over the length cap', () => {
+    const mod = triggersModule(makeDeps())
+    expect(run(mod, empty, DM, 'share-card', { title: '', body: 'B' }).error?.code).toBe('invalid-command')
+    expect(run(mod, empty, DM, 'share-card', { title: 'T', body: '' }).error?.code).toBe('invalid-command')
+    expect(run(mod, empty, DM, 'share-card', { title: 'x'.repeat(121), body: 'B' }).error?.code).toBe(
+      'invalid-command',
+    )
+    expect(run(mod, empty, DM, 'share-card', { title: 'T', body: 'x'.repeat(4001) }).error?.code).toBe(
+      'invalid-command',
+    )
+  })
+})
+
+describe('journal: narration, scope and redaction', () => {
+  it('narrates the share as player-visible show-text on the target scene log (toast-picker kind)', () => {
+    const mod = triggersModule(makeDeps())
+    const { next } = run(mod, empty, DM, 'share-card', { sceneId: SCENE, title: 'A Warning', body: 'x' })
+    const line = sceneOf(next)!.log.find((l) => l.kind === 'show-text')
+    expect(line).toBeDefined()
+    expect(line!.toPlayers).toBe(true)
+  })
+
+  it('lives beside `world`, not inside byScene — a card is session state, not per-scene', () => {
+    const mod = triggersModule(makeDeps())
+    const { next } = run(mod, empty, DM, 'share-card', { sceneId: SCENE, title: 'A', body: 'B' })
+    expect(next.journal).toHaveLength(1)
+    const { next: onOtherScene } = run(mod, next, DM, 'share-card', { sceneId: 'scene-2', title: 'C', body: 'D' })
+    // Both cards land in the one shared feed regardless of which scene published them.
+    expect(journalOf(onOtherScene)).toHaveLength(2)
+  })
+
+  it('gives a player the journal but never the share receipts or the raw note', () => {
+    const NOTE = { id: 'n1', zoneId: 'z1', title: 'Kitchens', body: 'A spy.', imageKeys: [], showOnReveal: false }
+    const deps = makeDeps({ prepOf: () => ({ triggers: [], notes: [{ note: NOTE }] }) })
+    const mod = triggersModule(deps)
+    const shared = run(mod, empty, DM, 'share-note', { sceneId: SCENE, noteId: 'n1' }).next
+    const seen = mod.redact!(shared, P1)
+    expect(seen.journal).toEqual(shared.journal)
+    expect(seen.shareReceipts).toBeUndefined()
+  })
+
+  it('caps the journal at 500 entries, dropping the oldest', () => {
+    const mod = triggersModule(makeDeps())
+    let state = empty
+    for (let i = 0; i < 505; i++) {
+      state = run(mod, state, DM, 'share-card', { sceneId: SCENE, title: `T${i}`, body: 'B' }).next
+    }
+    expect(journalOf(state)).toHaveLength(500)
+    expect(journalOf(state)[0]!.title).toBe('T5')
   })
 })

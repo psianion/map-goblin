@@ -13,12 +13,17 @@ import { ANY_ROLE, type GameModule, type ModuleContext } from '../contract'
 import { roll, type RollResult } from '../dice/roll'
 import { COLOR_MAX, ID_MAX, Reject, bad, bool, denied, num, obj, oneOf, str } from '../tokens/validate'
 import {
+  JOURNAL_KICKERS,
+  journalOf,
   sceneTriggersOf,
+  shareReceiptsOf,
   worldOf,
+  type JournalEntry,
   type LightEdit,
   type ResolvedPrep,
   type ResolvedTrigger,
   type SceneTriggers,
+  type ShareReceipt,
   type TriggerLogEntry,
   type TriggerPrompt,
   type TriggersState,
@@ -109,6 +114,8 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
       'reset-light': ['dm'],
       'roll-prompt': ANY_ROLE,
       'dismiss-prompt': ['dm'],
+      'share-note': ['dm'],
+      'share-card': ['dm'],
       // no 'event' entry — see the file header.
     },
     initialState: { byScene: {} },
@@ -129,7 +136,10 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
     //
     // This function rebuilds its answer key by key, so anything NOT copied here is dropped
     // from every player's copy — `world` is copied for the same reason `env` is: the clock and
-    // the sky are what the whole table is looking at.
+    // the sky are what the whole table is looking at. `journal` rides the same way: a card is
+    // published (i.e. shared) by definition, so there is nothing about it to hide. Its DM-only
+    // sibling `shareReceipts` is dropped instead — a player must not learn a note exists just
+    // because the DM has, or hasn't, shared it.
     redact(state, viewer) {
       if (viewer.role === 'dm') return state
       const byScene: TriggersState['byScene'] = {}
@@ -145,7 +155,7 @@ export function triggersModule(deps: TriggerDeps): GameModule<TriggersState> {
           log: scene.log.filter((e) => e.toPlayers || e.forIdentityId === viewer.identityId),
         }
       }
-      return { byScene, world: state.world }
+      return { byScene, world: state.world, journal: state.journal }
     },
   }
 }
@@ -168,6 +178,10 @@ function run(action: string, p: Payload, ctx: Ctx, deps: TriggerDeps): void {
       return rollPrompt(p, ctx, deps)
     case 'dismiss-prompt':
       return dismissPrompt(p, ctx)
+    case 'share-note':
+      return shareNote(p, ctx, deps)
+    case 'share-card':
+      return shareCard(p, ctx, deps)
     case 'event':
       return event(p, ctx, deps)
     default:
@@ -522,6 +536,79 @@ function dismissPrompt(p: Payload, ctx: Ctx): void {
   const promptId = str(p.promptId, 'promptId', ID_MAX)
   if (!scene.prompts.some((pr) => pr.id === promptId)) bad(`no prompt '${promptId}' in that scene`)
   setScene(ctx, sceneId, { ...scene, prompts: scene.prompts.filter((pr) => pr.id !== promptId) })
+}
+
+// ── the Journal (share-note / share-card) ────────────────────────────────────
+
+const JOURNAL_MAX = 500
+const JOURNAL_TITLE_MAX = 120
+const JOURNAL_BODY_MAX = 4000
+
+/**
+ * Appends one entry to the session-scoped journal and narrates its arrival on the *target*
+ * scene's own trigger log — `show-text`/`toPlayers: true` is a kind the client's toast picker
+ * already treats as world narration (useTriggerToasts.ts's `WORLD_KINDS`), so a card's
+ * arrival toasts at the table with zero new client plumbing. One `setState`, same as every
+ * other handler in this file — `extra` folds in `share-note`'s receipt write so it lands in
+ * that one call too.
+ */
+function publishJournalEntry(
+  ctx: Ctx,
+  sceneId: string,
+  entry: JournalEntry,
+  now: number,
+  extra: { shareReceipts?: Record<string, ShareReceipt> } = {},
+): void {
+  const journal = [...journalOf(ctx.state), entry]
+  if (journal.length > JOURNAL_MAX) journal.splice(0, journal.length - JOURNAL_MAX)
+  const scene = cloneScene(sceneTriggersOf(ctx.state, sceneId))
+  pushLog(scene, { kind: 'show-text', text: `${entry.title} — shared to the Journal`, toPlayers: true }, now)
+  ctx.setState({
+    ...ctx.state,
+    journal,
+    ...(extra.shareReceipts ? { shareReceipts: extra.shareReceipts } : {}),
+    byScene: { ...ctx.state.byScene, [sceneId]: scene },
+  })
+}
+
+/**
+ * DM-only. Snapshots a `RoomNote`'s title/body/imageKeys into the Journal — read fresh off
+ * `deps.prepOf` (prep PUTs are quiet, same as `fireCommand`) and copied field by field, never
+ * held by reference, so a DM editing the note afterward cannot rewrite what already went out.
+ */
+function shareNote(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
+  const sceneId = sceneOf(p, ctx)
+  const noteId = str(p.noteId, 'noteId', ID_MAX)
+  const kicker = p.kicker !== undefined ? oneOf(p.kicker, JOURNAL_KICKERS, 'kicker') : 'lore'
+  const prep = deps.prepOf(ctx.campaignId, sceneId)
+  const resolved = prep?.notes.find((n) => n.note.id === noteId)
+  if (!resolved) bad(`no note '${noteId}' in that scene`)
+  const note = resolved.note
+
+  const now = (deps.now ?? Date.now)()
+  const entry: JournalEntry = {
+    id: mintId('j'),
+    at: now,
+    kicker,
+    title: note.title,
+    body: note.body,
+    ...(note.imageKeys.length > 0 ? { imageKeys: [...note.imageKeys] } : {}),
+    sceneId,
+    sourceNoteId: noteId,
+  }
+  const shareReceipts = { ...shareReceiptsOf(ctx.state), [noteId]: { at: now, journalEntryId: entry.id } }
+  publishJournalEntry(ctx, sceneId, entry, now, { shareReceipts })
+}
+
+/** DM-only. An on-the-fly text card — no image support (authored notes carry images). */
+function shareCard(p: Payload, ctx: Ctx, deps: TriggerDeps): void {
+  const sceneId = sceneOf(p, ctx)
+  const kicker = p.kicker !== undefined ? oneOf(p.kicker, JOURNAL_KICKERS, 'kicker') : 'lore'
+  const title = str(p.title, 'title', JOURNAL_TITLE_MAX)
+  const body = str(p.body, 'body', JOURNAL_BODY_MAX)
+  const now = (deps.now ?? Date.now)()
+  const entry: JournalEntry = { id: mintId('j'), at: now, kicker, title, body, sceneId }
+  publishJournalEntry(ctx, sceneId, entry, now)
 }
 
 // ── the internal 'event' action ──────────────────────────────────────────────

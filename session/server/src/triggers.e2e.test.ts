@@ -85,7 +85,7 @@ const TRG_TRAP: TriggerDef = {
   enabled: true,
 }
 
-function mapFile(): SerializedMapData {
+function mapFile(customImages: Record<string, string> = {}): SerializedMapData {
   const layer: DungeonLayer = {
     id: 'layer-1',
     name: 'Dungeon',
@@ -106,7 +106,7 @@ function mapFile(): SerializedMapData {
     mapSettings: { name: 'Dungeon' } as SerializedMapData['mapSettings'],
     grid: { visible: true, snapDivision: 1, style: 'clean' } as SerializedMapData['grid'],
     layers: [layer],
-    customImages: {},
+    customImages,
   }
 }
 
@@ -117,10 +117,11 @@ const prep: ScenePrep = { version: 2, triggers: [TRG_ROOM, TRG_TRAP], notes: [] 
 function seed(
   server: RunningServer,
   seedPrep: ScenePrep = prep,
+  customImages: Record<string, string> = {},
 ): { campaignId: string; dmToken: string; mintPlayer: (name: string) => string } {
   const campaign = server.stores.campaigns.create('Crypt')
   server.stores.identities.mint('dm-1', campaign.id, 'Ann', 'dm')
-  server.stores.maps.insert(SCENE, campaign.id, 'Dungeon', JSON.stringify(mapFile()))
+  server.stores.maps.insert(SCENE, campaign.id, 'Dungeon', JSON.stringify(mapFile(customImages)))
   server.stores.scenes.create(SCENE, campaign.id, SCENE, 'Dungeon', JSON.stringify(seedPrep))
   const hmac = server.config.secrets.hmacSecret
   return {
@@ -509,6 +510,156 @@ describe('a reveal note (prep v2)', () => {
       )
       const stored = server.stores.moduleState.get(campaignId, 'triggers') as TriggersState
       expect(stored.byScene[SCENE]!.log.filter((l) => l.kind === 'note')).toHaveLength(1)
+    })
+  })
+})
+
+// ── Journal v1: share-note / share-card, and the image route's note-image gate ────────────
+
+describe('the Journal (share-note / share-card, and note-image access gating)', () => {
+  const NOTE_WITH_IMAGE = {
+    id: 'note-1',
+    zoneId: 'zone-room',
+    title: 'Old Bridge',
+    body: 'Half-collapsed; the far rope is frayed.',
+    imageKeys: ['img-1'],
+    showOnReveal: false,
+  }
+  const IMAGE = 'data:image/png;base64,aGVsbG8='
+
+  async function fetchImage(server: RunningServer, sceneId: string, key: string, token: string) {
+    return fetch(`http://127.0.0.1:${server.port}/api/maps/${sceneId}/images/${key}`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+  }
+
+  it('share-note snapshots the note into the journal, receipts DM-only, and opens the note image only to players — after the share', async () => {
+    await withServer(async (server) => {
+      // `terrain-0` rides alongside the note's own key, unshared and un-noted — standing in
+      // for a terrain splat / imported picture, which must keep loading for players over
+      // this same route no matter what the note-image gate below does.
+      const { campaignId, dmToken, mintPlayer } = seed(
+        server,
+        { version: 2, triggers: [], notes: [NOTE_WITH_IMAGE] },
+        { 'img-1': IMAGE, 'terrain-0': IMAGE },
+      )
+      await openSession(server, dmToken, campaignId)
+
+      const dm = await connect(server, dmToken)
+      sendJoin(dm)
+      await next(dm, 'session-state')
+      const playerToken = mintPlayer('Pia')
+      const player = await connect(server, playerToken)
+      sendJoin(player)
+      await next(player, 'session-state')
+      await next(dm, 'player-joined')
+
+      // Before any share: the DM can always fetch a note's own picture, a player cannot —
+      // the note has never been published. A key nothing has ever noted (a terrain splat, an
+      // imported picture) is untouched by the gate and stays open to a player throughout.
+      expect((await fetchImage(server, SCENE, 'img-1', dmToken)).status).toBe(200)
+      expect((await fetchImage(server, SCENE, 'img-1', playerToken)).status).toBe(404)
+      expect((await fetchImage(server, SCENE, 'terrain-0', playerToken)).status).toBe(200)
+
+      const frames = await runDrained([dm, player], ['triggers'], () =>
+        sendCommand(dm, 'triggers', 'share-note', { sceneId: SCENE, noteId: 'note-1', kicker: 'place' }),
+      )
+
+      // Both roles receive the published card — it is shared by definition.
+      const dmState = triggersOf(frames.get(dm)!.get('triggers')!)
+      const playerState = triggersOf(frames.get(player)!.get('triggers')!)
+      expect(dmState.journal).toHaveLength(1)
+      expect(playerState.journal).toEqual(dmState.journal)
+      expect(playerState.journal![0]).toMatchObject({
+        kicker: 'place',
+        title: 'Old Bridge',
+        body: 'Half-collapsed; the far rope is frayed.',
+        imageKeys: ['img-1'],
+        sourceNoteId: 'note-1',
+      })
+
+      // The receipt is DM-only bookkeeping — a player's copy never carries it, so a player
+      // cannot infer which (or how many) notes exist unshared.
+      expect((dmState as { shareReceipts?: unknown }).shareReceipts).toBeDefined()
+      expect((playerState as { shareReceipts?: unknown }).shareReceipts).toBeUndefined()
+
+      // The toast-picker kind ('show-text', toPlayers) rides the ordinary trigger log too —
+      // no new client plumbing needed for the card to announce itself at the table.
+      const playerLog = dmState.byScene[SCENE]!.log
+      expect(playerLog.some((l) => l.kind === 'show-text' && l.text.includes('Old Bridge'))).toBe(true)
+
+      // After the share: the same key now opens for the player.
+      expect((await fetchImage(server, SCENE, 'img-1', playerToken)).status).toBe(200)
+
+      dm.close()
+      player.close()
+    })
+  })
+
+  it('keeps an unshared note picture out of the map document itself, in both of its shapes', async () => {
+    await withServer(async (server) => {
+      const { campaignId, dmToken, mintPlayer } = seed(
+        server,
+        { version: 2, triggers: [], notes: [NOTE_WITH_IMAGE] },
+        { 'img-1': IMAGE, 'terrain-0': IMAGE },
+      )
+      await openSession(server, dmToken, campaignId)
+      const dm = await connect(server, dmToken)
+      sendJoin(dm)
+      await next(dm, 'session-state')
+      const playerToken = mintPlayer('Pia')
+
+      const doc = async (token: string, external: boolean) =>
+        (await (
+          await fetch(
+            `http://127.0.0.1:${server.port}/api/maps/${SCENE}${external ? '?images=external' : ''}`,
+            { headers: { authorization: `Bearer ${token}` } },
+          )
+        ).json()) as { customImages?: Record<string, string>; imageKeys?: string[] }
+
+      // `?images=external` is the client's own request shape, so gating only the binary image
+      // route would leave the inline form — one query param away — handing the bytes straight
+      // over. Neither shape may carry an unshared note's picture.
+      const inline = await doc(playerToken, false)
+      expect(Object.keys(inline.customImages ?? {})).toEqual(['terrain-0'])
+      const external = await doc(playerToken, true)
+      expect(external.imageKeys).toEqual(['terrain-0'])
+      // The DM's copy is the file as uploaded, untouched.
+      expect(Object.keys((await doc(dmToken, false)).customImages ?? {}).sort()).toEqual(['img-1', 'terrain-0'])
+
+      const onTriggers = nextModule(dm, 'triggers')
+      sendCommand(dm, 'triggers', 'share-note', { sceneId: SCENE, noteId: 'note-1' })
+      await onTriggers
+
+      // Published: the key rejoins the player's document, so a re-load renders the handout.
+      expect(Object.keys((await doc(playerToken, false)).customImages ?? {}).sort()).toEqual([
+        'img-1',
+        'terrain-0',
+      ])
+      dm.close()
+    })
+  })
+
+  it('share-card publishes a fresh text card with no source note', async () => {
+    await withServer(async (server) => {
+      const { campaignId, dmToken } = seed(server, { version: 2, triggers: [], notes: [] })
+      await openSession(server, dmToken, campaignId)
+      const dm = await connect(server, dmToken)
+      sendJoin(dm)
+      await next(dm, 'session-state')
+
+      const onTriggers = nextModule(dm, 'triggers')
+      sendCommand(dm, 'triggers', 'share-card', {
+        sceneId: SCENE,
+        kicker: 'missive',
+        title: 'A Warning',
+        body: 'The bridge is out.',
+      })
+      const state = triggersOf(await onTriggers)
+      expect(state.journal).toHaveLength(1)
+      expect(state.journal![0]).toMatchObject({ kicker: 'missive', title: 'A Warning', body: 'The bridge is out.' })
+      expect(state.journal![0]!.sourceNoteId).toBeUndefined()
+      dm.close()
     })
   })
 })

@@ -147,10 +147,49 @@ export interface WorldState {
   timeSpeed: TimeSpeed
 }
 
+/** The four voices a Journal card can carry — `vocabLabel`-style Title case is the UI's job,
+ *  this vocabulary is the wire's. Absent on a share request defaults to `'lore'`. */
+export const JOURNAL_KICKERS = ['place', 'person', 'missive', 'lore'] as const
+export type JournalKicker = (typeof JOURNAL_KICKERS)[number]
+
+/**
+ * A published Journal card — the table's player-facing feed. Published only by deliberate DM
+ * action (`share-note` snapshots a `RoomNote`, `share-card` is authored on the fly): a
+ * snapshot, never a live view of prep, so editing the source note after a share leaves
+ * history alone.
+ */
+export interface JournalEntry {
+  id: string
+  at: number
+  kicker: JournalKicker
+  title: string
+  body: string
+  /** Snapshotted from the source note, if any and if it had some — never re-read from prep. */
+  imageKeys?: string[]
+  sceneId: string
+  /** Set only by `share-note` — the `RoomNote` this entry was snapshotted from. */
+  sourceNoteId?: string
+}
+
+/** DM-only bookkeeping: the last time a given note was shared, and into which entry — lets
+ *  the DM's own panel show "Shared 9:41" without telling a player which notes exist. A
+ *  published entry does carry its own `sourceNoteId` to every seat, but that is the id of a
+ *  note the DM deliberately published; what stays DM-only is the map of *every* note to its
+ *  share state, which is what would give away the unshared ones by their absence. */
+export interface ShareReceipt {
+  at: number
+  journalEntryId: string
+}
+
 export interface TriggersState {
   byScene: Record<string, SceneTriggers>
   /** Absent until a DM touches the world — see `worldOf`. */
   world?: WorldState
+  /** Published Journal cards — session-scoped like `world`, not per-scene: a card persists
+   *  across scene switches. Visible to every role in redaction, since publishing IS sharing. */
+  journal?: JournalEntry[]
+  /** noteId → its last share. DM-only in redaction. */
+  shareReceipts?: Record<string, ShareReceipt>
 }
 
 /**
@@ -174,6 +213,13 @@ export const WORLD_DEFAULT: WorldState = { clock: NOON, nightSky: 'full-moon', t
 
 /** The one reading of the optional slice — a campaign that predates the clock reads midday. */
 export const worldOf = (state: TriggersState): WorldState => ({ ...WORLD_DEFAULT, ...state.world })
+
+/** The one reading of the optional slice — a campaign with nothing shared yet reads empty. */
+export const journalOf = (state: TriggersState): JournalEntry[] => state.journal ?? []
+
+/** ditto, for the DM-only receipt map. */
+export const shareReceiptsOf = (state: TriggersState): Record<string, ShareReceipt> =>
+  state.shareReceipts ?? {}
 
 /**
  * The scene's light, as the whole rule sees it: the map's authored environment, the campaign's
