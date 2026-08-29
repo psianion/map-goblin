@@ -30,6 +30,16 @@ function getClipper(): MainModule {
 }
 
 /**
+ * Whether `setClipperModule` has actually been called. The gate a caller checks before
+ * trusting `union`/`difference` to be a real boolean op — without it they fall back to the
+ * identity (subjects handed back concatenated, unmerged), which is silently wrong for a
+ * caller building an occluder out of overlapping rings (see sceneMap.ts's `healMergedFloor`).
+ */
+export function isClipperReady(): boolean {
+  return _clipper !== null;
+}
+
+/**
  * Convert our Polygon[] to Clipper2 PathsD. Caller must delete() the result.
  *
  * `minPoints` is 3 for the closed-ring operations, where anything shorter is a

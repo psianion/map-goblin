@@ -10,7 +10,7 @@
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import type { Viewer } from '@dnd/mechanics/contract'
 import { doorsModule } from '@dnd/mechanics/doors'
 import { fogModule, getCell, type FogState, type SceneFog } from '@dnd/mechanics/fog'
@@ -26,6 +26,7 @@ import { ModuleRegistry } from '../modules/registry'
 import { createTriggerDeps } from '../triggers/prepResolver'
 import { buildRedactor, type OutboundMessage } from '../ws/Broadcaster'
 import { autoExplore } from './autoExplore'
+import { ensureClipperReady } from './clipperBoot'
 import { createVision } from './vision'
 
 const MAP = readFileSync(join(import.meta.dirname, '../../../testdata/vision-two-rooms.mapbuilder'), 'utf8')
@@ -63,9 +64,19 @@ const lock = (shape: ZoneShape): AnyChild =>
 /** Everything east of the wall, so a sweep through the doorway earns exactly nothing. */
 const EAST_LOCK = lock({ kind: 'rect', x: 11.5, y: -2, width: 14, height: 14 })
 
-function wired(children: AnyChild[] = [], extra: { walls?: WallSegment[]; prep?: ScenePrep } = {}) {
+function wired(
+  children: AnyChild[] = [],
+  extra: { walls?: WallSegment[]; prep?: ScenePrep; floorRingsOnly?: boolean } = {},
+) {
   const data = JSON.parse(MAP) as SerializedMapData
   const layer = data.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!
+  // FIX §1's regression: drop the map's own wall and its two doors, so `floor-west`/
+  // `floor-east` (already on this fixture, otherwise unused as occluders) are the only thing
+  // that can possibly stop a sweep at the two-cell gap between them.
+  if (extra.floorRingsOnly) {
+    layer.standaloneWalls = []
+    layer.children = layer.children.filter((c) => c.childType !== 'door')
+  }
   layer.children = [...layer.children, ...children]
   layer.standaloneWalls = [...layer.standaloneWalls, ...(extra.walls ?? [])]
 
@@ -1305,5 +1316,36 @@ describe('a seat that joined with nothing (the DM assignment)', () => {
     // Taking it back is the same command, and puts the seat back where it started.
     expect(table.run(DM, 'tokens', 'assign', { id: scout, identityId: null })).toBeNull()
     expect(table.tokensFor(P1)).toEqual([])
+  })
+})
+
+// ── FIX §1 — floor rings as occluders ───────────────────────────────────────
+// `wall-mid` is what has occluded every row above this one. Stripped out here (and the two
+// doors riding on it with it), `floor-west`/`floor-east` — already on this fixture, already
+// authoring the same footprint as the `west`/`east` rooms — are the only thing left that can
+// possibly stop a sweep at the two-cell void between them (x=10..12). Before FIX §1,
+// `sceneMap.ts`'s `index()` left `mergedFloor` null (mergedFloor.ts strips it on every save)
+// and nothing at all occluded there: `SIGHT_REACH` is 1000 world units, so a scout standing in
+// the west room swept clean through the gap and into the east room 22 units away — exactly the
+// bug measured on Goblin Warren, in miniature. Revert FIX §1 and this whole block fails.
+describe('floor rings as occluders, once mergedFloor is healed (FIX §1)', () => {
+  beforeAll(async () => {
+    expect(await ensureClipperReady()).toBe(true)
+  })
+
+  it('latches only the room the token stands in, and stops the sweep at the gap', () => {
+    const table = wired([], { floorRingsOnly: true })
+    const id = scouted(table)
+    table.run(DM, 'tokens', 'move', { id, x: 5.5, y: 5.5 })
+
+    // Deep into the east room, well past the far side of the void — reachable only if
+    // nothing occludes the gap at all.
+    expect(table.vision.visionOf(SCENE)!.canSee!(17, 5)).toBe(false)
+    // Its own room's far wall is still in reach.
+    expect(table.vision.visionOf(SCENE)!.canSee!(9.5, 5.5)).toBe(true)
+
+    const fog = table.fogOf()
+    expect(fog.rooms.west).toEqual({ status: 're_hidden', wasEverRevealed: true })
+    expect(fog.rooms.east).toBeUndefined()
   })
 })

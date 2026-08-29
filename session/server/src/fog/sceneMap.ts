@@ -8,6 +8,10 @@
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- D3's one waiver: shared/mapBounds is pure bounds math, pixi-free by design (see eslint.config.js)
 import { computeMapFrame } from '@dnd/core/src/shared/mapBounds'
 import type { WorldBounds } from '@dnd/core/src/shared/mapBounds'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design, same waiver clipperBoot.ts takes (see its header)
+import { computeMergedFloor } from '@dnd/core/src/engine/mergedFloor'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design, same waiver clipperBoot.ts takes (see its header)
+import { isClipperReady } from '@dnd/core/src/geometry/Clipper2Engine'
 import type { AnyChild, DoorChild, LightChild, Room, WallSegment, ZoneChild } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, Layer, SerializedMapData } from '@dnd/core/src/store/types'
 import type { Stores } from '../db/stores'
@@ -97,7 +101,41 @@ export function isDungeon(layer: Layer): layer is DungeonLayer {
 export const childrenOf = (layer: DungeonLayer): readonly AnyChild[] => layer.children ?? []
 export const wallsOf = (layer: DungeonLayer): readonly WallSegment[] => layer.standaloneWalls ?? []
 
+/**
+ * Heals `mergedFloor`, stripped from every persisted map on save (mergedFloor.ts:21-27) — so
+ * a floor ring occludes here the same way `resolveWalls` already treats it everywhere else
+ * (the editor, and now this). Mutates `data.layers` in place: `data` is this call's own fresh
+ * parse, nothing else holds a reference to it yet, and every later reader of `map.data.layers`
+ * (`sweep.ts`'s `segmentsOf`, chiefly) picks the healed field up for free.
+ *
+ * Gated on `isClipperReady()` — `clipperBoot.ts` loads the WASM before `startServer` accepts
+ * a single connection, so this is normally true by the time any real request reaches here.
+ * If it somehow is not (or in a test that never called `ensureClipperReady`), `mergedFloor`
+ * stays null: `clipper2Engine.union` degrades to the identity (rings handed back unmerged)
+ * when nothing has loaded Clipper, and welding nothing at two overlapping floor rects can wall
+ * a token into the seam between them — a wrong union is worse than the un-healed bug this is
+ * fixing, so this only ever heals with the real thing.
+ */
+function healMergedFloor(data: SerializedMapData): void {
+  if (!isClipperReady()) return
+  for (const layer of data.layers) {
+    if (!isDungeon(layer) || layer.mergedFloor != null) continue
+    // `computeMergedFloor` reads `layer.children` unguarded — fine for the editor's own live
+    // store, where it is always initialized, but not for uploaded JSON, which only satisfies
+    // `validateMapData`'s envelope check (line 96's own note). `childrenOf`'s `?? []` fallback,
+    // inlined rather than called: it types the array readonly, computeMergedFloor wants it
+    // mutable, and it never mutates what it is handed.
+    const merged = computeMergedFloor({ ...layer, children: layer.children ?? [] })
+    // A shapeless layer computes back to null — leave the field exactly as it was (`?? []`
+    // reads it the same either way) rather than turning an absent key into an explicit null
+    // one, which is a byte the DM's own document round-trip (getMap, `api.test.ts`'s "full
+    // join flow") never carried before this pass and must not start carrying now.
+    if (merged !== null) layer.mergedFloor = merged
+  }
+}
+
 function index(campaignId: string, data: SerializedMapData): SceneMap {
+  healMergedFloor(data)
   const layers = data.layers.filter(isDungeon)
   const rooms = layers.flatMap((layer) => layer.rooms ?? [])
   const doors = layers.flatMap((layer) =>

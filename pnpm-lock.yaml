@@ -423,6 +423,9 @@ importers:
       better-sqlite3:
         specifier: ^12.4.1
         version: 12.11.1
+      clipper2-wasm:
+        specifier: ^0.2.1
+        version: 0.2.1
       ws:
         specifier: ^8.18.3
         version: 8.21.1
@@ -5650,7 +5653,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.15
       tinyrainbow: 3.1.0
-      vitest: 4.1.2(@types/node@26.3.0)(@vitest/ui@4.1.2)(jsdom@28.1.0(@noble/hashes@1.8.0))(msw@2.12.14(@types/node@26.3.0)(typescript@5.9.3))(vite@7.3.1(@types/node@26.3.0)(jiti@1.21.7)(tsx@4.23.1))
+      vitest: 4.1.2(@types/node@22.20.1)(@vitest/ui@4.1.2)(jsdom@28.1.0(@noble/hashes@1.8.0))(msw@2.12.14(@types/node@22.20.1)(typescript@5.9.3))(vite@7.3.1(@types/node@22.20.1)(jiti@1.21.7)(tsx@4.23.1))
 
   '@vitest/utils@4.1.2':
     dependencies:

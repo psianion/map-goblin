@@ -58,32 +58,6 @@ interface Built {
 }
 
 /**
- * The occluders the *referee* swept against, rebuilt here — which is a copy of core's dungeon
- * layers with `mergedFloor` nulled, and that field is the whole reason the copy exists.
- *
- * The server sweeps over the map document, where `mergedFloor` is null on disk: core
- * recomputes it on every load and nothing ever saves it (even the dressed gate map ships
- * null), so a floor ring is not an occluder there — the authored walls are. Core's store
- * *has* recomputed it, and `resolveWalls` promotes every ring edge to a light-blocking wall,
- * so sweeping the layers as they stand would box the party inside their own floor and answer
- * "what can they see" differently from the referee that is redacting their tokens.
- *
- * The id is suffixed because `resolveWalls`/`resolveDoors` memoize per layer *id*: sharing
- * one with the lighting pass, which resolves the same layer *with* its floor rings, would
- * make every resolve a miss for both. This pass gets its own slot, and its memo keys — the
- * untouched `standaloneWalls` array and a constant null — are stable across rebuilds.
- *
- * ponytail: a player holds fewer walls than the DM (D4), so a sweep can run further here than
- * the server's does wherever it escapes into geometry they were never sent. That clears void
- * — map the referee is not fogging at all — so it errs open on nothing rather than dark on
- * something; the day it matters, the fix is the server sending the mask, not more walls.
- */
-const sightLayers = (layers: readonly Layer[]): DungeonLayer[] =>
-  layers
-    .filter((layer): layer is DungeonLayer => layer.type === 'dungeon')
-    .map((layer) => ({ ...layer, id: `${layer.id}\0sight`, mergedFloor: null }));
-
-/**
  * Every authored light this tab holds, for the shared light rule (S3 P3 §2).
  *
  * Off core's layers rather than the redacted document, and for the reason the sweep is: these
@@ -141,7 +115,28 @@ export function createSightCache(): SightCache {
     const hit = cache.get(layers);
     if (hit) return hit;
     const quadtree = new SegmentQuadtree();
-    quadtree.build(extractWallSegments(sightLayers(layers)));
+    // The occluders the party's own sweep is taken against — core's dungeon layers, as they
+    // stand, `mergedFloor` included.
+    //
+    // Used to sweep a copy with `mergedFloor` nulled out under a suffixed id, because the
+    // server's own sweep read a persisted map where the field ships null (mergedFloor.ts:21-27
+    // strips it on save) — a floor ring was not an occluder there, only the authored walls
+    // were, and the two passes had to agree or a party could see through a cave's rock on one
+    // side and not the other. The server now heals that null at scene-index time
+    // (session/server/src/fog/sceneMap.ts's `healMergedFloor`, gated on Clipper2 actually
+    // being loaded — session/server/src/fog/clipperBoot.ts), so both sides occlude on the same
+    // union. Sweeping the real layers here, unmodified, lets this pass share `resolveWalls`'
+    // memo with the lighting pass outright instead of paying for a second resolve of the same
+    // geometry under a second id.
+    //
+    // ponytail: a player holds fewer walls than the DM (D4), so this sweep can still run
+    // further than the server's wherever it escapes into geometry they were never sent — that
+    // clears void, so it errs open on nothing rather than dark on something. The DM's own copy
+    // (the fuller layer set) is asymmetric with a player's redacted one the same way; both
+    // residual gaps err the identical direction, dark rather than a leak, so neither is worth
+    // closing until a table actually measures one. The day it matters, the fix is the server
+    // sending the mask, not more or fewer walls.
+    quadtree.build(extractWallSegments(layers.filter((l): l is DungeonLayer => l.type === 'dungeon')));
     const next: Built = { quadtree, polygons: new Map() };
     cache.set(layers, next);
     return next;
