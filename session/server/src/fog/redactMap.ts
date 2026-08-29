@@ -6,7 +6,7 @@
 // Unzoned map is the DM's alone (D6) and an unrevealed secret door does not exist.
 
 import { seedDoor, type AuthoredDoor, type DoorLiveState } from '@dnd/mechanics/doors'
-import type { SceneFog } from '@dnd/mechanics/fog'
+import { tableRegion, toBytes, type SceneFog } from '@dnd/mechanics/fog'
 import type { AnyChild, DoorChild, Room, ShapeChild, WallSegment } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import {
@@ -65,6 +65,9 @@ export function redactMapForViewer(
   // reaches a player in any form, revealed or not.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured away on purpose
   const { prep: _prep, ...docSansPrep } = scene.data
+  // Built once for the whole document, not once per layer: the ground lookup decodes the
+  // region record, and the room boxes are a walk over every kept boundary.
+  const cut = cutFor(scene, kept, groundOf(fog, scene.frame))
   return {
     ...docSansPrep,
     ...(zoned ? { frame: scene.frame } : {}),
@@ -89,7 +92,7 @@ export function redactMapForViewer(
       }
       return {
         ...layer,
-        ...slice(layer, scene, kept, doors),
+        ...slice(layer, scene, kept, doors, kept, cut),
         // The merged floor is one union across the whole layer, so it cannot be cut per
         // room — and handing it over would outline every room in the dungeon. The client
         // rebuilds it from the children it has; the editor already ships it null.
@@ -101,19 +104,29 @@ export function redactMapForViewer(
 }
 
 /**
- * The geometry a `reveal-secret` owes a player (D2/D5).
+ * The children a reveal owes a player that the *rooms* did not carry (D2/D5).
  *
- * A room reveal pays this debt through `mapDeltaFor`: the state that says "revealed" and the
- * shapes to draw it travel in one frame. Letting the party in on a secret door incurs exactly
- * the same debt — the door child was cut from their map while it was still a secret — and it
- * is the only door write that can, because every other door in the scene came with the room
- * it belongs to. `kept` is the *explored* set, not the newly-revealed one: the rooms either
- * side of this door are ones the party has already earned, so the door keeps both bindings.
+ * A room reveal pays its own debt through `mapDeltaFor`: the state that says "revealed" and
+ * the shapes to draw it travel in one frame. Two other things earn a player geometry without
+ * revealing a room, and both land here.
+ *
+ * A `reveal-secret` is the older one — the door child was cut from their map while it was
+ * still a secret, and it is the only door write that can owe anything, because every other
+ * door came with the room it belongs to.
+ *
+ * The cell brush is the newer one, and it is the reason this took the door's name off it.
+ * Brushed ground is a reveal (and since c2bc9ff it is ground a player can stand on), so the
+ * art stamped along it — a wall band, the shrubs at its edge — becomes theirs the moment the
+ * referee paints the cell, with no room having changed at all. `vision.ts` diffs the child ids
+ * a player is entitled to and hands whatever is new to this.
+ *
+ * `kept` is the *explored* room set, not the newly-revealed one: a door here joins rooms the
+ * party has already earned, so it keeps both bindings. Nothing but a door is faced.
  */
-export function doorDeltaFor(
+export function childDeltaFor(
   scene: SceneMap,
   sceneId: string,
-  doorIds: ReadonlySet<string>,
+  childIds: ReadonlySet<string>,
   kept: ReadonlySet<string>,
 ): MapDelta {
   return {
@@ -124,8 +137,8 @@ export function doorDeltaFor(
         id: layer.id,
         rooms: [] as Room[],
         children: childrenOf(layer)
-          .filter((child): child is DoorChild => child.childType === 'door' && doorIds.has(child.id))
-          .map((door) => facing(door, kept)) as AnyChild[],
+          .filter((child) => childIds.has(child.id))
+          .map((child) => (child.childType === 'door' ? facing(child, kept) : child)) as AnyChild[],
         standaloneWalls: [] as WallSegment[],
       }))
       .filter((layer) => layer.children.length > 0),
@@ -182,8 +195,8 @@ function slice(
   kept: ReadonlySet<string>,
   doors: Doors,
   facingSet: ReadonlySet<string> = kept,
+  cut: Cut = cutFor(scene, kept),
 ): { rooms: Room[]; children: AnyChild[]; standaloneWalls: WallSegment[] } {
-  const pad = bandPad(scene)
   return {
     rooms: (layer.rooms ?? []).filter((room) => kept.has(room.id)),
     children: childrenOf(layer)
@@ -192,7 +205,7 @@ function slice(
         if (child.childType === 'zone') return false
         return child.childType === 'door'
           ? doorKept(child, kept, doors)
-          : childKept(child, scene, kept, pad)
+          : childKept(child, scene, cut)
       })
       .map((child) => (child.childType === 'door' ? facing(child, facingSet) : child)),
     // A wall belongs to the rooms on either side of it, so one shared with a room the
@@ -226,17 +239,142 @@ function slice(
  * renderer draws a wall along every ring it is given, so the cut would print a stone wall
  * across the mouth of a passage that is actually open.
  */
-function childKept(
-  child: AnyChild,
-  scene: SceneMap,
-  kept: ReadonlySet<string>,
-  pad: number,
-): boolean {
+function childKept(child: AnyChild, scene: SceneMap, cut: Cut): boolean {
   const [x, y] = centreOf(child)
   const room = scene.roomAt(x, y)
-  if (room !== null && kept.has(room)) return true
-  if (child.childType === 'shape' && coversKeptRoom(child, scene, kept)) return true
-  return nearKeptRoom(scene, kept, x, y, pad)
+  if (room !== null && cut.kept.has(room)) return true
+  // Cheapest first, and by a wide margin: the ground lookup is nine bit tests against the
+  // child's own cell neighbourhood, where the band test can walk a room outline per room.
+  if (cut.ground(x, y, cut.pad)) return true
+  if (nearKeptRoom(cut, x, y)) return true
+  return child.childType === 'shape' && coversKeptRoom(child, cut)
+}
+
+/**
+ * Everything the child predicate is measured against, built once per cut rather than per
+ * child: the rooms the party holds with their boxes, the band those rooms reach through, and
+ * the ground the brush has opened.
+ *
+ * The boxes are the whole reason this is a record and not four arguments. Without them the
+ * predicate walked every kept room's full outline for every unzoned child — hundreds of
+ * vertices times hundreds of props — and on a dressed map that put a reveal at 840ms against a
+ * 200ms budget (`integration.test.ts`). A box test rejects all but a couple of rooms in four
+ * comparisons.
+ */
+interface Cut {
+  kept: ReadonlySet<string>
+  pad: number
+  ground: Ground
+  rooms: readonly KeptRoom[]
+}
+
+interface KeptRoom {
+  boundary: readonly [number, number][]
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+}
+
+function cutFor(
+  scene: SceneMap,
+  kept: ReadonlySet<string>,
+  ground: Ground = NO_GROUND,
+): Cut {
+  const pad = bandPad(scene)
+  const rooms: KeptRoom[] = []
+  for (const room of scene.rooms) {
+    if (!kept.has(room.id) || room.boundary.length < 3) continue
+    let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity]
+    for (const [x, y] of room.boundary) {
+      if (x < minX) minX = x
+      if (y < minY) minY = y
+      if (x > maxX) maxX = x
+      if (y > maxY) maxY = y
+    }
+    rooms.push({ boundary: room.boundary, minX, minY, maxX, maxY })
+  }
+  return { kept, pad, ground, rooms }
+}
+
+/** "Is there revealed ground within `pad` of this point?" — see {@link groundOf}. */
+export type Ground = (x: number, y: number, pad: number) => boolean
+
+/** A scene with no cell record at all: rooms are the only reveal there ever was. */
+export const NO_GROUND: Ground = () => false
+
+/**
+ * Ground the table has earned by the cell brush and by its own sight, as a cheap lookup.
+ *
+ * A room is not the only way ground becomes a player's. The referee's brush paints cells, and
+ * since c2bc9ff a player can *stand* on the ones it paints — but redaction went on treating
+ * rooms as the only reveal, so art stamped along brushed ground shipped to nobody. On the
+ * Goblin Warren that was the corridor's whole east side and the shrubs at the palisade's foot:
+ * the west side rendered only because it happens to fall inside Cave Mouth's own band. Third
+ * time this blind spot has been found (sight, then walkability, now art), so the rule is
+ * spelled the same way for all three: brushed cells are a reveal.
+ *
+ * `tableRegion` rather than `fog.region`: geometry ships per scene, not per seat — "any seat's
+ * sweep latches a room for the table" (`autoExplorePatch`) — so the union of the seats is the
+ * honest input, and it is the same record the referee's own wash is drawn from. Not latched,
+ * on purpose: a `region-hide` takes the ground back, and the next document build stops
+ * carrying its art, which is redaction shrinking the way it should.
+ *
+ * ponytail: bucketed, not distance-over-every-cell. The record runs to thousands of cells and
+ * this is asked once per child, so it walks only the `ceil(pad)` neighbourhood of the child's
+ * own cell — nine lookups at today's pad — and measures to the cell *square*, not its centre.
+ */
+export function groundOf(fog: SceneFog, frame: SceneMap['frame']): Ground {
+  const region = tableRegion(fog, frame ?? undefined)
+  if (!region) return NO_GROUND
+  const bytes = toBytes(region.bits)
+  const on = (col: number, row: number): boolean => {
+    if (col < 0 || row < 0 || col >= region.cols || row >= region.rows) return false
+    const bit = row * region.cols + col
+    return (bytes[bit >>> 3] & (1 << (bit & 7))) !== 0
+  }
+  return (x, y, pad) => {
+    const reach = Math.ceil(pad)
+    const col0 = Math.floor(x - region.minX)
+    const row0 = Math.floor(y - region.minY)
+    for (let col = col0 - reach; col <= col0 + reach; col++) {
+      for (let row = row0 - reach; row <= row0 + reach; row++) {
+        if (!on(col, row)) continue
+        const [cx, cy] = [region.minX + col, region.minY + row]
+        const dx = Math.max(cx - x, 0, x - (cx + 1))
+        const dy = Math.max(cy - y, 0, y - (cy + 1))
+        if (Math.hypot(dx, dy) <= pad) return true
+      }
+    }
+    return false
+  }
+}
+
+/**
+ * Every child id a player is entitled to hold right now — the same predicate the document cut
+ * uses, so what a reveal *delivers* and what a fresh fetch *contains* cannot drift.
+ *
+ * `vision.ts` diffs this across mutations to find the children a brush stroke just earned; the
+ * room slice covers the rest.
+ */
+export function keptChildIds(scene: SceneMap, fog: SceneFog, doors: Doors): Set<string> {
+  const kept = exploredRooms(fog)
+  const cut = cutFor(scene, kept, groundOf(fog, scene.frame))
+  const ids = new Set<string>()
+  for (const layer of scene.data.layers) {
+    if (!isDungeon(layer)) continue
+    for (const child of childrenOf(layer)) {
+      if (child.childType === 'zone') continue
+      // A layer nobody zoned goes over whole, less its doors — `redactMapForViewer`'s own rule.
+      const keep = !layer.rooms?.length
+        ? child.childType !== 'door'
+        : child.childType === 'door'
+          ? doorKept(child, kept, doors)
+          : childKept(child, scene, cut)
+      if (keep) ids.add(child.id)
+    }
+  }
+  return ids
 }
 
 /**
@@ -261,29 +399,27 @@ function childKept(
  * it edges (measured: 0.03–0.51 on the Warren). A huge sprite anchored a long way from its art
  * would need its own footprint tested; nothing authored today is.
  */
-function nearKeptRoom(
-  scene: SceneMap,
-  kept: ReadonlySet<string>,
-  x: number,
-  y: number,
-  pad: number,
-): boolean {
-  return scene.rooms.some(
-    (room) =>
-      kept.has(room.id) && room.boundary.length >= 3 && distanceToPoly(room.boundary, x, y) <= pad,
-  )
+function nearKeptRoom(cut: Cut, x: number, y: number): boolean {
+  const pad = cut.pad
+  for (const room of cut.rooms) {
+    // The box first: a room whose *box* is further than the pad cannot have an outline that
+    // is nearer, and skipping the walk is what keeps a reveal inside its budget.
+    if (x < room.minX - pad || x > room.maxX + pad) continue
+    if (y < room.minY - pad || y > room.maxY + pad) continue
+    if (distanceToPoly(room.boundary, x, y) <= pad) return true
+  }
+  return false
 }
 
 /** Does this shape's outline enclose any part of a room the party has earned? */
-function coversKeptRoom(shape: ShapeChild, scene: SceneMap, kept: ReadonlySet<string>): boolean {
+function coversKeptRoom(shape: ShapeChild, cut: Cut): boolean {
   const outline = shape.contours?.[0]
   if (!outline || outline.length < 3) return false
   // `centreOf` adds the translate to the shape; here the room's world vertices come back to
   // the untransformed contour instead, which is the same comparison from the other end.
   const [dx, dy] = shape.transform?.translate ?? [0, 0]
-  return scene.rooms.some(
-    (room) =>
-      kept.has(room.id) && room.boundary.some(([x, y]) => pointInPoly(outline, x - dx, y - dy)),
+  return cut.rooms.some((room) =>
+    room.boundary.some(([x, y]) => pointInPoly(outline, x - dx, y - dy)),
   )
 }
 
