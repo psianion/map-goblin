@@ -83,18 +83,54 @@ describe('child groups', () => {
     expect(dungeon(layerId).children.map((c) => c.id)).toEqual(['b', 'c', 'a', 'd', 'e']);
   });
 
-  it('grouping a member of another group steals it and prunes the empty meta', () => {
+  it('extends the one existing group instead of minting a new one', () => {
     const layerId = seed(['a', 'b', 'c']);
-    const first = group(layerId, ['a', 'b'], 'One');
-    const second = group(layerId, ['a', 'b', 'c'], 'Two');
+    const first = group(layerId, ['a', 'b'], 'Goblin Camp', true);
+
+    const cmd = createGroupChildrenCommand(
+      useStore.getState().layers,
+      layerId,
+      ['a', 'b', 'c'],
+      'Group 2',
+    )!;
+    undoManager.execute(cmd);
 
     const layer = dungeon(layerId);
-    expect(layer.groups!.map((g) => g.id)).toEqual([second]);
-    expect(groupMembers(layer, first)).toEqual([]);
-    expect(groupMembers(layer, second).map((c) => c.id)).toEqual(['a', 'b', 'c']);
+    expect(layer.groups).toEqual([{ id: first, name: 'Goblin Camp', merged: true }]);
+    expect(groupMembers(layer, first).map((c) => c.id)).toEqual(['a', 'b', 'c']);
 
     undoManager.undo();
-    expect(dungeon(layerId).groups!.map((g) => g.id)).toEqual([first]);
+    const back = dungeon(layerId);
+    expect(back.groups).toEqual([{ id: first, name: 'Goblin Camp', merged: true }]);
+    expect(groupMembers(back, first).map((c) => c.id)).toEqual(['a', 'b']);
+  });
+
+  it('extends from a partial selection and pulls the unselected members along', () => {
+    const layerId = seed(['a', 'b', 'c']);
+    const first = group(layerId, ['a', 'b'], 'Goblin Camp');
+    // Only 'b' of the group is selected; 'a' still ends up in the block.
+    undoManager.execute(
+      createGroupChildrenCommand(useStore.getState().layers, layerId, ['b', 'c'], 'Group 2')!,
+    );
+    const layer = dungeon(layerId);
+    expect(layer.groups!.map((g) => g.name)).toEqual(['Goblin Camp']);
+    expect(groupMembers(layer, first).map((c) => c.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('grouping members of two groups steals them into a new one and prunes the empty meta', () => {
+    const layerId = seed(['a', 'b', 'c', 'd']);
+    const first = group(layerId, ['a', 'b'], 'One');
+    const second = group(layerId, ['c', 'd'], 'Two');
+    const third = group(layerId, ['a', 'b', 'c', 'd'], 'Three');
+
+    const layer = dungeon(layerId);
+    expect(layer.groups!.map((g) => g.id)).toEqual([third]);
+    expect(groupMembers(layer, first)).toEqual([]);
+    expect(groupMembers(layer, second)).toEqual([]);
+    expect(groupMembers(layer, third).map((c) => c.id)).toEqual(['a', 'b', 'c', 'd']);
+
+    undoManager.undo();
+    expect(dungeon(layerId).groups!.map((g) => g.id)).toEqual([first, second]);
   });
 
   it('returns null when there is nothing to group', () => {

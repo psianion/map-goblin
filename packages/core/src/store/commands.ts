@@ -904,10 +904,35 @@ function withGroupId(child: AnyChild, groupId: string | undefined): AnyChild {
 }
 
 /**
+ * The one existing group every already-grouped child in `childIds` belongs to,
+ * or null when they are all loose or span two groups. Grouping such a selection
+ * EXTENDS that group instead of minting a new one — otherwise re-grouping
+ * "Goblin Camp" plus one loose object silently destroyed the folder and its
+ * name. Two different groups still collapse into a fresh one (members stolen).
+ */
+export function soleGroupOfChildren(
+  layers: Layer[],
+  layerId: string,
+  childIds: string[],
+): ChildGroupInfo | null {
+  const layer = findDungeonLayer(layers, layerId);
+  if (!layer) return null;
+  const ids = new Set(childIds);
+  const groupIds = new Set(
+    layer.children.filter((c) => ids.has(c.id) && c.groupId).map((c) => c.groupId as string),
+  );
+  if (groupIds.size !== 1) return null;
+  return layer.groups?.find((g) => g.id === [...groupIds][0]) ?? null;
+}
+
+/**
  * Groups children into one named set: the members become contiguous at the
  * topmost member's slot (children order is z-order for assets and text), each
  * gets `groupId`, and a group record is appended. Children that already sat in
  * another group are stolen, which is also what "Add to group" does.
+ *
+ * When the grouped members all come from ONE existing group, that group is
+ * extended instead — same id, name and merged flag (see soleGroupOfChildren).
  *
  * Returns null when there is nothing to group.
  */
@@ -920,17 +945,26 @@ export function createGroupChildrenCommand(
 ): Command | null {
   const layer = findDungeonLayer(layers, layerId);
   if (!layer) return null;
+  const existing = soleGroupOfChildren(layers, layerId, childIds);
   const memberIds = new Set(childIds);
+  // Extending pulls in the group's unselected members too, so the folder stays
+  // one contiguous block instead of splitting around the moved rows.
+  if (existing) {
+    for (const c of layer.children) if (c.groupId === existing.id) memberIds.add(c.id);
+  }
   const members = layer.children.filter((c) => memberIds.has(c.id));
   if (members.length === 0) return null;
 
-  const groupId = crypto.randomUUID();
+  const groupId = existing ? existing.id : crypto.randomUUID();
   const topmost = layer.children.reduce((max, c, i) => (memberIds.has(c.id) ? i : max), 0);
   const rest = layer.children.filter((c) => !memberIds.has(c.id));
   const insertAt = layer.children.filter((c, i) => !memberIds.has(c.id) && i < topmost).length;
   const block = members.map((c) => withGroupId(c, groupId));
   const children = [...rest.slice(0, insertAt), ...block, ...rest.slice(insertAt)];
-  const groups = pruneGroups([...(layer.groups ?? []), { id: groupId, name, merged }], children);
+  const groups = pruneGroups(
+    existing ? (layer.groups ?? []) : [...(layer.groups ?? []), { id: groupId, name, merged }],
+    children,
+  );
 
   return new ChildGroupsCommand(
     merged ? 'Merge' : 'Group',

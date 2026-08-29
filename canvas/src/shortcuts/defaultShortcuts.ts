@@ -13,7 +13,7 @@ import { snapshotChild, transformChild } from '@dnd/core/src/engine/tools/childT
 import { translateTangents } from '@dnd/core/src/shared/bezier';
 import { togglePopoverRef } from '@/components/toolbar/toolConstants';
 import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
-import { canGroupSelection, groupSelection, selectionGroup, ungroupSelection } from '@/canvas/groupActions';
+import { groupSelection, selectionGroup, ungroupSelection } from '@/canvas/groupActions';
 
 /** Set by App.tsx so the shortcut system can trigger the file picker */
 export const importImageRef: { current: (() => void) | null } = { current: null };
@@ -521,8 +521,9 @@ const toolKeyMap: Record<string, () => void | false> = {
     store.setSelectedIds(newIds);
     notify.subtle(cmds.length === 1 ? 'Duplicated' : `Duplicated ${cmds.length} items`, { icon: 'copy' });
   },
-  'ctrl+g': (): void | false => {
-    if (!canGroupSelection()) return false;
+  // No canGroupSelection() gate: groupSelection warns with the specific reason
+  // when it refuses, and a silently swallowed Ctrl+G is the bug.
+  'ctrl+g': (): void => {
     groupSelection();
   },
   'ctrl+shift+g': (): void | false => {

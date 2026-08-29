@@ -10,12 +10,14 @@ vi.mock('sonner', () => ({
   }),
 }));
 
+import { toast } from 'sonner';
 import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
-import { expandIdsForGroups } from '@/store/selectors';
+import { expandIdsForGroups, isNamedGroupExpanded } from '@/store/selectors';
 import type { DungeonLayer, LightChild } from '@/store/types';
 import {
   canGroupSelection,
+  consumePendingGroupNameEdit,
   groupSelection,
   mergeSelection,
   selectionGroup,
@@ -111,6 +113,84 @@ describe('group naming counter', () => {
     expect(layer().children.filter((c) => c.groupId === groupId)).toHaveLength(3);
     undoManager.undo();
     expect(layer().children.every((c) => !c.groupId)).toBe(true);
+  });
+});
+
+describe('regrouping an existing group', () => {
+  it('extends it, keeping id, name and merged flag, and undoes to the old members', () => {
+    const ids = seed(3);
+    useStore.getState().setSelectedIds(ids.slice(0, 2));
+    mergeSelection();
+    const before = layer().groups![0];
+    useStore.getState().updateLayer(layer().id, {
+      groups: [{ ...before, name: 'Goblin Camp' }],
+    });
+
+    useStore.getState().setSelectedIds(ids);
+    groupSelection();
+
+    expect(layer().groups).toEqual([{ id: before.id, name: 'Goblin Camp', merged: true }]);
+    expect(layer().children.filter((c) => c.groupId === before.id)).toHaveLength(3);
+    expect(toast).toHaveBeenCalledWith(
+      'Added 1 object to “Goblin Camp”',
+      expect.anything(),
+    );
+
+    undoManager.undo();
+    expect(layer().groups?.[0].name).toBe('Goblin Camp');
+    expect(layer().children.filter((c) => c.groupId === before.id)).toHaveLength(2);
+  });
+
+  it('still mints a new group when the selection straddles two', () => {
+    const ids = seed(4);
+    useStore.getState().setSelectedIds(ids.slice(0, 2));
+    groupSelection();
+    useStore.getState().setSelectedIds(ids.slice(2, 4));
+    groupSelection();
+    useStore.getState().setSelectedIds(ids);
+    groupSelection();
+    expect(layer().groups).toHaveLength(1);
+    expect(layer().groups![0].name).toBe('Group 3');
+  });
+});
+
+describe('refusals and creation follow-through', () => {
+  it('warns with the reason instead of failing silently', () => {
+    seed(1);
+    groupSelection();
+    expect(toast.warning).toHaveBeenCalledWith(
+      'Select 2+ objects on one unlocked layer to group',
+      expect.anything(),
+    );
+
+    seed(2);
+    useStore.getState().updateLayer(layer().id, { locked: true });
+    groupSelection();
+    expect(toast.warning).toHaveBeenCalledWith(
+      expect.stringContaining('is locked'),
+      expect.anything(),
+    );
+    expect(layer().groups ?? []).toHaveLength(0);
+  });
+
+  it('expands the new group, reveals a member and arms the name editor', () => {
+    const ids = seed(2);
+    groupSelection();
+    const groupId = layer().groups![0].id;
+    expect(isNamedGroupExpanded(useStore.getState(), layer().id, groupId)).toBe(true);
+    expect(useStore.getState().ui.revealChildId).toBe(ids[0]);
+    // One-shot: the row that mounts first claims it, nobody else.
+    expect(consumePendingGroupNameEdit(groupId)).toBe(true);
+    expect(consumePendingGroupNameEdit(groupId)).toBe(false);
+  });
+
+  it('discloses what merging costs, with an undo', () => {
+    seed(2);
+    mergeSelection();
+    expect(toast).toHaveBeenCalledWith(
+      'Merged 2 objects into “Merged 1” — members edit as one',
+      expect.objectContaining({ action: expect.objectContaining({ label: 'Undo' }) }),
+    );
   });
 });
 

@@ -76,6 +76,10 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
   // focus restore.
   const rowRef = useRef<HTMLDivElement>(null)
 
+  // WCAG: text-muted under the row's hidden dimming measures 3.55:1. text-dim
+  // is the same intent one step darker, at 6.36:1.
+  const dimText = child.visible ? 'text-text-muted' : 'text-text-dim'
+
   // Canvas-driven reveal: LayerPanel's selection effect expanded whatever
   // hid this row and set the marker; the rendered row finishes the job.
   const revealed = useStore((s) => s.ui.revealChildId === child.id)
@@ -357,7 +361,7 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
       )}
 
       {/* type icon */}
-      <span className="text-text-muted shrink-0">{childIcon(child.childType)}</span>
+      <span className={cn('shrink-0', dimText)}>{childIcon(child.childType)}</span>
 
       {/* name */}
       <InlineEditableName
@@ -372,7 +376,7 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
 
       {child.childType === 'zone' && zoneTriggerCount > 0 && (
         <span
-          className="shrink-0 flex items-center gap-0.5 text-panel-small text-text-muted"
+          className={cn('shrink-0 flex items-center gap-0.5 text-panel-small', dimText)}
           title={zoneTriggerCount === 1 ? '1 trigger wired to this zone' : `${zoneTriggerCount} triggers wired to this zone`}
         >
           <Zap size={10} />
@@ -391,7 +395,8 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
           toggleVisibility()
         }}
         className={cn(
-          'text-text-muted hover:text-text-primary',
+          'hover:text-text-primary',
+          dimText,
           // Revealed on hover/focus; stays visible while hidden (the state
           // a user must be able to spot when scanning the list).
           child.visible && 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',

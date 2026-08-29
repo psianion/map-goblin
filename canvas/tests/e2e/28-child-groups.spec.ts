@@ -75,6 +75,25 @@ async function clearSelection(page: Page) {
   await page.waitForTimeout(200);
 }
 
+/** Select every child on the first dungeon layer, through the store. */
+async function selectEveryChild(page: Page) {
+  await page.evaluate(() => {
+    const store = (
+      window as Window & {
+        __store?: {
+          getState: () => {
+            layers: { type: string; children: { id: string }[] }[];
+            setSelectedIds: (ids: string[]) => void;
+          };
+        };
+      }
+    ).__store!.getState();
+    const layer = store.layers.find((l) => l.type === 'dungeon')!;
+    store.setSelectedIds(layer.children.map((c) => c.id));
+  });
+  await page.waitForTimeout(200);
+}
+
 async function selectedCount(page: Page): Promise<number> {
   return page.evaluate(
     () =>
@@ -89,7 +108,9 @@ async function selectedCount(page: Page): Promise<number> {
 // ─── Tests ────────────────────────────────────────────────
 
 test.describe('28 - Child groups', () => {
-  test('Group selection creates a collapsed folder row with a count badge', async ({ page }) => {
+  // Creation opens the folder and hands over the name field: an anonymous
+  // collapsed "Group 4" is a folder nobody ever names.
+  test('Group selection creates an open folder with its name in edit mode', async ({ page }) => {
     const rows = await twoSelectedChildren(page);
 
     await openMenu(page, rows.nth(1));
@@ -98,23 +119,31 @@ test.describe('28 - Child groups', () => {
 
     const folder = getGroupRows(page);
     await expect(folder).toHaveCount(1);
-    await expect(folder).toHaveAttribute('aria-label', 'Group 1');
-    // Folders default collapsed — the point of a folder is that it puts its
-    // contents away.
-    await expect(folder).toHaveAttribute('aria-expanded', 'false');
+    await expect(folder).toHaveAttribute('aria-expanded', 'true');
+    await expect(getChildRows(page)).toHaveCount(2);
+    await expect(page.getByRole('textbox', { name: 'Rename Group 1' })).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    await expect(folder).toHaveAttribute('aria-label', 'Group 1, group, 2 objects');
     await expect(folder).toContainText('(2)');
-    await expect(getChildRows(page)).toHaveCount(0);
   });
 
-  test('expanding the folder shows members, and their type bucket is gone', async ({ page }) => {
+  test('collapsing and re-expanding the folder toggles its members', async ({ page }) => {
     const rows = await twoSelectedChildren(page);
     await openMenu(page, rows.nth(1));
     await page.getByRole('menuitem', { name: 'Group selection' }).click();
     await page.waitForTimeout(400);
+    await page.keyboard.press('Escape');
 
     // Members left the Shapes bucket entirely, so the bucket has nothing left
     // to render.
     await expect(getBucketHeaders(page)).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Collapse Group 1' }).click();
+    await page.waitForTimeout(300);
+    await expect(getGroupRows(page)).toHaveAttribute('aria-expanded', 'false');
+    await expect(getChildRows(page)).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Expand Group 1' }).click();
     await page.waitForTimeout(300);
@@ -131,13 +160,12 @@ test.describe('28 - Child groups', () => {
     await page.waitForTimeout(400);
 
     const folder = getGroupRows(page);
-    await openMenu(page, folder);
-    await page.getByRole('menuitem', { name: 'Rename' }).click();
+    // The name field is already open from creation — commit straight into it.
     const nameInput = page.getByRole('textbox', { name: 'Rename Group 1' });
     await nameInput.fill('Ambush');
     await nameInput.press('Enter');
     await page.waitForTimeout(300);
-    await expect(folder).toHaveAttribute('aria-label', 'Ambush');
+    await expect(folder).toHaveAttribute('aria-label', 'Ambush, group, 2 objects');
 
     await openMenu(page, folder);
     await page.getByRole('menuitem', { name: 'Ungroup' }).click();
@@ -153,6 +181,9 @@ test.describe('28 - Child groups', () => {
     await openMenu(page, rows.nth(1));
     await page.getByRole('menuitem', { name: 'Merge selection' }).click();
     await page.waitForTimeout(400);
+    // Creation opens the name field; dismiss it before poking the row.
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
 
     const merged = getGroupRows(page);
     await expect(merged).toHaveCount(1);
@@ -175,10 +206,37 @@ test.describe('28 - Child groups', () => {
 
     await page.keyboard.press('Control+g');
     await page.waitForTimeout(400);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
 
     await expect(getGroupRows(page)).toHaveCount(1);
-    await expect(getGroupRows(page)).toHaveAttribute('aria-label', 'Group 1');
-    await expect(getChildRows(page)).toHaveCount(0);
+    await expect(getGroupRows(page)).toHaveAttribute('aria-label', 'Group 1, group, 2 objects');
+    await expect(getChildRows(page)).toHaveCount(2);
+  });
+
+  // Regrouping a whole folder plus a loose object used to drop the folder and
+  // its name on the floor.
+  test('Ctrl+G on a folder plus a loose object extends the folder', async ({ page }) => {
+    await twoSelectedChildren(page);
+    await page.keyboard.press('Control+g');
+    await page.waitForTimeout(400);
+    const nameInput = page.getByRole('textbox', { name: 'Rename Group 1' });
+    await nameInput.fill('Goblin Camp');
+    await nameInput.press('Enter');
+    await page.waitForTimeout(300);
+
+    await page.keyboard.press('r');
+    await drawRectCenter(page, 0, 140);
+    await expect(getChildRows(page)).toHaveCount(3);
+
+    // The folder's two members plus the new loose rectangle.
+    await selectEveryChild(page);
+    await page.keyboard.press('Control+g');
+    await page.waitForTimeout(400);
+
+    const folder = getGroupRows(page);
+    await expect(folder).toHaveCount(1);
+    await expect(folder).toHaveAttribute('aria-label', 'Goblin Camp, group, 3 objects');
   });
 
   test('undo after grouping restores the ungrouped panel', async ({ page }) => {
@@ -187,6 +245,9 @@ test.describe('28 - Child groups', () => {
     await page.getByRole('menuitem', { name: 'Group selection' }).click();
     await page.waitForTimeout(400);
     await expect(getGroupRows(page)).toHaveCount(1);
+    // Leave the name field first — Ctrl+Z inside an input is the input's undo.
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
 
     await page.keyboard.press('Control+z');
     await page.waitForTimeout(500);

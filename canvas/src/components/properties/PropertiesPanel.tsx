@@ -89,6 +89,12 @@ function GroupSection({ layer, group, count }: { layer: DungeonLayer; group: Chi
           {count} {count === 1 ? 'object' : 'objects'}
         </span>
       </div>
+      {/* Merging costs individual editing — say so where the Unmerge button is. */}
+      {group.merged && (
+        <p className="mt-1 text-panel-small text-text-muted">
+          Members move and edit as one object. Unmerge to edit individually.
+        </p>
+      )}
       <Button
         variant="secondary"
         size="sm"

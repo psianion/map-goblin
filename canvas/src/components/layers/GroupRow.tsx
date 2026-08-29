@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from 'react'
+import { memo, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Combine, Eye, EyeOff, Folder } from 'lucide-react'
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
@@ -22,6 +22,8 @@ import { notify } from '@/lib/toast'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { markPanelSelection } from './treeFocus'
 import { ChildRow } from './ChildRow'
+import { VIRTUALIZE_THRESHOLD, VirtualChildList } from './VirtualChildList'
+import { consumePendingGroupNameEdit } from '@/canvas/groupActions'
 
 interface GroupRowProps {
   layer: DungeonLayer
@@ -56,15 +58,25 @@ export const GroupRow = memo(function GroupRow({
   const isExpanded = !group.merged && (filtering || storedExpanded)
 
   const menu = useContextMenu()
-  const [editingName, setEditingName] = useState(false)
+  // A freshly created group opens with its name in edit mode — the one-shot
+  // marker is consumed on mount, like ui.revealChildId.
+  const [editingName, setEditingName] = useState(() => consumePendingGroupNameEdit(group.id))
   const rowRef = useRef<HTMLDivElement>(null)
 
   // Every member in the current selection — the group reads as "the selected
   // object" only when it is wholly selected.
-  const allMemberIds = layer.children.filter((c) => c.groupId === group.id).map((c) => c.id)
-  const isSelected =
-    allMemberIds.length > 0 && allMemberIds.every((id) => selectedIds.includes(id))
+  const allMemberIds = useMemo(
+    () => layer.children.filter((c) => c.groupId === group.id).map((c) => c.id),
+    [layer.children, group.id],
+  )
+  const isSelected = useMemo(
+    () => allMemberIds.length > 0 && allMemberIds.every((id) => selectedIds.includes(id)),
+    [allMemberIds, selectedIds],
+  )
   const anyVisible = layer.children.some((c) => c.groupId === group.id && c.visible)
+  // WCAG: text-muted on the row's dimmed background measures 3.55:1. text-dim
+  // is the same intent one step darker, at 6.36:1.
+  const dimText = anyVisible ? 'text-text-muted' : 'text-text-dim'
 
   const bounds = () => unionChildBounds(layer.children.filter((c) => c.groupId === group.id))
 
@@ -147,11 +159,12 @@ export const GroupRow = memo(function GroupRow({
     setSelectedIds(selectedIds.filter((id) => !allMemberIds.includes(id)))
   }
 
+  // View + identity first, then structure, danger last behind a separator.
   const menuItems: ContextMenuItem[] = [
     { label: 'Rename', onSelect: () => setEditingName(true) },
+    { label: anyVisible ? 'Hide' : 'Show', onSelect: toggleVisibility },
     { label: group.merged ? 'Unmerge' : 'Ungroup', onSelect: dissolve },
     { label: 'Duplicate group', onSelect: duplicate },
-    { label: anyVisible ? 'Hide' : 'Show', onSelect: toggleVisibility },
     { label: 'Delete group', onSelect: remove, danger: true, separatorBefore: true },
   ]
 
@@ -213,7 +226,8 @@ export const GroupRow = memo(function GroupRow({
         aria-level={2}
         aria-selected={isSelected}
         aria-expanded={group.merged ? undefined : isExpanded}
-        aria-label={group.name}
+        // The Folder / Combine icons are decorative, so the kind is spoken here.
+        aria-label={`${group.name}, ${group.merged ? 'merged group' : 'group'}, ${totalMembers} ${totalMembers === 1 ? 'object' : 'objects'}`}
         aria-posinset={posInSet}
         aria-setsize={setSize}
         tabIndex={-1}
@@ -255,7 +269,7 @@ export const GroupRow = memo(function GroupRow({
           </span>
         )}
 
-        <span className="text-text-muted shrink-0">
+        <span className={cn('shrink-0', dimText)}>
           {group.merged ? <Combine size={12} /> : <Folder size={12} />}
         </span>
 
@@ -271,7 +285,7 @@ export const GroupRow = memo(function GroupRow({
 
         {/* Count badge — matches / total while filtering, so the badge and the
             visible rows can't disagree (same contract as LayerRow's). */}
-        <span className="shrink-0 text-panel-small text-text-muted tabular-nums">
+        <span className={cn('shrink-0 text-panel-small tabular-nums', dimText)}>
           {filtering && members.length !== totalMembers
             ? `${members.length} / ${totalMembers}`
             : `(${totalMembers})`}
@@ -286,7 +300,8 @@ export const GroupRow = memo(function GroupRow({
             toggleVisibility()
           }}
           className={cn(
-            'text-text-muted hover:text-text-primary',
+            'hover:text-text-primary',
+            dimText,
             anyVisible && 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
           )}
           title={anyVisible ? 'Hide' : 'Show'}
@@ -300,14 +315,18 @@ export const GroupRow = memo(function GroupRow({
       </div>
 
       {isExpanded &&
-        members.map((child, i) => (
-          <ChildRow
-            key={child.id}
-            child={child}
-            layer={layer}
-            posInSet={i + 1}
-            setSize={members.length}
-          />
+        (members.length > VIRTUALIZE_THRESHOLD ? (
+          <VirtualChildList layer={layer} children_={members} />
+        ) : (
+          members.map((child, i) => (
+            <ChildRow
+              key={child.id}
+              child={child}
+              layer={layer}
+              posInSet={i + 1}
+              setSize={members.length}
+            />
+          ))
         ))}
     </div>
   )

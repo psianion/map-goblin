@@ -104,6 +104,58 @@ describe('GroupRow', () => {
     expect(screen.getByText('(2)')).toBeTruthy()
   })
 
+  // A 300-member folder used to mount 300 rows; the asset bucket's windowed
+  // list is now shared (VirtualChildList).
+  it('windows a big group instead of mounting every member', () => {
+    const layer = createDungeonLayer('Layer 1')
+    layer.children = Array.from({ length: 100 }, (_, i) => asset(`m${i}`, 'g1'))
+    layer.groups = [{ id: 'g1', name: 'Ridge' }]
+    useStore.getState().addLayer(layer)
+    const { container } = renderGroups(current(layer.id))
+
+    fireEvent.click(screen.getByLabelText('Expand Ridge'))
+    // jsdom reports a zero-height scroller, so the window is empty — the point
+    // is that it is a WINDOW: a sized spacer stands in for all 100 rows.
+    expect(screen.queryAllByTestId('child-row').length).toBeLessThan(100)
+    expect(
+      container.querySelector<HTMLElement>('[style*="height: 2600px"]'),
+    ).toBeTruthy()
+    expect(screen.getByText('(100)')).toBeTruthy()
+  })
+
+  it('still maps a small group directly, keeping keyboard drag-reorder', () => {
+    renderGroups(layerWithGroup())
+    fireEvent.click(screen.getByLabelText('Expand Ridge'))
+    expect(screen.getAllByTestId('child-row')).toHaveLength(2)
+  })
+
+  it('announces the kind and count, since the folder icon is decorative', () => {
+    renderGroups(layerWithGroup())
+    expect(screen.getByTestId('named-group-header').getAttribute('aria-label')).toBe(
+      'Ridge, group, 2 objects',
+    )
+    useStore.getState().resetToDefault()
+    renderGroups(layerWithGroup(true))
+    expect(screen.getAllByTestId('named-group-header')[1].getAttribute('aria-label')).toBe(
+      'Ridge, merged group, 2 objects',
+    )
+  })
+
+  // text-muted on the dimmed row measured 3.55:1 — under the 4.5:1 floor.
+  it('darkens the badge and eye on a fully hidden group', () => {
+    const layer = createDungeonLayer('Layer 1')
+    layer.children = [
+      { ...asset('a', 'g1'), visible: false },
+      { ...asset('b', 'g1'), visible: false },
+    ]
+    layer.groups = [{ id: 'g1', name: 'Ridge' }]
+    useStore.getState().addLayer(layer)
+    renderGroups(current(layer.id))
+
+    expect(screen.getByText('(2)').className).toContain('text-text-dim')
+    expect(screen.getByLabelText('Show Ridge').className).toContain('text-text-dim')
+  })
+
   it('selects every member on click', () => {
     const layer = layerWithGroup()
     renderGroups(layer)
