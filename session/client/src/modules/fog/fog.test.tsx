@@ -350,6 +350,49 @@ describe('FogHeaderActions', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByTestId('fog-conceal')).toBeNull();
   });
+
+  it('resets fog behind a two-step confirm that names the trigger re-arm', () => {
+    useSessionStore.setState({ session: session({ fog: fogWith({}) }), you: dm });
+    const sent = captureCommands();
+    render(<FogHeaderActions />);
+    fireEvent.click(screen.getByRole('button', { name: 'Fog settings' }));
+
+    expect(screen.queryByTestId('fog-reset-confirm')).toBeNull();
+    fireEvent.click(screen.getByTestId('fog-reset'));
+    expect(sent).toHaveLength(0);
+    expect(screen.getByText(/re-arm/)).not.toBeNull();
+
+    fireEvent.click(screen.getByTestId('fog-reset-confirm'));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ module: 'fog', action: 'reset', payload: {} });
+    // The confirm act closes the whole menu, same as Scene panel's delete.
+    expect(screen.queryByTestId('fog-conceal')).toBeNull();
+  });
+
+  it('cancels the reset confirm without sending anything, and leaves the menu open', () => {
+    useSessionStore.setState({ session: session({ fog: fogWith({}) }), you: dm });
+    const sent = captureCommands();
+    render(<FogHeaderActions />);
+    fireEvent.click(screen.getByRole('button', { name: 'Fog settings' }));
+    fireEvent.click(screen.getByTestId('fog-reset'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(sent).toHaveLength(0);
+    expect(screen.queryByTestId('fog-reset-confirm')).toBeNull();
+    expect(screen.getByTestId('fog-conceal')).not.toBeNull();
+  });
+
+  it('drops a pending confirm when the menu itself closes', () => {
+    useSessionStore.setState({ session: session({ fog: fogWith({}) }), you: dm });
+    render(<FogHeaderActions />);
+    fireEvent.click(screen.getByRole('button', { name: 'Fog settings' }));
+    fireEvent.click(screen.getByTestId('fog-reset'));
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fog settings' }));
+    expect(screen.queryByTestId('fog-reset-confirm')).toBeNull();
+    expect(screen.getByTestId('fog-reset')).not.toBeNull();
+  });
 });
 
 // ── FogTool — the tool row, hint, and room grid ↔ brush swap ────────────────

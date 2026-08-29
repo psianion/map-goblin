@@ -125,6 +125,10 @@ function StatusDot({ status }: { status: RoomFogStatus }) {
 const chipClass =
   'flex h-7 min-w-0 items-center gap-1.5 rounded border border-border-default bg-surface-2 px-2 text-left text-xs text-text-primary transition-colors duration-150 ease-settle hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus active:bg-surface-1 motion-reduce:transition-none';
 
+/** Scene panel's own delete-row button, the precedent for a destructive settings-menu item. */
+const menuItemClass =
+  'flex h-7 w-full shrink-0 items-center rounded px-2 text-left text-xs text-text-secondary transition-colors duration-150 ease-settle hover:bg-surface-2 hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:cursor-not-allowed disabled:opacity-40 motion-reduce:transition-none';
+
 // ── The settings menu (header) ──────────────────────────────────────────────
 
 export function FogHeaderActions() {
@@ -135,19 +139,28 @@ export function FogHeaderActions() {
   const vision = mode === 'vision';
 
   const [menuOpen, setMenuOpen] = useState(false);
+  // Its own step, separate from `menuOpen`: closing the menu (outside click, Escape, the
+  // toggle) always drops it back to the unconfirmed button rather than leaving a stale
+  // confirm row waiting behind the next open.
+  const [confirmingReset, setConfirmingReset] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  const closeMenu = () => {
+    setMenuOpen(false);
+    setConfirmingReset(false);
+  };
 
   useEffect(() => {
     if (!menuOpen) return;
     const onDown = (e: PointerEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setMenuOpen(false);
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) closeMenu();
     };
     // Capture, so this beats the shell's own bubble-phase Escape (close-popover-first) —
     // Esc here closes the small menu on its own press rather than taking the popover with it.
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        setMenuOpen(false);
+        closeMenu();
       }
     };
     document.addEventListener('pointerdown', onDown);
@@ -189,7 +202,7 @@ export function FogHeaderActions() {
         type="button"
         aria-label="Fog settings"
         aria-expanded={menuOpen}
-        onClick={() => setMenuOpen((v) => !v)}
+        onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))}
         className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded text-text-muted transition-colors duration-150 ease-settle hover:bg-surface-2 hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none"
       >
         <Icon name="more" size={14} />
@@ -222,6 +235,43 @@ export function FogHeaderActions() {
               />
             </>
           )}
+
+          <div className="mt-0.5 border-t border-border-subtle pt-1.5">
+            {confirmingReset ? (
+              <div className="flex flex-col gap-1">
+                <p className="text-[11px] text-text-secondary">
+                  Clears every room this scene has ever revealed, for the DM and every player.
+                  Reveal-on-room triggers re-arm — they fire again the next time the party finds
+                  that room.
+                </p>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    data-testid="fog-reset-confirm"
+                    onClick={() => {
+                      send('reset', {});
+                      closeMenu();
+                    }}
+                    className={`${menuItemClass} flex-1 text-danger`}
+                  >
+                    Reset fog
+                  </button>
+                  <button type="button" onClick={() => setConfirmingReset(false)} className={menuItemClass}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                data-testid="fog-reset"
+                onClick={() => setConfirmingReset(true)}
+                className={`${menuItemClass} text-danger`}
+              >
+                Reset fog
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>
