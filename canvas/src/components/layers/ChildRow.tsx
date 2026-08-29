@@ -115,12 +115,16 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
   const isReorderable = child.childType === 'asset' || child.childType === 'text'
 
   const toggleVisibility = () => {
+    const wasVisible = child.visible
     undoManager.execute(new PropertyCommand(
-      child.visible ? 'Hide child' : 'Show child',
+      wasVisible ? 'Hide child' : 'Show child',
       { type: 'child', layerId, childId: child.id },
-      { visible: child.visible },
-      { visible: !child.visible },
+      { visible: wasVisible },
+      { visible: !wasVisible },
     ))
+    // Same gesture as the layer eye, same feedback — the silent child toggle
+    // read as "did that work?" next to the layer's toast.
+    notify.subtle(wasVisible ? `Hid “${child.name}”` : `“${child.name}” visible`, { icon: wasVisible ? 'eyeOff' : 'eye' })
   }
 
   // Delete/Duplicate are destructive-but-undoable panel ops, like layer delete
@@ -161,7 +165,12 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
     // H1: capture the neighbor to focus BEFORE this row is removed from the DOM.
     const focusNeighbor = captureNeighborFocus(rowRef.current)
     undoManager.execute(createChildRemovalCommand(layerId, child.id, 'Delete'))
-    notify.action('Deleted', { label: 'Undo', onClick: () => undoManager.undo(), icon: 'trash' })
+    // Name the casualty — and warn when the delete just unwired triggers,
+    // which is exactly what the zap badge exists to flag.
+    const unwired = zoneTriggerCount > 0
+      ? ` — ${zoneTriggerCount} ${zoneTriggerCount === 1 ? 'trigger' : 'triggers'} unwired`
+      : ''
+    notify.action(`Deleted “${child.name}”${unwired}`, { label: 'Undo', onClick: () => undoManager.undo(), icon: 'trash' })
     panelSelectionOrigin.current = true
     setSelectedIds(selectedIds.filter((id) => id !== child.id))
     focusNeighbor()
@@ -285,10 +294,13 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
         'gg-row group flex items-center gap-1 pl-4 pr-1 py-1 cursor-pointer',
         // K1: same ring treatment as Button/LayerRow, focus-visible only.
         'border border-transparent focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50',
-        isSelected && 'bg-surface-3',
+        // Selected = raised surface + visible border (surface-3 alone is
+        // 1.37:1 against surface-1 — imperceptible); see LayerRow.
+        isSelected && 'bg-surface-3 border-border-default',
         canvasHovered && !isSelected && 'bg-surface-2',
         // opacity-80, matching LayerRow — opacity-50 on text-primary content
-        // fails 4.5:1 (see index.css's --text-dim comment).
+        // fails 4.5:1 (see index.css's --text-dim comment). The name also
+        // gets line-through below: opacity alone didn't read as "hidden".
         !child.visible && 'opacity-80',
         isDragging && 'opacity-75 z-50',
       )}
@@ -311,7 +323,8 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
           // the grip roves with its row, same as LayerRow's.
           tabIndex={isRovingTarget ? 0 : -1}
           aria-label={`Reorder ${child.name}`}
-          className="text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing rounded-sm focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50 border border-transparent"
+          // p/-m: 24px+ hit area (WCAG 2.5.8) without moving the layout.
+          className="p-1.5 -m-1.5 text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing rounded-sm focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50 border border-transparent"
           onClick={(e) => e.stopPropagation()}
         >
           <GripVertical size={12} />
@@ -330,7 +343,7 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
         onStartEdit={() => setEditingName(true)}
         onCommit={commitRename}
         onCancel={() => setEditingName(false)}
-        displayClassName="text-panel-body text-text-secondary"
+        displayClassName={cn('text-panel-body text-text-secondary', !child.visible && 'line-through')}
         restoreFocusRef={rowRef}
       />
 

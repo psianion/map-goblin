@@ -110,7 +110,11 @@ function TerrainRow({ isActive, posInSet, setSize }: { isActive: boolean; posInS
       className={cn(
         'gg-row group flex items-center gap-1 px-1 py-1.5 cursor-pointer',
         'border border-transparent focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50',
-        isActive && 'bg-surface-3',
+        // Selected = raised surface PLUS a visible border: surface-3 on
+        // surface-1 alone measures 1.37:1, below the perceptual floor in a
+        // dim room. The border rides the always-present transparent slot,
+        // so no layout shift; focus-visible still wins when focused.
+        isActive && 'bg-surface-3 border-border-default',
         // opacity-80, matching LayerRow — see index.css's --text-dim comment.
         !terrainVisible && 'opacity-80',
       )}
@@ -124,7 +128,11 @@ function TerrainRow({ isActive, posInSet, setSize }: { isActive: boolean; posInS
       <span className="w-4 flex items-center justify-center shrink-0">
         <Mountain size={12} className="text-text-muted" />
       </span>
-      <span className="flex-1 min-w-0 truncate text-panel-body text-text-primary">Terrain</span>
+      {/* line-through: the opacity nudge alone was imperceptible on the dark
+          chrome — hidden needs a non-color channel. */}
+      <span className={cn('flex-1 min-w-0 truncate text-panel-body text-text-primary', !terrainVisible && 'line-through')}>
+        Terrain
+      </span>
       <span className="w-6" />
       <Button
         variant="ghost"
@@ -255,9 +263,19 @@ export function LayerPanel() {
         <div className="relative">
           <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
           <input
-            type="search"
+            // type="text", not "search": the native webkit cancel button is a
+            // second (blue) clear control next to ours, and native
+            // Escape-clear shadows the app's Escape chain.
+            type="text"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation()
+                if (filter !== '') setFilter('')
+                else e.currentTarget.blur()
+              }
+            }}
             placeholder="Filter objects…"
             aria-label="Filter objects by name"
             data-testid="layer-filter"
@@ -316,6 +334,27 @@ export function LayerPanel() {
               No layers yet — add one to start drawing.
             </p>
           )}
+
+          {/* Zero-match filter state — silence here read exactly like a
+              collapsed layer ("did I break it?"). aria-live so the change is
+              announced without a focus move. */}
+          {filter.trim() !== '' &&
+            !userLayers.some(
+              (l) =>
+                l.type === 'dungeon' &&
+                l.children.some((c) => c.name.toLowerCase().includes(filter.trim().toLowerCase())),
+            ) && (
+              <p role="presentation" aria-live="polite" className="px-3 py-2 text-panel-body text-text-muted">
+                No objects match “{filter.trim()}”.{' '}
+                <button
+                  type="button"
+                  className="underline hover:text-text-primary"
+                  onClick={() => setFilter('')}
+                >
+                  Clear filter
+                </button>
+              </p>
+            )}
 
           {/* Pinned block sticks to the bottom of the tree scroll so Terrain
               and Background never leave reach under a long child list.

@@ -98,7 +98,7 @@ export function InlineEditableName({
             onCancel()
           }
         }}
-        className="min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1 text-text-primary outline-none"
+        className="min-w-0 flex-1 rounded border border-border-default bg-surface-1 px-1 text-text-primary outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50"
       />
     )
   }
@@ -109,6 +109,9 @@ export function InlineEditableName({
         e.stopPropagation()
         onStartEdit()
       }}
+      // title: names truncate hard at panel width — the native tooltip is
+      // the only way to recover the full text without renaming.
+      title={value}
       className={cn('flex-1 min-w-0 truncate', displayClassName)}
     >
       {value}

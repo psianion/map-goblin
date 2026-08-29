@@ -147,7 +147,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
     // DOM by the delete below.
     const focusNeighbor = captureNeighborFocus(rowRef.current)
     undoManager.execute(new RemoveLayerCommand('Delete layer', layer.id))
-    notify.action('Layer deleted', {
+    notify.action(`Deleted “${layer.name}”`, {
       label: 'Undo',
       onClick: () => undoManager.undo(),
       icon: 'trash',
@@ -277,10 +277,16 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
           // so a mouse click never paints it — border is always-present-but-
           // transparent so the ring doesn't shift row height on focus.
           'border border-transparent focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50',
-          isActive && 'bg-surface-3',
+          // Selected = raised surface PLUS a visible border: surface-3 on
+          // surface-1 alone measures 1.37:1 — imperceptible in a dim room.
+          // The border rides the always-present transparent slot (no layout
+          // shift); focus-visible's border still wins when focused.
+          isActive && 'bg-surface-3 border-border-default',
           // opacity-80 (not 50): row text sits at text-primary, which only
           // clears 4.5:1 against surface-1/3 in both themes down to ~75%
           // alpha (see index.css token comment) — 80 keeps a safety margin.
+          // The name also gets line-through (see below): opacity alone was
+          // imperceptible as a "hidden" signal.
           !effectivelyVisible && 'opacity-80',
         )}
         onClick={handleLayerClick}
@@ -301,7 +307,9 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
             tabIndex={isActive ? 0 : -1}
             role="button"
             aria-label={`Reorder ${layer.name}`}
-            className="text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing rounded-sm focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50 border border-transparent"
+            // p/-m: 24px+ hit area (WCAG 2.5.8) without moving the layout —
+            // a missed 16px chevron next to a 16px grip started a layer drag.
+            className="p-1.5 -m-1.5 text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing rounded-sm focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50 border border-transparent"
             onClick={(e) => e.stopPropagation()}
           >
             <GripVertical size={14} />
@@ -318,10 +326,13 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
             type="button"
             tabIndex={-1}
             className={cn(
-              'flex items-center justify-center w-4 h-4 shrink-0 transition-colors',
-              // text-dim instead of text-muted + opacity-30: text-muted only
-              // clears 4.5:1 at full alpha, so fading it further broke contrast.
-              hasChildren ? 'text-text-muted hover:text-text-primary' : 'text-text-dim pointer-events-none',
+              // w-6/-m-1: 24px hit area (WCAG 2.5.8) in a 16px layout slot.
+              'flex items-center justify-center w-6 h-6 -m-1 shrink-0 transition-colors',
+              // Disabled chevron reads dimmer than enabled, not brighter —
+              // text-dim is a lighter token than text-muted, which inverted
+              // the affordance. Disabled controls are exempt from the 4.5:1
+              // floor, so the opacity fade is fine here.
+              hasChildren ? 'text-text-muted hover:text-text-primary' : 'text-text-muted opacity-40 pointer-events-none',
               'focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50 border border-transparent rounded-sm',
             )}
             onClick={handleChevronClick}
@@ -341,14 +352,18 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
           onStartEdit={() => setEditingName(true)}
           onCommit={commitRename}
           onCancel={() => setEditingName(false)}
-          displayClassName="text-panel-body text-text-primary"
+          displayClassName={cn('text-panel-body text-text-primary', !effectivelyVisible && 'line-through')}
           restoreFocusRef={rowRef}
         />
 
-        {/* child count — a collapsed layer otherwise gives no hint of scale */}
+        {/* child count — a collapsed layer otherwise gives no hint of scale;
+            while filtering it shows matches / total so the badge and the
+            groups below never disagree. */}
         {isDungeon && (dungeonLayer?.children.length ?? 0) > 0 && (
           <span className="shrink-0 text-panel-small text-text-muted tabular-nums">
-            {dungeonLayer?.children.length}
+            {q !== ''
+              ? `${dungeonLayer?.children.filter((c) => c.name.toLowerCase().includes(q)).length} / ${dungeonLayer?.children.length}`
+              : dungeonLayer?.children.length}
           </span>
         )}
 

@@ -75,17 +75,22 @@ export function panChildIntoView(childId: string): void {
   const sx2 = (b.x + b.width) * zoom + stage.position.x
   const sy2 = (b.y + b.height) * zoom + stage.position.y
 
-  const margin = 24
+  // Asymmetric margins: the top toolbar and bottom zoom HUD float over the
+  // canvas and aren't in viewportInsetsRef — "technically on screen" parked
+  // objects under the HUD.
+  const mx = 24
+  const mTop = 56
+  const mBot = 72
   let dx = 0
   let dy = 0
-  if (sx1 < rect.left + margin) dx = rect.left + margin - sx1
-  else if (sx2 > rect.right - margin) dx = rect.right - margin - sx2
-  if (sy1 < rect.top + margin) dy = rect.top + margin - sy1
-  else if (sy2 > rect.bottom - margin) dy = rect.bottom - margin - sy2
+  if (sx1 < rect.left + mx) dx = rect.left + mx - sx1
+  else if (sx2 > rect.right - mx) dx = rect.right - mx - sx2
+  if (sy1 < rect.top + mTop) dy = rect.top + mTop - sy1
+  else if (sy2 > rect.bottom - mBot) dy = rect.bottom - mBot - sy2
   // An object larger than the gap can trip both edges; centring beats
   // ping-ponging between them.
-  if (sx2 - sx1 > rect.right - rect.left - 2 * margin) dx = (rect.left + rect.right) / 2 - (sx1 + sx2) / 2
-  if (sy2 - sy1 > rect.bottom - rect.top - 2 * margin) dy = (rect.top + rect.bottom) / 2 - (sy1 + sy2) / 2
+  if (sx2 - sx1 > rect.right - rect.left - 2 * mx) dx = (rect.left + rect.right) / 2 - (sx1 + sx2) / 2
+  if (sy2 - sy1 > rect.bottom - rect.top - mTop - mBot) dy = (rect.top + rect.bottom) / 2 - (sy1 + sy2) / 2
   if (dx === 0 && dy === 0) return
 
   animateTo(stage.position.x + dx, stage.position.y + dy, zoom)

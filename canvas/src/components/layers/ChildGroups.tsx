@@ -169,8 +169,37 @@ function VirtualChildList({ layer, children_ }: { layer: DungeonLayer; children_
     if (idx >= 0) virtualizer.scrollToIndex(idx, { align: 'center' })
   }, [revealChildId, children_, virtualizer])
 
+  // P0 keyboard fix: the tree's DOM-order arrow navigation only sees
+  // RENDERED rows, so past the virtual window focus fell off the group onto
+  // the pinned rows. Handle Up/Down inside the list: scroll the target index
+  // into the window, then focus its row once it exists. Boundary presses
+  // (first/last item) fall through to the tree handler on purpose.
+  const focusIndex = (idx: number, attempts = 0) => {
+    const el = listRef.current?.querySelector<HTMLElement>(
+      `[data-index="${idx}"] [data-testid="child-row"]`,
+    )
+    if (el) el.focus()
+    else if (attempts < 6) requestAnimationFrame(() => focusIndex(idx, attempts + 1))
+  }
+  const handleListKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+    const wrap = (e.target as HTMLElement).closest('[data-index]')
+    if (!wrap) return
+    const idx = Number(wrap.getAttribute('data-index'))
+    const next = e.key === 'ArrowDown' ? idx + 1 : idx - 1
+    if (next < 0 || next >= children_.length) return
+    e.preventDefault()
+    e.stopPropagation()
+    virtualizer.scrollToIndex(next)
+    requestAnimationFrame(() => focusIndex(next))
+  }
+
   return (
-    <div ref={listRef} style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+    <div
+      ref={listRef}
+      style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
+      onKeyDown={handleListKeyDown}
+    >
       {virtualizer.getVirtualItems().map((vi) => (
         <div
           key={vi.key}
