@@ -235,13 +235,17 @@ export const GroupRow = memo(function GroupRow({
         {/* Chevron only for plain groups — a merged group has no member rows
             to reveal, so a disclosure control there would open nothing. */}
         {group.merged ? (
-          <span className="w-3 shrink-0" />
+          // w-4: the chevron's LAYOUT width below (w-6 minus its -m-1 bleed),
+          // so a merged row's icon lines up with a plain group's.
+          <span className="w-4 shrink-0" />
         ) : (
           <span
             role="button"
             tabIndex={-1}
             aria-label={isExpanded ? `Collapse ${group.name}` : `Expand ${group.name}`}
-            className="flex items-center justify-center w-3 shrink-0 text-text-muted"
+            // w-6/h-6/-m-1: same 24px hit area (WCAG 2.5.8) in a 16px slot as
+            // LayerRow's chevron — these two sit in the same column.
+            className="flex items-center justify-center w-6 h-6 -m-1 shrink-0 transition-colors text-text-muted hover:text-text-primary"
             onClick={(e) => {
               e.stopPropagation()
               toggleChildGroup(key)

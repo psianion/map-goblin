@@ -65,11 +65,22 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
   // Filter matches force the children block open — a filter you must expand
   // each layer to see the results of is not a filter.
   const q = filter.trim().toLowerCase()
-  // A group-name match counts: it reveals that folder's whole contents.
-  const filterMatches =
-    q !== '' &&
-    ((dungeonLayer?.children.some((c) => c.name.toLowerCase().includes(q)) ?? false) ||
-      (dungeonLayer?.groups?.some((g) => g.name.toLowerCase().includes(q)) ?? false))
+  // A child is revealed by its own name OR by its group's — a group-name match
+  // reveals that folder's whole contents (the rule ChildGroups renders by), so
+  // counting name matches alone made the badge read 0/N under a folder full of
+  // visible rows.
+  const matchedGroupIds = new Set(
+    q === ''
+      ? []
+      : (dungeonLayer?.groups ?? []).filter((g) => g.name.toLowerCase().includes(q)).map((g) => g.id),
+  )
+  const matchCount =
+    q === ''
+      ? 0
+      : (dungeonLayer?.children.filter(
+          (c) => c.name.toLowerCase().includes(q) || (c.groupId != null && matchedGroupIds.has(c.groupId)),
+        ).length ?? 0)
+  const filterMatches = matchCount > 0
 
   const handleLayerClick = (e: React.MouseEvent) => {
     panelSelectionOrigin.current = true
@@ -365,7 +376,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
         {isDungeon && (dungeonLayer?.children.length ?? 0) > 0 && (
           <span className="shrink-0 text-panel-small text-text-muted tabular-nums">
             {q !== ''
-              ? `${dungeonLayer?.children.filter((c) => c.name.toLowerCase().includes(q)).length} / ${dungeonLayer?.children.length}`
+              ? `${matchCount} / ${dungeonLayer?.children.length}`
               : dungeonLayer?.children.length}
           </span>
         )}

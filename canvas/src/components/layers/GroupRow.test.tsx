@@ -85,6 +85,13 @@ describe('GroupRow', () => {
     expect(screen.queryByTestId('child-group-header')).toBeNull()
   })
 
+  // The chevron shipped as a bare 12px glyph while LayerRow's, one column
+  // over, already had the 24px WCAG 2.5.8 hit area.
+  it('gives the chevron the same 24px hit area as the layer row', () => {
+    renderGroups(layerWithGroup())
+    expect(screen.getByLabelText('Expand Ridge').className).toContain('w-6 h-6 -m-1')
+  })
+
   it('renders a merged group as one row with no chevron and no member rows', () => {
     const layer = layerWithGroup(true)
     renderGroups(layer)
