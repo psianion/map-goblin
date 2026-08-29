@@ -274,6 +274,99 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
   })
 })
 
+// ── A floor shape whose middle is inside no room ─────────────────────────────
+// The Goblin Warren's cave, in miniature: one concave floor over two rooms, with its
+// bounding-box centre on the rock between them. Judged by that centre the whole shape was
+// unzoned map and went to nobody — so a player who had explored half the cave got the rooms,
+// the props and the walls, and no floor at all, which is also no wall band, because core
+// draws the band off the merged ring the floor children make. Their cave read as black.
+
+describe('a floor shape whose centre lands on no room (D5)', () => {
+  /** ⊔ — two arms joined along the bottom, the notch between them spanning x 10..20, y 4..10. */
+  const HORSESHOE: [number, number][] = [
+    [0, 0],
+    [30, 0],
+    [30, 10],
+    [20, 10],
+    [20, 4],
+    [10, 4],
+    [10, 10],
+    [0, 10],
+  ]
+
+  const cave = (): SerializedMapData => {
+    const rooms = [room('west-arm', 1, 1, 9, 9), room('east-arm', 21, 1, 29, 9)]
+    const layer: DungeonLayer = {
+      id: 'layer-1',
+      name: 'Cave',
+      type: 'dungeon',
+      visible: true,
+      locked: false,
+      opacity: 1,
+      children: [
+        { ...floor('floor-cave', 0, 0, 1, 1), contours: [HORSESHOE] } as AnyChild,
+        prop('prop-east', 25, 5),
+      ],
+      standaloneWalls: [],
+      mergedFloor: [HORSESHOE],
+      style: {} as DungeonLayer['style'],
+      sublayerVisibility: { floor: true, grid: true, walls: true },
+      rooms,
+      roomNameOverrides: {},
+    }
+    return { ...mapFile(), layers: [layer] }
+  }
+
+  const redactedCave = (): SerializedMapData => {
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Cave')
+    stores.maps.insert('cave', campaign.id, 'Cave', JSON.stringify(cave()))
+    stores.scenes.create('cave', campaign.id, 'cave', 'Cave')
+    return redactMapForViewer(
+      createSceneMaps(stores).sceneMapOf('cave')!,
+      { rooms: { 'west-arm': { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: true },
+      {},
+    )
+  }
+
+  it('is the case the centre test cannot answer', () => {
+    // The premise, pinned: the bounding-box centre is in the notch, inside neither arm.
+    const shape = (cave().layers[0] as DungeonLayer).children[0]
+    expect(centreOf(shape)).toEqual([15, 5])
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Cave')
+    stores.maps.insert('c2', campaign.id, 'Cave', JSON.stringify(cave()))
+    stores.scenes.create('c2', campaign.id, 'c2', 'Cave')
+    expect(createSceneMaps(stores).sceneMapOf('c2')!.roomAt(15, 5)).toBeNull()
+  })
+
+  it('goes to a player who has explored a room the shape covers', () => {
+    const layer = redactedCave().layers[0] as DungeonLayer
+    expect(layer.children.map((c) => c.id)).toContain('floor-cave')
+    // Whole, so the band core draws off the merged ring is the cave's own outline.
+    expect((layer.children[0] as { contours: [number, number][][] }).contours[0]).toEqual(HORSESHOE)
+  })
+
+  it('takes nothing else of the room the party has not earned', () => {
+    const wire = JSON.stringify(redactedCave())
+    expect(wire).not.toContain('east-arm')
+    expect(wire).not.toContain('prop-east')
+  })
+
+  it('still withholds a floor over rooms the party has all missed', () => {
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Cave')
+    stores.maps.insert('c3', campaign.id, 'Cave', JSON.stringify(cave()))
+    stores.scenes.create('c3', campaign.id, 'c3', 'Cave')
+    const nothing = redactMapForViewer(
+      createSceneMaps(stores).sceneMapOf('c3')!,
+      { rooms: {}, concealBehindDoors: true },
+      {},
+    )
+    expect((nothing.layers[0] as DungeonLayer).children).toEqual([])
+  })
+})
+
 // ── mapDeltaFor ─────────────────────────────────────────────────────────────
 
 describe('mapDeltaFor (D5)', () => {

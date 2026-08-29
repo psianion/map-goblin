@@ -7,9 +7,9 @@
 
 import { seedDoor, type AuthoredDoor, type DoorLiveState } from '@dnd/mechanics/doors'
 import type { SceneFog } from '@dnd/mechanics/fog'
-import type { AnyChild, DoorChild, Room, WallSegment } from '@dnd/core/src/shared/types'
+import type { AnyChild, DoorChild, Room, ShapeChild, WallSegment } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
-import { centreOf, childrenOf, isDungeon, wallsOf, type SceneMap } from './sceneMap'
+import { centreOf, childrenOf, isDungeon, pointInPoly, wallsOf, type SceneMap } from './sceneMap'
 
 /** One layer's worth of newly available geometry, shaped to be merged by layer id. */
 export interface MapDeltaLayer {
@@ -176,10 +176,47 @@ function slice(
   }
 }
 
+/**
+ * Which room a child belongs to.
+ *
+ * A prop, a light or a piece of text is judged by where it stands, and its centre is that.
+ * A floor shape is not, and judging one by its centre is what the Goblin Warren caught: a
+ * cave floor is one concave contour spanning eight rooms whose bounding-box centre lands on
+ * rock inside none of them (`centreOf`'s own ponytail note predicted exactly this), so the
+ * whole cave floor was withheld from every player at every reveal — and with it every wall
+ * band, which core draws off the merged floor ring the shape children make. Their cave read
+ * as bare black inside rooms the referee had lit.
+ *
+ * So a shape is kept when it *covers* a room the party has earned, tested by the room's own
+ * vertices rather than the shape's: rooms are detected out of the floor and inset by half a
+ * wall band, so a room's vertices lie inside the floor it came from, while the shape's lie on
+ * its rim, outside every room.
+ *
+ * Whole, not clipped — a shape whose centre happens to land in an explored room already
+ * travels whole across every room it spans, so this widens no boundary that was not already
+ * there; it only stops the answer turning on where a concave outline's bounding box happens
+ * to have its middle. Clipping it to the earned rooms would be worse than the leak: the band
+ * renderer draws a wall along every ring it is given, so the cut would print a stone wall
+ * across the mouth of a passage that is actually open.
+ */
 function childKept(child: AnyChild, scene: SceneMap, kept: ReadonlySet<string>): boolean {
   const [x, y] = centreOf(child)
   const room = scene.roomAt(x, y)
-  return room !== null && kept.has(room)
+  if (room !== null && kept.has(room)) return true
+  return child.childType === 'shape' && coversKeptRoom(child, scene, kept)
+}
+
+/** Does this shape's outline enclose any part of a room the party has earned? */
+function coversKeptRoom(shape: ShapeChild, scene: SceneMap, kept: ReadonlySet<string>): boolean {
+  const outline = shape.contours?.[0]
+  if (!outline || outline.length < 3) return false
+  // `centreOf` adds the translate to the shape; here the room's world vertices come back to
+  // the untransformed contour instead, which is the same comparison from the other end.
+  const [dx, dy] = shape.transform?.translate ?? [0, 0]
+  return scene.rooms.some(
+    (room) =>
+      kept.has(room.id) && room.boundary.some(([x, y]) => pointInPoly(outline, x - dx, y - dy)),
+  )
 }
 
 /**

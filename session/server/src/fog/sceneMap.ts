@@ -226,8 +226,7 @@ export function centreOf(child: AnyChild): [number, number] {
 }
 
 /** Ray casting, the one geometry primitive this needs — @dnd/core is type-only here (D3). */
-function contains(room: Room, x: number, y: number): boolean {
-  const poly = room.boundary
+export function pointInPoly(poly: readonly [number, number][], x: number, y: number): boolean {
   let inside = false
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [xi, yi] = poly[i]
@@ -235,4 +234,8 @@ function contains(room: Room, x: number, y: number): boolean {
     if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
   }
   return inside
+}
+
+function contains(room: Room, x: number, y: number): boolean {
+  return pointInPoly(room.boundary, x, y)
 }

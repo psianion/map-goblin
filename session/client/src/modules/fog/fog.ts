@@ -442,10 +442,12 @@ export interface VisionRegion {
  * their own eyes are the only thing that makes anything live. A re-hidden room contributes
  * nothing extra — the cells they earned still show, and taking those back is a region-hide.
  *
- * `shipped` is every room the player actually holds geometry for, and *both* earned tiers are
- * clipped to it: a cell swept on unzoned map would otherwise put a wash over void that has
- * nothing under it to remember, and a sweep running past the last room they hold would cut a
- * bare-background wedge out of the scrim.
+ * `shipped` is every room the player actually holds geometry for and `painted` the ground the
+ * map carries terrain paint on; *both* earned tiers are clipped to the two of them together
+ * (see `held`). A cell swept on bare unzoned map would otherwise put a wash over void that has
+ * nothing under it to remember, and a sweep running past the last ground they hold would cut a
+ * bare-background wedge out of the scrim — while painted ground between two floors is map with
+ * art on it, and reveals like any other.
  *
  * Without Clipper2 loaded the intersections are empty, so the mask degrades to solid void —
  * dark rather than open, the direction a fog bug should fail in.
@@ -467,12 +469,28 @@ export function visionRegion(
   pad: number,
   feather: number,
   night?: NightSight,
+  painted: readonly Polygon[] = [],
 ): VisionRegion {
   const mask = memoryMask(
     [region?.bits, region?.minX, region?.minY, region?.cols, region?.rows],
     () => memoryOutline(region),
   );
-  const held = heldReach([pad, feather, ...shipped], () => reachOf(shipped, pad + feather));
+  // …and the ground the map carries paint on, which is the other half of "something to see".
+  //
+  // `shipped` alone was the whole of it, on the premise that map outside a room is void. Two
+  // things made that false. Ground is painted terrain now ("floor = terrain with walls", PR
+  // #53), and a map can carry a strip of splat paint between two floors that no room covers;
+  // and vision-mode brushed cells are walkable, so a player can stand on that strip. On the
+  // Goblin Warren the path from the forest to the cave mouth is exactly that — 2.8 cells of
+  // painted ground, zoned by nothing — and the clip left it under solid black on every player
+  // seat, revealed rooms either side of it, while the referee watched them walk down it.
+  //
+  // Painted ground opens the tiers, it does not fill them: what is *shown* there is still the
+  // party's own sweep and the referee's own region record, both clipped to this. Ground with
+  // no paint on it and no room over it stays void, which is what the clip was always for.
+  const held = heldReach([pad, feather, ...painted, ...shipped], () =>
+    clipper2Engine.union([...reachOf(shipped, pad + feather), ...painted], []),
+  );
   const swept = reachOf(sight, sightPad(pad) + feather);
   // Clipped to `held` for the reason the memory tier is, and it is the louder of the two: the
   // scrim is grown to cover the sweep (`drawFog`), so a sight polygon escaping the geometry
@@ -575,6 +593,37 @@ export function fogFrame(mapData: unknown): Frame | null {
   const doc = mapData as SerializedMapData | null;
   if (!doc) return null;
   return doc.frame ?? computeMapFrame(doc.layers ?? [], doc.mapSettings?.terrain?.bounds ?? null);
+}
+
+/**
+ * The ground the map carries terrain paint on, as one rectangle — the splat's own bounds, off
+ * the referee's document for the reason `serverRooms` reads that document: it is the same
+ * statement both seats are drawn from, and a player's copy carries it unredacted (the whole-map
+ * splat going to players is a documented decision — `http.ts`'s `getMapImage`).
+ *
+ * The bounds are the painted region's box, not its pixels, which is the coarseness this wants:
+ * it is used as a *clip* on what the party's own sight and the referee's own region record are
+ * allowed to open (`visionRegion`), never as a reveal of its own. Nothing painted, nothing
+ * switched on, or an empty palette ⇒ no painted ground at all, and the clip is what it was.
+ *
+ * ponytail: one box, not the splat's alpha. Reading the paint per pixel means pulling the PNG
+ * back off the GPU on every mask rebuild; the day a map paints two islands far apart and the
+ * gap between them wants to stay dark, the fix is the authored bounds being per-stroke.
+ */
+export function paintedGround(mapData: unknown): Polygon[] {
+  const terrain = (mapData as SerializedMapData | null)?.mapSettings?.terrain;
+  if (!terrain?.bounds || terrain.visible === false) return [];
+  if (!(terrain.palette ?? []).some(Boolean)) return [];
+  const { minX, minY, maxX, maxY } = terrain.bounds;
+  if (!(maxX > minX && maxY > minY)) return [];
+  return [
+    [
+      [minX, minY],
+      [maxX, minY],
+      [maxX, maxY],
+      [minX, maxY],
+    ],
+  ];
 }
 
 /**
