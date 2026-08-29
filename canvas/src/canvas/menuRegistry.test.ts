@@ -229,14 +229,14 @@ describe('buildMultiMenu', () => {
     expect(rows).not.toContain('Group selection');
   });
 
-  it('labels a merged group Unmerged', () => {
+  it('labels a merged group Unmerge', () => {
     const a = makeLight();
     const b = { ...makeLight(), id: 'light-2', name: 'Light 2' };
     useStore.getState().addChild(layer().id, a);
     useStore.getState().addChild(layer().id, b);
     useStore.getState().setSelectedIds([a.id, b.id]);
     mergeSelection();
-    expect(labels(buildMultiMenu(2))).toContain('Unmerged');
+    expect(labels(buildMultiMenu(2))).toContain('Unmerge');
   });
 });
 

@@ -170,7 +170,7 @@ function groupRows(ctx?: ChildMenuContext): MenuRow[] {
   } else if (sameGroup) {
     rows.push({
       separatorBefore: true,
-      label: sameGroup.group.merged ? 'Unmerged' : 'Ungroup',
+      label: sameGroup.group.merged ? 'Unmerge' : 'Ungroup',
       kbd: 'Ctrl+Shift+G',
       onSelect: () => ungroupSelection(),
     })
