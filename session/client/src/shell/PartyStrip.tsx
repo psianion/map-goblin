@@ -8,6 +8,7 @@ import { frameWorldPoint } from '../renderer/camera';
 import { useModuleState, useSessionStore } from '../session/store';
 import { Icon } from './icons';
 import { usePortraitUrl } from './portrait';
+import { useOverlayMode, useShell } from './shellStore';
 
 const DISPOSITION_RING: Record<Disposition, string> = {
   friendly: 'ring-info',
@@ -114,6 +115,8 @@ function PartyDisc({ d }: { d: DiscData }) {
 }
 
 export function PartyStrip() {
+  const sidebarOpen = useShell((s) => s.sidebarOpen);
+  const overlay = useOverlayMode();
   const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
   const initiative = useModuleState<InitiativeState>('initiative');
   const tokens = useModuleState<TokensState>('tokens');
@@ -171,11 +174,18 @@ export function PartyStrip() {
 
   if (discs.length === 0) return null;
 
+  // table-shell-redesign D1/D5: 52px clears the sidebar's edge toggle (34px + an 8px margin
+  // + a 10px gap, same as the approved mockup) instead of sitting under it; +300px again
+  // once an inset-mode sidebar is open, so this never renders behind it.
+  const leftInset = sidebarOpen && !overlay;
+
   return (
     <div
       data-testid="party-strip"
       onPointerDown={(e) => e.stopPropagation()}
-      className="absolute left-2.5 top-2.5 flex h-[38px] items-center gap-1.5 rounded-full border border-border-structure bg-surface-1/92 px-2 shadow-[var(--panel-shadow)]"
+      className={`absolute top-2.5 flex h-[38px] items-center gap-1.5 rounded-full border border-border-structure bg-surface-1/92 px-2 shadow-[var(--panel-shadow)] transition-[left] duration-200 ease-settle motion-reduce:transition-none ${
+        leftInset ? 'left-[352px]' : 'left-[52px]'
+      }`}
     >
       {discs.map((d) => (
         <PartyDisc key={d.discKey} d={d} />

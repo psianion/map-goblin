@@ -22,6 +22,7 @@ export type IconName =
   | 'log'
   | 'me'
   | 'session'
+  | 'sidebar'
   | 'reveal'
   | 'hide'
   | 'brush'
@@ -41,8 +42,13 @@ export type IconName =
 
 const GLYPHS: Record<IconName, string> = {
   // ── rail ──
+  // Crossed swords. The guards used to be 3px ticks beside the crossing and the pommels were
+  // not drawn at all, so at the rail's 20px the whole glyph collapsed into a bare ✕ — read as
+  // a close button sitting on top of the rail, which is exactly what it looked like. The
+  // guards now sit down each grip at full width and each sword gets a pommel dot (the set's
+  // own accent-dot vocabulary), so the silhouette says "swords" before the label does.
   initiative:
-    '<path d="M5 5L19 19"/><path d="M8 11.2L11.2 8"/><path d="M19 5L5 19"/><path d="M12.8 8L16 11.2"/>',
+    '<path d="M5 5L18.4 18.4"/><path d="M19 5L5.6 18.4"/><path d="M13.1 16.7L16.7 13.1"/><path d="M7.3 13.1L10.9 16.7"/><circle cx="19.1" cy="19.1" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.9" cy="19.1" r="1.3" fill="currentColor" stroke="none"/>',
   fog:
     '<path d="M3 8c1.6-2.2 3.6-2.2 5.2 0s3.6 2.2 5.2 0 3.6-2.2 5.2 0"/><path d="M3 13.2c1.7-2.2 3.7-2.2 5.4 0s3.7 2.2 5.4 0 3.7-2.2 5.4 0"/><path d="M3 18c1.6 2.2 3.6 2.2 5.2 0s3.6-2.2 5.2 0 3.6 2.2 5.2 0"/>',
   doors:
@@ -66,6 +72,9 @@ const GLYPHS: Record<IconName, string> = {
     '<path d="M6.5 3.5H17.5A3 3 0 0 1 20.5 6.5V17.5A3 3 0 0 1 17.5 20.5H6.5A3 3 0 0 1 3.5 17.5V6.5A3 3 0 0 1 6.5 3.5Z"/><circle cx="12" cy="9.5" r="2.8"/><path d="M6.5 20.5c0-4 2.5-6 5.5-6s5.5 2 5.5 6"/>',
   session:
     '<circle cx="12" cy="12" r="6"/><circle cx="12" cy="3.7" r="1.3" fill="currentColor" stroke="none"/><circle cx="19.2" cy="16.2" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.8" cy="16.2" r="1.3" fill="currentColor" stroke="none"/>',
+  // table-shell-redesign — the left sidebar's edge toggle (docs/mockups/table-shell-redesign-mockup.html).
+  sidebar:
+    '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M9.5 4.5V19.5"/>',
 
   // ── inline ──
   reveal:

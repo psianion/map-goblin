@@ -19,7 +19,7 @@ function session(modules: SessionState['modules']): SessionState {
 }
 
 beforeEach(() => {
-  useShell.setState({ drawerOpen: false, openPanel: null, diagnostics: false });
+  useShell.setState({ drawerOpen: false, openPanel: null, diagnostics: false, sidebarOpen: false });
   useSessionStore.setState({ session: null, presence: [], mapData: null, you: null });
 });
 afterEach(() => cleanup());
@@ -91,9 +91,9 @@ describe('LogDrawer', () => {
     });
   });
 
-  // M3 review finding 7: down the left column, then down the right — not the row-major
-  // zig-zag a plain `grid-cols-2` auto-placed entries into.
-  it('splits the feed column-major, so the newest line lands in the second column', () => {
+  // table-shell-redesign D2: the drawer is a vertical column now (300px, right of the rail),
+  // too narrow for the old two-column split — one top-down list, newest at the bottom.
+  it('renders a single top-down column, oldest first', () => {
     useShell.setState({ drawerOpen: true });
     useSessionStore.setState({
       session: session({
@@ -102,7 +102,6 @@ describe('LogDrawer', () => {
             { id: 'r1', at: 1, playerName: 'A', total: 1, visibility: 'public' },
             { id: 'r2', at: 2, playerName: 'B', total: 2, visibility: 'public' },
             { id: 'r3', at: 3, playerName: 'C', total: 3, visibility: 'public' },
-            { id: 'r4', at: 4, playerName: 'D', total: 4, visibility: 'public' },
           ],
         },
       }),
@@ -110,12 +109,11 @@ describe('LogDrawer', () => {
     render(<LogDrawer />);
 
     const columns = screen.getAllByTestId('log-column');
-    expect(columns).toHaveLength(2);
-    expect(columns[0].textContent).toContain('A');
-    expect(columns[0].textContent).toContain('B');
-    expect(columns[0].textContent).not.toContain('C');
-    expect(columns[1].textContent).toContain('C');
-    expect(columns[1].textContent).toContain('D');
+    expect(columns).toHaveLength(1);
+    const names = [...columns[0].querySelectorAll('li')].map((li) => li.textContent);
+    expect(names[0]).toContain('A');
+    expect(names[1]).toContain('B');
+    expect(names[2]).toContain('C');
   });
 
   it('closes on the header button', () => {
