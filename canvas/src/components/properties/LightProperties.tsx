@@ -16,6 +16,8 @@ interface LightPropertiesProps {
   onDeselect?: () => void
   openSections?: Set<string>
   onToggleSection?: (id: string) => void
+  /** Owning layer is locked or hidden — inspect, don't edit. */
+  disabled?: boolean
 }
 
 /** Convert a world-unit radius to a rounded feet string using the map's cell scale. */
@@ -27,7 +29,7 @@ function toFt(worldUnits: number, ftPerCell: number): string {
 const MIN_RADIUS_FT = 5
 const MAX_RADIUS_FT = 300
 
-export function LightProperties({ light, onDeselect, openSections, onToggleSection }: LightPropertiesProps) {
+export function LightProperties({ light, onDeselect, openSections, onToggleSection, disabled }: LightPropertiesProps) {
   const updateChild = useStore((s) => s.updateChild)
   const cellScale = useStore((s) => s.mapSettings.cellScale)
   const ftPerCell = cellScale.value
@@ -76,6 +78,10 @@ export function LightProperties({ light, onDeselect, openSections, onToggleSecti
         ) : undefined
       }
     >
+      {/* Native lock: a disabled fieldset disables every control beneath it.
+          `contents` keeps it out of the layout, and the section header stays
+          outside so a locked light is still inspectable. */}
+      <fieldset disabled={disabled} className="contents">
       <div className="flex flex-col gap-2 pt-2">
         <PropertyField label="Name">
           <input
@@ -219,6 +225,7 @@ export function LightProperties({ light, onDeselect, openSections, onToggleSecti
           </div>
         </PropertyField>
       </div>
+      </fieldset>
     </CollapsibleSection>
   )
 }

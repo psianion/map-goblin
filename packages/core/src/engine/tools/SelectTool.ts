@@ -30,6 +30,8 @@ import {
   pointInLight,
 } from '../hitTest';
 import { flattenRing } from '../../shared/bezier';
+import { blockedLayerReason } from './layerGuard';
+import { notify } from '../../shared/notify';
 
 // ─── State machine ────────────────────────────────────────
 
@@ -659,6 +661,12 @@ export class SelectTool implements DrawingTool {
     }
 
     if (entries.length === 0) {
+      // Everything selected sits on a locked layer, so the filter above threw
+      // it all away — the drag would otherwise just do nothing, silently.
+      const lockedOut = store.layers.some(
+        (l) => l.type === 'dungeon' && l.locked && l.children.some((c) => idSet.has(c.id)),
+      );
+      if (lockedOut) notify.warning('Layer is locked');
       this.transformSession = null;
       return;
     }
@@ -1012,6 +1020,14 @@ export class SelectTool implements DrawingTool {
       this.state = 'SELECTED';
       return;
     }
+    // The region was picked up before the layer was locked/hidden, or the lock
+    // landed mid-drag — either way the write has to answer for it now.
+    const blocked = blockedLayerReason(activeLayer);
+    if (blocked) {
+      notify.warning(blocked);
+      this.state = 'SELECTED';
+      return;
+    }
 
     const prevFloor = activeLayer.mergedFloor ?? [];
     // Use the exact user-drawn selection rect for the cut (avoids Clipper2 precision drift)
@@ -1096,6 +1112,11 @@ export class SelectTool implements DrawingTool {
       (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
     );
     if (!activeLayer) return;
+    const blocked = blockedLayerReason(activeLayer);
+    if (blocked) {
+      notify.warning(blocked);
+      return;
+    }
 
     const prevFloor = activeLayer.mergedFloor ?? [];
     const newFloor = clipper2Engine.difference(prevFloor, region) as [number, number][][];

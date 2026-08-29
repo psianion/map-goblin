@@ -147,9 +147,11 @@ const fieldInputClass =
 interface ZonePropertiesProps {
   layerId: string
   childId: string
+  /** Owning layer is locked or hidden — inspect, don't edit. */
+  disabled?: boolean
 }
 
-export function ZoneProperties({ layerId, childId }: ZonePropertiesProps) {
+export function ZoneProperties({ layerId, childId, disabled }: ZonePropertiesProps) {
   const { zone, layer } = useStore(
     useShallow((state) => {
       const l = state.layers.find((x) => x.id === layerId)
@@ -251,6 +253,10 @@ export function ZoneProperties({ layerId, childId }: ZonePropertiesProps) {
   }
 
   return (
+    // A disabled fieldset disables every control under it natively — including
+    // the trigger and note editors below — so the layer lock is one attribute
+    // rather than a `disabled` prop per input. `contents` adds no box.
+    <fieldset disabled={disabled} className="contents">
     <div className="flex flex-col gap-2">
       <span className="font-mono text-panel-heading uppercase text-text-muted">Zone Properties</span>
 
@@ -425,6 +431,7 @@ export function ZoneProperties({ layerId, childId }: ZonePropertiesProps) {
         )}
       </div>
     </div>
+    </fieldset>
   )
 }
 

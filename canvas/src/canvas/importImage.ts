@@ -13,6 +13,7 @@ import { undoManager } from '@/store/undoManager';
 import { AddChildCommand } from '@/store/commands';
 import type { AssetChild } from '@/store/types';
 import type { RenderEngine } from '@/engine/RenderEngine';
+import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard';
 
 const VALID_TYPES = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'];
 const MAX_IMPORT_PX = 4096;
@@ -136,6 +137,13 @@ export async function handleImageImport(file: File, engine: RenderEngine): Promi
     notify.error('Select a dungeon layer to import images.');
     return;
   }
+  // File picker, drag-and-drop and clipboard paste all funnel through here, so
+  // this one guard closes all three against a locked or hidden target layer.
+  const blocked = blockedLayerReason(layer);
+  if (blocked) {
+    notify.warning(blocked);
+    return;
+  }
 
   try {
     const vp = engine.viewport();
@@ -153,43 +161,4 @@ export async function handleImageImport(file: File, engine: RenderEngine): Promi
     const message = err instanceof Error ? err.message : 'Unknown error';
     notify.error(`Import failed: ${message}`);
   }
-}
-
-/**
- * Immediately place an asset at the viewport center without entering placement mode.
- */
-export function placeAssetAtViewCenter(assetId: string, engine: RenderEngine): void {
-  const store = useStore.getState();
-
-  const targetLayerId = store.ui.activeLayerId;
-  const layer = store.layers.find((l) => l.id === targetLayerId);
-  if (!layer || layer.type !== 'dungeon') return;
-
-  const vp = engine.viewport();
-  const center = engine.screenToWorld(vp.width / 2, vp.height / 2);
-  const snapped = { x: Math.round(center.x), y: Math.round(center.y) };
-
-  const texture = Assets.get(assetId) as { width?: number; height?: number } | undefined;
-  const scale = texture?.width ? texture.width / 256 : 1;
-  const texW = texture?.width ?? 256;
-  const texH = texture?.height ?? 256;
-
-  const child: AssetChild = {
-    id: crypto.randomUUID(),
-    name: `Asset ${assetId.slice(0, 8)}`,
-    childType: 'asset',
-    visible: true,
-    objectType: 'image',
-    assetId,
-    position: snapped,
-    rotation: 0,
-    scale,
-    width: texW * scale,
-    height: texH * scale,
-    tint: '#ffffff',
-    flipX: false,
-    flipY: false,
-  };
-
-  undoManager.execute(new AddChildCommand('Place at center', targetLayerId, child));
 }

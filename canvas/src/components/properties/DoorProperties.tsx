@@ -33,9 +33,11 @@ const STATE_OPTIONS = [
 interface DoorPropertiesProps {
   layerId: string;
   childId: string;
+  /** Owning layer is locked or hidden — inspect, don't edit. */
+  disabled?: boolean;
 }
 
-export function DoorProperties({ layerId, childId }: DoorPropertiesProps) {
+export function DoorProperties({ layerId, childId, disabled }: DoorPropertiesProps) {
   // The host wall's length rides along with the door: every width the panel can
   // produce has to fit the opening, and only the resolved wall knows how long
   // that is.
@@ -73,6 +75,10 @@ export function DoorProperties({ layerId, childId }: DoorPropertiesProps) {
   };
 
   return (
+    // A disabled fieldset disables every control under it natively, so the
+    // layer lock is one attribute rather than a `disabled` prop per input.
+    // `contents` keeps it out of the layout.
+    <fieldset disabled={disabled} className="contents">
     <div className="flex flex-col gap-2">
       <span className="font-mono text-panel-heading uppercase text-text-muted">Door Properties</span>
 
@@ -141,5 +147,6 @@ export function DoorProperties({ layerId, childId }: DoorPropertiesProps) {
       </PropertyField>
 
     </div>
+    </fieldset>
   );
 }

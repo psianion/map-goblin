@@ -1,6 +1,7 @@
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
-import { selectActiveLayer, selectSelectedIds, selectChildById, selectLayers, groupMembers } from '@/store/selectors'
+import { selectActiveLayer, selectSelectedIds, selectChildById, selectLayers, groupMembers, selectLayerForChild } from '@/store/selectors'
+import { blockedLayerReason } from '@dnd/core/src/engine/tools/layerGuard'
 import { undoManager } from '@/store/undoManager'
 import { createDissolveGroupCommand } from '@/store/commands'
 import { selectionGroup } from '@/canvas/groupActions'
@@ -110,6 +111,11 @@ function GroupSection({ layer, group, count }: { layer: DungeonLayer; group: Chi
   )
 }
 
+/** Says why the inputs below it are inert, in the panel's own hint voice. */
+function LockedNote({ reason }: { reason: string }) {
+  return <p className="px-3 pb-1 text-panel-small text-text-muted">{reason}</p>
+}
+
 export function PropertiesPanel({ openSections, onToggleSection }: SectionControl) {
   const activeLayerId = useStore((s) => s.ui.activeLayerId)
   const activeLayer = useStore(selectActiveLayer)
@@ -132,6 +138,23 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
   // only speaks for the group when the whole group is what's selected.
   const groupMatch =
     found && memberCount === selectedIds.length ? { ...found, count: memberCount } : null
+
+  // A child on a locked layer stays panel-selectable on purpose — you can read
+  // its numbers — but its inputs must not still write. Resolved per selected
+  // child, not off activeLayer: panel selection can point at another layer's
+  // child. Recomputed on every layer edit via the selectLayers subscription
+  // above.
+  const blockedReason = (() => {
+    const state = useStore.getState()
+    for (const id of selectedIds) {
+      const owner = selectLayerForChild(state, id)
+      if (!owner) continue
+      const reason = blockedLayerReason(owner)
+      if (reason) return reason
+    }
+    return null
+  })()
+  const locked = blockedReason !== null
 
   if (groupMatch) {
     return (
@@ -162,7 +185,8 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
   if (selectedChild?.childType === 'door' && activeLayer) {
     return (
       <div className="flex flex-col pt-2">
-        <DoorProperties layerId={activeLayer.id} childId={selectedChild.id} />
+        {blockedReason && <LockedNote reason={blockedReason} />}
+        <DoorProperties layerId={activeLayer.id} childId={selectedChild.id} disabled={locked} />
         <GridSection openSections={openSections} onToggleSection={onToggleSection} />
         <EnvironmentSection openSections={openSections} onToggleSection={onToggleSection} />
       </div>
@@ -173,7 +197,8 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
   if (selectedChild?.childType === 'zone' && activeLayer) {
     return (
       <div className="flex flex-col pt-2">
-        <ZoneProperties layerId={activeLayer.id} childId={selectedChild.id} />
+        {blockedReason && <LockedNote reason={blockedReason} />}
+        <ZoneProperties layerId={activeLayer.id} childId={selectedChild.id} disabled={locked} />
         <GridSection openSections={openSections} onToggleSection={onToggleSection} />
         <EnvironmentSection openSections={openSections} onToggleSection={onToggleSection} />
       </div>
@@ -185,11 +210,13 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
     const lightChild = selectedChild as LightChild
     return (
       <div className="flex flex-col pt-2">
+        {blockedReason && <LockedNote reason={blockedReason} />}
         <LightProperties
           light={lightChild}
           onDeselect={() => useStore.getState().setSelectedIds([])}
           openSections={openSections}
           onToggleSection={onToggleSection}
+          disabled={locked}
         />
         <GridSection openSections={openSections} onToggleSection={onToggleSection} />
         <EnvironmentSection openSections={openSections} onToggleSection={onToggleSection} />
@@ -201,16 +228,19 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
   if (selectedChild?.childType === 'text') {
     return (
       <div className="flex flex-col pt-2">
+        {blockedReason && <LockedNote reason={blockedReason} />}
         <TextProperties
           label={selectedChild as TextChild}
           onDeselect={() => useStore.getState().setSelectedIds([])}
           openSections={openSections}
           onToggleSection={onToggleSection}
+          disabled={locked}
         />
         <TransformSection
           child={selectedChild as TextChild}
           openSections={openSections}
           onToggleSection={onToggleSection}
+          disabled={locked}
         />
         <GridSection openSections={openSections} onToggleSection={onToggleSection} />
         <EnvironmentSection openSections={openSections} onToggleSection={onToggleSection} />
@@ -222,10 +252,12 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
   if (selectedChild?.childType === 'asset') {
     return (
       <div className="flex flex-col pt-2">
+        {blockedReason && <LockedNote reason={blockedReason} />}
         <TransformSection
           child={selectedChild}
           openSections={openSections}
           onToggleSection={onToggleSection}
+          disabled={locked}
         />
         <GridSection openSections={openSections} onToggleSection={onToggleSection} />
         <EnvironmentSection openSections={openSections} onToggleSection={onToggleSection} />

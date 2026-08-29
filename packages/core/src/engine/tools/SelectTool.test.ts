@@ -3,6 +3,7 @@ import { Container, Graphics } from 'pixi.js';
 import { SelectTool } from './SelectTool';
 import { useStore } from '../../store/store';
 import { undoManager } from '../../store/undoManager';
+import { setNotify } from '../../store/notify';
 import type { RenderEngine } from '../RenderEngine';
 import type { DungeonLayer } from '../../store/types';
 import type { AssetChild, LightChild, ShapeChild } from '../../shared/types';
@@ -228,5 +229,87 @@ describe('SelectTool — shape hover dwell gate', () => {
     addAsset({ x: 5, y: 5 });
     tool.onPointerMove({ x: 5, y: 5 });
     expect(drawn()).toBe(true);
+  });
+});
+
+// The lock can land after the selection does — the layers panel selects a
+// child on a locked layer by design, and a region cut survives a lock applied
+// mid-gesture — so every write here has to re-check, and say why it refused.
+describe('SelectTool — locked layer refusals', () => {
+  let tool: SelectTool;
+  let warning: ReturnType<typeof vi.fn<(message: string) => void>>;
+
+  /** A 4×4 square region, the shape the legacy alt-drag cut works on. */
+  const square: [number, number][][] = [[[0, 0], [4, 0], [4, 4], [0, 4]]];
+
+  /**
+   * The region commit and the transform session are reached through a gizmo
+   * drag on the legacy overlay; called directly so the test isn't a
+   * pixel-exact handle hunt for a guard that has nothing to do with handles.
+   */
+  function priv(t: SelectTool): {
+    commitRegionTransform(base: [number, number][][], final: [number, number][][]): void;
+    beginTransformSession(handle: 'move', fromCenter?: boolean): void;
+  } {
+    return t as unknown as ReturnType<typeof priv>;
+  }
+
+  beforeEach(() => {
+    undoManager.clear();
+    useStore.getState().resetToDefault();
+    warning = vi.fn();
+    setNotify({ warning, error: vi.fn(), success: vi.fn(), info: vi.fn() });
+    tool = new SelectTool(makeEngine());
+  });
+
+  it('refuses a region move on a locked layer', () => {
+    useStore.getState().setActiveLayerId(layer().id);
+    useStore.getState().setSelectedRegion(square);
+    useStore.getState().updateLayer(layer().id, { locked: true });
+
+    priv(tool).commitRegionTransform(square, [[[1, 1], [5, 1], [5, 5], [1, 5]]]);
+
+    expect(warning).toHaveBeenCalledWith('Layer is locked');
+    expect(undoManager.canUndo()).toBe(false);
+    expect(layer().mergedFloor ?? []).toEqual([]);
+  });
+
+  it('refuses a region cut on a hidden layer', () => {
+    useStore.getState().setActiveLayerId(layer().id);
+    useStore.getState().setSelectedRegion(square);
+    useStore.getState().updateLayer(layer().id, { visible: false });
+
+    tool.onKeyDown({ key: 'Delete' } as KeyboardEvent);
+
+    expect(warning).toHaveBeenCalledWith('Layer is hidden');
+    expect(undoManager.canUndo()).toBe(false);
+    // The region survives — nothing was cut, so nothing was deselected.
+    expect(useStore.getState().selection.selectedRegion).toEqual(square);
+  });
+
+  it('refuses a region cut on a locked layer', () => {
+    useStore.getState().setActiveLayerId(layer().id);
+    useStore.getState().setSelectedRegion(square);
+    useStore.getState().updateLayer(layer().id, { locked: true });
+
+    tool.onKeyDown({ key: 'Delete' } as KeyboardEvent);
+
+    expect(warning).toHaveBeenCalledWith('Layer is locked');
+    expect(undoManager.canUndo()).toBe(false);
+  });
+
+  it('says why a gizmo drag does nothing when the selection is all on a locked layer', () => {
+    const asset = addAsset({ x: 5, y: 5 });
+    useStore.getState().setSelectedIds([asset.id]);
+    useStore.getState().updateLayer(layer().id, { locked: true });
+
+    priv(tool).beginTransformSession('move');
+
+    expect(warning).toHaveBeenCalledWith('Layer is locked');
+  });
+
+  it('stays quiet when the drag comes up empty for any other reason', () => {
+    priv(tool).beginTransformSession('move');
+    expect(warning).not.toHaveBeenCalled();
   });
 });
