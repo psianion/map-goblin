@@ -135,8 +135,13 @@ export function occupyRefusal(
   const say = (code: string, subjectId: string | null = null): string =>
     refusal(code, subjectId, 'that space cannot be occupied')
 
-  // Off every authored room. Unzoned map is the DM's alone (D6).
-  if (room === null) return say(OUTSIDE_MAP)
+  // Off every authored room. Unzoned map is the DM's alone (D6) — except in vision mode,
+  // where ground the party has been shown is ground they may stand on (`openGround`). A
+  // map whose rooms do not touch (an outdoor pad and a cave mouth with unzoned yards
+  // between them) is otherwise two islands no player can cross, however much the DM
+  // reveals: the room graph has no edge to walk along and the reveal has no room to land
+  // in. `openGround` is absent in rooms mode, so D6 is untouched there.
+  if (room === null) return scene.openGround?.(pos.x, pos.y) ? null : say(OUTSIDE_MAP)
   if (scene.occupiable.has(room)) return null
 
   // A door the party could name is the most useful thing to say, so the door's id rides

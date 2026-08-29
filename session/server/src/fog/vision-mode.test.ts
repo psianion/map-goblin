@@ -489,6 +489,79 @@ describe('auto-explored rooms and the triggers hanging off them (M4 × §4)', ()
   })
 })
 
+// The two-cell gap between `floor-west` and `floor-east` is unzoned map — inside the frame,
+// inside no room — which makes this fixture the live Goblin Warren in miniature: a forest
+// clearing and a cave whose floors do not touch, with yards of nothing between them. The
+// room graph has no edge across a gap like that, so `occupiable` can never open it and the
+// DM's room buttons have nothing to land on. In vision mode the cell record is the
+// vocabulary that can say it, and this is the seam where saying it has to count.
+describe('open ground: unzoned cells the party has been shown (D6 in vision mode)', () => {
+  /** The frame starts at (-1, -1), so cell `[col, row]` is centred on `(col - 0.5, row - 0.5)`. */
+  const GAP: [number, number] = [12, 6]
+  /** The middle of that gap, in world coordinates — cell `GAP`'s own centre. */
+  const [GAP_X, GAP_Y] = [11.5, 5.5]
+  /** East-room floor, and the cell over it — `EAST_CELL`'s centre by the same rule. */
+  const [EAST_X, EAST_Y] = [12.5, 5.5]
+
+  it('refuses the gap until the DM brushes it, then lets a player stand there', () => {
+    const table = wired()
+    const id = scouted(table)
+    expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toMatchObject({
+      message: expect.stringContaining('cannot be occupied'),
+    })
+    expect(table.vision.visionOf(SCENE)!.openGround!(GAP_X, GAP_Y)).toBe(false)
+
+    expect(table.run(DM, 'fog', 'region-set', { op: 'reveal', cells: [GAP] })).toBeNull()
+    expect(table.vision.visionOf(SCENE)!.openGround!(GAP_X, GAP_Y)).toBe(true)
+    expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toBeNull()
+    expect(table.tokensOf()[id]).toMatchObject({ x: GAP_X, y: GAP_Y })
+  })
+
+  it('takes the brush back with it — a hidden cell is unzoned map again', () => {
+    const table = wired()
+    const id = scouted(table)
+    table.run(DM, 'fog', 'region-set', { op: 'reveal', cells: [GAP] })
+    expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toBeNull()
+
+    table.run(DM, 'fog', 'region-set', { op: 'hide', cells: [GAP] })
+    expect(table.run(P1, 'tokens', 'move', { id, x: 2.5, y: 5.5 })).toBeNull()
+    expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toMatchObject({
+      message: expect.stringContaining('cannot be occupied'),
+    })
+  })
+
+  it('opens no ground in rooms mode, where D6 is the whole rule', () => {
+    const table = wired()
+    const id = scouted(table, 'rooms')
+    expect(table.vision.visionOf(SCENE)!.openGround).toBeUndefined()
+    expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toMatchObject({
+      message: expect.stringContaining('cannot be occupied'),
+    })
+  })
+
+  it('never opens a room: a brush over the east room still refuses its floor', () => {
+    // The safety half. Cells and rooms answer different questions, and the room record is
+    // the one that decides a room — otherwise a stroke that clipped a boss chamber would
+    // hand the party its floor without ever revealing it.
+    const table = wired()
+    const id = scouted(table)
+    expect(table.run(DM, 'fog', 'region-set', { op: 'reveal', cells: [EAST_CELL] })).toBeNull()
+    expect(table.vision.visionOf(SCENE)!.openGround!(EAST_X, EAST_Y)).toBe(true)
+    expect(table.run(P1, 'tokens', 'move', { id, x: EAST_X, y: EAST_Y })).toMatchObject({
+      message: expect.stringContaining('cannot be occupied'),
+    })
+  })
+
+  it('leaves sight exactly where it was — ground is memory, not eyes', () => {
+    const table = wired()
+    scouted(table)
+    const before = table.vision.visionOf(SCENE)!.canSee!(GAP_X, GAP_Y)
+    table.run(DM, 'fog', 'region-set', { op: 'reveal', cells: [GAP, EAST_CELL] })
+    expect(table.vision.visionOf(SCENE)!.canSee!(GAP_X, GAP_Y)).toBe(before)
+    expect(table.vision.visionOf(SCENE)!.canSee!(EAST_X, EAST_Y)).toBe(false)
+  })
+})
+
 // A cell brush is presentation memory, and presentation needs something to sit on: a player
 // holds no geometry at all for a room nobody has revealed, so bits painted into one used to
 // reach a client that could never draw them. The latch is what ships the room — and only the
