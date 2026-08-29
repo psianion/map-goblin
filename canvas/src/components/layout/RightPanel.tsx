@@ -103,17 +103,25 @@ export function RightPanel() {
         </button>
       </div>
 
-      {/* Unified scroll area */}
-      <div className="flex-1 overflow-y-auto min-h-0">
-        {tab === 'layers' && (
-          <>
+      {/* Layers tab splits into two scroll regions: the tree is capped at
+          half the panel so a big child list can never push the properties
+          sections (or the pinned Terrain/Background rows) out of reach. */}
+      {tab === 'layers' && (
+        <div className="flex-1 min-h-0 flex flex-col">
+          <div className="shrink-0 max-h-[50%] flex flex-col min-h-0">
             <LayerPanel />
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto border-t border-border-structure">
             <PropertiesPanel openSections={openSections} onToggleSection={toggleSection} />
-          </>
-        )}
-        {tab === 'assets' && <AssetBrowserPanel />}
-        {tab === 'packs' && <PackListPanel />}
-      </div>
+          </div>
+        </div>
+      )}
+      {tab !== 'layers' && (
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {tab === 'assets' && <AssetBrowserPanel />}
+          {tab === 'packs' && <PackListPanel />}
+        </div>
+      )}
     </div>
   );
 }

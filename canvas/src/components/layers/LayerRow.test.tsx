@@ -257,8 +257,8 @@ describe('LayerRow — row keyboard contract (K1)', () => {
   })
 
   // M3 (APG treeview contract): ArrowLeft on a child moves focus up to its
-  // parent layer row.
-  it('ArrowLeft on an expanded child row moves focus to the parent layer row', () => {
+  // parent — since tree-v2 grouping, that's the type-group header.
+  it('ArrowLeft on an expanded child row moves focus to its group header', () => {
     const layer = createDungeonLayer('Layer 2')
     layer.children = [{
       id: 'c1', name: 'c1', childType: 'shape', visible: true, geometry: [], style: {} as never,
@@ -271,7 +271,7 @@ describe('LayerRow — row keyboard contract (K1)', () => {
     const childRow = screen.getByTestId('child-row')
     fireEvent.keyDown(childRow, { key: 'ArrowLeft' })
 
-    expect(document.activeElement).toBe(row)
+    expect(document.activeElement).toBe(screen.getByTestId('child-group-header'))
   })
 })
 

@@ -103,6 +103,27 @@ export function getCatalogEntry(id: string): CatalogEntry | undefined {
   return current().byId.get(id);
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Display name for a newly placed (or migrated) asset child: the catalog
+ * label, suffixed past the highest "label N" already among `siblingNames`
+ * ("rubble small", "rubble small 2", ...). Same max-suffix rule as the layer
+ * panel's nextLayerName, so deleting one never recycles a name still in use.
+ */
+export function nextAssetName(assetId: string, siblingNames: readonly string[]): string {
+  const label = getCatalogEntry(assetId)?.label ?? 'Asset';
+  const re = new RegExp(`^${escapeRegExp(label)}(?: (\\d+))?$`);
+  let max = 0;
+  for (const name of siblingNames) {
+    const m = re.exec(name);
+    if (m) max = Math.max(max, m[1] ? Number(m[1]) : 1);
+  }
+  return max === 0 ? label : `${label} ${max + 1}`;
+}
+
 export function getEntriesByType(type: string): CatalogEntry[] {
   return current().byType.get(type) ?? [];
 }

@@ -1,5 +1,5 @@
-import { memo, useRef, useState } from 'react'
-import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical, Crosshair } from 'lucide-react'
+import { memo, useEffect, useRef, useState } from 'react'
+import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical, Crosshair, Zap } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '@/store/store'
@@ -13,7 +13,8 @@ import { Button } from '@/components/ui/button'
 import { InlineEditableName } from './InlineEditableName'
 import { notify } from '@/lib/toast'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
-import { captureNeighborFocus } from './treeFocus'
+import { captureNeighborFocus, panelSelectionOrigin } from './treeFocus'
+import { panChildIntoView, zoomToChild } from '@/canvas/panToChild'
 
 interface ChildRowProps {
   child: AnyChild
@@ -48,6 +49,9 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
   const setSelectedIds = useStore((s) => s.setSelectedIds)
   const setActiveTool = useStore((s) => s.setActiveTool)
   const setActiveLayerId = useStore((s) => s.setActiveLayerId)
+  const setPanelHoverChildId = useStore((s) => s.setPanelHoverChildId)
+  // Canvas pointer hover (select tool) lights this row up in return.
+  const canvasHovered = useStore((s) => s.selection.hoveredId === child.id)
 
   // Zone-only: how many triggers reference this zone, so a DM can tell a
   // wired-up zone from an empty one without expanding it. Selector narrowed
@@ -70,6 +74,15 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
   // lifecycle, used for both the delete-neighbor handoff and rename-exit
   // focus restore.
   const rowRef = useRef<HTMLDivElement>(null)
+
+  // Canvas-driven reveal: LayerPanel's selection effect expanded whatever
+  // hid this row and set the marker; the rendered row finishes the job.
+  const revealed = useStore((s) => s.ui.revealChildId === child.id)
+  useEffect(() => {
+    if (!revealed) return
+    rowRef.current?.scrollIntoView({ block: 'nearest' })
+    useStore.getState().setRevealChildId(null)
+  }, [revealed])
 
   const commitRename = (newName: string) => {
     undoManager.execute(new UpdateChildCommand(
@@ -149,6 +162,7 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
     const focusNeighbor = captureNeighborFocus(rowRef.current)
     undoManager.execute(createChildRemovalCommand(layerId, child.id, 'Delete'))
     notify.action('Deleted', { label: 'Undo', onClick: () => undoManager.undo(), icon: 'trash' })
+    panelSelectionOrigin.current = true
     setSelectedIds(selectedIds.filter((id) => id !== child.id))
     focusNeighbor()
   }
@@ -163,16 +177,33 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation()
     // Clicking a child in the panel always selects it and switches to select tool
+    panelSelectionOrigin.current = true
     setActiveTool('select')
     setActiveLayerId(layerId)
-    if (e.shiftKey) {
-      if (isSelected) {
-        setSelectedIds(selectedIds.filter((id) => id !== child.id))
-      } else {
-        setSelectedIds([...selectedIds, child.id])
+    if (e.ctrlKey || e.metaKey) {
+      // Standard multi-select: ctrl toggles membership…
+      setSelectedIds(
+        isSelected ? selectedIds.filter((id) => id !== child.id) : [...selectedIds, child.id],
+      )
+    } else if (e.shiftKey) {
+      // …shift extends a range from the most recent selection in this layer,
+      // in panel display order (children render reversed).
+      const display = [...layer.children].reverse().map((c) => c.id)
+      const anchor = [...selectedIds].reverse().find((id) => display.includes(id))
+      if (!anchor) {
+        setSelectedIds([child.id])
+        return
       }
+      const a = display.indexOf(anchor)
+      const b = display.indexOf(child.id)
+      const [lo, hi] = a < b ? [a, b] : [b, a]
+      setSelectedIds(Array.from(new Set([...selectedIds, ...display.slice(lo, hi + 1)])))
     } else {
       setSelectedIds([child.id])
+      // Plain click also brings the object on screen (pan only, no zoom) —
+      // not on ctrl/shift, where the camera jumping mid-multi-select would
+      // fight the user building the set.
+      panChildIntoView(child.id)
     }
   }
 
@@ -185,9 +216,11 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
     switch (e.key) {
       case 'Enter':
         e.preventDefault()
+        panelSelectionOrigin.current = true
         setActiveTool('select')
         setActiveLayerId(layerId)
         setSelectedIds([child.id])
+        panChildIntoView(child.id)
         break
       case 'F2':
         e.preventDefault()
@@ -203,14 +236,16 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
         break
       case 'ArrowLeft': {
         // M3 (APG treeview contract): ArrowLeft on a child moves focus up to
-        // its parent layer row. The children <div role="group"> is a DOM
-        // sibling of the parent LayerRow's treeitem (see LayerRow's H3
-        // comment for why it's not a descendant) — walk up to that group,
-        // then back one sibling to the treeitem that owns it.
+        // its parent — since tree-v2 grouping that's the type-group header.
+        // Walk up to the Group wrapper (the nearest ancestor with a header as
+        // a direct child — a virtualized row has an extra wrapper between).
         e.preventDefault()
-        const group = e.currentTarget.closest('[role="group"]')
-        const parentRow = group?.previousElementSibling as HTMLElement | null
-        parentRow?.focus()
+        let el: HTMLElement | null = e.currentTarget.parentElement
+        while (el && !el.querySelector(':scope > [data-testid="child-group-header"]')) {
+          el = el.parentElement
+        }
+        const header = el?.querySelector<HTMLElement>(':scope > [data-testid="child-group-header"]')
+        header?.focus()
         break
       }
       case 'ContextMenu':
@@ -241,23 +276,29 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
       // own layer's children — see LayerRow's aria-owns comment for why the
       // group->treeitem relationship is expressed this way instead of by DOM
       // nesting.
-      aria-level={2}
+      // Level 3 since the tree-v2 grouping: layer > type group > child.
+      aria-level={3}
       aria-posinset={posInSet}
       aria-setsize={setSize}
       tabIndex={isRovingTarget ? 0 : -1}
       className={cn(
-        'gg-row flex items-center gap-1 pl-4 pr-1 py-1 cursor-pointer',
+        'gg-row group flex items-center gap-1 pl-4 pr-1 py-1 cursor-pointer',
         // K1: same ring treatment as Button/LayerRow, focus-visible only.
         'border border-transparent focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50',
         isSelected && 'bg-surface-3',
+        canvasHovered && !isSelected && 'bg-surface-2',
         // opacity-80, matching LayerRow — opacity-50 on text-primary content
         // fails 4.5:1 (see index.css's --text-dim comment).
         !child.visible && 'opacity-80',
         isDragging && 'opacity-75 z-50',
       )}
       onClick={handleClick}
+      onDoubleClick={() => zoomToChild(child.id)}
       onContextMenu={menu.open}
       onKeyDown={handleRowKeyDown}
+      // Row hover lights the object up on canvas (childHoverHighlight).
+      onMouseEnter={() => setPanelHoverChildId(child.id)}
+      onMouseLeave={() => setPanelHoverChildId(null)}
       data-testid="child-row"
     >
       {/* drag handle — only for childTypes where reorder actually draws differently.
@@ -294,7 +335,13 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
       />
 
       {child.childType === 'zone' && zoneTriggerCount > 0 && (
-        <span className="shrink-0 text-panel-small text-text-muted">{zoneTriggerCount}</span>
+        <span
+          className="shrink-0 flex items-center gap-0.5 text-panel-small text-text-muted"
+          title={zoneTriggerCount === 1 ? '1 trigger wired to this zone' : `${zoneTriggerCount} triggers wired to this zone`}
+        >
+          <Zap size={10} />
+          {zoneTriggerCount}
+        </span>
       )}
 
       {/* visibility toggle — tabIndex=-1: reachable via the row's Space
@@ -307,7 +354,12 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
           e.stopPropagation()
           toggleVisibility()
         }}
-        className="text-text-muted hover:text-text-primary"
+        className={cn(
+          'text-text-muted hover:text-text-primary',
+          // Revealed on hover/focus; stays visible while hidden (the state
+          // a user must be able to spot when scanning the list).
+          child.visible && 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+        )}
         title={child.visible ? 'Hide' : 'Show'}
         aria-label={child.visible ? `Hide ${child.name}` : `Show ${child.name}`}
         aria-pressed={child.visible}

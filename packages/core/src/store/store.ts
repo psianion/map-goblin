@@ -7,6 +7,7 @@ import { createDefaultState } from './factories';
 import { CURRENT_VERSION, isSupportedVersion, migrateToLatest } from './migration';
 import { normalizePrep } from '../shared/prep';
 import { dataUrlToBlob } from '../assets/dataUrl';
+import { getCatalogEntry, nextAssetName } from '../assets/packCatalog';
 import { SPLAT_IMAGE_KEYS } from '../engine/terrain/terrainShared';
 import { createMapSettingsSlice } from './slices/mapSettings';
 import { createGridSlice } from './slices/grid';
@@ -54,6 +55,22 @@ export const useStore = create<MapBuilderStore>()(
         // Migrate older formats to current
         if (data.version === '2.0') {
           data = migrateToLatest(data);
+        }
+
+        // Pre-naming-era files stamped every placed asset "Asset". Resolve
+        // real names from the catalog on the way in — idempotent (a renamed
+        // child never matches again), and skips entries the catalog can't
+        // resolve yet (e.g. a pack that isn't installed at load time), which
+        // simply retry on a later load. Like normalizePrep below, this is a
+        // read-boundary shim, not a versioned migration.
+        for (const layer of data.layers) {
+          if (layer.type !== 'dungeon') continue;
+          const taken = layer.children.map((c) => c.name);
+          layer.children.forEach((c, i) => {
+            if (c.childType === 'asset' && c.name === 'Asset' && getCatalogEntry(c.assetId)) {
+              taken[i] = c.name = nextAssetName(c.assetId, taken);
+            }
+          });
         }
 
         // Splat bitmaps ride inside customImages in the file format; hold them

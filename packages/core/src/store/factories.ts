@@ -76,6 +76,7 @@ type MapBuilderState = Omit<
   | 'setNodeEditWall' | 'selectNode' | 'toggleNodeSelection' | 'setShapeNodeEdit' | 'selectVertex' | 'setBandDragStatus'
   | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
   | 'showModal' | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
+  | 'toggleChildGroup' | 'setRevealChildId' | 'setPanelHoverChildId'
   | 'toggleSoloLayer' | 'clearSolo' | 'setPreviewClock' | 'setPreviewSky'
   | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
@@ -182,6 +183,9 @@ export function createDefaultState(): MapBuilderState {
       clipperReady: false,
       focusMode: 'auto' as const,
       highlightedRoomId: null,
+      childGroupOverrides: [],
+      revealChildId: null,
+      panelHoverChildId: null,
       solo: null,
       previewClock: null,
       previewSky: null,

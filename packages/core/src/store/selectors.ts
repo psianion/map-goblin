@@ -23,6 +23,17 @@ export function isLayerEffectivelyVisible(state: MapBuilderStore, layer: Layer):
   return layer.visible && (solo == null || layer.type === 'background' || layer.id === solo.layerId);
 }
 
+/**
+ * Layer-panel child group expand state. Assets default collapsed (they're
+ * the bulk decoration — hundreds per layer), every other type defaults
+ * expanded; ui.childGroupOverrides stores per-group deviations.
+ */
+export function isChildGroupExpanded(state: MapBuilderStore, layerId: string, childType: string): boolean {
+  const defaultExpanded = childType !== 'asset';
+  const overridden = state.ui.childGroupOverrides.includes(`${layerId}:${childType}`);
+  return defaultExpanded !== overridden;
+}
+
 export function selectAllLights(s: MapBuilderStore): LightChild[] {
   return s.layers
     .filter((l): l is DungeonLayer => l.type === 'dungeon')

@@ -317,6 +317,16 @@ export interface UISlice {
   /** Room whose boundary is drawn highlighted on the canvas (RoomPanel hover/select). */
   highlightedRoomId: string | null;
   /**
+   * Layer-panel child-group expand overrides, keys "layerId:childType" —
+   * deviations from the per-type default (see isChildGroupExpanded).
+   * View state: not persisted, not undoable.
+   */
+  childGroupOverrides: string[];
+  /** One-shot scroll-into-view marker for a layer-panel child row. */
+  revealChildId: string | null;
+  /** Child outlined on canvas because its layer-panel row is hovered. */
+  panelHoverChildId: string | null;
+  /**
    * Alt-click-eye "solo" state — not persisted, not undoable (same tier as
    * activeLayerId). A render-only override: it never writes a layer's own
    * `visible` flag. Consumers gate on `isLayerEffectivelyVisible` (see
@@ -588,6 +598,9 @@ export interface MapBuilderStore {
   setClipperReady: (ready: boolean) => void;
   setFocusMode: (mode: UISlice['focusMode']) => void;
   setHighlightedRoomId: (roomId: string | null) => void;
+  toggleChildGroup: (key: string) => void;
+  setRevealChildId: (id: string | null) => void;
+  setPanelHoverChildId: (id: string | null) => void;
   toggleSoloLayer: (id: string) => void;
   /** Drops solo bookkeeping without touching any layer's visibility. */
   clearSolo: () => void;

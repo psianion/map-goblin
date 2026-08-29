@@ -255,7 +255,9 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
       {/* ── Layer (opacity) ── */}
       <CollapsibleSection
         id="layer"
-        title="Layer"
+        // Named, not generic — the section acts on the ACTIVE layer, and
+        // nothing else on screen said which one that was.
+        title={`Layer — ${layer.name}`}
         icon={Layers}
         defaultOpen={true}
         isOpen={openSections?.has('layer')}
@@ -280,7 +282,7 @@ export function LayerProperties({ layer, openSections, onToggleSection }: LayerP
       {/* ── Sublayers ── */}
       <CollapsibleSection
         id="sublayers"
-        title="Sublayers"
+        title={`Sublayers — ${layer.name}`}
         icon={Eye}
         defaultOpen={false}
         isOpen={openSections?.has('sublayers')}
