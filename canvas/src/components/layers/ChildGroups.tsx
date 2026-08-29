@@ -22,6 +22,7 @@ import { ReorderChildCommand } from '@/store/commands'
 import { computeChildDragReorder } from './childReorder'
 import { notify } from '@/lib/toast'
 import { ChildRow } from './ChildRow'
+import { GroupRow } from './GroupRow'
 
 import { TreeScrollContext } from './treeScroll'
 
@@ -53,9 +54,11 @@ interface GroupProps {
   /** Group children in panel display order (topmost first). */
   children_: AnyChild[]
   filtering: boolean
+  posInSet?: number
+  setSize?: number
 }
 
-function Group({ layer, childType, children_, filtering }: GroupProps) {
+function Group({ layer, childType, children_, filtering, posInSet = 1, setSize = 1 }: GroupProps) {
   const key = `${layer.id}:${childType}`
   const toggleChildGroup = useStore((s) => s.toggleChildGroup)
   const storedExpanded = useStore((s) => isChildGroupExpanded(s, layer.id, childType))
@@ -93,8 +96,11 @@ function Group({ layer, childType, children_, filtering }: GroupProps) {
         aria-level={2}
         aria-expanded={isExpanded}
         aria-label={`${GROUP_LABELS[childType]}, ${children_.length}`}
+        aria-posinset={posInSet}
+        aria-setsize={setSize}
         tabIndex={-1}
         data-testid="child-group-header"
+        data-group-header=""
         data-group-type={childType}
         className={cn(
           'gg-row flex items-center gap-1 pl-4 pr-2 py-1 cursor-pointer select-none',
@@ -254,16 +260,39 @@ export function ChildGroups({ layer, filter }: ChildGroupsProps) {
   // Display order (topmost first), then bucketed by type.
   const display = [...layer.children].reverse()
   const q = filter.trim().toLowerCase()
+
+  // Named groups sit above the type buckets, Photoshop-folder style, ordered
+  // by their topmost member. Their members leave their type bucket entirely —
+  // including when the filter hides the whole group, so a filtered-out group
+  // can't leak its members back into Assets.
+  const groupedIds = new Set<string>()
+  const namedGroups = (layer.groups ?? [])
+    .map((group) => {
+      const all = display.filter((c) => c.groupId === group.id)
+      all.forEach((c) => groupedIds.add(c.id))
+      const nameMatch = q === '' || group.name.toLowerCase().includes(q)
+      // A group-name match reveals the whole group; otherwise only matching
+      // members show (and a member match forces the group open — `filtering`).
+      const members = nameMatch ? all : all.filter((c) => c.name.toLowerCase().includes(q))
+      return { group, all, members, top: all.length ? display.indexOf(all[0]) : Infinity }
+    })
+    .filter((g) => g.all.length > 0 && g.members.length > 0)
+    .sort((a, b) => a.top - b.top)
+
   const groups = GROUP_ORDER
     .map((type) => ({
       type,
       children: display.filter(
-        (c) => c.childType === type && (q === '' || c.name.toLowerCase().includes(q)),
+        (c) =>
+          c.childType === type &&
+          !groupedIds.has(c.id) &&
+          (q === '' || c.name.toLowerCase().includes(q)),
       ),
     }))
     .filter((g) => g.children.length > 0)
 
-  if (groups.length === 0) return null
+  if (groups.length === 0 && namedGroups.length === 0) return null
+  const levelCount = namedGroups.length + groups.length
 
   return (
     <div id={`${layer.id}-children`} role="group" aria-label={`${layer.name} children`}>
@@ -278,13 +307,37 @@ export function ChildGroups({ layer, filter }: ChildGroupsProps) {
         onDragEnd={handleDragEnd}
         accessibility={{ announcements }}
       >
-        {groups.map((g) => (
+        {namedGroups.map((g, i) => (
+          <SortableContext
+            key={g.group.id}
+            items={g.members.map((c) => c.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <GroupRow
+              layer={layer}
+              group={g.group}
+              members={g.members}
+              totalMembers={g.all.length}
+              filtering={q !== ''}
+              posInSet={i + 1}
+              setSize={levelCount}
+            />
+          </SortableContext>
+        ))}
+        {groups.map((g, i) => (
           <SortableContext
             key={g.type}
             items={g.children.map((c) => c.id)}
             strategy={verticalListSortingStrategy}
           >
-            <Group layer={layer} childType={g.type} children_={g.children} filtering={q !== ''} />
+            <Group
+              layer={layer}
+              childType={g.type}
+              children_={g.children}
+              filtering={q !== ''}
+              posInSet={namedGroups.length + i + 1}
+              setSize={levelCount}
+            />
           </SortableContext>
         ))}
       </DndContext>

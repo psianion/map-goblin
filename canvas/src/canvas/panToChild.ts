@@ -58,18 +58,23 @@ function visibleRect() {
   }
 }
 
+interface Bounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 /**
- * Pan (never zoom) so the child is inside the visible gap between the
- * panels. No-op when it already is — clicking rows of on-screen objects
+ * Pan (never zoom) so the world-space box is inside the visible gap between
+ * the panels. No-op when it already is — clicking rows of on-screen objects
  * must not nudge the camera.
  */
-export function panChildIntoView(childId: string): void {
-  const child = findChild(childId)
+export function panBoundsIntoView(b: Bounds): void {
   const rect = visibleRect()
-  if (!child || !rect) return
+  if (!rect) return
   const { stage } = rect
   const zoom = stage.scale.x
-  const b = getChildBounds(child)
   const sx1 = b.x * zoom + stage.position.x
   const sy1 = b.y * zoom + stage.position.y
   const sx2 = (b.x + b.width) * zoom + stage.position.x
@@ -96,12 +101,10 @@ export function panChildIntoView(childId: string): void {
   animateTo(stage.position.x + dx, stage.position.y + dy, zoom)
 }
 
-/** Centre the child in the visible gap and zoom so it fills ~40% of it. */
-export function zoomToChild(childId: string): void {
-  const child = findChild(childId)
+/** Centre the world-space box in the visible gap, zoomed so it fills ~40%. */
+export function zoomToBounds(b: Bounds): void {
   const rect = visibleRect()
-  if (!child || !rect) return
-  const b = getChildBounds(child)
+  if (!rect) return
   const worldW = Math.max(b.width, 1)
   const worldH = Math.max(b.height, 1)
   const gapW = Math.max(1, rect.right - rect.left)
@@ -114,4 +117,14 @@ export function zoomToChild(childId: string): void {
     rect.top + gapH / 2 - cy * zoom,
     zoom,
   )
+}
+
+export function panChildIntoView(childId: string): void {
+  const child = findChild(childId)
+  if (child) panBoundsIntoView(getChildBounds(child))
+}
+
+export function zoomToChild(childId: string): void {
+  const child = findChild(childId)
+  if (child) zoomToBounds(getChildBounds(child))
 }

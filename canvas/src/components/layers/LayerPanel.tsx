@@ -31,7 +31,7 @@ import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/
 import { resolveReorder } from './resolveReorder'
 import { TreeScrollContext } from './treeScroll'
 import { panelSelectionOrigin } from './treeFocus'
-import { selectSelectedIds, isChildGroupExpanded } from '@/store/selectors'
+import { selectSelectedIds, isChildGroupExpanded, isNamedGroupExpanded, namedGroupKey } from '@/store/selectors'
 
 const selectLayers = (s: { layers: Layer[] }) => s.layers
 const selectActiveLayerId = (s: { ui: { activeLayerId: string } }) => s.ui.activeLayerId
@@ -207,7 +207,12 @@ export function LayerPanel() {
       const child = layer.children.find((c) => c.id === id)
       if (!child) continue
       if (!s.ui.expandedLayerIds.includes(layer.id)) s.toggleExpandedLayerId(layer.id)
-      if (!isChildGroupExpanded(s, layer.id, child.childType)) {
+      if (child.groupId) {
+        // A grouped child lives under its folder, not its type bucket.
+        if (!isNamedGroupExpanded(s, layer.id, child.groupId)) {
+          s.toggleChildGroup(namedGroupKey(layer.id, child.groupId))
+        }
+      } else if (!isChildGroupExpanded(s, layer.id, child.childType)) {
         s.toggleChildGroup(`${layer.id}:${child.childType}`)
       }
       s.setRevealChildId(id)
@@ -342,7 +347,10 @@ export function LayerPanel() {
             !userLayers.some(
               (l) =>
                 l.type === 'dungeon' &&
-                l.children.some((c) => c.name.toLowerCase().includes(filter.trim().toLowerCase())),
+                // Group names are matchable too, so a hit on a folder name
+                // alone must not read as "nothing matched".
+                (l.children.some((c) => c.name.toLowerCase().includes(filter.trim().toLowerCase())) ||
+                  (l.groups ?? []).some((g) => g.name.toLowerCase().includes(filter.trim().toLowerCase()))),
             ) && (
               <p role="presentation" aria-live="polite" className="px-3 py-2 text-panel-body text-text-muted">
                 No objects match “{filter.trim()}”.{' '}

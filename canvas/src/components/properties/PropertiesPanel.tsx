@@ -1,6 +1,10 @@
 import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
-import { selectActiveLayer, selectSelectedIds, selectChildById } from '@/store/selectors'
+import { selectActiveLayer, selectSelectedIds, selectChildById, selectLayers, groupMembers } from '@/store/selectors'
+import { undoManager } from '@/store/undoManager'
+import { createDissolveGroupCommand } from '@/store/commands'
+import { selectionGroup } from '@/canvas/groupActions'
+import { Button } from '@/components/ui/button'
 import { LayerProperties } from './LayerProperties'
 import { BackgroundProperties } from './BackgroundProperties'
 import { TerrainProperties } from './TerrainProperties'
@@ -16,9 +20,9 @@ import { EnvironmentSection } from './EnvironmentSection'
 import { SelectInput } from '@/components/inputs/SelectInput'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { ToggleSwitch } from '@/components/ui/toggle-switch'
-import { Grid3x3 } from 'lucide-react'
+import { Combine, Folder, Grid3x3 } from 'lucide-react'
 import { TERRAIN_PANEL_ID } from '@/store/types'
-import type { DungeonLayer, BackgroundLayer, LightChild, TextChild, GridConfig } from '@/store/types'
+import type { DungeonLayer, BackgroundLayer, LightChild, TextChild, GridConfig, ChildGroupInfo } from '@/store/types'
 
 interface SectionControl {
   openSections?: Set<string>
@@ -66,6 +70,40 @@ function GridSection({ openSections, onToggleSection }: SectionControl) {
   )
 }
 
+/**
+ * Shown when the selection IS a group, exactly. Identity plus the one verb the
+ * canvas gizmo can't do — transforms stay on the gizmo, so there's nothing
+ * else to put here.
+ */
+function GroupSection({ layer, group, count }: { layer: DungeonLayer; group: ChildGroupInfo; count: number }) {
+  const Icon = group.merged ? Combine : Folder
+  return (
+    <div className="px-3 py-2 border-b border-border-subtle">
+      <div className="flex items-center gap-2">
+        <Icon size={12} className="text-text-muted shrink-0" />
+        <span className="font-display text-panel-label uppercase tracking-wider text-text-muted">
+          {group.merged ? 'Merged' : 'Group'}
+        </span>
+        <span className="text-panel-body text-text-primary truncate">{group.name}</span>
+        <span className="text-panel-small text-text-muted tabular-nums ml-auto">
+          {count} {count === 1 ? 'object' : 'objects'}
+        </span>
+      </div>
+      <Button
+        variant="secondary"
+        size="sm"
+        className="mt-2 w-full"
+        onClick={() => {
+          const cmd = createDissolveGroupCommand(useStore.getState().layers, layer.id, group.id)
+          if (cmd) undoManager.execute(cmd)
+        }}
+      >
+        {group.merged ? 'Unmerge' : 'Ungroup'}
+      </Button>
+    </div>
+  )
+}
+
 export function PropertiesPanel({ openSections, onToggleSection }: SectionControl) {
   const activeLayerId = useStore((s) => s.ui.activeLayerId)
   const activeLayer = useStore(selectActiveLayer)
@@ -76,6 +114,28 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
   const selectedChild = useStore((s) =>
     firstSelectedId ? selectChildById(s, firstSelectedId) : undefined,
   )
+
+  // Selection that IS exactly one group's members — the group is the object,
+  // so it gets its own panel instead of the first member's.
+  // Subscribed (not just read) so the section re-renders on group edits;
+  // selectionGroup itself reads the store snapshot.
+  useStore(useShallow(selectLayers))
+  const found = selectionGroup()
+  const memberCount = found ? groupMembers(found.layer, found.group.id).length : 0
+  // selectionGroup accepts a PARTIAL selection inside one group; the panel
+  // only speaks for the group when the whole group is what's selected.
+  const groupMatch =
+    found && memberCount === selectedIds.length ? { ...found, count: memberCount } : null
+
+  if (groupMatch) {
+    return (
+      <div className="flex flex-col pt-2">
+        <GroupSection {...groupMatch} />
+        <GridSection openSections={openSections} onToggleSection={onToggleSection} />
+        <EnvironmentSection openSections={openSections} onToggleSection={onToggleSection} />
+      </div>
+    )
+  }
 
   // Terrain row selected — selectActiveLayer finds nothing for the sentinel
   // (harmless: no layer has that id), so it's checked explicitly, after every

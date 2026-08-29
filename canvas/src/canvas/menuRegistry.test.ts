@@ -18,6 +18,7 @@ import {
   buildCanvasMenu,
   registerMenu,
 } from './menuRegistry';
+import { groupSelection, mergeSelection } from './groupActions';
 import type { MenuRow, ContextMenuItem } from '@/components/ui/context-menu';
 import type { DungeonLayer, LightChild, DoorChild } from '@/store/types';
 
@@ -177,6 +178,8 @@ describe('buildMultiMenu', () => {
       '2 selected',
       'Duplicate',
       'Move to layer',
+      'Group selection',
+      'Merge selection',
       'Delete',
     ]);
   });
@@ -206,8 +209,52 @@ describe('buildMultiMenu', () => {
       'Flip horizontal',
       'Flip vertical',
       'Move to layer',
+      'Group selection',
+      'Merge selection',
       'Delete',
     ]);
+  });
+
+  it('swaps the group verbs for Ungroup once the selection is one group', () => {
+    const a = makeLight();
+    const b = { ...makeLight(), id: 'light-2', name: 'Light 2' };
+    useStore.getState().addChild(layer().id, a);
+    useStore.getState().addChild(layer().id, b);
+    useStore.getState().setSelectedIds([a.id, b.id]);
+    groupSelection();
+    const rows = labels(buildMultiMenu(2));
+    expect(rows).toContain('Ungroup');
+    expect(rows).toContain('Duplicate group');
+    expect(rows).toContain('Delete group');
+    expect(rows).not.toContain('Group selection');
+  });
+
+  it('labels a merged group Unmerged', () => {
+    const a = makeLight();
+    const b = { ...makeLight(), id: 'light-2', name: 'Light 2' };
+    useStore.getState().addChild(layer().id, a);
+    useStore.getState().addChild(layer().id, b);
+    useStore.getState().setSelectedIds([a.id, b.id]);
+    mergeSelection();
+    expect(labels(buildMultiMenu(2))).toContain('Unmerged');
+  });
+});
+
+describe('group verbs on a single child', () => {
+  it('offers Remove from group and Select group for a plain-group member', () => {
+    const a = makeLight();
+    const b = { ...makeLight(), id: 'light-2', name: 'Light 2' };
+    useStore.getState().addChild(layer().id, a);
+    useStore.getState().addChild(layer().id, b);
+    useStore.getState().setSelectedIds([a.id, b.id]);
+    groupSelection();
+    useStore.getState().setSelectedIds([a.id]);
+    const member = layer().children.find((c) => c.id === a.id) as LightChild;
+    const rows = buildChildMenu({ ...ctx(member), child: member });
+    expect(labels(rows)).toContain('Remove from group');
+    expect(labels(rows)).toContain('Select group');
+    // One member of a two-member group is not the whole group.
+    expect(labels(rows)).not.toContain('Delete group');
   });
 });
 

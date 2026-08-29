@@ -34,6 +34,20 @@ export function isChildGroupExpanded(state: MapBuilderStore, layerId: string, ch
   return defaultExpanded !== overridden;
 }
 
+/** Override key for a named child group — shares ui.childGroupOverrides with the type buckets. */
+export function namedGroupKey(layerId: string, groupId: string): string {
+  return `${layerId}:group:${groupId}`;
+}
+
+/**
+ * Named child groups default COLLAPSED — the point of a folder is that it
+ * puts its contents away — so here the override set means "expanded", the
+ * inverse polarity of most type buckets (assets already work this way).
+ */
+export function isNamedGroupExpanded(state: MapBuilderStore, layerId: string, groupId: string): boolean {
+  return state.ui.childGroupOverrides.includes(namedGroupKey(layerId, groupId));
+}
+
 export function selectAllLights(s: MapBuilderStore): LightChild[] {
   return s.layers
     .filter((l): l is DungeonLayer => l.type === 'dungeon')

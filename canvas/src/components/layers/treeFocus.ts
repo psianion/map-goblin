@@ -11,6 +11,14 @@
 // in the panel, one made IN the panel must not yank the panel's scroll.
 export const panelSelectionOrigin = { current: false }
 
+/**
+ * Sets the marker from inside a component without tripping the compiler's
+ * "no module-scope mutation" rule — same effect, one call.
+ */
+export function markPanelSelection(): void {
+  panelSelectionOrigin.current = true
+}
+
 export function captureNeighborFocus(rowEl: HTMLElement | null): () => void {
   const tree = rowEl?.closest('[role="tree"]') ?? null
   if (!rowEl || !tree) return () => {}

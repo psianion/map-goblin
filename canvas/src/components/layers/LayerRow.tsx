@@ -65,8 +65,11 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
   // Filter matches force the children block open — a filter you must expand
   // each layer to see the results of is not a filter.
   const q = filter.trim().toLowerCase()
+  // A group-name match counts: it reveals that folder's whole contents.
   const filterMatches =
-    q !== '' && (dungeonLayer?.children.some((c) => c.name.toLowerCase().includes(q)) ?? false)
+    q !== '' &&
+    ((dungeonLayer?.children.some((c) => c.name.toLowerCase().includes(q)) ?? false) ||
+      (dungeonLayer?.groups?.some((g) => g.name.toLowerCase().includes(q)) ?? false))
 
   const handleLayerClick = (e: React.MouseEvent) => {
     panelSelectionOrigin.current = true

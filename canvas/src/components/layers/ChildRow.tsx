@@ -6,7 +6,8 @@ import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
 import { selectSelectedIds } from '@/store/selectors'
 import { undoManager } from '@/store/undoManager'
-import { PropertyCommand, AddChildCommand, UpdateChildCommand, createChildRemovalCommand } from '@/store/commands'
+import { PropertyCommand, AddChildCommand, UpdateChildCommand, createChildRemovalCommand, createRemoveFromGroupCommand } from '@/store/commands'
+import { canGroupSelection, groupSelection, mergeSelection } from '@/canvas/groupActions'
 import type { AnyChild, DungeonLayer } from '@/store/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -176,10 +177,30 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
     focusNeighbor()
   }
 
+  const removeFromGroup = () => {
+    const cmd = createRemoveFromGroupCommand(useStore.getState().layers, layerId, [child.id])
+    if (!cmd) return
+    undoManager.execute(cmd)
+    notify.action(`Removed “${child.name}” from its group`, { label: 'Undo', onClick: () => undoManager.undo() })
+  }
+
+  // Panel multi-select is the same set the canvas verbs act on, so Group/Merge
+  // are offered here too rather than making the user go back to the canvas.
+  const canGroup = selectedIds.length >= 2 && isSelected && canGroupSelection()
+
   const menuItems: ContextMenuItem[] = [
     { label: 'Rename', onSelect: () => setEditingName(true) },
     { label: 'Duplicate', onSelect: duplicate },
     { label: child.visible ? 'Hide' : 'Show', onSelect: toggleVisibility },
+    ...(canGroup
+      ? [
+          { label: 'Group selection', onSelect: groupSelection, separatorBefore: true },
+          { label: 'Merge selection', onSelect: mergeSelection },
+        ]
+      : []),
+    ...(child.groupId
+      ? [{ label: 'Remove from group', onSelect: removeFromGroup, separatorBefore: !canGroup }]
+      : []),
     { label: 'Delete', onSelect: remove, danger: true, separatorBefore: true },
   ]
 
@@ -249,11 +270,13 @@ export const ChildRow = memo(function ChildRow({ child, layer, posInSet = 1, set
         // Walk up to the Group wrapper (the nearest ancestor with a header as
         // a direct child — a virtualized row has an extra wrapper between).
         e.preventDefault()
+        // Since named groups the ancestor may be a GroupRow instead, so the
+        // match is on the shared data-group-header marker, not the testid.
         let el: HTMLElement | null = e.currentTarget.parentElement
-        while (el && !el.querySelector(':scope > [data-testid="child-group-header"]')) {
+        while (el && !el.querySelector(':scope > [data-group-header]')) {
           el = el.parentElement
         }
-        const header = el?.querySelector<HTMLElement>(':scope > [data-testid="child-group-header"]')
+        const header = el?.querySelector<HTMLElement>(':scope > [data-group-header]')
         header?.focus()
         break
       }
