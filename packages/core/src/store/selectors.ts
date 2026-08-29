@@ -1,4 +1,4 @@
-import type { MapBuilderStore, DungeonLayer, AnyChild, LightChild, Layer, AssetCategory } from './types';
+import type { MapBuilderStore, ChildGroupInfo, DungeonLayer, AnyChild, LightChild, Layer, AssetCategory } from './types';
 
 export const selectLayers = (s: MapBuilderStore): Layer[] => s.layers;
 export const selectActiveLayerId = (s: MapBuilderStore): string => s.ui.activeLayerId;
@@ -55,6 +55,49 @@ export function selectLayerForChild(s: MapBuilderStore, childId: string): Dungeo
     if (layer.children.some((c) => c.id === childId)) return layer;
   }
   return undefined;
+}
+
+// ─── Child groups ─────────────────────────────────────────
+
+/** Members of `groupId`, in children-array order (which is z-order). */
+export function groupMembers(layer: DungeonLayer, groupId: string): AnyChild[] {
+  return layer.children.filter((c) => c.groupId === groupId);
+}
+
+export function childGroupOf(layer: DungeonLayer, childId: string): ChildGroupInfo | null {
+  const child = layer.children.find((c) => c.id === childId);
+  if (!child?.groupId) return null;
+  return layer.groups?.find((g) => g.id === child.groupId) ?? null;
+}
+
+/**
+ * Pulls whole groups into a selection: any id that belongs to a group brings
+ * its siblings along. `mergedOnly` expands merged groups only — that is the
+ * Alt-click path, where a plain group's member is meant to be picked alone.
+ * A merged group always expands, with or without the flag.
+ */
+export function expandIdsForGroups(
+  state: MapBuilderStore,
+  ids: string[],
+  opts?: { mergedOnly?: boolean },
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (id: string) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    out.push(id);
+  };
+  for (const id of ids) {
+    const layer = selectLayerForChild(state, id);
+    const group = layer ? childGroupOf(layer, id) : null;
+    if (layer && group && (!opts?.mergedOnly || group.merged)) {
+      for (const member of groupMembers(layer, group.id)) push(member.id);
+    } else {
+      push(id);
+    }
+  }
+  return out;
 }
 
 export function selectMergedCategories(s: MapBuilderStore): AssetCategory[] {

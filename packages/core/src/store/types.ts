@@ -102,9 +102,22 @@ export interface DungeonStyle {
   floorBleed?: number;
 }
 
+/**
+ * A named set of children inside one dungeon layer. `merged` means the set
+ * behaves as one atomic object (one panel row, always selected whole); a plain
+ * group is a folder whose members stay individually editable.
+ */
+export interface ChildGroupInfo {
+  id: string;
+  name: string;
+  merged?: boolean;
+}
+
 export interface DungeonLayer extends BaseLayer {
   type: 'dungeon';
   children: AnyChild[];
+  /** Group metadata; membership lives on each child's `groupId`. */
+  groups?: ChildGroupInfo[];
   standaloneWalls: WallSegment[];
   mergedFloor: Polygon[] | null;
   style: DungeonStyle;
@@ -663,6 +676,7 @@ export interface MapBuilderStore {
   loadFromFile: (data: SerializedMapData, splatPngs?: [Blob | null, Blob | null, Blob | null]) => void;
   /** Rename pre-naming-era "Asset" children from the catalog (read-boundary shim). */
   applyAssetNameShim: () => void;
+  normalizeChildGroups: () => void;
   getSerializableState: () => SerializedMapData;
   resetToDefault: () => void;
 }

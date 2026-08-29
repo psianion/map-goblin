@@ -121,6 +121,27 @@ export const useStore = create<MapBuilderStore>()(
         // the catalog isn't rehydrated yet (boot race), CanvasHost calls the
         // shim again once packs land.
         get().applyAssetNameShim();
+        get().normalizeChildGroups();
+      },
+
+      // Group metadata and membership are two halves of the same record in two
+      // places, so a hand-edited or partially-redacted document can arrive with
+      // one half missing. Drop both kinds of orphan at the read boundary —
+      // idempotent, not an undoable edit (same contract as applyAssetNameShim).
+      normalizeChildGroups: () => {
+        set((state) => {
+          for (const layer of state.layers) {
+            if (layer.type !== 'dungeon') continue;
+            const known = new Set((layer.groups ?? []).map((g) => g.id));
+            for (const child of layer.children) {
+              if (child.groupId && !known.has(child.groupId)) delete child.groupId;
+            }
+            if (!layer.groups) continue;
+            const used = new Set(layer.children.map((c) => c.groupId));
+            layer.groups = layer.groups.filter((g) => used.has(g.id));
+            if (layer.groups.length === 0) delete layer.groups;
+          }
+        });
       },
 
       // Pre-naming-era files stamped every placed asset "Asset". Resolve

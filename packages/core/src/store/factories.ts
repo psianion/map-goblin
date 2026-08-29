@@ -85,7 +85,7 @@ type MapBuilderState = Omit<
   | 'toggleFavorite' | 'trackRecentUse' | 'addCustomUpload' | 'removeCustomUpload'
   | 'setManifest' | 'markCategoryLoaded' | 'addCustomImage' | 'removeCustomImage'
   | 'upsertTrigger' | 'removeTrigger' | 'upsertNote' | 'removeNote'
-  | 'loadFromFile' | 'applyAssetNameShim' | 'getSerializableState' | 'resetToDefault'
+  | 'loadFromFile' | 'applyAssetNameShim' | 'normalizeChildGroups' | 'getSerializableState' | 'resetToDefault'
   | 'loadMapIndex' | 'saveCurrentMap' | 'loadMap' | 'createNewMap' | 'deleteMap' | 'renameMap' | 'duplicateMap'
   | 'setInstalledPacks' | 'setAvailableUpdates' | 'setIsChecking' | 'setInstallProgress'
   | 'checkForPackUpdates' | 'installPack' | 'updatePack' | 'dismissUpdateResult' | 'uninstallPack'
