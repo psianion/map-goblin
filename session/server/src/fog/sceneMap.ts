@@ -239,3 +239,17 @@ export function pointInPoly(poly: readonly [number, number][], x: number, y: num
 function contains(room: Room, x: number, y: number): boolean {
   return pointInPoly(room.boundary, x, y)
 }
+
+/** How far a point sits from a polygon's outline — inside or out; the outline is the measure. */
+export function distanceToPoly(poly: readonly [number, number][], x: number, y: number): number {
+  let best = Infinity
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [ax, ay] = poly[j]
+    const [bx, by] = poly[i]
+    const [dx, dy] = [bx - ax, by - ay]
+    const len = dx * dx + dy * dy
+    const t = len > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len)) : 0
+    best = Math.min(best, Math.hypot(x - (ax + dx * t), y - (ay + dy * t)))
+  }
+  return best
+}

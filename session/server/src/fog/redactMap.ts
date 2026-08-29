@@ -9,7 +9,15 @@ import { seedDoor, type AuthoredDoor, type DoorLiveState } from '@dnd/mechanics/
 import type { SceneFog } from '@dnd/mechanics/fog'
 import type { AnyChild, DoorChild, Room, ShapeChild, WallSegment } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
-import { centreOf, childrenOf, isDungeon, pointInPoly, wallsOf, type SceneMap } from './sceneMap'
+import {
+  centreOf,
+  childrenOf,
+  distanceToPoly,
+  isDungeon,
+  pointInPoly,
+  wallsOf,
+  type SceneMap,
+} from './sceneMap'
 
 /** One layer's worth of newly available geometry, shaped to be merged by layer id. */
 export interface MapDeltaLayer {
@@ -152,6 +160,22 @@ export function mapDeltaFor(
   }
 }
 
+/**
+ * FOG_MARGIN and the default wall width, from the client's `fogPad` — the *same* two numbers,
+ * because this is the same distance measured from the other side. See `nearKeptRoom`.
+ */
+const FOG_MARGIN = 0.3
+const DEFAULT_WALL_WIDTH = 0.5
+
+/** The widest wall band on the map plus its margin — `fogPad`, computed off the same styles. */
+function bandPad(scene: SceneMap): number {
+  let wallWidth = 0
+  for (const layer of scene.data.layers) {
+    if (isDungeon(layer)) wallWidth = Math.max(wallWidth, layer.style?.wallWidth ?? 0)
+  }
+  return (wallWidth || DEFAULT_WALL_WIDTH) + FOG_MARGIN
+}
+
 function slice(
   layer: DungeonLayer,
   scene: SceneMap,
@@ -159,13 +183,16 @@ function slice(
   doors: Doors,
   facingSet: ReadonlySet<string> = kept,
 ): { rooms: Room[]; children: AnyChild[]; standaloneWalls: WallSegment[] } {
+  const pad = bandPad(scene)
   return {
     rooms: (layer.rooms ?? []).filter((room) => kept.has(room.id)),
     children: childrenOf(layer)
       .filter((child) => {
         // Prep never travels: a zone in a revealed room is still the DM's trap marker.
         if (child.childType === 'zone') return false
-        return child.childType === 'door' ? doorKept(child, kept, doors) : childKept(child, scene, kept)
+        return child.childType === 'door'
+          ? doorKept(child, kept, doors)
+          : childKept(child, scene, kept, pad)
       })
       .map((child) => (child.childType === 'door' ? facing(child, facingSet) : child)),
     // A wall belongs to the rooms on either side of it, so one shared with a room the
@@ -199,11 +226,52 @@ function slice(
  * renderer draws a wall along every ring it is given, so the cut would print a stone wall
  * across the mouth of a passage that is actually open.
  */
-function childKept(child: AnyChild, scene: SceneMap, kept: ReadonlySet<string>): boolean {
+function childKept(
+  child: AnyChild,
+  scene: SceneMap,
+  kept: ReadonlySet<string>,
+  pad: number,
+): boolean {
   const [x, y] = centreOf(child)
   const room = scene.roomAt(x, y)
   if (room !== null && kept.has(room)) return true
-  return child.childType === 'shape' && coversKeptRoom(child, scene, kept)
+  if (child.childType === 'shape' && coversKeptRoom(child, scene, kept)) return true
+  return nearKeptRoom(scene, kept, x, y, pad)
+}
+
+/**
+ * A child standing in an explored room's *wall band* belongs to that room (D5).
+ *
+ * The band is where the room's own walls are drawn, and on a dressed map it is not drawn with
+ * `standaloneWalls` at all — it is stamped, one asset child per piece, from the wall-variant
+ * families (`wall_short_2x4`, `inside_bend_5x3`, `outside_bend_3x3`…). Room detection insets a
+ * room's polygon by half a band, so *every one of those pieces* sits on unzoned map by the
+ * centre test and went to nobody: the Goblin Warren withheld 188 of them from a player who had
+ * explored six of its rooms, and the cave they were standing in drew as a floor with a plain
+ * dark edge where the referee sees painted rock.
+ *
+ * The radius is not a guess and not a taste: it is `fogPad`, the client's own — the mask cuts
+ * its hole at the room's floor grown by the widest wall band plus a margin, so everything
+ * inside that ring is *drawn to this player*. Shipping less than the mask opens is what leaves
+ * a revealed room ringed by nothing. The two numbers have to be the same number, and this file
+ * and `fog.ts` now spell it the same way.
+ *
+ * ponytail: measured centre-to-outline, so a piece is judged by where it is pinned rather than
+ * by its footprint. Every band family on the dressed maps pins within half a cell of the floor
+ * it edges (measured: 0.03–0.51 on the Warren). A huge sprite anchored a long way from its art
+ * would need its own footprint tested; nothing authored today is.
+ */
+function nearKeptRoom(
+  scene: SceneMap,
+  kept: ReadonlySet<string>,
+  x: number,
+  y: number,
+  pad: number,
+): boolean {
+  return scene.rooms.some(
+    (room) =>
+      kept.has(room.id) && room.boundary.length >= 3 && distanceToPoly(room.boundary, x, y) <= pad,
+  )
 }
 
 /** Does this shape's outline enclose any part of a room the party has earned? */

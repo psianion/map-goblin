@@ -143,6 +143,11 @@ function mapFile(): SerializedMapData {
       prop('prop-inner', 19, 5),
       prop('prop-vault', 35, 5),
       prop('prop-stranded', 100, 100),
+      // A wall-band piece, stamped where a dressed map stamps them: on the hall's own band,
+      // which detection insets the room polygon out of, so it is unzoned by the centre test.
+      prop('prop-band-hall', 5, -0.4),
+      // …and one a cell and a half out, which is nobody's wall and stays nobody's.
+      prop('prop-outside-hall', 5, -1.5),
       ...DOORS,
     ],
     standaloneWalls: [wall('wall-hall', 0, 0, 10, 0), wall('wall-vault', 30, 0, 40, 0)],
@@ -207,6 +212,33 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
 
   it('drops props on unzoned map, which no command can reveal (D6)', () => {
     expect(layerOf(redacted()).children.map((c) => c.id)).not.toContain('prop-stranded')
+  })
+
+  // On a dressed map the wall band is not `standaloneWalls` — it is one stamped asset child per
+  // piece, and detection insets a room's polygon by half that band, so every piece is unzoned by
+  // the centre test. The Warren withheld 188 of them and its cave drew as a floor with a plain
+  // dark edge. The mask cuts its hole at the room's floor grown by that same band (`fogPad`), so
+  // anything inside the ring is already being drawn to this player: shipping less than the mask
+  // opens is what leaves a lit room ringed by nothing.
+  it("keeps a child stamped on an explored room's wall band, and nothing past it", () => {
+    const ids = layerOf(redacted()).children.map((c) => c.id)
+    expect(ids).toContain('prop-band-hall')
+    expect(ids).not.toContain('prop-outside-hall')
+  })
+
+  it('measures that band off the layer\'s own wall width', () => {
+    const wide = mapFile()
+    const layer = wide.layers[0] as DungeonLayer
+    layer.style = { wallWidth: 2 } as DungeonLayer['style']
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Wide')
+    stores.maps.insert('wide', campaign.id, 'Wide', JSON.stringify(wide))
+    stores.scenes.create('wide', campaign.id, 'wide', 'Wide')
+    const seen = redactMapForViewer(createSceneMaps(stores).sceneMapOf('wide')!, fog(), {})
+    // A band two cells thick reaches the piece the half-cell band did not.
+    expect((seen.layers[0] as DungeonLayer).children.map((c) => c.id)).toContain(
+      'prop-outside-hall',
+    )
   })
 
   it('keeps a wall an explored room borders and drops the rest', () => {
