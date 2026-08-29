@@ -9,7 +9,7 @@ import { useStore } from '@/store/store';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { viewportInsetsRef } from '@/components/toolbar/zoomToFitRef';
 import { cn } from '@/lib/utils';
-import { pointInPolygon } from '@/components/properties/ZoneProperties';
+import { pointInPolygon } from '@/lib/pointInPolygon';
 import { isValidFormula } from '@dnd/core/src/shared/dice-format';
 import type {
   DungeonLayer,

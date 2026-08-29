@@ -29,7 +29,7 @@ import { notify } from '@/lib/toast'
 import { priorActiveLayerRef } from '@/components/toolbar/toolConstants'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
 import { resolveReorder } from './resolveReorder'
-import { TreeScrollContext } from './ChildGroups'
+import { TreeScrollContext } from './treeScroll'
 import { panelSelectionOrigin } from './treeFocus'
 import { selectSelectedIds, isChildGroupExpanded } from '@/store/selectors'
 

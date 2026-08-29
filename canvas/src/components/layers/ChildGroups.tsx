@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef } from 'react'
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import {
   DndContext,
@@ -23,11 +23,7 @@ import { computeChildDragReorder } from './childReorder'
 import { notify } from '@/lib/toast'
 import { ChildRow } from './ChildRow'
 
-/**
- * The layer tree's scroll element — provided by LayerPanel, consumed by the
- * virtualized asset lists (react-virtual needs the actual scroller).
- */
-export const TreeScrollContext = createContext<React.RefObject<HTMLDivElement | null> | null>(null)
+import { TreeScrollContext } from './treeScroll'
 
 // Prep/interactive rows first, bulk decoration last.
 const GROUP_ORDER: AnyChild['childType'][] = ['zone', 'light', 'door', 'water', 'text', 'shape', 'asset']
@@ -135,12 +131,33 @@ function Group({ layer, childType, children_, filtering }: GroupProps) {
 function VirtualChildList({ layer, children_ }: { layer: DungeonLayer; children_: AnyChild[] }) {
   const scrollRef = useContext(TreeScrollContext)
   const revealChildId = useStore((s) => s.ui.revealChildId)
+  const listRef = useRef<HTMLDivElement>(null)
+
+  // The list starts partway down the scroller (layer rows, other groups sit
+  // above it) — without scrollMargin the virtualizer picks its window as if
+  // the list began at offset 0 and renders rows past the viewport once you
+  // scroll deep. Recomputed every commit (groups above expand/collapse);
+  // setState bails when unchanged.
+  const [scrollMargin, setScrollMargin] = useState(0)
+  // Deliberately dep-less: the offset moves when content ABOVE this list
+  // changes (another group expanding), which re-renders this component
+  // without changing any dep. setState bails on equal values, so no loop.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    const el = listRef.current
+    const scroller = scrollRef?.current
+    if (!el || !scroller) return
+    setScrollMargin(
+      el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop,
+    )
+  })
 
   const virtualizer = useVirtualizer({
     count: children_.length,
     getScrollElement: () => scrollRef?.current ?? null,
     estimateSize: () => ROW_HEIGHT,
     overscan: 8,
+    scrollMargin,
     getItemKey: (i) => children_[i].id,
   })
 
@@ -153,13 +170,13 @@ function VirtualChildList({ layer, children_ }: { layer: DungeonLayer; children_
   }, [revealChildId, children_, virtualizer])
 
   return (
-    <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+    <div ref={listRef} style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
       {virtualizer.getVirtualItems().map((vi) => (
         <div
           key={vi.key}
           ref={virtualizer.measureElement}
           data-index={vi.index}
-          style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
+          style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start - scrollMargin}px)` }}
         >
           <ChildRow
             child={children_[vi.index]}

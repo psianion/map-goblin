@@ -57,21 +57,6 @@ export const useStore = create<MapBuilderStore>()(
           data = migrateToLatest(data);
         }
 
-        // Pre-naming-era files stamped every placed asset "Asset". Resolve
-        // real names from the catalog on the way in — idempotent (a renamed
-        // child never matches again), and skips entries the catalog can't
-        // resolve yet (e.g. a pack that isn't installed at load time), which
-        // simply retry on a later load. Like normalizePrep below, this is a
-        // read-boundary shim, not a versioned migration.
-        for (const layer of data.layers) {
-          if (layer.type !== 'dungeon') continue;
-          const taken = layer.children.map((c) => c.name);
-          layer.children.forEach((c, i) => {
-            if (c.childType === 'asset' && c.name === 'Asset' && getCatalogEntry(c.assetId)) {
-              taken[i] = c.name = nextAssetName(c.assetId, taken);
-            }
-          });
-        }
 
         // Splat bitmaps ride inside customImages in the file format; hold them
         // as binary Blobs in terrainSplats so no splat base64 lives in the
@@ -131,6 +116,30 @@ export const useStore = create<MapBuilderStore>()(
           state.selection.clipboard = null;
           state.selection.regionClipboard = null;
           state.selection.selectionTransform = null;
+        });
+        // Resolve pre-naming-era "Asset" names now that the doc is in. If
+        // the catalog isn't rehydrated yet (boot race), CanvasHost calls the
+        // shim again once packs land.
+        get().applyAssetNameShim();
+      },
+
+      // Pre-naming-era files stamped every placed asset "Asset". Resolve
+      // real names from the catalog — idempotent (a renamed child never
+      // matches again), skips entries the catalog can't resolve, and runs
+      // both after a load and after asset packs finish rehydrating (either
+      // can happen first at boot). Like normalizePrep, this is a
+      // read-boundary shim, not an undoable edit.
+      applyAssetNameShim: () => {
+        set((state) => {
+          for (const layer of state.layers) {
+            if (layer.type !== 'dungeon') continue;
+            const taken = layer.children.map((c) => c.name);
+            layer.children.forEach((c, i) => {
+              if (c.childType === 'asset' && c.name === 'Asset' && getCatalogEntry(c.assetId)) {
+                taken[i] = c.name = nextAssetName(c.assetId, taken);
+              }
+            });
+          }
         });
       },
 

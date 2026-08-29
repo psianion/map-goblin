@@ -661,6 +661,8 @@ export interface MapBuilderStore {
 
   // bulk / serialization
   loadFromFile: (data: SerializedMapData, splatPngs?: [Blob | null, Blob | null, Blob | null]) => void;
+  /** Rename pre-naming-era "Asset" children from the catalog (read-boundary shim). */
+  applyAssetNameShim: () => void;
   getSerializableState: () => SerializedMapData;
   resetToDefault: () => void;
 }
