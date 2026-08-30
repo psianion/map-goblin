@@ -27,6 +27,11 @@ import { getAssetPackManager } from '@/engine/assetPackInstance';
 import { ensureBundledPack } from '@/engine/firstBootInstall';
 import { buildMergedManifest } from '@/engine/manifestBridge';
 
+// Module-scoped so a Pixi-init failure + retry (retryKey bump) can't start a
+// second concurrent pack boot — two ensureBundledPack runs could interleave
+// uninstallPack/registerPack and half-install a pack.
+let packBootPromise: Promise<void> | null = null;
+
 export function CanvasHost() {
   const containerRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -50,6 +55,56 @@ export function CanvasHost() {
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
       if (destroyed) return;
 
+      // Rehydrate asset packs from IndexedDB and populate the store (non-blocking
+      // — log errors, don't block boot). Kicked off in parallel with Pixi/Clipper
+      // init below: populating the Assets/Packs panels doesn't touch the GPU
+      // (loadPackTextures imports pixi.js itself), so gating it behind
+      // pixiEngine.init() was only costing ~10s of empty panels on every reload.
+      packBootPromise ??= (async () => {
+        try {
+          const packManager = getAssetPackManager();
+          await packManager.rehydrate();
+          // First-boot: install bundled pack if no packs exist
+          await ensureBundledPack(packManager);
+          if (destroyed) return;
+
+          // Populate PacksSlice from rehydrated + newly installed state
+          const store = useStore.getState();
+          store.setInstalledPacks(
+            packManager.getInstalledPacks().map((p) => ({
+              packId: p.packId,
+              name: p.packId,
+              version: p.version,
+              sizeBytes: p.bundleSize,
+              // Everything present at boot came from the bundled /packs install
+              // (or a CDN refresh of the same pack) — there is no other source yet.
+              bundled: true,
+              installedAt: Date.now(),
+            })),
+          );
+          // Merge pack manifests into asset browser manifest
+          const packManifests = packManager.getPackManifests();
+          if (packManifests.length > 0) {
+            const merged = buildMergedManifest(packManifests);
+            store.setManifest(merged);
+          }
+
+          // Catalog is live now — resolve any "Asset" names a map that loaded
+          // before this point couldn't (loadFromFile runs the same shim for
+          // the opposite ordering).
+          store.applyAssetNameShim();
+
+          // Fire checkForUpdates in background — don't block boot
+          packManager.checkForUpdates().then((updates) => {
+            if (!destroyed && updates.length > 0) {
+              useStore.getState().setAvailableUpdates(updates);
+            }
+          }).catch(() => {});
+        } catch (err) {
+          console.warn('[CanvasHost] Asset pack rehydration failed:', err);
+        }
+      })();
+
       // Initialize PixiJS and Clipper2 WASM in parallel
       try {
         await Promise.all([pixiEngine.init(container), initClipper()]);
@@ -68,53 +123,12 @@ export function CanvasHost() {
         return;
       }
 
-      // Rehydrate asset packs from IndexedDB (non-blocking — log errors, don't block boot)
-      try {
-        const packManager = getAssetPackManager();
-        await packManager.rehydrate();
-        // First-boot: install bundled pack if no packs exist
-        await ensureBundledPack(packManager);
-        if (destroyed) return;
-
-        // Populate PacksSlice from rehydrated + newly installed state
-        const store = useStore.getState();
-        store.setInstalledPacks(
-          packManager.getInstalledPacks().map((p) => ({
-            packId: p.packId,
-            name: p.packId,
-            version: p.version,
-            sizeBytes: p.bundleSize,
-            // Everything present at boot came from the bundled /packs install
-            // (or a CDN refresh of the same pack) — there is no other source yet.
-            bundled: true,
-            installedAt: Date.now(),
-          })),
-        );
-        // Merge pack manifests into asset browser manifest
-        const packManifests = packManager.getPackManifests();
-        if (packManifests.length > 0) {
-          const merged = buildMergedManifest(packManifests);
-          store.setManifest(merged);
-        }
-
-        // Catalog is live now — resolve any "Asset" names a map that loaded
-        // before this point couldn't (loadFromFile runs the same shim for
-        // the opposite ordering).
-        store.applyAssetNameShim();
-
-        // Fire checkForUpdates in background — don't block boot
-        packManager.checkForUpdates().then((updates) => {
-          if (!destroyed && updates.length > 0) {
-            useStore.getState().setAvailableUpdates(updates);
-          }
-        }).catch(() => {});
-      } catch (err) {
-        console.warn('[CanvasHost] Asset pack rehydration failed:', err);
-      }
+      await packBootPromise;
       if (destroyed) return;
 
-      // Build scene graph hierarchy
-      const sceneGraph = buildSceneGraph(pixiEngine);
+      // Build scene graph hierarchy. This is the editor, so it gets the
+      // authoring guides (the fixed-map boundary); the table does not.
+      const sceneGraph = buildSceneGraph(pixiEngine, { editorGuides: true });
 
       // Create LightManager (shared between subscribeToStore and renderLoop)
       const lightManager = new LightManager();

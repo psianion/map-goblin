@@ -5,7 +5,14 @@ import type { Viewer } from '../contract'
 import type { AuthoredDoor, DoorLiveState } from '../doors/types'
 import { fogModule } from './module'
 import { getCell, regionOf, setCells } from './region'
-import { autoExploreOn, fogModeOf, identityRegion, sceneFogOf, tableRegion } from './types'
+import {
+  autoExploreOn,
+  fogModeOf,
+  identityRegion,
+  sceneFogOf,
+  sightRangeLimitOn,
+  tableRegion,
+} from './types'
 import type { FogState, RoomFog, RoomFogStatus, SceneFog } from './types'
 import { blockedEdge, defaultRoom, effectiveFog, visibleRooms, type FogRoom } from './visibility'
 
@@ -789,20 +796,21 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       expect(scened(andBack).mode).toBe('rooms')
     })
 
-    // A roomless map has nothing for `canSee` to be wired against server-side, so vision mode
-    // there redacts *nothing*: every token on the scene would ship to every player the moment
-    // the DM flipped the switch. Refusing is the whole fix.
-    it('refuses vision mode on a scene whose map has no detected rooms', () => {
+    // A roomless map is the imported battlemap, and vision mode is the only fog it can have:
+    // its unit is the cell, so there is nothing to detect and nothing to refuse. This used to
+    // be a refusal, because the server bailed out of `visionOf` on a roomless scene and left
+    // `canSee` unwired; `vision.ts` answers such a scene now, so the mode is safe to enter.
+    it('lets a roomless map into vision mode, and takes a brush stroke there', () => {
       const roomless = fogModule(() => [], () => FRAME)
-      const attempt = (action: string, payload: unknown) => {
-        let next = empty
+      const attempt = (action: string, payload: unknown, state = empty) => {
+        let next = state
         const error = roomless.handler(action, payload, {
           campaignId: 'c-1',
           sessionId: 's-1',
           activeSceneId: SCENE,
           sender: DM,
           players: [],
-          state: empty,
+          state,
           setState: (s) => {
             next = s
           },
@@ -811,12 +819,37 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
         return { error: error ?? null, next }
       }
 
-      const refused = attempt('set-mode', { mode: 'vision' })
-      expect(refused.error?.code).toBe('invalid-command')
-      expect(refused.error?.message).toMatch(/rooms/)
-      expect(refused.next).toBe(empty)
-      // Rooms mode is still reachable there — this refuses one mode, not the command.
+      const vision = attempt('set-mode', { mode: 'vision' })
+      expect(vision.error).toBeNull()
+      expect(vision.next.byScene[SCENE].mode).toBe('vision')
+      // Rooms mode is still reachable there, and still means "no fog at all" for a map with
+      // no rooms to be granular about.
       expect(attempt('set-mode', { mode: 'rooms' }).error).toBeNull()
+
+      // The point of the whole change: the brush writes cells on a map that zones nothing.
+      // `shipRooms` has no room to latch here and must not trip over that.
+      const painted = attempt('region-set', { op: 'reveal', cells: [[3, 4]] }, vision.next)
+      expect(painted.error).toBeNull()
+      const scene = painted.next.byScene[SCENE]
+      expect(getCell(scene.region, 3, 4)).toBe(true)
+      expect(scene.rooms).toEqual({})
+    })
+
+    // The DM's switch for a map with no walls to bound a sweep. Off by default on purpose:
+    // every scene stored before it existed keeps the sight it was played with.
+    it('stores the sight range limit, and defaults it off', () => {
+      // An untouched scene has no record at all, which reads as off.
+      expect(sceneFogOf(empty, SCENE).sightRangeLimit).toBeUndefined()
+      expect(sightRangeLimitOn(sceneFogOf(empty, SCENE))).toBe(false)
+
+      const on = fire(empty, DM, 'set-range-limit', { sightRangeLimit: true }).next
+      expect(sightRangeLimitOn(scened(on))).toBe(true)
+      const off = fire(on, DM, 'set-range-limit', { sightRangeLimit: false }).next
+      expect(sightRangeLimitOn(scened(off))).toBe(false)
+
+      expect(fire(empty, DM, 'set-range-limit', { sightRangeLimit: 'yes' }).error?.code).toBe(
+        'invalid-command',
+      )
     })
 
     it('stores either share, and refuses a third', () => {

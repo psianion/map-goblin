@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MapMeta } from '@/store/types';
 
@@ -9,6 +10,7 @@ interface MapCardProps {
   onRename: (id: string, name: string) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
+  onSettings: (id: string) => void;
 }
 
 function timeAgo(timestamp: number): string {
@@ -32,6 +34,7 @@ export function MapCard({
   onRename,
   onDuplicate,
   onDelete,
+  onSettings,
 }: MapCardProps) {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(map.name);
@@ -96,11 +99,13 @@ export function MapCard({
     }
   };
 
-  const handleMenuAction = (action: 'rename' | 'duplicate' | 'delete') => {
+  const handleMenuAction = (action: 'rename' | 'settings' | 'duplicate' | 'delete') => {
     setMenuOpen(false);
     if (action === 'rename') {
       setEditName(map.name);
       setEditing(true);
+    } else if (action === 'settings') {
+      onSettings(map.id);
     } else if (action === 'duplicate') {
       onDuplicate(map.id);
     } else if (action === 'delete') {
@@ -108,13 +113,18 @@ export function MapCard({
     }
   };
 
-  const meta = `${map.gridSize.width}\u00D7${map.gridSize.height} \u00B7 ${map.layerCount} layer${map.layerCount !== 1 ? 's' : ''} \u00B7 ${timeAgo(map.updatedAt)}`;
+  // A map with nothing drawn on it measures 0\u00D70 \u2014 say so rather than print a size it hasn't got.
+  const size =
+    map.gridSize.width && map.gridSize.height
+      ? `${map.gridSize.width}\u00D7${map.gridSize.height}`
+      : 'Empty';
+  const meta = `${size} \u00B7 ${map.layerCount} layer${map.layerCount !== 1 ? 's' : ''} \u00B7 ${timeAgo(map.updatedAt)}`;
 
   return (
     <div
       data-testid="map-card"
       className={cn(
-        'relative px-3 py-2.5 rounded-lg border cursor-pointer transition-colors',
+        'group relative px-3 py-2.5 rounded-lg border cursor-pointer transition-colors',
         isActive
           ? 'bg-surface-2 border-accent-active/30'
           : 'bg-transparent border-border-default hover:bg-surface-1',
@@ -148,9 +158,24 @@ export function MapCard({
       )}
 
       {/* Meta line */}
-      <div className="text-xs text-text-muted mt-0.5 font-mono">
+      <div className="text-xs text-text-muted mt-0.5 font-mono pr-7">
         {meta}
       </div>
+
+      {/* Delete — revealed on hover, but always in the tab order so it stays keyboard-reachable */}
+      <button
+        type="button"
+        data-testid="map-delete-button"
+        aria-label={`Delete ${map.name}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete(map.id);
+        }}
+        onDoubleClick={(e) => e.stopPropagation()}
+        className="absolute bottom-1.5 right-1.5 w-6 h-6 flex items-center justify-center rounded text-text-muted opacity-0 transition-[opacity,color] hover:text-danger hover:bg-surface-3 group-hover:opacity-100 focus:opacity-100"
+      >
+        <Trash2 size={14} />
+      </button>
 
       {/* Context menu (right-click or more button) */}
       {menuOpen && menuPos && (
@@ -165,6 +190,13 @@ export function MapCard({
             className="w-full text-left px-3 py-1.5 text-sm text-text-primary gg-row"
           >
             Rename
+          </button>
+          <button
+            type="button"
+            onClick={() => handleMenuAction('settings')}
+            className="w-full text-left px-3 py-1.5 text-sm text-text-primary gg-row"
+          >
+            Map settings…
           </button>
           <button
             type="button"

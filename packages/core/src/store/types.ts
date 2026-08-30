@@ -37,6 +37,13 @@ export interface MapSettings extends MapEnvironment {
   ambientLight: string;
   /** Optional — absent on maps that never painted terrain (and on pre-terrain saves). */
   terrain?: TerrainData;
+  /**
+   * A map frame the DM pinned instead of letting it grow with the drawing, in cells,
+   * anchored at the origin. null/absent — the normal state — measures the frame from
+   * content (`shared/mapBounds.computeMapFrame`). Nothing clamps to it: drawing past a
+   * fixed frame just puts that geometry outside the map.
+   */
+  fixedSize?: { width: number; height: number } | null;
 }
 
 // ─── Grid ─────────────────────────────────────────────────
@@ -312,7 +319,7 @@ export interface SelectionSlice {
 // ─── UI ───────────────────────────────────────────────────
 
 export interface ModalState {
-  type: 'confirm' | 'export' | 'save' | 'shortcutReference';
+  type: 'confirm' | 'export' | 'save' | 'shortcutReference' | 'newMap';
   props: Record<string, unknown>;
 }
 
@@ -548,6 +555,7 @@ export interface MapBuilderStore {
 
   // mapSettings actions
   setMapName: (name: string) => void;
+  setFixedSize: (size: MapSettings['fixedSize']) => void;
   setGridType: (type: MapSettings['gridType']) => void;
   setAmbientLight: (color: string) => void;
   setEnvironmentSettings: (patch: Partial<MapEnvironment>) => void;

@@ -5,7 +5,7 @@ import { getLayerEntry } from '../sceneGraph';
 import type { Layer } from '../../store/types';
 import { useStore } from '../../store/store';
 import { computeExportDimensions, buildExportFilename, worldBoundsToCells } from './exportMath';
-import { computeContentBounds } from '../../shared/mapBounds';
+import { computeContentBounds, computeMapFrame } from '../../shared/mapBounds';
 
 export interface ExportOptions {
   format: 'png' | 'jpeg';
@@ -23,12 +23,15 @@ export interface ExportOptions {
 export function computeMapWorldBounds(
   layers: Layer[],
   terrainBounds = useStore.getState().mapSettings.terrain?.bounds ?? null,
+  fixedSize = useStore.getState().mapSettings.fixedSize ?? null,
 ): {
   minX: number;
   minY: number;
   maxX: number;
   maxY: number;
 } {
+  // A pinned map exports exactly its frame — whatever was drawn outside is cropped away.
+  if (fixedSize) return computeMapFrame(layers, terrainBounds, fixedSize)!;
   return (
     computeContentBounds(layers, terrainBounds) ?? { minX: -5, minY: -5, maxX: 5, maxY: 5 }
   );

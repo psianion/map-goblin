@@ -9,6 +9,10 @@ export interface MapDB {
   createMap(name: string, data: Uint8Array, gridSize: { width: number; height: number }, layerCount: number): Promise<string>;
   getMapMeta(id: string): Promise<MapMeta | null>;
   deleteMap(id: string): Promise<void>;
+  /** The whole stored record — read before a delete so the delete can be undone. */
+  getMapRecord(id: string): Promise<MapRecord | null>;
+  /** Puts a record from getMapRecord back, original id and all. */
+  restoreMap(record: MapRecord): Promise<void>;
   updateMapMeta(id: string, patch: Partial<Pick<MapMeta, 'name'>>): Promise<void>;
   duplicateMap(id: string): Promise<string>;
 }
@@ -20,6 +24,12 @@ export interface MapMeta {
   updatedAt: number;
   gridSize: { width: number; height: number };
   layerCount: number;
+}
+
+/** One map as the DB stores it. Core only ever moves these around whole — anything the
+ * DB keeps beyond these fields rides along untouched. */
+export interface MapRecord extends MapMeta {
+  data: Uint8Array;
 }
 
 export interface MapSerializer {

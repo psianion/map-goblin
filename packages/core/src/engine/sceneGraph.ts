@@ -1,6 +1,7 @@
 import { Container, Graphics, RenderTexture, Sprite } from 'pixi.js';
 import type { RenderEngine } from './RenderEngine';
 import { GridRenderer } from './grid/GridRenderer';
+import { MapBoundaryRenderer } from './grid/MapBoundaryRenderer';
 import { ToolManager } from './tools/ToolManager';
 import { LightingRenderer } from './lighting';
 import { FogTransition } from './fogTransition';
@@ -20,10 +21,23 @@ export interface SceneGraph {
   layerContainer: Container;
   previewContainer: Container;
   gridRenderer: GridRenderer;
+  /** Null unless the scene graph was built with `editorGuides` — see SceneGraphOptions. */
+  mapBoundaryRenderer: MapBoundaryRenderer | null;
   toolManager: ToolManager;
   lightingRenderer: LightingRenderer;
   fogTransition: FogTransition;
   terrainRenderer: TerrainRenderer;
+}
+
+export interface SceneGraphOptions {
+  /**
+   * Build the authoring guides that belong to the editor and to nobody else —
+   * today just the fixed-map boundary hairline.
+   *
+   * Defaults to false: the session table builds this same scene graph, and a
+   * caller that forgets the flag should get the players' view, not the DM's.
+   */
+  editorGuides?: boolean;
 }
 
 export interface DungeonSublayers {
@@ -85,7 +99,10 @@ export function getLayerEntry(id: string): LayerEntry | undefined {
  *     └── overlayContainer (screen-space, not camera-transformed)
  *           └── lightingComposite (LightingRenderer FBO sprite)
  */
-export function buildSceneGraph(engine: RenderEngine): SceneGraph {
+export function buildSceneGraph(
+  engine: RenderEngine,
+  options: SceneGraphOptions = {},
+): SceneGraph {
   const worldContainer = engine.stage();
   worldContainer.label = 'worldContainer';
 
@@ -156,6 +173,14 @@ export function buildSceneGraph(engine: RenderEngine): SceneGraph {
   const lightingRenderer = new LightingRenderer(engine, vp.width, vp.height);
   // LightingRenderer constructor adds compositingSprite to engine.overlay() internally
 
+  // Fixed-size map boundary — screen-space hairline, above the lighting
+  // composite (chrome shouldn't dim with the scene) and below the fog fade.
+  // In the overlay, so the export (worldContainer only) can never bake it in.
+  // Editor only: it marks where the DM's canvas ends, which is not a thing
+  // players at the table have any use for.
+  const mapBoundaryRenderer = options.editorGuides ? new MapBoundaryRenderer() : null;
+  if (mapBoundaryRenderer) overlayContainer.addChild(mapBoundaryRenderer.container);
+
   // Fog transition overlay — screen-space black fade for map switching
   const fogTransition = new FogTransition(overlayContainer, engine.ticker(), vp.width, vp.height);
 
@@ -166,6 +191,7 @@ export function buildSceneGraph(engine: RenderEngine): SceneGraph {
     layerContainer,
     previewContainer,
     gridRenderer,
+    mapBoundaryRenderer,
     toolManager,
     lightingRenderer,
     fogTransition,

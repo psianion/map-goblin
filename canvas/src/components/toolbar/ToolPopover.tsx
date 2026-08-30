@@ -701,6 +701,10 @@ function TerrainBrushContent({ onValueChange }: { onValueChange: () => void }) {
   );
   const setSettings = useStore((s) => s.updateTerrainBrushSettings);
   const setTerrainData = useStore((s) => s.setTerrainData);
+  // packCatalog's cache is always fresh, but nothing else re-renders this
+  // component when packs finish loading async (boot rehydrate, install,
+  // uninstall) — subscribe to the pack list so getCatalogEntry() below picks it up.
+  useStore((s) => s.packs.installedPacks);
   // Every brush control feeds the ghost — size and material are both invisible
   // until you have a disc on the canvas showing them.
   const updateSettings = (patch: Partial<typeof settings>) => {

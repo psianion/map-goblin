@@ -101,15 +101,19 @@ export function panBoundsIntoView(b: Bounds): void {
   animateTo(stage.position.x + dx, stage.position.y + dy, zoom)
 }
 
-/** Centre the world-space box in the visible gap, zoomed so it fills ~40%. */
-export function zoomToBounds(b: Bounds): void {
+/**
+ * Centre the world-space box in the visible gap, zoomed so it fills `fill` of it.
+ * The default picks a box out of its surroundings; pass a bigger fraction when the
+ * box is the thing being worked on rather than merely located.
+ */
+export function zoomToBounds(b: Bounds, fill = 0.4): void {
   const rect = visibleRect()
   if (!rect) return
   const worldW = Math.max(b.width, 1)
   const worldH = Math.max(b.height, 1)
   const gapW = Math.max(1, rect.right - rect.left)
   const gapH = Math.max(1, rect.bottom - rect.top)
-  const zoom = Math.min(Math.max(Math.min(gapW / worldW, gapH / worldH) * 0.4, MIN_ZOOM), MAX_ZOOM)
+  const zoom = Math.min(Math.max(Math.min(gapW / worldW, gapH / worldH) * fill, MIN_ZOOM), MAX_ZOOM)
   const cx = b.x + b.width / 2
   const cy = b.y + b.height / 2
   animateTo(
@@ -124,7 +128,7 @@ export function panChildIntoView(childId: string): void {
   if (child) panBoundsIntoView(getChildBounds(child))
 }
 
-export function zoomToChild(childId: string): void {
+export function zoomToChild(childId: string, fill?: number): void {
   const child = findChild(childId)
-  if (child) zoomToBounds(getChildBounds(child))
+  if (child) zoomToBounds(getChildBounds(child), fill)
 }

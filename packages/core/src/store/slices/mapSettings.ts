@@ -3,11 +3,36 @@ import type { MapBuilderStore, MapEnvironment, MapSettings, TerrainData } from '
 
 export interface MapSettingsActions {
   setMapName: (name: string) => void;
+  setFixedSize: (size: MapSettings['fixedSize']) => void;
   setGridType: (type: MapSettings['gridType']) => void;
   setAmbientLight: (color: string) => void;
   setEnvironmentSettings: (patch: Partial<MapEnvironment>) => void;
   setTerrainData: (patch: Partial<TerrainData>) => void;
   setTerrainSplats: (pngs: [Blob | null, Blob | null, Blob | null]) => void;
+}
+
+/**
+ * The largest frame a DM can pin, in cells. 1000 cells is 5000 ft on the default scale —
+ * far past any battlemap, and small enough that the fog and export code sizing itself off
+ * this number can't be talked into an absurd allocation.
+ */
+export const MAX_FIXED_CELLS = 1000;
+
+/**
+ * A pinned map frame, or null when there isn't one. `fixedSize` is read by export, by the
+ * fog on the client and by the session server, so it is validated here — at the one door
+ * into the document — rather than trusted from whichever form last wrote it. Anything that
+ * is not a pair of whole cell counts inside the bound is not a size, and the map goes back
+ * to measuring itself.
+ */
+export function normalizeFixedSize(
+  size: MapSettings['fixedSize'],
+): { width: number; height: number } | null {
+  if (!size) return null;
+  const ok = (n: number) => Number.isInteger(n) && n >= 1 && n <= MAX_FIXED_CELLS;
+  return ok(size.width) && ok(size.height)
+    ? { width: size.width, height: size.height }
+    : null;
 }
 
 export const createMapSettingsSlice: StateCreator<
@@ -19,6 +44,10 @@ export const createMapSettingsSlice: StateCreator<
   setMapName: (name) =>
     set((state) => {
       state.mapSettings.name = name;
+    }),
+  setFixedSize: (size) =>
+    set((state) => {
+      state.mapSettings.fixedSize = normalizeFixedSize(size);
     }),
   setGridType: (type) =>
     set((state) => {

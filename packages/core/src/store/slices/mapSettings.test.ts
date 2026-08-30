@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from '../store';
 import { TerrainAppearanceCommand } from '../commands';
 import { undoManager } from '../undoManager';
-import { DEFAULT_TERRAIN_PALETTE } from './mapSettings';
+import { DEFAULT_TERRAIN_PALETTE, MAX_FIXED_CELLS, normalizeFixedSize } from './mapSettings';
 
 describe('setTerrainData (appearance fields)', () => {
   beforeEach(() => {
@@ -77,5 +77,44 @@ describe('TerrainAppearanceCommand', () => {
 
     undoManager.undo();
     expect(useStore.getState().mapSettings.terrain).toBeUndefined();
+  });
+});
+
+// fixedSize drives fog geometry and export sizing on both client and server, so the setter
+// is the trust boundary: a bad number has to be refused, not persisted.
+describe('setFixedSize', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+  });
+
+  it('stores a whole-cell size', () => {
+    useStore.getState().setFixedSize({ width: 30, height: 20 });
+    expect(useStore.getState().mapSettings.fixedSize).toEqual({ width: 30, height: 20 });
+  });
+
+  it('clears back to a measured frame', () => {
+    useStore.getState().setFixedSize({ width: 30, height: 20 });
+    useStore.getState().setFixedSize(null);
+    expect(useStore.getState().mapSettings.fixedSize).toBeNull();
+  });
+
+  it.each([
+    ['zero', { width: 0, height: 10 }],
+    ['negative', { width: -4, height: 10 }],
+    ['fractional', { width: 10.5, height: 10 }],
+    ['NaN', { width: Number.NaN, height: 10 }],
+    ['Infinity', { width: Number.POSITIVE_INFINITY, height: 10 }],
+    ['past the bound', { width: MAX_FIXED_CELLS + 1, height: 10 }],
+  ])('refuses %s rather than persisting it', (_label, size) => {
+    useStore.getState().setFixedSize(size);
+    expect(useStore.getState().mapSettings.fixedSize).toBeNull();
+  });
+
+  it('normalizeFixedSize agrees with the setter', () => {
+    expect(normalizeFixedSize({ width: MAX_FIXED_CELLS, height: 1 })).toEqual({
+      width: MAX_FIXED_CELLS,
+      height: 1,
+    });
+    expect(normalizeFixedSize(undefined)).toBeNull();
   });
 });

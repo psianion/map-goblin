@@ -19,6 +19,7 @@ import {
   regionFor,
   sceneFogOf,
   setCells,
+  sightRangeLimitOn,
   visibleRooms,
   visionShareOf,
   type Cell,
@@ -216,7 +217,8 @@ export function createVision(stores: Stores): Vision {
     const world = worldLightOf(map.data.mapSettings ?? {}, triggersState, sceneId)
     const lights = world.effectiveLevel === 'darkness' ? triggers.lightEdits : null
     const vision = fogModeOf(fog) === 'vision'
-    const sight = vision ? sweeps.partyVision(map, tokens, doors, lights) : null
+    const rangeLimited = sightRangeLimitOn(fog)
+    const sight = vision ? sweeps.partyVision(map, tokens, doors, lights, undefined, rangeLimited) : null
     // P5 — one seat's eyes, on demand and once per revision. Lazy because most tables never
     // ask: party share reads `sight` alone, and even in individual share only the seats
     // actually being redacted for are ever computed.
@@ -225,7 +227,14 @@ export function createVision(stores: Stores): Vision {
       if (!vision) return null
       let own = perIdentity.get(identityId)
       if (own === undefined) {
-        own = sweeps.partyVision(map, tokens, doors, lights, (t) => t.ownerId === identityId)
+        own = sweeps.partyVision(
+          map,
+          tokens,
+          doors,
+          lights,
+          (t) => t.ownerId === identityId,
+          rangeLimited,
+        )
         perIdentity.set(identityId, own)
       }
       return own
@@ -308,8 +317,14 @@ export function createVision(stores: Stores): Vision {
 
     visionOf: (sceneId, viewer) => {
       const computed = compute(sceneId)
-      // No authored rooms, no fog: room-granular fog has nothing to be granular about.
-      if (!computed || computed.map.rooms.length === 0) return null
+      if (!computed) return null
+      // No authored rooms, no fog: room-granular fog has nothing to be granular about — in
+      // rooms mode. In vision mode the unit is the cell, so a roomless scene has plenty to
+      // say, and it has to be said here: `canSee` and `openGround` below are the whole of
+      // what keeps every token on an imported battlemap off the players' wire. Bailing out
+      // was what made vision mode unsafe on such a map, and mechanics refused the mode
+      // switch on account of exactly this line.
+      if (computed.map.rooms.length === 0 && fogModeOf(computed.fog) !== 'vision') return null
       // P5 — the whole of the per-viewer divergence, in one expression: the same `seen()` rule
       // over a narrower set of eyes. A DM is asked nothing (their redaction is identity), and a
       // caller with no viewer at all — every command path — asks the party question.

@@ -18,7 +18,7 @@ export interface PublishState {
  * campaign must not orphan the first scene's publish state. */
 export type PublishRecord = Record<string, PublishState>;
 
-interface MapEntry extends MapMeta {
+export interface MapEntry extends MapMeta {
   data: Uint8Array;
   /** Absent until the map has been published once. */
   publish?: PublishRecord;
@@ -136,6 +136,16 @@ export class MapIndexDB {
       req.onsuccess = () => resolve();
       req.onerror = () => reject(req.error);
     });
+  }
+
+  /** The whole entry, publish state included — captured before a delete so Undo can put
+   * the map back exactly as it was rather than rebuilding an approximation of it. */
+  async getMapRecord(id: string): Promise<MapEntry | null> {
+    return this.get(id);
+  }
+
+  async restoreMap(record: MapEntry): Promise<void> {
+    await this.put(record);
   }
 
   async duplicateMap(id: string): Promise<string> {

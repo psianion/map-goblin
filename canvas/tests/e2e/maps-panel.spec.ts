@@ -22,6 +22,11 @@
  *   - data-testid="map-card-name"      — the name text/input on a map card
  *   - data-testid="map-rename-input"   — inline rename input (visible during edit)
  *   - data-testid="map-context-menu"   — right-click context menu container
+ *   - data-testid="map-delete-button"  — the trash button on a map card
+ *   - data-testid="new-map-dialog"     — the New map / Map settings dialog body
+ *   - data-testid="new-map-name"       — the dialog's Name field
+ *   - data-testid="new-map-width/height" — fixed-size cell inputs
+ *   - data-testid="new-map-submit"     — the dialog's primary button
  */
 
 import { test, expect, type Page } from '@playwright/test'
@@ -76,12 +81,18 @@ function getMapCards(page: Page) {
  * one, so callers renamed or clicked the *previous* map and the failure surfaced
  * several steps later as a card that had gone missing.
  */
-async function clickNewMap(page: Page): Promise<void> {
+async function clickNewMap(page: Page, name?: string): Promise<void> {
   const before = await getMapCards(page).count()
   const newMapBtn = page.locator(
     '[data-testid="new-map-button"], button:has-text("+ New Map"), button:has-text("New Map")'
   )
   await newMapBtn.first().click()
+  // The button now asks first — name, source and size — instead of creating silently.
+  const dialog = page.locator('[data-testid="new-map-dialog"]')
+  await expect(dialog).toBeVisible({ timeout: 5_000 })
+  if (name) await dialog.getByTestId('new-map-name').fill(name)
+  await dialog.getByTestId('new-map-submit').click()
+  await expect(dialog).toBeHidden({ timeout: 30_000 })
   await expect(getMapCards(page)).toHaveCount(before + 1, { timeout: 30_000 })
   // Fog transition: fog-in (~300ms) + state swap + fog-out (~300ms) + buffer
   await page.waitForTimeout(700)
@@ -267,9 +278,10 @@ test.describe('Maps Panel', () => {
       expect(cardText).toBeTruthy()
       expect(cardText!.length).toBeGreaterThan(0)
 
-      // Step 4: Verify grid dimensions are displayed (e.g. "50x40" pattern)
-      // The meta line shows "{width}x{height} . {n} layers . Saved {timeAgo}"
-      expect(cardText!).toMatch(/\d+\s*[x\u00d7]\s*\d+/)
+      // Step 4: Verify the size is displayed. The meta line shows
+      // "{width}x{height} . {n} layers . {timeAgo}", and a map with nothing drawn on it
+      // measures nothing \u2014 a fresh map reads "Empty" rather than a made-up dimension.
+      expect(cardText!).toMatch(/\d+\s*[x\u00d7]\s*\d+|Empty/i)
 
       // Step 5: Verify layer count is displayed (e.g. "2 layers" or "1 layer")
       expect(cardText!).toMatch(/\d+\s*layer/)
@@ -295,6 +307,108 @@ test.describe('Maps Panel', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   test.describe('3. Create New Map', () => {
+
+    test('"+ New Map" asks before creating, and Escape leaves nothing behind', async ({ page }) => {
+      await openMapsPanel(page)
+      await expect(getMapCards(page)).toHaveCount(1)
+
+      await page.locator('[data-testid="new-map-button"]').first().click()
+      const dialog = page.locator('[data-testid="new-map-dialog"]')
+      await expect(dialog).toBeVisible()
+      // Name autofocuses, so the DM can just type.
+      await expect(dialog.getByTestId('new-map-name')).toBeFocused()
+      await expect(dialog.getByTestId('new-map-submit')).toHaveText('Create map')
+
+      await page.keyboard.press('Escape')
+      await expect(dialog).toBeHidden()
+      await expect(getMapCards(page)).toHaveCount(1)
+    })
+
+    test('the name typed in the dialog is the name on the card', async ({ page }) => {
+      await openMapsPanel(page)
+      await clickNewMap(page, 'Sunken Chapel')
+
+      const activeCard = getMapCards(page).filter({ has: page.locator('text=EDITING') })
+      await expect(activeCard).toContainText('Sunken Chapel')
+    })
+
+    test('Enter in the name field creates the map', async ({ page }) => {
+      await openMapsPanel(page)
+      await page.locator('[data-testid="new-map-button"]').first().click()
+      const dialog = page.locator('[data-testid="new-map-dialog"]')
+      await dialog.getByTestId('new-map-name').fill('Guard Barracks')
+      await page.keyboard.press('Enter')
+
+      await expect(dialog).toBeHidden({ timeout: 30_000 })
+      await expect(getMapCards(page)).toHaveCount(2)
+    })
+
+    test('a fixed size is validated before it can be committed', async ({ page }) => {
+      await openMapsPanel(page)
+      await page.locator('[data-testid="new-map-button"]').first().click()
+      const dialog = page.locator('[data-testid="new-map-dialog"]')
+
+      await dialog.getByRole('button', { name: 'Fixed' }).click()
+      await dialog.getByTestId('new-map-width').fill('30')
+      await dialog.getByTestId('new-map-height').fill('20')
+      // The readout is in the map's own units, not raw cells.
+      await expect(dialog).toContainText('150 × 100 ft')
+
+      await dialog.getByTestId('new-map-width').fill('0')
+      await expect(dialog.getByTestId('new-map-submit')).toBeDisabled()
+
+      await dialog.getByTestId('new-map-width').fill('30')
+      await dialog.getByTestId('new-map-submit').click()
+      await expect(dialog).toBeHidden({ timeout: 30_000 })
+
+      const fixed = await page.evaluate(() => {
+        const store = (window as { __store?: { getState: () => { mapSettings: { fixedSize?: unknown } } } }).__store
+        return store?.getState().mapSettings.fixedSize ?? null
+      })
+      expect(fixed).toEqual({ width: 30, height: 20 })
+    })
+
+    test('"Map file" collapses name and size, and blocks until a file is chosen', async ({ page }) => {
+      await openMapsPanel(page)
+      await page.locator('[data-testid="new-map-button"]').first().click()
+      const dialog = page.locator('[data-testid="new-map-dialog"]')
+
+      await dialog.getByRole('button', { name: 'Map file' }).click()
+      await expect(dialog.getByTestId('new-map-name')).toHaveCount(0)
+      await expect(dialog).toContainText('Both come from the file')
+      await expect(dialog.getByTestId('new-map-submit')).toHaveText('Open map')
+      await expect(dialog.getByTestId('new-map-submit')).toBeDisabled()
+
+      await dialog.getByRole('button', { name: 'Image' }).click()
+      await expect(dialog.getByTestId('new-map-submit')).toHaveText('Create & line up grid')
+    })
+
+    test('Map settings pins the size the map already measures', async ({ page }) => {
+      await openMapsPanel(page)
+      await drawRect(page, 200, 200, 420, 360)
+      await rightClickMapCard(page, 0)
+      await page.locator('text=Map settings').first().click()
+
+      const dialog = page.locator('[data-testid="new-map-dialog"]')
+      await expect(dialog).toBeVisible()
+      await expect(dialog).toContainText('Map settings')
+      await expect(dialog.getByRole('button', { name: 'Map file' })).toHaveCount(0)
+      await expect(dialog).toContainText('Currently measuring')
+
+      await dialog.getByRole('button', { name: 'Fixed' }).click()
+      const width = await dialog.getByTestId('new-map-width').inputValue()
+      expect(Number(width)).toBeGreaterThan(0)
+
+      await expect(dialog.getByTestId('new-map-submit')).toHaveText('Save')
+      await dialog.getByTestId('new-map-submit').click()
+      await expect(dialog).toBeHidden({ timeout: 30_000 })
+
+      const fixed = await page.evaluate(() => {
+        const store = (window as { __store?: { getState: () => { mapSettings: { fixedSize?: unknown } } } }).__store
+        return store?.getState().mapSettings.fixedSize ?? null
+      })
+      expect(fixed).not.toBeNull()
+    })
 
     test('clicking "+ New Map" creates a second map card', async ({ page }) => {
       // Step 1: Open the maps panel
@@ -768,11 +882,11 @@ test.describe('Maps Panel', () => {
       // Step 1: Open panel
       await openMapsPanel(page)
 
-      // Step 2: Read the meta text of the original card (contains grid size)
+      // Step 2: Read the meta text of the original card (contains the measured size \u2014
+      // "12\u00d78", or "Empty" while nothing is drawn on it)
       const originalCard = getMapCards(page).first()
       const originalText = await originalCard.textContent()
-      // Extract grid size pattern like "50x40"
-      const gridMatch = originalText?.match(/(\d+)\s*[x\u00d7]\s*(\d+)/)
+      const gridMatch = originalText?.match(/(\d+\s*[x\u00d7]\s*\d+|Empty)/i)
       expect(gridMatch).toBeTruthy()
       const originalGrid = gridMatch![0]
 
@@ -840,6 +954,56 @@ test.describe('Maps Panel', () => {
 
       // Step 4: Verify count decreased to 2
       await expect(getMapCards(page)).toHaveCount(2)
+    })
+
+    test('the card delete button opens the same confirmation and deletes on confirm', async ({ page }) => {
+      // Step 1: Open panel and create a second map (so this is not the "last map" case)
+      await openMapsPanel(page)
+      await clickNewMap(page)
+      await expect(getMapCards(page)).toHaveCount(2)
+
+      // Step 2: Click the trash button on the non-active card — it is revealed on hover,
+      // and must not trigger the card's own click (which would switch maps)
+      const inactiveCard = getMapCards(page).filter({ hasNot: page.locator('text=EDITING') }).first()
+      const deleteBtn = inactiveCard.locator('[data-testid="map-delete-button"]')
+      await expect(deleteBtn).toHaveAttribute('aria-label', /^Delete /)
+      await deleteBtn.click()
+      await page.waitForTimeout(300)
+
+      // Step 3: The shared confirmation dialog appears (not a second bespoke one)
+      const confirmDialog = page.locator(
+        '[role="dialog"], [role="alertdialog"], [data-testid="confirm-dialog"]'
+      )
+      await expect(confirmDialog.first()).toHaveCount(1)
+      await expect(confirmDialog.first()).toBeVisible()
+
+      // Step 4: Confirm — the card goes, and the active map is untouched
+      await page.locator('button:has-text("Delete"), button:has-text("Confirm")').first().click()
+      await page.waitForTimeout(500)
+      await expect(getMapCards(page)).toHaveCount(1)
+      await expect(getMapCards(page).first().locator('text=EDITING')).toBeVisible()
+    })
+
+    test('the card delete button is reachable by keyboard', async ({ page }) => {
+      // Step 1: Open panel
+      await openMapsPanel(page)
+      const deleteBtn = getMapCards(page).first().locator('[data-testid="map-delete-button"]')
+
+      // Step 2: Focus it directly — a real <button> stays in the tab order even while the
+      // card is not hovered, and focusing it must reveal it
+      await deleteBtn.focus()
+      await expect(deleteBtn).toBeFocused()
+      const opacity = await deleteBtn.evaluate((el) =>
+        parseFloat(window.getComputedStyle(el).opacity),
+      )
+      expect(opacity).toBeGreaterThan(0.9)
+
+      // Step 3: Enter activates it — same confirmation, nothing deleted yet
+      await deleteBtn.press('Enter')
+      await page.waitForTimeout(300)
+      await expect(getMapCards(page)).toHaveCount(1)
+      const cancelBtn = page.locator('button:has-text("Cancel")')
+      await expect(cancelBtn.first()).toBeVisible()
     })
 
     test('deleting the active map switches to another map', async ({ page }) => {
@@ -972,35 +1136,41 @@ test.describe('Maps Panel', () => {
       await expect(panel).not.toBeVisible()
     })
 
-    test('Ctrl+Shift+N creates a new map', async ({ page }) => {
+    test('Ctrl+Shift+N asks first, then creates on Enter', async ({ page }) => {
       // Step 1: Open the panel first to see the cards
       await openMapsPanel(page)
       await expect(getMapCards(page)).toHaveCount(1)
 
-      // Step 2: Press Ctrl+Shift+N to create a new map
+      // Step 2: Press Ctrl+Shift+N — the same dialog the "+ New Map" button opens,
+      // not a silent "Untitled Map"
       await pressShortcut(page, 'n', { ctrl: true, shift: true })
-      await page.waitForTimeout(1200) // fog transition
+      const dialog = page.locator('[data-testid="new-map-dialog"]')
+      await expect(dialog).toBeVisible({ timeout: 5_000 })
+      await expect(getMapCards(page)).toHaveCount(1)
 
-      // Step 3: Verify a second map card appeared
-      await expect(getMapCards(page)).toHaveCount(2)
+      // Step 3: Enter commits, so the fast path stays two keystrokes
+      await dialog.getByTestId('new-map-name').press('Enter')
+      await expect(dialog).toBeHidden({ timeout: 30_000 })
+      await expect(getMapCards(page)).toHaveCount(2, { timeout: 30_000 })
     })
 
-    test('Ctrl+Shift+N auto-opens the panel if it was closed', async ({ page }) => {
+    test('Ctrl+Shift+N reaches the dialog with the panel closed', async ({ page }) => {
       const panel = page.locator('[data-testid="maps-panel"]')
 
       // Step 1: Close the panel the app boots with
       await closeMapsPanel(page)
       await expect(panel).not.toBeVisible()
 
-      // Step 2: Press Ctrl+Shift+N (panel is closed)
+      // Step 2: The dialog is mounted in App.tsx, not in the panel, so it still opens
       await pressShortcut(page, 'n', { ctrl: true, shift: true })
-      await page.waitForTimeout(1200) // fog transition + panel open
+      const dialog = page.locator('[data-testid="new-map-dialog"]')
+      await expect(dialog).toBeVisible({ timeout: 5_000 })
 
-      // Step 3: Verify the panel auto-opened
-      await expect(panel).toBeVisible()
-
-      // Step 4: Verify a new map was created (should now have 2 cards)
-      await expect(getMapCards(page)).toHaveCount(2)
+      // Step 3: Escape leaves nothing behind
+      await page.keyboard.press('Escape')
+      await expect(dialog).toBeHidden()
+      await openMapsPanel(page)
+      await expect(getMapCards(page)).toHaveCount(1)
     })
 
     test('shortcuts work when focus is on the canvas', async ({ page }) => {

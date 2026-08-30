@@ -108,6 +108,8 @@ export function GameRenderer() {
         return;
       }
 
+      // No `editorGuides`: the fixed-map boundary hairline is an authoring aid and
+      // never gets built here, so no seat at the table can see where the DM's canvas ends.
       const sceneGraph = buildSceneGraph(pixiEngine);
       // Off for every seat at boot; the DM's own light overlay (`LightEditor.ts`, mounted from
       // the DM-only Lights panel) turns them back on. A player seat leaves them off — the map

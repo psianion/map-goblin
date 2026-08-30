@@ -569,15 +569,10 @@ const toolKeyMap: Record<string, () => void | false> = {
     notify.subtle(state.ui.leftPanelOpen ? 'Maps panel closed' : 'Maps panel opened', { icon: 'map' });
   },
   'ctrl+shift+n': () => {
-    // Mirrors the maps panel "New Map" button (MapsSidePanel.handleNewMap).
-    useStore
-      .getState()
-      .createNewMap()
-      .then(() => notify.success('New map created'))
-      .catch((err) => {
-        console.error('[shortcuts] Failed to create map:', err);
-        notify.error('Failed to create map');
-      });
+    // Opens the New map dialog — the same one the maps panel's "New Map" button opens,
+    // mounted once in App.tsx off this modal state so the shortcut works with the panel
+    // closed. Enter commits, so the fast path is still two keystrokes.
+    useStore.getState().showModal({ type: 'newMap', props: { mode: 'create' } });
   },
   'ctrl+x': (): void | false => {
     const store = useStore.getState();

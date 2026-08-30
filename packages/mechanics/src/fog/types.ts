@@ -41,6 +41,19 @@ export interface SceneFog {
   /** Absent ⇒ on. Only meaningful in vision mode. */
   autoExplore?: boolean
   /**
+   * Absent ⇒ off. Only meaningful in vision mode.
+   *
+   * Off, an eye's line of sight runs to the whole map and what stops it is the walls (and, in
+   * the dark, the light) — see `sweep.ts`. That is the right model for a dungeon, where a lit
+   * hall genuinely is visible end to end, and it is why this defaults off: every scene played
+   * before the switch existed keeps the sight it was played with.
+   *
+   * It is the wrong model for a map with nothing to stop a sweep. An imported battlemap has no
+   * traced walls, so one token opens the entire image the moment it moves. On means each eye
+   * is swept at its own `sight.range` instead, which is the only bound such a map has.
+   */
+  sightRangeLimit?: boolean
+  /**
    * Region memory — the party's, absent until the first sweep or brush stroke writes one.
    *
    * In `'individual'` share this is also the *seed*: an identity with no record of its own
@@ -64,6 +77,13 @@ export const fogModeOf = (scene: SceneFog): FogMode => scene.mode ?? 'rooms'
 
 /** Auto-explore defaults on: a vision-mode scene explores itself unless the DM says not to. */
 export const autoExploreOn = (scene: SceneFog): boolean => scene.autoExplore ?? true
+
+/**
+ * Whether an eye is swept at its own range rather than to the whole map. Defaults off, so a
+ * scene stored before this existed sweeps exactly as it always did. Read in three places that
+ * must agree — the referee's sweep, the player's mask and the DM's preview — hence one reader.
+ */
+export const sightRangeLimitOn = (scene: SceneFog): boolean => scene.sightRangeLimit ?? false
 
 /** Whose sight a viewer's mask is drawn through. One reading of the optional field (P5). */
 export const visionShareOf = (scene: SceneFog): VisionShare => scene.visionShare ?? 'party'

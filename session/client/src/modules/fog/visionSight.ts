@@ -90,8 +90,17 @@ export const placedLights = (layers: readonly Layer[]): PlacedLight[] =>
     );
 
 export interface SightCache {
-  /** One line-of-sight polygon per token given, in that order. Feed it {@link sighted}. */
-  partySight(layers: readonly Layer[], tokens: readonly Token[]): Polygon[];
+  /**
+   * One line-of-sight polygon per token given, in that order. Feed it {@link sighted}.
+   *
+   * `rangeLimited` is the scene's `sightRangeLimit`, and it must be the same answer the
+   * referee swept with (`sweep.ts`) or the mask draws sight the server never granted.
+   */
+  partySight(
+    layers: readonly Layer[],
+    tokens: readonly Token[],
+    rangeLimited?: boolean,
+  ): Polygon[];
   /** One polygon per light source given, in that order. Feed it `lightSources`. */
   litArea(layers: readonly Layer[], sources: readonly LightSource[]): Polygon[];
   /** How many sweeps have actually been taken — the memo's own instrument. */
@@ -176,10 +185,17 @@ export function createSightCache(): SightCache {
     // Line of sight, to the whole map — the referee's own reach (`sweep.ts`). A token's
     // `range` bounds only what it sees *unlit*, which is the darkvision sweep the renderer
     // takes through `litArea` at that radius.
-    partySight: (layers, tokens) =>
+    //
+    // …unless the DM has turned `sightRangeLimit` on, which is the switch for a map with no
+    // walls to bound a sweep. Then the reach *is* the range, here exactly as on the referee.
+    partySight: (layers, tokens, rangeLimited) =>
       sweepAll(
         layers,
-        tokens.map((token) => ({ x: token.x, y: token.y, radius: SIGHT_REACH })),
+        tokens.map((token) => ({
+          x: token.x,
+          y: token.y,
+          radius: rangeLimited ? (token.sight?.range ?? SIGHT_REACH) : SIGHT_REACH,
+        })),
       ),
 
     litArea: (layers, sources) => sweepAll(layers, sources),

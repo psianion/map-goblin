@@ -123,6 +123,35 @@ describe('MapIndexDB', () => {
     });
   });
 
+  describe('getMapRecord / restoreMap', () => {
+    it('round-trips a deleted map back under its original id, blob and publish state intact', async () => {
+      const blob = new Uint8Array([7, 8, 9]);
+      const id = await db.createMap('Doomed', blob, { width: 12, height: 9 }, 4);
+      await db.setPublishState(id, 'camp-1', { sceneId: 's1', mapHash: 'h1', prepHash: 'p1' });
+
+      const record = (await db.getMapRecord(id))!;
+      await db.deleteMap(id);
+      expect(await db.getMapMeta(id)).toBeNull();
+
+      await db.restoreMap(record);
+
+      const meta = await db.getMapMeta(id);
+      expect(meta!.id).toBe(id);
+      expect(meta!.name).toBe('Doomed');
+      expect(meta!.gridSize).toEqual({ width: 12, height: 9 });
+      expect(meta!.layerCount).toBe(4);
+      expect(meta!.updatedAt).toBe(record.updatedAt);
+      expect(Array.from((await db.getMapBlob(id))!)).toEqual(Array.from(blob));
+      expect(await db.getPublishState(id)).toEqual({
+        'camp-1': { sceneId: 's1', mapHash: 'h1', prepHash: 'p1' },
+      });
+    });
+
+    it('getMapRecord returns null for a nonexistent id', async () => {
+      expect(await db.getMapRecord('nonexistent')).toBeNull();
+    });
+  });
+
   describe('publish state', () => {
     it('is null until set', async () => {
       const id = await db.createMap('Test', new Uint8Array([1]), { width: 10, height: 10 }, 1);
