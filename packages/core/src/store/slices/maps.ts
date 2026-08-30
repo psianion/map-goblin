@@ -172,6 +172,22 @@ export const createMapsSlice: StateCreator<
 
     const parsed = await getMapSerializer().deserializeFromBytes(blob);
     get().loadFromFile(parsed);
+
+    // Hand the document's own images back to the renderer. Opening a .mapbuilder file does
+    // this (io/saveLoad) and so does the table, but switching maps in the editor never did:
+    // the sprite came back with no texture and drew as a flat magenta box. It stayed hidden
+    // only because imported images were themselves too small to see. Dynamic import keeps
+    // Pixi out of this module's static graph — the server imports the store types.
+    const customImages = (parsed as { customImages?: Record<string, string> }).customImages;
+    if (customImages && Object.keys(customImages).length > 0) {
+      try {
+        const { restoreCustomImages } = await import('../../assets/textureLoader');
+        await restoreCustomImages(customImages);
+      } catch (err) {
+        console.warn('[loadMap] restoreCustomImages failed:', err);
+      }
+    }
+
     // The card list is the name of record. `renameMap` used to write only there, so any map
     // renamed before that was fixed still has the old name inside its document — and that is
     // the one exports use for the filename. Reconcile on the way in, which heals those.
