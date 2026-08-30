@@ -197,8 +197,19 @@ const FRAGMENT = /* glsl */ `
     float body = smoothstep(-0.08, 0.14, d);
     float wisp = smoothstep(-0.20, -0.06, d) * (1.0 - body);
 
-    // The fog is denser and darker right at its cut edge.
+    // The fog is denser and darker right at its cut edge — and the cut edge is where explored
+    // meets hidden, nowhere else. Between live sight and its own memory there is no cut: both
+    // are ground the player holds, and the step between them is a change of tier rather than
+    // an edge of the fog.
+    //
+    // The gate is what says so. d is driven by the mask, so the blur ramp from white (live)
+    // down to the memory grey sweeps it up by a full 1.0 — straight through this band
+    // whenever the noise is dense enough — and without the gate that stroked uDeep in an arc
+    // around every sighted token, riding along with it as it moved (caught on a two-seat
+    // walk: "that crescent follows"). Below the memory level the ramp really is running out
+    // to hidden, so the rim belongs there and keeps its full weight.
     float rim = smoothstep(0.0, 0.12, d) * (1.0 - smoothstep(0.12, 0.36, d));
+    rim *= 1.0 - smoothstep(0.45, 0.55, m);
     col = mix(col, uDeep * 0.6, rim * uRim);
 
     // Hidden ground renders at exactly uDense, flat — the player seat passes 1.0, so
