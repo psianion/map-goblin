@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Plus, X } from 'lucide-react';
 import { useStore } from '@/store/store';
+import { restoreLastDeletedMap } from '@dnd/core/src/store/slices/maps';
 import { notify } from '@/lib/toast';
 import { switchMap } from '@/store/mapSwitcher';
 import { undoManager } from '@/store/undoManager';
@@ -15,23 +16,14 @@ export function MapsSidePanel() {
   const togglePanel = useStore((s) => s.togglePanel);
   const mapIndex = useStore((s) => s.mapIndex);
   const activeMapId = useStore((s) => s.activeMapId);
-  const createNewMap = useStore((s) => s.createNewMap);
   const storeDeleteMap = useStore((s) => s.deleteMap);
   const renameMap = useStore((s) => s.renameMap);
   const duplicateMap = useStore((s) => s.duplicateMap);
+  // The dialog itself is mounted in App.tsx, so Ctrl+Shift+N reaches it with this panel closed.
+  const showModal = useStore((s) => s.showModal);
 
   const [activeTab, setActiveTab] = useState<'maps' | 'prep'>('maps');
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-
-  const handleNewMap = useCallback(async () => {
-    try {
-      await createNewMap();
-      notify.success('New map created');
-    } catch (err) {
-      console.error('[MapsSidePanel] Failed to create map:', err);
-      notify.error('Failed to create map');
-    }
-  }, [createNewMap]);
 
   const handleSwitch = useCallback((id: string) => {
     const singleton = getEngineSingleton();
@@ -39,7 +31,7 @@ export function MapsSidePanel() {
 
     const targetName = useStore.getState().mapIndex.find((m) => m.id === id)?.name ?? 'map';
 
-    switchMap(id, {
+    return switchMap(id, {
       getActiveMapId: () => useStore.getState().activeMapId,
       getIsMapSwitching: () => useStore.getState().isMapSwitching,
       setIsMapSwitching: (val) => useStore.setState({ isMapSwitching: val }),
@@ -94,28 +86,69 @@ export function MapsSidePanel() {
     [duplicateMap],
   );
 
-  // Delete is destructive + irreversible in IndexedDB, so require explicit
-  // confirmation (naming the map) before touching the store. See issue #10.
+  // Map settings edits the open document — fixed size lives there, not in the card index —
+  // so a card that isn't the open map is switched to first.
+  const handleSettings = useCallback(
+    async (id: string) => {
+      if (useStore.getState().activeMapId !== id) {
+        await handleSwitch(id);
+        if (useStore.getState().activeMapId !== id) return; // switch refused or failed
+      }
+      showModal({ type: 'newMap', props: { mode: 'settings' } });
+    },
+    [handleSwitch, showModal],
+  );
+
+  // Delete is destructive, so require explicit confirmation (naming the map) before
+  // touching the store. Undo only lives as long as the toast. See issue #10.
   const handleDelete = useCallback((id: string) => {
     setPendingDeleteId(id);
   }, []);
+
+  // Undo used to call undoManager.undo(), which knows nothing about maps — it popped the
+  // last *canvas* edit and left the map deleted. `deleteMap` stashes the whole record, so
+  // Undo puts that back instead, and switches to it if it was the map being edited.
+  const undoDelete = useCallback(async (wasActive: boolean) => {
+    try {
+      // Flush the open canvas first. Deleting the last map leaves a blank auto-created one
+      // open, and restoreLastDeletedMap decides from that map's stored record whether it is
+      // safe to take back out — anything drawn in it since has to be in the record by then.
+      await useStore.getState().saveCurrentMap();
+      const restored = await restoreLastDeletedMap();
+      if (!restored) {
+        notify.error('That map can no longer be restored');
+        return;
+      }
+      const { meta, removedBlankId } = restored;
+      useStore.setState((s) => {
+        if (removedBlankId) s.mapIndex = s.mapIndex.filter((m) => m.id !== removedBlankId);
+        s.mapIndex.push(meta);
+      });
+      if (wasActive) handleSwitch(meta.id);
+      notify.success('Map restored');
+    } catch (err) {
+      console.error('[MapsSidePanel] Restore failed:', err);
+      notify.error('Failed to restore map');
+    }
+  }, [handleSwitch]);
 
   const confirmDelete = useCallback(async () => {
     const id = pendingDeleteId;
     if (!id) return;
     setPendingDeleteId(null);
+    const wasActive = useStore.getState().activeMapId === id;
     try {
       await storeDeleteMap(id);
       notify.action('Map deleted', {
         label: 'Undo',
-        onClick: () => undoManager.undo(),
+        onClick: () => { void undoDelete(wasActive); },
         icon: 'trash',
       });
     } catch (err) {
       console.error('[MapsSidePanel] Delete failed:', err);
       notify.error('Failed to delete map');
     }
-  }, [pendingDeleteId, storeDeleteMap]);
+  }, [pendingDeleteId, storeDeleteMap, undoDelete]);
 
   const pendingMapName =
     mapIndex.find((m) => m.id === pendingDeleteId)?.name ?? 'this map';
@@ -155,7 +188,7 @@ export function MapsSidePanel() {
             <button
               type="button"
               data-testid="new-map-button"
-              onClick={handleNewMap}
+              onClick={() => showModal({ type: 'newMap', props: { mode: 'create' } })}
               className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-accent-active/10 border border-accent-active/25 text-accent-active text-sm font-medium hover:bg-accent-active/15 transition-colors"
             >
               <Plus size={14} />
@@ -171,6 +204,7 @@ export function MapsSidePanel() {
             onRename={handleRename}
             onDuplicate={handleDuplicate}
             onDelete={handleDelete}
+            onSettings={(id) => { void handleSettings(id); }}
           />
         </>
       )}
@@ -179,7 +213,7 @@ export function MapsSidePanel() {
         open={pendingDeleteId !== null}
         onOpenChange={(open) => { if (!open) setPendingDeleteId(null); }}
         title="Delete map?"
-        message={`This will permanently delete "${pendingMapName}". This cannot be undone.`}
+        message={`This will delete "${pendingMapName}" and everything on it.`}
         confirmLabel="Delete"
         destructive
         onConfirm={confirmDelete}

@@ -8,6 +8,7 @@ interface MapListProps {
   onRename: (id: string, name: string) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
+  onSettings: (id: string) => void;
 }
 
 export function MapList({
@@ -17,6 +18,7 @@ export function MapList({
   onRename,
   onDuplicate,
   onDelete,
+  onSettings,
 }: MapListProps) {
   // Already expected sorted by updatedAt desc from parent
   if (maps.length === 0) {
@@ -40,6 +42,7 @@ export function MapList({
           onRename={onRename}
           onDuplicate={onDuplicate}
           onDelete={onDelete}
+          onSettings={onSettings}
         />
       ))}
     </div>

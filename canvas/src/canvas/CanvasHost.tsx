@@ -113,8 +113,9 @@ export function CanvasHost() {
       }
       if (destroyed) return;
 
-      // Build scene graph hierarchy
-      const sceneGraph = buildSceneGraph(pixiEngine);
+      // Build scene graph hierarchy. This is the editor, so it gets the
+      // authoring guides (the fixed-map boundary); the table does not.
+      const sceneGraph = buildSceneGraph(pixiEngine, { editorGuides: true });
 
       // Create LightManager (shared between subscribeToStore and renderLoop)
       const lightManager = new LightManager();

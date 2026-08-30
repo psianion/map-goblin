@@ -94,7 +94,11 @@ const visionScene = (over: Partial<SceneFog> = {}): FogState => ({
   byScene: { 'scene-1': { rooms: {}, concealBehindDoors: true, mode: 'vision', ...over } },
 });
 
-/** The two fixture rooms sit at x 0..4 and 10..14, y 0..4 — one shape covers both. */
+/**
+ * The two fixture rooms sit at x 0..4 and 10..14, y 0..4 — one shape covers both. A plain
+ * rectangle to count cells against, not the frame that shape measures (see `fogFrame` below,
+ * which snaps out and then clears a whole cell all round).
+ */
 const FRAME = { minX: -1, minY: -1, maxX: 15, maxY: 5 };
 
 const shapeChild = (x0: number, y0: number, x1: number, y1: number) => ({
@@ -188,7 +192,13 @@ describe('fog geometry and vocabulary', () => {
 
 describe('the frame a brushed cell is counted against', () => {
   it('measures the DM’s own document with the function the server measured it with', () => {
-    expect(fogFrame({ layers: [layerWith([shapeChild(0, 0, 14, 4)])] })).toEqual(FRAME);
+    // The 14×4 floor snapped out to whole cells, then the guaranteed cell of clear ground.
+    expect(fogFrame({ layers: [layerWith([shapeChild(0, 0, 14, 4)])] })).toEqual({
+      minX: -2,
+      minY: -2,
+      maxX: 16,
+      maxY: 6,
+    });
   });
 
   it('prefers the referee’s stamped frame when there is one (the player’s copy)', () => {

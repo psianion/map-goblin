@@ -45,11 +45,13 @@ const ROSTER = [
 ]
 
 /**
- * The map frame is (-1, -1)–(23, 11), so cell (col, row) centres on (col - .5, row - .5) —
- * the token at (5.5, 5.5) stands on cell (6, 6) and the east room's doorway is cell (13, 6).
+ * The map frame is (-2, -22)–(24, 22): the fixture's one wall runs y -20..20, far past both
+ * floors, and a wall grows the map like anything else drawn. So cell (col, row) centres on
+ * (col - 2.5, row - 22.5) — the token at (5.5, 5.5) stands on cell (7, 27) and the east
+ * room's doorway is cell (14, 27).
  */
-const WEST_CELL: [number, number] = [6, 6]
-const EAST_CELL: [number, number] = [13, 6]
+const WEST_CELL: [number, number] = [7, 27]
+const EAST_CELL: [number, number] = [14, 27]
 
 const lock = (shape: ZoneShape): AnyChild =>
   ({
@@ -295,11 +297,11 @@ describe('party-mode auto-explore (§4)', () => {
     // The claim already swept from where the scout was standing (§4's trigger table), so
     // what this move has to earn is the ground the far corner of the room hid.
     expect(table.fogOf().rooms.east).toBeUndefined()
-    expect(getCell(table.fogOf().region, 10, 1)).toBe(false)
+    expect(getCell(table.fogOf().region, 11, 22)).toBe(false)
 
     const before = table.sent.length
     expect(table.run(DM, 'tokens', 'move', { id, x: 5.5, y: 5.5 })).toBeNull()
-    expect(getCell(table.fogOf().region, 10, 1)).toBe(true)
+    expect(getCell(table.fogOf().region, 11, 22)).toBe(true)
 
     const fog = table.fogOf()
     // The latch, not a reveal: the sweep ships the room's geometry and the cells the party
@@ -372,13 +374,13 @@ describe('party-mode auto-explore (§4)', () => {
     expect(getCell(table.fogOf().region, ...WEST_CELL)).toBe(true)
     expect(table.fogOf().rooms.west).toMatchObject({ status: 're_hidden' })
     // Just out of reach from where it stands.
-    expect(getCell(table.fogOf().region, 8, 7)).toBe(false)
+    expect(getCell(table.fogOf().region, 9, 28)).toBe(false)
 
     // A size change re-snaps a medium onto the intersection a large sits on, which carries
     // the sweep origin half a cell with it — and that is a write, not a wait.
     expect(table.run(DM, 'tokens', 'update', { id, size: 'large' })).toBeNull()
     expect(table.tokensOf()[id]).toMatchObject({ x: 6, y: 6 })
-    expect(getCell(table.fogOf().region, 8, 7)).toBe(true)
+    expect(getCell(table.fogOf().region, 9, 28)).toBe(true)
 
     // Hide and delete are on the table for the same reason and write nothing on their own:
     // region memory only ever ORs, so eyes leaving the scene take no ground back.
@@ -496,8 +498,8 @@ describe('auto-explored rooms and the triggers hanging off them (M4 × §4)', ()
 // DM's room buttons have nothing to land on. In vision mode the cell record is the
 // vocabulary that can say it, and this is the seam where saying it has to count.
 describe('open ground: unzoned cells the party has been shown (D6 in vision mode)', () => {
-  /** The frame starts at (-1, -1), so cell `[col, row]` is centred on `(col - 0.5, row - 0.5)`. */
-  const GAP: [number, number] = [12, 6]
+  /** The frame starts at (-2, -22), so cell `[col, row]` is centred on `(col - 2.5, row - 22.5)`. */
+  const GAP: [number, number] = [13, 27]
   /** The middle of that gap, in world coordinates — cell `GAP`'s own centre. */
   const [GAP_X, GAP_Y] = [11.5, 5.5]
   /** East-room floor, and the cell over it — `EAST_CELL`'s centre by the same rule. */
@@ -573,7 +575,7 @@ describe('the region brush ships the room it paints (P2 §5)', () => {
     const before = table.toPlayer.length
 
     // Two cells inside the east room, which nobody has been anywhere near.
-    expect(table.run(DM, 'fog', 'region-set', { op: 'reveal', cells: [EAST_CELL, [14, 6]] })).toBeNull()
+    expect(table.run(DM, 'fog', 'region-set', { op: 'reveal', cells: [EAST_CELL, [15, 27]] })).toBeNull()
 
     const fog = table.fogOf()
     expect(fog.rooms.east).toEqual({ status: 're_hidden', wasEverRevealed: true })
@@ -1020,7 +1022,7 @@ describe('auto-explore and redaction in the dark (S3 P3 §3.2, §3.1)', () => {
     // Standing in the lamp's pool: the cell under the party is theirs.
     expect(getCell(fog.region, ...WEST_CELL)).toBe(true)
     // Four cells out — inside a sweep that reaches eight, and pitch dark.
-    expect(getCell(fog.region, 10, 6)).toBe(false)
+    expect(getCell(fog.region, 11, 27)).toBe(false)
     // The room still latches: they saw part of it, so its geometry is theirs to hold.
     expect(fog.rooms.west).toMatchObject({ status: 're_hidden', wasEverRevealed: true })
 
@@ -1028,7 +1030,7 @@ describe('auto-explore and redaction in the dark (S3 P3 §3.2, §3.1)', () => {
     // theirs now, which is the whole difference the gate makes.
     table.run(DM, 'triggers', 'set-environment', { ambient: 'daylight' })
     table.run(DM, 'tokens', 'move', { id, x: 5.5, y: 5.5 })
-    expect(getCell(table.fogOf().region, 10, 6)).toBe(true)
+    expect(getCell(table.fogOf().region, 11, 27)).toBe(true)
   })
 
   it('leaves a locked zone locked however brightly it is lit', () => {
@@ -1140,9 +1142,9 @@ describe('individual vision (S3 P5)', () => {
   /** p-1's scout, west; p-2's guard, further into the same hall. Neither sees the other. */
   const SCOUT = { x: 2.5, y: 5.5 }
   const GUARD = { x: 8.5, y: 8.5 }
-  /** Where those two stand, in the region record's own cells (the frame starts at -1, -1). */
-  const SCOUT_CELL: [number, number] = [3, 6]
-  const GUARD_CELL: [number, number] = [9, 9]
+  /** Where those two stand, in the region record's own cells (the frame starts at -2, -22). */
+  const SCOUT_CELL: [number, number] = [4, 27]
+  const GUARD_CELL: [number, number] = [10, 30]
   /** In the dark (`twoSeats`), so three cells is all either eye reaches. */
   const SHORT = DARKVISION(3)
 

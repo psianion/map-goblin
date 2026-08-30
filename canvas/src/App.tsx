@@ -9,6 +9,7 @@ import { CollapsedRightPanel } from '@/components/layout/CollapsedRightPanel';
 import { StatusBar } from '@/components/layout/StatusBar';
 import { FloatingActionBar } from '@/components/canvas/FloatingActionBar';
 import { CanvasContextMenu } from '@/components/canvas/CanvasContextMenu';
+import { GridCalibrationOverlay } from '@/components/canvas/GridCalibrationOverlay';
 import { ExportDialog } from '@/components/shared/ExportDialog';
 import { PublishDialog } from '@/components/shared/PublishDialog';
 import { RecoveryDialog } from '@/components/shared/RecoveryDialog';
@@ -19,6 +20,7 @@ import { getEngineSingleton } from '@/engine/engineSingleton';
 import { handleImageImport } from '@/canvas/importImage';
 import { importImageRef } from '@/shortcuts/defaultShortcuts';
 import { ShortcutHelpDialog } from '@/components/shared/ShortcutHelpDialog';
+import { NewMapDialog } from '@/components/maps/NewMapDialog';
 import { zoomToFitRef, viewportInsetsRef } from '@/components/toolbar/zoomToFitRef';
 import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
@@ -254,6 +256,7 @@ export default function App() {
       <div className="absolute inset-0">
         <CanvasHost />
         <FloatingActionBar />
+        <GridCalibrationOverlay />
         <CanvasContextMenu />
         {/* Top-right: Import / Export / Focus buttons — offset right to avoid overlapping the right panel */}
         <div
@@ -378,6 +381,13 @@ export default function App() {
     <PublishDialog open={publishOpen} onOpenChange={setPublishOpen} />
     <ShortcutHelpDialog
       open={modalState?.type === 'shortcutReference'}
+      onOpenChange={(open) => { if (!open) showModal(null); }}
+    />
+    {/* Mounted here, not in the maps panel: Ctrl+Shift+N has to reach it with the
+        panel closed, and one mount means the two entry points can never disagree. */}
+    <NewMapDialog
+      open={modalState?.type === 'newMap'}
+      mode={modalState?.props.mode === 'settings' ? 'settings' : 'create'}
       onOpenChange={(open) => { if (!open) showModal(null); }}
     />
 

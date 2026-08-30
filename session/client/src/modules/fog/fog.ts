@@ -592,7 +592,14 @@ export { roomFogOf as roomFog } from '@dnd/mechanics/fog';
 export function fogFrame(mapData: unknown): Frame | null {
   const doc = mapData as SerializedMapData | null;
   if (!doc) return null;
-  return doc.frame ?? computeMapFrame(doc.layers ?? [], doc.mapSettings?.terrain?.bounds ?? null);
+  return (
+    doc.frame ??
+    computeMapFrame(
+      doc.layers ?? [],
+      doc.mapSettings?.terrain?.bounds ?? null,
+      doc.mapSettings?.fixedSize ?? null,
+    )
+  );
 }
 
 /**

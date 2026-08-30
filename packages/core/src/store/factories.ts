@@ -66,7 +66,7 @@ export function createBackgroundLayer(): BackgroundLayer {
 
 type MapBuilderState = Omit<
   MapBuilderStore,
-  | 'setMapName' | 'setGridType' | 'setAmbientLight' | 'setEnvironmentSettings' | 'setTerrainData' | 'setTerrainSplats'
+  | 'setMapName' | 'setFixedSize' | 'setGridType' | 'setAmbientLight' | 'setEnvironmentSettings' | 'setTerrainData' | 'setTerrainSplats'
   | 'setGridVisible' | 'setSnapEnabled' | 'setSnapDivision'
   | 'addLayer' | 'removeLayer' | 'reorderLayers' | 'updateLayer'
   | 'addChild' | 'removeChild' | 'reorderChild' | 'updateChild' | 'recomputeMergedFloor' | 'bumpFloorTextureEpoch'
@@ -100,6 +100,7 @@ export function createDefaultState(): MapBuilderState {
       gridType: 'square',
       cellScale: { value: 5, unit: 'ft' },
       ambientLight: '#2d2d44',
+      fixedSize: null,
     },
     grid: {
       visible: true,

@@ -1,106 +1,236 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import 'fake-indexeddb/auto';
-import { MapIndexDB } from '../mapIndexDB';
-import { resetMapDB } from './maps';
+import { createMapsSlice, measureGridSize, resetMapDB, restoreLastDeletedMap } from './maps';
+import { setMapDBFactory } from '../mapIO';
+import type { MapDB, MapRecord } from '../mapIO';
+import { useStore } from '../store';
+import type { DungeonLayer } from '../types';
 
-// We test the slice actions by calling MapIndexDB directly (same DB)
-// and verifying the Zustand store state. The slice is thin orchestration.
-// Full store integration requires wiring in step 2.5; here we test
-// the MapIndexDB-backed logic that the slice delegates to.
+// The slice is thin orchestration over a MapDB, so it is tested against an in-memory fake
+// rather than a real IndexedDB — the production implementation (canvas/src/io/mapIndexDB)
+// has its own CRUD suite.
 
-describe('MapsSlice (via MapIndexDB)', () => {
-  let db: MapIndexDB;
+function blob(...bytes: number[]): Uint8Array {
+  return new Uint8Array(bytes);
+}
 
-  beforeEach(async () => {
-    indexedDB = new IDBFactory();
-    resetMapDB(); // Clear module-level singleton
-    db = new MapIndexDB();
-    await db.open();
+function record(id: string, patch: Partial<MapRecord> = {}): MapRecord {
+  return {
+    id,
+    name: 'Doomed',
+    createdAt: 1,
+    updatedAt: 2,
+    gridSize: { width: 3, height: 4 },
+    layerCount: 2,
+    data: blob(1, 2, 3),
+    ...patch,
+  };
+}
+
+/** Just the methods the slice actually calls, over a plain Map. */
+function fakeDB(seed: MapRecord[]) {
+  const rows = new Map(seed.map((r) => [r.id, r]));
+  return {
+    rows,
+    db: {
+      open: async () => {},
+      getMapRecord: async (id: string) => rows.get(id) ?? null,
+      deleteMap: async (id: string) => { rows.delete(id); },
+      restoreMap: async (r: MapRecord) => { rows.set(r.id, r); },
+    } as unknown as MapDB,
+  };
+}
+
+describe('MapsSlice', () => {
+  beforeEach(() => {
+    resetMapDB(); // Clear module-level singleton + stash
   });
 
-  describe('loadMapIndex', () => {
-    it('returns metas sorted by updatedAt desc', async () => {
-      await db.createMap('Old', new Uint8Array([1]), { width: 10, height: 10 }, 1);
-      await new Promise((r) => setTimeout(r, 10));
-      await db.createMap('New', new Uint8Array([2]), { width: 20, height: 20 }, 2);
+  describe('measureGridSize', () => {
+    // A real dungeon layer off the default store, with only its geometry swapped.
+    function layerWith(mergedFloor: [number, number][][] | null): DungeonLayer {
+      const dl = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+      return { ...dl, mergedFloor, children: [], standaloneWalls: [] };
+    }
 
-      const metas = await db.getAllMapMeta();
-      expect(metas).toHaveLength(2);
-      expect(metas[0].name).toBe('New'); // most recent first
+    it('reports 0×0 for a map with nothing drawn on it', () => {
+      expect(measureGridSize([layerWith(null)], null)).toEqual({ width: 0, height: 0 });
     });
 
-    it('first entry (most recent) becomes activeMapId candidate', async () => {
-      await db.createMap('Map A', new Uint8Array([1]), { width: 10, height: 10 }, 1);
-      const metas = await db.getAllMapMeta();
-      expect(metas.length).toBeGreaterThan(0);
-      // Slice would set activeMapId = metas[0].id
-      expect(metas[0].name).toBe('Map A');
-    });
-  });
-
-  describe('createMap', () => {
-    it('creates map in IndexedDB and returns ID', async () => {
-      const id = await db.createMap('Test', new Uint8Array([1]), { width: 40, height: 40 }, 1);
-      expect(id).toBeTruthy();
-      const meta = await db.getMapMeta(id);
-      expect(meta).not.toBeNull();
-      expect(meta!.name).toBe('Test');
+    it('measures the drawn geometry in whole cells, not a hardcoded 40×40', () => {
+      const size = measureGridSize(
+        [layerWith([[[2, 2], [12, 2], [12, 8], [2, 8]]])],
+        null,
+      );
+      // The frame snaps out to enclosing cells and pads for wall strokes, so it is a
+      // little larger than the 10×6 floor — but it tracks that floor's shape, and it is
+      // emphatically not 40×40.
+      expect(size.width).toBeGreaterThanOrEqual(10);
+      expect(size.height).toBeGreaterThanOrEqual(6);
+      expect(size.width - size.height).toBe(4);
+      expect(size.width).toBeLessThan(20);
     });
 
-    it('new map appears in getAllMapMeta', async () => {
-      await db.createMap('New Map', new Uint8Array([1]), { width: 40, height: 40 }, 1);
-      const metas = await db.getAllMapMeta();
-      expect(metas).toHaveLength(1);
-      expect(metas[0].name).toBe('New Map');
-    });
-  });
-
-  describe('deleteMap', () => {
-    it('removes map from IndexedDB', async () => {
-      const id = await db.createMap('To Delete', new Uint8Array([1]), { width: 10, height: 10 }, 1);
-      await db.deleteMap(id);
-      const meta = await db.getMapMeta(id);
-      expect(meta).toBeNull();
-      const metas = await db.getAllMapMeta();
-      expect(metas).toHaveLength(0);
-    });
-  });
-
-  describe('renameMap', () => {
-    it('updates name in IndexedDB', async () => {
-      const id = await db.createMap('Original', new Uint8Array([1]), { width: 10, height: 10 }, 1);
-      await db.updateMapMeta(id, { name: 'Renamed' });
-      const meta = await db.getMapMeta(id);
-      expect(meta!.name).toBe('Renamed');
-    });
-  });
-
-  describe('duplicateMap', () => {
-    it('creates new entry with "Copy of" prefix', async () => {
-      const id = await db.createMap('Cave', new Uint8Array([1, 2]), { width: 10, height: 10 }, 2);
-      const newId = await db.duplicateMap(id);
-      const meta = await db.getMapMeta(newId);
-      expect(meta!.name).toBe('Copy of Cave');
+    it('painted terrain extends the measured size', () => {
+      const floorOnly = measureGridSize([layerWith([[[0, 0], [4, 0], [4, 4], [0, 4]]])], null);
+      const withTerrain = measureGridSize(
+        [layerWith([[[0, 0], [4, 0], [4, 4], [0, 4]]])],
+        { minX: 0, minY: 0, maxX: 20, maxY: 4 },
+      );
+      expect(withTerrain.width).toBeGreaterThan(floorOnly.width);
     });
 
-    it('duplicate has different ID from original', async () => {
-      const id = await db.createMap('Cave', new Uint8Array([1]), { width: 10, height: 10 }, 1);
-      const newId = await db.duplicateMap(id);
-      expect(newId).not.toBe(id);
+    it('a pinned map reports the size it was pinned to, drawn on or not', () => {
+      // Empty: a fixed map has a size from the moment it exists, so no "Empty" card.
+      expect(measureGridSize([layerWith(null)], null, { width: 30, height: 20 })).toEqual({
+        width: 30,
+        height: 20,
+      });
+      // Drawn past the edge: the pin wins. Drawing outside a fixed map is allowed, and
+      // it must not quietly grow the map back.
+      expect(
+        measureGridSize(
+          [layerWith([[[0, 0], [80, 0], [80, 60], [0, 60]]])],
+          null,
+          { width: 30, height: 20 },
+        ),
+      ).toEqual({ width: 30, height: 20 });
+    });
+
+    it('omitting fixedSize still measures the content, for settings mode', () => {
+      const measured = measureGridSize([layerWith([[[0, 0], [10, 0], [10, 10], [0, 10]]])], null);
+      expect(measured.width).toBeGreaterThan(0);
+      expect(measured).not.toEqual({ width: 30, height: 20 });
     });
   });
 
-  describe('saveCurrentMap', () => {
-    it('updates blob and metadata in IndexedDB', async () => {
-      const id = await db.createMap('Test', new Uint8Array([1]), { width: 10, height: 10 }, 1);
-      await new Promise((r) => setTimeout(r, 10));
-      const newBlob = new Uint8Array([2, 3, 4]);
-      await db.saveMapBlob(id, newBlob, { width: 50, height: 50 }, 3);
-      const meta = await db.getMapMeta(id);
-      expect(meta!.gridSize).toEqual({ width: 50, height: 50 });
-      expect(meta!.layerCount).toBe(3);
-      const blob = await db.getMapBlob(id);
-      expect(Array.from(blob!)).toEqual(Array.from(newBlob));
+  describe('delete/restore stash', () => {
+    // A stub store: `get()` returns it, `set()` mutates it in place.
+    function sliceOver(state: object) {
+      return createMapsSlice(
+        ((fn: (s: object) => void) => fn(state)) as never,
+        (() => state) as never,
+        {} as never,
+      );
+    }
+
+    it('restores the deleted map under its original id, blob and all', async () => {
+      const { rows, db } = fakeDB([record('m1')]);
+      setMapDBFactory(() => db);
+      // With no active map, deleteMap stops after the DB call.
+      const state = { mapIndex: [{ id: 'm1' }], activeMapId: null };
+
+      await sliceOver(state).deleteMap('m1');
+      expect(state.mapIndex).toHaveLength(0);
+      expect(rows.has('m1')).toBe(false);
+
+      const restored = await restoreLastDeletedMap();
+      expect(restored!.meta).toMatchObject({ id: 'm1', name: 'Doomed', layerCount: 2 });
+      expect(restored!.meta).not.toHaveProperty('data'); // meta only — the blob stays in the DB
+      expect(restored!.removedBlankId).toBeNull();
+      expect(Array.from(rows.get('m1')!.data)).toEqual([1, 2, 3]);
     });
+
+    it('is a no-op once the stash has been used', async () => {
+      expect(await restoreLastDeletedMap()).toBeNull();
+    });
+
+    // Deleting the last map auto-creates a blank one so the editor is never left with
+    // nothing; Undo has to take that blank back out, unless it has been drawn in.
+    function stateLosingItsLastMap(blank: MapRecord, rows: Map<string, MapRecord>) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { data: _, ...blankMeta } = blank;
+      const state = {
+        mapIndex: [{ id: 'm1' }] as object[],
+        activeMapId: 'm1',
+        async createNewMap() {
+          rows.set(blank.id, blank);
+          state.mapIndex.unshift(blankMeta);
+          return blank.id;
+        },
+      };
+      return state;
+    }
+
+    it('removes the blank it auto-created when the restore puts the real map back', async () => {
+      const blank = record('blank', { name: 'Untitled Map', gridSize: { width: 0, height: 0 } });
+      const { rows, db } = fakeDB([record('m1')]);
+      setMapDBFactory(() => db);
+
+      await sliceOver(stateLosingItsLastMap(blank, rows)).deleteMap('m1');
+      const restored = await restoreLastDeletedMap();
+
+      expect(restored!.removedBlankId).toBe('blank');
+      expect(rows.has('blank')).toBe(false);
+      expect(rows.has('m1')).toBe(true);
+    });
+
+    it('keeps the blank once something has been drawn in it', async () => {
+      const blank = record('blank', { name: 'Untitled Map', gridSize: { width: 0, height: 0 } });
+      const { rows, db } = fakeDB([record('m1')]);
+      setMapDBFactory(() => db);
+
+      await sliceOver(stateLosingItsLastMap(blank, rows)).deleteMap('m1');
+      // The save the caller runs before restoring measures the geometry that landed since.
+      rows.set('blank', { ...blank, gridSize: { width: 8, height: 6 } });
+
+      const restored = await restoreLastDeletedMap();
+      expect(restored!.removedBlankId).toBeNull();
+      expect(rows.has('blank')).toBe(true);
+    });
+  });
+});
+
+// The map's name lives twice: on the card index (MapMeta) and inside the document
+// (mapSettings.name), and the document copy is what an export names the file after.
+// renameMap used to write only the index, so the two drifted apart.
+describe('name stays in sync across the index and the document', () => {
+  beforeEach(() => resetMapDB());
+
+  function sliceOver(state: object) {
+    return createMapsSlice(
+      ((fn: (s: object) => void) => fn(state)) as never,
+      (() => state) as never,
+      {} as never,
+    );
+  }
+
+  it('renaming the open map renames its document too', async () => {
+    const updates: Array<{ id: string; patch: object }> = [];
+    setMapDBFactory(
+      () =>
+        ({
+          open: async () => {},
+          updateMapMeta: async (id: string, patch: object) => { updates.push({ id, patch }); },
+        }) as unknown as MapDB,
+    );
+    const state = {
+      mapIndex: [{ id: 'm1', name: 'Old' }],
+      activeMapId: 'm1',
+      docName: 'Old',
+      setMapName(name: string) { state.docName = name; },
+    };
+
+    await sliceOver(state).renameMap('m1', 'Sunken Chapel');
+
+    expect(updates).toEqual([{ id: 'm1', patch: { name: 'Sunken Chapel' } }]);
+    expect(state.mapIndex[0].name).toBe('Sunken Chapel');
+    expect(state.docName).toBe('Sunken Chapel');
+  });
+
+  it('leaves an unopened map’s document alone — loadMap reconciles it later', async () => {
+    setMapDBFactory(
+      () => ({ open: async () => {}, updateMapMeta: async () => {} }) as unknown as MapDB,
+    );
+    const state = {
+      mapIndex: [{ id: 'm2', name: 'Old' }],
+      activeMapId: 'm1',
+      docName: 'The open map',
+      setMapName(name: string) { state.docName = name; },
+    };
+
+    await sliceOver(state).renameMap('m2', 'Guard Barracks');
+
+    expect(state.mapIndex[0].name).toBe('Guard Barracks');
+    expect(state.docName).toBe('The open map');
   });
 });

@@ -1,4 +1,6 @@
 import type { MapDB } from '@dnd/core/src/store/mapIO';
+import { measureGridSize } from '@dnd/core/src/store/slices/maps';
+import { decodeMapFile } from './mapFormat';
 
 const OLD_DB_NAME = 'mapbuilder';
 const OLD_STORE_NAME = 'saves';
@@ -95,7 +97,23 @@ export async function migrateAutosave(mapDB: MapDB): Promise<MigrationResult> {
   }
 
   if (oldData) {
-    await mapDB.createMap('Recovered Map', oldData, { width: 40, height: 40 }, 1);
+    // Measure the recovered document instead of stamping a number on it — same container
+    // format, so it decodes. Bytes that don't decode still get recovered; the card reads
+    // "Empty" until the next save measures them.
+    let gridSize = { width: 0, height: 0 };
+    let layerCount = 1;
+    try {
+      const doc = decodeMapFile(oldData);
+      gridSize = measureGridSize(
+        doc.layers,
+        doc.mapSettings.terrain?.bounds ?? null,
+        doc.mapSettings.fixedSize ?? null,
+      );
+      layerCount = doc.layers.length;
+    } catch {
+      // Undecodable: keep the blob, leave it unmeasured.
+    }
+    await mapDB.createMap('Recovered Map', oldData, gridSize, layerCount);
     return { migrated: true, createdBlank: false };
   }
 

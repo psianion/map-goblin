@@ -151,7 +151,11 @@ function index(campaignId: string, data: SerializedMapData): SceneMap {
   return {
     campaignId,
     data,
-    frame: computeMapFrame(data.layers, data.mapSettings?.terrain?.bounds ?? null),
+    frame: computeMapFrame(
+      data.layers,
+      data.mapSettings?.terrain?.bounds ?? null,
+      data.mapSettings?.fixedSize ?? null,
+    ),
     rooms,
     doors,
     zones,

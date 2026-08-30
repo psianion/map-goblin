@@ -207,12 +207,18 @@ export async function saveMap(forceNewFile = false): Promise<boolean> {
  * Open a .mapbuilder file picker and load the selected file into the store.
  * In multi-map mode, creates a new map entry in IndexedDB and associates the file handle.
  * Returns true on success, false if the user cancelled.
+ *
+ * Pass `preselected` when the file is already in hand — the New map dialog picks and
+ * validates it itself so it can show the wrong-file-type error inline — and the picker
+ * step is skipped. There is no second open path; everything below is shared.
  */
-export async function loadMap(): Promise<boolean> {
+export async function loadMap(preselected?: File): Promise<boolean> {
   let fileBytes: Uint8Array;
   let fsaHandle: FileSystemFileHandle | undefined;
 
-  if ('showOpenFilePicker' in window) {
+  if (preselected) {
+    fileBytes = new Uint8Array(await preselected.arrayBuffer());
+  } else if ('showOpenFilePicker' in window) {
     try {
       const [handle] = await window.showOpenFilePicker!({
         types: [
