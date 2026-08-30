@@ -317,6 +317,34 @@ describe('party-mode auto-explore (§4)', () => {
     expect(table.modules().slice(before)).toEqual(['tokens', 'fog', 'tokens', 'doors'])
   })
 
+  // The imported-battlemap switch, on the fixture that has walls so the reader can hold it.
+  // Off, an eye is swept to the whole map and what stops it is the walls; a map with none
+  // (a battlemap image) hands the party the whole picture on the first move. On, the eye is
+  // swept at its own range and the walls stop being the only bound there is.
+  it('sweeps each eye at its own range once the DM turns the limit on', () => {
+    const sweptCells = (sightRangeLimit: boolean): number => {
+      const table = wired()
+      if (sightRangeLimit) {
+        expect(table.run(DM, 'fog', 'set-range-limit', { sightRangeLimit })).toBeNull()
+      }
+      const id = scouted(table, 'vision', { range: 2, angle: 360, visionMode: 'normal' })
+      expect(table.run(DM, 'tokens', 'move', { id, x: 5.5, y: 5.5 })).toBeNull()
+      const region = table.fogOf().region!
+      let n = 0
+      for (let row = 0; row < region.rows; row++) {
+        for (let col = 0; col < region.cols; col++) if (getCell(region, col, row)) n++
+      }
+      return n
+    }
+
+    const unbounded = sweptCells(false)
+    const limited = sweptCells(true)
+    // A 2-cell eye still earns the ground it is standing on…
+    expect(limited).toBeGreaterThan(0)
+    // …and nothing like the room-wide sweep an eye with no bound but the walls takes.
+    expect(limited).toBeLessThan(unbounded)
+  })
+
   it('never overwrites the DM’s own word — a reveal and a re-hide both survive the sweep', () => {
     const table = wired()
     const id = scouted(table)

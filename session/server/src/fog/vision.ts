@@ -19,6 +19,7 @@ import {
   regionFor,
   sceneFogOf,
   setCells,
+  sightRangeLimitOn,
   visibleRooms,
   visionShareOf,
   type Cell,
@@ -216,7 +217,8 @@ export function createVision(stores: Stores): Vision {
     const world = worldLightOf(map.data.mapSettings ?? {}, triggersState, sceneId)
     const lights = world.effectiveLevel === 'darkness' ? triggers.lightEdits : null
     const vision = fogModeOf(fog) === 'vision'
-    const sight = vision ? sweeps.partyVision(map, tokens, doors, lights) : null
+    const rangeLimited = sightRangeLimitOn(fog)
+    const sight = vision ? sweeps.partyVision(map, tokens, doors, lights, undefined, rangeLimited) : null
     // P5 — one seat's eyes, on demand and once per revision. Lazy because most tables never
     // ask: party share reads `sight` alone, and even in individual share only the seats
     // actually being redacted for are ever computed.
@@ -225,7 +227,14 @@ export function createVision(stores: Stores): Vision {
       if (!vision) return null
       let own = perIdentity.get(identityId)
       if (own === undefined) {
-        own = sweeps.partyVision(map, tokens, doors, lights, (t) => t.ownerId === identityId)
+        own = sweeps.partyVision(
+          map,
+          tokens,
+          doors,
+          lights,
+          (t) => t.ownerId === identityId,
+          rangeLimited,
+        )
         perIdentity.set(identityId, own)
       }
       return own

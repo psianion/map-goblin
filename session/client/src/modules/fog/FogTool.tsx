@@ -19,6 +19,7 @@ import {
   autoExploreOn,
   fogModeOf,
   regionOf,
+  sightRangeLimitOn,
   type FogMode,
   type FogState,
   type RoomFog,
@@ -225,6 +226,15 @@ export function FogHeaderActions() {
                 onToggle={() => send('set-auto-explore', { autoExplore: !autoExploreOn(fog) })}
               >
                 Auto-explore as the party moves
+              </Switch>
+              <Switch
+                testId="fog-range-limit"
+                checked={sightRangeLimitOn(fog)}
+                onToggle={() =>
+                  send('set-range-limit', { sightRangeLimit: !sightRangeLimitOn(fog) })
+                }
+              >
+                Sight stops at each token&rsquo;s range
               </Switch>
               <Segmented
                 label="Vision share"

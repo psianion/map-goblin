@@ -55,6 +55,7 @@ import {
   fogModeOf,
   identityRegion,
   lightSources,
+  sightRangeLimitOn,
   type LightSource,
   visibleRooms,
   visionShareOf,
@@ -667,7 +668,10 @@ export function fogScene(): FogScene {
   // (`syncDoorsToLighting`), and a sweep through a door the map file still calls shut is a
   // sweep the referee never took. Rooms and the door graph stay the document's for the
   // reason `serverRooms` gives — those are what core re-detects, and walls are not.
-  const sight = isVision && masked ? sightCache.partySight(layers, eyes) : undefined;
+  const sight =
+    isVision && masked
+      ? sightCache.partySight(layers, eyes, sightRangeLimitOn(fog))
+      : undefined;
 
   // S3 P3 §2 — the light gate, when the scene is turned to `darkness`. Every light source's
   // own sweep (placed lights the table has left on, plus token-carried ones), and separately

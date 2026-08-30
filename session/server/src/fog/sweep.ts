@@ -85,6 +85,11 @@ export interface Sweeps {
      * reach, so a per-identity union re-uses the polygons the party union already took.
      */
     isSeed?: (token: Token) => boolean,
+    /**
+     * The scene's `sightRangeLimit` — sweep each eye at its own `sight.range` instead of to
+     * the whole map. Off (the default) is the behaviour this always had.
+     */
+    rangeLimited?: boolean,
   ): PartyVision
 }
 
@@ -106,7 +111,7 @@ export function createSweeps(): Sweeps {
   }
 
   return {
-    partyVision(map, tokens, doors, lights, isSeed) {
+    partyVision(map, tokens, doors, lights, isSeed, rangeLimited) {
       // P4 §4 — the party's eyes are the sight-link closure of the claimed tokens, not the
       // claimed tokens alone: an unclaimed familiar the DM linked to a scout is looking for
       // them. `sightParty` drops hidden tokens itself (hidden trumps links); a token with no
@@ -130,9 +135,17 @@ export function createSweeps(): Sweeps {
         return polygon
       }
 
-      // Every eye is swept to the whole map (`SIGHT_REACH`): what bounds sight is the walls,
-      // and in the dark the light. `range` is kept on the eye for the one clause it governs —
-      // how far *this* eye sees unlit ground, which is `seen`'s darkvision test.
+      // By default every eye is swept to the whole map (`SIGHT_REACH`): what bounds sight is
+      // the walls, and in the dark the light. `range` is then kept on the eye for the one
+      // clause it governs — how far *this* eye sees unlit ground, which is `seen`'s
+      // darkvision test.
+      //
+      // `rangeLimited` is the DM's switch for a map that has no walls to do the bounding. On
+      // an imported battlemap nothing occludes a sweep and the scene is rarely dark, so both
+      // of the usual bounds are absent and one token's move claims the whole image. Swept at
+      // `range`, the eye reaches as far as the token can see and no further. The memo keys on
+      // reach already, so the two modes cannot collide in it.
+      //
       // `sight.angle` is ignored — cones are a v1 non-goal. Darkvision sweeps the same
       // geometry as a normal eye; what it changes is the light test, not the shadowcast.
       const eyes = claimed.map((token) => ({
@@ -140,7 +153,7 @@ export function createSweeps(): Sweeps {
         y: token.y,
         range: token.sight!.range,
         darkvision: token.sight!.visionMode === 'darkvision',
-        polygon: sweep(token.x, token.y, SIGHT_REACH),
+        polygon: sweep(token.x, token.y, rangeLimited ? token.sight!.range : SIGHT_REACH),
       }))
       return {
         eyes,

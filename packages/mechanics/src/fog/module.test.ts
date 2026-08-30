@@ -5,7 +5,14 @@ import type { Viewer } from '../contract'
 import type { AuthoredDoor, DoorLiveState } from '../doors/types'
 import { fogModule } from './module'
 import { getCell, regionOf, setCells } from './region'
-import { autoExploreOn, fogModeOf, identityRegion, sceneFogOf, tableRegion } from './types'
+import {
+  autoExploreOn,
+  fogModeOf,
+  identityRegion,
+  sceneFogOf,
+  sightRangeLimitOn,
+  tableRegion,
+} from './types'
 import type { FogState, RoomFog, RoomFogStatus, SceneFog } from './types'
 import { blockedEdge, defaultRoom, effectiveFog, visibleRooms, type FogRoom } from './visibility'
 
@@ -826,6 +833,23 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       const scene = painted.next.byScene[SCENE]
       expect(getCell(scene.region, 3, 4)).toBe(true)
       expect(scene.rooms).toEqual({})
+    })
+
+    // The DM's switch for a map with no walls to bound a sweep. Off by default on purpose:
+    // every scene stored before it existed keeps the sight it was played with.
+    it('stores the sight range limit, and defaults it off', () => {
+      // An untouched scene has no record at all, which reads as off.
+      expect(sceneFogOf(empty, SCENE).sightRangeLimit).toBeUndefined()
+      expect(sightRangeLimitOn(sceneFogOf(empty, SCENE))).toBe(false)
+
+      const on = fire(empty, DM, 'set-range-limit', { sightRangeLimit: true }).next
+      expect(sightRangeLimitOn(scened(on))).toBe(true)
+      const off = fire(on, DM, 'set-range-limit', { sightRangeLimit: false }).next
+      expect(sightRangeLimitOn(scened(off))).toBe(false)
+
+      expect(fire(empty, DM, 'set-range-limit', { sightRangeLimit: 'yes' }).error?.code).toBe(
+        'invalid-command',
+      )
     })
 
     it('stores either share, and refuses a third', () => {
