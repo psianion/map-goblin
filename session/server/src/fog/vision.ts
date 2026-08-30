@@ -308,8 +308,14 @@ export function createVision(stores: Stores): Vision {
 
     visionOf: (sceneId, viewer) => {
       const computed = compute(sceneId)
-      // No authored rooms, no fog: room-granular fog has nothing to be granular about.
-      if (!computed || computed.map.rooms.length === 0) return null
+      if (!computed) return null
+      // No authored rooms, no fog: room-granular fog has nothing to be granular about — in
+      // rooms mode. In vision mode the unit is the cell, so a roomless scene has plenty to
+      // say, and it has to be said here: `canSee` and `openGround` below are the whole of
+      // what keeps every token on an imported battlemap off the players' wire. Bailing out
+      // was what made vision mode unsafe on such a map, and mechanics refused the mode
+      // switch on account of exactly this line.
+      if (computed.map.rooms.length === 0 && fogModeOf(computed.fog) !== 'vision') return null
       // P5 — the whole of the per-viewer divergence, in one expression: the same `seen()` rule
       // over a narrower set of eyes. A DM is asked nothing (their redaction is identity), and a
       // caller with no viewer at all — every command path — asks the party question.

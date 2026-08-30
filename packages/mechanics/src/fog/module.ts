@@ -199,14 +199,13 @@ function run(
     // token vision out mid-session loses nothing by changing their mind.
     case 'set-mode': {
       const mode = oneOf(p.mode, FOG_MODES, 'mode')
-      // A map with no detected rooms redacts nothing in vision mode: the token redactor's
-      // `canSee` is only wired for a scene that has rooms, so every token on a roomless map
-      // would ship to every player the moment the DM flipped the switch. Refusing is the
-      // honest answer — the DM is told the map is not ready rather than shown a mode that
-      // silently does nothing.
-      if (mode === 'vision' && roomsOf(ctx.campaignId, sceneId).length === 0) {
-        bad('token vision needs a map with detected rooms — this scene has none')
-      }
+      // A roomless map used to be refused here, because the token redactor's `canSee` was
+      // only wired for a scene that has rooms and every token would have shipped to every
+      // player the moment the DM flipped the switch. That hole is plugged at its source now
+      // (`vision.ts`'s `visionOf` answers a roomless vision scene instead of bailing), and
+      // the refusal was the only thing left between a DM and the map that needs this most:
+      // an imported battlemap, which has no traced rooms and never will. Vision mode counts
+      // cells, not rooms, and a map with no rooms is made entirely of cells the brush paints.
       return setScene(ctx, sceneId, { ...scene, mode })
     }
     case 'set-share': {

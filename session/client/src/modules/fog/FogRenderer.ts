@@ -88,6 +88,7 @@ import {
   type FogRing,
   type NightSight,
   paintedGround,
+  regionRects,
   ringsWithHoles,
   roomAt,
   roomFog,
@@ -507,9 +508,16 @@ export function fogBounds(
   layers: readonly Layer[],
   rooms: readonly Room[],
   frame: Bounds | null = null,
+  mode: FogMode = 'rooms',
 ): Bounds | null {
-  // Unzoned map carries no fog at all (D6) — frame or no frame.
-  if (rooms.length === 0 && holdsUnzonedMap(layers)) return null;
+  // Unzoned map carries no fog at all in rooms mode (D6) — frame or no frame.
+  //
+  // Vision mode is the exception, and it is the whole of what makes an imported battlemap
+  // playable: its unit is the cell rather than the room, so a map nobody traced still has
+  // fog for the DM's brush to cut into. It needs the referee's own frame to be finite
+  // (`redactMapForViewer` stamps one on a vision scene for exactly this), and a seat holding
+  // no frame keeps the old answer rather than blacking the void out to the horizon.
+  if (rooms.length === 0 && holdsUnzonedMap(layers) && !(mode === 'vision' && frame)) return null;
 
   // The frame the server measured off the full document at redaction. It is the fog's whole
   // territory: outside it is the dotted void, which is nobody's secret and never fogged —
@@ -714,7 +722,7 @@ export function fogScene(): FogScene {
     // right or wrong about, and covering the canvas on the strength of an empty store would
     // black out the DM's own first frame of a map that is merely still in flight.
     bounds: mapData
-      ? fogBounds(layers, rooms, (mapData as SerializedMapData).frame ?? null)
+      ? fogBounds(layers, rooms, (mapData as SerializedMapData).frame ?? null, mode)
       : null,
     // Off the referee's document, like the rooms it pads: the wall band a player's mask has
     // to clear is the one the referee sent them, not whatever core relaid underneath.
@@ -956,6 +964,30 @@ function roomTiers(scene: FogScene): { earned: FogRing[]; memory: FogRing[] } {
  * viewer's, mapped at redaction), so the two tiers diverge per seat without this pass having a
  * second shape.
  */
+/**
+ * The ground a memory or a sweep is allowed to sit on: every room the player was handed.
+ *
+ * A map nobody zoned has no room polygons, and this is the clip that makes vision mode mean
+ * anything there. Empty, it clips both tiers to nothing and the DM's brush paints a reveal no
+ * player can see. The map's whole frame is the other obvious answer and is worse: a sweep's
+ * rays run a thousand cells out (`SIGHT_REACH`) and this is the only thing that ever stops
+ * them, so on a wall-less battlemap the party's own sight opened the entire map at once.
+ *
+ * So the answer is the record itself — the cells the DM has brushed and the party has earned.
+ * On a map with no authored geometry, "ground the player holds" is exactly "ground the record
+ * says they have been shown", and the two tiers stay honest: memory is what the record holds,
+ * live sight is what they can see of it. New ground still opens as they walk, because the
+ * referee's own ranged sweep is what writes those cells in the first place (`auto-explore`).
+ *
+ * ponytail: the rects are rebuilt per call, so `visionRegion`'s reach memo misses every
+ * rebuild on a roomless map. Cheap at battlemap sizes; memoize on the region's bits if a
+ * large one ever drags.
+ */
+function heldGround(scene: FogScene): Polygon[] {
+  const held = scene.rooms.filter((room) => room.boundary.length >= 3).map((room) => room.boundary);
+  return held.length > 0 ? held : regionRects(scene.fog?.region);
+}
+
 function visionTiers(scene: FogScene): {
   earned: FogRing[];
   memory: FogRing[];
@@ -972,7 +1004,7 @@ function visionTiers(scene: FogScene): {
     scene.fog?.region,
     floorsOf((id) => stored[id]?.status === 'revealed'),
     // Every room the player was handed at all — what the wash is allowed to sit on.
-    floorsOf(() => true),
+    heldGround(scene),
     scene.pad,
     FOG_FEATHER,
     scene.night,

@@ -6,7 +6,7 @@
 // Unzoned map is the DM's alone (D6) and an unrevealed secret door does not exist.
 
 import { seedDoor, type AuthoredDoor, type DoorLiveState } from '@dnd/mechanics/doors'
-import { tableRegion, toBytes, type SceneFog } from '@dnd/mechanics/fog'
+import { fogModeOf, tableRegion, toBytes, type SceneFog } from '@dnd/mechanics/fog'
 import type { AnyChild, DoorChild, Room, ShapeChild, WallSegment } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import {
@@ -61,6 +61,10 @@ export function redactMapForViewer(
   // leaks only the map's overall size — never where inside it anything is. Only stamped
   // when the map has fog to enforce (rooms); an unzoned map goes over whole and untouched.
   const zoned = scene.data.layers.some((l) => isDungeon(l) && (l.rooms?.length ?? 0) > 0)
+  // …and a vision-mode scene needs the rectangle whether or not anyone zoned the map. The
+  // player's mask is drawn over exactly this, and a roomless map that shipped without one
+  // left the mask no finite territory to cover — the very case the brush exists for.
+  const framed = zoned || fogModeOf(fog) === 'vision'
   // Scene prep is the DM's notes — trigger definitions, trap DCs, the lot. It never
   // reaches a player in any form, revealed or not.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured away on purpose
@@ -70,7 +74,7 @@ export function redactMapForViewer(
   const cut = cutFor(scene, kept, groundOf(fog, scene.frame))
   return {
     ...docSansPrep,
-    ...(zoned ? { frame: scene.frame } : {}),
+    ...(framed ? { frame: scene.frame } : {}),
     layers: scene.data.layers.map((layer) => {
       if (!isDungeon(layer)) return layer
       // A layer nobody zoned has no fog to enforce — room-granular fog needs rooms (D6) — so

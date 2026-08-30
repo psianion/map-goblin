@@ -990,6 +990,61 @@ describe('visionRegion — sweep, memory, void', () => {
     expect(inRegion(held.clear, [7, 1])).toBe(true);
   });
 
+  // ── The imported battlemap: vision mode on a map nobody zoned ──────────────
+  // No rooms, so `heldGround` hands `shipped` the region record itself. Both halves matter
+  // and they pull against each other: without a clip the DM's brush reveals nothing, and with
+  // the map's whole frame as the clip a sweep's rays (`SIGHT_REACH` runs them a thousand cells
+  // out, and this is the only thing that ever stops them) open the entire battlemap at once.
+  describe('a map with no rooms', () => {
+    const brushed = setCells(regionOf(VISION_FRAME)!, [
+      [6, 0],
+      [7, 0],
+      [6, 1],
+      [7, 1],
+    ]);
+    /** What `heldGround` passes as `shipped` when the scene has no rooms to hand over. */
+    const held = () => regionRects(brushed);
+
+    it('reveals the cells the DM brushed, and only those', () => {
+      const { shown, memory } = visionRegion([], brushed, [], held(), PAD, FOG_FEATHER);
+      expect(memory).not.toEqual([]);
+      expect(inRegion(shown, [6.5, 0.5])).toBe(true);
+      // Two cells over, never brushed, never swept: still void.
+      expect(inRegion(shown, [10.5, 0.5])).toBe(false);
+      expect(inRegion(shown, [20.5, 6.5])).toBe(false);
+    });
+
+    it('still clips the party sweep to the record, not to the whole map', () => {
+      // The regression this block exists for, and the reason `heldGround` cannot answer with
+      // the map's frame. A battlemap has no walls, so nothing occludes the sweep and its rays
+      // run `SIGHT_REACH` out past every edge — this is what the party's sight actually looks
+      // like there. Clipped to the frame it reveals the whole map on the first frame a player
+      // connects; clipped to the record it reveals what the DM brushed.
+      const UNOCCLUDED: Polygon = [
+        [-100, -100],
+        [124, -100],
+        [124, 108],
+        [-100, 108],
+      ];
+      const { clear, shown } = visionRegion([UNOCCLUDED], brushed, [], held(), PAD, FOG_FEATHER);
+      expect(inRegion(clear, [6.5, 0.5])).toBe(true);
+      expect(inRegion(shown, [20.5, 6.5])).toBe(false);
+    });
+
+    it('shows nothing at all before the DM has brushed anything', () => {
+      const untouched = regionOf(VISION_FRAME)!;
+      const { shown } = visionRegion(
+        [LOOKING],
+        untouched,
+        [],
+        regionRects(untouched),
+        PAD,
+        FOG_FEATHER,
+      );
+      expect(shown).toEqual([]);
+    });
+  });
+
   it('follows a delta that grows the map instead of answering from the last one', () => {
     // P6 §1 memoizes the held and revealed reaches — the two halves of the mask a moving token
     // never changes — on the room set they are measured from. A reveal delta is exactly the

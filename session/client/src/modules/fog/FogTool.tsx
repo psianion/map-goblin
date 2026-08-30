@@ -373,7 +373,17 @@ export function FogTool() {
 
   let grid: ReactNode;
   if (rooms.length === 0) {
-    grid = <p className="text-xs text-text-secondary">This map has no rooms zoned yet.</p>;
+    // "yet" was a promise this map cannot keep: an imported battlemap has no traced rooms and
+    // never will, so the sentence has to say what the DM can do instead of what they have not
+    // done. Rooms mode leaves such a map wide open to players (D6), which is the surprising
+    // half and the half worth stating outright.
+    grid = (
+      <p data-testid="fog-no-rooms" className="text-xs text-text-secondary">
+        {vision
+          ? 'No rooms on this map. Paint what the party can see with the brush.'
+          : 'No rooms on this map, so players see all of it. Switch to Vision to fog it and reveal with the brush.'}
+      </p>
+    );
   } else if (overCeiling) {
     // §7 — 25+: unrevealed first, a filter narrows it, at most 24 chips show at once.
     const rank = (s: RoomFogStatus) => (s === 'never_revealed' ? 0 : s === 're_hidden' ? 1 : 2);
