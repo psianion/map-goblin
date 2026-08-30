@@ -46,5 +46,18 @@ describe('AssetsSlice — manifest state', () => {
     const loaded = useStore.getState().assets.loadedCategories
     expect(loaded.filter((id) => id === 'furniture')).toHaveLength(1)
   })
+
+  it('resetToDefault preserves the manifest and installed packs (session state, not per-document)', () => {
+    const manifest: AssetManifest = { categories: [] }
+    useStore.getState().setManifest(manifest)
+    useStore.getState().setInstalledPacks([
+      { packId: 'gg-demo', name: 'gg-demo', version: '1.0.0', sizeBytes: 0, bundled: true, installedAt: 0 },
+    ])
+
+    useStore.getState().resetToDefault()
+
+    expect(useStore.getState().assets.manifest).toEqual(manifest)
+    expect(useStore.getState().packs.installedPacks).toHaveLength(1)
+  })
 })
 

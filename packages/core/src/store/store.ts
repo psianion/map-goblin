@@ -192,6 +192,7 @@ export const useStore = create<MapBuilderStore>()(
       resetToDefault: () =>
         set((state) => {
           const defaults = createDefaultState();
+          const manifest = state.assets.manifest;
           state.mapSettings = defaults.mapSettings;
           state.grid = defaults.grid;
           state.layers = defaults.layers;
@@ -199,8 +200,10 @@ export const useStore = create<MapBuilderStore>()(
           state.tools = defaults.tools;
           state.ui = defaults.ui;
           state.assets = defaults.assets;
+          state.assets.manifest = manifest;
           state.selection = defaults.selection;
-          state.packs = defaults.packs;
+          // packs is session state populated once at boot; nothing repopulates
+          // it after a reset, so leave it alone here.
           state.terrainSplats.pngs = [null, null, null];
           state.terrainSplats.rev++;
         }),

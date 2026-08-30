@@ -784,6 +784,10 @@ function EncounterActionFields({
 }) {
   // Installed-pack token art. Empty until a monster pack is installed — every monster
   // without a pick spawns as a placeholder disc, so nothing here blocks.
+  // Subscribing to the pack list re-renders this once packs finish loading async
+  // (boot rehydrate, install, uninstall) — packCatalog's cache is always fresh,
+  // but nothing else forces a re-read when it changes underneath.
+  useStore((s) => s.packs.installedPacks)
   const tokenArt = getEntriesByType('token')
 
   const updateMonster = (i: number, m: MonsterEntry) => {

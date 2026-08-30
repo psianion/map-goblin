@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { getEntriesByType, getCatalogEntry } from '@dnd/core/src/assets/packCatalog'
 import { PackThumbnailCanvas } from '@/components/shared/PackThumbnailCanvas'
+import { useStore } from '@/store/store'
 
 interface TexturePickerProps {
   value: string | undefined
@@ -14,6 +15,11 @@ export function TexturePicker({ value, onChange }: TexturePickerProps) {
   const [popoverPos, setPopoverPos] = useState({ x: 0, y: 0 })
   const triggerRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
+
+  // packCatalog's own cache is always fresh, but nothing else re-renders this
+  // component when packs finish loading async (boot rehydrate, install,
+  // uninstall) — subscribe to the pack list so the reads below pick it up.
+  useStore((s) => s.packs.installedPacks)
 
   const selectedEntry = value ? getCatalogEntry(value) : undefined
 

@@ -52,6 +52,10 @@ function isMixed<T>(values: T[]): boolean {
 
 export function LayerProperties({ layer, openSections, onToggleSection }: LayerPropertiesProps) {
   const updateLayer = useStore((s) => s.updateLayer)
+  // packCatalog's cache is always fresh, but nothing else re-renders this
+  // component when packs finish loading async (boot rehydrate, install,
+  // uninstall) — subscribe to the pack list so getWallSetIds() below picks it up.
+  useStore((s) => s.packs.installedPacks)
   // The per-layer grid toggle renders global && perLayer — muted here (not
   // disabled: still worth setting ahead of turning the global grid back on).
   const globalGridVisible = useStore((s) => s.grid.visible)
