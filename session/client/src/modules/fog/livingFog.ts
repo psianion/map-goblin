@@ -164,7 +164,14 @@ const FRAGMENT = /* glsl */ `
     // so past a ring the ground is a memory, and a band fading to denser cloud than the
     // remembered floor behind it read as a blue smear. The geometry's own edge, through the
     // blur, still takes a pool's rim to hidden wherever nothing was ever seen past it.
-    return uPoolCount > 0 ? min(live, max(poolAt(world), 0.5)) : live;
+    // Floored at the memory level, because a texel the hard mask calls live is ground the
+    // player holds: at worst it reads as its own memory, never as hidden. The remap above
+    // runs to 0 across the blur, so without the floor the cloud formed a faint ring just
+    // inside every sight edge — the same tier step as the rim and the wisps, arriving one
+    // level lower down. The pool branch already floors for this reason; so does this one now.
+    return uPoolCount > 0
+      ? min(max(live, 0.5), max(poolAt(world), 0.5))
+      : max(live, 0.5);
   }
 
   void main() {
@@ -193,23 +200,21 @@ const FRAGMENT = /* glsl */ `
     // the fog spends itself past the margin instead of on the wall band inside it. (The
     // memory tier sits on this same line at m = 0.5 — a gentler slope, tried for a wider
     // ramp, thickened the mist over every remembered room as a side effect.)
-    float d = den - (m * 2.0 - 0.42) + (top - 0.5) * 0.10;
+    // The cloud answers exactly one question: is this ground hidden? Live sight and the
+    // memory of it are both ground the player holds, so the step between them must not reach
+    // the three edge terms below. Those are shaped for the cut, and a tier step running
+    // through them strokes a ring around every sighted token that then rides along with it —
+    // first as the rim, and after that was gated, as the wisps, which peak in the middle of
+    // exactly that ramp. Clamping at the memory level is what keeps the step out of all of
+    // them at once, instead of gating each in turn.
+    float mFog = min(m, 0.5) * 2.0;
+    float d = den - (mFog - 0.42) + (top - 0.5) * 0.10;
     float body = smoothstep(-0.08, 0.14, d);
     float wisp = smoothstep(-0.20, -0.06, d) * (1.0 - body);
 
-    // The fog is denser and darker right at its cut edge — and the cut edge is where explored
-    // meets hidden, nowhere else. Between live sight and its own memory there is no cut: both
-    // are ground the player holds, and the step between them is a change of tier rather than
-    // an edge of the fog.
-    //
-    // The gate is what says so. d is driven by the mask, so the blur ramp from white (live)
-    // down to the memory grey sweeps it up by a full 1.0 — straight through this band
-    // whenever the noise is dense enough — and without the gate that stroked uDeep in an arc
-    // around every sighted token, riding along with it as it moved (caught on a two-seat
-    // walk: "that crescent follows"). Below the memory level the ramp really is running out
-    // to hidden, so the rim belongs there and keeps its full weight.
+    // The fog is denser and darker right at its cut edge, which after the clamp above is the
+    // only edge it can see: explored meeting hidden.
     float rim = smoothstep(0.0, 0.12, d) * (1.0 - smoothstep(0.12, 0.36, d));
-    rim *= 1.0 - smoothstep(0.45, 0.55, m);
     col = mix(col, uDeep * 0.6, rim * uRim);
 
     // Hidden ground renders at exactly uDense, flat — the player seat passes 1.0, so
@@ -219,6 +224,12 @@ const FRAGMENT = /* glsl */ `
     float hiddenness = 1.0 - smoothstep(0.10, 0.50, m);
     float aBody = mix(uMist * (0.45 + 0.55 * den), uDense, hiddenness);
     float alpha = clamp(body * aBody + wisp * aBody * 0.28, 0.0, 1.0);
+
+    // …and the tiers own difference, said once and smoothly: no cloud at all inside live
+    // sight, the mist over the memory of it, the full cover past both. A plain multiplier on
+    // the same ramp the wash below rides, so the two cannot disagree about where a tier
+    // begins, and the meeting of live sight and its memory is a fade rather than an edge.
+    alpha *= 1.0 - smoothstep(0.5, 0.95, m);
 
     // The memory wash, under the cloud: the explored tier's own darkening, read off the mask
     // so it ramps exactly where the tiers do. Full from the memory grey down; nothing where
