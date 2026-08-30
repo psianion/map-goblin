@@ -33,7 +33,8 @@ import type { Viewer } from '@dnd/mechanics/contract'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
 import type { Stores } from '../db/stores'
 import {
-  doorDeltaFor,
+  childDeltaFor,
+  keptChildIds,
   doorKept,
   mapDeltaFor,
   redactMapForViewer,
@@ -142,6 +143,8 @@ interface Computed {
   explored: Set<string>
   /** The doors that geometry contains — the live states a player may be told about. */
   playerDoors: Set<string>
+  /** Every child id a player is entitled to — what the next mutation's delta is diffed against. */
+  playerChildren: Set<string>
   /** The rooms newly explored at this mutation, sliced once and sent to every player. */
   delta: MapDelta | null
 }
@@ -248,14 +251,20 @@ export function createVision(stores: Stores): Vision {
     // Cut once per mutation, not once per viewer: every player at the table is owed the same
     // rooms, and the slice is the expensive half of a reveal.
     const roomDelta = revealed.length ? mapDeltaFor(map, sceneId, revealed, doors, explored) : null
-    // …and the same question asked of doors, which is how a `reveal-secret` hands over the
-    // door child the player's map was cut without (D2). A door that arrives with the room it
-    // belongs to is already in `roomDelta`, so this only carries what the rooms did not.
+    // …and the same question asked of every *child*, which is what a reveal that moves no room
+    // at all still owes. Two of those exist: a `reveal-secret`, whose door child was cut while
+    // it was a secret (D2), and the cell brush — brushed ground is a reveal, so the art stamped
+    // along it becomes the player's the moment the referee paints the cell. Rooms were the only
+    // trigger here before, so a brush stroke shipped its state and none of its geometry, and the
+    // band along it stayed missing until the seat happened to refetch the whole document.
+    //
+    // Diffed off the same predicate the document cut uses (`keptChildIds`), so what a reveal
+    // *delivers* and what a fresh fetch *contains* cannot drift. Anything the room slice already
+    // carried is dropped — it is the same child, sliced twice.
+    const playerChildren = keptChildIds(map, fog, doors)
     const carried = new Set(roomDelta?.layers.flatMap((l) => l.children.map((c) => c.id)) ?? [])
-    const newDoors = new Set(
-      held
-        .filter((door) => !previous?.playerDoors.has(door.id) && !carried.has(door.id))
-        .map((door) => door.id),
+    const newChildren = new Set(
+      [...playerChildren].filter((id) => !previous?.playerChildren.has(id) && !carried.has(id)),
     )
     const next: Computed = {
       revision: stores.moduleState.revision,
@@ -274,7 +283,11 @@ export function createVision(stores: Stores): Vision {
       party,
       explored,
       playerDoors: new Set(held.map((door) => door.id)),
-      delta: mergeDelta(roomDelta, newDoors.size ? doorDeltaFor(map, sceneId, newDoors, explored) : null),
+      playerChildren,
+      delta: mergeDelta(
+        roomDelta,
+        newChildren.size ? childDeltaFor(map, sceneId, newChildren, explored) : null,
+      ),
     }
     // Held to the same ceiling as the parsed maps: every entry keeps a scene's geometry
     // alive through `map` and `delta`, so an uncapped one would quietly undo that cap.

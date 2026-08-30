@@ -29,6 +29,7 @@ import {
   cellsIn,
   fogPad,
   fogRegion,
+  paintedGround,
   regionRects,
   sightPad,
   visionRegion,
@@ -852,6 +853,52 @@ describe('regionRects — the swept cells as geometry', () => {
   });
 });
 
+describe('paintedGround — the terrain the referee sent', () => {
+  const doc = (terrain: unknown) => ({ mapSettings: { terrain } }) as never;
+  const BOUNDS = { minX: -5, minY: 40, maxX: 58, maxY: 64 };
+  const on = doc({ palette: ['gg:grass', null], bounds: BOUNDS });
+  /** What `decodePaintedArea` read off the splats: two strips, not the box around them. */
+  const DECODED: Polygon[] = [
+    [
+      [24, 45],
+      [31, 45],
+      [31, 61],
+      [24, 61],
+    ],
+    [
+      [40, 50],
+      [44, 50],
+      [44, 54],
+      [40, 54],
+    ],
+  ];
+
+  it('is the paint the splats carry, not the box around it', () => {
+    // The box is `BOUNDS` — 63 × 24 cells. What is painted inside it is these two strips, and
+    // the void between them is the dome the fire ring used to clear on the player's seat.
+    expect(paintedGround(on, DECODED)).toEqual(DECODED);
+  });
+
+  it('is nothing at all until the decode lands', () => {
+    // A mask drawn before the splats are read has not been told where the ground is, and a fog
+    // that does not know fails dark rather than open.
+    expect(paintedGround(on, null)).toEqual([]);
+  });
+
+  it('is nothing at all when there is no paint to reveal', () => {
+    expect(paintedGround(null, DECODED)).toEqual([]);
+    expect(paintedGround(doc(undefined), DECODED)).toEqual([]);
+    // Nothing painted yet, the whole layer switched off, and a palette with no texture in it —
+    // three ways of having no art out there, and the clip stays exactly what it was for all of
+    // them, whatever the decode came back with.
+    expect(paintedGround(doc({ palette: ['gg:grass'], bounds: null }), DECODED)).toEqual([]);
+    expect(
+      paintedGround(doc({ palette: ['gg:grass'], bounds: BOUNDS, visible: false }), DECODED),
+    ).toEqual([]);
+    expect(paintedGround(doc({ palette: [null, null], bounds: BOUNDS }), DECODED)).toEqual([]);
+  });
+});
+
 describe('visionRegion — sweep, memory, void', () => {
   const PAD = fogPad([]);
   /** West is a room nobody revealed, east one the DM lit by hand; the party swept both. */
@@ -973,6 +1020,102 @@ describe('visionRegion — sweep, memory, void', () => {
     expect(inRegion(wash([WEST.boundary, EAST.boundary, YARD], []), [20.5, 2.5])).toBe(true);
     // …and back, because the memo answers the arguments it was handed and not the newest ones.
     expect(inRegion(wash([WEST.boundary], []), [13, 3])).toBe(false);
+  });
+
+  // …unless the map has paint on it there. "Floor = terrain with walls" (PR #53) means ground
+  // can carry art with no room over it — the Goblin Warren's path from the forest to the cave
+  // mouth is 2.8 cells of splat paint zoned by nothing — and vision-mode brushed cells are
+  // walkable, so the party can stand on it. The clip left it solid black on the player's seat
+  // with revealed rooms either side, which is the bug this row is here to keep fixed.
+  describe('ground the map carries paint on', () => {
+    /** The splat's own bounds, over the unzoned strip east of both halls. */
+    const PAINTED: Polygon[] = [
+      [
+        [18, 0],
+        [24, 0],
+        [24, 8],
+        [18, 8],
+      ],
+    ];
+    const onPaint = (sight: Polygon[], region = swept) =>
+      visionRegion(sight, region, [], [WEST.boundary, EAST.boundary], PAD, FOG_FEATHER, undefined, PAINTED);
+
+    it('washes a cell the party swept there, where bare unzoned map stays void', () => {
+      expect(inRegion(onPaint([LOOKING]).memory, [20.5, 2.5])).toBe(true);
+      // The same record, the same cell, with nothing painted: void, exactly as before.
+      expect(inRegion(built().memory, [20.5, 2.5])).toBe(false);
+    });
+
+    it('lets the party stand on it and see it live', () => {
+      const STANDING: Polygon = [
+        [19, 1],
+        [22, 1],
+        [22, 4],
+        [19, 4],
+      ];
+      const { clear, shown } = onPaint([STANDING]);
+      expect(inRegion(clear, [20.5, 2.5])).toBe(true);
+      expect(inRegion(shown, [20.5, 2.5])).toBe(true);
+    });
+
+    it('opens nothing on its own — the sweep and the record still say what shows', () => {
+      // Painted ground with no eyes on it and no cell in the record is as dark as any other.
+      const untouched = visionRegion(
+        [],
+        undefined,
+        [],
+        [WEST.boundary],
+        PAD,
+        FOG_FEATHER,
+        undefined,
+        PAINTED,
+      );
+      expect(untouched).toMatchObject({ clear: [], memory: [], shown: [] });
+      // …and paint does not reach past its own bounds: a cell the party swept off the paint
+      // and outside every room is still void.
+      expect(inRegion(onPaint([LOOKING]).memory, [6.5, 5.5])).toBe(false);
+    });
+
+    it('leaves the gap between two strips of paint as dark as any other void', () => {
+      // The leak: this clip used to be the splat's *bounding box*, so the space between two
+      // painted strips counted as ground the party's sight was allowed to open. On the Goblin
+      // Warren that box spanned the map's whole southern half, and the cave mouth's fire ring
+      // — radius 15, through a doorless mouth — cleared a lit dome of bare void inside it on
+      // every player seat while the referee's own map had nothing there at all.
+      const ISLANDS: Polygon[] = [
+        [
+          [18, 0],
+          [20, 0],
+          [20, 8],
+          [18, 8],
+        ],
+        [
+          [26, 0],
+          [28, 0],
+          [28, 8],
+          [26, 8],
+        ],
+      ];
+      const ACROSS: Polygon = [
+        [17, 0],
+        [29, 0],
+        [29, 8],
+        [17, 8],
+      ];
+      const { clear } = visionRegion(
+        [ACROSS],
+        swept,
+        [],
+        [WEST.boundary, EAST.boundary],
+        PAD,
+        FOG_FEATHER,
+        undefined,
+        ISLANDS,
+      );
+      expect(inRegion(clear, [19, 4])).toBe(true);
+      expect(inRegion(clear, [27, 4])).toBe(true);
+      expect(inRegion(clear, [23, 4])).toBe(false);
+    });
   });
 
   it('is void everywhere for a party with no sight and no memory', () => {
