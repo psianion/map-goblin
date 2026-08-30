@@ -76,10 +76,13 @@ export function TransformSection({
   child,
   openSections,
   onToggleSection,
+  disabled,
 }: {
   child: AssetChild | TextChild
   openSections?: Set<string>
   onToggleSection?: (id: string) => void
+  /** Owning layer is locked or hidden — inspect, don't edit. */
+  disabled?: boolean
 }) {
   const parentLayer = useStore((s) => selectLayerForChild(s, child.id))
   const [ratioLocked, setRatioLocked] = useState(true)
@@ -102,6 +105,11 @@ export function TransformSection({
       isOpen={openSections?.has('transform')}
       onToggle={onToggleSection}
     >
+      {/* A disabled fieldset disables every control under it natively, so the
+          lock is one attribute instead of a `disabled` prop per input. Laid out
+          as `contents` so it adds no box of its own. The section header sits
+          outside it — a locked layer is still inspectable. */}
+      <fieldset disabled={disabled} className="contents">
       <div className="flex flex-col gap-2 pt-2">
         <PropertyField label="Position">
           <div className="flex items-center gap-1.5">
@@ -224,6 +232,7 @@ export function TransformSection({
           </PropertyField>
         )}
       </div>
+      </fieldset>
     </CollapsibleSection>
   )
 }

@@ -105,13 +105,13 @@ describe('the party sweep the mask is cut to (S3 P2 §2)', () => {
     expect(sees(found, [12.5, 5])).toBe(true);
   });
 
-  it('sweeps against the walls the referee has, never core’s recomputed floor rings', () => {
-    // Core unions a room's floor shapes into `mergedFloor` after every load, and
-    // `resolveWalls` promotes every one of that ring's edges to a light-blocking wall. The
-    // document the server sweeps carries `mergedFloor: null` — nothing ever saves the field —
-    // so a floor edge is not an occluder there. Left in, the party is boxed inside their own
-    // floor and this canvas answers "what can they see" differently from the referee that is
-    // redacting their tokens off the same question.
+  it('sweeps against mergedFloor too, sharing the same rings the lighting pass resolves', () => {
+    // Core unions a room's floor shapes into `mergedFloor`, and `resolveWalls` promotes every
+    // one of that ring's edges to a light-blocking wall — same as any standalone wall. This
+    // pass used to sweep a copy with `mergedFloor` nulled out, to match the server's sweep over
+    // the persisted map (where the field ships null, never saved). The server now heals that
+    // null at scene-index time (session/server/src/fog/sceneMap.ts), so both sides can agree on
+    // the real union instead of both ignoring it.
     const boxed = layersWith([door({ state: 'open' })]);
     (boxed[0] as unknown as { mergedFloor: unknown }).mergedFloor = [
       [
@@ -121,7 +121,11 @@ describe('the party sweep the mask is cut to (S3 P2 §2)', () => {
         [0, 10],
       ],
     ];
-    expect(sees(createSightCache().partySight(boxed, [scout()]), [12.5, 5])).toBe(true);
+    // The ring's own east edge (x=10) now occludes independently of the door on wall-mid
+    // (x=11, open) — the party is boxed inside their floor's authored footprint.
+    expect(sees(createSightCache().partySight(boxed, [scout()]), [12.5, 5])).toBe(false);
+    // …and still sees to its own edge, inside the ring.
+    expect(sees(createSightCache().partySight(boxed, [scout()]), [9.5, 5])).toBe(true);
   });
 
   it('draws through claimed, unhidden, sighted eyes and no others', () => {

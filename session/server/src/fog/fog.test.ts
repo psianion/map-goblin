@@ -5,7 +5,7 @@
 // integration.test.ts, against a running server; these are the rules themselves.
 
 import { describe, expect, it } from 'vitest'
-import { fogModule, type FogState, type SceneFog } from '@dnd/mechanics/fog'
+import { fogModule, regionOf, setCells, type FogState, type SceneFog } from '@dnd/mechanics/fog'
 import { doorsModule, type DoorsState } from '@dnd/mechanics/doors'
 import type { Viewer } from '@dnd/mechanics/contract'
 import type { Token, TokensState } from '@dnd/mechanics/tokens'
@@ -143,6 +143,15 @@ function mapFile(): SerializedMapData {
       prop('prop-inner', 19, 5),
       prop('prop-vault', 35, 5),
       prop('prop-stranded', 100, 100),
+      // The gap between `inner` and `vault` is unzoned ground inside the frame — where the
+      // brush rows below paint. Three cells clear of either room, so only a cell can earn them.
+      prop('prop-on-the-brush', 27, 5),
+      prop('prop-off-the-brush', 27, 8),
+      // A wall-band piece, stamped where a dressed map stamps them: on the hall's own band,
+      // which detection insets the room polygon out of, so it is unzoned by the centre test.
+      prop('prop-band-hall', 5, -0.4),
+      // …and one a cell and a half out, which is nobody's wall and stays nobody's.
+      prop('prop-outside-hall', 5, -1.5),
       ...DOORS,
     ],
     standaloneWalls: [wall('wall-hall', 0, 0, 10, 0), wall('wall-vault', 30, 0, 40, 0)],
@@ -207,6 +216,80 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
 
   it('drops props on unzoned map, which no command can reveal (D6)', () => {
     expect(layerOf(redacted()).children.map((c) => c.id)).not.toContain('prop-stranded')
+  })
+
+  // On a dressed map the wall band is not `standaloneWalls` — it is one stamped asset child per
+  // piece, and detection insets a room's polygon by half that band, so every piece is unzoned by
+  // the centre test. The Warren withheld 188 of them and its cave drew as a floor with a plain
+  // dark edge. The mask cuts its hole at the room's floor grown by that same band (`fogPad`), so
+  // anything inside the ring is already being drawn to this player: shipping less than the mask
+  // opens is what leaves a lit room ringed by nothing.
+  it("keeps a child stamped on an explored room's wall band, and nothing past it", () => {
+    const ids = layerOf(redacted()).children.map((c) => c.id)
+    expect(ids).toContain('prop-band-hall')
+    expect(ids).not.toContain('prop-outside-hall')
+  })
+
+  // The cell brush is a reveal too, and since c2bc9ff it is one a player can stand on — so the
+  // art stamped along brushed ground is theirs. Judging children by rooms alone left the
+  // Goblin Warren's corridor with a band down one side (the side that happens to fall inside
+  // Cave Mouth's own polygon) and bare rock down the other, plus no shrubs at the palisade's
+  // foot: 38 pieces, measured, all of them beside cells the referee had painted.
+  describe('ground the referee brushed, which no room covers', () => {
+    /** The world square `(x, y)` sits in, as the cell the record counts it as. */
+    const brushed = (...at: [number, number][]): SceneFog => {
+      const frame = sceneMap().frame!
+      const cells = at.map(([x, y]): [number, number] => [
+        Math.floor(x - frame.minX),
+        Math.floor(y - frame.minY),
+      ])
+      return { ...fog(), region: setCells(regionOf(frame)!, cells) }
+    }
+    const withBrush = (...at: [number, number][]) =>
+      (redactMapForViewer(sceneMap(), brushed(...at), {}).layers[0] as DungeonLayer).children.map(
+        (c) => c.id,
+      )
+
+    it('hands over the art stamped on it', () => {
+      expect(withBrush([27, 5])).toContain('prop-on-the-brush')
+    })
+
+    it('reaches exactly as far as the wall band does, and no further', () => {
+      const ids = withBrush([27, 5])
+      // Two cells clear of the brushed one is nobody's ground and stays nobody's — and so is
+      // ground the brush never touched at all.
+      expect(ids).not.toContain('prop-off-the-brush')
+      expect(ids).not.toContain('prop-stranded')
+    })
+
+    it('opens nothing in a room the party has not earned', () => {
+      // A cell three clear of the vault is still not the vault: its floor, its props and its
+      // walls are the room's, and the room is unexplored.
+      const wire = JSON.stringify(redactMapForViewer(sceneMap(), brushed([27, 5]), {}))
+      for (const gone of ['vault', 'floor-vault', 'prop-vault', 'door-secret']) {
+        expect(wire, `${gone} survived a brush stroke`).not.toContain(gone)
+      }
+    })
+
+    it('takes the art back when the referee un-brushes the ground', () => {
+      // Not latched, unlike a room: the next document build simply stops carrying it.
+      expect(withBrush()).not.toContain('prop-on-the-brush')
+    })
+  })
+
+  it('measures that band off the layer\'s own wall width', () => {
+    const wide = mapFile()
+    const layer = wide.layers[0] as DungeonLayer
+    layer.style = { wallWidth: 2 } as DungeonLayer['style']
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Wide')
+    stores.maps.insert('wide', campaign.id, 'Wide', JSON.stringify(wide))
+    stores.scenes.create('wide', campaign.id, 'wide', 'Wide')
+    const seen = redactMapForViewer(createSceneMaps(stores).sceneMapOf('wide')!, fog(), {})
+    // A band two cells thick reaches the piece the half-cell band did not.
+    expect((seen.layers[0] as DungeonLayer).children.map((c) => c.id)).toContain(
+      'prop-outside-hall',
+    )
   })
 
   it('keeps a wall an explored room borders and drops the rest', () => {
@@ -274,6 +357,99 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
   })
 })
 
+// ── A floor shape whose middle is inside no room ─────────────────────────────
+// The Goblin Warren's cave, in miniature: one concave floor over two rooms, with its
+// bounding-box centre on the rock between them. Judged by that centre the whole shape was
+// unzoned map and went to nobody — so a player who had explored half the cave got the rooms,
+// the props and the walls, and no floor at all, which is also no wall band, because core
+// draws the band off the merged ring the floor children make. Their cave read as black.
+
+describe('a floor shape whose centre lands on no room (D5)', () => {
+  /** ⊔ — two arms joined along the bottom, the notch between them spanning x 10..20, y 4..10. */
+  const HORSESHOE: [number, number][] = [
+    [0, 0],
+    [30, 0],
+    [30, 10],
+    [20, 10],
+    [20, 4],
+    [10, 4],
+    [10, 10],
+    [0, 10],
+  ]
+
+  const cave = (): SerializedMapData => {
+    const rooms = [room('west-arm', 1, 1, 9, 9), room('east-arm', 21, 1, 29, 9)]
+    const layer: DungeonLayer = {
+      id: 'layer-1',
+      name: 'Cave',
+      type: 'dungeon',
+      visible: true,
+      locked: false,
+      opacity: 1,
+      children: [
+        { ...floor('floor-cave', 0, 0, 1, 1), contours: [HORSESHOE] } as AnyChild,
+        prop('prop-east', 25, 5),
+      ],
+      standaloneWalls: [],
+      mergedFloor: [HORSESHOE],
+      style: {} as DungeonLayer['style'],
+      sublayerVisibility: { floor: true, grid: true, walls: true },
+      rooms,
+      roomNameOverrides: {},
+    }
+    return { ...mapFile(), layers: [layer] }
+  }
+
+  const redactedCave = (): SerializedMapData => {
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Cave')
+    stores.maps.insert('cave', campaign.id, 'Cave', JSON.stringify(cave()))
+    stores.scenes.create('cave', campaign.id, 'cave', 'Cave')
+    return redactMapForViewer(
+      createSceneMaps(stores).sceneMapOf('cave')!,
+      { rooms: { 'west-arm': { status: 'revealed', wasEverRevealed: true } }, concealBehindDoors: true },
+      {},
+    )
+  }
+
+  it('is the case the centre test cannot answer', () => {
+    // The premise, pinned: the bounding-box centre is in the notch, inside neither arm.
+    const shape = (cave().layers[0] as DungeonLayer).children[0]
+    expect(centreOf(shape)).toEqual([15, 5])
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Cave')
+    stores.maps.insert('c2', campaign.id, 'Cave', JSON.stringify(cave()))
+    stores.scenes.create('c2', campaign.id, 'c2', 'Cave')
+    expect(createSceneMaps(stores).sceneMapOf('c2')!.roomAt(15, 5)).toBeNull()
+  })
+
+  it('goes to a player who has explored a room the shape covers', () => {
+    const layer = redactedCave().layers[0] as DungeonLayer
+    expect(layer.children.map((c) => c.id)).toContain('floor-cave')
+    // Whole, so the band core draws off the merged ring is the cave's own outline.
+    expect((layer.children[0] as { contours: [number, number][][] }).contours[0]).toEqual(HORSESHOE)
+  })
+
+  it('takes nothing else of the room the party has not earned', () => {
+    const wire = JSON.stringify(redactedCave())
+    expect(wire).not.toContain('east-arm')
+    expect(wire).not.toContain('prop-east')
+  })
+
+  it('still withholds a floor over rooms the party has all missed', () => {
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Cave')
+    stores.maps.insert('c3', campaign.id, 'Cave', JSON.stringify(cave()))
+    stores.scenes.create('c3', campaign.id, 'c3', 'Cave')
+    const nothing = redactMapForViewer(
+      createSceneMaps(stores).sceneMapOf('c3')!,
+      { rooms: {}, concealBehindDoors: true },
+      {},
+    )
+    expect((nothing.layers[0] as DungeonLayer).children).toEqual([])
+  })
+})
+
 // ── mapDeltaFor ─────────────────────────────────────────────────────────────
 
 describe('mapDeltaFor (D5)', () => {
@@ -319,6 +495,34 @@ describe('vision (D3/D8)', () => {
   function set(stores: Stores, campaignId: string, module: string, state: unknown): void {
     stores.moduleState.put(campaignId, module, state)
   }
+
+  // A brush stroke moves no room, so the reveal delta used to carry nothing and the art along
+  // the brushed ground stayed missing until the seat happened to refetch the whole document.
+  // The delta is diffed off the same predicate the document cut uses, so a stroke pays its own
+  // geometry debt in the frame that announces it (D5) — rooms are no longer the only trigger.
+  it('ships the art a brush stroke just earned, in the frame that announces it', () => {
+    const { vision, stores, campaignId } = table()
+    const frame = vision.frameOf(campaignId, SCENE)!
+    const cell: [number, number] = [Math.floor(27 - frame.minX), Math.floor(5 - frame.minY)]
+    set(stores, campaignId, 'fog', { byScene: { [SCENE]: fog() } } satisfies FogState)
+    // Warm the cache on the pre-stroke state, so what follows is the stroke's own debt.
+    vision.revealDelta(SCENE)
+
+    set(stores, campaignId, 'fog', {
+      byScene: { [SCENE]: { ...fog(), region: setCells(regionOf(frame)!, [cell]) } },
+    } satisfies FogState)
+    const delta = vision.revealDelta(SCENE)
+    expect(delta?.layers.flatMap((l) => l.children.map((c) => c.id))).toEqual(['prop-on-the-brush'])
+    // No room changed hands, so no room polygon rides with it.
+    expect(delta?.layers.flatMap((l) => l.rooms)).toEqual([])
+
+    // …and a second stroke over the same cell owes nothing: the diff is against what the
+    // player already holds, not against the stroke.
+    set(stores, campaignId, 'fog', {
+      byScene: { [SCENE]: { ...fog(), region: setCells(regionOf(frame)!, [cell, [cell[0], cell[1] + 1]]) } },
+    } satisfies FogState)
+    expect(vision.revealDelta(SCENE)).toBeNull()
+  })
 
   it('backs the fog and doors modules with the map file', () => {
     const { vision, campaignId } = table()
@@ -763,7 +967,8 @@ describe('the scene a mapDelta belongs to, with more than one in play (§2.1, D5
 
 describe('prep and zones (schema 3.1)', () => {
   const PREP: ScenePrep = {
-    version: 1,
+    version: 2,
+    notes: [],
     triggers: [
       {
         id: 't1',

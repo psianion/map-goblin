@@ -1,22 +1,6 @@
 import { memo, useRef, useState } from 'react'
 import { Eye, EyeOff, Lock, Unlock, GripVertical, ChevronRight, ChevronDown } from 'lucide-react'
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type Announcements,
-  type DragEndEvent,
-} from '@dnd-kit/core'
-import {
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable'
-import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { Layer, DungeonLayer } from '@/store/types'
 import { cn } from '@/lib/utils'
@@ -24,14 +8,13 @@ import { useStore } from '@/store/store'
 import { useShallow } from 'zustand/react/shallow'
 import { selectSelectedIds, isLayerEffectivelyVisible } from '@/store/selectors'
 import { undoManager } from '@/store/undoManager'
-import { PropertyCommand, ReorderChildCommand, RemoveLayerCommand } from '@/store/commands'
+import { PropertyCommand, RemoveLayerCommand } from '@/store/commands'
 import { Button } from '@/components/ui/button'
-import { ChildRow } from './ChildRow'
+import { ChildGroups } from './ChildGroups'
 import { InlineEditableName } from './InlineEditableName'
-import { computeChildDragReorder } from './childReorder'
 import { notify } from '@/lib/toast'
 import { ContextMenu, useContextMenu, type ContextMenuItem } from '@/components/ui/context-menu'
-import { captureNeighborFocus } from './treeFocus'
+import { captureNeighborFocus, panelSelectionOrigin } from './treeFocus'
 
 interface LayerRowProps {
   layer: Layer
@@ -39,9 +22,11 @@ interface LayerRowProps {
   /** H3: position/count among this row's tree-level siblings (aria-posinset/aria-setsize). Defaults suit a row rendered standalone (e.g. in tests). */
   posInSet?: number
   setSize?: number
+  /** Child-name filter from the panel's filter box; '' shows everything. */
+  filter?: string
 }
 
-export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, setSize = 1 }: LayerRowProps) {
+export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, setSize = 1, filter = '' }: LayerRowProps) {
   const setActiveLayerId = useStore((s) => s.setActiveLayerId)
   const expandedLayerIds = useStore(useShallow((s) => s.ui.expandedLayerIds))
   const toggleExpandedLayerId = useStore((s) => s.toggleExpandedLayerId)
@@ -77,25 +62,28 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
   const isExpanded = expandedLayerIds.includes(layer.id)
   const hasChildren = isDungeon && (dungeonLayer?.children.length ?? 0) > 0
 
-  // K2: keyboard reorder for this layer's children list — same sensors as
-  // the top-level layer list in LayerPanel.
-  const childSensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  // Filter matches force the children block open — a filter you must expand
+  // each layer to see the results of is not a filter.
+  const q = filter.trim().toLowerCase()
+  // A child is revealed by its own name OR by its group's — a group-name match
+  // reveals that folder's whole contents (the rule ChildGroups renders by), so
+  // counting name matches alone made the badge read 0/N under a folder full of
+  // visible rows.
+  const matchedGroupIds = new Set(
+    q === ''
+      ? []
+      : (dungeonLayer?.groups ?? []).filter((g) => g.name.toLowerCase().includes(q)).map((g) => g.id),
   )
-  const childName = (id: string) => dungeonLayer?.children.find((c) => c.id === id)?.name ?? 'item'
-  const childAnnouncements: Announcements = {
-    onDragStart: ({ active }) => `Picked up ${childName(String(active.id))}.`,
-    onDragOver: ({ active, over }) =>
-      over ? `${childName(String(active.id))} is over ${childName(String(over.id))}.` : undefined,
-    onDragEnd: ({ active, over }) =>
-      over
-        ? `${childName(String(active.id))} was moved next to ${childName(String(over.id))}.`
-        : `${childName(String(active.id))} was dropped.`,
-    onDragCancel: ({ active }) => `Reordering ${childName(String(active.id))} was cancelled.`,
-  }
+  const matchCount =
+    q === ''
+      ? 0
+      : (dungeonLayer?.children.filter(
+          (c) => c.name.toLowerCase().includes(q) || (c.groupId != null && matchedGroupIds.has(c.groupId)),
+        ).length ?? 0)
+  const filterMatches = matchCount > 0
 
   const handleLayerClick = (e: React.MouseEvent) => {
+    panelSelectionOrigin.current = true
     setActiveLayerId(layer.id)
     // Ctrl+click: select/deselect all children in this layer
     if (isDungeon && dungeonLayer && (activeTool === 'select' || activeTool === 'object') && e.ctrlKey) {
@@ -157,25 +145,6 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
     setEditingName(false)
   }
 
-  const handleChildDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
-    if (!over || !dungeonLayer) return
-
-    // Reorder is a destructive-but-undoable panel op, like layer delete
-    // (see deleteLayer below) — locked blocks it, but a layer hidden via
-    // solo (or its own visibility) is not a reason to refuse reordering
-    // rows you can still see and edit in the panel.
-    if (dungeonLayer.locked) {
-      notify.warning('Layer is locked')
-      return
-    }
-
-    const result = computeChildDragReorder(dungeonLayer.children, String(active.id), String(over.id))
-    if (!result) return
-
-    undoManager.execute(new ReorderChildCommand('Reorder child', layer.id, result.fromIndex, result.toIndex))
-  }
-
   const deleteLayer = () => {
     // Delete only ever reaches a dungeon layer (background is excluded from
     // the menu below), but re-check here too: the row toolbar has no
@@ -192,7 +161,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
     // DOM by the delete below.
     const focusNeighbor = captureNeighborFocus(rowRef.current)
     undoManager.execute(new RemoveLayerCommand('Delete layer', layer.id))
-    notify.action('Layer deleted', {
+    notify.action(`Deleted “${layer.name}”`, {
       label: 'Undo',
       onClick: () => undoManager.undo(),
       icon: 'trash',
@@ -211,6 +180,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
     switch (e.key) {
       case 'Enter':
         e.preventDefault()
+        panelSelectionOrigin.current = true
         setActiveLayerId(layer.id)
         setSelectedIds([])
         break
@@ -259,10 +229,24 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
   // (removeLayer refuses to remove the background layer). Delete is greyed out when
   // locked specifically (the common, expected case) — deleteLayer's own guard above
   // also catches the rarer hidden-via-solo edge case at click time.
+  const selectAllChildren = () => {
+    if (!dungeonLayer) return
+    panelSelectionOrigin.current = true
+    setActiveLayerId(layer.id)
+    setSelectedIds(dungeonLayer.children.map((c) => c.id))
+  }
+
   const menuItems: ContextMenuItem[] = [
     { label: 'Rename', onSelect: () => setEditingName(true) },
     { label: layer.locked ? 'Unlock' : 'Lock', onSelect: toggleLock },
     { label: layer.visible ? 'Hide' : 'Show', onSelect: toggleVisibility },
+    // Solo's only other entry is alt-click on the eye — keep a discoverable one.
+    ...(layer.type !== 'background'
+      ? [{ label: isSoloed ? 'Unsolo' : 'Solo', onSelect: () => toggleSoloLayer(layer.id) } as ContextMenuItem]
+      : []),
+    ...(hasChildren
+      ? [{ label: 'Select All Children', onSelect: selectAllChildren } as ContextMenuItem]
+      : []),
     ...(layer.type !== 'background'
       ? [{
           label: 'Delete Layer',
@@ -293,7 +277,7 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
         // standard-compliant way to keep the tree relationship explicit
         // without moving markup; aria-level/posinset/setsize complete the
         // APG treeview contract for this node.
-        aria-owns={isDungeon && hasChildren && isExpanded ? `${layer.id}-children` : undefined}
+        aria-owns={isDungeon && hasChildren && (isExpanded || filterMatches) ? `${layer.id}-children` : undefined}
         aria-level={1}
         aria-posinset={posInSet}
         aria-setsize={setSize}
@@ -301,15 +285,22 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
         className={cn(
           // Selection reads as a raised surface, not an accent side-stripe: `gg-row`
           // carries the mode-correct hover (flat tint by day, glow from below at night).
-          'gg-row flex items-center gap-1 px-1 py-1.5 cursor-pointer',
+          // `group`: the lock/eye buttons reveal on row hover/focus (see below).
+          'gg-row group flex items-center gap-1 px-1 py-1.5 cursor-pointer',
           // K1: same ring treatment as Button, applied only via focus-visible
           // so a mouse click never paints it — border is always-present-but-
           // transparent so the ring doesn't shift row height on focus.
           'border border-transparent focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50',
-          isActive && 'bg-surface-3',
+          // Selected = raised surface PLUS a visible border: surface-3 on
+          // surface-1 alone measures 1.37:1 — imperceptible in a dim room.
+          // The border rides the always-present transparent slot (no layout
+          // shift); focus-visible's border still wins when focused.
+          isActive && 'bg-surface-3 border-border-default',
           // opacity-80 (not 50): row text sits at text-primary, which only
           // clears 4.5:1 against surface-1/3 in both themes down to ~75%
           // alpha (see index.css token comment) — 80 keeps a safety margin.
+          // The name also gets line-through (see below): opacity alone was
+          // imperceptible as a "hidden" signal.
           !effectivelyVisible && 'opacity-80',
         )}
         onClick={handleLayerClick}
@@ -330,7 +321,9 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
             tabIndex={isActive ? 0 : -1}
             role="button"
             aria-label={`Reorder ${layer.name}`}
-            className="text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing rounded-sm focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50 border border-transparent"
+            // p/-m: 24px+ hit area (WCAG 2.5.8) without moving the layout —
+            // a missed 16px chevron next to a 16px grip started a layer drag.
+            className="p-1.5 -m-1.5 text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing rounded-sm focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50 border border-transparent"
             onClick={(e) => e.stopPropagation()}
           >
             <GripVertical size={14} />
@@ -347,10 +340,13 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
             type="button"
             tabIndex={-1}
             className={cn(
-              'flex items-center justify-center w-4 h-4 shrink-0 transition-colors',
-              // text-dim instead of text-muted + opacity-30: text-muted only
-              // clears 4.5:1 at full alpha, so fading it further broke contrast.
-              hasChildren ? 'text-text-muted hover:text-text-primary' : 'text-text-dim pointer-events-none',
+              // w-6/-m-1: 24px hit area (WCAG 2.5.8) in a 16px layout slot.
+              'flex items-center justify-center w-6 h-6 -m-1 shrink-0 transition-colors',
+              // Disabled chevron reads dimmer than enabled, not brighter —
+              // text-dim is a lighter token than text-muted, which inverted
+              // the affordance. Disabled controls are exempt from the 4.5:1
+              // floor, so the opacity fade is fine here.
+              hasChildren ? 'text-text-muted hover:text-text-primary' : 'text-text-muted opacity-40 pointer-events-none',
               'focus-visible:outline-none focus-visible:border-border-focus focus-visible:ring-3 focus-visible:ring-border-focus/50 border border-transparent rounded-sm',
             )}
             onClick={handleChevronClick}
@@ -370,12 +366,25 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
           onStartEdit={() => setEditingName(true)}
           onCommit={commitRename}
           onCancel={() => setEditingName(false)}
-          displayClassName="text-panel-body text-text-primary"
+          displayClassName={cn('text-panel-body text-text-primary', !effectivelyVisible && 'line-through')}
           restoreFocusRef={rowRef}
         />
 
+        {/* child count — a collapsed layer otherwise gives no hint of scale;
+            while filtering it shows matches / total so the badge and the
+            groups below never disagree. */}
+        {isDungeon && (dungeonLayer?.children.length ?? 0) > 0 && (
+          <span className="shrink-0 text-panel-small text-text-muted tabular-nums">
+            {q !== ''
+              ? `${matchCount} / ${dungeonLayer?.children.length}`
+              : dungeonLayer?.children.length}
+          </span>
+        )}
+
         {/* lock toggle — tabIndex=-1: reachable via the row menu (Shift+F10),
-            like the eye button below (Space handles that one directly). */}
+            like the eye button below (Space handles that one directly).
+            Revealed on hover/focus; stays visible while locked (the state a
+            user must be able to see at a glance). */}
         <Button
           variant="ghost"
           size="icon-xs"
@@ -384,7 +393,10 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
             e.stopPropagation()
             toggleLock()
           }}
-          className="text-text-muted hover:text-text-primary"
+          className={cn(
+            'text-text-muted hover:text-text-primary',
+            !layer.locked && 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+          )}
           title={layer.locked ? 'Unlock layer' : 'Lock layer'}
           aria-label={layer.locked ? `Unlock ${layer.name}` : `Lock ${layer.name}`}
           aria-pressed={layer.locked}
@@ -426,6 +438,9 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
           }}
           className={cn(
             isSoloed ? 'text-accent-active hover:text-accent-active' : 'text-text-muted hover:text-text-primary',
+            // Revealed on hover/focus; stays visible when it carries state
+            // (hidden layer, or soloed — the accent eye IS the solo indicator).
+            layer.visible && !isSoloed && 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
           )}
           title={
             layer.type === 'background'
@@ -439,34 +454,12 @@ export const LayerRow = memo(function LayerRow({ layer, isActive, posInSet = 1, 
         </Button>
       </div>
 
-      {/* Children rows — only when dungeon layer is expanded.
-          Rendered reversed, same as LayerPanel does for layers: array index 0
-          draws first/bottom, so panel-top must show the last (topmost) child. */}
-      {isDungeon && isExpanded && dungeonLayer && dungeonLayer.children.length > 0 && (
-        <DndContext
-          sensors={childSensors}
-          collisionDetection={closestCenter}
-          modifiers={[restrictToVerticalAxis]}
-          onDragEnd={handleChildDragEnd}
-          accessibility={{ announcements: childAnnouncements }}
-        >
-          <SortableContext
-            items={[...dungeonLayer.children].reverse().map((c) => c.id)}
-            strategy={verticalListSortingStrategy}
-          >
-            <div id={`${layer.id}-children`} role="group" aria-label={`${layer.name} children`}>
-              {[...dungeonLayer.children].reverse().map((child, i) => (
-                <ChildRow
-                  key={child.id}
-                  child={child}
-                  layer={dungeonLayer}
-                  posInSet={i + 1}
-                  setSize={dungeonLayer.children.length}
-                />
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
+      {/* Children — grouped by type, only when expanded (or when a live
+          filter has matches inside this layer). ChildGroups renders display
+          order reversed: array index 0 draws first/bottom, so panel-top must
+          show the last (topmost) child. */}
+      {isDungeon && dungeonLayer && dungeonLayer.children.length > 0 && (isExpanded || filterMatches) && (
+        <ChildGroups layer={dungeonLayer} filter={filter} />
       )}
 
       <ContextMenu pos={menu.pos} onClose={menu.close} items={menuItems} />

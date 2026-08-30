@@ -118,3 +118,41 @@ describe('occupyRefusal — why a space refused', () => {
     expect(occupyRefusal(token, { x: 35.5, y: 1.5 }, scene, 'dm')).toBeNull()
   })
 })
+
+/**
+ * Vision mode's cell record, at the occupancy seam. The live Goblin Warren is the case:
+ * a forest clearing and a cave whose floors do not touch, with unzoned yards between them
+ * that no room covers — so the room graph has no edge to walk and the DM's reveal has no
+ * room to land in. `openGround` is the only thing that can let the party cross, and it must
+ * not become a way past a room rule the fog already decided.
+ */
+describe('occupyRefusal — open ground in vision mode', () => {
+  const revealed = new Set(['35,1', '36,1'])
+  const withGround = (): SceneVision => ({
+    ...scene,
+    openGround: (x, y) => revealed.has(`${Math.floor(x)},${Math.floor(y)}`),
+  })
+  const why = (x: number, vision: SceneVision) =>
+    occupyRefusal(token, { x, y: 1.5 }, vision, 'player')
+
+  it('lets a player onto unzoned ground the party has been shown', () => {
+    expect(why(35.5, withGround())).toBeNull()
+    expect(canOccupy(token, { x: 35.5, y: 1.5 }, withGround(), 'player')).toBe(true)
+  })
+
+  it('still refuses unzoned ground nobody has revealed', () => {
+    expect(why(45.5, withGround())).toContain(OUTSIDE_MAP)
+  })
+
+  it('never overrides a room rule: an unseen room stays unseen even if its cells are on', () => {
+    // The whole map remembered, room record untouched. A room is still judged as a room —
+    // otherwise a DM brush over a boss chamber would hand the party the floor of it.
+    const everywhere: SceneVision = { ...scene, openGround: () => true }
+    expect(why(25.5, everywhere)).toContain(ROOM_UNEXPLORED)
+    expect(why(1.5, everywhere)).toBeNull()
+  })
+
+  it('leaves rooms mode alone — no openGround, D6 as it was', () => {
+    expect(why(35.5, scene)).toContain(OUTSIDE_MAP)
+  })
+})

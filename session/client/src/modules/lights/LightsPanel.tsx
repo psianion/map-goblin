@@ -38,7 +38,12 @@ registerPanel({
   id: 'lights',
   title: 'Lights',
   icon: 'lights',
-  key: 'L',
+  // No letter. `L` belongs to the Log (registered a release earlier, in every role, and shown
+  // as a `kbd` on the drawer's own close button) — this panel silently ate it for the DM
+  // because it sorts first, which is what `assertNoKeyCollisions` in `hotkeys.ts` now catches.
+  // Nothing in "Lights" is free (I/G/H/T/S are all taken) and an unrelated letter is worse
+  // than none: the panel is a rail click away, and the lights it edits are clicked on the map.
+  key: '',
   group: 'play',
   roles: ['dm'],
   order: 35,

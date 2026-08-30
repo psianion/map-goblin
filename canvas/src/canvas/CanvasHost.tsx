@@ -97,6 +97,11 @@ export function CanvasHost() {
           store.setManifest(merged);
         }
 
+        // Catalog is live now — resolve any "Asset" names a map that loaded
+        // before this point couldn't (loadFromFile runs the same shim for
+        // the opposite ordering).
+        store.applyAssetNameShim();
+
         // Fire checkForUpdates in background — don't block boot
         packManager.checkForUpdates().then((updates) => {
           if (!destroyed && updates.length > 0) {

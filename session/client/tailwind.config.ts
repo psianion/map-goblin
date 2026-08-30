@@ -95,6 +95,9 @@ export default {
         toolbar: '20',
         banner: '30',
         toast: '40',
+        // table-shell-redesign — the left sidebar in overlay mode (narrow viewport) sits
+        // above its own scrim (`banner`), same as the approved mockup's `--z-banner + 1`.
+        'sidebar-overlay': '31',
       },
       boxShadow: {
         panel: 'var(--panel-shadow)',

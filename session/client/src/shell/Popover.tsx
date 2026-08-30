@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { resolvePanelTitle, usePanel } from '../session/panels';
 import { useRole, useSessionStore } from '../session/store';
-import { useShell } from './shellStore';
+import { useOverlayMode, useShell } from './shellStore';
 import { railRefs } from './railRefs';
 import { Icon } from './icons';
 
@@ -16,6 +16,8 @@ const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabi
 export function Popover() {
   const openPanel = useShell((s) => s.openPanel);
   const closePanel = useShell((s) => s.closePanel);
+  const sidebarOpen = useShell((s) => s.sidebarOpen);
+  const overlay = useOverlayMode();
   const role = useRole();
   // Broad on purpose: keeps a live `title`/`subtitle` function fresh whenever anything
   // server-driven changes, without a bespoke subscription per panel (see Rail's own).
@@ -135,10 +137,13 @@ export function Popover() {
       aria-labelledby={titleId}
       onPointerDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
-      className={`absolute z-toolbar flex flex-col overflow-hidden rounded-lg border border-border-structure bg-surface-1 shadow-panel motion-safe:animate-panel-in ${anchorKind === 'status-left' ? '' : 'right-[66px]'}`}
+      className={`absolute z-toolbar flex flex-col overflow-hidden rounded-lg border border-border-structure bg-surface-1 shadow-panel motion-safe:animate-panel-in ${anchorKind === 'status-left' ? 'transition-[left] duration-200 ease-settle motion-reduce:transition-none' : 'right-[66px]'}`}
       style={
         anchorKind === 'status-left'
-          ? { width, left: 12, bottom: 40 }
+          ? // table-shell-redesign D1: clears the inset-mode sidebar (12px past it), same as
+            // the status bar/ticker it sits beside. An overlay-mode sidebar floats above
+            // everything instead, so nothing to clear there.
+            { width, left: sidebarOpen && !overlay ? 312 : 12, bottom: 40 }
           : { width, top, maxHeight: `calc(100vh - ${top + 12}px)` }
       }
     >

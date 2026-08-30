@@ -121,6 +121,12 @@ export interface LayerChild {
   visible: boolean;
   mask?: MaskData;
   /**
+   * Membership in a `DungeonLayer.groups` entry. Grouping is metadata plus
+   * selection fan-out — there is no group child — so every consumer that walks
+   * `children` keeps working and only the panel and selection read this.
+   */
+  groupId?: string;
+  /**
    * Per-shape style overrides. Omitted fields inherit from layer.style.
    * Typed as Record<string, unknown> to avoid circular dep with store/types.ts.
    * Cast to Partial<DungeonStyle> in engine/store consumer code.

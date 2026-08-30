@@ -45,7 +45,7 @@ class TestResizeObserver {
 
 beforeEach(() => {
   cleanup();
-  useShell.setState({ openPanel: null });
+  useShell.setState({ openPanel: null, sidebarOpen: false });
   useSessionStore.setState({ you: dm, session: null });
   registerPanel({
     id: 'pt-panel',
@@ -231,6 +231,22 @@ describe('Popover', () => {
       expect(pop.style.left).toBe('12px');
       expect(pop.style.bottom).toBe('40px');
       expect(pop.style.top).toBe('');
+    });
+
+    // table-shell-redesign D1: clears an open, inset-mode sidebar.
+    it('shifts right of an inset-mode sidebar, not an overlay-mode one', () => {
+      useShell.setState({ openPanel: 'pt-status-left', sidebarOpen: true });
+      render(<Popover />);
+      expect(screen.getByTestId('popover').style.left).toBe('312px');
+      cleanup();
+
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        value: () => ({ matches: true, media: '', addEventListener() {}, removeEventListener() {} }),
+      });
+      render(<Popover />);
+      expect(screen.getByTestId('popover').style.left).toBe('12px');
+      Reflect.deleteProperty(window, 'matchMedia');
     });
 
     it('returns focus to the scene-name button on close, not a rail icon', () => {

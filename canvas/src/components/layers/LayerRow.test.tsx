@@ -6,17 +6,37 @@ import { LayerRow } from './LayerRow'
 import { useStore } from '@/store/store'
 import { undoManager } from '@/store/undoManager'
 import { createDungeonLayer } from '@/store/factories'
-import type { DungeonLayer, Layer } from '@/store/types'
+import type { AssetChild, DungeonLayer, Layer } from '@/store/types'
 
 function dungeonLayers(): DungeonLayer[] {
   return useStore.getState().layers.filter((l): l is DungeonLayer => l.type === 'dungeon')
 }
 
-function renderRow(layer: Layer) {
+function asset(id: string, groupId?: string): AssetChild {
+  return {
+    id,
+    name: id,
+    childType: 'asset',
+    visible: true,
+    objectType: 'asset',
+    assetId: 'tree-a',
+    position: { x: 0, y: 0 },
+    rotation: 0,
+    scale: 1,
+    width: 1,
+    height: 1,
+    tint: '#ffffff',
+    flipX: false,
+    flipY: false,
+    ...(groupId ? { groupId } : {}),
+  }
+}
+
+function renderRow(layer: Layer, filter = '') {
   return render(
     <DndContext>
       <SortableContext items={[layer.id]}>
-        <LayerRow layer={layer} isActive={false} />
+        <LayerRow layer={layer} isActive={false} filter={filter} />
       </SortableContext>
     </DndContext>,
   )
@@ -257,8 +277,8 @@ describe('LayerRow — row keyboard contract (K1)', () => {
   })
 
   // M3 (APG treeview contract): ArrowLeft on a child moves focus up to its
-  // parent layer row.
-  it('ArrowLeft on an expanded child row moves focus to the parent layer row', () => {
+  // parent — since tree-v2 grouping, that's the type-group header.
+  it('ArrowLeft on an expanded child row moves focus to its group header', () => {
     const layer = createDungeonLayer('Layer 2')
     layer.children = [{
       id: 'c1', name: 'c1', childType: 'shape', visible: true, geometry: [], style: {} as never,
@@ -271,7 +291,7 @@ describe('LayerRow — row keyboard contract (K1)', () => {
     const childRow = screen.getByTestId('child-row')
     fireEvent.keyDown(childRow, { key: 'ArrowLeft' })
 
-    expect(document.activeElement).toBe(row)
+    expect(document.activeElement).toBe(screen.getByTestId('child-group-header'))
   })
 })
 
@@ -360,5 +380,37 @@ describe('LayerRow — rename via context menu focus race (H1)', () => {
     fireEvent.keyDown(input, { key: 'Escape' })
 
     expect(document.activeElement).toBe(row)
+  })
+})
+
+// The badge used to count only children whose OWN name matched, so filtering
+// by a group's name showed the whole folder while the badge read 0 / N.
+describe('LayerRow — filter count badge', () => {
+  beforeEach(() => {
+    undoManager.clear()
+    useStore.getState().resetToDefault()
+  })
+
+  function layerWithGroup(): DungeonLayer {
+    const layer = createDungeonLayer('Layer 1')
+    layer.children = [asset('a', 'g1'), asset('b', 'g1'), asset('loose')]
+    layer.groups = [{ id: 'g1', name: 'Ambush Cluster', merged: false }]
+    useStore.getState().addLayer(layer)
+    return useStore.getState().layers.find((l) => l.id === layer.id) as DungeonLayer
+  }
+
+  it('counts children revealed by their group name', () => {
+    renderRow(layerWithGroup(), 'ambush')
+    expect(screen.getByText('2 / 3')).toBeTruthy()
+  })
+
+  it('still counts children matched by their own name', () => {
+    renderRow(layerWithGroup(), 'loose')
+    expect(screen.getByText('1 / 3')).toBeTruthy()
+  })
+
+  it('shows the plain total with no filter', () => {
+    renderRow(layerWithGroup())
+    expect(screen.getByText('3')).toBeTruthy()
   })
 })

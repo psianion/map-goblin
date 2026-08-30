@@ -13,6 +13,7 @@ import { snapshotChild, transformChild } from '@dnd/core/src/engine/tools/childT
 import { translateTangents } from '@dnd/core/src/shared/bezier';
 import { togglePopoverRef } from '@/components/toolbar/toolConstants';
 import { zoomToFitRef } from '@/components/toolbar/zoomToFitRef';
+import { groupSelection, selectionGroup, ungroupSelection } from '@/canvas/groupActions';
 
 /** Set by App.tsx so the shortcut system can trigger the file picker */
 export const importImageRef: { current: (() => void) | null } = { current: null };
@@ -520,6 +521,15 @@ const toolKeyMap: Record<string, () => void | false> = {
     store.setSelectedIds(newIds);
     notify.subtle(cmds.length === 1 ? 'Duplicated' : `Duplicated ${cmds.length} items`, { icon: 'copy' });
   },
+  // No canGroupSelection() gate: groupSelection warns with the specific reason
+  // when it refuses, and a silently swallowed Ctrl+G is the bug.
+  'ctrl+g': (): void => {
+    groupSelection();
+  },
+  'ctrl+shift+g': (): void | false => {
+    if (!selectionGroup()) return false;
+    ungroupSelection();
+  },
   'shift+h': () => flipSelection('h'),
   'shift+v': () => flipSelection('v'),
   'arrowleft': () => nudgeSelection(-1, 0),
@@ -712,6 +722,8 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'edit.cut',            keys: 'ctrl+x',      category: 'Edit',  label: 'Cut' },
     { id: 'edit.delete',         keys: 'Delete',      category: 'Edit',  label: 'Delete' },
     { id: 'edit.duplicate',      keys: 'ctrl+d',      category: 'Edit',  label: 'Duplicate' },
+    { id: 'edit.group',          keys: 'ctrl+g',      category: 'Edit',  label: 'Group Selection' },
+    { id: 'edit.ungroup',        keys: 'ctrl+shift+g', category: 'Edit', label: 'Ungroup' },
     { id: 'edit.flipH',          keys: 'shift+h',     category: 'Edit',  label: 'Flip Horizontal' },
     { id: 'edit.flipV',          keys: 'shift+v',     category: 'Edit',  label: 'Flip Vertical' },
     { id: 'edit.nudge',          keys: 'ArrowLeft',   category: 'Edit',  label: 'Nudge 1 square (arrows)' },

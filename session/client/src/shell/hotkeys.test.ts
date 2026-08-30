@@ -8,7 +8,7 @@ import { registerPanel } from '../session/panels';
 import { useSessionStore } from '../session/store';
 import { useActiveTool } from '../session/tools';
 import { useShell } from './shellStore';
-import { useHotkeys } from './hotkeys';
+import { keyClaims, useHotkeys } from './hotkeys';
 
 const dm: PlayerInfo = { identityId: 'd', name: 'DM', role: 'dm', connected: true };
 const player: PlayerInfo = { identityId: 'p', name: 'Player', role: 'player', connected: true };
@@ -59,7 +59,8 @@ beforeEach(() => {
     roles: ['dm', 'player'],
     component: stub,
   });
-  useShell.setState({ openPanel: null, drawerOpen: false, diagnostics: false });
+  useShell.setState({ openPanel: null, drawerOpen: false, diagnostics: false, sidebarOpen: false });
+  Reflect.deleteProperty(window, 'matchMedia');
   useSessionStore.setState({ you: dm });
   useActiveTool.getState().setActiveTool(null);
   useDoorSelection.setState({ selectedId: null, filter: '' });
@@ -102,6 +103,49 @@ describe('shell hotkeys', () => {
     expect(useShell.getState().diagnostics).toBe(true);
     fireEvent.keyDown(window, { key: 'D', shiftKey: true });
     expect(useShell.getState().diagnostics).toBe(false);
+  });
+
+  // table-shell-redesign D1/D4: G is freed from the retired triggers popover for the sidebar.
+  it('G toggles the sidebar, for either role', () => {
+    renderHook(() => useHotkeys());
+    fireEvent.keyDown(window, { key: 'g' });
+    expect(useShell.getState().sidebarOpen).toBe(true);
+    fireEvent.keyDown(window, { key: 'g' });
+    expect(useShell.getState().sidebarOpen).toBe(false);
+
+    useSessionStore.setState({ you: player });
+    fireEvent.keyDown(window, { key: 'g' });
+    expect(useShell.getState().sidebarOpen).toBe(true);
+  });
+
+  // table-shell-redesign D1: Esc closes the sidebar only in overlay mode (narrow viewport),
+  // where it floats over the map behind a scrim like a modal — and only after the popover.
+  it('Esc closes an overlay-mode sidebar, right after the popover and before the drawer', () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {} }),
+    });
+    useShell.setState({ openPanel: 'hk-panel', drawerOpen: true, sidebarOpen: true });
+    renderHook(() => useHotkeys());
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useShell.getState().openPanel).toBeNull();
+    expect(useShell.getState().sidebarOpen).toBe(true);
+    expect(useShell.getState().drawerOpen).toBe(true);
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useShell.getState().sidebarOpen).toBe(false);
+    expect(useShell.getState().drawerOpen).toBe(true);
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useShell.getState().drawerOpen).toBe(false);
+  });
+
+  it('Esc leaves an inset-mode (wide viewport) sidebar open — it is not modal there', () => {
+    useShell.setState({ sidebarOpen: true, drawerOpen: false });
+    renderHook(() => useHotkeys());
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useShell.getState().sidebarOpen).toBe(true);
   });
 
   it('Esc order: closes an open popover first, only disarms the tool on the next press', () => {
@@ -261,6 +305,47 @@ describe('shell hotkeys', () => {
       expect(input.focus).toHaveBeenCalled();
 
       document.body.removeChild(input.closest('[data-testid="log-drawer"]')!);
+    });
+  });
+
+  // The Lights panel silently ate the Log's `L` for a whole release: two claims, first one
+  // wins, no complaint anywhere. `useHotkeys` shouts about that in dev now; this covers the
+  // reading it shouts from.
+  describe('key claims', () => {
+    it('lists one claimant per key when the registry is clean', () => {
+      const claims = keyClaims('dm');
+      expect(claims.get('k')).toEqual(['panel:hk-panel']);
+      expect(claims.get('l')).toEqual(['panel:hk-log']);
+      expect([...claims.values()].every((by) => by.length === 1)).toBe(true);
+    });
+
+    it('names both claimants when a panel squats a key another already has', () => {
+      registerPanel({
+        id: 'hk-squatter',
+        title: 'Squatter',
+        icon: 'fog',
+        key: 'L',
+        group: 'play',
+        order: 0, // sorts ahead of hk-log, so hk-log's own L would never run
+        roles: ['dm'],
+        component: stub,
+      });
+      expect(keyClaims('dm').get('l')).toEqual(['panel:hk-squatter', 'panel:hk-log']);
+      expect(keyClaims('player').get('l')).toEqual(['panel:hk-log']); // not this role's problem
+    });
+
+    it('catches a panel squatting one of the shell own fixed keys', () => {
+      registerPanel({
+        id: 'hk-g',
+        title: 'G',
+        icon: 'fog',
+        key: 'G', // the sidebar toggle — a fixed binding, resolved before any panel
+        group: 'play',
+        order: 3,
+        roles: ['dm'],
+        component: stub,
+      });
+      expect(keyClaims('dm').get('g')).toEqual(['shell:g', 'panel:hk-g']);
     });
   });
 });

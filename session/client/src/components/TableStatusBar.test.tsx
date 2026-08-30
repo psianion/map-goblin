@@ -42,7 +42,7 @@ beforeEach(() => {
   cleanup();
   useStore.setState({ mapSettings: { ...useStore.getState().mapSettings, environment: 'outdoor' } });
   useSessionStore.setState({ connection: 'closed', latencyMs: null, sessionEnded: false, you: null });
-  useShell.setState({ openPanel: null, drawerOpen: false, diagnostics: false });
+  useShell.setState({ openPanel: null, drawerOpen: false, diagnostics: false, sidebarOpen: false });
   useActiveTool.getState().setActiveTool(null);
 });
 
@@ -153,6 +153,27 @@ describe('TableStatusBar — M1 shell', () => {
     const tool = screen.getByTestId('active-tool');
     expect(tool.textContent).toContain('Fog');
     expect(tool.textContent).toContain('Esc');
+    // table-shell-redesign D3 — the QA-finding fix: a visible chip, not plain inline text.
+    expect(tool.className).toContain('rounded-full');
+    expect(tool.className).toContain('border');
+    expect(tool.className).toContain('text-accent-active');
+  });
+
+  // table-shell-redesign D1: clears the inset-mode sidebar; stays put for an overlay one.
+  it('insets left of an open, inset-mode sidebar, not an overlay-mode one', () => {
+    useSessionStore.setState({ session: session({}) });
+    useShell.setState({ sidebarOpen: true });
+    render(<TableStatusBar />);
+    expect(screen.getByTestId('table-status-bar').className).toContain('left-[300px]');
+
+    cleanup();
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: () => ({ matches: true, media: '', addEventListener() {}, removeEventListener() {} }),
+    });
+    render(<TableStatusBar />);
+    expect(screen.getByTestId('table-status-bar').className).toContain('left-0');
+    Reflect.deleteProperty(window, 'matchMedia');
   });
 
   it('reads connection as a shape, not a colour', () => {

@@ -3,7 +3,7 @@ import type { DrawingTool, PreviewShape } from './DrawingTool';
 import type { Point } from '../../types/geometry';
 import type { AssetChild, DungeonLayer, ScatterBrushSettings } from '../../store/types';
 import { useStore } from '../../store/store';
-import { getCatalogEntry, GRID_CELL_PX } from '../../assets/packCatalog';
+import { getCatalogEntry, nextAssetName, GRID_CELL_PX } from '../../assets/packCatalog';
 import { resolveTexture } from '../../assets/textureLoader';
 import { poissonDiskSample } from '../../geometry/poissonDisk';
 import { mulberry32, hashPosition } from '../../geometry/seededRng';
@@ -293,10 +293,15 @@ export class StampScatterTool implements DrawingTool {
 
     if (this.pendingPlacements.length === 0) return;
 
+    // Names come from the catalog label with a max-suffix counter; the
+    // accumulator keeps a multi-placement scatter from reusing one name.
+    const takenNames = layer.children.map((c) => c.name);
     const commands = this.pendingPlacements.map((p) => {
+      const name = nextAssetName(p.assetId, takenNames);
+      takenNames.push(name);
       const child: AssetChild = {
         id: crypto.randomUUID(),
-        name: 'Asset',
+        name,
         childType: 'asset',
         visible: true,
         objectType: 'asset',

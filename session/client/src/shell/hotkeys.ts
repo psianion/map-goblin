@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import type { Role } from '@dnd/core/src/shared/protocol';
 import type { InitiativeState } from '@dnd/mechanics/initiative';
 import { armFogBrush, armFogHide, armFogReveal } from '../modules/fog/brush';
 import { useDoorSelection } from '../modules/doors/selection';
@@ -6,7 +7,7 @@ import { useTokenInteraction } from '../modules/tokens/drag';
 import { panelsForRole } from '../session/panels';
 import { useSessionStore } from '../session/store';
 import { useActiveTool } from '../session/tools';
-import { useShell } from './shellStore';
+import { isOverlayViewport, useShell } from './shellStore';
 
 /** Keys belong to whoever is typing, not to the shell. Same guard as `cameraInput.ts`'s. */
 const isTyping = (t: EventTarget | null): boolean =>
@@ -66,19 +67,29 @@ const BINDINGS: Binding[] = [
   { key: 'b', run: () => dmOnly(armFogBrush) },
   { key: 'n', run: nextTurn },
   { key: '/', run: focusComposer },
+  // table-shell-redesign D1/D4 — freed from the (now-retired) triggers popover; both roles
+  // get the sidebar, so this is unconditional, unlike the DM-only fog keys above.
+  { key: 'g', run: () => useShell.getState().toggleSidebar() },
 ];
 
-/** Esc order: close an open popover; else close the drawer; else clear an on-map selection
- *  (door, then token); else disarm the active tool. One listener owns the whole thing (M3
- *  review finding 12) — neither on-map menu keeps its own window Escape handler anymore, so a
- *  single press never does two of these at once (close the popover *and* drop the selection
- *  it was showing). The drawer sits between the popover and the selections (finding 18): it
- *  has its own `Escape` guarantee too (`Popover`'s dialog gets one; the drawer is not a
- *  dialog, so this listener is the only thing that closes it on Esc). */
+/** Esc order: close an open popover; else close an overlay-mode sidebar (table-shell-redesign
+ *  — narrow viewport only, where the sidebar floats over the map behind a scrim and behaves
+ *  like a modal); else close the drawer; else clear an on-map selection (door, then token);
+ *  else disarm the active tool. One listener owns the whole thing (M3 review finding 12) —
+ *  neither on-map menu keeps its own window Escape handler anymore, so a single press never
+ *  does two of these at once (close the popover *and* drop the selection it was showing). The
+ *  drawer sits between the popover and the selections (finding 18): it has its own `Escape`
+ *  guarantee too (`Popover`'s dialog gets one; the drawer is not a dialog, so this listener is
+ *  the only thing that closes it on Esc). An inset-mode sidebar is not modal — Esc leaves it
+ *  open there, same as it leaves any other docked panel alone. */
 function onEscape(): void {
   const shell = useShell.getState();
   if (shell.openPanel) {
     shell.closePanel();
+    return;
+  }
+  if (shell.sidebarOpen && isOverlayViewport()) {
+    shell.setSidebar(false);
     return;
   }
   if (shell.drawerOpen) {
@@ -139,9 +150,42 @@ function onKeyDown(e: KeyboardEvent): void {
   }
 }
 
+/**
+ * Every key this shell answers to, per role, and who claims it. `onKeyDown` resolves a press
+ * in this order — fixed binding first, then the role's panels in registry order — so a second
+ * claim on a letter is not an error anywhere, it is simply never reached. That is how the Log
+ * lost `L` to the Lights panel for a whole release: both registered it, Lights sorts first,
+ * and nothing said a word. Exported for the collision test.
+ */
+export function keyClaims(role: Role): Map<string, string[]> {
+  const claims = new Map<string, string[]>();
+  const claim = (key: string, by: string): void => {
+    if (!key) return;
+    const k = key.toLowerCase();
+    claims.set(k, [...(claims.get(k) ?? []), by]);
+  };
+  for (const b of BINDINGS) claim(b.shift ? `shift+${b.key}` : b.key, `shell:${b.key}`);
+  for (const p of panelsForRole(role)) claim(p.key, `panel:${p.id}`);
+  return claims;
+}
+
+/** Dev-time only: shout about a key two things claim, since the loser is silently dead. */
+function assertNoKeyCollisions(): void {
+  for (const role of ['dm', 'player'] as const) {
+    for (const [key, by] of keyClaims(role)) {
+      if (by.length > 1) {
+        console.error(
+          `[hotkeys] '${key}' is claimed by ${by.join(' and ')} for a ${role} — only ${by[0]} will ever run it.`,
+        );
+      }
+    }
+  }
+}
+
 /** One listener for the whole shell, mounted once from `GameTable`. */
 export function useHotkeys(): void {
   useEffect(() => {
+    if (import.meta.env.DEV) assertNoKeyCollisions();
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);

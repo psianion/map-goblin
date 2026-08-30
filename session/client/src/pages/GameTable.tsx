@@ -14,9 +14,11 @@ import { PartyStrip } from '../shell/PartyStrip';
 import { Popover } from '../shell/Popover';
 import { Rail } from '../shell/Rail';
 import { RollBar } from '../shell/RollBar';
+import { Sidebar } from '../shell/Sidebar';
 import { Ticker } from '../shell/Ticker';
 import { TurnPill } from '../shell/TurnPill';
 import { useHotkeys } from '../shell/hotkeys';
+import { useOverlayMode, useShell } from '../shell/shellStore';
 import { usePanels } from '../session/panels';
 import { resumeSeat, useRole } from '../session/store';
 import { useTriggerToasts } from '../session/useTriggerToasts';
@@ -70,15 +72,28 @@ export default function GameTable() {
     return () => downs.forEach((d) => d());
   }, [panels]);
 
-  // One shell-wide keydown listener (panel letters, L, Shift+D, Esc order) — see hotkeys.ts.
+  // One shell-wide keydown listener (panel letters, G, L, Shift+D, Esc order) — see hotkeys.ts.
   useHotkeys();
+
+  // table-shell-redesign D1/D2 — the renderer's inset grows on both sides now: left when the
+  // sidebar insets (never in overlay mode, where it floats over the map instead), right when
+  // the log drawer opens (it moved from a bottom drawer to a column left of the rail, D2).
+  const sidebarOpen = useShell((s) => s.sidebarOpen);
+  const drawerOpen = useShell((s) => s.drawerOpen);
+  const overlay = useOverlayMode();
+  const leftInset = sidebarOpen && !overlay;
 
   return (
     <div data-page="table" className="relative h-full bg-surface-0 text-text-primary">
       <main className="relative h-full">
-        {/* Inset by the rail's own width so the renderer's true pixel size — and therefore
-            fit-to-screen — matches what is actually visible beside the rail (D9). */}
-        <div className="absolute inset-0 right-14">
+        {/* Inset by the rail's own width (and the sidebar/drawer, when open) so the
+            renderer's true pixel size — and therefore fit-to-screen — matches what is
+            actually visible (D9). */}
+        <div
+          className={`absolute inset-0 transition-[left,right] duration-200 ease-settle motion-reduce:transition-none ${
+            leftInset ? 'left-[300px]' : 'left-0'
+          } ${drawerOpen ? 'right-[356px]' : 'right-14'}`}
+        >
           <GameRenderer />
         </div>
 
@@ -97,6 +112,7 @@ export default function GameTable() {
         <DoorMenu />
         <TokenMenu />
         <LightPopover />
+        <Sidebar />
         <Rail />
         <Popover />
         <ToastHost />

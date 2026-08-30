@@ -783,3 +783,68 @@ describe('redact under token vision (S3 P1)', () => {
     ])
   })
 })
+
+describe('spawn (internal, prep v2 encounters)', () => {
+  /** The server's own call site — direct handler invocation, the way dispatchInternal runs it. */
+  function spawnInternal(state: TokensState, payload: unknown) {
+    let next = state
+    const error = tokensModule.handler('spawn', payload, {
+      campaignId: 'c-1',
+      sessionId: 's-1',
+      activeSceneId: SCENE,
+      sender: P1, // the cascade runs under whoever moved the token — must not matter
+      players: ROSTER,
+      state,
+      setState: (s) => {
+        next = s
+      },
+      broadcast: () => {},
+    })
+    return { error: error ?? null, next }
+  }
+
+  it('is not a wire command for any role', () => {
+    for (const sender of [DM, P1]) {
+      expect(run(stateWith(), sender, 'spawn', { tokens: [] }).error).toMatchObject({
+        code: 'invalid-command',
+      })
+    }
+  })
+
+  it('materializes hostile, unowned, visible tokens with the caller-minted ids', () => {
+    const { error, next } = spawnInternal(stateWith(), {
+      sceneId: SCENE,
+      tokens: [
+        { id: 'etok1', name: 'Goblin 1', x: 3.2, y: 4.1 },
+        { id: 'etok2', name: 'Warg', x: 5, y: 5, size: 'large', packAsset: { packId: 'gg-monsters', assetId: 'warg' } },
+      ],
+    })
+    expect(error).toBeNull()
+    const placed = next.byScene[SCENE]
+    expect(Object.keys(placed)).toEqual(['etok1', 'etok2'])
+    expect(placed.etok1).toMatchObject({
+      name: 'Goblin 1',
+      disposition: 'hostile',
+      hidden: false,
+      ownerId: null,
+      defId: null,
+      size: 'medium',
+      // medium snaps to the cell centre
+      x: 3.5,
+      y: 4.5,
+    })
+    expect(placed.etok2.packAsset).toEqual({ packId: 'gg-monsters', assetId: 'warg' })
+  })
+
+  it('clamps at the scene cap instead of refusing the cascade', () => {
+    const full = stateWith(
+      ...Array.from({ length: 500 }, (_, i) => token({ id: `t${i}`, x: i, y: 0 })),
+    )
+    const { error, next } = spawnInternal(full, {
+      sceneId: SCENE,
+      tokens: [{ id: 'etok1', name: 'Goblin', x: 0, y: 0 }],
+    })
+    expect(error).toBeNull()
+    expect(next.byScene[SCENE].etok1).toBeUndefined()
+  })
+})

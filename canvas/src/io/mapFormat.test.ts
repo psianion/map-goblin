@@ -82,7 +82,8 @@ describe('mapFormat', () => {
         } as unknown as SerializedMapData['layers'][number],
       ],
       prep: {
-        version: 1,
+        version: 2,
+        notes: [],
         triggers: [
           {
             id: 't1',

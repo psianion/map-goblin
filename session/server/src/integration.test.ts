@@ -1354,8 +1354,8 @@ const VISION_MAP = readFileSync(
 )
 
 /** A DM and one player seated on the two-room sight fixture. */
-async function twoRooms(server: RunningServer, name: string) {
-  table(server, name, VISION_MAP)
+async function twoRooms(server: RunningServer, name: string, mapJson: string = VISION_MAP) {
+  table(server, name, mapJson)
   const seats = await seatTable(server, name, 1)
   return { sceneId: `${name}-map`, ...seats, player: seats.players[0] }
 }
@@ -1442,7 +1442,19 @@ describe('token redaction by vision on the wire (§2.6, S3 P1)', () => {
 
   it('keeps a shut door between the party and a token in a room the DM has lit', async () => {
     await withServer({}, async (server) => {
-      const { sceneId, dm, player } = await twoRooms(server, 'TW')
+      // This row is about `wall-mid`'s own door, not FIX §1's floor-ring occlusion — but the
+      // fixture's `floor-west`/`floor-east` shapes now heal into `mergedFloor` rings too, and
+      // their edges sit either side of the two-cell void `wall-mid` bridges. A door only ever
+      // punches through the wall it is bound to, never a floor ring it merely stands near, so
+      // left in, those rings would block the doorway even open. `mergedFloor: []` (not null)
+      // opts this scene out of the heal — `healMergedFloor` only ever fills a *null* field —
+      // while leaving the shapes themselves in place for `computeMapFrame`, so this keeps
+      // testing what it always has; `vision-mode.test.ts`'s floor-rings-only block covers the
+      // ring-occlusion case this map was never built to exercise.
+      const noFloor = JSON.parse(VISION_MAP) as SerializedMapData
+      const layer = noFloor.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!
+      layer.mergedFloor = []
+      const { sceneId, dm, player } = await twoRooms(server, 'TW', JSON.stringify(noFloor))
       const frames = rawFrames(player)
 
       for (const [action, payload] of [

@@ -17,6 +17,8 @@ interface TextPropertiesProps {
   onDeselect?: () => void
   openSections?: Set<string>
   onToggleSection?: (id: string) => void
+  /** Owning layer is locked or hidden — inspect, don't edit. */
+  disabled?: boolean
 }
 
 const MIN_SIZE = 0.2
@@ -27,6 +29,7 @@ export function TextProperties({
   onDeselect,
   openSections,
   onToggleSection,
+  disabled,
 }: TextPropertiesProps) {
   const updateChild = useStore((s) => s.updateChild)
   const parentLayer = useStore((s) => selectLayerForChild(s, label.id))
@@ -77,6 +80,10 @@ export function TextProperties({
         ) : undefined
       }
     >
+      {/* Native lock: a disabled fieldset disables every control beneath it.
+          `contents` keeps it out of the layout, and the section header stays
+          outside so a locked label is still inspectable. */}
+      <fieldset disabled={disabled} className="contents">
       <div className="flex flex-col gap-2 pt-2">
         <PropertyField label="Text">
           <textarea
@@ -121,6 +128,7 @@ export function TextProperties({
           />
         </PropertyField>
       </div>
+      </fieldset>
     </CollapsibleSection>
   )
 }

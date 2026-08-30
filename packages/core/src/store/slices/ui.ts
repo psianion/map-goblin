@@ -10,6 +10,9 @@ export interface UIActions {
   setClipperReady: (ready: boolean) => void;
   setFocusMode: (mode: UISlice['focusMode']) => void;
   setHighlightedRoomId: (roomId: string | null) => void;
+  toggleChildGroup: (key: string) => void;
+  setPanelHoverChildId: (id: string | null) => void;
+  setRevealChildId: (id: string | null) => void;
   toggleSoloLayer: (id: string) => void;
   clearSolo: () => void;
   setPreviewClock: (minutes: number | null) => void;
@@ -59,6 +62,30 @@ export const createUISlice: StateCreator<
   setHighlightedRoomId: (roomId) =>
     set((state) => {
       state.ui.highlightedRoomId = roomId;
+    }),
+  // Layer-panel child groups ("layerId:childType"). The set stores
+  // DEVIATIONS from each type's default (assets start collapsed, everything
+  // else expanded — see isChildGroupExpanded in store/selectors.ts), so an
+  // untouched map always gets the defaults.
+  toggleChildGroup: (key) =>
+    set((state) => {
+      const idx = state.ui.childGroupOverrides.indexOf(key);
+      if (idx >= 0) state.ui.childGroupOverrides.splice(idx, 1);
+      else state.ui.childGroupOverrides.push(key);
+    }),
+  // Layer-panel row hover → canvas outline (childHoverHighlight). Separate
+  // from selection.hoveredId on purpose: that one is the canvas pointer's
+  // hover, already drawn by SelectTool — sharing it would double-draw.
+  setPanelHoverChildId: (id) =>
+    set((state) => {
+      state.ui.panelHoverChildId = id;
+    }),
+  // One-shot "scroll this row into view" marker, consumed (and cleared) by
+  // whichever layer-panel list ends up rendering the row. Same tier as solo:
+  // view convenience, never undoable, never serialized.
+  setRevealChildId: (id) =>
+    set((state) => {
+      state.ui.revealChildId = id;
     }),
   // Direct state mutation, same tier as setActiveLayerId — not routed through
   // undoManager. Soloing is a view convenience (like expanding a layer row),

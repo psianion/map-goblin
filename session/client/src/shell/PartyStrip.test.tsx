@@ -5,6 +5,7 @@ import type { Token, TokensState } from '@dnd/mechanics/tokens';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSessionStore } from '../session/store';
+import { useShell } from './shellStore';
 
 vi.mock('../renderer/camera', () => ({ frameWorldPoint: vi.fn() }));
 import { frameWorldPoint } from '../renderer/camera';
@@ -49,9 +50,13 @@ const tokensState = (byId: Record<string, Token>): TokensState => ({
 
 beforeEach(() => {
   useSessionStore.setState({ session: null, presence: [], mapData: null, you: null });
+  useShell.setState({ sidebarOpen: false });
   vi.mocked(frameWorldPoint).mockClear();
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  Reflect.deleteProperty(window, 'matchMedia');
+});
 
 describe('PartyStrip — idle', () => {
   it('renders nothing with no tokens on the scene', () => {
@@ -81,6 +86,21 @@ describe('PartyStrip — idle', () => {
     expect(screen.queryByTestId('party-disc-free-3')).toBeNull();
     expect(screen.queryByTestId('party-disc-foe')).toBeNull();
     expect(screen.getByTestId('party-disc-overflow').textContent).toContain('+2');
+  });
+
+  // table-shell-redesign D1/D5: clears the sidebar's edge toggle even when closed, and insets
+  // further once an inset-mode sidebar is open (never an overlay-mode one).
+  it('reserves room for the sidebar edge toggle, and insets when the sidebar is open', () => {
+    useSessionStore.setState({
+      session: session({ tokens: tokensState({ w: mkToken('w') }) }),
+    });
+    render(<PartyStrip />);
+    expect(screen.getByTestId('party-strip').className).toContain('left-[52px]');
+
+    cleanup();
+    useShell.setState({ sidebarOpen: true });
+    render(<PartyStrip />);
+    expect(screen.getByTestId('party-strip').className).toContain('left-[352px]');
   });
 
   it('falls back to initials when a token has no portrait', () => {

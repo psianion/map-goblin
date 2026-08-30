@@ -26,7 +26,9 @@ import {
 import type { TriggerDeps } from '@dnd/mechanics/triggers'
 import type { Vision } from './fog/vision'
 import { parseMapFile, unwrapMapFile } from './mapImport'
-import type { ScenePrep, SerializedMapData } from '@dnd/core/src/store/types'
+import type { ScenePrep, ScenePrepV1, SerializedMapData } from '@dnd/core/src/store/types'
+// D3 — the value comes through mechanics (pure), never a runtime @dnd/core import.
+import { journalOf, normalizePrep, type TriggersState } from '@dnd/mechanics/triggers'
 import type { ModuleRegistry } from './modules/registry'
 import type { SessionManager } from './ws/SessionManager'
 
@@ -485,7 +487,15 @@ function getScenePrep(deps: HttpDeps, req: IncomingMessage, res: ServerResponse,
   const resolved = (resolvedPrep?.triggers ?? []).map((t) =>
     t.inert ? { id: t.def.id, inert: t.inert } : { id: t.def.id },
   )
-  json(res, 200, { prep: scene.prep ? (JSON.parse(scene.prep) as ScenePrep) : null, resolved })
+  const resolvedNotes = (resolvedPrep?.notes ?? []).map((n) =>
+    n.inert ? { id: n.note.id, inert: n.inert } : { id: n.note.id },
+  )
+  json(res, 200, {
+    // Normalized on the way out — stored blobs may still be v1, clients only see v2.
+    prep: scene.prep ? normalizePrep(JSON.parse(scene.prep) as ScenePrep | ScenePrepV1) : null,
+    resolved,
+    resolvedNotes,
+  })
 }
 
 /**
@@ -510,20 +520,26 @@ async function putScenePrep(
 
   const body = await readJson(req, res)
   if (!body) return
-  if (!isScenePrep(body)) return json(res, 400, { error: 'prep must be {version: 1, triggers: [...]}' })
+  if (!isScenePrep(body)) {
+    return json(res, 400, { error: 'prep must be {version: 2, triggers: [...], notes: [...]}' })
+  }
 
   // Only the declared shape is persisted — an extra top-level key or a malformed trigger
   // riding along in the body would otherwise be stored verbatim (N3); per-trigger validation
-  // is M4's runtime concern, not this endpoint's.
-  deps.stores.scenes.setPrep(sceneId, JSON.stringify({ version: 1, triggers: body.triggers }))
-  json(res, 200, { prep: { version: 1, triggers: body.triggers } })
+  // is M4's runtime concern, not this endpoint's. v1 bodies (older clients) upgrade here —
+  // nothing writes v1 anymore.
+  const prep = normalizePrep(body)
+  const stored: ScenePrep = { version: 2, triggers: prep.triggers, notes: prep.notes }
+  deps.stores.scenes.setPrep(sceneId, JSON.stringify(stored))
+  json(res, 200, { prep: stored })
 }
 
 /** Just enough shape-checking that a bad body 400s instead of corrupting the stored JSON. */
-function isScenePrep(value: unknown): value is ScenePrep {
+function isScenePrep(value: unknown): value is ScenePrep | ScenePrepV1 {
   if (typeof value !== 'object' || value === null) return false
-  const { version, triggers } = value as Record<string, unknown>
-  return version === 1 && Array.isArray(triggers)
+  const { version, triggers, notes } = value as Record<string, unknown>
+  if (!Array.isArray(triggers)) return false
+  return version === 1 || (version === 2 && Array.isArray(notes))
 }
 
 /** POST /api/campaigns/:id/assets — DM, ≤ 2MB, raw image bytes (D11). */
@@ -608,7 +624,13 @@ function getMap(deps: HttpDeps, req: IncomingMessage, res: ServerResponse, scene
     const player = deps.vision.playerMap(sceneId)
     // Unredactable is unsendable: a map the server cannot read is one it cannot fence.
     if (!player) return json(res, 500, { error: 'map could not be read' })
-    body = JSON.stringify(external ? externalizeImages(player) : player)
+    // Journal v1: unshared note handouts leave the document here, not just on the image
+    // route. `?images=external` is the client's own request shape — the inline form is one
+    // query param away, and it carries `customImages` whole, so gating only `getMapImage`
+    // would fence the front door and leave this one open. Dropping the keys here also means
+    // `imageKeys` never advertises a picture the player would then 404 on.
+    const fenced = withoutImages(player, hiddenNoteImageKeys(deps, identity.campaign_id, sceneId))
+    body = JSON.stringify(external ? externalizeImages(fenced) : fenced)
   } else if (external) {
     try {
       body = JSON.stringify(externalizeImages(JSON.parse(map.data) as SerializedMapData))
@@ -628,6 +650,14 @@ function externalizeImages(doc: SerializedMapData): SerializedMapData {
   return { ...doc, customImages: {}, imageKeys: Object.keys(doc.customImages ?? {}) }
 }
 
+/** Drop a set of keys from a document's images. No-op (same object) when there are none. */
+function withoutImages(doc: SerializedMapData, hidden: ReadonlySet<string>): SerializedMapData {
+  if (hidden.size === 0) return doc
+  const customImages = { ...(doc.customImages ?? {}) }
+  for (const key of hidden) delete customImages[key]
+  return { ...doc, customImages }
+}
+
 // One-entry memo: a map load fans out into one image request per key, all against the
 // same immutable map row (a republish mints a new row id, so staleness cannot happen).
 // ponytail: last-row memo, swap for an LRU if concurrent tables thrash it.
@@ -636,9 +666,23 @@ let cachedImages: Record<string, string> = {}
 
 /**
  * GET /api/maps/:sceneId/images/:key — one embedded image, as binary. Same auth as
- * `getMap`. Deliberately role-blind: images are not redacted per room — the whole-map
- * splat going to players is a documented decision (see integration.test.ts §4), and this
- * route changes its encoding, not its reach.
+ * `getMap`. Mostly role-blind: images are not redacted per room — the whole-map splat going
+ * to players is a documented decision (see integration.test.ts §4), and this route changes
+ * its encoding, not its reach.
+ *
+ * The one exception (Journal v1): a room note's own handout picture is DM-only until a
+ * deliberate `share-note` snapshots it into the Journal (`isUnsharedNoteImage` below). Only
+ * note-attached keys are gated — every other `customImages` key (terrain splats, imported
+ * map art) keeps riding through unconditionally, because a player's client fetches every key
+ * in the redacted map's `imageKeys` over this exact route to render the map at all
+ * (`loadSceneMap.ts`'s `fetchSceneDoc`), and note images share that same flat, unprefixed
+ * key namespace with everything else in `customImages` (prep.ts's `RoomNote.imageKeys`
+ * comment; `canvas/src/canvas/importImage.ts`'s `importNoteImage` mints a bare
+ * `crypto.randomUUID()`, same as an ordinary imported picture) — there is no marker in the
+ * key itself to gate a wider set by.
+ *
+ * `getMap` fences the same keys out of the player's document, so in practice a player never
+ * asks for one. This check is the backstop for a request that did not come from our client.
  */
 function getMapImage(
   deps: HttpDeps,
@@ -654,6 +698,10 @@ function getMapImage(
   const map = scene ? deps.stores.maps.get(scene.map_id) : undefined
   if (!map || map.campaign_id !== identity.campaign_id) {
     return json(res, 404, { error: 'no such map' })
+  }
+
+  if (identity.role !== 'dm' && isUnsharedNoteImage(deps, identity.campaign_id, sceneId, decodeURIComponent(rawKey))) {
+    return json(res, 404, { error: 'no such image' })
   }
 
   if (cachedImagesRowId !== map.id) {
@@ -677,6 +725,31 @@ function getMapImage(
     'content-length': bytes.length,
   })
   res.end(bytes)
+}
+
+/**
+ * Keys a player may not have: attached to some prep note in this scene, and not yet
+ * snapshotted into the Journal by a `share-note`. Everything else (not a note image at all,
+ * or a note image that has been shared) is absent from the set — see `getMapImage`'s doc
+ * comment for why the gate stops there rather than allow-listing shared keys alone.
+ *
+ * Read fresh per request, and by both routes that can hand a player picture bytes: the
+ * document (`getMap`, which carries `customImages` inline unless asked for externals) and
+ * the binary image route below.
+ */
+function hiddenNoteImageKeys(deps: HttpDeps, campaignId: string, sceneId: string): Set<string> {
+  const prep = deps.triggerDeps.prepOf(campaignId, sceneId)
+  const noteKeys = new Set((prep?.notes ?? []).flatMap((n) => n.note.imageKeys))
+  if (noteKeys.size === 0) return noteKeys
+  const triggers = deps.stores.moduleState.get(campaignId, 'triggers') as TriggersState | undefined
+  for (const entry of journalOf(triggers ?? { byScene: {} })) {
+    for (const key of entry.imageKeys ?? []) noteKeys.delete(key)
+  }
+  return noteKeys
+}
+
+function isUnsharedNoteImage(deps: HttpDeps, campaignId: string, sceneId: string, key: string): boolean {
+  return hiddenNoteImageKeys(deps, campaignId, sceneId).has(key)
 }
 
 /** GET /api/resolve/:code — public; the join page calls it before asking for a name. */

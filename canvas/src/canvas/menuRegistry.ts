@@ -14,9 +14,19 @@ import {
   RemoveChildCommand,
   CompositeCommand,
   UpdateChildCommand,
+  createRemoveFromGroupCommand,
+  createDeleteGroupCommand,
+  createDuplicateGroupCommand,
 } from '@/store/commands'
 import type { AnyChild, DoorChild, DoorStyle, DungeonLayer, LightChild } from '@/store/types'
-import { selectLayerForChild } from '@/store/selectors'
+import { childGroupOf, groupMembers, selectLayerForChild } from '@/store/selectors'
+import {
+  canGroupSelection,
+  groupSelection,
+  mergeSelection,
+  selectionGroup,
+  ungroupSelection,
+} from './groupActions'
 import { getCatalogEntry, getEntriesByType } from '@dnd/core/src/assets/packCatalog'
 import { translateTangents } from '@dnd/core/src/shared/bezier'
 import { handleShortcut, rotateSelection90 } from '@/shortcuts/defaultShortcuts'
@@ -122,6 +132,84 @@ function sharedVerbs(ctx: ChildMenuContext): MenuRow[] {
     onSelect: () => handleShortcut('delete'),
   })
   return rows
+}
+
+/**
+ * Group verbs, shared by the single-child and multi-selection menus. Pass the
+ * right-clicked child's context for the single-child menu; omit it for a
+ * multi-selection.
+ */
+function groupRows(ctx?: ChildMenuContext): MenuRow[] {
+  const rows: MenuRow[] = []
+  const sameGroup = selectionGroup()
+  const ids = useStore.getState().selection.selectedIds
+  // "In the same group" is not "is the whole group" — a lone member picked
+  // through its group must not offer to delete its siblings.
+  const isWholeGroup =
+    !!sameGroup &&
+    groupMembers(sameGroup.layer, sameGroup.group.id).every((c) => ids.includes(c.id))
+
+  if (ctx?.child.groupId) {
+    const { layer, child } = ctx
+    const group = childGroupOf(layer, child.id)
+    rows.push({
+      separatorBefore: true,
+      label: 'Remove from group',
+      onSelect: () => {
+        const cmd = createRemoveFromGroupCommand(useStore.getState().layers, layer.id, [child.id])
+        if (cmd) undoManager.execute(cmd)
+      },
+    })
+    if (group && !group.merged) {
+      rows.push({
+        label: 'Select group',
+        onSelect: () =>
+          useStore.getState().setSelectedIds(groupMembers(layer, group.id).map((c) => c.id)),
+      })
+    }
+  } else if (sameGroup) {
+    rows.push({
+      separatorBefore: true,
+      label: sameGroup.group.merged ? 'Unmerge' : 'Ungroup',
+      kbd: 'Ctrl+Shift+G',
+      onSelect: () => ungroupSelection(),
+    })
+  } else if (canGroupSelection()) {
+    rows.push(
+      { separatorBefore: true, label: 'Group selection', kbd: 'Ctrl+G', onSelect: () => groupSelection() },
+      { label: 'Merge selection', onSelect: () => mergeSelection() },
+    )
+  }
+
+  if (sameGroup && isWholeGroup) {
+    const { layer, group } = sameGroup
+    rows.push(
+      {
+        label: 'Duplicate group',
+        onSelect: () => {
+          const cmd = createDuplicateGroupCommand(useStore.getState().layers, layer.id, group.id)
+          if (cmd) undoManager.execute(cmd)
+        },
+      },
+      {
+        label: 'Delete group',
+        danger: true,
+        onSelect: () => {
+          const cmd = createDeleteGroupCommand(useStore.getState().layers, layer.id, group.id)
+          if (cmd) undoManager.execute(cmd)
+        },
+      },
+    )
+  }
+  return rows
+}
+
+/** Splice the group verbs in above the danger slot, which stays last. */
+function withGroupRows(rows: MenuRow[], ctx?: ChildMenuContext): MenuRow[] {
+  const extra = groupRows(ctx)
+  if (extra.length === 0) return rows
+  const at = rows.findIndex((r) => (r as { danger?: boolean }).danger)
+  return at < 0 ? [...rows, ...extra] : [...rows.slice(0, at), ...extra, ...rows.slice(at)]
 }
 
 // ─── Per-kind builders ─────────────────────────────────────────────────────
@@ -282,7 +370,10 @@ registerMenu('zone', (ctx) => [headerRow(ctx.child), ...sharedVerbs(ctx)])
 /** Menu for a right-clicked child (single selection). */
 export function buildChildMenu(ctx: ChildMenuContext): MenuRow[] {
   const builder = builders.get(ctx.child.childType)
-  const rows = builder ? builder(ctx) : [headerRow(ctx.child), ...sharedVerbs(ctx)]
+  const rows = withGroupRows(
+    builder ? builder(ctx) : [headerRow(ctx.child), ...sharedVerbs(ctx)],
+    ctx,
+  )
   const reason = ctx.layer.locked
     ? 'Layer is locked'
     : !ctx.layer.visible
@@ -344,7 +435,7 @@ export function buildMultiMenu(count: number): MenuRow[] {
   const targetLayers = store.layers.filter(
     (l): l is DungeonLayer => l.type === 'dungeon' && !l.locked,
   )
-  return [
+  return withGroupRows([
     { type: 'header', label: `${count} selected` },
     { label: 'Duplicate', kbd: 'Ctrl+D', onSelect: () => handleShortcut('ctrl+d') },
     ...(flippable
@@ -372,7 +463,7 @@ export function buildMultiMenu(count: number): MenuRow[] {
       kbd: 'Del',
       onSelect: () => handleShortcut('delete'),
     },
-  ]
+  ])
 }
 
 /** Menu for empty ground: paste, select, view. */

@@ -19,10 +19,13 @@ function session(modules: SessionState['modules']): SessionState {
 }
 
 beforeEach(() => {
-  useShell.setState({ drawerOpen: false, openPanel: null, diagnostics: false });
+  useShell.setState({ drawerOpen: false, openPanel: null, diagnostics: false, sidebarOpen: false });
   useSessionStore.setState({ session: null, presence: [], mapData: null, you: null });
 });
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  Reflect.deleteProperty(window, 'matchMedia');
+});
 
 describe('Ticker', () => {
   it('renders nothing with no entries', () => {
@@ -60,5 +63,23 @@ describe('Ticker', () => {
 
     fireEvent.click(ticker);
     expect(useShell.getState().drawerOpen).toBe(true);
+  });
+
+  // table-shell-redesign D1: insets clear of the (wide-viewport) sidebar when it's open.
+  it('shifts right of an inset-mode sidebar, not an overlay-mode one', () => {
+    useSessionStore.setState({
+      session: session({ rolls: { log: [{ id: 'r1', at: 1, playerName: 'A', total: 1, visibility: 'public' }] } }),
+    });
+    useShell.setState({ sidebarOpen: true });
+    render(<Ticker />);
+    expect(screen.getByTestId('ticker').className).toContain('left-[310px]');
+
+    cleanup();
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: () => ({ matches: true, media: '', addEventListener() {}, removeEventListener() {} }),
+    });
+    render(<Ticker />);
+    expect(screen.getByTestId('ticker').className).toContain('left-2.5');
   });
 });

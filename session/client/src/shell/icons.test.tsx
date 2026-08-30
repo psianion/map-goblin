@@ -32,6 +32,8 @@ const INLINE: IconName[] = [
   'dice',
   'chevron',
   'check',
+  // table-shell-redesign — the sidebar's own edge toggle, not a rail/PanelDef icon.
+  'sidebar',
 ];
 
 const ALL: IconName[] = [...RAIL, ...INLINE];
@@ -39,7 +41,7 @@ const ALL: IconName[] = [...RAIL, ...INLINE];
 describe('Icon', () => {
   it('has exactly the rail + inline glyphs the M2 spec lists', () => {
     expect(new Set(ALL).size).toBe(ALL.length); // no duplicates
-    expect(ALL.length).toBe(26);
+    expect(ALL.length).toBe(27);
   });
 
   it.each(ALL)('renders %s as an svg with at least one path or circle', (name) => {

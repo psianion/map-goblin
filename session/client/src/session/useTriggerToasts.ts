@@ -33,6 +33,10 @@ export function pickToastable(
     (e) =>
       !seen.has(e.id) &&
       ((WORLD_KINDS.has(e.kind) && e.toPlayers) ||
+        // A reveal-note popping (prep v2). No role check needed: note entries are DM-only
+        // (`toPlayers: false`) and redaction strips them from every player's copy, so only
+        // the DM's tab ever holds one to toast.
+        e.kind === 'note' ||
         (myIdentityId !== undefined && e.forIdentityId === myIdentityId)),
   );
 }

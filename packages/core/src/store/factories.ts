@@ -76,15 +76,16 @@ type MapBuilderState = Omit<
   | 'setNodeEditWall' | 'selectNode' | 'toggleNodeSelection' | 'setShapeNodeEdit' | 'selectVertex' | 'setBandDragStatus'
   | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
   | 'showModal' | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
+  | 'toggleChildGroup' | 'setRevealChildId' | 'setPanelHoverChildId'
   | 'toggleSoloLayer' | 'clearSolo' | 'setPreviewClock' | 'setPreviewSky'
   | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
   | 'setSelectedIds' | 'setHoveredId' | 'setSelectedRegion'
   | 'setClipboard' | 'setRegionClipboard' | 'setSelectionTransform' | 'bakeSelectionTransform'
   | 'toggleFavorite' | 'trackRecentUse' | 'addCustomUpload' | 'removeCustomUpload'
-  | 'setManifest' | 'markCategoryLoaded' | 'addCustomImage'
-  | 'upsertTrigger' | 'removeTrigger'
-  | 'loadFromFile' | 'getSerializableState' | 'resetToDefault'
+  | 'setManifest' | 'markCategoryLoaded' | 'addCustomImage' | 'removeCustomImage'
+  | 'upsertTrigger' | 'removeTrigger' | 'upsertNote' | 'removeNote'
+  | 'loadFromFile' | 'applyAssetNameShim' | 'normalizeChildGroups' | 'getSerializableState' | 'resetToDefault'
   | 'loadMapIndex' | 'saveCurrentMap' | 'loadMap' | 'createNewMap' | 'deleteMap' | 'renameMap' | 'duplicateMap'
   | 'setInstalledPacks' | 'setAvailableUpdates' | 'setIsChecking' | 'setInstallProgress'
   | 'checkForPackUpdates' | 'installPack' | 'updatePack' | 'dismissUpdateResult' | 'uninstallPack'
@@ -182,6 +183,9 @@ export function createDefaultState(): MapBuilderState {
       clipperReady: false,
       focusMode: 'auto' as const,
       highlightedRoomId: null,
+      childGroupOverrides: [],
+      revealChildId: null,
+      panelHoverChildId: null,
       solo: null,
       previewClock: null,
       previewSky: null,

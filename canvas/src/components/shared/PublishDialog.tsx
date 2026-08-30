@@ -171,7 +171,7 @@ export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
         notify.success(`Republished "${mapName}" to ${campaignLabel} — map updated`);
       } else if (prepHash !== target.prepHash) {
         setBusyLabel('Updating prep…');
-        await putScenePrep(token, target.sceneId, data.prep ?? { version: 1, triggers: [] });
+        await putScenePrep(token, target.sceneId, data.prep ?? { version: 2, triggers: [], notes: [] });
         await remember({ ...target, prepHash });
         notify.success(`Updated prep for "${mapName}" in ${campaignLabel}`);
       } else {

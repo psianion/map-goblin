@@ -164,6 +164,8 @@ function run(action: string, p: Payload, ctx: Ctx, visionOf: VisionOf): void {
       return libraryDelete(p, ctx)
     case 'place':
       return place(p, ctx, visionOf)
+    case 'spawn':
+      return spawn(p, ctx)
     case 'move':
       return move(p, ctx, visionOf)
     case 'update':
@@ -263,6 +265,56 @@ function place(p: Payload, ctx: Ctx, visionOf: VisionOf): void {
   const refusal = occupyRefusal(token, at, visionOf(sceneId), ctx.sender.role)
   if (refusal) bad(refusal)
   put(ctx, sceneId, token)
+}
+
+/**
+ * Internal only — deliberately absent from `commands`, exactly like `triggers.event`: the
+ * one caller is the server materializing a fired encounter (`applyEncounter`), never a
+ * socket. Trusted accordingly: no occupancy refusal (an authored ambush spawns where the
+ * DM anchored it, revealed or not) and ids come from the caller so the initiative seed can
+ * reference the same tokens. A full scene clamps — spawn what fits, never break the
+ * cascade that fired the trigger.
+ */
+function spawn(p: Payload, ctx: Ctx): void {
+  const { state } = ctx
+  const sceneId = sceneOf(p, ctx)
+  if (!Array.isArray(p.tokens) || p.tokens.length === 0) bad('spawn needs a tokens array')
+
+  const existing = { ...state.byScene[sceneId] }
+  let room = SCENE_TOKENS_MAX - Object.keys(existing).length
+  for (const raw of p.tokens) {
+    if (room <= 0) break
+    const t = obj(raw, 'tokens[]')
+    const size = t.size === undefined ? 'medium' : oneOf(t.size, SIZES, 'tokens[].size')
+    const packAssetRaw = t.packAsset === undefined ? undefined : obj(t.packAsset, 'tokens[].packAsset')
+    const token: Token = {
+      id: str(t.id, 'tokens[].id', ID_MAX),
+      name: str(t.name, 'tokens[].name', NAME_MAX),
+      imageAssetId: null,
+      size,
+      disposition: 'hostile',
+      sight: null,
+      light: null,
+      ...(packAssetRaw
+        ? {
+            packAsset: {
+              packId: str(packAssetRaw.packId, 'tokens[].packAsset.packId', ID_MAX),
+              assetId: str(packAssetRaw.assetId, 'tokens[].packAsset.assetId', ID_MAX),
+            },
+          }
+        : {}),
+      defId: null,
+      x: snap(num(t.x, 'tokens[].x'), size),
+      y: snap(num(t.y, 'tokens[].y'), size),
+      elevation: 0,
+      z: 0,
+      hidden: false,
+      ownerId: null,
+    }
+    existing[token.id] = token
+    room--
+  }
+  ctx.setState({ ...state, byScene: { ...state.byScene, [sceneId]: existing } })
 }
 
 function move(p: Payload, ctx: Ctx, visionOf: VisionOf): void {

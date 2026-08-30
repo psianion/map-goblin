@@ -5,7 +5,9 @@ import type { DungeonLayer, MapBuilderStore, SerializedMapData } from './types';
 import { getNotify } from './notify';
 import { createDefaultState } from './factories';
 import { CURRENT_VERSION, isSupportedVersion, migrateToLatest } from './migration';
+import { normalizePrep } from '../shared/prep';
 import { dataUrlToBlob } from '../assets/dataUrl';
+import { getCatalogEntry, nextAssetName } from '../assets/packCatalog';
 import { SPLAT_IMAGE_KEYS } from '../engine/terrain/terrainShared';
 import { createMapSettingsSlice } from './slices/mapSettings';
 import { createGridSlice } from './slices/grid';
@@ -55,6 +57,7 @@ export const useStore = create<MapBuilderStore>()(
           data = migrateToLatest(data);
         }
 
+
         // Splat bitmaps ride inside customImages in the file format; hold them
         // as binary Blobs in terrainSplats so no splat base64 lives in the
         // store (autosave/serialize would re-stringify it on every pass).
@@ -79,7 +82,9 @@ export const useStore = create<MapBuilderStore>()(
             snapEnabled: true,
           };
           state.layers = data.layers;
-          state.prep = data.prep ?? null;
+          // Older files stored prep v1 — upgrade here so the rest of the app
+          // only ever sees v2 (normalizePrep is the one read-boundary shim).
+          state.prep = data.prep ? normalizePrep(data.prep) : null;
           state.assets.customImages = images;
           // Always write (even [null, null]) — loading a terrain-less map over
           // a painted one must clear the renderer's splats.
@@ -111,6 +116,51 @@ export const useStore = create<MapBuilderStore>()(
           state.selection.clipboard = null;
           state.selection.regionClipboard = null;
           state.selection.selectionTransform = null;
+        });
+        // Resolve pre-naming-era "Asset" names now that the doc is in. If
+        // the catalog isn't rehydrated yet (boot race), CanvasHost calls the
+        // shim again once packs land.
+        get().applyAssetNameShim();
+        get().normalizeChildGroups();
+      },
+
+      // Group metadata and membership are two halves of the same record in two
+      // places, so a hand-edited or partially-redacted document can arrive with
+      // one half missing. Drop both kinds of orphan at the read boundary —
+      // idempotent, not an undoable edit (same contract as applyAssetNameShim).
+      normalizeChildGroups: () => {
+        set((state) => {
+          for (const layer of state.layers) {
+            if (layer.type !== 'dungeon') continue;
+            const known = new Set((layer.groups ?? []).map((g) => g.id));
+            for (const child of layer.children) {
+              if (child.groupId && !known.has(child.groupId)) delete child.groupId;
+            }
+            if (!layer.groups) continue;
+            const used = new Set(layer.children.map((c) => c.groupId));
+            layer.groups = layer.groups.filter((g) => used.has(g.id));
+            if (layer.groups.length === 0) delete layer.groups;
+          }
+        });
+      },
+
+      // Pre-naming-era files stamped every placed asset "Asset". Resolve
+      // real names from the catalog — idempotent (a renamed child never
+      // matches again), skips entries the catalog can't resolve, and runs
+      // both after a load and after asset packs finish rehydrating (either
+      // can happen first at boot). Like normalizePrep, this is a
+      // read-boundary shim, not an undoable edit.
+      applyAssetNameShim: () => {
+        set((state) => {
+          for (const layer of state.layers) {
+            if (layer.type !== 'dungeon') continue;
+            const taken = layer.children.map((c) => c.name);
+            layer.children.forEach((c, i) => {
+              if (c.childType === 'asset' && c.name === 'Asset' && getCatalogEntry(c.assetId)) {
+                taken[i] = c.name = nextAssetName(c.assetId, taken);
+              }
+            });
+          }
         });
       },
 

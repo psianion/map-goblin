@@ -8,6 +8,7 @@ import type { DungeonLayer, Layer, LightChild, UISlice } from '../store/types';
 import { LightManager } from './lighting';
 import { renderToolPreview } from './toolPreview';
 import { renderRoomHighlight } from './roomHighlight';
+import { renderChildHoverHighlight } from './childHoverHighlight';
 import { renderWallNodeHandles } from './wallNodeOverlay';
 import { renderShapeNodeHandles } from './shapeNodeOverlay';
 import { recordFrame } from './fpsMetrics';
@@ -68,6 +69,7 @@ export function setupRenderLoop(
 
   // Access the PixiJS Ticker through the app
   // The ticker callback runs before each render
+  let lastSplatRev = -1;
   const tickerCallback = () => {
     // (0) Record frame timestamp for FPS metrics
     recordFrame();
@@ -163,6 +165,9 @@ export function setupRenderLoop(
     // (5c) Room highlight — no-ops unless the highlighted room changed
     renderRoomHighlight();
 
+    // (5c') Layer-panel child hover — no-ops unless the hovered child changed
+    renderChildHoverHighlight();
+
     // (5d) Wall node handles — no-ops unless the edited wall, selection, zoom
     // or camera changed. Zoom matters: handles are drawn at a constant screen
     // size. Camera matters: edit mode dims the rest of the view with a quad
@@ -210,6 +215,15 @@ export function setupRenderLoop(
       composeGrade(storeState.mapSettings, frame.minutes),
       timeBucket(frame.minutes),
     );
+
+    // A map load must force one recomposite even when the loaded ambient and
+    // light list coincide with the pre-load defaults the first frames were
+    // drawn from — terrainSplats.rev bumps on every loadFromFile (and on
+    // splat edits, whose recomposite is wanted anyway).
+    if (storeState.terrainSplats.rev !== lastSplatRev) {
+      lastSplatRev = storeState.terrainSplats.rev;
+      sceneGraph.lightingRenderer.invalidate();
+    }
 
     sceneGraph.lightingRenderer.updateAndRender(
       lightManager,

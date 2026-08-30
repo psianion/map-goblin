@@ -15,6 +15,7 @@ import { loadConfig, type Config } from './config'
 import { openDb } from './db/db'
 import { createStores, type Stores } from './db/stores'
 import { autoExplore } from './fog/autoExplore'
+import { ensureClipperReady } from './fog/clipperBoot'
 import { createVision } from './fog/vision'
 import { createRequestHandler } from './http'
 import { pingModule } from './modules/ping'
@@ -91,6 +92,11 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   const stores = createStores(db)
   ensureAdminPass(stores.passes)
 
+  // Blocks accepting connections on Clipper2 loading, not on any request reaching the fog
+  // module — so `sceneMap.ts`'s `index()` stays synchronous and its `isClipperReady()` gate
+  // sees "ready" for the life of the process rather than racing the first scene lookup.
+  await ensureClipperReady()
+
   // Rooms, doors and who may see what: one cache behind every fog answer the server gives
   // (S3 §2.3). The three modules below take their map lookups from it.
   const vision = createVision(stores)
@@ -106,8 +112,10 @@ export async function startServer(options: StartOptions = {}): Promise<RunningSe
   modules.register(fogModule(vision.roomsOf, vision.frameOf, vision.roomAtOf))
   modules.register(doorsModule(vision.doorsOf, vision.playerDoors))
   // Shared with http.ts's GET .../prep (F3): one memoized instance so the DM's prep panel
-  // and the live cascade resolve the same scene's triggers off the same cache.
-  const triggerDeps = createTriggerDeps(stores, vision.sceneMapOf)
+  // and the live cascade resolve the same scene's triggers off the same cache. The registry
+  // handle is what lets a fired encounter materialize (internal tokens.spawn /
+  // initiative.seed dispatches — the same door triggers.event comes in through).
+  const triggerDeps = createTriggerDeps(stores, vision.sceneMapOf, modules)
   modules.register(triggersModule(triggerDeps))
   for (const module of options.modules ?? []) modules.register(module)
 

@@ -14,6 +14,7 @@ import {
   cellsCoveredByPolygon,
   effectiveFog,
   fogModeOf,
+  getCell,
   identityRegion,
   regionFor,
   sceneFogOf,
@@ -32,7 +33,8 @@ import type { Viewer } from '@dnd/mechanics/contract'
 import type { SerializedMapData } from '@dnd/core/src/store/types'
 import type { Stores } from '../db/stores'
 import {
-  doorDeltaFor,
+  childDeltaFor,
+  keptChildIds,
   doorKept,
   mapDeltaFor,
   redactMapForViewer,
@@ -141,6 +143,8 @@ interface Computed {
   explored: Set<string>
   /** The doors that geometry contains — the live states a player may be told about. */
   playerDoors: Set<string>
+  /** Every child id a player is entitled to — what the next mutation's delta is diffed against. */
+  playerChildren: Set<string>
   /** The rooms newly explored at this mutation, sliced once and sent to every player. */
   delta: MapDelta | null
 }
@@ -247,14 +251,20 @@ export function createVision(stores: Stores): Vision {
     // Cut once per mutation, not once per viewer: every player at the table is owed the same
     // rooms, and the slice is the expensive half of a reveal.
     const roomDelta = revealed.length ? mapDeltaFor(map, sceneId, revealed, doors, explored) : null
-    // …and the same question asked of doors, which is how a `reveal-secret` hands over the
-    // door child the player's map was cut without (D2). A door that arrives with the room it
-    // belongs to is already in `roomDelta`, so this only carries what the rooms did not.
+    // …and the same question asked of every *child*, which is what a reveal that moves no room
+    // at all still owes. Two of those exist: a `reveal-secret`, whose door child was cut while
+    // it was a secret (D2), and the cell brush — brushed ground is a reveal, so the art stamped
+    // along it becomes the player's the moment the referee paints the cell. Rooms were the only
+    // trigger here before, so a brush stroke shipped its state and none of its geometry, and the
+    // band along it stayed missing until the seat happened to refetch the whole document.
+    //
+    // Diffed off the same predicate the document cut uses (`keptChildIds`), so what a reveal
+    // *delivers* and what a fresh fetch *contains* cannot drift. Anything the room slice already
+    // carried is dropped — it is the same child, sliced twice.
+    const playerChildren = keptChildIds(map, fog, doors)
     const carried = new Set(roomDelta?.layers.flatMap((l) => l.children.map((c) => c.id)) ?? [])
-    const newDoors = new Set(
-      held
-        .filter((door) => !previous?.playerDoors.has(door.id) && !carried.has(door.id))
-        .map((door) => door.id),
+    const newChildren = new Set(
+      [...playerChildren].filter((id) => !previous?.playerChildren.has(id) && !carried.has(id)),
     )
     const next: Computed = {
       revision: stores.moduleState.revision,
@@ -273,7 +283,11 @@ export function createVision(stores: Stores): Vision {
       party,
       explored,
       playerDoors: new Set(held.map((door) => door.id)),
-      delta: mergeDelta(roomDelta, newDoors.size ? doorDeltaFor(map, sceneId, newDoors, explored) : null),
+      playerChildren,
+      delta: mergeDelta(
+        roomDelta,
+        newChildren.size ? childDeltaFor(map, sceneId, newChildren, explored) : null,
+      ),
     }
     // Held to the same ceiling as the parsed maps: every entry keeps a scene's geometry
     // alive through `map` and `delta`, so an uncapped one would quietly undo that cap.
@@ -312,6 +326,13 @@ export function createVision(stores: Stores): Vision {
         // P3 — and by the light on that point: in darkness a token beyond every torch and
         // beyond darkvision is not on the wire at all (§3.1).
         canSee: sight ? (x, y) => seen(sight, x, y) : undefined,
+        // The ground half of the same widening (`SceneVision.openGround`): in vision mode a
+        // cell the party remembers is somewhere they may stand, room or no room. Built from
+        // the *stored* record rather than the live sweep on purpose — walking out of your own
+        // torchlight onto a path you crossed a minute ago is movement, not clairvoyance, and
+        // it is the record the DM's brush writes into. Same eyes as `sight` above: the party's
+        // for every command path, the seat's own where the table shares individually.
+        openGround: openGroundOf(computed, viewer),
         // The half of the refusal that was never plugged in: `occupiable` is the BFS's
         // boolean, and without this the cause it discarded stayed discarded, so every move
         // a door refused came back as the generic "you can't move there".
@@ -455,6 +476,29 @@ function mergeDelta(rooms: MapDelta | null, doors: MapDelta | null): MapDelta | 
     else layers.push(layer)
   }
   return { ...rooms, layers }
+}
+
+/**
+ * `SceneVision.openGround` for a scene, or `undefined` when there is none to give: rooms
+ * mode (no cell record exists), a scene past `REGION_CELL_MAX` (no record is kept), or a
+ * record that predates the map's current frame (`regionFor` re-bases, and a stale one
+ * re-bases to empty — memory of coordinates that moved is not ground).
+ *
+ * The mask is decoded per probe, which is one `getCell` per move command — the same budget
+ * `roomAt`'s polygon walk already spends, and nothing here runs per frame.
+ */
+function openGroundOf(
+  computed: Computed,
+  viewer: Viewer | undefined,
+): ((x: number, y: number) => boolean) | undefined {
+  if (fogModeOf(computed.fog) !== 'vision' || !computed.map.frame) return undefined
+  const stored =
+    viewer && viewer.role !== 'dm' && computed.share === 'individual'
+      ? identityRegion(computed.fog, viewer.identityId)
+      : computed.fog.region
+  const region = regionFor(stored, computed.map.frame)
+  if (!region) return undefined
+  return (x, y) => getCell(region, Math.floor(x - region.minX), Math.floor(y - region.minY))
 }
 
 /** The same rooms, with everything the party has ever seen counting as lit. */

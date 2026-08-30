@@ -106,7 +106,8 @@ const ZONE_ID = 'zone-trigger-1'
 /** A `room-revealed` trigger on {@link ZONE_ID} — the shape M3's prep endpoints store. */
 export function triggerPrep(text: string): ScenePrep {
   return {
-    version: 1,
+    version: 2,
+    notes: [],
     triggers: [
       {
         id: 'trigger-1',
@@ -239,7 +240,7 @@ export function triggersFlagshipPrep(): ScenePrep {
       enabled: false,
     },
   ]
-  return { version: 1, triggers }
+  return { version: 2, triggers, notes: [] }
 }
 
 /**
@@ -332,7 +333,7 @@ export function timeWeatherPrep(): ScenePrep {
       enabled: true,
     },
   ]
-  return { version: 1, triggers }
+  return { version: 2, triggers, notes: [] }
 }
 
 /**

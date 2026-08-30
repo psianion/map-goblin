@@ -1,4 +1,4 @@
-import type { AnyChild, Command, DungeonLayer, DungeonStyle, Layer } from './types';
+import type { AnyChild, ChildGroupInfo, Command, DungeonLayer, DungeonStyle, Layer } from './types';
 import { useStore } from './store';
 import type { MapStylePreset } from './presetRegistry';
 
@@ -839,6 +839,274 @@ export class TerrainAppearanceCommand implements Command {
       return;
     }
     useStore.getState().setTerrainData(this.before);
+  }
+}
+
+// ─── Child groups ────────────────────────────────────────
+
+interface GroupSnapshot {
+  /** Omitted when the command only moves group metadata. */
+  children?: AnyChild[];
+  groups?: ChildGroupInfo[];
+}
+
+/**
+ * Writes a dungeon layer's children array and/or its group metadata wholesale.
+ * Grouping reorders children *and* rewrites membership on several of them at
+ * once, so a snapshot is what restores the exact prior order, groupIds and
+ * group list — a pile of per-child updates would not.
+ */
+export class ChildGroupsCommand implements Command {
+  readonly label: string;
+  private readonly layerId: string;
+  private readonly before: GroupSnapshot;
+  private readonly after: GroupSnapshot;
+
+  constructor(label: string, layerId: string, before: GroupSnapshot, after: GroupSnapshot) {
+    this.label = label;
+    this.layerId = layerId;
+    this.before = structuredClone(before);
+    this.after = structuredClone(after);
+  }
+
+  private apply(snap: GroupSnapshot): void {
+    const patch: Partial<DungeonLayer> = { groups: structuredClone(snap.groups) };
+    if (snap.children) patch.children = structuredClone(snap.children);
+    useStore.getState().updateLayer(this.layerId, patch);
+  }
+
+  execute(): void {
+    this.apply(this.after);
+  }
+
+  undo(): void {
+    this.apply(this.before);
+  }
+}
+
+function findDungeonLayer(layers: Layer[], layerId: string): DungeonLayer | null {
+  const layer = layers.find((l) => l.id === layerId);
+  return layer && layer.type === 'dungeon' ? layer : null;
+}
+
+/** Group metadata nobody is a member of any more is dead weight — drop it. */
+function pruneGroups(groups: ChildGroupInfo[], children: AnyChild[]): ChildGroupInfo[] | undefined {
+  const used = new Set(children.map((c) => c.groupId));
+  const kept = groups.filter((g) => used.has(g.id));
+  return kept.length > 0 ? kept : undefined;
+}
+
+function withGroupId(child: AnyChild, groupId: string | undefined): AnyChild {
+  const clone = structuredClone(child);
+  if (groupId === undefined) delete clone.groupId;
+  else clone.groupId = groupId;
+  return clone;
+}
+
+/**
+ * The one existing group every already-grouped child in `childIds` belongs to,
+ * or null when they are all loose or span two groups. Grouping such a selection
+ * EXTENDS that group instead of minting a new one — otherwise re-grouping
+ * "Goblin Camp" plus one loose object silently destroyed the folder and its
+ * name. Two different groups still collapse into a fresh one (members stolen).
+ */
+export function soleGroupOfChildren(
+  layers: Layer[],
+  layerId: string,
+  childIds: string[],
+): ChildGroupInfo | null {
+  const layer = findDungeonLayer(layers, layerId);
+  if (!layer) return null;
+  const ids = new Set(childIds);
+  const groupIds = new Set(
+    layer.children.filter((c) => ids.has(c.id) && c.groupId).map((c) => c.groupId as string),
+  );
+  if (groupIds.size !== 1) return null;
+  return layer.groups?.find((g) => g.id === [...groupIds][0]) ?? null;
+}
+
+/**
+ * Groups children into one named set: the members become contiguous at the
+ * topmost member's slot (children order is z-order for assets and text), each
+ * gets `groupId`, and a group record is appended. Children that already sat in
+ * another group are stolen, which is also what "Add to group" does.
+ *
+ * When the grouped members all come from ONE existing group, that group is
+ * extended instead — same id, name and merged flag (see soleGroupOfChildren).
+ *
+ * Returns null when there is nothing to group.
+ */
+export function createGroupChildrenCommand(
+  layers: Layer[],
+  layerId: string,
+  childIds: string[],
+  name: string,
+  merged = false,
+): Command | null {
+  const layer = findDungeonLayer(layers, layerId);
+  if (!layer) return null;
+  const existing = soleGroupOfChildren(layers, layerId, childIds);
+  const memberIds = new Set(childIds);
+  // Extending pulls in the group's unselected members too, so the folder stays
+  // one contiguous block instead of splitting around the moved rows.
+  if (existing) {
+    for (const c of layer.children) if (c.groupId === existing.id) memberIds.add(c.id);
+  }
+  const members = layer.children.filter((c) => memberIds.has(c.id));
+  if (members.length === 0) return null;
+
+  const groupId = existing ? existing.id : crypto.randomUUID();
+  const topmost = layer.children.reduce((max, c, i) => (memberIds.has(c.id) ? i : max), 0);
+  const rest = layer.children.filter((c) => !memberIds.has(c.id));
+  const insertAt = layer.children.filter((c, i) => !memberIds.has(c.id) && i < topmost).length;
+  const block = members.map((c) => withGroupId(c, groupId));
+  const children = [...rest.slice(0, insertAt), ...block, ...rest.slice(insertAt)];
+  const groups = pruneGroups(
+    existing ? (layer.groups ?? []) : [...(layer.groups ?? []), { id: groupId, name, merged }],
+    children,
+  );
+
+  return new ChildGroupsCommand(
+    merged ? 'Merge' : 'Group',
+    layerId,
+    { children: layer.children, groups: layer.groups },
+    { children, groups },
+  );
+}
+
+/** Ungroup / Unmerge: members keep their place and lose the group. */
+export function createDissolveGroupCommand(
+  layers: Layer[],
+  layerId: string,
+  groupId: string,
+): Command | null {
+  const layer = findDungeonLayer(layers, layerId);
+  if (!layer) return null;
+  if (!layer.children.some((c) => c.groupId === groupId)) return null;
+  const children = layer.children.map((c) => (c.groupId === groupId ? withGroupId(c, undefined) : c));
+  return new ChildGroupsCommand(
+    'Ungroup',
+    layerId,
+    { children: layer.children, groups: layer.groups },
+    { children, groups: pruneGroups(layer.groups ?? [], children) },
+  );
+}
+
+/** Drops children out of whatever group they are in, leaving the group alive. */
+export function createRemoveFromGroupCommand(
+  layers: Layer[],
+  layerId: string,
+  childIds: string[],
+): Command | null {
+  const layer = findDungeonLayer(layers, layerId);
+  if (!layer) return null;
+  const ids = new Set(childIds);
+  if (!layer.children.some((c) => ids.has(c.id) && c.groupId)) return null;
+  const children = layer.children.map((c) => (ids.has(c.id) ? withGroupId(c, undefined) : c));
+  return new ChildGroupsCommand(
+    'Remove from group',
+    layerId,
+    { children: layer.children, groups: layer.groups },
+    { children, groups: pruneGroups(layer.groups ?? [], children) },
+  );
+}
+
+export function createRenameGroupCommand(
+  layers: Layer[],
+  layerId: string,
+  groupId: string,
+  name: string,
+): Command | null {
+  const layer = findDungeonLayer(layers, layerId);
+  if (!layer?.groups?.some((g) => g.id === groupId)) return null;
+  return new ChildGroupsCommand(
+    'Rename group',
+    layerId,
+    { groups: layer.groups },
+    { groups: layer.groups.map((g) => (g.id === groupId ? { ...g, name } : g)) },
+  );
+}
+
+/**
+ * Deletes every member and the group record as one undoable unit. Member
+ * removal goes through `createChildRemovalCommand`, so attached lights still
+ * cascade and each child still comes back at its own index on undo.
+ */
+export function createDeleteGroupCommand(
+  layers: Layer[],
+  layerId: string,
+  groupId: string,
+  label = 'Delete group',
+): Command | null {
+  const layer = findDungeonLayer(layers, layerId);
+  if (!layer) return null;
+  const members = layer.children.filter((c) => c.groupId === groupId);
+  if (members.length === 0) return null;
+  const meta = new ChildGroupsCommand(
+    label,
+    layerId,
+    { groups: layer.groups },
+    { groups: pruneGroups(layer.groups ?? [], layer.children.filter((c) => c.groupId !== groupId)) },
+  );
+  return new CompositeCommand(label, [
+    ...members.map((c) => createChildRemovalCommand(layerId, c.id, label)),
+    meta,
+  ]);
+}
+
+/**
+ * Clones a group: fresh ids, " (copy)" names and the one-unit offset the
+ * panel's duplicate uses, under a new group record.
+ */
+export function createDuplicateGroupCommand(
+  layers: Layer[],
+  layerId: string,
+  groupId: string,
+): Command | null {
+  const layer = findDungeonLayer(layers, layerId);
+  if (!layer) return null;
+  const members = layer.children.filter((c) => c.groupId === groupId);
+  if (members.length === 0) return null;
+  const group = layer.groups?.find((g) => g.id === groupId);
+
+  const newGroupId = crypto.randomUUID();
+  const clones = members.map((c) => {
+    const clone = withGroupId(c, newGroupId);
+    clone.id = crypto.randomUUID();
+    clone.name = `${c.name} (copy)`;
+    offsetChild(clone);
+    return clone;
+  });
+  const meta = new ChildGroupsCommand(
+    'Duplicate group',
+    layerId,
+    { groups: layer.groups },
+    {
+      groups: [
+        ...(layer.groups ?? []),
+        { id: newGroupId, name: `${group?.name ?? 'Group'} (copy)`, merged: group?.merged },
+      ],
+    },
+  );
+  return new CompositeCommand('Duplicate group', [
+    meta,
+    ...clones.map((c) => new AddChildCommand('Duplicate group', layerId, c)),
+  ]);
+}
+
+/** Nudge a clone off its original, the way ChildRow's duplicate does. */
+function offsetChild(clone: AnyChild): void {
+  if ('position' in clone) {
+    const c = clone as AnyChild & { position: { x: number; y: number } };
+    c.position = { x: c.position.x + 1, y: c.position.y + 1 };
+  } else if ('transform' in clone && clone.transform) {
+    clone.transform.translate = [clone.transform.translate[0] + 1, clone.transform.translate[1] + 1];
+  } else if (clone.childType === 'zone') {
+    // A zone keeps its position inside `shape`.
+    clone.shape =
+      clone.shape.kind === 'rect'
+        ? { ...clone.shape, x: clone.shape.x + 1, y: clone.shape.y + 1 }
+        : { ...clone.shape, position: { x: clone.shape.position.x + 1, y: clone.shape.position.y + 1 } };
   }
 }
 

@@ -1,7 +1,11 @@
-// M1 — the log's expanded form: a fixed-height drawer over the bottom of the map, the one
-// scrolling region in the whole shell (docs/2026-08-22-table-shell-plan.md, no-scroll ledger).
-// Filter chips narrow the merged feed from `logFeed.ts`; the composer is the same one
-// `GameLog.tsx` still renders in its own popover body until M3 retires it.
+// M1 — the log's expanded form: originally a fixed-height drawer over the bottom of the map;
+// table-shell-redesign D2 (user's explicit variant choice, approved mockup) moves it to a
+// full-height column on the right, left of the rail — still the one scrolling region in the
+// whole shell (docs/2026-08-22-table-shell-plan.md, no-scroll ledger). The column is too
+// narrow for the old two-column split, so the feed is a single top-down list, newest at the
+// bottom (`stickToBottom`, unchanged). Filter chips narrow the merged feed from `logFeed.ts`;
+// the composer is the same one `GameLog.tsx` still renders in its own popover body until M3
+// retires it.
 
 import { useEffect, useRef, useState } from 'react';
 import { Composer } from './RollBar';
@@ -22,15 +26,7 @@ const FILTERS: ReadonlyArray<{ id: Exclude<FilterKind, 'presence'>; label: strin
 const fmtTime = (at: number): string =>
   new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
-/** First half / second half — column-major reading order (M3 review finding 7): down the
- *  left column, then down the right, so the newest line lands bottom-right instead of the
- *  row-major zig-zag a plain `grid-cols-2` auto-placed it into. */
-function splitColumns<T>(items: readonly T[]): [T[], T[]] {
-  const half = Math.ceil(items.length / 2);
-  return [items.slice(0, half), items.slice(half)];
-}
-
-/** One feed line, shared by the drawer's two columns and the ticker's single one. */
+/** One feed line, shared by the drawer's column and the ticker's single one. */
 export function LogLine({ e }: { e: Entry }) {
   return (
     <span className="flex min-w-0 items-baseline gap-2 truncate">
@@ -85,68 +81,65 @@ export function LogDrawer() {
     stickToBottom.current = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 24;
   };
 
-  const [left, right] = splitColumns(shown);
-
   return (
     <div
       data-testid="log-drawer"
       onPointerDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
-      className="absolute inset-x-0 right-14 bottom-7 flex h-[260px] flex-col border-t border-border-structure bg-surface-1/95 shadow-[var(--panel-shadow)] motion-safe:animate-panel-in"
+      className="absolute right-14 top-0 bottom-7 z-toolbar flex w-[300px] flex-col border-l border-border-structure bg-surface-1/95 shadow-[var(--panel-shadow)] motion-safe:animate-panel-in"
     >
-      <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-border-default px-3">
-        <span className="mr-1 font-serif text-[15px] text-text-primary">Log</span>
-        {FILTERS.map((f) => (
+      {/* table-shell-redesign D2: the column is 300px, too narrow for the old single-row
+          header — chips wrap onto their own line instead. */}
+      <div className="flex shrink-0 flex-col gap-1.5 border-b border-border-default px-3 py-2">
+        <div className="flex items-center gap-1.5">
+          <span className="mr-1 font-serif text-[15px] text-text-primary">Log</span>
+          <span className="flex-1" />
           <button
-            key={f.id}
             type="button"
-            data-testid={`log-filter-${f.id}`}
-            onClick={() => setFilter(f.id)}
-            aria-pressed={filter === f.id}
-            className={`rounded-full border px-2 py-0.5 text-xs transition-colors duration-150 ease-out-quart focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none ${
-              filter === f.id
-                ? 'border-border-structure bg-surface-3 text-text-primary'
-                : 'border-border-default text-text-secondary hover:bg-surface-2'
-            }`}
+            onClick={() => setDrawer(false)}
+            aria-label="Close the log"
+            className="flex shrink-0 items-center gap-1.5 rounded px-1.5 py-1 text-xs text-text-secondary transition-colors duration-150 ease-out-quart hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none"
           >
-            {f.label}
+            <kbd className="rounded-[3px] border border-border-default bg-surface-2 px-1 font-mono text-[10px] text-text-dim">
+              L
+            </kbd>
+            <Icon name="close" size={15} />
           </button>
-        ))}
-        <span className="ml-auto truncate text-xs text-text-muted">Whispers to you show a lock</span>
-        <button
-          type="button"
-          onClick={() => setDrawer(false)}
-          aria-label="Close the log"
-          className="flex shrink-0 items-center gap-1.5 rounded px-1.5 py-1 text-xs text-text-secondary transition-colors duration-150 ease-out-quart hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none"
-        >
-          <kbd className="rounded-[3px] border border-border-default bg-surface-2 px-1 font-mono text-[10px] text-text-dim">
-            L
-          </kbd>
-          <Icon name="close" size={15} />
-        </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {FILTERS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              data-testid={`log-filter-${f.id}`}
+              onClick={() => setFilter(f.id)}
+              aria-pressed={filter === f.id}
+              className={`rounded-full border px-2 py-0.5 text-xs transition-colors duration-150 ease-out-quart focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus motion-reduce:transition-none ${
+                filter === f.id
+                  ? 'border-border-structure bg-surface-3 text-text-primary'
+                  : 'border-border-default text-text-secondary hover:bg-surface-2'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <span className="truncate text-xs text-text-muted">Whispers to you show a lock</span>
       </div>
 
-      {/* Column-major (M3 review finding 7): two independent ordered lists, left then right,
-          each bottom-anchored so a short feed still hugs the composer instead of the header. */}
+      {/* Single top-down feed (table-shell-redesign D2 — the two-column split doesn't fit a
+          300px column), newest at the bottom; `justify-end` hugs a short feed to the
+          composer instead of leaving it stranded under the header. */}
       <div
         ref={feedRef}
         onScroll={onScroll}
         data-testid="game-log"
-        className="flex min-h-0 flex-1 flex-col justify-end gap-y-0.5 overflow-y-auto px-3 py-1.5 text-[12.5px] min-[900px]:flex-row min-[900px]:items-end min-[900px]:gap-x-6 min-[900px]:gap-y-0"
+        className="flex min-h-0 flex-1 flex-col justify-end overflow-y-auto px-3 py-1.5 text-[12.5px]"
       >
         {shown.length === 0 && <p className="text-text-muted">Nothing has happened yet.</p>}
-        {left.length > 0 && (
-          <ol data-testid="log-column" className="flex min-w-0 flex-col justify-end gap-y-0.5 min-[900px]:flex-1">
-            {left.map((e) => (
-              <li key={e.key} data-whisper={e.whisper || undefined} className="min-w-0 leading-[22px]">
-                <LogLine e={e} />
-              </li>
-            ))}
-          </ol>
-        )}
-        {right.length > 0 && (
-          <ol data-testid="log-column" className="flex min-w-0 flex-col justify-end gap-y-0.5 min-[900px]:flex-1">
-            {right.map((e) => (
+        {shown.length > 0 && (
+          <ol data-testid="log-column" className="flex min-w-0 flex-col justify-end gap-y-0.5">
+            {shown.map((e) => (
               <li key={e.key} data-whisper={e.whisper || undefined} className="min-w-0 leading-[22px]">
                 <LogLine e={e} />
               </li>

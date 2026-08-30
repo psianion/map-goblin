@@ -5,7 +5,7 @@ import { sceneTriggersOf, worldLightOf, worldOf } from '@dnd/mechanics/triggers'
 import { useStore } from '@dnd/core/src/store/store';
 import { vocabLabel } from '@dnd/core/src/shared/prep';
 import { worldBadge } from '../modules/world/world';
-import { useShell } from '../shell/shellStore';
+import { useOverlayMode, useShell } from '../shell/shellStore';
 import { toolLabel, useActiveTool } from '../session/tools';
 import type { ConnectionStatus } from '../session/WebSocketClient';
 import { useModuleState, useRole, useSessionStore } from '../session/store';
@@ -150,6 +150,11 @@ export function TableStatusBar() {
   const isPlayer = useRole() === 'player';
   const diagnostics = useShell((s) => s.diagnostics);
   const openPanelById = useShell((s) => s.openPanelById);
+  const sidebarOpen = useShell((s) => s.sidebarOpen);
+  const overlay = useOverlayMode();
+  // table-shell-redesign D1: clears the inset-mode sidebar so the scene-name button never
+  // sits underneath it; overlay-mode sidebars float above everything instead, no inset.
+  const leftInset = sidebarOpen && !overlay;
   const [fpsStr, setFpsStr] = useState('—');
   const [ftStr, setFtStr] = useState('—');
   const [fpsColor, setFpsColor] = useState('text-text-muted');
@@ -212,7 +217,9 @@ export function TableStatusBar() {
       data-testid="table-status-bar"
       onPointerDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
-      className="absolute bottom-0 left-0 right-14 z-toolbar flex h-7 items-center justify-between border-t border-border-default bg-surface-1/80 px-3 font-mono text-xs text-text-muted backdrop-blur-sm"
+      className={`absolute bottom-0 right-14 z-toolbar flex h-7 items-center justify-between border-t border-border-default bg-surface-1/80 px-3 font-mono text-xs text-text-muted backdrop-blur-sm transition-[left] duration-200 ease-settle motion-reduce:transition-none ${
+        leftInset ? 'left-[300px]' : 'left-0'
+      }`}
     >
       {/* Left: scene name (opens the Session popover), presence, latency, world light,
           diagnostics (Shift+D, off by default — after the env badge, never before the scene
@@ -250,7 +257,14 @@ export function TableStatusBar() {
         {!isPlayer && activeTool && (
           <>
             <span>&middot;</span>
-            <span data-testid="active-tool" className="flex items-center gap-1.5 text-accent-active">
+            {/* table-shell-redesign D3 — the QA-finding fix: an armed tool used to be plain
+                text, easy to miss before it silently ate a token drag. A bordered, filled
+                chip is the mockup's "Reveal armed · Esc" treatment; accent is earned here —
+                this is live state, one of the four Moss accent jobs (chrome-style-guide.md). */}
+            <span
+              data-testid="active-tool"
+              className="flex items-center gap-1.5 rounded-full border border-accent-dim/60 bg-accent-active/10 px-2 py-0.5 text-accent-active"
+            >
               {toolLabel(activeTool, toolDetail)}
               <kbd className="rounded border border-border-default bg-surface-2 px-1 font-mono text-[10px] text-text-dim">
                 Esc

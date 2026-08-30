@@ -2,7 +2,7 @@ export * from '../shared/types';
 export * from '../shared/prep';
 export * from '../shared/world';
 import type { AnyChild, WallSegment, WallEdits, WallType, WallDirection, DoorStyle, MaskData, Room } from '../shared/types';
-import type { ScenePrep, TriggerDef } from '../shared/prep';
+import type { RoomNote, ScenePrep, TriggerDef } from '../shared/prep';
 import type { MapEnvironment, NightSky } from '../shared/world';
 import type { Polygon } from '../types/geometry';
 
@@ -102,9 +102,22 @@ export interface DungeonStyle {
   floorBleed?: number;
 }
 
+/**
+ * A named set of children inside one dungeon layer. `merged` means the set
+ * behaves as one atomic object (one panel row, always selected whole); a plain
+ * group is a folder whose members stay individually editable.
+ */
+export interface ChildGroupInfo {
+  id: string;
+  name: string;
+  merged?: boolean;
+}
+
 export interface DungeonLayer extends BaseLayer {
   type: 'dungeon';
   children: AnyChild[];
+  /** Group metadata; membership lives on each child's `groupId`. */
+  groups?: ChildGroupInfo[];
   standaloneWalls: WallSegment[];
   mergedFloor: Polygon[] | null;
   style: DungeonStyle;
@@ -316,6 +329,16 @@ export interface UISlice {
   focusMode: 'auto' | 'manual' | 'fullscreen';
   /** Room whose boundary is drawn highlighted on the canvas (RoomPanel hover/select). */
   highlightedRoomId: string | null;
+  /**
+   * Layer-panel child-group expand overrides, keys "layerId:childType" —
+   * deviations from the per-type default (see isChildGroupExpanded).
+   * View state: not persisted, not undoable.
+   */
+  childGroupOverrides: string[];
+  /** One-shot scroll-into-view marker for a layer-panel child row. */
+  revealChildId: string | null;
+  /** Child outlined on canvas because its layer-panel row is hovered. */
+  panelHoverChildId: string | null;
   /**
    * Alt-click-eye "solo" state — not persisted, not undoable (same tier as
    * activeLayerId). A render-only override: it never writes a layer's own
@@ -588,6 +611,9 @@ export interface MapBuilderStore {
   setClipperReady: (ready: boolean) => void;
   setFocusMode: (mode: UISlice['focusMode']) => void;
   setHighlightedRoomId: (roomId: string | null) => void;
+  toggleChildGroup: (key: string) => void;
+  setRevealChildId: (id: string | null) => void;
+  setPanelHoverChildId: (id: string | null) => void;
   toggleSoloLayer: (id: string) => void;
   /** Drops solo bookkeeping without touching any layer's visibility. */
   clearSolo: () => void;
@@ -602,6 +628,7 @@ export interface MapBuilderStore {
   setManifest: (manifest: AssetManifest) => void;
   markCategoryLoaded: (categoryId: string) => void;
   addCustomImage: (id: string, base64: string) => void;
+  removeCustomImage: (id: string) => void;
 
   // sublayer visibility actions
   setSublayerVisibility: (layerId: string, sublayer: keyof SublayerVisibility, visible: boolean) => void;
@@ -642,9 +669,14 @@ export interface MapBuilderStore {
   // prep actions
   upsertTrigger: (trigger: TriggerDef) => void;
   removeTrigger: (triggerId: string) => void;
+  upsertNote: (note: RoomNote) => void;
+  removeNote: (noteId: string) => void;
 
   // bulk / serialization
   loadFromFile: (data: SerializedMapData, splatPngs?: [Blob | null, Blob | null, Blob | null]) => void;
+  /** Rename pre-naming-era "Asset" children from the catalog (read-boundary shim). */
+  applyAssetNameShim: () => void;
+  normalizeChildGroups: () => void;
   getSerializableState: () => SerializedMapData;
   resetToDefault: () => void;
 }

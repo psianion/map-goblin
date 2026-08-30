@@ -237,6 +237,18 @@ export class LightingRenderer {
   private iconsVisible = true
   private lastSignature = ''
   private lastIconSignature = ''
+
+  /**
+   * Drop the composite memo so the next updateAndRender recomposes
+   * unconditionally. Needed at map-load: the first frames can be drawn from
+   * the store's pre-load default state, and if the loaded map's ambient and
+   * light list happen to match the defaults, the signature never changes and
+   * the stale full-viewport composite sticks until an unrelated store nudge
+   * (the "dark film over everything after refresh" bug).
+   */
+  invalidate(): void {
+    this.lastSignature = ''
+  }
   /**
    * The penumbra — one filter, re-sized per rebuild, shared by every light's blit. A filter
    * composites its output with its *own* blend mode, not the sprite's, so the add lives here:

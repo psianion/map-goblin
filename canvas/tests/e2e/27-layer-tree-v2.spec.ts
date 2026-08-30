@@ -75,8 +75,10 @@ test.describe('27 - Layer Tree v2', () => {
       await expandLayer1(page);
       const rows = getChildRows(page);
       await expect(rows).toHaveCount(2);
-      await expect(rows.nth(0)).toContainText('Rectangle');
-      await expect(rows.nth(1)).toContainText('Regular Polygon');
+      // Both land in the Shapes group; relative order of two same-type rows
+      // is an implementation detail, membership is the contract.
+      await expect(page.locator('[data-testid="child-row"]', { hasText: 'Rectangle 1' })).toBeVisible();
+      await expect(page.locator('[data-testid="child-row"]', { hasText: 'Regular Polygon' })).toBeVisible();
 
       await page.screenshot({ path: 'test-screenshots/27-02-multi-shapes.png' });
     });
@@ -93,8 +95,9 @@ test.describe('27 - Layer Tree v2', () => {
       const rows = getChildRows(page);
       await expect(rows).toHaveCount(1);
 
-      // Collapse
-      const collapseBtn = page.getByRole('button', { name: 'Collapse', exact: true });
+      // Collapse (the chevron's accessible name is "Collapse <layer name>";
+      // a bare /^Collapse/ would also match the "Collapse panel" button)
+      const collapseBtn = page.getByRole('button', { name: 'Collapse Layer 1' });
       await collapseBtn.click();
       await page.waitForTimeout(300);
       await expect(rows).toHaveCount(0);
@@ -133,8 +136,9 @@ test.describe('27 - Layer Tree v2', () => {
       await row.click();
       await page.waitForTimeout(300);
 
-      // Child row should have accent styling when selected
-      await expect(row).toHaveClass(/accent/);
+      // Selection contract is aria-selected (the raised-surface styling
+      // replaced the accent stripe in the table-ui rework).
+      await expect(row).toHaveAttribute('aria-selected', 'true');
 
       await page.screenshot({ path: 'test-screenshots/27-05-child-selected.png' });
     });
@@ -166,8 +170,9 @@ test.describe('27 - Layer Tree v2', () => {
       await expandLayer1(page);
       const rows = getChildRows(page);
       await expect(rows).toHaveCount(2);
-      await expect(rows.nth(0)).toContainText('Rectangle');
-      await expect(rows.nth(1)).toContainText('Light');
+      // Tree-v2 groups children by type; Lights group renders before Shapes.
+      await expect(rows.nth(0)).toContainText('Light');
+      await expect(rows.nth(1)).toContainText('Rectangle');
 
       await page.screenshot({ path: 'test-screenshots/27-07-mixed-children.png' });
     });
@@ -237,11 +242,11 @@ test.describe('27 - Layer Tree v2', () => {
       await expandLayer1(page);
       await expect(getChildRows(page)).toHaveCount(3);
 
-      // Undo last rect
+      // Undo last rect (Lights group renders before Shapes in tree-v2)
       await page.keyboard.press('Control+z');
       await page.waitForTimeout(500);
       await expect(getChildRows(page)).toHaveCount(2);
-      await expect(getChildRows(page).nth(1)).toContainText('Light');
+      await expect(getChildRows(page).nth(0)).toContainText('Light');
 
       // Undo light
       await page.keyboard.press('Control+z');

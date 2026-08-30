@@ -6,6 +6,7 @@ import { LightingRenderer } from './lighting';
 import { FogTransition } from './fogTransition';
 import { initToolPreview } from './toolPreview';
 import { initRoomHighlight } from './roomHighlight';
+import { initChildHoverHighlight } from './childHoverHighlight';
 import { initWallNodeOverlay } from './wallNodeOverlay';
 import { initShapeNodeOverlay } from './shapeNodeOverlay';
 import { initBandGhostPreview } from './bandGhostPreview';
@@ -128,6 +129,11 @@ export function buildSceneGraph(engine: RenderEngine): SceneGraph {
   const roomHighlight = new Graphics();
   worldContainer.addChild(roomHighlight);
   initRoomHighlight(roomHighlight);
+
+  // Child hover highlight — outline driven by layer-panel row hover
+  const childHover = new Graphics();
+  worldContainer.addChild(childHover);
+  initChildHoverHighlight(childHover);
 
   // Wall node handles — shown only while a wall is in node-edit mode
   const wallNodeOverlay = new Graphics();

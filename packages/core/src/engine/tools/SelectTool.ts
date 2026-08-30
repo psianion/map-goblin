@@ -6,7 +6,7 @@ import { undoManager } from '../../store/undoManager';
 import { CompositeCommand, PropertyCommand, UpdateChildCommand } from '../../store/commands';
 import { clipper2Engine } from '../../geometry/Clipper2Engine';
 import type { AnyChild, DungeonLayer } from '../../store/types';
-import { isLayerEffectivelyVisible } from '../../store/selectors';
+import { expandIdsForGroups, isLayerEffectivelyVisible } from '../../store/selectors';
 import type { RenderEngine } from '../RenderEngine';
 import { TransformGizmo, type HandleType } from './TransformGizmo';
 import { OVERLAY_INK, OVERLAY_WHITE } from '../overlayPalette';
@@ -30,6 +30,8 @@ import {
   pointInLight,
 } from '../hitTest';
 import { flattenRing } from '../../shared/bezier';
+import { blockedLayerReason } from './layerGuard';
+import { notify } from '../../shared/notify';
 
 // ─── State machine ────────────────────────────────────────
 
@@ -240,14 +242,25 @@ export class SelectTool implements DrawingTool {
     const hit = hitTestAllLayers(dungeonLayers, worldPt, { zoom: this.engine.stage().scale.x });
 
     if (hit) {
-      if (event?.shiftKey) {
+      // A click on a grouped child takes the whole group. Ctrl+Shift is the
+      // member-only bypass — Alt is the region-cut drag and Ctrl the
+      // whole-layer toggle, so neither was free. Merged groups ignore it.
+      const memberOnly = !!(event?.ctrlKey && event?.shiftKey);
+      const expand = (ids: string[]): string[] =>
+        expandIdsForGroups(store, ids, { mergedOnly: memberOnly });
+
+      if (memberOnly) {
+        store.setSelectedIds(expand([hit.child.id]));
+        store.setActiveLayerId(hit.layerId);
+      } else if (event?.shiftKey) {
         // Shift+click: toggle membership in selectedIds
         const current = store.selection.selectedIds;
+        const added = expand([hit.child.id]);
         const alreadySelected = current.includes(hit.child.id);
         store.setSelectedIds(
           alreadySelected
-            ? current.filter((id) => id !== hit.child.id)
-            : [...current, hit.child.id],
+            ? current.filter((id) => !added.includes(id))
+            : [...new Set([...current, ...added])],
         );
       } else if (event?.ctrlKey || event?.metaKey) {
         // Ctrl/Meta+click: toggle entire layer's children
@@ -266,7 +279,7 @@ export class SelectTool implements DrawingTool {
         // Plain click on an unselected child: select only it. A click on a
         // child already in the selection keeps the whole selection, so the
         // move below drags the group, not just the child under the cursor.
-        store.setSelectedIds([hit.child.id]);
+        store.setSelectedIds(expand([hit.child.id]));
         store.setActiveLayerId(hit.layerId);
       }
 
@@ -648,6 +661,12 @@ export class SelectTool implements DrawingTool {
     }
 
     if (entries.length === 0) {
+      // Everything selected sits on a locked layer, so the filter above threw
+      // it all away — the drag would otherwise just do nothing, silently.
+      const lockedOut = store.layers.some(
+        (l) => l.type === 'dungeon' && l.locked && l.children.some((c) => idSet.has(c.id)),
+      );
+      if (lockedOut) notify.warning('Layer is locked');
       this.transformSession = null;
       return;
     }
@@ -915,11 +934,14 @@ export class SelectTool implements DrawingTool {
     }
 
     if (collected.length > 0) {
+      // Marquee stays granular over plain groups — you drew the rect, you meant
+      // what it touched. Merged groups are atomic and come along whole.
+      const expanded = expandIdsForGroups(store, collected, { mergedOnly: true });
       if (event?.shiftKey) {
-        const merged = [...new Set([...store.selection.selectedIds, ...collected])];
+        const merged = [...new Set([...store.selection.selectedIds, ...expanded])];
         store.setSelectedIds(merged);
       } else {
-        store.setSelectedIds(collected);
+        store.setSelectedIds(expanded);
       }
       this.state = 'SELECTED';
       this.createGizmo();
@@ -995,6 +1017,14 @@ export class SelectTool implements DrawingTool {
       (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
     );
     if (!activeLayer) {
+      this.state = 'SELECTED';
+      return;
+    }
+    // The region was picked up before the layer was locked/hidden, or the lock
+    // landed mid-drag — either way the write has to answer for it now.
+    const blocked = blockedLayerReason(activeLayer);
+    if (blocked) {
+      notify.warning(blocked);
       this.state = 'SELECTED';
       return;
     }
@@ -1082,6 +1112,11 @@ export class SelectTool implements DrawingTool {
       (l): l is DungeonLayer => l.id === activeLayerId && l.type === 'dungeon',
     );
     if (!activeLayer) return;
+    const blocked = blockedLayerReason(activeLayer);
+    if (blocked) {
+      notify.warning(blocked);
+      return;
+    }
 
     const prevFloor = activeLayer.mergedFloor ?? [];
     const newFloor = clipper2Engine.difference(prevFloor, region) as [number, number][][];

@@ -110,6 +110,8 @@ function run(action: string, p: Payload, ctx: Ctx): void {
   switch (action) {
     case 'start':
       return start(p, ctx)
+    case 'seed':
+      return seed(p, ctx)
     case 'set':
       return set(p, ctx)
     case 'begin':
@@ -161,6 +163,57 @@ function start(p: Payload, ctx: Ctx): void {
     turn: 0,
     entries,
     log: note([], 'An encounter begins — roll initiative.'),
+  })
+}
+
+/**
+ * Internal only — absent from `commands` like `tokens.spawn`, dispatched by the server when
+ * a prepped encounter fires. Idle → opens a gathering encounter with the roster; already
+ * gathering/running → the roster joins the fight (unrolled, so they sink below everyone
+ * until the DM sets their numbers). HP arrives pre-rolled and lands inline — NPC pools stay
+ * behind the screen via the module's existing redaction. Clamps at MAX_ENTRIES; never
+ * throws for a full tracker, because breaking the trigger cascade helps nobody.
+ */
+function seed(p: Payload, ctx: Ctx): void {
+  const state = ctx.state
+  const sceneId = p.sceneId === undefined ? ctx.activeSceneId : str(p.sceneId, 'sceneId', ID_MAX)
+  if (!sceneId) bad('no sceneId in the payload and no active scene')
+  if (!Array.isArray(p.entries) || p.entries.length === 0) bad('seed needs a non-empty entries array')
+
+  const already = state.status === 'idle' ? 0 : state.entries.length
+  const incoming = p.entries.slice(0, Math.max(0, MAX_ENTRIES - already)).map((v, i) => {
+    const o = obj(v, `entries[${i}]`)
+    const hp = o.hp === undefined ? undefined : num(o.hp, `entries[${i}].hp`)
+    const tokenId = o.tokenId === undefined ? undefined : str(o.tokenId, `entries[${i}].tokenId`, ID_MAX)
+    const entry: InitiativeEntry = {
+      key: mintKey(),
+      name: str(o.name, `entries[${i}].name`, NAME_MAX),
+      kind: 'npc',
+      initiative: null,
+      ...(tokenId === undefined ? {} : { tokenId }),
+    }
+    if (hp !== undefined && Number.isInteger(hp) && hp >= 1 && hp <= HP_MAX) {
+      entry.hp = { current: hp, max: hp }
+    }
+    return entry
+  })
+  if (incoming.length === 0) return
+
+  if (state.status === 'idle') {
+    ctx.setState({
+      status: 'gathering',
+      sceneId,
+      round: 0,
+      turn: 0,
+      entries: incoming,
+      log: note([], 'An encounter begins — roll initiative.'),
+    })
+    return
+  }
+  ctx.setState({
+    ...state,
+    entries: [...state.entries, ...incoming],
+    log: note(state.log, `${andList(incoming.map((e) => e.name))} join${incoming.length === 1 ? 's' : ''} the fight.`),
   })
 }
 

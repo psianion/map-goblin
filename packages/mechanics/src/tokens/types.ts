@@ -37,6 +37,12 @@ export interface TokenDef {
   sight: { range: number; angle: number; visionMode: 'normal' | 'darkvision' } | null
   /** Schema only until S3. */
   light: { dim: number; bright: number; color: string; angle: number } | null
+  /**
+   * Pack-sourced art (PR3 of the prep layer): resolved client-side from the installed
+   * pack's atlas. Wins over `imageAssetId` when both are somehow present. Optional so
+   * every row written before it existed reads unchanged.
+   */
+  packAsset?: { packId: string; assetId: string }
 }
 
 /** Placed instance (scene-scoped). */
@@ -98,6 +104,26 @@ export interface SceneVision {
    * default — leaves the room-granular rule below exactly as it was.
    */
   canSee?(x: number, y: number): boolean
+  /**
+   * Vision mode only — is this spot ground the party has already been shown?
+   *
+   * `roomAt` answers "which authored room is this", and outside every room it answers
+   * `null`, which D6 reads as "the DM's own map". That reading is right in `'rooms'` mode,
+   * where a room is the only unit of fog there is. It is wrong in vision mode, where the
+   * unit is a *cell*: the region record remembers unzoned ground the same way it remembers
+   * a room's floor, and a DM who brushed a path across it — or a party whose own sweep ran
+   * over it — has said, in the only vocabulary vision mode has, that the party may be
+   * there. Without this the DM reveals the path, the mask lights up, and the move still
+   * comes back "outside the map", which is a reveal that does not reveal.
+   *
+   * It is memory, never geometry: a cell is only ever on because the party swept it (which
+   * respects walls and doors) or because the DM painted it (which is the DM saying so). So
+   * this widens where a token may stand without widening what anyone can see.
+   *
+   * Absent in `'rooms'` mode and on any scene too large to keep cell memory, both of which
+   * leave the room-granular rule below exactly as it was.
+   */
+  openGround?(x: number, y: number): boolean
 }
 
 /**
