@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Compositor check — raster fog mask (P1a)</title>
+    <style>
+      body { margin: 0; background: #0f100e; color: #dcdcd4; font: 13px/1.5 ui-sans-serif, system-ui, sans-serif; }
+      #out { padding: 10px 14px; white-space: pre-wrap; margin: 0; font-family: ui-monospace, monospace; }
+      .pass { color: #7ec87e; }
+      .fail { color: #e07a6a; }
+    </style>
+  </head>
+  <body>
+    <!-- GL truth for the tier compositor. Run headless with `node compositor-run.mjs`. -->
+    <div id="app"></div>
+    <pre id="out">running…</pre>
+    <script type="module" src="/src/compositor-check.ts"></script>
+  </body>
+</html>
