@@ -306,6 +306,12 @@ export function tierPlan(scene: TierScene): DrawPlan {
       color: MASK_LIVE,
       blend: 'normal',
     });
+    // The held clip, on this target as well as on the mask — because `live` is not only a
+    // tier. It is also the stencil the token chips and the turn ring wear (`SIGHT_MASK`),
+    // and that layer never passes through the mask's own clip: an unclipped sweep here is a
+    // chip drawn on ground the seat does not hold, which on a roomless map is every ray's
+    // full `SIGHT_REACH`. Erases commute, so the night gate below is still the last word.
+    ops.push({ kind: 'sprite', target: 'live', source: 'inverseHeld', blend: 'erase' });
     if (night) ops.push({ kind: 'sprite', target: 'live', source: 'inverseSeeable', blend: 'erase' });
   }
 

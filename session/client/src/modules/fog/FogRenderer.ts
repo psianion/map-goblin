@@ -40,7 +40,7 @@
 // rather than information — `GRADE_STRENGTH` against `LIGHTING_STRENGTH` is that split.
 //
 // ponytail: pixi through @dnd/core, the same reach-through TokenRenderer documents.
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Sprite } from 'pixi.js';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import type { Room } from '@dnd/core/src/shared/types';
 import type { BackgroundLayer, Layer, SerializedMapData } from '@dnd/core/src/store/types';
@@ -89,7 +89,6 @@ import {
   type FogRing,
   type NightSight,
   paintedGround,
-  regionRects,
   ringsWithHoles,
   roomAt,
   roomFog,
@@ -98,10 +97,11 @@ import {
   serverLayers,
   serverRooms,
   sightPad,
-  visionRegion,
 } from './fog';
 import { placedLights, sightCache, sighted } from './visionSight';
 import { MASK_MEMORY, createLivingFog, fogPalette } from './livingFog';
+import { tierPlan, type DrawPlan, type TierScene } from './tierPlan';
+import { createTierCompositor } from './tierCompositor';
 
 /** What the player's canvas does with one room. */
 export type RoomView = 'visible' | 'explored' | 'dark';
@@ -969,56 +969,43 @@ function roomTiers(scene: FogScene): { earned: FogRing[]; memory: FogRing[] } {
  * second shape.
  */
 /**
- * The ground a memory or a sweep is allowed to sit on: every room the player was handed.
+ * A `FogScene` as the tier compositor's pure planner wants it (`tierPlan`).
  *
- * A map nobody zoned has no room polygons, and this is the clip that makes vision mode mean
- * anything there. Empty, it clips both tiers to nothing and the DM's brush paints a reveal no
- * player can see. The map's whole frame is the other obvious answer and is worse: a sweep's
- * rays run a thousand cells out (`SIGHT_REACH`) and this is the only thing that ever stops
- * them, so on a wall-less battlemap the party's own sight opened the entire map at once.
- *
- * So the answer is the record itself — the cells the DM has brushed and the party has earned.
- * On a map with no authored geometry, "ground the player holds" is exactly "ground the record
- * says they have been shown", and the two tiers stay honest: memory is what the record holds,
- * live sight is what they can see of it. New ground still opens as they walk, because the
- * referee's own ranged sweep is what writes those cells in the first place (`auto-explore`).
- *
- * ponytail: the rects are rebuilt per call, so `visionRegion`'s reach memo misses every
- * rebuild on a roomless map. Cheap at battlemap sizes; memoize on the region's bits if a
- * large one ever drags.
+ * The one judgement left in here is which rooms are *held* — every room the player was handed
+ * at all, which on a map nobody zoned is no rooms and the record's own cell runs instead. That
+ * rule now lives in `tierPlan.heldSources`, where a test with no GL can read it back; this
+ * only decides what counts as a room polygon and which of them the DM lit by hand.
  */
-function heldGround(scene: FogScene): Polygon[] {
-  const held = scene.rooms.filter((room) => room.boundary.length >= 3).map((room) => room.boundary);
-  return held.length > 0 ? held : regionRects(scene.fog?.region);
+function tierSceneOf(scene: FogScene): TierScene {
+  const stored = scene.fog?.rooms ?? {};
+  const floors = scene.rooms.filter((room) => room.boundary.length >= 3);
+  return {
+    sight: scene.sight ?? [],
+    region: scene.fog?.region,
+    rooms: floors.map((room) => room.boundary),
+    revealed: floors
+      .filter((room) => stored[room.id]?.status === 'revealed')
+      .map((room) => room.boundary),
+    painted: scene.painted,
+    pad: scene.pad,
+    feather: FOG_FEATHER,
+    night: scene.night,
+    frame: scene.bounds,
+  };
 }
 
-function visionTiers(scene: FogScene): {
-  earned: FogRing[];
-  memory: FogRing[];
+/**
+ * What one rebuild handed the layer.
+ *
+ * `plan` is the fork: in vision mode the mask, the scrim and the sight stencil are all
+ * composited on the GPU from this description (`tierCompositor`) and *no* vector geometry is
+ * drawn at all — the three Graphics come back cleared. Rooms mode leaves it null and paints
+ * them exactly as it always did.
+ */
+export interface FogDraw {
   cells: number;
-} {
-  const stored = scene.fog?.rooms ?? {};
-  const floorsOf = (pick: (roomId: string) => boolean): Polygon[] =>
-    scene.rooms
-      .filter((room) => room.boundary.length >= 3 && pick(room.id))
-      .map((room) => room.boundary);
-
-  const region = visionRegion(
-    scene.sight ?? [],
-    scene.fog?.region,
-    floorsOf((id) => stored[id]?.status === 'revealed'),
-    // Every room the player was handed at all — what the wash is allowed to sit on.
-    heldGround(scene),
-    scene.pad,
-    FOG_FEATHER,
-    scene.night,
-    scene.painted,
-  );
-  return {
-    earned: ringsWithHoles(region.shown),
-    memory: ringsWithHoles(region.memory),
-    cells: region.cells,
-  };
+  cover: Bounds | null;
+  plan: DrawPlan | null;
 }
 
 export function drawFog(
@@ -1026,11 +1013,18 @@ export function drawFog(
   scene: FogScene,
   maskPaint?: Graphics,
   sightMask?: Graphics,
-): { cells: number; cover: Bounds | null } {
+): FogDraw {
   scrim.clear();
   maskPaint?.clear();
   sightMask?.clear();
-  if (!(scene.isPlayer || scene.preview) || !scene.bounds) return { cells: 0, cover: null };
+  if (!(scene.isPlayer || scene.preview) || !scene.bounds) return { cells: 0, cover: null, plan: null };
+  // The one fork in this file, and after P1b it is a fork between two whole pipelines rather
+  // than between two sets of rings: vision mode answers with a draw plan and paints nothing
+  // here, rooms mode paints the vectors below and answers with no plan.
+  if (scene.mode === 'vision') {
+    const plan = tierPlan(tierSceneOf(scene));
+    return { cells: plan.cells, cover: plan.cover, plan };
+  }
   // Drawn one pad + feather wider than the frame: a hole that crosses the filled rect's
   // outer contour is dropped whole by the triangulator, and the frame is content-tight
   // (one square of air) while a room's padded reach can poke past it. The overhang is
@@ -1040,10 +1034,7 @@ export function drawFog(
   let minY = scene.bounds.minY - grow;
   let maxX = scene.bounds.maxX + grow;
   let maxY = scene.bounds.maxY + grow;
-  // The one fork in this file. Everything either side of it — the fill, the cut, the wash and
-  // the falloff — is the same four instructions in the same order; the tiers are what differ.
-  const { earned, memory, cells } =
-    scene.mode === 'vision' ? visionTiers(scene) : { ...roomTiers(scene), cells: 0 };
+  const { earned, memory } = roomTiers(scene);
 
   // …and further still for whatever is actually cut out of it: a hole that crosses the filled
   // rect's outer contour is dropped whole by the triangulator, and the mask came back as
@@ -1089,7 +1080,7 @@ export function drawFog(
   // room the party had merely explored broadcast its live position (chip and
   // turn ring both), which a two-seat walk caught on the player's canvas.
   if (sightMask) fillLand(sightMask, earned, { color: 0xffffff, alpha: 1 });
-  return { cells, cover: { minX, minY, maxX, maxY } };
+  return { cells: 0, cover: { minX, minY, maxX, maxY }, plan: null };
 }
 
 interface Fade {
@@ -1105,6 +1096,17 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   // The rim is the darker band the cloud draws right at its cut. At 0.75 it underlined every
   // sight line as a stroke; a third of that keeps the edge reading as weather.
   const fog = createLivingFog(engine, { dense: 1, mist: MEMORY_MIST, rim: 0.25, fade: FOG_FADE / 2 });
+  // Vision mode's whole mask, composited on the GPU (docs/2026-09-01-raster-fog-mask-plan.md).
+  // It paints straight into the *same* two textures the cloud shader is bound to, which is
+  // the one hard constraint here — a fresh RenderTexture is a source the bind never follows.
+  // Rooms mode never runs it and its four private targets stay at 4×4.
+  const tiers = createTierCompositor(engine, fog.maskTextures);
+  // Vision mode's scrim: the same flat black backstop, but with its holes erased on the GPU
+  // instead of cut by Clipper, drawn as a plain sprite under the cloud. Fail-dark is where it
+  // was — the target is filled opaque and then the finished mask is erased out of it, so any
+  // pass that does not run leaves it covering everything.
+  const scrimSprite = new Sprite(tiers.scrim);
+  scrimSprite.visible = false;
   // The stencil the chip and ring layers wear (`sightMaskOf`). A child here so it shares this
   // layer's camera mirror; Pixi keeps a mask out of the normal draw, so it paints nothing.
   const sightMask = new Graphics();
@@ -1113,7 +1115,15 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   // Pixi clears this flag itself when a mask is assigned, and a white fill drawn as content
   // in between would be one frame of the whole map.
   sightMask.includeInBuild = false;
-  layer.addChild(scrim, fog.mesh, sightMask);
+  // …and vision mode's version of it: live sight as a texture. Pixi takes a Sprite as an
+  // *alpha* mask (P0 proved the path), and the compositor's `live` target is exactly what the
+  // vector fill used to be — the sweep, night-gated, clipped to held ground, memory left out.
+  // Whichever of the two carries the `SIGHT_MASK` label is the stencil the wearers find; the
+  // other is inert (the Graphics because it is cleared, the sprite because Pixi leaves a
+  // released alpha mask un-renderable).
+  const sightSprite = new Sprite(tiers.live);
+  sightSprite.includeInBuild = false;
+  layer.addChild(scrim, scrimSprite, fog.mesh, sightMask, sightSprite);
   // Nothing here is clickable; the fog tool and the doors read the DOM canvas directly.
   layer.eventMode = 'none';
   addScreenOverlay(sceneGraph, layer, 'playerFog');
@@ -1156,6 +1166,30 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // cannot work out for itself. Read-only, and it discloses nothing the page does not
     // already draw.
     screenOf: (x: number, y: number): { x: number; y: number } => engine.worldToScreen(x, y),
+    /**
+     * The tier mask's own texel at a world point, RGBA as the cloud shader samples it
+     * (premultiplied: hidden [0,0,0,0], a memory ~[128,128,128,255], live [255,255,255,255]).
+     * Null outside the mask, and on a seat that has no mask at all.
+     *
+     * Dev only, and the one instrument that tells the two halves of a fog bug apart — every
+     * one so far has been "is the geometry wrong or is the texture wrong". It reads the whole
+     * texture back off the GPU and indexes it, which stalls the pipeline: fine for a hand
+     * probe or an e2e row, never for anything per-frame.
+     */
+    maskAt: (x: number, y: number): number[] | null => {
+      if (!import.meta.env.DEV) return null;
+      const fit = fog.maskFit();
+      const rt = fog.maskTextures.mask;
+      const read = engine.renderer?.()?.extract;
+      if (!fit || !read) return null;
+      const { minX, minY, maxX, maxY } = fit.bounds;
+      const tx = Math.floor(((x - minX) / (maxX - minX)) * rt.width);
+      const ty = Math.floor(((y - minY) / (maxY - minY)) * rt.height);
+      if (tx < 0 || ty < 0 || tx >= rt.width || ty >= rt.height) return null;
+      const { pixels } = read.pixels(rt);
+      const i = (ty * rt.width + tx) * 4;
+      return [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]];
+    },
   };
   (window as Window & { __fogProbe?: typeof fogProbe }).__fogProbe = fogProbe;
 
@@ -1202,6 +1236,46 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // memory tier easing with the light level the way the wash under it does, and one render
     // of the mask — per mutation, exactly like the geometry it rasterises.
     fog.setMaskBounds(built.cover);
+    // Which pipeline actually painted the mask this rebuild. A vision plan wants the
+    // compositor; anything else — rooms mode, and a vision cover too big for a mask texture
+    // (the `EVERYTHING` seat, which holds nothing anywhere) — wants the vector path.
+    const fit = fog.maskFit();
+    const raster = built.plan !== null && fit !== null;
+    if (built.plan) {
+      // Cleared even when nothing can be composited, so a target left holding the previous
+      // rebuild cannot survive as a hole — or, on `live`, as a chip standing in the dark.
+      tiers.run(raster ? built.plan : { cover: null, ops: [], cells: built.cells }, {
+        scale: fit?.scale ?? 1,
+        fade: FOG_FADE / 2,
+      });
+    }
+    if (!raster) {
+      // The rooms path paints `maskPaint`; so does a vision seat with no coverable mask, and
+      // there the vector scrim is the only cover left — flat black over the whole plan, no
+      // holes, which is the fail-dark answer that seat is owed. (In the composited case the
+      // vector scrim deliberately draws nothing: a black rect *under* the scrim sprite would
+      // fill the very holes the sprite carries, and the cloud already covers everything past
+      // the plan's cover at `dense: 1`.)
+      if (built.plan && built.cover) {
+        const { minX, minY, maxX, maxY } = built.cover;
+        scrim.rect(minX, minY, maxX - minX, maxY - minY).fill({ color: 0x000000, alpha: 1 });
+      }
+    }
+    const cover = raster ? (built.cover as Bounds) : null;
+    scrimSprite.visible = raster;
+    if (cover) {
+      scrimSprite.position.set(cover.minX, cover.minY);
+      scrimSprite.width = cover.maxX - cover.minX;
+      scrimSprite.height = cover.maxY - cover.minY;
+      sightSprite.position.set(cover.minX, cover.minY);
+      sightSprite.width = cover.maxX - cover.minX;
+      sightSprite.height = cover.maxY - cover.minY;
+    }
+    // One of the two carries the label, never both and never neither: a wearer that finds no
+    // stencil at all wears no mask, and a chip in the dark is the one failure direction fog
+    // may not have. The cleared Graphics is that fallback — it hides everything.
+    sightMask.label = raster ? '' : SIGHT_MASK;
+    sightSprite.label = raster ? SIGHT_MASK : '';
     fog.setPalette(fogPalette(scene.grade, scene.darkness));
     fog.setMist(MEMORY_MIST * (MEMORY_WASH_FLOOR + (1 - MEMORY_WASH_FLOOR) * scene.darkness));
     fog.setWash(drawn.void.memory, memoryAlpha(scene.darkness));
@@ -1209,7 +1283,11 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // lighting pass's own rim curve rather than on a cut at a radius. Outside darkness the
     // geometry is the whole statement.
     fog.setPools(scene.night?.pools ?? []);
-    fog.renderMask();
+    // The vector path's own rasterisation. Skipped when the compositor painted the mask —
+    // this would render `maskPaint` (empty in vision mode) straight over it — and *not*
+    // skipped on a mode flip, which is what re-renders the mask through the now-active path
+    // rather than leaving the other one's texture standing.
+    if (!raster) fog.renderMask();
     // Stamped before the dots and the fades: those are draws, and what §4 budgets is what one
     // mutation costs to *build* — the sweeps inside `fogScene` and the Clipper pass above.
     fogProbe.mode = scene.mode ?? 'rooms';
@@ -1286,6 +1364,8 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
       if (lit) lit.alpha = GRADE_STRENGTH;
       // The grade needs no handing back — this file no longer sets it. The clock goes back with
       // `syncWorldToScene`'s own cleanup, and the render loop recomposes from there.
+      // Before the fog, which owns the two textures the compositor borrows.
+      tiers.destroy();
       fog.destroy();
       if (!layer.destroyed) layer.destroy({ children: true });
     } catch {

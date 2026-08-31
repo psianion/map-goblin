@@ -315,6 +315,21 @@ export interface LivingFog {
   fadePaint: Container;
   /** Point the mask texture at this world rect (null ⇒ everything is hidden). */
   setMaskBounds(bounds: Bounds | null): void;
+  /**
+   * The two textures the cloud shader samples, for a caller that paints them itself instead
+   * of through `maskPaint` — the raster tier compositor, which composites vision mode's whole
+   * mask on the GPU.
+   *
+   * These are the same two objects for the life of this fog: the shader's bind group holds
+   * their *sources*, so a caller may resize them in place but must never swap them.
+   */
+  readonly maskTextures: { mask: RenderTexture; maskSoft: RenderTexture };
+  /**
+   * Where the mask textures currently sit and what they are sized at, or null when the last
+   * `setMaskBounds` found nothing coverable — which is "hidden everywhere", and wants no
+   * paint at all.
+   */
+  maskFit(): { scale: number; bounds: Bounds } | null;
   /** Rasterise `maskPaint` + `fadePaint` into the mask texture. */
   renderMask(): void;
   setPalette(palette: FogPalette): void;
@@ -409,6 +424,8 @@ export function createLivingFog(engine: RenderEngine, look: LivingFogLook): Livi
   }
 
   let rect: { minX: number; minY: number; w: number; h: number } | null = null;
+  /** Texels per world unit the mask textures are currently sized at — `maskTarget`'s. */
+  let scale = 0;
   let time = 0;
 
   const setVec = (target: Float32Array | number[], values: readonly number[]): void => {
@@ -426,11 +443,13 @@ export function createLivingFog(engine: RenderEngine, look: LivingFogLook): Livi
       const h = bounds ? bounds.maxY - bounds.minY : 0;
       if (!bounds || w <= 0 || h <= 0 || Math.max(w, h) > COVERABLE_MAX) {
         rect = null;
+        scale = 0;
         setVec(uniforms.uMaskRect, [0, 0, 0, 0]); // degenerate ⇒ maskAt answers hidden
         return;
       }
       rect = { minX: bounds.minX, minY: bounds.minY, w, h };
       const s = maskScale(w, h);
+      scale = s;
       const [tw, th] = [Math.ceil(w * s), Math.ceil(h * s)];
       if (maskRT.width !== tw || maskRT.height !== th) {
         // Resize in place rather than recreate: the shader's bind group holds the texture
@@ -442,6 +461,20 @@ export function createLivingFog(engine: RenderEngine, look: LivingFogLook): Livi
       maskScene.scale.set(tw / w, th / h);
       maskScene.position.set(-bounds.minX * (tw / w), -bounds.minY * (th / h));
       setVec(uniforms.uMaskRect, [bounds.minX, bounds.minY, 1 / w, 1 / h]);
+    },
+    maskTextures: { mask: maskRT, maskSoft: maskSoftRT },
+    maskFit() {
+      return rect
+        ? {
+            scale,
+            bounds: {
+              minX: rect.minX,
+              minY: rect.minY,
+              maxX: rect.minX + rect.w,
+              maxY: rect.minY + rect.h,
+            },
+          }
+        : null;
     },
     renderMask() {
       if (!rect) return;

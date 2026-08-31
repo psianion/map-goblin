@@ -1197,42 +1197,73 @@ describe('drawFog in vision mode', () => {
     ...over,
   });
 
-  it('cuts the sweep out of the cover and ramps the cloud mask back in over it', () => {
+  // P1b — vision mode composites its mask, its scrim and its sight stencil on the GPU from a
+  // `DrawPlan` (docs/2026-09-01-raster-fog-mask-plan.md), so what these rows pin is the seam:
+  // which pipeline `drawFog` chose, and what it handed it. *What the plan means* is pinned
+  // without a GPU in `tierPlan.test.ts` and with one in `compositor-check`.
+
+  it('hands vision mode to the compositor and paints no vector geometry at all', () => {
     const scrim = new Graphics();
     const mask = new Graphics();
-    const drawn = drawFog(scrim, visionScene({ sight: [LOOKING] }), mask);
-
-    const fills = fillsOf(scrim);
-    expect(fills[0].style.color).toBe(0x000000);
-    expect(fills[0].hole).toBeDefined();
-    // No memory: nothing has been swept into the record and no room was revealed.
-    expect(fills.some((f) => f.style.color === EXPLORED_TINT)).toBe(false);
-    expect(drawn.cells).toBe(0);
-    // The sweep lands in the mask as a white tier; the cloud's own blur is the ramp.
-    expect(fillsOf(mask).some((f) => f.style.color === 0xffffff)).toBe(true);
-    expect(mask.context.instructions.filter((i) => i.action === 'stroke')).toHaveLength(0);
-  });
-
-  // The stencil the chip and ring layers wear above the mask: filled wherever the seat may
-  // see — the sweep and its memory — and empty where it may not, so a chip drawn above the
-  // dark never outruns it.
-  it('fills the sight stencil with the shown tiers and leaves the hidden map out of it', () => {
     const stencil = new Graphics();
-    drawFog(new Graphics(), visionScene({ sight: [LOOKING] }), undefined, stencil);
-    const shown = fillsOf(stencil);
-    expect(shown.length).toBeGreaterThan(0);
-    expect(shown.every((f) => f.style.color === 0xffffff)).toBe(true);
+    const drawn = drawFog(scrim, visionScene({ sight: [LOOKING] }), mask, stencil);
 
-    // Nothing seen, nothing remembered: an empty stencil, which hides every chip.
-    drawFog(new Graphics(), visionScene({ sight: [] }), undefined, stencil);
+    // Not one instruction on any of the three: a vector cut left standing here would be a
+    // second opinion about where the holes are, drawn under the composited one.
+    expect(scrim.context.instructions).toHaveLength(0);
+    expect(mask.context.instructions).toHaveLength(0);
+    expect(stencil.context.instructions).toHaveLength(0);
+
+    // …and the plan says the same three things the vectors used to. The sweep is the live
+    // tier, the clip is the last word on the mask, and the scrim is one erase of it.
+    const plan = drawn.plan!;
+    expect(plan.cover).toEqual(drawn.cover);
+    expect(plan.ops.filter((op) => op.target === 'live' && op.kind === 'polys')).toMatchObject([
+      { polys: [LOOKING], color: 0xffffff },
+    ]);
+    const maskOps = plan.ops.filter((op) => op.target === 'mask');
+    expect(maskOps.at(-1)).toMatchObject({ source: 'inverseHeld', blend: 'erase' });
+    expect(plan.ops.filter((op) => op.target === 'scrim')).toMatchObject([
+      { kind: 'rect', color: 0x000000 },
+      { kind: 'sprite', source: 'mask', blend: 'erase' },
+    ]);
+    expect(drawn.cells).toBe(0);
+  });
+
+  // The stencil the chip and ring layers wear above the mask is the compositor's `live`
+  // target — live sight, night-gated and clipped to held ground, memory deliberately left
+  // out. The vector stencil is cleared and stays cleared: in vision mode the fog layer hands
+  // the wearers a Sprite of that target instead (`SIGHT_MASK`).
+  it('leaves the vector stencil empty and puts live sight on its own target', () => {
+    const stencil = new Graphics();
+    const drawn = drawFog(new Graphics(), visionScene({ sight: [LOOKING] }), undefined, stencil);
     expect(fillsOf(stencil)).toEqual([]);
+    const live = drawn.plan!.ops.filter((op) => op.target === 'live');
+    expect(live).toMatchObject([
+      { kind: 'polys', polys: [LOOKING] },
+      // The clip is on this target too, because it is the stencil as well as a tier.
+      { kind: 'sprite', source: 'inverseHeld', blend: 'erase' },
+    ]);
+    // Memory never reaches it: a remembered room shows what it looked like, never who is
+    // standing in it now — with memory in the stencil a hostile walking through an explored
+    // room broadcast its live position, which a two-seat walk caught.
+    expect(live.some((op) => op.kind === 'cells' || op.kind === 'rect')).toBe(false);
 
-    // A seat that draws no mask clears it too — the DM wears none, so nothing reads it.
-    drawFog(new Graphics(), visionScene({ sight: [LOOKING], isPlayer: false }), undefined, stencil);
+    // Nothing seen: no live draw at all, so the target composites to nothing and hides every
+    // chip. The clip still runs on the mask — a stale hole may not survive a rebuild.
+    const blind = drawFog(new Graphics(), visionScene({ sight: [] }), undefined, stencil);
+    expect(blind.plan!.ops.filter((op) => op.target === 'live')).toEqual([]);
+    expect(blind.plan!.ops.filter((op) => op.target === 'mask')).toMatchObject([
+      { kind: 'sprite', source: 'inverseHeld', blend: 'erase' },
+    ]);
+
+    // A seat that draws no mask gets no plan either — the DM wears no stencil.
+    const dm = drawFog(new Graphics(), visionScene({ sight: [LOOKING], isPlayer: false }), undefined, stencil);
+    expect(dm).toMatchObject({ plan: null, cover: null, cells: 0 });
     expect(fillsOf(stencil)).toEqual([]);
   });
 
-  it('washes the memory tier at the explored look, over the cells and the reveals', () => {
+  it('counts the record into the memory tier, and washes nothing itself', () => {
     const scrim = new Graphics();
     const drawn = drawFog(
       scrim,
@@ -1249,27 +1280,34 @@ describe('drawFog in vision mode', () => {
       }),
     );
 
-    // The wash is the cloud's (`setWash`); here the scrim cuts the memory into its hole and
-    // draws nothing over it.
+    // The wash is the cloud's (`setWash`), read off the mask — the scrim carries no paint of
+    // its own in either mode, and in this one it carries no instructions either.
     expect(fillsOf(scrim).find((f) => f.style.color === EXPLORED_TINT)).toBeUndefined();
-    expect(fillsOf(scrim)[0].hole).toBeDefined();
+    expect(scrim.context.instructions).toHaveLength(0);
     expect(drawn.cells).toBe(2);
+    // The record as texels and the DM's revealed room, both grey, both under live sight.
+    const greys = drawn.plan!.ops.filter((op) => op.target === 'mask' && op.kind !== 'sprite');
+    expect(greys.map((op) => op.kind)).toEqual(['cells', 'polys']);
   });
 
-  it('leaves a party with no eyes and no memory one unbroken fill', () => {
+  it('leaves a party with no eyes and no memory an unbroken cover', () => {
     // The mask fails dark, which is the only direction a fog bug may fail in: no sweep and
-    // no record is a player who has earned nothing, not a player who is owed everything.
-    const scrim = new Graphics();
-    drawFog(scrim, visionScene());
-    expect(fillsOf(scrim)).toHaveLength(1);
-    expect(fillsOf(scrim)[0].hole).toBeUndefined();
-    expect(scrim.context.instructions.filter((i) => i.action === 'stroke')).toHaveLength(0);
+    // no record is a player who has earned nothing, not a player who is owed everything. On
+    // this path that is the scrim target filled opaque with an empty mask erased out of it.
+    const drawn = drawFog(new Graphics(), visionScene());
+    const plan = drawn.plan!;
+    expect(plan.ops.some((op) => op.target === 'live')).toBe(false);
+    expect(plan.ops.filter((op) => op.target === 'mask')).toMatchObject([
+      { kind: 'sprite', source: 'inverseHeld', blend: 'erase' },
+    ]);
+    expect(plan.ops.filter((op) => op.target === 'scrim')).toHaveLength(2);
   });
 
   it('draws the DM nothing at all, as in every other mode (principle 3)', () => {
     const scrim = new Graphics();
-    drawFog(scrim, visionScene({ sight: [LOOKING], isPlayer: false }));
+    const drawn = drawFog(scrim, visionScene({ sight: [LOOKING], isPlayer: false }));
     expect(scrim.context.instructions).toHaveLength(0);
+    expect(drawn.plan).toBeNull();
   });
 });
 
@@ -2219,9 +2257,9 @@ describe('drawFog in the dark', () => {
     [x0, y1],
   ];
 
-  it('cuts darkvision ground out of the scrim like any other clear ground, and washes nothing', () => {
+  it('gates live sight on torch and darkvision alike, and washes nothing', () => {
     const scrim = new Graphics();
-    drawFog(
+    const drawn = drawFog(
       scrim,
       nightScene({
         lit: [square(6, 0.5, 8, 2)],
@@ -2229,10 +2267,23 @@ describe('drawFog in the dark', () => {
         pools: [{ x: 7, y: 1.25, inner: 1, outer: 2 }],
       }),
     );
-    // The backstop, and the hole: nothing else. What the party can see — by torch or by
-    // darkvision — shows the map as rendered; the only paint the scrim carries is the cover.
-    const fills = fillsOf(scrim);
-    expect(fills[0].hole).toBeDefined();
-    expect(fills.filter((f) => f.style.color !== 0x000000)).toEqual([]);
+    // The backstop and its holes are the compositor's now, so the vector scrim carries
+    // nothing at all — and no paint of its own in either mode, which is the half of this row
+    // that has always mattered: what the party can see shows the map as rendered.
+    expect(fillsOf(scrim)).toEqual([]);
+    const plan = drawn.plan!;
+    // One gate over both, built from the two sweeps together and erased from live sight
+    // alone — unlit ground the party has explored is still remembered, only not current.
+    expect(plan.ops.filter((op) => op.target === 'inverseSeeable')).toMatchObject([
+      { kind: 'rect' },
+      { kind: 'polys', polys: [square(6, 0.5, 8, 2), square(8, 0.5, 9, 2)], blend: 'erase' },
+    ]);
+    expect(plan.ops.filter((op) => op.target === 'live').at(-1)).toMatchObject({
+      source: 'inverseSeeable',
+      blend: 'erase',
+    });
+    expect(plan.ops.some((op) => op.kind === 'sprite' && op.target === 'mask' && op.source === 'inverseSeeable')).toBe(
+      false,
+    );
   });
 });

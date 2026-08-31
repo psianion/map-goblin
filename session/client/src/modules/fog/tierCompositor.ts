@@ -60,23 +60,41 @@ export interface TierCompositor {
 }
 
 /**
- * @param scale texels per world unit for every target — `livingFog`'s `maskScale`.
- * @param fade the soft copy's blur radius in cells — `LivingFogLook.fade`.
+ * The two textures the cloud shader is bound to for its whole life (`livingFog`'s `maskRT`
+ * and `maskSoftRT`).
+ *
+ * Handed in rather than created here, and that is the whole of the P1b seam: the shader's
+ * bind group holds a texture *source*, so the composited mask has to land in the source the
+ * shader already has rather than in a new one it would never look at. The compositor then
+ * only ever resizes them in place, exactly as `setMaskBounds` does, and destroys neither —
+ * their owner is `livingFog`, which the rooms path still paints through unchanged.
  */
-export function createTierCompositor(engine: TierRenderer): TierCompositor {
-  const targets = new Map<TierTarget, { rt: RenderTexture; scene: Container }>(
-    TARGET_ORDER.map((name) => [
-      name,
-      { rt: RenderTexture.create({ width: 4, height: 4 }), scene: new Container() },
-    ]),
+export interface TierTextures {
+  mask: RenderTexture;
+  maskSoft: RenderTexture;
+}
+
+export function createTierCompositor(engine: TierRenderer, shared?: TierTextures): TierCompositor {
+  const targets = new Map<TierTarget, { rt: RenderTexture; scene: Container; owned: boolean }>(
+    TARGET_ORDER.map((name) => {
+      const borrowed = name === 'mask' && shared ? shared.mask : null;
+      return [
+        name,
+        {
+          rt: borrowed ?? RenderTexture.create({ width: 4, height: 4 }),
+          scene: new Container(),
+          owned: !borrowed,
+        },
+      ];
+    }),
   );
   const rtOf = (name: TierTarget): RenderTexture => (targets.get(name) as { rt: RenderTexture }).rt;
   const sceneOf = (name: TierTarget): Container =>
     (targets.get(name) as { scene: Container }).scene;
 
   // The soft copy, built exactly as `livingFog` builds it so the shader's remap keeps working
-  // when P1b swaps the paint source underneath it.
-  const maskSoft = RenderTexture.create({ width: 4, height: 4 });
+  // now that P1b has swapped the paint source underneath it.
+  const maskSoft = shared?.maskSoft ?? RenderTexture.create({ width: 4, height: 4 });
   const soften = new BlurFilter({ strength: 0, quality: 2 });
   const softSprite = new Sprite(rtOf('mask'));
   softSprite.filters = [soften];
@@ -217,14 +235,15 @@ export function createTierCompositor(engine: TierRenderer): TierCompositor {
     },
     destroy() {
       for (const name of TARGET_ORDER) {
-        const target = targets.get(name) as { rt: RenderTexture; scene: Container };
+        const target = targets.get(name) as { rt: RenderTexture; scene: Container; owned: boolean };
         target.scene.destroy({ children: true });
-        target.rt.destroy(true);
+        // A borrowed target belongs to `livingFog`, which destroys it with the shader.
+        if (target.owned) target.rt.destroy(true);
       }
       softScene.destroy({ children: true });
       soften.destroy();
       memoryBlur.destroy();
-      maskSoft.destroy(true);
+      if (!shared) maskSoft.destroy(true);
       cellTex?.destroy(true);
       cellTex = null;
       cellSource = null;

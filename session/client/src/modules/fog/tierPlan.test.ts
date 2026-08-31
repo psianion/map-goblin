@@ -145,6 +145,19 @@ describe('tierPlan — the held clip', () => {
     expect(polysOn(zoned, 'inverseHeld')[0].polys).toEqual([WEST, EAST]);
   });
 
+  it('clips the live target too, because that one is also the token stencil', () => {
+    // `live` is what the chip and turn-ring layers wear as `SIGHT_MASK`, and that layer never
+    // passes through the mask's clip. Unclipped here, a chip is drawn wherever a ray reached
+    // — on a roomless map, `SIGHT_REACH` past every edge of the record.
+    const plan = tierPlan(scene({ rooms: [], region: brushed([[6, 0]]), sight: [UNOCCLUDED] }));
+    expect(opsOn(plan, 'live')).toContainEqual({
+      kind: 'sprite',
+      target: 'live',
+      source: 'inverseHeld',
+      blend: 'erase',
+    });
+  });
+
   it('opens the clip over ground the map carries paint on, at its own bounds', () => {
     // Painted ground enters `held` as it stands — the rooms are padded, the paint is not —
     // because a pad on the paint would hand over the first fraction of a cell beyond it.

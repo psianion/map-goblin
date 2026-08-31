@@ -113,6 +113,8 @@ async function run(): Promise<void> {
   };
   const comp = createTierCompositor(engine);
   const read = (rt: RenderTexture): Px => app.renderer.extract.pixels(rt) as Px;
+  /** The cloud shader's own live remap of the soft copy: `clamp(2b − 1, 0, 1)`. */
+  const remap = (b: number): number => Math.min(1, Math.max(0, 2 * (b / 255) - 1));
 
   /** The RGBA the cloud shader would sample at a world point — premultiplied, as stored. */
   const probe = (img: Px, cover: Bounds, x: number, y: number): number[] => {
@@ -425,6 +427,77 @@ async function run(): Promise<void> {
         texelsOffTheMaskComplement: offBy,
         worstAlphaError: worst,
         texelsChecked: mask.pixels.length / 4,
+      },
+    };
+  }
+
+  // ── (f) the soft copy the cloud remaps, over a premultiplied mask ───────────
+  // The P0 caveat, discharged: the mask now clears *transparent* rather than to opaque black,
+  // so `maskSoft` is a blur of premultiplied texels and the grey tier is where that can bite.
+  // The shader's contract is unchanged and is what this measures — `2b − 1` reads 1 well
+  // inside live sight, 0 where live meets hidden (a 1|0 edge blurs to 0.5) and 0.5 where live
+  // meets a memory (a 1|0.5 edge blurs to 0.75).
+  {
+    const soften = (revealed: Polygon[]): { cover: Bounds; hard: Px; soft: Px } => {
+      const { cover, mask } = composite({
+        name: 'f',
+        tier: {
+          sight: [LOOKING],
+          rooms: [WEST, EAST],
+          revealed,
+          pad: PAD,
+          feather: FOG_FEATHER,
+          frame: FRAME,
+        },
+        held: [WEST, EAST],
+      });
+      return { cover, hard: mask, soft: read(comp.maskSoft) };
+    };
+
+    /**
+     * Walk down the ray out of live sight and answer the remap at the last texel the *hard*
+     * mask still calls live — which is the only place the shader reads it (`maskAt` returns
+     * the sharp value below 0.99). Found by walking rather than by a fixed point, because
+     * where the rim falls is the pad's business and this row is about the value there.
+     */
+    const atTheRim = (m: { cover: Bounds; hard: Px; soft: Px }): { edge: number; beyond: number } => {
+      const steps = 600;
+      let last: [number, number] = [7, 1.2];
+      for (let i = 1; i <= steps; i++) {
+        const y = 1.2 + (5.5 - 1.2) * (i / steps);
+        if (probe(m.hard, m.cover, 7, y)[0] < 250) {
+          return {
+            edge: remap(probe(m.soft, m.cover, last[0], last[1])[0]),
+            beyond: probe(m.hard, m.cover, 7, y)[0],
+          };
+        }
+        last = [7, y];
+      }
+      return { edge: NaN, beyond: NaN };
+    };
+
+    const overMemory = soften([WEST]); // the sweep sits inside a room the DM revealed
+    const overVoid = soften([]); // …and the same sweep with nothing remembered around it
+    const inside = remap(probe(overMemory.soft, overMemory.cover, 7, 1.2)[0]);
+    const memoryEdge = atTheRim(overMemory);
+    const hiddenEdge = atTheRim(overVoid);
+
+    results.maskSoftRemap = {
+      pass:
+        inside > 0.9 &&
+        hiddenEdge.edge < 0.35 &&
+        memoryEdge.edge > 0.25 &&
+        memoryEdge.edge < 0.75 &&
+        memoryEdge.beyond > 120 &&
+        memoryEdge.beyond < 136 &&
+        hiddenEdge.beyond < 8,
+      detail: {
+        insideLiveSight: round(inside, 3),
+        atTheMemoryEdge: round(memoryEdge.edge, 3),
+        theTexelBeyondIt: memoryEdge.beyond,
+        atTheHiddenEdge: round(hiddenEdge.edge, 3),
+        andBeyondThatOne: hiddenEdge.beyond,
+        note: 'clamp(2b-1): 1 inside live, ~0.5 against a memory, ~0 against hidden',
       },
     };
   }
