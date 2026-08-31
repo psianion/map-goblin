@@ -1312,6 +1312,15 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
         fogProbe.fadesStarted += 1;
       }
       if (fades.length > 0) fog.renderMask();
+    } else if (scene.mode === 'vision') {
+      // A vision scene never has fades — they are only ever started above — so one still in
+      // flight here means the DM flipped the mode mid-reveal. Dropped rather than left to run
+      // out, because a live fade is what drives `tick`'s own `renderMask`, and that call is the
+      // vector pipeline rasterising `maskPaint` (empty in vision mode) straight over the
+      // compositor's composite, every frame, for the rest of the 300ms. The two rebuild-time
+      // `renderMask` calls are gated on `raster` for exactly this reason; this is how the
+      // per-frame one stays gated without a second flag to keep in step.
+      clearFades();
     }
     views = scene.views;
   };

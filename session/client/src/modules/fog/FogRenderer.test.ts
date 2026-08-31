@@ -1940,9 +1940,16 @@ describe('the lighting composite each seat is mounted with', () => {
 
   const seat = (role: 'dm' | 'player') => ({ ...player, role });
 
-  function mounted(role: 'dm' | 'player'): { lighting: Container; unmount: () => void } {
+  function mounted(role: 'dm' | 'player'): {
+    lighting: Container;
+    ticker: Ticker;
+    /** How many times the mask has been rasterised — `renderMask`'s two calls per go. */
+    renders: () => number;
+    unmount: () => void;
+  } {
     const { sceneGraph, lighting } = fakeSceneGraph();
     const ticker = new Ticker();
+    let renders = 0;
     useSessionStore.setState({
       session: session(),
       you: seat(role),
@@ -1958,13 +1965,17 @@ describe('the lighting composite each seat is mounted with', () => {
         screenToWorld: (x: number, y: number) => ({ x: x / 20, y: y / 20 }),
         // The living fog rasterises its tier mask through this on every rebuild. What lands
         // in the texture is the GPU's business — jsdom asserts the geometry, not the paint.
-        renderToTexture: () => {},
+        renderToTexture: () => {
+          renders += 1;
+        },
       } as unknown as RenderEngine,
       sceneGraph,
     );
     const stop = mountPlayerFogWhenReady();
     return {
       lighting,
+      ticker,
+      renders: () => renders,
       unmount: () => {
         stop();
         clearEngineSingleton();
@@ -2033,6 +2044,41 @@ describe('the lighting composite each seat is mounted with', () => {
 
     it('starts none at all in vision mode, where a footprint wash would be the flicker', async () => {
       expect(await fadesAfterAReveal('vision')).toBe(0);
+    });
+
+    // …and the same rule the other way round, which is the seam a fade can still reach the
+    // raster path through: the DM flips the mode while a rooms-mode reveal is mid-flight. A
+    // fade is mask animation — it is what drives `tick`'s own `renderMask` — so one surviving
+    // the flip re-rasterises the (empty in vision) vector mask over the compositor's composite
+    // on every frame until it runs out.
+    it('drops a fade in flight when the DM flips to vision mid-reveal', async () => {
+      const withFog = (scene: SceneFog) =>
+        session({
+          fog: { byScene: { 'scene-1': scene } },
+          tokens: { library: {}, byScene: { 'scene-1': { t1: token() } } },
+        });
+      const lit = { ...fogOf({ [VESTIBULE.id]: seen }), mode: 'rooms' as const };
+
+      const { ticker, renders, unmount } = mounted('player');
+      useSessionStore.setState({ session: withFog({ ...fogOf({}), mode: 'rooms' }) });
+      await frame();
+      useSessionStore.setState({ session: withFog(lit) });
+      await frame();
+      const probe = (window as Window & {
+        __fogProbe?: { fadesActive(): number; mode: string };
+      }).__fogProbe!;
+      expect(probe.fadesActive()).toBeGreaterThan(0);
+
+      useSessionStore.setState({ session: withFog({ ...lit, mode: 'vision' }) });
+      await frame();
+      expect(probe.mode).toBe('vision');
+      expect(probe.fadesActive()).toBe(0);
+
+      // …so a frame now paints nothing over the mask the compositor just composited.
+      const before = renders();
+      ticker.update(performance.now() + 16);
+      expect(renders()).toBe(before);
+      unmount();
     });
   });
 
