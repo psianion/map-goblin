@@ -175,6 +175,11 @@ describe('tierPlan — the held clip', () => {
     expect(erases[1]).toMatchObject({ polys: PAINTED, grow: 0, blend: 'erase' });
     // Nothing painted is one erase, not two — the clip is the rooms alone.
     expect(polysOn(tierPlan(scene({ sight: [LOOKING] })), 'inverseHeld')).toHaveLength(1);
+    // …and it opens the clip without opening a tier: paint reaches no target but this one, so
+    // painted ground with no eyes on it and no cell in the record is as dark as any other. The
+    // sweep and the record still say what shows there.
+    const dark = tierPlan(scene({ painted: PAINTED }));
+    expect(dark.ops.every((op) => op.target === 'inverseHeld' || op.kind !== 'polys')).toBe(true);
   });
 });
 
@@ -305,6 +310,17 @@ describe('tierPlan — the night gate', () => {
 
   it('gates nothing when there is no sweep to gate', () => {
     expect(opsOn(tierPlan(scene({ night, revealed: [EAST] })), 'inverseSeeable')).toEqual([]);
+  });
+
+  it('leaves a party with no light at all looking at nothing', () => {
+    // Every torch out and no darkvision eye: the gate is a full cover with nothing erased back
+    // out of it, so erasing it takes the whole of live sight. The memory tier is untouched —
+    // what the dark takes away is the live tier, never the record.
+    const blind = tierPlan(scene({ sight: [LOOKING], night: { lit: [], darkvision: [], pools: [] } }));
+    expect(opsOn(blind, 'inverseSeeable')).toEqual([
+      { kind: 'rect', target: 'inverseSeeable', rect: blind.cover, color: MASK_LIVE, blend: 'normal' },
+    ]);
+    expect(opsOn(blind, 'live').at(-1)).toMatchObject({ source: 'inverseSeeable', blend: 'erase' });
   });
 });
 

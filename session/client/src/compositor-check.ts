@@ -7,11 +7,15 @@
  * is where it gets asked. Served on the client dev server at /compositor-check.html and driven
  * headless by `compositor-run.mjs`, on the P0 spike's pattern.
  *
- * `visionRegion` is still in the tree, so every scene here has an oracle: the same inputs
- * through the Clipper pipeline this replaces, sampled on a grid and compared area for area.
- * The direction of the comparison matters more than its size — the raster answer must be a
- * *subset* of the vector one (plus a texel of rasterisation slack), because fog may only ever
- * fail dark.
+ * Every scene here has an oracle: the same inputs through the Clipper pipeline this replaces,
+ * sampled on a grid and compared area for area. The direction of the comparison matters more
+ * than its size — the raster answer must be a *subset* of the vector one (plus a texel of
+ * rasterisation slack), because fog may only ever fail dark.
+ *
+ * That pipeline is retired from the product and kept here, and only here: `__oracle__/vectorFog.ts`
+ * is imported by this file alone, and only `compositor-check.html` reaches this file, so Vite
+ * serves it in dev and no production bundle carries it. An import of it from anywhere under
+ * `src/modules` would put Clipper back on the drag path this phase took it off.
  *
  * Readback note: `extract.pixels` on a RenderTexture is a raw `readPixels`, so the bytes here
  * are premultiplied — exactly what the cloud shader samples. A memory texel at alpha a reads
@@ -25,7 +29,8 @@ import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import { pointInPolygon } from '@dnd/core/src/engine/hitTest';
 import { regionOf, setCells, toBytes, type RegionMask } from '@dnd/mechanics/fog';
 import { FOG_FEATHER } from './modules/fog/FogRenderer';
-import { fogPad, regionRects, ringsWithHoles, visionRegion, type NightSight, type FogRing } from './modules/fog/fog';
+import { fogPad, regionRects, ringsWithHoles, type NightSight, type FogRing } from './modules/fog/fog';
+import { visionRegion } from './modules/fog/__oracle__/vectorFog';
 import { createTierCompositor } from './modules/fog/tierCompositor';
 import { tierPlan, type TierScene } from './modules/fog/tierPlan';
 import type { Bounds } from './modules/fog/FogRenderer';

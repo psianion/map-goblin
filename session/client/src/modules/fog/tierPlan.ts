@@ -28,8 +28,7 @@
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import { toBytes, type RegionMask } from '@dnd/mechanics/fog';
 import type { Bounds } from './FogRenderer';
-import { regionRects, sightPad, type NightSight } from './fog';
-import { regionCells } from './memoryMask';
+import { regionCells, regionRects, sightPad, type NightSight } from './fog';
 
 /**
  * The mask's live tier. White, as it has always been.
@@ -46,10 +45,10 @@ export const MASK_MEMORY_GREY = 0x808080;
 /**
  * Extra softening on the memory tier, in cells — and it is deliberately zero.
  *
- * `memoryMask.ts` spent a supersample-and-blur to turn the record's staircase into a smooth
- * diagonal: three sub-samples per cell, two box passes of radius one, cut at half strength
- * (σ ≈ 0.385 cell). A one-texel-per-cell texture drawn through a *linear* sampler already is
- * that kernel — bilinear interpolation over the cell lattice is a two-cell-wide tent, σ ≈ 0.41
+ * The retired `memoryMask` pass spent a supersample-and-blur to turn the record's staircase
+ * into a smooth diagonal: three sub-samples per cell, two box passes of radius one, cut at half
+ * strength (σ ≈ 0.385 cell). A one-texel-per-cell texture drawn through a *linear* sampler
+ * already is that kernel — bilinear interpolation over the cell lattice is a two-cell tent, σ ≈ 0.41
  * cell, and its half-level line lands on the same cell boundary the box blur's did. Measured
  * on a 45° staircase in `compositor-check`: the field along the boundary line stays within
  * 0.44–0.56 where the raw record alternates 0–1.
@@ -57,7 +56,7 @@ export const MASK_MEMORY_GREY = 0x808080;
  * A second blur on top of that is not free and not neutral: blurring in 2-D costs a *lone*
  * swept cell its level (a ⅔-cell Gaussian takes its peak to ~0.65, which the cloud then reads
  * as two fifths of the way back to hidden), and a lone cell disappearing is the exact failure
- * `MASK_SCALE = 3` was chosen against. So the sampler is the kernel and this stays 0; the
+ * that pass's three sub-samples were chosen against. So the sampler is the kernel and this stays 0; the
  * field is here as a knob because the plan is where a knob like this belongs.
  */
 export const MEMORY_BLUR_CELLS = 0;
