@@ -11,6 +11,7 @@ import { actorOf, logged, type LogAction, type LogEntry } from '../log'
 import { ID_MAX, Reject, bad, bool, num, obj, oneOf, str } from '../tokens/validate'
 import {
   clearCells,
+  fillRegion,
   orRegion,
   regionFor,
   setCells,
@@ -82,6 +83,7 @@ export function fogModule(
       'set-auto-explore': ['dm'],
       'set-range-limit': ['dm'],
       'set-containment': ['dm'],
+      'open-map': ['dm'],
       'region-set': ['dm'],
       // `auto-explore` is deliberately absent: it is the server's own write (the sweep a
       // token move earned), reachable only through `dispatchInternal`, exactly the way
@@ -234,6 +236,40 @@ function run(
         ...scene,
         containedSight: bool(p.containedSight, 'containedSight'),
       })
+    // P3 — "players see everything", as one command because it is one act. Contained sight
+    // is fenced by two records at once (the rooms a player holds and the cells the table has
+    // opened), so opening only one of them opens nothing: revealed rooms with an empty record
+    // still fence live sight to the rooms, and a full record on unshipped geometry has nothing
+    // to sit on. Two commands would also be two writes, two broadcasts and a window in
+    // between where the table is half-open.
+    case 'open-map': {
+      const rooms: Record<string, RoomFog> = {}
+      for (const id of roomsOf(ctx.campaignId, sceneId)) {
+        rooms[id] = { status: 'revealed', wasEverRevealed: true }
+      }
+      // No `frameFor` here, so no refusal: a scene with no map to measure, and a frame past
+      // `REGION_CELL_MAX`, both keep no cell memory at all — there is nothing to fill and the
+      // room reveals are the whole of what opening that map can mean. Refusing instead would
+      // leave the DM's one "open it all" button dead on exactly the maps it is loudest on.
+      // `auto-explore` treats the same frame the same way.
+      const frame = frameOf(ctx.campaignId, sceneId)
+      const region = frame ? regionFor(scene.region, frame) : undefined
+      return setScene(
+        ctx,
+        sceneId,
+        {
+          ...scene,
+          rooms,
+          ...(region ? { region: fillRegion(region) } : {}),
+          // Every seat's own record too, for the reason a DM brush stroke lands on all of
+          // them (`region-set`): this is the table being opened, not one player's memory.
+          ...(scene.regions && frame ? { regions: paintAll(scene.regions, frame, fillRegion) } : {}),
+        },
+        // The same line Reveal All writes, because it is the same sentence — "revealed the
+        // whole map" — and this is the one that actually earns it in vision mode.
+        { action: 'revealed-all' },
+      )
+    }
     case 'region-set': {
       const frame = frameFor(ctx, sceneId, frameOf)
       const region = regionFor(scene.region, frame)

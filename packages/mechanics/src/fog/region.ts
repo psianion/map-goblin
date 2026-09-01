@@ -143,6 +143,19 @@ function write(region: RegionMask, cells: readonly Cell[], on: boolean): RegionM
 }
 
 /**
+ * Every cell in the frame turned on — the DM's "players see everything" (P3), as one byte
+ * fill rather than a `cols × rows` cell list, because that list is up to `REGION_CELL_MAX`
+ * pairs to build and hand to `setCells` for a result that is all-ones either way.
+ *
+ * The tail bits past `cols * rows` in the last byte come on too. Nothing can read them:
+ * every reader is `getCell`, which bounds-checks against `cols`/`rows` before it indexes,
+ * and the mask's length is derived from those two numbers and not from the bits.
+ */
+export function fillRegion(region: RegionMask): RegionMask {
+  return { ...region, bits: toBase64(new Uint8Array(toBytes(region.bits).length).fill(0xff)) }
+}
+
+/**
  * `base` with every bit `other` holds turned on — the whole of P5's share-flip merge, in one
  * primitive, because a region record is bytes and a merge of two of them is an OR (§1).
  *

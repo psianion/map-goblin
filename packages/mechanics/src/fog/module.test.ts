@@ -655,6 +655,15 @@ describe('the table log (§2.4.3)', () => {
     expect(line(fire(empty, 'reset', {}))?.action).toBe('reset-fog')
   })
 
+  // S3 P3 — `open-map` writes Reveal All's own line, because it is Reveal All's own sentence
+  // and then some: no room and no cell of the scene is left closed after it.
+  it('reads open-map back as the whole map opening, against no room in particular', () => {
+    const opened = line(fire(empty, 'open-map', {}))
+    expect(opened?.action).toBe('revealed-all')
+    expect(opened?.targetId).toBeUndefined()
+    expect(opened?.actor).toBe('Ilsa')
+  })
+
   it('says nothing about a setting the table cannot see', () => {
     expect(fire(empty, 'set-conceal', { concealBehindDoors: false }).log ?? []).toEqual([])
   })
@@ -1410,6 +1419,93 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
         expect(scened(party).regions).toBeUndefined()
         expect(getCell(scened(party).region, 2, 2)).toBe(true)
       })
+    })
+  })
+
+  describe('open-map (S3 P3)', () => {
+    /** Vision mode, one room latched, one cell swept — a table mid-session. */
+    const played: FogState = {
+      byScene: {
+        [SCENE]: {
+          rooms: { hall: { status: 're_hidden', wasEverRevealed: true } },
+          concealBehindDoors: true,
+          mode: 'vision',
+          region: setCells(regionOf(FRAME)!, [[3, 4]]),
+        },
+      },
+    }
+
+    it('reveals every room and fills the whole record in one write', () => {
+      const { error, next } = fire(played, DM, 'open-map', {})
+      expect(error).toBeNull()
+
+      for (const id of ROOMS) {
+        expect(scened(next).rooms[id]).toEqual({ status: 'revealed', wasEverRevealed: true })
+      }
+      // (9, 9) is unzoned map — `ROOM_AT` answers null past x = 8 — so it is ground no room
+      // reveal could ever have opened, and the fence P0-P2 built reaches it only if the
+      // record itself was filled.
+      expect(getCell(scened(next).region, 9, 9)).toBe(true)
+      expect(getCell(scened(next).region, 0, 0)).toBe(true)
+      expect(getCell(scened(next).region, 9, 0)).toBe(true)
+      expect(getCell(scened(next).region, 3, 4)).toBe(true)
+    })
+
+    it('is dm-only', () => {
+      expect(framed.commands['open-map']).toEqual(['dm'])
+      expect(fire(empty, P1, 'open-map', {}).error).toMatchObject({ code: 'unauthorized' })
+      expect(fire(empty, DM, 'open-map', {}).error).toBeNull()
+    })
+
+    it('fills every seat’s own record too, in individual share', () => {
+      const shared: FogState = {
+        byScene: {
+          [SCENE]: {
+            ...played.byScene[SCENE],
+            visionShare: 'individual',
+            regions: { 'p-1': regionOf(FRAME)!, 'p-2': regionOf(FRAME)! },
+          },
+        },
+      }
+      const { next } = fire(shared, DM, 'open-map', {})
+      expect(getCell(scened(next).regions!['p-1'], 9, 9)).toBe(true)
+      expect(getCell(scened(next).regions!['p-2'], 9, 9)).toBe(true)
+    })
+
+    /**
+     * A frame past `REGION_CELL_MAX` keeps no region record at all (`regionOf`), and a scene
+     * with no map has no frame to keep one against. Neither is a reason to refuse the DM's
+     * one "open it all" button: the room reveals are the whole of what opening those maps
+     * can mean, and they still land.
+     */
+    it.each([
+      ['a frame past the cell ceiling', { minX: 0, minY: 0, maxX: 1000, maxY: 1000 }],
+      ['a scene with no map at all', null],
+    ])('opens the rooms and keeps no record for %s', (_name, frame) => {
+      const recordless = fogModule(
+        () => ROOMS,
+        () => frame,
+      )
+      let next: FogState = empty
+      const error = recordless.handler(
+        'open-map',
+        {},
+        {
+          campaignId: 'c-1',
+          sessionId: 's-1',
+          activeSceneId: SCENE,
+          sender: DM,
+          players: [],
+          state: empty,
+          setState: (s) => {
+            next = s
+          },
+          broadcast: () => {},
+        },
+      )
+      expect(error).toBeUndefined()
+      expect(Object.keys(next.byScene[SCENE].rooms).sort()).toEqual([...ROOMS].sort())
+      expect(next.byScene[SCENE].region).toBeUndefined()
     })
   })
 

@@ -53,10 +53,15 @@ const RETRACTS: Record<string, readonly string[]> = {
  * causing command's own cascade is no substitute — it runs before the after-write hook and
  * so reads the explored set from *before* the sweep landed. Still no loop: the auto-explore
  * hook fires on `tokens`/`doors` writes only, and `triggers.event` is in neither table.
+ *
+ * S3 P3 — `fog.open-map` is in it for the reason `fog.set-bulk` is: it reveals every room in
+ * the scene, and a room-revealed trigger cannot tell "the DM opened this room" from "the DM
+ * opened the whole map". Leaving it out would arm those triggers to fire later on a map that
+ * is already open.
  */
 const CASCADES: Record<string, readonly string[]> = {
   tokens: ['move', 'place', 'update', 'delete', 'claim', 'hide'],
-  fog: ['reveal', 'set-bulk', 'hide', 'reset', 'auto-explore'],
+  fog: ['reveal', 'set-bulk', 'hide', 'reset', 'auto-explore', 'open-map'],
 }
 
 /**
