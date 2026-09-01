@@ -12,6 +12,7 @@ import {
   autoExploreOn,
   blockedEdge,
   cellsCoveredByPolygon,
+  containedSightOn,
   effectiveFog,
   fogModeOf,
   getCell,
@@ -20,11 +21,13 @@ import {
   sceneFogOf,
   setCells,
   sightRangeLimitOn,
+  toBytes,
   visibleRooms,
   visionShareOf,
   type Cell,
   type FogRoom,
   type FogState,
+  type RegionMask,
   type RoomFog,
   type SceneFog,
 } from '@dnd/mechanics/fog'
@@ -49,6 +52,7 @@ import {
   inAnyLock,
   seen,
   type PartyVision,
+  type SightFence,
 } from './sweep'
 
 /** Everything the rest of the server asks the fog. One implementation, wired at boot. */
@@ -131,6 +135,8 @@ interface Computed {
   sightFor(identityId: string): PartyVision | null
   /** Which share the scene is playing — read once, here, so nothing below re-derives it. */
   share: 'party' | 'individual'
+  /** §5's zones, read once: they bound the record *and* (under containment) live sight. */
+  locks: ReturnType<typeof exploreLocks>
   /** The identities holding a claimed token, connected or not: whose records auto-explore. */
   owners: string[]
   doors: Record<string, DoorLiveState>
@@ -218,7 +224,33 @@ export function createVision(stores: Stores): Vision {
     const lights = world.effectiveLevel === 'darkness' ? triggers.lightEdits : null
     const vision = fogModeOf(fog) === 'vision'
     const rangeLimited = sightRangeLimitOn(fog)
-    const sight = vision ? sweeps.partyVision(map, tokens, doors, lights, undefined, rangeLimited) : null
+    const locks = exploreLocks(map.zones)
+    // Containment (default on, vision mode only): live sight is fenced by the ground the table
+    // has opened, and each eye's own `range` is the only thing that pushes the fence outward.
+    //
+    // Deliberately *not* a document event, unlike the mode flip. A `set-mode` re-cuts a seated
+    // player's map because the cut itself reads the mode — `redactMapForViewer` stamps `frame`
+    // when the scene is zoned OR the mode is vision (redactMap.ts:67), so a roomless scene
+    // flipped to vision leaves a connected seat holding a frameless document and drawing no fog
+    // at all (the client's `fogModeFlips` re-fetch). Containment appears nowhere in that cut:
+    // `set-containment` writes one boolean (mechanics' fog module) and the cut reads `fog.rooms`
+    // (`exploredRooms`, `keptChildIds`), `tableRegion` and the mode — none of which it touches,
+    // so the document is byte-identical either side of the flip. What the flip *does* move is
+    // live sight, and that lands on its own: the fog broadcast retracts the tokens and doors
+    // slices (registry's `RETRACTS`), which re-runs redaction through the composed `seen()` for
+    // every seat in the same beat.
+    //
+    // The one asymmetry worth naming: the flip does not retroactively take back ground the
+    // party earned uncontained — the record is a ratchet, and turning the fence on fences
+    // *future* sight only. That is the stated trade in `containedSightOn`'s own doc.
+    // Built per *record*, because that is what "the table has opened" means per seat — the
+    // party's for the party sweep, the seat's own where the table shares individually — and
+    // handed to the sweep as a cell test, never as a clip on the polygons (`SightFence`).
+    const fenceFor = (stored: RegionMask | undefined): SightFence | null =>
+      vision && containedSightOn(fog) ? { held: heldIn(map, fog, stored), locks } : null
+    const sight = vision
+      ? sweeps.partyVision(map, tokens, doors, lights, undefined, rangeLimited, fenceFor(fog.region))
+      : null
     // P5 — one seat's eyes, on demand and once per revision. Lazy because most tables never
     // ask: party share reads `sight` alone, and even in individual share only the seats
     // actually being redacted for are ever computed.
@@ -234,6 +266,10 @@ export function createVision(stores: Stores): Vision {
           lights,
           (t) => t.ownerId === identityId,
           rangeLimited,
+          // …and fenced by that seat's own memory, not the table's: the whole point of
+          // `individual` is that a seat plays by what *it* has opened (`identityRegion`
+          // falls back to the party record, which is the seed a seat with none reads).
+          fenceFor(identityRegion(fog, identityId)),
         )
         perIdentity.set(identityId, own)
       }
@@ -282,6 +318,7 @@ export function createVision(stores: Stores): Vision {
       sight,
       sightFor,
       share: visionShareOf(fog),
+      locks,
       owners: ownersOf(tokens),
       doors,
       visible: visibleRooms(fog, doors, map.doors, party),
@@ -370,7 +407,7 @@ export function createVision(stores: Stores): Vision {
       if (!autoExploreOn(fog) || !map.frame) return null
       const frame = map.frame
 
-      const locks = exploreLocks(map.zones)
+      const locks = computed.locks
       const { cells, rooms } = swept(computed.sight, map, frame, locks)
 
       // A swept room latches exactly the way the DM's region brush latches one (mechanics'
@@ -472,6 +509,47 @@ function swept(
     }
   }
   return { cells, rooms }
+}
+
+/**
+ * Ground the table has opened, as a cell test — containment's fence (`SightFence.held`).
+ *
+ * Two sources, because the DM opens ground two ways: the cell record (their brush, plus
+ * everything the party's own sight has already earned) and the rooms they have *revealed*.
+ * A latched room (`re_hidden` — what a sweep leaves behind) is deliberately not held: the
+ * cells the party actually saw are already in the record, and crediting the whole room would
+ * hand them the far end of a hall they only glimpsed the mouth of. On a roomless map the room
+ * term is empty and the fence is the record alone, which is #114's battlemap clip.
+ *
+ * ponytail: the mask is decoded once here rather than per probe (`getCell` decodes the whole
+ * base64 on every call, and `swept` asks this of every cell in every eye's box) — the same shape
+ * `groundOf` in redactMap.ts already takes.
+ */
+function heldIn(
+  map: SceneMap,
+  fog: SceneFog,
+  stored: RegionMask | undefined,
+): (x: number, y: number) => boolean {
+  const region = map.frame ? regionFor(stored, map.frame) : undefined
+  const bytes = region ? toBytes(region.bits) : undefined
+  const revealed = new Set(
+    Object.entries(fog.rooms)
+      .filter(([, room]) => room.status === 'revealed')
+      .map(([id]) => id),
+  )
+  return (x, y) => {
+    if (region && bytes) {
+      const col = Math.floor(x - region.minX)
+      const row = Math.floor(y - region.minY)
+      if (col >= 0 && row >= 0 && col < region.cols && row < region.rows) {
+        const bit = row * region.cols + col
+        if ((bytes[bit >>> 3] & (1 << (bit & 7))) !== 0) return true
+      }
+    }
+    if (revealed.size === 0) return false
+    const room = map.roomAt(x, y)
+    return room !== null && revealed.has(room)
+  }
 }
 
 /** The identities holding a claimed token in this scene — whose records P5 writes. */

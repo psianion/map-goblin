@@ -55,6 +55,18 @@ export interface Eye {
   polygon: Polygon
 }
 
+/**
+ * Contained sight's fence, or the absence of one. Cell tests, not polygons, and applied by
+ * `seen` *outside* the sweep memo on purpose: the memo is keyed on origin and reach alone, so
+ * clipping a polygon inside it would poison every later reader of the same key.
+ */
+export interface SightFence {
+  /** Ground the table has opened — the record the viewer plays by, plus every revealed room. */
+  held(x: number, y: number): boolean
+  /** §5's auto-explore locks, subtracted from the range term only (held cannot contain one). */
+  locks: readonly ZoneShape[]
+}
+
 export interface PartyVision {
   eyes: Eye[]
   /**
@@ -63,6 +75,8 @@ export interface PartyVision {
    * Null is therefore both the answer and the P2 fast path.
    */
   lit: Polygon[] | null
+  /** Null when the scene plays uncontained, which is `seen` exactly as it always was. */
+  fence: SightFence | null
 }
 
 export interface Sweeps {
@@ -90,6 +104,13 @@ export interface Sweeps {
      * the whole map. Off (the default) is the behaviour this always had.
      */
     rangeLimited?: boolean,
+    /**
+     * The scene's `containedSight`, as the ground it fences sight to — omitted (or null) is
+     * classic sight-to-the-walls. Carried onto the returned `PartyVision` rather than applied
+     * here: it is a per-cell test that `seen` composes, and the sweeps stay untouched so the
+     * memo keys go on meaning what they say.
+     */
+    fence?: SightFence | null,
   ): PartyVision
 }
 
@@ -111,7 +132,7 @@ export function createSweeps(): Sweeps {
   }
 
   return {
-    partyVision(map, tokens, doors, lights, isSeed, rangeLimited) {
+    partyVision(map, tokens, doors, lights, isSeed, rangeLimited, fence) {
       // P4 §4 — the party's eyes are the sight-link closure of the claimed tokens, not the
       // claimed tokens alone: an unclaimed familiar the DM linked to a scout is looking for
       // them. `sightParty` drops hidden tokens itself (hidden trumps links); a token with no
@@ -119,7 +140,7 @@ export function createSweeps(): Sweeps {
       const claimed = sightParty(Object.values(tokens), isSeed).filter(
         (token) => (token.sight?.range ?? 0) > 0,
       )
-      if (claimed.length === 0) return { eyes: [], lit: null }
+      if (claimed.length === 0) return { eyes: [], lit: null, fence: fence ?? null }
       const scene = sweepsFor(map, doors)
       if (scene.polygons.size > SWEEP_CAP) scene.polygons.clear()
       // A light's sweep and an eye's sweep are the same computation from the same occluders,
@@ -158,6 +179,7 @@ export function createSweeps(): Sweeps {
       return {
         eyes,
         lit: lights ? litIn(map, tokens, lights).map((l) => sweep(l.x, l.y, l.radius)) : null,
+        fence: fence ?? null,
       }
     },
   }
@@ -192,16 +214,35 @@ const litIn = (map: SceneMap, tokens: Record<string, Token>, edits: Record<strin
 /**
  * §3, the whole rule, in one place so the three callers cannot drift:
  *
- *   seen(p) = inSweep(p) AND (ambient ≠ darkness OR lit(p) OR (darkvision eye AND p in range))
+ *   seen_i(p) = inSweep_i(p) AND (held(p) OR (dist_i(p) ≤ range_i AND p not in a lock))
+ *   seen(p)   = any i, AND (ambient ≠ darkness OR lit(p) OR (darkvision eye AND p in range))
  *
  * `inSweep` is line of sight alone — the eye's sweep reaches the whole map — so in daylight
  * and in any light a player sees as far as the referee does. Party entitlement is the union
  * over the party's eyes, but the darkvision clause is not: only the eye that *has* darkvision
  * may claim unlit ground, and only out to its own range, which is the one thing `range` bounds.
+ *
+ * The middle clause is containment, and it is null on an uncontained scene — then this is the
+ * rule the file always had. Contained, an eye may look freely over ground the table has already
+ * opened, and past that fence only as far as its own `range` carries it: walking is what peels
+ * the cloud back, and what a step earns is written to the record, so the fence moves with the
+ * party and never shrinks (the ratchet). The narrowing is strictly per eye — an eye that fails
+ * it is dropped from `looking` before the light gate, so it cannot lend its darkvision to
+ * ground it is not itself entitled to.
+ *
+ * A lock is subtracted from the range term alone: held ground cannot contain a locked cell by
+ * construction (a lock is never written to the record and never credits its room), and without
+ * the subtraction an eye at a sealed vault's open door would peel it by range.
  */
 export function seen(vision: PartyVision, x: number, y: number): boolean {
-  const looking = vision.eyes.filter((eye) => pointInPolygon(eye.polygon, x, y))
+  let looking = vision.eyes.filter((eye) => pointInPolygon(eye.polygon, x, y))
   if (looking.length === 0) return false
+  const fence = vision.fence
+  if (fence && !fence.held(x, y)) {
+    if (inAnyLock(fence.locks, x, y)) return false
+    looking = looking.filter((eye) => Math.hypot(x - eye.x, y - eye.y) <= eye.range)
+    if (looking.length === 0) return false
+  }
   if (!vision.lit) return true
   if (vision.lit.some((polygon) => pointInPolygon(polygon, x, y))) return true
   return looking.some((eye) => eye.darkvision && Math.hypot(x - eye.x, y - eye.y) <= eye.range)
