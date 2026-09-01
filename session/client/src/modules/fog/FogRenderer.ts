@@ -77,7 +77,12 @@ import {
   type BiteLevel,
   type WorldLight,
 } from '@dnd/core/src/shared/world';
-import { SIGHT_MASK, addScreenOverlay, mountWhenEngineReady } from '../../renderer/overlayLayer';
+import {
+  SHOWN_MASK,
+  SIGHT_MASK,
+  addScreenOverlay,
+  mountWhenEngineReady,
+} from '../../renderer/overlayLayer';
 import { prefersReducedMotion } from '../../session/motion';
 import { useSessionStore } from '../../session/store';
 import type { LiveDoor } from '../doors/doors';
@@ -1013,10 +1018,12 @@ export function drawFog(
   scene: FogScene,
   maskPaint?: Graphics,
   sightMask?: Graphics,
+  shownMask?: Graphics,
 ): FogDraw {
   scrim.clear();
   maskPaint?.clear();
   sightMask?.clear();
+  shownMask?.clear();
   if (!(scene.isPlayer || scene.preview) || !scene.bounds) return { cells: 0, cover: null, plan: null };
   // The one fork in this file, and after P1b it is a fork between two whole pipelines rather
   // than between two sets of rings: vision mode answers with a draw plan and paints nothing
@@ -1080,6 +1087,17 @@ export function drawFog(
   // room the party had merely explored broadcast its live position (chip and
   // turn ring both), which a two-seat walk caught on the player's canvas.
   if (sightMask) fillLand(sightMask, earned, { color: 0xffffff, alpha: 1 });
+  // …and everything this seat is SHOWN, for the wearers whose business is the map rather than
+  // who is standing on it (`SHOWN_MASK`): the door marks. `earned` is already the union of the
+  // live and the remembered tiers here — `memory` is cut out of the same padded footprint and
+  // lies inside it — so one fill says both, and a door on a remembered room's boundary stays
+  // readable while one out in never-seen ground is cut away.
+  //
+  // ponytail: in rooms mode this is byte-for-byte the fill above, because rooms mode's clear
+  // tier is drawn from room polygons that are already latched. It is a second Graphics anyway,
+  // because a Pixi mask is one object per label and vision mode's two stencils are genuinely
+  // different textures. Collapse it the day rooms mode grows a live-only tier of its own.
+  if (shownMask) fillLand(shownMask, earned, { color: 0xffffff, alpha: 1 });
   return { cells: 0, cover: { minX, minY, maxX, maxY }, plan: null };
 }
 
@@ -1123,7 +1141,17 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   // released alpha mask un-renderable).
   const sightSprite = new Sprite(tiers.live);
   sightSprite.includeInBuild = false;
-  layer.addChild(scrim, scrimSprite, fog.mesh, sightMask, sightSprite);
+  // The same pair again for the *shown* stencil the door marks wear (`shownMaskOf`) — clear
+  // and memory together, where the two above are live sight alone. The vision-mode carrier is
+  // the tier mask itself: the compositor leaves it transparent wherever the seat holds
+  // nothing and paints memory grey / live white over what it does, so its alpha already is
+  // shown-ness, and an empty mask reads as hidden the way fail-dark needs.
+  const shownMask = new Graphics();
+  shownMask.label = SHOWN_MASK;
+  shownMask.includeInBuild = false;
+  const shownSprite = new Sprite(tiers.mask);
+  shownSprite.includeInBuild = false;
+  layer.addChild(scrim, scrimSprite, fog.mesh, sightMask, sightSprite, shownMask, shownSprite);
   // Nothing here is clickable; the fog tool and the doors read the DOM canvas directly.
   layer.eventMode = 'none';
   addScreenOverlay(sceneGraph, layer, 'playerFog');
@@ -1229,7 +1257,7 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // The imitation has to match the void as it actually renders — including a table with no
     // lighting pass at all, where there is no multiply for the void to have gone through.
     const drawn = lit?.visible ? scene : { ...scene, void: voidStyle(false, scene.grade) };
-    const built = drawFog(scrim, drawn, fog.maskPaint, sightMask);
+    const built = drawFog(scrim, drawn, fog.maskPaint, sightMask, shownMask);
     cells = built.cells;
     // …and the living fog over it: the same tiers as a texture, the palette pulled toward
     // the scene's grade (a torchlit scene fogs warm, a night forest cold), the mist over the
@@ -1282,6 +1310,9 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
       sightSprite.position.set(cover.minX, cover.minY);
       sightSprite.width = cover.maxX - cover.minX;
       sightSprite.height = cover.maxY - cover.minY;
+      shownSprite.position.set(cover.minX, cover.minY);
+      shownSprite.width = cover.maxX - cover.minX;
+      shownSprite.height = cover.maxY - cover.minY;
     }
     // One of the two carries the label wherever there is a mask at all, never both: a wearer
     // that finds no stencil wears no mask, and a chip in the dark is the one failure direction
@@ -1292,6 +1323,12 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     // "not fogged" means to a wearer (`sightMaskOf` answers null and the layer wears no mask).
     sightMask.label = raster || !built.cover ? '' : SIGHT_MASK;
     sightSprite.label = raster ? SIGHT_MASK : '';
+    // The shown stencil on exactly the same terms, and it has to be exactly the same terms:
+    // the door marks' fail-dark is "no stencil, nothing drawn", so a scene with no fog must
+    // leave neither carrier labelled (the marks then fall back to the world copy, which
+    // nothing is covering) and a fogged scene must always leave one.
+    shownMask.label = raster || !built.cover ? '' : SHOWN_MASK;
+    shownSprite.label = raster ? SHOWN_MASK : '';
     fog.setPalette(fogPalette(scene.grade, scene.darkness));
     fog.setMist(MEMORY_MIST * (MEMORY_WASH_FLOOR + (1 - MEMORY_WASH_FLOOR) * scene.darkness));
     fog.setWash(drawn.void.memory, memoryAlpha(scene.darkness));

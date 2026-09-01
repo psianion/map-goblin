@@ -24,7 +24,7 @@ import type { Token } from '@dnd/mechanics/tokens';
 import type { LiveDoor } from '../doors/doors';
 import { useSessionStore } from '../../session/store';
 import { useTokenInteraction } from '../tokens/drag';
-import { sightMaskOf } from '../../renderer/overlayLayer';
+import { shownMaskOf, sightMaskOf } from '../../renderer/overlayLayer';
 import {
   FOG_MARGIN,
   fogPad,
@@ -791,6 +791,59 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     expect(stencilFills).toHaveLength(1);
     expect(stencilFills[0].style.color).toBe(0xffffff);
   });
+
+  /** Is a world point inside any polygon this graphic fills? */
+  const fillCovers = (g: Graphics, point: [number, number]): boolean =>
+    g.context.instructions
+      .filter((i) => i.action === 'fill')
+      .some((i) => {
+        const path = (i.data as { path?: { instructions?: { action: string; data: unknown[] }[] } })
+          .path;
+        return (path?.instructions ?? [])
+          .filter((step) => step.action === 'poly')
+          .some((step) => {
+            const flat = step.data[0] as number[];
+            const poly: Polygon = [];
+            for (let k = 0; k + 1 < flat.length; k += 2) poly.push([flat[k], flat[k + 1]]);
+            return pointInPolygon(point, poly);
+          });
+      });
+
+  it('keeps a memory IN the door stencil — a remembered room still shows its doors', () => {
+    // The other half of the row above, and the whole of the door leak. A door is map
+    // information: once the room around it has been seen, where the door is has stopped being
+    // a secret, and a remembered room that drew its walls but not its doors would be lying
+    // about its own layout. A live position is not like that, which is why the chips wear the
+    // narrower stencil and the marks wear this one.
+    const scrim = new Graphics();
+    const shownMask = new Graphics();
+    drawFog(
+      scrim,
+      scene({ [WEST.id]: 'visible', [EAST.id]: 'explored' }),
+      undefined,
+      undefined,
+      shownMask,
+    );
+
+    expect(fillsOf(shownMask).every((f) => f.style.color === 0xffffff)).toBe(true);
+    expect(fillCovers(shownMask, [6, 3]), 'the room the party can see').toBe(true);
+    expect(fillCovers(shownMask, [13, 3]), 'the room it only remembers').toBe(true);
+  });
+
+  it('cuts never-seen ground out of the door stencil', () => {
+    // The direction that leaks is fail-visible: a door standing where this seat has never been
+    // shown anything has to be cut away, whatever the referee let them hold. In vision mode a
+    // room ships whole the moment any of it is swept, so "they hold it" is not "they see it".
+    const scrim = new Graphics();
+    const shownMask = new Graphics();
+    drawFog(scrim, scene({ [WEST.id]: 'visible', [EAST.id]: 'dark' }), undefined, undefined, shownMask);
+    expect(fillCovers(shownMask, [6, 3])).toBe(true);
+    expect(fillCovers(shownMask, [13, 3]), 'a room nobody has entered').toBe(false);
+
+    const allDark = new Graphics();
+    drawFog(scrim, scene({ [WEST.id]: 'dark', [EAST.id]: 'dark' }), undefined, undefined, allDark);
+    expect(fillsOf(allDark)).toHaveLength(0);
+  });
 });
 
 // ── Vision mode's three tiers (S3 P2 §1) ────────────────────────────────────
@@ -987,6 +1040,42 @@ describe('drawFog in vision mode', () => {
     const dm = drawFog(new Graphics(), visionScene({ sight: [LOOKING], isPlayer: false }), undefined, stencil);
     expect(dm).toMatchObject({ plan: null, cover: null, cells: 0 });
     expect(fillsOf(stencil)).toEqual([]);
+  });
+
+  // …and the marks' stencil is the *other* target. `live` is the sweep alone; the tier mask is
+  // transparent where the seat holds nothing and painted over everything it is shown, so its
+  // alpha is shown-ness and a Sprite of it is the door layer's mask (`SHOWN_MASK`).
+  it('leaves the shown stencil to the tier mask, not to live sight', () => {
+    const shown = new Graphics();
+    const drawn = drawFog(
+      new Graphics(),
+      visionScene({
+        sight: [LOOKING],
+        fog: {
+          rooms: { [EAST.id]: { status: 'revealed', wasEverRevealed: true } },
+          concealBehindDoors: true,
+          region: setCells(regionOf(VISION_FRAME)!, [
+            [5, 4],
+            [6, 4],
+          ]),
+        },
+      }),
+      undefined,
+      undefined,
+      shown,
+    );
+    // The vector carrier is cleared here exactly like the sight one — the sprite carries it.
+    expect(fillsOf(shown)).toEqual([]);
+
+    // The memory tier — the cell record and the DM's revealed room — is painted into `mask`
+    // and never into `live`. That is the whole of the difference between what a chip may say
+    // and what a door mark may say, and it is why the marks take a Sprite of `mask`.
+    const kindsOn = (target: string) =>
+      drawn
+        .plan!.ops.filter((op) => op.target === target && op.kind !== 'sprite')
+        .map((op) => op.kind);
+    expect(kindsOn('mask')).toEqual(['cells', 'polys']);
+    expect(kindsOn('live')).toEqual(['polys']);
   });
 
   it('counts the record into the memory tier, and washes nothing itself', () => {
@@ -1771,6 +1860,9 @@ describe('the lighting composite each seat is mounted with', () => {
       // …and no stencil either: a cleared one wearing the label hides every chip on a map
       // that is hiding nothing.
       expect(sightMaskOf(sceneGraph)).toBeNull();
+      // The door marks' stencil goes the same way, and that is what lets them read its
+      // absence as "there is no fog here" rather than "draw freely" (`DoorRenderer`).
+      expect(shownMaskOf(sceneGraph)).toBeNull();
       unmount();
     });
 
@@ -1812,6 +1904,10 @@ describe('the lighting composite each seat is mounted with', () => {
       // …and the cleared vector stencil is still what the chips wear there, so none of them
       // draws over ground the seat has not earned.
       expect(sightMaskOf(sceneGraph)).not.toBeNull();
+      // Same for the marks: a seat shown nothing of a zoned map gets a cleared shown stencil,
+      // not a missing one, so every door on it is cut away rather than drawn over the cover.
+      expect(shownMaskOf(sceneGraph)).not.toBeNull();
+      expect(shownMaskOf(sceneGraph)).not.toBe(sightMaskOf(sceneGraph));
       unmount();
     });
   });

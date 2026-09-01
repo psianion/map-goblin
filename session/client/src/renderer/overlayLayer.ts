@@ -20,13 +20,13 @@ import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
  * that is the mask doing its job, and moving a token behind the dark must not leak where it
  * went.
  *
- * `doorOverlay` is over it, and that is not an inconsistency. Every door child a player
- * holds has already been redacted by the referee (PRODUCT principle 2): only doors bound to
- * an explored room are ever sent, and an unrevealed secret never is. So a mark drawn above
- * the mask leaks nothing that was not already earned — it is the remembered door on an
- * explored-dim boundary, which is exactly what the player should be able to read. Under the
- * mask it was not readable at all: a door on a room boundary is ~95% covered by the scrim's
- * own edge, which the doors-table redraw row measured as a player canvas that did not move.
+ * `doorOverlay` is over it so a door on a room boundary is readable at all — under the mask
+ * it is ~95% covered by the scrim's own edge, which the doors-table redraw row measured as a
+ * player canvas that did not move. Being over the mask is not permission to outrun it: this
+ * layer wears `shownMask` (`shownMaskOf`), so a door mark reaches exactly as far as the map
+ * does. Redaction is not that guarantee on its own — a room is shipped whole the moment any
+ * of it is swept, so in vision mode a player can hold doors standing on ground their mask
+ * still hides, and drawing those put two lit doors on an otherwise black canvas.
  *
  * Neither `playerFog` nor `doorOverlay` mounts into the world container. The engine
  * composites lighting as a screen-space multiply *after* the world, so a wash drawn in the
@@ -48,6 +48,9 @@ export const OVERLAY_STACK = [
   'tokenLayer',
   // Above the tokens it marks, so whose turn it is reads at the same strength as the token.
   'turnRing',
+  // Screen space too, and wearing `shownMask` rather than `sightMask`: a door is map
+  // information, not a live position. A remembered room shows its layout, doors included;
+  // hidden ground shows no door. That is the one difference from the two layers above.
   'doorOverlay',
 ] as const;
 
@@ -138,16 +141,45 @@ export function worldPointOf(engine: RenderEngine, e: PointerEvent): { x: number
 }
 
 /**
- * The label the player fog gives the graphic it fills with everything this seat may see (the
- * clear tier and the memory tier together — what `drawFog` calls `shown`). Overlays that draw
- * above the mask but must not outrun it wear this as their Pixi mask; it shares the fog
- * layer's camera mirror, so a screen overlay mirroring the camera the same way lines up.
+ * The label the player fog gives the graphic it fills with LIVE sight — the clear tier alone.
+ * Overlays that may not outrun what the seat can see *right now* wear this as their Pixi
+ * mask; it shares the fog layer's camera mirror, so a screen overlay mirroring the camera the
+ * same way lines up. The token chips and the turn ring are its wearers: a live position is a
+ * secret, so a remembered room shows what it looked like, never who is standing in it now.
  */
 export const SIGHT_MASK = 'sightMask';
 
-/** The player fog's sight mask, once the fog layer has mounted; null before, and on seats that draw no mask. */
+/**
+ * …and the label on the graphic filled with everything this seat is SHOWN — the clear tier
+ * and the memory tier together. The door marks wear this one, because where a door is stops
+ * being a secret the moment the room around it has been seen: a remembered room shows its
+ * layout, doors included, and hidden ground shows no door at all.
+ *
+ * The two are separate carriers rather than one, because in vision mode they are genuinely
+ * different textures (`tierCompositor`'s `live` against its `mask`), and a wearer picks its
+ * stencil by label.
+ */
+export const SHOWN_MASK = 'shownMask';
+
+/** The player fog's live-sight stencil, once the fog layer has mounted; null before, and on seats that draw no mask. */
 export function sightMaskOf(sceneGraph: SceneGraph): Container | null {
+  return fogStencil(sceneGraph, SIGHT_MASK);
+}
+
+/**
+ * The player fog's shown stencil (clear + memory), on the same terms as `sightMaskOf`.
+ *
+ * Null is the answer on any seat the fog draws no mask for — a DM outside sight preview, or a
+ * scene with no fog at all — and a wearer must treat it as "there is nothing here to draw
+ * over" rather than as "draw freely": absence has to err hidden, which is what
+ * `DoorRenderer` gates its player-side art on.
+ */
+export function shownMaskOf(sceneGraph: SceneGraph): Container | null {
+  return fogStencil(sceneGraph, SHOWN_MASK);
+}
+
+function fogStencil(sceneGraph: SceneGraph, label: string): Container | null {
   const fog = sceneGraph.overlayContainer.children.find((c) => c.label === 'playerFog');
-  return (fog?.children.find((c) => c.label === SIGHT_MASK) as Container | undefined) ?? null;
+  return (fog?.children.find((c) => c.label === label) as Container | undefined) ?? null;
 }
 

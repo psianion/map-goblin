@@ -17,7 +17,12 @@ import { isDoubleClick } from '@dnd/core/src/engine/tools/DrawingTool';
 import { resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve';
 import { useStore } from '@dnd/core/src/store/store';
 import type { DoorsState } from '@dnd/mechanics/doors';
-import { addScreenOverlay, mountWhenEngineReady, worldPointOf } from '../../renderer/overlayLayer';
+import {
+  addScreenOverlay,
+  mountWhenEngineReady,
+  shownMaskOf,
+  worldPointOf,
+} from '../../renderer/overlayLayer';
 import { useSessionStore } from '../../session/store';
 import { isToolActive } from '../../session/tools';
 import { REVEAL_MS, easeOutQuart, revealDurationMs } from '../fog/FogRenderer';
@@ -118,6 +123,9 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
   const paint = new Graphics();
   const marks = new Container();
   marks.label = 'doorMarks';
+  // Hidden until a stencil says otherwise (`applyStencil`), so the frames between this mount
+  // and the fog's own cannot show a door over ground that is about to be covered.
+  art.visible = false;
   // Art first, marks over it: the mark is the interaction affordance and has to stay legible
   // on top of whatever the door is drawn as. `paint` carries what is drawn *around* a glyph —
   // the selection ring and the secret badge — so the glyph sprites sort above it.
@@ -128,8 +136,8 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
   // never moved when a door opened". The player's fog mask is a screen-space layer (D12 —
   // the lighting is composited beneath it), and no world-space child can sort above one,
   // whatever `OVERLAY_STACK` says. A door sits on a room boundary, so the scrim's own edge
-  // covered ~95% of its mark. What the player holds has already been redacted by the referee
-  // (PRODUCT principle 2), so drawing above the mask leaks nothing — see `OVERLAY_STACK`.
+  // covered ~95% of its mark. Drawing above the mask is bounded by wearing the mask's own
+  // shown stencil in `tick` — see `applyStencil` — because redaction alone does not bound it.
   // Nothing here is clickable; the doors read the DOM canvas directly, below.
   layer.eventMode = 'none';
   addScreenOverlay(sceneGraph, layer, 'doorOverlay');
@@ -165,10 +173,12 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
    * has neither the scrim nor the multiply, which is the whole of why one door measured 262
    * warm-wood pixels on that seat and exactly zero here.
    *
-   * Redrawing it in the overlay is safe for the same reason the marks are: the server has
-   * already cut a player's doors down to the ones they earned (PRODUCT principle 2), so this
-   * shows nothing the referee did not hand over. The DM is skipped — their copy in the world
-   * is already lit, and a second one would just pay for itself twice.
+   * What bounds the redraw is the stencil, not redaction. The server ships a room whole the
+   * moment any of it is swept, so in vision mode a player legitimately *holds* doors standing
+   * on ground their own mask still hides — and this copy, drawn above that mask, put two lit
+   * doors out on an otherwise black canvas (the reported leak). It wears `shownMask` instead:
+   * clear tier plus memory, which is precisely where the map is drawn for this seat. The DM is
+   * skipped — their copy in the world is already lit, and a second one would pay twice.
    *
    * ponytail: the player's buried world copy is still drawn and simply never seen. Hiding
    * core's doors sublayer would save it, and would mean reaching into the scene graph to do
@@ -266,10 +276,35 @@ export function mountDoorLayer(engine: RenderEngine, sceneGraph: SceneGraph): ()
   // ponytail: the whole overlay is repainted per frame while a door is fading, rather than
   // giving each fading mark its own Graphics. A scene has tens of doors and a fade lasts
   // 300ms; split them out if a map ever makes this show up in a frame budget.
+  /**
+   * A door mark reaches exactly as far as the map does on this seat.
+   *
+   * The stencil is the fog's own `shownMask` — the clear tier and the memory tier together —
+   * so a remembered room keeps its doors (where a door is stops being a secret once the room
+   * around it has been seen, unlike a token's live position) and never-seen ground shows
+   * none. Looked up per frame rather than once, on the token layer's rationale: the fog
+   * mounts on its own schedule and the seat is not known until the join snapshot lands.
+   *
+   * `null` is the answer on every seat the fog draws no mask for — a DM outside sight
+   * preview, and any scene with no fog at all — so it cannot be read as "wear nothing, draw
+   * freely". The player-side art is gated on it instead: no stencil, no redraw, and the map's
+   * own world copy is what shows, which is the fail-dark direction. The DM's glyphs are not
+   * gated (they are the seat's controls, and their world copy is unmasked anyway), but they
+   * do wear the stencil while a sight preview is running — a preview that drew marks the
+   * previewed token cannot see would be lying about what the player sees.
+   */
+  const applyStencil = () => {
+    const stencil = shownMaskOf(sceneGraph);
+    if (layer.mask !== stencil) layer.mask = stencil;
+    const shown = stencil !== null;
+    if (art.visible !== shown) art.visible = shown;
+  };
+
   const world = sceneGraph.worldContainer;
   const tick = () => {
     layer.position.copyFrom(world.position);
     layer.scale.copyFrom(world.scale);
+    applyStencil();
     if (fading.size > 0) draw();
   };
 
