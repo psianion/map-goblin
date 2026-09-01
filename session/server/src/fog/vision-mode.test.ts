@@ -363,11 +363,14 @@ describe('party-mode auto-explore (§4)', () => {
     // The clamp is one cell wider than the floor, though, and that cell is the wall band: the
     // art of a room straddles its edge, so a record stopping at the floor put the stones of an
     // explored room back under fog. The floors here are x 0..10 and x 12..22, so (11.5, 5.5) is
-    // beside both and lands, and (-1.5, 5.5) — two cells past the west edge — is void and does
-    // not, however plainly the eye in the doorway sees it.
+    // beside both and lands.
+    //
+    // The void half of the clamp is pinned on the brush instead (`module.test.ts`): every cell a
+    // sweep can reach on this fixture is within one cell of a floor, because the floor rings are
+    // the only occluders and they stop the rays at their own edge. A row asserting a void cell
+    // here would read as a clamp and pass as an occlusion.
     expect(getCell(region, ...cellAt(9.5, 5.5))).toBe(true)
     expect(getCell(region, ...cellAt(11.5, 5.5))).toBe(true)
-    expect(getCell(region, ...cellAt(-1.5, 5.5))).toBe(false)
     // Recordable is not standable: the band is remembered and still refused underfoot.
     expect(table.vision.visionOf(SCENE)!.openGround!(11.5, 5.5)).toBe(false)
   })
