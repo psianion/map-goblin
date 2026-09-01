@@ -430,22 +430,34 @@ describe('tierPlan — contained sight', () => {
   const liveOn = (plan: DrawPlan) => opsOn(plan, 'live');
 
   it('R1 — fences the full sweep at opened ground and buys the rest back by range', () => {
-    // The whole feature in one plan. The full sweep is clipped to `held`, the near sweep is
-    // added over it, and the shipping clip is what gets the last word — so the lit hall
-    // *inside the same line of sight* but past the eye's range is on neither term and stays
-    // dark. Mutation: drop the second erase and the near sweep runs to its raw polygon, which
-    // on a roomless map is `SIGHT_REACH` past every edge.
+    // The whole feature in one plan. The full sweep is clipped to `held ∪ nearTerm`, and the
+    // near term is itself the range sweep less the locks and outside-shipped ground — so the
+    // lit hall *inside the same line of sight* but past the eye's range is on neither term and
+    // stays dark. Mutation: drop `nearTerm`'s own shipping erase and the near sweep runs to its
+    // raw polygon, which on a roomless map is `SIGHT_REACH` past every edge.
     const plan = tierPlan(hall());
     expect(liveOn(plan)).toMatchObject([
       { kind: 'polys', polys: [FULL], grow: SWEEP_GROW, color: MASK_LIVE, blend: 'normal' },
-      { kind: 'sprite', source: 'inverseHeld', blend: 'erase' },
+      { kind: 'sprite', source: 'inverseOpen', blend: 'erase' },
+    ]);
+    // The near term is composed on its own target and reaches `live` through the clip:
+    // `inverseOpen = ¬(held ∪ nearTerm)`, so erasing it is `full ∩ (held ∪ nearTerm)`, which
+    // is `(full ∩ held) ∪ nearTerm` because a near sweep is inside its own full sweep.
+    expect(opsOn(plan, 'nearTerm')).toMatchObject([
       { kind: 'polys', polys: [NEAR], grow: SWEEP_GROW, color: MASK_LIVE, blend: 'normal' },
       { kind: 'sprite', source: 'inverseShipped', blend: 'erase' },
+    ]);
+    expect(opsOn(plan, 'inverseOpen')).toMatchObject([
+      { kind: 'rect', rect: plan.cover, color: MASK_LIVE, blend: 'normal' },
+      { kind: 'polys', polys: regionRects(OPENED), grow: GROW, blend: 'erase' },
+      { kind: 'sprite', source: 'nearTerm', blend: 'erase' },
     ]);
     // …and `held` really is the opened ground rather than the rooms, which is the narrowing.
     expect(polysOn(plan, 'inverseHeld')[0].polys).toEqual(regionRects(OPENED));
     // The shipping clip opens onto every room the seat holds art for, held ground included —
-    // an unearned neighbour is a legitimate discovery target through a door.
+    // and on a walled map that is exactly the rooms the party has already earned, so the near
+    // pass discovers ground *inside* them and a genuinely new room arrives as a server credit
+    // plus its reveal delta, never as a hole the client opened first.
     expect(polysOn(plan, 'inverseShipped')[0]).toMatchObject({
       polys: [WEST, EAST, ...regionRects(OPENED)],
       grow: GROW,
@@ -494,42 +506,69 @@ describe('tierPlan — contained sight', () => {
     // neither. A union of discs — or of the two ranges — would open it, which is exactly the
     // shortcut this row exists to refuse.
     const plan = tierPlan(fenced({ sight: [FULL], near: [NEAR, NEAR_B], region: OPENED }));
-    const near = polysOn(plan, 'live').at(-1);
+    const near = polysOn(plan, 'nearTerm').at(0);
     expect(near?.polys).toEqual([NEAR, NEAR_B]);
     expect(near?.grow).toBe(SWEEP_GROW);
   });
 
-  it('R4 — puts the locks back into the shipping clip, and never into held', () => {
-    // A lock is subtracted from the near term alone: `held` cannot contain locked ground by
-    // construction, since the referee never writes those cells and never credits a locked
-    // room. Drawn back as white *after* the shipped ground is erased, so a lock inside a
-    // shipped room is fenced off again — grown by the sweep's own inflate, which cancels it.
+  it('R4 — subtracts the locks from the range term alone, and from nothing else', () => {
+    // A lock bites the range-earned term and nothing else. It is erased out of `nearTerm`,
+    // grown by the sweep's own inflate so the two cancel and the authored zone is the fence —
+    // and it appears on no other target, because `inverseShipped` clips the memory tier and
+    // the whole mask, both of which held ground owns even inside a lock (the row below).
     const plan = tierPlan(fenced({ sight: [FULL], near: [NEAR], region: OPENED, locks: [LOCK] }));
-    const shipped = opsOn(plan, 'inverseShipped');
-    expect(shipped.at(-1)).toMatchObject({
+    expect(opsOn(plan, 'nearTerm').at(1)).toMatchObject({
       kind: 'polys',
       polys: [LOCK],
       grow: SWEEP_GROW,
       color: MASK_LIVE,
-      blend: 'normal',
+      blend: 'erase',
     });
     // Mutation: drop the subtraction and the lock is simply absent from the plan.
-    expect(opsOn(tierPlan(hall()), 'inverseShipped')).toHaveLength(2);
-    // …and it reaches no other target, least of all the held clip.
+    expect(opsOn(tierPlan(hall()), 'nearTerm')).toHaveLength(2);
+    // …and it reaches no other target, least of all either clip.
     expect(plan.ops.filter((op) => op.kind === 'polys' && op.polys.includes(LOCK))).toHaveLength(1);
+    expect(opsOn(plan, 'inverseShipped').every((op) => op.kind !== 'polys' || !op.polys.includes(LOCK))).toBe(true);
+  });
+
+  it('R4 — held ground inside a lock zone stays visible, live and remembered', () => {
+    // "Held wins over locks", which is the referee's own order of tests (`seen` asks `held`
+    // before it asks `inAnyLock`): the DM's brush and Open whole map write without a lock
+    // filter, deliberately, so a cell the DM opened inside a lock is theirs. The mutation this
+    // kills is the one the shipped build had — locks painted back into `inverseShipped`, which
+    // is the final clip on `live` *and* on the mask, so a brushed cell inside a lock went dark
+    // on both tiers.
+    const inside = brushed([[14, 3]]);
+    const plan = tierPlan(fenced({ sight: [FULL], near: [NEAR], region: inside, locks: [LOCK] }));
+    const lockIn = (target: TierTarget) =>
+      opsOn(plan, target).some((op) => op.kind === 'polys' && op.polys.includes(LOCK));
+    // Nothing that clips the full term or the memory tier knows about the lock…
+    expect(lockIn('inverseShipped')).toBe(false);
+    expect(lockIn('inverseOpen')).toBe(false);
+    expect(lockIn('inverseHeld')).toBe(false);
+    // …and both of those clips carry the brushed cell as *erased* ground, which is what leaves
+    // it shown on the live tier and grey on the memory one.
+    for (const target of ['inverseHeld', 'inverseOpen'] as const) {
+      expect(polysOn(plan, target)[0]).toMatchObject({
+        polys: regionRects(inside),
+        grow: GROW,
+        blend: 'erase',
+      });
+    }
+    expect(opsOn(plan, 'mask').at(-1)).toMatchObject({ source: 'inverseShipped', blend: 'erase' });
   });
 
   it('R5 — leaves the darkness gate the last word over the whole composition', () => {
     // The light gate applies *after* the union, unchanged: a cell the near pass earned beyond
     // every torch and outside darkvision is still dark. Ordering is the whole claim — gate
-    // before the near pass and a step would peel the cloud back in pitch black.
+    // before the near term reaches `live` and a step would peel the cloud back in pitch black.
     const night: NightSight = { lit: [], darkvision: [], pools: [] };
     const plan = tierPlan(fenced({ sight: [FULL], near: [NEAR], region: OPENED, night }));
     const live = liveOn(plan);
     expect(live.at(-1)).toMatchObject({ kind: 'sprite', source: 'inverseSeeable', blend: 'erase' });
-    const nearAt = live.findIndex((op) => op.kind === 'polys' && op.polys[0] === NEAR);
-    expect(nearAt).toBeGreaterThanOrEqual(0);
-    expect(nearAt).toBeLessThan(live.length - 1);
+    const openAt = live.findIndex((op) => op.kind === 'sprite' && op.source === 'inverseOpen');
+    expect(openAt).toBeGreaterThanOrEqual(0);
+    expect(openAt).toBeLessThan(live.length - 1);
   });
 
   it('R6 — fences each seat by the record it was handed, and nothing else', () => {
@@ -548,11 +587,12 @@ describe('tierPlan — contained sight', () => {
   it('R7 — collapses to the range limit when the scene is already range-limited', () => {
     // `sightRangeLimit` on means the full sweep *is* the near sweep — the same memo entry,
     // the same polygon — so the rule degenerates to `near ∖ locks` inside the shipping clip
-    // with no special case anywhere. Both passes draw the identical geometry.
+    // with no special case anywhere. Both passes draw the identical geometry, one on each
+    // target, and the union of the two terms is that geometry again.
     const plan = tierPlan(fenced({ sight: [NEAR], near: [NEAR], region: OPENED }));
-    const polys = polysOn(plan, 'live');
-    expect(polys.map((op) => op.polys)).toEqual([[NEAR], [NEAR]]);
-    expect(liveOn(plan).at(-1)).toMatchObject({ source: 'inverseShipped', blend: 'erase' });
+    expect(polysOn(plan, 'live').map((op) => op.polys)).toEqual([[NEAR]]);
+    expect(polysOn(plan, 'nearTerm').map((op) => op.polys)).toEqual([[NEAR]]);
+    expect(liveOn(plan).at(-1)).toMatchObject({ source: 'inverseOpen', blend: 'erase' });
   });
 
   it('R9 — gives a roomless map the record plus the near pass, bounded by the frame', () => {
@@ -598,6 +638,30 @@ describe('tierPlan — contained sight', () => {
     expect(opsOn(plan, 'mask')).toEqual([
       { kind: 'sprite', target: 'mask', source: 'inverseShipped', blend: 'erase' },
     ]);
+    // `inverseOpen` fails the same way and is built on the same terms: a white cover with the
+    // held ground erased out, plus the near term whether or not there is one to erase.
+    expect(opsOn(plan, 'inverseOpen')).toMatchObject([
+      { kind: 'rect', rect: plan.cover, color: MASK_LIVE, blend: 'normal' },
+      { kind: 'sprite', source: 'nearTerm', blend: 'erase' },
+    ]);
+    // …and with no near pass there is nothing on `nearTerm` at all, so that erase is a no-op
+    // rather than a second statement of the fence.
+    expect(opsOn(plan, 'nearTerm')).toEqual([]);
+  });
+
+  it('reads a player seat\'s locks off the referee\'s cell mask, not off zones', () => {
+    // What a player's seat actually has: no zones (prep never travels), and the lock cells the
+    // referee cut for it instead (`lockMaskFor`, decoded by `regionRects` in `FogRenderer`).
+    // Same fence, one polygon per merged row run, and it lands where the DM's zones do.
+    const seatLocks = regionRects(brushed([[14, 3], [15, 3]]));
+    const plan = tierPlan(fenced({ sight: [FULL], near: [NEAR], region: OPENED, locks: seatLocks }));
+    expect(opsOn(plan, 'nearTerm')).toMatchObject([
+      { kind: 'polys', polys: [NEAR], blend: 'normal' },
+      { kind: 'polys', polys: seatLocks, grow: SWEEP_GROW, blend: 'erase' },
+      { kind: 'sprite', source: 'inverseShipped', blend: 'erase' },
+    ]);
+    // Mutation: a seat handed no mask has an unfenced near pass, which is the leak.
+    expect(opsOn(tierPlan(fenced({ sight: [FULL], near: [NEAR], region: OPENED })), 'nearTerm')).toHaveLength(2);
   });
 });
 
@@ -712,12 +776,21 @@ describe('tierPlan — containment off is the shipped mask (R8)', () => {
     ['a scene the DM turned to darkness', scene({ sight: [LOOKING], night, region })],
     ['a party with no eyes at all', scene({ region, revealed: [EAST] })],
     ['a seat with no frame', scene({ sight: [LOOKING], frame: null })],
+    // The switch, not the absence of the terms, is what turns the feature off: a near pass and
+    // a lock zone sitting in the scene must still draw the pre-containment plan, op for op.
+    // Nothing else in this table carries either — the review found the uncontained path was
+    // only ever proved against scenes that had nothing for it to ignore.
+    [
+      'a near pass and locks the switch says to ignore',
+      scene({ sight: [LOOKING], region, near: [LOOKING], locks: [EAST] }),
+    ],
   ];
 
   it.each(rows)('%s draws exactly the pre-containment plan', (_name, s) => {
     expect(tierPlan(s)).toEqual(legacyPlan(s));
     // …and not one op mentions a target the feature introduced.
-    expect(tierPlan(s).ops.some((op) => op.target === 'inverseShipped')).toBe(false);
+    const added: TierTarget[] = ['inverseShipped', 'nearTerm', 'inverseOpen'];
+    expect(tierPlan(s).ops.some((op) => added.includes(op.target))).toBe(false);
   });
 
   it('changes the answer the moment the switch goes on, on every one of them', () => {

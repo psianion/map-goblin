@@ -96,6 +96,7 @@ import {
   type FogRing,
   type NightSight,
   paintedGround,
+  regionRects,
   ringsWithHoles,
   roomAt,
   roomFog,
@@ -318,8 +319,9 @@ export interface FogScene {
    */
   near?: Polygon[];
   /**
-   * Contained sight only: the explore locks this tab can see (`exploreLocks`), which is the
-   * DM's own copy and nothing on a player's — zones are prep and never ship.
+   * Contained sight only: the explore locks this tab can see. The DM's tab derives them from
+   * the real zones (`exploreLocks`); a player's tab has none — zones are prep and never ship —
+   * and reads the cell mask the referee cut for it instead (`SerializedMapData.lockMask`).
    */
   locks?: Polygon[];
   /**
@@ -789,10 +791,19 @@ export function fogScene(): FogScene {
         : fog,
     sight,
     near,
-    // The explore locks, subtracted from the near pass. Empty on every player seat by
-    // construction — the redaction strips zones — so this is the DM's sight preview's fence
-    // and nothing else. Off the referee's document, like the rooms and the pad.
-    locks: near ? exploreLocks(serverLayers(mapData)) : undefined,
+    // The explore locks, subtracted from the near pass — from two sources that are never both
+    // present. The DM's document carries the real zones; a player's carries none (the
+    // redaction strips prep) and carries the referee's cell mask of the same zones instead
+    // (`lockMaskFor`), which is the only way that seat can know a lock is there. So the union
+    // needs no precedence rule.
+    //
+    // The DM's sight preview deliberately reads the *zones*, not a mask: the preview is meant
+    // to answer "what does that seat see", and the zones are exactly what the referee's own
+    // `inAnyLock` tests, so the preview matches the server's answer rather than a cell-snapped
+    // approximation of it. Both are off the referee's document, like the rooms and the pad.
+    locks: near
+      ? [...exploreLocks(serverLayers(mapData)), ...regionRects((mapData as SerializedMapData).lockMask)]
+      : undefined,
     // The painted ground the tiers may open onto, beside the rooms — read off the referee's
     // document like the rooms are, and only in vision mode, where the tiers are cut from a
     // sweep rather than from the room record. Rooms mode has no cell to put there.

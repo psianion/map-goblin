@@ -1053,10 +1053,9 @@ describe('drawFog in vision mode', () => {
     expect(live).toMatchObject([
       { kind: 'polys', polys: [LOOKING] },
       // The clip is on this target too, because it is the stencil as well as a tier — and on
-      // a contained scene (the default) there are two of them, the held fence for the full
-      // sweep and the shipping fence that gets the last word over the near pass as well.
-      { kind: 'sprite', source: 'inverseHeld', blend: 'erase' },
-      { kind: 'sprite', source: 'inverseShipped', blend: 'erase' },
+      // a contained scene (the default) it is the wider `inverseOpen`, which is the held fence
+      // with the range-earned term added to it. One clip either way, and it is the last word.
+      { kind: 'sprite', source: 'inverseOpen', blend: 'erase' },
     ]);
     // Memory never reaches it: a remembered room shows what it looked like, never who is
     // standing in it now — with memory in the stencil a hostile walking through an explored
@@ -1520,8 +1519,10 @@ describe('fogScene', () => {
     const scene = fogScene();
     expect(scene.fog?.region).toBe(theirs);
     expect(scene.near).toHaveLength(scene.sight!.length);
-    // Zones are prep and never travel, so the only seat that can subtract a lock is this one —
-    // and with no zone authored on the fixture it is still an empty list, not a missing one.
+    // Zones are prep and never travel, so this seat is the one that reads the *real* zones —
+    // deliberately, because they are exactly what the referee's own `inAnyLock` tests, so the
+    // preview answers with the server's fence and not a cell-snapped copy of it. With no zone
+    // authored on the fixture it is still an empty list, not a missing one.
     expect(scene.locks).toEqual([]);
 
     // Switched off, neither the second sweep nor the lock read is taken at all.
@@ -1532,6 +1533,24 @@ describe('fogScene', () => {
     useTokenInteraction.setState({ selectedId: 'pc', previewSight: true });
     expect(fogScene().near).toBeUndefined();
     expect(fogScene().locks).toBeUndefined();
+  });
+
+  it('fences a player seat by the referee’s lock mask, since zones never travel', () => {
+    // The seat holds no zones and cannot derive one, so the referee stamps the lock *cells* on
+    // its cut instead (`lockMaskFor`) and this decodes them. Without it a player's near pass
+    // cleared fog over ground the referee refuses to write — permanently, because it never
+    // sends a correction for a cell it declined to grant.
+    const lockMask = setCells(regionOf({ minX: 0, minY: 0, maxX: 40, maxY: 40 })!, [
+      [5, 5],
+      [6, 5],
+    ]);
+    previewScene({ pc: sightedToken({ id: 'pc' }) });
+    useSessionStore.setState({ mapData: { ...sent([dungeon(ROOMS)]), lockMask } });
+    expect(fogScene().locks).toEqual(regionRects(lockMask));
+
+    // …and a seat handed no mask has an empty fence rather than a missing one.
+    useSessionStore.setState({ mapData: sent([dungeon(ROOMS)]) });
+    expect(fogScene().locks).toEqual([]);
   });
 
   it('gives a token nobody holds no memory at all — live sight is the whole preview', () => {

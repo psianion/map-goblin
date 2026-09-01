@@ -572,10 +572,27 @@ async function run(): Promise<void> {
       [12, 6],
       [6, 6],
     ];
+    // Two lock zones, on the two sides of the rule. One sits on ground the DM has already
+    // opened — held wins over locks, on both sides, because the brush and Open whole map write
+    // without a lock filter and the referee tests held first (`seen`). The other sits on
+    // unheld ground well inside the eye's range, which is the peel the zone exists to refuse.
+    const LOCK_HELD: Polygon = [
+      [6.5, 2.5],
+      [8, 2.5],
+      [8, 4],
+      [6.5, 4],
+    ];
+    const LOCK_NEAR: Polygon = [
+      [10.25, 4.5],
+      [16, 4.5],
+      [16, 6],
+      [10.25, 6],
+    ];
     const tier: TierScene = {
       sight: [FULL],
       contained: true,
       near: [NEAR],
+      locks: [LOCK_HELD, LOCK_NEAR],
       rooms: [WEST, EAST],
       revealed: [],
       region,
@@ -587,24 +604,36 @@ async function run(): Promise<void> {
     const { cover, mask, oracle } = composite({ name: 'g', tier, held, shippedGround });
     const areas = agree(mask, cover, oracle);
 
-    const inOpened = probe(mask, cover, 7, 3); // held ground, live by line of sight alone
-    const earned = probe(mask, cover, 11, 3); // the hall, within the eye's own range
+    // Probed past x = 11.8, where the *grown* record stops, so the range term is the only
+    // thing that can be showing them — the held clip inflates by `pad + feather` and reaches
+    // well into the east hall on its own.
+    const inOpened = probe(mask, cover, 7, 3); // held ground *inside a lock*: held wins
+    const earned = probe(mask, cover, 12.5, 1); // the hall, within the eye's own range
+    const lockedNear = probe(mask, cover, 12.5, 5.5); // …and the locked strip of it, in range
     const beyond = probe(mask, cover, 14, 3); // the hall, in sight but past the range
     // The mutation: the identical scene uncontained opens the whole hall, which is what the
     // fence is measured against.
     const off = composite({ name: 'g-off', tier: { ...tier, contained: false }, held: [WEST, EAST] });
     const beyondUncontained = probe(off.mask, off.cover, 14, 3);
+    // …and the second mutation: drop the lock subtraction and the locked corner opens by range
+    // like any other ground. (The held texel is white either way — that is the point of it.)
+    const unlocked = composite({ name: 'g-unlocked', tier: { ...tier, locks: [] }, held, shippedGround });
+    const lockedNearUnfenced = probe(unlocked.mask, unlocked.cover, 12.5, 5.5);
 
     results.containedSight = {
       pass:
         inOpened[0] > 247 && inOpened[3] > 247 &&
         earned[0] > 247 && earned[3] > 247 &&
+        lockedNear[3] < 8 &&
         beyond[3] < 8 &&
         beyondUncontained[0] > 247 &&
+        lockedNearUnfenced[0] > 247 &&
         areas.shownOutsideVectorCells === 0,
       detail: {
-        insideOpenedGroundRGBA: inOpened,
+        heldGroundInsideALockRGBA: inOpened,
         earnedByRangeRGBA: earned,
+        lockedGroundInRangeRGBA: lockedNear,
+        sameTexelUnlockedRGBA: lockedNearUnfenced,
         inSightPastTheRangeRGBA: beyond,
         sameTexelUncontainedRGBA: beyondUncontained,
         ...areas,
