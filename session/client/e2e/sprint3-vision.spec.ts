@@ -741,6 +741,12 @@ test.describe.serial('@sprint3-vision', () => {
    * discipline — a build that ever crept into the draw loop would blow a 16ms bound on a map
    * this size long before a dressed one.
    *
+   * Re-measured 2026-09-01 for containment (default-on) and the doubled `FOG_FEATHER`
+   * (`FogRenderer.ts`'s PENDING note): three runs on this two-hall map, one token move, one
+   * eye — 4.50ms, 2.50ms, 2.60ms to build. The bound stays 16ms unchanged: even the worst of
+   * the three is a third of it, so a small map under both changes is nowhere near a frame and
+   * the discipline check still means what it says.
+   *
    * The fps half is sprint3-fog's ratio, for its reasons: four runs of that row on identical
    * code read 26.6 through 12.3fps as the box's load moved, so the guard is the player's seat
    * against the DM's unmasked canvas at the same moment, never an absolute floor.

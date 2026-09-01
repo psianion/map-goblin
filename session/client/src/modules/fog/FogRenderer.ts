@@ -227,11 +227,13 @@ const BOUNDS_PAD = 20;
  * corners: at 1.2 the mask rebuild measured 30ms on the gate map against 12ms at 0.4). The
  * look of the edge is `FOG_FADE`, which costs nothing.
  *
- * PENDING: raised 0.4 → 0.8 for the soft band, which is the round-join stroke width in the
- * raster path, so the rebuild budgets pinned in `session/client/e2e/sprint3-vision-gate.spec.ts`
- * (8ms) and `session/client/e2e/sprint3-vision.spec.ts` (16ms) were measured at the old width and have
- * NOT been re-derived. Re-measure them off medians on a live stack — method as in `1802f84` —
- * before this ships.
+ * Raised 0.4 → 0.8 for the soft band, which is the round-join stroke width in the raster
+ * path. Re-measured 2026-09-01 against containment's own extra pass (`near` in `fogScene()`)
+ * together, since both landed on the same rebuild — method as in `1802f84`: the dressed
+ * gate map's 8-token pin moved 8ms → 24ms (worst measured median 11.6ms, more than double);
+ * the two-hall map's single-build pin held at 16ms (worst measured 4.5ms, still a third of
+ * the bound). See the derivation comments at `sprint3-vision-gate.spec.ts` and
+ * `sprint3-vision.spec.ts` for the runs.
  */
 export const FOG_FEATHER = 0.8;
 
