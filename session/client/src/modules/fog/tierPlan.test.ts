@@ -454,12 +454,14 @@ describe('tierPlan — contained sight', () => {
     ]);
     // …and `held` really is the opened ground rather than the rooms, which is the narrowing.
     expect(polysOn(plan, 'inverseHeld')[0].polys).toEqual(regionRects(OPENED));
-    // The shipping clip opens onto every room the seat holds art for, held ground included —
-    // and on a walled map that is exactly the rooms the party has already earned, so the near
-    // pass discovers ground *inside* them and a genuinely new room arrives as a server credit
-    // plus its reveal delta, never as a hole the client opened first.
+    // The shipping clip opens onto every room the seat holds art for and nothing else — on a
+    // walled map that is exactly the rooms the party has already earned, so the near pass
+    // discovers ground *inside* them and a genuinely new room arrives as a server credit plus
+    // its reveal delta, never as a hole the client opened first. Held ground is deliberately
+    // *not* unioned in: the record is half of held, so adding it would leave this clip unable
+    // to clip the memory tier at all (the next row is what that cost).
     expect(polysOn(plan, 'inverseShipped')[0]).toMatchObject({
-      polys: [WEST, EAST, ...regionRects(OPENED)],
+      polys: [WEST, EAST],
       grow: GROW,
       blend: 'erase',
     });
@@ -626,7 +628,23 @@ describe('tierPlan — contained sight', () => {
     // an eye stands. The referee's record write runs ahead of the player's approach, so the gap
     // closes itself within a state update — and it may only ever run this way round.
     const plan = tierPlan(fenced({ rooms: [WEST], sight: [FULL], near: [NEAR], region: OPENED }));
-    expect(polysOn(plan, 'inverseShipped')[0].polys).toEqual([WEST, ...regionRects(OPENED)]);
+    expect(polysOn(plan, 'inverseShipped')[0].polys).toEqual([WEST]);
+  });
+
+  it('leaves the memory tier under the cloud where no room shipped to sit it on', () => {
+    // The gate walk's flat black patch, as a row. `OPENED` runs east of `WEST`'s own wall, so
+    // on a seat that holds only `WEST` those cells are memory grey painted over map with no
+    // art behind it — which renders as void with the background's grid dots printing through,
+    // and reads as a hole rather than as fog. The mask's last word has to cut it.
+    //
+    // Mutation: union `held` back into `shippedGround` and this clip stops clipping the tier
+    // it is the last word on, because the record *is* half of held.
+    const plan = tierPlan(fenced({ rooms: [WEST], sight: [FULL], near: [NEAR], region: OPENED }));
+    const shipped = polysOn(plan, 'inverseShipped')[0].polys;
+    for (const rect of regionRects(OPENED)) expect(shipped).not.toContainEqual(rect);
+    // …and the tier really is drawn before that clip, so the clip is what decides it.
+    expect(opsOn(plan, 'mask').map((op) => op.kind)).toEqual(['cells', 'sprite', 'sprite']);
+    expect(opsOn(plan, 'mask').at(-1)).toMatchObject({ source: 'inverseShipped', blend: 'erase' });
   });
 
   it('builds the shipping clip even with nothing to fence, because the mask leans on it', () => {

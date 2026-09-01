@@ -260,22 +260,29 @@ const asPoly = (b: Bounds): Polygon => [
  * The ground whose *art* this seat holds — the near pass's own fence, and only ever consulted
  * on a contained scene.
  *
- * Every room polygon that reached this seat, held ground included — and on a walled map that
- * is exactly the rooms the party has earned. A player's room list is the *explored* set and
- * nothing wider (`exploredRooms`; the band buy-back ships a kept room's wall art, never a
- * neighbour room's boundary), so the near pass can only open ground inside rooms already
- * credited. With auto-explore off it therefore opens nothing new on a walled map and the DM's
- * brush stays the only ratchet; with it on, a step's discovery arrives as a server credit plus
- * the reveal delta, one state update behind the step. A roomless map ships its image whole
- * (#114), so there the answer is the frame and the near pass is bounded by range and the lock
- * mask alone.
+ * Every room polygon that reached this seat — and on a walled map that is exactly the rooms
+ * the party has earned. A player's room list is the *explored* set and nothing wider
+ * (`exploredRooms`; the band buy-back ships a kept room's wall art, never a neighbour room's
+ * boundary), so the near pass can only open ground inside rooms already credited. With
+ * auto-explore off it therefore opens nothing new on a walled map and the DM's brush stays the
+ * only ratchet; with it on, a step's discovery arrives as a server credit plus the reveal
+ * delta, one state update behind the step. A roomless map ships its image whole (#114), so
+ * there the answer is the frame and the near pass is bounded by range and the lock mask alone.
+ *
+ * Held ground used to be unioned in here as well, on the reasoning that the record can only
+ * hold cells in rooms that shipped. That reasoning is right about a record written by a
+ * clamped referee and wrong about every other one — and adding it made this clip unable to
+ * clip the memory tier at all, since the record *is* half of held. What the gate walk saw was
+ * the consequence: cells the sweep had recorded out on unauthored ground beyond a palisade,
+ * drawn as memory grey over map that has no art there, which reads as a flat black patch with
+ * the background's grid dots printing through it — the shape leak this fence exists to stop,
+ * arriving through the fence itself. Rooms alone is the honest answer: ground with no
+ * geometry behind it stays under the cloud, indistinguishable from ground nobody has walked.
+ * The referee's own clamps (`onAuthoredFloor`) keep an honest record from ever wanting more,
+ * and the pad the erase grows by covers the cell-vs-polygon slack at a room's edge.
  */
-const shippedGround = (
-  rooms: readonly Polygon[],
-  held: readonly Polygon[],
-  frame: Bounds | null,
-): Polygon[] =>
-  rooms.length > 0 ? [...rooms, ...held] : frame ? [asPoly(frame)] : [];
+const shippedGround = (rooms: readonly Polygon[], frame: Bounds | null): Polygon[] =>
+  rooms.length > 0 ? [...rooms] : frame ? [asPoly(frame)] : [];
 
 /**
  * Frame ∪ held, grown by the pad and the feather — and nothing else, ever.
@@ -346,7 +353,7 @@ export function tierPlan(scene: TierScene): DrawPlan {
   const revealed = usable(scene.revealed);
   const contained = scene.contained;
   const held = heldSources(contained, rooms, revealed, scene.region);
-  const shipped = contained ? shippedGround(rooms, held, scene.frame) : [];
+  const shipped = contained ? shippedGround(rooms, scene.frame) : [];
   const cover = coverOf(scene.frame, contained ? [...shipped, ...held] : held, painted, grow);
   const cells = regionCells(scene.region);
   if (!cover) return { cover: null, ops: [], cells };
