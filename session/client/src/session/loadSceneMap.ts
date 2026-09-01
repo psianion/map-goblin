@@ -295,18 +295,29 @@ let swapGen = 0;
  * textures. The outgoing document is stashed in the cache as-held (merged reveals
  * included), which is what makes switching back instant; re-applying `forViewer` on
  * re-entry is idempotent.
+ *
+ * `recut` re-runs the same swap on the scene already in hand, because the server would now
+ * cut it differently (the fog mode flipped — see the `state-update` case in `store.ts`).
+ * The held document is neither stashed nor served from cache in that case: it *is* the
+ * stale answer, so keeping it would defeat the fetch.
  */
-export async function swapSceneMap(sceneId: string, mapId: string, token: string): Promise<void> {
+export async function swapSceneMap(
+  sceneId: string,
+  mapId: string,
+  token: string,
+  recut = false,
+): Promise<void> {
   const gen = ++swapGen;
   const store = useSessionStore.getState();
 
   // Stash the outgoing document before anything can replace it.
-  if (store.loadedScene && store.mapData) {
+  if (!recut && store.loadedScene && store.mapData) {
     cachePut(docKey(store.loadedScene.sceneId, store.loadedScene.mapId), {
       data: store.mapData as SerializedMapData,
       splatPngs: store.splatPngs,
     });
   }
+  if (recut) invalidateSceneDocs(sceneId);
 
   const doc = await getOrFetchSceneDoc(sceneId, mapId, token);
   await warmSceneTextures(doc);

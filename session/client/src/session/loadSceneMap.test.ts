@@ -465,3 +465,109 @@ describe('state-update carrying a mapDelta', () => {
     expect(useSessionStore.getState().mapData).toBe(current);
   });
 });
+
+// ── A fog mode flip is a document event ─────────────────────────────────────
+// `set-mode` carries no `mapDelta`, but the server cuts a player's copy differently in each
+// mode — `redactMapForViewer` stamps `frame` for a zoned scene *or* a vision one — so a seat
+// that stays connected through the flip has to fetch its own cut again, or a roomless map in
+// vision mode leaves `fogBounds` answering null and the seat draws no fog at all.
+
+describe('state-update flipping the fog mode', () => {
+  const sessionWith = (fog: unknown) =>
+    ({
+      protocolVersion: PROTOCOL_VERSION,
+      sessionId: 's1',
+      campaignId: 'c1',
+      activeSceneId: 'scene-1',
+      scenes: [{ id: 'scene-1', name: 'Clearing' }],
+      players: [],
+      modules: { fog },
+    }) as never;
+
+  /** A fog slice for `scene-1`; `mode: undefined` is a scene that never set one (⇒ rooms). */
+  const fogState = (mode: 'rooms' | 'vision' | undefined, rooms: Record<string, unknown> = {}) => ({
+    byScene: { 'scene-1': { rooms, concealBehindDoors: true, ...(mode ? { mode } : {}) } },
+  });
+
+  const update = (state: unknown) =>
+    useSessionStore
+      .getState()
+      .applyServerMessage({ type: 'state-update', module: 'fog', state } as never);
+
+  beforeEach(() => {
+    useSessionStore.setState({
+      session: sessionWith(fogState('rooms')),
+      you: { identityId: 'p1', name: 'Ayla', role: 'player', connected: true },
+      mapData: loaded(),
+      loadedScene: { sceneId: 'scene-1', mapId: 'm1' },
+      token: 'tok',
+    });
+    for (const id of ['scene-1', 'scene-2']) invalidateSceneDocs(id);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('re-fetches this seat’s cut when the DM flips the scene to vision', async () => {
+    const recut = { version: '3.0', layers: [], frame: { x: 0, y: 0, width: 100, height: 100 } };
+    const fetchMock = stubFetch(recut);
+    // The cut the seat is already holding, cached under the same `sceneId:mapId` — a re-cut
+    // that served that cache (or re-stashed the held document into it) would fetch nothing.
+    await swapSceneMap('scene-1', 'm1', 'tok');
+    const before = fetchMock.mock.calls.length;
+
+    update(fogState('vision'));
+
+    expect(fetchMock.mock.calls.length).toBe(before + 1);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `${endpoints.httpBase}/api/maps/scene-1?images=external`,
+      { headers: { Authorization: 'Bearer tok' } },
+    );
+    await vi.waitFor(() => expect(useSessionStore.getState().mapData).toEqual(recut));
+  });
+
+  it('re-fetches on the way back too — the rooms cut is not the vision cut', () => {
+    useSessionStore.setState({ session: sessionWith(fogState('vision')) });
+    const fetchMock = stubFetch({ version: '3.0', layers: [] });
+
+    update(fogState('rooms'));
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('ignores a fog write that moves the fog but leaves the mode alone', () => {
+    const fetchMock = stubFetch({ version: '3.0', layers: [] });
+    const held = useSessionStore.getState().mapData;
+
+    // A brush stroke / reveal: same mode, different rooms. Re-fetching a megabyte document
+    // per stroke would be the worse bug.
+    update(fogState('rooms', { 'r-vestibule': { status: 'revealed', wasEverRevealed: true } }));
+    // …and a scene that never set a mode at all reads as rooms, so this is not a flip either.
+    update(fogState(undefined, { 'r-vestibule': { status: 'revealed', wasEverRevealed: true } }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().mapData).toBe(held);
+  });
+
+  it('leaves a flip on a scene this seat is not holding to that scene’s own swap', () => {
+    const fetchMock = stubFetch({ version: '3.0', layers: [] });
+
+    update({
+      byScene: {
+        'scene-1': { rooms: {}, concealBehindDoors: true },
+        'scene-2': { rooms: {}, concealBehindDoors: true, mode: 'vision' },
+      },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not re-fetch for the DM, whose copy is the file whatever the mode', () => {
+    useSessionStore.setState({
+      you: { identityId: 'dm', name: 'Sam', role: 'dm', connected: true },
+    });
+    const fetchMock = stubFetch({ version: '3.0', layers: [] });
+
+    update(fogState('vision'));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

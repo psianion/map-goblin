@@ -2,7 +2,13 @@ import { create } from 'zustand';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import type { PlayerInfo, Role, ServerMessage, SessionState } from '@dnd/core/src/shared/protocol';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
-import { mergeMapDelta, invalidateSceneDocs, type MapDelta } from './loadSceneMap';
+import { fogModeOf, type FogMode, type FogState } from '@dnd/mechanics/fog';
+import {
+  mergeMapDelta,
+  invalidateSceneDocs,
+  swapSceneMap,
+  type MapDelta,
+} from './loadSceneMap';
 import { decodePaintedArea } from './paintedArea';
 import { WebSocketClient } from './WebSocketClient';
 import type { ConnectionStatus } from './WebSocketClient';
@@ -118,6 +124,19 @@ function clearSeat(): void {
   }
 }
 
+/** How a fog module state — either side of an update — reads one scene's mode. */
+const modeOf = (state: unknown, sceneId: string): FogMode => {
+  const scene = (state as FogState | undefined)?.byScene?.[sceneId];
+  return scene ? fogModeOf(scene) : 'rooms';
+};
+
+/** The scenes whose fog mode differs between the state this seat held and the one just sent. */
+function fogModeFlips(prev: unknown, next: unknown): string[] {
+  const scenes = (next as FogState | undefined)?.byScene;
+  if (!scenes) return [];
+  return Object.keys(scenes).filter((sceneId) => modeOf(prev, sceneId) !== modeOf(next, sceneId));
+}
+
 // ponytail: plain zustand — no immer/devtools/subscribeWithSelector like the
 // editor store. Session state arrives as whole snapshots (§2.5), so there is
 // nothing to draft-mutate and no deep selector traffic to memoize.
@@ -215,6 +234,34 @@ export const useSessionStore = create<SessionStore>()((set, get) => ({
             },
             mapData,
           });
+          // A fog `set-mode` broadcasts module state and nothing else — the server does not
+          // re-cut the scene document for it. But the cut *depends* on the mode:
+          // `redactMapForViewer` stamps `frame` when the scene is zoned OR the mode is vision,
+          // so a player who stayed connected while the DM flipped a *roomless* map to vision
+          // keeps a frameless cut, `fogBounds` answers null, and that seat draws no fog at all
+          // until it reloads. So the client treats a mode flip as a document event and
+          // re-fetches its own cut — the same path a reload takes. Both directions: the rooms
+          // cut is not the vision cut either.
+          //
+          // Guarded on the mode actually *changing*: a brush stroke writes fog state
+          // constantly, and re-fetching a megabyte document per stroke would be the worse bug.
+          // The DM is skipped — their copy is the file, untouched, whatever the mode.
+          //
+          // Upgrade path: have the server push the re-cut document alongside the `set-mode`
+          // broadcast (as a reveal already pushes its `mapDelta`), and this can go.
+          if (msg.module === 'fog' && get().you?.role !== 'dm') {
+            const { loadedScene, token } = get();
+            for (const sceneId of fogModeFlips(session.modules.fog, msg.state)) {
+              // Any cached copy of that scene was cut under the old mode, whether or not this
+              // seat happens to be looking at it now.
+              invalidateSceneDocs(sceneId);
+              if (!token || loadedScene?.sceneId !== sceneId) continue;
+              void swapSceneMap(sceneId, loadedScene.mapId, token, true).catch((err: unknown) => {
+                // The seat keeps the document it has — stale fog beats no map.
+                console.warn('[store] re-cut after a fog mode flip failed:', err);
+              });
+            }
+          }
           break;
         }
 
