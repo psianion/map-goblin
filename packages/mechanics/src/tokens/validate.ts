@@ -166,6 +166,50 @@ export function parseSight(v: unknown): TokenDef['sight'] {
   }
 }
 
+export const SHEET_NAME_MAX = 60
+export const SHEET_ID_MAX = 40
+export const SHEET_URL_MAX = 300
+
+/** `avatar` only survives as any `https://` link (or overlong) — DDB serves portraits from CDN
+ *  hosts, and it's stored, never rendered, so a wide host allowlist there is not a clickable-
+ *  link risk. */
+function httpsUrl(v: unknown, max: number): string | undefined {
+  return typeof v === 'string' && v.length > 0 && v.length <= max && v.startsWith('https://')
+    ? v
+    : undefined
+}
+
+/** `url` is what `PlayerList`/`MePanel` render as a clickable anchor next to the player's own
+ *  name — anything but D&D Beyond's own domain would let a player publish an arbitrary link to
+ *  every seat at the table under their character's name, so this is host-locked rather than
+ *  just scheme-checked. */
+const DNDBEYOND_URL = /^https:\/\/(www\.)?dndbeyond\.com\//
+function dndbeyondUrl(v: unknown, max: number): string | undefined {
+  return typeof v === 'string' && v.length > 0 && v.length <= max && DNDBEYOND_URL.test(v)
+    ? v
+    : undefined
+}
+
+/**
+ * A player's D&D Beyond sheet, captured off a Beyond20 payload and stashed on the token that
+ * claims it — display/link data only, never re-derived from or trusted for anything else.
+ * Unlike `parseSight`/`parseLight`, a bad `name` does not reject the whole command: it returns
+ * `undefined` so the caller decides (`update` refuses an explicit-but-nameless sheet, the same
+ * way it refuses any other malformed field). `id`/`url`/`avatar` are each optional and dropped
+ * independently when invalid rather than sinking a sheet that otherwise has a good name.
+ */
+export function parseSheet(v: unknown): Token['sheet'] {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return undefined
+  const o = v as Record<string, unknown>
+  const name = typeof o.name === 'string' ? o.name.trim() : ''
+  if (!name || name.length > SHEET_NAME_MAX) return undefined
+  const id =
+    typeof o.id === 'string' && o.id.length > 0 && o.id.length <= SHEET_ID_MAX ? o.id : undefined
+  const url = dndbeyondUrl(o.url, SHEET_URL_MAX)
+  const avatar = httpsUrl(o.avatar, SHEET_URL_MAX)
+  return { name, ...(id ? { id } : {}), ...(url ? { url } : {}), ...(avatar ? { avatar } : {}) }
+}
+
 export function parseLight(v: unknown): TokenDef['light'] {
   if (v === null) return null
   const o = obj(v, 'light')

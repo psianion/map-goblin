@@ -373,6 +373,106 @@ describe('update', () => {
     // …and nothing was written on the way to the refusal.
     expect(only(mine).sight).toBeNull()
   })
+
+  // ── The Beyond20 sheet link ──────────────────────────────────────────────
+
+  describe('sheet link', () => {
+    const SHEET = {
+      name: 'Thalia Brightwood',
+      id: 'ddb-1',
+      url: 'https://www.dndbeyond.com/characters/1',
+      avatar: 'https://www.dndbeyond.com/avatar.png',
+    }
+
+    it('lets an owner set the sheet on their own token', () => {
+      const mine = stateWith(token({ ownerId: 'p-1' }))
+      const { next, error } = run(mine, P1, 'update', { id: 't1', sheet: SHEET })
+      expect(error).toBeNull()
+      expect(only(next).sheet).toEqual(SHEET)
+    })
+
+    it('refuses a player setting sheet on someone else’s token', () => {
+      expect(
+        run(stateWith(token()), P1, 'update', { id: 't1', sheet: SHEET }).error,
+      ).toMatchObject({ code: 'unauthorized' })
+    })
+
+    it('drops junk optional fields but keeps a valid name', () => {
+      const mine = stateWith(token({ ownerId: 'p-1' }))
+      const { next, error } = run(mine, P1, 'update', {
+        id: 't1',
+        sheet: { name: 'Thalia', id: 'x'.repeat(41), url: 'http://insecure', avatar: 42 },
+      })
+      expect(error).toBeNull()
+      expect(only(next).sheet).toEqual({ name: 'Thalia' })
+    })
+
+    it('host-locks url to dndbeyond.com — a link rendered under someone else’s name must not go anywhere else', () => {
+      const mine = stateWith(token({ ownerId: 'p-1' }))
+      for (const url of [
+        'https://evil.example.com/characters/1',
+        'https://dndbeyond.com.evil.example.com/x',
+        'javascript:alert(1)',
+        ' https://www.dndbeyond.com/x', // leading space — not the exact scheme prefix
+      ]) {
+        const { next, error } = run(mine, P1, 'update', { id: 't1', sheet: { name: 'Thalia', url } })
+        expect(error, url).toBeNull()
+        expect(only(next).sheet, url).toEqual({ name: 'Thalia' })
+      }
+      // Both the bare domain and the www. subdomain are accepted.
+      for (const url of ['https://dndbeyond.com/characters/1', 'https://www.dndbeyond.com/characters/1']) {
+        const { next, error } = run(mine, P1, 'update', { id: 't1', sheet: { name: 'Thalia', url } })
+        expect(error, url).toBeNull()
+        expect(only(next).sheet, url).toEqual({ name: 'Thalia', url })
+      }
+    })
+
+    it('avatar stays on the plain-https check — it is stored, never rendered', () => {
+      const mine = stateWith(token({ ownerId: 'p-1' }))
+      const { next, error } = run(mine, P1, 'update', {
+        id: 't1',
+        sheet: { name: 'Thalia', avatar: 'https://media.dndbeyond.com/avatar.png' },
+      })
+      expect(error).toBeNull()
+      expect(only(next).sheet).toEqual({ name: 'Thalia', avatar: 'https://media.dndbeyond.com/avatar.png' })
+      // …but still needs an actual https:// scheme.
+      const insecure = run(mine, P1, 'update', {
+        id: 't1',
+        sheet: { name: 'Thalia', avatar: 'javascript:alert(1)' },
+      })
+      expect(insecure.error).toBeNull()
+      expect(only(insecure.next).sheet).toEqual({ name: 'Thalia' })
+    })
+
+    it('rejects a sheet with no usable name instead of storing a partial one', () => {
+      const mine = stateWith(token({ ownerId: 'p-1' }))
+      for (const sheet of ['not an object', { id: 'x' }, { name: '' }, { name: 'x'.repeat(61) }]) {
+        expect(run(mine, P1, 'update', { id: 't1', sheet }).error?.code).toBe('invalid-command')
+      }
+      // …and nothing was written on the way to any of those refusals.
+      expect(only(mine).sheet).toBeUndefined()
+    })
+
+    it('clears the binding with sheet: null, for the owner or the DM', () => {
+      const linked = stateWith(token({ ownerId: 'p-1', sheet: SHEET }))
+      expect(only(run(linked, P1, 'update', { id: 't1', sheet: null }).next).sheet).toBeUndefined()
+      expect(only(run(linked, DM, 'update', { id: 't1', sheet: null }).next).sheet).toBeUndefined()
+    })
+
+    it('lets the DM set or clear the sheet on any token, owned or not', () => {
+      const { next, error } = run(stateWith(token()), DM, 'update', { id: 't1', sheet: SHEET })
+      expect(error).toBeNull()
+      expect(only(next).sheet).toEqual(SHEET)
+    })
+
+    it('does not enforce first-sheet-sticks server-side — an owner may overwrite an existing link', () => {
+      const linked = stateWith(token({ ownerId: 'p-1', sheet: SHEET }))
+      const other = { name: 'Someone Else' }
+      const { next, error } = run(linked, P1, 'update', { id: 't1', sheet: other })
+      expect(error).toBeNull()
+      expect(only(next).sheet).toEqual(other)
+    })
+  })
 })
 
 // ── P4 §4 — sight links ────────────────────────────────────────────────────

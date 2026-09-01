@@ -13,6 +13,7 @@
 
 import type { InitiativeState } from '@dnd/mechanics/initiative'
 import type { RollPost } from '@dnd/mechanics/rolls'
+import { type DetectedSheet, useDetectedSheet } from '../../session/detectedSheet'
 import { captureFromRoll } from '../../session/initiativeView'
 import { useSessionStore } from '../../session/store'
 
@@ -57,6 +58,30 @@ const ADVANTAGE_MARKERS: Record<number, string> = {
   4: ' (dis)',
   6: ' (super adv)',
   7: ' (super dis)',
+}
+
+/** Unlike `cap()`, this drops an over-length value instead of truncating it — a sliced URL is
+ *  a broken link that still looks valid, which is worse than not stashing one at all. */
+const dropIfOverlong = (value: unknown, max: number): string | undefined =>
+  typeof value === 'string' && value.length > 0 && value.length <= max ? value : undefined
+
+/**
+ * A player's sheet, off a Beyond20 `character` object — but only a PC's (§6): `type` is
+ * `"Character"` for a PC, `"Monster" | "Vehicle" | "Creature" | "Extra-Vehicle"` for
+ * everything else, and the DM rolling a monster stat block must never be offered a bind to
+ * it. Loosely mirrors the server's caps (`@dnd/mechanics/tokens` validate.ts `SHEET_*`) —
+ * the server is the real gate (host-locks `url` to dndbeyond.com on top of this), this only
+ * keeps the stash from holding obvious junk.
+ */
+function sheetFromCharacter(value: unknown): DetectedSheet | undefined {
+  const c = obj(value)
+  if (c.type !== 'Character') return undefined
+  const name = cap(c.name, CAPS.characterName)
+  if (!name) return undefined
+  const id = dropIfOverlong(c.id, 40)
+  const url = dropIfOverlong(c.url, 300)
+  const avatar = dropIfOverlong(c.avatar, 300)
+  return { name, ...(id ? { id } : {}), ...(url ? { url } : {}), ...(avatar ? { avatar } : {}) }
 }
 
 /**
@@ -171,7 +196,18 @@ export function translateRenderedRoll(detail: unknown): RollPost | null {
 }
 
 const onRenderedRoll = (event: Event) => {
-  const post = translateRenderedRoll((event as CustomEvent).detail)
+  const detail = (event as CustomEvent).detail
+  // The full character object rides in `request.character` (§3/§13) — `translateRenderedRoll`
+  // only sees the top-level `character` string, so this reads the raw detail on its own.
+  const req = obj(Array.isArray(detail) ? detail[0] : detail)
+  const sheet = sheetFromCharacter(obj(req.request).character)
+  // Hide-names (whisper 3) censors the *displayed* name but never `request.character` itself
+  // (§6/§13 — the same fact `translateRenderedRoll`'s `hideNames` guard exists for). Stashing
+  // here would let "Link" write the real name into shared table state off a hidden roll, so a
+  // hidden roll stashes nothing at all.
+  if (sheet && req.whisper !== 3) useDetectedSheet.getState().stash(sheet)
+
+  const post = translateRenderedRoll(detail)
   if (!post) return
   const store = useSessionStore.getState()
   store.sendCommand('rolls', 'post', post)
@@ -204,6 +240,8 @@ window.addEventListener('Beyond20_RenderedRoll', onRenderedRoll, true)
 // whisper (sender + DM) until that exists.
 const onUpdateHP = (event: Event) => {
   const detail = arr((event as CustomEvent).detail)
+  const sheet = sheetFromCharacter(obj(detail[0]).character)
+  if (sheet) useDetectedSheet.getState().stash(sheet)
   const name = cap(detail[1], CAPS.characterName)
   const hp = num(detail[2])
   if (!name || hp === undefined) return
@@ -224,6 +262,8 @@ window.addEventListener('Beyond20_UpdateHP', onUpdateHP, true)
 // `Beyond20_UpdateConditions` detail = `[request, name, conditions, exhaustion]` (§2/§7).
 const onUpdateConditions = (event: Event) => {
   const detail = arr((event as CustomEvent).detail)
+  const sheet = sheetFromCharacter(obj(detail[0]).character)
+  if (sheet) useDetectedSheet.getState().stash(sheet)
   const name = cap(detail[1], CAPS.characterName)
   if (!name) return
   const conditions = arr(detail[2]).filter((c): c is string => typeof c === 'string' && c !== '')

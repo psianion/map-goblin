@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useDetectedSheet } from '../../session/detectedSheet';
 import { useSessionStore } from '../../session/store';
 import { translateRenderedRoll } from './beyond20';
 import {
@@ -287,5 +288,122 @@ describe('Beyond20 listener', () => {
     expect(sendCommand).toHaveBeenCalled();
     const posted = sendCommand.mock.calls[0][2] as { text: string };
     expect(posted.text).toHaveLength(200);
+  });
+});
+
+describe('Beyond20 sheet detection (link-a-character-sheet)', () => {
+  beforeEach(() => {
+    useDetectedSheet.setState({ sheet: null, dismissed: new Set() });
+    useSessionStore.setState({ sendCommand: vi.fn() });
+  });
+
+  it('stashes a Character-type payload off a rendered-roll (request.character)', () => {
+    document.dispatchEvent(new CustomEvent('Beyond20_RenderedRoll', { detail: ATTACK_ROLL }));
+    expect(useDetectedSheet.getState().sheet).toEqual({
+      name: 'Thalia Brightwood',
+      id: '12345',
+      url: 'https://…',
+    });
+  });
+
+  it('never stashes a Monster-type character — the DM rolling a stat block must not be offered a bind', () => {
+    document.dispatchEvent(new CustomEvent('Beyond20_RenderedRoll', { detail: HIDDEN_NAMES_ROLL }));
+    expect(useDetectedSheet.getState().sheet).toBeNull();
+  });
+
+  it('stashes a Character-type payload off Beyond20_UpdateHP (detail[0].character)', () => {
+    document.dispatchEvent(
+      new CustomEvent('Beyond20_UpdateHP', {
+        detail: [
+          {
+            character: {
+              name: 'Thalia Brightwood',
+              type: 'Character',
+              id: 'ddb-1',
+              url: 'https://www.dndbeyond.com/characters/1',
+            },
+          },
+          'Thalia Brightwood',
+          24,
+          38,
+          5,
+        ],
+      }),
+    );
+    expect(useDetectedSheet.getState().sheet).toEqual({
+      name: 'Thalia Brightwood',
+      id: 'ddb-1',
+      url: 'https://www.dndbeyond.com/characters/1',
+    });
+  });
+
+  it('never stashes a Monster-type character off Beyond20_UpdateHP', () => {
+    document.dispatchEvent(
+      new CustomEvent('Beyond20_UpdateHP', {
+        detail: [{ character: { name: 'Owlbear', type: 'Monster' } }, 'Owlbear', 40, 40, 0],
+      }),
+    );
+    expect(useDetectedSheet.getState().sheet).toBeNull();
+  });
+
+  it('stashes off Beyond20_UpdateConditions the same way', () => {
+    document.dispatchEvent(
+      new CustomEvent('Beyond20_UpdateConditions', {
+        detail: [
+          { character: { name: 'Thalia Brightwood', type: 'Character' } },
+          'Thalia Brightwood',
+          ['Poisoned'],
+          0,
+        ],
+      }),
+    );
+    expect(useDetectedSheet.getState().sheet).toEqual({ name: 'Thalia Brightwood' });
+  });
+
+  it('the latest detection wins — a second sheet replaces the first', () => {
+    document.dispatchEvent(new CustomEvent('Beyond20_RenderedRoll', { detail: ATTACK_ROLL }));
+    document.dispatchEvent(
+      new CustomEvent('Beyond20_UpdateHP', {
+        detail: [{ character: { name: 'Grum the Unwise', type: 'Character' } }, 'Grum', 10, 10, 0],
+      }),
+    );
+    expect(useDetectedSheet.getState().sheet?.name).toBe('Grum the Unwise');
+  });
+
+  it('does not stash off a hide-names (whisper 3) roll, even for a PC character', () => {
+    // request.character is the uncensored object (§6/§13) — a hidden roll must not let that
+    // leak into shared state through "Link", so this checks the whisper===3 guard on its own,
+    // separately from the Monster-type guard above.
+    document.dispatchEvent(
+      new CustomEvent('Beyond20_RenderedRoll', {
+        detail: [
+          {
+            action: 'rendered-roll',
+            request: {
+              action: 'roll',
+              type: 'attack',
+              character: { name: 'Thalia Brightwood', type: 'Character', id: '12345' },
+            },
+            title: '???',
+            character: '???',
+            whisper: 3,
+            attack_rolls: [{ formula: '1d20 + 7', total: 24, discarded: false }],
+            total_damages: {},
+          },
+        ],
+      }),
+    );
+    expect(useDetectedSheet.getState().sheet).toBeNull();
+  });
+
+  it('neither stashes nor throws on a junk character value (string, null, array)', () => {
+    for (const junk of ['nope', null, ['nope']]) {
+      expect(() =>
+        document.dispatchEvent(
+          new CustomEvent('Beyond20_UpdateHP', { detail: [{ character: junk }, 'Someone', 10, 10, 0] }),
+        ),
+      ).not.toThrow();
+      expect(useDetectedSheet.getState().sheet).toBeNull();
+    }
   });
 });

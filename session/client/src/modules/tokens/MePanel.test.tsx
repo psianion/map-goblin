@@ -115,6 +115,43 @@ describe('MePanel — one claimed token', () => {
     expect(panel.textContent).toContain('no light');
   });
 
+  it('shows a linked sheet with an Open sheet anchor and an Unlink action', () => {
+    const sendCommand = vi.fn();
+    useSessionStore.setState({
+      sendCommand,
+      session: session({
+        tokens: tokensState({
+          a: mkToken('a', {
+            name: 'Karlach',
+            ownerId: 'me',
+            sheet: { name: 'Karlach Cliffgate', url: 'https://www.dndbeyond.com/characters/1' },
+          }),
+        }),
+      }),
+    });
+    render(<MePanel />);
+    const panel = screen.getByTestId('me-panel');
+    expect(panel.textContent).toContain('Karlach Cliffgate');
+    const link = screen.getByRole('link', { name: 'Open sheet' });
+    expect(link.getAttribute('href')).toBe('https://www.dndbeyond.com/characters/1');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+
+    fireEvent.click(screen.getByText('Unlink'));
+    expect(sendCommand).toHaveBeenCalledWith('tokens', 'update', { id: 'a', sheet: null });
+  });
+
+  it('omits the Open sheet anchor when the linked sheet has no url', () => {
+    useSessionStore.setState({
+      session: session({
+        tokens: tokensState({ a: mkToken('a', { ownerId: 'me', sheet: { name: 'No URL' } }) }),
+      }),
+    });
+    render(<MePanel />);
+    expect(screen.getByText('No URL')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Open sheet' })).toBeNull();
+  });
+
   it('reads HP and conditions off the matching initiative entry once an encounter runs', () => {
     useSessionStore.setState({
       session: session({

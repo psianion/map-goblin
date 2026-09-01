@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { ReconnectingBanner } from '../components/ConnectionStatus';
 import { InitiativePrompt } from '../components/InitiativePrompt';
+import { SheetLinkPrompt } from '../components/SheetLinkPrompt';
 import { ToastHost } from '../components/Toast';
 import { TriggerPrompts } from '../components/TriggerPrompts';
 import { mountTurnRingWhenReady } from '../modules/initiative/TurnRing';
@@ -124,6 +125,7 @@ export default function GameTable() {
         <ToastHost />
         <TriggerPrompts />
         <InitiativePrompt />
+        <SheetLinkPrompt />
       </main>
     </div>
   );

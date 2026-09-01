@@ -44,7 +44,8 @@ export function PlayerList() {
   return (
     <ul className="flex flex-col gap-1" data-testid="player-list">
       {players.map((p) => {
-        const character = claimed.find((t) => t.ownerId === p.identityId)?.name;
+        const token = claimed.find((t) => t.ownerId === p.identityId);
+        const character = token?.name;
         return (
           <li
             key={p.identityId}
@@ -68,7 +69,21 @@ export function PlayerList() {
             <span className="truncate">{p.name}</span>
             {p.identityId === youId && <span className="text-xs text-text-muted">(you)</span>}
             {character && p.connected && (
-              <span className="min-w-0 truncate text-xs text-text-muted">— {character}</span>
+              <span className="min-w-0 truncate text-xs text-text-muted">
+                {'— '}
+                {token?.sheet?.url ? (
+                  <a
+                    href={token.sheet.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-accent-active hover:underline"
+                  >
+                    {character}
+                  </a>
+                ) : (
+                  character
+                )}
+              </span>
             )}
             {p.role === 'dm' ? (
               <span
