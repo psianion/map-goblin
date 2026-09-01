@@ -292,6 +292,38 @@ describe('redactMapForViewer (§2.3.1, D4)', () => {
     )
   })
 
+  // …and the band's *number*, pinned from both sides.
+  //
+  // `redactMap.ts`'s `FOG_MARGIN` (0.5) and `DEFAULT_WALL_WIDTH` (0.5) are hand copies of the
+  // client's, at `session/client/src/modules/fog/fog.ts:152` and `:155`, where the same
+  // distance is measured from the other side to cut the mask's hole. Nothing enforces the
+  // equality — no shared module, and until this row no test either: every probe above sits at
+  // 0.4 or 1.5 cells out and passes at any margin between them. Drift ships silently, and it
+  // ships one of two defects — too small here and the seat is missing art its mask has already
+  // opened (a hole in the world), too large and it holds map the mask never covers.
+  //
+  // So: 0.5 + 0.5 is a one-cell reach, and the probes bracket it at 0.9 and 1.1. The numbers
+  // are written out rather than derived from the constants, because a test that reads the
+  // constant moves with it and pins nothing. Move `FOG_MARGIN` to 0.3 and the near prop is
+  // dropped; to 0.7 and the far one arrives. Change it here, change it there, same commit.
+  it('measures that band at exactly the pad the client masks by', () => {
+    const probed = mapFile()
+    const layer = probed.layers[0] as DungeonLayer
+    layer.children = [
+      ...layer.children,
+      prop('prop-inside-pad', 5, -0.9),
+      prop('prop-outside-pad', 5, -1.1),
+    ]
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Pad')
+    stores.maps.insert('pad', campaign.id, 'Pad', JSON.stringify(probed))
+    stores.scenes.create('pad', campaign.id, 'pad', 'Pad')
+    const seen = redactMapForViewer(createSceneMaps(stores).sceneMapOf('pad')!, fog(), {})
+    const ids = (seen.layers[0] as DungeonLayer).children.map((c) => c.id)
+    expect(ids).toContain('prop-inside-pad')
+    expect(ids).not.toContain('prop-outside-pad')
+  })
+
   it('keeps a wall an explored room borders and drops the rest', () => {
     expect(layerOf(redacted()).standaloneWalls.map((w) => w.id)).toEqual(['wall-hall'])
   })
