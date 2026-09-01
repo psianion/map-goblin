@@ -81,6 +81,7 @@ export function fogModule(
       'set-share': ['dm'],
       'set-auto-explore': ['dm'],
       'set-range-limit': ['dm'],
+      'set-containment': ['dm'],
       'region-set': ['dm'],
       // `auto-explore` is deliberately absent: it is the server's own write (the sweep a
       // token move earned), reachable only through `dispatchInternal`, exactly the way
@@ -225,6 +226,13 @@ function run(
       return setScene(ctx, sceneId, {
         ...scene,
         sightRangeLimit: bool(p.sightRangeLimit, 'sightRangeLimit'),
+      })
+    // No log line either, and for the same reason: it changes how far the referee lets sight
+    // reach, not what the party has seen, and the table reads the difference on the map.
+    case 'set-containment':
+      return setScene(ctx, sceneId, {
+        ...scene,
+        containedSight: bool(p.containedSight, 'containedSight'),
       })
     case 'region-set': {
       const frame = frameFor(ctx, sceneId, frameOf)

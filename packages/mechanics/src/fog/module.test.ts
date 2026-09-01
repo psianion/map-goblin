@@ -7,6 +7,7 @@ import { fogModule } from './module'
 import { getCell, regionOf, setCells } from './region'
 import {
   autoExploreOn,
+  containedSightOn,
   fogModeOf,
   identityRegion,
   sceneFogOf,
@@ -755,6 +756,7 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       ['set-mode', { mode: 'vision' }],
       ['set-share', { visionShare: 'individual' }],
       ['set-auto-explore', { autoExplore: false }],
+      ['set-containment', { containedSight: false }],
       ['region-set', { op: 'reveal', cells: [[0, 0]] }],
     ] as const
 
@@ -848,6 +850,24 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       expect(sightRangeLimitOn(scened(off))).toBe(false)
 
       expect(fire(empty, DM, 'set-range-limit', { sightRangeLimit: 'yes' }).error?.code).toBe(
+        'invalid-command',
+      )
+    })
+
+    // The one switch that defaults *on*: containment is the house rule and this turns it off.
+    it('stores containment, and defaults it on', () => {
+      // An untouched scene has no record at all, which reads as on.
+      expect(sceneFogOf(empty, SCENE).containedSight).toBeUndefined()
+      expect(containedSightOn(sceneFogOf(empty, SCENE))).toBe(true)
+
+      const off = fire(empty, DM, 'set-containment', { containedSight: false }).next
+      expect(scened(off).containedSight).toBe(false)
+      expect(containedSightOn(scened(off))).toBe(false)
+      const on = fire(off, DM, 'set-containment', { containedSight: true }).next
+      expect(scened(on).containedSight).toBe(true)
+      expect(containedSightOn(scened(on))).toBe(true)
+
+      expect(fire(empty, DM, 'set-containment', { containedSight: 'yes' }).error?.code).toBe(
         'invalid-command',
       )
     })

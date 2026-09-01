@@ -54,6 +54,19 @@ export interface SceneFog {
    */
   sightRangeLimit?: boolean
   /**
+   * Absent ⇒ on. Only meaningful in vision mode.
+   *
+   * On, live sight is fenced by the ground the table has already opened — the region record
+   * the DM brushed and the rooms they revealed — and the only thing that pushes the fence
+   * outward is a token's own `sight.range`. A party walking into a dungeon earns the next
+   * stretch of corridor by standing in it, rather than being handed every hall their torch
+   * happens to have a line to.
+   *
+   * Off is classic sight-to-the-walls: an eye sees wherever it has a line, opened ground or
+   * not, which is the model this file had before containment existed.
+   */
+  containedSight?: boolean
+  /**
    * Region memory — the party's, absent until the first sweep or brush stroke writes one.
    *
    * In `'individual'` share this is also the *seed*: an identity with no record of its own
@@ -84,6 +97,15 @@ export const autoExploreOn = (scene: SceneFog): boolean => scene.autoExplore ?? 
  * must agree — the referee's sweep, the player's mask and the DM's preview — hence one reader.
  */
 export const sightRangeLimitOn = (scene: SceneFog): boolean => scene.sightRangeLimit ?? false
+
+/**
+ * Whether live sight is fenced by ground the table has opened. Defaults *on*: containment is
+ * the house rule everywhere and the switch is the opt-out, so a scene that says nothing is
+ * played contained — including one stored before this existed, which is the deliberate trade.
+ * Read in three places that must agree — the referee's sweep, the player's mask and the DM's
+ * preview — hence one reader.
+ */
+export const containedSightOn = (scene: SceneFog): boolean => scene.containedSight ?? true
 
 /** Whose sight a viewer's mask is drawn through. One reading of the optional field (P5). */
 export const visionShareOf = (scene: SceneFog): VisionShare => scene.visionShare ?? 'party'
