@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Room } from '@dnd/core/src/shared/types';
 import {
   autoExploreOn,
+  containedSightOn,
   fogModeOf,
   regionOf,
   sightRangeLimitOn,
@@ -236,6 +237,15 @@ export function FogHeaderActions() {
               >
                 Sight stops at each token&rsquo;s range
               </Switch>
+              <Switch
+                testId="fog-containment"
+                checked={containedSightOn(fog)}
+                onToggle={() =>
+                  send('set-containment', { containedSight: !containedSightOn(fog) })
+                }
+              >
+                Sight stays inside revealed ground
+              </Switch>
               <Segmented
                 label="Vision share"
                 testId="fog-share"
@@ -243,6 +253,22 @@ export function FogHeaderActions() {
                 options={SHARES}
                 onPick={(visionShare) => send('set-share', { visionShare })}
               />
+              {/* The way out of the fence, and the counterpart to Reset fog below. Not in the
+                  footer beside Reveal all: that button is rooms-to-memory and is dead on a
+                  roomless map, while this one opens the cell record and so means something on
+                  every vision map — including the imported battlemaps that have no rooms at
+                  all. No confirm; nothing is destroyed, and Reset fog is the way back. */}
+              <button
+                type="button"
+                data-testid="fog-open-map"
+                onClick={() => {
+                  send('open-map', {});
+                  closeMenu();
+                }}
+                className={menuItemClass}
+              >
+                Open whole map
+              </button>
             </>
           )}
 
@@ -387,10 +413,15 @@ export function FogTool() {
     // never will, so the sentence has to say what the DM can do instead of what they have not
     // done. Rooms mode leaves such a map wide open to players (D6), which is the surprising
     // half and the half worth stating outright.
+    //
+    // P3 — "what the party can see" was the brush's job on a battlemap and nothing else's.
+    // Under contained sight the ground the brush reveals is the fence a token's live sight
+    // may reach inside, on every vision map, so the line says what revealing ground *does*
+    // rather than treating the brush as the roomless map's consolation prize.
     grid = (
       <p data-testid="fog-no-rooms" className="text-xs text-text-secondary">
         {vision
-          ? 'No rooms on this map. Paint what the party can see with the brush.'
+          ? 'No rooms on this map. Reveal ground with the brush — sight stays inside what you reveal.'
           : 'No rooms on this map, so players see all of it. Switch to Vision to fog it and reveal with the brush.'}
       </p>
     );
