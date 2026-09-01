@@ -247,6 +247,22 @@ function memoryOutline(region: RegionMask | undefined): Polygon[] {
   return field ? maskRings(field) : regionRects(region);
 }
 
+/**
+ * The contained-sight terms, dev-only and absent on every uncontained call — passing nothing
+ * leaves this file byte-for-byte the pre-containment oracle.
+ *
+ * `shipped` above stays the *held* clip; on a contained scene the caller narrows it to the
+ * ground the DM has opened and hands the rooms the seat was shipped over here instead.
+ */
+export interface Contained {
+  /** One range-limited sweep per eye — the near pass. */
+  near?: readonly Polygon[];
+  /** Every room polygon the seat holds art for, or the frame on a roomless map. */
+  shippedGround?: readonly Polygon[];
+  /** The explore locks the seat knows about, subtracted from the near term alone. */
+  locks?: readonly Polygon[];
+}
+
 /** What the vision mask draws. Void is everything neither tier covers. */
 export interface VisionRegion {
   /** Live sight: the party's sweep union, out to the falloff's limit. Nothing is drawn here. */
@@ -283,12 +299,33 @@ export function visionRegion(
   feather: number,
   night?: NightSight,
   painted: readonly Polygon[] = [],
+  contained: Contained = {},
 ): VisionRegion {
   const rings = memoryOutline(region);
   const held = clipper2Engine.union([...reachOf(shipped, pad + feather), ...painted], []);
   const swept = reachOf(sight, sightPad(pad) + feather);
-  const sweptHeld =
+  const sweptFull =
     swept.length > 0 && held.length > 0 ? clipper2Engine.intersection(swept, held) : [];
+  // The contained scene's second term, on the same pipeline: each eye's own range-limited
+  // sweep, fenced to the ground whose art this seat holds and with the locks taken back out.
+  // Dev-only, like the rest of this file — the product's answer is `tierPlan`'s, and this is
+  // the independent statement it is measured against.
+  const nearSwept = reachOf(contained.near ?? [], sightPad(pad) + feather);
+  const shippedHeld = clipper2Engine.union(
+    [...reachOf(contained.shippedGround ?? [], pad + feather), ...painted],
+    [],
+  );
+  const nearShipped =
+    nearSwept.length > 0 && shippedHeld.length > 0
+      ? clipper2Engine.intersection(nearSwept, shippedHeld)
+      : [];
+  const lockReach = reachOf(contained.locks ?? [], sightPad(pad) + feather);
+  const nearOpen =
+    nearShipped.length > 0 && lockReach.length > 0
+      ? clipper2Engine.difference(nearShipped, lockReach)
+      : nearShipped;
+  const sweptHeld =
+    nearOpen.length > 0 ? clipper2Engine.union([...sweptFull, ...nearOpen], []) : sweptFull;
   // The light gate, as one more intersection on the same pipeline. A light's pool is padded
   // exactly as a sweep is, so a torch in a room lights the room's wall band rather than
   // stopping on the segments' centreline and leaving the stones dark.

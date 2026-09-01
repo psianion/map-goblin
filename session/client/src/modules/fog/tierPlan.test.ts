@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import { regionOf, setCells } from '@dnd/mechanics/fog';
 import { FOG_FEATHER } from './FogRenderer';
-import { fogPad, regionRects, sightPad, type NightSight } from './fog';
+import { fogPad, regionCells, regionRects, sightPad, type NightSight } from './fog';
 import { MASK_MEMORY } from './livingFog';
 import {
   MASK_LIVE,
@@ -61,8 +61,18 @@ const UNOCCLUDED: Polygon = [
 
 const brushed = (cells: [number, number][]) => setCells(regionOf(FRAME)!, cells);
 
+/**
+ * The uncontained scene — every row below it that does not say otherwise is the
+ * pre-containment mask, and that is deliberate rather than incidental.
+ *
+ * `containedSight` defaults *on* in the rules (`containedSightOn`), so leaving it out here
+ * would have quietly re-aimed a dozen rows written about the old composition at the new one.
+ * Each of them is pinned where it was and the contained twin is written beside it, so the
+ * switch has both of its positions held down by a test rather than one.
+ */
 const scene = (over: Partial<TierScene> = {}): TierScene => ({
   sight: [],
+  contained: false,
   rooms: [WEST, EAST],
   revealed: [],
   pad: PAD,
@@ -70,6 +80,9 @@ const scene = (over: Partial<TierScene> = {}): TierScene => ({
   frame: FRAME,
   ...over,
 });
+
+/** …and its contained twin. */
+const fenced = (over: Partial<TierScene> = {}): TierScene => scene({ contained: true, ...over });
 
 const opsOn = (plan: DrawPlan, target: TierTarget): DrawOp[] =>
   plan.ops.filter((op) => op.target === target);
@@ -363,6 +376,358 @@ describe('tierPlan — the record as a texture', () => {
       blurCells: MEMORY_BLUR_CELLS,
       blend: 'normal',
     });
+  });
+});
+
+// ── Contained sight ─────────────────────────────────────────────────────────
+// The contract both halves of the feature implement (P1 server / P2 client), as rows:
+//
+//   live = (full ∩ held) ∪ (near ∩ shipped ∖ locks)
+//
+// `held` narrows from "every room you were handed" to "the ground the DM has opened" — the
+// record's runs plus the rooms revealed by hand — and the near pass is what a step buys back:
+// each eye's own line of sight taken at its own range, fenced to the ground whose art this
+// seat actually holds. Every row here is mutation-checked against the same three cuts: drop
+// the shipping clip, drop the lock subtraction, or let the near term into `held` (which is the
+// global-union shortcut, where one eye's long sweep opens ground round another's feet).
+
+describe('tierPlan — contained sight', () => {
+  /** The record the DM has opened: the west hall, cell for cell. Nothing past the wall. */
+  const OPENED = brushed(
+    Array.from({ length: 6 }, (_, col) =>
+      Array.from({ length: 6 }, (_, row) => [4 + col, row] as [number, number]),
+    ).flat(),
+  );
+  /** Line of sight through an open door: both halls, end to end. */
+  const FULL: Polygon = [
+    [4, 0],
+    [16, 0],
+    [16, 6],
+    [4, 6],
+  ];
+  /** …and the same eye's sweep taken at its own range instead. */
+  const NEAR: Polygon = [
+    [6, 0],
+    [12, 0],
+    [12, 6],
+    [6, 6],
+  ];
+  /** A second eye, standing elsewhere with a shorter reach. */
+  const NEAR_B: Polygon = [
+    [13, 0],
+    [15, 0],
+    [15, 2],
+    [13, 2],
+  ];
+  const LOCK: Polygon = [
+    [13, 0],
+    [16, 0],
+    [16, 6],
+    [13, 6],
+  ];
+
+  const hall = () => fenced({ sight: [FULL], near: [NEAR], region: OPENED });
+  const liveOn = (plan: DrawPlan) => opsOn(plan, 'live');
+
+  it('R1 — fences the full sweep at opened ground and buys the rest back by range', () => {
+    // The whole feature in one plan. The full sweep is clipped to `held`, the near sweep is
+    // added over it, and the shipping clip is what gets the last word — so the lit hall
+    // *inside the same line of sight* but past the eye's range is on neither term and stays
+    // dark. Mutation: drop the second erase and the near sweep runs to its raw polygon, which
+    // on a roomless map is `SIGHT_REACH` past every edge.
+    const plan = tierPlan(hall());
+    expect(liveOn(plan)).toMatchObject([
+      { kind: 'polys', polys: [FULL], grow: SWEEP_GROW, color: MASK_LIVE, blend: 'normal' },
+      { kind: 'sprite', source: 'inverseHeld', blend: 'erase' },
+      { kind: 'polys', polys: [NEAR], grow: SWEEP_GROW, color: MASK_LIVE, blend: 'normal' },
+      { kind: 'sprite', source: 'inverseShipped', blend: 'erase' },
+    ]);
+    // …and `held` really is the opened ground rather than the rooms, which is the narrowing.
+    expect(polysOn(plan, 'inverseHeld')[0].polys).toEqual(regionRects(OPENED));
+    // The shipping clip opens onto every room the seat holds art for, held ground included —
+    // an unearned neighbour is a legitimate discovery target through a door.
+    expect(polysOn(plan, 'inverseShipped')[0]).toMatchObject({
+      polys: [WEST, EAST, ...regionRects(OPENED)],
+      grow: GROW,
+      blend: 'erase',
+    });
+  });
+
+  it('R1 — the near pass never widens the held clip, only the live target', () => {
+    // The global-union mutation, killed: fold the near term into `held` instead and eye A's
+    // full sweep opens the ground round eye B's feet. `inverseHeld` erases the opened record
+    // and nothing else, whatever the near pass is.
+    const plan = tierPlan(hall());
+    const held = polysOn(plan, 'inverseHeld').flatMap((op) => op.polys);
+    expect(held).not.toContain(NEAR);
+    expect(held).not.toContain(FULL);
+    expect(held).toEqual(regionRects(OPENED));
+  });
+
+  it('R2 — a cell the near pass earned is held ground on the next plan', () => {
+    // The ratchet. The referee writes what the near pass opened into the record, so the very
+    // next rebuild has it inside `held` and it is live from anywhere with line of sight —
+    // walking extends sight and nothing shrinks.
+    const walked = brushed([
+      ...Array.from({ length: 6 }, (_, col) =>
+        Array.from({ length: 6 }, (_, row) => [4 + col, row] as [number, number]),
+      ).flat(),
+      [10, 3],
+      [11, 3],
+    ]);
+    const before = polysOn(tierPlan(hall()), 'inverseHeld')[0].polys;
+    const after = polysOn(tierPlan(fenced({ sight: [FULL], near: [NEAR], region: walked })), 'inverseHeld')[0]
+      .polys;
+    expect(after).not.toEqual(before);
+    expect(after).toEqual(regionRects(walked));
+    // The fence has grown east past the wall, over exactly the cells the near pass opened —
+    // `regionRects` merges a row into one run, so it is the run's reach that moved, not a
+    // rectangle count.
+    const reach = (polys: readonly Polygon[]) => Math.max(...polys.flat().map(([x]) => x));
+    expect(reach(before)).toBe(10);
+    expect(reach(after)).toBe(12);
+  });
+
+  it('R3 — keeps the near sweeps per eye, one polygon each', () => {
+    // Two eyes, and the union is strictly per-eye: each near polygon is that eye's own line of
+    // sight at its own range, so ground near eye B but behind a wall from it is opened by
+    // neither. A union of discs — or of the two ranges — would open it, which is exactly the
+    // shortcut this row exists to refuse.
+    const plan = tierPlan(fenced({ sight: [FULL], near: [NEAR, NEAR_B], region: OPENED }));
+    const near = polysOn(plan, 'live').at(-1);
+    expect(near?.polys).toEqual([NEAR, NEAR_B]);
+    expect(near?.grow).toBe(SWEEP_GROW);
+  });
+
+  it('R4 — puts the locks back into the shipping clip, and never into held', () => {
+    // A lock is subtracted from the near term alone: `held` cannot contain locked ground by
+    // construction, since the referee never writes those cells and never credits a locked
+    // room. Drawn back as white *after* the shipped ground is erased, so a lock inside a
+    // shipped room is fenced off again — grown by the sweep's own inflate, which cancels it.
+    const plan = tierPlan(fenced({ sight: [FULL], near: [NEAR], region: OPENED, locks: [LOCK] }));
+    const shipped = opsOn(plan, 'inverseShipped');
+    expect(shipped.at(-1)).toMatchObject({
+      kind: 'polys',
+      polys: [LOCK],
+      grow: SWEEP_GROW,
+      color: MASK_LIVE,
+      blend: 'normal',
+    });
+    // Mutation: drop the subtraction and the lock is simply absent from the plan.
+    expect(opsOn(tierPlan(hall()), 'inverseShipped')).toHaveLength(2);
+    // …and it reaches no other target, least of all the held clip.
+    expect(plan.ops.filter((op) => op.kind === 'polys' && op.polys.includes(LOCK))).toHaveLength(1);
+  });
+
+  it('R5 — leaves the darkness gate the last word over the whole composition', () => {
+    // The light gate applies *after* the union, unchanged: a cell the near pass earned beyond
+    // every torch and outside darkvision is still dark. Ordering is the whole claim — gate
+    // before the near pass and a step would peel the cloud back in pitch black.
+    const night: NightSight = { lit: [], darkvision: [], pools: [] };
+    const plan = tierPlan(fenced({ sight: [FULL], near: [NEAR], region: OPENED, night }));
+    const live = liveOn(plan);
+    expect(live.at(-1)).toMatchObject({ kind: 'sprite', source: 'inverseSeeable', blend: 'erase' });
+    const nearAt = live.findIndex((op) => op.kind === 'polys' && op.polys[0] === NEAR);
+    expect(nearAt).toBeGreaterThanOrEqual(0);
+    expect(nearAt).toBeLessThan(live.length - 1);
+  });
+
+  it('R6 — fences each seat by the record it was handed, and nothing else', () => {
+    // Individual share needs no second shape here: the referee redacts `region` per seat and
+    // the DM's preview substitutes the previewed seat's record upstream (`FogRenderer`'s
+    // preview branch), so two seats are two records and two fences through one builder.
+    const mine = polysOn(tierPlan(hall()), 'inverseHeld')[0].polys;
+    const theirs = polysOn(
+      tierPlan(fenced({ sight: [FULL], near: [NEAR], region: brushed([[12, 3]]) })),
+      'inverseHeld',
+    )[0].polys;
+    expect(mine).not.toEqual(theirs);
+    expect(theirs).toEqual(regionRects(brushed([[12, 3]])));
+  });
+
+  it('R7 — collapses to the range limit when the scene is already range-limited', () => {
+    // `sightRangeLimit` on means the full sweep *is* the near sweep — the same memo entry,
+    // the same polygon — so the rule degenerates to `near ∖ locks` inside the shipping clip
+    // with no special case anywhere. Both passes draw the identical geometry.
+    const plan = tierPlan(fenced({ sight: [NEAR], near: [NEAR], region: OPENED }));
+    const polys = polysOn(plan, 'live');
+    expect(polys.map((op) => op.polys)).toEqual([[NEAR], [NEAR]]);
+    expect(liveOn(plan).at(-1)).toMatchObject({ source: 'inverseShipped', blend: 'erase' });
+  });
+
+  it('R9 — gives a roomless map the record plus the near pass, bounded by the frame', () => {
+    // The 1764-cell trap, fixed by the model rather than by a special case: an unoccluded
+    // sweep on a battlemap used to auto-explore the whole map in one step. Contained, the full
+    // term is still clipped to the record and the near term is bounded by the eye's range —
+    // and the shipping clip is the frame, because a roomless map ships its image whole.
+    const region = brushed([[6, 0]]);
+    const plan = tierPlan(fenced({ rooms: [], region, sight: [UNOCCLUDED], near: [NEAR] }));
+    expect(polysOn(plan, 'inverseHeld')[0].polys).toEqual(regionRects(region));
+    expect(polysOn(plan, 'inverseShipped')[0]).toMatchObject({
+      polys: [
+        [
+          [FRAME.minX, FRAME.minY],
+          [FRAME.maxX, FRAME.minY],
+          [FRAME.maxX, FRAME.maxY],
+          [FRAME.minX, FRAME.maxY],
+        ],
+      ],
+      grow: GROW,
+      blend: 'erase',
+    });
+    // …and the mask's own last word is that same clip, not the held one — erasing `held` here
+    // would take back every cell the near pass had just earned.
+    expect(opsOn(plan, 'mask').at(-1)).toMatchObject({ source: 'inverseShipped', blend: 'erase' });
+  });
+
+  it('never clears fog over ground whose art has not shipped', () => {
+    // Consequence 6 of the contract, as a row: a room the seat holds no geometry for is not in
+    // `rooms`, so it is not in the shipping clip, so the near pass cannot open it however close
+    // an eye stands. The referee's record write runs ahead of the player's approach, so the gap
+    // closes itself within a state update — and it may only ever run this way round.
+    const plan = tierPlan(fenced({ rooms: [WEST], sight: [FULL], near: [NEAR], region: OPENED }));
+    expect(polysOn(plan, 'inverseShipped')[0].polys).toEqual([WEST, ...regionRects(OPENED)]);
+  });
+
+  it('builds the shipping clip even with nothing to fence, because the mask leans on it', () => {
+    // Fail-dark: `inverseShipped` is the mask's clip on a contained scene whether or not there
+    // is a near pass, and a target nothing was erased into is a full white cover — which takes
+    // the whole mask rather than leaving a stale hole in it.
+    const plan = tierPlan(fenced());
+    expect(opsOn(plan, 'inverseShipped')[0]).toMatchObject({ kind: 'rect', rect: plan.cover });
+    expect(opsOn(plan, 'mask')).toEqual([
+      { kind: 'sprite', target: 'mask', source: 'inverseShipped', blend: 'erase' },
+    ]);
+  });
+});
+
+/**
+ * R8 — the switch off is the shipped mask, op for op.
+ *
+ * Written out here as the builder stood before containment landed rather than captured as a
+ * snapshot, because a snapshot records whatever the code did on the day it was taken and this
+ * has to record what the code *is supposed to do*: a wrong plan checked in is a wrong plan
+ * pinned. Deep-equal, not `toMatchObject`, so an op that merely appears is a failure too.
+ */
+const legacyPlan = (s: TierScene): DrawPlan => {
+  const grow = s.pad + s.feather;
+  const sweepGrow = sightPad(s.pad) + s.feather;
+  const shaped = (polys: readonly Polygon[]) => polys.filter((p) => p.length >= 3);
+  const rooms = shaped(s.rooms);
+  const painted = shaped(s.painted ?? []);
+  const held = rooms.length > 0 ? [...rooms] : regionRects(s.region);
+  const cells = regionCells(s.region);
+  if (!s.frame) return { cover: null, ops: [], cells };
+  let [minX, minY, maxX, maxY] = [
+    s.frame.minX - grow,
+    s.frame.minY - grow,
+    s.frame.maxX + grow,
+    s.frame.maxY + grow,
+  ];
+  for (const [polys, p] of [
+    [held, grow],
+    [painted, 0],
+  ] as const) {
+    for (const poly of polys) {
+      for (const [x, y] of poly) {
+        minX = Math.min(minX, x - p);
+        minY = Math.min(minY, y - p);
+        maxX = Math.max(maxX, x + p);
+        maxY = Math.max(maxY, y + p);
+      }
+    }
+  }
+  const cover = { minX, minY, maxX, maxY };
+  const sight = shaped(s.sight);
+  const revealed = shaped(s.revealed);
+  const seeable = s.night ? shaped([...s.night.lit, ...s.night.darkvision]) : [];
+  const memory = cellTexture(s.region);
+  const ops: DrawOp[] = [
+    { kind: 'rect', target: 'inverseHeld', rect: cover, color: MASK_LIVE, blend: 'normal' },
+  ];
+  if (held.length > 0) {
+    ops.push({ kind: 'polys', target: 'inverseHeld', polys: held, grow, color: MASK_LIVE, blend: 'erase' });
+  }
+  if (painted.length > 0) {
+    ops.push({ kind: 'polys', target: 'inverseHeld', polys: painted, grow: 0, color: MASK_LIVE, blend: 'erase' });
+  }
+  if (s.night && sight.length > 0) {
+    ops.push({ kind: 'rect', target: 'inverseSeeable', rect: cover, color: MASK_LIVE, blend: 'normal' });
+    if (seeable.length > 0) {
+      ops.push({
+        kind: 'polys',
+        target: 'inverseSeeable',
+        polys: seeable,
+        grow: sweepGrow,
+        color: MASK_LIVE,
+        blend: 'erase',
+      });
+    }
+  }
+  if (sight.length > 0) {
+    ops.push({ kind: 'polys', target: 'live', polys: sight, grow: sweepGrow, color: MASK_LIVE, blend: 'normal' });
+    ops.push({ kind: 'sprite', target: 'live', source: 'inverseHeld', blend: 'erase' });
+    if (s.night) ops.push({ kind: 'sprite', target: 'live', source: 'inverseSeeable', blend: 'erase' });
+  }
+  if (memory) {
+    ops.push({
+      kind: 'cells',
+      target: 'mask',
+      cells: memory,
+      blurCells: MEMORY_BLUR_CELLS,
+      color: MASK_MEMORY_GREY,
+      blend: 'normal',
+    });
+  }
+  if (revealed.length > 0) {
+    ops.push({ kind: 'polys', target: 'mask', polys: revealed, grow, color: MASK_MEMORY_GREY, blend: 'normal' });
+  }
+  if (sight.length > 0) ops.push({ kind: 'sprite', target: 'mask', source: 'live', blend: 'normal' });
+  ops.push({ kind: 'sprite', target: 'mask', source: 'inverseHeld', blend: 'erase' });
+  ops.push({ kind: 'rect', target: 'scrim', rect: cover, color: 0x000000, blend: 'normal' });
+  ops.push({ kind: 'sprite', target: 'scrim', source: 'mask', blend: 'erase' });
+  return { cover, ops, cells };
+};
+
+describe('tierPlan — containment off is the shipped mask (R8)', () => {
+  const PAINTED: Polygon[] = [
+    [
+      [18, 0],
+      [24, 0],
+      [24, 8],
+      [18, 8],
+    ],
+  ];
+  const night: NightSight = { lit: [LOOKING], darkvision: [], pools: [] };
+  const region = brushed([
+    [5, 4],
+    [6, 4],
+  ]);
+
+  const rows: [string, TierScene][] = [
+    ['a walled map with one sweep', scene({ sight: [LOOKING] })],
+    ['…and a record and a revealed room under it', scene({ sight: [LOOKING], region, revealed: [EAST] })],
+    ['a roomless battlemap', scene({ rooms: [], region, sight: [UNOCCLUDED] })],
+    ['painted ground beside the rooms', scene({ sight: [LOOKING], painted: PAINTED })],
+    ['a scene the DM turned to darkness', scene({ sight: [LOOKING], night, region })],
+    ['a party with no eyes at all', scene({ region, revealed: [EAST] })],
+    ['a seat with no frame', scene({ sight: [LOOKING], frame: null })],
+  ];
+
+  it.each(rows)('%s draws exactly the pre-containment plan', (_name, s) => {
+    expect(tierPlan(s)).toEqual(legacyPlan(s));
+    // …and not one op mentions a target the feature introduced.
+    expect(tierPlan(s).ops.some((op) => op.target === 'inverseShipped')).toBe(false);
+  });
+
+  it('changes the answer the moment the switch goes on, on every one of them', () => {
+    // The row above is only worth having if the comparison can fail: flip each scene to
+    // contained and the plan must stop matching the legacy builder.
+    for (const [, s] of rows) {
+      const flipped = { ...s, contained: true };
+      if (!s.frame) continue; // no frame, no plan, nothing to differ about
+      expect(tierPlan(flipped)).not.toEqual(legacyPlan(s));
+    }
   });
 });
 

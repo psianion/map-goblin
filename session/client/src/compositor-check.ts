@@ -140,6 +140,8 @@ async function run(): Promise<void> {
     tier: TierScene;
     /** What `heldGround` hands `visionRegion` as `shipped` for this scene. */
     held: Polygon[];
+    /** Contained scenes only: the rooms the seat holds art for, the near pass's own fence. */
+    shippedGround?: Polygon[];
   }
 
   const composite = (scene: Scene): { cover: Bounds; mask: Px; scrim: Px; oracle: FogRing[] } => {
@@ -154,6 +156,13 @@ async function run(): Promise<void> {
       scene.tier.feather,
       scene.tier.night,
       scene.tier.painted ?? [],
+      scene.tier.contained
+        ? {
+            near: scene.tier.near,
+            shippedGround: scene.shippedGround,
+            locks: scene.tier.locks,
+          }
+        : {},
     );
     return { cover, mask: read(comp.mask), scrim: read(comp.scrim), oracle: ringsWithHoles(region.shown) };
   };
@@ -206,6 +215,7 @@ async function run(): Promise<void> {
       name: 'a',
       tier: {
         sight: [ESCAPING],
+        contained: false,
         rooms: [WEST, EAST],
         revealed: [],
         pad: PAD,
@@ -250,7 +260,16 @@ async function run(): Promise<void> {
     const held = regionRects(region);
     const scene: Scene = {
       name: 'b',
-      tier: { sight: [], rooms: [], revealed: [], region, pad: PAD, feather: FOG_FEATHER, frame: STAIR },
+      tier: {
+        sight: [],
+        contained: false,
+        rooms: [],
+        revealed: [],
+        region,
+        pad: PAD,
+        feather: FOG_FEATHER,
+        frame: STAIR,
+      },
       held,
     };
     const { cover, mask, oracle } = composite(scene);
@@ -350,6 +369,7 @@ async function run(): Promise<void> {
     };
     const base: TierScene = {
       sight: [BIG],
+      contained: false,
       rooms: [WEST, EAST],
       revealed: [],
       pad: PAD,
@@ -387,6 +407,7 @@ async function run(): Promise<void> {
       name: 'd',
       tier: {
         sight: [LOOKING],
+        contained: false,
         rooms: [WEST, EAST],
         revealed: [EAST],
         pad: PAD,
@@ -448,6 +469,7 @@ async function run(): Promise<void> {
         name: 'f',
         tier: {
           sight: [LOOKING],
+          contained: false,
           rooms: [WEST, EAST],
           revealed,
           pad: PAD,
@@ -503,6 +525,72 @@ async function run(): Promise<void> {
         atTheHiddenEdge: round(hiddenEdge.edge, 3),
         andBeyondThatOne: hiddenEdge.beyond,
         note: 'clamp(2b-1): 1 inside live, ~0.5 against a memory, ~0 against hidden',
+      },
+    };
+  }
+
+  // ── (g) contained sight on a walled map — the R1 row, in GL ─────────────────
+  // An eye standing in ground the DM has opened, looking down a hall it has not. The held room
+  // is live end to end; the hall opens only as far as the eye's own range reaches, and the lit
+  // ground beyond that — inside the same unbroken line of sight, on a room whose art this seat
+  // was shipped — stays dark. That last texel is the whole feature: uncontained it is white,
+  // and the mutation below is exactly that scene with the switch off.
+  {
+    // The record the DM has opened: the west hall's cells, and nothing east of the wall.
+    const opened: [number, number][] = [];
+    for (let col = 4; col <= 9; col++) for (let row = 0; row <= 5; row++) opened.push([col, row]);
+    const region: RegionMask = setCells(regionOf(FRAME) as RegionMask, opened);
+    const held = regionRects(region);
+    // Line of sight through the open door: both halls, wall to wall.
+    const FULL: Polygon = [
+      [4, 0],
+      [16, 0],
+      [16, 6],
+      [4, 6],
+    ];
+    // …and the same sweep taken at the eye's own range instead — an eye at (9, 3) reaching 3.
+    const NEAR: Polygon = [
+      [6, 0],
+      [12, 0],
+      [12, 6],
+      [6, 6],
+    ];
+    const tier: TierScene = {
+      sight: [FULL],
+      contained: true,
+      near: [NEAR],
+      rooms: [WEST, EAST],
+      revealed: [],
+      region,
+      pad: PAD,
+      feather: FOG_FEATHER,
+      frame: FRAME,
+    };
+    const shippedGround = [WEST, EAST, ...held];
+    const { cover, mask, oracle } = composite({ name: 'g', tier, held, shippedGround });
+    const areas = agree(mask, cover, oracle);
+
+    const inOpened = probe(mask, cover, 7, 3); // held ground, live by line of sight alone
+    const earned = probe(mask, cover, 11, 3); // the hall, within the eye's own range
+    const beyond = probe(mask, cover, 14, 3); // the hall, in sight but past the range
+    // The mutation: the identical scene uncontained opens the whole hall, which is what the
+    // fence is measured against.
+    const off = composite({ name: 'g-off', tier: { ...tier, contained: false }, held: [WEST, EAST] });
+    const beyondUncontained = probe(off.mask, off.cover, 14, 3);
+
+    results.containedSight = {
+      pass:
+        inOpened[0] > 247 && inOpened[3] > 247 &&
+        earned[0] > 247 && earned[3] > 247 &&
+        beyond[3] < 8 &&
+        beyondUncontained[0] > 247 &&
+        areas.shownOutsideVectorCells === 0,
+      detail: {
+        insideOpenedGroundRGBA: inOpened,
+        earnedByRangeRGBA: earned,
+        inSightPastTheRangeRGBA: beyond,
+        sameTexelUncontainedRGBA: beyondUncontained,
+        ...areas,
       },
     };
   }

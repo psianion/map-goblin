@@ -1018,8 +1018,22 @@ describe('drawFog in vision mode', () => {
     expect(plan.ops.filter((op) => op.target === 'live' && op.kind === 'polys')).toMatchObject([
       { polys: [LOOKING], color: 0xffffff },
     ]);
+    // Contained sight defaults on, so a scene that says nothing is fenced and the clip that
+    // gets the last word is the shipping one. The claim the row is making — that *a* clip is
+    // always last — is the same either way, so the switch's other position is pinned here too
+    // rather than in a row of its own.
     const maskOps = plan.ops.filter((op) => op.target === 'mask');
-    expect(maskOps.at(-1)).toMatchObject({ source: 'inverseHeld', blend: 'erase' });
+    expect(maskOps.at(-1)).toMatchObject({ source: 'inverseShipped', blend: 'erase' });
+    const uncontained = drawFog(
+      new Graphics(),
+      visionScene({ sight: [LOOKING], fog: { rooms: {}, concealBehindDoors: true, containedSight: false } }),
+      new Graphics(),
+      new Graphics(),
+    );
+    expect(uncontained.plan!.ops.filter((op) => op.target === 'mask').at(-1)).toMatchObject({
+      source: 'inverseHeld',
+      blend: 'erase',
+    });
     expect(plan.ops.filter((op) => op.target === 'scrim')).toMatchObject([
       { kind: 'rect', color: 0x000000 },
       { kind: 'sprite', source: 'mask', blend: 'erase' },
@@ -1038,8 +1052,11 @@ describe('drawFog in vision mode', () => {
     const live = drawn.plan!.ops.filter((op) => op.target === 'live');
     expect(live).toMatchObject([
       { kind: 'polys', polys: [LOOKING] },
-      // The clip is on this target too, because it is the stencil as well as a tier.
+      // The clip is on this target too, because it is the stencil as well as a tier — and on
+      // a contained scene (the default) there are two of them, the held fence for the full
+      // sweep and the shipping fence that gets the last word over the near pass as well.
       { kind: 'sprite', source: 'inverseHeld', blend: 'erase' },
+      { kind: 'sprite', source: 'inverseShipped', blend: 'erase' },
     ]);
     // Memory never reaches it: a remembered room shows what it looked like, never who is
     // standing in it now — with memory in the stencil a hostile walking through an explored
@@ -1051,7 +1068,7 @@ describe('drawFog in vision mode', () => {
     const blind = drawFog(new Graphics(), visionScene({ sight: [] }), undefined, stencil);
     expect(blind.plan!.ops.filter((op) => op.target === 'live')).toEqual([]);
     expect(blind.plan!.ops.filter((op) => op.target === 'mask')).toMatchObject([
-      { kind: 'sprite', source: 'inverseHeld', blend: 'erase' },
+      { kind: 'sprite', source: 'inverseShipped', blend: 'erase' },
     ]);
 
     // A seat that draws no mask gets no plan either — the DM wears no stencil.
@@ -1130,8 +1147,11 @@ describe('drawFog in vision mode', () => {
     const drawn = drawFog(new Graphics(), visionScene());
     const plan = drawn.plan!;
     expect(plan.ops.some((op) => op.target === 'live')).toBe(false);
+    // Contained by default, so the clip that runs is the shipping one — and it fails in the
+    // same direction: a target nothing erased into is a full white cover, which takes the
+    // whole mask rather than leaving a hole in it.
     expect(plan.ops.filter((op) => op.target === 'mask')).toMatchObject([
-      { kind: 'sprite', source: 'inverseHeld', blend: 'erase' },
+      { kind: 'sprite', source: 'inverseShipped', blend: 'erase' },
     ]);
     expect(plan.ops.filter((op) => op.target === 'scrim')).toHaveLength(2);
   });
@@ -1482,6 +1502,36 @@ describe('fogScene', () => {
     );
     useTokenInteraction.setState({ selectedId: 'pc', previewSight: true });
     expect(fogScene().fog?.region).toBe(theirs);
+  });
+
+  it('previews the fence too, on the previewed seat’s own record', () => {
+    // Containment costs the preview nothing to support: the record substitution above runs
+    // upstream of `tierSceneOf`, so the fence the DM is shown is drawn round the *previewed*
+    // seat's opened ground and not round the party's. What has to be here is the near pass —
+    // without a second, range-limited sweep on the scene the preview would fence the token at
+    // its record and never show the DM the ground a step would peel back.
+    useSessionStore.setState({ you: { ...player, role: 'dm' } });
+    const theirs = regionOf({ minX: 0, minY: 0, maxX: 40, maxY: 40 })!;
+    previewScene(
+      { pc: sightedToken({ id: 'pc', ownerId: 'p2' }) },
+      { visionShare: 'individual', regions: { p2: theirs } },
+    );
+    useTokenInteraction.setState({ selectedId: 'pc', previewSight: true });
+    const scene = fogScene();
+    expect(scene.fog?.region).toBe(theirs);
+    expect(scene.near).toHaveLength(scene.sight!.length);
+    // Zones are prep and never travel, so the only seat that can subtract a lock is this one —
+    // and with no zone authored on the fixture it is still an empty list, not a missing one.
+    expect(scene.locks).toEqual([]);
+
+    // Switched off, neither the second sweep nor the lock read is taken at all.
+    previewScene(
+      { pc: sightedToken({ id: 'pc', ownerId: 'p2' }) },
+      { visionShare: 'individual', regions: { p2: theirs }, containedSight: false },
+    );
+    useTokenInteraction.setState({ selectedId: 'pc', previewSight: true });
+    expect(fogScene().near).toBeUndefined();
+    expect(fogScene().locks).toBeUndefined();
   });
 
   it('gives a token nobody holds no memory at all — live sight is the whole preview', () => {
