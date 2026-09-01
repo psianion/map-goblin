@@ -141,8 +141,15 @@ export function serverDoors(
  * The band itself is paid for separately and exactly — see {@link fogPad}. This is only the
  * margin on top, and it is what stops the mask ending *on* the last stone: a boundary that
  * lands precisely on a hard edge reads as a crop even when it is arithmetically right.
+ *
+ * DUPLICATED, BY HAND, at `session/server/src/fog/redactMap.ts:191` (`FOG_MARGIN`), where the
+ * same distance is measured from the other side to decide which geometry a player document is
+ * allowed to carry. Nothing enforces the equality. If the two drift, the server ships map by
+ * one pad while the client masks by another: either the mask stops short of geometry the seat
+ * already has (art in the dark, or worse, visible past the fog edge), or it opens onto map the
+ * seat was never sent (a hole in the world). Change one, change the other, in the same commit.
  */
-export const FOG_MARGIN = 0.3;
+export const FOG_MARGIN = 0.5;
 
 /** `DEFAULT_DUNGEON_STYLE`'s, for a document whose layers have not landed yet. */
 const DEFAULT_WALL_WIDTH = 0.5;

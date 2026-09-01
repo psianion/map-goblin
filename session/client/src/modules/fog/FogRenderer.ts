@@ -223,10 +223,16 @@ const BOUNDS_PAD = 20;
  *
  * This is the *geometry* — how far past its claim a region's reach runs — and it stays small
  * because every offset in `visionRegion` grows with it (round joins on a sweep's hundreds of
- * corners: 0.4 → 1.2 here measured the mask rebuild 12ms → 30ms on the gate map). The look
- * of the edge is `FOG_FADE`, which costs nothing.
+ * corners: at 1.2 the mask rebuild measured 30ms on the gate map against 12ms at 0.4). The
+ * look of the edge is `FOG_FADE`, which costs nothing.
+ *
+ * PENDING: raised 0.4 → 0.8 for the soft band, which is the round-join stroke width in the
+ * raster path, so the rebuild budgets pinned in `session/client/e2e/sprint3-vision-gate.spec.ts`
+ * (8ms) and `session/client/e2e/sprint3-vision.spec.ts` (16ms) were measured at the old width and have
+ * NOT been re-derived. Re-measure them off medians on a live stack — method as in `1802f84` —
+ * before this ships.
  */
-export const FOG_FEATHER = 0.4;
+export const FOG_FEATHER = 0.8;
 
 /**
  * How wide the edge *reads*, in cells — the blur the living fog takes of its own mask, which

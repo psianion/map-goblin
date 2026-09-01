@@ -180,8 +180,15 @@ export function mapDeltaFor(
 /**
  * FOG_MARGIN and the default wall width, from the client's `fogPad` — the *same* two numbers,
  * because this is the same distance measured from the other side. See `nearKeptRoom`.
+ *
+ * These are HAND-COPIES of `session/client/src/modules/fog/fog.ts:152` (`FOG_MARGIN`) and
+ * `:155` (`DEFAULT_WALL_WIDTH`). Nothing enforces the equality — no shared module, no test. If
+ * they drift, this file ships geometry by one pad while the client's mask cuts by another: too
+ * small here and the seat is missing art the mask has already opened (a hole in the world);
+ * too large and the seat holds map its mask never covers. Change one, change the other, in the
+ * same commit.
  */
-const FOG_MARGIN = 0.3
+const FOG_MARGIN = 0.5
 const DEFAULT_WALL_WIDTH = 0.5
 
 /** The widest wall band on the map plus its margin — `fogPad`, computed off the same styles. */

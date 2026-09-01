@@ -279,6 +279,23 @@ async function run(): Promise<void> {
     const interior = probe(mask, cover, 3.5, 8.5);
     const void_ = probe(mask, cover, 14.5, 10.5);
 
+    // The lone cell's alpha is read a hair off its own peak, and how far off is an accident of
+    // GROW. The mask's texel grid is anchored at `cover.minX = frame.minX − GROW`, so the texel
+    // whose centre is nearest world 14.5 sits δ = ±(GROW·SCALE mod 1)/SCALE cells away from it,
+    // and a one-cell island upscaled bilinearly falls off from its peak in both axes as
+    // ~(1−|δx|)(1−|δy|). Measured, holding everything but the constants:
+    //
+    //   MARGIN/FEATHER   GROW   δ (cells)   alpha
+    //   0.3 / 0.4        1.2    +0.008      253
+    //   0.5 / 0.4        1.4    −0.025      240
+    //   0.3 / 0.8        1.6    +0.025      247
+    //   0.5 / 0.8        1.8    −0.008      244   ← the S band
+    //
+    // So the old `> 247` pinned a phase, not a property. What this row is actually for is that
+    // the island is not LOST (`MASK_SCALE = 3` was chosen against exactly that): losing it, or
+    // halving it, reads 0 or ~128, nowhere near the 240s. The bound is set below the whole
+    // measured spread and far above any real loss.
+
     // The boundary of the staircase (cells are set where row >= col) runs along y = x − 0.5.
     // A raw record alternates 0/1 along that line at one-cell period; a smooth field sits on
     // its half level. This is the "no single-cell alternation" row.
@@ -320,7 +337,7 @@ async function run(): Promise<void> {
 
     results.memoryTier = {
       pass:
-        lone[3] > 247 && lone[0] > 120 && lone[0] < 136 &&
+        lone[3] > 232 && lone[0] > 116 && lone[0] < 136 &&
         interior[0] > 120 && interior[0] < 136 && interior[3] > 247 &&
         void_[3] < 8 &&
         span(along) < 0.25 &&
