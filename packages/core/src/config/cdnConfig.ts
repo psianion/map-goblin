@@ -6,7 +6,12 @@ export const cdnConfig = {
   // `||`, not `??`: the Docker build declares VITE_CDN_BASE_URL with an empty default so
   // the arg always exists, and Vite inlines that as "" — a value `??` happily keeps. That
   // silently rebases every pack URL to the site root and 404s the lot. Empty means unset.
-  baseUrl: import.meta.env.VITE_CDN_BASE_URL || '/packs',
+  // `?.` because this module is read at import time and the graph reaches Node processes that
+  // are not Vite: the e2e specs load `@dnd/core/src/engine/hitTest.ts` under Playwright's own
+  // loader, where `import.meta.env` does not exist, and since #110 put the packs slice in
+  // `store/store` that import chain ends here. Threw `Cannot read properties of undefined`
+  // out of module init and took the whole sprint3 and doors lanes down at collection.
+  baseUrl: import.meta.env?.VITE_CDN_BASE_URL || '/packs',
   catalogPath: '/catalog',
   packsPath: '/packs',
 } as const
