@@ -814,11 +814,17 @@ test.describe.serial('@sprint3-vision', () => {
       'the pool is what they see, and the DM stages the dark rather than sitting in it',
     )
 
-    // The dial took the light off the ground the party can see: 24.5 → 20.0 mean. On the mean
-    // and not on `lit`, because after #100 this hall was never *lit* to begin with — an unlit
-    // floor grades to ~36/255 with or without a sweep over it, so `lit` reads an identical
-    // 0.1% either side of the dial and the row that used to halve it was halving token art.
-    expect(blind.mean, `the dark still drew ${show(blind)}`).toBeLessThan(seeing.mean)
+    // The dial took the ground the party can see away from them: 2.5% → 1.4% of the frame
+    // clear of fog. On `clear` now, and no longer on the mean — since the mask became a raster
+    // tier the frame mean on this map is the cloud's and not the floor's, and the ambient dial
+    // does not move the cloud: 28.8 → 28.9 measured, which is noise with the sign backwards.
+    // Not on `lit` either, because after #100 this hall was never *lit* to begin with — an
+    // unlit floor grades to ~36/255 with or without a sweep over it, so `lit` reads an
+    // identical 0.0% either side of the dial. A hole in the cover is the one thing a cloud
+    // cannot draw, which is why it is the reading that still separates a party who can see
+    // this hall from one standing in the dark. The 0.005 margin is half the measured 1.1-point
+    // drop and five times the frame-to-frame drift this map's clouds show.
+    expect(blind.clear, `the dark still drew ${show(blind)}`).toBeLessThan(seeing.clear - 0.005)
     // Pitch dark is pitch dark: nothing on the frame is at light-source brightness. 0.1%
     // measured, which is the scout's own disc and the door's furniture.
     expect(blind.lit, `the dark still drew ${show(blind)}`).toBeLessThan(0.005)
@@ -850,7 +856,12 @@ test.describe.serial('@sprint3-vision', () => {
   test('darkvision reads shape without colour — above the void, under the torchlight', async () => {
     const litShot = await shoot(player)
     const lit = await sample(player, litShot, litShot)
-    expect(lit.covered, 'the torch pool is too small to measure').toBeGreaterThan(0.01)
+    // The sample-size floor, not a claim: `sample` reads the pixels the torchlit frame put
+    // over 120, and a mean and a chroma need enough of them to mean anything. 0.56% of a
+    // 1280×720 canvas is ~5,100 pixels, measured identically on two runs — the pool is a tenth
+    // of the frame share it covered before the mask became a raster tier (the old floor of 1%
+    // was derived against that), and 5,100 pixels is still an ample sample.
+    expect(lit.covered, 'the torch pool is too small to measure').toBeGreaterThan(0.003)
 
     // The same ground with the torch gone: the party is blind and it is void.
     await command(dm, 'tokens', 'delete', { id: torchId })
@@ -881,21 +892,27 @@ test.describe.serial('@sprint3-vision', () => {
       'above the void, below the pool, and drained of the pool’s colour',
     )
 
-    // Shape: the party can see this ground, so it is not void — read as the black the owl's
-    // arc takes off the frame (44.0% → 33.7%) rather than as a lift on the patch. On the patch
-    // the two states sit 18.4 against 19.1, because what the row calls "void" is the memory
-    // tier and since #101 that carries a cloud at half alpha — brighter than the darkvision
-    // grade under `darkness`, which all but cancels the lift the row is claiming. The ten
-    // points of black the arc lifts off the floor is the arc, and nothing else moved.
+    // Shape: the party can see this ground, so it is not void. Read on the patch — the same
+    // pixels under the two treatments — which is where the claim actually lives: nobody
+    // looking reads 27.5, the owl's eyes read 40.2, a 46% lift with nothing else on the table
+    // moved.
+    //
+    // This used to be read as the near-black the owl's arc takes *off* the frame, because
+    // pre-raster the patch could not separate the two states (18.4 against 19.1) while the
+    // frame's black could (44.0% → 33.7%). Both halves of that inverted once the mask became a
+    // raster tier: the memory tier no longer renders near-black, so `blackOf` is now 1.4%
+    // unlit against 2.5% with the owl looking — the darkvision grade is itself the darkest
+    // thing on this frame, and the old reading has the sign backwards. The patch is the
+    // reading that survived, and it is the more direct one.
     expect(
-      blackOf(owled),
-      `darkvision left ${(blackOf(owled) * 100).toFixed(1)}% of the frame at the map's black, ` +
-        `against ${(blackOf(unlit) * 100).toFixed(1)}% with no eyes on it`,
-    ).toBeLessThan(blackOf(unlit) - 0.02)
-    // …but not as light: a lit room still reads as the brighter thing.
+      drained.mean,
+      `darkvision read ${drained.mean.toFixed(1)} on the ground that reads ` +
+        `${dark.mean.toFixed(1)} with no eyes on it`,
+    ).toBeGreaterThan(dark.mean * 1.2)
+    // …but not as light: a lit room still reads as the brighter thing (131.4 torchlit).
     expect(drained.mean).toBeLessThan(lit.mean)
     // …and not as colour, which is the half a dimming alone would fail (art guide: night is
-    // desaturated, and the glows do the colour work).
+    // desaturated, and the glows do the colour work). 16.9 against torchlight's 62.9.
     expect(
       drained.chroma,
       `darkvision chroma ${drained.chroma.toFixed(1)} against torchlight's ${lit.chroma.toFixed(1)}`,
