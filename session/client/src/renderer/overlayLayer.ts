@@ -43,8 +43,11 @@ export const OVERLAY_STACK = [
   // ground, and it reads at full strength wherever the seat can currently see — under
   // darkvision the floor goes grey and the chip does not. What keeps a token out of sight
   // hidden is the mask's own `sightMask` (`sightMaskOf`), which this layer wears on a
-  // player's seat. That stencil is LIVE sight only — a remembered room shows what it looked
-  // like, never who is standing in it now.
+  // player's seat. In vision mode that stencil is LIVE sight only — a remembered room shows
+  // what it looked like, never who is standing in it now. In rooms mode it also covers the
+  // memory tier, because D7 lets a seat's own token stand in a room the DM has not lit and
+  // that chip is theirs to see; a foreign token there never reaches the wire at all
+  // (`tokens.redact`). `drawFog` is where both halves of that are written down.
   'tokenLayer',
   // Above the tokens it marks, so whose turn it is reads at the same strength as the token.
   'turnRing',

@@ -1080,12 +1080,22 @@ export function drawFog(
     fillLand(maskPaint, earned, { color: 0xffffff, alpha: 1 });
     fillLand(maskPaint, memory, { color: MASK_MEMORY, alpha: 1 });
   }
-  // LIVE sight only, as a stencil for the overlays that draw above the mask
-  // (`SIGHT_MASK`): the token chips and the turn ring. Memory deliberately NOT
-  // included: a remembered room shows what the room looked like, never what is
-  // in it right now — with memory in this stencil, a hostile walking through a
-  // room the party had merely explored broadcast its live position (chip and
-  // turn ring both), which a two-seat walk caught on the player's canvas.
+  // The stencil for the overlays that draw above the mask (`SIGHT_MASK`): the token chips
+  // and the turn ring.
+  //
+  // In VISION mode this one is live sight alone (the compositor's `live` target), and the
+  // rule it enforces is that a remembered room shows what it looked like, never who is
+  // standing in it now — with memory in that stencil a hostile walking through explored
+  // ground broadcast its live position, which a two-seat walk caught.
+  //
+  // In ROOMS mode it is `earned`, memory included, and deliberately so. Rooms mode's own
+  // tier is the DM's revealed set, not a sweep, and D7 lets the party WALK into a room they
+  // remember but the DM has not lit ("somewhere to stand, it is simply dark" — `occupiable`
+  // in the server's `vision.ts`). A seat's own token there is on the wire by design
+  // (`inSight` exempts `mine`), so a live-only stencil here would rub the player's own chip
+  // off their own canvas. Nothing leaks by including memory: what keeps somebody ELSE's
+  // token out of a merely-explored room in this mode is the referee, not this fill —
+  // `tokens.redact` ships a foreign token only while `scene.visible` holds its room.
   if (sightMask) fillLand(sightMask, earned, { color: 0xffffff, alpha: 1 });
   // …and everything this seat is SHOWN, for the wearers whose business is the map rather than
   // who is standing on it (`SHOWN_MASK`): the door marks. `earned` is already the union of the

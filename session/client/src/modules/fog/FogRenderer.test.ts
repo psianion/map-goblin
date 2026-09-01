@@ -587,6 +587,9 @@ const hall = (id: string, x0: number, x1: number): Room => ({
 const WEST = hall('r-west', 4, SPINE - WALL_WIDTH / 2);
 const EAST = hall('r-east', SPINE + WALL_WIDTH / 2, 16);
 
+/** A room far enough away that its padded footprint never merges with West's. */
+const FAR = hall('r-far', 30, 36);
+
 /** West's outer (exterior) wall: centreline 3.75, so its far face is a full wallWidth out. */
 const WEST_OUTER_FACE = 4 - WALL_WIDTH;
 
@@ -775,21 +778,36 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
     expect(strokesOf(scrim)).toHaveLength(0);
   });
 
-  it('keeps a memory OUT of the chip stencil — a remembered room never shows who is in it now', () => {
+  it('keeps a remembered room IN the chip stencil — rooms mode lets you stand in one', () => {
     const scrim = new Graphics();
     const mask = new Graphics();
     const sightMask = new Graphics();
-    drawFog(scrim, scene({ [WEST.id]: 'visible', [EAST.id]: 'explored' }), mask, sightMask);
+    // FAR rather than EAST: two rooms one wall apart have padded footprints that merge into
+    // a single ring, so counting the stencil's fills there proves nothing whichever tier it
+    // was drawn from. Well clear of each other, the coverage question is answerable.
+    const twoRooms: FogScene = {
+      ...scene({ [WEST.id]: 'visible', [FAR.id]: 'explored' }),
+      rooms: [WEST, FAR],
+      bounds: fogBounds([], [WEST, FAR]),
+    };
+    drawFog(scrim, twoRooms, mask, sightMask);
 
-    // The cloud mask still knows both tiers…
+    // The cloud mask knows both tiers apart…
     expect(fillsOf(mask).some((f) => f.style.color === MASK_MEMORY)).toBe(true);
-    // …but the stencil the token chips and turn ring wear covers LIVE sight only: one
-    // white fill for the visible room, and nothing for the explored one. With the memory
-    // ring in here, a hostile walking through a room the party had merely explored
-    // broadcast its live position on the player's canvas.
+    expect(fillCovers(mask, FAR.centroid)).toBe(true);
+    // …and the stencil the chips and the turn ring wear covers BOTH, at one strength. Rooms
+    // mode's live tier is the DM's revealed set rather than a sweep, and D7 lets the party
+    // walk into a room they remember but the DM has not lit — a seat's own token there is on
+    // the wire by design (`inSight` exempts `mine`), so a live-only stencil would rub the
+    // player's own chip off their own canvas. Somebody ELSE's token in that room never
+    // reaches the wire at all: `tokens.redact` gates a foreign token on `scene.visible`.
+    // Vision mode is the live-only one, and it draws no vectors here at all.
     const stencilFills = fillsOf(sightMask);
-    expect(stencilFills).toHaveLength(1);
-    expect(stencilFills[0].style.color).toBe(0xffffff);
+    expect(stencilFills.every((f) => f.style.color === 0xffffff)).toBe(true);
+    expect(fillCovers(sightMask, WEST.centroid)).toBe(true);
+    expect(fillCovers(sightMask, FAR.centroid)).toBe(true);
+    // Never-seen ground stays out of it — the stencil is not a licence to draw anywhere.
+    expect(fillCovers(sightMask, [23, 3])).toBe(false);
   });
 
   /** Is a world point inside any polygon this graphic fills? */
