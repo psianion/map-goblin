@@ -825,13 +825,29 @@ test.describe.serial('@sprint3-vision', () => {
     // this hall from one standing in the dark. The 0.005 margin is half the measured 1.1-point
     // drop and five times the frame-to-frame drift this map's clouds show.
     expect(blind.clear, `the dark still drew ${show(blind)}`).toBeLessThan(seeing.clear - 0.005)
-    // Pitch dark is pitch dark: nothing on the frame is at light-source brightness. 0.1%
-    // measured, which is the scout's own disc and the door's furniture.
+    // Pitch dark is pitch dark: nothing on the frame is at light-source brightness. 0.02%
+    // measured (152px), which is the scout's own disc and the door's furniture.
     expect(blind.lit, `the dark still drew ${show(blind)}`).toBeLessThan(0.005)
-    // The torch opens a pool — and only a pool: 10.6% of the frame at light-source brightness
-    // inside the 46.7% the party can see at all (the sweep reaches eight cells, the torch
-    // four). Against 0.1% in the dark a moment earlier.
-    expect(pool.lit).toBeGreaterThan(blind.lit + 0.01)
+    // The torch opens a pool — and only a pool: 1.1% of the frame at light-source brightness
+    // (10,046px of 1224×720), against 0.02% in the dark a moment earlier. The old reading was
+    // 10.6%, and the drop is the fade, not a lost pool: the vector pipeline left the torch's
+    // whole *dim* skirt unattenuated, so all four cells of it cleared the 64 gate, while the
+    // raster tier composites the cloud back over the skirt and only the two-cell *bright*
+    // radius survives — which is what "at light-source brightness" was always meant to read.
+    // The frame agrees: placing the torch moves 5.5% of the canvas (the dim reach), and
+    // (2/4)² of that is 1.4%, the bright disc this now measures. It is not the 64 gate
+    // clipping a pool that is still there — the 48–64 band barely moves (0.46% → 0.58%)
+    // while the pool's own falloff runs 64 up to 144 with its mass in the core, and the row
+    // below reads the same pool over 120 at an ample 5,100 pixels.
+    //
+    // What this bound catches: a torch that lights nothing on the player's seat — the light
+    // gate refusing a source inside the vision mask, or the raster tier compositing the pool
+    // away — which drops `lit` back to the dark frame's 0.02%. Measured delta 1.12 points on
+    // two runs that agreed to a single pixel; the bound is 0.8, so ~30× the frame-to-frame
+    // drift this map's clouds show, and still above the settle poll's 0.005 above.
+    expect(pool.lit, `the torch lit nothing: ${show(blind)} → ${show(pool)}`).toBeGreaterThan(
+      blind.lit + 0.008,
+    )
     expect(pool.lit, `the torch lit ${show(pool)} against the sweep's ${show(seeing)}`)
       .toBeLessThan(pool.clear)
     // …while the DM never loses the map (principle 3): darkness is something they stage.
@@ -840,12 +856,18 @@ test.describe.serial('@sprint3-vision', () => {
     // real map the DM is looking straight at, and a bound wide enough to allow it says
     // nothing. What the claim actually is: the dial did not take the DM's map away (their
     // canvas got *brighter* over a step that blacked the player's out) and the pool is on it
-    // (8.0% of their frame at light-source brightness, against 0.1% before the torch).
+    // (1.2% of their frame at light-source brightness, against 0.04% before the torch — the
+    // old 8.0% was the dim skirt the vector pipeline left unattenuated, for the reason the
+    // player's own reading above gives).
     expect(
       dmDark.mean,
       `the DM's canvas went dark with the room: ${show(dmSeeing)} → ${show(dmDark)}`,
     ).toBeGreaterThan(dmSeeing.mean)
-    expect(dmDark.lit, `the DM lost the torch pool: ${show(dmDark)}`).toBeGreaterThan(0.01)
+    // What this bound catches: the torch pool reaching the player's masked tier but never the
+    // DM's own canvas — the dial blacking the DM out with the room, against principle 3. That
+    // failure reads the pre-torch 0.04%. Measured 1.17%, bit-identical on two runs, so the
+    // 0.8 bound sits at 1.5× under the reading and 20× over the failure it separates from.
+    expect(dmDark.lit, `the DM lost the torch pool: ${show(dmDark)}`).toBeGreaterThan(0.008)
   })
 
   /**
