@@ -1263,6 +1263,18 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     }
     const cover = raster ? (built.cover as Bounds) : null;
     scrimSprite.visible = raster;
+    // …and the cloud, which is the one thing here with no geometry to come back empty. A scene
+    // that carries no fog at all — an unzoned map in rooms mode (D6), or a seat with no
+    // document yet — leaves `setMaskBounds` a degenerate rect, and every fragment then samples
+    // texel (0,0) of whatever the mask texture still holds rather than taking the out-of-rect
+    // path. After a vision session that texel is opaque, so the whole viewport read hidden and
+    // the full cover stood over a map with nothing to hide. Standing the mesh down says what
+    // the geometry already said: nothing.
+    //
+    // Off `built.cover` rather than `maskFit()`. The `EVERYTHING` seat — a player holding no
+    // part of a zoned map — has no coverable mask either and must stay covered edge to edge,
+    // and it is exactly the one that still answers with a cover.
+    fog.mesh.visible = built.cover !== null;
     if (cover) {
       scrimSprite.position.set(cover.minX, cover.minY);
       scrimSprite.width = cover.maxX - cover.minX;
@@ -1271,10 +1283,14 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
       sightSprite.width = cover.maxX - cover.minX;
       sightSprite.height = cover.maxY - cover.minY;
     }
-    // One of the two carries the label, never both and never neither: a wearer that finds no
-    // stencil at all wears no mask, and a chip in the dark is the one failure direction fog
-    // may not have. The cleared Graphics is that fallback — it hides everything.
-    sightMask.label = raster ? '' : SIGHT_MASK;
+    // One of the two carries the label wherever there is a mask at all, never both: a wearer
+    // that finds no stencil wears no mask, and a chip in the dark is the one failure direction
+    // fog may not have. The cleared Graphics is that fallback — it hides everything.
+    //
+    // …which is why neither carries it on a scene with no fog: a cleared Graphics wearing the
+    // label hides every chip on a map that is hiding nothing, and no stencil is precisely what
+    // "not fogged" means to a wearer (`sightMaskOf` answers null and the layer wears no mask).
+    sightMask.label = raster || !built.cover ? '' : SIGHT_MASK;
     sightSprite.label = raster ? SIGHT_MASK : '';
     fog.setPalette(fogPalette(scene.grade, scene.darkness));
     fog.setMist(MEMORY_MIST * (MEMORY_WASH_FLOOR + (1 - MEMORY_WASH_FLOOR) * scene.darkness));

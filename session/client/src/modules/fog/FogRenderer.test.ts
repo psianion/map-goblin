@@ -7,7 +7,7 @@
 
 import { PROTOCOL_VERSION } from '@dnd/core/src/shared/protocol';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Container, Graphics, Ticker } from 'pixi.js';
+import { Container, Graphics, Mesh, Sprite, Ticker } from 'pixi.js';
 import type { MainModule } from 'clipper2-wasm/dist/clipper2z';
 import { setClipperModule } from '@dnd/core/src/geometry/Clipper2Engine';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
@@ -24,6 +24,7 @@ import type { Token } from '@dnd/mechanics/tokens';
 import type { LiveDoor } from '../doors/doors';
 import { useSessionStore } from '../../session/store';
 import { useTokenInteraction } from '../tokens/drag';
+import { sightMaskOf } from '../../renderer/overlayLayer';
 import {
   FOG_MARGIN,
   fogPad,
@@ -1665,9 +1666,14 @@ describe('the lighting composite each seat is mounted with', () => {
 
   const seat = (role: 'dm' | 'player') => ({ ...player, role });
 
-  function mounted(role: 'dm' | 'player'): {
+  function mounted(
+    role: 'dm' | 'player',
+    map: { version: string; layers: Layer[]; frame?: unknown } = sent([dungeon(ROOMS)]),
+    modules: Record<string, unknown> = {},
+  ): {
     lighting: Container;
     ticker: Ticker;
+    sceneGraph: SceneGraph;
     /** How many times the mask has been rasterised — `renderMask`'s two calls per go. */
     renders: () => number;
     unmount: () => void;
@@ -1676,11 +1682,11 @@ describe('the lighting composite each seat is mounted with', () => {
     const ticker = new Ticker();
     let renders = 0;
     useSessionStore.setState({
-      session: session(),
+      session: session(modules),
       you: seat(role),
-      mapData: sent([dungeon(ROOMS)]),
+      mapData: map,
     });
-    useStore.setState({ layers: [dungeon(ROOMS)] });
+    useStore.setState({ layers: map.layers });
     setEngineSingleton(
       {
         ticker: () => ticker,
@@ -1700,6 +1706,7 @@ describe('the lighting composite each seat is mounted with', () => {
     return {
       lighting,
       ticker,
+      sceneGraph,
       renders: () => renders,
       unmount: () => {
         stop();
@@ -1728,6 +1735,85 @@ describe('the lighting composite each seat is mounted with', () => {
     const { lighting, unmount } = mounted('dm');
     unmount();
     expect(lighting.alpha).toBe(0.95);
+  });
+
+  // ── A scene that carries no fog at all (D6) ──────────────────────────────
+  // An unzoned map in rooms mode has no fog to draw and `drawFog` answers with no cover. The
+  // cloud mesh has no geometry to come back empty, though: `setMaskBounds(null)` leaves the
+  // shader a degenerate rect, every fragment then samples texel (0,0) of whatever the mask
+  // texture still holds, and after a vision session that texel is opaque — the whole viewport
+  // read hidden and the player got the full cover over a map with nothing to hide.
+
+  describe('a map that carries no fog', () => {
+    const frame = (): Promise<void> =>
+      new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+    /** Content, no rooms — what `redactMapForViewer` hands a player of an unzoned map (D6). */
+    const unzoned = { version: '3.0', layers: [dungeon([], [door('d1', 'a', 'b')])] };
+    /** …and with the referee's measured frame, which is what makes vision mode fog it at all. */
+    const withFrame = { ...unzoned, frame: { minX: 0, minY: 0, maxX: 20, maxY: 20 } };
+    const modeOf = (mode: 'rooms' | 'vision') => ({
+      fog: { byScene: { 'scene-1': { ...fogOf({}), mode } } },
+    });
+
+    const layerOf = (sceneGraph: SceneGraph): Container =>
+      sceneGraph.overlayContainer.children.find((c) => c.label === 'playerFog') as Container;
+    const cloudShown = (sceneGraph: SceneGraph): boolean =>
+      layerOf(sceneGraph).children.find((c) => c instanceof Mesh)!.visible;
+    const scrimShown = (sceneGraph: SceneGraph): boolean =>
+      layerOf(sceneGraph).children.filter((c) => c instanceof Sprite)[0].visible;
+
+    it('stands the cloud and the scrim down on an unzoned map in rooms mode', () => {
+      const { sceneGraph, unmount } = mounted('player', withFrame, modeOf('rooms'));
+      expect(fogScene().bounds).toBeNull();
+      expect(cloudShown(sceneGraph)).toBe(false);
+      expect(scrimShown(sceneGraph)).toBe(false);
+      // …and no stencil either: a cleared one wearing the label hides every chip on a map
+      // that is hiding nothing.
+      expect(sightMaskOf(sceneGraph)).toBeNull();
+      unmount();
+    });
+
+    it('stands it down on a vision → rooms flip, and rasterises nothing more', async () => {
+      const { sceneGraph, renders, unmount } = mounted('player', withFrame, modeOf('vision'));
+      expect(cloudShown(sceneGraph)).toBe(true);
+
+      const before = renders();
+      useSessionStore.setState({ session: session(modeOf('rooms')) });
+      await frame();
+      expect(cloudShown(sceneGraph)).toBe(false);
+      expect(scrimShown(sceneGraph)).toBe(false);
+      expect(renders()).toBe(before);
+      unmount();
+    });
+
+    it('brings it back — with a fresh mask — when the DM flips to vision again', async () => {
+      const { sceneGraph, renders, unmount } = mounted('player', withFrame, modeOf('rooms'));
+      expect(cloudShown(sceneGraph)).toBe(false);
+
+      const before = renders();
+      useSessionStore.setState({ session: session(modeOf('vision')) });
+      await frame();
+      expect(cloudShown(sceneGraph)).toBe(true);
+      // The compositor repainted the two textures the shader is bound to — no stale mask
+      // survives the transition back into visibility.
+      expect(renders()).toBeGreaterThan(before);
+      unmount();
+    });
+
+    // The other bounds-null-ish case, and the opposite answer: a player holding no part of a
+    // *zoned* map takes the EVERYTHING rect, which is too big for a mask texture and leaves the
+    // same degenerate uniform behind. That seat must stay covered edge to edge — the gate this
+    // fix may not over-reach through.
+    it('still covers a player who has been shown nothing of a zoned map', () => {
+      const { sceneGraph, unmount } = mounted('player', sent([dungeon([], [])]));
+      expect(fogScene().bounds).not.toBeNull();
+      expect(cloudShown(sceneGraph)).toBe(true);
+      // …and the cleared vector stencil is still what the chips wear there, so none of them
+      // draws over ground the seat has not earned.
+      expect(sightMaskOf(sceneGraph)).not.toBeNull();
+      unmount();
+    });
   });
 
   // ── D10's fade is rooms-only (S3 P2 §1) ──────────────────────────────────
