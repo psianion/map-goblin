@@ -12,6 +12,7 @@ import { ID_MAX, Reject, bad, bool, num, obj, oneOf, str } from '../tokens/valid
 import {
   clearCells,
   fillRegion,
+  onAuthoredFloor,
   orRegion,
   regionFor,
   setCells,
@@ -276,8 +277,19 @@ function run(
       if (!region) bad('that scene is too large to keep region memory for')
       const cells = parseCells(p.cells, region)
       const op = oneOf(p.op, REGION_OPS, 'op')
+      // A brush may only open ground the map authors (`onAuthoredFloor`). The cells that fall
+      // off the floor are dropped from the write rather than refusing the whole stroke: a DM
+      // dragging a rect over a chamber is aiming at the chamber, and making them trace its
+      // outline to be allowed to paint it would be a refusal for the shape of their gesture.
+      // What the record must not carry is ground nobody can stand on — the write is where that
+      // is enforced, not the aim.
+      //
+      // `hide` is deliberately unfiltered: a record written before this rule still holds
+      // off-floor cells, and the DM's eraser is the one hand that can take them back.
+      const brushed =
+        op === 'reveal' ? brushReveal(scene, region, cells, ctx, sceneId, roomsOf, roomAtOf) : null
       const paint = (mask: RegionMask): RegionMask =>
-        op === 'reveal' ? setCells(mask, cells) : clearCells(mask, cells)
+        brushed ? setCells(mask, brushed.cells) : clearCells(mask, cells)
       // A brush stroke is a reveal-shaped DM act like the room buttons are, so it reads back
       // in the table log the same way. `changed-fog` and no targetId: it names cells rather
       // than a room, which is also what makes it a whole-scene line every seat may read.
@@ -298,10 +310,7 @@ function run(
           // (P2 §1 clips it to what they hold). The latch is all it does: `re_hidden` washes
           // no room whole, so what a player sees is the cells the DM painted and not the
           // room around them. `hide` never un-ships — geometry a player holds is theirs (D4).
-          rooms:
-            op === 'reveal'
-              ? shipRooms(scene, region, cells, ctx, sceneId, roomsOf, roomAtOf)
-              : scene.rooms,
+          rooms: brushed ? brushed.rooms : scene.rooms,
         },
         { action: 'changed-fog' },
       )
@@ -350,20 +359,23 @@ function run(
 }
 
 /**
- * The room record a brush stroke leaves behind: every room a newly revealed cell lands in,
- * latched so its geometry travels, and nothing else touched. A room the party has already
- * seen keeps whatever status it is at — a brush must not re-light a room the DM re-hid.
+ * What a `reveal` stroke actually writes: the cells of it that land on authored floor, and
+ * the room record they leave behind — every room a newly revealed cell falls in, latched so
+ * its geometry travels, and nothing else touched. A room the party has already seen keeps
+ * whatever status it is at: a brush must not re-light a room the DM re-hid.
  *
- * `roomAtOf` is a point-in-polygon walk over every room on the map, so the naive loop is one
- * of those per brushed cell: a 60×60 stroke on a twelve-room map is ~43k of them in one
- * synchronous handler. `unlatched` is the whole answer — the loop exists to latch rooms, and
- * once there is none left to latch there is nothing to look up.
+ * Both answers come out of one pass because both ask the same question of the same cell.
+ * `roomAtOf` is a point-in-polygon walk over every room on the map, so a 60×60 stroke on a
+ * twelve-room map is ~43k of them in one synchronous handler — and now every cell pays it,
+ * because the filter has to look at the ones the latch loop used to be able to skip. The
+ * early exit it lost (stop once every room is latched) was only ever the second stroke's
+ * saving; this is the first stroke's cost, paid on every stroke.
  *
- * ponytail: the ceiling left is the first big stroke on a fresh map, which still pays a
- * lookup per cell until it has touched every room. The upgrade there is a cell→room index on
- * the scene map (the caller's side of `SceneRoomAt`), not a cache in here.
+ * ponytail: the upgrade, if a DM ever feels a big stroke, is a cell→room index on the scene
+ * map (the caller's side of `SceneRoomAt`) — one lookup instead of a room walk, for all three
+ * consumers of the floor predicate at once, not a cache in here.
  */
-function shipRooms(
+function brushReveal(
   scene: SceneFog,
   region: RegionMask,
   cells: readonly Cell[],
@@ -371,20 +383,24 @@ function shipRooms(
   sceneId: string,
   roomsOf: SceneRooms,
   roomAtOf: SceneRoomAt,
-): Record<string, RoomFog> {
-  const unlatched = new Set(
-    roomsOf(ctx.campaignId, sceneId).filter((id) => !scene.rooms[id]?.wasEverRevealed),
-  )
+): { cells: Cell[]; rooms: Record<string, RoomFog> } {
+  const authored = roomsOf(ctx.campaignId, sceneId)
+  const unlatched = new Set(authored.filter((id) => !scene.rooms[id]?.wasEverRevealed))
   let rooms = scene.rooms
+  const kept: Cell[] = []
   for (const [col, row] of cells) {
-    if (unlatched.size === 0) break
     const id = roomAtOf(ctx.campaignId, sceneId, region.minX + col + 0.5, region.minY + row + 0.5)
-    // `delete` is the guard as well as the bookkeeping: false means the cell landed on no
-    // room, on one the map does not author, or on one already latched.
+    // The floor test and the ship test, in that order: a cell off the floor is not painted at
+    // all, so it can latch nothing either.
+    if (!onAuthoredFloor(authored.length, id)) continue
+    kept.push([col, row])
+    // `delete` is the guard as well as the bookkeeping: false means the cell landed on a room
+    // the map does not author, on none at all (a roomless map, where every cell is floor), or
+    // on one already latched.
     if (!id || !unlatched.delete(id)) continue
     rooms = { ...rooms, [id]: { status: 're_hidden', wasEverRevealed: true } }
   }
-  return rooms
+  return { cells: kept, rooms }
 }
 
 /**

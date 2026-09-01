@@ -4,7 +4,7 @@ import type { PlayerInfo } from '@dnd/core/src/shared/protocol'
 import type { Viewer } from '../contract'
 import type { AuthoredDoor, DoorLiveState } from '../doors/types'
 import { fogModule } from './module'
-import { getCell, regionOf, setCells } from './region'
+import { getCell, regionFor, regionOf, setCells } from './region'
 import {
   autoExploreOn,
   containedSightOn,
@@ -914,8 +914,50 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       const region = scened(next).region!
       expect(region).toMatchObject({ minX: 0, minY: 0, cols: 10, rows: 10 })
       expect(getCell(region, 1, 2)).toBe(true)
-      expect(getCell(region, 9, 9)).toBe(true)
+      // (9, 9) is off every room this map authors, so the stroke drops it and paints the rest.
+      expect(getCell(region, 9, 9)).toBe(false)
       expect(getCell(region, 1, 3)).toBe(false)
+    })
+
+    // ── the floor clamp (`onAuthoredFloor`) ──────────────────────────────────
+    // A token may never stand off the authored floor, so the record may never say it can:
+    // the brush is one of the three writers that has to hold the line.
+
+    it('drops the cells of a stroke that fall off the authored floor', () => {
+      const { next, error } = fire(empty, DM, 'region-set', {
+        op: 'reveal',
+        cells: [
+          [4, 0],
+          [8, 0],
+          [9, 0],
+        ],
+      })
+      // Not a refusal: the DM dragged a rect across the floor's edge and the floor half lands.
+      expect(error).toBeNull()
+      expect(getCell(scened(next).region, 4, 0)).toBe(true)
+      expect(getCell(scened(next).region, 8, 0)).toBe(false)
+      expect(getCell(scened(next).region, 9, 0)).toBe(false)
+      // …and a stroke that is entirely off the floor writes a record with nothing in it.
+      const nothing = fire(empty, DM, 'region-set', { op: 'reveal', cells: [[9, 1]] })
+      expect(nothing.error).toBeNull()
+      expect(getCell(scened(nothing.next).region, 9, 1)).toBe(false)
+    })
+
+    it('lets the eraser take back off-floor cells an older record already carries', () => {
+      // Written the way a pre-clamp referee wrote them — straight into the mask, past the
+      // brush. The DM's hide is the one hand that can still reach them.
+      const legacy = {
+        ...empty,
+        byScene: {
+          [SCENE]: {
+            ...scened(empty),
+            region: setCells(regionFor(undefined, FRAME)!, [[9, 9]]),
+          },
+        },
+      }
+      expect(getCell(scened(legacy).region, 9, 9)).toBe(true)
+      const rubbed = fire(legacy, DM, 'region-set', { op: 'hide', cells: [[9, 9]] }).next
+      expect(getCell(scened(rubbed).region, 9, 9)).toBe(false)
     })
 
     it('hides cells back out again, leaving the rest', () => {
@@ -1031,21 +1073,53 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       expect(scened(next).rooms.hall).toEqual({ status: 'revealed', wasEverRevealed: true })
     })
 
-    it('ships nothing for a stroke on unzoned map, and nothing at all for a hide', () => {
-      // No room under the cell (D6): there is no geometry to latch, only the bits.
+    it('ships nothing for a stroke off the floor, and nothing at all for a hide', () => {
+      // No room under the cell (D6): on a map that authors rooms there is no floor there
+      // either, so the stroke ships no geometry and writes no bit.
       const unzoned = fire(empty, DM, 'region-set', { op: 'reveal', cells: [[9, 9]] }).next
       expect(scened(unzoned).rooms).toEqual({})
-      expect(getCell(scened(unzoned).region, 9, 9)).toBe(true)
+      expect(getCell(scened(unzoned).region, 9, 9)).toBe(false)
 
       // A hide never un-ships and never ships: geometry a player holds stays theirs (D4).
       const rubbed = fire(unzoned, DM, 'region-set', { op: 'hide', cells: [[1, 2]] }).next
       expect(scened(rubbed).rooms).toEqual({})
     })
 
-    it('stops looking rooms up once there is no room left to latch', () => {
+    it('paints every cell of a stroke on a map that authors no rooms at all', () => {
+      // #114's battlemap, unchanged by the floor clamp: no rooms means the frame *is* the
+      // floor, and the same (9, 9) the zoned map above refuses lands here.
+      const roomless = fogModule(
+        () => [],
+        () => FRAME,
+        () => null,
+      )
+      let next = empty
+      const error = roomless.handler(
+        'region-set',
+        { sceneId: SCENE, op: 'reveal', cells: [[9, 9]] },
+        {
+          campaignId: 'c-1',
+          sessionId: 's-1',
+          activeSceneId: SCENE,
+          sender: DM,
+          players: [],
+          state: empty,
+          setState: (s) => {
+            next = s
+          },
+          broadcast: () => {},
+        },
+      )
+      expect(error).toBeUndefined()
+      expect(getCell(scened(next).region, 9, 9)).toBe(true)
+    })
+
+    it('asks the map about every cell it paints, and ships what it finds', () => {
       // `roomAtOf` is a point-in-polygon walk over the map for every cell it is asked about,
-      // and a big brush is thousands of cells in one synchronous handler. Nothing here needs
-      // the answer after both rooms have shipped.
+      // and a big brush is thousands of cells in one synchronous handler. The early exit this
+      // loop used to take once every room was latched is gone: the floor clamp needs the
+      // answer for every cell, latched or not, so the cost is the honest one and the pinned
+      // number is what a 10×10 stroke costs.
       let lookups = 0
       const counted = fogModule(
         () => ROOMS,
@@ -1079,16 +1153,18 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
           broadcast: () => {},
         },
       )
-      // Both rooms shipped, and the walk stopped there — the naive loop paid all 100.
+      // Both rooms shipped, and every cell was asked about exactly once.
       expect(Object.keys(scened(next).rooms).sort()).toEqual([
         'corridor-1',
         'crypt',
         'hall',
         'treasury',
       ])
-      expect(lookups).toBeLessThan(cells.length)
-      // Every bit still went in: the bail is on the lookups, never on the record.
-      expect(getCell(scened(next).region, 9, 9)).toBe(true)
+      expect(lookups).toBe(cells.length)
+      // …and the two columns past x = 8 are off the floor, so the stroke wrote neither.
+      expect(getCell(scened(next).region, 7, 9)).toBe(true)
+      expect(getCell(scened(next).region, 8, 9)).toBe(false)
+      expect(getCell(scened(next).region, 9, 9)).toBe(false)
     })
   })
 

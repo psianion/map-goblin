@@ -221,6 +221,30 @@ export function cellsCoveredByPolygon(polygon: readonly [number, number][], fram
   return covered
 }
 
+/**
+ * Is a cell on ground the map actually authors? The one definition of "floor", shared by
+ * every writer and reader of the record so they cannot hold three opinions of it.
+ *
+ * A room *is* the floor: `detectRooms` cuts the merged floor rings by the walls and hands
+ * back every piece bigger than a quarter cell, corridors and yards included, so "inside some
+ * room" and "on authored floor" are the same set minus the wall thickness itself — and a
+ * cell centre under a wall is not somewhere to stand either. Room polygons are already
+ * indexed on the server (`SceneMap.roomAt`) and already injected into this module
+ * (`SceneRoomAt`), so the predicate costs the point-in-polygon walk that was there anyway
+ * and needs no new geometry on either side.
+ *
+ * A map with no rooms at all is the #114 battlemap: an imported image, no traced floor, and
+ * the frame is the floor by definition. Nothing changes for those — `roomCount === 0` is the
+ * whole exemption, and it is why the argument is the count and not a boolean the caller
+ * derives some other way.
+ *
+ * Three consumers: the DM's brush (which drops what it may not paint), the party's sweep
+ * (which declines to record it), and `openGround` (which refuses to let a token stand on it).
+ */
+export function onAuthoredFloor(roomCount: number, roomAt: string | null): boolean {
+  return roomCount === 0 || roomAt !== null
+}
+
 /** Ray casting — the one geometry primitive the region record needs. */
 export function pointInPolygon(polygon: readonly [number, number][], x: number, y: number): boolean {
   let inside = false
