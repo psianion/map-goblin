@@ -487,6 +487,46 @@ export function partlySeenRooms(rooms: readonly Room[], region: RegionMask | und
 }
 
 /**
+ * Every authored explore lock in the layers handed over, as a rectangle each.
+ *
+ * Only ever non-empty on the DM's copy: a zone is prep and the redaction strips zones from a
+ * player's document unconditionally ("prep never travels", server `redactMap.ts`). So this is
+ * the DM's sight preview's answer, and a player's near pass is fenced by the shipping clip
+ * instead — on a walled map that already excludes a locked room, which is never credited and
+ * so never ships.
+ *
+ * ponytail: a circle lock becomes its bounding box, which over-fences rather than under —
+ * the mask shows *less* than the referee granted, never more, and the referee still tests the
+ * real geometry per cell (`inAnyLock`). The precise answer is the circle as a polygon, worth
+ * writing the day a table measures a corner it should have been able to see.
+ */
+export function exploreLocks(layers: readonly Layer[]): Polygon[] {
+  return layers
+    .flatMap((layer) => (layer.type === 'dungeon' ? layer.children : []))
+    .filter((child): child is ZoneChild => child.childType === 'zone' && !!child.blocksAutoExplore)
+    .flatMap((zone) => {
+      const s = zone.shape;
+      const box =
+        s.kind === 'circle'
+          ? [s.position.x - s.radius, s.position.y - s.radius, s.position.x + s.radius, s.position.y + s.radius]
+          : // A point zone has no area to lock, and the server refuses it too (`exploreLocks`).
+            s.kind === 'rect'
+            ? [s.x, s.y, s.x + s.width, s.y + s.height]
+            : null;
+      if (!box) return [];
+      const [x0, y0, x1, y1] = box;
+      return [
+        [
+          [x0, y0],
+          [x1, y0],
+          [x1, y1],
+          [x0, y1],
+        ] as Polygon,
+      ];
+    });
+}
+
+/**
  * Rooms an authored explore lock covers (§5) — the DM's badge for "the party's own sight will
  * never open this one; it is yours to reveal".
  *
@@ -497,17 +537,7 @@ export function partlySeenRooms(rooms: readonly Room[], region: RegionMask | und
  * already tests the real geometry per cell (`inAnyLock`), so nothing but this label is coarse.
  */
 export function lockedRooms(rooms: readonly Room[], layers: readonly Layer[]): Set<string> {
-  const locks = layers
-    .flatMap((layer) => (layer.type === 'dungeon' ? layer.children : []))
-    .filter((child): child is ZoneChild => child.childType === 'zone' && !!child.blocksAutoExplore)
-    .flatMap((zone) => {
-      const s = zone.shape;
-      if (s.kind === 'circle') {
-        return [[s.position.x - s.radius, s.position.y - s.radius, s.position.x + s.radius, s.position.y + s.radius]];
-      }
-      // A point zone has no area to lock, and the server refuses it too (`exploreLocks`).
-      return s.kind === 'rect' ? [[s.x, s.y, s.x + s.width, s.y + s.height]] : [];
-    });
+  const locks = exploreLocks(layers).map((poly) => [poly[0][0], poly[0][1], poly[2][0], poly[2][1]]);
 
   const locked = new Set<string>();
   if (locks.length === 0) return locked;

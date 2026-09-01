@@ -52,6 +52,7 @@ import { computeMapWorldBounds } from '@dnd/core/src/engine/export/exportPipelin
 import type { AuthoredDoor, DoorLiveState, DoorsState } from '@dnd/mechanics/doors';
 import {
   effectiveFog,
+  containedSightOn,
   fogModeOf,
   identityRegion,
   lightSources,
@@ -89,6 +90,7 @@ import type { LiveDoor } from '../doors/doors';
 import { useTokenInteraction } from '../tokens/drag';
 import { tokensOf } from '../tokens/TokenRenderer';
 import {
+  exploreLocks,
   fogPad,
   fogRegion,
   type FogRing,
@@ -303,6 +305,17 @@ export interface FogScene {
   mode?: FogMode;
   /** Vision only (§1): one sweep polygon per sighted party token — the clear tier. */
   sight?: Polygon[];
+  /**
+   * Contained sight only: the same eyes swept again at their own `sight.range` — the pass
+   * that lets a step peel the cloud back past the ground the DM has opened. One polygon per
+   * eye, in `sight`'s order, because the rule is per-eye (`tierPlan`'s `near`).
+   */
+  near?: Polygon[];
+  /**
+   * Contained sight only: the explore locks this tab can see (`exploreLocks`), which is the
+   * DM's own copy and nothing on a player's — zones are prep and never ship.
+   */
+  locks?: Polygon[];
   /**
    * Vision only (§1): the ground the map carries terrain paint on (`paintedGround`).
    *
@@ -677,6 +690,15 @@ export function fogScene(): FogScene {
     isVision && masked
       ? sightCache.partySight(layers, eyes, sightRangeLimitOn(fog))
       : undefined;
+  // Contained sight's second pass: the same eyes, the same occluders, swept to each eye's own
+  // `range` instead of to `SIGHT_REACH`. Taken *here* rather than inside `partySight`, which
+  // memoizes on `(x, y, radius)` and would be poisoned by a clip of its own (the contract at
+  // `visionSight.ts`'s `partySight`) — the two reaches simply key differently and coexist in
+  // the same memo, and a darkvision eye's gate sweep at the same radius is already one of
+  // them. With `sightRangeLimit` on, the full sweep *is* this sweep and the memo returns the
+  // very same polygons: containment collapses to the range limit, no special case.
+  const contained = isVision && containedSightOn(fog);
+  const near = sight && contained ? sightCache.partySight(layers, eyes, true) : undefined;
 
   // S3 P3 §2 — the light gate, when the scene is turned to `darkness`. Every light source's
   // own sweep (placed lights the table has left on, plus token-carried ones), and separately
@@ -760,6 +782,11 @@ export function fogScene(): FogScene {
           : { ...fog, region: undefined, rooms: {} }
         : fog,
     sight,
+    near,
+    // The explore locks, subtracted from the near pass. Empty on every player seat by
+    // construction — the redaction strips zones — so this is the DM's sight preview's fence
+    // and nothing else. Off the referee's document, like the rooms and the pad.
+    locks: near ? exploreLocks(serverLayers(mapData)) : undefined,
     // The painted ground the tiers may open onto, beside the rooms — read off the referee's
     // document like the rooms are, and only in vision mode, where the tiers are cut from a
     // sweep rather than from the room record. Rooms mode has no cell to put there.
@@ -986,6 +1013,13 @@ function tierSceneOf(scene: FogScene): TierScene {
   const floors = scene.rooms.filter((room) => room.boundary.length >= 3);
   return {
     sight: scene.sight ?? [],
+    // The fence, on the scene's own switch — and rooms mode is untouched by the whole feature,
+    // which is why the mode is half of the test. One field carries it to the player's mask and
+    // to the DM's sight preview at once: the preview substitutes the previewed seat's record
+    // upstream of here, so the composition it plans is that seat's, record and all.
+    contained: scene.mode === 'vision' && !!scene.fog && containedSightOn(scene.fog),
+    near: scene.near,
+    locks: scene.locks,
     region: scene.fog?.region,
     rooms: floors.map((room) => room.boundary),
     revealed: floors

@@ -11,11 +11,15 @@
 // Everything that used to be a *rule* buried in `visionRegion` and `drawFog` is stated here,
 // where a test with no GL can read it back off the plan:
 //
-//   1. The held clip is in every pass that touches live sight, and it is the last word on the
-//      mask. Its sources are exactly today's statement — the rooms the player was shipped,
-//      the ground the map carries paint on, and on a map nobody zoned the region record's own
-//      cell runs. That last one is the loud trap: a battlemap has no walls, so a sweep's rays
-//      run `SIGHT_REACH` out past every edge, and the record is the only thing that stops them.
+//   1. A clip is in every pass that touches live sight, and one is always the last word on the
+//      mask. Uncontained, that clip is `held`, and its sources are the pre-containment
+//      statement — the rooms the player was shipped, the ground the map carries paint on, and
+//      on a map nobody zoned the region record's own cell runs. That last one is the loud
+//      trap: a battlemap has no walls, so a sweep's rays run `SIGHT_REACH` out past every
+//      edge, and the record is the only thing that stops them.
+//      Contained, `held` narrows to the ground the DM has actually opened and the last word
+//      passes to the *shipping* clip, which is what lets a step peel the cloud back without
+//      ever clearing fog off ground whose art this seat was never sent.
 //   2. The cover is measured off the frame and the held sources, never off a sweep vertex —
 //      `drawFog`'s own county-mask comment, moved somewhere it can be pinned.
 //   3. Rooms the DM revealed land in the memory tier. Told is not the same as looked at.
@@ -70,16 +74,27 @@ export type Blend = 'normal' | 'erase';
  *
  * - `inverseHeld`: white over the whole cover with the held sources erased out of it. The
  *   clip, as its erase-dual: erasing this from anything leaves that thing inside held.
+ * - `inverseShipped`: the same trick for the *shipping* clip, built only on a contained
+ *   scene — the ground whose art this seat actually holds, less the lock zones it knows
+ *   about. The near pass may open ground outside `held`, and this is the fence that keeps it
+ *   from opening ground with no art under it (an empty hole is a shape leak).
  * - `inverseSeeable`: the same trick for the night gate — light and darkvision erased out.
  * - `live`: the party's own sweep, gated by the night if there is one.
  * - `mask`: the tier texture the cloud shader samples. Clears *transparent*, so alpha carries
  *   shown-ness and an erased texel reads 0 in `.r` either way.
  * - `scrim`: the flat black backstop, with the mask's own alpha erased out of it.
  */
-export type TierTarget = 'inverseHeld' | 'inverseSeeable' | 'live' | 'mask' | 'scrim';
+export type TierTarget =
+  | 'inverseHeld'
+  | 'inverseShipped'
+  | 'inverseSeeable'
+  | 'live'
+  | 'mask'
+  | 'scrim';
 
 export const TARGET_ORDER: readonly TierTarget[] = [
   'inverseHeld',
+  'inverseShipped',
   'inverseSeeable',
   'live',
   'mask',
@@ -148,6 +163,34 @@ export interface DrawPlan {
 export interface TierScene {
   /** One raw sweep polygon per sighted party token. Never sizes anything. */
   sight: readonly Polygon[];
+  /**
+   * Contained sight (`containedSightOn` on a vision scene) — the fence, and the one switch
+   * this whole composition hangs off. False reproduces the pre-containment plan exactly,
+   * op for op, and a regression row pins that.
+   */
+  contained: boolean;
+  /**
+   * The range-limited twin of `sight`: one sweep per eye taken at that eye's own
+   * `sight.range` rather than at `SIGHT_REACH`. Read only when `contained`.
+   *
+   * One polygon per eye and never a union, because the rule is per-eye: ground near a
+   * short-sighted eye but outside its line of sight is not opened by a far-sighted one
+   * standing elsewhere.
+   */
+  near?: readonly Polygon[];
+  /**
+   * The auto-explore lock zones (`blocksAutoExplore`) this seat *knows about*, subtracted
+   * from the near pass so an eye at a locked chamber's open mouth cannot peel it by range.
+   *
+   * In practice this is the DM's sight preview only: zones are prep and the redaction strips
+   * them from every player's copy unconditionally (server `redactMap.ts`, "prep never
+   * travels"). A player's near pass is fenced by `inverseShipped` instead, which on a walled
+   * map already excludes a locked room — one is never credited, so its geometry never ships.
+   * A roomless map ships whole, so a lock zone there is the one case the client cannot see;
+   * the referee still refuses to write those cells, so the divergence is a client that shows
+   * a cell for one state update, and never a client that keeps one the referee took back.
+   */
+  locks?: readonly Polygon[];
   /** The referee's region record for this seat — the memory tier, and on a roomless map the clip. */
   region?: RegionMask;
   /** Every room boundary the player was actually handed. */
@@ -175,9 +218,47 @@ const usable = (polys: readonly Polygon[]): Polygon[] => polys.filter((p) => p.l
  * answer: "ground the player holds" is "ground the referee has shown them". The map's frame is
  * the other obvious answer and is the bug — an unoccluded sweep opens the whole battlemap on
  * the first frame a player connects.
+ *
+ * Contained sight moves the same question one step: the fence is no longer "every room you
+ * were handed" but "the ground the DM has actually opened" — the record's runs plus the rooms
+ * the DM revealed by hand. A room you hold the geometry of but nobody has opened is layout you
+ * were told about, and telling is not opening. That is the whole feature, in one ternary.
  */
-const heldSources = (rooms: readonly Polygon[], region: RegionMask | undefined): Polygon[] =>
-  rooms.length > 0 ? [...rooms] : regionRects(region);
+const heldSources = (
+  contained: boolean,
+  rooms: readonly Polygon[],
+  revealed: readonly Polygon[],
+  region: RegionMask | undefined,
+): Polygon[] =>
+  contained
+    ? [...revealed, ...regionRects(region)]
+    : rooms.length > 0
+      ? [...rooms]
+      : regionRects(region);
+
+const asPoly = (b: Bounds): Polygon => [
+  [b.minX, b.minY],
+  [b.maxX, b.minY],
+  [b.maxX, b.maxY],
+  [b.minX, b.maxY],
+];
+
+/**
+ * The ground whose *art* this seat holds — the near pass's own fence, and only ever consulted
+ * on a contained scene.
+ *
+ * Every room polygon that reached this seat, held ground included. That deliberately covers
+ * rooms the player has not earned yet: the band buy-back ships a revealed room's neighbours,
+ * and the inside of a door you can see through is exactly the ground a step is supposed to
+ * open. A roomless map ships its image whole (#114), so there the answer is the frame and the
+ * near pass is bounded by range alone.
+ */
+const shippedGround = (
+  rooms: readonly Polygon[],
+  held: readonly Polygon[],
+  frame: Bounds | null,
+): Polygon[] =>
+  rooms.length > 0 ? [...rooms, ...held] : frame ? [asPoly(frame)] : [];
 
 /**
  * Frame ∪ held, grown by the pad and the feather — and nothing else, ever.
@@ -245,13 +326,19 @@ export function tierPlan(scene: TierScene): DrawPlan {
   const sweepGrow = sightPad(scene.pad) + scene.feather;
   const rooms = usable(scene.rooms);
   const painted = usable(scene.painted ?? []);
-  const held = heldSources(rooms, scene.region);
-  const cover = coverOf(scene.frame, held, painted, grow);
+  const revealed = usable(scene.revealed);
+  const contained = scene.contained;
+  const held = heldSources(contained, rooms, revealed, scene.region);
+  const shipped = contained ? shippedGround(rooms, held, scene.frame) : [];
+  const cover = coverOf(scene.frame, contained ? [...shipped, ...held] : held, painted, grow);
   const cells = regionCells(scene.region);
   if (!cover) return { cover: null, ops: [], cells };
 
   const sight = usable(scene.sight);
-  const revealed = usable(scene.revealed);
+  // The near pass and its lock subtraction exist only under containment — off, not one op of
+  // either is emitted and the plan is the pre-containment one byte for byte.
+  const near = contained ? usable(scene.near ?? []) : [];
+  const locks = contained ? usable(scene.locks ?? []) : [];
   const night = scene.night;
   const seeable = night ? usable([...night.lit, ...night.darkvision]) : [];
   const memory = cellTexture(scene.region);
@@ -268,6 +355,27 @@ export function tierPlan(scene: TierScene): DrawPlan {
   }
   if (painted.length > 0) {
     ops.push({ kind: 'polys', target: 'inverseHeld', polys: painted, grow: 0, color: MASK_LIVE, blend: 'erase' });
+  }
+
+  // ── The shipping clip, on the same trick ──────────────────────────────────
+  // Contained scenes only, and built whether or not there is a near pass to fence, because it
+  // is also the mask's last word there: an unbuilt target is a full white cover, which erases
+  // the mask to hidden rather than leaving a hole. The locks go back in as white *after* the
+  // shipped ground comes out, so a lock inside a shipped room is fenced off again.
+  if (contained) {
+    ops.push({ kind: 'rect', target: 'inverseShipped', rect: cover, color: MASK_LIVE, blend: 'normal' });
+    if (shipped.length > 0) {
+      ops.push({ kind: 'polys', target: 'inverseShipped', polys: shipped, grow, color: MASK_LIVE, blend: 'erase' });
+    }
+    if (painted.length > 0) {
+      ops.push({ kind: 'polys', target: 'inverseShipped', polys: painted, grow: 0, color: MASK_LIVE, blend: 'erase' });
+    }
+    if (locks.length > 0) {
+      // Grown by the same `sweepGrow` the near sweeps are, which cancels their inflate exactly
+      // and leaves the authored zone as the fence. Erring the other way would hand a sweep the
+      // first band of a locked chamber, which is the leak the zone was drawn to stop.
+      ops.push({ kind: 'polys', target: 'inverseShipped', polys: locks, grow: sweepGrow, color: MASK_LIVE, blend: 'normal' });
+    }
   }
 
   // ── The night gate, on the same trick ──────────────────────────────────────
@@ -311,6 +419,18 @@ export function tierPlan(scene: TierScene): DrawPlan {
     // chip drawn on ground the seat does not hold, which on a roomless map is every ray's
     // full `SIGHT_REACH`. Erases commute, so the night gate below is still the last word.
     ops.push({ kind: 'sprite', target: 'live', source: 'inverseHeld', blend: 'erase' });
+    // ── The near pass ────────────────────────────────────────────────────────
+    // `live = (full ∩ held) ∪ (near ∩ shipped ∖ locks)`. The union has to land *after* the
+    // held clip, because held is precisely what the near term is allowed to reach past — that
+    // is what "movement peels the cloud back" means. The held clip is therefore no longer the
+    // last op on this target under containment; `inverseShipped` is, and it is the tighter
+    // statement of the same invariant (held ⊆ shipped, and held carries no locked ground by
+    // construction, so the full term is untouched by the second erase). The `SIGHT_MASK`
+    // argument survives intact: a chip still cannot be drawn past a clip.
+    if (near.length > 0) {
+      ops.push({ kind: 'polys', target: 'live', polys: near, grow: sweepGrow, color: MASK_LIVE, blend: 'normal' });
+    }
+    if (contained) ops.push({ kind: 'sprite', target: 'live', source: 'inverseShipped', blend: 'erase' });
     if (night) ops.push({ kind: 'sprite', target: 'live', source: 'inverseSeeable', blend: 'erase' });
   }
 
@@ -336,7 +456,16 @@ export function tierPlan(scene: TierScene): DrawPlan {
     });
   }
   if (sight.length > 0) ops.push({ kind: 'sprite', target: 'mask', source: 'live', blend: 'normal' });
-  ops.push({ kind: 'sprite', target: 'mask', source: 'inverseHeld', blend: 'erase' });
+  // The clip, last, so nothing can be added after it — and under containment it is the
+  // shipping clip rather than the held one, for the reason the near pass gives: erasing
+  // `inverseHeld` here would take back every cell the near pass just earned. Memory and
+  // DM-revealed rooms sit inside held ⊆ shipped, so they are unmoved by the swap.
+  ops.push({
+    kind: 'sprite',
+    target: 'mask',
+    source: contained ? 'inverseShipped' : 'inverseHeld',
+    blend: 'erase',
+  });
 
   // ── The scrim ─────────────────────────────────────────────────────────────
   // Opaque black by initialisation with the finished mask's own alpha punched out of it. The
