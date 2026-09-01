@@ -17,6 +17,7 @@ import {
   fogModeOf,
   getCell,
   identityRegion,
+  nearAuthoredFloor,
   onAuthoredFloor,
   regionFor,
   sceneFogOf,
@@ -519,7 +520,15 @@ function swept(
       // counted it as opened, and the player's memory tier painted its grey over ground with no
       // art under it at all, which is the flat-black patch the gate walk photographed. The
       // record only ever meant "floor the table has opened", so the write is where that is said.
-      if (!onAuthoredFloor(map.rooms.length, room)) continue
+      //
+      // One cell wider than the floor, though, and that width is the wall art: the band straddles
+      // the room edge and its outer cells are in no room, so clamping the record to the floor
+      // alone left the stones of an explored room under fog on the memory tier, which only ever
+      // paints recorded cells. `openGround` keeps the strict test below — recordable is not
+      // standable.
+      // `room` already answers the centre, so a cell well inside a room never pays the band scan.
+      if (room === null && !nearAuthoredFloor(map.rooms.length, (px, py) => map.roomAt(px, py), x, y))
+        continue
       cells.push([col, row])
       if (room !== null) rooms.add(room)
     }

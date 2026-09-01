@@ -647,6 +647,26 @@ describe('tierPlan — contained sight', () => {
     expect(opsOn(plan, 'mask').at(-1)).toMatchObject({ source: 'inverseShipped', blend: 'erase' });
   });
 
+  it('keeps a remembered wall band grey — the clip grows past the floor by more than a cell', () => {
+    // The other half of the wall-art regression. The referee may now record the one cell of
+    // band around a room's floor (`nearAuthoredFloor`), because that is where the stones are
+    // drawn — but the mask's last word is `¬shipped`, and if that erase were ungrown, or grown
+    // by less than a cell, it would take the band straight back off the memory tier and the
+    // walls of an explored room would be under the cloud again with nothing on the record to
+    // blame. The two numbers have to be read together, so this row reads them together.
+    //
+    // Mutation: `grow: 0` on the `inverseShipped` erase, or `grow` shrunk below `PAD`.
+    expect(GROW).toBeGreaterThanOrEqual(PAD);
+    expect(PAD).toBeGreaterThanOrEqual(1);
+    // `WEST` ends at x = 9.75, so this is the cell just outside it — the band its wall sits on.
+    const band = brushed([[10, 3]]);
+    const plan = tierPlan(fenced({ rooms: [WEST], sight: [LOOKING], region: band }));
+    expect(polysOn(plan, 'inverseShipped')[0]).toMatchObject({ polys: [WEST], grow: GROW });
+    // …and the tier that band lands on is drawn, with the clip after it rather than instead.
+    expect(opsOn(plan, 'mask').map((op) => op.kind)).toEqual(['cells', 'sprite', 'sprite']);
+    expect(plan.cells).toEqual(regionCells(band));
+  });
+
   it('builds the shipping clip even with nothing to fence, because the mask leans on it', () => {
     // Fail-dark: `inverseShipped` is the mask's clip on a contained scene whether or not there
     // is a near pass, and a target nothing was erased into is a full white cover — which takes

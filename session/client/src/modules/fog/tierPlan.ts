@@ -278,8 +278,12 @@ const asPoly = (b: Bounds): Polygon => [
  * the background's grid dots printing through it — the shape leak this fence exists to stop,
  * arriving through the fence itself. Rooms alone is the honest answer: ground with no
  * geometry behind it stays under the cloud, indistinguishable from ground nobody has walked.
- * The referee's own clamps (`onAuthoredFloor`) keep an honest record from ever wanting more,
- * and the pad the erase grows by covers the cell-vs-polygon slack at a room's edge.
+ * The referee's own clamps (`nearAuthoredFloor`) keep an honest record from ever wanting more,
+ * and the pad the erase grows by covers the cell-vs-polygon slack at a room's edge. Those two
+ * numbers are the same one: the clamp lets the record hold the wall band a cell past the floor
+ * and the erase grows the rooms by `pad + feather` ≥ that cell, so a remembered wall survives
+ * this clip and the stones of an explored room stay lit under the grey. Shrink the grow and the
+ * walls go back under the cloud.
  */
 const shippedGround = (rooms: readonly Polygon[], frame: Bounds | null): Polygon[] =>
   rooms.length > 0 ? [...rooms] : frame ? [asPoly(frame)] : [];

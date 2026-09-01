@@ -12,7 +12,7 @@ import { ID_MAX, Reject, bad, bool, num, obj, oneOf, str } from '../tokens/valid
 import {
   clearCells,
   fillRegion,
-  onAuthoredFloor,
+  nearAuthoredFloor,
   orRegion,
   regionFor,
   setCells,
@@ -277,8 +277,9 @@ function run(
       if (!region) bad('that scene is too large to keep region memory for')
       const cells = parseCells(p.cells, region)
       const op = oneOf(p.op, REGION_OPS, 'op')
-      // A brush may only open ground the map authors (`onAuthoredFloor`). The cells that fall
-      // off the floor are dropped from the write rather than refusing the whole stroke: a DM
+      // A brush may only open ground the map authors, plus the one-cell band its wall art sits
+      // on (`nearAuthoredFloor`). The cells that fall past that are dropped from the write
+      // rather than refusing the whole stroke: a DM
       // dragging a rect over a chamber is aiming at the chamber, and making them trace its
       // outline to be allowed to paint it would be a refusal for the shape of their gesture.
       // What the record must not carry is ground nobody can stand on — the write is where that
@@ -359,7 +360,7 @@ function run(
 }
 
 /**
- * What a `reveal` stroke actually writes: the cells of it that land on authored floor, and
+ * What a `reveal` stroke actually writes: the cells of it that land on or beside authored floor, and
  * the room record they leave behind — every room a newly revealed cell falls in, latched so
  * its geometry travels, and nothing else touched. A room the party has already seen keeps
  * whatever status it is at: a brush must not re-light a room the DM re-hid.
@@ -388,11 +389,16 @@ function brushReveal(
   const unlatched = new Set(authored.filter((id) => !scene.rooms[id]?.wasEverRevealed))
   let rooms = scene.rooms
   const kept: Cell[] = []
+  const roomAt = (x: number, y: number): string | null => roomAtOf(ctx.campaignId, sceneId, x, y)
   for (const [col, row] of cells) {
-    const id = roomAtOf(ctx.campaignId, sceneId, region.minX + col + 0.5, region.minY + row + 0.5)
-    // The floor test and the ship test, in that order: a cell off the floor is not painted at
-    // all, so it can latch nothing either.
-    if (!onAuthoredFloor(authored.length, id)) continue
+    const [x, y] = [region.minX + col + 0.5, region.minY + row + 0.5]
+    const id = roomAt(x, y)
+    // The floor test and the ship test, in that order: a cell past the wall band is not painted
+    // at all, so it can latch nothing either. The latch stays on the *strict* room under the
+    // cell — a band cell is in no room and ships none, and the stroke's interior cells are what
+    // latch the room its band belongs to.
+    // `id` already answers the centre, so a cell well inside a room never pays the band scan.
+    if (id === null && !nearAuthoredFloor(authored.length, roomAt, x, y)) continue
     kept.push([col, row])
     // `delete` is the guard as well as the bookkeeping: false means the cell landed on a room
     // the map does not author, on none at all (a roomless map, where every cell is floor), or

@@ -342,7 +342,7 @@ describe('party-mode auto-explore (§4)', () => {
     expect(table.modules().slice(before)).toEqual(['tokens', 'fog', 'tokens', 'doors'])
   })
 
-  it('records no cell the map authors no floor under, however plainly it is seen', () => {
+  it('records the wall band beside the floor and no cell of the void past it', () => {
     // Line of sight does not stop at the floor's edge: it runs out over the yards between
     // this fixture's two islands and, on the real map, off into the black past a palisade.
     // Every cell it crossed out there used to be written, and three readers of the record
@@ -360,9 +360,15 @@ describe('party-mode auto-explore (§4)', () => {
       Math.floor(x - region.minX),
       Math.floor(y - region.minY),
     ]
-    // The floor around the eye is recorded; the void it is standing on is not.
+    // The clamp is one cell wider than the floor, though, and that cell is the wall band: the
+    // art of a room straddles its edge, so a record stopping at the floor put the stones of an
+    // explored room back under fog. The floors here are x 0..10 and x 12..22, so (11.5, 5.5) is
+    // beside both and lands, and (-1.5, 5.5) — two cells past the west edge — is void and does
+    // not, however plainly the eye in the doorway sees it.
     expect(getCell(region, ...cellAt(9.5, 5.5))).toBe(true)
-    expect(getCell(region, ...cellAt(11.5, 5.5))).toBe(false)
+    expect(getCell(region, ...cellAt(11.5, 5.5))).toBe(true)
+    expect(getCell(region, ...cellAt(-1.5, 5.5))).toBe(false)
+    // Recordable is not standable: the band is remembered and still refused underfoot.
     expect(table.vision.visionOf(SCENE)!.openGround!(11.5, 5.5)).toBe(false)
   })
 
@@ -594,12 +600,13 @@ describe('open ground: unzoned cells the party has been shown (D6 in vision mode
     })
     expect(table.vision.visionOf(SCENE)!.openGround!(GAP_X, GAP_Y)).toBe(false)
 
-    // The stroke is accepted and lands on nothing: `onAuthoredFloor` drops the cell, because
-    // no room on this map contains it. A token may never stand off the authored floor, and
-    // the record is not allowed to say otherwise — so the two islands of this fixture are
-    // joined by authoring floor between them, never by painting memory over the void.
+    // The stroke is accepted and the cell is written — the gap is two cells wide, so both of
+    // them are within a cell of a floor and both are wall band (`nearAuthoredFloor`). What the
+    // brush cannot do is make the gap *standable*: `openGround` asks the strict floor test, so
+    // the two islands of this fixture are still joined by authoring floor between them and
+    // never by painting memory across the seam.
     expect(table.run(DM, 'fog', 'region-set', { op: 'reveal', cells: [GAP] })).toBeNull()
-    expect(getCell(table.fogOf().region, ...GAP)).toBe(false)
+    expect(getCell(table.fogOf().region, ...GAP)).toBe(true)
     expect(table.vision.visionOf(SCENE)!.openGround!(GAP_X, GAP_Y)).toBe(false)
     expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toMatchObject({
       message: expect.stringContaining('cannot be occupied'),

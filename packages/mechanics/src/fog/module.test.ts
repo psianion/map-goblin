@@ -919,11 +919,11 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       expect(getCell(region, 1, 3)).toBe(false)
     })
 
-    // ── the floor clamp (`onAuthoredFloor`) ──────────────────────────────────
-    // A token may never stand off the authored floor, so the record may never say it can:
-    // the brush is one of the three writers that has to hold the line.
+    // ── the floor clamp (`nearAuthoredFloor`) ────────────────────────────────
+    // The record may hold the floor and the one cell of wall band around it, and nothing past
+    // that. Standable is the narrower question and `openGround` asks it separately.
 
-    it('drops the cells of a stroke that fall off the authored floor', () => {
+    it('keeps the wall band beside the floor and drops the void past it', () => {
       const { next, error } = fire(empty, DM, 'region-set', {
         op: 'reveal',
         cells: [
@@ -935,12 +935,30 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       // Not a refusal: the DM dragged a rect across the floor's edge and the floor half lands.
       expect(error).toBeNull()
       expect(getCell(scened(next).region, 4, 0)).toBe(true)
-      expect(getCell(scened(next).region, 8, 0)).toBe(false)
+      // Col 8's centre (8.5) is in no room, but col 7's (7.5) is: this is the band the crypt's
+      // wall art is drawn on, and dropping it is what put the stones back under fog.
+      expect(getCell(scened(next).region, 8, 0)).toBe(true)
+      // Col 9 is two cells out — no neighbour centre is on floor, so it is void and stays void.
       expect(getCell(scened(next).region, 9, 0)).toBe(false)
       // …and a stroke that is entirely off the floor writes a record with nothing in it.
       const nothing = fire(empty, DM, 'region-set', { op: 'reveal', cells: [[9, 1]] })
       expect(nothing.error).toBeNull()
       expect(getCell(scened(nothing.next).region, 9, 1)).toBe(false)
+    })
+
+    it('ships no room for a band cell, and latches the room its floor cells fall in', () => {
+      // A band cell is in no room, so it can latch none — the stroke's interior is what ships
+      // the geometry the band's memory has to sit on.
+      const banded = fire(empty, DM, 'region-set', { op: 'reveal', cells: [[8, 0]] }).next
+      expect(scened(banded).rooms.crypt).toBeUndefined()
+      const both = fire(empty, DM, 'region-set', {
+        op: 'reveal',
+        cells: [
+          [7, 0],
+          [8, 0],
+        ],
+      }).next
+      expect(scened(both).rooms.crypt).toMatchObject({ wasEverRevealed: true })
     })
 
     it('lets the eraser take back off-floor cells an older record already carries', () => {
@@ -1120,6 +1138,11 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       // loop used to take once every room was latched is gone: the floor clamp needs the
       // answer for every cell, latched or not, so the cost is the honest one and the pinned
       // number is what a 10×10 stroke costs.
+      //
+      // The band test is what makes it more than one per cell, but only for cells the centre
+      // lookup already said no to: a floor cell costs exactly one, a band cell costs three (its
+      // own centre, then the predicate re-asking it, then the first neighbour, which is inside),
+      // and a void cell pays all ten. Here that is 80 floor + 10 band × 3 + 10 void × 10.
       let lookups = 0
       const counted = fogModule(
         () => ROOMS,
@@ -1160,10 +1183,11 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
         'hall',
         'treasury',
       ])
-      expect(lookups).toBe(cells.length)
-      // …and the two columns past x = 8 are off the floor, so the stroke wrote neither.
+      expect(lookups).toBe(80 * 1 + 10 * 3 + 10 * 10)
+      // …and of the two columns past x = 8, the first is the wall band and lands, the second is
+      // void and does not.
       expect(getCell(scened(next).region, 7, 9)).toBe(true)
-      expect(getCell(scened(next).region, 8, 9)).toBe(false)
+      expect(getCell(scened(next).region, 8, 9)).toBe(true)
       expect(getCell(scened(next).region, 9, 9)).toBe(false)
     })
   })
