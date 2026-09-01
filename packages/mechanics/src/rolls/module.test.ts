@@ -61,6 +61,7 @@ describe('rolls.post validation', () => {
     ['formula', 100],
     ['breakdown', 200],
     ['text', 200],
+    ['description', 2000],
   ])('caps %s at %i characters', (field, max) => {
     const { post, ctx } = harness()
     const base = { source: 'manual', visibility: 'public' }
@@ -71,6 +72,13 @@ describe('rolls.post validation', () => {
     expect(post({ ...base, [field]: 42 })).toMatchObject({ code: 'invalid-command' })
     // Only the in-cap one landed.
     expect(ctx.state.log).toHaveLength(1)
+  })
+
+  it('accepts a 2000-char description and lands it on the event', () => {
+    const { post, ctx } = harness()
+    const description = 'x'.repeat(2000)
+    expect(post({ source: 'manual', visibility: 'public', description })).toBeUndefined()
+    expect(ctx.state.log[0]).toMatchObject({ description })
   })
 
   it('rejects a non-finite total and keeps a finite one', () => {

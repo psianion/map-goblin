@@ -142,6 +142,11 @@ export function LogDrawer() {
             {shown.map((e) => (
               <li key={e.key} data-whisper={e.whisper || undefined} className="min-w-0 leading-[22px]">
                 <LogLine e={e} />
+                {e.description && (
+                  <div className="ml-12 whitespace-pre-wrap break-words text-[11px] leading-4 text-text-muted">
+                    {e.description}
+                  </div>
+                )}
               </li>
             ))}
           </ol>

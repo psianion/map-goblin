@@ -23,6 +23,7 @@ export interface Entry {
   title?: string;
   formula?: string;
   breakdown?: string;
+  description?: string;
   total?: string;
   text?: string;
   whisper: boolean;
@@ -66,6 +67,7 @@ export function useLogEntries(): Entry[] {
       title: str(e?.title),
       formula: str(e?.formula),
       breakdown: str(e?.breakdown),
+      description: str(e?.description),
       total: Number.isFinite(e?.total) ? String(e.total) : undefined,
       text: str(e?.text),
       whisper: e?.visibility === 'private',
