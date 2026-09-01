@@ -17,6 +17,7 @@ import {
   fogModeOf,
   getCell,
   identityRegion,
+  onAuthoredFloor,
   regionFor,
   sceneFogOf,
   setCells,
@@ -510,8 +511,16 @@ function swept(
       // belongs to is not credited, so a boss chamber seen through an open door stays
       // the DM's to reveal (§5).
       if (inAnyLock(locks, x, y)) continue
-      cells.push([col, row])
       const room = map.roomAt(x, y)
+      // …and so does the floor. Line of sight runs off the map's edge — over the yards past a
+      // palisade, out into the black beyond a cave mouth — and every cell it crossed out there
+      // used to be written. Three things read that record and all three were wrong about it:
+      // `openGround` let a token stand on ground the map never authored, the containment fence
+      // counted it as opened, and the player's memory tier painted its grey over ground with no
+      // art under it at all, which is the flat-black patch the gate walk photographed. The
+      // record only ever meant "floor the table has opened", so the write is where that is said.
+      if (!onAuthoredFloor(map.rooms.length, room)) continue
+      cells.push([col, row])
       if (room !== null) rooms.add(room)
     }
   }
@@ -598,7 +607,17 @@ function openGroundOf(
       : computed.fog.region
   const region = regionFor(stored, computed.map.frame)
   if (!region) return undefined
-  return (x, y) => getCell(region, Math.floor(x - region.minX), Math.floor(y - region.minY))
+  // Two tests, cheap one first: the record has to hold the cell *and* the map has to author
+  // floor under it. A token may never stand off the authored floor — the record is memory of
+  // ground, and ground the map does not draw is not somewhere to be.
+  //
+  // This is also the migration: records written before the sweep and the brush were clamped
+  // still carry off-floor cells, and no pass rewrites them. Asking the floor at read time
+  // heals every one of those records the first time it is read, on the live table's own data,
+  // without a migration that would have to guess which cells were the bug.
+  return (x, y) =>
+    getCell(region, Math.floor(x - region.minX), Math.floor(y - region.minY)) &&
+    onAuthoredFloor(computed.map.rooms.length, computed.map.roomAt(x, y))
 }
 
 /** The same rooms, with everything the party has ever seen counting as lit. */

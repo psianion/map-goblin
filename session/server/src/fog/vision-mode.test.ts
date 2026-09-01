@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { Viewer } from '@dnd/mechanics/contract'
 import { doorsModule } from '@dnd/mechanics/doors'
-import { fogModule, getCell, type FogState, type SceneFog } from '@dnd/mechanics/fog'
+import { fogModule, getCell, setCells, type FogState, type SceneFog } from '@dnd/mechanics/fog'
 import { tokensModule, type Token, type TokensState } from '@dnd/mechanics/tokens'
 import { triggersModule, type TriggersState } from '@dnd/mechanics/triggers'
 import type { ServerMessage } from '@dnd/core/src/shared/protocol'
@@ -138,6 +138,14 @@ function wired(
     toPlayer,
     toPlayer2,
     fogOf,
+    /** Writes the scene's fog straight into module state — how a *stored* record is staged. */
+    setFog: (scene: SceneFog) => {
+      const state = stateOf<FogState>('fog') ?? { byScene: {} }
+      stores.moduleState.put(campaign.id, 'fog', {
+        ...state,
+        byScene: { ...state.byScene, [SCENE]: scene },
+      })
+    },
     tokensOf,
     /** Which triggers have fired, by id. */
     fired: () => Object.keys(stateOf<TriggersState>('triggers')?.byScene[SCENE]?.fired ?? {}),
@@ -332,6 +340,30 @@ describe('party-mode auto-explore (§4)', () => {
     // One fog write, on the existing path: the move's own frame, then fog, then the two
     // slices fog retracts. No second reveal route.
     expect(table.modules().slice(before)).toEqual(['tokens', 'fog', 'tokens', 'doors'])
+  })
+
+  it('records no cell the map authors no floor under, however plainly it is seen', () => {
+    // Line of sight does not stop at the floor's edge: it runs out over the yards between
+    // this fixture's two islands and, on the real map, off into the black past a palisade.
+    // Every cell it crossed out there used to be written, and three readers of the record
+    // were then wrong at once — a token could stand on the void, containment counted it as
+    // opened, and the player's memory tier painted grey over ground with no art under it,
+    // which is the flat black patch with grid dots the gate walk photographed.
+    // How the walk got there: the DM is fenced by none of the occupancy rules (`occupyRefusal`
+    // exempts them by design), so a DM drag can still put an eye out on the void — and the eye
+    // then sweeps from where it stands.
+    const table = wired()
+    const id = scouted(table)
+    expect(table.run(DM, 'tokens', 'move', { id, x: 11.5, y: 5.5 })).toBeNull()
+    const region = table.fogOf().region!
+    const cellAt = (x: number, y: number): [number, number] => [
+      Math.floor(x - region.minX),
+      Math.floor(y - region.minY),
+    ]
+    // The floor around the eye is recorded; the void it is standing on is not.
+    expect(getCell(region, ...cellAt(9.5, 5.5))).toBe(true)
+    expect(getCell(region, ...cellAt(11.5, 5.5))).toBe(false)
+    expect(table.vision.visionOf(SCENE)!.openGround!(11.5, 5.5)).toBe(false)
   })
 
   // The imported-battlemap switch, on the fixture that has walls so the reader can hold it.
@@ -554,7 +586,7 @@ describe('open ground: unzoned cells the party has been shown (D6 in vision mode
   /** East-room floor, and the cell over it — `EAST_CELL`'s centre by the same rule. */
   const [EAST_X, EAST_Y] = [12.5, 5.5]
 
-  it('refuses the gap until the DM brushes it, then lets a player stand there', () => {
+  it('refuses the gap, and the brush cannot open it: the map authors no floor there', () => {
     const table = wired()
     const id = scouted(table)
     expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toMatchObject({
@@ -562,20 +594,29 @@ describe('open ground: unzoned cells the party has been shown (D6 in vision mode
     })
     expect(table.vision.visionOf(SCENE)!.openGround!(GAP_X, GAP_Y)).toBe(false)
 
+    // The stroke is accepted and lands on nothing: `onAuthoredFloor` drops the cell, because
+    // no room on this map contains it. A token may never stand off the authored floor, and
+    // the record is not allowed to say otherwise — so the two islands of this fixture are
+    // joined by authoring floor between them, never by painting memory over the void.
     expect(table.run(DM, 'fog', 'region-set', { op: 'reveal', cells: [GAP] })).toBeNull()
-    expect(table.vision.visionOf(SCENE)!.openGround!(GAP_X, GAP_Y)).toBe(true)
-    expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toBeNull()
-    expect(table.tokensOf()[id]).toMatchObject({ x: GAP_X, y: GAP_Y })
+    expect(getCell(table.fogOf().region, ...GAP)).toBe(false)
+    expect(table.vision.visionOf(SCENE)!.openGround!(GAP_X, GAP_Y)).toBe(false)
+    expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toMatchObject({
+      message: expect.stringContaining('cannot be occupied'),
+    })
   })
 
-  it('takes the brush back with it — a hidden cell is unzoned map again', () => {
+  it('heals a record that already holds off-floor cells, at the moment it is read', () => {
+    // Written before the clamp existed, so no brush and no sweep would write it today. The
+    // floor test is taken on the *read* rather than in a migration, which heals every stored
+    // record on the live table without a pass that would have to guess which bits were the bug.
     const table = wired()
     const id = scouted(table)
-    table.run(DM, 'fog', 'region-set', { op: 'reveal', cells: [GAP] })
-    expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toBeNull()
+    const fog = table.fogOf()
+    table.setFog({ ...fog, region: setCells(fog.region!, [GAP]) })
+    expect(getCell(table.fogOf().region, ...GAP)).toBe(true)
 
-    table.run(DM, 'fog', 'region-set', { op: 'hide', cells: [GAP] })
-    expect(table.run(P1, 'tokens', 'move', { id, x: 2.5, y: 5.5 })).toBeNull()
+    expect(table.vision.visionOf(SCENE)!.openGround!(GAP_X, GAP_Y)).toBe(false)
     expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toMatchObject({
       message: expect.stringContaining('cannot be occupied'),
     })
