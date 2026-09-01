@@ -124,14 +124,53 @@ export function resolveDoors(
 }
 
 /**
+ * How far past its own wall a door's aperture still counts as the same opening:
+ * half the door's width, plus half a cell of slack.
+ *
+ * ponytail: the slack is the calibration knob. It exists because a hand-drawn map
+ * leaves a gap between where a floor shape stops and the wall its door sits in —
+ * `vision-two-rooms` leaves exactly one cell — and the `mergedFloor` ring edge in
+ * that gap is a solid occluder like any other. Widen it only with a map that
+ * measures it: every cell of reach is a cell of parallel wall a door can punch a
+ * hole in from the far side.
+ */
+const APERTURE_SLACK = 0.5;
+
+/** Past this much sine between them, two walls are not the same doorway. ~14°. */
+const APERTURE_PARALLEL = 0.25;
+
+/**
  * Resolved doors in the shape `buildOcclusionSegments` groups by: `wallId` is
  * the resolved wall's, `position` is the projected one. Detached doors are
  * dropped so a door with no wall never blocks light from nowhere.
+ *
+ * `walls` opts a caller into the *aperture* rule, and only the occlusion path
+ * wants it: a doorway is a gap in the geometry, not a gap in one wall. A door
+ * resolves onto exactly one wall, so on a map whose floor stops short of the wall
+ * its door is in, the ring edges either side of that wall stayed solid and the
+ * door opened onto nothing — the referee's sweep and the table's mask both
+ * stopped at the floor's edge no matter what the DM did with the door. Every wall
+ * running the same way as the door and inside its aperture is pierced by it, so
+ * they open and shut together. A wall crossing the jamb at an angle is a
+ * different wall and is left alone.
  */
-export function toOcclusionDoors(resolved: ResolvedDoor[]): DoorChild[] {
-  return resolved
-    .filter((r) => !r.detached)
-    .map((r) => ({ ...r.door, wallId: r.wall!.id, position: r.position, angle: r.angle }));
+export function toOcclusionDoors(
+  resolved: ResolvedDoor[],
+  walls: ResolvedWall[] = [],
+): DoorChild[] {
+  const doors: DoorChild[] = [];
+  for (const r of resolved) {
+    if (r.detached) continue;
+    doors.push({ ...r.door, wallId: r.wall!.id, position: r.position, angle: r.angle });
+    const reach = r.door.width / 2 + APERTURE_SLACK;
+    for (const wall of walls) {
+      if (wall.id === r.wall!.id) continue;
+      const snap = snapToNearestWall(r.position, [wall], reach);
+      if (!snap || Math.abs(Math.sin(snap.angle - r.angle)) > APERTURE_PARALLEL) continue;
+      doors.push({ ...r.door, wallId: wall.id, position: snap.position, angle: snap.angle });
+    }
+  }
+  return doors;
 }
 
 /**

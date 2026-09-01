@@ -121,11 +121,38 @@ describe('the party sweep the mask is cut to (S3 P2 §2)', () => {
         [0, 10],
       ],
     ];
-    // The ring's own east edge (x=10) now occludes independently of the door on wall-mid
-    // (x=11, open) — the party is boxed inside their floor's authored footprint.
-    expect(sees(createSightCache().partySight(boxed, [scout()]), [12.5, 5])).toBe(false);
+    // The ring's own east edge (x=10) occludes everywhere the doorway is not: level with the
+    // door it is part of that doorway and opens with it, a cell and a half above it is floor
+    // boundary and stops the sweep exactly as the wall behind it does.
+    //
+    // This row used to assert the opposite at y=5 — that an open door on `wall-mid` left the
+    // ring edge a cell in front of it solid, boxing the party inside their own floor. That is
+    // the bug `toOcclusionDoors`' aperture rule fixes: a doorway is one gap through everything
+    // standing in it, and a DM who opens a door on a map whose floor stops short of the wall
+    // must not be opening a door onto a second wall nobody can see.
+    expect(sees(createSightCache().partySight(boxed, [scout()]), [12.5, 5])).toBe(true);
+    expect(sees(createSightCache().partySight(boxed, [scout()]), [12.5, 2.5])).toBe(false);
     // …and still sees to its own edge, inside the ring.
     expect(sees(createSightCache().partySight(boxed, [scout()]), [9.5, 5])).toBe(true);
+  });
+
+  it('keeps a mergedFloor edge solid where no door pierces it', () => {
+    // The other half of the aperture rule, and the one that keeps it honest: the same ring,
+    // the same open door, and a sweep taken from level with the ring's edge but well clear of
+    // the doorway. Nothing is opened here, so nothing gets through — a rule that widened a
+    // door into a hole in the whole ring would read `true` on both of these.
+    const boxed = layersWith([door({ state: 'open' })]);
+    (boxed[0] as unknown as { mergedFloor: unknown }).mergedFloor = [
+      [
+        [0, 0],
+        [10, 0],
+        [10, 10],
+        [0, 10],
+      ],
+    ];
+    const low = createSightCache().partySight(boxed, [scout({ y: 1 })]);
+    expect(sees(low, [9.5, 1])).toBe(true);
+    expect(sees(low, [12.5, 1])).toBe(false);
   });
 
   it('draws through claimed, unhidden, sighted eyes and no others', () => {

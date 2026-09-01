@@ -16,10 +16,15 @@ export function extractWallSegments(dungeonLayers: DungeonLayer[]): Segment[] {
     // Every wall — standalone and floor-ring alike — split at its doors in one
     // place. Only segments with blocksLight=true become light-blocking segments,
     // so an open door on a floor edge passes light like any other open door.
+    //
+    // `walls` is handed on so a door splits every wall inside its aperture and not
+    // only the one it resolved onto: a floor ring that stops a cell short of the
+    // wall a door sits in is part of that doorway, and left whole it holds sight
+    // back with the door wide open.
     const walls = resolveWalls(layer)
     const doors = resolveDoors(layer, walls).filter((d) => d.door.visible)
 
-    const occlusionSegs = buildOcclusionSegments(walls, toOcclusionDoors(doors))
+    const occlusionSegs = buildOcclusionSegments(walls, toOcclusionDoors(doors, walls))
     for (const seg of occlusionSegs) {
       if (!seg.blocksLight) continue
       const pts = seg.points

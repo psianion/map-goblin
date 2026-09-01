@@ -173,6 +173,16 @@ function scouted(
   return id
 }
 
+// Every row in this file runs against the occluders a *running* server has, not a subset of
+// them: `startServer` loads Clipper before it accepts a connection, so `sceneMap.ts`'s
+// `healMergedFloor` always fires there and this fixture's two floor rings are always walls.
+// Awaiting it in one describe block and nowhere else is what let the door rows below pass for
+// months against a map with no floor edges in it while the same door did nothing at a real
+// table (`sprint3-vision.spec.ts`, "opening the door grows the clear area").
+beforeAll(async () => {
+  expect(await ensureClipperReady()).toBe(true)
+})
+
 describe('the party sweep the server keeps (S3 P1 §3)', () => {
   it('sees across its own room and not through the wall, until the door opens', () => {
     const table = wired()
