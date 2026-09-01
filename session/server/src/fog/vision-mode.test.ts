@@ -1605,6 +1605,12 @@ describe('contained sight (the fence live sight plays inside)', () => {
     // Swept at its own range, an eye's polygon is already inside the disc the fence measures,
     // so the range term can add nothing and the held term has nothing to add it to. No special
     // case in the rule — this row is the assertion that none is needed.
+    //
+    // The equality carries one carve-out, and this scene is deliberately clear of it: locked
+    // ground. Range-limit alone shows a locked cell inside an eye's range, range-limit *plus*
+    // containment hides it, because the fence subtracts the locks from the range-earned term
+    // (`seen`'s `inAnyLock`). That difference is the feature and not a divergence — R4 pins
+    // the locked side of it, this row pins everywhere else.
     const played = (containedSight: boolean) => {
       const table = wired()
       table.run(DM, 'fog', 'set-mode', { mode: 'vision' })

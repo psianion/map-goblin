@@ -26,6 +26,8 @@ export interface MapDeltaLayer {
 export interface MapDelta {
   sceneId: string;
   layers: MapDeltaLayer[];
+  /** The re-cut `lockMask` a room reveal owes this seat — see `SerializedMapData.lockMask`. */
+  lockMask?: SerializedMapData['lockMask'];
 }
 
 /**
@@ -149,6 +151,10 @@ export function mergeMapDelta(
   const byId = new Map(delta.layers.map((layer) => [layer.id, layer]));
   const merged: SerializedMapData = {
     ...current,
+    // The reveal's own re-cut fence, when it carries one: the rooms this delta ships are
+    // exactly what widens the ground a contained near pass may open, so the mask that fences
+    // it has to arrive in the same message the art does (`MapDelta.lockMask`).
+    ...(delta.lockMask ? { lockMask: delta.lockMask } : {}),
     layers: current.layers.map((layer) => {
       const patch = byId.get(layer.id);
       if (!patch || layer.type !== 'dungeon') return layer;

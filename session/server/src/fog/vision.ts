@@ -40,6 +40,7 @@ import {
   childDeltaFor,
   keptChildIds,
   doorKept,
+  lockMaskFor,
   mapDeltaFor,
   redactMapForViewer,
   exploredRooms,
@@ -295,7 +296,13 @@ export function createVision(stores: Stores): Vision {
     const revealed = [...explored].filter((room) => !previous?.explored.has(room))
     // Cut once per mutation, not once per viewer: every player at the table is owed the same
     // rooms, and the slice is the expensive half of a reveal.
-    const roomDelta = revealed.length ? mapDeltaFor(map, sceneId, revealed, doors, explored) : null
+    // …and the room cut carries the re-cut lock mask with it. The mask is the seat's fence for
+    // its own near pass and it is cut against the rooms that seat holds, so the message that
+    // grows that set is the one that owes the new fence — the same D5 debt the geometry pays.
+    // Only on a room delta: `exploredRooms` never shrinks and nothing else moves the answer.
+    const roomDelta = revealed.length
+      ? { ...mapDeltaFor(map, sceneId, revealed, doors, explored), lockMask: lockMaskFor(map, fog, explored) }
+      : null
     // …and the same question asked of every *child*, which is what a reveal that moves no room
     // at all still owes. Two of those exist: a `reveal-secret`, whose door child was cut while
     // it was a secret (D2), and the cell brush — brushed ground is a reveal, so the art stamped

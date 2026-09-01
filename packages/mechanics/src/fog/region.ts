@@ -147,9 +147,11 @@ function write(region: RegionMask, cells: readonly Cell[], on: boolean): RegionM
  * fill rather than a `cols × rows` cell list, because that list is up to `REGION_CELL_MAX`
  * pairs to build and hand to `setCells` for a result that is all-ones either way.
  *
- * The tail bits past `cols * rows` in the last byte come on too. Nothing can read them:
- * every reader is `getCell`, which bounds-checks against `cols`/`rows` before it indexes,
- * and the mask's length is derived from those two numbers and not from the bits.
+ * The tail bits past `cols * rows` in the last byte come on too. Nothing can read them: every
+ * reader either bounds-checks against `cols`/`rows` before it indexes (`getCell`, `write`,
+ * the server's own decoded lookups) or enumerates the lattice as `cols × rows` and never
+ * reaches the tail at all (`cellTexture`, `regionRects`), and the mask's length is derived
+ * from those two numbers and not from the bits.
  */
 export function fillRegion(region: RegionMask): RegionMask {
   return { ...region, bits: toBase64(new Uint8Array(toBytes(region.bits).length).fill(0xff)) }

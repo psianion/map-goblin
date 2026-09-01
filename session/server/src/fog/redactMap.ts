@@ -6,7 +6,16 @@
 // Unzoned map is the DM's alone (D6) and an unrevealed secret door does not exist.
 
 import { seedDoor, type AuthoredDoor, type DoorLiveState } from '@dnd/mechanics/doors'
-import { fogModeOf, tableRegion, toBytes, type SceneFog } from '@dnd/mechanics/fog'
+import {
+  fogModeOf,
+  regionOf,
+  setCells,
+  tableRegion,
+  toBytes,
+  type Cell,
+  type RegionMask,
+  type SceneFog,
+} from '@dnd/mechanics/fog'
 import type { AnyChild, DoorChild, Room, ShapeChild, WallSegment } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import {
@@ -18,6 +27,7 @@ import {
   wallsOf,
   type SceneMap,
 } from './sceneMap'
+import { exploreLocks, inAnyLock } from './sweep'
 
 /** One layer's worth of newly available geometry, shaped to be merged by layer id. */
 export interface MapDeltaLayer {
@@ -35,6 +45,15 @@ export interface MapDeltaLayer {
 export interface MapDelta {
   sceneId: string
   layers: MapDeltaLayer[]
+  /**
+   * The re-cut `lockMask` (see {@link lockMaskFor}), when this delta credits rooms — the same
+   * debt D5 makes a reveal pay for geometry, for the same reason. The mask is cut against the
+   * rooms a seat holds, a reveal is what grows that set, and nothing else re-cuts a connected
+   * seat's document: `mergeMapDelta` patches layers and the client re-fetches only on a join,
+   * a scene swap, a republish or a mode flip. Without this the newly shipped room's locked
+   * ground would have art, no fence, and no correction ever coming.
+   */
+  lockMask?: RegionMask
 }
 
 type Doors = Record<string, DoorLiveState>
@@ -72,9 +91,11 @@ export function redactMapForViewer(
   // Built once for the whole document, not once per layer: the ground lookup decodes the
   // region record, and the room boxes are a walk over every kept boundary.
   const cut = cutFor(scene, kept, groundOf(fog, scene.frame))
+  const lockMask = lockMaskFor(scene, fog, kept)
   return {
     ...docSansPrep,
     ...(framed ? { frame: scene.frame } : {}),
+    ...(lockMask ? { lockMask } : {}),
     layers: scene.data.layers.map((layer) => {
       if (!isDungeon(layer)) return layer
       // A layer nobody zoned has no fog to enforce — room-granular fog needs rooms (D6) — so
@@ -359,6 +380,83 @@ export function groundOf(fog: SceneFog, frame: SceneMap['frame']): Ground {
     }
     return false
   }
+}
+
+/**
+ * The auto-explore locks a player's own mask has to fence its near pass with, as cells.
+ *
+ * Zones are prep and never travel (`slice`, "prep never travels"), so a seat has no way to
+ * derive them — and without them a contained near pass clears fog over ground the referee
+ * refuses to write (`sweep.ts`'s `seen`, `vision.ts`'s `swept`), permanently, because the
+ * server never sends a correction for a cell it declined to grant. So the zones' *cells* ride
+ * the document instead: the same `inAnyLock` test the referee applies, evaluated on the cell
+ * centres `cellsCoveredByPolygon` counts by, so the fence and the refusal are the same shape.
+ *
+ * Intersected with the ground this seat actually holds art for, and that is the privacy half:
+ * a lock in a room nobody has earned would put its position on the wire. On a zoned map that
+ * is the kept rooms and their band (`nearKeptRoom` — the client's own `shippedGround` grows
+ * the room polygons by the very same pad), and nothing outside it needs a fence anyway, since
+ * `inverseShipped` already refuses to open ground with no art under it. A roomless map ships
+ * its image whole (#114), so every lock cell on it is one the near pass could otherwise open.
+ *
+ * Vision mode only — containment is a vision-mode feature and rooms mode reads none of this —
+ * and absent entirely when the map locks nothing, which is nearly every map.
+ *
+ * ponytail: scanned over the locks' own bounding box rather than the frame, because a frame
+ * runs to `REGION_CELL_MAX` (262144 cells) and the zones on it are a few dozen cells across.
+ */
+export function lockMaskFor(
+  scene: SceneMap,
+  fog: SceneFog,
+  kept: ReadonlySet<string>,
+): RegionMask | undefined {
+  if (fogModeOf(fog) !== 'vision' || !scene.frame) return undefined
+  const locks = exploreLocks(scene.zones)
+  const box = lockBox(locks)
+  const mask = box && regionOf(scene.frame)
+  if (!box || !mask) return undefined
+  // A map with rooms fences by the rooms this seat holds; a roomless one ships whole, so
+  // every lock cell counts.
+  const cut = scene.rooms.length > 0 ? cutFor(scene, kept) : null
+  const cells: Cell[] = []
+  const from = (v: number, origin: number) => Math.max(0, Math.floor(v - origin))
+  for (let row = from(box.minY, mask.minY); row < Math.min(mask.rows, Math.ceil(box.maxY - mask.minY)); row++) {
+    for (let col = from(box.minX, mask.minX); col < Math.min(mask.cols, Math.ceil(box.maxX - mask.minX)); col++) {
+      const [x, y] = [mask.minX + col + 0.5, mask.minY + row + 0.5]
+      if (!inAnyLock(locks, x, y)) continue
+      if (cut) {
+        const room = scene.roomAt(x, y)
+        if (!(room !== null && cut.kept.has(room)) && !nearKeptRoom(cut, x, y)) continue
+      }
+      cells.push([col, row])
+    }
+  }
+  return cells.length > 0 ? setCells(mask, cells) : undefined
+}
+
+/** The one box every lock zone fits in, or null when the map locks nothing. */
+function lockBox(
+  locks: ReturnType<typeof exploreLocks>,
+): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity]
+  for (const shape of locks) {
+    const [x0, y0, x1, y1] =
+      shape.kind === 'circle'
+        ? [
+            shape.position.x - shape.radius,
+            shape.position.y - shape.radius,
+            shape.position.x + shape.radius,
+            shape.position.y + shape.radius,
+          ]
+        : shape.kind === 'rect'
+          ? [shape.x, shape.y, shape.x + shape.width, shape.y + shape.height]
+          : [Infinity, Infinity, -Infinity, -Infinity]
+    minX = Math.min(minX, x0)
+    minY = Math.min(minY, y0)
+    maxX = Math.max(maxX, x1)
+    maxY = Math.max(maxY, y1)
+  }
+  return maxX > minX && maxY > minY ? { minX, minY, maxX, maxY } : null
 }
 
 /**

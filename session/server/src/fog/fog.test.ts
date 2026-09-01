@@ -5,7 +5,15 @@
 // integration.test.ts, against a running server; these are the rules themselves.
 
 import { describe, expect, it } from 'vitest'
-import { fogModule, regionOf, setCells, type FogState, type SceneFog } from '@dnd/mechanics/fog'
+import {
+  fogModule,
+  getCell,
+  regionOf,
+  setCells,
+  type FogState,
+  type RegionMask,
+  type SceneFog,
+} from '@dnd/mechanics/fog'
 import { doorsModule, type DoorsState } from '@dnd/mechanics/doors'
 import type { Viewer } from '@dnd/mechanics/contract'
 import type { Token, TokensState } from '@dnd/mechanics/tokens'
@@ -17,7 +25,7 @@ import { openDb } from '../db/db'
 import { createStores, type Stores } from '../db/stores'
 import { ModuleRegistry } from '../modules/registry'
 import { buildRedactor, type OutboundMessage } from '../ws/Broadcaster'
-import { mapDeltaFor, redactMapForViewer } from './redactMap'
+import { lockMaskFor, mapDeltaFor, redactMapForViewer } from './redactMap'
 import { centreOf, createSceneMaps } from './sceneMap'
 import { createVision } from './vision'
 
@@ -1069,6 +1077,112 @@ describe('prep and zones (schema 3.1)', () => {
       mapDeltaFor(scene, SCENE, rooms, {}).layers.flatMap((l) => l.children).filter((c) => c.childType === 'zone')
     expect(zonesIn(['hall'])).toEqual([])
     expect(zonesIn(['vault'])).toEqual([])
+  })
+})
+
+// ── the lock mask a player's own fence is cut from ─────────────────────────
+// Zones never travel, and a player's contained near pass has to be fenced by the same lock
+// zones the referee refuses to write cells inside (`swept`/`inAnyLock`). So the *cells* go
+// over instead, intersected with the ground that seat holds art for — a lock in a room
+// nobody has earned would put its position on the wire, which is the leak the zone strip
+// exists to stop in the first place.
+
+describe('lockMask (post-review: the fence a player can actually apply)', () => {
+  const locked = (id: string, x: number, y: number): AnyChild => ({
+    ...(zone(id, { kind: 'rect', x, y, width: 2, height: 2 }) as object),
+    blocksAutoExplore: true,
+  }) as AnyChild
+
+  /** A lock in the (explored) hall and a lock in the vault nobody has ever seen. */
+  function withLocks(rooms = true): SerializedMapData {
+    const base = mapFile()
+    const layer = base.layers[0] as DungeonLayer
+    const next: DungeonLayer = {
+      ...layer,
+      children: [...layer.children, locked('lock-hall', 2, 2), locked('lock-vault', 32, 2)],
+    }
+    if (!rooms) delete next.rooms
+    return { ...base, layers: [next] }
+  }
+
+  function sceneFor(data: SerializedMapData) {
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Crypt')
+    stores.maps.insert(SCENE, campaign.id, 'Crypt', JSON.stringify(data))
+    stores.scenes.create(SCENE, campaign.id, SCENE, 'Crypt')
+    return createSceneMaps(stores).sceneMapOf(SCENE)!
+  }
+
+  const vision = (over: Partial<SceneFog> = {}) => fog({ mode: 'vision', ...over })
+  /** Is the cell that world point falls in locked, as the seat's mask reads it? */
+  const at = (mask: RegionMask | undefined, x: number, y: number) =>
+    getCell(mask, Math.floor(x - (mask?.minX ?? 0)), Math.floor(y - (mask?.minY ?? 0)))
+
+  it('carries the locks in the rooms this seat holds, and only those', () => {
+    const scene = sceneFor(withLocks())
+    const mask = redactMapForViewer(scene, vision(), {}).lockMask
+    expect(mask).toBeDefined()
+    // The hall is explored, so its lock is a fence the seat can and must apply.
+    expect(at(mask, 2.5, 2.5)).toBe(true)
+    expect(at(mask, 3.5, 3.5)).toBe(true)
+    // The vault is not, and the mask says nothing about it — a bit set there would be the
+    // position of a locked chamber, disclosed by the very field that hides it.
+    expect(at(mask, 32.5, 2.5)).toBe(false)
+    expect(at(mask, 33.5, 3.5)).toBe(false)
+    // …and nothing outside either zone is fenced.
+    expect(at(mask, 6.5, 6.5)).toBe(false)
+  })
+
+  it('gives the DM nothing — their copy has the zones themselves', () => {
+    const scene = sceneFor(withLocks())
+    expect(scene.data.lockMask).toBeUndefined()
+    expect(
+      (scene.data.layers[0] as DungeonLayer).children.filter((c) => c.childType === 'zone'),
+    ).toHaveLength(2)
+  })
+
+  it('fences every lock on a roomless map, which ships its image whole', () => {
+    // #114: no rooms, so the whole frame is shipped ground and every lock cell on it is one
+    // the near pass could otherwise peel by range alone.
+    const mask = redactMapForViewer(sceneFor(withLocks(false)), vision(), {}).lockMask
+    expect(at(mask, 2.5, 2.5)).toBe(true)
+    expect(at(mask, 32.5, 2.5)).toBe(true)
+    expect(at(mask, 20.5, 5.5)).toBe(false)
+  })
+
+  it('is absent with no locks to state, and absent outside vision mode', () => {
+    // Nearly every map: the field costs a seat nothing it does not need.
+    expect(redactMapForViewer(sceneFor(mapFile()), vision(), {}).lockMask).toBeUndefined()
+    // …and rooms mode is untouched by the whole feature — containment is vision-only.
+    expect(redactMapForViewer(sceneFor(withLocks()), fog(), {}).lockMask).toBeUndefined()
+  })
+
+  it('rides the reveal that widens the ground it fences', () => {
+    // The freshness half. `mergeMapDelta` patches layers and nothing else, and a connected
+    // seat re-fetches its document only on a join, a scene swap, a republish or a mode flip —
+    // so the message that ships a newly credited room's art is the one that owes the new
+    // fence, exactly as D5 makes it owe the geometry. Without it the seat holds the vault's
+    // art, no fence over the lock in it, and no correction ever coming.
+    const scene = sceneFor(withLocks())
+    expect(at(lockMaskFor(scene, vision(), new Set(['hall', 'inner', 'vault'])), 32.5, 2.5)).toBe(true)
+    expect(at(lockMaskFor(scene, vision(), new Set(['hall'])), 32.5, 2.5)).toBe(false)
+
+    // …and the delta really carries it, cut against the rooms that delta just credited.
+    const stores = createStores(openDb(':memory:'))
+    const campaign = stores.campaigns.create('Crypt')
+    stores.maps.insert(SCENE, campaign.id, 'Crypt', JSON.stringify(withLocks()))
+    stores.scenes.create(SCENE, campaign.id, SCENE, 'Crypt')
+    const seer = createVision(stores)
+    stores.moduleState.put(campaign.id, 'fog', { byScene: { [SCENE]: vision() } } satisfies FogState)
+    expect(at(seer.revealDelta(SCENE)?.lockMask, 2.5, 2.5)).toBe(true)
+    stores.moduleState.put(campaign.id, 'fog', {
+      byScene: {
+        [SCENE]: vision({ rooms: { ...fog().rooms, vault: { status: 'revealed', wasEverRevealed: true } } }),
+      },
+    } satisfies FogState)
+    const widened = seer.revealDelta(SCENE)
+    expect(widened?.layers[0].rooms.map((r) => r.id)).toEqual(['vault'])
+    expect(at(widened?.lockMask, 32.5, 2.5)).toBe(true)
   })
 })
 
