@@ -221,3 +221,66 @@ describe('toOcclusionDoors', () => {
     expect(segments).toHaveLength(6);
   });
 });
+
+describe('toOcclusionDoors — the aperture is the door span, not the whole wall', () => {
+  /**
+   * How a map is actually drawn: wall, a short wall the door fills, wall. The
+   * jambs start at exactly `width / 2` from the door's centre, which is inside
+   * the perpendicular search reach — the span clip is the only thing keeping
+   * them solid.
+   */
+  const jambed = (state: DoorChild['state'], extra: Partial<DungeonLayer> = {}) =>
+    layer({
+      standaloneWalls: [
+        wall({ id: 'left', points: [[0, 0], [4, 0]] }),
+        wall({ id: 'doorway', points: [[4, 0], [6, 0]] }),
+        wall({ id: 'right', points: [[6, 0], [10, 0]] }),
+      ],
+      children: [door({ wallId: 'doorway', position: [5, 0], width: 2, state })],
+      ...extra,
+    });
+
+  const segmentsOf = (l: DungeonLayer) => {
+    const walls = resolveWalls(l);
+    return buildOcclusionSegments(walls, toOcclusionDoors(resolveDoors(l, walls), walls));
+  };
+
+  it('leaves a jamb abutting the door edge solid with the door open', () => {
+    const segments = segmentsOf(jambed('open'));
+    const jamb = (id: string) => segments.filter((s) => s.sourceId === id);
+    expect(jamb('left').map((s) => s.points)).toEqual([[[0, 0], [4, 0]]]);
+    expect(jamb('right').map((s) => s.points)).toEqual([[[6, 0], [10, 0]]]);
+    expect(jamb('left')[0].blocksLight).toBe(true);
+    expect(jamb('right')[0].blocksLight).toBe(true);
+  });
+
+  it("opens the door's own span", () => {
+    const gap = segmentsOf(jambed('open')).find((s) => s.sourceType === 'door');
+    expect(gap!.blocksLight).toBe(false);
+    expect(gap!.points).toEqual([[4, 0], [6, 0]]);
+  });
+
+  it('holes a wall spanning the doorway across the span only', () => {
+    // A `mergedFloor` ring whose edge runs the whole length one cell in front of
+    // the doorway — the case the aperture rule exists for.
+    const segments = segmentsOf(
+      jambed('open', { mergedFloor: [[[0, 1], [10, 1], [10, 11], [0, 11]]] }),
+    );
+    const spanning = segments.filter((s) => s.sourceId === 'floor:0:0');
+    expect(spanning.map((s) => s.points)).toEqual([
+      [[0, 1], [4, 1]],
+      [[6, 1], [10, 1]],
+    ]);
+    expect(spanning.every((s) => s.blocksLight)).toBe(true);
+    const gaps = segments.filter((s) => s.sourceType === 'door' && s.points[0][1] === 1);
+    expect(gaps.map((s) => s.points)).toEqual([[[4, 1], [6, 1]]]);
+    expect(gaps[0].blocksLight).toBe(false);
+  });
+
+  it('occludes everything with the door closed', () => {
+    const segments = segmentsOf(
+      jambed('closed', { mergedFloor: [[[0, 1], [10, 1], [10, 11], [0, 11]]] }),
+    );
+    expect(segments.every((s) => s.blocksLight)).toBe(true);
+  });
+});

@@ -124,20 +124,61 @@ export function resolveDoors(
 }
 
 /**
- * How far past its own wall a door's aperture still counts as the same opening:
- * half the door's width, plus half a cell of slack.
+ * How far *sideways* off the door another wall may stand and still be searched
+ * as part of the same doorway: half the door's width, plus half a cell of slack.
+ * This is the perpendicular reach only — how much of a wall it finds gets cut is
+ * decided by `apertureOnWall`, which clips to the door's own span.
  *
  * ponytail: the slack is the calibration knob. It exists because a hand-drawn map
  * leaves a gap between where a floor shape stops and the wall its door sits in —
  * `vision-two-rooms` leaves exactly one cell — and the `mergedFloor` ring edge in
- * that gap is a solid occluder like any other. Widen it only with a map that
- * measures it: every cell of reach is a cell of parallel wall a door can punch a
- * hole in from the far side.
+ * that gap is a solid occluder like any other. Widening it costs nothing along
+ * the wall now; it only reaches further across the gap.
  */
 const APERTURE_SLACK = 0.5;
 
 /** Past this much sine between them, two walls are not the same doorway. ~14°. */
 const APERTURE_PARALLEL = 0.25;
+
+/** Shorter than this, an overlap is float noise at an abutment, not a doorway. */
+const APERTURE_MIN_SPAN = 1e-6;
+
+/**
+ * The stretch of `wall` the door's own span covers, expressed as the door
+ * `buildOcclusionSegments` would cut it out with — centre and width of the
+ * overlap between the door's span projected onto the wall's chord and the chord
+ * itself. `null` when the two only abut.
+ *
+ * This is what stops the aperture from being a whole-wall toggle. The occlusion
+ * split projects the door centre onto the wall *clamped to its ends*, so a jamb
+ * that merely starts where the door stops would take a full door's width of hole
+ * anchored at that end — the entire flanking segment swinging transparent with
+ * the door. Clipped to the span, a jamb overlaps by nothing and stays solid,
+ * while a ring edge running past the doorway gets a hole exactly the doorway
+ * wide and stays solid either side of it.
+ */
+function apertureOnWall(
+  r: ResolvedDoor,
+  wall: ResolvedWall,
+): { position: [number, number]; width: number } | null {
+  const a = wall.points[0];
+  const b = wall.points[wall.points.length - 1];
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (len < APERTURE_MIN_SPAN) return null;
+  const ux = (b[0] - a[0]) / len;
+  const uy = (b[1] - a[1]) / len;
+  const half = r.door.width / 2;
+  const dx = Math.cos(r.angle) * half;
+  const dy = Math.sin(r.angle) * half;
+  const along = (x: number, y: number) => (x - a[0]) * ux + (y - a[1]) * uy;
+  const s1 = along(r.position[0] - dx, r.position[1] - dy);
+  const s2 = along(r.position[0] + dx, r.position[1] + dy);
+  const lo = Math.max(0, Math.min(s1, s2));
+  const hi = Math.min(len, Math.max(s1, s2));
+  if (hi - lo < APERTURE_MIN_SPAN) return null;
+  const mid = (lo + hi) / 2;
+  return { position: [a[0] + ux * mid, a[1] + uy * mid], width: hi - lo };
+}
 
 /**
  * Resolved doors in the shape `buildOcclusionSegments` groups by: `wallId` is
@@ -151,8 +192,9 @@ const APERTURE_PARALLEL = 0.25;
  * door opened onto nothing — the referee's sweep and the table's mask both
  * stopped at the floor's edge no matter what the DM did with the door. Every wall
  * running the same way as the door and inside its aperture is pierced by it, so
- * they open and shut together. A wall crossing the jamb at an angle is a
- * different wall and is left alone.
+ * they open and shut together — but only across the door's own span, never along
+ * their whole length. A wall crossing the jamb at an angle is a different wall
+ * and is left alone.
  */
 export function toOcclusionDoors(
   resolved: ResolvedDoor[],
@@ -167,7 +209,9 @@ export function toOcclusionDoors(
       if (wall.id === r.wall!.id) continue;
       const snap = snapToNearestWall(r.position, [wall], reach);
       if (!snap || Math.abs(Math.sin(snap.angle - r.angle)) > APERTURE_PARALLEL) continue;
-      doors.push({ ...r.door, wallId: wall.id, position: snap.position, angle: snap.angle });
+      const cut = apertureOnWall(r, wall);
+      if (!cut) continue;
+      doors.push({ ...r.door, wallId: wall.id, ...cut, angle: snap.angle });
     }
   }
   return doors;
