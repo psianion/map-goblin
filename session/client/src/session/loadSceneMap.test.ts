@@ -208,6 +208,60 @@ describe('swapSceneMap', () => {
   });
 
   /**
+   * C3 — a player's connector arrives already redacted into a door child, so the table draws
+   * its mark and the panel lists it with no client rule at all. The DM's document is the map
+   * whole, blob and all, so the one seat that may open the joint would be the one seat unable
+   * to: the twin is appended here, beside the blob rather than instead of it.
+   */
+  it('gives the DM a door twin for every connector, keeping the blob', async () => {
+    stubFetch({
+      version: '3.0',
+      layers: [
+        {
+          id: 'l1',
+          type: 'dungeon',
+          children: [
+            { id: 'r1', childType: 'room', name: 'Hall', visible: true, contours: [[[0, 0]]] },
+            {
+              id: 'c1',
+              childType: 'connector',
+              name: 'the neck',
+              visible: true,
+              kind: 'door',
+              state: 'closed',
+              isSecret: false,
+              contours: [
+                [
+                  [9, 4],
+                  [13, 4],
+                  [13, 6],
+                  [9, 6],
+                ],
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    useSessionStore.setState({
+      you: { identityId: 'dm1', name: 'Ann', role: 'dm', connected: true },
+    });
+
+    await swapSceneMap('s1', 'm1', 'tok');
+
+    expect(childIds()).toEqual(['r1', 'c1', 'c1']);
+    const data = useSessionStore.getState().mapData as {
+      layers: { children: { id: string; childType: string; width?: number }[] }[];
+    };
+    expect(data.layers[0].children[2]).toMatchObject({
+      id: 'c1',
+      childType: 'door',
+      width: 4,
+      state: 'closed',
+    });
+  });
+
+  /**
    * The other half of D2. The server only sends a secret door's child once the DM has
    * revealed it *and* the party has explored a room it is bound to; a filter that reads the
    * authored `isSecret` flag alone throws that away again, and the door reaches the player's
