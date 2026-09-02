@@ -13,7 +13,6 @@ export const TOOLS_WITH_POPOVER = new Set<ToolType>([
   'terrain',
   'water',
   'zone',
-  'connector',
 ]);
 
 /**

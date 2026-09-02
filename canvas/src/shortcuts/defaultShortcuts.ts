@@ -321,16 +321,6 @@ const toolKeyMap: Record<string, () => void | false> = {
     useStore.getState().setActiveTool('room');
     notify.subtle('Room', { icon: 'tool' });
   },
-  // J for join, which is what a connector is.
-  j: () => {
-    const s = useStore.getState();
-    if (s.tools.activeTool === 'connector') {
-      togglePopoverRef.current?.();
-    } else {
-      s.setActiveTool('connector');
-      notify.subtle('Connector', { icon: 'tool' });
-    }
-  },
   // Mode toggles
   e: () => {
     const s = useStore.getState();
@@ -717,7 +707,6 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'tool.light',          keys: 'l',           category: 'Tools', label: 'Light' },
     { id: 'tool.zone',           keys: 'z',           category: 'Tools', label: 'Zone' },
     { id: 'tool.room',           keys: 'o',           category: 'Tools', label: 'Room' },
-    { id: 'tool.connector',      keys: 'j',           category: 'Tools', label: 'Connector' },
     { id: 'mode.erase',          keys: 'e',           category: 'Tools', label: 'Toggle Erase' },
     { id: 'mode.rough',          keys: 'x',           category: 'Tools', label: 'Toggle Rough' },
     { id: 'mode.curve',          keys: 'c',           category: 'Tools', label: 'Toggle Curve' },

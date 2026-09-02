@@ -163,9 +163,6 @@ export function createDefaultState(): MapBuilderState {
         zone: {
           mode: 'point' as const,
         },
-        connector: {
-          kind: 'arch' as const,
-        },
       },
       recentAssets: [],
       nodeEditWallId: null,
