@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { once } from 'node:events'
 import { fileURLToPath } from 'node:url'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import type { Role, ServerMessage } from '@dnd/core/src/shared/protocol'
 import { PROTOCOL_VERSION } from '../config'
@@ -385,6 +385,39 @@ describe('commands', () => {
       expect(secondHeard.filter((t) => t === 'error')).toHaveLength(1)
       expect(playerHeard).not.toContain('error')
     })
+  })
+
+  /**
+   * A module refuses by *returning* a CommandError. Anything that throws past that is a
+   * server-side bug, and this dispatch runs from a `ws` 'message' listener — so an escaping
+   * throw is an uncaught exception that takes the whole table's process, and leaves the
+   * player who sent the command with silence in the meantime.
+   */
+  it('answers the sender when a handler throws, instead of dying on the frame', async () => {
+    const boom: GameModule<null> = {
+      name: 'boom',
+      commands: { go: ANY_ROLE },
+      initialState: null,
+      handler() {
+        throw new Error('handler bug')
+      },
+    }
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await withServer({ modules: [boom] }, async (server) => {
+        const [, player] = await joinedPair(server, 'BOOM')
+        sendCommand(player, 'boom', 'go', {})
+        expect((await next(player, 'error')).code).toBe('invalid-command')
+
+        // The socket — and the process behind it — survived, and the log has the real cause.
+        expect(player.readyState).toBe(WebSocket.OPEN)
+        sendCommand(player, 'ping', 'echo', { t: 1 })
+        expect((await next(player, 'state-update')).module).toBe('ping')
+        expect(logged).toHaveBeenCalled()
+      })
+    } finally {
+      logged.mockRestore()
+    }
   })
 })
 
