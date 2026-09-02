@@ -137,6 +137,14 @@ const BLOB_WIDTH = 1;
 /** Shortest joint a drag can commit — a deliberate short drag still reads as one. */
 const BLOB_MIN_LENGTH = 0.8;
 
+/**
+ * How far a placement press must pull before it stops meaning the leaf the
+ * ghost shows and starts meaning a joint. Half {@link BLOB_MIN_LENGTH}: a
+ * wobbly click near a wall must stay a click, and a pull this long already
+ * reads as drawing something.
+ */
+const LEAF_DRAG_SLOP = 0.4;
+
 /** Ellipse resolution. Enough to read as a blob, few enough to stay cheap in the overlay. */
 const BLOB_SEGMENTS = 16;
 
@@ -268,9 +276,18 @@ function anchorOf(door: DoorChild): DoorAnchor {
  * exactly where the seams are — snap to them and the wall-door path wins the
  * placement fork everywhere a blob belongs, making the blob unreachable at the
  * one place it exists for. The seam takes a blob; a jamb takes a real wall.
+ *
+ * On an authored-rooms layer the floor rings are out too: their promoted edges
+ * hug the same seams the drawn boundaries do (the live bridge floor edge sits
+ * 0.65wu from its seam), and a leaf door snapped there binds half a room and
+ * steals the fork from the blob all over again. A detection-mode map keeps its
+ * floor-ring doors exactly as before.
  */
 function doorSnapWalls(layer: DungeonLayer): ResolvedWall[] {
-  return resolveWalls(layer).filter((w) => w.kind !== 'room');
+  const authored = layer.children.some((c) => c.childType === 'room');
+  return resolveWalls(layer).filter(
+    (w) => w.kind !== 'room' && (!authored || w.kind !== 'floor'),
+  );
 }
 
 function activeDungeonLayer(): DungeonLayer | undefined {
@@ -308,6 +325,8 @@ export class DoorTool implements DrawingTool {
   private pressedBlobId: string | null = null;
   private blobDragFrom: [number, number][][] | null = null;
   /** A placement drag with no wall in range: where it started, and where it is now. */
+  /** The leaf a click will commit on release — nulled the moment the press becomes a drag. */
+  private pendingLeaf: DoorPlan | null = null;
   private blobStart: Point | null = null;
   private blobCurrent: Point | null = null;
   /** Layer the placement drag started on — see RectangleTool for why. */
@@ -448,17 +467,24 @@ export class DoorTool implements DrawingTool {
     // nothing: two identical clicks were needed for one door. Touch never
     // hovers at all, so it could not place a door by any number of taps.
     this.snapResult = snapToNearestWall([point.x, point.y], allWalls, SNAP_THRESHOLD);
-    if (!this.snapResult) {
-      // No wall in range, so nothing to hang a door on — the press draws one
-      // instead, the joint that straddles two drawn rooms with no wall between.
-      this.clearGhost();
-      this.blobStart = point;
-      this.blobCurrent = point;
-      this.blobLayerId = activeLayerId;
-      return;
-    }
-    const plan = this.plan(activeLayer, allWalls);
-    if (!plan || !plan.valid) return;
+    // From here the gesture decides the anchor. A wall in snap range means the
+    // leaf the ghost has been promising — but walls and floor edges hug the
+    // very seams blobs exist for (the live bridge chord sits 1.2wu from its
+    // seam), so committing the leaf on the press foreclosed the joint
+    // everywhere near one. The leaf now lands on release, where a click and a
+    // drag have become tellable: a click takes the leaf, a drag is a joint
+    // even with a wall in range.
+    this.pendingLeaf = this.snapResult ? this.plan(activeLayer, allWalls) : null;
+    if (!this.pendingLeaf) this.clearGhost();
+    this.blobStart = point;
+    this.blobCurrent = point;
+    this.blobLayerId = activeLayerId;
+  }
+
+  /** The release of a placement press that stayed a click: the leaf the ghost showed. */
+  private commitLeafPlacement(plan: DoorPlan, layerId: string): void {
+    const layer = resolveEditableLayer(layerId);
+    if (!layer || !plan.valid) return;
 
     const door: DoorChild = {
       ...plan.door,
@@ -466,19 +492,19 @@ export class DoorTool implements DrawingTool {
       // L6: auto-named by style — "Portcullis 1", "Archway 2". Counted over every
       // child so both anchors share one counter: a joint and a wall door of the
       // same style can't end up both called "Single 2".
-      name: nextAuthoredName(activeLayer.children, doorStyleLabel(plan.door.style)),
+      name: nextAuthoredName(layer.children, doorStyleLabel(plan.door.style)),
     };
 
     // Bind to the rooms either side of the wall now, so lighting/fog see the
     // topology immediately instead of waiting for the next room re-detection.
-    Object.assign(door, bindDoorToRooms(door, allWalls, activeLayer.rooms ?? []));
+    Object.assign(door, bindDoorToRooms(door, doorSnapWalls(layer), layer.rooms ?? []));
 
-    undoManager.execute(new AddChildCommand('Place door', activeLayerId, door));
+    undoManager.execute(new AddChildCommand('Place door', layer.id, door));
     // The real door draws now, so the ghost of it would only double the ink.
     this.clearGhost();
     // Width is a panel field, not a canvas handle (DD6), so a fresh door has to
     // arrive selected or there is no way to size it without hunting the layer list.
-    store.setSelectedIds([door.id]);
+    useStore.getState().setSelectedIds([door.id]);
   }
 
   /**
@@ -751,6 +777,14 @@ export class DoorTool implements DrawingTool {
     }
 
     if (this.blobStart) {
+      if (this.pendingLeaf) {
+        const pulled = Math.hypot(point.x - this.blobStart.x, point.y - this.blobStart.y);
+        // A wobble is still the click the leaf ghost promises; a deliberate
+        // pull switches the gesture to the joint.
+        if (pulled <= LEAF_DRAG_SLOP) return;
+        this.pendingLeaf = null;
+        this.clearGhost();
+      }
       this.blobCurrent = point;
       this.updateBlobGhost(activeLayer);
       return;
@@ -811,6 +845,16 @@ export class DoorTool implements DrawingTool {
       return;
     }
     if (this.blobStart) {
+      const leaf = this.pendingLeaf;
+      const layerId = this.blobLayerId;
+      this.pendingLeaf = null;
+      if (leaf && layerId) {
+        this.blobStart = null;
+        this.blobCurrent = null;
+        this.blobLayerId = null;
+        this.commitLeafPlacement(leaf, layerId);
+        return;
+      }
       this.commitBlobPlacement(point);
       return;
     }
@@ -898,6 +942,7 @@ export class DoorTool implements DrawingTool {
     this.hoveredDoorId = null;
     this.pressedBlobId = null;
     this.blobDragFrom = null;
+    this.pendingLeaf = null;
     this.blobStart = null;
     this.blobCurrent = null;
     this.blobLayerId = null;

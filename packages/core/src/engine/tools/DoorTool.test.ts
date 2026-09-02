@@ -745,6 +745,43 @@ describe('DoorTool — blob doors', () => {
     expect(doors()).toHaveLength(0);
   });
 
+  it('ignores floor rings too on an authored map — the live bridge regression', () => {
+    useStore.getState().addChild(layer().id, {
+      id: 'room-a',
+      name: 'room-a',
+      childType: 'room',
+      visible: true,
+      contours: [[[20, 20], [26, 20], [26, 26], [20, 26]]],
+    } as RoomChild);
+    // A floor ring whose edge hugs the seam, the way the authored bridge floor
+    // does on the Warren (its edge sat 0.65wu from the drag) — snapped, the
+    // leaf-door path stole the fork back and committed a half-bound archway.
+    useStore.getState().updateLayer(layer().id, {
+      mergedFloor: [[[23.5, 18], [23.5, 28], [30, 28], [30, 18]]],
+    });
+
+    draw([24.5, 23], [27.5, 23]);
+    expect(blobs()).toHaveLength(1);
+    expect(doors()).toHaveLength(0);
+  });
+
+  it('a drag across a walled seam is a joint; the click still takes the leaf', () => {
+    // The live bridge: a real wall chord runs along the seam, inside snap range
+    // of any blob drag across it. The gesture disambiguates — the press arms
+    // the leaf, and the pull past LEAF_DRAG_SLOP hands the gesture to the blob.
+    addWall('chord', 6, 52);
+
+    draw([2, 51], [2, 53.5]);
+    expect(blobs()).toHaveLength(1);
+    expect(doors()).toHaveLength(0);
+
+    // The plain click keeps meaning the leaf the ghost promised — further
+    // along the chord, clear of the blob that now owns clicks where it sits.
+    click(tool, 5, 52.1);
+    expect(doors()).toHaveLength(1);
+    expect(blobs()).toHaveLength(1);
+  });
+
   it('commits nothing for a press with no drag — a click is a deselect', () => {
     tool.onPointerDown({ x: AWAY[0], y: AWAY[1] });
     tool.onPointerUp({ x: AWAY[0], y: AWAY[1] });
