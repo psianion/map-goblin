@@ -1,4 +1,5 @@
-import type { AnyChild, ShapeChild, LightChild, DungeonLayer } from '../store/types';
+import type { AnyChild, LightChild, DungeonLayer } from '../store/types';
+import type { RingGeometry } from '../shared/types';
 import { flattenRing } from '../shared/bezier';
 import { resolveDoors, resolveWalls } from '../shared/wallResolve';
 import { useStore } from '../store/store';
@@ -25,7 +26,7 @@ export function pointInPolygon(point: [number, number], polygon: [number, number
   return inside;
 }
 
-export function pointInShape(shape: ShapeChild, point: [number, number]): boolean {
+export function pointInShape(shape: RingGeometry, point: [number, number]): boolean {
   let p: [number, number] = point;
   if (shape.transform) {
     const t = shape.transform;
@@ -133,6 +134,10 @@ export function hitTestChildren(
     if (!child.visible && child.childType !== 'light') continue;
     switch (child.childType) {
       case 'shape':
+      // A drawn room picks exactly like a shape — same rings, same Select tool,
+      // same gizmo. Connectors deliberately have no case: ConnectorTool owns
+      // their hit-testing, the way ZoneTool owns zones'.
+      case 'room':
         if (pointInShape(child, point)) return child;
         break;
       case 'asset':
@@ -186,7 +191,10 @@ export function getChildBounds(child: AnyChild): {
   height: number;
 } {
   switch (child.childType) {
-    case 'shape': {
+    // Rooms and connectors carry the same rings a shape does, transform and all.
+    case 'shape':
+    case 'room':
+    case 'connector': {
       // Flattened: a curve can bow past its anchors, and the gizmo/selection
       // box must wrap what is actually drawn.
       let points = flattenRing(child.contours[0], child.tangents?.[0]);

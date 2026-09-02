@@ -25,8 +25,10 @@ import { GroupRow } from './GroupRow'
 import { VIRTUALIZE_THRESHOLD, VirtualChildList } from './VirtualChildList'
 
 // Prep/interactive rows first, bulk decoration last.
-const GROUP_ORDER: AnyChild['childType'][] = ['zone', 'light', 'door', 'water', 'text', 'shape', 'asset']
+const GROUP_ORDER: AnyChild['childType'][] = ['room', 'connector', 'zone', 'light', 'door', 'water', 'text', 'shape', 'asset']
 const GROUP_LABELS: Record<AnyChild['childType'], string> = {
+  room: 'Rooms',
+  connector: 'Connectors',
   zone: 'Zones',
   light: 'Lights',
   door: 'Doors',

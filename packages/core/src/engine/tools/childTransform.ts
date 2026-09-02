@@ -4,7 +4,8 @@
 // subscribed to, so dragging a handle drew feedback and changed nothing. This
 // is the missing half.
 
-import type { AnyChild, ShapeChild } from '../../store/types';
+import type { AnyChild } from '../../store/types';
+import type { RingGeometry } from '../../shared/types';
 import type { RingTangents, Vec2 } from '../../shared/bezier';
 import type { HandleType } from './TransformGizmo';
 
@@ -58,7 +59,7 @@ export function mapPoint(x: number, y: number, t: WorldTransform): [number, numb
 }
 
 /** Bake a shape's optional transform down into its rings. */
-function effectiveContours(shape: ShapeChild): [number, number][][] {
+export function effectiveContours(shape: RingGeometry): [number, number][][] {
   const t = shape.transform;
   if (!t) return shape.contours.map((ring) => ring.map(([x, y]): [number, number] => [x, y]));
   const cos = Math.cos(t.rotate);
@@ -95,7 +96,7 @@ function mapTangents(
 }
 
 /** The shape's tangents with its optional baked-in transform applied. */
-function effectiveTangents(shape: ShapeChild): RingTangents[] | undefined {
+export function effectiveTangents(shape: RingGeometry): RingTangents[] | undefined {
   const t = shape.transform;
   if (!t) return shape.tangents ? structuredClone(shape.tangents) : undefined;
   const cos = Math.cos(t.rotate);
@@ -133,6 +134,10 @@ export type ChildSnapshot =
 export function snapshotChild(child: AnyChild): ChildSnapshot {
   switch (child.childType) {
     case 'shape':
+    // Authored rooms and connectors carry ShapeChild's ring fields on purpose,
+    // so the gizmo moves them through the same exact point-by-point remap.
+    case 'room':
+    case 'connector':
       return { kind: 'rings', contours: effectiveContours(child), tangents: effectiveTangents(child) };
     case 'water':
       return {

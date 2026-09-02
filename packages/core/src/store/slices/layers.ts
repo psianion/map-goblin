@@ -202,6 +202,11 @@ export const createLayersSlice: StateCreator<
       layer.roomNameOverrides[roomId] = name;
       const room = layer.rooms?.find((r) => r.id === roomId);
       if (room) room.name = name;
+      // A drawn room takes its name straight off its child, and overrides are
+      // never consulted on that path — so without this write the next resync
+      // would put the old name back and the rename would look like it failed.
+      const child = layer.children.find((c) => c.id === roomId);
+      if (child?.childType === 'room') child.name = name;
     }),
 
   // ─── Sublayer / background ─────────────────────────────

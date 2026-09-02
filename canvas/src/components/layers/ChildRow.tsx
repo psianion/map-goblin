@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical, Crosshair, Zap } from 'lucide-react'
+import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical, Crosshair, Zap, Pentagon as PentagonIcon, Spline } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '@/store/store'
@@ -41,6 +41,10 @@ function childIcon(childType: AnyChild['childType']) {
       return <Type size={12} />
     case 'zone':
       return <Crosshair size={12} />
+    case 'room':
+      return <PentagonIcon size={12} />
+    case 'connector':
+      return <Spline size={12} />
   }
 }
 
