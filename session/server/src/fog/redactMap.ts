@@ -20,7 +20,7 @@ import type { AnyChild, DoorChild, Room, ShapeChild, WallSegment } from '@dnd/co
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import {
   centreOf,
-  childrenOf,
+  shippableChildren,
   distanceToPoly,
   isDungeon,
   pointInPoly,
@@ -109,7 +109,7 @@ export function redactMapForViewer(
       // Zones are trigger anchors (prep), stripped with the same severity: a zone's
       // position IS where the trap is.
       if (!layer.rooms?.length) {
-        const kids = childrenOf(layer)
+        const kids = shippableChildren(layer)
         const cut = kids.filter((child) => child.childType !== 'door' && child.childType !== 'zone')
         // Untouched when there was nothing to take, so a layer with no doors stays the very
         // object it arrived as rather than growing an empty `children` it never had.
@@ -161,7 +161,7 @@ export function childDeltaFor(
       .map((layer) => ({
         id: layer.id,
         rooms: [] as Room[],
-        children: childrenOf(layer)
+        children: shippableChildren(layer)
           .filter((child) => childIds.has(child.id))
           .map((child) => (child.childType === 'door' ? facing(child, kept) : child)) as AnyChild[],
         standaloneWalls: [] as WallSegment[],
@@ -231,7 +231,7 @@ function slice(
 ): { rooms: Room[]; children: AnyChild[]; standaloneWalls: WallSegment[] } {
   return {
     rooms: (layer.rooms ?? []).filter((room) => kept.has(room.id)),
-    children: childrenOf(layer)
+    children: shippableChildren(layer)
       .filter((child) => {
         // Prep never travels: a zone in a revealed room is still the DM's trap marker.
         if (child.childType === 'zone') return false
@@ -472,7 +472,7 @@ export function keptChildIds(scene: SceneMap, fog: SceneFog, doors: Doors): Set<
   const ids = new Set<string>()
   for (const layer of scene.data.layers) {
     if (!isDungeon(layer)) continue
-    for (const child of childrenOf(layer)) {
+    for (const child of shippableChildren(layer)) {
       if (child.childType === 'zone') continue
       // A layer nobody zoned goes over whole, less its doors — `redactMapForViewer`'s own rule.
       const keep = !layer.rooms?.length

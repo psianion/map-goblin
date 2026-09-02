@@ -12,7 +12,17 @@ import type { WorldBounds } from '@dnd/core/src/shared/mapBounds'
 import { computeMergedFloor } from '@dnd/core/src/engine/mergedFloor'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design, same waiver clipperBoot.ts takes (see its header)
 import { isClipperReady } from '@dnd/core/src/geometry/Clipper2Engine'
-import type { AnyChild, DoorChild, LightChild, Room, WallSegment, ZoneChild } from '@dnd/core/src/shared/types'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design, same waiver clipperBoot.ts takes (see its header)
+import { authoredRing, connectorToDoor } from '@dnd/core/src/shared/authoredRooms'
+import type {
+  AnyChild,
+  ConnectorChild,
+  DoorChild,
+  LightChild,
+  Room,
+  WallSegment,
+  ZoneChild,
+} from '@dnd/core/src/shared/types'
 import type { DungeonLayer, Layer, SerializedMapData } from '@dnd/core/src/store/types'
 import type { Stores } from '../db/stores'
 import { validateMapData } from '../mapImport'
@@ -29,6 +39,12 @@ const WALL_PROBE = 0.5
 /** ponytail: two maps is a DM switching scenes; a third is rare and a fourth is a leak. */
 export const CACHE_MAX = 3
 
+/** A connector's blob ring and the door twin that stands for it in the graph. */
+export interface ConnectorBlob {
+  door: DoorChild
+  ring: readonly [number, number][]
+}
+
 export interface SceneMap {
   /** The campaign the map belongs to — module state is keyed by it. */
   campaignId: string
@@ -42,7 +58,14 @@ export interface SceneMap {
   frame: WorldBounds | null
   /** Every dungeon layer's rooms, corridors included: they are rooms like any other (D6). */
   rooms: readonly Room[]
+  /** Wall doors and connector door twins alike — one graph, one live state (C1). */
   doors: readonly DoorChild[]
+  /**
+   * The authored joints, blob ring baked, beside the twin they contribute to `doors`.
+   * The ring is here and nowhere else: only S3's standability fallback asks where a
+   * connector's *interior* is, and nothing ships it (W2).
+   */
+  connectors: readonly ConnectorBlob[]
   /** DM-authored trigger anchors (M4) — never rendered, never sent to a player (prep.ts). */
   zones: readonly ZoneChild[]
   /** Every authored light, whole (S3 P3 §2): the runner needs where they are and how far they
@@ -99,6 +122,27 @@ export function isDungeon(layer: Layer): layer is DungeonLayer {
 // A stored map is uploaded JSON: it satisfied `validateMapData`, which checks the envelope
 // and not every array inside it. These two are read on every scene, so they read defensively.
 export const childrenOf = (layer: DungeonLayer): readonly AnyChild[] => layer.children ?? []
+
+/**
+ * The same children, as every lane that plays or ships a map reads them: a connector is
+ * its door twin (C1/C3 — `connectorToDoor`), and a drawn room is nothing at all.
+ *
+ * One rewrite, at the one place both the door index and the player cut draw their children
+ * from, is what keeps the whole door lane — live state, held set, glyph, facing — unaware
+ * that a connector exists, and what makes a `RoomChild`'s contour unable to reach a player
+ * (W2): its `Room` is already the shape they are owed, and the child is only how the DM
+ * drew it. The raw children stay raw for `sweep.ts`, which reads `data.layers` itself:
+ * occluders are P2's, and a door twin standing in for a blob would resolve onto whatever
+ * wall happened to be near it.
+ */
+export const shippableChildren = (layer: DungeonLayer): readonly AnyChild[] =>
+  childrenOf(layer).flatMap((child) =>
+    child.childType === 'connector'
+      ? [connectorToDoor(child)]
+      : child.childType === 'room'
+        ? []
+        : [child],
+  )
 export const wallsOf = (layer: DungeonLayer): readonly WallSegment[] => layer.standaloneWalls ?? []
 
 /**
@@ -138,8 +182,15 @@ function index(campaignId: string, data: SerializedMapData): SceneMap {
   healMergedFloor(data)
   const layers = data.layers.filter(isDungeon)
   const rooms = layers.flatMap((layer) => layer.rooms ?? [])
+  // Connectors ride in here as their door twins, which is the whole of C1: `doorsOfScene`
+  // seeds them, `visibleRooms`/`blockedEdge` walk them as edges, the held set ships them.
   const doors = layers.flatMap((layer) =>
-    childrenOf(layer).filter((child): child is DoorChild => child.childType === 'door'),
+    shippableChildren(layer).filter((child): child is DoorChild => child.childType === 'door'),
+  )
+  const connectors = layers.flatMap((layer) =>
+    childrenOf(layer)
+      .filter((child): child is ConnectorChild => child.childType === 'connector')
+      .map((child) => ({ door: connectorToDoor(child), ring: authoredRing(child) })),
   )
   const zones = layers.flatMap((layer) =>
     childrenOf(layer).filter((child): child is ZoneChild => child.childType === 'zone'),
@@ -158,6 +209,7 @@ function index(campaignId: string, data: SerializedMapData): SceneMap {
     ),
     rooms,
     doors,
+    connectors,
     zones,
     lights,
     lightNames,

@@ -7,7 +7,13 @@
 // state. `ModuleStateStore` counts its writes, so the revision it is at *is* the cache key
 // — there is no invalidation hook anywhere to forget to call.
 
-import { doorsOfScene, type AuthoredDoor, type DoorLiveState, type DoorsState } from '@dnd/mechanics/doors'
+import {
+  doorsOfScene,
+  seedDoor,
+  type AuthoredDoor,
+  type DoorLiveState,
+  type DoorsState,
+} from '@dnd/mechanics/doors'
 import {
   autoExploreOn,
   blockedEdge,
@@ -48,7 +54,13 @@ import {
   exploredRooms,
   type MapDelta,
 } from './redactMap'
-import { CACHE_MAX, createSceneMaps, type SceneMap, type SceneMapOf } from './sceneMap'
+import {
+  CACHE_MAX,
+  createSceneMaps,
+  pointInPoly,
+  type SceneMap,
+  type SceneMapOf,
+} from './sceneMap'
 import {
   createSweeps,
   exploreLocks,
@@ -119,6 +131,34 @@ export interface AutoExplorePatch {
    * share, where `cells` is the one record everybody reads.
    */
   byIdentity?: Record<string, Cell[]>
+}
+
+/**
+ * S3 — the room a point inside a connector's blob counts as being in, or null.
+ *
+ * The joints the DM draws between rooms are ground, not scenery: the party walks through
+ * the archway, and for the moment they are in it they are standing on neither room's
+ * polygon. Answering with an adjoining room is the whole of it — `occupyRefusal` then
+ * judges the space by that room, with no rule of its own for connectors and no new copy.
+ *
+ * Which room depends on the leaf. A passable joint answers with a room the party has
+ * earned, so they may stand there. A shut one answers with the side they have *not*, which
+ * is what puts `blockedEdge` on this very connector and gets them "the door is closed"
+ * naming it. The blobs are never unioned into a room's boundary: that boundary is P2's
+ * occluder, and a doorway welded into it is a doorway that cannot be an aperture.
+ */
+function connectorRoom(computed: Computed, x: number, y: number): string | null {
+  for (const { door, ring } of computed.map.connectors) {
+    if (!pointInPoly(ring, x, y)) continue
+    const sides = [door.roomA, door.roomB].filter((room): room is string => !!room)
+    // Bound to nothing the party holds: the joint is as unearned as the rooms it joins.
+    if (!sides.some((room) => computed.occupiable.has(room))) continue
+    const live = computed.doors[door.id] ?? seedDoor(door)
+    return live.open && !live.locked
+      ? sides.find((room) => computed.occupiable.has(room)) ?? null
+      : sides.find((room) => !computed.occupiable.has(room)) ?? null
+  }
+  return null
 }
 
 interface Computed {
@@ -379,7 +419,9 @@ export function createVision(stores: Stores): Vision {
           ? computed.sightFor(viewer.identityId)
           : computed.sight
       return {
-        roomAt: computed.map.roomAt,
+        // S3 — a connector's interior is walkable ground, and it is the one place a token
+        // may stand that no room's polygon covers.
+        roomAt: (x, y) => computed.map.roomAt(x, y) ?? connectorRoom(computed, x, y),
         visible: computed.visible,
         occupiable: computed.occupiable,
         // P1 — in vision mode a token is judged by the point it stands on, not the room it

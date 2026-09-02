@@ -2,15 +2,98 @@
 // consumes. Nothing downstream learns a new shape: a RoomChild becomes a plain
 // `Room`, and a ConnectorChild gets the same roomA/roomB pair a door gets.
 
-import type { AnyChild, ConnectorChild, Room, RoomChild } from './types';
+import type { AnyChild, ConnectorChild, DoorChild, Room, RoomChild } from './types';
 import { flattenRing } from './bezier';
 import { computeArea, computeCentroid, isPathway } from './roomUtils';
-import { effectiveContours, effectiveTangents } from '../engine/tools/childTransform';
-import { clipper2Engine } from '../geometry/Clipper2Engine';
+import { clipper2Engine } from './../geometry/Clipper2Engine';
 
-/** The outer ring as downstream geometry sees it: transform baked, curves flattened. */
+/**
+ * The outer ring as downstream geometry sees it: curves flattened, transform baked.
+ *
+ * Flatten first, bake second — the reverse of `childTransform.effectiveContours`, and the
+ * same answer either way: the bake is affine, so it commutes with the subdivision. Doing it
+ * in this order is what keeps this module free of `engine/`, which matters because the
+ * session server reads it and pulling `engine/tools` in drags the whole editor (and the DOM
+ * it types against) behind it.
+ *
+ * ponytail: the flattening tolerance is therefore measured before the scale. A connector
+ * blown up ten times reads a shade coarser; bake first if that ever shows.
+ */
 export function authoredRing(child: RoomChild | ConnectorChild): [number, number][] {
-  return flattenRing(effectiveContours(child)[0] ?? [], effectiveTangents(child)?.[0]);
+  const ring = flattenRing(child.contours[0] ?? [], child.tangents?.[0]);
+  const t = child.transform;
+  if (!t) return ring;
+  const [cos, sin] = [Math.cos(t.rotate), Math.sin(t.rotate)];
+  return ring.map(([px, py]): [number, number] => {
+    const [sx, sy] = [px * t.scale[0], py * t.scale[1]];
+    return [cos * sx - sin * sy + t.translate[0], sin * sx + cos * sy + t.translate[1]];
+  });
+}
+
+/**
+ * Where a connector's door mark is drawn, and how wide. A wall door anchors on its
+ * wall; a connector has none, so the blob answers for itself: its centroid, the
+ * direction it is longest in, and how far it runs that way.
+ *
+ * ponytail: the principal axis is the P1 approximation. P2 replaces it with the
+ * span where the blob crosses the room boundary, which is the real doorway.
+ */
+export function connectorAnchor(child: ConnectorChild): {
+  position: [number, number];
+  angle: number;
+  width: number;
+} {
+  const ring = authoredRing(child);
+  if (ring.length < 2) return { position: ring[0] ?? [0, 0], angle: 0, width: 1 };
+  const [cx, cy] = computeCentroid(ring);
+  let sxx = 0;
+  let syy = 0;
+  let sxy = 0;
+  for (const [x, y] of ring) {
+    const dx = x - cx;
+    const dy = y - cy;
+    sxx += dx * dx;
+    syy += dy * dy;
+    sxy += dx * dy;
+  }
+  const angle = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+  const [ux, uy] = [Math.cos(angle), Math.sin(angle)];
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const [x, y] of ring) {
+    const t = (x - cx) * ux + (y - cy) * uy;
+    if (t < lo) lo = t;
+    if (t > hi) hi = t;
+  }
+  return { position: [cx, cy], angle, width: Math.max(hi - lo, 1e-6) };
+}
+
+/**
+ * The connector as the door lane reads it — the whole of C1/C3 in one shape.
+ *
+ * Everything that plays a door already speaks `DoorChild`: the scene index, the live
+ * state machine, the redactor's `doorKept`/`facing`, the table's glyph and its
+ * double-click. Handing them a door twin rather than teaching each one about blobs is
+ * why none of them changes. `kind:'arch'` is `'archway'`, which the existing machinery
+ * already forces open, refuses commands on and draws no mark for.
+ *
+ * `wallId` is the floor-anchored door's own `''`: there is no wall to point at, and the
+ * anchor above is the whole of what places it.
+ */
+export function connectorToDoor(child: ConnectorChild): DoorChild {
+  return {
+    id: child.id,
+    name: child.name,
+    childType: 'door',
+    visible: child.visible,
+    wallId: '',
+    ...connectorAnchor(child),
+    style: child.kind === 'arch' ? 'archway' : child.style ?? 'single',
+    state: child.state,
+    isSecret: child.isSecret,
+    roomA: child.roomA ?? null,
+    roomB: child.roomB ?? null,
+  };
 }
 
 /** Every RoomChild on a layer, in child order. */

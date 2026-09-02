@@ -1,4 +1,11 @@
-import type { AnyChild, DoorChild, Room, WallSegment } from '@dnd/core/src/shared/types';
+import type {
+  AnyChild,
+  ConnectorChild,
+  DoorChild,
+  Room,
+  WallSegment,
+} from '@dnd/core/src/shared/types';
+import { connectorToDoor } from '@dnd/core/src/shared/authoredRooms';
 import type { Role } from '@dnd/core/src/shared/protocol';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
@@ -81,12 +88,37 @@ function revealedDoors(sceneId: string | null | undefined): Set<string> {
   return ids;
 }
 
+/**
+ * C3 — the DM's own copy of a connector, given the door twin the table plays with.
+ *
+ * A player never gets here: `redactMap` already turned every connector it was owed into a
+ * door before the wire, and the blob itself is not on the DM's document to strip. But the
+ * DM's document *is* the map whole, so their table would draw no mark on a joint and their
+ * Doors panel would not list it — the one seat that may open it, unable to. The twin is
+ * appended rather than swapped: the blob is still the geometry P2 occludes against.
+ */
+function withConnectorDoors(data: SerializedMapData): SerializedMapData {
+  return {
+    ...data,
+    layers: data.layers.map((layer) => {
+      if (!('children' in layer)) return layer;
+      const twins = layer.children
+        .filter((child): child is ConnectorChild => child.childType === 'connector')
+        .map(connectorToDoor);
+      return twins.length ? { ...layer, children: [...layer.children, ...twins] } : layer;
+    }),
+  };
+}
+
 /** The map as this seat is allowed to hold it. Unknown role is treated as a player. */
 const forViewer = (
   data: SerializedMapData,
   role: Role | undefined,
   sceneId: string | null | undefined,
-): SerializedMapData => (role === 'dm' ? data : withoutSecretDoors(data, revealedDoors(sceneId)));
+): SerializedMapData =>
+  role === 'dm'
+    ? withConnectorDoors(data)
+    : withoutSecretDoors(data, revealedDoors(sceneId));
 
 /**
  * Merge by id, keeping the order the map already had. Upsert rather than append: a door or
