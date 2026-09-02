@@ -17,6 +17,7 @@ import { bindDoorToRooms } from '../../shared/roomBinding';
 import {
   bindConnectorToRooms,
   connectorKindForStyle,
+  connectorStyle,
   nextAuthoredName,
 } from '../../shared/authoredRooms';
 import { DOOR_MIN_HIT_RADIUS as MIN_HIT_RADIUS, getChildBounds } from '../hitTest';
@@ -38,14 +39,6 @@ const NEXT_STATE: Record<DoorState, DoorState> = {
   locked: 'closed',
 };
 
-/**
- * A blob door's style. `style` is the authored truth after the merge, but a map
- * drawn before it carries only `kind` — an arch is an archway, anything else the
- * default leaf, exactly as `connectorToDoor` reads it downstream.
- */
-function blobStyle(blob: ConnectorChild): DoorStyle {
-  return blob.kind === 'arch' ? 'archway' : blob.style ?? 'single';
-}
 
 /**
  * H7: a fixed world-unit threshold giving ~1.5 grid cells of snap range. World
@@ -245,6 +238,8 @@ function doorAt(point: Point, layer: DungeonLayer): DoorChild | null {
   let best: DoorChild | null = null;
   let bestDist = Infinity;
   for (const r of resolveDoors(layer, resolveWalls(layer))) {
+    // Hit-testing keeps the full wall set — an existing door resolves wherever
+    // it resolves. Only *snapping* filters (see doorSnapWalls).
     const dist = Math.hypot(r.position[0] - point.x, r.position[1] - point.y);
     if (dist <= Math.max(r.door.width / 2, MIN_HIT_RADIUS) && dist < bestDist) {
       bestDist = dist;
@@ -265,6 +260,17 @@ function anchorOf(door: DoorChild): DoorAnchor {
     roomA: door.roomA,
     roomB: door.roomB,
   };
+}
+
+/**
+ * Walls a leaf door can hang on. A drawn room's boundary is promoted into
+ * `resolveWalls` as an occluder, and on an authored map those ring edges run
+ * exactly where the seams are — snap to them and the wall-door path wins the
+ * placement fork everywhere a blob belongs, making the blob unreachable at the
+ * one place it exists for. The seam takes a blob; a jamb takes a real wall.
+ */
+function doorSnapWalls(layer: DungeonLayer): ResolvedWall[] {
+  return resolveWalls(layer).filter((w) => w.kind !== 'room');
 }
 
 function activeDungeonLayer(): DungeonLayer | undefined {
@@ -360,7 +366,7 @@ export class DoorTool implements DrawingTool {
         this.pressPoint = null;
         // An archway is a permanent opening and its panel hides the state row —
         // there is nothing here to cycle it to.
-        if (blobStyle(blob) === 'archway') return;
+        if (connectorStyle(blob) === 'archway') return;
         undoManager.execute(
           new UpdateChildCommand(
             'Cycle door',
@@ -431,7 +437,7 @@ export class DoorTool implements DrawingTool {
     // The ghost the pointer has been showing *is* the placement — same snap at
     // the same point, so what was previewed is exactly what lands, invalidity
     // included.
-    const allWalls = resolveWalls(activeLayer);
+    const allWalls = doorSnapWalls(activeLayer);
     // Snapped from the press itself rather than trusting a hover to have
     // happened.
     // `cancel()` clears the snap and `ToolManager.switchTool` cancels the tool it
@@ -563,7 +569,7 @@ export class DoorTool implements DrawingTool {
     const plan =
       this.hoveredDoorId || this.hoveredBlobId || this.dragFrom || layer.locked
         ? null
-        : this.plan(layer, resolveWalls(layer));
+        : this.plan(layer, doorSnapWalls(layer));
     if (!plan) {
       this.clearGhost();
       return;
@@ -755,7 +761,7 @@ export class DoorTool implements DrawingTool {
 
     this.snapResult = snapToNearestWall(
       [point.x, point.y],
-      resolveWalls(activeLayer),
+      doorSnapWalls(activeLayer),
       SNAP_THRESHOLD,
     );
 
@@ -773,10 +779,11 @@ export class DoorTool implements DrawingTool {
     );
     if (!door) return;
 
-    const walls = resolveWalls(layer);
+    const walls = doorSnapWalls(layer);
     // The nearest wall within snap range wins, so dragging past a corner
     // re-anchors to the wall the pointer has crossed to. Out of range nothing
-    // moves — a door cannot be dragged off the walls.
+    // moves — a door cannot be dragged off the walls (or onto a room boundary,
+    // which takes blobs, not leaves).
     const snap = snapToNearestWall([point.x, point.y], walls, SNAP_THRESHOLD);
     const wall = snap && walls.find((w) => w.id === snap.wallId);
     if (!wall) return;

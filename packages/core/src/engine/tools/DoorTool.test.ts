@@ -53,7 +53,7 @@ import { createWallRemovalCommand } from '../../store/commands';
 import { createDungeonLayer } from '../../store/factories';
 import { setNotify } from '../../store/notify';
 import { setClipperModule } from '../../geometry/Clipper2Engine';
-import type { ConnectorChild, DoorChild, Room, WallSegment } from '../../shared/types';
+import type { ConnectorChild, DoorChild, Room, RoomChild, WallSegment } from '../../shared/types';
 import type { DungeonLayer } from '../../store/types';
 
 /**
@@ -723,6 +723,26 @@ describe('DoorTool — blob doors', () => {
     expect(blob.style).toBe('archway');
     expect(blob.kind).toBe('arch');
     expect(blob.state).toBe('open');
+  });
+
+  it('draws a blob across a room seam — a promoted boundary is not a jamb', () => {
+    const room = (id: string, x0: number, x1: number): RoomChild => ({
+      id,
+      name: id,
+      childType: 'room',
+      visible: true,
+      contours: [[[x0, 20], [x1, 20], [x1, 26], [x0, 26]]],
+    });
+    useStore.getState().addChild(layer().id, room('room-a', 20, 26));
+    useStore.getState().addChild(layer().id, room('room-b', 26, 32));
+
+    // Every point of this drag sits within snap range of the seam edge x=26
+    // that resolveWalls promotes to an occluder — the exact gesture the merge
+    // exists for. Unfiltered, the wall path won this fork and hung a leaf door
+    // on the boundary; the seam takes a blob.
+    draw([24.5, 23], [27.5, 23]);
+    expect(blobs()).toHaveLength(1);
+    expect(doors()).toHaveLength(0);
   });
 
   it('commits nothing for a press with no drag — a click is a deselect', () => {

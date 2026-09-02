@@ -192,7 +192,7 @@ export function connectorToDoor(
     visible: child.visible,
     wallId: '',
     ...connectorAnchor(child, boundaries),
-    style: child.kind === 'arch' ? 'archway' : child.style ?? 'single',
+    style: connectorStyle(child),
     state: child.state,
     isSecret: child.isSecret,
     roomA: child.roomA ?? null,
@@ -208,6 +208,15 @@ export function connectorToDoor(
  */
 export function connectorKindForStyle(style: DoorStyle): 'arch' | 'door' {
   return style === 'archway' ? 'arch' : 'door';
+}
+
+/**
+ * The style a blob reads as. New blobs carry it outright; a map drawn before
+ * styles were authoritative carries only `kind` — an arch is an archway,
+ * anything else the default leaf — exactly as the door twin ships it.
+ */
+export function connectorStyle(child: ConnectorChild): DoorStyle {
+  return child.kind === 'arch' ? 'archway' : child.style ?? 'single';
 }
 
 /**
