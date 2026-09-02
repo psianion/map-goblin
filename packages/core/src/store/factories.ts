@@ -193,6 +193,7 @@ export function createDefaultState(): MapBuilderState {
       solo: null,
       previewClock: null,
       previewSky: null,
+      roomOverlayVisible: true,
     },
     assets: {
       manifest: null,

@@ -50,6 +50,17 @@ describe('RoomPanel', () => {
     expect(screen.getAllByText('pathway')).toHaveLength(1)
   })
 
+  it('switches the drawn-room ink off from the section header', () => {
+    renderPanel()
+    const shown = screen.getByRole('switch', { name: 'Show room outlines' })
+    expect(shown.getAttribute('aria-checked')).toBe('true')
+    act(() => {
+      fireEvent.click(shown)
+    })
+    expect(useStore.getState().ui.roomOverlayVisible).toBe(false)
+    expect(shown.getAttribute('aria-checked')).toBe('false')
+  })
+
   it('prompts to draw walls when nothing is detected', () => {
     useStore.getState().setRooms(dungeon().id, [])
     renderPanel()

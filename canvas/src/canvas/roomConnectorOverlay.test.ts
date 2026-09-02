@@ -163,6 +163,57 @@ describe('room/connector overlay visibility', () => {
     unmount();
   });
 
+  // The DM's own switch (RoomPanel's header), which governs the idle canvas only.
+  describe('the DM turns the ink off', () => {
+    /** Mounts a fresh overlay and reports whether it painted anything at all. */
+    const inkDrawn = (): boolean => {
+      const fillSpy = vi.spyOn(Graphics.prototype, 'fill');
+      const unmount = mountRoomConnectorOverlay(new Container());
+      const drew = fillSpy.mock.calls.length > 0;
+      unmount();
+      fillSpy.mockRestore();
+      return drew;
+    };
+
+    beforeEach(() => {
+      useStore.getState().addChild(dungeonLayer().id, ROOM);
+    });
+
+    it('stops drawing outside the authoring tools', () => {
+      expect(inkDrawn()).toBe(true);
+      useStore.getState().setRoomOverlayVisible(false);
+      expect(inkDrawn()).toBe(false);
+    });
+
+    it('draws anyway while the room or connector tool is held', () => {
+      useStore.getState().setRoomOverlayVisible(false);
+      useStore.getState().setActiveTool('room');
+      expect(inkDrawn()).toBe(true);
+      useStore.getState().setActiveTool('connector');
+      expect(inkDrawn()).toBe(true);
+      // ...and goes again the moment the DM puts the tool down.
+      useStore.getState().setActiveTool('select');
+      expect(inkDrawn()).toBe(false);
+    });
+
+    it('holds the preference across mounts, and never writes it to the map', () => {
+      useStore.getState().setRoomOverlayVisible(false);
+      expect(inkDrawn()).toBe(false);
+      expect(useStore.getState().ui.roomOverlayVisible).toBe(false);
+      // Session-local, same tier as grid.visible: nothing about the layer moved.
+      expect(dungeonLayer().children.some((c) => c.id === ROOM.id)).toBe(true);
+    });
+
+    it('redraws when the switch flips under a mounted overlay', () => {
+      const unmount = mountRoomConnectorOverlay(new Container());
+      const fillSpy = vi.spyOn(Graphics.prototype, 'fill');
+      useStore.getState().setRoomOverlayVisible(false);
+      rafCallback!();
+      expect(fillSpy).not.toHaveBeenCalled();
+      unmount();
+    });
+  });
+
   it('labels each room with its name', () => {
     useStore.getState().addChild(dungeonLayer().id, ROOM);
     const world = new Container();

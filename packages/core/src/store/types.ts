@@ -374,6 +374,17 @@ export interface UISlice {
    * the default full moon, same as an untouched campaign does at the Table.
    */
   previewSky: NightSky | null;
+  /**
+   * Whether the authored room/connector ink is drawn while neither authoring tool is
+   * held (canvas/src/canvas/roomConnectorOverlay.ts). Same tier as `grid.visible`: a
+   * view preference, not persisted, not undoable, never serialized — the DM turning
+   * the loops off to look at their art is not an edit to the map.
+   *
+   * It governs the idle case only. The room and connector tools force the ink back on
+   * for as long as they are held, because drawing a room you cannot see is not a thing
+   * anyone asked for.
+   */
+  roomOverlayVisible: boolean;
 }
 
 // ─── Assets ───────────────────────────────────────────────

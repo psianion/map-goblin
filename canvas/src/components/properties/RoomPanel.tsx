@@ -3,6 +3,7 @@ import { DoorOpen } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '@/store/store'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
+import { ToggleSwitch } from '@/components/ui/toggle-switch'
 import { RenameRoomCommand } from '@/store/commands'
 import { seedRoomsFromDetection } from '@dnd/core/src/store/seedRooms'
 import { undoManager } from '@/store/undoManager'
@@ -21,6 +22,8 @@ export function RoomPanel({ layer, openSections, onToggleSection }: RoomPanelPro
     return l?.type === 'dungeon' ? (l.rooms ?? []) : []
   }))
   const setHighlightedRoomId = useStore((s) => s.setHighlightedRoomId)
+  const overlayVisible = useStore((s) => s.ui.roomOverlayVisible)
+  const setOverlayVisible = useStore((s) => s.setRoomOverlayVisible)
   // Once the layer holds drawn rooms it IS the room source, so seeding from
   // detection would only clone what is already there — seedRoomsFromDetection
   // no-ops, and the affordance goes with it.
@@ -54,6 +57,16 @@ export function RoomPanel({ layer, openSections, onToggleSection }: RoomPanelPro
       icon={DoorOpen}
       isOpen={openSections?.has('rooms')}
       onToggle={onToggleSection}
+      // Same header affordance the Grid section uses for its own ink, and it means
+      // the same thing: show the drawn loops and joints or don't. The room and
+      // connector tools override it while they are held.
+      headerExtra={
+        <ToggleSwitch
+          checked={overlayVisible}
+          onChange={setOverlayVisible}
+          label="Show room outlines"
+        />
+      }
     >
       {rooms.length === 0 ? (
         <p className="py-1 text-panel-body text-text-muted">

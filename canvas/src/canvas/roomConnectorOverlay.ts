@@ -110,8 +110,22 @@ interface Authored {
   connectors: { child: ConnectorChild; ring: Ring; selected: boolean }[];
 }
 
+/**
+ * Whether the ink is drawn at all right now.
+ *
+ * `ui.roomOverlayVisible` is the DM's own preference (RoomPanel's header switch,
+ * the same affordance shape as the grid's), and it governs the idle canvas only:
+ * while the room or connector tool is held the ink comes back regardless, because
+ * the alternative is authoring a room you cannot see.
+ */
+export function overlayShows(state: StoreState): boolean {
+  const tool = state.tools.activeTool;
+  return state.ui.roomOverlayVisible || tool === 'room' || tool === 'connector';
+}
+
 function visibleAuthored(state: StoreState): Authored {
   const out: Authored = { rooms: [], connectors: [] };
+  if (!overlayShows(state)) return out;
   for (const l of state.layers) {
     if (l.type !== 'dungeon' || !isLayerEffectivelyVisible(state, l as DungeonLayer)) continue;
     for (const c of (l as DungeonLayer).children) {
@@ -177,14 +191,25 @@ export function mountRoomConnectorOverlay(worldContainer: Container): () => void
 
   // Zoom lives outside the store (plain Pixi stage state), so a rAF poll notices
   // it moved; geometry/selection changes come from the store via a dirty flag.
-  // ui.solo is its own key: toggleSoloLayer never touches `layers`.
+  // ui.solo is its own key: toggleSoloLayer never touches `layers`. So are the two
+  // terms `overlayShows` reads — the DM's toggle and the held tool.
   let dirty = true;
   const unsubscribe = useStore.subscribe(
-    (state) => [state.layers, state.selection.selectedIds, state.ui.solo] as const,
+    (state) =>
+      [
+        state.layers,
+        state.selection.selectedIds,
+        state.ui.solo,
+        state.ui.roomOverlayVisible,
+        state.tools.activeTool,
+      ] as const,
     () => {
       dirty = true;
     },
-    { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] },
+    {
+      equalityFn: (a, b) =>
+        a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3] && a[4] === b[4],
+    },
   );
 
   let lastZoom = NaN;
