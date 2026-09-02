@@ -24,11 +24,14 @@ import { ChildRow } from './ChildRow'
 import { GroupRow } from './GroupRow'
 import { VIRTUALIZE_THRESHOLD, VirtualChildList } from './VirtualChildList'
 
-// Prep/interactive rows first, bulk decoration last.
-const GROUP_ORDER: AnyChild['childType'][] = ['room', 'connector', 'zone', 'light', 'door', 'water', 'text', 'shape', 'asset']
+// Prep/interactive rows first, bulk decoration last. The two door groups sit
+// together: one concept on two anchors (the drag fence keys on childType, so
+// they cannot be one group — adjacency is what makes them read as one family).
+const GROUP_ORDER: AnyChild['childType'][] = ['room', 'connector', 'door', 'zone', 'light', 'water', 'text', 'shape', 'asset']
 const GROUP_LABELS: Record<AnyChild['childType'], string> = {
   room: 'Rooms',
-  connector: 'Room Doors',
+  // A blob is the opening itself — a doorway — where a wall door is the leaf.
+  connector: 'Doorways',
   zone: 'Zones',
   light: 'Lights',
   door: 'Doors',
