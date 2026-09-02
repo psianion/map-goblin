@@ -11,7 +11,15 @@ import {
 import { useStore } from '../store/store';
 import { createDungeonLayer } from '../store/factories';
 import type { ShapeChild, AssetChild, LightChild } from '../store/types';
-import type { DoorChild, TextChild, WaterChild, ZoneChild, ZoneShape } from '../shared/types';
+import type {
+  ConnectorChild,
+  DoorChild,
+  RoomChild,
+  TextChild,
+  WaterChild,
+  ZoneChild,
+  ZoneShape,
+} from '../shared/types';
 
 // ─── Helpers ──────────────────────────────────────────────
 
@@ -360,6 +368,35 @@ describe('hitTestChildren', () => {
     const shape = makeShape(square, { id: 'floor' });
     expect(hitTestChildren([zone, shape], [5, 5])?.id).toBe('floor');
   });
+
+  it('picks a drawn room like a shape', () => {
+    const room: RoomChild = {
+      id: 'room-child-1',
+      name: 'Great Hall',
+      childType: 'room',
+      visible: true,
+      contours: [square],
+    };
+    expect(hitTestChildren([room], [5, 5])?.id).toBe('room-child-1');
+    expect(hitTestChildren([room], [50, 50])).toBeNull();
+  });
+
+  it('never hits a connector — ConnectorTool owns that interaction', () => {
+    // Same deliberate omission as zones above: no case here, on purpose.
+    const connector: ConnectorChild = {
+      id: 'connector-1',
+      name: 'Arch',
+      childType: 'connector',
+      visible: true,
+      contours: [square],
+      kind: 'arch',
+      state: 'open',
+      isSecret: false,
+    };
+    expect(hitTestChildren([connector], [5, 5])).toBeNull();
+    const shape = makeShape(square, { id: 'floor' });
+    expect(hitTestChildren([connector, shape], [5, 5])?.id).toBe('floor');
+  });
 });
 
 // ─── hitTestAllLayers — solo (render-only override) ───────
@@ -404,6 +441,21 @@ describe('getChildBounds', () => {
     const shape = makeShape([[0, 0], [10, 0], [10, 5], [0, 5]]);
     const b = getChildBounds(shape);
     expect(b).toEqual({ x: 0, y: 0, width: 10, height: 5 });
+  });
+
+  it('computes AABB for a drawn room and a connector from their rings', () => {
+    const ring: [number, number][] = [[0, 0], [10, 0], [10, 5], [0, 5]];
+    expect(
+      getChildBounds({
+        id: 'r', name: 'r', childType: 'room', visible: true, contours: [ring],
+      } satisfies RoomChild),
+    ).toEqual({ x: 0, y: 0, width: 10, height: 5 });
+    expect(
+      getChildBounds({
+        id: 'c', name: 'c', childType: 'connector', visible: true, contours: [ring],
+        kind: 'arch', state: 'open', isSecret: false,
+      } satisfies ConnectorChild),
+    ).toEqual({ x: 0, y: 0, width: 10, height: 5 });
   });
 
   it('computes AABB for an asset', () => {

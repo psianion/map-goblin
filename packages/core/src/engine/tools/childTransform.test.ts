@@ -52,6 +52,24 @@ describe('anchorForHandle', () => {
 });
 
 describe('transformChild', () => {
+  // Rooms and connectors carry ShapeChild's ring fields on purpose, so the
+  // gizmo has to move them through the same exact remap — no second code path.
+  it('moves a drawn room and a connector exactly as it moves a shape', () => {
+    const t = identity({ translateX: 3, translateY: -2 });
+    const room: AnyChild = {
+      id: 'r1', name: 'Room', childType: 'room', visible: true,
+      contours: [[[0, 0], [10, 0], [10, 4], [0, 4]]],
+    };
+    const connector: AnyChild = {
+      id: 'c1', name: 'Arch', childType: 'connector', visible: true,
+      contours: [[[0, 0], [10, 0], [10, 4], [0, 4]]],
+      kind: 'arch', state: 'open', isSecret: false,
+    };
+    const expected = rings(transformChild(snapshotChild(square()), t));
+    expect(rings(transformChild(snapshotChild(room), t))).toEqual(expected);
+    expect(rings(transformChild(snapshotChild(connector), t))).toEqual(expected);
+  });
+
   it('moves every ring point by the same world delta', () => {
     const out = rings(transformChild(snapshotChild(square()), identity({ translateX: 3, translateY: -2 })));
     expect(out[0]).toEqual([[3, -2], [13, -2], [13, 2], [3, 2]]);
