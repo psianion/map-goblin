@@ -91,6 +91,39 @@ describe('RoomTool', () => {
     expect(roomsOf(layerId)).toHaveLength(0);
   });
 
+  /**
+   * Every vertex of a committed room becomes a boundary occluder (O1), and the raw trace is
+   * one vertex every 0.2wu: eight rooms and eight joints traced by hand came out at 2640
+   * occluder walls with `extractWallSegments` at 20ms cold. The trace is simplified on
+   * commit, which is the loop the DM drew to within less than the width of the line it is
+   * drawn with.
+   */
+  it('thins a hand-jittery trace to a ring the sweep can walk', () => {
+    const R = 6;
+    const STEPS = 160;
+    const jittery: [number, number][] = [];
+    for (let i = 0; i < STEPS; i++) {
+      const a = (i / STEPS) * Math.PI * 2;
+      const r = R + (i % 2 ? 0.05 : -0.05);
+      jittery.push([r * Math.cos(a), r * Math.sin(a)]);
+    }
+    trace(jittery);
+
+    const ring = roomsOf(layerId)[0].contours[0];
+    expect(ring.length).toBeLessThan(STEPS / 3);
+    // Still a loop, and still that loop: an implicitly-closed ring enclosing the same area.
+    expect(ring.length).toBeGreaterThan(6);
+    const area =
+      Math.abs(
+        ring.reduce((sum, [x, y], i) => {
+          const [nx, ny] = ring[(i + 1) % ring.length];
+          return sum + x * ny - nx * y;
+        }, 0),
+      ) / 2;
+    expect(area).toBeGreaterThan(Math.PI * R * R * 0.9);
+    expect(area).toBeLessThan(Math.PI * R * R * 1.05);
+  });
+
   it('previews the loop it will commit while the stroke is live', () => {
     tool.onPointerDown({ x: 0, y: 0 });
     tool.onPointerMove({ x: 4, y: 0 });

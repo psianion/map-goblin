@@ -5,9 +5,21 @@ import { AddChildCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
 import type { DungeonLayer, RoomChild } from '../../store/types';
 import { resolveEditableLayer } from './layerGuard';
+import { simplifyPath } from '../../geometry/simplify';
 
 /** Freehand samples closer than this to the last kept one are pointer noise, not vertices. */
 const MIN_SPACING = 0.2;
+
+/**
+ * How far the committed ring may sit from the stroke the DM actually drew.
+ *
+ * The raw trace is one vertex every {@link MIN_SPACING}, and every one of them becomes a
+ * boundary occluder (O1): eight rooms and eight joints traced by hand came out at 2640
+ * occluder walls, with `extractWallSegments` at 20ms cold. A sixth of a cell is under the
+ * width of the line the overlay draws the loop with, so the room lands where it was drawn
+ * and the sweep has a tenth of the edges to walk.
+ */
+const SIMPLIFY_EPSILON = 0.15;
 
 /** A loop enclosing less than this is a stray click or a twitch, not a room. */
 const MIN_AREA = 0.5;
@@ -61,7 +73,9 @@ export class RoomTool implements DrawingTool {
     this.drawing = false;
     this.push(point);
 
-    const verts = this.points;
+    // Simplified against the raw trace, not the raw trace itself: RDP keeps the first and
+    // last samples, which on a closed loop are neighbours, so the ring stays the loop drawn.
+    const verts = simplifyPath(this.points, SIMPLIFY_EPSILON);
     const layerId = this.startLayerId;
     this.points = [];
     this.startLayerId = null;
