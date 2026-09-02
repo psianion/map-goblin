@@ -60,7 +60,7 @@ export function RoomPanel({ layer, openSections, onToggleSection }: RoomPanelPro
       onToggle={onToggleSection}
       // Same header affordance the Grid section uses for its own ink, and it means
       // the same thing: show the drawn loops and joints or don't. The room and
-      // connector tools override it while they are held.
+      // door tools override it while they are held.
       headerExtra={
         <ToggleSwitch
           checked={overlayVisible}

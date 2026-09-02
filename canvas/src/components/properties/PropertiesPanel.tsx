@@ -11,7 +11,6 @@ import { BackgroundProperties } from './BackgroundProperties'
 import { TerrainProperties } from './TerrainProperties'
 import { LightProperties } from './LightProperties'
 import { DoorProperties } from './DoorProperties'
-import { ConnectorProperties } from './ConnectorProperties'
 import { ZoneProperties } from './ZoneProperties'
 import { ShapeTextureProperties } from './ShapeTextureProperties'
 import { TextProperties } from './TextProperties'
@@ -182,29 +181,16 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
     )
   }
 
-  // If first selected child is a door, show door properties
-  if (selectedChild?.childType === 'door' && activeLayer) {
+  // If first selected child is a door, show door properties. A door drawn as a
+  // blob between rooms is the same concept and wears the same panel.
+  if (
+    (selectedChild?.childType === 'door' || selectedChild?.childType === 'connector') &&
+    activeLayer
+  ) {
     return (
       <div className="flex flex-col pt-2">
         {blockedReason && <LockedNote reason={blockedReason} />}
         <DoorProperties layerId={activeLayer.id} childId={selectedChild.id} disabled={locked} />
-        <GridSection openSections={openSections} onToggleSection={onToggleSection} />
-        <EnvironmentSection openSections={openSections} onToggleSection={onToggleSection} />
-      </div>
-    )
-  }
-
-  // If first selected child is a connector, show its kind/state/secret controls —
-  // without this, changing a placed joint from arch to door meant redrawing it.
-  if (selectedChild?.childType === 'connector' && activeLayer) {
-    return (
-      <div className="flex flex-col pt-2">
-        {blockedReason && <LockedNote reason={blockedReason} />}
-        <ConnectorProperties
-          layerId={activeLayer.id}
-          childId={selectedChild.id}
-          disabled={locked}
-        />
         <GridSection openSections={openSections} onToggleSection={onToggleSection} />
         <EnvironmentSection openSections={openSections} onToggleSection={onToggleSection} />
       </div>

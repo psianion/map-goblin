@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical, Crosshair, Zap, Frame, Link2 } from 'lucide-react'
+import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical, Crosshair, Zap, Frame } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '@/store/store'
@@ -41,12 +41,13 @@ function childIcon(childType: AnyChild['childType']) {
       return <Type size={12} />
     case 'zone':
       return <Crosshair size={12} />
-    // Same icons the toolbar's room/connector tools wear — one concept, one
-    // glyph. Pentagon is taken (it is the Polygon tool's icon).
+    // Same icon the toolbar's room tool wears — one concept, one glyph.
+    // Pentagon is taken (it is the Polygon tool's icon).
     case 'room':
       return <Frame size={12} />
+    // A door drawn between rooms is a door: same glyph as one on a wall.
     case 'connector':
-      return <Link2 size={12} />
+      return <DoorOpen size={12} />
   }
 }
 

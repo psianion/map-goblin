@@ -28,7 +28,7 @@ import { VIRTUALIZE_THRESHOLD, VirtualChildList } from './VirtualChildList'
 const GROUP_ORDER: AnyChild['childType'][] = ['room', 'connector', 'zone', 'light', 'door', 'water', 'text', 'shape', 'asset']
 const GROUP_LABELS: Record<AnyChild['childType'], string> = {
   room: 'Rooms',
-  connector: 'Connectors',
+  connector: 'Room Doors',
   zone: 'Zones',
   light: 'Lights',
   door: 'Doors',
