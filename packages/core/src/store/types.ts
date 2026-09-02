@@ -183,7 +183,9 @@ export type ToolType =
   | 'terrain'
   | 'water'
   | 'text'
-  | 'zone';
+  | 'zone'
+  | 'room'
+  | 'connector';
 
 export interface TerrainBrushSettings {
   /** Active palette slot index (0-5). */
@@ -214,6 +216,11 @@ export interface ZoneToolSettings {
   mode: 'point' | 'circle' | 'rect';
 }
 
+export interface ConnectorToolSettings {
+  /** What the next placed connector is: an always-open arch, or a real door. */
+  kind: 'arch' | 'door';
+}
+
 export interface ScatterBrushSettings {
   assetIds: string[];
   brushRadius: number;
@@ -239,6 +246,7 @@ export interface ToolSettings {
   terrainBrush: TerrainBrushSettings;
   water: WaterToolSettings;
   zone: ZoneToolSettings;
+  connector: ConnectorToolSettings;
 }
 
 export interface ToolsSlice {
