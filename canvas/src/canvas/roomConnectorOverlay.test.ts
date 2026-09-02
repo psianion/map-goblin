@@ -49,6 +49,9 @@ const ARCH: ConnectorChild = {
 
 const DOOR: ConnectorChild = { ...ARCH, id: 'conn-2', kind: 'door', state: 'closed' };
 
+/** The same joint once binding actually found it two rooms to join. */
+const BOUND: ConnectorChild = { ...ARCH, roomA: 'room-1', roomB: 'room-2' };
+
 function dungeonLayer(): DungeonLayer {
   const l = useStore.getState().layers.find((x): x is DungeonLayer => x.type === 'dungeon');
   if (!l) throw new Error('default state has no dungeon layer');
@@ -211,6 +214,46 @@ describe('room/connector overlay visibility', () => {
       rafCallback!();
       expect(fillSpy).not.toHaveBeenCalled();
       unmount();
+    });
+  });
+
+  // Binding is derived, so a joint that found no two rooms to join refuses nothing
+  // and warns nowhere — it just quietly does nothing, looking exactly like one that
+  // works. The overlay is the only place that can say otherwise.
+  describe('a joint that binds nothing', () => {
+    /** Mounts a fresh overlay over `child` and reports the label text it drew. */
+    function labelsFor(child: ConnectorChild): string[] {
+      useStore.getState().resetToDefault();
+      useStore.getState().addChild(dungeonLayer().id, child);
+      const world = new Container();
+      const unmount = mountRoomConnectorOverlay(world);
+      const labels = (world.children[0] as Container).children[1] as Container;
+      const text = labels.children.map((l) => (l as unknown as { text: string }).text);
+      unmount();
+      return text;
+    }
+
+    it('is called out in words, where a bound one is left alone', () => {
+      expect(labelsFor(DOOR)).toEqual(['not linked']);
+      expect(labelsFor({ ...DOOR, roomA: 'room-1', roomB: null })).toEqual(['not linked']);
+      expect(labelsFor(BOUND)).toEqual([]);
+    });
+
+    it('draws the outline broken where a bound joint draws it whole', () => {
+      // A solid outline is one `poly().stroke()` pair; a dashed one walks the ring
+      // itself, so only the two fills reach `poly`.
+      const polyCalls = (child: ConnectorChild): number => {
+        useStore.getState().resetToDefault();
+        useStore.getState().addChild(dungeonLayer().id, child);
+        const spy = vi.spyOn(Graphics.prototype, 'poly');
+        const unmount = mountRoomConnectorOverlay(new Container());
+        const n = spy.mock.calls.length;
+        unmount();
+        spy.mockRestore();
+        return n;
+      };
+
+      expect(polyCalls(DOOR)).toBeLessThan(polyCalls({ ...DOOR, ...BOUND, kind: 'door' }));
     });
   });
 

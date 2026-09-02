@@ -24,6 +24,10 @@ const INK = 0x191b16;
 
 const DASH = 0.15;
 const GAP = 0.1;
+/** Coarser broken outline for a joint that binds nothing — reads apart from an arch's fine dash. */
+const UNBOUND_DASH = 0.36;
+const UNBOUND_GAP = 0.24;
+const UNBOUND_TEXT = 'not linked';
 /** Outset of the second ring drawn around a selected item, world units. */
 const SELECT_RING_WIDTH = 0.03;
 /** Interior fill alphas — a room reads as an outline, a connector as a solid joint. */
@@ -32,6 +36,8 @@ const CONNECTOR_FILL = { arch: 0.14, door: 0.3 };
 
 /** Label size in screen pixels, held constant by dividing out the camera zoom. */
 const LABEL_PX = 12;
+/** Screen-pixel gap between a joint's outline and the label hung under it. */
+const LABEL_GAP_PX = 6;
 
 type Ring = [number, number][];
 
@@ -52,6 +58,18 @@ export function overlayRing(child: RoomChild | ConnectorChild): Ring | null {
     const sy = y * t.scale[1];
     return [sx * cos - sy * sin + t.translate[0], sx * sin + sy * cos + t.translate[1]];
   });
+}
+
+/** Screen-sized ink text pinned to a world point — the room name, and the unbound warning. */
+function makeLabel(text: string, x: number, y: number, zoom: number, anchorY: number): Text {
+  const label = new Text({
+    text,
+    style: { fontFamily: 'sans-serif', fontSize: LABEL_PX, fill: WHITE, stroke: { color: INK, width: 3 } },
+  });
+  label.anchor.set(0.5, anchorY);
+  label.position.set(x, y);
+  label.scale.set(1 / zoom);
+  return label;
 }
 
 function centroid(ring: Ring): [number, number] {
@@ -81,21 +99,45 @@ function drawRoom(g: Graphics, ring: Ring, selected: boolean, scale: number): vo
   }
 }
 
-function drawConnector(g: Graphics, c: ConnectorChild, ring: Ring, selected: boolean, scale: number): void {
+/**
+ * Whether this joint failed to find two rooms to join (C2).
+ *
+ * Binding is derived geometry, so nothing refuses and nothing warns: a joint
+ * drawn a hair short of the room on one side simply does nothing forever, and
+ * looks exactly like one that works. That is the failure the DM has to be able to
+ * see, so it is drawn — not logged.
+ */
+export function connectorUnbound(c: ConnectorChild): boolean {
+  return !c.roomA || !c.roomB || c.roomA === c.roomB;
+}
+
+function drawConnector(
+  g: Graphics,
+  c: ConnectorChild,
+  ring: Ring,
+  selected: boolean,
+  scale: number,
+): void {
   const flat = ring.flat();
   const strokeWidth = (selected ? 0.06 : 0.04) / scale;
   const inkWidth = strokeWidth + 0.03 / scale;
 
   // Kind is read off the fill weight and the outline: an arch is the light,
-  // dashed opening; a door is the solid, heavier plug.
+  // dashed opening; a door is the solid, heavier plug. Fill stays kind's alone —
+  // unbound speaks through the outline and its label, so the two read independently.
   g.poly(flat).fill({ color: INK, alpha: 0.18 });
   g.poly(flat).fill({ color: WHITE, alpha: c.kind === 'door' ? CONNECTOR_FILL.door : CONNECTOR_FILL.arch });
 
-  g.poly(flat).stroke({ color: INK, width: inkWidth, alpha: 0.7 });
-  if (c.kind === 'door') {
-    g.poly(flat).stroke({ color: WHITE, width: strokeWidth, alpha: selected ? 0.95 : 0.8 });
+  if (connectorUnbound(c)) {
+    dashedPolygon(g, ring, INK, inkWidth, 0.7, UNBOUND_DASH / scale, UNBOUND_GAP / scale);
+    dashedPolygon(g, ring, WHITE, strokeWidth, selected ? 0.95 : 0.85, UNBOUND_DASH / scale, UNBOUND_GAP / scale);
   } else {
-    dashedPolygon(g, ring, WHITE, strokeWidth, selected ? 0.95 : 0.75, DASH / scale, GAP / scale);
+    g.poly(flat).stroke({ color: INK, width: inkWidth, alpha: 0.7 });
+    if (c.kind === 'door') {
+      g.poly(flat).stroke({ color: WHITE, width: strokeWidth, alpha: selected ? 0.95 : 0.8 });
+    } else {
+      dashedPolygon(g, ring, WHITE, strokeWidth, selected ? 0.95 : 0.75, DASH / scale, GAP / scale);
+    }
   }
 
   if (selected) {
@@ -178,14 +220,17 @@ export function mountRoomConnectorOverlay(worldContainer: Container): () => void
 
     for (const { child, ring } of rooms) {
       const [cx, cy] = centroid(ring);
-      const label = new Text({
-        text: child.name,
-        style: { fontFamily: 'sans-serif', fontSize: LABEL_PX, fill: WHITE, stroke: { color: INK, width: 3 } },
-      });
-      label.anchor.set(0.5);
-      label.position.set(cx, cy);
-      label.scale.set(1 / zoom);
-      labels.addChild(label);
+      labels.addChild(makeLabel(child.name, cx, cy, zoom, 0.5));
+    }
+
+    // An unbound joint says so in words. The broken outline alone is too quiet for
+    // something whose whole failure mode is looking exactly like the working case.
+    for (const { child, ring } of connectors) {
+      if (!connectorUnbound(child)) continue;
+      let bottom = -Infinity;
+      for (const [, y] of ring) if (y > bottom) bottom = y;
+      const [cx] = centroid(ring);
+      labels.addChild(makeLabel(UNBOUND_TEXT, cx, bottom + LABEL_GAP_PX / zoom, zoom, 0));
     }
   };
 
