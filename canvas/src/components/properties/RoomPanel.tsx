@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useStore } from '@/store/store'
 import { CollapsibleSection } from '@/components/ui/collapsible-section'
 import { RenameRoomCommand } from '@/store/commands'
+import { seedRoomsFromDetection } from '@dnd/core/src/store/seedRooms'
 import { undoManager } from '@/store/undoManager'
 import type { DungeonLayer, Room } from '@/store/types'
 
@@ -20,6 +21,13 @@ export function RoomPanel({ layer, openSections, onToggleSection }: RoomPanelPro
     return l?.type === 'dungeon' ? (l.rooms ?? []) : []
   }))
   const setHighlightedRoomId = useStore((s) => s.setHighlightedRoomId)
+  // Once the layer holds drawn rooms it IS the room source, so seeding from
+  // detection would only clone what is already there — seedRoomsFromDetection
+  // no-ops, and the affordance goes with it.
+  const hasAuthoredRooms = useStore((s) => {
+    const l = s.layers.find((x) => x.id === layer.id)
+    return l?.type === 'dungeon' ? l.children.some((c) => c.childType === 'room') : false
+  })
 
   // Pinned = clicked; the canvas highlight falls back to it when hover ends.
   const [pinnedId, setPinnedId] = useState<string | null>(null)
@@ -99,6 +107,15 @@ export function RoomPanel({ layer, openSections, onToggleSection }: RoomPanelPro
             </li>
           ))}
         </ul>
+      )}
+      {!hasAuthoredRooms && rooms.length > 0 && (
+        <button
+          type="button"
+          onClick={() => seedRoomsFromDetection(layer.id)}
+          className="mt-2 w-full rounded border border-border-default bg-surface-1 px-2 py-1 text-panel-body text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary"
+        >
+          Seed rooms from detection
+        </button>
       )}
     </CollapsibleSection>
   )

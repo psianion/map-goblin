@@ -86,4 +86,40 @@ describe('RoomPanel', () => {
     act(() => undoManager.undo())
     expect(dungeon().rooms?.[0].name).toBe('Cave Mouth')
   })
+
+  it('seeds one authored room per detected room, as one undo entry', () => {
+    renderPanel()
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /seed rooms from detection/i }))
+    })
+
+    const seeded = dungeon().children.filter((c) => c.childType === 'room')
+    expect(seeded).toHaveLength(2)
+    expect(seeded.map((c) => c.name)).toEqual(['Cave Mouth', 'Corridor 2'])
+    // Fresh uuids, deliberately not the detected position-hash ids.
+    expect(seeded.map((c) => c.id)).not.toContain('r1')
+
+    act(() => undoManager.undo())
+    expect(dungeon().children.filter((c) => c.childType === 'room')).toHaveLength(0)
+  })
+
+  it('hides the seed affordance once the layer owns its rooms', () => {
+    act(() => {
+      useStore.getState().addChild(dungeon().id, {
+        id: 'authored-1',
+        name: 'Drawn Room',
+        childType: 'room',
+        visible: true,
+        contours: [[[0, 0], [4, 0], [4, 4], [0, 4]]],
+      })
+    })
+    renderPanel()
+    expect(screen.queryByRole('button', { name: /seed rooms from detection/i })).toBeNull()
+  })
+
+  it('offers nothing to seed when detection found nothing', () => {
+    useStore.getState().setRooms(dungeon().id, [])
+    renderPanel()
+    expect(screen.queryByRole('button', { name: /seed rooms from detection/i })).toBeNull()
+  })
 })

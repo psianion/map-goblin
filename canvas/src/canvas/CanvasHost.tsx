@@ -21,6 +21,7 @@ import { registerAllTools } from '@/engine/tools/registerTools';
 import { SnapIndicator } from './snapIndicator';
 import { DimensionHud } from './dimensionHud';
 import { mountZoneOverlay } from './zoneOverlay';
+import { mountRoomConnectorOverlay } from './roomConnectorOverlay';
 import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
 import { getAssetPackManager } from '@/engine/assetPackInstance';
@@ -169,6 +170,9 @@ export function CanvasHost() {
       // Zone markers — editor-only, never present in the session/table bundle
       const unmountZoneOverlay = mountZoneOverlay(sceneGraph.worldContainer);
 
+      // Authored rooms + connectors — same editor-only reasoning as zones
+      const unmountRoomConnectorOverlay = mountRoomConnectorOverlay(sceneGraph.worldContainer);
+
       // Door marks — same opt-in reasoning: the table draws its own live ones (DoorRenderer),
       // so core only ever has them where a surface asks.
       const unmountDoorIcons = mountDoorIcons(pixiEngine);
@@ -198,6 +202,7 @@ export function CanvasHost() {
         setDimensionHud(null);
         dimensionHud.destroy();
         unmountZoneOverlay();
+        unmountRoomConnectorOverlay();
         unmountDoorIcons();
         sceneGraph.toolManager.destroy();
         sceneGraph.lightingRenderer.destroy();
