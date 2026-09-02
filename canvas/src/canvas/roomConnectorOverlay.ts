@@ -153,29 +153,35 @@ interface Authored {
 }
 
 /**
- * Whether the ink is drawn at all right now.
+ * Whether ALL of the ink is drawn right now.
  *
  * `ui.roomOverlayVisible` is the DM's own preference (RoomPanel's header switch,
  * the same affordance shape as the grid's), and it governs the idle canvas only:
- * while the room or connector tool is held the ink comes back regardless, because
- * the alternative is authoring a room you cannot see.
+ * while the room or door tool is held the ink comes back regardless, because the
+ * alternative is authoring a room you cannot see.
+ *
+ * False does not mean "no ink" — see {@link visibleAuthored}.
  */
 export function overlayShows(state: StoreState): boolean {
   const tool = state.tools.activeTool;
-  return state.ui.roomOverlayVisible || tool === 'room' || tool === 'connector';
+  return state.ui.roomOverlayVisible || tool === 'room' || tool === 'door';
 }
 
 function visibleAuthored(state: StoreState): Authored {
   const out: Authored = { rooms: [], connectors: [] };
-  if (!overlayShows(state)) return out;
+  const showAll = overlayShows(state);
   for (const l of state.layers) {
     if (l.type !== 'dungeon' || !isLayerEffectivelyVisible(state, l as DungeonLayer)) continue;
     for (const c of (l as DungeonLayer).children) {
       if (c.childType !== 'room' && c.childType !== 'connector') continue;
       if (!c.visible) continue;
+      const selected = state.selection.selectedIds.includes(c.id);
+      // The switch turns off the crowd, never the thing in hand: what the DM has
+      // selected keeps its outline, or picking a room out of the layers panel
+      // would select something with nothing on screen to show for it.
+      if (!showAll && !selected) continue;
       const ring = overlayRing(c);
       if (!ring) continue;
-      const selected = state.selection.selectedIds.includes(c.id);
       if (c.childType === 'room') out.rooms.push({ child: c, ring, selected });
       else out.connectors.push({ child: c, ring, selected });
     }

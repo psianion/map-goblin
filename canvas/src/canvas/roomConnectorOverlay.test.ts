@@ -188,15 +188,35 @@ describe('room/connector overlay visibility', () => {
       expect(inkDrawn()).toBe(false);
     });
 
-    it('draws anyway while the room or connector tool is held', () => {
+    it('draws anyway while the room or door tool is held', () => {
       useStore.getState().setRoomOverlayVisible(false);
       useStore.getState().setActiveTool('room');
       expect(inkDrawn()).toBe(true);
-      useStore.getState().setActiveTool('connector');
+      useStore.getState().setActiveTool('door');
       expect(inkDrawn()).toBe(true);
       // ...and goes again the moment the DM puts the tool down.
       useStore.getState().setActiveTool('select');
       expect(inkDrawn()).toBe(false);
+    });
+
+    // The switch means "not all of it", never "none of it": selecting a room from the
+    // layers panel with the ink off would otherwise light up nothing at all.
+    it('keeps drawing whatever is selected, and only that', () => {
+      useStore.getState().addChild(dungeonLayer().id, DOOR);
+      useStore.getState().setRoomOverlayVisible(false);
+      useStore.getState().setActiveTool('select');
+      expect(inkDrawn()).toBe(false);
+
+      useStore.getState().setSelectedIds([ROOM.id]);
+
+      const world = new Container();
+      const unmount = mountRoomConnectorOverlay(world);
+      const labels = (world.children[0] as Container).children[1] as Container;
+      // The room's own name, and nothing from the unselected joint beside it.
+      expect(labels.children.map((l) => (l as unknown as { text: string }).text)).toEqual([
+        'Klarg Cave',
+      ]);
+      unmount();
     });
 
     it('holds the preference across mounts, and never writes it to the map', () => {
