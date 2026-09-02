@@ -151,6 +151,44 @@ describe('syncDoorsToLighting', () => {
     stop();
   });
 
+  // O2 — the joint the DM drew across a room's boundary is the doorway in it, and the
+  // occlusion split reads its state off the child exactly as it reads a wall door's. It
+  // ships as a door twin, so the table's own state is keyed on the same id and one drift
+  // entry moves both.
+  it('flips a drawn connector with the door twin it ships as', () => {
+    useStore.setState({
+      layers: [
+        dungeon([
+          door(),
+          {
+            id: 'd1',
+            childType: 'connector',
+            visible: true,
+            contours: [
+              [
+                [4, -1],
+                [6, -1],
+                [6, 1],
+                [4, 1],
+              ],
+            ],
+            kind: 'door',
+            state: 'closed',
+            isSecret: false,
+          } as unknown as DoorChild,
+        ]),
+      ],
+    });
+    const stop = syncDoorsToLighting();
+    useSessionStore.setState({
+      session: session({ d1: { open: true, locked: false, revealed: true } }),
+    });
+
+    const kids = (useStore.getState().layers[0] as unknown as { children: DoorChild[] }).children;
+    expect(kids.map((child) => child.state)).toEqual(['open', 'open']);
+    stop();
+  });
+
   it('stops writing once unsubscribed', () => {
     syncDoorsToLighting()();
     useSessionStore.setState({
