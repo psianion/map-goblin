@@ -53,7 +53,13 @@ export const createSelectionSlice: StateCreator<
           if (layer.type !== 'dungeon') continue;
           for (const child of layer.children) {
             if (!ids.has(child.id)) continue;
-            if (child.childType === 'shape') {
+            // Rooms and connectors carry the same optional transform a shape
+            // does, so they bake through the identical branch.
+            if (
+              child.childType === 'shape' ||
+              child.childType === 'room' ||
+              child.childType === 'connector'
+            ) {
               const prev = child.transform ?? { translate: [0, 0] as [number, number], rotate: 0, scale: [1, 1] as [number, number] };
               child.transform = {
                 translate: [prev.translate[0] + t.translate[0], prev.translate[1] + t.translate[1]],
