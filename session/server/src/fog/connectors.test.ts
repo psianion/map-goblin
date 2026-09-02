@@ -271,12 +271,27 @@ describe('C4 — visibleRooms and blockedEdge over a connector-built graph', () 
 // ── S1–S4 — standability ────────────────────────────────────────────────────
 
 describe('S1–S4 — where a token may stand on an authored map', () => {
-  const scene = (joint = connector(), doorState: DoorsState | null = null) => {
+  const scene = (
+    joint = connector(),
+    doorState: DoorsState | null = null,
+    tokens: TokensState = party(5),
+  ) => {
     const { vision, stores, campaignId } = table(joint)
-    set(stores, campaignId, 'tokens', party(5))
+    set(stores, campaignId, 'tokens', tokens)
     set(stores, campaignId, 'fog', { byScene: { [SCENE]: bothSeen } } satisfies FogState)
     if (doorState) set(stores, campaignId, 'doors', doorState)
     return vision.visionOf(SCENE)!
+  }
+  /** The party split across the joint — the one arrangement that credits BOTH sides of a
+   *  shut door, since the reachability flood starts from every room the party stands in. */
+  const straddling: TokensState = {
+    library: {},
+    byScene: {
+      [SCENE]: {
+        pc: { id: 'pc', x: 5, y: 5, ownerId: 'p-1', hidden: false } as Token,
+        pc2: { id: 'pc2', x: 17, y: 5, ownerId: 'p-1', hidden: false } as Token,
+      },
+    },
   }
   const open: DoorsState = {
     byScene: { [SCENE]: { joint: { open: true, locked: false, revealed: true } } },
@@ -299,13 +314,49 @@ describe('S1–S4 — where a token may stand on an authored map', () => {
     expect(scene(connector({ kind: 'arch' })).roomAt(11, 5)).toBe('hall')
   })
 
-  it('answers a shut joint with the side the party has not earned, so it refuses', () => {
-    const shut = scene()
+  // A shut joint answers with itself, whatever the party has earned on either side — the
+  // two inputs `occupyRefusal` reads: an id no credited set holds (so it refuses at all)
+  // and a blocked edge naming this connector (so the words are the door's). `validate.test`
+  // owns the sentence those two produce.
+  const refusesAsTheJoint = (shut: ReturnType<typeof scene>, kind: string) => {
+    const at = shut.roomAt(11, 5)
+    expect(at).not.toBeNull()
+    expect(shut.occupiable.has(at!)).toBe(false)
+    expect(shut.blockedEdge!(at!)).toEqual({ kind, doorId: 'joint' })
+  }
+
+  it('answers a shut joint with itself, so it refuses as the door', () => {
     // Only `hall` is credited here: the party stands in it, and `crypt` is behind the shut
     // joint, so the BFS never reaches it.
-    expect(shut.occupiable.has('crypt')).toBe(false)
-    expect(shut.roomAt(11, 5)).toBe('crypt')
-    expect(shut.blockedEdge!('crypt')).toEqual({ kind: 'closed-door', doorId: 'joint' })
+    expect(scene().occupiable.has('crypt')).toBe(false)
+    refusesAsTheJoint(scene(), 'closed-door')
+  })
+
+  // The tracked P1b hole: with the party split across the joint both rooms are credited,
+  // there is no unearned side left to answer with, and the point used to fall out of the
+  // room lane as "there is no ground there" — a refusal, but the wrong sentence.
+  it('still refuses as the door with both sides credited', () => {
+    const split = scene(connector(), null, straddling)
+    expect(split.occupiable.has('hall')).toBe(true)
+    expect(split.occupiable.has('crypt')).toBe(true)
+    refusesAsTheJoint(split, 'closed-door')
+  })
+
+  it('names a locked joint as locked, both sides credited', () => {
+    refusesAsTheJoint(scene(connector({ state: 'locked' }), null, straddling), 'locked-door')
+  })
+
+  it('lets a both-credited party stand in the joint once it is open', () => {
+    const opened = scene(connector(), open, straddling)
+    const at = opened.roomAt(11, 5)
+    expect(at).not.toBeNull()
+    expect(opened.occupiable.has(at!)).toBe(true)
+  })
+
+  // A secret door they have not found is not a fact they are allowed to hear, so the joint
+  // reads as unzoned map rather than announcing itself — `blockedEdge`'s own rule.
+  it('leaves an unfound secret joint as void', () => {
+    expect(scene(connector({ isSecret: true }), null, straddling).roomAt(11, 5)).toBeNull()
   })
 
   it('leaves a joint onto nothing the party has earned as void', () => {

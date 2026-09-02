@@ -32,6 +32,7 @@ import {
   toBytes,
   visibleRooms,
   visionShareOf,
+  type BlockedEdge,
   type Cell,
   type FogRoom,
   type FogState,
@@ -142,10 +143,9 @@ export interface AutoExplorePatch {
  * judges the space by that room, with no rule of its own for connectors and no new copy.
  *
  * Which room depends on the leaf. A passable joint answers with a room the party has
- * earned, so they may stand there. A shut one answers with the side they have *not*, which
- * is what puts `blockedEdge` on this very connector and gets them "the door is closed"
- * naming it. The blobs are never unioned into a room's boundary: that boundary is P2's
- * occluder, and a doorway welded into it is a doorway that cannot be an aperture.
+ * earned, so they may stand there. A shut one answers with the joint itself — see
+ * `connectorEdge`. The blobs are never unioned into a room's boundary: that boundary is
+ * P2's occluder, and a doorway welded into it is a doorway that cannot be an aperture.
  */
 function connectorRoom(computed: Computed, x: number, y: number): string | null {
   for (const { door, ring } of computed.map.connectors) {
@@ -154,11 +154,32 @@ function connectorRoom(computed: Computed, x: number, y: number): string | null 
     // Bound to nothing the party holds: the joint is as unearned as the rooms it joins.
     if (!sides.some((room) => computed.occupiable.has(room))) continue
     const live = computed.doors[door.id] ?? seedDoor(door)
-    return live.open && !live.locked
-      ? sides.find((room) => computed.occupiable.has(room)) ?? null
-      : sides.find((room) => !computed.occupiable.has(room)) ?? null
+    if (live.open && !live.locked) return sides.find((room) => computed.occupiable.has(room)) ?? null
+    // Shut. Naming the side they had not earned only worked while there was one: with both
+    // rooms credited every side says "come in", and the point fell out of the room lane
+    // entirely as "there is no ground there" — the right refusal under the wrong sentence.
+    // So the joint answers for itself. Its id belongs to no room, which is what makes the
+    // space refuse, and `connectorEdge` reads the id back off `blockedEdge` for the words.
+    //
+    // A secret door they have not found is the one exception, for `blockedEdge`'s own
+    // reason (visibility.ts:166): it is not a fact they are allowed to hear, and unzoned
+    // map is exactly what a secret door should feel like.
+    return door.isSecret && !live.revealed ? null : door.id
   }
   return null
+}
+
+/**
+ * The shut joint behind a `blockedEdge` question, when `connectorRoom` answered with one.
+ *
+ * `blockedEdge` searches the room graph for the door between the party and a room; there is
+ * no such search to do here, because the id it was handed IS the door standing in the way.
+ */
+function connectorEdge(computed: Computed, room: string): BlockedEdge | null {
+  const joint = computed.map.connectors.find(({ door }) => door.id === room)
+  if (!joint) return null
+  const live = computed.doors[room] ?? seedDoor(joint.door)
+  return { kind: live.locked ? 'locked-door' : 'closed-door', doorId: room }
 }
 
 interface Computed {
@@ -439,7 +460,9 @@ export function createVision(stores: Stores): Vision {
         // The half of the refusal that was never plugged in: `occupiable` is the BFS's
         // boolean, and without this the cause it discarded stayed discarded, so every move
         // a door refused came back as the generic "you can't move there".
-        blockedEdge: (room) => blockedEdge(computed.doors, computed.map.doors, computed.party, room),
+        blockedEdge: (room) =>
+          connectorEdge(computed, room) ??
+          blockedEdge(computed.doors, computed.map.doors, computed.party, room),
       }
     },
 
