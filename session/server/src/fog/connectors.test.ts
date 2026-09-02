@@ -11,12 +11,19 @@ import { blockedEdge, visibleRooms, type SceneFog } from '@dnd/mechanics/fog'
 import { seedDoor, type DoorLiveState, type DoorsState } from '@dnd/mechanics/doors'
 import type { Token, TokensState } from '@dnd/mechanics/tokens'
 import type { FogState } from '@dnd/mechanics/fog'
-import type { AnyChild, ConnectorChild, Room, RoomChild } from '@dnd/core/src/shared/types'
+import type {
+  AnyChild,
+  ConnectorChild,
+  DoorChild,
+  Room,
+  RoomChild,
+} from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import { openDb } from '../db/db'
 import { createStores, type Stores } from '../db/stores'
 import { redactMapForViewer } from './redactMap'
 import { createSceneMaps } from './sceneMap'
+import { createSweeps, seen } from './sweep'
 import { createVision } from './vision'
 
 // ── A two-chamber warren, drawn rather than detected ────────────────────────
@@ -171,13 +178,17 @@ describe('C1 — a connector joins the door graph', () => {
 // ── C3 — what a player is shipped ───────────────────────────────────────────
 
 describe('C3 — the glyph anchor a connector has no wall to give', () => {
-  it('anchors the mark on the blob centroid, along its principal axis', () => {
+  // P2 (O2) refined this: the anchor is the doorway itself — the stretch of room
+  // boundary the blob swallows — not the blob's own long axis. The blob runs across
+  // the gap, so the principal axis had the mark lying along the corridor; the crossing
+  // has it standing in the wall, which is where a door mark goes.
+  it('anchors the mark on the boundary the blob crosses, across the wall', () => {
     const door = twin()
-    expect(door.position[0]).toBeCloseTo(11)
+    expect(door.position[0]).toBeCloseTo(10)
     expect(door.position[1]).toBeCloseTo(5)
-    // The blob is four wide and two tall, so the long axis is horizontal.
-    expect(Math.abs(Math.sin(door.angle))).toBeLessThan(1e-6)
-    expect(door.width).toBeCloseTo(4)
+    // The hall's right-hand edge runs vertically, and so does the doorway cut in it.
+    expect(Math.abs(Math.cos(door.angle))).toBeLessThan(1e-6)
+    expect(door.width).toBeCloseTo(2)
     expect(door.wallId).toBe('')
   })
 
@@ -199,7 +210,8 @@ describe('C3 — the glyph anchor a connector has no wall to give', () => {
     const kids = (cut.layers[0] as DungeonLayer).children
     const shipped = kids.find((child) => child.id === 'joint')!
     expect(shipped.childType).toBe('door')
-    expect(shipped).toMatchObject({ state: 'closed', style: 'single', width: 4 })
+    expect(shipped).toMatchObject({ state: 'closed', style: 'single' })
+    expect((shipped as DoorChild).width).toBeCloseTo(2)
   })
 })
 
@@ -301,6 +313,60 @@ describe('S1–S4 — where a token may stand on an authored map', () => {
   })
 })
 
+// ── O1/O2 — the referee's own sweep, against the live joint ────────────────
+//
+// The geometry is core's and is proved there (packages/core/src/shared/authoredOcclusion
+// .test.ts). What is only true here is the *live* overlay: the map file authors a joint
+// `closed`, and it is the table's state, stamped on by `segmentsOf`, that decides whether
+// the doorway is a hole in the boundary this instant.
+
+describe('O1/O2 — the sweep occludes on drawn boundaries and their live joints', () => {
+  const eye: [number, number] = [5, 5]
+  const across: [number, number] = [17, 5]
+  const eyes = {
+    pc: {
+      ...party(eye[0]).byScene[SCENE].pc,
+      claimedBy: 'p-1',
+      sight: { range: 60, angle: 360, visionMode: 'normal' as const },
+    },
+  } as unknown as Record<string, Token>
+  const look = (joint: ConnectorChild, doors: Record<string, DoorLiveState> = {}) => {
+    const vision = createSweeps().partyVision(sceneMap(joint), eyes, doors, null)
+    return seen(vision, ...across)
+  }
+  const live = (over: Partial<DoorLiveState>): Record<string, DoorLiveState> => ({
+    joint: { open: false, locked: false, revealed: true, ...over },
+  })
+
+  it('stops at the drawn boundary while the joint is shut', () => {
+    expect(look(connector(), live({}))).toBe(false)
+    expect(look(connector(), live({ locked: true }))).toBe(false)
+  })
+
+  it('passes the doorway once the table opens the joint', () => {
+    expect(look(connector(), live({ open: true }))).toBe(true)
+  })
+
+  it('seeds an arch open even with the map file calling it closed', () => {
+    expect(look(connector({ kind: 'arch', state: 'closed' }))).toBe(true)
+  })
+
+  it('walls the doorway shut again while a secret joint is unfound', () => {
+    const secret = connector({ isSecret: true, state: 'open' })
+    expect(look(secret, live({ open: true, revealed: false }))).toBe(false)
+    expect(look(secret, live({ open: true, revealed: true }))).toBe(true)
+  })
+
+  // Tracked from P1b: a twin re-anchors onto whatever wall is in range, and boundaries are
+  // walls now. It anchors on its own doorway, which is the nearest wall there is to it —
+  // and the aperture never re-anchors at all, being clipped to the span the blob swallows.
+  it('anchors the twin on its own doorway rather than any wall near the blob', () => {
+    const door = sceneMap().doors.find((d) => d.id === 'joint')!
+    expect(door.position[0]).toBeCloseTo(10)
+    expect(door.position[1]).toBeCloseTo(5)
+  })
+})
+
 // ── W1–W3 — wire hygiene ───────────────────────────────────────────────────
 
 describe('W1–W3 — what leaves the server', () => {
@@ -316,12 +382,31 @@ describe('W1–W3 — what leaves the server', () => {
     expect(JSON.stringify(cut(onlyHall))).not.toContain('crypt')
   })
 
-  // W2 — the drawn geometry itself is authoring, and never a player's.
-  it('never ships a RoomChild or a connector blob', () => {
+  // W2, as P2 refined it: a drawn room's boundary is the wall that stops sight and the
+  // blob is the doorway through it (O1/O2), and the table sweeps its own copy — so both
+  // travel, fenced by the credit that already fences the `Room` the contour duplicates.
+  it('ships the drawn geometry of earned rooms, and only of those', () => {
     const kids = (cut(bothSeen).layers[0] as DungeonLayer).children
-    expect(kids.map((child) => child.childType)).toEqual(['door'])
-    // The blob's own corner: present in the DM's map, absent from the player's.
-    expect(JSON.stringify(cut(bothSeen))).not.toContain('"contours"')
+    expect(kids.map((child) => child.childType).sort()).toEqual([
+      'connector',
+      'door',
+      'room',
+      'room',
+    ])
+  })
+
+  it('withholds the contour of a room the party has not earned', () => {
+    const kids = (cut(onlyHall).layers[0] as DungeonLayer).children
+    expect(kids.filter((child) => child.childType === 'room').map((child) => child.id)).toEqual([
+      'hall',
+    ])
+    expect(JSON.stringify(cut(onlyHall))).not.toContain('crypt')
+  })
+
+  it('gives the shipped contour nothing the Room boundary did not already carry', () => {
+    const layer = cut(onlyHall).layers[0] as DungeonLayer
+    const shipped = layer.children.find((child) => child.childType === 'room') as RoomChild
+    expect(shipped.contours[0]).toEqual(layer.rooms?.[0].boundary)
   })
 
   // …and the same facing rule a wall door gets, for the same reason.

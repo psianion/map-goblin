@@ -30,19 +30,120 @@ export function authoredRing(child: RoomChild | ConnectorChild): [number, number
   });
 }
 
+const SPAN_EPS = 1e-9;
+
+function pointInRing(x: number, y: number, ring: readonly [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
 /**
- * Where a connector's door mark is drawn, and how wide. A wall door anchors on its
- * wall; a connector has none, so the blob answers for itself: its centroid, the
- * direction it is longest in, and how far it runs that way.
+ * The stretches of the segment `a`→`b` that run inside `ring`, as parameter
+ * intervals along it. This is the doorway: where a connector's blob swallows a
+ * stretch of a room's boundary, that stretch is not wall, it is the opening.
  *
- * ponytail: the principal axis is the P1 approximation. P2 replaces it with the
- * span where the blob crosses the room boundary, which is the real doorway.
+ * Cut the segment at every crossing, then keep the pieces whose midpoint is
+ * inside — the textbook clip, and exact for the concave freehand loops the room
+ * tool draws, which a convex-only method would get wrong.
+ *
+ * ponytail: O(edges) per query, no index. A map holds a handful of connectors and
+ * the promotion is memoized per layer; index the ring if that stops being true.
  */
-export function connectorAnchor(child: ConnectorChild): {
+export function spansInside(
+  a: readonly [number, number],
+  b: readonly [number, number],
+  ring: readonly [number, number][],
+): [number, number][] {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const cuts = [0, 1];
+  for (let i = 0; i < ring.length; i++) {
+    const p = ring[i];
+    const q = ring[(i + 1) % ring.length];
+    const ex = q[0] - p[0];
+    const ey = q[1] - p[1];
+    const den = dx * ey - dy * ex;
+    if (Math.abs(den) < SPAN_EPS) continue;
+    const t = ((p[0] - a[0]) * ey - (p[1] - a[1]) * ex) / den;
+    const u = ((p[0] - a[0]) * dy - (p[1] - a[1]) * dx) / den;
+    if (t > SPAN_EPS && t < 1 - SPAN_EPS && u >= 0 && u <= 1) cuts.push(t);
+  }
+  cuts.sort((m, n) => m - n);
+  const out: [number, number][] = [];
+  for (let i = 0; i + 1 < cuts.length; i++) {
+    const [t0, t1] = [cuts[i], cuts[i + 1]];
+    if (t1 - t0 < SPAN_EPS) continue;
+    const m = (t0 + t1) / 2;
+    if (!pointInRing(a[0] + dx * m, a[1] + dy * m, ring)) continue;
+    const last = out[out.length - 1];
+    if (last && t0 - last[1] < SPAN_EPS) last[1] = t1;
+    else out.push([t0, t1]);
+  }
+  return out;
+}
+
+/**
+ * Every doorway a connector cuts: one entry per stretch of a room boundary its
+ * blob swallows, in the shape the occlusion split already reads a door in.
+ */
+export function connectorCrossings(
+  child: ConnectorChild,
+  boundaries: readonly (readonly [number, number][])[],
+): { position: [number, number]; angle: number; width: number }[] {
+  const blob = authoredRing(child);
+  const out: { position: [number, number]; angle: number; width: number }[] = [];
+  if (blob.length < 3) return out;
+  for (const ring of boundaries) {
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i];
+      const b = ring[(i + 1) % ring.length];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len < SPAN_EPS) continue;
+      for (const [t0, t1] of spansInside(a, b, blob)) {
+        const m = (t0 + t1) / 2;
+        out.push({
+          position: [a[0] + (b[0] - a[0]) * m, a[1] + (b[1] - a[1]) * m],
+          angle: Math.atan2(b[1] - a[1], b[0] - a[0]),
+          width: (t1 - t0) * len,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Where a connector's door mark is drawn, and how wide.
+ *
+ * A wall door anchors on its wall; a connector has none, so the boundary it
+ * crosses answers for it: the widest stretch of room edge its blob swallows is
+ * the doorway, and the mark sits in the middle of that, along it. Which also
+ * settles the twin's re-anchoring — sitting *on* a boundary edge, the nearest
+ * wall to it is its own doorway, not whatever real wall happened to stand near
+ * the blob's middle.
+ *
+ * With no boundary crossed — a joint drawn in the void, or a caller with no rooms
+ * to hand — the blob still answers for itself: its centroid, the direction it is
+ * longest in, and how far it runs that way.
+ */
+export function connectorAnchor(
+  child: ConnectorChild,
+  boundaries: readonly (readonly [number, number][])[] = [],
+): {
   position: [number, number];
   angle: number;
   width: number;
 } {
+  let best: { position: [number, number]; angle: number; width: number } | null = null;
+  for (const cross of connectorCrossings(child, boundaries)) {
+    if (!best || cross.width > best.width) best = cross;
+  }
+  if (best) return best;
   const ring = authoredRing(child);
   if (ring.length < 2) return { position: ring[0] ?? [0, 0], angle: 0, width: 1 };
   const [cx, cy] = computeCentroid(ring);
@@ -80,14 +181,17 @@ export function connectorAnchor(child: ConnectorChild): {
  * `wallId` is the floor-anchored door's own `''`: there is no wall to point at, and the
  * anchor above is the whole of what places it.
  */
-export function connectorToDoor(child: ConnectorChild): DoorChild {
+export function connectorToDoor(
+  child: ConnectorChild,
+  boundaries: readonly (readonly [number, number][])[] = [],
+): DoorChild {
   return {
     id: child.id,
     name: child.name,
     childType: 'door',
     visible: child.visible,
     wallId: '',
-    ...connectorAnchor(child),
+    ...connectorAnchor(child, boundaries),
     style: child.kind === 'arch' ? 'archway' : child.style ?? 'single',
     state: child.state,
     isSecret: child.isSecret,
@@ -104,6 +208,13 @@ export function authoredRoomChildren(children: readonly AnyChild[]): RoomChild[]
 /** Every ConnectorChild on a layer, in child order. */
 export function connectorChildren(children: readonly AnyChild[]): ConnectorChild[] {
   return children.filter((c): c is ConnectorChild => c.childType === 'connector');
+}
+
+/** The drawn rooms' outer rings, ready for geometry — the occluders and the doorways. */
+export function authoredBoundaries(children: readonly AnyChild[]): [number, number][][] {
+  return authoredRoomChildren(children)
+    .filter((room) => room.visible !== false)
+    .map(authoredRing);
 }
 
 /**

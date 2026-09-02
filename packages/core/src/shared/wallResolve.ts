@@ -1,19 +1,30 @@
 import type { DungeonLayer } from '../store/types';
 import type { DoorChild, WallSegment } from './types';
 import { snapToNearestWall } from './wallSnap';
+import {
+  authoredBoundaries,
+  authoredRing,
+  authoredRoomChildren,
+  connectorChildren,
+  connectorToDoor,
+  spansInside,
+} from './authoredRooms';
 
 /**
- * A wall the rest of the engine can consume: either a standalone `WallSegment`
- * or one edge of a `mergedFloor` ring promoted to a real wall. Resolved in one
- * place so occlusion, lighting, the door tool and the renderers all agree on
- * what a wall is instead of each extracting floor edges its own way.
+ * A wall the rest of the engine can consume: a standalone `WallSegment`, one edge
+ * of a `mergedFloor` ring, or one edge of a room the DM drew — all promoted to
+ * real walls. Resolved in one place so occlusion, lighting, the door tool and the
+ * renderers all agree on what a wall is instead of each extracting edges its own
+ * way.
  */
 export interface ResolvedWall extends WallSegment {
-  kind: 'standalone' | 'floor';
+  kind: 'standalone' | 'floor' | 'room';
   /** Index into `mergedFloor`. Floor kind only — the ring's stone edits key on it. */
   ring?: number;
-  /** Index of this edge within its ring. Floor kind only. */
+  /** Index of this edge within its ring or room contour. Floor and room kinds. */
   edge?: number;
+  /** The RoomChild this edge came from. Room kind only. */
+  roomId?: string;
 }
 
 /**
@@ -54,6 +65,15 @@ function floorEdgeId(ring: number, edge: number): string {
   return `floor:${ring}:${edge}`;
 }
 
+/**
+ * Room edges are named `room:{childId}:{edge}`, following the same convention.
+ * The child id is a real uuid that survives republish, so unlike a floor edge id
+ * this one is stable across a redraw of the rest of the map.
+ */
+function roomEdgeId(roomId: string, edge: number): string {
+  return `room:${roomId}:${edge}`;
+}
+
 type Memo<T> = Map<string, { keys: readonly unknown[]; out: T }>;
 const wallMemo: Memo<ResolvedWall[]> = new Map();
 const doorMemo: Memo<ResolvedDoor[]> = new Map();
@@ -78,9 +98,18 @@ function memo<T>(
   return out;
 }
 
-/** Every wall on a layer: standalone segments plus one wall per floor-ring edge. */
+/**
+ * Every wall on a layer: standalone segments, one wall per floor-ring edge, and
+ * one per edge of every room the DM drew.
+ *
+ * A drawn room's boundary *is* its wall — that is the whole of O1. Promoting it
+ * here rather than at either sweep is what makes the referee's sweep and the
+ * table's mask occlude on the same union: both read `extractWallSegments`, which
+ * reads this. Where a connector crosses that boundary the edge is pierced instead
+ * (`connectorApertures`), which is the doorway.
+ */
 export function resolveWalls(layer: DungeonLayer): ResolvedWall[] {
-  return memo(wallMemo, layer.id, [layer.standaloneWalls, layer.mergedFloor], () => {
+  return memo(wallMemo, layer.id, [layer.standaloneWalls, layer.mergedFloor, layer.children], () => {
     const walls: ResolvedWall[] = layer.standaloneWalls.map((w) => ({
       ...w,
       kind: 'standalone',
@@ -106,8 +135,93 @@ export function resolveWalls(layer: DungeonLayer): ResolvedWall[] {
         });
       }
     }
+    for (const room of authoredRoomChildren(layer.children ?? [])) {
+      if (room.visible === false) continue;
+      const ring = authoredRing(room);
+      if (ring.length < 2) continue;
+      for (let edge = 0; edge < ring.length; edge++) {
+        walls.push({
+          id: roomEdgeId(room.id, edge),
+          points: [ring[edge], ring[(edge + 1) % ring.length]],
+          wallType: 'normal',
+          direction: 'both',
+          color: '#000000',
+          width: 1,
+          roughness: 0,
+          kind: 'room',
+          edge,
+          roomId: room.id,
+        });
+      }
+    }
     return walls;
   });
+}
+
+/**
+ * The doorways connectors cut in the room boundaries they cross, in the shape
+ * `buildOcclusionSegments` splits a wall with.
+ *
+ * The blob∩wall span replaces a wall door's `position`/`width` — same machinery, a
+ * truer span, and it needs no re-anchoring at all: a connector cuts every edge it
+ * actually swallows, in *both* the rooms it joins, rather than the one wall a
+ * projection found nearest. Two boundaries that only touch are pierced by nothing
+ * and stay mutually opaque (O4), because a span the blob does not cover simply is
+ * not returned.
+ *
+ * Every wall, not only a drawn room's: a blob is the opening, so a real wall or a
+ * floor ring lying across the doorway is part of that doorway exactly as it is for
+ * a wall door's aperture (O3). Anything the blob does not swallow is untouched.
+ *
+ * State gating is the door's own, untouched: `getDoorOcclusion` reads the twin,
+ * so an arch is always open and a door-kind joint opens and shuts with the state
+ * the table wrote onto the child.
+ */
+export function connectorApertures(
+  layer: DungeonLayer,
+  walls: readonly ResolvedWall[],
+): DoorChild[] {
+  const children = layer.children ?? [];
+  const joints = connectorChildren(children).filter((c) => c.visible !== false);
+  if (joints.length === 0) return [];
+  const boundaries = authoredBoundaries(children);
+  const doors: DoorChild[] = [];
+  for (const connector of joints) {
+    const blob = authoredRing(connector);
+    if (blob.length < 3) continue;
+    let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const [x, y] of blob) {
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+    const twin = connectorToDoor(connector, boundaries);
+    for (const wall of walls) {
+      const a = wall.points[0];
+      const b = wall.points[wall.points.length - 1];
+      // ponytail: box reject first. A cave layer carries thousands of ring edges and a
+      // blob touches a handful; without this the clip runs against every one of them.
+      if (Math.max(a[0], b[0]) < minX || Math.min(a[0], b[0]) > maxX) continue;
+      if (Math.max(a[1], b[1]) < minY || Math.min(a[1], b[1]) > maxY) continue;
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len < APERTURE_MIN_SPAN) continue;
+      const angle = Math.atan2(b[1] - a[1], b[0] - a[0]);
+      for (const [t0, t1] of spansInside(a, b, blob)) {
+        const width = (t1 - t0) * len;
+        if (width < APERTURE_MIN_SPAN) continue;
+        const m = (t0 + t1) / 2;
+        doors.push({
+          ...twin,
+          wallId: wall.id,
+          position: [a[0] + (b[0] - a[0]) * m, a[1] + (b[1] - a[1]) * m],
+          angle,
+          width,
+        });
+      }
+    }
+  }
+  return doors;
 }
 
 /** Every door on a layer, projected onto the wall it currently sits on. */

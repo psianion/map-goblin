@@ -19,7 +19,8 @@ import { clockwiseSweep } from '@dnd/core/src/engine/lighting/ClockwiseSweep'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design (see above)
 import { extractWallSegments } from '@dnd/core/src/engine/lighting/raycaster'
 import type { Segment } from '@dnd/core/src/engine/lighting/raycaster'
-import type { DoorChild, ZoneChild, ZoneShape } from '@dnd/core/src/shared/types'
+import { connectorToDoor } from '@dnd/core/src/shared/authoredRooms'
+import type { ConnectorChild, DoorChild, ZoneChild, ZoneShape } from '@dnd/core/src/shared/types'
 import type { DungeonLayer } from '@dnd/core/src/store/types'
 import { childrenOf, isDungeon, type SceneMap } from './sceneMap'
 
@@ -277,14 +278,22 @@ function segmentsOf(map: SceneMap, doors: Doors): Segment[] {
   const layers: DungeonLayer[] = map.data.layers.filter(isDungeon).map((layer) => ({
     ...layer,
     children: childrenOf(layer).map((child) =>
-      child.childType === 'door' ? live(child, doors) : child,
+      child.childType === 'door' || child.childType === 'connector' ? live(child, doors) : child,
     ),
   }))
   return extractWallSegments(layers)
 }
 
-function live(door: DoorChild, doors: Doors): DoorChild {
-  const state = doors[door.id] ?? seedDoor(door)
+/**
+ * Generic over the two shapes that play a door: the door child itself, and the
+ * connector whose blob cuts the doorway in a drawn room's boundary. Both carry
+ * the `id`/`isSecret`/`state` the live overlay is keyed on, and the occlusion
+ * split reads the same three fields off either, so one overlay serves both.
+ */
+function live<T extends DoorChild | ConnectorChild>(door: T, doors: Doors): T {
+  // Seeded off the twin, so an arch with no `style` of its own still seeds open.
+  const state =
+    doors[door.id] ?? seedDoor(door.childType === 'connector' ? connectorToDoor(door) : door)
   if (door.isSecret && !state.revealed) return { ...door, visible: false }
   return { ...door, state: state.open ? 'open' : 'closed' }
 }

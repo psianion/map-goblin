@@ -16,7 +16,14 @@ import {
   type RegionMask,
   type SceneFog,
 } from '@dnd/mechanics/fog'
-import type { AnyChild, DoorChild, Room, ShapeChild, WallSegment } from '@dnd/core/src/shared/types'
+import type {
+  AnyChild,
+  ConnectorChild,
+  DoorChild,
+  Room,
+  ShapeChild,
+  WallSegment,
+} from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import {
   centreOf,
@@ -110,7 +117,15 @@ export function redactMapForViewer(
       // position IS where the trap is.
       if (!layer.rooms?.length) {
         const kids = shippableChildren(layer)
-        const cut = kids.filter((child) => child.childType !== 'door' && child.childType !== 'zone')
+        // Rooms and joints go with them: with no room to earn there is no fog to enforce
+        // and nothing for a boundary to fence, so the contours would be pure disclosure.
+        const cut = kids.filter(
+          (child) =>
+            child.childType !== 'door' &&
+            child.childType !== 'zone' &&
+            child.childType !== 'room' &&
+            child.childType !== 'connector',
+        )
         // Untouched when there was nothing to take, so a layer with no doors stays the very
         // object it arrived as rather than growing an empty `children` it never had.
         return cut.length === kids.length ? layer : { ...layer, children: cut }
@@ -235,11 +250,26 @@ function slice(
       .filter((child) => {
         // Prep never travels: a zone in a revealed room is still the DM's trap marker.
         if (child.childType === 'zone') return false
+        // A drawn room's contour and the blob that opens it are occluders (O1/O2), and
+        // the table sweeps its own copy — so they travel, fenced by exactly the credit
+        // that already fences the `Room` this contour is a duplicate of, and the blob by
+        // the rooms it joins. An unearned room's outline still never leaves the DM.
+        if (child.childType === 'room') return kept.has(child.id)
+        if (child.childType === 'connector') {
+          return kept.has(child.roomA ?? '') || kept.has(child.roomB ?? '')
+        }
         return child.childType === 'door'
           ? doorKept(child, kept, doors)
           : childKept(child, scene, cut)
       })
-      .map((child) => (child.childType === 'door' ? facing(child, facingSet) : child)),
+      // A joint on the edge of the known world keeps only the side the party has been,
+      // exactly as the door twin it also ships as does — the blob carries the same
+      // bindings and would otherwise name the room behind it.
+      .map((child) =>
+        child.childType === 'door' || child.childType === 'connector'
+          ? facing(child, facingSet)
+          : child,
+      ),
     // A wall belongs to the rooms on either side of it, so one shared with a room the
     // player has seen survives — it is that room's own outline either way.
     standaloneWalls: wallsOf(layer).filter((wall) =>
@@ -559,7 +589,7 @@ export function doorKept(door: DoorChild, kept: ReadonlySet<string>, doors: Door
  * them. Blank, not renamed — the client's own `doorLabel` already falls back to "Door N",
  * which is exactly what a player standing in front of it knows.
  */
-function facing(door: DoorChild, kept: ReadonlySet<string>): DoorChild {
+function facing<T extends DoorChild | ConnectorChild>(door: T, kept: ReadonlySet<string>): T {
   const unearned = (room: string | null | undefined) => !!room && !kept.has(room)
   return {
     ...door,

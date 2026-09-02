@@ -5,7 +5,7 @@ import type {
   Room,
   WallSegment,
 } from '@dnd/core/src/shared/types';
-import { connectorToDoor } from '@dnd/core/src/shared/authoredRooms';
+import { authoredBoundaries, connectorToDoor } from '@dnd/core/src/shared/authoredRooms';
 import type { Role } from '@dnd/core/src/shared/protocol';
 import type { SerializedMapData } from '@dnd/core/src/store/types';
 import type { DoorsState } from '@dnd/mechanics/doors';
@@ -102,9 +102,10 @@ function withConnectorDoors(data: SerializedMapData): SerializedMapData {
     ...data,
     layers: data.layers.map((layer) => {
       if (!('children' in layer)) return layer;
+      const boundaries = authoredBoundaries(layer.children);
       const twins = layer.children
         .filter((child): child is ConnectorChild => child.childType === 'connector')
-        .map(connectorToDoor);
+        .map((child) => connectorToDoor(child, boundaries));
       return twins.length ? { ...layer, children: [...layer.children, ...twins] } : layer;
     }),
   };

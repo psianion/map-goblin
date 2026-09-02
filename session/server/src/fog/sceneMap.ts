@@ -13,7 +13,11 @@ import { computeMergedFloor } from '@dnd/core/src/engine/mergedFloor'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design, same waiver clipperBoot.ts takes (see its header)
 import { isClipperReady } from '@dnd/core/src/geometry/Clipper2Engine'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design, same waiver clipperBoot.ts takes (see its header)
-import { authoredRing, connectorToDoor } from '@dnd/core/src/shared/authoredRooms'
+import {
+  authoredBoundaries,
+  authoredRing,
+  connectorToDoor,
+} from '@dnd/core/src/shared/authoredRooms'
 import type {
   AnyChild,
   ConnectorChild,
@@ -129,20 +133,24 @@ export const childrenOf = (layer: DungeonLayer): readonly AnyChild[] => layer.ch
  *
  * One rewrite, at the one place both the door index and the player cut draw their children
  * from, is what keeps the whole door lane — live state, held set, glyph, facing — unaware
- * that a connector exists, and what makes a `RoomChild`'s contour unable to reach a player
- * (W2): its `Room` is already the shape they are owed, and the child is only how the DM
- * drew it. The raw children stay raw for `sweep.ts`, which reads `data.layers` itself:
- * occluders are P2's, and a door twin standing in for a blob would resolve onto whatever
- * wall happened to be near it.
+ * that a connector exists. The raw children stay raw for `sweep.ts`, which reads
+ * `data.layers` itself.
+ *
+ * The room and the blob travel *beside* the twin rather than being erased by it (P2's
+ * refinement of W2), because a drawn room's boundary is now the wall that stops sight and
+ * its blob is the doorway through it — and the table takes its own sweep off the layers it
+ * holds. A player without them would see straight through the walls of the rooms they had
+ * earned. Credit still fences them: `slice` ships a room child only for a room the party
+ * has earned, and a blob only where it joins one, so the contour a player receives is the
+ * `Room.boundary` they were already owed and nothing more.
  */
-export const shippableChildren = (layer: DungeonLayer): readonly AnyChild[] =>
-  childrenOf(layer).flatMap((child) =>
-    child.childType === 'connector'
-      ? [connectorToDoor(child)]
-      : child.childType === 'room'
-        ? []
-        : [child],
+export const shippableChildren = (layer: DungeonLayer): readonly AnyChild[] => {
+  const kids = childrenOf(layer)
+  const boundaries = authoredBoundaries(kids)
+  return kids.flatMap((child): AnyChild[] =>
+    child.childType === 'connector' ? [connectorToDoor(child, boundaries), child] : [child],
   )
+}
 export const wallsOf = (layer: DungeonLayer): readonly WallSegment[] => layer.standaloneWalls ?? []
 
 /**

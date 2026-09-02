@@ -48,7 +48,11 @@ export function syncDoorsToLighting(): () => void {
       for (const layer of state.layers) {
         if (layer.type !== 'dungeon') continue;
         for (const child of layer.children) {
-          if (child.childType !== 'door') continue;
+          // The connector too: its blob is what cuts the doorway in a drawn room's
+          // boundary (`connectorApertures`), and that split reads the state off the
+          // child exactly as a wall door's does. Same id, same drift entry — the
+          // joint ships as a door twin, so the table only ever knew it as a door.
+          if (child.childType !== 'door' && child.childType !== 'connector') continue;
           const next = drift.get(child.id);
           if (next) (child as DoorChild).state = next;
         }
