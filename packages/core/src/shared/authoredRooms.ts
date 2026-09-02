@@ -2,7 +2,7 @@
 // consumes. Nothing downstream learns a new shape: a RoomChild becomes a plain
 // `Room`, and a ConnectorChild gets the same roomA/roomB pair a door gets.
 
-import type { AnyChild, ConnectorChild, DoorChild, Room, RoomChild } from './types';
+import type { AnyChild, ConnectorChild, DoorChild, DoorStyle, Room, RoomChild } from './types';
 import { flattenRing } from './bezier';
 import { computeArea, computeCentroid, isPathway } from './roomUtils';
 import { clipper2Engine } from './../geometry/Clipper2Engine';
@@ -198,6 +198,16 @@ export function connectorToDoor(
     roomA: child.roomA ?? null,
     roomB: child.roomB ?? null,
   };
+}
+
+/**
+ * The `kind` a blob of this style is. Style is the authored truth after the
+ * doors merge — an archway is the always-open arch, every other style shuts —
+ * and `kind` is derived from it on every write, kept only for wire compat
+ * (legacy children carry kind with no style; `connectorToDoor` maps them).
+ */
+export function connectorKindForStyle(style: DoorStyle): 'arch' | 'door' {
+  return style === 'archway' ? 'arch' : 'door';
 }
 
 /**
