@@ -3,9 +3,12 @@ import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
 import { AddChildCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
-import type { RoomChild } from '../../store/types';
+import type { DungeonLayer, RoomChild, ShapeChild } from '../../store/types';
 import { resolveEditableLayer } from './layerGuard';
+import { isLayerEffectivelyVisible } from '../../store/selectors';
 import { simplifyPath } from '../../geometry/simplify';
+import { pointInPolygon } from '../hitTest';
+import { effectiveContours } from './childTransform';
 import { nextAuthoredName } from '../../shared/authoredRooms';
 
 /** Freehand samples closer than this to the last kept one are pointer noise, not vertices. */
@@ -25,6 +28,73 @@ const SIMPLIFY_EPSILON = 0.15;
 /** A loop enclosing less than this is a stray click or a twitch, not a room. */
 const MIN_AREA = 0.5;
 
+/**
+ * How far off the edited ring a press has to land before it means "I'm done".
+ *
+ * The outline editor's insert marker sits ON the edge, and half of its 11px pick
+ * radius therefore lies outside the ring — exiting on one of those would drop the
+ * DM out of the mode on the very click that added a vertex. This tool has no
+ * camera to convert that radius with, so it is the radius at 100% zoom (20px per
+ * world unit); zoomed in the band is wider than the handle, which errs toward
+ * staying in the mode.
+ */
+const EXIT_MARGIN = 0.55;
+
+/** The layer being authored, or null when it cannot be drawn on. */
+function activeDungeonLayer(): DungeonLayer | null {
+  const state = useStore.getState();
+  return (
+    state.layers.find(
+      (l): l is DungeonLayer =>
+        l.type === 'dungeon' &&
+        !l.locked &&
+        l.id === state.ui.activeLayerId &&
+        isLayerEffectivelyVisible(state, l),
+    ) ?? null
+  );
+}
+
+/** The room under `point`, topmost first — the order selection picks in. */
+function roomAt(point: Point, exceptId?: string | null): RoomChild | null {
+  const layer = activeDungeonLayer();
+  if (!layer) return null;
+  for (let i = layer.children.length - 1; i >= 0; i--) {
+    const c = layer.children[i];
+    if (c.childType !== 'room' || !c.visible || c.id === exceptId) continue;
+    if (pointInPolygon([point.x, point.y], effectiveContours(c)[0] ?? [])) return c;
+  }
+  return null;
+}
+
+/** The outer ring of whatever the outline editor is pointed at, transform baked. */
+function editedRingOf(id: string): [number, number][] | null {
+  for (const l of useStore.getState().layers) {
+    if (l.type !== 'dungeon') continue;
+    const c = l.children.find(
+      (x): x is ShapeChild | RoomChild =>
+        x.id === id && (x.childType === 'shape' || x.childType === 'room'),
+    );
+    if (c) return effectiveContours(c)[0] ?? null;
+  }
+  return null;
+}
+
+/** Distance from `p` to the closed ring's nearest edge. */
+function distanceToRing(p: Point, ring: [number, number][]): number {
+  let best = Infinity;
+  for (let i = 0; i < ring.length; i++) {
+    const [ax, ay] = ring[i];
+    const [bx, by] = ring[(i + 1) % ring.length];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+    const t = lenSq === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - ax) * dx + (p.y - ay) * dy) / lenSq));
+    const d = Math.hypot(p.x - (ax + t * dx), p.y - (ay + t * dy));
+    if (d < best) best = d;
+  }
+  return best;
+}
+
 /** Signed shoelace area of the implicitly-closed loop. */
 function loopArea(points: Point[]): number {
   let sum = 0;
@@ -37,12 +107,13 @@ function loopArea(points: Point[]): number {
 }
 
 /**
- * Draws a room the DM owns: hold and trace a loop, release to close it.
+ * Draws and reshapes the rooms the DM owns: press empty ground and trace a loop,
+ * release to close it; press a room that is already there to bring its corners up.
  *
- * Placement only. Once committed the RoomChild is an ordinary ring child —
- * Select picks it, the gizmo transforms it, the outline node editor moves its
- * vertices — so there is deliberately no bespoke drag/gizmo state here (that is
- * ZoneTool's shape, and rooms are the case it does not fit).
+ * Placement and entry only. Once committed the RoomChild is an ordinary ring
+ * child — Select picks it, the gizmo transforms it, the outline node editor moves
+ * its vertices — so there is deliberately no bespoke drag/gizmo state here, and
+ * no second editor: pressing a room just points the existing one at it.
  */
 export class RoomTool implements DrawingTool {
   readonly type = 'room' as const;
@@ -53,8 +124,21 @@ export class RoomTool implements DrawingTool {
   private drawing = false;
   /** The active layer when the stroke started — see WallTool for why. */
   private startLayerId: string | null = null;
+  /** This gesture is the one that opened the edit, so its release must not close it. */
+  private openedEdit = false;
 
   onPointerDown(point: Point): void {
+    // A press inside a room the DM already drew edits that room rather than
+    // starting a second one on top of it — the corners come up in the same
+    // outline editor Select's double-click opens.
+    const room = roomAt(point);
+    if (room) {
+      // Entering the mode IS the selection: setShapeNodeEdit clears selectedIds on
+      // purpose, so the gizmo is not drawn around the room whose corners are up.
+      useStore.getState().setShapeNodeEdit(room.id);
+      this.openedEdit = true;
+      return;
+    }
     this.startLayerId = useStore.getState().ui.activeLayerId;
     this.points = [{ x: point.x, y: point.y }];
     this.drawing = true;
@@ -66,7 +150,10 @@ export class RoomTool implements DrawingTool {
   }
 
   onPointerUp(point: Point): void {
-    if (!this.drawing) return;
+    if (!this.drawing) {
+      this.settleNodeEdit(point);
+      return;
+    }
     this.drawing = false;
     this.push(point);
 
@@ -97,6 +184,43 @@ export class RoomTool implements DrawingTool {
     useStore.getState().setSelectedIds([child.id]);
   }
 
+  /**
+   * Answers a press the outline editor already swallowed: switch the edit to
+   * another room, or leave the mode.
+   *
+   * While `shapeNodeEditId` is set the canvas consumes every press itself — no
+   * tool hears the pointerdown — so the release is the only part of that gesture
+   * this tool sees. A press that grabbed a handle starts an outline drag, and a
+   * drag's release returns before any tool is asked, so what arrives here is a
+   * press that missed every handle: either it was inside another room, or it was
+   * the DM putting the room down.
+   */
+  private settleNodeEdit(point: Point): void {
+    const openedThisGesture = this.openedEdit;
+    this.openedEdit = false;
+
+    const state = useStore.getState();
+    const editing = state.tools.shapeNodeEditId;
+    if (!editing) return;
+
+    const other = roomAt(point, editing);
+    if (other) {
+      state.setShapeNodeEdit(other.id);
+      return;
+    }
+
+    // The press that opened the edit cannot also close it — dragged a little off
+    // the room on the way up, it would otherwise show the corners and hide them
+    // again in one gesture.
+    if (openedThisGesture) return;
+
+    const ring = editedRingOf(editing);
+    if (!ring || ring.length < 3) return;
+    if (pointInPolygon([point.x, point.y], ring)) return;
+    if (distanceToRing(point, ring) < EXIT_MARGIN) return;
+    state.setShapeNodeEdit(null);
+  }
+
   private push(point: Point): void {
     const last = this.points[this.points.length - 1];
     if (last && Math.hypot(point.x - last.x, point.y - last.y) < MIN_SPACING) return;
@@ -116,6 +240,7 @@ export class RoomTool implements DrawingTool {
     this.points = [];
     this.drawing = false;
     this.startLayerId = null;
+    this.openedEdit = false;
   }
 
   isActive(): boolean {

@@ -170,7 +170,7 @@ export function StatusBar({ leftPanelOpen, rightPanelOpen, faded }: StatusBarPro
           <span className="truncate">
             <span className="text-text-primary">Editing outline</span>
             <span className="text-text-muted">
-              {' · drag corners · alt-drag bends · dbl-click smooths · + adds · Del removes · Esc done'}
+              {' · drag a corner to move it · click a midpoint to add one · Delete removes · Alt curves · Esc done'}
             </span>
           </span>
         ) : soloLayerId && soloLayerName ? (

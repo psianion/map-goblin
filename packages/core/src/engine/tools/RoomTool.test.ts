@@ -133,6 +133,87 @@ describe('RoomTool', () => {
     expect(area).toBeLessThan(Math.PI * R * R * 1.05);
   });
 
+  /**
+   * Entering the outline editor is the room tool's second half: a press inside a room
+   * edits it, a press on ground draws a new one.
+   *
+   * The releases below are called without a matching press on purpose — that is what the
+   * app does. Once `shapeNodeEditId` is set the canvas answers every pointerdown itself
+   * (handle hits become outline drags, misses are swallowed) and no tool hears it; the
+   * release still comes through, and it is the only part of that gesture this tool sees.
+   */
+  describe('editing a room that is already there', () => {
+    /** Two rooms side by side, neither overlapping the other. */
+    function twoRooms(): [RoomChild, RoomChild] {
+      trace(LOOP);
+      trace(LOOP.map(([x, y]): [number, number] => [x + 10, y]));
+      const rooms = roomsOf(layerId);
+      return [rooms[0], rooms[1]];
+    }
+
+    const nodeEditId = () => useStore.getState().tools.shapeNodeEditId;
+
+    it('brings a room’s corners up on a press inside it, and traces nothing', () => {
+      const [room] = twoRooms();
+
+      tool.onPointerDown({ x: 2, y: 2 });
+      tool.onPointerUp({ x: 2, y: 2 });
+
+      expect(nodeEditId()).toBe(room.id);
+      // The mode owns the screen: setShapeNodeEdit drops the selection so the gizmo
+      // is not drawn around the room whose corners are up.
+      expect(useStore.getState().selection.selectedIds).toEqual([]);
+      expect(roomsOf(layerId)).toHaveLength(2);
+    });
+
+    it('moves the edit to the other room in one press', () => {
+      const [first, second] = twoRooms();
+      tool.onPointerDown({ x: 2, y: 2 });
+      tool.onPointerUp({ x: 2, y: 2 });
+      expect(nodeEditId()).toBe(first.id);
+
+      tool.onPointerUp({ x: 12, y: 2 });
+
+      expect(nodeEditId()).toBe(second.id);
+    });
+
+    it('puts the room down on a press off the ring, without starting a loop', () => {
+      const [first] = twoRooms();
+      tool.onPointerDown({ x: 2, y: 2 });
+      tool.onPointerUp({ x: 2, y: 2 });
+      expect(nodeEditId()).toBe(first.id);
+
+      tool.onPointerUp({ x: 30, y: 30 });
+
+      expect(nodeEditId()).toBeNull();
+      expect(tool.isActive()).toBe(false);
+      expect(roomsOf(layerId)).toHaveLength(2);
+    });
+
+    /**
+     * The insert marker sits on the edge itself, so half its pick radius is outside the
+     * ring. Exiting there would drop the DM out of the mode on the click that added a
+     * vertex.
+     */
+    it('stays in the mode for a press that merely brushed the outline', () => {
+      const [first] = twoRooms();
+      tool.onPointerDown({ x: 2, y: 2 });
+      tool.onPointerUp({ x: 2, y: 2 });
+
+      tool.onPointerUp({ x: -0.2, y: 2 });
+
+      expect(nodeEditId()).toBe(first.id);
+    });
+
+    it('still traces a new loop from ground no room covers', () => {
+      twoRooms();
+      trace(LOOP.map(([x, y]): [number, number] => [x + 20, y]));
+
+      expect(roomsOf(layerId)).toHaveLength(3);
+      expect(useStore.getState().tools.shapeNodeEditId).toBeNull();
+    });
+  });
+
   it('previews the loop it will commit while the stroke is live', () => {
     tool.onPointerDown({ x: 0, y: 0 });
     tool.onPointerMove({ x: 4, y: 0 });
