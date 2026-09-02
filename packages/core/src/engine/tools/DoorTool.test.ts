@@ -189,17 +189,17 @@ describe('DoorTool', () => {
     expect(doors()[0].state).toBe('closed');
   });
 
-  it('hands the selection on when the click misses every door', () => {
+  it('clears the selection when the click misses every door', () => {
     click(tool, 5, 5.1);
     const placed = doors()[0];
     click(tool, 5, 5.1);
     expect(selectedIds()).toEqual([placed.id]);
 
-    // The press off the wall clears that selection and draws a joint, which
-    // arrives selected in its place — nothing stays selected that was not clicked.
+    // A click on empty ground is a deselect, not a placement: only a real drag
+    // commits a joint, so pointer noise far from any wall mints nothing.
     click(tool, 5, 50);
-    expect(selectedIds()).not.toEqual([placed.id]);
-    expect(selectedIds()).toHaveLength(1);
+    expect(selectedIds()).toEqual([]);
+    expect(layer().children.filter((c) => c.childType === 'connector')).toHaveLength(0);
   });
 
   it('cycles closed → open → locked → closed on double-click', () => {
@@ -225,20 +225,20 @@ describe('DoorTool', () => {
     expect(doors()[0].state).toBe('locked');
   });
 
-  it('cycles an archway closed ↔ open, never into locked', () => {
+  it('leaves a wall archway alone on double-click — an arch has no shut state', () => {
     useStore.getState().updateToolSettings({ doorStyle: 'archway' });
     click(tool, 5, 5.1);
     expect(doors()[0].style).toBe('archway');
-    expect(doors()[0].state).toBe('closed');
+    const before = doors()[0].state;
 
+    // L8: occlusion treats an archway as permanently open and the panel hides
+    // its state row, so a cycle could only write a value nothing can see — the
+    // double-click is a no-op with no undo entry, same as an archway blob.
     doubleClick(tool, 5, 5.1);
-    expect(doors()[0].state).toBe('open');
-
-    // A normal door would be 'locked' here — occlusion treats an archway as permanently
-    // open and it renders as the open art regardless, so 'locked' would mean nothing.
-    doubleClick(tool, 5, 5.1);
-    expect(doors()[0].state).toBe('closed');
+    expect(doors()[0].state).toBe(before);
     expect(doors()).toHaveLength(1);
+    undoManager.undo();
+    expect(doors()).toHaveLength(0);
   });
 
   it('undoes a cycle back to the previous state', () => {
@@ -725,10 +725,11 @@ describe('DoorTool — blob doors', () => {
     expect(blob.state).toBe('open');
   });
 
-  it('still draws a blob for a press with no drag', () => {
-    const s = span(draw(AWAY, AWAY).contours[0]);
-    expect(s.maxX - s.minX).toBeGreaterThan(0);
-    expect(s.maxY - s.minY).toBeGreaterThan(0);
+  it('commits nothing for a press with no drag — a click is a deselect', () => {
+    tool.onPointerDown({ x: AWAY[0], y: AWAY[1] });
+    tool.onPointerUp({ x: AWAY[0], y: AWAY[1] });
+    expect(blobs()).toHaveLength(0);
+    expect(useStore.getState().selection.selectedIds).toEqual([]);
   });
 
   it('places a wall door, not a blob, when a wall is in range', () => {

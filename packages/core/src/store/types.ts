@@ -184,8 +184,7 @@ export type ToolType =
   | 'water'
   | 'text'
   | 'zone'
-  | 'room'
-  | 'connector';
+  | 'room';
 
 export interface TerrainBrushSettings {
   /** Active palette slot index (0-5). */
@@ -374,7 +373,7 @@ export interface UISlice {
    * view preference, not persisted, not undoable, never serialized — the DM turning
    * the loops off to look at their art is not an edit to the map.
    *
-   * It governs the idle case only. The room and connector tools force the ink back on
+   * It governs the idle case only. The room and door tools force the ink back on
    * for as long as they are held, because drawing a room you cannot see is not a thing
    * anyone asked for.
    */

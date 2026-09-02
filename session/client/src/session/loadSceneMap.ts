@@ -163,7 +163,7 @@ function upsertById<T extends { id: string }>(
  * share the connector's own id on purpose (C1: the live door state is keyed by it), so a
  * delta carrying a joint carries two children under one id — and an id-keyed upsert let the
  * blob win both slots: the seat's door twin was rewritten into a second blob, its glyph
- * vanished, its aperture froze at whatever the map was authored with (ConnectorTool commits
+ * vanished, its aperture froze at whatever the map was authored with (DoorTool commits
  * a door-kind joint `closed`, so the DM could open it and the player would never see
  * through until a full refetch), and the compositor cut the doorway twice.
  */

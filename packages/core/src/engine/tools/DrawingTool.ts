@@ -17,8 +17,7 @@ export type ToolType =
   | 'water'
   | 'text'
   | 'zone'
-  | 'room'
-  | 'connector';
+  | 'room';
 
 export interface PreviewShape {
   type: 'polygon' | 'rectangle' | 'circle' | 'line';

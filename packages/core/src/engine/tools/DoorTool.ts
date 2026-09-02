@@ -26,23 +26,17 @@ import { useStore } from '../../store/store';
 import { notify } from '../../shared/notify';
 import { blockedLayerReason, noEditableLayerMessage, resolveEditableLayer } from './layerGuard';
 
-/** Click-to-cycle order. Archways can't lock, so they skip straight back. */
+/**
+ * Click-to-cycle order. Archways never cycle at all (L8): occlusion always
+ * treats one as open and it renders as the open art whatever its state, the
+ * panel hides its state row, so a cycle could only write a value nothing can
+ * see — both anchors' double-click branches return before executing instead.
+ */
 const NEXT_STATE: Record<DoorState, DoorState> = {
   closed: 'open',
   open: 'locked',
   locked: 'closed',
 };
-
-/**
- * L8 — an archway is a permanent opening: `occlusion` always treats it as open and it
- * renders as the open art whatever its state, so `locked` is a state nothing downstream
- * can express. Cycling one therefore toggles closed ↔ open rather than parking it in a
- * state the rest of the engine ignores.
- */
-function nextState(door: DoorChild): DoorState {
-  const next = NEXT_STATE[door.state] ?? 'closed';
-  return door.style === 'archway' && next === 'locked' ? 'closed' : next;
-}
 
 /**
  * A blob door's style. `style` is the authored truth after the merge, but a map
@@ -147,7 +141,7 @@ export function clampDoorWidth(width: number, style: DoorStyle, wallLength: numb
 /** Blob thickness across the seam, world units — a joint is a doorway, not a room. */
 const BLOB_WIDTH = 1;
 
-/** A press with no drag still reads as a blob door, at this length. */
+/** Shortest joint a drag can commit — a deliberate short drag still reads as one. */
 const BLOB_MIN_LENGTH = 0.8;
 
 /** Ellipse resolution. Enough to read as a blob, few enough to stay cheap in the overlay. */
@@ -398,13 +392,16 @@ export class DoorTool implements DrawingTool {
         this.lastClick = null;
         this.pressedDoorId = null;
         this.pressPoint = null;
+        // Same no-op an archway blob gets — a permanent opening has no state
+        // to cycle, and its panel hides the row a cycle would write to.
+        if (hit.style === 'archway') return;
         undoManager.execute(
           new UpdateChildCommand(
             'Cycle door',
             activeLayerId,
             hit.id,
             { state: hit.state },
-            { state: nextState(hit) },
+            { state: NEXT_STATE[hit.state] ?? 'closed' },
           ),
         );
         return;
@@ -690,6 +687,10 @@ export class DoorTool implements DrawingTool {
     this.blobLayerId = null;
     this.clearBlobGhost();
     if (!start || !layerId) return;
+    // A press that never became a drag is a click on empty ground — the press
+    // already cleared the selection, and minting a minimum-length joint from
+    // pointer noise is exactly the accident a merged tool must not have.
+    if (Math.hypot(point.x - start.x, point.y - start.y) <= DRAG_SLOP) return;
 
     const layer = resolveEditableLayer(layerId);
     if (!layer) return;

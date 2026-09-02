@@ -381,7 +381,7 @@ describe('hitTestChildren', () => {
     expect(hitTestChildren([room], [50, 50])).toBeNull();
   });
 
-  it('never hits a connector — ConnectorTool owns that interaction', () => {
+  it('never hits a connector — DoorTool owns that interaction', () => {
     // Same deliberate omission as zones above: no case here, on purpose.
     const connector: ConnectorChild = {
       id: 'connector-1',

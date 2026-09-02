@@ -131,7 +131,7 @@ export function LeftToolbar() {
     select: 'Select', pan: 'Pan', rectangle: 'Rectangle', polygon: 'Polygon',
     regularPolygon: 'Regular Polygon', path: 'Path', wall: 'Wall', door: 'Door',
     light: 'Light', scatterBrush: 'Scatter Brush', terrain: 'Terrain Brush', water: 'Water',
-    ruler: 'Measure', text: 'Label', zone: 'Zone',
+    ruler: 'Measure', text: 'Label', zone: 'Zone', room: 'Room',
   };
 
   const handleToolClick = (tool: ToolType) => {
