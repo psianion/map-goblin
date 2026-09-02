@@ -4,6 +4,7 @@ import { setClipperModule } from '../geometry/Clipper2Engine';
 import { useStore } from './store';
 import { syncRooms } from './roomSync';
 import { seedRoomsFromDetection } from './seedRooms';
+import { connectorBlob } from '../engine/tools/ConnectorTool';
 import { undoManager } from './undoManager';
 import type { DungeonLayer, SerializedMapData } from './types';
 import type { AnyChild, ConnectorChild, RoomChild, WallSegment } from '../shared/types';
@@ -265,6 +266,30 @@ describe('C2 — a connector binds the two rooms its blob covers', () => {
     expect(connector().roomA).toMatch(/^room-/);
     expect(connector().roomB).toMatch(/^room-/);
     expect(connector().roomA).not.toBe(connector().roomB);
+  });
+
+  // The live miss: rooms are drawn to the wall between them, so a joint spanning
+  // the seam pokes into each only at its own tapered tip. Here the blob is exactly
+  // tangent to one room's edge and stops 0.55wu short of the other's — both
+  // overlaps round to nothing and the joint used to bind neither side, silently.
+  describe('across the gap the rooms leave for a wall', () => {
+    const NORTH = roomChild('north', 'North', rect(0, 0, 12, 8));
+    const SOUTH = roomChild('south', 'South', rect(0, 9.55, 12, 8));
+    /** The tool's own blob: an ellipse whose tips are the drag's endpoints. */
+    const NECK = connectorChild('c1', connectorBlob({ x: 6, y: 8 }, { x: 6, y: 9 }));
+
+    it('binds both rooms even though it overlaps neither by any area', () => {
+      load([NORTH, SOUTH, NECK]);
+      syncRooms();
+      expect([connector().roomA, connector().roomB].sort()).toEqual(['north', 'south']);
+    });
+
+    it('still leaves a joint drawn well inside one room unbound', () => {
+      load([NORTH, SOUTH, connectorChild('c1', connectorBlob({ x: 4, y: 3 }, { x: 7, y: 3 }))]);
+      syncRooms();
+      expect(connector().roomA).toBeNull();
+      expect(connector().roomB).toBeNull();
+    });
   });
 
   it('is derived, not authored — rebinding never lands on the undo stack', () => {
