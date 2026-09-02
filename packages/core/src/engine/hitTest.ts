@@ -134,8 +134,8 @@ export function hitTestChildren(
     if (!child.visible && child.childType !== 'light') continue;
     switch (child.childType) {
       // A drawn room picks exactly like a shape — same rings, same Select tool,
-      // same gizmo. Connectors deliberately have no case: ConnectorTool owns
-      // their hit-testing, the way ZoneTool owns zones'.
+      // same gizmo. Blob doors deliberately have no case: DoorTool owns their
+      // hit-testing, the way ZoneTool owns zones'.
       case 'shape':
       case 'room':
         if (pointInShape(child, point)) return child;

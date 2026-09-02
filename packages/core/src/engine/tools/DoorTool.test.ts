@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 
 /**
  * PixiJS stubs. The tool owns a real display object now — the placement ghost —
@@ -17,13 +17,18 @@ vi.mock('pixi.js', () => {
     destroy() { this.destroyed = true; }
   }
   class MockGraphics extends MockContainer {
+    // The blob ghost paints its state as a colour rather than a container tint,
+    // so the rows that read it need the paints kept.
+    fills: { color?: number }[] = [];
     moveTo() { return this; }
     lineTo() { return this; }
     arc() { return this; }
     circle() { return this; }
+    poly() { return this; }
     closePath() { return this; }
+    clear() { this.fills = []; return this; }
     stroke() { return this; }
-    fill() { return this; }
+    fill(style?: { color?: number }) { if (style) this.fills.push(style); return this; }
   }
   class MockSprite extends MockContainer {
     anchor = { set: vi.fn() };
@@ -47,8 +52,23 @@ import { undoManager } from '../../store/undoManager';
 import { createWallRemovalCommand } from '../../store/commands';
 import { createDungeonLayer } from '../../store/factories';
 import { setNotify } from '../../store/notify';
-import type { DoorChild, WallSegment } from '../../shared/types';
+import { setClipperModule } from '../../geometry/Clipper2Engine';
+import type { ConnectorChild, DoorChild, Room, WallSegment } from '../../shared/types';
 import type { DungeonLayer } from '../../store/types';
+
+/**
+ * Same wasm hand-off as authoredRooms.test.ts — jsdom can't fetch the .wasm, and
+ * the blob ghost's room bind is a Clipper2 boolean.
+ */
+beforeAll(async () => {
+  const { readFileSync } = await import('node:fs' as string);
+  const { createRequire } = await import('node:module' as string);
+  const wasmBinary = readFileSync(
+    createRequire(import.meta.url).resolve('clipper2-wasm/dist/es/clipper2z.wasm'),
+  );
+  const mod = await import('clipper2-wasm/dist/es/clipper2z.js' as string);
+  setClipperModule(await mod.default({ wasmBinary }));
+}, 30_000);
 
 const WALL: WallSegment = {
   id: 'w1',
@@ -133,7 +153,9 @@ describe('DoorTool', () => {
     expect(doors()[0].position[1]).toBeCloseTo(5);
   });
 
-  it('places nothing when the click is out of snap range', () => {
+  it('hangs no door on a wall when the click is out of snap range', () => {
+    // Out of range there is no wall to hang one on, so the press draws the other
+    // anchor instead — the blob rows below own that half.
     click(tool, 5, 50);
     expect(doors()).toHaveLength(0);
   });
@@ -150,7 +172,7 @@ describe('DoorTool', () => {
     expect(doors()[0].wallId).toBe('w1');
   });
 
-  it('still refuses an unhovered press out of snap range', () => {
+  it('still hangs nothing on a wall from an unhovered press out of snap range', () => {
     tool.onPointerDown({ x: 5, y: 50 });
     tool.onPointerUp({ x: 5, y: 50 });
     expect(doors()).toHaveLength(0);
@@ -167,13 +189,17 @@ describe('DoorTool', () => {
     expect(doors()[0].state).toBe('closed');
   });
 
-  it('clears the selection when the click misses every door', () => {
+  it('hands the selection on when the click misses every door', () => {
     click(tool, 5, 5.1);
+    const placed = doors()[0];
     click(tool, 5, 5.1);
-    expect(selectedIds()).toHaveLength(1);
+    expect(selectedIds()).toEqual([placed.id]);
 
+    // The press off the wall clears that selection and draws a joint, which
+    // arrives selected in its place — nothing stays selected that was not clicked.
     click(tool, 5, 50);
-    expect(selectedIds()).toEqual([]);
+    expect(selectedIds()).not.toEqual([placed.id]);
+    expect(selectedIds()).toHaveLength(1);
   });
 
   it('cycles closed → open → locked → closed on double-click', () => {
@@ -628,6 +654,218 @@ describe('DoorTool — effective visibility under solo (F1)', () => {
     expect(warning).toHaveBeenCalledWith('Layer is hidden');
   });
 });
+
+/**
+ * The other anchor a door can have: no wall, just the blob straddling the seam
+ * between two drawn rooms. Retargeted from the connector tool these rows used to
+ * belong to — one tool places both now, and the press decides which.
+ */
+describe('DoorTool — blob doors', () => {
+  let tool: DoorTool;
+  let blobGhost: { fills: { color?: number }[] };
+  let warning: ReturnType<typeof vi.fn<(msg: string) => void>>;
+
+  /** Far from the only wall in the fixture, so every press here is a blob press. */
+  const AWAY: [number, number] = [5, 50];
+
+  beforeEach(() => {
+    undoManager.clear();
+    useStore.getState().resetToDefault();
+    useStore.getState().addWall(layer().id, structuredClone(WALL));
+    warning = vi.fn();
+    setNotify({ warning, error: vi.fn(), success: vi.fn(), info: vi.fn() });
+    const preview = new Container();
+    tool = new DoorTool(preview);
+    blobGhost = preview.children[1] as unknown as { fills: { color?: number }[] };
+  });
+
+  function blobs(): ConnectorChild[] {
+    return layer().children.filter((c): c is ConnectorChild => c.childType === 'connector');
+  }
+
+  function draw(from: [number, number], to: [number, number]): ConnectorChild {
+    tool.onPointerMove({ x: from[0], y: from[1] });
+    tool.onPointerDown({ x: from[0], y: from[1] });
+    tool.onPointerMove({ x: (from[0] + to[0]) / 2, y: (from[1] + to[1]) / 2 });
+    tool.onPointerMove({ x: to[0], y: to[1] });
+    tool.onPointerUp({ x: to[0], y: to[1] });
+    const all = blobs();
+    return all[all.length - 1];
+  }
+
+  function span(ring: [number, number][]) {
+    const xs = ring.map(([x]) => x);
+    const ys = ring.map(([, y]) => y);
+    return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+  }
+
+  it('draws a blob door where no wall is in range, in the tool popover style', () => {
+    const blob = draw([5, 50], [8, 50]);
+
+    expect(blobs()).toHaveLength(1);
+    expect(doors()).toHaveLength(0);
+    expect(blob.style).toBe('single');
+    expect(blob.kind).toBe('door');
+    expect(blob.state).toBe('closed');
+    expect(blob.isSecret).toBe(false);
+    expect(selectedIds()).toEqual([blob.id]);
+
+    // The drag is the blob's long axis, and it is thinner across the seam.
+    const s = span(blob.contours[0]);
+    expect(s.maxX - s.minX).toBeCloseTo(3, 5);
+    expect(s.maxY - s.minY).toBeLessThan(s.maxX - s.minX);
+  });
+
+  it('commits an archway blob open, the only state an arch has', () => {
+    useStore.getState().updateToolSettings({ doorStyle: 'archway' });
+    const blob = draw(AWAY, [8, 50]);
+
+    expect(blob.style).toBe('archway');
+    expect(blob.kind).toBe('arch');
+    expect(blob.state).toBe('open');
+  });
+
+  it('still draws a blob for a press with no drag', () => {
+    const s = span(draw(AWAY, AWAY).contours[0]);
+    expect(s.maxX - s.minX).toBeGreaterThan(0);
+    expect(s.maxY - s.minY).toBeGreaterThan(0);
+  });
+
+  it('places a wall door, not a blob, when a wall is in range', () => {
+    click(tool, 5, 5.1);
+    expect(doors()).toHaveLength(1);
+    expect(blobs()).toHaveLength(0);
+  });
+
+  it('undoes the blob placement as one entry', () => {
+    draw(AWAY, [8, 50]);
+    undoManager.undo();
+    expect(blobs()).toHaveLength(0);
+  });
+
+  it('selects a blob on a single click, without moving it', () => {
+    const blob = draw(AWAY, [8, 50]);
+    const before = blob.contours;
+    useStore.getState().setSelectedIds([]);
+
+    click(tool, 6.5, 50);
+
+    expect(selectedIds()).toEqual([blob.id]);
+    expect(blobs()[0].contours).toEqual(before);
+    // A plain click is not an undo entry of its own — the placement is still the top one.
+    undoManager.undo();
+    expect(blobs()).toHaveLength(0);
+  });
+
+  it('drags a blob past the slop and records one move entry', () => {
+    const before = span(draw(AWAY, [8, 50]).contours[0]);
+
+    tool.onPointerDown({ x: 6.5, y: 50 });
+    tool.onPointerMove({ x: 8.5, y: 50 });
+    tool.onPointerUp({ x: 8.5, y: 50 });
+
+    expect(span(blobs()[0].contours[0]).minX - before.minX).toBeCloseTo(2, 5);
+
+    undoManager.undo();
+    expect(span(blobs()[0].contours[0]).minX).toBeCloseTo(before.minX, 5);
+  });
+
+  it('restores a dragged blob on Escape', () => {
+    const before = span(draw(AWAY, [8, 50]).contours[0]);
+
+    tool.onPointerDown({ x: 6.5, y: 50 });
+    tool.onPointerMove({ x: 8.5, y: 50 });
+    tool.onKeyDown({ key: 'Escape' } as KeyboardEvent);
+
+    expect(span(blobs()[0].contours[0]).minX).toBeCloseTo(before.minX, 5);
+    expect(tool.isActive()).toBe(false);
+  });
+
+  it('deletes the selected blob on Delete', () => {
+    draw(AWAY, [8, 50]);
+    tool.onKeyDown({ key: 'Delete' } as KeyboardEvent);
+
+    expect(blobs()).toHaveLength(0);
+    expect(selectedIds()).toEqual([]);
+  });
+
+  it('cycles a blob door closed → open → locked on double-click', () => {
+    draw(AWAY, [8, 50]);
+
+    doubleClick(tool, 6.5, 50);
+    expect(blobs()[0].state).toBe('open');
+
+    doubleClick(tool, 6.5, 50);
+    expect(blobs()[0].state).toBe('locked');
+  });
+
+  it('leaves an archway blob alone on double-click — an arch has no shut state', () => {
+    useStore.getState().updateToolSettings({ doorStyle: 'archway' });
+    draw(AWAY, [8, 50]);
+
+    doubleClick(tool, 6.5, 50);
+    expect(blobs()[0].state).toBe('open');
+    expect(undoManager.canUndo()).toBe(true);
+    undoManager.undo();
+    // The only entry was the placement: the double-click recorded nothing.
+    expect(blobs()).toHaveLength(0);
+  });
+
+  // One counter across both anchors, and read off the names in use rather than
+  // counted: place two, delete the first, and a reused number would point a DM's
+  // prep notes at the wrong door.
+  it('numbers blobs past every name in use, wall doors included', () => {
+    click(tool, 5, 5.1);
+    expect(doors()[0].name).toBe('Single 1');
+
+    const first = draw(AWAY, [8, 50]);
+    const second = draw([5, 55], [8, 55]);
+    expect([first.name, second.name]).toEqual(['Single 2', 'Single 3']);
+
+    useStore.getState().setSelectedIds([first.id]);
+    tool.onKeyDown({ key: 'Delete' } as KeyboardEvent);
+
+    expect(draw([5, 60], [8, 60]).name).toBe('Single 4');
+  });
+
+  it('tints the blob ghost invalid while it joins fewer than two rooms', () => {
+    tool.onPointerDown({ x: 5, y: 50 });
+    tool.onPointerMove({ x: 8, y: 50 });
+
+    expect(blobGhost.fills.at(-1)?.color).toBe(0xcc3344);
+
+    // Red is a warning, not a refusal: an unlinked joint is fixable in place.
+    tool.onPointerUp({ x: 8, y: 50 });
+    expect(blobs()).toHaveLength(1);
+  });
+
+  it('drops the invalid tint once the blob spans two rooms', () => {
+    const rooms: Room[] = [
+      room('a', [[40, 40], [50, 40], [50, 50], [40, 50]]),
+      room('b', [[50.4, 40], [60, 40], [60, 50], [50.4, 50]]),
+    ];
+    useStore.getState().updateLayer(layer().id, { rooms } as never);
+
+    tool.onPointerDown({ x: 49.5, y: 45 });
+    tool.onPointerMove({ x: 51, y: 45 });
+
+    expect(blobGhost.fills.at(-1)?.color).toBe(0x94a3b8);
+  });
+
+  it('refuses to draw a blob on a locked layer', () => {
+    useStore.getState().updateLayer(layer().id, { locked: true } as never);
+
+    tool.onPointerDown({ x: 5, y: 50 });
+    tool.onPointerUp({ x: 8, y: 50 });
+
+    expect(blobs()).toHaveLength(0);
+    expect(warning).toHaveBeenCalledWith('Layer is locked');
+  });
+});
+
+function room(id: string, boundary: [number, number][]): Room {
+  return { id, name: id, boundary, centroid: [0, 0], area: 1, isPathway: false };
+}
 
 describe('clampDoorWidth', () => {
   // Single→double bumps up; the reverse used to leave the bumped width behind,

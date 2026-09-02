@@ -4,7 +4,7 @@ import { setClipperModule } from '../geometry/Clipper2Engine';
 import { useStore } from './store';
 import { syncRooms } from './roomSync';
 import { seedRoomsFromDetection } from './seedRooms';
-import { connectorBlob } from '../engine/tools/ConnectorTool';
+import { connectorBlob } from '../engine/tools/DoorTool';
 import { undoManager } from './undoManager';
 import type { DungeonLayer, SerializedMapData } from './types';
 import type { AnyChild, ConnectorChild, RoomChild, WallSegment } from '../shared/types';
