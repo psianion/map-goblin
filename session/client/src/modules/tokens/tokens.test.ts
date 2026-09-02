@@ -9,6 +9,7 @@ import type { Layer } from '@dnd/core/src/store/types';
 import { liveDoors } from '../doors/doors';
 import { useSessionStore } from '../../session/store';
 import { useToasts, type Toast } from '../../session/toasts';
+import { useRefusalToasts } from '../../session/useRefusalToasts';
 import { tokenLabelText } from './TokenRenderer';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { WebSocketClient } from '../../session/WebSocketClient';
@@ -210,7 +211,14 @@ describe('a refused move (the rubber-band on its own says nothing)', () => {
   });
 
   it('toasts the player who dropped a token where it may not stand, once per drop', () => {
-    render(createElement(TokenPanel));
+    // The ear is GameTable's, not this panel's: a player dragging a token has no popover
+    // open, which is exactly why the panel-mounted version of this never fired for them.
+    render(
+      createElement(function Ear() {
+        useRefusalToasts();
+        return null;
+      }),
+    );
 
     const shown: Toast[] = [];
     const unsubscribe = useToasts.subscribe((s) => {

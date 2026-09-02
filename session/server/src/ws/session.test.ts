@@ -342,6 +342,50 @@ describe('commands', () => {
       expect(heard).toEqual([])
     })
   })
+
+  /**
+   * The wire half of "a refused move is invisible to the player": the refusal has to reach
+   * the socket that sent it, exactly once, and nobody else. Pinned here because the same
+   * identity holding two sockets was the first suspect — `join` supersedes the older socket
+   * (one identity, one live socket), so the frame has to follow the live one, and a stale
+   * tab must not be able to swallow the answer meant for the tab the player is looking at.
+   */
+  it('answers a refused move to the sending socket alone, and follows a superseded identity', async () => {
+    await withServer({}, async (server) => {
+      const [dm, player] = await joinedPair(server, 'MV')
+
+      sendCommand(dm, 'tokens', 'place', { sceneId: 'sc-1', name: 'Orc', x: 1, y: 1 })
+      const placed = await next(dm, 'state-update')
+      const scene = (placed.state as { byScene: Record<string, Record<string, unknown>> }).byScene['sc-1']
+      const id = Object.keys(scene)[0]
+
+      const playerHeard: string[] = []
+      const dmHeard: string[] = []
+      record(player, playerHeard)
+      record(dm, dmHeard)
+
+      // Nobody claimed it, so this is a refusal on the real `tokens.move` path.
+      sendCommand(player, 'tokens', 'move', { sceneId: 'sc-1', id, x: 5, y: 5 })
+      expect((await next(player, 'error')).code).toBe('unauthorized')
+      await expect(next(dm, 'error')).rejects.toThrow(/timed out/)
+      expect(playerHeard.filter((t) => t === 'error')).toHaveLength(1)
+      expect(dmHeard).toEqual([])
+
+      // A second tab on the same identity. The first socket is superseded and closed; the
+      // refusal for the command the second one sent must land on the second one.
+      const second = await connect(server, { identity: 'id-bob', name: 'Bob', session: 'MV' })
+      sendJoin(second)
+      await next(second, 'session-state')
+      const secondHeard: string[] = []
+      record(second, secondHeard)
+      playerHeard.length = 0
+
+      sendCommand(second, 'tokens', 'move', { sceneId: 'sc-1', id, x: 6, y: 6 })
+      expect((await next(second, 'error')).code).toBe('unauthorized')
+      expect(secondHeard.filter((t) => t === 'error')).toHaveLength(1)
+      expect(playerHeard).not.toContain('error')
+    })
+  })
 })
 
 /**

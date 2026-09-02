@@ -13,6 +13,7 @@ import { frameWorldPoint } from '../../renderer/camera';
 import type { WebSocketClient } from '../../session/WebSocketClient';
 import { useSessionStore } from '../../session/store';
 import { useToasts } from '../../session/toasts';
+import { useRefusalToasts } from '../../session/useRefusalToasts';
 import {
   DM_ENTITY_ALPHA,
   DOOR_CHIP_CEILING,
@@ -867,9 +868,18 @@ describe('a refused door', () => {
     expect(doorRefusal(`${DOOR_LOCKED}: that door is locked`, held())).toBe('The door is locked.');
   });
 
+  /**
+   * The ear is GameTable's, not this panel's. A player pulling a door has no popover open —
+   * which is exactly why the panel-mounted version of this never reached them.
+   */
+  function RefusalEar() {
+    useRefusalToasts();
+    return null;
+  }
+
   it('toasts the player who pulled a locked door', () => {
     useSessionStore.setState({ session: session(), you: player });
-    render(<DoorPanel />);
+    render(<RefusalEar />);
     expect(useToasts.getState().toast).toBeNull();
 
     act(() =>
@@ -888,7 +898,7 @@ describe('a refused door', () => {
 
   it('gives the player who pulled a locked door exactly one toast, naming that door', () => {
     useSessionStore.setState({ session: session(), you: player });
-    render(<DoorPanel />);
+    render(<RefusalEar />);
 
     const shown: string[] = [];
     const unsubscribe = useToasts.subscribe((s) => {
