@@ -133,10 +133,10 @@ export function hitTestChildren(
     // the bulb sat there on screen with nothing behind it to click.
     if (!child.visible && child.childType !== 'light') continue;
     switch (child.childType) {
-      case 'shape':
       // A drawn room picks exactly like a shape — same rings, same Select tool,
       // same gizmo. Connectors deliberately have no case: ConnectorTool owns
       // their hit-testing, the way ZoneTool owns zones'.
+      case 'shape':
       case 'room':
         if (pointInShape(child, point)) return child;
         break;

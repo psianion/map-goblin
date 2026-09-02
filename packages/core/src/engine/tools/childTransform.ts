@@ -133,9 +133,9 @@ export type ChildSnapshot =
 
 export function snapshotChild(child: AnyChild): ChildSnapshot {
   switch (child.childType) {
-    case 'shape':
     // Authored rooms and connectors carry ShapeChild's ring fields on purpose,
     // so the gizmo moves them through the same exact point-by-point remap.
+    case 'shape':
     case 'room':
     case 'connector':
       return { kind: 'rings', contours: effectiveContours(child), tangents: effectiveTangents(child) };
