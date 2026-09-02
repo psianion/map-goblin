@@ -16,7 +16,7 @@ import {
   PLACEABLE_DOOR_STYLES,
 } from '@dnd/core/src/engine/tools/DoorTool';
 import { polylineLength, resolveDoors, resolveWalls } from '@dnd/core/src/shared/wallResolve';
-import { connectorKindForStyle } from '@dnd/core/src/shared/authoredRooms';
+import { connectorKindForStyle, connectorStyle } from '@dnd/core/src/shared/authoredRooms';
 
 // The same list the door tool places from, so a placed portcullis or archway
 // can be recognised here and changed into something else.
@@ -70,10 +70,9 @@ export function DoorProperties({ layerId, childId, disabled }: DoorPropertiesPro
 
   // A wall door only — the blob has no width to fit and no wall to fit it to.
   const wallDoor = door.childType === 'door' ? door : null;
-  // A blob drawn before styles were authoritative carries only its kind; read it
-  // as the style that kind means, so the picker always has something to show.
-  const style: DoorStyle =
-    door.style ?? (door.childType === 'connector' && door.kind === 'arch' ? 'archway' : 'single');
+  // One shared read for what a blob's style is (legacy kind-only blobs included),
+  // so the panel, the tool and the door twin can never disagree.
+  const style: DoorStyle = door.childType === 'connector' ? connectorStyle(door) : door.style;
 
   const update = (
     before: Partial<DoorChild | ConnectorChild>,

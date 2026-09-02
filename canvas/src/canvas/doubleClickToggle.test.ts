@@ -5,7 +5,7 @@ import { useStore } from '@/store/store';
 import { undoManager } from '@/store/undoManager';
 import { createDungeonLayer } from '@/store/factories';
 import type { DungeonLayer } from '@/store/types';
-import type { DoorChild, LightChild } from '@dnd/core/src/shared/types';
+import type { AssetChild, ConnectorChild, DoorChild, LightChild } from '@dnd/core/src/shared/types';
 import { toggleFixtureAt } from './doubleClickToggle';
 
 function makeLight(overrides?: Partial<LightChild>): LightChild {
@@ -40,7 +40,21 @@ function makeDoor(overrides?: Partial<DoorChild>): DoorChild {
   };
 }
 
-function seed(children: (LightChild | DoorChild)[], patch?: Partial<DungeonLayer>): DungeonLayer {
+function makeBlob(overrides?: Partial<ConnectorChild>): ConnectorChild {
+  return {
+    id: 'blob-1',
+    name: 'Doorway',
+    childType: 'connector',
+    visible: true,
+    kind: 'door',
+    state: 'closed',
+    isSecret: false,
+    contours: [[[29, 29], [31, 29], [31, 31], [29, 31]]],
+    ...overrides,
+  };
+}
+
+function seed(children: (LightChild | DoorChild | ConnectorChild | AssetChild)[], patch?: Partial<DungeonLayer>): DungeonLayer {
   const layer = { ...createDungeonLayer('L'), children, ...patch } as DungeonLayer;
   useStore.setState((s) => {
     s.layers = [layer];
@@ -95,6 +109,41 @@ describe('toggleFixtureAt', () => {
     expect(toggleFixtureAt({ x: 20, y: 20 }, 1)).toBe(true);
     expect((child('arch') as DoorChild).state).toBe('closed');
     expect(undoManager.canUndo()).toBe(false);
+  });
+
+  it('swings a blob door too — same flip, different anchor', () => {
+    seed([makeBlob()]);
+
+    expect(toggleFixtureAt({ x: 30, y: 30 }, 1)).toBe(true);
+    expect((child('blob-1') as unknown as ConnectorChild).state).toBe('open');
+
+    expect(toggleFixtureAt({ x: 30, y: 30 }, 1)).toBe(true);
+    expect((child('blob-1') as unknown as ConnectorChild).state).toBe('closed');
+  });
+
+  it('leaves an archway blob alone, even a legacy kind-only one, but claims the click', () => {
+    seed([makeBlob({ kind: 'arch', state: 'open', style: undefined })]);
+
+    expect(toggleFixtureAt({ x: 30, y: 30 }, 1)).toBe(true);
+    expect((child('blob-1') as unknown as ConnectorChild).state).toBe('open');
+    expect(undoManager.canUndo()).toBe(false);
+  });
+
+  it('flips the blob under decorative scatter — dressing must not swallow the door', () => {
+    const rubble = {
+      id: 'rubble',
+      name: 'Rubble',
+      childType: 'asset',
+      visible: true,
+      position: { x: 30, y: 30 },
+      scale: 1,
+      rotation: 0,
+      assetId: 'gg-demo:rubble',
+    } as unknown as AssetChild;
+    seed([makeBlob(), rubble]);
+
+    expect(toggleFixtureAt({ x: 30, y: 30 }, 1)).toBe(true);
+    expect((child('blob-1') as unknown as ConnectorChild).state).toBe('open');
   });
 
   it('claims nothing when the click missed', () => {
