@@ -7,6 +7,7 @@ import { ToggleSwitch } from '@/components/ui/toggle-switch'
 import { RenameRoomCommand } from '@/store/commands'
 import { seedRoomsFromDetection } from '@dnd/core/src/store/seedRooms'
 import { undoManager } from '@/store/undoManager'
+import { notify } from '@/lib/toast'
 import type { DungeonLayer, Room } from '@/store/types'
 
 interface RoomPanelProps {
@@ -70,7 +71,8 @@ export function RoomPanel({ layer, openSections, onToggleSection }: RoomPanelPro
     >
       {rooms.length === 0 ? (
         <p className="py-1 text-panel-body text-text-muted">
-          No rooms yet — draw walls that enclose part of the floor.
+          No rooms yet — draw one with the Room tool (O), or draw walls that enclose part of
+          the floor.
         </p>
       ) : (
         <ul className="flex flex-col gap-0.5 pt-1">
@@ -124,7 +126,12 @@ export function RoomPanel({ layer, openSections, onToggleSection }: RoomPanelPro
       {!hasAuthoredRooms && rooms.length > 0 && (
         <button
           type="button"
-          onClick={() => seedRoomsFromDetection(layer.id)}
+          // The list reads the same before and after — same names, same count — so the
+          // button vanishing was the only sign anything happened. Say what happened.
+          onClick={() => {
+            const count = seedRoomsFromDetection(layer.id)
+            if (count > 0) notify.success(`Seeded ${count} room${count === 1 ? '' : 's'}`)
+          }}
           className="mt-2 w-full rounded border border-border-default bg-surface-1 px-2 py-1 text-panel-body text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary"
         >
           Seed rooms from detection
