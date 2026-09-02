@@ -7,7 +7,14 @@
 // says which one.
 
 import { describe, expect, it } from 'vitest'
-import { blockedEdge, visibleRooms, type SceneFog } from '@dnd/mechanics/fog'
+import {
+  blockedEdge,
+  getCell,
+  regionFor,
+  setCells,
+  visibleRooms,
+  type SceneFog,
+} from '@dnd/mechanics/fog'
 import { seedDoor, type DoorLiveState, type DoorsState } from '@dnd/mechanics/doors'
 import type { Token, TokensState } from '@dnd/mechanics/tokens'
 import type { FogState } from '@dnd/mechanics/fog'
@@ -426,6 +433,105 @@ describe('O1/O2 — the sweep occludes on drawn boundaries and their live joints
     const door = sceneMap().doors.find((d) => d.id === 'joint')!
     expect(door.position[0]).toBeCloseTo(10)
     expect(door.position[1]).toBeCloseTo(5)
+  })
+})
+
+// ── O5 — the fence at an aperture, and what the record does to it ──────────
+//
+// Written after a dogfood walk measured lit ground 16–17 cells out from a token carrying
+// sight 12, through an open arch — a third again past its range, and read as a leak. It is
+// not one, and these two rows are the proof, kept because the next walk will read the same
+// thing off a screen and reach the same wrong conclusion.
+//
+// The composition is `live = (full ∩ held) ∪ near`, and `near ≡ full ∩ disc(range)` exactly:
+// `seen`'s range term is a bare `hypot <= range` with no feather in it at all (band S's 0.5
+// margin and 0.8 feather are the client compositor's, applied to what this already decided).
+// So on a record nobody has written to, the extent through an aperture is the range and not a
+// cell more. What the walk measured was the other term: the token had worked that corridor for
+// two sessions, every step of it peeling ground up to range and writing it down, and the mask
+// does not colour remembered ground differently from live ground. Row two reproduces the
+// reading from one earlier position.
+
+describe('O5 — sight through an aperture is bounded by range, and the record is not', () => {
+  const RANGE = 6
+  const EYE_X = 9 // in the hall, on the arch's centreline, a cell short of the boundary
+  const arch = connector({ kind: 'arch' })
+  const visionFog: SceneFog = { rooms: {}, concealBehindDoors: true, mode: 'vision' }
+
+  /** One claimed, sighted token — the eyes contained sight is measured from. */
+  const eye = (x: number): TokensState => ({
+    library: {},
+    byScene: {
+      [SCENE]: {
+        pc: {
+          id: 'pc',
+          x,
+          y: 5,
+          ownerId: 'p-1',
+          claimedBy: 'p-1',
+          hidden: false,
+          sight: { range: RANGE, angle: 360, visionMode: 'normal' },
+        } as unknown as Token,
+      },
+    },
+  })
+
+  const stage = () => {
+    const { vision, stores, campaignId } = table(arch)
+    const put = (module: string, state: unknown) => set(stores, campaignId, module, state)
+    put('fog', { byScene: { [SCENE]: visionFog } } satisfies FogState)
+    return { vision, put, frame: vision.sceneMapOf(SCENE)!.frame! }
+  }
+
+  /** How far down the corridor the fence lets this eye see, from where it stands. */
+  const reach = (canSee: (x: number, y: number) => boolean, from: number): number => {
+    let far = 0
+    for (let x = from; x <= 22; x += 0.25) if (canSee(x, 5)) far = x - from
+    return far
+  }
+
+  it('stops at exactly the eye’s range on a record nobody has written to', () => {
+    const { vision, put, frame } = stage()
+    put('tokens', eye(EYE_X))
+    const see = vision.visionOf(SCENE)!.canSee!
+
+    // Through the arch, into a room the DM never revealed: the range, to the cell.
+    expect(see(EYE_X + RANGE, 5)).toBe(true)
+    expect(see(EYE_X + RANGE + 0.25, 5)).toBe(false)
+    expect(reach(see, EYE_X)).toBeCloseTo(RANGE)
+
+    // …and the record this same sweep earns is inside the same disc, so the next step cannot
+    // start from ground the fence never opened. (Cells are counted at their centres.)
+    const cells = vision.autoExplorePatch(SCENE)!.cells
+    expect(cells.length).toBeGreaterThan(0)
+    const furthest = Math.max(
+      ...cells.map(([col, row]) =>
+        Math.hypot(frame.minX + col + 0.5 - EYE_X, frame.minY + row + 0.5 - 5),
+      ),
+    )
+    expect(furthest).toBeLessThanOrEqual(RANGE)
+  })
+
+  it('reads far past range once an earlier position wrote the ground down', () => {
+    const { vision, put, frame } = stage()
+    // Deeper into the crypt, where the far end is well within range — and the step writes it.
+    put('tokens', eye(20))
+    const region = setCells(regionFor(undefined, frame)!, vision.autoExplorePatch(SCENE)!.cells)
+    put('fog', { byScene: { [SCENE]: { ...visionFog, region } } } satisfies FogState)
+
+    // Back to the aperture. Same eye, same range, same arch — and now it sees to the far wall,
+    // twice its own range away, because that ground is held. This is the walk's 16-of-12.
+    put('tokens', eye(EYE_X))
+    const see = vision.visionOf(SCENE)!.canSee!
+    expect(reach(see, EYE_X)).toBeGreaterThan(2 * RANGE)
+
+    // Every cell past the range term is one the record holds — the union, not a wider disc.
+    const far: [number, number] = [21.5, 5]
+    expect(Math.hypot(far[0] - EYE_X, far[1] - 5)).toBeGreaterThan(RANGE)
+    expect(see(...far)).toBe(true)
+    expect(
+      getCell(region, Math.floor(far[0] - region.minX), Math.floor(far[1] - region.minY)),
+    ).toBe(true)
   })
 })
 
