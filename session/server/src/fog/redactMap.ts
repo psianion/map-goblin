@@ -25,6 +25,8 @@ import type {
   WallSegment,
 } from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design, same waiver sceneMap.ts takes (see its header)
+import { connectorToDoor } from '@dnd/core/src/shared/authoredRooms'
 import {
   centreOf,
   shippableChildren,
@@ -106,29 +108,13 @@ export function redactMapForViewer(
     layers: scene.data.layers.map((layer) => {
       if (!isDungeon(layer)) return layer
       // A layer nobody zoned has no fog to enforce — room-granular fog needs rooms (D6) — so
-      // its geometry goes over whole.
-      //
-      // Its doors do not. A door with no room to be bound to can never be earned, and the
-      // player's door marks are drawn *above* the fog mask on the strength of a player only
-      // ever holding doors they earned. Handing them over anyway put three marks at full
-      // brightness on a canvas that was otherwise black, which is the door positions
-      // disclosed by exactly the styling PRODUCT principle 2 says must never carry it.
-      // Zones are trigger anchors (prep), stripped with the same severity: a zone's
-      // position IS where the trap is.
+      // its geometry goes over whole, less what `childShips` withholds on that branch.
       if (!layer.rooms?.length) {
         const kids = shippableChildren(layer)
-        // Rooms and joints go with them: with no room to earn there is no fog to enforce
-        // and nothing for a boundary to fence, so the contours would be pure disclosure.
-        const cut = kids.filter(
-          (child) =>
-            child.childType !== 'door' &&
-            child.childType !== 'zone' &&
-            child.childType !== 'room' &&
-            child.childType !== 'connector',
-        )
+        const shipped = kids.filter((child) => childShips(child, layer, scene, kept, doors, cut))
         // Untouched when there was nothing to take, so a layer with no doors stays the very
         // object it arrived as rather than growing an empty `children` it never had.
-        return cut.length === kids.length ? layer : { ...layer, children: cut }
+        return shipped.length === kids.length ? layer : { ...layer, children: shipped }
       }
       return {
         ...layer,
@@ -161,7 +147,8 @@ export function redactMapForViewer(
  * a player is entitled to and hands whatever is new to this.
  *
  * `kept` is the *explored* room set, not the newly-revealed one: a door here joins rooms the
- * party has already earned, so it keeps both bindings. Nothing but a door is faced.
+ * party has already earned, so it keeps both bindings. Doors and joints are faced — a blob
+ * carries the same bindings its twin does and would otherwise name the room behind it.
  */
 export function childDeltaFor(
   scene: SceneMap,
@@ -178,7 +165,11 @@ export function childDeltaFor(
         rooms: [] as Room[],
         children: shippableChildren(layer)
           .filter((child) => childIds.has(child.id))
-          .map((child) => (child.childType === 'door' ? facing(child, kept) : child)) as AnyChild[],
+          .map((child) =>
+            child.childType === 'door' || child.childType === 'connector'
+              ? facing(child, kept)
+              : child,
+          ) as AnyChild[],
         standaloneWalls: [] as WallSegment[],
       }))
       .filter((layer) => layer.children.length > 0),
@@ -247,21 +238,7 @@ function slice(
   return {
     rooms: (layer.rooms ?? []).filter((room) => kept.has(room.id)),
     children: shippableChildren(layer)
-      .filter((child) => {
-        // Prep never travels: a zone in a revealed room is still the DM's trap marker.
-        if (child.childType === 'zone') return false
-        // A drawn room's contour and the blob that opens it are occluders (O1/O2), and
-        // the table sweeps its own copy — so they travel, fenced by exactly the credit
-        // that already fences the `Room` this contour is a duplicate of, and the blob by
-        // the rooms it joins. An unearned room's outline still never leaves the DM.
-        if (child.childType === 'room') return kept.has(child.id)
-        if (child.childType === 'connector') {
-          return kept.has(child.roomA ?? '') || kept.has(child.roomB ?? '')
-        }
-        return child.childType === 'door'
-          ? doorKept(child, kept, doors)
-          : childKept(child, scene, cut)
-      })
+      .filter((child) => childShips(child, layer, scene, kept, doors, cut))
       // A joint on the edge of the known world keeps only the side the party has been,
       // exactly as the door twin it also ships as does — the blob carries the same
       // bindings and would otherwise name the room behind it.
@@ -276,6 +253,52 @@ function slice(
       scene.roomsAlong(wall).some((room) => kept.has(room)),
     ),
   }
+}
+
+/**
+ * Whether this child travels to a player at all — the one rule, called by the document cut
+ * (`slice`, and the unzoned branch above it) and by the delta lane (`keptChildIds`) alike.
+ *
+ * It is one function rather than two agreeing copies because the copies did not agree. W2's
+ * room and connector rules landed in `slice` only, so the comment over `keptChildIds`
+ * promising the two "cannot drift" was a promise with no mechanism behind it: every reveal
+ * delta shipped the contour of every drawn room on the layer, earned or not, and every blob
+ * on the map, while a fresh fetch of the same scene stripped exactly those.
+ */
+function childShips(
+  child: AnyChild,
+  layer: DungeonLayer,
+  scene: SceneMap,
+  kept: ReadonlySet<string>,
+  doors: Doors,
+  cut: Cut,
+): boolean {
+  // Prep never travels: a zone in a revealed room is still the DM's trap marker, and a
+  // zone's position IS where the trap is.
+  if (child.childType === 'zone') return false
+  // With no room on the layer there is nothing to earn and nothing for a contour to fence.
+  //
+  // A door with no room to be bound to can never be earned, and the player's door marks are
+  // drawn *above* the fog mask on the strength of a player only ever holding doors they
+  // earned. Handing them over anyway put three marks at full brightness on a canvas that was
+  // otherwise black, which is the door positions disclosed by exactly the styling PRODUCT
+  // principle 2 says must never carry it. Rooms and joints go with them: their outlines
+  // would be pure disclosure.
+  if (!layer.rooms?.length) {
+    return (
+      child.childType !== 'door' && child.childType !== 'room' && child.childType !== 'connector'
+    )
+  }
+  // A drawn room's contour and the blob that opens it are occluders (O1/O2), and the table
+  // sweeps its own copy — so they travel, fenced by exactly the credit that already fences
+  // the `Room` this contour is a duplicate of. An unearned room's outline never leaves the DM.
+  if (child.childType === 'room') return kept.has(child.id)
+  // A joint ships on its twin's rule and no second one. Testing the bindings alone read the
+  // same on an ordinary joint and wrongly on a secret one: the blob of a secret passage went
+  // over the wire while the door child that names it was withheld, leaving a state-frozen
+  // hole in the player's compositor that no drift entry would ever close.
+  if (child.childType === 'connector') return doorKept(connectorToDoor(child), kept, doors)
+  return child.childType === 'door' ? doorKept(child, kept, doors) : childKept(child, scene, cut)
 }
 
 /**
@@ -490,8 +513,9 @@ function lockBox(
 }
 
 /**
- * Every child id a player is entitled to hold right now — the same predicate the document cut
- * uses, so what a reveal *delivers* and what a fresh fetch *contains* cannot drift.
+ * Every child id a player is entitled to hold right now — literally `childShips`, the function
+ * the document cut calls, so what a reveal *delivers* and what a fresh fetch *contains* cannot
+ * drift. Keep it that way: the moment this grows a rule of its own the two are two rules again.
  *
  * `vision.ts` diffs this across mutations to find the children a brush stroke just earned; the
  * room slice covers the rest.
@@ -503,14 +527,7 @@ export function keptChildIds(scene: SceneMap, fog: SceneFog, doors: Doors): Set<
   for (const layer of scene.data.layers) {
     if (!isDungeon(layer)) continue
     for (const child of shippableChildren(layer)) {
-      if (child.childType === 'zone') continue
-      // A layer nobody zoned goes over whole, less its doors — `redactMapForViewer`'s own rule.
-      const keep = !layer.rooms?.length
-        ? child.childType !== 'door'
-        : child.childType === 'door'
-          ? doorKept(child, kept, doors)
-          : childKept(child, scene, cut)
-      if (keep) ids.add(child.id)
+      if (childShips(child, layer, scene, kept, doors, cut)) ids.add(child.id)
     }
   }
   return ids

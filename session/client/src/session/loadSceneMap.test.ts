@@ -428,6 +428,80 @@ describe('mergeMapDelta', () => {
     useSessionStore.setState({ session: null });
   });
 
+  /**
+   * A joint and the door twin it plays as share the connector's own id on purpose (C1: the
+   * live door state is keyed by it), so a delta that carries a joint carries two children
+   * under one id. Keyed on the id alone the blob won both slots: the seat's twin was
+   * rewritten into a second blob, its glyph went, and its aperture froze at the `closed` the
+   * tool authors — the DM could open the door and the player would never see through it
+   * until a full refetch.
+   */
+  it('keeps a joint and its door twin apart though they share one id', () => {
+    const held = loaded();
+    (held.layers[0] as unknown as { children: unknown[] }).children.push(
+      { id: 'j1', childType: 'door', isSecret: false, state: 'closed', roomA: 'r-vestibule', roomB: null },
+      { id: 'j1', childType: 'connector', kind: 'door', state: 'closed', roomA: 'r-vestibule', roomB: null },
+    );
+    const patch = delta();
+    (patch.layers[0].children as unknown[]).push(
+      { id: 'j1', childType: 'door', isSecret: false, state: 'closed', roomA: 'r-vestibule', roomB: 'r-gallery' },
+      { id: 'j1', childType: 'connector', kind: 'door', state: 'open', roomA: 'r-vestibule', roomB: 'r-gallery' },
+    );
+
+    const kids = layerOf(mergeMapDelta(held, patch, 'player', 'scene-1')).children as unknown as {
+      id: string;
+      childType: string;
+      state: string;
+      roomB: string | null;
+    }[];
+    const joint = kids.filter((c) => c.id === 'j1');
+    expect(joint.map((c) => c.childType)).toEqual(['door', 'connector']);
+    // Each merged into its own slot: the twin took the delta's new binding without becoming
+    // a blob, and the blob took the delta's state without becoming a door.
+    expect(joint[0].roomB).toBe('r-gallery');
+    expect(joint[1].state).toBe('open');
+  });
+
+  /**
+   * `swapSceneMap` re-runs `forViewer` over the held document on every scene re-entry, and
+   * every delta runs it again, so `withConnectorDoors` appending unconditionally grew one
+   * duplicate twin per joint per round trip on the DM's copy — the glyph drawn twice and the
+   * aperture cut twice.
+   */
+  it('gives the DM one door twin per joint however often forViewer runs', () => {
+    const held = loaded();
+    (held.layers[0] as unknown as { children: unknown[] }).children.push({
+      id: 'j1',
+      childType: 'connector',
+      name: 'the neck',
+      visible: true,
+      kind: 'door',
+      state: 'closed',
+      isSecret: false,
+      contours: [[[0, 0], [2, 0], [2, 2], [0, 2]]],
+    });
+
+    const once = mergeMapDelta(held, delta(), 'dm', 'scene-1')!;
+    const twice = mergeMapDelta(once, delta(), 'dm', 'scene-1')!;
+    const twins = (children: { id: string; childType: string }[]) =>
+      children.filter((c) => c.id === 'j1' && c.childType === 'door');
+
+    expect(twins(layerOf(once).children as unknown as { id: string; childType: string }[])).toHaveLength(1);
+    expect(twins(layerOf(twice).children as unknown as { id: string; childType: string }[])).toHaveLength(1);
+  });
+
+  it('never lets a secret joint in either, blob and all', () => {
+    const sneaky = delta();
+    sneaky.layers[0].children.push({
+      id: 'j-secret',
+      childType: 'connector',
+      isSecret: true,
+    } as unknown as MapDelta['layers'][number]['children'][number]);
+
+    const asPlayer = mergeMapDelta(loaded(), sneaky, 'player', 'scene-1');
+    expect(layerOf(asPlayer).children.map((c) => c.id)).not.toContain('j-secret');
+  });
+
   it('drops a delta for a scene this client is no longer looking at', () => {
     const current = loaded();
     expect(mergeMapDelta(current, delta({ sceneId: 'scene-2' }), 'player', 'scene-1')).toBe(current);

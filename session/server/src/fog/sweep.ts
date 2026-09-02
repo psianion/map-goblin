@@ -19,6 +19,7 @@ import { clockwiseSweep } from '@dnd/core/src/engine/lighting/ClockwiseSweep'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design (see above)
 import { extractWallSegments } from '@dnd/core/src/engine/lighting/raycaster'
 import type { Segment } from '@dnd/core/src/engine/lighting/raycaster'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design (see above)
 import { connectorToDoor } from '@dnd/core/src/shared/authoredRooms'
 import type { ConnectorChild, DoorChild, ZoneChild, ZoneShape } from '@dnd/core/src/shared/types'
 import type { DungeonLayer } from '@dnd/core/src/store/types'

@@ -21,7 +21,7 @@ import type {
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
 import { openDb } from '../db/db'
 import { createStores, type Stores } from '../db/stores'
-import { redactMapForViewer } from './redactMap'
+import { childDeltaFor, keptChildIds, redactMapForViewer } from './redactMap'
 import { createSceneMaps } from './sceneMap'
 import { createSweeps, seen } from './sweep'
 import { createVision } from './vision'
@@ -78,7 +78,11 @@ const connector = (over: Partial<ConnectorChild> = {}): ConnectorChild => ({
 
 const SCENE = 'scene-1'
 
-function mapFile(joint: ConnectorChild, extra: readonly AnyChild[] = []): SerializedMapData {
+function mapFile(
+  joint: ConnectorChild,
+  extra: readonly AnyChild[] = [],
+  rooms: readonly Room[] = ROOMS,
+): SerializedMapData {
   const layer: DungeonLayer = {
     id: 'layer-1',
     name: 'Warren',
@@ -91,7 +95,7 @@ function mapFile(joint: ConnectorChild, extra: readonly AnyChild[] = []): Serial
     mergedFloor: [rect(0, 0, 22, 10)],
     style: {} as DungeonLayer['style'],
     sublayerVisibility: { floor: true, grid: true, walls: true },
-    rooms: ROOMS,
+    rooms: rooms as Room[],
     roomNameOverrides: {},
   }
   return {
@@ -103,16 +107,23 @@ function mapFile(joint: ConnectorChild, extra: readonly AnyChild[] = []): Serial
   }
 }
 
-function table(joint: ConnectorChild = connector(), extra: readonly AnyChild[] = []) {
+function table(
+  joint: ConnectorChild = connector(),
+  extra: readonly AnyChild[] = [],
+  rooms: readonly Room[] = ROOMS,
+) {
   const stores = createStores(openDb(':memory:'))
   const campaign = stores.campaigns.create('Warren')
-  stores.maps.insert(SCENE, campaign.id, 'Warren', JSON.stringify(mapFile(joint, extra)))
+  stores.maps.insert(SCENE, campaign.id, 'Warren', JSON.stringify(mapFile(joint, extra, rooms)))
   stores.scenes.create(SCENE, campaign.id, SCENE, 'Warren')
   return { stores, campaignId: campaign.id, vision: createVision(stores) }
 }
 
-const sceneMap = (joint: ConnectorChild = connector(), extra: readonly AnyChild[] = []) =>
-  createSceneMaps(table(joint, extra).stores).sceneMapOf(SCENE)!
+const sceneMap = (
+  joint: ConnectorChild = connector(),
+  extra: readonly AnyChild[] = [],
+  rooms: readonly Room[] = ROOMS,
+) => createSceneMaps(table(joint, extra, rooms).stores).sceneMapOf(SCENE)!
 
 const twin = (joint: ConnectorChild = connector()) =>
   sceneMap(joint).doors.find((door) => door.id === joint.id)!
@@ -464,5 +475,87 @@ describe('A4 — republishing an authored map', () => {
     expect(after.roomsOf(campaignId, SCENE)).toEqual(before)
     const cut = after.playerMap(SCENE)!
     expect((cut.layers[0] as DungeonLayer).rooms?.map((r) => r.id)).toEqual(['hall', 'crypt'])
+  })
+})
+
+// ── W2 in the delta lane — the reveal ships exactly what the document ships ──
+//
+// `slice` and `keptChildIds` were two copies of one rule, and only `slice` learned W2's
+// room and connector fence, so every reveal delta handed over geometry a fresh fetch of the
+// same scene stripped. The probe: the party holds the hall alone; a closet is drawn against
+// the hall's east wall and never earned; and a second joint binds the crypt to the closet
+// with its blob 0.2wu off the hall's wall. Both sit inside the hall's band, which is what the
+// delta lane judged them by — the rule for a prop, applied to a contour.
+
+describe('W2 — the delta lane is fenced exactly as the document cut is', () => {
+  const CLOSET_CHILD = roomChild('closet', 10, 4.2, 11.6, 5.8)
+  const CLOSET = room(CLOSET_CHILD, 10, 4.2, 11.6, 5.8)
+  const CRAWL = connector({
+    id: 'crawl',
+    name: 'the crawl',
+    contours: [rect(10.2, 4.6, 11, 5.4)],
+    roomA: 'crypt',
+    roomB: 'closet',
+  })
+  const onlyHall: SceneFog = {
+    rooms: { hall: { status: 'revealed', wasEverRevealed: true } },
+    concealBehindDoors: true,
+  }
+  const probe = () => sceneMap(connector(), [CLOSET_CHILD, CRAWL], [...ROOMS, CLOSET])
+
+  it('withholds the contour of an uncredited room from a reveal delta', () => {
+    expect([...keptChildIds(probe(), onlyHall, {})].sort()).toEqual(['hall', 'joint'])
+  })
+
+  it('withholds a blob that joins no room the party has earned', () => {
+    expect(keptChildIds(probe(), onlyHall, {}).has('crawl')).toBe(false)
+  })
+
+  it('agrees child for child with what a fresh fetch of the same scene contains', () => {
+    const map = probe()
+    const held = new Set(
+      (redactMapForViewer(map, onlyHall, {}).layers[0] as DungeonLayer).children.map((c) => c.id),
+    )
+    expect([...keptChildIds(map, onlyHall, {})].sort()).toEqual([...held].sort())
+  })
+
+  it('faces a joint the delta carries, as it faces the twin beside it', () => {
+    const delta = childDeltaFor(probe(), SCENE, new Set(['joint']), new Set(['hall']))
+    const blob = delta.layers[0].children.find((c) => c.childType === 'connector')!
+    expect(blob).toMatchObject({ name: '', roomA: 'hall', roomB: null })
+  })
+})
+
+// ── A secret joint does not exist until the DM says so ──────────────────────
+//
+// The blob used to be judged on its bindings alone while its twin went through `doorKept`,
+// so a secret passage's geometry rode the wire with no door child beside it — a permanent
+// state-frozen hole in the player's compositor that no later drift entry could close.
+
+describe('a secret joint', () => {
+  const secret = connector({ isSecret: true })
+  const onlyHall: SceneFog = {
+    rooms: { hall: { status: 'revealed', wasEverRevealed: true } },
+    concealBehindDoors: true,
+  }
+  const shut: DoorLiveState = { open: false, locked: false, revealed: false }
+
+  it('ships neither its twin nor its blob while the secret stands', () => {
+    expect(JSON.stringify(redactMapForViewer(sceneMap(secret), onlyHall, {}))).not.toContain(
+      'joint',
+    )
+    expect(keptChildIds(sceneMap(secret), onlyHall, {}).has('joint')).toBe(false)
+  })
+
+  it('ships both the moment the DM reveals it', () => {
+    const doors = { joint: { ...shut, revealed: true } }
+    const kids = (
+      redactMapForViewer(sceneMap(secret), onlyHall, doors).layers[0] as DungeonLayer
+    ).children
+    expect(kids.filter((c) => c.id === 'joint').map((c) => c.childType)).toEqual([
+      'door',
+      'connector',
+    ])
+    expect(keptChildIds(sceneMap(secret), onlyHall, doors).has('joint')).toBe(true)
   })
 })

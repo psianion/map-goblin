@@ -68,9 +68,13 @@ export function withoutSecretDoors(
             children: layer.children.filter(
               (child) =>
                 !(
-                  child.childType === 'door' &&
-                  (child as DoorChild).isSecret &&
-                  !revealed.has(child.id)
+                  // A joint is a door with a blob for a body: same secret rule, or the
+                  // passage the DM has not given away is drawn as a hole in the wall.
+                  (
+                    (child.childType === 'door' || child.childType === 'connector') &&
+                    (child as DoorChild | ConnectorChild).isSecret &&
+                    !revealed.has(child.id)
+                  )
                 ),
             ),
           }
@@ -96,15 +100,24 @@ function revealedDoors(sceneId: string | null | undefined): Set<string> {
  * DM's document *is* the map whole, so their table would draw no mark on a joint and their
  * Doors panel would not list it — the one seat that may open it, unable to. The twin is
  * appended rather than swapped: the blob is still the geometry P2 occludes against.
+ *
+ * Appended *once*: `swapSceneMap` re-runs `forViewer` over the held document every time the
+ * DM re-enters a scene, and every reveal delta runs it again, so an unconditional append grew
+ * one duplicate twin per joint per round trip — two door children on one id, which is the
+ * aperture cut twice and the glyph drawn twice.
  */
 function withConnectorDoors(data: SerializedMapData): SerializedMapData {
   return {
     ...data,
     layers: data.layers.map((layer) => {
       if (!('children' in layer)) return layer;
+      const held = new Set(
+        layer.children.filter((child) => child.childType === 'door').map((child) => child.id),
+      );
       const boundaries = authoredBoundaries(layer.children);
       const twins = layer.children
         .filter((child): child is ConnectorChild => child.childType === 'connector')
+        .filter((child) => !held.has(child.id))
         .map((child) => connectorToDoor(child, boundaries));
       return twins.length ? { ...layer, children: [...layer.children, ...twins] } : layer;
     }),
@@ -130,18 +143,31 @@ function upsertById<T extends { id: string }>(
   current: readonly T[],
   incoming: readonly T[],
   merge: (existing: T, next: T) => T = (_existing, next) => next,
+  keyOf: (item: T) => string = (item) => item.id,
 ): T[] {
   if (incoming.length === 0) return current as T[];
-  const byId = new Map(incoming.map((item) => [item.id, item]));
+  const byKey = new Map(incoming.map((item) => [keyOf(item), item]));
   const merged = current.map((item) => {
-    const next = byId.get(item.id);
+    const next = byKey.get(keyOf(item));
     return next ? merge(item, next) : item;
   });
+  const held = new Set(current.map(keyOf));
   for (const item of incoming) {
-    if (!current.some((existing) => existing.id === item.id)) merged.push(item);
+    if (!held.has(keyOf(item))) merged.push(item);
   }
   return merged;
 }
+
+/**
+ * …but a child's id is not unique among children. A connector and the door twin it ships as
+ * share the connector's own id on purpose (C1: the live door state is keyed by it), so a
+ * delta carrying a joint carries two children under one id — and an id-keyed upsert let the
+ * blob win both slots: the seat's door twin was rewritten into a second blob, its glyph
+ * vanished, its aperture froze at whatever the map was authored with (ConnectorTool commits
+ * a door-kind joint `closed`, so the DM could open it and the player would never see
+ * through until a full refetch), and the compositor cut the doorway twice.
+ */
+const childKey = (child: AnyChild): string => `${child.childType}:${child.id}`;
 
 /**
  * A door that was open stays open across a reveal.
@@ -194,7 +220,7 @@ export function mergeMapDelta(
       return {
         ...layer,
         rooms: upsertById(layer.rooms ?? [], patch.rooms ?? []),
-        children: upsertById(layer.children, patch.children ?? [], keepLiveDoorState),
+        children: upsertById(layer.children, patch.children ?? [], keepLiveDoorState, childKey),
         standaloneWalls: upsertById(layer.standaloneWalls, patch.standaloneWalls ?? []),
       };
     }),
