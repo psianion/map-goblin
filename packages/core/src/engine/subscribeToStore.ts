@@ -607,7 +607,8 @@ export function subscribeToStore(
           item.doorStateKey === b[i].doorStateKey &&
           item.wallSignature === b[i].wallSignature &&
           item.wallEditsKey === b[i].wallEditsKey &&
-          item.waterSignature === b[i].waterSignature,
+          item.waterSignature === b[i].waterSignature &&
+          item.authoredRoomKey === b[i].authoredRoomKey,
         ),
     },
   );

@@ -66,7 +66,14 @@ import { scheduleRoomSync } from '../store/roomSync';
 import type { RenderEngine } from './RenderEngine';
 import type { SceneGraph } from './sceneGraph';
 import type { DungeonLayer } from '../store/types';
-import type { DoorChild, LightChild, ShapeChild, WallSegment } from '../shared/types';
+import type {
+  ConnectorChild,
+  DoorChild,
+  LightChild,
+  RoomChild,
+  ShapeChild,
+  WallSegment,
+} from '../shared/types';
 
 function shape(id: string, x: number, y: number, size = 40): ShapeChild {
   return {
@@ -109,6 +116,29 @@ function door(id: string, wallId: string, x: number, y: number): DoorChild {
     width: 20,
     style: 'single',
     state: 'closed',
+    isSecret: false,
+  };
+}
+
+function room(id: string, x: number, y: number, size = 20): RoomChild {
+  return {
+    id,
+    name: id,
+    childType: 'room',
+    visible: true,
+    contours: [[[x, y], [x + size, y], [x + size, y + size], [x, y + size]]],
+  };
+}
+
+function connector(id: string, x: number, y: number, size = 4): ConnectorChild {
+  return {
+    id,
+    name: id,
+    childType: 'connector',
+    visible: true,
+    contours: [[[x, y], [x + size, y], [x + size, y + size], [x, y + size]]],
+    kind: 'arch',
+    state: 'open',
     isSecret: false,
   };
 }
@@ -437,6 +467,66 @@ describe('subscribeToStore — door state toggles never touch geometry (#18)', (
   //
   // Position/width/wallId is door GEOMETRY: withoutDoorGaps (wallNodeRenderer)
   // cuts stone gaps from it, so it still needs the full rebuild. isSecret is
+  // A drawn room IS `layer.rooms` on an authored layer, and a vertex drag on
+  // one reaches the store only through UpdateChildCommand — which carries no
+  // affectsRooms. The debounced key here is the only thing that resyncs it, and
+  // it used to see `childType === 'shape'` geometry alone: the drag landed and
+  // nothing downstream ever heard about it.
+  it('a drawn room vertex drag resyncs the rooms and re-lays nothing', () => {
+    const layerId = seed({
+      children: [shape('s1', 500, 500), room('r1', 0, 0)],
+      standaloneWalls: [wall('w1', 0, 0, 100, 0)],
+    });
+
+    unsub = start();
+    const floorBefore = dungeon().mergedFloor;
+    vi.clearAllMocks();
+    const invalidateAll = vi.spyOn(lightManager, 'invalidateAll');
+
+    useStore.getState().updateChild(layerId, 'r1', {
+      contours: [[[0, 0], [30, 0], [30, 20], [0, 20]]],
+    });
+    flushLayerDraws();
+
+    expect(scheduleRoomSync).toHaveBeenCalled();
+    // A room draws no stone and casts no shadow: it must not drag the layer
+    // through a rebuild or re-sweep every light on the map.
+    expect(rebuildDungeonLayer).not.toHaveBeenCalled();
+    expect(invalidateAll).not.toHaveBeenCalled();
+    expect(clipper2Engine.union).not.toHaveBeenCalled();
+    expect(dungeon().mergedFloor).toBe(floorBefore);
+  });
+
+  it('a connector vertex drag resyncs the rooms too (its bindings come from them)', () => {
+    const layerId = seed({
+      children: [shape('s1', 500, 500), connector('c1', 0, 0)],
+      standaloneWalls: [wall('w1', 0, 0, 100, 0)],
+    });
+
+    unsub = start();
+    vi.clearAllMocks();
+
+    useStore.getState().updateChild(layerId, 'c1', {
+      contours: [[[5, 0], [12, 0], [12, 4], [5, 4]]],
+    });
+    flushLayerDraws();
+
+    expect(scheduleRoomSync).toHaveBeenCalled();
+    expect(rebuildDungeonLayer).not.toHaveBeenCalled();
+  });
+
+  it('renaming a drawn room resyncs — the room name comes off the child', () => {
+    const layerId = seed({ children: [shape('s1', 500, 500), room('r1', 0, 0)] });
+
+    unsub = start();
+    vi.clearAllMocks();
+
+    useStore.getState().updateChild(layerId, 'r1', { name: 'Klarg' });
+    flushLayerDraws();
+
+    expect(scheduleRoomSync).toHaveBeenCalled();
+  });
+
   // door STATE — it changes occlusion and the glyph, not where the stones
   // sit, so it takes the doors-only path instead (this is #22, layered on
   // top of #18's floor/room split above).
