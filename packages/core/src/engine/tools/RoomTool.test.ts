@@ -64,6 +64,15 @@ describe('RoomTool', () => {
     expect(rooms[0].id).not.toBe(rooms[1].id);
   });
 
+  it('never reuses the name of a room that has been removed', () => {
+    trace(LOOP);
+    trace(LOOP.map(([x, y]): [number, number] => [x + 10, y]));
+    useStore.getState().removeChild(layerId, roomsOf(layerId)[0].id);
+
+    trace(LOOP.map(([x, y]): [number, number] => [x + 20, y]));
+    expect(roomsOf(layerId).map((r) => r.name)).toEqual(['Room 2', 'Room 3']);
+  });
+
   it('undoes the placement as one entry', () => {
     trace(LOOP);
     undoManager.undo();

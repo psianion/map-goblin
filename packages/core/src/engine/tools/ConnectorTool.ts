@@ -9,6 +9,7 @@ import { notify } from '../../shared/notify';
 import { getChildBounds } from '../hitTest';
 import { blockedLayerReason, noEditableLayerMessage, resolveEditableLayer } from './layerGuard';
 import { isLayerEffectivelyVisible } from '../../store/selectors';
+import { nextAuthoredName } from '../../shared/authoredRooms';
 
 /** Blob thickness across the seam, world units — a connector is a joint, not a room. */
 const BLOB_WIDTH = 1;
@@ -25,10 +26,6 @@ const DRAG_SLOP = 0.15;
 /** Ghost is the "not committed yet" muted tone — see ZoneTool. */
 const MUTED_COLOR = 0x94a3b8;
 const GHOST_ALPHA = 0.6;
-
-function countConnectors(layer: DungeonLayer): number {
-  return layer.children.filter((c) => c.childType === 'connector').length;
-}
 
 function activeDungeonLayer(): DungeonLayer | undefined {
   const store = useStore.getState();
@@ -236,7 +233,7 @@ export class ConnectorTool implements DrawingTool {
     const kind = this.kind();
     const connector: ConnectorChild = {
       id: crypto.randomUUID(),
-      name: `Connector ${countConnectors(layer) + 1}`,
+      name: nextAuthoredName(layer.children, 'Connector'),
       childType: 'connector',
       visible: true,
       kind,

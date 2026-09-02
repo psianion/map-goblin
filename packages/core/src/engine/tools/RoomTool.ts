@@ -3,9 +3,10 @@ import type { DrawingTool, PreviewShape } from './DrawingTool';
 import { useStore } from '../../store/store';
 import { AddChildCommand } from '../../store/commands';
 import { undoManager } from '../../store/undoManager';
-import type { DungeonLayer, RoomChild } from '../../store/types';
+import type { RoomChild } from '../../store/types';
 import { resolveEditableLayer } from './layerGuard';
 import { simplifyPath } from '../../geometry/simplify';
+import { nextAuthoredName } from '../../shared/authoredRooms';
 
 /** Freehand samples closer than this to the last kept one are pointer noise, not vertices. */
 const MIN_SPACING = 0.2;
@@ -23,10 +24,6 @@ const SIMPLIFY_EPSILON = 0.15;
 
 /** A loop enclosing less than this is a stray click or a twitch, not a room. */
 const MIN_AREA = 0.5;
-
-function countRooms(layer: DungeonLayer): number {
-  return layer.children.filter((c) => c.childType === 'room').length;
-}
 
 /** Signed shoelace area of the implicitly-closed loop. */
 function loopArea(points: Point[]): number {
@@ -91,7 +88,7 @@ export class RoomTool implements DrawingTool {
     // ShapeChild's: the release point is the last vertex, not a repeat of the first.
     const child: RoomChild = {
       id: crypto.randomUUID(),
-      name: `Room ${countRooms(layer) + 1}`,
+      name: nextAuthoredName(layer.children, 'Room'),
       childType: 'room',
       visible: true,
       contours: [verts.map((v): [number, number] => [v.x, v.y])],

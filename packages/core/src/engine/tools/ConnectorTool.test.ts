@@ -134,6 +134,19 @@ describe('ConnectorTool', () => {
     expect(useStore.getState().selection.selectedIds).toEqual([]);
   });
 
+  // Counting what exists reuses a name the moment one is deleted, and two joints
+  // called "Connector 2" is a DM's prep notes pointing at the wrong door.
+  it('never hands out a name a deleted connector already used', () => {
+    const first = place([0, 0], [3, 0]);
+    const second = place([0, 5], [3, 5]);
+    expect([first.name, second.name]).toEqual(['Connector 1', 'Connector 2']);
+
+    useStore.getState().setSelectedIds([first.id]);
+    tool.onKeyDown({ key: 'Delete' } as KeyboardEvent);
+
+    expect(place([0, 10], [3, 10]).name).toBe('Connector 3');
+  });
+
   it('refuses to place on a locked layer', () => {
     useStore.getState().updateLayer(layerId, { locked: true } as never);
 
