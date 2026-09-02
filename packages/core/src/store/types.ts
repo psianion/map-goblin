@@ -656,6 +656,7 @@ export interface MapBuilderStore {
   clearSolo: () => void;
   setPreviewClock: (minutes: number | null) => void;
   setPreviewSky: (sky: NightSky | null) => void;
+  setRoomOverlayVisible: (visible: boolean) => void;
 
   // asset actions
   toggleFavorite: (assetId: string) => void;

@@ -77,7 +77,7 @@ type MapBuilderState = Omit<
   | 'setActiveLayerId' | 'setActivePanel' | 'togglePanel' | 'toggleExpandedLayerId'
   | 'showModal' | 'setClipperReady' | 'setFocusMode' | 'setHighlightedRoomId'
   | 'toggleChildGroup' | 'setRevealChildId' | 'setPanelHoverChildId'
-  | 'toggleSoloLayer' | 'clearSolo' | 'setPreviewClock' | 'setPreviewSky'
+  | 'toggleSoloLayer' | 'clearSolo' | 'setPreviewClock' | 'setPreviewSky' | 'setRoomOverlayVisible'
   | 'saveCustomPreset' | 'deleteCustomPreset'
   | 'setSublayerVisibility' | 'setBackgroundTexture' | 'setBackgroundLocked'
   | 'setSelectedIds' | 'setHoveredId' | 'setSelectedRegion'
