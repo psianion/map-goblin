@@ -101,7 +101,7 @@ describe('RoomPanel', () => {
   it('seeds one authored room per detected room, as one undo entry', () => {
     renderPanel()
     act(() => {
-      fireEvent.click(screen.getByRole('button', { name: /seed rooms from detection/i }))
+      fireEvent.click(screen.getByRole('button', { name: /make rooms editable/i }))
     })
 
     const seeded = dungeon().children.filter((c) => c.childType === 'room')
@@ -125,12 +125,12 @@ describe('RoomPanel', () => {
       })
     })
     renderPanel()
-    expect(screen.queryByRole('button', { name: /seed rooms from detection/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /make rooms editable/i })).toBeNull()
   })
 
   it('offers nothing to seed when detection found nothing', () => {
     useStore.getState().setRooms(dungeon().id, [])
     renderPanel()
-    expect(screen.queryByRole('button', { name: /seed rooms from detection/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /make rooms editable/i })).toBeNull()
   })
 })

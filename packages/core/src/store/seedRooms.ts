@@ -34,7 +34,7 @@ export function seedRoomsFromDetection(layerId: string): number {
 
   undoManager.execute(
     new CompositeCommand(
-      'Seed rooms from detection',
+      'Make rooms editable',
       seeds.map((child) => new AddChildCommand('Seed room', layerId, child)),
     ),
   );

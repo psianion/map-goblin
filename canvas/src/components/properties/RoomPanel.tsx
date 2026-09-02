@@ -130,11 +130,11 @@ export function RoomPanel({ layer, openSections, onToggleSection }: RoomPanelPro
           // button vanishing was the only sign anything happened. Say what happened.
           onClick={() => {
             const count = seedRoomsFromDetection(layer.id)
-            if (count > 0) notify.success(`Seeded ${count} room${count === 1 ? '' : 's'}`)
+            if (count > 0) notify.success(`Made ${count} room${count === 1 ? '' : 's'} editable`)
           }}
           className="mt-2 w-full rounded border border-border-default bg-surface-1 px-2 py-1 text-panel-body text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary"
         >
-          Seed rooms from detection
+          Make rooms editable
         </button>
       )}
     </CollapsibleSection>

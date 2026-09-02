@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical, Crosshair, Zap, Pentagon as PentagonIcon, Spline } from 'lucide-react'
+import { Eye, EyeOff, Square, TreePine, Flame, DoorOpen, Waves, Type, GripVertical, Crosshair, Zap, Frame, Link2 } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useStore } from '@/store/store'
@@ -41,10 +41,12 @@ function childIcon(childType: AnyChild['childType']) {
       return <Type size={12} />
     case 'zone':
       return <Crosshair size={12} />
+    // Same icons the toolbar's room/connector tools wear — one concept, one
+    // glyph. Pentagon is taken (it is the Polygon tool's icon).
     case 'room':
-      return <PentagonIcon size={12} />
+      return <Frame size={12} />
     case 'connector':
-      return <Spline size={12} />
+      return <Link2 size={12} />
   }
 }
 
