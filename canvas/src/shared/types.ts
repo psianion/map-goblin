@@ -18,5 +18,7 @@ export type {
   LightChild,
   DoorChild,
   TextChild,
+  RoomChild,
+  ConnectorChild,
   AnyChild,
 } from '@dnd/core/src/shared/types';
