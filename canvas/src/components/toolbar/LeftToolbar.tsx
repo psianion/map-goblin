@@ -20,6 +20,8 @@ import {
   Type,
   Spline,
   Crosshair,
+  Frame,
+  Link2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useStore } from '@/store/store';
@@ -53,6 +55,9 @@ const TOOLS: ToolButton[] = [
   // N for note — T is terrain and X is the rough-mode toggle.
   { tool: 'text', icon: Type, label: 'Label', shortcut: 'N' },
   { tool: 'zone', icon: Crosshair, label: 'Zone', shortcut: 'Z' },
+  // O for rOom — R is the rectangle. J for join, the connector's whole job.
+  { tool: 'room', icon: Frame, label: 'Room', shortcut: 'O' },
+  { tool: 'connector', icon: Link2, label: 'Connector', shortcut: 'J' },
 ];
 
 /** Module-level button element map — avoids useRef reads during render */

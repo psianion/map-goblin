@@ -128,6 +128,7 @@ export function ToolPopover({ tool, anchorY, onClose }: ToolPopoverProps) {
       {tool === 'terrain' && <TerrainBrushContent onValueChange={triggerPreview} />}
       {tool === 'water' && <WaterToolContent />}
       {tool === 'zone' && <ZoneToolContent />}
+      {tool === 'connector' && <ConnectorToolContent />}
     </div>
   );
 }
@@ -930,6 +931,46 @@ function ZoneToolContent() {
         {mode === 'point' && 'Click to place'}
         {mode === 'circle' && 'Drag from center \u00b7 min radius applies'}
         {mode === 'rect' && 'Drag a rectangle'}
+      </div>
+    </div>
+  );
+}
+
+const CONNECTOR_KINDS: { value: 'arch' | 'door'; label: string }[] = [
+  { value: 'arch', label: 'Arch' },
+  { value: 'door', label: 'Door' },
+];
+
+function ConnectorToolContent() {
+  const kind = useStore((s) => s.tools.settings.connector.kind);
+  const updateToolSettings = useStore((s) => s.updateToolSettings);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="text-xs font-medium text-text-secondary uppercase tracking-wider">
+        Connector
+      </div>
+
+      <div className="flex gap-1 bg-surface-2 rounded-lg p-0.5">
+        {CONNECTOR_KINDS.map(({ value, label }) => (
+          <button
+            key={value}
+            className={cn(
+              'flex-1 text-xs py-1.5 rounded-md transition-colors',
+              kind === value
+                ? 'bg-accent-active text-on-accent font-semibold'
+                : 'text-text-secondary hover:text-text-primary',
+            )}
+            onClick={() => updateToolSettings({ connector: { kind: value } })}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="text-[10px] text-text-tertiary mt-1">
+        {kind === 'arch' && 'Drag across a seam \u00b7 always open'}
+        {kind === 'door' && 'Drag across a seam \u00b7 opens and locks'}
       </div>
     </div>
   );
