@@ -233,3 +233,83 @@ describe('the memo that keeps a still party from paying twice', () => {
     expect(cache.sweeps()).toBe(2);
   });
 });
+
+// ── O1/O2 on the table's own occluders ──────────────────────────────────────
+//
+// The mask is cut to the sweep this cache takes, and it takes it against the layers this seat
+// holds — so a drawn room's boundary has to stop it here exactly as it stops the referee's
+// (session/server/src/fog/connectors.test.ts asks the same geometry the same questions). The
+// promotion is shared code and is proved in core; what is only true here is that a player's
+// own copy carries the contours and blobs to do it with.
+
+const rect = (x0: number, y0: number, x1: number, y1: number): [number, number][] => [
+  [x0, y0],
+  [x1, y0],
+  [x1, y1],
+  [x0, y1],
+];
+
+const roomChild = (id: string, x0: number, y0: number, x1: number, y1: number) =>
+  ({
+    id,
+    name: id,
+    childType: 'room',
+    visible: true,
+    contours: [rect(x0, y0, x1, y1)],
+  }) as unknown as DoorChild;
+
+const jointChild = (over: Record<string, unknown> = {}) =>
+  ({
+    id: 'joint',
+    name: 'the neck',
+    childType: 'connector',
+    visible: true,
+    contours: [rect(9, 4, 13, 6)],
+    kind: 'door',
+    state: 'closed',
+    isSecret: false,
+    ...over,
+  }) as unknown as DoorChild;
+
+/** The two drawn chambers, with whatever joint the row is about. A fresh array every call. */
+const drawnLayers = (joint: DoorChild | null): Layer[] => [
+  {
+    id: `drawn-${Math.random()}`,
+    type: 'dungeon',
+    visible: true,
+    children: [
+      roomChild('hall', 0, 0, 10, 10),
+      roomChild('crypt', 12, 0, 22, 10),
+      ...(joint ? [joint] : []),
+    ],
+    standaloneWalls: [],
+    mergedFloor: null,
+    rooms: [],
+  } as unknown as Layer,
+];
+
+describe('the sweep against rooms the DM drew (O1/O2)', () => {
+  const look = (joint: DoorChild | null) =>
+    createSightCache().partySight(drawnLayers(joint), [scout()]);
+
+  it('stops on a drawn boundary with no joint through it', () => {
+    const sight = look(null);
+    expect(sees(sight, [8, 5])).toBe(true);
+    expect(sees(sight, [17, 5])).toBe(false);
+  });
+
+  it('passes an open joint, and only across the doorway it cuts', () => {
+    const sight = look(jointChild({ state: 'open' }));
+    expect(sees(sight, [17, 5])).toBe(true);
+    expect(sees(sight, [17, 1])).toBe(false);
+  });
+
+  it('stops at a shut one, locked or merely closed', () => {
+    expect(sees(look(jointChild({ state: 'closed' })), [17, 5])).toBe(false);
+    expect(sees(look(jointChild({ state: 'locked' })), [17, 5])).toBe(false);
+  });
+
+  it('stands an arch open whatever the map file authored on it', () => {
+    expect(sees(look(jointChild({ kind: 'arch', state: 'closed' })), [17, 5])).toBe(true);
+  });
+});

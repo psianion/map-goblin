@@ -32,6 +32,7 @@ import { FOG_FEATHER } from './modules/fog/FogRenderer';
 import { fogPad, regionRects, ringsWithHoles, type NightSight, type FogRing } from './modules/fog/fog';
 import { visionRegion } from './modules/fog/__oracle__/vectorFog';
 import { createTierCompositor } from './modules/fog/tierCompositor';
+import { sightCache } from './modules/fog/visionSight';
 import { tierPlan, type TierScene } from './modules/fog/tierPlan';
 import type { Bounds } from './modules/fog/FogRenderer';
 
@@ -636,6 +637,135 @@ async function run(): Promise<void> {
         sameTexelUnlockedRGBA: lockedNearUnfenced,
         inSightPastTheRangeRGBA: beyond,
         sameTexelUncontainedRGBA: beyondUncontained,
+        ...areas,
+      },
+    };
+  }
+
+  // ── (h) rooms the DM drew: the boundary is the wall, the joint is the door ──
+  //
+  // O1/O2/O5 on real GL, and the only scene here whose sweep is not a hand-written polygon:
+  // it comes off `createSightCache` against three drawn chambers, which is the same
+  // `extractWallSegments` the referee sweeps with. So this measures the whole chain — a
+  // boundary promoted to an occluder, a blob cut into it as an aperture, the sweep that
+  // falls out, and the containment composition laid over the top.
+  //
+  //   hall 2..10 ──arch 9..13──▶ crypt 12..20 ──shut door 19..23──▶ vault 22..30
+  //                                (all 2..10 in y, joints at y 4..6)
+  {
+    const A_FRAME: Bounds = { minX: 0, minY: 0, maxX: 32, maxY: 12 };
+    const box = (x0: number, y0: number, x1: number, y1: number): Polygon => [
+      [x0, y0],
+      [x1, y0],
+      [x1, y1],
+      [x0, y1],
+    ];
+    const HALL = box(2, 2, 10, 10);
+    const CRYPT = box(12, 2, 20, 10);
+    const VAULT = box(22, 2, 30, 10);
+    const drawnRoom = (id: string, ring: Polygon) => ({
+      id,
+      name: id,
+      childType: 'room',
+      visible: true,
+      contours: [ring],
+    });
+    const layers = [
+      {
+        id: 'drawn',
+        type: 'dungeon',
+        visible: true,
+        children: [
+          drawnRoom('hall', HALL),
+          drawnRoom('crypt', CRYPT),
+          drawnRoom('vault', VAULT),
+          {
+            id: 'arch',
+            name: 'the arch',
+            childType: 'connector',
+            visible: true,
+            contours: [box(9, 4, 13, 6)],
+            kind: 'arch',
+            // Authored shut on purpose: an archway stands open whatever the file says.
+            state: 'closed',
+            isSecret: false,
+          },
+          {
+            id: 'door',
+            name: 'the vault door',
+            childType: 'connector',
+            visible: true,
+            contours: [box(19, 4, 23, 6)],
+            kind: 'door',
+            state: 'closed',
+            isSecret: false,
+          },
+        ],
+        standaloneWalls: [],
+        mergedFloor: null,
+        rooms: [],
+      },
+    ] as unknown as Parameters<typeof sightCache.partySight>[0];
+    const eye = { id: 'pc', x: 6, y: 5, sight: { range: 7, angle: 360, visionMode: 'normal' } };
+    const sweeps = sightCache.partySight(layers, [eye] as never);
+    const nearSweeps = sightCache.partySight(layers, [eye] as never, true);
+
+    // The DM has opened the hall and nothing else, so the crypt is on the range term alone.
+    const opened = setCells(
+      regionOf(A_FRAME) as RegionMask,
+      Array.from({ length: 8 }, (_, col) =>
+        Array.from({ length: 8 }, (_, row) => [2 + col, 2 + row] as [number, number]),
+      ).flat(),
+    );
+    const held = regionRects(opened);
+    const tier: TierScene = {
+      sight: sweeps,
+      contained: true,
+      near: nearSweeps,
+      rooms: [HALL, CRYPT, VAULT],
+      revealed: [],
+      region: opened,
+      pad: PAD,
+      feather: FOG_FEATHER,
+      frame: A_FRAME,
+    };
+    const shippedGround = [HALL, CRYPT, VAULT, ...held];
+    const { cover, mask, oracle } = composite({ name: 'h', tier, held, shippedGround });
+    const areas = agree(mask, cover, oracle);
+
+    // Sight itself, before the fence: the raw sweep is the promotion's own answer.
+    const inSight = (x: number, y: number): boolean =>
+      sweeps.some((polygon) => pointInPolygon([x, y], polygon));
+    const stopsAtBoundary = !inSight(11, 9); // past the hall's east wall, off the doorway
+    const passesTheArch = inSight(14, 5); // …level with it, straight through
+    const stopsAtTheDoor = !inSight(25, 5); // the vault, behind a shut joint
+
+    // …and the composition over it (O5): the crypt is seen through the arch, so it shows
+    // where the token's own range reaches and stays dark past it, the DM having opened
+    // only the hall. No rule about apertures anywhere — this is R1's arithmetic.
+    const opened_ = probe(mask, cover, 6, 5); // held ground, lit outright
+    const peered = probe(mask, cover, 12.5, 5); // through the arch, inside the range
+    const beyond = probe(mask, cover, 19, 5); // through the arch, past the range
+    const vault = probe(mask, cover, 26, 5); // behind the shut joint: never seen
+
+    results.authoredRooms = {
+      pass:
+        stopsAtBoundary &&
+        passesTheArch &&
+        stopsAtTheDoor &&
+        opened_[0] > 247 && opened_[3] > 247 &&
+        peered[0] > 247 &&
+        beyond[3] < 8 &&
+        vault[3] < 8 &&
+        areas.shownOutsideVectorCells === 0,
+      detail: {
+        stopsAtBoundary,
+        passesTheArch,
+        stopsAtTheDoor,
+        openedGroundRGBA: opened_,
+        peeredThroughArchRGBA: peered,
+        pastTheRangeRGBA: beyond,
+        behindTheShutJointRGBA: vault,
         ...areas,
       },
     };

@@ -853,3 +853,45 @@ describe('tierPlan — the scrim', () => {
     ]);
   });
 });
+
+describe('tierPlan — rooms the DM drew (O1/O5)', () => {
+  // Two drawn chambers with a joint between them, as this seat was shipped them: the
+  // contours are the `Room.boundary` values the cut already carried, so the plan cannot
+  // tell them from detected rooms and no row here needs a new branch. The occlusion is
+  // upstream — the sweep arrives already cut off at the boundary — and what is pinned
+  // here is that nothing in the composition undoes that.
+  const DRAWN_HALL = hall(4, 10);
+  const DRAWN_CRYPT = hall(12, 18);
+  const drawn = (over: Partial<TierScene> = {}) =>
+    scene({ rooms: [DRAWN_HALL, DRAWN_CRYPT], ...over });
+
+  it('takes the drawn boundaries as the held sources, like any other room', () => {
+    const inverse = opsOn(tierPlan(drawn({ sight: [LOOKING] })), 'inverseHeld');
+    expect(inverse[1]).toMatchObject({
+      kind: 'polys',
+      polys: [DRAWN_HALL, DRAWN_CRYPT],
+      grow: GROW,
+      blend: 'erase',
+    });
+  });
+
+  it('R5 mirror — a sweep stopped at a boundary is still fenced to opened ground', () => {
+    // O5: no new sight rule at an aperture. A sweep that crossed an open joint composes
+    // exactly as one that crossed a doorway — `(full ∩ held) ∪ near` — so the room beyond
+    // shows only where the DM opened it, or where the token's own range reaches.
+    const ACROSS: Polygon = hall(4, 18);
+    const OPENED = brushed(
+      Array.from({ length: 6 }, (_, col) =>
+        Array.from({ length: 6 }, (_, row) => [4 + col, row] as [number, number]),
+      ).flat(),
+    );
+    const plan = tierPlan(
+      fenced({ rooms: [DRAWN_HALL, DRAWN_CRYPT], sight: [ACROSS], near: [hall(8, 14)], region: OPENED }),
+    );
+    const live = polysOn(plan, 'live');
+    // The full sweep goes down first and is clipped; the near term is its own pass. Neither
+    // is the raw polygon painted straight onto the mask.
+    expect(live[0]).toMatchObject({ polys: [ACROSS], color: MASK_LIVE, blend: 'normal' });
+    expect(opsOn(plan, 'live').some((op) => op.blend === 'erase')).toBe(true);
+  });
+});
