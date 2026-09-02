@@ -14,10 +14,8 @@ import type { Token, TokensState } from '@dnd/mechanics/tokens';
 import { frameWorldPoint } from '../../renderer/camera';
 import { ALL_ROLES, registerPanel } from '../../session/panels';
 import { useModuleState, useSessionStore } from '../../session/store';
-import { showToast } from '../../session/toasts';
 import { Icon } from '../../shell/icons';
-import { liveSceneDoors } from '../doors/DoorRenderer';
-import { tokenRefusal, useTokenInteraction } from './drag';
+import { useTokenInteraction } from './drag';
 import { useSightPreview } from './sightPreview';
 import {
   DEFAULT_LIGHT,
@@ -51,21 +49,9 @@ import {
 const send = (action: string, payload: unknown): void =>
   useSessionStore.getState().sendCommand('tokens', action, payload);
 
-/**
- * Turns the server's refusal into the one toast the table has — the doors lane's
- * `useDoorFeedback`, for the move a player is not allowed to make. Without it the only
- * feedback is the 600ms rubber-band in `TokenRenderer`, which reads as a dropped frame
- * rather than as an answer.
- */
-function useTokenFeedback(): void {
-  const lastError = useSessionStore((s) => s.lastError);
-  useEffect(() => {
-    if (!lastError) return;
-    const message = tokenRefusal(lastError.message, liveSceneDoors());
-    if (!message) return;
-    showToast({ message });
-  }, [lastError]);
-}
+// The refusal toast used to be a hook here (`useTokenFeedback`) — it is `useRefusalToasts`
+// in `session/`, mounted from GameTable, because a popover only renders while it is open and
+// the refusal has to be said whether or not this panel is.
 
 // ── P4 §3/§4 — Sight & light, and who this token shares it with ────────────
 // DM-only, and that is enforced on the server rather than by hiding the controls: `sight`
@@ -489,10 +475,6 @@ function OnMapTab() {
 }
 
 export function TokenPanel() {
-  // Mount for as long as the table is on screen; the helper handles the engine appearing
-  // late and going away again. Runs regardless of which tab is active.
-  useTokenFeedback();
-
   const tab = useTokensUi((s) => s.tab);
   const setTab = useTokensUi((s) => s.setTab);
   const you = useSessionStore((s) => s.you);

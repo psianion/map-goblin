@@ -143,6 +143,21 @@ function write(region: RegionMask, cells: readonly Cell[], on: boolean): RegionM
 }
 
 /**
+ * Every cell in the frame turned on — the DM's "players see everything" (P3), as one byte
+ * fill rather than a `cols × rows` cell list, because that list is up to `REGION_CELL_MAX`
+ * pairs to build and hand to `setCells` for a result that is all-ones either way.
+ *
+ * The tail bits past `cols * rows` in the last byte come on too. Nothing can read them: every
+ * reader either bounds-checks against `cols`/`rows` before it indexes (`getCell`, `write`,
+ * the server's own decoded lookups) or enumerates the lattice as `cols × rows` and never
+ * reaches the tail at all (`cellTexture`, `regionRects`), and the mask's length is derived
+ * from those two numbers and not from the bits.
+ */
+export function fillRegion(region: RegionMask): RegionMask {
+  return { ...region, bits: toBase64(new Uint8Array(toBytes(region.bits).length).fill(0xff)) }
+}
+
+/**
  * `base` with every bit `other` holds turned on — the whole of P5's share-flip merge, in one
  * primitive, because a region record is bytes and a merge of two of them is an OR (§1).
  *
@@ -204,6 +219,72 @@ export function cellsCoveredByPolygon(polygon: readonly [number, number][], fram
     }
   }
   return covered
+}
+
+/**
+ * Is a cell on ground the map actually authors? The one definition of "floor", shared by
+ * every writer and reader of the record so they cannot hold three opinions of it.
+ *
+ * A room *is* the floor: `detectRooms` cuts the merged floor rings by the walls and hands
+ * back every piece bigger than a quarter cell, corridors and yards included, so "inside some
+ * room" and "on authored floor" are the same set minus the wall thickness itself — and a
+ * cell centre under a wall is not somewhere to stand either. Room polygons are already
+ * indexed on the server (`SceneMap.roomAt`) and already injected into this module
+ * (`SceneRoomAt`), so the predicate costs the point-in-polygon walk that was there anyway
+ * and needs no new geometry on either side.
+ *
+ * A map with no rooms at all is the #114 battlemap: an imported image, no traced floor, and
+ * the frame is the floor by definition. Nothing changes for those — `roomCount === 0` is the
+ * whole exemption, and it is why the argument is the count and not a boolean the caller
+ * derives some other way.
+ *
+ * One consumer: `openGround`, which refuses to let a token stand off the floor. What may be
+ * *recorded* is the wider question `nearAuthoredFloor` answers — standable is not recordable.
+ */
+export function onAuthoredFloor(roomCount: number, roomAt: string | null): boolean {
+  return roomCount === 0 || roomAt !== null
+}
+
+/**
+ * Is a cell close enough to authored floor to be worth *remembering*? The record's own
+ * predicate, and deliberately one cell wider than `onAuthoredFloor`.
+ *
+ * A room polygon is the floor, and the wall art is not on it: a wall band straddles the room
+ * edge, half inside the floor ring and half out in the void, and its outer half's cell centres
+ * fall in no room at all. Clamping the record to the floor therefore dropped exactly the cells
+ * the stones are drawn on, and the memory tier — which paints one texel per *recorded* cell and
+ * upscales, with no polygon to grow — stopped its grey at the floor edge and put the walls of
+ * explored rooms back under the cloud. Live sight never showed it, because the live clips grow
+ * their polygons by `fogPad` and buy the band back that way.
+ *
+ * `fogPad` is `wallWidth + margin` = 0.5 + 0.5 = 1.0 cell, so "within one cell of floor" is
+ * exactly the band the renderers already buy. On a cell grid that is Chebyshev distance 1: the
+ * centre or any of the eight neighbouring centres landing in a room covers it, including the
+ * diagonals a 4-neighbour test would leave notched at a corner. Two cells out is void and stays
+ * void — the flat-black patch beyond a palisade is still not a memory.
+ *
+ * Roomless maps are the #114 battlemap and are exempt exactly as they are above: the frame is
+ * the floor, `roomCount === 0` answers true, and no neighbour is asked.
+ *
+ * Two consumers: the DM's brush and the party's sweep — the two writers of the record.
+ *
+ * ponytail: the centre is tested first so the common case (a cell well inside a room) costs the
+ * one point-in-polygon walk it always did; only band and void cells pay all nine.
+ */
+export function nearAuthoredFloor(
+  roomCount: number,
+  roomAt: (x: number, y: number) => string | null,
+  x: number,
+  y: number,
+): boolean {
+  if (roomCount === 0) return true
+  if (roomAt(x, y) !== null) return true
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if ((dx !== 0 || dy !== 0) && roomAt(x + dx, y + dy) !== null) return true
+    }
+  }
+  return false
 }
 
 /** Ray casting — the one geometry primitive the region record needs. */

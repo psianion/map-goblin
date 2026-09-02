@@ -4,9 +4,10 @@ import type { PlayerInfo } from '@dnd/core/src/shared/protocol'
 import type { Viewer } from '../contract'
 import type { AuthoredDoor, DoorLiveState } from '../doors/types'
 import { fogModule } from './module'
-import { getCell, regionOf, setCells } from './region'
+import { getCell, regionFor, regionOf, setCells } from './region'
 import {
   autoExploreOn,
+  containedSightOn,
   fogModeOf,
   identityRegion,
   sceneFogOf,
@@ -654,6 +655,15 @@ describe('the table log (§2.4.3)', () => {
     expect(line(fire(empty, 'reset', {}))?.action).toBe('reset-fog')
   })
 
+  // S3 P3 — `open-map` writes Reveal All's own line, because it is Reveal All's own sentence
+  // and then some: no room and no cell of the scene is left closed after it.
+  it('reads open-map back as the whole map opening, against no room in particular', () => {
+    const opened = line(fire(empty, 'open-map', {}))
+    expect(opened?.action).toBe('revealed-all')
+    expect(opened?.targetId).toBeUndefined()
+    expect(opened?.actor).toBe('Ilsa')
+  })
+
   it('says nothing about a setting the table cannot see', () => {
     expect(fire(empty, 'set-conceal', { concealBehindDoors: false }).log ?? []).toEqual([])
   })
@@ -755,6 +765,7 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       ['set-mode', { mode: 'vision' }],
       ['set-share', { visionShare: 'individual' }],
       ['set-auto-explore', { autoExplore: false }],
+      ['set-containment', { containedSight: false }],
       ['region-set', { op: 'reveal', cells: [[0, 0]] }],
     ] as const
 
@@ -852,6 +863,24 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       )
     })
 
+    // The one switch that defaults *on*: containment is the house rule and this turns it off.
+    it('stores containment, and defaults it on', () => {
+      // An untouched scene has no record at all, which reads as on.
+      expect(sceneFogOf(empty, SCENE).containedSight).toBeUndefined()
+      expect(containedSightOn(sceneFogOf(empty, SCENE))).toBe(true)
+
+      const off = fire(empty, DM, 'set-containment', { containedSight: false }).next
+      expect(scened(off).containedSight).toBe(false)
+      expect(containedSightOn(scened(off))).toBe(false)
+      const on = fire(off, DM, 'set-containment', { containedSight: true }).next
+      expect(scened(on).containedSight).toBe(true)
+      expect(containedSightOn(scened(on))).toBe(true)
+
+      expect(fire(empty, DM, 'set-containment', { containedSight: 'yes' }).error?.code).toBe(
+        'invalid-command',
+      )
+    })
+
     it('stores either share, and refuses a third', () => {
       expect(
         scened(fire(empty, DM, 'set-share', { visionShare: 'individual' }).next).visionShare,
@@ -885,8 +914,68 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       const region = scened(next).region!
       expect(region).toMatchObject({ minX: 0, minY: 0, cols: 10, rows: 10 })
       expect(getCell(region, 1, 2)).toBe(true)
-      expect(getCell(region, 9, 9)).toBe(true)
+      // (9, 9) is off every room this map authors, so the stroke drops it and paints the rest.
+      expect(getCell(region, 9, 9)).toBe(false)
       expect(getCell(region, 1, 3)).toBe(false)
+    })
+
+    // ── the floor clamp (`nearAuthoredFloor`) ────────────────────────────────
+    // The record may hold the floor and the one cell of wall band around it, and nothing past
+    // that. Standable is the narrower question and `openGround` asks it separately.
+
+    it('keeps the wall band beside the floor and drops the void past it', () => {
+      const { next, error } = fire(empty, DM, 'region-set', {
+        op: 'reveal',
+        cells: [
+          [4, 0],
+          [8, 0],
+          [9, 0],
+        ],
+      })
+      // Not a refusal: the DM dragged a rect across the floor's edge and the floor half lands.
+      expect(error).toBeNull()
+      expect(getCell(scened(next).region, 4, 0)).toBe(true)
+      // Col 8's centre (8.5) is in no room, but col 7's (7.5) is: this is the band the crypt's
+      // wall art is drawn on, and dropping it is what put the stones back under fog.
+      expect(getCell(scened(next).region, 8, 0)).toBe(true)
+      // Col 9 is two cells out — no neighbour centre is on floor, so it is void and stays void.
+      expect(getCell(scened(next).region, 9, 0)).toBe(false)
+      // …and a stroke that is entirely off the floor writes a record with nothing in it.
+      const nothing = fire(empty, DM, 'region-set', { op: 'reveal', cells: [[9, 1]] })
+      expect(nothing.error).toBeNull()
+      expect(getCell(scened(nothing.next).region, 9, 1)).toBe(false)
+    })
+
+    it('ships no room for a band cell, and latches the room its floor cells fall in', () => {
+      // A band cell is in no room, so it can latch none — the stroke's interior is what ships
+      // the geometry the band's memory has to sit on.
+      const banded = fire(empty, DM, 'region-set', { op: 'reveal', cells: [[8, 0]] }).next
+      expect(scened(banded).rooms.crypt).toBeUndefined()
+      const both = fire(empty, DM, 'region-set', {
+        op: 'reveal',
+        cells: [
+          [7, 0],
+          [8, 0],
+        ],
+      }).next
+      expect(scened(both).rooms.crypt).toMatchObject({ wasEverRevealed: true })
+    })
+
+    it('lets the eraser take back off-floor cells an older record already carries', () => {
+      // Written the way a pre-clamp referee wrote them — straight into the mask, past the
+      // brush. The DM's hide is the one hand that can still reach them.
+      const legacy = {
+        ...empty,
+        byScene: {
+          [SCENE]: {
+            ...scened(empty),
+            region: setCells(regionFor(undefined, FRAME)!, [[9, 9]]),
+          },
+        },
+      }
+      expect(getCell(scened(legacy).region, 9, 9)).toBe(true)
+      const rubbed = fire(legacy, DM, 'region-set', { op: 'hide', cells: [[9, 9]] }).next
+      expect(getCell(scened(rubbed).region, 9, 9)).toBe(false)
     })
 
     it('hides cells back out again, leaving the rest', () => {
@@ -1002,21 +1091,58 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
       expect(scened(next).rooms.hall).toEqual({ status: 'revealed', wasEverRevealed: true })
     })
 
-    it('ships nothing for a stroke on unzoned map, and nothing at all for a hide', () => {
-      // No room under the cell (D6): there is no geometry to latch, only the bits.
+    it('ships nothing for a stroke off the floor, and nothing at all for a hide', () => {
+      // No room under the cell (D6): on a map that authors rooms there is no floor there
+      // either, so the stroke ships no geometry and writes no bit.
       const unzoned = fire(empty, DM, 'region-set', { op: 'reveal', cells: [[9, 9]] }).next
       expect(scened(unzoned).rooms).toEqual({})
-      expect(getCell(scened(unzoned).region, 9, 9)).toBe(true)
+      expect(getCell(scened(unzoned).region, 9, 9)).toBe(false)
 
       // A hide never un-ships and never ships: geometry a player holds stays theirs (D4).
       const rubbed = fire(unzoned, DM, 'region-set', { op: 'hide', cells: [[1, 2]] }).next
       expect(scened(rubbed).rooms).toEqual({})
     })
 
-    it('stops looking rooms up once there is no room left to latch', () => {
+    it('paints every cell of a stroke on a map that authors no rooms at all', () => {
+      // #114's battlemap, unchanged by the floor clamp: no rooms means the frame *is* the
+      // floor, and the same (9, 9) the zoned map above refuses lands here.
+      const roomless = fogModule(
+        () => [],
+        () => FRAME,
+        () => null,
+      )
+      let next = empty
+      const error = roomless.handler(
+        'region-set',
+        { sceneId: SCENE, op: 'reveal', cells: [[9, 9]] },
+        {
+          campaignId: 'c-1',
+          sessionId: 's-1',
+          activeSceneId: SCENE,
+          sender: DM,
+          players: [],
+          state: empty,
+          setState: (s) => {
+            next = s
+          },
+          broadcast: () => {},
+        },
+      )
+      expect(error).toBeUndefined()
+      expect(getCell(scened(next).region, 9, 9)).toBe(true)
+    })
+
+    it('asks the map about every cell it paints, and ships what it finds', () => {
       // `roomAtOf` is a point-in-polygon walk over the map for every cell it is asked about,
-      // and a big brush is thousands of cells in one synchronous handler. Nothing here needs
-      // the answer after both rooms have shipped.
+      // and a big brush is thousands of cells in one synchronous handler. The early exit this
+      // loop used to take once every room was latched is gone: the floor clamp needs the
+      // answer for every cell, latched or not, so the cost is the honest one and the pinned
+      // number is what a 10×10 stroke costs.
+      //
+      // The band test is what makes it more than one per cell, but only for cells the centre
+      // lookup already said no to: a floor cell costs exactly one, a band cell costs three (its
+      // own centre, then the predicate re-asking it, then the first neighbour, which is inside),
+      // and a void cell pays all ten. Here that is 80 floor + 10 band × 3 + 10 void × 10.
       let lookups = 0
       const counted = fogModule(
         () => ROOMS,
@@ -1050,16 +1176,19 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
           broadcast: () => {},
         },
       )
-      // Both rooms shipped, and the walk stopped there — the naive loop paid all 100.
+      // Both rooms shipped, and every cell was asked about exactly once.
       expect(Object.keys(scened(next).rooms).sort()).toEqual([
         'corridor-1',
         'crypt',
         'hall',
         'treasury',
       ])
-      expect(lookups).toBeLessThan(cells.length)
-      // Every bit still went in: the bail is on the lookups, never on the record.
-      expect(getCell(scened(next).region, 9, 9)).toBe(true)
+      expect(lookups).toBe(80 * 1 + 10 * 3 + 10 * 10)
+      // …and of the two columns past x = 8, the first is the wall band and lands, the second is
+      // void and does not.
+      expect(getCell(scened(next).region, 7, 9)).toBe(true)
+      expect(getCell(scened(next).region, 8, 9)).toBe(true)
+      expect(getCell(scened(next).region, 9, 9)).toBe(false)
     })
   })
 
@@ -1390,6 +1519,93 @@ describe('vision-mode settings and region memory (S3 P1)', () => {
         expect(scened(party).regions).toBeUndefined()
         expect(getCell(scened(party).region, 2, 2)).toBe(true)
       })
+    })
+  })
+
+  describe('open-map (S3 P3)', () => {
+    /** Vision mode, one room latched, one cell swept — a table mid-session. */
+    const played: FogState = {
+      byScene: {
+        [SCENE]: {
+          rooms: { hall: { status: 're_hidden', wasEverRevealed: true } },
+          concealBehindDoors: true,
+          mode: 'vision',
+          region: setCells(regionOf(FRAME)!, [[3, 4]]),
+        },
+      },
+    }
+
+    it('reveals every room and fills the whole record in one write', () => {
+      const { error, next } = fire(played, DM, 'open-map', {})
+      expect(error).toBeNull()
+
+      for (const id of ROOMS) {
+        expect(scened(next).rooms[id]).toEqual({ status: 'revealed', wasEverRevealed: true })
+      }
+      // (9, 9) is unzoned map — `ROOM_AT` answers null past x = 8 — so it is ground no room
+      // reveal could ever have opened, and the fence P0-P2 built reaches it only if the
+      // record itself was filled.
+      expect(getCell(scened(next).region, 9, 9)).toBe(true)
+      expect(getCell(scened(next).region, 0, 0)).toBe(true)
+      expect(getCell(scened(next).region, 9, 0)).toBe(true)
+      expect(getCell(scened(next).region, 3, 4)).toBe(true)
+    })
+
+    it('is dm-only', () => {
+      expect(framed.commands['open-map']).toEqual(['dm'])
+      expect(fire(empty, P1, 'open-map', {}).error).toMatchObject({ code: 'unauthorized' })
+      expect(fire(empty, DM, 'open-map', {}).error).toBeNull()
+    })
+
+    it('fills every seat’s own record too, in individual share', () => {
+      const shared: FogState = {
+        byScene: {
+          [SCENE]: {
+            ...played.byScene[SCENE],
+            visionShare: 'individual',
+            regions: { 'p-1': regionOf(FRAME)!, 'p-2': regionOf(FRAME)! },
+          },
+        },
+      }
+      const { next } = fire(shared, DM, 'open-map', {})
+      expect(getCell(scened(next).regions!['p-1'], 9, 9)).toBe(true)
+      expect(getCell(scened(next).regions!['p-2'], 9, 9)).toBe(true)
+    })
+
+    /**
+     * A frame past `REGION_CELL_MAX` keeps no region record at all (`regionOf`), and a scene
+     * with no map has no frame to keep one against. Neither is a reason to refuse the DM's
+     * one "open it all" button: the room reveals are the whole of what opening those maps
+     * can mean, and they still land.
+     */
+    it.each([
+      ['a frame past the cell ceiling', { minX: 0, minY: 0, maxX: 1000, maxY: 1000 }],
+      ['a scene with no map at all', null],
+    ])('opens the rooms and keeps no record for %s', (_name, frame) => {
+      const recordless = fogModule(
+        () => ROOMS,
+        () => frame,
+      )
+      let next: FogState = empty
+      const error = recordless.handler(
+        'open-map',
+        {},
+        {
+          campaignId: 'c-1',
+          sessionId: 's-1',
+          activeSceneId: SCENE,
+          sender: DM,
+          players: [],
+          state: empty,
+          setState: (s) => {
+            next = s
+          },
+          broadcast: () => {},
+        },
+      )
+      expect(error).toBeUndefined()
+      expect(Object.keys(next.byScene[SCENE].rooms).sort()).toEqual([...ROOMS].sort())
+      expect(next.byScene[SCENE].region).toBeUndefined()
     })
   })
 

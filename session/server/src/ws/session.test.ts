@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { once } from 'node:events'
 import { fileURLToPath } from 'node:url'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import type { Role, ServerMessage } from '@dnd/core/src/shared/protocol'
 import { PROTOCOL_VERSION } from '../config'
@@ -341,6 +341,83 @@ describe('commands', () => {
       await expect(next(dm, 'state-update')).rejects.toThrow(/timed out/)
       expect(heard).toEqual([])
     })
+  })
+
+  /**
+   * The wire half of "a refused move is invisible to the player": the refusal has to reach
+   * the socket that sent it, exactly once, and nobody else. Pinned here because the same
+   * identity holding two sockets was the first suspect — `join` supersedes the older socket
+   * (one identity, one live socket), so the frame has to follow the live one, and a stale
+   * tab must not be able to swallow the answer meant for the tab the player is looking at.
+   */
+  it('answers a refused move to the sending socket alone, and follows a superseded identity', async () => {
+    await withServer({}, async (server) => {
+      const [dm, player] = await joinedPair(server, 'MV')
+
+      sendCommand(dm, 'tokens', 'place', { sceneId: 'sc-1', name: 'Orc', x: 1, y: 1 })
+      const placed = await next(dm, 'state-update')
+      const scene = (placed.state as { byScene: Record<string, Record<string, unknown>> }).byScene['sc-1']
+      const id = Object.keys(scene)[0]
+
+      const playerHeard: string[] = []
+      const dmHeard: string[] = []
+      record(player, playerHeard)
+      record(dm, dmHeard)
+
+      // Nobody claimed it, so this is a refusal on the real `tokens.move` path.
+      sendCommand(player, 'tokens', 'move', { sceneId: 'sc-1', id, x: 5, y: 5 })
+      expect((await next(player, 'error')).code).toBe('unauthorized')
+      await expect(next(dm, 'error')).rejects.toThrow(/timed out/)
+      expect(playerHeard.filter((t) => t === 'error')).toHaveLength(1)
+      expect(dmHeard).toEqual([])
+
+      // A second tab on the same identity. The first socket is superseded and closed; the
+      // refusal for the command the second one sent must land on the second one.
+      const second = await connect(server, { identity: 'id-bob', name: 'Bob', session: 'MV' })
+      sendJoin(second)
+      await next(second, 'session-state')
+      const secondHeard: string[] = []
+      record(second, secondHeard)
+      playerHeard.length = 0
+
+      sendCommand(second, 'tokens', 'move', { sceneId: 'sc-1', id, x: 6, y: 6 })
+      expect((await next(second, 'error')).code).toBe('unauthorized')
+      expect(secondHeard.filter((t) => t === 'error')).toHaveLength(1)
+      expect(playerHeard).not.toContain('error')
+    })
+  })
+
+  /**
+   * A module refuses by *returning* a CommandError. Anything that throws past that is a
+   * server-side bug, and this dispatch runs from a `ws` 'message' listener — so an escaping
+   * throw is an uncaught exception that takes the whole table's process, and leaves the
+   * player who sent the command with silence in the meantime.
+   */
+  it('answers the sender when a handler throws, instead of dying on the frame', async () => {
+    const boom: GameModule<null> = {
+      name: 'boom',
+      commands: { go: ANY_ROLE },
+      initialState: null,
+      handler() {
+        throw new Error('handler bug')
+      },
+    }
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await withServer({ modules: [boom] }, async (server) => {
+        const [, player] = await joinedPair(server, 'BOOM')
+        sendCommand(player, 'boom', 'go', {})
+        expect((await next(player, 'error')).code).toBe('invalid-command')
+
+        // The socket — and the process behind it — survived, and the log has the real cause.
+        expect(player.readyState).toBe(WebSocket.OPEN)
+        sendCommand(player, 'ping', 'echo', { t: 1 })
+        expect((await next(player, 'state-update')).module).toBe('ping')
+        expect(logged).toHaveBeenCalled()
+      })
+    } finally {
+      logged.mockRestore()
+    }
   })
 })
 

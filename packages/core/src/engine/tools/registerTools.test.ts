@@ -46,14 +46,14 @@ import { registerAllTools } from './registerTools';
  */
 const EXPECTED_GATED = [
   'rectangle', 'polygon', 'regularPolygon', 'path', 'wall',
-  'light', 'text', 'water', 'object', 'scatterBrush',
+  'light', 'text', 'water', 'object', 'scatterBrush', 'room',
 ].sort();
 
 /**
  * door is carved out deliberately (DR10 — locked-layer selection must still
  * work; see DoorTool.onPointerDown), and zone for the same reason (it owns
- * all zone interaction, so it self-guards placement/drag/delete). select/
- * ruler/terrain never write to a layer at all, or gate their own way
+ * all zone interaction, so it self-guards placement/drag/delete).
+ * select/ruler/terrain never write to a layer at all, or gate their own way
  * (terrain checks map-level visibility).
  */
 const EXPECTED_UNGATED = ['select', 'ruler', 'terrain', 'door', 'zone'].sort();

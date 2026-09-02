@@ -1442,19 +1442,14 @@ describe('token redaction by vision on the wire (§2.6, S3 P1)', () => {
 
   it('keeps a shut door between the party and a token in a room the DM has lit', async () => {
     await withServer({}, async (server) => {
-      // This row is about `wall-mid`'s own door, not FIX §1's floor-ring occlusion — but the
-      // fixture's `floor-west`/`floor-east` shapes now heal into `mergedFloor` rings too, and
-      // their edges sit either side of the two-cell void `wall-mid` bridges. A door only ever
-      // punches through the wall it is bound to, never a floor ring it merely stands near, so
-      // left in, those rings would block the doorway even open. `mergedFloor: []` (not null)
-      // opts this scene out of the heal — `healMergedFloor` only ever fills a *null* field —
-      // while leaving the shapes themselves in place for `computeMapFrame`, so this keeps
-      // testing what it always has; `vision-mode.test.ts`'s floor-rings-only block covers the
-      // ring-occlusion case this map was never built to exercise.
-      const noFloor = JSON.parse(VISION_MAP) as SerializedMapData
-      const layer = noFloor.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!
-      layer.mergedFloor = []
-      const { sceneId, dm, player } = await twoRooms(server, 'TW', JSON.stringify(noFloor))
+      // On the fixture whole, floor rings and all: `floor-west`/`floor-east` heal into
+      // `mergedFloor` rings whose edges sit either side of the two-cell void `wall-mid`
+      // bridges, and `door-mid` is bound to the wall, not to either ring. This row used to
+      // opt out of the heal (`mergedFloor: []`) to get past that, which is the workaround
+      // that hid a real bug: `toOcclusionDoors` now splits every wall inside a door's
+      // aperture, so the doorway opens as one gap and the ring edges are no longer a
+      // second, invisible wall the DM cannot open.
+      const { sceneId, dm, player } = await twoRooms(server, 'TW', VISION_MAP)
       const frames = rawFrames(player)
 
       for (const [action, payload] of [

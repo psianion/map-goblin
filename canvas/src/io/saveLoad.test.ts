@@ -55,6 +55,42 @@ describe('saveLoad — serializeToBytes / deserializeFromBytes', () => {
     expect(result.customImages).toEqual({});
   });
 
+  // Rooms and connectors are drawn children like any other. Serialization is
+  // generic over AnyChild — the zone precedent — so this asserts the round trip
+  // rather than adding a schema bump nothing needs.
+  it('round-trips drawn rooms and connectors with their ids and geometry intact', async () => {
+    const ring = [[2, 2], [8, 2], [8, 8], [2, 8]]
+    const data = {
+      ...SAMPLE_DATA,
+      version: '3.1',
+      layers: [
+        {
+          id: 'layer-1',
+          name: 'Layer 1',
+          type: 'dungeon',
+          visible: true,
+          locked: false,
+          opacity: 1,
+          children: [
+            { id: 'rc-1', name: 'Great Hall', childType: 'room', visible: true, contours: [ring] },
+            {
+              id: 'c-1', name: 'Arch', childType: 'connector', visible: true,
+              contours: [[[7, 4], [12, 4], [12, 6], [7, 6]]],
+              kind: 'door', state: 'locked', isSecret: true, style: 'single',
+              roomA: 'rc-1', roomB: null,
+            },
+          ],
+          standaloneWalls: [],
+          style: {},
+          sublayerVisibility: { floor: true, grid: true, walls: true },
+        },
+      ],
+    } as unknown as SerializedMapData
+
+    const result = await deserializeFromBytes(await serializeToBytes(data))
+    expect(result.layers[0]).toEqual(data.layers[0])
+  })
+
   it('deserializeFromBytes rejects v1.x files with an incompatible version error', async () => {
     const oldData = {
       version: '1.4',

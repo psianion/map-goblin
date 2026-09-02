@@ -741,6 +741,12 @@ test.describe.serial('@sprint3-vision', () => {
    * discipline — a build that ever crept into the draw loop would blow a 16ms bound on a map
    * this size long before a dressed one.
    *
+   * Re-measured 2026-09-01 for containment (default-on) and the doubled `FOG_FEATHER`
+   * (`FogRenderer.ts`'s PENDING note): three runs on this two-hall map, one token move, one
+   * eye — 4.50ms, 2.50ms, 2.60ms to build. The bound stays 16ms unchanged: even the worst of
+   * the three is a third of it, so a small map under both changes is nowhere near a frame and
+   * the discipline check still means what it says.
+   *
    * The fps half is sprint3-fog's ratio, for its reasons: four runs of that row on identical
    * code read 26.6 through 12.3fps as the box's load moved, so the guard is the player's seat
    * against the DM's unmasked canvas at the same moment, never an absolute floor.
@@ -814,18 +820,40 @@ test.describe.serial('@sprint3-vision', () => {
       'the pool is what they see, and the DM stages the dark rather than sitting in it',
     )
 
-    // The dial took the light off the ground the party can see: 24.5 → 20.0 mean. On the mean
-    // and not on `lit`, because after #100 this hall was never *lit* to begin with — an unlit
-    // floor grades to ~36/255 with or without a sweep over it, so `lit` reads an identical
-    // 0.1% either side of the dial and the row that used to halve it was halving token art.
-    expect(blind.mean, `the dark still drew ${show(blind)}`).toBeLessThan(seeing.mean)
-    // Pitch dark is pitch dark: nothing on the frame is at light-source brightness. 0.1%
-    // measured, which is the scout's own disc and the door's furniture.
+    // The dial took the ground the party can see away from them: 2.5% → 1.4% of the frame
+    // clear of fog. On `clear` now, and no longer on the mean — since the mask became a raster
+    // tier the frame mean on this map is the cloud's and not the floor's, and the ambient dial
+    // does not move the cloud: 28.8 → 28.9 measured, which is noise with the sign backwards.
+    // Not on `lit` either, because after #100 this hall was never *lit* to begin with — an
+    // unlit floor grades to ~36/255 with or without a sweep over it, so `lit` reads an
+    // identical 0.0% either side of the dial. A hole in the cover is the one thing a cloud
+    // cannot draw, which is why it is the reading that still separates a party who can see
+    // this hall from one standing in the dark. The 0.005 margin is half the measured 1.1-point
+    // drop and five times the frame-to-frame drift this map's clouds show.
+    expect(blind.clear, `the dark still drew ${show(blind)}`).toBeLessThan(seeing.clear - 0.005)
+    // Pitch dark is pitch dark: nothing on the frame is at light-source brightness. 0.02%
+    // measured (152px), which is the scout's own disc and the door's furniture.
     expect(blind.lit, `the dark still drew ${show(blind)}`).toBeLessThan(0.005)
-    // The torch opens a pool — and only a pool: 10.6% of the frame at light-source brightness
-    // inside the 46.7% the party can see at all (the sweep reaches eight cells, the torch
-    // four). Against 0.1% in the dark a moment earlier.
-    expect(pool.lit).toBeGreaterThan(blind.lit + 0.01)
+    // The torch opens a pool — and only a pool: 1.1% of the frame at light-source brightness
+    // (10,046px of 1224×720), against 0.02% in the dark a moment earlier. The old reading was
+    // 10.6%, and the drop is the fade, not a lost pool: the vector pipeline left the torch's
+    // whole *dim* skirt unattenuated, so all four cells of it cleared the 64 gate, while the
+    // raster tier composites the cloud back over the skirt and only the two-cell *bright*
+    // radius survives — which is what "at light-source brightness" was always meant to read.
+    // The frame agrees: placing the torch moves 5.5% of the canvas (the dim reach), and
+    // (2/4)² of that is 1.4%, the bright disc this now measures. It is not the 64 gate
+    // clipping a pool that is still there — the 48–64 band barely moves (0.46% → 0.58%)
+    // while the pool's own falloff runs 64 up to 144 with its mass in the core, and the row
+    // below reads the same pool over 120 at an ample 5,100 pixels.
+    //
+    // What this bound catches: a torch that lights nothing on the player's seat — the light
+    // gate refusing a source inside the vision mask, or the raster tier compositing the pool
+    // away — which drops `lit` back to the dark frame's 0.02%. Measured delta 1.12 points on
+    // two runs that agreed to a single pixel; the bound is 0.8, so ~30× the frame-to-frame
+    // drift this map's clouds show, and still above the settle poll's 0.005 above.
+    expect(pool.lit, `the torch lit nothing: ${show(blind)} → ${show(pool)}`).toBeGreaterThan(
+      blind.lit + 0.008,
+    )
     expect(pool.lit, `the torch lit ${show(pool)} against the sweep's ${show(seeing)}`)
       .toBeLessThan(pool.clear)
     // …while the DM never loses the map (principle 3): darkness is something they stage.
@@ -834,12 +862,18 @@ test.describe.serial('@sprint3-vision', () => {
     // real map the DM is looking straight at, and a bound wide enough to allow it says
     // nothing. What the claim actually is: the dial did not take the DM's map away (their
     // canvas got *brighter* over a step that blacked the player's out) and the pool is on it
-    // (8.0% of their frame at light-source brightness, against 0.1% before the torch).
+    // (1.2% of their frame at light-source brightness, against 0.04% before the torch — the
+    // old 8.0% was the dim skirt the vector pipeline left unattenuated, for the reason the
+    // player's own reading above gives).
     expect(
       dmDark.mean,
       `the DM's canvas went dark with the room: ${show(dmSeeing)} → ${show(dmDark)}`,
     ).toBeGreaterThan(dmSeeing.mean)
-    expect(dmDark.lit, `the DM lost the torch pool: ${show(dmDark)}`).toBeGreaterThan(0.01)
+    // What this bound catches: the torch pool reaching the player's masked tier but never the
+    // DM's own canvas — the dial blacking the DM out with the room, against principle 3. That
+    // failure reads the pre-torch 0.04%. Measured 1.17%, bit-identical on two runs, so the
+    // 0.8 bound sits at 1.5× under the reading and 20× over the failure it separates from.
+    expect(dmDark.lit, `the DM lost the torch pool: ${show(dmDark)}`).toBeGreaterThan(0.008)
   })
 
   /**
@@ -850,7 +884,12 @@ test.describe.serial('@sprint3-vision', () => {
   test('darkvision reads shape without colour — above the void, under the torchlight', async () => {
     const litShot = await shoot(player)
     const lit = await sample(player, litShot, litShot)
-    expect(lit.covered, 'the torch pool is too small to measure').toBeGreaterThan(0.01)
+    // The sample-size floor, not a claim: `sample` reads the pixels the torchlit frame put
+    // over 120, and a mean and a chroma need enough of them to mean anything. 0.56% of a
+    // 1280×720 canvas is ~5,100 pixels, measured identically on two runs — the pool is a tenth
+    // of the frame share it covered before the mask became a raster tier (the old floor of 1%
+    // was derived against that), and 5,100 pixels is still an ample sample.
+    expect(lit.covered, 'the torch pool is too small to measure').toBeGreaterThan(0.003)
 
     // The same ground with the torch gone: the party is blind and it is void.
     await command(dm, 'tokens', 'delete', { id: torchId })
@@ -881,21 +920,27 @@ test.describe.serial('@sprint3-vision', () => {
       'above the void, below the pool, and drained of the pool’s colour',
     )
 
-    // Shape: the party can see this ground, so it is not void — read as the black the owl's
-    // arc takes off the frame (44.0% → 33.7%) rather than as a lift on the patch. On the patch
-    // the two states sit 18.4 against 19.1, because what the row calls "void" is the memory
-    // tier and since #101 that carries a cloud at half alpha — brighter than the darkvision
-    // grade under `darkness`, which all but cancels the lift the row is claiming. The ten
-    // points of black the arc lifts off the floor is the arc, and nothing else moved.
+    // Shape: the party can see this ground, so it is not void. Read on the patch — the same
+    // pixels under the two treatments — which is where the claim actually lives: nobody
+    // looking reads 27.5, the owl's eyes read 40.2, a 46% lift with nothing else on the table
+    // moved.
+    //
+    // This used to be read as the near-black the owl's arc takes *off* the frame, because
+    // pre-raster the patch could not separate the two states (18.4 against 19.1) while the
+    // frame's black could (44.0% → 33.7%). Both halves of that inverted once the mask became a
+    // raster tier: the memory tier no longer renders near-black, so `blackOf` is now 1.4%
+    // unlit against 2.5% with the owl looking — the darkvision grade is itself the darkest
+    // thing on this frame, and the old reading has the sign backwards. The patch is the
+    // reading that survived, and it is the more direct one.
     expect(
-      blackOf(owled),
-      `darkvision left ${(blackOf(owled) * 100).toFixed(1)}% of the frame at the map's black, ` +
-        `against ${(blackOf(unlit) * 100).toFixed(1)}% with no eyes on it`,
-    ).toBeLessThan(blackOf(unlit) - 0.02)
-    // …but not as light: a lit room still reads as the brighter thing.
+      drained.mean,
+      `darkvision read ${drained.mean.toFixed(1)} on the ground that reads ` +
+        `${dark.mean.toFixed(1)} with no eyes on it`,
+    ).toBeGreaterThan(dark.mean * 1.2)
+    // …but not as light: a lit room still reads as the brighter thing (131.4 torchlit).
     expect(drained.mean).toBeLessThan(lit.mean)
     // …and not as colour, which is the half a dimming alone would fail (art guide: night is
-    // desaturated, and the glows do the colour work).
+    // desaturated, and the glows do the colour work). 16.9 against torchlight's 62.9.
     expect(
       drained.chroma,
       `darkvision chroma ${drained.chroma.toFixed(1)} against torchlight's ${lit.chroma.toFixed(1)}`,

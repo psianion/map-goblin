@@ -141,4 +141,57 @@ describe('extractWallSegments', () => {
       expect(length(open)).toBeCloseTo(bareLength - 20, 5)
     })
   })
+
+  describe('a doorway is the door span, not every wall standing near it', () => {
+    // Wall, the short wall the door fills, wall — the way a map is drawn. The
+    // jambs start at exactly `width / 2` from the door centre, inside the
+    // perpendicular reach the aperture rule searches with. One cell in front of
+    // the whole run is a `mergedFloor` ring edge spanning the doorway.
+    const layerWithDoor = (state: string) =>
+      ({
+        id: `jamb-${state}`,
+        type: 'dungeon' as const,
+        children: [
+          { id: 'd1', childType: 'door', visible: true, wallId: 'doorway', position: [50, 0] as [number, number], angle: 0, width: 20, style: 'single', state, isSecret: false, name: 'Door 1' },
+        ],
+        standaloneWalls: [
+          { id: 'left', points: [[0, 0], [40, 0]] as [number, number][], wallType: 'normal', direction: 'both', color: '#000', width: 2, roughness: 0 },
+          { id: 'doorway', points: [[40, 0], [60, 0]] as [number, number][], wallType: 'normal', direction: 'both', color: '#000', width: 2, roughness: 0 },
+          { id: 'right', points: [[60, 0], [100, 0]] as [number, number][], wallType: 'normal', direction: 'both', color: '#000', width: 2, roughness: 0 },
+        ],
+        mergedFloor: [[[0, 10], [100, 10], [100, 110], [0, 110]] as [number, number][]],
+      }) as unknown as DungeonLayer
+
+    /** Does any light-blocking segment stand between these two points? */
+    const blocked = (segs: ReturnType<typeof extractWallSegments>, from: [number, number], to: [number, number]) =>
+      segs.some((s) => {
+        const cross = (ax: number, ay: number, bx: number, by: number) => ax * by - ay * bx
+        const d1x = to[0] - from[0], d1y = to[1] - from[1]
+        const d2x = s.x2 - s.x1, d2y = s.y2 - s.y1
+        const denom = cross(d1x, d1y, d2x, d2y)
+        if (Math.abs(denom) < 1e-9) return false
+        const t = cross(s.x1 - from[0], s.y1 - from[1], d2x, d2y) / denom
+        const u = cross(s.x1 - from[0], s.y1 - from[1], d1x, d1y) / denom
+        return t > 0 && t < 1 && u > 0 && u < 1
+      })
+
+    it('a ray through the jamb is blocked with the door open', () => {
+      const segs = extractWallSegments([layerWithDoor('open')])
+      // x=35 is off the door's span (40..60) but within `width / 2` of its centre.
+      expect(blocked(segs, [35, -20], [35, 5])).toBe(true)
+      // The ring edge one cell in front is holed only across the same span.
+      expect(blocked(segs, [35, 5], [35, 30])).toBe(true)
+    })
+
+    it('a ray through the door span passes with the door open', () => {
+      const segs = extractWallSegments([layerWithDoor('open')])
+      expect(blocked(segs, [50, -20], [50, 30])).toBe(false)
+    })
+
+    it('every ray is blocked with the door closed', () => {
+      const segs = extractWallSegments([layerWithDoor('closed')])
+      expect(blocked(segs, [50, -20], [50, 30])).toBe(true)
+      expect(blocked(segs, [30, -20], [30, 30])).toBe(true)
+    })
+  })
 })

@@ -4,7 +4,7 @@ import { AddChildCommand, PresetApplyCommand, PropertyCommand, RemoveChildComman
 import { undoManager } from './undoManager';
 import { DUNGEON_STYLE_PRESETS } from './presetRegistry';
 import { resolveStyle } from '../engine/styleResolver';
-import type { AssetChild, DoorChild, LightChild, ShapeChild, WallSegment, ZoneChild } from '../shared/types';
+import type { AssetChild, ConnectorChild, DoorChild, LightChild, RoomChild, ShapeChild, WallSegment, ZoneChild } from '../shared/types';
 import type { DungeonLayer, DungeonStyle } from './types';
 
 describe('PropertyCommand', () => {
@@ -747,6 +747,40 @@ describe('AddChildCommand/RemoveChildCommand.affectsRooms — zones are inert', 
     const removeDoor = new RemoveChildCommand('Remove door', layer.id, DOOR.id);
     removeDoor.execute();
     expect(removeDoor.affectsRooms).toBe(true);
+  });
+
+  // A drawn room IS the room graph on an authored layer — adding the first one
+  // flips that layer off detection — and a connector needs a roomA/B the moment
+  // it lands, exactly like a door.
+  it('adding or removing a drawn room or a connector affects rooms', () => {
+    const layer = useStore.getState().layers.find((l): l is DungeonLayer => l.type === 'dungeon')!;
+    const ROOM: RoomChild = {
+      id: 'room-child-1',
+      name: 'Great Hall',
+      childType: 'room',
+      visible: true,
+      contours: [[[0, 0], [4, 0], [4, 4], [0, 4]]],
+    };
+    const CONNECTOR: ConnectorChild = {
+      id: 'connector-1',
+      name: 'Arch',
+      childType: 'connector',
+      visible: true,
+      contours: [[[3, 1], [5, 1], [5, 3], [3, 3]]],
+      kind: 'arch',
+      state: 'open',
+      isSecret: false,
+    };
+    expect(new AddChildCommand('Add room', layer.id, ROOM).affectsRooms).toBe(true);
+    expect(new AddChildCommand('Add connector', layer.id, CONNECTOR).affectsRooms).toBe(true);
+
+    useStore.getState().addChild(layer.id, ROOM);
+    useStore.getState().addChild(layer.id, CONNECTOR);
+    for (const id of [ROOM.id, CONNECTOR.id]) {
+      const remove = new RemoveChildCommand('Remove', layer.id, id);
+      remove.execute();
+      expect(remove.affectsRooms).toBe(true);
+    }
   });
 });
 

@@ -10,7 +10,15 @@
 // arithmetic below is unit-testable without a GPU.
 
 import { create } from 'zustand';
-import { SIZE_CELLS, snap, type Token, type TokenSize } from '@dnd/mechanics/tokens';
+import {
+  MOVE_BLOCKED,
+  OUTSIDE_MAP,
+  ROOM_UNEXPLORED,
+  SIZE_CELLS,
+  snap,
+  type Token,
+  type TokenSize,
+} from '@dnd/mechanics/tokens';
 import type { Role } from '@dnd/core/src/shared/protocol';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import { useSessionStore } from '../../session/store';
@@ -119,9 +127,17 @@ export function approach(from: number, to: number, dtMs: number, ms = 150): numb
  * ponytail: the sentence is copied from `mechanics/tokens/module.ts`, so a reword there goes
  * quiet here rather than wrong. The upgrade is an exported constant beside the message.
  */
+const MOVE_SENTENCES: Record<string, string> = {
+  [OUTSIDE_MAP]: 'There is no ground there.',
+  [ROOM_UNEXPLORED]: 'You have not been that way yet.',
+  [MOVE_BLOCKED]: 'The way there is blocked.',
+};
+
 export function tokenRefusal(message: string, doors: readonly LiveDoor[] = []): string | null {
   if (!message.includes('cannot be occupied')) return null;
-  return doorRefusal(message, doors) ?? "You can't move there.";
+  // `<cause> <subject?>: sentence` — the cause is the head word, whether or not an id follows.
+  const cause = message.slice(0, Math.max(0, message.indexOf(':'))).split(' ')[0];
+  return doorRefusal(message, doors) ?? MOVE_SENTENCES[cause] ?? "You can't move there.";
 }
 
 /**

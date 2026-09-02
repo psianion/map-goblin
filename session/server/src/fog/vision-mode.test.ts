@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { Viewer } from '@dnd/mechanics/contract'
 import { doorsModule } from '@dnd/mechanics/doors'
-import { fogModule, getCell, type FogState, type SceneFog } from '@dnd/mechanics/fog'
+import { fogModule, getCell, setCells, type FogState, type SceneFog } from '@dnd/mechanics/fog'
 import { tokensModule, type Token, type TokensState } from '@dnd/mechanics/tokens'
 import { triggersModule, type TriggersState } from '@dnd/mechanics/triggers'
 import type { ServerMessage } from '@dnd/core/src/shared/protocol'
@@ -68,7 +68,13 @@ const EAST_LOCK = lock({ kind: 'rect', x: 11.5, y: -2, width: 14, height: 14 })
 
 function wired(
   children: AnyChild[] = [],
-  extra: { walls?: WallSegment[]; prep?: ScenePrep; floorRingsOnly?: boolean } = {},
+  extra: {
+    walls?: WallSegment[]
+    prep?: ScenePrep
+    floorRingsOnly?: boolean
+    /** The imported-battlemap shape: the same floors, zoned by nobody (R9). */
+    roomless?: boolean
+  } = {},
 ) {
   const data = JSON.parse(MAP) as SerializedMapData
   const layer = data.layers.find((l): l is DungeonLayer => l.type === 'dungeon')!
@@ -79,6 +85,7 @@ function wired(
     layer.standaloneWalls = []
     layer.children = layer.children.filter((c) => c.childType !== 'door')
   }
+  if (extra.roomless) layer.rooms = []
   layer.children = [...layer.children, ...children]
   layer.standaloneWalls = [...layer.standaloneWalls, ...(extra.walls ?? [])]
 
@@ -131,6 +138,14 @@ function wired(
     toPlayer,
     toPlayer2,
     fogOf,
+    /** Writes the scene's fog straight into module state — how a *stored* record is staged. */
+    setFog: (scene: SceneFog) => {
+      const state = stateOf<FogState>('fog') ?? { byScene: {} }
+      stores.moduleState.put(campaign.id, 'fog', {
+        ...state,
+        byScene: { ...state.byScene, [SCENE]: scene },
+      })
+    },
     tokensOf,
     /** Which triggers have fired, by id. */
     fired: () => Object.keys(stateOf<TriggersState>('triggers')?.byScene[SCENE]?.fired ?? {}),
@@ -172,6 +187,16 @@ function scouted(
   expect(table.run(P1, 'tokens', 'claim', { id })).toBeNull()
   return id
 }
+
+// Every row in this file runs against the occluders a *running* server has, not a subset of
+// them: `startServer` loads Clipper before it accepts a connection, so `sceneMap.ts`'s
+// `healMergedFloor` always fires there and this fixture's two floor rings are always walls.
+// Awaiting it in one describe block and nowhere else is what let the door rows below pass for
+// months against a map with no floor edges in it while the same door did nothing at a real
+// table (`sprint3-vision.spec.ts`, "opening the door grows the clear area").
+beforeAll(async () => {
+  expect(await ensureClipperReady()).toBe(true)
+})
 
 describe('the party sweep the server keeps (S3 P1 §3)', () => {
   it('sees across its own room and not through the wall, until the door opens', () => {
@@ -317,6 +342,39 @@ describe('party-mode auto-explore (§4)', () => {
     expect(table.modules().slice(before)).toEqual(['tokens', 'fog', 'tokens', 'doors'])
   })
 
+  it('records the wall band beside the floor and no cell of the void past it', () => {
+    // Line of sight does not stop at the floor's edge: it runs out over the yards between
+    // this fixture's two islands and, on the real map, off into the black past a palisade.
+    // Every cell it crossed out there used to be written, and three readers of the record
+    // were then wrong at once — a token could stand on the void, containment counted it as
+    // opened, and the player's memory tier painted grey over ground with no art under it,
+    // which is the flat black patch with grid dots the gate walk photographed.
+    // How the walk got there: the DM is fenced by none of the occupancy rules (`occupyRefusal`
+    // exempts them by design), so a DM drag can still put an eye out on the void — and the eye
+    // then sweeps from where it stands.
+    const table = wired()
+    const id = scouted(table)
+    expect(table.run(DM, 'tokens', 'move', { id, x: 11.5, y: 5.5 })).toBeNull()
+    const region = table.fogOf().region!
+    const cellAt = (x: number, y: number): [number, number] => [
+      Math.floor(x - region.minX),
+      Math.floor(y - region.minY),
+    ]
+    // The clamp is one cell wider than the floor, though, and that cell is the wall band: the
+    // art of a room straddles its edge, so a record stopping at the floor put the stones of an
+    // explored room back under fog. The floors here are x 0..10 and x 12..22, so (11.5, 5.5) is
+    // beside both and lands.
+    //
+    // The void half of the clamp is pinned on the brush instead (`module.test.ts`): every cell a
+    // sweep can reach on this fixture is within one cell of a floor, because the floor rings are
+    // the only occluders and they stop the rays at their own edge. A row asserting a void cell
+    // here would read as a clamp and pass as an occlusion.
+    expect(getCell(region, ...cellAt(9.5, 5.5))).toBe(true)
+    expect(getCell(region, ...cellAt(11.5, 5.5))).toBe(true)
+    // Recordable is not standable: the band is remembered and still refused underfoot.
+    expect(table.vision.visionOf(SCENE)!.openGround!(11.5, 5.5)).toBe(false)
+  })
+
   // The imported-battlemap switch, on the fixture that has walls so the reader can hold it.
   // Off, an eye is swept to the whole map and what stops it is the walls; a map with none
   // (a battlemap image) hands the party the whole picture on the first move. On, the eye is
@@ -324,6 +382,10 @@ describe('party-mode auto-explore (§4)', () => {
   it('sweeps each eye at its own range once the DM turns the limit on', () => {
     const sweptCells = (sightRangeLimit: boolean): number => {
       const table = wired()
+      // Uncontained on both arms, because containment is what this row would otherwise be
+      // measuring: contained, the unbounded arm earns the record ∪ the eye's own disc, which
+      // is what the limited arm earns too (the contract's R7), and the comparison collapses.
+      table.run(DM, 'fog', 'set-containment', { containedSight: false })
       if (sightRangeLimit) {
         expect(table.run(DM, 'fog', 'set-range-limit', { sightRangeLimit })).toBeNull()
       }
@@ -533,7 +595,7 @@ describe('open ground: unzoned cells the party has been shown (D6 in vision mode
   /** East-room floor, and the cell over it — `EAST_CELL`'s centre by the same rule. */
   const [EAST_X, EAST_Y] = [12.5, 5.5]
 
-  it('refuses the gap until the DM brushes it, then lets a player stand there', () => {
+  it('refuses the gap, and the brush cannot open it: the map authors no floor there', () => {
     const table = wired()
     const id = scouted(table)
     expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toMatchObject({
@@ -541,20 +603,30 @@ describe('open ground: unzoned cells the party has been shown (D6 in vision mode
     })
     expect(table.vision.visionOf(SCENE)!.openGround!(GAP_X, GAP_Y)).toBe(false)
 
+    // The stroke is accepted and the cell is written — the gap is two cells wide, so both of
+    // them are within a cell of a floor and both are wall band (`nearAuthoredFloor`). What the
+    // brush cannot do is make the gap *standable*: `openGround` asks the strict floor test, so
+    // the two islands of this fixture are still joined by authoring floor between them and
+    // never by painting memory across the seam.
     expect(table.run(DM, 'fog', 'region-set', { op: 'reveal', cells: [GAP] })).toBeNull()
-    expect(table.vision.visionOf(SCENE)!.openGround!(GAP_X, GAP_Y)).toBe(true)
-    expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toBeNull()
-    expect(table.tokensOf()[id]).toMatchObject({ x: GAP_X, y: GAP_Y })
+    expect(getCell(table.fogOf().region, ...GAP)).toBe(true)
+    expect(table.vision.visionOf(SCENE)!.openGround!(GAP_X, GAP_Y)).toBe(false)
+    expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toMatchObject({
+      message: expect.stringContaining('cannot be occupied'),
+    })
   })
 
-  it('takes the brush back with it — a hidden cell is unzoned map again', () => {
+  it('heals a record that already holds off-floor cells, at the moment it is read', () => {
+    // Written before the clamp existed, so no brush and no sweep would write it today. The
+    // floor test is taken on the *read* rather than in a migration, which heals every stored
+    // record on the live table without a pass that would have to guess which bits were the bug.
     const table = wired()
     const id = scouted(table)
-    table.run(DM, 'fog', 'region-set', { op: 'reveal', cells: [GAP] })
-    expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toBeNull()
+    const fog = table.fogOf()
+    table.setFog({ ...fog, region: setCells(fog.region!, [GAP]) })
+    expect(getCell(table.fogOf().region, ...GAP)).toBe(true)
 
-    table.run(DM, 'fog', 'region-set', { op: 'hide', cells: [GAP] })
-    expect(table.run(P1, 'tokens', 'move', { id, x: 2.5, y: 5.5 })).toBeNull()
+    expect(table.vision.visionOf(SCENE)!.openGround!(GAP_X, GAP_Y)).toBe(false)
     expect(table.run(P1, 'tokens', 'move', { id, x: GAP_X, y: GAP_Y })).toMatchObject({
       message: expect.stringContaining('cannot be occupied'),
     })
@@ -628,6 +700,9 @@ describe('explore locks (§5)', () => {
   it('refuses a locked zone both its cells and its room reveal', () => {
     const table = wired([EAST_LOCK])
     const id = scouted(table)
+    // Uncontained: this row pins the *classic* reading of §5 — a lock stops the record and
+    // never the sight. Contained, it stops both, which the R4 row below pins instead.
+    table.run(DM, 'fog', 'set-containment', { containedSight: false })
     table.run(DM, 'tokens', 'move', { id, x: 5.5, y: 5.5 })
     table.run(DM, 'doors', 'toggle', { id: 'door-mid' })
 
@@ -1064,6 +1139,9 @@ describe('auto-explore and redaction in the dark (S3 P3 §3.2, §3.1)', () => {
   it('leaves a locked zone locked however brightly it is lit', () => {
     const table = wired([EAST_LOCK, light('east-lamp', 12.5, 5.5, 6)])
     const id = nightWatch(table)
+    // Uncontained, for the reason the §5 row above says: the classic rule lets the party
+    // *see* into a lit, locked vault and refuses to write it down. R4 pins the other path.
+    table.run(DM, 'fog', 'set-containment', { containedSight: false })
     table.run(DM, 'doors', 'toggle', { id: 'door-mid' })
     table.run(DM, 'tokens', 'move', { id, x: 9.5, y: 5.5 })
     // Lit, swept, and still the DM's to give: locks beat the sweep by construction (§5).
@@ -1422,6 +1500,214 @@ describe('a seat that joined with nothing (the DM assignment)', () => {
   })
 })
 
+// ── Contained sight ─────────────────────────────────────────────────────────
+// The house rule, and default on (`containedSightOn`): live sight is fenced by the ground the
+// table has already opened — the DM's cell record plus the rooms they revealed — and the only
+// thing that pushes the fence outward is a token's own `sight.range`. Walking peels the cloud
+// back; what a step earns is written to the record, so the fence only ever grows.
+//
+//   seen_i = inSweep_i ∧ (held ∨ (dist_i ≤ range_i ∧ ¬lock)), then the light gate, unchanged
+//
+// "Containment off is exactly today" is not one row here — it is the *rest of this file*. No
+// fixture above sets the field, so every row in it now runs on the contained path; the four
+// that pin behaviour containment legitimately changes say `containedSight: false` at their own
+// call sites, with the reason written there, and the rows below pin the other half.
+describe('contained sight (the fence live sight plays inside)', () => {
+  const containment = (table: ReturnType<typeof wired>, containedSight: boolean) =>
+    expect(table.run(DM, 'fog', 'set-containment', { containedSight })).toBeNull()
+
+  /** A claimed eye of a given reach, in a vision-mode scene the DM has left in daylight. */
+  function watcher(
+    table: ReturnType<typeof wired>,
+    at: { x: number; y: number },
+    range: number,
+    name = 'Scout',
+  ): string {
+    table.run(DM, 'fog', 'set-mode', { mode: 'vision' })
+    table.run(DM, 'tokens', 'place', {
+      name,
+      ...at,
+      sight: { range, angle: 360, visionMode: 'normal' },
+    })
+    const id = Object.entries(table.tokensOf()).find(([, t]) => t.name === name)![0]
+    expect(table.run(P1, 'tokens', 'claim', { id })).toBeNull()
+    return id
+  }
+
+  const sight = (table: ReturnType<typeof wired>) => (x: number, y: number) =>
+    table.vision.visionOf(SCENE)!.canSee!(x, y)
+
+  it('R1 — gives a held room whole, and unheld ground only as far as the eye reaches', () => {
+    const table = wired()
+    watcher(table, { x: 9.5, y: 5.5 }, 3)
+    expect(table.run(DM, 'fog', 'reveal', { roomId: 'west' })).toBeNull()
+    expect(table.run(DM, 'doors', 'toggle', { id: 'door-mid' })).toBeNull()
+    const see = sight(table)
+
+    // Held: the far corner of the revealed hall, eight cells off and well past the eye's own
+    // range. Inside the fence an eye works the way it always did — line of sight, no cap.
+    expect(see(1.5, 1.5)).toBe(true)
+    // Unheld ground through the open door, at exactly the range the token carries.
+    expect(see(12.5, 5.5)).toBe(true)
+    // …and further down the same unbroken line: the fence, doing the whole of its job.
+    expect(see(16.5, 5.5)).toBe(false)
+    // Contract consequence 6 — the cell the range term earned credited its room in the same
+    // update, so the geometry under it shipped before a player could be shown a hole in the
+    // cloud with nothing drawn in it.
+    expect(table.fogOf().rooms.east).toMatchObject({ wasEverRevealed: true })
+
+    // Off, it is the classic answer, which is the model this file had before the fence: what
+    // bounds an eye is the walls and the light, and nothing else.
+    containment(table, false)
+    expect(see(16.5, 5.5)).toBe(true)
+  })
+
+  it('R2 — ratchets: ground a step earned stays seen from beyond the eye’s range', () => {
+    const table = wired()
+    const id = watcher(table, { x: 9.5, y: 5.5 }, 3)
+    table.run(DM, 'fog', 'reveal', { roomId: 'west' })
+    table.run(DM, 'doors', 'toggle', { id: 'door-mid' })
+    const see = sight(table)
+    expect(see(15.5, 5.5)).toBe(false)
+
+    // One step through the doorway brings it inside the fence — and the step writes it down.
+    expect(table.run(DM, 'tokens', 'move', { id, x: 12.5, y: 5.5 })).toBeNull()
+    expect(see(15.5, 5.5)).toBe(true)
+    expect(getCell(table.fogOf().region, 17, 27)).toBe(true)
+
+    // Back to the doorway: six cells away, in a room the DM never revealed, and still theirs.
+    // Nothing shrinks — walking is the only thing that moves the fence, and it moves it out.
+    expect(table.run(DM, 'tokens', 'move', { id, x: 9.5, y: 5.5 })).toBeNull()
+    expect(see(15.5, 5.5)).toBe(true)
+  })
+
+  it('R3 — is per eye: one eye’s range never opens ground another eye is walled off from', () => {
+    const table = wired()
+    // A far-sighted scout in the near corner of the west hall, and a guard across the wall
+    // from the far one. The corner is in the scout's line of sight and out of its range; it
+    // is inside the guard's range and behind a wall from it. A union of discs over a union of
+    // sweeps would hand it over; the per-eye composition does not.
+    watcher(table, { x: 1.5, y: 1.5 }, 8)
+    const guard = watcher(table, { x: 12.5, y: 9.5 }, 4, 'Guard')
+    expect(table.tokensOf()[guard]).toMatchObject({ x: 12.5, y: 9.5 })
+    const see = sight(table)
+
+    expect(see(9.5, 9.5)).toBe(false)
+    containment(table, false)
+    expect(see(9.5, 9.5)).toBe(true)
+  })
+
+  it('R4 — a lock beats the range term, so its mouth cannot be peeled by standing in it', () => {
+    const table = wired([EAST_LOCK])
+    watcher(table, { x: 9.5, y: 5.5 }, 8)
+    expect(table.run(DM, 'doors', 'toggle', { id: 'door-mid' })).toBeNull()
+    const see = sight(table)
+
+    // Three cells away, lit, through an open door — and neither live nor written.
+    expect(see(12.5, 5.5)).toBe(false)
+    expect(getCell(table.fogOf().region, ...EAST_CELL)).toBe(false)
+    expect(table.fogOf().rooms.east).toBeUndefined()
+
+    // Off, §5 is what it always was: the lock stops the record and never the sight.
+    containment(table, false)
+    expect(see(12.5, 5.5)).toBe(true)
+  })
+
+  it('R5 — composes with the light gate: held ground in the dark is still dark', () => {
+    const table = wired([light('west-lamp', 5.5, 5.5, 3)])
+    const id = nightWatch(table)
+    expect(table.run(DM, 'fog', 'reveal', { roomId: 'west' })).toBeNull()
+    const see = sight(table)
+
+    // Held (the DM revealed the hall) and lit: the eye sees its own pool.
+    expect(see(5.5, 5.5)).toBe(true)
+    // Held, four cells out, inside the eye's range — and beyond the lamp, so unlit and unseen.
+    // The gate runs after the composition, not instead of it.
+    expect(see(9.5, 5.5)).toBe(false)
+    expect(table.run(DM, 'triggers', 'set-environment', { ambient: 'daylight' })).toBeNull()
+    expect(see(9.5, 5.5)).toBe(true)
+    expect(table.tokensOf()[id]).toMatchObject({ x: 5.5, y: 5.5 })
+  })
+
+  it('R6 — fences each seat by its own record where the table shares individually', () => {
+    const table = wired()
+    table.run(DM, 'fog', 'set-mode', { mode: 'vision' })
+    expect(table.run(DM, 'fog', 'set-share', { visionShare: 'individual' })).toBeNull()
+    const scout = watcher(table, { x: 1.5, y: 1.5 }, 3)
+    watcher(table, { x: 9.5, y: 1.5 }, 3, 'Guard')
+
+    // Eight cells from both eyes, in the open hall both are looking across: out of range for
+    // either, and in neither seat's record yet.
+    expect(table.vision.visionOf(SCENE, P1)!.canSee!(5.5, 8.5)).toBe(false)
+    expect(table.vision.visionOf(SCENE, P2)!.canSee!(5.5, 8.5)).toBe(false)
+
+    // p-1's scout walks over it and back. In `individual` share that writes p-1's record and
+    // nobody else's, so the fence moves for one seat only.
+    expect(table.run(DM, 'tokens', 'move', { id: scout, x: 5.5, y: 8.5 })).toBeNull()
+    expect(table.run(DM, 'tokens', 'move', { id: scout, x: 1.5, y: 1.5 })).toBeNull()
+    expect(getCell(table.fogOf().regions!['p-1'], 7, 30)).toBe(true)
+    expect(getCell(table.fogOf().regions!['p-2'], 7, 30)).toBe(false)
+
+    expect(table.vision.visionOf(SCENE, P1)!.canSee!(5.5, 8.5)).toBe(true)
+    expect(table.vision.visionOf(SCENE, P2)!.canSee!(5.5, 8.5)).toBe(false)
+  })
+
+  it('R7 — range-limit subsumes it: the two together are the range limit alone', () => {
+    // Swept at its own range, an eye's polygon is already inside the disc the fence measures,
+    // so the range term can add nothing and the held term has nothing to add it to. No special
+    // case in the rule — this row is the assertion that none is needed.
+    //
+    // The equality carries one carve-out, and this scene is deliberately clear of it: locked
+    // ground. Range-limit alone shows a locked cell inside an eye's range, range-limit *plus*
+    // containment hides it, because the fence subtracts the locks from the range-earned term
+    // (`seen`'s `inAnyLock`). That difference is the feature and not a divergence — R4 pins
+    // the locked side of it, this row pins everywhere else.
+    const played = (containedSight: boolean) => {
+      const table = wired()
+      table.run(DM, 'fog', 'set-mode', { mode: 'vision' })
+      expect(table.run(DM, 'fog', 'set-range-limit', { sightRangeLimit: true })).toBeNull()
+      containment(table, containedSight)
+      const id = watcher(table, { x: 2.5, y: 5.5 }, 4)
+      expect(table.run(DM, 'tokens', 'move', { id, x: 5.5, y: 5.5 })).toBeNull()
+      expect(table.run(DM, 'doors', 'toggle', { id: 'door-mid' })).toBeNull()
+      const see = sight(table)
+      return {
+        bits: table.fogOf().region!.bits,
+        rooms: table.fogOf().rooms,
+        seen: [
+          [5.5, 5.5],
+          [8.5, 5.5],
+          [9.5, 5.5],
+          [1.5, 1.5],
+          [12.5, 5.5],
+        ].map(([x, y]) => see(x, y)),
+      }
+    }
+    expect(played(true)).toEqual(played(false))
+  })
+
+  it('R9 — a roomless map is fenced by the record alone, and a step earns its own range', () => {
+    // The imported battlemap: no rooms to reveal, so `held` is the record and nothing else.
+    // Uncontained this is #114 exactly — sweep ∩ record for the mask, and one step
+    // auto-exploring as far as the image reaches.
+    const table = wired([], { roomless: true })
+    watcher(table, { x: 5.5, y: 5.5 }, 3)
+    const see = sight(table)
+
+    expect(see(7.5, 5.5)).toBe(true)
+    expect(see(9.5, 5.5)).toBe(false)
+    containment(table, false)
+    expect(see(9.5, 5.5)).toBe(true)
+
+    containment(table, true)
+    // …and the record grew by the range and not by the map: the cell two out is theirs, the
+    // one four out is not, with no wall anywhere in it that says so.
+    expect(getCell(table.fogOf().region, 9, 27)).toBe(true)
+    expect(getCell(table.fogOf().region, 11, 27)).toBe(false)
+    expect(table.fogOf().rooms).toEqual({})
+  })
+})
+
 // ── FIX §1 — floor rings as occluders ───────────────────────────────────────
 // `wall-mid` is what has occluded every row above this one. Stripped out here (and the two
 // doors riding on it with it), `floor-west`/`floor-east` — already on this fixture, already
@@ -1439,6 +1725,9 @@ describe('floor rings as occluders, once mergedFloor is healed (FIX §1)', () =>
   it('latches only the room the token stands in, and stops the sweep at the gap', () => {
     const table = wired([], { floorRingsOnly: true })
     const id = scouted(table)
+    // Uncontained, or this row stops guarding anything: (17, 5) is 11.5 cells from the scout
+    // and the fence would refuse it whether or not a single occluder survived the heal.
+    table.run(DM, 'fog', 'set-containment', { containedSight: false })
     table.run(DM, 'tokens', 'move', { id, x: 5.5, y: 5.5 })
 
     // Deep into the east room, well past the far side of the void — reachable only if

@@ -17,6 +17,7 @@ export interface UIActions {
   clearSolo: () => void;
   setPreviewClock: (minutes: number | null) => void;
   setPreviewSky: (sky: NightSky | null) => void;
+  setRoomOverlayVisible: (visible: boolean) => void;
 }
 
 export const createUISlice: StateCreator<
@@ -116,5 +117,11 @@ export const createUISlice: StateCreator<
   setPreviewSky: (sky) =>
     set((state) => {
       state.ui.previewSky = sky;
+    }),
+  // Same tier as grid.visible: a view preference over editor-only ink, never undoable
+  // and never serialized. The overlay itself ignores it while an authoring tool is held.
+  setRoomOverlayVisible: (visible) =>
+    set((state) => {
+      state.ui.roomOverlayVisible = visible;
     }),
 });

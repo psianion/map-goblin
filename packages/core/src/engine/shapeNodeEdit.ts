@@ -13,6 +13,8 @@
 
 import type { Point, Polygon } from '../types/geometry';
 import type { DungeonLayer, ShapeChild, AnyChild } from '../store/types';
+import type { RingGeometry, RoomChild } from '../shared/types';
+import { effectiveContours } from './tools/childTransform';
 import { useStore } from '../store/store';
 import { isLayerEffectivelyVisible } from '../store/selectors';
 import { undoManager } from '../store/undoManager';
@@ -47,7 +49,7 @@ function signedArea(poly: Polygon): number {
   return a / 2;
 }
 
-function ringOf(shape: ShapeChild): Polygon {
+function ringOf(shape: RingGeometry): Polygon {
   const t = shape.transform;
   if (!t) return shape.contours[0] ?? [];
   const cos = Math.cos(t.rotate);
@@ -64,7 +66,7 @@ function ringOf(shape: ShapeChild): Polygon {
  * baked-in transform moves handle points exactly like ring points, or a
  * transformed shape's curves would bend toward where it used to stand.
  */
-function ringTangentsOf(shape: ShapeChild): RingTangents | undefined {
+function ringTangentsOf(shape: RingGeometry): RingTangents | undefined {
   const raw = shape.tangents?.[0];
   if (!ringHasCurves(raw)) return undefined;
   const t = shape.transform;
@@ -87,7 +89,7 @@ function ringTangentsOf(shape: ShapeChild): RingTangents | undefined {
 }
 
 /** The shape's outer ring as downstream geometry sees it: baked, then flattened. */
-function flatRingOf(shape: ShapeChild): Polygon {
+function flatRingOf(shape: RingGeometry): Polygon {
   return flattenRing(ringOf(shape), ringTangentsOf(shape));
 }
 
@@ -140,7 +142,7 @@ export interface OutlineTarget {
    * read `outline`. Eagerly computed, that was dozens of WASM ops at 60 Hz for
    * a static overlay. Only the write paths call it.
    */
-  contributors: () => ShapeChild[];
+  contributors: () => (ShapeChild | RoomChild)[];
   /**
    * Index into `holes` when the ring being edited is one of them rather than
    * the outer boundary. A hole's stones are wall the DM can see and grab just
@@ -184,6 +186,23 @@ export function resolveOutline(shapeId: string): OutlineTarget | null {
     (l): l is DungeonLayer => l.type === 'dungeon' && l.children.some((c) => c.id === shapeId),
   );
   if (!layer) return null;
+
+  // A drawn room owns its ring outright — it never unions into `mergedFloor`,
+  // so there is no merged outline to resolve and nothing to collapse. Hand back
+  // its own contours and let the same edit/commit machinery run on them.
+  const room = layer.children.find(
+    (c): c is RoomChild => c.id === shapeId && c.childType === 'room',
+  );
+  if (room) {
+    const rings = effectiveContours(room);
+    return {
+      layer,
+      outline: rings[0] ?? [],
+      holes: rings.slice(1),
+      contributors: () => [room],
+      tangents: ringTangentsOf(room) ?? [],
+    };
+  }
 
   const shape = layer.children.find(
     (c): c is ShapeChild => c.id === shapeId && c.childType === 'shape',
@@ -533,10 +552,15 @@ export function commitOutline(
     return only.id;
   }
 
-  const merged = makePolygonShape(contributors[0].name, contours, contributors[0], ringT);
+  // Only a merged-floor outline ever has more than one contributor, and
+  // `targetFor` builds that list from shapes alone — a drawn room is always its
+  // own sole contributor and never reaches the collapse.
+  const shapes = contributors.filter((c): c is ShapeChild => c.childType === 'shape');
+  if (shapes.length !== contributors.length) return null;
+  const merged = makePolygonShape(shapes[0].name, contours, shapes[0], ringT);
   undoManager.execute(
     new CompositeCommand(label, [
-      ...contributors.map((c) => new RemoveChildCommand(label, layer.id, c.id)),
+      ...shapes.map((c) => new RemoveChildCommand(label, layer.id, c.id)),
       new AddChildCommand(label, layer.id, merged),
     ]),
   );
@@ -561,7 +585,7 @@ export function toggleShapeNodeEditAt(world: Point): boolean {
   // Topmost first, matching how selection picks.
   for (let i = layer.children.length - 1; i >= 0; i--) {
     const c = layer.children[i];
-    if (c.childType !== 'shape' || !c.visible) continue;
+    if ((c.childType !== 'shape' && c.childType !== 'room') || !c.visible) continue;
     if (pointInPolygon([world.x, world.y], ringOf(c))) {
       state.setShapeNodeEdit(c.id);
       return true;
@@ -725,12 +749,11 @@ function startDrag(
 
   if (contributors.length > 1) {
     // Collapse up front so the preview has one shape to write to. Undone on
-    // release, then replayed as part of the single command.
-    const merged = makePolygonShape(
-      contributors[0].name,
-      [target.outline, ...target.holes],
-      contributors[0],
-    );
+    // release, then replayed as part of the single command. Only merged-floor
+    // outlines get here, and those contribute shapes alone (see `targetFor`).
+    const first = contributors[0];
+    if (first.childType !== 'shape') return false;
+    const merged = makePolygonShape(first.name, [target.outline, ...target.holes], first);
     const keep = target.layer.children.filter(
       (c) => !contributors.some((s) => s.id === c.id),
     );

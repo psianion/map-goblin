@@ -4,6 +4,8 @@ import {
   cellsCoveredByPolygon,
   clearCells,
   getCell,
+  nearAuthoredFloor,
+  onAuthoredFloor,
   pointInPolygon,
   REGION_CELL_MAX,
   orRegion,
@@ -222,6 +224,39 @@ describe('orRegion destroys nothing', () => {
     // and refused for the same reason: the base's own tail is left exactly as it stands.
     const short = { ...base, bits: toBase64(toBytes(base.bits).slice(0, 4)) }
     expect(orRegion(base, short).bits).toBe(base.bits)
+  })
+})
+
+describe('the two floor predicates', () => {
+  // One square room, x and y both in [2, 6). Cell centres land on the halves, so (6.5, 4.5) is
+  // the wall band beside its east edge and (7.5, 4.5) is the void past it.
+  const roomAt = (x: number, y: number): string | null =>
+    x >= 2 && x < 6 && y >= 2 && y < 6 ? 'hall' : null
+
+  it('separates standable from recordable at the wall band', () => {
+    // Inside: both say yes.
+    expect(onAuthoredFloor(1, roomAt(4.5, 4.5))).toBe(true)
+    expect(nearAuthoredFloor(1, roomAt, 4.5, 4.5)).toBe(true)
+    // The band: nobody may stand there, the record may remember it. This is the whole fix —
+    // the wall art of an explored room lives on these cells.
+    expect(onAuthoredFloor(1, roomAt(6.5, 4.5))).toBe(false)
+    expect(nearAuthoredFloor(1, roomAt, 6.5, 4.5)).toBe(true)
+    // The diagonal band cell too: a 4-neighbour test would notch every room corner.
+    expect(nearAuthoredFloor(1, roomAt, 6.5, 6.5)).toBe(true)
+    // Two cells out: void to both, which is the palisade-yard patch the clamp was added for.
+    expect(nearAuthoredFloor(1, roomAt, 7.5, 4.5)).toBe(false)
+    expect(nearAuthoredFloor(1, roomAt, 4.5, 0.5)).toBe(false)
+  })
+
+  it('exempts a map with no rooms without asking a neighbour', () => {
+    let asked = 0
+    const counted = (x: number, y: number): string | null => {
+      asked += 1
+      return roomAt(x, y)
+    }
+    expect(nearAuthoredFloor(0, counted, 999, 999)).toBe(true)
+    expect(onAuthoredFloor(0, null)).toBe(true)
+    expect(asked).toBe(0)
   })
 })
 

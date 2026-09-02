@@ -112,7 +112,16 @@ export interface MaskData {
 }
 
 // ---- Child Types ----
-export type ChildType = 'shape' | 'asset' | 'light' | 'door' | 'water' | 'text' | 'zone';
+export type ChildType =
+  | 'shape'
+  | 'asset'
+  | 'light'
+  | 'door'
+  | 'water'
+  | 'text'
+  | 'zone'
+  | 'room'
+  | 'connector';
 
 export interface LayerChild {
   id: string;
@@ -294,6 +303,59 @@ export interface ZoneChild extends LayerChild {
   blocksAutoExplore?: boolean;
 }
 
+/**
+ * Ring geometry, authored exactly the way `ShapeChild` authors it: contours,
+ * optional curve tangents, an optional baked transform. Sharing the field names
+ * is the point — `childTransform`'s rings kind, `hitTest`'s ring bounds and the
+ * outline node editor all read these three and need no new branch shapes.
+ */
+export interface RingGeometry {
+  /** index 0 = outer boundary, 1+ = holes. */
+  contours: [number, number][][];
+  /** Optional curve tangents, indexed like `contours` — see ShapeChild.tangents. */
+  tangents?: import('./bezier').RingTangents[];
+  transform?: {
+    translate: [number, number];
+    rotate: number;
+    scale: [number, number];
+  };
+}
+
+/**
+ * A room the DM drew, rather than one detected from wall geometry.
+ *
+ * Its `id` is a real uuid minted once and serialized, so it survives republish —
+ * unlike a detected room's id, which is a hash of its centroid and re-mints the
+ * moment the geometry moves (see `roomUtils.computeStableRoomId`). `name` comes
+ * from `LayerChild`. A layer holding one of these stops taking its `rooms` from
+ * detection entirely (`store/roomSync.ts`).
+ */
+export interface RoomChild extends LayerChild, RingGeometry {
+  childType: 'room';
+}
+
+/**
+ * The joint between two authored rooms — an archway or a door — drawn as a blob
+ * straddling both boundaries rather than placed on a wall.
+ *
+ * Structurally a superset of what the door graph consumes (`AuthoredDoor` in
+ * packages/mechanics): `id`, `state`, `isSecret`, optional `style`, and the
+ * `roomA`/`roomB` pair derived from blob-to-room overlap on every room sync.
+ * `kind:'arch'` is the always-open case the archway machinery already handles.
+ */
+export interface ConnectorChild extends LayerChild, RingGeometry {
+  childType: 'connector';
+  kind: 'arch' | 'door';
+  state: DoorState;
+  isSecret: boolean;
+  /** Door styling for `kind:'door'`. An arch is `'archway'` whatever this says. */
+  style?: DoorStyle;
+  /** Room on one side. `null` = no room there, absent = not yet bound. */
+  roomA?: string | null;
+  /** Room on the other side. `null` = no room there, absent = not yet bound. */
+  roomB?: string | null;
+}
+
 export type AnyChild =
   | ShapeChild
   | AssetChild
@@ -301,7 +363,9 @@ export type AnyChild =
   | DoorChild
   | WaterChild
   | TextChild
-  | ZoneChild;
+  | ZoneChild
+  | RoomChild
+  | ConnectorChild;
 
 // ---- Room Types ----
 /**

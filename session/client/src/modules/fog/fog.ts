@@ -23,7 +23,6 @@ import {
 } from '@dnd/mechanics/fog';
 import { liveDoors, type LiveDoor } from '../doors/doors';
 import type { FogPool } from './livingFog';
-import { maskField, maskRings, regionCells } from './memoryMask';
 
 /** What a DM reads for each status. The word is the state; colour never carries it alone. */
 export const FOG_STATUS_LABEL: Record<RoomFogStatus, string> = {
@@ -142,8 +141,15 @@ export function serverDoors(
  * The band itself is paid for separately and exactly — see {@link fogPad}. This is only the
  * margin on top, and it is what stops the mask ending *on* the last stone: a boundary that
  * lands precisely on a hard edge reads as a crop even when it is arithmetically right.
+ *
+ * DUPLICATED, BY HAND, at `session/server/src/fog/redactMap.ts:191` (`FOG_MARGIN`), where the
+ * same distance is measured from the other side to decide which geometry a player document is
+ * allowed to carry. Nothing enforces the equality. If the two drift, the server ships map by
+ * one pad while the client masks by another: either the mask stops short of geometry the seat
+ * already has (art in the dark, or worse, visible past the fog edge), or it opens onto map the
+ * seat was never sent (a hole in the world). Change one, change the other, in the same commit.
  */
-export const FOG_MARGIN = 0.3;
+export const FOG_MARGIN = 0.5;
 
 /** `DEFAULT_DUNGEON_STYLE`'s, for a document whose layers have not landed yet. */
 const DEFAULT_WALL_WIDTH = 0.5;
@@ -248,11 +254,16 @@ export function ringsWithHoles(rings: readonly Polygon[]): FogRing[] {
   return roots;
 }
 
-// ── Vision mode's mask (S3 P2 §1) ───────────────────────────────────────────
+// ── Vision mode's vocabulary (S3 P2 §1) ─────────────────────────────────────
 // Three tiers again, but the party's own eyes draw the top one instead of the room record:
-// what a sweep reaches is clear, what they have swept or the DM has revealed is a memory,
-// and the rest is the same void. Built here, on mutation, for the reason the room mask is —
-// `tick()` draws, it never computes.
+// what a sweep reaches is clear, what they have swept or the DM has revealed is a memory, and
+// the rest is the same void.
+//
+// The *mask* itself is no longer built here. It is composited on the GPU from a pure draw plan
+// (`tierPlan.ts` + `tierCompositor.ts`, docs/2026-09-01-raster-fog-mask-plan.md), so the Clipper
+// booleans that used to run per drag are gone along with the marching-squares memory outline
+// they consumed. What is left below is the measurements and the record decoding both pipelines
+// share — and the DM's own overlay still reads.
 
 /**
  * How far past a sweep's own boundary the clear area reaches, from the room mask's `pad`.
@@ -274,9 +285,10 @@ export const sightPad = (pad: number): number => (pad + FOG_MARGIN) / 2;
  * is a row of cells that already share their edges.
  *
  * Exact, and cell-shaped — which is what the DM's own brush wash wants (`FogOverlay`: the
- * referee is being shown which cells they painted) and what the player's tier does not. W3
- * moved that half onto a painted outline (`memoryOutline`); this stays the DM's, and the
- * fallback for a record too large to paint.
+ * referee is being shown which cells they painted). The player's memory tier stopped wanting
+ * that shape twice over: W3 painted it as an outline, and the raster compositor now uploads the
+ * record itself as one texel per cell. What still reads these is the DM's wash and `tierPlan`'s
+ * held clip on a map nobody zoned, where the record's runs *are* the ground the player holds.
  */
 export function regionRects(region: RegionMask | undefined): Polygon[] {
   if (!region) return [];
@@ -306,92 +318,20 @@ export function regionRects(region: RegionMask | undefined): Polygon[] {
   return rects;
 }
 
-/** How many cells those runs are made of. The mask counts the record's bits directly. */
-export const cellsIn = (rects: readonly Polygon[]): number =>
-  rects.reduce((n, rect) => n + (rect[1][0] - rect[0][0]), 0);
-
 /**
- * A region's falloff limit in one Clipper call, where {@link fogRegion} takes three (P6 §1).
+ * How many cells the record actually holds — what `__fogProbe.memoryCells` reports.
  *
- * Two identities do the work. Offsetting distributes over union — `(A ∪ B) ⊕ D` is
- * `(A ⊕ D) ∪ (B ⊕ D)` for a disc `D` — so the union `fogRegion` runs between its two offsets
- * buys nothing that the *callers* of this do not already get: every consumer below hands the
- * result straight to a Clipper boolean, and those fill NonZero, where overlapping rings of one
- * orientation are one region. And offsetting composes — `(A ⊕ D_p) ⊕ D_f` is `A ⊕ D_{p+f}` —
- * so `clear` and its feather are one offset rather than two, which matters because the second
- * one ran over the *offset* geometry: round joins at `ARC_TOLERANCE` had already tripled the
- * vertex count by then.
- *
- * Measured on the gate map with eight sighted tokens (13 rooms, 206 walls, jsdom + the same
- * WASM): the party's reach 8.45ms → 2.75ms, the held reach 6.30ms → 1.54ms, and the whole
- * `visionRegion` 34.7ms → 17.7ms before any memo. The regions agree to arc-discretisation
- * noise — 0.48 of 823 square cells symmetric difference on the sweep union, a sliver a fifth
- * of a pixel wide along the rim.
- *
- * `fogRegion` keeps the three calls because it keeps `clear` *and* withholds `blocked` from
- * both tiers, and the order of those two matters (a blocked strip the feather would otherwise
- * step over). Nothing in vision mode blocks anything, which is why this is its own function
- * rather than a flag on that one.
+ * The record's own bit count, not the area that survived the clip: it answers "has the party's
+ * memory grown", which is what the probe is for. `tierPlan` carries it into the plan.
  */
-const reachOf = (polys: readonly Polygon[], grow: number): Polygon[] =>
-  polys.length > 0 ? clipper2Engine.inflate([...polys], grow) : [];
-
-/**
- * One slot, keyed on an argument list compared by identity — `FogOverlay`'s `rectsOf` pattern,
- * lifted because P6 needs it four times over.
- *
- * One slot rather than an LRU for the reason that pattern has one: every input here is
- * replaced wholesale on a write (§2.5), so the answer that can be asked for again is the
- * previous one. Module-level for the reason `sightCache` is — there is one mask per tab, and a
- * second instance would be a second cache over the same answers.
- */
-function memoOnce<T>(): (key: readonly unknown[], build: () => T) => T {
-  let seen: readonly unknown[] | null = null;
-  let value: T;
-  return (key, build) => {
-    const last = seen;
-    if (!last || key.length !== last.length || key.some((v, i) => v !== last[i])) {
-      seen = key;
-      value = build();
-    }
-    return value;
-  };
-}
-
-/**
- * The four halves of the vision mask that do *not* move when the party does (P6 §1).
- *
- * The rooms a player holds change on a reveal delta, the rooms the DM has lit change on a
- * reveal, and the region record changes when the referee writes cells — none of which is what
- * a drag does. Everything downstream of the party's own sweep is rebuilt every frame the mask
- * is; everything upstream of it is these.
- *
- * The keys are what each answer is a statement about, by identity: room boundaries come off
- * the loaded document and are stable while it is, and the region record is keyed on its own
- * bytes rather than on the fog slice — a fog `state-update` is fresh JSON for a mode flip or a
- * share change that touches no cell at all (`FogOverlay`, same reason).
- */
-const heldReach = memoOnce<Polygon[]>();
-const revealedReach = memoOnce<Polygon[]>();
-const memoryMask = memoOnce<MemoryMask>();
-const rememberedHeld = memoOnce<Polygon[]>();
-
-/** The explored tier's silhouette, and the cell count the probe reports beside it. */
-interface MemoryMask {
-  rings: Polygon[];
-  cells: number;
-}
-
-/**
- * W3 — the swept cells as one soft outline, painted once per region delta (`memoryMask.ts`).
- *
- * The row runs stay the fallback rather than the path: they are exact, and on a record too
- * large to paint (`MASK_MAX_CELLS`) a stair-stepped tier beats no tier. Everything downstream
- * takes these rings exactly as it took the rects — same orientation, same non-zero union.
- */
-function memoryOutline(region: RegionMask | undefined): MemoryMask {
-  const field = maskField(region);
-  return { rings: field ? maskRings(field) : regionRects(region), cells: regionCells(region) };
+export function regionCells(region: RegionMask | undefined): number {
+  if (!region) return 0;
+  const bytes = toBytes(region.bits);
+  let n = 0;
+  for (let bit = 0; bit < region.cols * region.rows; bit++) {
+    if ((bytes[bit >>> 3] & (1 << (bit & 7))) !== 0) n++;
+  }
+  return n;
 }
 
 /**
@@ -413,133 +353,6 @@ export interface NightSight {
    * ring reads like a dim pool the token carries rather than a circle with a blurred edge.
    */
   pools: readonly FogPool[];
-}
-
-/** What the vision mask draws. Void is everything neither tier covers, as it always was. */
-export interface VisionRegion {
-  /** Live sight: the party's sweep union, out to the falloff's limit. Nothing is drawn here. */
-  clear: Polygon[];
-  /** The explored wash — swept cells and DM-revealed rooms, minus whatever is live. */
-  memory: Polygon[];
-  /** Both of them as one region, which is the hole the scrim cuts and the dots clip to. */
-  shown: Polygon[];
-  /**
-   * How many cells the region record holds — §4's `memoryCells`.
-   *
-   * ponytail: the record's own bit count, not the area that survived the clip. It answers
-   * "has the party's memory grown", which is what the probe is for; measuring the drawn
-   * area would mean walking the clipped rings and is worth writing the day a row asks.
-   */
-  cells: number;
-}
-
-/**
- * The vision mask's geometry, in one pass of Clipper — the same engine and the same
- * `clear`/`reach` relationship {@link fogRegion} builds the room mask from.
- *
- * `revealed` is the rooms the DM has lit by hand, and they land in the *memory* tier rather
- * than the clear one on purpose: the party knows that layout because they were told, and
- * their own eyes are the only thing that makes anything live. A re-hidden room contributes
- * nothing extra — the cells they earned still show, and taking those back is a region-hide.
- *
- * `shipped` is every room the player actually holds geometry for and `painted` the ground the
- * map carries terrain paint on; *both* earned tiers are clipped to the two of them together
- * (see `held`). A cell swept on bare unzoned map would otherwise put a wash over void that has
- * nothing under it to remember, and a sweep running past the last ground they hold would cut a
- * bare-background wedge out of the scrim — while painted ground between two floors is map with
- * art on it, and reveals like any other.
- *
- * Without Clipper2 loaded the intersections are empty, so the mask degrades to solid void —
- * dark rather than open, the direction a fog bug should fail in.
- *
- * P6 §1 took the eleven Clipper calls this used to cost down to four on a drag: `reachOf`
- * folds each of the three-call reaches into one offset, and the four answers a moving token
- * does not change are memoized above. What is left is the party's own reach and the three
- * booleans that shape it against everything they have already earned — measured 34.7ms →
- * 13.0ms on the gate map with eight sighted tokens (jsdom; the browser number and the pinned
- * budget are the gate spec's). Nothing here is a second geometry pipeline, which is what the
- * remaining floor would cost: those four calls are Clipper's own work on ~1600 vertices of
- * offset sweep, and the only lever left is fewer vertices going in.
- */
-export function visionRegion(
-  sight: readonly Polygon[],
-  region: RegionMask | undefined,
-  revealed: readonly Polygon[],
-  shipped: readonly Polygon[],
-  pad: number,
-  feather: number,
-  night?: NightSight,
-  painted: readonly Polygon[] = [],
-): VisionRegion {
-  const mask = memoryMask(
-    [region?.bits, region?.minX, region?.minY, region?.cols, region?.rows],
-    () => memoryOutline(region),
-  );
-  // …and the ground the map carries paint on, which is the other half of "something to see".
-  //
-  // `shipped` alone was the whole of it, on the premise that map outside a room is void. Two
-  // things made that false. Ground is painted terrain now ("floor = terrain with walls", PR
-  // #53), and a map can carry a strip of splat paint between two floors that no room covers;
-  // and vision-mode brushed cells are walkable, so a player can stand on that strip. On the
-  // Goblin Warren the path from the forest to the cave mouth is exactly that — 2.8 cells of
-  // painted ground, zoned by nothing — and the clip left it under solid black on every player
-  // seat, revealed rooms either side of it, while the referee watched them walk down it.
-  //
-  // Painted ground opens the tiers, it does not fill them: what is *shown* there is still the
-  // party's own sweep and the referee's own region record, both clipped to this. Ground with
-  // no paint on it and no room over it stays void, which is what the clip was always for.
-  const held = heldReach([pad, feather, ...painted, ...shipped], () =>
-    clipper2Engine.union([...reachOf(shipped, pad + feather), ...painted], []),
-  );
-  const swept = reachOf(sight, sightPad(pad) + feather);
-  // Clipped to `held` for the reason the memory tier is, and it is the louder of the two: the
-  // scrim is grown to cover the sweep (`drawFog`), so a sight polygon escaping the geometry
-  // the player holds cuts a real hole in it — bare background, no dots, in the shape of the
-  // party's own sightline over map they were never sent. Unheld space stays void.
-  const sweptHeld =
-    swept.length > 0 && held.length > 0 ? clipper2Engine.intersection(swept, held) : [];
-  // §3.3 — the light gate, as one more intersection on the same pipeline. A light's pool is
-  // padded exactly as a sweep is (`sightPad`), so a torch in a room lights the room's wall band
-  // rather than stopping on the segments' centreline and leaving the stones dark.
-  //
-  // ponytail: these two are not memoized where the four above are. A torch is carried, so its
-  // reach moves with the party rather than with the map — but only the *mover's* does, and a
-  // seven-eighths hit is there for a slot each on the polygon identities. Worth writing the day
-  // a table plays a whole session in the dark; the gate's night median is 20.5ms against the
-  // day's 13.2, and the fps guard covers both.
-  const litReach = night ? reachOf(night.lit, sightPad(pad) + feather) : [];
-  const darkReach = night ? reachOf(night.darkvision, sightPad(pad) + feather) : [];
-  const seeable = night ? clipper2Engine.union([...litReach, ...darkReach], []) : [];
-  const clear = !night
-    ? sweptHeld
-    : sweptHeld.length > 0 && seeable.length > 0
-      ? clipper2Engine.intersection(sweptHeld, seeable)
-      : [];
-  // Nothing grades what that gate let through: unlit ground a darkvision eye reaches is the
-  // map's own floor under the night grade, exactly as the referee sees it, and how a pool runs
-  // out at its rim is the cloud's to draw (`NightSight.pools`), not a fill's.
-  // Everything the party has *already* earned, which is the half a moving token never touches:
-  // one union and one intersection, memoized on the three answers they are built from.
-  const revealedGrown = revealedReach([pad, feather, ...revealed], () =>
-    reachOf(revealed, pad + feather),
-  );
-  const inside = rememberedHeld([mask, revealedGrown, held], () => {
-    const remembered = clipper2Engine.union([...mask.rings, ...revealedGrown], []);
-    return remembered.length > 0 && held.length > 0
-      ? clipper2Engine.intersection(remembered, held)
-      : [];
-  });
-  const memory = clear.length > 0 ? clipper2Engine.difference(inside, clear) : inside;
-  return {
-    clear,
-    memory,
-    // Unioned rather than drawn as two holes: `cut` takes a set of holes on the promise that
-    // they do not overlap, and the feather runs round the outside of everything the party
-    // holds — a rim between a lit sweep and its own memory would be a line drawn where the
-    // light is still on.
-    shown: clipper2Engine.union([...clear, ...memory], []),
-    cells: mask.cells,
-  };
 }
 
 /** The room polygon under a world point, or undefined for unzoned map (D6). */
@@ -610,7 +423,7 @@ export function fogFrame(mapData: unknown): Frame | null {
  * whole-map splat going to players is a documented decision — `http.ts`'s `getMapImage`).
  *
  * This is a *clip* on what the party's own sight and the referee's own region record are
- * allowed to open (`visionRegion`), never a reveal of its own. Nothing painted, nothing
+ * allowed to open (`tierPlan`'s held clip), never a reveal of its own. Nothing painted, nothing
  * switched on, or an empty palette ⇒ no painted ground at all, and the clip is what it was.
  *
  * It used to answer with the splat's bounding box, and a box is a claim about a rectangle
@@ -681,6 +494,46 @@ export function partlySeenRooms(rooms: readonly Room[], region: RegionMask | und
 }
 
 /**
+ * Every authored explore lock in the layers handed over, as a rectangle each.
+ *
+ * Only ever non-empty on the DM's copy: a zone is prep and the redaction strips zones from a
+ * player's document unconditionally ("prep never travels", server `redactMap.ts`). So this is
+ * the DM's sight preview's answer, and a player's near pass is fenced by the shipping clip
+ * instead — on a walled map that already excludes a locked room, which is never credited and
+ * so never ships.
+ *
+ * ponytail: a circle lock becomes its bounding box, which over-fences rather than under —
+ * the mask shows *less* than the referee granted, never more, and the referee still tests the
+ * real geometry per cell (`inAnyLock`). The precise answer is the circle as a polygon, worth
+ * writing the day a table measures a corner it should have been able to see.
+ */
+export function exploreLocks(layers: readonly Layer[]): Polygon[] {
+  return layers
+    .flatMap((layer) => (layer.type === 'dungeon' ? layer.children : []))
+    .filter((child): child is ZoneChild => child.childType === 'zone' && !!child.blocksAutoExplore)
+    .flatMap((zone) => {
+      const s = zone.shape;
+      const box =
+        s.kind === 'circle'
+          ? [s.position.x - s.radius, s.position.y - s.radius, s.position.x + s.radius, s.position.y + s.radius]
+          : // A point zone has no area to lock, and the server refuses it too (`exploreLocks`).
+            s.kind === 'rect'
+            ? [s.x, s.y, s.x + s.width, s.y + s.height]
+            : null;
+      if (!box) return [];
+      const [x0, y0, x1, y1] = box;
+      return [
+        [
+          [x0, y0],
+          [x1, y0],
+          [x1, y1],
+          [x0, y1],
+        ] as Polygon,
+      ];
+    });
+}
+
+/**
  * Rooms an authored explore lock covers (§5) — the DM's badge for "the party's own sight will
  * never open this one; it is yours to reveal".
  *
@@ -691,17 +544,7 @@ export function partlySeenRooms(rooms: readonly Room[], region: RegionMask | und
  * already tests the real geometry per cell (`inAnyLock`), so nothing but this label is coarse.
  */
 export function lockedRooms(rooms: readonly Room[], layers: readonly Layer[]): Set<string> {
-  const locks = layers
-    .flatMap((layer) => (layer.type === 'dungeon' ? layer.children : []))
-    .filter((child): child is ZoneChild => child.childType === 'zone' && !!child.blocksAutoExplore)
-    .flatMap((zone) => {
-      const s = zone.shape;
-      if (s.kind === 'circle') {
-        return [[s.position.x - s.radius, s.position.y - s.radius, s.position.x + s.radius, s.position.y + s.radius]];
-      }
-      // A point zone has no area to lock, and the server refuses it too (`exploreLocks`).
-      return s.kind === 'rect' ? [[s.x, s.y, s.x + s.width, s.y + s.height]] : [];
-    });
+  const locks = exploreLocks(layers).map((poly) => [poly[0][0], poly[0][1], poly[2][0], poly[2][1]]);
 
   const locked = new Set<string>();
   if (locks.length === 0) return locked;

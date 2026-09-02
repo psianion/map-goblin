@@ -181,8 +181,12 @@ export function PropertiesPanel({ openSections, onToggleSection }: SectionContro
     )
   }
 
-  // If first selected child is a door, show door properties
-  if (selectedChild?.childType === 'door' && activeLayer) {
+  // If first selected child is a door, show door properties. A door drawn as a
+  // blob between rooms is the same concept and wears the same panel.
+  if (
+    (selectedChild?.childType === 'door' || selectedChild?.childType === 'connector') &&
+    activeLayer
+  ) {
     return (
       <div className="flex flex-col pt-2">
         {blockedReason && <LockedNote reason={blockedReason} />}

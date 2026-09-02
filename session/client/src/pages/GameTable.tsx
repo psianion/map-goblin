@@ -21,6 +21,7 @@ import { useHotkeys } from '../shell/hotkeys';
 import { useOverlayMode, useShell } from '../shell/shellStore';
 import { usePanels } from '../session/panels';
 import { resumeSeat, useRole } from '../session/store';
+import { useRefusalToasts } from '../session/useRefusalToasts';
 import { useTriggerToasts } from '../session/useTriggerToasts';
 
 // Side-effect imports: each of these calls `registerPanel` at module scope. This
@@ -59,6 +60,11 @@ export default function GameTable() {
   // than inside a panel, because it has to run whether or not the triggers panel (DM-only)
   // or any panel at all is open.
   useTriggerToasts();
+
+  // Same reason, for the answer to a command the server refused: the panels that used to
+  // carry this only render while their popover is open, so a player with the rail closed —
+  // the normal way to play — got no word at all that their move had been turned down.
+  useRefusalToasts();
 
   // Mounted here rather than from a panel for the same reason: whose turn it is has to be
   // marked on the map for every seat, however the rail happens to be filtered.

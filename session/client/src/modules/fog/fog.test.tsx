@@ -322,6 +322,64 @@ describe('FogHeaderActions', () => {
     expect(sent[1]).toMatchObject({ action: 'set-share', payload: { visionShare: 'individual' } });
   });
 
+  // S3 P3 — the fence is on unless the DM says otherwise (`containedSightOn`), so the switch
+  // has to read `on` for a scene that has never heard of the field.
+  it('shows contained sight on by default and flips it off', () => {
+    useSessionStore.setState({ session: session({ fog: visionScene() }), you: dm });
+    const sent = captureCommands();
+    render(<FogHeaderActions />);
+    fireEvent.click(screen.getByRole('button', { name: 'Fog settings' }));
+
+    expect(screen.getByTestId('fog-containment').getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(screen.getByTestId('fog-containment'));
+    expect(sent[0]).toMatchObject({
+      module: 'fog',
+      action: 'set-containment',
+      payload: { containedSight: false },
+    });
+  });
+
+  it('reads the switch back off a scene the DM turned it off on', () => {
+    useSessionStore.setState({
+      session: session({ fog: visionScene({ containedSight: false }) }),
+      you: dm,
+    });
+    const sent = captureCommands();
+    render(<FogHeaderActions />);
+    fireEvent.click(screen.getByRole('button', { name: 'Fog settings' }));
+
+    expect(screen.getByTestId('fog-containment').getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(screen.getByTestId('fog-containment'));
+    expect(sent[0]).toMatchObject({ action: 'set-containment', payload: { containedSight: true } });
+  });
+
+  // …and unlike Reveal all it is not gated on the map having rooms: `mapData` here carries a
+  // dungeon layer with none, which is the imported battlemap this button matters most on.
+  it('opens the whole map from the vision block, rooms or no rooms, and closes the menu', () => {
+    useSessionStore.setState({
+      session: session({ fog: visionScene() }),
+      you: dm,
+      mapData: { layers: [dungeonLayer([])] },
+    });
+    const sent = captureCommands();
+    render(<FogHeaderActions />);
+    fireEvent.click(screen.getByRole('button', { name: 'Fog settings' }));
+
+    fireEvent.click(screen.getByTestId('fog-open-map'));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ module: 'fog', action: 'open-map', payload: {} });
+    expect(screen.queryByTestId('fog-conceal')).toBeNull();
+  });
+
+  it('keeps contained sight and Open whole map out of a rooms-mode table', () => {
+    useSessionStore.setState({ session: session({ fog: fogWith({}) }), you: dm });
+    render(<FogHeaderActions />);
+    fireEvent.click(screen.getByRole('button', { name: 'Fog settings' }));
+
+    expect(screen.queryByTestId('fog-containment')).toBeNull();
+    expect(screen.queryByTestId('fog-open-map')).toBeNull();
+  });
+
   it('flips concealment behind doors', () => {
     useSessionStore.setState({ session: session({ fog: fogWith({}, true) }), you: dm });
     const sent = captureCommands();
@@ -551,6 +609,21 @@ describe('the hint line', () => {
 // ── The room grid — status as shape, direction-aware chip clicks ───────────
 
 describe('the room grid', () => {
+  // S3 P3 — the roomless empty state used to sell the brush as the battlemap's substitute
+  // for rooms. Under contained sight the ground it reveals is the fence live sight may reach
+  // inside, so the sentence has to say what revealing ground buys, not just that it exists.
+  it('tells a roomless vision map that sight stays inside what the brush reveals', () => {
+    useSessionStore.setState({
+      session: session({ fog: visionScene() }),
+      you: dm,
+      mapData: { layers: [dungeonLayer([])] },
+    });
+    render(<FogTool />);
+    expect(screen.getByTestId('fog-no-rooms').textContent).toContain(
+      'sight stays inside what you reveal',
+    );
+  });
+
   it('groups Unrevealed then Revealed, with counts, unrevealed first', () => {
     useSessionStore.setState({
       session: session({ fog: fogWith({ 'r-crypt': { status: 'revealed', wasEverRevealed: true } }) }),

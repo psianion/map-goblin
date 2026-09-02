@@ -12,7 +12,21 @@ import type { WorldBounds } from '@dnd/core/src/shared/mapBounds'
 import { computeMergedFloor } from '@dnd/core/src/engine/mergedFloor'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design, same waiver clipperBoot.ts takes (see its header)
 import { isClipperReady } from '@dnd/core/src/geometry/Clipper2Engine'
-import type { AnyChild, DoorChild, LightChild, Room, WallSegment, ZoneChild } from '@dnd/core/src/shared/types'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design, same waiver clipperBoot.ts takes (see its header)
+import {
+  authoredBoundaries,
+  authoredRing,
+  connectorToDoor,
+} from '@dnd/core/src/shared/authoredRooms'
+import type {
+  AnyChild,
+  ConnectorChild,
+  DoorChild,
+  LightChild,
+  Room,
+  WallSegment,
+  ZoneChild,
+} from '@dnd/core/src/shared/types'
 import type { DungeonLayer, Layer, SerializedMapData } from '@dnd/core/src/store/types'
 import type { Stores } from '../db/stores'
 import { validateMapData } from '../mapImport'
@@ -29,6 +43,12 @@ const WALL_PROBE = 0.5
 /** ponytail: two maps is a DM switching scenes; a third is rare and a fourth is a leak. */
 export const CACHE_MAX = 3
 
+/** A connector's blob ring and the door twin that stands for it in the graph. */
+export interface ConnectorBlob {
+  door: DoorChild
+  ring: readonly [number, number][]
+}
+
 export interface SceneMap {
   /** The campaign the map belongs to — module state is keyed by it. */
   campaignId: string
@@ -42,7 +62,14 @@ export interface SceneMap {
   frame: WorldBounds | null
   /** Every dungeon layer's rooms, corridors included: they are rooms like any other (D6). */
   rooms: readonly Room[]
+  /** Wall doors and connector door twins alike — one graph, one live state (C1). */
   doors: readonly DoorChild[]
+  /**
+   * The authored joints, blob ring baked, beside the twin they contribute to `doors`.
+   * The ring is here and nowhere else: only S3's standability fallback asks where a
+   * connector's *interior* is, and nothing ships it (W2).
+   */
+  connectors: readonly ConnectorBlob[]
   /** DM-authored trigger anchors (M4) — never rendered, never sent to a player (prep.ts). */
   zones: readonly ZoneChild[]
   /** Every authored light, whole (S3 P3 §2): the runner needs where they are and how far they
@@ -99,6 +126,31 @@ export function isDungeon(layer: Layer): layer is DungeonLayer {
 // A stored map is uploaded JSON: it satisfied `validateMapData`, which checks the envelope
 // and not every array inside it. These two are read on every scene, so they read defensively.
 export const childrenOf = (layer: DungeonLayer): readonly AnyChild[] => layer.children ?? []
+
+/**
+ * The same children, as every lane that plays or ships a map reads them: a connector is
+ * its door twin (C1/C3 — `connectorToDoor`), and a drawn room is nothing at all.
+ *
+ * One rewrite, at the one place both the door index and the player cut draw their children
+ * from, is what keeps the whole door lane — live state, held set, glyph, facing — unaware
+ * that a connector exists. The raw children stay raw for `sweep.ts`, which reads
+ * `data.layers` itself.
+ *
+ * The room and the blob travel *beside* the twin rather than being erased by it (P2's
+ * refinement of W2), because a drawn room's boundary is now the wall that stops sight and
+ * its blob is the doorway through it — and the table takes its own sweep off the layers it
+ * holds. A player without them would see straight through the walls of the rooms they had
+ * earned. Credit still fences them: `slice` ships a room child only for a room the party
+ * has earned, and a blob only where it joins one, so the contour a player receives is the
+ * `Room.boundary` they were already owed and nothing more.
+ */
+export const shippableChildren = (layer: DungeonLayer): readonly AnyChild[] => {
+  const kids = childrenOf(layer)
+  const boundaries = authoredBoundaries(kids)
+  return kids.flatMap((child): AnyChild[] =>
+    child.childType === 'connector' ? [connectorToDoor(child, boundaries), child] : [child],
+  )
+}
 export const wallsOf = (layer: DungeonLayer): readonly WallSegment[] => layer.standaloneWalls ?? []
 
 /**
@@ -138,8 +190,15 @@ function index(campaignId: string, data: SerializedMapData): SceneMap {
   healMergedFloor(data)
   const layers = data.layers.filter(isDungeon)
   const rooms = layers.flatMap((layer) => layer.rooms ?? [])
+  // Connectors ride in here as their door twins, which is the whole of C1: `doorsOfScene`
+  // seeds them, `visibleRooms`/`blockedEdge` walk them as edges, the held set ships them.
   const doors = layers.flatMap((layer) =>
-    childrenOf(layer).filter((child): child is DoorChild => child.childType === 'door'),
+    shippableChildren(layer).filter((child): child is DoorChild => child.childType === 'door'),
+  )
+  const connectors = layers.flatMap((layer) =>
+    childrenOf(layer)
+      .filter((child): child is ConnectorChild => child.childType === 'connector')
+      .map((child) => ({ door: connectorToDoor(child), ring: authoredRing(child) })),
   )
   const zones = layers.flatMap((layer) =>
     childrenOf(layer).filter((child): child is ZoneChild => child.childType === 'zone'),
@@ -158,6 +217,7 @@ function index(campaignId: string, data: SerializedMapData): SceneMap {
     ),
     rooms,
     doors,
+    connectors,
     zones,
     lights,
     lightNames,
@@ -222,8 +282,11 @@ export function centreOf(child: AnyChild): [number, number] {
         maxY = Math.max(maxY, y)
       }
       // ponytail: translate only — a rotated or scaled outline is judged by its untransformed
-      // centre. Nothing the editor writes today uses those on a floor shape.
-      const [dx, dy] = (child.childType === 'shape' && child.transform?.translate) || [0, 0]
+      // centre. Nothing the editor writes today uses those on a floor shape. Applied to every
+      // ring child that has one, not shapes alone: `authoredRing` honours a room's or a
+      // joint's transform, and the two answering differently is a bug waiting on the first
+      // unbaked one. (Water rings carry no transform at all, hence the `in`.)
+      const [dx, dy] = ('transform' in child ? child.transform?.translate : null) ?? [0, 0]
       return [(minX + maxX) / 2 + dx, (minY + maxY) / 2 + dy]
     }
   }

@@ -121,11 +121,38 @@ describe('the party sweep the mask is cut to (S3 P2 §2)', () => {
         [0, 10],
       ],
     ];
-    // The ring's own east edge (x=10) now occludes independently of the door on wall-mid
-    // (x=11, open) — the party is boxed inside their floor's authored footprint.
-    expect(sees(createSightCache().partySight(boxed, [scout()]), [12.5, 5])).toBe(false);
+    // The ring's own east edge (x=10) occludes everywhere the doorway is not: level with the
+    // door it is part of that doorway and opens with it, a cell and a half above it is floor
+    // boundary and stops the sweep exactly as the wall behind it does.
+    //
+    // This row used to assert the opposite at y=5 — that an open door on `wall-mid` left the
+    // ring edge a cell in front of it solid, boxing the party inside their own floor. That is
+    // the bug `toOcclusionDoors`' aperture rule fixes: a doorway is one gap through everything
+    // standing in it, and a DM who opens a door on a map whose floor stops short of the wall
+    // must not be opening a door onto a second wall nobody can see.
+    expect(sees(createSightCache().partySight(boxed, [scout()]), [12.5, 5])).toBe(true);
+    expect(sees(createSightCache().partySight(boxed, [scout()]), [12.5, 2.5])).toBe(false);
     // …and still sees to its own edge, inside the ring.
     expect(sees(createSightCache().partySight(boxed, [scout()]), [9.5, 5])).toBe(true);
+  });
+
+  it('keeps a mergedFloor edge solid where no door pierces it', () => {
+    // The other half of the aperture rule, and the one that keeps it honest: the same ring,
+    // the same open door, and a sweep taken from level with the ring's edge but well clear of
+    // the doorway. Nothing is opened here, so nothing gets through — a rule that widened a
+    // door into a hole in the whole ring would read `true` on both of these.
+    const boxed = layersWith([door({ state: 'open' })]);
+    (boxed[0] as unknown as { mergedFloor: unknown }).mergedFloor = [
+      [
+        [0, 0],
+        [10, 0],
+        [10, 10],
+        [0, 10],
+      ],
+    ];
+    const low = createSightCache().partySight(boxed, [scout({ y: 1 })]);
+    expect(sees(low, [9.5, 1])).toBe(true);
+    expect(sees(low, [12.5, 1])).toBe(false);
   });
 
   it('draws through claimed, unhidden, sighted eyes and no others', () => {
@@ -204,5 +231,85 @@ describe('the memo that keeps a still party from paying twice', () => {
 
     expect(cache.partySight(layers, [scout({ id: 't1' }), scout({ id: 't2', x: 3 })])).toHaveLength(2);
     expect(cache.sweeps()).toBe(2);
+  });
+});
+
+// ── O1/O2 on the table's own occluders ──────────────────────────────────────
+//
+// The mask is cut to the sweep this cache takes, and it takes it against the layers this seat
+// holds — so a drawn room's boundary has to stop it here exactly as it stops the referee's
+// (session/server/src/fog/connectors.test.ts asks the same geometry the same questions). The
+// promotion is shared code and is proved in core; what is only true here is that a player's
+// own copy carries the contours and blobs to do it with.
+
+const rect = (x0: number, y0: number, x1: number, y1: number): [number, number][] => [
+  [x0, y0],
+  [x1, y0],
+  [x1, y1],
+  [x0, y1],
+];
+
+const roomChild = (id: string, x0: number, y0: number, x1: number, y1: number) =>
+  ({
+    id,
+    name: id,
+    childType: 'room',
+    visible: true,
+    contours: [rect(x0, y0, x1, y1)],
+  }) as unknown as DoorChild;
+
+const jointChild = (over: Record<string, unknown> = {}) =>
+  ({
+    id: 'joint',
+    name: 'the neck',
+    childType: 'connector',
+    visible: true,
+    contours: [rect(9, 4, 13, 6)],
+    kind: 'door',
+    state: 'closed',
+    isSecret: false,
+    ...over,
+  }) as unknown as DoorChild;
+
+/** The two drawn chambers, with whatever joint the row is about. A fresh array every call. */
+const drawnLayers = (joint: DoorChild | null): Layer[] => [
+  {
+    id: `drawn-${Math.random()}`,
+    type: 'dungeon',
+    visible: true,
+    children: [
+      roomChild('hall', 0, 0, 10, 10),
+      roomChild('crypt', 12, 0, 22, 10),
+      ...(joint ? [joint] : []),
+    ],
+    standaloneWalls: [],
+    mergedFloor: null,
+    rooms: [],
+  } as unknown as Layer,
+];
+
+describe('the sweep against rooms the DM drew (O1/O2)', () => {
+  const look = (joint: DoorChild | null) =>
+    createSightCache().partySight(drawnLayers(joint), [scout()]);
+
+  it('stops on a drawn boundary with no joint through it', () => {
+    const sight = look(null);
+    expect(sees(sight, [8, 5])).toBe(true);
+    expect(sees(sight, [17, 5])).toBe(false);
+  });
+
+  it('passes an open joint, and only across the doorway it cuts', () => {
+    const sight = look(jointChild({ state: 'open' }));
+    expect(sees(sight, [17, 5])).toBe(true);
+    expect(sees(sight, [17, 1])).toBe(false);
+  });
+
+  it('stops at a shut one, locked or merely closed', () => {
+    expect(sees(look(jointChild({ state: 'closed' })), [17, 5])).toBe(false);
+    expect(sees(look(jointChild({ state: 'locked' })), [17, 5])).toBe(false);
+  });
+
+  it('stands an arch open whatever the map file authored on it', () => {
+    expect(sees(look(jointChild({ kind: 'arch', state: 'closed' })), [17, 5])).toBe(true);
   });
 });

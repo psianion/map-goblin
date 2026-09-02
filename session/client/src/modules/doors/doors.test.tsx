@@ -13,6 +13,7 @@ import { frameWorldPoint } from '../../renderer/camera';
 import type { WebSocketClient } from '../../session/WebSocketClient';
 import { useSessionStore } from '../../session/store';
 import { useToasts } from '../../session/toasts';
+import { useRefusalToasts } from '../../session/useRefusalToasts';
 import {
   DM_ENTITY_ALPHA,
   DOOR_CHIP_CEILING,
@@ -348,6 +349,110 @@ describe('the door art a player is shown', () => {
     const { sceneGraph, overlayContainer, engine } = harness();
     const unmount = mountDoorLayer(engine, sceneGraph);
     expect(artOf(overlayContainer).children).toEqual([]);
+    unmount();
+  });
+});
+
+// ── The stencil the marks wear ──────────────────────────────────────────────
+// Reported from a player seat: two wooden doors floating on the cloud, far from the one room
+// that had been revealed. Redaction was not the leak — in vision mode a room ships whole the
+// moment any of it is swept, so the seat legitimately *held* those doors — the leak was
+// drawing them above a mask that was still hiding the ground they stand on.
+
+describe('a door mark reaches exactly as far as the map does', () => {
+  /** Overlay container, a ticker whose callbacks the rows can run, and the fog's own layer. */
+  function harness(fogChildren: Container[] | null) {
+    const worldContainer = new Container();
+    const layerContainer = new Container();
+    layerContainer.label = 'layerContainer';
+    worldContainer.addChild(layerContainer);
+    const overlayContainer = new Container();
+    if (fogChildren) {
+      const fog = new Container();
+      fog.label = 'playerFog';
+      for (const child of fogChildren) fog.addChild(child);
+      overlayContainer.addChild(fog);
+    }
+    const ticks: (() => void)[] = [];
+    const sceneGraph = { worldContainer, layerContainer, overlayContainer } as unknown as SceneGraph;
+    const engine = {
+      canvas: () => document.createElement('canvas'),
+      ticker: () => ({ add: (fn: () => void) => ticks.push(fn), remove: () => {} }),
+    } as unknown as RenderEngine;
+    return { sceneGraph, overlayContainer, engine, frame: () => ticks.forEach((fn) => fn()) };
+  }
+
+  const stencil = (label: string): Container => {
+    const g = new Container();
+    g.label = label;
+    return g;
+  };
+
+  const doorLayerOf = (overlay: Container): Container =>
+    overlay.children.find((c) => String(c.label) === 'doorOverlay') as Container;
+  const artOf = (overlay: Container): Container => doorLayerOf(overlay).children[0] as Container;
+
+  it('wears the fog’s shown stencil on a player’s seat', () => {
+    const shown = stencil('shownMask');
+    useSessionStore.setState({ session: session(), you: player });
+    const { sceneGraph, overlayContainer, engine, frame } = harness([shown]);
+    const unmount = mountDoorLayer(engine, sceneGraph);
+    frame();
+
+    expect(doorLayerOf(overlayContainer).mask).toBe(shown);
+    expect(artOf(overlayContainer).visible).toBe(true);
+    unmount();
+  });
+
+  it('never wears the live-sight stencil the chips do', () => {
+    // The one substitution that would look right and be wrong: `sightMask` is live sight
+    // alone, so a remembered room would lose the doors it has already shown the party.
+    const sight = stencil('sightMask');
+    useSessionStore.setState({ session: session(), you: player });
+    const { sceneGraph, overlayContainer, engine, frame } = harness([sight]);
+    const unmount = mountDoorLayer(engine, sceneGraph);
+    frame();
+
+    expect(doorLayerOf(overlayContainer).mask ?? null).toBeNull();
+    unmount();
+  });
+
+  it('hides the player’s redraw when there is no stencil, rather than showing it', () => {
+    // Fail-dark. A missing stencil is a fog layer that has not mounted, or a scene with no fog
+    // at all; in neither case may this copy — which draws *above* the mask — be painted. The
+    // map's own world copy is still there, under whatever cover the fog does draw.
+    useSessionStore.setState({ session: session(), you: player });
+    const { sceneGraph, overlayContainer, engine, frame } = harness(null);
+    const unmount = mountDoorLayer(engine, sceneGraph);
+    frame();
+
+    expect(artOf(overlayContainer).children.length).toBeGreaterThan(0);
+    expect(artOf(overlayContainer).visible).toBe(false);
+    expect(doorLayerOf(overlayContainer).mask ?? null).toBeNull();
+    unmount();
+  });
+
+  it('leaves the DM’s own view unmasked', () => {
+    useSessionStore.setState({ session: session(), you: dm });
+    const { sceneGraph, overlayContainer, engine, frame } = harness(null);
+    const unmount = mountDoorLayer(engine, sceneGraph);
+    frame();
+
+    expect(doorLayerOf(overlayContainer).mask ?? null).toBeNull();
+    expect(marksOf(overlayContainer).children).toHaveLength(3);
+    unmount();
+  });
+
+  it('masks the DM’s marks while a sight preview is drawing a mask', () => {
+    // The preview exists to show the DM what the seat sees. Marks floating over its fog would
+    // make it lie about exactly the thing it is there to answer.
+    const shown = stencil('shownMask');
+    useSessionStore.setState({ session: session(), you: dm });
+    const { sceneGraph, overlayContainer, engine, frame } = harness([shown]);
+    const unmount = mountDoorLayer(engine, sceneGraph);
+    frame();
+
+    expect(doorLayerOf(overlayContainer).mask).toBe(shown);
     unmount();
   });
 });
@@ -763,9 +868,18 @@ describe('a refused door', () => {
     expect(doorRefusal(`${DOOR_LOCKED}: that door is locked`, held())).toBe('The door is locked.');
   });
 
+  /**
+   * The ear is GameTable's, not this panel's. A player pulling a door has no popover open —
+   * which is exactly why the panel-mounted version of this never reached them.
+   */
+  function RefusalEar() {
+    useRefusalToasts();
+    return null;
+  }
+
   it('toasts the player who pulled a locked door', () => {
     useSessionStore.setState({ session: session(), you: player });
-    render(<DoorPanel />);
+    render(<RefusalEar />);
     expect(useToasts.getState().toast).toBeNull();
 
     act(() =>
@@ -784,7 +898,7 @@ describe('a refused door', () => {
 
   it('gives the player who pulled a locked door exactly one toast, naming that door', () => {
     useSessionStore.setState({ session: session(), you: player });
-    render(<DoorPanel />);
+    render(<RefusalEar />);
 
     const shown: string[] = [];
     const unsubscribe = useToasts.subscribe((s) => {

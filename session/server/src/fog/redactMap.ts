@@ -6,18 +6,37 @@
 // Unzoned map is the DM's alone (D6) and an unrevealed secret door does not exist.
 
 import { seedDoor, type AuthoredDoor, type DoorLiveState } from '@dnd/mechanics/doors'
-import { fogModeOf, tableRegion, toBytes, type SceneFog } from '@dnd/mechanics/fog'
-import type { AnyChild, DoorChild, Room, ShapeChild, WallSegment } from '@dnd/core/src/shared/types'
+import {
+  fogModeOf,
+  regionOf,
+  setCells,
+  tableRegion,
+  toBytes,
+  type Cell,
+  type RegionMask,
+  type SceneFog,
+} from '@dnd/mechanics/fog'
+import type {
+  AnyChild,
+  ConnectorChild,
+  DoorChild,
+  Room,
+  ShapeChild,
+  WallSegment,
+} from '@dnd/core/src/shared/types'
 import type { DungeonLayer, SerializedMapData } from '@dnd/core/src/store/types'
+// eslint-disable-next-line @typescript-eslint/no-restricted-imports -- pixi-free by design, same waiver sceneMap.ts takes (see its header)
+import { connectorToDoor } from '@dnd/core/src/shared/authoredRooms'
 import {
   centreOf,
-  childrenOf,
+  shippableChildren,
   distanceToPoly,
   isDungeon,
   pointInPoly,
   wallsOf,
   type SceneMap,
 } from './sceneMap'
+import { exploreLocks, inAnyLock } from './sweep'
 
 /** One layer's worth of newly available geometry, shaped to be merged by layer id. */
 export interface MapDeltaLayer {
@@ -35,6 +54,15 @@ export interface MapDeltaLayer {
 export interface MapDelta {
   sceneId: string
   layers: MapDeltaLayer[]
+  /**
+   * The re-cut `lockMask` (see {@link lockMaskFor}), when this delta credits rooms — the same
+   * debt D5 makes a reveal pay for geometry, for the same reason. The mask is cut against the
+   * rooms a seat holds, a reveal is what grows that set, and nothing else re-cuts a connected
+   * seat's document: `mergeMapDelta` patches layers and the client re-fetches only on a join,
+   * a scene swap, a republish or a mode flip. Without this the newly shipped room's locked
+   * ground would have art, no fence, and no correction ever coming.
+   */
+  lockMask?: RegionMask
 }
 
 type Doors = Record<string, DoorLiveState>
@@ -72,27 +100,21 @@ export function redactMapForViewer(
   // Built once for the whole document, not once per layer: the ground lookup decodes the
   // region record, and the room boxes are a walk over every kept boundary.
   const cut = cutFor(scene, kept, groundOf(fog, scene.frame))
+  const lockMask = lockMaskFor(scene, fog, kept)
   return {
     ...docSansPrep,
     ...(framed ? { frame: scene.frame } : {}),
+    ...(lockMask ? { lockMask } : {}),
     layers: scene.data.layers.map((layer) => {
       if (!isDungeon(layer)) return layer
       // A layer nobody zoned has no fog to enforce — room-granular fog needs rooms (D6) — so
-      // its geometry goes over whole.
-      //
-      // Its doors do not. A door with no room to be bound to can never be earned, and the
-      // player's door marks are drawn *above* the fog mask on the strength of a player only
-      // ever holding doors they earned. Handing them over anyway put three marks at full
-      // brightness on a canvas that was otherwise black, which is the door positions
-      // disclosed by exactly the styling PRODUCT principle 2 says must never carry it.
-      // Zones are trigger anchors (prep), stripped with the same severity: a zone's
-      // position IS where the trap is.
+      // its geometry goes over whole, less what `childShips` withholds on that branch.
       if (!layer.rooms?.length) {
-        const kids = childrenOf(layer)
-        const cut = kids.filter((child) => child.childType !== 'door' && child.childType !== 'zone')
+        const kids = shippableChildren(layer)
+        const shipped = kids.filter((child) => childShips(child, layer, scene, kept, doors, cut))
         // Untouched when there was nothing to take, so a layer with no doors stays the very
         // object it arrived as rather than growing an empty `children` it never had.
-        return cut.length === kids.length ? layer : { ...layer, children: cut }
+        return shipped.length === kids.length ? layer : { ...layer, children: shipped }
       }
       return {
         ...layer,
@@ -125,7 +147,8 @@ export function redactMapForViewer(
  * a player is entitled to and hands whatever is new to this.
  *
  * `kept` is the *explored* room set, not the newly-revealed one: a door here joins rooms the
- * party has already earned, so it keeps both bindings. Nothing but a door is faced.
+ * party has already earned, so it keeps both bindings. Doors and joints are faced — a blob
+ * carries the same bindings its twin does and would otherwise name the room behind it.
  */
 export function childDeltaFor(
   scene: SceneMap,
@@ -140,9 +163,13 @@ export function childDeltaFor(
       .map((layer) => ({
         id: layer.id,
         rooms: [] as Room[],
-        children: childrenOf(layer)
+        children: shippableChildren(layer)
           .filter((child) => childIds.has(child.id))
-          .map((child) => (child.childType === 'door' ? facing(child, kept) : child)) as AnyChild[],
+          .map((child) =>
+            child.childType === 'door' || child.childType === 'connector'
+              ? facing(child, kept)
+              : child,
+          ) as AnyChild[],
         standaloneWalls: [] as WallSegment[],
       }))
       .filter((layer) => layer.children.length > 0),
@@ -180,8 +207,15 @@ export function mapDeltaFor(
 /**
  * FOG_MARGIN and the default wall width, from the client's `fogPad` — the *same* two numbers,
  * because this is the same distance measured from the other side. See `nearKeptRoom`.
+ *
+ * These are HAND-COPIES of `session/client/src/modules/fog/fog.ts:152` (`FOG_MARGIN`) and
+ * `:155` (`DEFAULT_WALL_WIDTH`). Nothing enforces the equality — no shared module, no test. If
+ * they drift, this file ships geometry by one pad while the client's mask cuts by another: too
+ * small here and the seat is missing art the mask has already opened (a hole in the world);
+ * too large and the seat holds map its mask never covers. Change one, change the other, in the
+ * same commit.
  */
-const FOG_MARGIN = 0.3
+const FOG_MARGIN = 0.5
 const DEFAULT_WALL_WIDTH = 0.5
 
 /** The widest wall band on the map plus its margin — `fogPad`, computed off the same styles. */
@@ -203,21 +237,68 @@ function slice(
 ): { rooms: Room[]; children: AnyChild[]; standaloneWalls: WallSegment[] } {
   return {
     rooms: (layer.rooms ?? []).filter((room) => kept.has(room.id)),
-    children: childrenOf(layer)
-      .filter((child) => {
-        // Prep never travels: a zone in a revealed room is still the DM's trap marker.
-        if (child.childType === 'zone') return false
-        return child.childType === 'door'
-          ? doorKept(child, kept, doors)
-          : childKept(child, scene, cut)
-      })
-      .map((child) => (child.childType === 'door' ? facing(child, facingSet) : child)),
+    children: shippableChildren(layer)
+      .filter((child) => childShips(child, layer, scene, kept, doors, cut))
+      // A joint on the edge of the known world keeps only the side the party has been,
+      // exactly as the door twin it also ships as does — the blob carries the same
+      // bindings and would otherwise name the room behind it.
+      .map((child) =>
+        child.childType === 'door' || child.childType === 'connector'
+          ? facing(child, facingSet)
+          : child,
+      ),
     // A wall belongs to the rooms on either side of it, so one shared with a room the
     // player has seen survives — it is that room's own outline either way.
     standaloneWalls: wallsOf(layer).filter((wall) =>
       scene.roomsAlong(wall).some((room) => kept.has(room)),
     ),
   }
+}
+
+/**
+ * Whether this child travels to a player at all — the one rule, called by the document cut
+ * (`slice`, and the unzoned branch above it) and by the delta lane (`keptChildIds`) alike.
+ *
+ * It is one function rather than two agreeing copies because the copies did not agree. W2's
+ * room and connector rules landed in `slice` only, so the comment over `keptChildIds`
+ * promising the two "cannot drift" was a promise with no mechanism behind it: every reveal
+ * delta shipped the contour of every drawn room on the layer, earned or not, and every blob
+ * on the map, while a fresh fetch of the same scene stripped exactly those.
+ */
+function childShips(
+  child: AnyChild,
+  layer: DungeonLayer,
+  scene: SceneMap,
+  kept: ReadonlySet<string>,
+  doors: Doors,
+  cut: Cut,
+): boolean {
+  // Prep never travels: a zone in a revealed room is still the DM's trap marker, and a
+  // zone's position IS where the trap is.
+  if (child.childType === 'zone') return false
+  // With no room on the layer there is nothing to earn and nothing for a contour to fence.
+  //
+  // A door with no room to be bound to can never be earned, and the player's door marks are
+  // drawn *above* the fog mask on the strength of a player only ever holding doors they
+  // earned. Handing them over anyway put three marks at full brightness on a canvas that was
+  // otherwise black, which is the door positions disclosed by exactly the styling PRODUCT
+  // principle 2 says must never carry it. Rooms and joints go with them: their outlines
+  // would be pure disclosure.
+  if (!layer.rooms?.length) {
+    return (
+      child.childType !== 'door' && child.childType !== 'room' && child.childType !== 'connector'
+    )
+  }
+  // A drawn room's contour and the blob that opens it are occluders (O1/O2), and the table
+  // sweeps its own copy — so they travel, fenced by exactly the credit that already fences
+  // the `Room` this contour is a duplicate of. An unearned room's outline never leaves the DM.
+  if (child.childType === 'room') return kept.has(child.id)
+  // A joint ships on its twin's rule and no second one. Testing the bindings alone read the
+  // same on an ordinary joint and wrongly on a secret one: the blob of a secret passage went
+  // over the wire while the door child that names it was withheld, leaving a state-frozen
+  // hole in the player's compositor that no drift entry would ever close.
+  if (child.childType === 'connector') return doorKept(connectorToDoor(child), kept, doors)
+  return child.childType === 'door' ? doorKept(child, kept, doors) : childKept(child, scene, cut)
 }
 
 /**
@@ -355,8 +436,86 @@ export function groundOf(fog: SceneFog, frame: SceneMap['frame']): Ground {
 }
 
 /**
- * Every child id a player is entitled to hold right now — the same predicate the document cut
- * uses, so what a reveal *delivers* and what a fresh fetch *contains* cannot drift.
+ * The auto-explore locks a player's own mask has to fence its near pass with, as cells.
+ *
+ * Zones are prep and never travel (`slice`, "prep never travels"), so a seat has no way to
+ * derive them — and without them a contained near pass clears fog over ground the referee
+ * refuses to write (`sweep.ts`'s `seen`, `vision.ts`'s `swept`), permanently, because the
+ * server never sends a correction for a cell it declined to grant. So the zones' *cells* ride
+ * the document instead: the same `inAnyLock` test the referee applies, evaluated on the cell
+ * centres `cellsCoveredByPolygon` counts by, so the fence and the refusal are the same shape.
+ *
+ * Intersected with the ground this seat actually holds art for, and that is the privacy half:
+ * a lock in a room nobody has earned would put its position on the wire. On a zoned map that
+ * is the kept rooms and their band (`nearKeptRoom` — the client's own `shippedGround` grows
+ * the room polygons by the very same pad), and nothing outside it needs a fence anyway, since
+ * `inverseShipped` already refuses to open ground with no art under it. A roomless map ships
+ * its image whole (#114), so every lock cell on it is one the near pass could otherwise open.
+ *
+ * Vision mode only — containment is a vision-mode feature and rooms mode reads none of this —
+ * and absent entirely when the map locks nothing, which is nearly every map.
+ *
+ * ponytail: scanned over the locks' own bounding box rather than the frame, because a frame
+ * runs to `REGION_CELL_MAX` (262144 cells) and the zones on it are a few dozen cells across.
+ */
+export function lockMaskFor(
+  scene: SceneMap,
+  fog: SceneFog,
+  kept: ReadonlySet<string>,
+): RegionMask | undefined {
+  if (fogModeOf(fog) !== 'vision' || !scene.frame) return undefined
+  const locks = exploreLocks(scene.zones)
+  const box = lockBox(locks)
+  const mask = box && regionOf(scene.frame)
+  if (!box || !mask) return undefined
+  // A map with rooms fences by the rooms this seat holds; a roomless one ships whole, so
+  // every lock cell counts.
+  const cut = scene.rooms.length > 0 ? cutFor(scene, kept) : null
+  const cells: Cell[] = []
+  const from = (v: number, origin: number) => Math.max(0, Math.floor(v - origin))
+  for (let row = from(box.minY, mask.minY); row < Math.min(mask.rows, Math.ceil(box.maxY - mask.minY)); row++) {
+    for (let col = from(box.minX, mask.minX); col < Math.min(mask.cols, Math.ceil(box.maxX - mask.minX)); col++) {
+      const [x, y] = [mask.minX + col + 0.5, mask.minY + row + 0.5]
+      if (!inAnyLock(locks, x, y)) continue
+      if (cut) {
+        const room = scene.roomAt(x, y)
+        if (!(room !== null && cut.kept.has(room)) && !nearKeptRoom(cut, x, y)) continue
+      }
+      cells.push([col, row])
+    }
+  }
+  return cells.length > 0 ? setCells(mask, cells) : undefined
+}
+
+/** The one box every lock zone fits in, or null when the map locks nothing. */
+function lockBox(
+  locks: ReturnType<typeof exploreLocks>,
+): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity]
+  for (const shape of locks) {
+    const [x0, y0, x1, y1] =
+      shape.kind === 'circle'
+        ? [
+            shape.position.x - shape.radius,
+            shape.position.y - shape.radius,
+            shape.position.x + shape.radius,
+            shape.position.y + shape.radius,
+          ]
+        : shape.kind === 'rect'
+          ? [shape.x, shape.y, shape.x + shape.width, shape.y + shape.height]
+          : [Infinity, Infinity, -Infinity, -Infinity]
+    minX = Math.min(minX, x0)
+    minY = Math.min(minY, y0)
+    maxX = Math.max(maxX, x1)
+    maxY = Math.max(maxY, y1)
+  }
+  return maxX > minX && maxY > minY ? { minX, minY, maxX, maxY } : null
+}
+
+/**
+ * Every child id a player is entitled to hold right now — literally `childShips`, the function
+ * the document cut calls, so what a reveal *delivers* and what a fresh fetch *contains* cannot
+ * drift. Keep it that way: the moment this grows a rule of its own the two are two rules again.
  *
  * `vision.ts` diffs this across mutations to find the children a brush stroke just earned; the
  * room slice covers the rest.
@@ -367,15 +526,8 @@ export function keptChildIds(scene: SceneMap, fog: SceneFog, doors: Doors): Set<
   const ids = new Set<string>()
   for (const layer of scene.data.layers) {
     if (!isDungeon(layer)) continue
-    for (const child of childrenOf(layer)) {
-      if (child.childType === 'zone') continue
-      // A layer nobody zoned goes over whole, less its doors — `redactMapForViewer`'s own rule.
-      const keep = !layer.rooms?.length
-        ? child.childType !== 'door'
-        : child.childType === 'door'
-          ? doorKept(child, kept, doors)
-          : childKept(child, scene, cut)
-      if (keep) ids.add(child.id)
+    for (const child of shippableChildren(layer)) {
+      if (childShips(child, layer, scene, kept, doors, cut)) ids.add(child.id)
     }
   }
   return ids
@@ -454,7 +606,7 @@ export function doorKept(door: DoorChild, kept: ReadonlySet<string>, doors: Door
  * them. Blank, not renamed — the client's own `doorLabel` already falls back to "Door N",
  * which is exactly what a player standing in front of it knows.
  */
-function facing(door: DoorChild, kept: ReadonlySet<string>): DoorChild {
+function facing<T extends DoorChild | ConnectorChild>(door: T, kept: ReadonlySet<string>): T {
   const unearned = (room: string | null | undefined) => !!room && !kept.has(room)
   return {
     ...door,

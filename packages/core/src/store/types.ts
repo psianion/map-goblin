@@ -183,7 +183,8 @@ export type ToolType =
   | 'terrain'
   | 'water'
   | 'text'
-  | 'zone';
+  | 'zone'
+  | 'room';
 
 export interface TerrainBrushSettings {
   /** Active palette slot index (0-5). */
@@ -366,6 +367,17 @@ export interface UISlice {
    * the default full moon, same as an untouched campaign does at the Table.
    */
   previewSky: NightSky | null;
+  /**
+   * Whether the authored room/connector ink is drawn while neither authoring tool is
+   * held (canvas/src/canvas/roomConnectorOverlay.ts). Same tier as `grid.visible`: a
+   * view preference, not persisted, not undoable, never serialized — the DM turning
+   * the loops off to look at their art is not an edit to the map.
+   *
+   * It governs the idle case only. The room and door tools force the ink back on
+   * for as long as they are held, because drawing a room you cannot see is not a thing
+   * anyone asked for.
+   */
+  roomOverlayVisible: boolean;
 }
 
 // ─── Assets ───────────────────────────────────────────────
@@ -518,6 +530,16 @@ export interface SerializedMapData {
    */
   frame?: { minX: number; minY: number; maxX: number; maxY: number } | null;
   /**
+   * The auto-explore lock zones this seat is allowed to know about, as one bit per cell
+   * (mechanics' `RegionMask`, structurally — spelled out here for the reason `frame` is:
+   * core does not depend on mechanics). Stamped by the session server beside `frame` on a
+   * player's vision-mode cut when the map locks any ground the seat holds art for; the
+   * player's mask subtracts it from the range-earned term of contained sight, which is the
+   * only way that seat can know about a zone it is never sent. Absent on authored files and
+   * on the DM's copy — the DM reads the real zones.
+   */
+  lockMask?: { minX: number; minY: number; cols: number; rows: number; bits: string };
+  /**
    * Stamped by the session server when the client asks for `?images=external`:
    * the keys of the images it left out of `customImages`, each fetchable as
    * binary from `GET /api/maps/:sceneId/images/:key`. Never present in files.
@@ -627,6 +649,7 @@ export interface MapBuilderStore {
   clearSolo: () => void;
   setPreviewClock: (minutes: number | null) => void;
   setPreviewSky: (sky: NightSky | null) => void;
+  setRoomOverlayVisible: (visible: boolean) => void;
 
   // asset actions
   toggleFavorite: (assetId: string) => void;

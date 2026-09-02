@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ANY_ROLE, type GameModule, type Viewer } from '@dnd/mechanics/contract'
+import { fogModule } from '@dnd/mechanics/fog'
 import { tokensModule, type TokensState } from '@dnd/mechanics/tokens'
 import { openDb } from '../db/db'
 import { createStores } from '../db/stores'
@@ -134,6 +135,18 @@ describe('the tokens/fog → triggers cascade', () => {
     )
     expect(error?.code).toBe('invalid-command')
     expect(events).toEqual([])
+  })
+
+  // S3 P3 — `open-map` reveals every room in the scene, so a room-revealed trigger has to be
+  // re-evaluated against it exactly as it is against `reveal` and `set-bulk`. Left out of
+  // CASCADES it would stay armed, and fire later on a map that is already open.
+  it('fires after a successful fog.open-map', () => {
+    const events: unknown[] = []
+    const { registry, campaignId } = wired(stubTriggers((p) => events.push(p)))
+    registry.register(fogModule(() => ['r-hall']))
+
+    expect(registry.dispatch('fog', 'open-map', {}, baseCtx(campaignId))).toBeNull()
+    expect(events).toEqual([{ sceneId: SCENE, source: { module: 'fog', action: 'open-map' } }])
   })
 
   it('is a silent no-op when triggers is not registered', () => {

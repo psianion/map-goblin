@@ -316,6 +316,11 @@ const toolKeyMap: Record<string, () => void | false> = {
       notify.subtle('Zone', { icon: 'tool' });
     }
   },
+  // O for rOom — R is the rectangle. No popover: the room tool has nothing to configure.
+  o: () => {
+    useStore.getState().setActiveTool('room');
+    notify.subtle('Room', { icon: 'tool' });
+  },
   // Mode toggles
   e: () => {
     const s = useStore.getState();
@@ -701,6 +706,7 @@ export function createDefaultShortcuts(): ShortcutDefinition[] {
     { id: 'tool.door',           keys: 'd',           category: 'Tools', label: 'Door' },
     { id: 'tool.light',          keys: 'l',           category: 'Tools', label: 'Light' },
     { id: 'tool.zone',           keys: 'z',           category: 'Tools', label: 'Zone' },
+    { id: 'tool.room',           keys: 'o',           category: 'Tools', label: 'Room' },
     { id: 'mode.erase',          keys: 'e',           category: 'Tools', label: 'Toggle Erase' },
     { id: 'mode.rough',          keys: 'x',           category: 'Tools', label: 'Toggle Rough' },
     { id: 'mode.curve',          keys: 'c',           category: 'Tools', label: 'Toggle Curve' },

@@ -15,13 +15,13 @@ import { rebuildDungeonLayer, redrawDoors, preloadLayerTextures } from './floorW
 import { preloadWallTextures } from './wallNodeRenderer';
 import type { DungeonLayer, LightChild, ShapeChild } from '../store/types';
 import { isLayerEffectivelyVisible } from '../store/selectors';
-import type { WallEdits, WallSegment } from '../shared/types';
+import type { ConnectorChild, RingGeometry, RoomChild, WallEdits, WallSegment } from '../shared/types';
 import { LightManager } from './lighting';
 import { computeMergedFloor } from './mergedFloor';
 import { remapFloorWallEdits } from './ringEditRemap';
 import { scheduleRoomSync } from '../store/roomSync';
 
-const digestCache = new WeakMap<ShapeChild, number>();
+const digestCache = new WeakMap<RingGeometry & object, number>();
 const wallDigestCache = new WeakMap<WallSegment, number>();
 const editsDigestCache = new WeakMap<WallEdits, number>();
 
@@ -56,7 +56,7 @@ function mixInto(h: number, v: number): number {
  * digest. Nothing does today — every write goes through useStore.setState. If
  * one appears, key the cache on a version counter instead.
  */
-function geometryDigest(shape: ShapeChild): number {
+function geometryDigest(shape: RingGeometry & object): number {
   const cached = digestCache.get(shape);
   if (cached !== undefined) return cached;
 
@@ -460,11 +460,22 @@ export function subscribeToStore(
           // This rides into renderKey and nothing else: a nudged stone is cosmetic layout,
           // so it must not move a room boundary or re-sweep a light.
           wallEditsKey: wallEditsKeyOf(l),
+          // Drawn rooms and connectors. On an authored layer these ARE
+          // `layer.rooms` and the connector bindings, so their geometry — and
+          // their names, which become room names — must re-run syncRooms. They
+          // draw no stone and cast no shadow, so this rides into roomKey ONLY.
+          authoredRoomKey: l.children
+            .filter(
+              (c): c is RoomChild | ConnectorChild =>
+                c.childType === 'room' || c.childType === 'connector',
+            )
+            .map((c) => `${c.id}:${c.childType}:${c.visible}:${c.name}:${geometryDigest(c)}`)
+            .join(','),
         })),
     (dungeonLayers) => {
       let geometryChanged = false;
       const lightingKeys: string[] = [];
-      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, waterSignature, doorGeometryKey, doorStateKey, floorTextureEpoch } of dungeonLayers) {
+      for (const { id, shapeCount, shapeKeys, shapeGeometryKeys, wallCount, wallSignature, wallEditsKey, waterSignature, doorGeometryKey, doorStateKey, floorTextureEpoch, authoredRoomKey } of dungeonLayers) {
         const entry = getLayerEntry(id);
         const layer = useStore.getState().layers.find((l) => l.id === id);
         if (entry && layer && layer.type === 'dungeon') {
@@ -476,18 +487,27 @@ export function subscribeToStore(
           // Geometry only — see shapeGeometryKeys above. A texture edit leaves
           // both of these identical and so touches neither Clipper2 nor rooms.
           const floorKey = `${shapeCount}|${shapeGeometryKeys}`;
-          const roomKey = `${floorKey}|${wallCount}|${wallSignature}`;
+          // What DETECTION is a function of, and so what the stones and the
+          // lights are drawn against. Authored rooms are deliberately absent:
+          // they move `layer.rooms` without moving one wall or one floor ring.
+          const detectionKey = `${floorKey}|${wallCount}|${wallSignature}`;
+          // What `layer.rooms` is a function of. On an authored layer that is
+          // the drawn rooms themselves, and a vertex drag on one reaches the
+          // store only through UpdateChildCommand — which carries no
+          // `affectsRooms`, so this debounce is the ONLY thing that would ever
+          // resync it. Left out, a DM's drag silently changed nothing.
+          const roomKey = `${detectionKey}|${authoredRoomKey}`;
           // Everything that forces a full rebuild (stone re-layout): floor
           // and wall geometry, the shapes' dressing, water, door GEOMETRY, and
           // the hand stone edits —
           // door geometry is here (not just roomKey) because withoutDoorGaps
           // needs it to cut stone gaps. Door STATE is deliberately excluded: it
           // is handled by the doors-only redraw below and must never re-run this.
-          const renderKey = `${roomKey}|${shapeKeys}|${waterSignature}|${doorGeometryKey}|${wallEditsKey}|${floorTextureEpoch}`;
+          const renderKey = `${detectionKey}|${shapeKeys}|${waterSignature}|${doorGeometryKey}|${wallEditsKey}|${floorTextureEpoch}`;
           // What occlusion is a function of: the outlines light is cast against
           // (floor rings and walls) plus every door's geometry and state. A
           // texture edit is absent from all of it.
-          const lightingKey = `${id}|${roomKey}|${doorGeometryKey}|${doorStateKey}`;
+          const lightingKey = `${id}|${detectionKey}|${doorGeometryKey}|${doorStateKey}`;
           lightingKeys.push(lightingKey);
           const prev = prevGeometryKeys.get(id);
           if (prev?.room !== roomKey) geometryChanged = true;
@@ -587,7 +607,8 @@ export function subscribeToStore(
           item.doorStateKey === b[i].doorStateKey &&
           item.wallSignature === b[i].wallSignature &&
           item.wallEditsKey === b[i].wallEditsKey &&
-          item.waterSignature === b[i].waterSignature,
+          item.waterSignature === b[i].waterSignature &&
+          item.authoredRoomKey === b[i].authoredRoomKey,
         ),
     },
   );

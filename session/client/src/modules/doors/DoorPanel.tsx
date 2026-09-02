@@ -7,18 +7,15 @@
 // that is off-screen or buried in a long list, and it is what puts `DoorActions` on screen —
 // shared with the on-map `DoorMenu`, so the rule for what a door's buttons do lives once.
 
-import { useEffect } from 'react';
 import type { DoorChild } from '@dnd/core/src/shared/types';
 import { frameWorldPoint } from '../../renderer/camera';
 import { Icon } from '../../shell/icons';
 import { ALL_ROLES, registerPanel } from '../../session/panels';
 import { useSessionStore } from '../../session/store';
-import { showToast } from '../../session/toasts';
 import {
   DOOR_CHIP_CEILING,
   DOOR_FILTER_THRESHOLD,
   doorLabel,
-  doorRefusal,
   doorStatusLabel,
   filterDoors,
   groupDoors,
@@ -31,18 +28,9 @@ import { useLiveDoors } from './useLiveDoors';
 const send = (action: string, payload: unknown): void =>
   useSessionStore.getState().sendCommand('doors', action, payload);
 
-/** Turns the server's refusal into the one toast the table has, naming the door it names. */
-function useDoorFeedback(doors: readonly LiveDoor[]): void {
-  const lastError = useSessionStore((s) => s.lastError);
-  useEffect(() => {
-    if (!lastError) return;
-    const message = doorRefusal(lastError.message, doors);
-    if (message) showToast({ message });
-    // The doors are read for the name only: a door list arriving a beat later must not
-    // re-toast a refusal the player has already been given.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastError]);
-}
+// The refusal toast used to be a hook here (`useDoorFeedback`) — it is `useRefusalToasts` in
+// `session/`, mounted from GameTable, because a popover only renders while it is open and a
+// player pulling a locked door usually has no panel open at all.
 
 const BTN =
   'flex h-7 shrink-0 items-center gap-1 rounded border border-border-default bg-surface-2 px-2.5 text-xs text-text-primary transition-colors duration-150 ease-settle hover:bg-surface-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:cursor-not-allowed disabled:text-text-muted disabled:hover:bg-surface-2 motion-reduce:transition-none';
@@ -191,8 +179,6 @@ export function DoorPanel() {
   const select = useDoorSelection((s) => s.select);
   const filter = useDoorSelection((s) => s.filter);
   const setFilter = useDoorSelection((s) => s.setFilter);
-
-  useDoorFeedback(doors);
 
   // Selecting a door also brings it into view — the panel is the keyboard/overview route to
   // a door (D8) and hunting for the mark by hand was the standing complaint from every walk.

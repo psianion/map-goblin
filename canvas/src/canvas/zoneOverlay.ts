@@ -137,7 +137,8 @@ function dashSegment(g: Graphics, x1: number, y1: number, x2: number, y2: number
   }
 }
 
-function dashedPolygon(
+/** Exported so the room/connector overlay draws its dashes with the same idiom. */
+export function dashedPolygon(
   g: Graphics,
   points: [number, number][],
   color: number,

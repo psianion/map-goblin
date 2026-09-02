@@ -1,5 +1,11 @@
-import type { DoorChild } from '../shared/types';
+import type { ConnectorChild, DoorChild } from '../shared/types';
 import { detectRooms } from '../engine/roomDetection';
+import {
+  authoredRoomChildren,
+  bindConnectorToRooms,
+  connectorChildren,
+  roomChildToRoom,
+} from '../shared/authoredRooms';
 import { bindDoorToRooms } from '../shared/roomBinding';
 import { resolveDoors, resolveWalls, toOcclusionDoors } from '../shared/wallResolve';
 import { useStore } from './store';
@@ -31,12 +37,20 @@ export function syncRooms(): void {
   }
   for (const layer of useStore.getState().layers) {
     if (layer.type !== 'dungeon') continue;
-    const rooms = detectRooms(
+    const detected = detectRooms(
       layer.mergedFloor ?? [],
       layer.standaloneWalls,
       GRID_SIZE,
       layer.roomNameOverrides ?? {},
     );
+    // Draw one room and the layer is authored: detection stops being the source
+    // of `rooms` and only stays running to fill the seed command. Two sources
+    // half-merged would be the worst of both — a drawn room whose id changes
+    // when a wall moves is exactly the churn drawing one is meant to end.
+    const authored = authoredRoomChildren(layer.children);
+    const rooms =
+      authored.length > 0 ? authored.map((c) => roomChildToRoom(c, GRID_SIZE)) : detected;
+
     // Bind against resolved geometry, not the authored fields: a door on a
     // floor-ring edge has no `wallId` to look up, and both position and angle
     // on the child go stale the moment the wall under it is edited. A detached
@@ -52,6 +66,14 @@ export function syncRooms(): void {
     const bound = new Map(
       bindable.map((d) => [d.id, bindDoorToRooms(d, walls, rooms)] as const),
     );
+    // Connectors bind the same way and for the same reason — derived from
+    // geometry, so off the undo stack — but by blob-to-room overlap rather than
+    // a perpendicular probe, since a connector sits on no wall.
+    const boundConnectors = new Map(
+      connectorChildren(layer.children).map(
+        (c) => [c.id, bindConnectorToRooms(c, rooms)] as const,
+      ),
+    );
 
     // Rooms and the bindings derived from them are one write: they are the same
     // recomputation, and two setStates means every subscriber runs twice — once
@@ -63,6 +85,13 @@ export function syncRooms(): void {
       if (!target || target.type !== 'dungeon') return;
       target.rooms = rooms;
       for (const child of target.children) {
+        if (child.childType === 'connector') {
+          const next = boundConnectors.get(child.id);
+          if (!next) continue;
+          (child as ConnectorChild).roomA = next.roomA;
+          (child as ConnectorChild).roomB = next.roomB;
+          continue;
+        }
         if (child.childType !== 'door') continue;
         const door = child as DoorChild;
         const next = bound.get(door.id);

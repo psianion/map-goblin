@@ -383,7 +383,67 @@ const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floo
 
 /**
  * The mask-rebuild budget this gate pins, in milliseconds, for eight sighted tokens on the
- * dressed map — and it is the measured floor rather than the plan's 2ms.
+ * dressed map — and it is the measured floor of whichever pipeline is building the mask.
+ *
+ * ── The contained re-pin (2026-09-01) ──────────────────────────────────────────────────
+ * Containment landed default-on and `FOG_FEATHER` doubled 0.4 → 0.8 for the wider soft band
+ * (`FogRenderer.ts`, `fogScene()`), both inside the same raster pipeline the 8ms pin below
+ * was measured against: the near pass is a second `partySight` sweep per eye at its own
+ * range plus the lock polygons, and the wider feather is a wider round-join stroke through
+ * the compositor. `FogRenderer.ts`'s PENDING note named this re-measure as the obligation;
+ * this is it.
+ *
+ * Three full runs of this file paired with `sprint3-vision.spec.ts` (alphabetical order runs
+ * `-gate` first, so this row lands as the first spec file rather than the historical fourth —
+ * a lighter load than the 4-file condition above, not a heavier one), ten drag steps each,
+ * 391 swept cells through 8 eyes:
+ *
+ *     day     9.10ms median [4.7–14.5]   11.60ms median [4.2–13.3]   6.10ms median [4.0–11.5]
+ *     dark    6.20ms median              8.00ms median               7.10ms median
+ *
+ * 60.1fps on the masked player seat against 60.1 on the DM's in every one of them, in daylight
+ * and in the dark — neither change opened a gap against the DM control.
+ *
+ * The worst of the three day medians (11.60ms) is already over the 8ms floor — the fallout
+ * the PENDING note predicted, not a surprise, and explainable by the two named costs (the
+ * extra per-eye sweep, the doubled stroke width) rather than by anything else changing in the
+ * pipeline. The new bound is **24ms**, more than twice that worst median (2.07x), the same
+ * margin style as the 8ms pin it replaces. It still discriminates a revert to the vector path
+ * (12.2–33.8ms) or a dropped memo on either sweep; it does not chase the near pass's own share,
+ * which these numbers say is small next to the base sweep and the wider stroke.
+ *
+ * ── The raster re-pin (2026-09-01) ─────────────────────────────────────────────────────
+ * The vision-mode mask is composited on the GPU now: `tierPlan` emits a draw plan and the
+ * executor runs it into a RenderTexture, so the four Clipper booleans over ~1600 vertices of
+ * offset sweep that the 30ms bound below was written against are gone. What is left inside
+ * `lastRebuildMs` is the shadowcast sweep (still CPU, still memoized) plus the compositor's
+ * draw submissions.
+ *
+ * This row, on this browser, as the fourth spec file of a full sprint3 run — the loaded
+ * condition, the same one that read 17.7 and 20.8ms in the Clipper era. Three runs, ten drag
+ * steps each, 450 swept cells through 8 eyes:
+ *
+ *     day     3.80ms median [2.6–6.6]    3.40ms [2.0–7.2]    3.50ms [2.1–19.1]
+ *     dark    4.10ms median              4.40ms              3.50ms
+ *
+ * 60.1fps on the masked player seat against 60.1 on the DM's in every one of them, in daylight
+ * and in the dark.
+ *
+ * So the bound comes down to **8ms**, which is the plan's target and which the measurements
+ * support with room to spare: it is more than twice the worst of the three medians (3.80ms).
+ * What it discriminates is the whole vector era — the post-P6 Clipper path could not get under
+ * it (12.2ms median idle, 17.7–20.8 loaded), let alone the pre-P6 33.8ms — so a revert of the
+ * compositor, or a fall back to the vector path in vision mode, fails this row on the first
+ * drag. What it deliberately does not chase is the compositor's own ~2ms share: the sweep is
+ * the rest of the number and it is CPU work this phase did not touch.
+ *
+ * The median is what carries the assertion, and the third run above is why: one step of that
+ * drag read 19.1ms while the other nine sat between 2.1 and 4.4. A single step lands on a GC
+ * or a browser housekeeping frame on any box, and a bound over the *max* would be a coin toss
+ * — which is the same reason the fastest step is reported rather than asserted.
+ *
+ * ── What the 30ms bound was, and why it was that ───────────────────────────────────────
+ * History, kept because it is what the number below is measured against:
  *
  * P6 §1 did the named upgrades and then measured what was left. This very row, on this browser,
  * on the commit before that work: **33.80ms** median mid-drag (22.9–47.1), 38.6ms in the dark.
@@ -425,7 +485,7 @@ const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floo
  * The plan's own second budget, 60fps held mid-drag, is met outright: 60.1fps on the masked
  * seat against 60.1 on the DM's.
  */
-const REBUILD_BUDGET_MS = 30
+const REBUILD_BUDGET_MS = 24
 
 // ── The table ──────────────────────────────────────────────────────────────
 
@@ -727,12 +787,13 @@ test.describe.serial('@sprint3-vision-gate', () => {
         `${warm.cells} swept cell(s) through ${warm.sources} eyes; ${night.toFixed(2)}ms median ` +
         `in darkness; ${seat.toFixed(1)}fps on the masked player seat against ` +
         `${dmSeat.toFixed(1)}fps on the DM's unmasked canvas, ${nightSeat.toFixed(1)}fps in the dark`,
-      `≤ ${REBUILD_BUDGET_MS}ms median (the measured floor: 33.8ms before P6 §1, 12.2ms ` +
-        'after — the plan’s 2ms is not reachable with Clipper in the loop; the fastest step ' +
-        'is reported, not asserted) and 60fps mid-drag with no gap against the DM control',
+      `≤ ${REBUILD_BUDGET_MS}ms median (the measured floor: 33.8ms on the Clipper path before ` +
+        'P6 §1, 12.2ms after it, 3.8ms once the mask was composited on the GPU, 11.6ms worst ' +
+        'median once containment and the wider feather landed; the fastest step is reported, ' +
+        'not asserted) and 60fps mid-drag with no gap against the DM control',
     )
 
-    expect(mid, 'the mask rebuild is over the budget P6 §1 measured').toBeLessThanOrEqual(
+    expect(mid, 'the mask rebuild is over the budget containment and the wider feather measured').toBeLessThanOrEqual(
       REBUILD_BUDGET_MS,
     )
     expect(mid, 'the probe never timed a build at all').toBeGreaterThan(0)

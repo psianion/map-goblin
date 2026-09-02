@@ -14,10 +14,13 @@ export type {
   MaskData,
   ChildType,
   LayerChild,
+  RingGeometry,
   ShapeChild,
   AssetChild,
   LightChild,
   DoorChild,
+  RoomChild,
+  ConnectorChild,
   AnyChild,
   Room,
 } from './shared/types';
@@ -49,6 +52,14 @@ export { setEngineSingleton, getEngineSingleton, clearEngineSingleton } from './
 export { detectRooms } from './engine/roomDetection';
 export { bindDoorToRooms } from './shared/roomBinding';
 export { syncRooms, scheduleRoomSync } from './store/roomSync';
+export { seedRoomsFromDetection } from './store/seedRooms';
+export {
+  authoredRing,
+  authoredRoomChildren,
+  bindConnectorToRooms,
+  connectorChildren,
+  roomChildToRoom,
+} from './shared/authoredRooms';
 export {
   buildRoom,
   computeArea,

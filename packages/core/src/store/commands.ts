@@ -89,10 +89,18 @@ export class CompositeCommand implements Command {
 /**
  * Child types whose add/remove moves the room graph: shapes are what
  * `mergedFloor` is unioned from, and a door needs a roomA/B the moment it
- * appears. Lights, labels and assets sit on top of the geometry.
+ * appears. A drawn room IS the room graph on an authored layer, and adding the
+ * first one flips that layer off detection entirely; a connector needs its
+ * roomA/B bound as soon as it lands. Lights, labels and assets sit on top of
+ * the geometry.
  */
 function childAffectsRooms(child: AnyChild | null): boolean {
-  return child?.childType === 'shape' || child?.childType === 'door';
+  return (
+    child?.childType === 'shape' ||
+    child?.childType === 'door' ||
+    child?.childType === 'room' ||
+    child?.childType === 'connector'
+  );
 }
 
 /**

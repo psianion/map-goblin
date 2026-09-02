@@ -364,6 +364,8 @@ registerMenu('text', (ctx) => [
 registerMenu('shape', (ctx) => [headerRow(ctx.child), ...sharedVerbs(ctx)])
 registerMenu('water', (ctx) => [headerRow(ctx.child), ...sharedVerbs(ctx)])
 registerMenu('zone', (ctx) => [headerRow(ctx.child), ...sharedVerbs(ctx)])
+registerMenu('room', (ctx) => [headerRow(ctx.child), ...sharedVerbs(ctx)])
+registerMenu('connector', (ctx) => [headerRow(ctx.child), ...sharedVerbs(ctx)])
 
 // ─── Entry points ──────────────────────────────────────────────────────────
 

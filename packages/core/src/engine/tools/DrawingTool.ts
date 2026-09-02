@@ -16,7 +16,8 @@ export type ToolType =
   | 'terrain'
   | 'water'
   | 'text'
-  | 'zone';
+  | 'zone'
+  | 'room';
 
 export interface PreviewShape {
   type: 'polygon' | 'rectangle' | 'circle' | 'line';

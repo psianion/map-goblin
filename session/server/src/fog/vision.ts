@@ -7,24 +7,36 @@
 // state. `ModuleStateStore` counts its writes, so the revision it is at *is* the cache key
 // — there is no invalidation hook anywhere to forget to call.
 
-import { doorsOfScene, type AuthoredDoor, type DoorLiveState, type DoorsState } from '@dnd/mechanics/doors'
+import {
+  doorsOfScene,
+  seedDoor,
+  type AuthoredDoor,
+  type DoorLiveState,
+  type DoorsState,
+} from '@dnd/mechanics/doors'
 import {
   autoExploreOn,
   blockedEdge,
   cellsCoveredByPolygon,
+  containedSightOn,
   effectiveFog,
   fogModeOf,
   getCell,
   identityRegion,
+  nearAuthoredFloor,
+  onAuthoredFloor,
   regionFor,
   sceneFogOf,
   setCells,
   sightRangeLimitOn,
+  toBytes,
   visibleRooms,
   visionShareOf,
+  type BlockedEdge,
   type Cell,
   type FogRoom,
   type FogState,
+  type RegionMask,
   type RoomFog,
   type SceneFog,
 } from '@dnd/mechanics/fog'
@@ -37,18 +49,26 @@ import {
   childDeltaFor,
   keptChildIds,
   doorKept,
+  lockMaskFor,
   mapDeltaFor,
   redactMapForViewer,
   exploredRooms,
   type MapDelta,
 } from './redactMap'
-import { CACHE_MAX, createSceneMaps, type SceneMap, type SceneMapOf } from './sceneMap'
+import {
+  CACHE_MAX,
+  createSceneMaps,
+  pointInPoly,
+  type SceneMap,
+  type SceneMapOf,
+} from './sceneMap'
 import {
   createSweeps,
   exploreLocks,
   inAnyLock,
   seen,
   type PartyVision,
+  type SightFence,
 } from './sweep'
 
 /** Everything the rest of the server asks the fog. One implementation, wired at boot. */
@@ -114,6 +134,54 @@ export interface AutoExplorePatch {
   byIdentity?: Record<string, Cell[]>
 }
 
+/**
+ * S3 — the room a point inside a connector's blob counts as being in, or null.
+ *
+ * The joints the DM draws between rooms are ground, not scenery: the party walks through
+ * the archway, and for the moment they are in it they are standing on neither room's
+ * polygon. Answering with an adjoining room is the whole of it — `occupyRefusal` then
+ * judges the space by that room, with no rule of its own for connectors and no new copy.
+ *
+ * Which room depends on the leaf. A passable joint answers with a room the party has
+ * earned, so they may stand there. A shut one answers with the joint itself — see
+ * `connectorEdge`. The blobs are never unioned into a room's boundary: that boundary is
+ * P2's occluder, and a doorway welded into it is a doorway that cannot be an aperture.
+ */
+function connectorRoom(computed: Computed, x: number, y: number): string | null {
+  for (const { door, ring } of computed.map.connectors) {
+    if (!pointInPoly(ring, x, y)) continue
+    const sides = [door.roomA, door.roomB].filter((room): room is string => !!room)
+    // Bound to nothing the party holds: the joint is as unearned as the rooms it joins.
+    if (!sides.some((room) => computed.occupiable.has(room))) continue
+    const live = computed.doors[door.id] ?? seedDoor(door)
+    if (live.open && !live.locked) return sides.find((room) => computed.occupiable.has(room)) ?? null
+    // Shut. Naming the side they had not earned only worked while there was one: with both
+    // rooms credited every side says "come in", and the point fell out of the room lane
+    // entirely as "there is no ground there" — the right refusal under the wrong sentence.
+    // So the joint answers for itself. Its id belongs to no room, which is what makes the
+    // space refuse, and `connectorEdge` reads the id back off `blockedEdge` for the words.
+    //
+    // A secret door they have not found is the one exception, for `blockedEdge`'s own
+    // reason (visibility.ts:166): it is not a fact they are allowed to hear, and unzoned
+    // map is exactly what a secret door should feel like.
+    return door.isSecret && !live.revealed ? null : door.id
+  }
+  return null
+}
+
+/**
+ * The shut joint behind a `blockedEdge` question, when `connectorRoom` answered with one.
+ *
+ * `blockedEdge` searches the room graph for the door between the party and a room; there is
+ * no such search to do here, because the id it was handed IS the door standing in the way.
+ */
+function connectorEdge(computed: Computed, room: string): BlockedEdge | null {
+  const joint = computed.map.connectors.find(({ door }) => door.id === room)
+  if (!joint) return null
+  const live = computed.doors[room] ?? seedDoor(joint.door)
+  return { kind: live.locked ? 'locked-door' : 'closed-door', doorId: room }
+}
+
 interface Computed {
   revision: number
   map: SceneMap
@@ -131,6 +199,8 @@ interface Computed {
   sightFor(identityId: string): PartyVision | null
   /** Which share the scene is playing — read once, here, so nothing below re-derives it. */
   share: 'party' | 'individual'
+  /** §5's zones, read once: they bound the record *and* (under containment) live sight. */
+  locks: ReturnType<typeof exploreLocks>
   /** The identities holding a claimed token, connected or not: whose records auto-explore. */
   owners: string[]
   doors: Record<string, DoorLiveState>
@@ -218,7 +288,33 @@ export function createVision(stores: Stores): Vision {
     const lights = world.effectiveLevel === 'darkness' ? triggers.lightEdits : null
     const vision = fogModeOf(fog) === 'vision'
     const rangeLimited = sightRangeLimitOn(fog)
-    const sight = vision ? sweeps.partyVision(map, tokens, doors, lights, undefined, rangeLimited) : null
+    const locks = exploreLocks(map.zones)
+    // Containment (default on, vision mode only): live sight is fenced by the ground the table
+    // has opened, and each eye's own `range` is the only thing that pushes the fence outward.
+    //
+    // Deliberately *not* a document event, unlike the mode flip. A `set-mode` re-cuts a seated
+    // player's map because the cut itself reads the mode — `redactMapForViewer` stamps `frame`
+    // when the scene is zoned OR the mode is vision (redactMap.ts:67), so a roomless scene
+    // flipped to vision leaves a connected seat holding a frameless document and drawing no fog
+    // at all (the client's `fogModeFlips` re-fetch). Containment appears nowhere in that cut:
+    // `set-containment` writes one boolean (mechanics' fog module) and the cut reads `fog.rooms`
+    // (`exploredRooms`, `keptChildIds`), `tableRegion` and the mode — none of which it touches,
+    // so the document is byte-identical either side of the flip. What the flip *does* move is
+    // live sight, and that lands on its own: the fog broadcast retracts the tokens and doors
+    // slices (registry's `RETRACTS`), which re-runs redaction through the composed `seen()` for
+    // every seat in the same beat.
+    //
+    // The one asymmetry worth naming: the flip does not retroactively take back ground the
+    // party earned uncontained — the record is a ratchet, and turning the fence on fences
+    // *future* sight only. That is the stated trade in `containedSightOn`'s own doc.
+    // Built per *record*, because that is what "the table has opened" means per seat — the
+    // party's for the party sweep, the seat's own where the table shares individually — and
+    // handed to the sweep as a cell test, never as a clip on the polygons (`SightFence`).
+    const fenceFor = (stored: RegionMask | undefined): SightFence | null =>
+      vision && containedSightOn(fog) ? { held: heldIn(map, fog, stored), locks } : null
+    const sight = vision
+      ? sweeps.partyVision(map, tokens, doors, lights, undefined, rangeLimited, fenceFor(fog.region))
+      : null
     // P5 — one seat's eyes, on demand and once per revision. Lazy because most tables never
     // ask: party share reads `sight` alone, and even in individual share only the seats
     // actually being redacted for are ever computed.
@@ -234,6 +330,10 @@ export function createVision(stores: Stores): Vision {
           lights,
           (t) => t.ownerId === identityId,
           rangeLimited,
+          // …and fenced by that seat's own memory, not the table's: the whole point of
+          // `individual` is that a seat plays by what *it* has opened (`identityRegion`
+          // falls back to the party record, which is the seed a seat with none reads).
+          fenceFor(identityRegion(fog, identityId)),
         )
         perIdentity.set(identityId, own)
       }
@@ -259,7 +359,13 @@ export function createVision(stores: Stores): Vision {
     const revealed = [...explored].filter((room) => !previous?.explored.has(room))
     // Cut once per mutation, not once per viewer: every player at the table is owed the same
     // rooms, and the slice is the expensive half of a reveal.
-    const roomDelta = revealed.length ? mapDeltaFor(map, sceneId, revealed, doors, explored) : null
+    // …and the room cut carries the re-cut lock mask with it. The mask is the seat's fence for
+    // its own near pass and it is cut against the rooms that seat holds, so the message that
+    // grows that set is the one that owes the new fence — the same D5 debt the geometry pays.
+    // Only on a room delta: `exploredRooms` never shrinks and nothing else moves the answer.
+    const roomDelta = revealed.length
+      ? { ...mapDeltaFor(map, sceneId, revealed, doors, explored), lockMask: lockMaskFor(map, fog, explored) }
+      : null
     // …and the same question asked of every *child*, which is what a reveal that moves no room
     // at all still owes. Two of those exist: a `reveal-secret`, whose door child was cut while
     // it was a secret (D2), and the cell brush — brushed ground is a reveal, so the art stamped
@@ -282,6 +388,7 @@ export function createVision(stores: Stores): Vision {
       sight,
       sightFor,
       share: visionShareOf(fog),
+      locks,
       owners: ownersOf(tokens),
       doors,
       visible: visibleRooms(fog, doors, map.doors, party),
@@ -333,7 +440,9 @@ export function createVision(stores: Stores): Vision {
           ? computed.sightFor(viewer.identityId)
           : computed.sight
       return {
-        roomAt: computed.map.roomAt,
+        // S3 — a connector's interior is walkable ground, and it is the one place a token
+        // may stand that no room's polygon covers.
+        roomAt: (x, y) => computed.map.roomAt(x, y) ?? connectorRoom(computed, x, y),
         visible: computed.visible,
         occupiable: computed.occupiable,
         // P1 — in vision mode a token is judged by the point it stands on, not the room it
@@ -351,7 +460,9 @@ export function createVision(stores: Stores): Vision {
         // The half of the refusal that was never plugged in: `occupiable` is the BFS's
         // boolean, and without this the cause it discarded stayed discarded, so every move
         // a door refused came back as the generic "you can't move there".
-        blockedEdge: (room) => blockedEdge(computed.doors, computed.map.doors, computed.party, room),
+        blockedEdge: (room) =>
+          connectorEdge(computed, room) ??
+          blockedEdge(computed.doors, computed.map.doors, computed.party, room),
       }
     },
 
@@ -370,7 +481,7 @@ export function createVision(stores: Stores): Vision {
       if (!autoExploreOn(fog) || !map.frame) return null
       const frame = map.frame
 
-      const locks = exploreLocks(map.zones)
+      const locks = computed.locks
       const { cells, rooms } = swept(computed.sight, map, frame, locks)
 
       // A swept room latches exactly the way the DM's region brush latches one (mechanics'
@@ -466,12 +577,69 @@ function swept(
       // belongs to is not credited, so a boss chamber seen through an open door stays
       // the DM's to reveal (§5).
       if (inAnyLock(locks, x, y)) continue
-      cells.push([col, row])
       const room = map.roomAt(x, y)
+      // …and so does the floor. Line of sight runs off the map's edge — over the yards past a
+      // palisade, out into the black beyond a cave mouth — and every cell it crossed out there
+      // used to be written. Three things read that record and all three were wrong about it:
+      // `openGround` let a token stand on ground the map never authored, the containment fence
+      // counted it as opened, and the player's memory tier painted its grey over ground with no
+      // art under it at all, which is the flat-black patch the gate walk photographed. The
+      // record only ever meant "floor the table has opened", so the write is where that is said.
+      //
+      // One cell wider than the floor, though, and that width is the wall art: the band straddles
+      // the room edge and its outer cells are in no room, so clamping the record to the floor
+      // alone left the stones of an explored room under fog on the memory tier, which only ever
+      // paints recorded cells. `openGround` keeps the strict test below — recordable is not
+      // standable.
+      // `room` already answers the centre, so a cell well inside a room never pays the band scan.
+      if (room === null && !nearAuthoredFloor(map.rooms.length, (px, py) => map.roomAt(px, py), x, y))
+        continue
+      cells.push([col, row])
       if (room !== null) rooms.add(room)
     }
   }
   return { cells, rooms }
+}
+
+/**
+ * Ground the table has opened, as a cell test — containment's fence (`SightFence.held`).
+ *
+ * Two sources, because the DM opens ground two ways: the cell record (their brush, plus
+ * everything the party's own sight has already earned) and the rooms they have *revealed*.
+ * A latched room (`re_hidden` — what a sweep leaves behind) is deliberately not held: the
+ * cells the party actually saw are already in the record, and crediting the whole room would
+ * hand them the far end of a hall they only glimpsed the mouth of. On a roomless map the room
+ * term is empty and the fence is the record alone, which is #114's battlemap clip.
+ *
+ * ponytail: the mask is decoded once here rather than per probe (`getCell` decodes the whole
+ * base64 on every call, and `swept` asks this of every cell in every eye's box) — the same shape
+ * `groundOf` in redactMap.ts already takes.
+ */
+function heldIn(
+  map: SceneMap,
+  fog: SceneFog,
+  stored: RegionMask | undefined,
+): (x: number, y: number) => boolean {
+  const region = map.frame ? regionFor(stored, map.frame) : undefined
+  const bytes = region ? toBytes(region.bits) : undefined
+  const revealed = new Set(
+    Object.entries(fog.rooms)
+      .filter(([, room]) => room.status === 'revealed')
+      .map(([id]) => id),
+  )
+  return (x, y) => {
+    if (region && bytes) {
+      const col = Math.floor(x - region.minX)
+      const row = Math.floor(y - region.minY)
+      if (col >= 0 && row >= 0 && col < region.cols && row < region.rows) {
+        const bit = row * region.cols + col
+        if ((bytes[bit >>> 3] & (1 << (bit & 7))) !== 0) return true
+      }
+    }
+    if (revealed.size === 0) return false
+    const room = map.roomAt(x, y)
+    return room !== null && revealed.has(room)
+  }
 }
 
 /** The identities holding a claimed token in this scene — whose records P5 writes. */
@@ -513,7 +681,17 @@ function openGroundOf(
       : computed.fog.region
   const region = regionFor(stored, computed.map.frame)
   if (!region) return undefined
-  return (x, y) => getCell(region, Math.floor(x - region.minX), Math.floor(y - region.minY))
+  // Two tests, cheap one first: the record has to hold the cell *and* the map has to author
+  // floor under it. A token may never stand off the authored floor — the record is memory of
+  // ground, and ground the map does not draw is not somewhere to be.
+  //
+  // This is also the migration: records written before the sweep and the brush were clamped
+  // still carry off-floor cells, and no pass rewrites them. Asking the floor at read time
+  // heals every one of those records the first time it is read, on the live table's own data,
+  // without a migration that would have to guess which cells were the bug.
+  return (x, y) =>
+    getCell(region, Math.floor(x - region.minX), Math.floor(y - region.minY)) &&
+    onAuthoredFloor(computed.map.rooms.length, computed.map.roomAt(x, y))
 }
 
 /** The same rooms, with everything the party has ever seen counting as lit. */
