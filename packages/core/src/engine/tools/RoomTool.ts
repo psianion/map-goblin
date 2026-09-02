@@ -29,6 +29,14 @@ const SIMPLIFY_EPSILON = 0.15;
 const MIN_AREA = 0.5;
 
 /**
+ * Loops with a mean width (2·area / perimeter) under this are a near-straight
+ * drag whose wiggle happened to clear {@link MIN_AREA} — a sliver no one meant
+ * as a room, found committing live. A quarter cell: the narrowest honest
+ * corridor (half a cell wide) still clears it with room to spare.
+ */
+const MIN_MEAN_WIDTH = 0.25;
+
+/**
  * How far off the edited ring a press has to land before it means "I'm done".
  *
  * The outline editor's insert marker sits ON the edge, and half of its 11px pick
@@ -165,7 +173,14 @@ export class RoomTool implements DrawingTool {
     this.startLayerId = null;
 
     if (verts.length < 3 || !layerId) return;
-    if (loopArea(verts) < MIN_AREA) return;
+    const area = loopArea(verts);
+    if (area < MIN_AREA) return;
+    let perimeter = 0;
+    for (let i = 0; i < verts.length; i++) {
+      const b = verts[(i + 1) % verts.length];
+      perimeter += Math.hypot(b.x - verts[i].x, b.y - verts[i].y);
+    }
+    if ((2 * area) / perimeter < MIN_MEAN_WIDTH) return;
 
     // Validated against the layer the stroke started on — see WallTool.
     const layer = resolveEditableLayer(layerId);

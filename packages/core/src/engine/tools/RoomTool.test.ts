@@ -100,6 +100,17 @@ describe('RoomTool', () => {
     expect(roomsOf(layerId)).toHaveLength(0);
   });
 
+  it('throws away a near-straight drag rather than committing a sliver room', () => {
+    // A 5×0.24 ribbon: its wiggle clears MIN_AREA (1.2) but its mean width is
+    // under a quarter cell — the live-walk sliver, as a fixture.
+    trace([[0, 0], [2, 0], [5, 0], [5, 0.24], [2, 0.24], [0, 0.24]]);
+    expect(roomsOf(layerId)).toHaveLength(0);
+
+    // The narrowest honest corridor still commits: half a cell wide.
+    trace([[0, 2], [3, 2], [6, 2], [6, 2.6], [3, 2.6], [0, 2.6]]);
+    expect(roomsOf(layerId)).toHaveLength(1);
+  });
+
   /**
    * Every vertex of a committed room becomes a boundary occluder (O1), and the raw trace is
    * one vertex every 0.2wu: eight rooms and eight joints traced by hand came out at 2640
