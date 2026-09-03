@@ -42,7 +42,15 @@ function rollLine(event: WireRollEvent): LogLine {
   const math = [event.formula, event.breakdown].filter(Boolean).join(' = ')
   if (math) parts.push(`\`${math}\``)
   if (event.visibility === 'private') parts.push('🔒')
-  return { at: event.at, text: parts.join(' ') }
+  // The spell/item card the table log prints under the roll. Quoted line by line, never
+  // with `>>>` — that would swallow every later line sharing the chunk.
+  const card = event.description
+    ? `\n${event.description
+        .split('\n')
+        .map((line) => `> ${line}`)
+        .join('\n')}`
+    : ''
+  return { at: event.at, text: `${parts.join(' ')}${card}` }
 }
 
 /** tableLog.ts's sentences, word for word — the thread and the Log panel must read alike. */

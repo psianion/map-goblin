@@ -81,6 +81,17 @@ describe('createSessionLog', () => {
     expect(line.text).toContain('<t:1:t>')
   })
 
+  it('quotes the spell card under the roll, line by line', () => {
+    const log = createSessionLog(noNames)
+    log.apply(snapshot())
+    const [line] = log.apply({
+      type: 'rolls',
+      state: { log: [roll('r1', { title: 'Fire Bolt', description: 'Evocation cantrip\nRange: 120 ft' })] },
+    })
+    // Per-line `>`, not `>>>`: a chunk holds many lines and the card must not swallow them.
+    expect(line.text).toContain('\n> Evocation cantrip\n> Range: 120 ft')
+  })
+
   it('renders door and fog lines with the name when it has one, degraded when not', () => {
     const names = new Map([['door-1', 'the Oak Door']])
     const log = createSessionLog((id) => names.get(id))
