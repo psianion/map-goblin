@@ -68,6 +68,7 @@ export interface WireRollEvent {
   title?: string
   formula?: string
   breakdown?: string
+  description?: string
   text?: string
   total?: number
   visibility?: string

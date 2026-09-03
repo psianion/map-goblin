@@ -65,6 +65,13 @@ export interface Token extends TokenDef {
    * lives on the instance and never on the def a token was placed from.
    */
   sharesSightWith?: string[]
+  /**
+   * The player's D&D Beyond character sheet, captured off a Beyond20 payload and linked by
+   * player confirmation (never silent auto-bind). Display/link data only — untrusted, never
+   * re-derived from or used for anything but showing a name and a link. Scene-scoped like the
+   * rest of the instance: a sheet is claimed once per placed token, never on the def.
+   */
+  sheet?: { name: string; id?: string; url?: string; avatar?: string }
 }
 
 export interface TokensState {

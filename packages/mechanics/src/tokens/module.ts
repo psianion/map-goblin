@@ -25,6 +25,7 @@ import {
   oneOf,
   parseDefFields,
   parseLight,
+  parseSheet,
   parseSight,
   snap,
   str,
@@ -40,13 +41,22 @@ type Ctx = ModuleContext<TokensState>
 type Payload = Record<string, unknown>
 
 /**
- * Fields `update` accepts; players get `name` alone (D10).
+ * Fields `update` accepts; players get `name` and `sheet` alone (D10 + the Beyond20 link).
  *
  * P4 adds `sight` and `light`, and adding them here is the *whole* of their access control:
- * the guard below refuses a non-DM any field but `name`, so a player cannot grant their own
- * token darkvision or a torch by editing the token they legitimately own.
+ * the guard below refuses a non-DM any field but `name`/`sheet`, so a player cannot grant
+ * their own token darkvision or a torch by editing the token they legitimately own.
  */
-const UPDATE_FIELDS = ['name', 'size', 'disposition', 'elevation', 'z', 'sight', 'light'] as const
+const UPDATE_FIELDS = [
+  'name',
+  'size',
+  'disposition',
+  'elevation',
+  'z',
+  'sight',
+  'light',
+  'sheet',
+] as const
 
 let minted = 0
 const mintId = (prefix: string): string =>
@@ -332,8 +342,8 @@ function update(p: Payload, ctx: Ctx): void {
   const { sceneId, token } = find(p, ctx)
   if (ctx.sender.role !== 'dm') {
     if (token.ownerId !== ctx.sender.identityId) denied('you may only update a token you own')
-    if (UPDATE_FIELDS.some((f) => f !== 'name' && p[f] !== undefined)) {
-      denied('players may only rename their own token')
+    if (UPDATE_FIELDS.some((f) => f !== 'name' && f !== 'sheet' && p[f] !== undefined)) {
+      denied('players may only rename or link their own token')
     }
   }
   if (UPDATE_FIELDS.every((f) => p[f] === undefined)) {
@@ -356,6 +366,15 @@ function update(p: Payload, ctx: Ctx): void {
   // the table and one placed from the library are validated by one rule. `null` clears.
   if (p.sight !== undefined) next.sight = parseSight(p.sight)
   if (p.light !== undefined) next.light = parseLight(p.light)
+  // The Beyond20 link (D10 §6): `null` clears it, same as `sight`/`light` above — but unlike
+  // them a bad sheet does not clear the field, it refuses the command, so a typo in the DM's
+  // hand-typed sheet payload cannot silently unlink a player's working binding. First-sheet-
+  // sticks is a prompt-side rule, not this one's: the owner may always overwrite, which is
+  // what makes unlink-then-relink work.
+  if (p.sheet !== undefined) {
+    if (p.sheet === null) delete next.sheet
+    else next.sheet = parseSheet(p.sheet) ?? bad('sheet needs at least a name')
+  }
   put(ctx, sceneId, next)
 }
 

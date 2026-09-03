@@ -451,6 +451,13 @@ function OnMapTab() {
                   {selected.hidden ? 'Reveal' : 'Hide'}
                 </button>
               </div>
+              {/* The Beyond20 link (M4): name only, same as everywhere else it shows — no
+                  avatar rendered anywhere yet. */}
+              {selected.sheet && (
+                <p className="pl-[62px] text-[11px] text-text-muted">
+                  Linked to <span className="text-text-secondary">{selected.sheet.name}</span>
+                </p>
+              )}
               <VisionRow token={selected} scale={scale} />
               <LightRow token={selected} scale={scale} tokens={tokens} />
             </>

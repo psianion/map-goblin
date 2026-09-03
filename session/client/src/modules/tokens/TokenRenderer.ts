@@ -8,6 +8,7 @@
 // is one import specifier instead of a second manifest entry + lockfile churn, and it
 // guarantees the same module instance the engine itself booted with. Swap it for a plain
 // `'pixi.js'` the day session-client declares the dep.
+import { useMemo } from 'react';
 import { Container, Graphics, Sprite, Text, Texture, type Ticker } from 'pixi.js';
 import { SIZE_CELLS, type Disposition, type Token, type TokensState } from '@dnd/mechanics/tokens';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
@@ -16,7 +17,7 @@ import { getCatalogEntry } from '@dnd/core/src/assets/packCatalog';
 import { resolveTexture } from '@dnd/core/src/assets/textureLoader';
 import { endpoints } from '../../endpoints';
 import { addScreenOverlay, mountWhenEngineReady, sightMaskOf } from '../../renderer/overlayLayer';
-import { useSessionStore } from '../../session/store';
+import { useModuleState, useSessionStore } from '../../session/store';
 import {
   SETTLE_MS,
   approach,
@@ -42,6 +43,23 @@ export function initials(name: string): string {
   if (words.length === 0) return '?';
   const letters = words.length === 1 ? words[0].slice(0, 2) : words[0][0] + words[1][0];
   return letters.toUpperCase();
+}
+
+/**
+ * The tokens this seat has claimed on the active scene. Not component-local so a hook-only
+ * consumer (`SheetLinkPrompt`, alongside `MePanel`) can import it without pulling in a
+ * component export — mixing the two in one file breaks Fast Refresh's per-component reload
+ * (`react-refresh/only-export-components`), the same reason `tokensUi.ts` sits outside
+ * `TokenPanel.tsx`.
+ */
+export function useClaimedTokens(): Token[] {
+  const state = useModuleState<TokensState>('tokens');
+  const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
+  const identityId = useSessionStore((s) => s.you?.identityId);
+  return useMemo(
+    () => tokensOf(state, sceneId).filter((t) => t.ownerId === identityId),
+    [state, sceneId, identityId],
+  );
 }
 
 /** The active scene's tokens out of a (wire-supplied, therefore untrusted) module slice. */

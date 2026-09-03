@@ -169,6 +169,55 @@ describe('PlayerList', () => {
     expect(borinRow.textContent).not.toContain('—');
   });
 
+  it('links the character name to its D&D Beyond sheet when the claimed token has one', () => {
+    const here: PlayerInfo = { identityId: 'p-4', name: 'Willow', role: 'player', connected: true };
+    const s = session([dm, here]);
+    s.activeSceneId = 'sc-1';
+    s.modules = {
+      tokens: {
+        library: {},
+        byScene: {
+          'sc-1': {
+            t1: {
+              id: 't1',
+              name: 'Karlach',
+              x: 1,
+              y: 1,
+              ownerId: 'p-4',
+              sheet: { name: 'Karlach', url: 'https://www.dndbeyond.com/characters/1' },
+            },
+          },
+        },
+      },
+    };
+    useSessionStore.setState({ session: s, you: dm });
+    render(<PlayerList />);
+
+    const link = screen.getByRole('link', { name: 'Karlach' });
+    expect(link.getAttribute('href')).toBe('https://www.dndbeyond.com/characters/1');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+  });
+
+  it('does not link the character name when the linked sheet has no url', () => {
+    const here: PlayerInfo = { identityId: 'p-4', name: 'Willow', role: 'player', connected: true };
+    const s = session([dm, here]);
+    s.activeSceneId = 'sc-1';
+    s.modules = {
+      tokens: {
+        library: {},
+        byScene: {
+          'sc-1': { t1: { id: 't1', name: 'Karlach', x: 1, y: 1, ownerId: 'p-4', sheet: { name: 'Karlach' } } },
+        },
+      },
+    };
+    useSessionStore.setState({ session: s, you: dm });
+    render(<PlayerList />);
+
+    expect(screen.queryByRole('link', { name: 'Karlach' })).toBeNull();
+    expect(screen.getByText(/Karlach/)).toBeTruthy();
+  });
+
   it('badges the DM in outline, not warning colour', () => {
     useSessionStore.setState({ session: session([dm]), you: dm });
     render(<PlayerList />);

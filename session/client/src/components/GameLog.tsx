@@ -54,6 +54,11 @@ export function GameLog() {
                 {[e.formula, e.breakdown].filter(Boolean).join(' = ')}
               </span>
             )}
+            {e.description && (
+              <div className="mt-0.5 whitespace-pre-wrap break-words text-xs text-text-muted">
+                {e.description}
+              </div>
+            )}
           </li>
         ))}
       </ol>

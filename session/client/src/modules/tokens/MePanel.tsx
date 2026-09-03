@@ -19,8 +19,8 @@ import { useModuleState, useSessionStore } from '../../session/store';
 import { Icon } from '../../shell/icons';
 import { usePortraitUrl } from '../../shell/portrait';
 import { mapScale, toUnits, VISION_MODES, type Light, type MapScale, type Sight } from './sight';
-import { initials, tokensOf } from './TokenRenderer';
-import { buttonClass, ghostButtonClass } from './tokensUi';
+import { initials, tokensOf, useClaimedTokens } from './TokenRenderer';
+import { buttonClass, ghostButtonClass, quietButtonClass } from './tokensUi';
 
 const send = (action: string, payload: unknown): void =>
   useSessionStore.getState().sendCommand('tokens', action, payload);
@@ -55,16 +55,6 @@ const useMeUi = create<{ expandedId: string | null; setExpanded: (id: string | n
   expandedId: null,
   setExpanded: (expandedId) => set({ expandedId }),
 }));
-
-function useClaimedTokens(): Token[] {
-  const state = useModuleState<TokensState>('tokens');
-  const sceneId = useSessionStore((s) => s.session?.activeSceneId ?? null);
-  const identityId = useSessionStore((s) => s.you?.identityId);
-  return useMemo(
-    () => tokensOf(state, sceneId).filter((t) => t.ownerId === identityId),
-    [state, sceneId, identityId],
-  );
-}
 
 function Portrait({ token, size }: { token: Token; size: number }) {
   const portrait = usePortraitUrl(token.imageAssetId);
@@ -149,6 +139,32 @@ function TokenDetail({
         <span className="w-[72px] shrink-0 text-text-secondary">Carrying</span>
         <span className="text-text-primary">{lightLabel(token.light, scale)}</span>
       </div>
+
+      {/* Beyond20 link (avatar is stored, never shown here — name/url only). */}
+      {token.sheet && (
+        <div className="flex items-center gap-1.5 text-xs">
+          <span className="w-[72px] shrink-0 text-text-secondary">Sheet</span>
+          <span className="min-w-0 flex-1 truncate text-text-primary">{token.sheet.name}</span>
+          {token.sheet.url && (
+            <a
+              href={token.sheet.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 text-accent-active hover:underline"
+            >
+              Open sheet
+            </a>
+          )}
+          <button
+            type="button"
+            data-testid={`sheet-unlink-${token.id}`}
+            onClick={() => send('update', { id: token.id, sheet: null })}
+            className={quietButtonClass}
+          >
+            Unlink
+          </button>
+        </div>
+      )}
     </div>
   );
 }

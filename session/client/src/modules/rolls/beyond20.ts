@@ -6,15 +6,26 @@
  *
  * Attribution is the tab's own identity (D7) — the character name only rides along as a
  * label, so nothing here needs to know who you are.
+ *
+ * Shapes verified against Beyond20 source, not just the published API doc — see
+ * docs/beyond20-vtt-capabilities.md for the full reference and the two divergences below.
  */
 
 import type { InitiativeState } from '@dnd/mechanics/initiative'
 import type { RollPost } from '@dnd/mechanics/rolls'
+import { type DetectedSheet, useDetectedSheet } from '../../session/detectedSheet'
 import { captureFromRoll } from '../../session/initiativeView'
 import { useSessionStore } from '../../session/store'
 
 /** Mirrors the server's caps (§2.2) so an overlong roll is trimmed, not rejected. */
-const CAPS = { characterName: 60, title: 100, formula: 100, breakdown: 200 } as const
+const CAPS = {
+  characterName: 60,
+  title: 100,
+  formula: 100,
+  breakdown: 200,
+  text: 200,
+  description: 2000,
+} as const
 
 const cap = (value: unknown, max: number): string | undefined =>
   typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : undefined
@@ -28,6 +39,50 @@ const obj = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {}
+
+/** `total_damages` values are Roll JSON objects; `damage_rolls[n][1]` can be either a Roll
+ *  object, a plain message string, or (defensively) a bare number — this reads a display
+ *  total whichever shape shows up (§4/§5). */
+const rollTotal = (value: unknown): string | undefined => {
+  const asString = cap(value, 40)
+  if (asString !== undefined) return asString
+  const asNumber = num(value)
+  if (asNumber !== undefined) return String(asNumber)
+  const total = num(obj(value).total)
+  return total !== undefined ? String(total) : undefined
+}
+
+/** advantage on the wire (§9): only these four values mark the roll, the rest add nothing. */
+const ADVANTAGE_MARKERS: Record<number, string> = {
+  3: ' (adv)',
+  4: ' (dis)',
+  6: ' (super adv)',
+  7: ' (super dis)',
+}
+
+/** Unlike `cap()`, this drops an over-length value instead of truncating it — a sliced URL is
+ *  a broken link that still looks valid, which is worse than not stashing one at all. */
+const dropIfOverlong = (value: unknown, max: number): string | undefined =>
+  typeof value === 'string' && value.length > 0 && value.length <= max ? value : undefined
+
+/**
+ * A player's sheet, off a Beyond20 `character` object — but only a PC's (§6): `type` is
+ * `"Character"` for a PC, `"Monster" | "Vehicle" | "Creature" | "Extra-Vehicle"` for
+ * everything else, and the DM rolling a monster stat block must never be offered a bind to
+ * it. Loosely mirrors the server's caps (`@dnd/mechanics/tokens` validate.ts `SHEET_*`) —
+ * the server is the real gate (host-locks `url` to dndbeyond.com on top of this), this only
+ * keeps the stash from holding obvious junk.
+ */
+function sheetFromCharacter(value: unknown): DetectedSheet | undefined {
+  const c = obj(value)
+  if (c.type !== 'Character') return undefined
+  const name = cap(c.name, CAPS.characterName)
+  if (!name) return undefined
+  const id = dropIfOverlong(c.id, 40)
+  const url = dropIfOverlong(c.url, 300)
+  const avatar = dropIfOverlong(c.avatar, 300)
+  return { name, ...(id ? { id } : {}), ...(url ? { url } : {}), ...(avatar ? { avatar } : {}) }
+}
 
 /**
  * `detail` is the `[request]` array Beyond20 puts on the event (a bare request is accepted
@@ -53,33 +108,106 @@ export function translateRenderedRoll(detail: unknown): RollPost | null {
           .map((r) => `${num(r.total) ?? '?'}${r.discarded === true ? ' ✗' : ''}`)
           .join(' / ')
       : undefined
-  const damage = Object.entries(obj(req.total_damages))
-    .map(([label, total]) => [cap(label, 40), cap(total, 40)])
+  const critMarker =
+    kept?.['critical-success'] === true
+      ? 'nat 20!'
+      : kept?.['critical-failure'] === true
+        ? 'nat 1'
+        : undefined
+  const damageFromTotals = Object.entries(obj(req.total_damages))
+    .map(([label, total]) => [cap(label, 40), rollTotal(total)] as const)
     .filter(([, total]) => total)
     .map(([label, total]) => (label ? `${label} ${total}` : total))
     .join(', ')
+  // total_damages only appears for ≥2 damages of a kind (§4) — a single damage roll (or a
+  // `total_damages`-less display type) falls back to summarizing `damage_rolls` itself.
+  const damageFromRolls = arr(req.damage_rolls)
+    .map((entry) => arr(entry))
+    .map(([label, roll]) => [cap(label, 40), rollTotal(roll)] as const)
+    .filter(([, total]) => total)
+    .map(([label, total]) => (label ? `${label} ${total}` : total))
+    .join(', ')
+  const damage = damageFromTotals || damageFromRolls || undefined
+  const rollInfo =
+    arr(req.roll_info)
+      .map((pair) => arr(pair))
+      .filter(([name, value]) => typeof name === 'string' && typeof value === 'string')
+      .map(([name, value]) => `${name}: ${value}`)
+      .join(', ') || undefined
 
-  const title = cap(req.title, CAPS.title) ?? cap(obj(req.request).name, CAPS.title)
-  const formula = cap(kept?.formula, CAPS.formula) ?? cap(damageRoll.formula, CAPS.formula)
-  const total = num(kept?.total) ?? num(damageRoll.total)
+  // Hide-names (whisper 3): `title` and the top-level `character` string are already the
+  // censored replacement — but `hidden-monster-replacement` is free text and can be set to
+  // "", which `cap()` treats as absent. Falling through to `request.name` / the
+  // `request.character` object below would then publish the real name — those are never
+  // censored (§6/§13). So when hidden, the top-level strings are the only source, empty
+  // replacement included.
+  const hideNames = req.whisper === 3
+  const title =
+    cap(req.title, CAPS.title) ?? (hideNames ? undefined : cap(obj(req.request).name, CAPS.title))
+  const advantage = num(obj(req.request).advantage)
+  const advantageMarker = advantage !== undefined ? (ADVANTAGE_MARKERS[advantage] ?? '') : ''
+  const pickedFormula = cap(kept?.formula, CAPS.formula) ?? cap(damageRoll.formula, CAPS.formula)
+  const formula = pickedFormula ? cap(pickedFormula + advantageMarker, CAPS.formula) : undefined
+  // RollType DOUBLE (1) and THRICE (5) roll every d20 for real — 2 or 3 entries, none
+  // `discarded` — so there is no single roll to call "the" total; `breakdown` already lists
+  // every value via `dice` above.
+  const noSingleTotal = rolls.length > 1 && rolls.every((r) => r.discarded !== true)
+  const total = noSingleTotal ? undefined : (num(kept?.total) ?? num(damageRoll.total))
+  // §13: `character` is a string on the wire (the name, pre-censored for hide-names), not
+  // the object api.md documents — but accept the object shape too, and the raw request's
+  // object as a last resort for a synthetic/malformed detail that skipped the string.
+  const characterName = hideNames
+    ? cap(req.character, CAPS.characterName)
+    : (cap(req.character, CAPS.characterName) ??
+      cap(obj(req.character).name, CAPS.characterName) ??
+      cap(obj(obj(req.request).character).name, CAPS.characterName))
+  // Item/spell/trait card text (§4) — source line, then attributes, then the description
+  // itself. Beyond20 already nulls `description` on a hide-names whisper.
+  const attributeLines = Object.entries(obj(req.attributes))
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1] !== '')
+    .map(([key, value]) => `${key}: ${value}`)
+  const description = [
+    typeof req.source === 'string' && req.source ? req.source : undefined,
+    ...attributeLines,
+    typeof req.description === 'string' && req.description ? req.description : undefined,
+  ].filter((part): part is string => Boolean(part))
+  const descriptionText = description.length
+    ? cap(description.join('\n'), CAPS.description)
+    : undefined
+  // Chat-message rolls (and the notes-to-vtt [[before]]/[[after]] blocks they carry, §4) put
+  // their text in `request.message`, not `title` or a damage/attack roll.
+  const text = cap(obj(req.request).message, CAPS.text)
 
   // Nothing displayable — an hp-update, a settings message, or malformed detail.
-  if (!title && !formula && total === undefined) return null
+  if (!title && !formula && total === undefined && !text && !descriptionText) return null
 
   return {
     source: 'dndbeyond',
-    characterName: cap(obj(req.character).name, CAPS.characterName),
+    characterName,
     title,
     formula,
-    breakdown: cap([dice, damage].filter(Boolean).join(' · '), CAPS.breakdown),
+    breakdown: cap([dice, critMarker, damage, rollInfo].filter(Boolean).join(' · '), CAPS.breakdown),
+    description: descriptionText,
     total,
+    text,
     // WhisperType: 0 no · 1 whisper · 2 query · 3 public-but-names-hidden. Only 1 is secret.
     visibility: req.whisper === 1 ? 'private' : 'public',
   }
 }
 
 const onRenderedRoll = (event: Event) => {
-  const post = translateRenderedRoll((event as CustomEvent).detail)
+  const detail = (event as CustomEvent).detail
+  // The full character object rides in `request.character` (§3/§13) — `translateRenderedRoll`
+  // only sees the top-level `character` string, so this reads the raw detail on its own.
+  const req = obj(Array.isArray(detail) ? detail[0] : detail)
+  const sheet = sheetFromCharacter(obj(req.request).character)
+  // Hide-names (whisper 3) censors the *displayed* name but never `request.character` itself
+  // (§6/§13 — the same fact `translateRenderedRoll`'s `hideNames` guard exists for). Stashing
+  // here would let "Link" write the real name into shared table state off a hidden roll, so a
+  // hidden roll stashes nothing at all.
+  if (sheet && req.whisper !== 3) useDetectedSheet.getState().stash(sheet)
+
+  const post = translateRenderedRoll(detail)
   if (!post) return
   const store = useSessionStore.getState()
   store.sendCommand('rolls', 'post', post)
@@ -105,3 +233,53 @@ window.addEventListener('Beyond20_RenderedRoll', onRenderedRoll, true)
 // hardcodes it), and Beyond20 already de-dupes upstream (forwardMessageToDOM bounces the
 // fallback 500ms and cancels it when a real render lands). If the DDB gate ever shows
 // doubled lines, dedup by request id/timestamp window instead.
+
+// `Beyond20_UpdateHP` detail = `[request, name, hp, maxHp, tempHp]` (§2/§7). Whispered
+// because it fires for monster stat blocks the DM has open too, same as a party member's —
+// there is no per-token HP display yet to gate a public line on, so every HP line is a
+// whisper (sender + DM) until that exists.
+const onUpdateHP = (event: Event) => {
+  const detail = arr((event as CustomEvent).detail)
+  const sheet = sheetFromCharacter(obj(detail[0]).character)
+  if (sheet) useDetectedSheet.getState().stash(sheet)
+  const name = cap(detail[1], CAPS.characterName)
+  const hp = num(detail[2])
+  if (!name || hp === undefined) return
+  const maxHp = num(detail[3])
+  const tempHp = num(detail[4])
+  const text = `HP ${hp}${maxHp !== undefined ? `/${maxHp}` : ''}${
+    tempHp !== undefined && tempHp > 0 ? ` (+${tempHp} temp)` : ''
+  }`
+  useSessionStore.getState().sendCommand('rolls', 'post', {
+    source: 'dndbeyond',
+    characterName: name,
+    text: cap(text, CAPS.text),
+    visibility: 'private',
+  })
+}
+window.addEventListener('Beyond20_UpdateHP', onUpdateHP, true)
+
+// `Beyond20_UpdateConditions` detail = `[request, name, conditions, exhaustion]` (§2/§7).
+const onUpdateConditions = (event: Event) => {
+  const detail = arr((event as CustomEvent).detail)
+  const sheet = sheetFromCharacter(obj(detail[0]).character)
+  if (sheet) useDetectedSheet.getState().stash(sheet)
+  const name = cap(detail[1], CAPS.characterName)
+  if (!name) return
+  const conditions = arr(detail[2]).filter((c): c is string => typeof c === 'string' && c !== '')
+  const exhaustion = num(detail[3]) ?? 0
+  // ponytail: this fires on every sheet load, so a cleared-to-none update (no conditions,
+  // no exhaustion) is dropped rather than posting a "none" line nobody asked for. Remove
+  // this guard if a "conditions cleared" line ever becomes worth showing.
+  if (conditions.length === 0 && exhaustion === 0) return
+  const text = `Conditions: ${conditions.join(', ') || 'none'}${
+    exhaustion > 0 ? ` · exhaustion ${exhaustion}` : ''
+  }`
+  useSessionStore.getState().sendCommand('rolls', 'post', {
+    source: 'dndbeyond',
+    characterName: name,
+    text: cap(text, CAPS.text),
+    visibility: 'private',
+  })
+}
+window.addEventListener('Beyond20_UpdateConditions', onUpdateConditions, true)

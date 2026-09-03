@@ -22,6 +22,9 @@ export interface RollEvent {
   formula?: string
   /** e.g. "17 + 7", ≤ 200 — display only, never recomputed. */
   breakdown?: string
+  /** Spell/item/trait card text from Beyond20 (source line, attributes, description),
+   *  ≤ 2000 — display only, rendered as a plain block under the roll line. */
+  description?: string
   /** Finite number. */
   total?: number
   /** Manual entries, ≤ 200. */

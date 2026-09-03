@@ -15,6 +15,7 @@ const CAPS = {
   formula: 100,
   breakdown: 200,
   text: 200,
+  description: 2000,
 } as const
 
 /** D5: state carries the last 200 entries. Full history is a later feature. */

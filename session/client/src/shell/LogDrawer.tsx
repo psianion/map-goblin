@@ -128,20 +128,28 @@ export function LogDrawer() {
       </div>
 
       {/* Single top-down feed (table-shell-redesign D2 — the two-column split doesn't fit a
-          300px column), newest at the bottom; `justify-end` hugs a short feed to the
-          composer instead of leaving it stranded under the header. */}
+          300px column), newest at the bottom. A short feed hugs the composer via `mt-auto`
+          on the list, NOT `justify-end` on this container: content overflowing the start
+          edge of a justify-end scroll container is clipped and unscrollable (it never
+          enters scrollHeight), which froze the log once description blocks made it
+          overflow. */}
       <div
         ref={feedRef}
         onScroll={onScroll}
         data-testid="game-log"
-        className="flex min-h-0 flex-1 flex-col justify-end overflow-y-auto px-3 py-1.5 text-[12.5px]"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-1.5 text-[12.5px]"
       >
-        {shown.length === 0 && <p className="text-text-muted">Nothing has happened yet.</p>}
+        {shown.length === 0 && <p className="mt-auto text-text-muted">Nothing has happened yet.</p>}
         {shown.length > 0 && (
-          <ol data-testid="log-column" className="flex min-w-0 flex-col justify-end gap-y-0.5">
+          <ol data-testid="log-column" className="mt-auto flex min-w-0 flex-col gap-y-0.5">
             {shown.map((e) => (
               <li key={e.key} data-whisper={e.whisper || undefined} className="min-w-0 leading-[22px]">
                 <LogLine e={e} />
+                {e.description && (
+                  <div className="ml-12 whitespace-pre-wrap break-words text-[11px] leading-4 text-text-muted">
+                    {e.description}
+                  </div>
+                )}
               </li>
             ))}
           </ol>
