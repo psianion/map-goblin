@@ -5,6 +5,7 @@ import { serverRooms } from '../modules/fog/fog';
 import { navigate } from '../router';
 import {
   createCampaignAsDm,
+  fetchActiveSession,
   fetchMapDoc,
   listCampaignsAsAdmin,
   listScenes,
@@ -46,6 +47,8 @@ const field =
 const label = 'mb-1 block text-xs font-semibold uppercase tracking-wide text-text-muted';
 const primary =
   'rounded-md bg-accent-active px-4 py-2 text-sm font-medium text-on-accent hover:bg-accent-dim disabled:cursor-not-allowed disabled:opacity-40';
+const secondary =
+  'rounded-md border border-border-default bg-surface-1 px-4 py-2 text-sm font-medium text-text-secondary hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40';
 
 /**
  * §2.6 — the DM's four steps: server → campaign → map → invite code.
@@ -79,6 +82,9 @@ export default function HostSetup() {
   /** '' = none, which is the table starting dark exactly as it did before this picker. */
   const [startRoomId, setStartRoomId] = useState('');
   const [inviteCode, setInviteCode] = useState<string | null>(null);
+  /** True when step 4's invite code came from resuming a live session (issue #94),
+   *  not from `openTable` — that's what decides whether the escape hatch shows. */
+  const [resumedSession, setResumedSession] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -124,11 +130,33 @@ export default function HostSetup() {
       await fetchScenesAndAdvance(session);
     });
 
+  /**
+   * Issue #94 — hosting an existing campaign used to always walk the wizard to a
+   * fresh "Start session", which ends whatever table is already live and orphans every
+   * player's claim. If one is live, resume it straight to step 4 instead; only a campaign
+   * with nothing running falls through to today's picker → start flow.
+   */
   const hostExisting = (campaign: CampaignSummary) =>
     run(async () => {
       const session = await mintDmToken(resolvedServerUrl, adminPass, campaign.id);
       setDm(session);
+      const active = await fetchActiveSession(session.campaignId, session.token).catch(() => null);
+      if (active) {
+        setResumedSession(true);
+        setInviteCode(active.inviteCode);
+        setStep(4);
+        return;
+      }
       await fetchScenesAndAdvance(session);
+    });
+
+  /** The resumed step 4's escape hatch: end the live session and walk the normal path. */
+  const startNewInstead = () =>
+    run(async () => {
+      if (!dm) return;
+      setInviteCode(null);
+      setResumedSession(false);
+      await fetchScenesAndAdvance(dm);
     });
 
   /**
@@ -474,6 +502,12 @@ export default function HostSetup() {
               </button>
             ) : (
               <>
+                {resumedSession && (
+                  <p className="text-sm text-text-secondary">
+                    This session is still running — players keep their seats.
+                  </p>
+                )}
+
                 <div className="rounded-lg border border-border-default bg-surface-1 p-4">
                   <p className={label}>Invite code</p>
                   <div className="flex items-center gap-3">
@@ -496,6 +530,22 @@ export default function HostSetup() {
                 <button type="button" className={primary} onClick={enterTable}>
                   Enter table
                 </button>
+
+                {resumedSession && (
+                  <div>
+                    <button
+                      type="button"
+                      className={secondary}
+                      disabled={busy}
+                      onClick={startNewInstead}
+                    >
+                      {busy ? 'Loading…' : 'Start a new session instead'}
+                    </button>
+                    <p className="mt-1 text-xs text-text-muted">
+                      Ends the current session for everyone and makes a new code.
+                    </p>
+                  </div>
+                )}
               </>
             )}
           </section>

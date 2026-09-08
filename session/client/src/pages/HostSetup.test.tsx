@@ -11,14 +11,22 @@ import HostSetup from './HostSetup';
 
 vi.mock('../session/auth', () => ({
   createCampaignAsDm: vi.fn(),
+  fetchActiveSession: vi.fn(),
   listCampaignsAsAdmin: vi.fn(),
   listScenes: vi.fn(),
   mintDmToken: vi.fn(),
   uploadMapFile: vi.fn(),
   startSession: vi.fn(),
 }));
-const { createCampaignAsDm, listCampaignsAsAdmin, listScenes, uploadMapFile, startSession } =
-  await import('../session/auth');
+const {
+  createCampaignAsDm,
+  fetchActiveSession,
+  listCampaignsAsAdmin,
+  listScenes,
+  mintDmToken,
+  uploadMapFile,
+  startSession,
+} = await import('../session/auth');
 
 /** Two rooms, one of them unnamed — the label fallback has to have something to fall to. */
 const MAP = {
@@ -59,6 +67,8 @@ beforeEach(() => {
     campaignId: 'c1',
     inviteCode: 'ABC234',
   });
+  vi.mocked(mintDmToken).mockReset();
+  vi.mocked(fetchActiveSession).mockReset();
 });
 
 /** Server → campaign → the uploaded map, which is where the picker appears. */
@@ -180,6 +190,65 @@ describe('HostSetup — the starting room', () => {
     await screen.findByTestId('uploaded-map');
 
     expect(screen.queryByLabelText('Starting room')).toBeNull();
+  });
+});
+
+describe('HostSetup — resuming a live session', () => {
+  /** Server step done, sat on step 2 with one existing campaign listed. */
+  async function toExistingCampaign(): Promise<void> {
+    vi.mocked(listCampaignsAsAdmin).mockResolvedValue({
+      campaigns: [{ id: 'c1', name: 'Cragmaw', createdAt: 0, updatedAt: 0 }],
+    });
+    render(<HostSetup />);
+    fireEvent.change(screen.getByLabelText('Server address'), {
+      target: { value: 'http://localhost:8787' },
+    });
+    fireEvent.change(screen.getByLabelText('Admin pass'), { target: { value: 'hunter2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    await screen.findByRole('button', { name: /Cragmaw/ });
+  }
+
+  it('resumes straight to the invite code when a session is already live', async () => {
+    vi.mocked(mintDmToken).mockResolvedValue({ campaignId: 'c1', token: 'dm-token', name: 'Cragmaw' });
+    vi.mocked(fetchActiveSession).mockResolvedValue({ sessionId: 's-live', inviteCode: 'LIVE99' });
+
+    await toExistingCampaign();
+    fireEvent.click(screen.getByRole('button', { name: /Cragmaw/ }));
+
+    expect((await screen.findByTestId('invite-code')).textContent).toBe('LIVE99');
+    expect(startSession).not.toHaveBeenCalled();
+    expect(listScenes).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the scene picker when nothing is live', async () => {
+    vi.mocked(mintDmToken).mockResolvedValue({ campaignId: 'c1', token: 'dm-token', name: 'Cragmaw' });
+    vi.mocked(fetchActiveSession).mockRejectedValue(new Error('No active game for that code.'));
+
+    await toExistingCampaign();
+    fireEvent.click(screen.getByRole('button', { name: /Cragmaw/ }));
+
+    await screen.findByLabelText('Map file');
+    expect(screen.queryByTestId('invite-code')).toBeNull();
+  });
+
+  it('the escape hatch ends the resumed session and starts a fresh one', async () => {
+    vi.mocked(mintDmToken).mockResolvedValue({ campaignId: 'c1', token: 'dm-token', name: 'Cragmaw' });
+    vi.mocked(fetchActiveSession).mockResolvedValue({ sessionId: 's-live', inviteCode: 'LIVE99' });
+
+    await toExistingCampaign();
+    fireEvent.click(screen.getByRole('button', { name: /Cragmaw/ }));
+    await screen.findByTestId('invite-code');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start a new session instead' }));
+    await screen.findByLabelText('Map file');
+
+    const file = new File([JSON.stringify(MAP)], 'crypt.mapbuilder', { type: 'application/json' });
+    fireEvent.change(screen.getByLabelText('Map file'), { target: { files: [file] } });
+    await screen.findByTestId('uploaded-map');
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Start session' }));
+
+    await waitFor(() => expect(startSession).toHaveBeenCalled());
   });
 });
 
