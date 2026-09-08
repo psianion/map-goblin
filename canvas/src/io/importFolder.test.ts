@@ -79,11 +79,38 @@ describe('findImageFile', () => {
     ['other/B.webp', new File([], 'B.webp')],
   ]);
   it('matches by exact path, then suffix, then bare name', () => {
-    expect(findImageFile(files, 'root/map-assets/A.webp')?.name).toBe('A.webp');
-    expect(findImageFile(files, 'map-assets/A.webp')?.name).toBe('A.webp');
-    expect(findImageFile(files, 'assets/B.webp')?.name).toBe('B.webp');
+    expect(findImageFile(files, 'root/map-assets/A.webp')).toEqual({ file: files.get('root/map-assets/A.webp'), fuzzy: false });
+    expect(findImageFile(files, 'map-assets/A.webp')?.file.name).toBe('A.webp');
+    expect(findImageFile(files, 'assets/B.webp')?.file.name).toBe('B.webp');
     expect(findImageFile(files, 'C.webp')).toBeNull();
     expect(findImageFile(files, null)).toBeNull();
+  });
+
+  it('falls back to the image whose name shares most words, ignoring version numbers', () => {
+    const pack = new Map<string, File>([
+      ['p/map-assets/Axeholm v1.01 (lower) 47x42 @140pps.webp', new File([], 'Axeholm v1.01 (lower) 47x42 @140pps.webp')],
+      ['p/map-assets/Axeholm v1.10 (upper overlay) 47x42 @140pps.webp', new File([], 'Axeholm v1.10 (upper overlay) 47x42 @140pps.webp')],
+      ['p/packs/maps.db', new File([], 'maps.db')],
+    ]);
+    const hit = findImageFile(pack, 'map-assets/Axeholm v1.01 (upper) 47x42 @140pps.webp');
+    expect(hit?.fuzzy).toBe(true);
+    expect(hit?.file.name).toBe('Axeholm v1.10 (upper overlay) 47x42 @140pps.webp');
+    // A different map's picture never stands in, however similar the rest of the name.
+    expect(findImageFile(pack, 'map-assets/Gnomengarde v1.01 (upper) 47x42 @140pps.webp')).toBeNull();
+  });
+
+  it('reports the stand-in on the row', async () => {
+    const withImage = scene('Axeholm (upper)', { img: 'modules/pack/map-assets/Axeholm%20v1.01%20(upper)%2047x42%20%40140pps.webp' });
+    const rows = await scanFiles(
+      new Map([
+        file('pack/packs/maps.db', JSON.stringify(withImage)),
+        ['pack/map-assets/Axeholm v1.10 (upper overlay) 47x42 @140pps.webp', new File(['x'], 'Axeholm v1.10 (upper overlay) 47x42 @140pps.webp', { type: 'image/webp' })],
+      ]),
+    );
+    expect(rows[0].imageStatus).toBe('found');
+    expect(rows[0].warnings[0]).toBe(
+      'image "Axeholm v1.01 (upper) 47x42 @140pps.webp" is not in the folder — used "Axeholm v1.10 (upper overlay) 47x42 @140pps.webp"',
+    );
   });
 });
 

@@ -84,16 +84,47 @@ async function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+const IMAGE_FILE = /\.(png|jpe?g|webp|gif|avif)$/i;
+
+/** "Axeholm v1.10 (upper overlay) 47x42 @140pps.webp" → {axeholm, upper, overlay, 47x42, 140pps}. */
+function nameTokens(path: string): Set<string> {
+  const base = path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '').toLowerCase();
+  return new Set(
+    base
+      .replace(/\bv\d+(\.\d+)*\b/g, ' ')
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean),
+  );
+}
+
 /** Match a module-relative image path against the dropped tree, loosest match last. */
-export function findImageFile(files: Map<string, File>, relPath: string | null): File | null {
+export function findImageFile(
+  files: Map<string, File>,
+  relPath: string | null,
+): { file: File; fuzzy: boolean } | null {
   if (!relPath) return null;
   const exact = files.get(relPath);
-  if (exact) return exact;
+  if (exact) return { file: exact, fuzzy: false };
   const suffix = `/${relPath}`;
-  for (const [key, f] of files) if (key.endsWith(suffix)) return f;
+  for (const [key, f] of files) if (key.endsWith(suffix)) return { file: f, fuzzy: false };
   const base = relPath.slice(relPath.lastIndexOf('/') + 1);
-  for (const [key, f] of files) if (key.slice(key.lastIndexOf('/') + 1) === base) return f;
-  return null;
+  for (const [key, f] of files) if (key.slice(key.lastIndexOf('/') + 1) === base) return { file: f, fuzzy: false };
+
+  // The pack names a file it never shipped (a version bump, an "(upper)" that only exists as
+  // "(upper overlay)"). Take the image whose name shares most of its words, never one that
+  // shares fewer than most, and say so in the row's warnings.
+  const wanted = nameTokens(relPath);
+  if (!wanted.size) return null;
+  let best: { file: File; score: number } | null = null;
+  for (const [key, f] of files) {
+    if (!IMAGE_FILE.test(key)) continue;
+    const have = nameTokens(key);
+    let shared = 0;
+    for (const t of wanted) if (have.has(t)) shared++;
+    const score = shared / Math.max(wanted.size, have.size);
+    if (score >= 0.7 && (!best || score > best.score)) best = { file: f, score };
+  }
+  return best ? { file: best.file, fuzzy: true } : null;
 }
 
 function baseName(path: string): string {
@@ -101,8 +132,15 @@ function baseName(path: string): string {
 }
 
 function foundryRow(scene: FoundryScene, sourcePath: string, files: Map<string, File>): ScannedMap {
-  const imageFile = findImageFile(files, foundryImagePath(scene));
+  const wantedPath = foundryImagePath(scene);
+  const match = findImageFile(files, wantedPath);
+  const imageFile = match?.file ?? null;
   const preview = readFoundryScene(scene, null);
+  if (match?.fuzzy) {
+    preview.warnings.unshift(
+      `image "${wantedPath!.slice(wantedPath!.lastIndexOf('/') + 1)}" is not in the folder — used "${match.file.name}"`,
+    );
+  }
   const thumb = scene.thumb?.startsWith('data:') ? scene.thumb : null;
   return {
     id: crypto.randomUUID(),
