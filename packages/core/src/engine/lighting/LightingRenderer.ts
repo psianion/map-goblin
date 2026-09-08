@@ -5,6 +5,8 @@ import type { LightManager } from './LightManager'
 import { resolveTexture } from '../../assets/textureLoader'
 import { LIGHT_ICON_RADIUS_PX } from '../hitTest'
 import { lucideTexture } from '../lucideIcons'
+import { prefersReducedMotion } from '../motion'
+import { LIGHT_FADE_MS, advancePresence, easePresence } from './presence'
 
 /**
  * Everything the composite below is a function of, as one comparable string.
@@ -39,12 +41,15 @@ export function lightingSignature(
   lights: LightChild[],
   isDirty: (lightId: string) => boolean,
   timeBucket = 0,
+  weightOf: (lightId: string) => number = () => 1,
 ): string {
   const parts = [camX, camY, zoom, width, height, ambientColor, timeBucket]
   for (const l of lights) {
     const maskWidth = l.maskTextureId ? resolveTexture(l.maskTextureId).width : 0
     parts.push(
       l.id,
+      // Coarsened: the fade moves this a few dozen times, then it is 1 and the memo holds.
+      Math.round(weightOf(l.id) * 64),
       l.position.x,
       l.position.y,
       l.radius,
@@ -236,6 +241,9 @@ export class LightingRenderer {
   private iconMap = new Map<string, Sprite>()
   private iconsVisible = true
   private lastSignature = ''
+  /** Presence weight per light id — see `advancePresence`. Empty until the first frame. */
+  private presence = new Map<string, number>()
+  private lastTickMs = 0
   private lastIconSignature = ''
 
   /**
@@ -414,13 +422,18 @@ export class LightingRenderer {
     }
 
     // Cap first: a table with more lights than the budget still owes a picture, just not
-    // one drawn from all of them. Everything below only ever sees the culled set.
-    const visibleLights = cullLightsByDistance(
-      lightManager.getVisibleLights(),
-      camX,
-      camY,
-      MAX_RENDERED_LIGHTS,
-    )
+    // one drawn from all of them. Everything below only ever sees the culled set — plus,
+    // for a few frames, the lights on their way out of it.
+    const allLights = lightManager.getVisibleLights()
+    const culled = cullLightsByDistance(allLights, camX, camY, MAX_RENDERED_LIGHTS)
+    const now = performance.now()
+    const dt = this.lastTickMs ? now - this.lastTickMs : 0
+    this.lastTickMs = now
+    // The first frame has nothing to fade from; reduced motion asks for cuts.
+    const fadeMs = this.presence.size === 0 || prefersReducedMotion() ? 0 : LIGHT_FADE_MS
+    this.presence = advancePresence(this.presence, new Set(culled.map((l) => l.id)), dt, fadeMs)
+    const weightOf = (id: string): number => this.presence.get(id) ?? 0
+    const visibleLights = allLights.filter((l) => weightOf(l.id) > 0)
 
     // The grade composites always — a map's mood is not conditional on it owning a torch, and
     // the old no-lights shortcut is why a lightless map was the one map with no mood at all.
@@ -437,6 +450,7 @@ export class LightingRenderer {
       visibleLights,
       (id) => lightManager.isDirty(id),
       this.timeBucket,
+      weightOf,
     )
     if (signature === this.lastSignature) return
     this.lastSignature = signature
@@ -450,6 +464,7 @@ export class LightingRenderer {
       this.perLightRT,
       this.width,
       this.height,
+      weightOf,
     )
   }
 
@@ -527,6 +542,7 @@ export class LightingRenderer {
     perLightRT: RenderTexture,
     width: number,
     height: number,
+    weightOf: (lightId: string) => number = () => 1,
   ): void {
     const [gradeR, gradeG, gradeB] = rgb(grade)
     const gradeColorNum = (gradeR << 16) | (gradeG << 8) | gradeB
@@ -575,7 +591,7 @@ export class LightingRenderer {
       // still cools when the night does, where grading the whole composite instead would
       // drag every torch toward the sky's colour.
       const [lr, lg, lb] = gradedLight(light.color, grade)
-      const alpha = Math.min(1, Math.max(0, light.intensity * lightRoom))
+      const alpha = Math.min(1, Math.max(0, light.intensity * lightRoom * easePresence(weightOf(light.id))))
       const toRgba = (a: number): string => `rgba(${lr},${lg},${lb},${a.toFixed(4)})`
 
       const screenFeather = (light.featherRadius ?? 0) * zoom * S
