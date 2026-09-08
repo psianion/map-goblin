@@ -14,6 +14,7 @@ const MAP: ImportedMap = {
     { a: [0, 3], b: [0, 4], state: 'closed', isSecret: false, archway: true },
   ],
   lights: [{ x: 5, y: 4, radius: 8, featherRadius: 4, color: '#eaefca', intensity: 0.9, hidden: true }],
+  ambientLight: '#ffffff',
   warnings: [],
 };
 
@@ -24,7 +25,7 @@ describe('importedMapToDocument', () => {
 
   it('is a current-version document pinned to the imported size', () => {
     expect(doc.version).toBe('3.1');
-    expect(doc.mapSettings).toMatchObject({ name: 'Cellar', fixedSize: { width: 10, height: 8 } });
+    expect(doc.mapSettings).toMatchObject({ name: 'Cellar', fixedSize: { width: 10, height: 8 }, ambientLight: '#ffffff' });
     expect(doc.layers.map((l) => l.name)).toEqual(['Background', 'Battlemap', 'Walls']);
   });
 

@@ -48,8 +48,25 @@ export interface ImportedMap {
   walls: ImportedWall[];
   doors: ImportedDoor[];
   lights: ImportedLight[];
+  /**
+   * The ambient the source showed the map under, as our `mapSettings.ambientLight` colour.
+   * Foundry's darkness 0 is a fully lit scene; a pack painted for it opens black under the
+   * editor's night default, which is what the whole upper floor of Axeholm looked like.
+   */
+  ambientLight: string;
   /** Every dropped or approximated thing, named, for the DM to read once. */
   warnings: string[];
+}
+
+/** The editor's default ambient — what a fully dark source maps to. */
+export const NIGHT_AMBIENT = '#2d2d44';
+
+/** Mix white (lit) toward the night default by `darkness` in 0..1. */
+export function ambientForDarkness(darkness: number): string {
+  const d = Math.min(1, Math.max(0, darkness));
+  const night = [0x2d, 0x2d, 0x44];
+  const hex = (v: number) => Math.round(v).toString(16).padStart(2, '0');
+  return `#${night.map((n) => hex(255 + (n - 255) * d)).join('')}`;
 }
 
 export function round3(n: number): number {

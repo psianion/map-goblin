@@ -40,10 +40,10 @@ interface UvttFile {
 const DEFAULT_LIGHT = '#ffdd88';
 
 /** UVTT colours are 8-digit `aarrggbb` in most exporters; take the trailing rgb. */
-export function uvttColor(c: string | undefined): string {
-  if (!c) return DEFAULT_LIGHT;
+export function uvttColor(c: string | undefined, fallback = DEFAULT_LIGHT): string {
+  if (!c) return fallback;
   const hex = c.replace(/^#/, '');
-  if (!/^[0-9a-f]{6,8}$/i.test(hex)) return DEFAULT_LIGHT;
+  if (!/^[0-9a-f]{6,8}$/i.test(hex)) return fallback;
   return `#${hex.slice(-6).toLowerCase()}`;
 }
 
@@ -115,6 +115,8 @@ export function readUvtt(input: unknown, name: string): ImportedMap {
     });
 
   if (file.environment?.baked_lighting) warnings.push('lighting is baked into the image');
+  // Exporters write the ambient as a colour; absent means the map was drawn lit.
+  const ambientLight = file.environment?.ambient_light ? uvttColor(file.environment.ambient_light) : '#ffffff';
 
   let image: ImportedMap['image'] = null;
   if (file.image) {
@@ -139,6 +141,7 @@ export function readUvtt(input: unknown, name: string): ImportedMap {
     walls,
     doors,
     lights,
+    ambientLight,
     warnings,
   };
 }

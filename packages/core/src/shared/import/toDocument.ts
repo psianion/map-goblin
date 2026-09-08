@@ -94,7 +94,7 @@ export function importedMapToDocument(map: ImportedMap): SerializedMapData {
       name: map.name,
       gridType: 'square',
       cellScale: { value: 5, unit: 'ft' },
-      ambientLight: '#2d2d44',
+      ambientLight: map.ambientLight,
       fixedSize: { width: map.size.width, height: map.size.height },
     },
     grid: { visible: true, snapDivision: 2 },

@@ -6,7 +6,7 @@
 
 import type { DoorState, WallDirection, WallType } from '../types';
 import type { ImportedDoor, ImportedImage, ImportedLight, ImportedMap, ImportedWall } from './types';
-import { round3 } from './types';
+import { ambientForDarkness, round3 } from './types';
 
 export interface FoundryWall {
   c: [number, number, number, number];
@@ -50,6 +50,7 @@ export interface FoundryScene {
   thumb?: string | null;
   walls?: FoundryWall[];
   lights?: FoundryLight[];
+  darkness?: number;
   tiles?: unknown[];
   drawings?: unknown[];
   tokens?: unknown[];
@@ -254,6 +255,7 @@ export function readFoundryScene(scene: FoundryScene, image: ImportedImage | nul
     walls,
     doors,
     lights,
+    ambientLight: ambientForDarkness(scene.darkness ?? 0),
     warnings,
   };
 }

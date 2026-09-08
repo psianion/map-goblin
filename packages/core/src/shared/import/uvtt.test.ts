@@ -59,6 +59,12 @@ describe('readUvtt', () => {
     expect(map.warnings).toContain('lighting is baked into the image');
   });
 
+  it('takes the ambient colour from the file and reads a missing one as lit', () => {
+    expect(map.ambientLight).toBe('#ffffff');
+    expect(readUvtt({ ...FILE, environment: { ambient_light: 'ff334455' } }, 'x').ambientLight).toBe('#334455');
+    expect(readUvtt({ ...FILE, environment: undefined }, 'x').ambientLight).toBe('#ffffff');
+  });
+
   it('refuses a file with no size', () => {
     expect(() => readUvtt({}, 'x')).toThrow(/map_size/);
   });

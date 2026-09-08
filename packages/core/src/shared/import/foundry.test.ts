@@ -82,6 +82,12 @@ describe('readFoundryScene', () => {
     expect(map.warnings).toContain('no map image — walls only');
   });
 
+  it('opens a darkness-0 scene fully lit and a dark one on the night default', () => {
+    expect(map.ambientLight).toBe('#ffffff');
+    expect(readFoundryScene({ ...AXEHOLM, darkness: 1 }, null).ambientLight).toBe('#2d2d44');
+    expect(readFoundryScene({ ...AXEHOLM, darkness: 0.5 }, null).ambientLight).toBe('#9696a2');
+  });
+
   it('maps restriction codes to wall types and drops inert walls on a single floor', () => {
     const scene: FoundryScene = {
       name: ' ',

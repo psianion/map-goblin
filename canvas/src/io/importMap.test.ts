@@ -24,6 +24,7 @@ const base: ImportedMap = {
   walls: [{ points: [[0, 0], [10, 0]], wallType: 'normal', direction: 'both' }],
   doors: [],
   lights: [],
+  ambientLight: '#ffffff',
   warnings: ['3 cone lights imported as full circles'],
 };
 
