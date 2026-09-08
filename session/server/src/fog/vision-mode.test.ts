@@ -310,6 +310,34 @@ describe('the party sweep the server keeps (S3 P1 §3)', () => {
     table.run(DM, 'tokens', 'hide', { id: claimable, hidden: true })
     expect(table.vision.visionOf(SCENE)!.canSee!(5.5, 5.5)).toBe(false)
   })
+
+  it('lets a plain-sighted torch-bearer see and claim the ground their own light reaches', () => {
+    const table = wired()
+    table.run(DM, 'fog', 'set-mode', { mode: 'vision' })
+    // The DM's bound for a map with no walls to do it: each eye swept at its own reach.
+    expect(table.run(DM, 'fog', 'set-range-limit', { sightRangeLimit: true })).toBeNull()
+    // Human eyes, no darkvision: range 0. Such a token used to be no eye at all, so a player
+    // holding a torch on a roomless battlemap opened nothing. Its reach is the torch.
+    expect(
+      table.run(DM, 'tokens', 'place', {
+        name: 'Torch',
+        x: 5.5,
+        y: 5.5,
+        sight: { range: 0, angle: 360, visionMode: 'normal' },
+        light: { dim: 3, bright: 1.5, color: '#ffdd88', angle: 360 },
+      }),
+    ).toBeNull()
+    const id = Object.entries(table.tokensOf()).find(([, t]) => t.name === 'Torch')![0]
+    expect(table.run(P1, 'tokens', 'claim', { id })).toBeNull()
+
+    const sight = table.vision.visionOf(SCENE)!
+    // Under the torch, and two cells out inside its glow…
+    expect(sight.canSee!(5.5, 5.5)).toBe(true)
+    expect(sight.canSee!(7.5, 5.5)).toBe(true)
+    // …not four cells out past it, and never through the wall.
+    expect(sight.canSee!(9.5, 5.5)).toBe(false)
+    expect(sight.canSee!(12.5, 5.5)).toBe(false)
+  })
 })
 
 describe('party-mode auto-explore (§4)', () => {

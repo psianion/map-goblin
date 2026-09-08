@@ -161,9 +161,24 @@ describe('the party sweep the mask is cut to (S3 P2 §2)', () => {
       scout({ id: 't2', ownerId: null }), // the DM's scenery
       scout({ id: 't3', hidden: true }),
       scout({ id: 't4', sight: null }),
+      // Plain sight, no darkvision: still an eye — it sees whatever is lit.
       scout({ id: 't5', sight: { range: 0, angle: 360, visionMode: 'normal' } }),
     ];
-    expect(sighted(tokens).map((t) => t.id)).toEqual(['t1']);
+    expect(sighted(tokens).map((t) => t.id)).toEqual(['t1', 't5']);
+  });
+
+  it('sweeps a plain-sighted torch-bearer to its torch under the range limit', () => {
+    const torch = scout({
+      sight: { range: 0, angle: 360, visionMode: 'normal' },
+      light: { dim: 4, bright: 2, color: '#ffdd88', angle: 360 },
+    });
+    const sight = createSightCache().partySight(layersWith([]), [torch], true);
+    // Three cells out is inside the glow; eight is past it — the walls never entered into it.
+    expect(sees(sight, [8, 5])).toBe(true);
+    expect(sees(sight, [5, 13])).toBe(false);
+    // The same eye with nothing in hand reaches nowhere under the limit.
+    const dark = createSightCache().partySight(layersWith([]), [scout({ ...torch, light: null })], true);
+    expect(sees(dark, [6, 5])).toBe(false);
   });
 
   /**

@@ -27,6 +27,20 @@ export interface LightCarrier {
 }
 
 /**
+ * How far an eye may push the containment fence, and its sweep radius under the DM's range
+ * limit: its own `sight.range` (darkvision's ring), or the light it carries if that reaches
+ * further. A torch-bearer with plain sight can see the ground their own torch lights, so that
+ * ground is theirs to claim — without the light term a range-0 eye could never open a cell,
+ * which is what left a party of humans with torches blind on an imported battlemap. The
+ * referee and every seat's mask read this one function, so they cannot disagree about it.
+ */
+export function eyeReach(token: LightCarrier & { sight: { range: number } | null }): number {
+  const range = token.sight?.range ?? 0
+  const carried = token.hidden || !token.light ? 0 : Math.max(token.light.dim, token.light.bright)
+  return Math.max(range, carried)
+}
+
+/**
  * How far line of sight is swept, in cells — the whole map, from anywhere on it.
  *
  * An eye's reach is not a radius. What bounds sight is the walls and, in the dark, the light:

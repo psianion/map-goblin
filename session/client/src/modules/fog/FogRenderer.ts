@@ -642,7 +642,7 @@ export function fogScene(): FogScene {
   const { previewSight, selectedId } = useTokenInteraction.getState();
   const previewed =
     !isPlayer && isVision && previewSight && selectedId
-      ? tokens.find((t) => t.id === selectedId && (t.sight?.range ?? 0) > 0)
+      ? tokens.find((t) => t.id === selectedId && t.sight != null)
       : undefined;
   const preview = previewed !== undefined;
   /** Drawn through somebody's eyes: a player, or the DM looking through one token's. */
