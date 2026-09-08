@@ -82,7 +82,22 @@ export function lightingSignature(
  */
 export const MAX_RENDERED_LIGHTS = 24
 
-/** The `cap` nearest lights to (camX, camY), in world space. A no-op under the cap. */
+/**
+ * The world point in the middle of the screen. `camX`/`camY` is the world point under the
+ * viewport's top-left corner (renderLoop passes `-stage.position / zoom`), and `zoom` is
+ * pixels per world unit, so half the viewport in world units is added on each axis.
+ */
+export function viewCentre(
+  camX: number,
+  camY: number,
+  zoom: number,
+  width: number,
+  height: number,
+): { x: number; y: number } {
+  return { x: camX + width / (2 * zoom), y: camY + height / (2 * zoom) }
+}
+
+/** The `cap` nearest lights to a world point. A no-op under the cap. */
 export function cullLightsByDistance(
   lights: LightChild[],
   camX: number,
@@ -424,8 +439,13 @@ export class LightingRenderer {
     // Cap first: a table with more lights than the budget still owes a picture, just not
     // one drawn from all of them. Everything below only ever sees the culled set — plus,
     // for a few frames, the lights on their way out of it.
+    // `camX`/`camY` is the world point under the viewport's top-left corner (renderLoop:
+    // `-stage.position / zoom`), not what the viewer is looking at. Culling to it kept the 24
+    // lights nearest the screen's corner, so at any real zoom the middle of the view went dark
+    // while lights off the top-left edge burned. The budget is spent around the centre.
     const allLights = lightManager.getVisibleLights()
-    const culled = cullLightsByDistance(allLights, camX, camY, MAX_RENDERED_LIGHTS)
+    const centre = viewCentre(camX, camY, zoom, this.width, this.height)
+    const culled = cullLightsByDistance(allLights, centre.x, centre.y, MAX_RENDERED_LIGHTS)
     const now = performance.now()
     const dt = this.lastTickMs ? now - this.lastTickMs : 0
     this.lastTickMs = now

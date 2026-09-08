@@ -80,7 +80,7 @@ vi.mock('../../assets/textureLoader', () => ({
   resolveTexture: () => ({ width: mockMaskWidth, height: mockMaskWidth }),
 }));
 
-import { LightingRenderer, lightingSignature, cullLightsByDistance, MAX_RENDERED_LIGHTS, rgb, gradedLight, headroom, falloffAt, W_LIGHT_GRADE } from './LightingRenderer';
+import { LightingRenderer, lightingSignature, cullLightsByDistance, viewCentre, MAX_RENDERED_LIGHTS, rgb, gradedLight, headroom, falloffAt, W_LIGHT_GRADE } from './LightingRenderer';
 import { LightManager } from './LightManager';
 import type { RenderEngine } from '../RenderEngine';
 import type { LightChild } from '../../store/types';
@@ -207,6 +207,18 @@ describe('cullLightsByDistance', () => {
   it('the shipped cap is a small, deliberate number, not "however many fit"', () => {
     expect(MAX_RENDERED_LIGHTS).toBeGreaterThan(0);
     expect(MAX_RENDERED_LIGHTS).toBeLessThanOrEqual(64);
+  });
+
+  // The camera point the render loop hands over is the screen's top-left corner in world
+  // space. Culling to it kept the lights off that corner and let the middle of a zoomed-in
+  // view go dark; the budget has to be spent around what the viewer is looking at.
+  it('spends the budget around the middle of the screen, not its top-left corner', () => {
+    // 1280×720 viewport at 40 px per cell: the screen spans 32×18 cells from the corner.
+    expect(viewCentre(100, 200, 40, 1280, 720)).toEqual({ x: 116, y: 209 });
+    const corner = at('corner', 100);
+    const middle = at('middle', 116);
+    const centre = viewCentre(100, 0, 40, 1280, 720);
+    expect(cullLightsByDistance([corner, middle], centre.x, centre.y, 1)[0].id).toBe('middle');
   });
 });
 
