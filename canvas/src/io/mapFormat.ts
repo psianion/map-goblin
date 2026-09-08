@@ -48,6 +48,36 @@ export function encodeMapFile(
   return result;
 }
 
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes));
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/**
+ * The publish content hash's actual work — pulled out of publish.ts so the save
+ * worker can run it off the main thread. `prep` is stripped first (see
+ * hashMapForPublish in publish.ts for why); everything else about the bytes hashed
+ * is unchanged from before this moved.
+ */
+export async function hashMapBytes(
+  data: SerializedMapData,
+  splats: (Uint8Array | null)[] = [],
+): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { prep: _prep, ...withoutPrep } = data;
+  const docBytes = new TextEncoder().encode(JSON.stringify(withoutPrep));
+  const parts = [docBytes, ...splats.filter((b): b is Uint8Array => b !== null)];
+  const combined = new Uint8Array(parts.reduce((n, p) => n + p.byteLength, 0));
+  let offset = 0;
+  for (const part of parts) {
+    combined.set(part, offset);
+    offset += part.byteLength;
+  }
+  return sha256Hex(combined);
+}
+
 /** Validate the magic header and unpack the JSON document. Throws on bad input. */
 export function decodeMapFile(bytes: Uint8Array): SerializedMapData {
   const header = new TextDecoder().decode(bytes.slice(0, MAGIC_BYTES.length));

@@ -3,6 +3,7 @@ import { useStore } from '@/store/store';
 import { getMapDB } from '@/store/slices/maps';
 import type { MapIndexDB, PublishRecord, PublishState } from '@/io/mapIndexDB';
 import { serializeToBytes } from '@/io/saveLoad';
+import { getTerrainRenderer } from '@dnd/core/src/engine/terrain/TerrainRenderer';
 import {
   hashMapForPublish,
   hashPrep,
@@ -115,6 +116,9 @@ export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
       const [campaignId, ps] = entry;
 
       const data = useStore.getState().getSerializableState();
+      // Match serializeToBytes: a stroke still sitting in the terrain worker's buffer
+      // must land in the store before pngs is read, or it silently misses the hash.
+      await getTerrainRenderer()?.flushPersistNow();
       const pngs = useStore.getState().terrainSplats.pngs;
       const [hash, prepHash] = await Promise.all([hashMapForPublish(data, pngs), hashPrep(data.prep)]);
       if (cancelled) return;
@@ -146,6 +150,7 @@ export function PublishDialog({ open, onOpenChange }: PublishDialogProps) {
     async (campaignId: string, token: string, campaignLabel: string) => {
       if (!activeMapId) throw new Error('No active map to publish.');
       const data = useStore.getState().getSerializableState();
+      await getTerrainRenderer()?.flushPersistNow();
       const pngs = useStore.getState().terrainSplats.pngs;
       const [hash, prepHash] = await Promise.all([hashMapForPublish(data, pngs), hashPrep(data.prep)]);
       const target = publishState?.[campaignId] ?? null;

@@ -54,15 +54,26 @@ let saveWorker: Worker | null = null;
 let nextRequestId = 1;
 const pendingRequests = new Map<
   number,
-  { resolve: (r: { bytes?: ArrayBuffer; data?: SerializedMapData }) => void; reject: (e: Error) => void }
+  {
+    resolve: (r: { bytes?: ArrayBuffer; data?: SerializedMapData; hash?: string }) => void;
+    reject: (e: Error) => void;
+  }
 >();
 
-function getSaveWorker(): Worker | null {
+// Exported so publish.ts can post its own 'hash' op through the same worker/queue
+// instead of spinning up a second one.
+export function getSaveWorker(): Worker | null {
   if (typeof Worker === 'undefined') return null;
   if (!saveWorker) {
     saveWorker = new Worker(new URL('./saveWorker.ts', import.meta.url), { type: 'module' });
     saveWorker.onmessage = (
-      e: MessageEvent<{ id: number; bytes?: ArrayBuffer; data?: SerializedMapData; error?: string }>,
+      e: MessageEvent<{
+        id: number;
+        bytes?: ArrayBuffer;
+        data?: SerializedMapData;
+        hash?: string;
+        error?: string;
+      }>,
     ) => {
       const pending = pendingRequests.get(e.data.id);
       if (!pending) return;
@@ -74,11 +85,11 @@ function getSaveWorker(): Worker | null {
   return saveWorker;
 }
 
-function callSaveWorker(
+export function callSaveWorker(
   worker: Worker,
   msg: Record<string, unknown>,
   transfer: Transferable[],
-): Promise<{ bytes?: ArrayBuffer; data?: SerializedMapData }> {
+): Promise<{ bytes?: ArrayBuffer; data?: SerializedMapData; hash?: string }> {
   const id = nextRequestId++;
   return new Promise((resolve, reject) => {
     pendingRequests.set(id, { resolve, reject });
