@@ -320,7 +320,7 @@ export interface SelectionSlice {
 // ─── UI ───────────────────────────────────────────────────
 
 export interface ModalState {
-  type: 'confirm' | 'export' | 'save' | 'shortcutReference' | 'newMap';
+  type: 'confirm' | 'export' | 'save' | 'shortcutReference' | 'newMap' | 'importMaps';
   props: Record<string, unknown>;
 }
 

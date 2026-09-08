@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Plus, X } from 'lucide-react';
+import { Plus, Upload, X } from 'lucide-react';
 import { useStore } from '@/store/store';
 import { restoreLastDeletedMap } from '@dnd/core/src/store/slices/maps';
 import { notify } from '@/lib/toast';
@@ -183,16 +183,26 @@ export function MapsSidePanel() {
         <PrepPanel />
       ) : (
         <>
-          {/* New Map button */}
-          <div className="px-2 py-2 shrink-0">
+          {/* New Map + Import buttons */}
+          <div className="px-2 py-2 shrink-0 flex gap-1.5">
             <button
               type="button"
               data-testid="new-map-button"
               onClick={() => showModal({ type: 'newMap', props: { mode: 'create' } })}
-              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-accent-active/10 border border-accent-active/25 text-accent-active text-sm font-medium hover:bg-accent-active/15 transition-colors"
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-accent-active/10 border border-accent-active/25 text-accent-active text-sm font-medium hover:bg-accent-active/15 transition-colors"
             >
               <Plus size={14} />
               New Map
+            </button>
+            <button
+              type="button"
+              data-testid="import-maps-button"
+              title="Import maps from Foundry or Universal VTT files"
+              onClick={() => showModal({ type: 'importMaps', props: {} })}
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-muted-foreground text-sm font-medium hover:bg-muted hover:text-foreground transition-colors"
+            >
+              <Upload size={14} />
+              Import
             </button>
           </div>
 

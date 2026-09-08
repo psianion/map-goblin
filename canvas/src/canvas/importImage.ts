@@ -77,7 +77,15 @@ async function fileToBase64(file: File): Promise<string> {
   });
 }
 
-async function resizeImageToMax(base64: string, maxPx: number): Promise<string> {
+/**
+ * Shrink a data URL so its long edge is at most `maxPx`. PNG keeps alpha for props;
+ * a battlemap has none and is many times smaller as WebP.
+ */
+export async function resizeImageToMax(
+  base64: string,
+  maxPx: number,
+  type: 'image/png' | 'image/webp' = 'image/png',
+): Promise<string> {
   const response = await fetch(base64);
   const blob = await response.blob();
   const img = await createImageBitmap(blob);
@@ -88,8 +96,8 @@ async function resizeImageToMax(base64: string, maxPx: number): Promise<string> 
   const ctx = canvas.getContext('2d')!;
   ctx.drawImage(img, 0, 0, w, h);
   img.close();
-  const outputBlob = await canvas.convertToBlob({ type: 'image/png' });
-  return fileToBase64(new File([outputBlob], 'resized.png', { type: 'image/png' }));
+  const outputBlob = await canvas.convertToBlob(type === 'image/webp' ? { type, quality: 0.9 } : { type });
+  return fileToBase64(new File([outputBlob], 'resized', { type }));
 }
 
 /** Room-note handouts stay small — they ride the map file as base64 and only ever render
