@@ -2,24 +2,28 @@
 // The heavy parts — JSON.stringify of a multi-MB document, splat base64,
 // gzip — all run here. Logic lives in mapFormat.ts (pure, tested directly).
 
-import { encodeMapFile, decodeMapFile } from './mapFormat';
+import { encodeMapFile, decodeMapFile, hashMapBytes } from './mapFormat';
 import type { SerializedMapData } from '@/store/types';
 
 interface Request {
   id: number;
-  op: 'encode' | 'decode';
+  op: 'encode' | 'decode' | 'hash';
   data?: SerializedMapData;
   splats?: (ArrayBuffer | null)[];
   bytes?: ArrayBuffer;
 }
 
-self.onmessage = (e: MessageEvent<Request>) => {
+self.onmessage = async (e: MessageEvent<Request>) => {
   const { id, op } = e.data;
   try {
     if (op === 'encode') {
       const splats = (e.data.splats ?? []).map((b) => (b ? new Uint8Array(b) : null));
       const bytes = encodeMapFile(e.data.data!, splats);
       self.postMessage({ id, bytes: bytes.buffer }, { transfer: [bytes.buffer] });
+    } else if (op === 'hash') {
+      const splats = (e.data.splats ?? []).map((b) => (b ? new Uint8Array(b) : null));
+      const hash = await hashMapBytes(e.data.data!, splats);
+      self.postMessage({ id, hash });
     } else {
       const data = decodeMapFile(new Uint8Array(e.data.bytes!));
       self.postMessage({ id, data });

@@ -593,6 +593,70 @@ describe('claim', () => {
   })
 })
 
+describe('claim reaches an unowned friendly token on explored ground (issue #94 finding 3)', () => {
+  // Same three-band shape as 'redact under fog' below, plus a third band the party has
+  // never had revealed at all — `occupiable` does not include it.
+  const vision: SceneVision = {
+    roomAt: (x) => (x < 10 ? 'lit' : x < 20 ? 'dark' : x < 30 ? 'unrevealed' : null),
+    visible: new Set(['lit']),
+    occupiable: new Set(['lit', 'dark']),
+  }
+  const fogged = buildTokens((sceneId) => (sceneId === SCENE ? vision : null))
+  const redact = fogged.redact!
+
+  /** `run`, but against the vision-wired module instead of the fog-blind top-level one. */
+  function runFogged(state: TokensState, sender: Viewer, action: string, payload: unknown) {
+    let next = state
+    const error = fogged.handler(action, payload, {
+      campaignId: 'c-1',
+      sessionId: 's-1',
+      activeSceneId: SCENE,
+      sender,
+      players: ROSTER,
+      state,
+      setState: (s) => {
+        next = s
+      },
+      broadcast: () => {},
+    })
+    return { error: error ?? null, next }
+  }
+
+  const friendlyExplored = token({ id: 'f1', x: 15.5, y: 1.5, disposition: 'friendly' })
+  const hostileExplored = token({ id: 'h1', x: 15.5, y: 1.5, disposition: 'hostile' })
+  const friendlyUnrevealed = token({ id: 'f2', x: 25.5, y: 1.5, disposition: 'friendly' })
+
+  it('an unowned friendly on explored-but-dark ground reaches the player view and can be claimed', () => {
+    const state = stateWith(friendlyExplored)
+    expect(Object.keys(redact(state, P1).byScene[SCENE])).toContain('f1')
+    const { next, error } = runFogged(state, P1, 'claim', { id: 'f1' })
+    expect(error).toBeNull()
+    expect(next.byScene[SCENE].f1.ownerId).toBe('p-1')
+  })
+
+  it('a hostile token on the same ground stays dark', () => {
+    expect(Object.keys(redact(stateWith(hostileExplored), P1).byScene[SCENE])).toEqual([])
+  })
+
+  it('an unowned friendly in a room the party never had revealed stays dark', () => {
+    expect(Object.keys(redact(stateWith(friendlyUnrevealed), P1).byScene[SCENE])).toEqual([])
+  })
+
+  it('vision mode: the same rule runs off cell memory (openGround) instead of the room', () => {
+    const swept = new Set(['15.5,1.5'])
+    const visionMode: SceneVision = {
+      roomAt: () => 'hall',
+      visible: new Set(),
+      occupiable: new Set(),
+      canSee: () => false,
+      openGround: (x, y) => swept.has(`${x},${y}`),
+    }
+    const seenMod = buildTokens((sceneId) => (sceneId === SCENE ? visionMode : null))
+    const view = seenMod.redact!(stateWith(friendlyExplored), P1).byScene[SCENE]
+    expect(Object.keys(view)).toContain('f1')
+  })
+})
+
 describe('assign (the DM hands a token over)', () => {
   it('sets an owner, reassigns it, and clears it again', () => {
     const first = run(stateWith(token()), DM, 'assign', { id: 't1', identityId: 'p-1' })
@@ -712,6 +776,73 @@ describe('library', () => {
     expect(next.library).toEqual({})
     expect(only(next)).toMatchObject({ id: 't1', defId: 'd1', name: 'Goblin' })
     expect(run(state, DM, 'library-delete', { id: 'ghost' }).error?.code).toBe('invalid-command')
+  })
+})
+
+describe('library edits propagate to placed tokens (issue #94 finding 4)', () => {
+  const baseState: TokensState = {
+    library: {
+      d1: { id: 'd1', name: 'Orc', imageAssetId: null, size: 'medium', disposition: 'hostile', sight: null, light: null },
+      d2: { id: 'd2', name: 'Wolf', imageAssetId: null, size: 'medium', disposition: 'hostile', sight: null, light: null },
+    },
+    byScene: {
+      [SCENE]: {
+        t1: token({ id: 't1', defId: 'd1', name: 'Orc grunt', x: 3.5, y: 3.5, ownerId: 'p-1' }),
+        t2: token({ id: 't2', defId: 'd2', name: 'Lone wolf', x: 5.5, y: 5.5 }),
+      },
+      'scene-b': {
+        t3: token({ id: 't3', defId: 'd1', name: 'Orc scout', x: 1.5, y: 1.5, sharesSightWith: ['t4'] }),
+      },
+    },
+  }
+
+  it('carries a sight edit onto every placed instance, across scenes', () => {
+    const { next, error } = run(baseState, DM, 'library-upsert', {
+      id: 'd1',
+      sight: { range: 60, angle: 360, visionMode: 'darkvision' },
+    })
+    expect(error).toBeNull()
+    const want = { range: 60, angle: 360, visionMode: 'darkvision' as const }
+    expect(next.byScene[SCENE].t1.sight).toEqual(want)
+    expect(next.byScene['scene-b'].t3.sight).toEqual(want)
+    // Instance-only fields — position, owner, its own name, its sight links — are untouched.
+    expect(next.byScene[SCENE].t1).toMatchObject({ x: 3.5, y: 3.5, ownerId: 'p-1', name: 'Orc grunt' })
+    expect(next.byScene['scene-b'].t3.sharesSightWith).toEqual(['t4'])
+  })
+
+  it('leaves a token placed from a different def untouched', () => {
+    const { next } = run(baseState, DM, 'library-upsert', { id: 'd1', size: 'large' })
+    expect(next.byScene[SCENE].t2).toEqual(baseState.byScene[SCENE].t2)
+  })
+
+  it('a def created fresh (no base) touches nothing', () => {
+    const { next } = run(baseState, DM, 'library-upsert', { name: 'Bandit' })
+    expect(next.byScene).toBe(baseState.byScene)
+  })
+
+  it('an edit that drops pack art drops it from the placed copies too', () => {
+    const withArt: TokensState = {
+      library: {
+        d3: {
+          id: 'd3',
+          name: 'Warg',
+          imageAssetId: null,
+          size: 'large',
+          disposition: 'hostile',
+          sight: null,
+          light: null,
+          packAsset: { packId: 'gg-monsters', assetId: 'warg' },
+        },
+      },
+      byScene: {
+        [SCENE]: {
+          t4: token({ id: 't4', defId: 'd3', packAsset: { packId: 'gg-monsters', assetId: 'warg' } }),
+        },
+      },
+    }
+    // `packAsset: null` is parseDefFields' explicit-clear (omitting the field means "keep").
+    const { next } = run(withArt, DM, 'library-upsert', { id: 'd3', name: 'Warg', packAsset: null })
+    expect('packAsset' in next.byScene[SCENE].t4).toBe(false)
   })
 })
 

@@ -9,17 +9,10 @@
 // token comes back.
 
 import type { ScenePrep, SerializedMapData } from '@/store/types';
+import { hashMapBytes, sha256Hex } from './mapFormat';
+import { getSaveWorker, callSaveWorker } from './saveLoad';
 
 // ─── Map hash ─────────────────────────────────────────────────────────────
-
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  // Same ArrayBuffer-vs-ArrayBufferLike lib gap as uploadMap's Blob below — copy onto a
-  // fresh ArrayBuffer-backed array so this satisfies BufferSource regardless of caller.
-  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes));
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
 
 /**
  * A content hash for "has this map changed since the last publish".
@@ -36,23 +29,24 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
  * folded into `customImages` at encode time (mapFormat.ts), so a paint stroke that
  * doesn't touch any other field must still change this hash — otherwise the dialog
  * reports "no changes" while the table keeps stale terrain forever.
+ *
+ * The actual stringify + hash runs in the save worker (hashMapBytes, mapFormat.ts) —
+ * on a multi-layer painted map that work is seconds of main-thread blocking, same as
+ * serializeToBytes before it moved off-thread. Falls back to the pure function inline
+ * where there's no Worker (vitest).
  */
 export async function hashMapForPublish(
   data: SerializedMapData,
   splats: (Blob | null)[] = [],
 ): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { prep: _prep, ...withoutPrep } = data;
-  const docBytes = new TextEncoder().encode(JSON.stringify(withoutPrep));
   const splatBuffers = await Promise.all(splats.map((png) => (png ? png.arrayBuffer() : null)));
-  const parts = [docBytes, ...splatBuffers.filter((b): b is ArrayBuffer => b !== null)];
-  const combined = new Uint8Array(parts.reduce((n, p) => n + p.byteLength, 0));
-  let offset = 0;
-  for (const part of parts) {
-    combined.set(new Uint8Array(part), offset);
-    offset += part.byteLength;
+  const worker = getSaveWorker();
+  if (!worker) {
+    return hashMapBytes(data, splatBuffers.map((b) => (b ? new Uint8Array(b) : null)));
   }
-  return sha256Hex(combined);
+  const transfer = splatBuffers.filter((b): b is ArrayBuffer => b !== null);
+  const reply = await callSaveWorker(worker, { op: 'hash', data, splats: splatBuffers }, transfer);
+  return reply.hash!;
 }
 
 /** A content hash for "has scene prep changed since the last publish". */
