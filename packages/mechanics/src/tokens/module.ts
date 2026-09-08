@@ -157,6 +157,15 @@ export function tokensModule(visionOf: VisionOf = () => null): GameModule<Tokens
  */
 function inSight(token: Token, scene: SceneVision | null, mine: ReadonlySet<string>): boolean {
   if (!scene || mine.has(token.id)) return true
+  // Issue #94 finding 3 — an unclaimed friendly is meant to be found, not ambushed from. It
+  // is in sight on ground the party has already explored, even while that ground is not
+  // currently lit: memory of the room (rooms mode) or of the cell itself (vision mode).
+  // Hostile/neutral tokens still need the room or cell to be lit right now, same as before.
+  if (token.ownerId === null && token.disposition === 'friendly') {
+    if (scene.openGround?.(token.x, token.y)) return true
+    const home = scene.roomAt(token.x, token.y)
+    if (home !== null && scene.occupiable.has(home)) return true
+  }
   // ponytail: one point, the token's own centre. A large or gargantuan token whose far cells
   // are swept but whose centre sits behind the corner vanishes whole rather than partly — an
   // accepted P1 ceiling. The upgrade is sampling the cells the token's footprint covers and
@@ -230,10 +239,49 @@ function libraryUpsert(p: Payload, ctx: Ctx): void {
   const id = p.id === undefined ? mintId('def') : str(p.id, 'id', ID_MAX)
   const base = state.library[id]
   if (!base && Object.keys(state.library).length >= LIBRARY_MAX) bad('the token library is full')
+  const def: TokenDef = { id, ...parseDefFields(p, base) }
   ctx.setState({
     ...state,
-    library: { ...state.library, [id]: { id, ...parseDefFields(p, base) } },
+    library: { ...state.library, [id]: def },
+    // Issue #94 finding 4 — a def edit is meant to reach the table: every def-owned field
+    // (everything but id/name) is carried onto tokens already placed from it. A brand new
+    // def (`base` unset) has nothing placed from it yet, so there is nothing to walk.
+    byScene: base ? propagateDefEdit(state.byScene, id, def) : state.byScene,
   })
+}
+
+/** Overwrite the def-owned fields on every instance placed from `def`; instance-only fields
+ *  (position, elevation, z, hidden, ownerId, sharesSightWith, sheet) are left alone. */
+function propagateDefEdit(
+  byScene: TokensState['byScene'],
+  defId: string,
+  def: TokenDef,
+): TokensState['byScene'] {
+  const fields = {
+    imageAssetId: def.imageAssetId,
+    size: def.size,
+    disposition: def.disposition,
+    sight: def.sight,
+    light: def.light,
+    ...(def.packAsset ? { packAsset: def.packAsset } : {}),
+  }
+  const out: TokensState['byScene'] = {}
+  for (const [sceneId, tokens] of Object.entries(byScene)) {
+    const nextTokens: Record<string, Token> = {}
+    for (const [tokenId, token] of Object.entries(tokens)) {
+      if (token.defId !== defId) {
+        nextTokens[tokenId] = token
+        continue
+      }
+      const next = { ...token, ...fields }
+      // An edit that drops pack art has to drop it from the placed copy too — spreading
+      // `fields` alone would leave the instance's old value in place.
+      if (!def.packAsset) delete next.packAsset
+      nextTokens[tokenId] = next
+    }
+    out[sceneId] = nextTokens
+  }
+  return out
 }
 
 function libraryDelete(p: Payload, ctx: Ctx): void {
