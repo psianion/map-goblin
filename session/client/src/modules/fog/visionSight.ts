@@ -22,7 +22,7 @@ import { extractWallSegments } from '@dnd/core/src/engine/lighting/raycaster';
 import type { Polygon } from '@dnd/core/src/geometry/GeometryEngine';
 import type { LightChild } from '@dnd/core/src/shared/types';
 import type { DungeonLayer, Layer } from '@dnd/core/src/store/types';
-import { SIGHT_REACH, type LightSource, type PlacedLight } from '@dnd/mechanics/fog';
+import { SIGHT_REACH, eyeReach, type LightSource, type PlacedLight } from '@dnd/mechanics/fog';
 import { sightParty, type Token } from '@dnd/mechanics/tokens';
 import { isTokenLight } from '../triggers/lightSync';
 
@@ -43,7 +43,9 @@ import { isTokenLight } from '../triggers/lightSync';
  * hand it back the party view the DM just turned off.
  */
 export const sighted = (tokens: readonly Token[], isSeed?: (token: Token) => boolean): Token[] =>
-  sightParty(tokens, isSeed).filter((t) => (t.sight?.range ?? 0) > 0);
+  // A range of 0 is still an eye — plain sight, which sees whatever is lit — so the test is
+  // on `sight` itself, exactly as the referee's `sweep.ts` filters.
+  sightParty(tokens, isSeed).filter((t) => t.sight != null);
 
 /**
  * ponytail: one entry per layers array, holding every sweep taken against that geometry, and
@@ -187,14 +189,15 @@ export function createSightCache(): SightCache {
     // takes through `litArea` at that radius.
     //
     // …unless the DM has turned `sightRangeLimit` on, which is the switch for a map with no
-    // walls to bound a sweep. Then the reach *is* the range, here exactly as on the referee.
+    // walls to bound a sweep. Then the reach is the eye's own — its range or the torch it
+    // carries, whichever goes further (`eyeReach`) — here exactly as on the referee.
     partySight: (layers, tokens, rangeLimited) =>
       sweepAll(
         layers,
         tokens.map((token) => ({
           x: token.x,
           y: token.y,
-          radius: rangeLimited ? (token.sight?.range ?? SIGHT_REACH) : SIGHT_REACH,
+          radius: rangeLimited ? eyeReach(token) : SIGHT_REACH,
         })),
       ),
 

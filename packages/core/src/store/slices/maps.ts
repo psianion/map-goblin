@@ -171,13 +171,13 @@ export const createMapsSlice: StateCreator<
     if (!blob) throw new Error(`Map ${id} not found in IndexedDB`);
 
     const parsed = await getMapSerializer().deserializeFromBytes(blob);
-    get().loadFromFile(parsed);
 
-    // Hand the document's own images back to the renderer. Opening a .mapbuilder file does
-    // this (io/saveLoad) and so does the table, but switching maps in the editor never did:
-    // the sprite came back with no texture and drew as a flat magenta box. It stayed hidden
-    // only because imported images were themselves too small to see. Dynamic import keeps
-    // Pixi out of this module's static graph — the server imports the store types.
+    // Hand the document's own images back to the renderer BEFORE the document lands in the
+    // store. A sprite resolves its texture when it is created and never looks again, so an
+    // image still decoding at that moment draws as the flat magenta fallback for good — a
+    // 4096px battlemap loses that race on a busy tab where a small prop never did. Opening a
+    // .mapbuilder file (io/saveLoad) and the table already order it this way. Dynamic import
+    // keeps Pixi out of this module's static graph — the server imports the store types.
     const customImages = (parsed as { customImages?: Record<string, string> }).customImages;
     if (customImages && Object.keys(customImages).length > 0) {
       try {
@@ -187,6 +187,8 @@ export const createMapsSlice: StateCreator<
         console.warn('[loadMap] restoreCustomImages failed:', err);
       }
     }
+
+    get().loadFromFile(parsed);
 
     // The card list is the name of record. `renameMap` used to write only there, so any map
     // renamed before that was fixed still has the old name inside its document — and that is

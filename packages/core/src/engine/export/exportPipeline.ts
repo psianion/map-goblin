@@ -48,13 +48,13 @@ export async function runExportPipeline(
 ): Promise<{ blob: Blob; filename: string }> {
   const bounds = computeMapWorldBounds(layers);
   const { cellWidth, cellHeight } = worldBoundsToCells(bounds);
-  const { widthPx, heightPx } = computeExportDimensions(cellWidth, cellHeight, opts.pxPerCell);
+  const { widthPx, heightPx, pxPerCell } = computeExportDimensions(cellWidth, cellHeight, opts.pxPerCell);
 
   const filename = buildExportFilename(
     opts.mapName,
     widthPx,
     heightPx,
-    opts.pxPerCell,
+    Math.round(pxPerCell),
     opts.format,
   );
 
@@ -79,7 +79,8 @@ export async function runExportPipeline(
 
   // Compute export-space transform: scale world container so that
   // pxPerCell world units map to pxPerCell pixels, centered on bounds
-  const zoom = opts.pxPerCell;
+  // The effective scale, so a map past the texture limit shrinks to fit instead of cropping.
+  const zoom = pxPerCell;
   const worldX = -bounds.minX * zoom;
   const worldY = -bounds.minY * zoom;
 

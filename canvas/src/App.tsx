@@ -21,6 +21,7 @@ import { handleImageImport } from '@/canvas/importImage';
 import { importImageRef } from '@/shortcuts/defaultShortcuts';
 import { ShortcutHelpDialog } from '@/components/shared/ShortcutHelpDialog';
 import { NewMapDialog } from '@/components/maps/NewMapDialog';
+import { ImportMapsDialog } from '@/components/maps/ImportMapsDialog';
 import { zoomToFitRef, viewportInsetsRef } from '@/components/toolbar/zoomToFitRef';
 import { useStore } from '@/store/store';
 import { notify } from '@/lib/toast';
@@ -388,6 +389,10 @@ export default function App() {
     <NewMapDialog
       open={modalState?.type === 'newMap'}
       mode={modalState?.props.mode === 'settings' ? 'settings' : 'create'}
+      onOpenChange={(open) => { if (!open) showModal(null); }}
+    />
+    <ImportMapsDialog
+      open={modalState?.type === 'importMaps'}
       onOpenChange={(open) => { if (!open) showModal(null); }}
     />
 

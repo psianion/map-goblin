@@ -7,7 +7,7 @@
 // about, and to remember the answers until something moves.
 
 import { seedDoor, type DoorLiveState } from '@dnd/mechanics/doors'
-import { lightSources, pointInPolygon, SIGHT_REACH } from '@dnd/mechanics/fog'
+import { eyeReach, lightSources, pointInPolygon, SIGHT_REACH } from '@dnd/mechanics/fog'
 import { sightParty, type Token } from '@dnd/mechanics/tokens'
 import { effectiveLight, type LightEdit } from '@dnd/mechanics/triggers'
 // D3's runtime waivers, in the same targeted per-line style redactMap.ts uses for
@@ -52,7 +52,15 @@ interface SceneSweeps {
 export interface Eye {
   x: number
   y: number
+  /** How far this eye sees *unlit* ground — darkvision's ring, 0 for plain sight. */
   range: number
+  /**
+   * How far this eye may push the containment fence, and its sweep radius under the range
+   * limit: its own `range`, or the light it carries if that reaches further. A torch-bearer
+   * with plain sight can see the ground their own torch lights, so that ground is theirs to
+   * claim; without this a range-0 eye could never open a single cell.
+   */
+  reach: number
   darkvision: boolean
   polygon: Polygon
 }
@@ -138,10 +146,9 @@ export function createSweeps(): Sweeps {
       // P4 §4 — the party's eyes are the sight-link closure of the claimed tokens, not the
       // claimed tokens alone: an unclaimed familiar the DM linked to a scout is looking for
       // them. `sightParty` drops hidden tokens itself (hidden trumps links); a token with no
-      // sight is in the party but is not an eye.
-      const claimed = sightParty(Object.values(tokens), isSeed).filter(
-        (token) => (token.sight?.range ?? 0) > 0,
-      )
+      // sight is in the party but is not an eye. A range of 0 is still an eye — plain sight,
+      // which sees whatever is lit — so the test is on `sight` itself, not its range.
+      const claimed = sightParty(Object.values(tokens), isSeed).filter((token) => token.sight != null)
       if (claimed.length === 0) return { eyes: [], lit: null, fence: fence ?? null }
       const scene = sweepsFor(map, doors)
       if (scene.polygons.size > SWEEP_CAP) scene.polygons.clear()
@@ -171,13 +178,18 @@ export function createSweeps(): Sweeps {
       //
       // `sight.angle` is ignored — cones are a v1 non-goal. Darkvision sweeps the same
       // geometry as a normal eye; what it changes is the light test, not the shadowcast.
-      const eyes = claimed.map((token) => ({
-        x: token.x,
-        y: token.y,
-        range: token.sight!.range,
-        darkvision: token.sight!.visionMode === 'darkvision',
-        polygon: sweep(token.x, token.y, rangeLimited ? token.sight!.range : SIGHT_REACH),
-      }))
+      const eyes = claimed.map((token) => {
+        const range = token.sight!.range
+        const reach = eyeReach(token)
+        return {
+          x: token.x,
+          y: token.y,
+          range,
+          reach,
+          darkvision: token.sight!.visionMode === 'darkvision',
+          polygon: sweep(token.x, token.y, rangeLimited ? reach : SIGHT_REACH),
+        }
+      })
       return {
         eyes,
         lit: lights ? litIn(map, tokens, lights).map((l) => sweep(l.x, l.y, l.radius)) : null,
@@ -216,7 +228,7 @@ const litIn = (map: SceneMap, tokens: Record<string, Token>, edits: Record<strin
 /**
  * §3, the whole rule, in one place so the three callers cannot drift:
  *
- *   seen_i(p) = inSweep_i(p) AND (held(p) OR (dist_i(p) ≤ range_i AND p not in a lock))
+ *   seen_i(p) = inSweep_i(p) AND (held(p) OR (dist_i(p) ≤ reach_i AND p not in a lock))
  *   seen(p)   = any i, AND (ambient ≠ darkness OR lit(p) OR (darkvision eye AND p in range))
  *
  * `inSweep` is line of sight alone — the eye's sweep reaches the whole map — so in daylight
@@ -226,11 +238,12 @@ const litIn = (map: SceneMap, tokens: Record<string, Token>, edits: Record<strin
  *
  * The middle clause is containment, and it is null on an uncontained scene — then this is the
  * rule the file always had. Contained, an eye may look freely over ground the table has already
- * opened, and past that fence only as far as its own `range` carries it: walking is what peels
- * the cloud back, and what a step earns is written to the record, so the fence moves with the
- * party and never shrinks (the ratchet). The narrowing is strictly per eye — an eye that fails
- * it is dropped from `looking` before the light gate, so it cannot lend its darkvision to
- * ground it is not itself entitled to.
+ * opened, and past that fence only as far as its own `reach` carries it — its range, or the
+ * torch in its hand if that goes further: walking is what peels the cloud back, and what a
+ * step earns is written to the record, so the fence moves with the party and never shrinks
+ * (the ratchet). The narrowing is strictly per eye — an eye that fails it is dropped from
+ * `looking` before the light gate, so it cannot lend its darkvision to ground it is not itself
+ * entitled to.
  *
  * A lock is subtracted from the range term alone: held ground cannot contain a locked cell by
  * construction (a lock is never written to the record and never credits its room), and without
@@ -242,7 +255,7 @@ export function seen(vision: PartyVision, x: number, y: number): boolean {
   const fence = vision.fence
   if (fence && !fence.held(x, y)) {
     if (inAnyLock(fence.locks, x, y)) return false
-    looking = looking.filter((eye) => Math.hypot(x - eye.x, y - eye.y) <= eye.range)
+    looking = looking.filter((eye) => Math.hypot(x - eye.x, y - eye.y) <= eye.reach)
     if (looking.length === 0) return false
   }
   if (!vision.lit) return true

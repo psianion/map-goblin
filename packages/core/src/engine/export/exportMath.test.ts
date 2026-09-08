@@ -13,16 +13,31 @@ describe('computeExportDimensions', () => {
     expect(result.clampedToLimit).toBe(false);
   });
 
-  it('clamps width to 8192', () => {
+  it('shrinks a wide map to 8192 without cropping — both axes, one scale', () => {
     const result = computeExportDimensions(100, 8, 256);
     expect(result.widthPx).toBe(8192);
+    expect(result.heightPx).toBe(Math.round(8 * 81.92));
+    expect(result.pxPerCell).toBeCloseTo(81.92, 5);
     expect(result.clampedToLimit).toBe(true);
   });
 
-  it('clamps height to 8192', () => {
+  it('shrinks a tall map to 8192 the same way', () => {
     const result = computeExportDimensions(8, 100, 256);
     expect(result.heightPx).toBe(8192);
+    expect(result.widthPx).toBe(Math.round(8 * 81.92));
     expect(result.clampedToLimit).toBe(true);
+  });
+
+  it('keeps the requested scale when nothing is clamped', () => {
+    expect(computeExportDimensions(47, 42, 128).pxPerCell).toBe(128);
+  });
+
+  it('renders the whole of a 47×42 map at 300 px/cell inside the limit', () => {
+    // The case that used to export the top-left 58% of an imported battlemap.
+    const result = computeExportDimensions(47, 42, 300);
+    expect(result.widthPx).toBe(8192);
+    expect(result.heightPx).toBe(Math.round(42 * (8192 / 47)));
+    expect(result.widthPx / result.pxPerCell).toBeCloseTo(47, 6);
   });
 
   it('handles 1x1 map', () => {

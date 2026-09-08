@@ -3,7 +3,7 @@ import { useStore } from '@/store/store';
 import { getEngineSingleton } from '@/engine/engineSingleton';
 import { runExportPipeline, triggerDownload } from '@/engine/export/exportPipeline';
 import { downloadMapFile } from '@/io/saveLoad';
-import { computeExportDimensions, worldBoundsToCells } from '@/engine/export/exportMath';
+import { MAX_EXPORT_PX, computeExportDimensions, worldBoundsToCells } from '@/engine/export/exportMath';
 import { computeMapWorldBounds } from '@/engine/export/exportPipeline';
 import {
   Dialog,
@@ -47,7 +47,7 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
   // Compute preview dimensions
   const bounds = computeMapWorldBounds(layers);
   const { cellWidth, cellHeight } = worldBoundsToCells(bounds);
-  const { widthPx, heightPx, clampedToLimit } = computeExportDimensions(
+  const { widthPx, heightPx, clampedToLimit, pxPerCell: renderedPxPerCell } = computeExportDimensions(
     cellWidth,
     cellHeight,
     pxPerCell,
@@ -180,7 +180,9 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
             <div className="rounded bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
               Output: {widthPx} × {heightPx} px ({cellWidth} × {cellHeight} cells)
               {clampedToLimit && (
-                <span className="ml-1 text-yellow-400">⚠ clamped to 8192px max</span>
+                <span className="ml-1 text-yellow-400">
+                  ⚠ scaled to {Math.round(renderedPxPerCell)} px/cell to fit the {MAX_EXPORT_PX}px limit
+                </span>
               )}
             </div>
               </>

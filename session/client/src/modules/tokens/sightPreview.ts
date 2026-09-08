@@ -30,7 +30,7 @@ export function useSightPreview(token: Token | undefined): SightPreview {
   });
   const reason = !visionMode
     ? 'Fog is in Rooms mode — switch it to Vision to preview sight'
-    : token && (token.sight?.range ?? 0) === 0
+    : token && token.sight == null
       ? `${token.name} has no sight to preview`
       : null;
   return { on, reason, toggle: () => setPreviewSight(!on) };

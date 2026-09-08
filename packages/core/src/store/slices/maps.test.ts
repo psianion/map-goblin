@@ -1,7 +1,13 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createMapsSlice, measureGridSize, resetMapDB, restoreLastDeletedMap } from './maps';
-import { setMapDBFactory } from '../mapIO';
+import { setMapDBFactory, setMapSerializer } from '../mapIO';
 import type { MapDB, MapRecord } from '../mapIO';
+
+const { restoreCustomImages, order } = vi.hoisted(() => {
+  const order: string[] = [];
+  return { order, restoreCustomImages: vi.fn(async () => { order.push('restore'); }) };
+});
+vi.mock('../../assets/textureLoader', () => ({ restoreCustomImages }));
 import { useStore } from '../store';
 import type { DungeonLayer } from '../types';
 
@@ -232,5 +238,36 @@ describe('name stays in sync across the index and the document', () => {
 
     expect(state.mapIndex[0].name).toBe('Guard Barracks');
     expect(state.docName).toBe('The open map');
+  });
+
+  it('registers a map’s images with the renderer before the document lands in the store', async () => {
+    order.length = 0;
+    setMapDBFactory(
+      () => ({ open: async () => {}, getMapBlob: async () => blob(1) }) as unknown as MapDB,
+    );
+    setMapSerializer({
+      serializeToBytes: async () => blob(1),
+      deserializeFromBytes: async () => ({
+        version: '3.1',
+        mapSettings: { name: 'Axeholm' },
+        customImages: { img1: 'data:image/webp;base64,AAAA' },
+        layers: [],
+      }),
+    } as never);
+    const state = {
+      mapIndex: [{ id: 'm1', name: 'Axeholm' }],
+      activeMapId: null as string | null,
+      mapSettings: { name: 'Axeholm' },
+      loadFromFile() { order.push('load'); },
+      setMapName() {},
+    };
+
+    await sliceOver(state).loadMap('m1');
+
+    // A sprite resolves its texture when it is created and never looks again, so the
+    // registration has to be complete first — the other order drew a magenta battlemap.
+    expect(order).toEqual(['restore', 'load']);
+    expect(restoreCustomImages).toHaveBeenCalledWith({ img1: 'data:image/webp;base64,AAAA' });
+    expect(state.activeMapId).toBe('m1');
   });
 });

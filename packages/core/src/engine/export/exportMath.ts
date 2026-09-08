@@ -1,14 +1,20 @@
 export interface ExportDimensions {
   widthPx: number;
   heightPx: number;
+  /** The scale the map is actually rendered at — the requested one unless the limit bit. */
+  pxPerCell: number;
   clampedToLimit: boolean;
 }
 
-const MAX_EXPORT_PX = 8192;
+export const MAX_EXPORT_PX = 8192;
 
 /**
  * Compute pixel dimensions for export given grid cell counts and px-per-cell.
- * Clamps each axis to MAX_EXPORT_PX and returns whether clamping occurred.
+ *
+ * A map too big for MAX_EXPORT_PX at the asked scale is rendered *smaller*, not cropped:
+ * one factor shrinks both axes so the whole map still fits the texture, and the returned
+ * `pxPerCell` is the scale the pipeline must render at. (Clamping the texture alone kept
+ * the requested zoom and silently cut the right and bottom off large maps.)
  */
 export function computeExportDimensions(
   cellWidth: number,
@@ -16,11 +22,18 @@ export function computeExportDimensions(
   pxPerCell: number,
 ): ExportDimensions {
   // Ceil fractional cells first, then multiply by pixels per cell
-  const rawW = Math.ceil(cellWidth) * pxPerCell;
-  const rawH = Math.ceil(cellHeight) * pxPerCell;
-  const widthPx = Math.min(rawW, MAX_EXPORT_PX);
-  const heightPx = Math.min(rawH, MAX_EXPORT_PX);
-  return { widthPx, heightPx, clampedToLimit: rawW > MAX_EXPORT_PX || rawH > MAX_EXPORT_PX };
+  const cols = Math.ceil(cellWidth);
+  const rows = Math.ceil(cellHeight);
+  const rawW = cols * pxPerCell;
+  const rawH = rows * pxPerCell;
+  const scale = Math.min(1, MAX_EXPORT_PX / rawW, MAX_EXPORT_PX / rawH);
+  const effective = pxPerCell * scale;
+  return {
+    widthPx: Math.round(cols * effective),
+    heightPx: Math.round(rows * effective),
+    pxPerCell: effective,
+    clampedToLimit: scale < 1,
+  };
 }
 
 /**
