@@ -86,6 +86,21 @@ services:
       - game-server
     restart: unless-stopped
 
+  # Public HTTPS for a self-hosted box: a Cloudflare Tunnel dials out, so no router port
+  # opens and no cert lives here. Opt-in (`docker compose --profile public up -d`) because
+  # a dev box has no token and the container would crash-loop on an empty one. Hostname →
+  # service routes are set in the Cloudflare dashboard (docs/2026-09-09-laptop-production-runbook.md).
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: [public]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: "${TUNNEL_TOKEN:-}"
+    depends_on:
+      - map-goblin
+      - session-client
+    restart: unless-stopped
+
 volumes:
   game-server-data:
   bot-data:
