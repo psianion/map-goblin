@@ -70,6 +70,12 @@ const SECRET = doors.find((d) => d.isSecret)!
 const roomById = (id: string | null | undefined) => rooms.find((r) => r.id === id)!
 const lightsIn = (room: Room): number =>
   lights.filter((l) => pointInPolygon([l.position.x, l.position.y], room.boundary)).length
+/** A room's own world-space bounding box, for `patchCover`'s scoped reads. */
+const boxOf = (room: Room): [number, number, number, number] => {
+  const xs = room.boundary.map((p) => p[0])
+  const ys = room.boundary.map((p) => p[1])
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
+}
 
 /**
  * The door the lighting row swings: shut where the map authors it, with a leaf to swing (an
@@ -205,7 +211,7 @@ interface Look {
   mean: number
   /** Fraction of pixels a light source reaches — brighter than the fog's brightest cloud. */
   lit: number
-  /** Fraction of pixels the fog is not covering — outside its colour band on either side. */
+  /** Fraction of pixels the fog is not covering, by whatever colour it currently paints. */
   clear: number
 }
 
@@ -222,6 +228,35 @@ interface Look {
 const shoot = (page: Page): Promise<Buffer> =>
   page.locator('[data-testid="game-canvas"] canvas').screenshot({ style: OVERLAY_CHROME })
 
+/** Read `__fogProbe`'s visibility flag — this seat's real fog state right now, set by
+ *  `mountPlayerFog`'s own player/preview gate, never by a test. */
+function fogVisible(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const p = (window as Window & { __fogProbe?: { visible(): boolean } }).__fogProbe
+    if (!p) throw new Error('this build is not exposing the fog probe — rebuild the client')
+    return p.visible()
+  })
+}
+
+/** Force the fog layer on or off for one render. Always paired with a restore below it. */
+function setFogVisible(page: Page, shown: boolean): Promise<void> {
+  return page.evaluate((v: boolean) => {
+    const p = (window as Window & { __fogProbe?: { setVisible(v: boolean): void } }).__fogProbe
+    if (!p) throw new Error('this build is not exposing the fog probe — rebuild the client')
+    p.setVisible(v)
+  }, shown)
+}
+
+/** One real paint before a screenshot reads it — a toggled `.visible` needs Pixi's ticker to
+ *  actually draw the new tree, not just flip the flag. Two frames: the first is the frame
+ *  already in flight when the flag changed. */
+function nextFrame(page: Page): Promise<void> {
+  return page.evaluate(
+    () =>
+      new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+  )
+}
+
 /**
  * What the canvas looked like, as two numbers.
  *
@@ -231,118 +266,156 @@ const shoot = (page: Page): Promise<Buffer> =>
  * browser already ships a PNG decoder — no new dependency and no golden files (every number
  * is compared against another number this same run produced).
  *
- * ── The two floors, and why one is not enough any more ─────────────────────────────────
+ * ── The two floors, and why a fixed band is not enough any more ────────────────────────
  * Until #101 an unexplored map was a flat black scrim and a single 32/255 floor answered
- * everything: below it the fog, above it the map. The living fog put an animated cloud there
- * instead, and the cloud is *brighter* than that floor across the whole frame — the same
- * instrument came back reading a virgin canvas as 40.2% drawn against a fully revealed one at
- * 27.5%, which is the measure inverted rather than merely shifted.
+ * everything. #101's living fog put an animated cloud there instead and this file moved to a
+ * band calibrated on that cloud's own colour (21.6–58.5/255). D8's pale-mist repaint on this
+ * branch retired that band in turn: the unrevealed cloud now measures a *mean of 126.9/255*
+ * with every pixel above the old 64 ceiling (`virgin`, below) — a deliberate brighter cover,
+ * not a bug, and a band tuned to the old palette now calls the whole cloud "clear".
  *
- * What replaces it is the cloud's own colour band, read off `virgin` — a frame that is
- * nothing but fog. Measured 21.6–58.5/255 on this map, and it cannot leave that band whatever
- * the clock does: the darkest pixel the shader can produce is `uDeep` mixed 30% toward `uMid`
- * and the brightest is one lobe of `uHigh` (`livingFog.ts`), both palette constants that the
- * time uniform never touches. Two shots six seconds apart measure 21.6–58.5 both times.
+ * What replaces it — ported from `sprint3-vision.spec.ts`'s identical fix, for the identical
+ * reason — is a cover *diff* rather than a colour read: `develop` is handed two shots of the
+ * same still frame, one as the seat naturally renders it and one with the fog layer forced off
+ * by `__fogProbe.setVisible` (`look`, below, is what takes the pair), and reads a pixel `clear`
+ * where the two agree, because that is a pixel the fog was never touching. This survives
+ * whatever palette the shader paints next.
  *
- *   `clear` — under 16 or over 64 — is "the fog is not covering this pixel", i.e. ground the
- *   player has earned. Virgin reads 0.000%; one revealed room is percentage points.
- *   `lit` — over 64 — is "a light reaches this pixel". Virgin reads 0.000%; the whole map
- *   lit reads 1.5%, which on this crypt is the one room with torches in it.
+ *   `clear` — the fog-off shot and the natural one agree within a few levels of noise — is
+ *   "the fog is not covering this pixel": ground the player has earned. Virgin reads 0.000%;
+ *   one revealed room is percentage points.
+ *   `lit` — clear, and over 64 on the natural shot — is "a light reaches this pixel". Virgin
+ *   reads 0.000%; the whole map lit reads a few percent, which on this crypt is the rooms with
+ *   torches in them.
  */
-function develop(page: Page, shot: Buffer): Promise<Look> {
-  return page.evaluate(async (url: string) => {
-    const bitmap = await createImageBitmap(await (await fetch(url)).blob())
-    const surface = new OffscreenCanvas(bitmap.width, bitmap.height)
-    const ctx = surface.getContext('2d')!
-    ctx.drawImage(bitmap, 0, 0)
-    const { data } = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
-    let sum = 0
-    let lit = 0
-    let dark = 0
-    for (let i = 0; i < data.length; i += 4) {
-      const luminance = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]
-      sum += luminance
-      if (luminance > 64) lit++
-      else if (luminance < 16) dark++
-    }
-    const pixels = data.length / 4
-    return { mean: sum / pixels, lit: lit / pixels, clear: (lit + dark) / pixels }
-  }, `data:image/png;base64,${shot.toString('base64')}`)
-}
-
-const look = async (page: Page): Promise<Look> => develop(page, await shoot(page))
-const show = (l: Look) =>
-  `mean ${l.mean.toFixed(1)}/255, ${(l.clear * 100).toFixed(1)}% clear of fog, ` +
-  `${(l.lit * 100).toFixed(1)}% lit`
-
-interface Patch {
-  /** Mean luminance over the sampled pixels, 0–255. */
-  mean: number
-  /** Mean chroma — max channel minus min — over the same pixels, 0–255. */
-  chroma: number
-  /** How many pixels were in the sample, as a fraction of the frame. */
-  covered: number
-}
-
-/**
- * What one state did to the pixels another state lit.
- *
- * The whole-canvas mean cannot answer the question PRODUCT's accessibility clause asks.
- * Emberhold is a crypt and most of it is black in every state, so a mean over the frame is
- * mostly a count of how much black there is — the third gate read explored as *brighter*
- * than lit off exactly that number, and the row below used to decline to assert a direction
- * because of it. Masking to the pixels the map draws when it is lit throws the black away and
- * leaves the comparison the art director actually makes: the same floor, twice.
- *
- * Chroma comes with it because dimming alone is not the requirement. An explored room has to
- * read as *stale* — the warm torchlight pulled out of it — and a state that is only darker is
- * a state carried on one axis, which is what "never rely on colour alone" cuts both ways on.
- */
-function sample(page: Page, shot: Buffer, mask: Buffer): Promise<Patch> {
+function develop(page: Page, shown: Buffer, hidden: Buffer): Promise<Look> {
   return page.evaluate(
-    async ([a, b]: string[]) => {
-      const pixels = async (url: string) => {
+    async ([shownUrl, hiddenUrl]: [string, string]) => {
+      const pixelsOf = async (url: string) => {
         const bitmap = await createImageBitmap(await (await fetch(url)).blob())
         const surface = new OffscreenCanvas(bitmap.width, bitmap.height)
         const ctx = surface.getContext('2d')!
         ctx.drawImage(bitmap, 0, 0)
         return ctx.getImageData(0, 0, bitmap.width, bitmap.height).data
       }
-      const [target, reference] = await Promise.all([pixels(a), pixels(b)])
+      const [natural, unmasked] = await Promise.all([pixelsOf(shownUrl), pixelsOf(hiddenUrl)])
       const luminance = (d: Uint8ClampedArray, i: number) =>
         0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]
+      // Screenshot round-trip noise on an otherwise identical frame (PNG requantisation),
+      // matching `sprint3-vision.spec.ts`'s own measured floor for the same instrument.
+      const COVER_EPSILON = 10
       let sum = 0
-      let chroma = 0
-      let counted = 0
-      for (let i = 0; i < target.length; i += 4) {
-        // `develop`'s `lit` floor, asked of the lit frame, so both samples cover one identical
-        // set of pixels. Above the fog's ceiling rather than the old 32 for the reason
-        // `develop` gives: at 32 the mask swallowed the cloud outside the map's bounds, and
-        // since that cloud is *identical* in both states it dragged live and memory together —
-        // live read 40.8 against memory's 33.6 (0.82x) where the target is half.
-        if (luminance(reference, i) <= 64) continue
-        counted++
-        sum += luminance(target, i)
-        chroma +=
-          Math.max(target[i], target[i + 1], target[i + 2]) -
-          Math.min(target[i], target[i + 1], target[i + 2])
+      let lit = 0
+      let clear = 0
+      for (let i = 0; i < natural.length; i += 4) {
+        const naturalL = luminance(natural, i)
+        const offL = luminance(unmasked, i)
+        sum += naturalL
+        if (Math.abs(naturalL - offL) > COVER_EPSILON) continue
+        clear++
+        // The fog-OFF frame's own luminance — a light reaching the ground — never the
+        // fog-on one: the two are within COVER_EPSILON of each other here by construction,
+        // but pale mist's veil is exactly the few points near 64 that land on the wrong
+        // side of it if the natural frame is asked instead of the ground underneath it.
+        if (offL > 64) lit++
       }
-      return {
-        mean: counted ? sum / counted : 0,
-        chroma: counted ? chroma / counted : 0,
-        covered: counted / (target.length / 4),
-      }
+      const pixels = natural.length / 4
+      return { mean: sum / pixels, lit: lit / pixels, clear: clear / pixels }
     },
     [
-      `data:image/png;base64,${shot.toString('base64')}`,
-      `data:image/png;base64,${mask.toString('base64')}`,
-    ],
+      `data:image/png;base64,${shown.toString('base64')}`,
+      `data:image/png;base64,${hidden.toString('base64')}`,
+    ] as [string, string],
   )
 }
 
-const showPatch = (p: Patch) =>
-  `mean ${p.mean.toFixed(1)}/255, chroma ${p.chroma.toFixed(1)}/255 over ` +
-  `${(p.covered * 100).toFixed(1)}% of the frame`
+/**
+ * One frame, both ways: the seat's natural render, then the same frame with the fog forced
+ * off and back — `setVisible` never decides which is natural, it is handed whatever
+ * `fogVisible` read a moment before, so the DM seat (which draws no player fog at all) gets
+ * two identical shots and reads ~100% clear, correctly.
+ */
+async function look(page: Page): Promise<Look> {
+  const shown = await shoot(page)
+  const natural = await fogVisible(page)
+  await setFogVisible(page, false)
+  await nextFrame(page)
+  const hidden = await shoot(page)
+  await setFogVisible(page, natural)
+  await nextFrame(page)
+  return develop(page, shown, hidden)
+}
+
+/**
+ * `look`'s cover pair, read at world points through `__fogProbe.screenOf` instead of over the
+ * whole canvas — ported from `sprint3-vision.spec.ts`'s identical instrument, for the identical
+ * reason: `sample`'s whole-frame masking approach reads raw luminance, which is exactly the
+ * "brighter is more lit" doctrine the pale-mist repaint broke (memory is now brighter than live
+ * over unlit ground by design). `delta` is |natural − fog-off| at a point — near-zero over live
+ * ground (at most the veil), a clear step up over memory (the mist tier), larger still over
+ * hidden ground (opaque, or no geometry sent at all) — and survives whatever palette the shader
+ * paints next. `floor` is the fog-off half alone, what "the same floor" means when two patches'
+ * `delta` reads apart.
+ */
+async function patchCover(
+  page: Page,
+  box: [number, number, number, number],
+): Promise<{ delta: number[]; floor: number[]; shown: number[] }> {
+  const natural = await fogVisible(page)
+  const shownBuf = await shoot(page)
+  await setFogVisible(page, false)
+  await nextFrame(page)
+  const hiddenBuf = await shoot(page)
+  await setFogVisible(page, natural)
+  await nextFrame(page)
+  return page.evaluate(
+    async ([shownUrl, hiddenUrl, x0, y0, x1, y1]: [string, string, number, number, number, number]) => {
+      const probe = (
+        window as Window & { __fogProbe?: { screenOf(x: number, y: number): { x: number; y: number } } }
+      ).__fogProbe
+      if (!probe) throw new Error('this build is not exposing the fog probe — rebuild the client')
+      const canvas = document.querySelector('[data-testid="game-canvas"] canvas') as HTMLCanvasElement
+      const pixelsOf = async (url: string) => {
+        const bitmap = await createImageBitmap(await (await fetch(url)).blob())
+        const surface = new OffscreenCanvas(bitmap.width, bitmap.height)
+        const ctx = surface.getContext('2d')!
+        ctx.drawImage(bitmap, 0, 0)
+        return ctx.getImageData(0, 0, bitmap.width, bitmap.height)
+      }
+      const [shown, hidden] = await Promise.all([pixelsOf(shownUrl), pixelsOf(hiddenUrl)])
+      const luminance = (d: Uint8ClampedArray, i: number) =>
+        0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]
+      const sx = shown.width / canvas.clientWidth
+      const sy = shown.height / canvas.clientHeight
+      const delta: number[] = []
+      const floor: number[] = []
+      const shownOut: number[] = []
+      for (let y = y0; y < y1; y += 0.25) {
+        for (let x = x0; x < x1; x += 0.25) {
+          const at = probe.screenOf(x, y)
+          const i = (Math.round(at.y * sy) * shown.width + Math.round(at.x * sx)) * 4
+          const shownL = luminance(shown.data, i)
+          const hiddenL = luminance(hidden.data, i)
+          delta.push(Math.abs(shownL - hiddenL))
+          floor.push(hiddenL)
+          shownOut.push(shownL)
+        }
+      }
+      return { delta, floor, shown: shownOut }
+    },
+    [
+      `data:image/png;base64,${shownBuf.toString('base64')}`,
+      `data:image/png;base64,${hiddenBuf.toString('base64')}`,
+      ...box,
+    ] as [string, string, number, number, number, number],
+  )
+}
+
+const meanOf = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length
+
+const show = (l: Look) =>
+  `mean ${l.mean.toFixed(1)}/255, ${(l.clear * 100).toFixed(1)}% clear of fog, ` +
+  `${(l.lit * 100).toFixed(1)}% lit`
 
 /**
  * What fraction of the canvas changed between two shots.
@@ -479,6 +552,15 @@ async function statuses(dm: Page): Promise<Record<string, number>> {
     }
     return counts
   })
+}
+
+/** Which room ids the DM's list currently reads as `status` — `statuses`' counts, by id. */
+async function roomsByStatus(dm: Page, status: string): Promise<string[]> {
+  await armFog(dm)
+  return dm.evaluate((want: string) => {
+    const list = document.querySelectorAll(`[data-testid="fog-rooms"] [data-fog-status="${want}"]`)
+    return Array.from(list).map((li) => li.getAttribute('data-room-id') as string)
+  }, status)
 }
 
 const doorRow = (page: Page, doorId: string) =>
@@ -778,59 +860,68 @@ test.describe.serial('@sprint3-fog', () => {
   })
 
   /**
-   * §2.6 (added row) — explored rooms render dimmed, not black, after a reload.
+   * §2.6 (added row) — explored rooms carry cover, not blackness, after a reload.
    *
-   * Four looks: `virgin` from `beforeAll` (nothing explored), then the whole map lit, then
-   * the whole map re-hidden, then re-hidden *after a reload*. The geometry half is green
-   * above; this is the half that needs paint.
+   * Four states of one patch of the Chamber's own floor — live (everything revealed), memory
+   * (everything re-hidden), memory again after a reload, and a genuinely untouched room's own
+   * patch, read before this row's own `fog-reveal-all` erases the last one on the map. Read as
+   * cover — the natural/fog-off luminance delta `patchCover` reads at world points through
+   * `screenOf` — never as raw brightness: D8's pale-mist repaint makes memory *brighter* than
+   * live over unlit ground by design (docs/mockups/2026-09-09-fog-current-vs-living.html,
+   * accepted), which used to read as "explored is brighter than live" and is exactly what a
+   * brightness doctrine cannot tell apart from a regression. Cover survives the palette: live
+   * carries at most the veil, memory a heavier mist tier, an untouched room the opaque hidden
+   * tier or no geometry sent at all.
    *
-   * Measured over the pixels the lit map draws, not over the frame (`sample`). Emberhold is
-   * a crypt: a frame-wide mean is mostly a count of black, which is how the third gate came
-   * away reading explored as *brighter* than lit, and how the fourth found a memory sitting
-   * within 0.35% of the same room live with this row still green. The mask throws the black
-   * away and compares one identical set of floor pixels in the two states.
-   *
-   * The targets are PRODUCT's, not this file's: explored no more than half as bright as the
-   * same pixels live, visibly drained of the torchlight's chroma, and clearly above the black
-   * a never-revealed room renders at — "explored, stale" at a glance on a bad panel, and
-   * three states that are three brightnesses rather than three hues.
+   * The targets are PRODUCT's, not this file's: explored visibly more covered than live, less
+   * covered than a room nobody has ever seen, the same floor underneath as live, and the reload
+   * keeps it.
    */
   test('explored memory renders dimmed and drained, not black', async () => {
+    // A room nothing has touched yet, wherever the rows above left the fog state — captured
+    // before this row's own reveal-all erases the last one. `virgin` (`beforeAll`) is a
+    // whole-frame `clear` share taken at a different moment and never a patch's own delta;
+    // this is the real third tier, read the same way as the other two below.
+    const untouchedIds = await roomsByStatus(dm, 'never_revealed')
+    expect(untouchedIds.length, 'every room was already touched before this row ran').toBeGreaterThan(0)
+    const hidden = await patchCover(player, boxOf(roomById(untouchedIds[0])))
+
     await armFog(dm)
     await dm.getByTestId('fog-reveal-all').click()
     await expect.poll(async () => (await statuses(dm)).revealed ?? 0).toBe(rooms.length)
-    // One camera for all three shots. The renderer frames a scene exactly once (a reveal
-    // must never yank the camera), so in a serial run the in-session camera is whatever
-    // fit an EARLIER test's explored set — while `player.reload()` below re-fits to the
-    // full 13-room map. `sample` masks by litShot's screen pixels; shot through two
-    // different transforms, the mask lands on void and reads ~13/255 where the paint is
-    // actually ~29. Fit-to-screen here pins every shot to the same canonical transform.
+    // One camera for the live/memory/reload reads below. The renderer frames a scene exactly
+    // once (a reveal must never yank the camera), so in a serial run the in-session camera is
+    // whatever fit an EARLIER test's explored set — while `player.reload()` re-fits to the
+    // full 13-room map. `screenOf` *is* the camera transform, so reading the Chamber's patch
+    // through two different ones would sample two different rectangles of pixels. Fit-to-screen
+    // here pins every read below to one canonical transform (the untouched-room read above is
+    // exempt: it is one self-contained natural/fog-off pair, never compared pixel-for-pixel
+    // against a shot taken through a different camera).
     await player.getByLabel('Fit to screen').click()
     await player.waitForTimeout(REVEAL_MS * 4)
-    const litShot = await shoot(player)
     const lit = await look(player)
-    // The mask, and the live reading, are the same frame read two ways.
-    const live = await sample(player, litShot, litShot)
+    const live = await patchCover(player, boxOf(CHAMBER))
 
     // Re-hiding takes the light and keeps the memory (D4): every room is now explored.
     await dm.getByTestId('fog-hide-all').click()
     await expect.poll(async () => (await statuses(dm)).re_hidden ?? 0).toBe(rooms.length)
     await player.waitForTimeout(REVEAL_MS * 4)
-    const dimmedShot = await shoot(player)
     const dimmed = await look(player)
-    const memory = await sample(player, dimmedShot, litShot)
+    const memory = await patchCover(player, boxOf(CHAMBER))
 
     await player.reload()
     await assertMapLoaded(player, GATE)
     await player.waitForTimeout(REVEAL_MS * 4)
     const reloaded = await look(player)
-    const remembered = await sample(player, await shoot(player), litShot)
+    const remembered = await patchCover(player, boxOf(CHAMBER))
 
     record(
-      'explored versus live, over the pixels the lit map draws',
-      `live ${showPatch(live)} → explored ${showPatch(memory)} → reloaded ` +
-        `${showPatch(remembered)}; unexplored map ${show(virgin)}`,
-      'explored dimmer than live, chroma down, and clearly above black',
+      'explored versus live, as cover over the Chamber’s own patch',
+      `cover (natural vs fog-off luminance delta): live ${meanOf(live.delta).toFixed(1)} → ` +
+        `explored ${meanOf(memory.delta).toFixed(1)} → reloaded ${meanOf(remembered.delta).toFixed(1)} ` +
+        `→ an untouched room ${meanOf(hidden.delta).toFixed(1)}; the floor underneath: live ` +
+        `${meanOf(live.floor).toFixed(1)}, explored ${meanOf(memory.floor).toFixed(1)}`,
+      'untouched covered more than explored, explored covered more than live, live/explored share one floor',
     )
     record(
       'explored look across a player reload (whole frame)',
@@ -839,32 +930,40 @@ test.describe.serial('@sprint3-fog', () => {
       'explored is neither the black map nor the lit one, and survives the reload',
     )
 
-    // A sample of nothing would pass every assertion below it. 0.005, not the 0.02 this read
-    // against the old 32 floor: the mask is the torchlit floor now and not every pixel the
-    // map draws, so 27.5% of the frame became 1.5% — ~13k pixels, and three times this bound.
-    expect(live.covered, 'the lit map drew almost none of the frame').toBeGreaterThan(0.005)
-    // 70, and it means something narrower than it used to. The mask floor is 64 now, so every
-    // pixel in this sample clears 64 by construction and only the *headroom* is a claim: a
-    // torchlit floor has to sit well clear of the fog's ceiling rather than skim it. Measured
-    // 80.3 (60.3 → 57.9 in the three gates before, over a sample that also held wall stone).
-    expect(live.mean, 'the lit map is not lit').toBeGreaterThan(70)
-
-    // Dimmer — the direction the third gate had inverted — but the room itself, still
-    // readable: the user's call on the live table was a thin haze over the map, not a wash
-    // that replaces it (`EXPLORED_TINT_ALPHA` 0.7 → 0.3, `MEMORY_MIST` 0.55 → 0.25). Measured
-    // 62.1 against 81.4 — three quarters — where the old wash read under a half.
-    expect(memory.mean, `explored read ${memory.mean.toFixed(1)} against live ${live.mean.toFixed(1)}`)
-      .toBeLessThanOrEqual(live.mean * 0.85)
-    // Drained: the same pixels, with the torchlight pulled out of them.
-    expect(memory.chroma, 'explored kept the torch in it').toBeLessThan(live.chroma * 0.7)
-    // …and still a room, not a hole in the map. Never-revealed is the black to beat.
-    expect(memory.mean, 'explored came back as black').toBeGreaterThan(8)
-    // …against a canvas with no hole in the fog at all: the zero-setup row's measurement and
-    // its bound, so "clearly above black" is read against a real never-revealed frame.
+    // Cover, not colour: the doctrine `develop`'s own comment retired. What survives any
+    // palette is how much the fog-on frame disagrees with the fog-off one at the same place —
+    // live at most the veil, explored a heavier mist tier, untouched the opaque tier (or no
+    // geometry at all). Measured on the Chamber's patch 2026-09-09: live delta 2.5, explored
+    // 26.8, an untouched room 147.8 — margins are under half of both gaps (24.3 and 121.0),
+    // well clear of the ~1-2 level PNG round-trip noise `develop` documents for this instrument.
+    expect(
+      meanOf(memory.delta),
+      `explored delta ${meanOf(memory.delta).toFixed(1)} against live's ${meanOf(live.delta).toFixed(1)}`,
+    ).toBeGreaterThan(meanOf(live.delta) + 10)
+    expect(
+      meanOf(hidden.delta),
+      `untouched delta ${meanOf(hidden.delta).toFixed(1)} against explored's ${meanOf(memory.delta).toFixed(1)}`,
+    ).toBeGreaterThan(meanOf(memory.delta) + 50)
+    // "The same floor": live and explored are one patch read twice, fog subtracted — the
+    // ground underneath has to agree regardless of what the fog painted over it. Measured
+    // identical to a tenth (123.3 both ways); the tolerance is `develop`'s own 10-level
+    // `COVER_EPSILON`, its documented floor for one frame's round-trip noise on this instrument.
+    expect(
+      Math.abs(meanOf(memory.floor) - meanOf(live.floor)),
+      `explored floor ${meanOf(memory.floor).toFixed(1)} against live's ${meanOf(live.floor).toFixed(1)}`,
+    ).toBeLessThan(10)
+    // A light reaches the live patch — read off the fog-off floor, since that is where a
+    // light landing is a fact and not the veil's. 70 is `develop`'s own `lit` gate.
+    expect(meanOf(live.floor), 'the lit map is not lit').toBeGreaterThan(70)
+    // …and still legibly a room, not a hole in the map: the pale mist over it is bright, not
+    // black, by design — read off the natural frame this time, since "not black" is a claim
+    // about what the seat actually draws.
+    expect(meanOf(memory.shown), 'explored came back as black').toBeGreaterThan(64)
+    // …against a canvas with no hole in the fog at all: the zero-setup row's own measurement.
     expect(virgin.clear, 'the unexplored map was not black to begin with').toBeLessThan(0.002)
 
     // The reload keeps all of it (D4).
-    expect(Math.abs(remembered.mean - memory.mean)).toBeLessThan(memory.mean * 0.1)
+    expect(Math.abs(meanOf(remembered.delta) - meanOf(memory.delta))).toBeLessThan(meanOf(memory.delta) * 0.1)
   })
 
   /**
@@ -891,6 +990,7 @@ test.describe.serial('@sprint3-fog', () => {
     await player.waitForTimeout(REVEAL_MS * 2)
     const shutAgain = await shoot(player)
     const noise = await changed(player, shut, shutAgain)
+    const before = await look(player)
 
     await swingDoor(dm, SHUT.door.id)
     await openPanel(player, 'doors')
@@ -898,8 +998,7 @@ test.describe.serial('@sprint3-fog', () => {
     await player.waitForTimeout(REVEAL_MS * 2)
     const open = await shoot(player)
     const moved = await changed(player, shutAgain, open)
-
-    const [before, after] = [await develop(player, shutAgain), await develop(player, open)]
+    const after = await look(player)
 
     record(
       'door → lighting on the player canvas',
