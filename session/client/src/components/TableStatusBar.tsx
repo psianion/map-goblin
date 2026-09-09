@@ -15,9 +15,10 @@ import { fitMap, minZoom, zoomAbout } from '../renderer/cameraInput';
 /**
  * The table's status bar: the scene name (opens the Session popover), presence and
  * connection, latency, world light, and — while a tool is armed — its name and the key
- * that exits it. FPS/frame-time are diagnostics, off by default (Shift+D), where the
- * editor's equivalent bar always shows cursor coordinates. Same exponential zoom slider
- * on the right.
+ * that exits it. FPS/frame-time are diagnostics, off by default on the DM seat (Shift+D)
+ * and always on for a player, whose frame rate is the one the table is judged by and the
+ * one nobody at the table can otherwise see; the editor's equivalent bar always shows
+ * cursor coordinates. Same exponential zoom slider on the right.
  */
 const SLIDER_MIN = 10;
 
@@ -144,9 +145,11 @@ function ZoomSlider() {
 }
 
 export function TableStatusBar() {
-  // M4 — the player variant: scene name, presence, and env badge only. Latency, diagnostics
+  // M4 — the player variant: scene name, presence, env badge, and the frame rate. Latency
   // and the armed-tool segment are DM chrome (a player never arms a tool, and Shift+D reads
-  // as doing nothing rather than as a hidden control that happens to render empty).
+  // as doing nothing rather than as a hidden control that happens to render empty). The
+  // frame rate is on for every player, always: the living fog's cost lands on the player
+  // seat, and a DM asking "is it smooth for you?" gets a number instead of a guess.
   const isPlayer = useRole() === 'player';
   const diagnostics = useShell((s) => s.diagnostics);
   const openPanelById = useShell((s) => s.openPanelById);
@@ -222,8 +225,8 @@ export function TableStatusBar() {
       }`}
     >
       {/* Left: scene name (opens the Session popover), presence, latency, world light,
-          diagnostics (Shift+D, off by default — after the env badge, never before the scene
-          name), armed tool */}
+          diagnostics (Shift+D on the DM seat, always on for a player — after the env badge,
+          never before the scene name), armed tool */}
       <div className="flex items-center gap-3 tabular-nums" data-testid="connection-status">
         <button
           type="button"
@@ -247,7 +250,7 @@ export function TableStatusBar() {
             </span>
           </>
         )}
-        {!isPlayer && diagnostics && (
+        {(isPlayer || diagnostics) && (
           <>
             <span>&middot;</span>
             <span className={fpsColor}>{fpsStr} FPS</span>

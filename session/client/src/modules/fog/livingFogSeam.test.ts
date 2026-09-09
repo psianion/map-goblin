@@ -61,6 +61,7 @@ function mirrorParts(
   const body = smoothstep(-0.08 * fade, 0.14 * fade, d);
   const wisp = smoothstep(-0.2 * fade, -0.06 * fade, d) * (1 - body);
   const hiddenness = 1 - smoothstep(0.1, 0.62, m);
+  // mist here is the shader's uMist already scaled by the layer stack's weight.
   const aBody = mist * (0.45 + 0.55 * den) * (1 - hiddenness) + dense * hiddenness;
   const cloudAlpha = body * aBody + wisp * aBody * 0.28;
   const seam = m + (den - 0.5) * seamLobe;

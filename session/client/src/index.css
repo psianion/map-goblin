@@ -147,6 +147,7 @@ body,
     rgb(var(--text-primary)) var(--slider-fill, 0%),
     rgb(var(--border-default)) var(--slider-fill, 0%)
   );
+  accent-color: rgb(var(--text-primary));
   outline: none;
   cursor: pointer;
 }

@@ -29,6 +29,7 @@ export function Segmented<T extends string>({
   disabled,
   describedBy,
   inline,
+  ariaLabel,
 }: {
   label: string;
   testId: string;
@@ -40,18 +41,26 @@ export function Segmented<T extends string>({
    *  not left as a paragraph a keyboard user never lands on. */
   describedBy?: string;
   inline?: boolean;
+  /** Overrides the group's accessible name with this exact text instead of the visible
+   *  `label` — for a control whose caption stays short (e.g. "Type") but needs a fuller
+   *  name (e.g. "Layer 2 type"). Pass `label=""` alongside it to drop the caption entirely
+   *  when the context around the control already says what it is. */
+  ariaLabel?: string;
 }) {
   return (
     <div className={inline ? 'flex items-center gap-2' : 'flex flex-col gap-0.5'}>
-      <span
-        id={`${testId}-label`}
-        className={inline ? 'w-16 shrink-0 text-xs text-text-muted' : 'text-xs text-text-secondary'}
-      >
-        {label}
-      </span>
+      {label && (
+        <span
+          id={`${testId}-label`}
+          className={inline ? 'w-16 shrink-0 text-xs text-text-muted' : 'text-xs text-text-secondary'}
+        >
+          {label}
+        </span>
+      )}
       <div
         role="radiogroup"
-        aria-labelledby={`${testId}-label`}
+        aria-labelledby={ariaLabel || !label ? undefined : `${testId}-label`}
+        aria-label={ariaLabel}
         aria-describedby={describedBy}
         aria-disabled={disabled || undefined}
         data-testid={testId}

@@ -1,4 +1,4 @@
-import type { AnyChild, ChildGroupInfo, Command, DungeonLayer, DungeonStyle, Layer } from './types';
+import type { AnyChild, ChildGroupInfo, Command, DungeonLayer, DungeonStyle, FogLook, Layer } from './types';
 import { useStore } from './store';
 import type { MapStylePreset } from './presetRegistry';
 
@@ -592,6 +592,32 @@ export class SetAmbientLightCommand implements Command {
 
   undo(): void {
     useStore.getState().setAmbientLight(this.before);
+  }
+}
+
+/**
+ * Command for the map's fog look (D7) — one entry per commit, same idiom as ambient light:
+ * undo/redo just replays `setFogLook` with the other object. `undefined` is a real state here
+ * (the map has never authored a look, so the table falls back to `DEFAULT_FOG_LOOK`), not a
+ * sentinel for "no change" — that's why this takes `FogLook | undefined` rather than reusing
+ * `SetAmbientLightCommand`'s plain-string shape.
+ */
+export class SetFogLookCommand implements Command {
+  readonly label = 'Fog look';
+  private readonly before: FogLook | undefined;
+  private readonly after: FogLook | undefined;
+
+  constructor(before: FogLook | undefined, after: FogLook | undefined) {
+    this.before = before && structuredClone(before);
+    this.after = after && structuredClone(after);
+  }
+
+  execute(): void {
+    useStore.getState().setFogLook(this.after);
+  }
+
+  undo(): void {
+    useStore.getState().setFogLook(this.before);
   }
 }
 

@@ -60,7 +60,7 @@ import {
   type RoomView,
   type VoidStyle,
 } from './FogRenderer';
-import { MASK_MEMORY } from './livingFog';
+import { DEFAULT_FOG_LOOK, MASK_MEMORY } from './livingFog';
 import { tokenLightId } from '../triggers/lightSync';
 
 /** A fixed void look for fixtures — drawFog paints hidden map with `fill`, not black. */
@@ -307,6 +307,7 @@ describe('roomViews — what each room is doing', () => {
       grade: '#ffffff',
       timeBucket: 0,
       void: VOID,
+      look: DEFAULT_FOG_LOOK,
     });
 
     const fills = fillsOf(scrim);
@@ -330,6 +331,7 @@ describe('roomViews — what each room is doing', () => {
       grade: '#ffffff',
       timeBucket: 0,
       void: VOID,
+      look: DEFAULT_FOG_LOOK,
     });
 
     expect(fillsOf(scrim)[0].hole).toBeDefined();
@@ -727,6 +729,7 @@ describe('drawFog — the padded hole and its falloff, as instructions', () => {
       grade: '#ffffff',
       timeBucket: 0,
     void: VOID,
+    look: DEFAULT_FOG_LOOK,
   });
 
   const strokesOf = (g: Graphics) =>
@@ -991,6 +994,7 @@ describe('drawFog in vision mode', () => {
     mode: 'vision',
     sight: [],
     fog: { rooms: {}, concealBehindDoors: true },
+    look: DEFAULT_FOG_LOOK,
     ...over,
   });
 
@@ -2200,6 +2204,7 @@ describe('drawFog in the dark', () => {
     sight: [LOOKING],
     fog: { rooms: {}, concealBehindDoors: true },
     night,
+    look: DEFAULT_FOG_LOOK,
   });
   const square = (x0: number, y0: number, x1: number, y1: number): Polygon => [
     [x0, y0],

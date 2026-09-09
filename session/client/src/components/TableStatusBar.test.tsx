@@ -194,7 +194,7 @@ describe('TableStatusBar — M1 shell', () => {
 describe('TableStatusBar — M4 player variant', () => {
   const player: PlayerInfo = { identityId: 'p1', name: 'Iris', role: 'player', connected: true };
 
-  it('drops latency, diagnostics and the armed tool, but keeps scene name and env badge', () => {
+  it('drops latency and the armed tool, but keeps scene name, env badge and the frame rate', () => {
     useSessionStore.setState({
       you: player,
       connection: 'open',
@@ -204,7 +204,9 @@ describe('TableStatusBar — M4 player variant', () => {
         [{ id: 'sc-1', name: 'Fieldstone Keep', mapId: 'm1' }],
       ),
     });
-    useShell.setState({ diagnostics: true });
+    // Diagnostics off: a player still sees the frame rate — it is on for every player seat,
+    // not a Shift+D toggle, so the DM can ask for the number instead of a guess.
+    useShell.setState({ diagnostics: false });
     useActiveTool.getState().setActiveTool('fog');
 
     render(<TableStatusBar />);
@@ -212,7 +214,7 @@ describe('TableStatusBar — M4 player variant', () => {
     expect(screen.getByTestId('scene-name').textContent).toBe('Fieldstone Keep');
     expect(screen.getByTestId('env-badge')).not.toBeNull();
     expect(screen.queryByText(/ ms$/)).toBeNull();
-    expect(screen.queryByText(/FPS/)).toBeNull();
+    expect(screen.getByText(/FPS/)).not.toBeNull();
     expect(screen.queryByTestId('active-tool')).toBeNull();
   });
 

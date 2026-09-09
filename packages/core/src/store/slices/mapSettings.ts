@@ -1,4 +1,5 @@
 import type { StateCreator } from 'zustand';
+import type { FogLook } from '../../shared/fogLook';
 import type { MapBuilderStore, MapEnvironment, MapSettings, TerrainData } from '../types';
 
 export interface MapSettingsActions {
@@ -9,6 +10,10 @@ export interface MapSettingsActions {
   setEnvironmentSettings: (patch: Partial<MapEnvironment>) => void;
   setTerrainData: (patch: Partial<TerrainData>) => void;
   setTerrainSplats: (pngs: [Blob | null, Blob | null, Blob | null]) => void;
+  /** `undefined` takes the map back to the shipped default (`DEFAULT_FOG_LOOK`) — same
+   * "never authored" convention `setEnvironmentSettings` uses per-field, here for the one
+   * cohesive object a map either has authored or hasn't. */
+  setFogLook: (look: FogLook | undefined) => void;
 }
 
 /**
@@ -56,6 +61,11 @@ export const createMapSettingsSlice: StateCreator<
   setAmbientLight: (color) =>
     set((state) => {
       state.mapSettings.ambientLight = color;
+    }),
+  setFogLook: (look) =>
+    set((state) => {
+      if (look === undefined) delete state.mapSettings.fogLook;
+      else state.mapSettings.fogLook = look;
     }),
   // One action for the whole world half (environment / palette / natural light / orientation /
   // time mode), because the Editor edits them as one section and a patch is what undo replays.

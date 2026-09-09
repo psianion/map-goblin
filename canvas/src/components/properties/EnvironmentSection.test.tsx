@@ -126,4 +126,49 @@ describe('EnvironmentSection', () => {
     undoManager.undo()
     expect(useStore.getState().mapSettings.timePalette?.keyframes?.dawn).toBe('#ff0000')
   })
+
+  it('a map that never authored a fog look shows the shipped default and writes nothing', () => {
+    renderOpen({})
+    expect(useStore.getState().mapSettings.fogLook).toBeUndefined()
+    // DEFAULT_FOG_LOOK's mist base — proves the panel is reading the fallback, not a blank.
+    expect(screen.getByTestId('fog-base-color-swatch').textContent).toContain('#FFFFFF')
+  })
+
+  it('picking a fog preset is one undoable command that writes the preset\'s layers', () => {
+    renderOpen({})
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Mist' }))
+    const look = useStore.getState().mapSettings.fogLook
+    expect(look?.preset).toBe('mist')
+    expect(look?.layers[0].type).toBe('haze')
+
+    undoManager.undo()
+    expect(useStore.getState().mapSettings.fogLook).toBeUndefined()
+  })
+
+  it('resetting to preset is disabled until a preset is picked', () => {
+    renderOpen({})
+    expect(screen.getByLabelText('Reset layers to the picked preset').hasAttribute('disabled')).toBe(true)
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Smoke' }))
+    expect(screen.getByLabelText('Reset layers to the picked preset').hasAttribute('disabled')).toBe(false)
+  })
+
+  it('a map with no authored preset shows none of the fog preset pills selected, not Cumulus by default', () => {
+    renderOpen({})
+    const pills = screen.getAllByRole('radio', { name: /Cumulus|Mist|Smoke|Rolling/ })
+    expect(pills.every((p) => p.getAttribute('aria-checked') === 'false')).toBe(true)
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Rolling' }))
+    expect(screen.getByRole('radio', { name: 'Rolling' }).getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('labels each fog layer row with its index and gives its type select and tint swatch their own aria-labels', () => {
+    renderOpen({})
+    for (const n of [1, 2, 3]) {
+      expect(screen.getByText(`Layer ${n}`)).toBeTruthy()
+      expect(screen.getByLabelText(`Layer ${n} type`)).toBeTruthy()
+      expect(screen.getByLabelText(`Layer ${n} tint`)).toBeTruthy()
+    }
+  })
 })
