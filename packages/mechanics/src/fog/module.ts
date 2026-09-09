@@ -243,8 +243,14 @@ function run(
     // what the party has seen, and every seat renders its own copy of it. `{ look: null }`
     // clears the override back to the map's authored default (`fogLookOf`); the object form
     // is field-by-field, so a single slider drag sends just the field it moved.
-    case 'set-fog-look':
-      return setScene(ctx, sceneId, { ...scene, look: parseFogLook(p.look) ?? undefined })
+    // A patch merges into the override already on the scene: the panel sends only the
+    // field it moved (one dial per debounce window), so replacing the whole override with
+    // the patch would drop every earlier pick — a base colour set a moment before a layer
+    // tint went back to the map's default. `null` is the one payload that clears.
+    case 'set-fog-look': {
+      const look = parseFogLook(p.look)
+      return setScene(ctx, sceneId, { ...scene, look: look ? { ...scene.look, ...look } : undefined })
+    }
     // P3 — "players see everything", as one command because it is one act. Contained sight
     // is fenced by two records at once (the rooms a player holds and the cells the table has
     // opened), so opening only one of them opens nothing: revealed rooms with an empty record

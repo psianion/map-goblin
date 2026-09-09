@@ -256,6 +256,12 @@ describe('set-fog-look (D7)', () => {
     expect(next.byScene[SCENE].look).toEqual({ wind: 6 })
   })
 
+  it('merges a later patch into the override instead of replacing it', () => {
+    const base = run(empty, DM, 'set-fog-look', { look: { base: '#112233' } }).next
+    const { next } = run(base, DM, 'set-fog-look', { look: { layers: validLook.layers } })
+    expect(next.byScene[SCENE].look).toEqual({ base: '#112233', layers: validLook.layers })
+  })
+
   it('clears the override with { look: null }, so fogLookOf falls back to the authored default', () => {
     const set = run(empty, DM, 'set-fog-look', { look: { wind: 6 } }).next
     const { next } = run(set, DM, 'set-fog-look', { look: null })
