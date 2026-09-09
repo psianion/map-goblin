@@ -105,7 +105,6 @@ import {
   serverDoors,
   serverLayers,
   serverRooms,
-  sightPad,
 } from './fog';
 import { placedLights, sightCache, sighted } from './visionSight';
 import { DEFAULT_FOG_LOOK, MASK_MEMORY, createLivingFog, fogPalette, type FogPool } from './livingFog';
@@ -649,12 +648,14 @@ export function voidStyle(composited = true, grade?: string): VoidStyle {
  * `partySight`), so a second caller with its own `layers`/`tokens`/`eyes` costs only the map
  * this already is, never another sweep.
  */
+/** Where a light's fog pool starts easing toward memory, as a share of its radius. */
+export const LIGHT_POOL_START = 0.5;
+
 export function nightPools(
   layers: readonly Layer[],
   tokens: readonly Token[],
   lightEdits: Record<string, LightEdit>,
   eyes: readonly Token[],
-  pad: number,
 ): FogPool[] {
   // The table's own switch is `lightEdits` since M2 — `lightOverrides` is a pre-M2 row that
   // `sceneTriggersOf` has already folded in, and reading it directly would let a stale `false`
@@ -667,22 +668,24 @@ export function nightPools(
   const dark: LightSource[] = eyes
     .filter((t) => t.sight!.visionMode === 'darkvision')
     .map((t) => ({ x: t.x, y: t.y, radius: t.sight!.range }));
-  const reach = sightPad(pad) + FOG_FEATHER;
   return [
     // A light source glows the fog warm (D4); a darkvision eye is the party's own sight
     // running out in the dark, not a light, so it stays cold.
     //
-    // A light's pool eases from the same last quarter its light does (`RIM_START`, the rounding
-    // in `falloffAt`), not from its full radius: the light is already near dark at the radius,
-    // so a mist that only began there met the dying light as a step — a circle traced around
-    // every torch, plain to see once the memory tier turned pale. Easing from where the light
-    // itself starts to go lets the mist come in as the light goes out, and the darkvision ring
-    // below has always done the same.
+    // A light's pool eases over the outer half of its radius and is gone *at* the radius,
+    // where the lit tier's own mask is cut. The pool used to be whole to the radius and run
+    // out a pad past it, but the mask does not follow it there: the mask goes to memory at
+    // the radius, through half a cell of blur, and a pool still at three quarters on that
+    // line met it as a step — a circle traced around every torch, plain to see once the
+    // memory tier turned pale. Starting at half the radius (the light itself has lost a
+    // quarter there, `falloffAt`, and three quarters by `RIM_START`) lets the mist come in
+    // as the light goes out, and the two ramps meet the mask line together at the memory
+    // level. The darkvision ring below runs to its radius for the same reason.
     ...sources.map((s) => ({
       x: s.x,
       y: s.y,
-      inner: s.radius * RIM_START,
-      outer: s.radius + reach,
+      inner: s.radius * LIGHT_POOL_START,
+      outer: s.radius,
       warm: true,
     })),
     ...dark.map((d) => ({ x: d.x, y: d.y, inner: d.radius * RIM_START, outer: d.radius, warm: false })),
@@ -798,7 +801,7 @@ export function fogScene(): FogScene {
     return {
       lit: sightCache.litArea(layers, sources),
       darkvision: sightCache.litArea(layers, dark),
-      pools: nightPools(layers, tokens, scene!.lightEdits, eyes, pad),
+      pools: nightPools(layers, tokens, scene!.lightEdits, eyes),
     };
   };
 

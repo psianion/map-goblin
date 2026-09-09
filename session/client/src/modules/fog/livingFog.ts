@@ -215,7 +215,13 @@ const FRAGMENT = /* glsl */ `
     vec2 uv = (world - uMaskRect.xy) * uMaskRect.zw;
     if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 0.0;
     float s = texture(uMask, uv).r;
-    if (s < 0.99) return s;
+    // Hidden and memory texels read themselves, flat. Everything above the memory grey — a
+    // live texel, or the feather ramp drawn at a live edge — goes through the blur and the
+    // pools below, capped by the hard value so nothing here ever lifts the tier above what
+    // the geometry says. The feather used to come back raw instead, and that put a step at
+    // every light's radius in the dark: pool-limited on one texel, the bare feather on the
+    // next, memory a cell later — the circle the pale mist then traced around each torch.
+    if (s < 0.51) return s;
     float live = clamp(2.0 * texture(uMaskSoft, uv).r - 1.0, 0.0, 1.0);
     // In the dark every live texel is inside some pool's geometry; the pools say how far.
     // The fade lands on the memory grey, not on hidden: what a token sees it has explored,
@@ -227,9 +233,8 @@ const FRAGMENT = /* glsl */ `
     // runs to 0 across the blur, so without the floor the cloud formed a faint ring just
     // inside every sight edge — the same tier step as the rim and the wisps, arriving one
     // level lower down. The pool branch already floors for this reason; so does this one now.
-    return uPoolCount > 0
-      ? min(max(live, 0.5), max(poolAt(world), 0.5))
-      : max(live, 0.5);
+    float tier = min(s, max(live, 0.5));
+    return uPoolCount > 0 ? min(tier, max(poolAt(world), 0.5)) : tier;
   }
 
   void main() {

@@ -50,12 +50,10 @@ import {
   cellRect,
   fogActionFor,
   fogFrame,
-  fogPad,
   regionRects,
   roomAt,
   roomFog,
   sceneFog,
-  serverLayers,
   serverRooms,
 } from './fog';
 
@@ -162,7 +160,7 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
    * reads, just fetched fresh for this file's own scope.
    */
   const nightPoolsNow = () => {
-    const { session, mapData } = useSessionStore.getState();
+    const { session } = useSessionStore.getState();
     const sceneId = session?.activeSceneId ?? null;
     const triggers = session?.modules?.triggers as TriggersState | undefined;
     if (!sceneId || !triggers) return [];
@@ -175,8 +173,7 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     // The DM's own screen has no share to narrow through (`visionShareOf`, player-only), so the
     // whole party's eyes go in, unseeded — the darkvision half of parity, not just the party's.
     const eyes = sighted(tokens);
-    const pad = fogPad(serverLayers(mapData));
-    return nightPools(layers, tokens, sceneTriggersOf(triggers, sceneId).lightEdits, eyes, pad);
+    return nightPools(layers, tokens, sceneTriggersOf(triggers, sceneId).lightEdits, eyes);
   };
 
   /**
