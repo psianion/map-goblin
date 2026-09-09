@@ -29,7 +29,17 @@
 // ponytail: pixi through @dnd/core, the same reach-through TokenRenderer documents.
 import { BlurFilter, Container, Geometry, Graphics, Mesh, RenderTexture, Shader, Sprite } from 'pixi.js';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
+import type { FogLayerType, FogLayer, FogLook } from '@dnd/core/src/shared/fogLook';
+import { DEFAULT_FOG_LOOK } from '@dnd/core/src/shared/fogLook';
 import type { Bounds } from './FogRenderer';
+
+/** The table-facing cloud shape — shared with `MapSettings.fogLook` (canvas) and
+ * `SceneFog.look` (the DM's live override) so all three runtimes agree on one type
+ * (docs/2026-09-09-living-fog-v2-plan.md D7). Types, the named presets and the shipped
+ * default all live in core (canvas needs them too, and never depends on session-client);
+ * only the shader itself stays here. */
+export type { FogLayerType, FogLayer, FogLook } from '@dnd/core/src/shared/fogLook';
+export { FOG_PRESETS, DEFAULT_FOG_LOOK } from '@dnd/core/src/shared/fogLook';
 
 /** Mask texel value for the memory tier — must match what the shader's tier ramp expects. */
 export const MASK_MEMORY = 0x808080;
@@ -412,98 +422,12 @@ export interface FogPool {
   warm: boolean;
 }
 
-export type FogLayerType = 'billow' | 'smoke' | 'haze' | 'streaks';
-
-/** One stratum of the cloud — see `layerNoise` in FRAGMENT for what each `type` looks like. */
-export interface FogLayer {
-  type: FogLayerType;
-  tint: string;
-  strength: number;
-  scale: number;
-  speed: number;
-  /** Drift direction, degrees. */
-  angle: number;
-}
-
-/** The table-facing shape of the cloud — everything `LivingFog.setLook` can change at once.
- * `dense`/`mist`/`rim` stay on `LivingFogLook` (below): they are the tier's own opacities,
- * not part of the weather a DM dials. */
-export interface FogLook {
-  preset?: 'cumulus' | 'mist' | 'smoke' | 'rolling';
-  /** The mist under the layers — what shows wherever every layer is thin, and the colour the
-   * scene grade pulls before it ever reaches a layer tint (`fogPalette`). */
-  base: string;
-  layers: [FogLayer, FogLayer, FogLayer];
-  /** Multiplies every layer's drift and the shared warp field (D6). */
-  wind: number;
-  /** How wide the coastline's fade and the mask's own blur run, in the same cells the mask
-   * geometry is drawn in (D1). */
-  fade: number;
-  veil: number;
-  glow: number;
-  /** Lifts D6's layer cap from one 'smoke' layer to three. Off by default — the plan's
-   * performance bar is measured per layer type before this defaults on for anyone. */
-  heavy?: boolean;
-}
+// FogLayerType/FogLayer/FogLook, FOG_PRESETS and DEFAULT_FOG_LOOK live in
+// @dnd/core/src/shared/fogLook and are re-exported above. `dense`/`mist`/`rim` stay on
+// `LivingFogLook` (below): they are the tier's own opacities, not part of the weather a DM
+// dials.
 
 const TYPE_CODE: Record<FogLayerType, number> = { billow: 0, smoke: 1, haze: 2, streaks: 3 };
-const TYPE_NAMES: readonly FogLayerType[] = ['billow', 'smoke', 'haze', 'streaks'];
-
-/** [type, tint, strength, scale, speed, angle-in-degrees] — the mockup's own row shape. */
-type PresetRow = readonly [number, string, number, number, number, number];
-const preset = (rows: readonly [PresetRow, PresetRow, PresetRow]): [FogLayer, FogLayer, FogLayer] =>
-  rows.map(([type, tint, strength, scale, speed, angle]) => ({
-    type: TYPE_NAMES[type],
-    tint,
-    strength,
-    scale,
-    speed,
-    angle,
-  })) as [FogLayer, FogLayer, FogLayer];
-
-/** Ported verbatim from docs/mockups/2026-09-09-fog-current-vs-living.html's `PRESETS`. */
-export const FOG_PRESETS: Record<'cumulus' | 'mist' | 'smoke' | 'rolling', [FogLayer, FogLayer, FogLayer]> = {
-  cumulus: preset([
-    [0, '#aab2ba', 1.0, 1.05, 0.009, 20],
-    [0, '#d5dade', 0.6, 2.1, 0.017, 160],
-    [0, '#f2f4f6', 0.4, 3.8, 0.028, 335],
-  ]),
-  mist: preset([
-    [2, '#b9c6d2', 1.0, 0.8, 0.006, 10],
-    [2, '#dfe7ee', 0.7, 2.2, 0.012, 190],
-    [1, '#eef2f5', 0.3, 4.0, 0.02, 30],
-  ]),
-  smoke: preset([
-    [1, '#6f7278', 1.0, 1.2, 0.02, 90],
-    [1, '#9a9ea3', 0.6, 2.6, 0.035, 250],
-    [3, '#c4c7cb', 0.35, 4.5, 0.05, 80],
-  ]),
-  rolling: preset([
-    [0, '#9fa8b0', 1.0, 0.6, 0.006, 0],
-    [2, '#cfd6dc', 0.8, 1.8, 0.01, 180],
-    [3, '#eef1f3', 0.35, 3.5, 0.03, 15],
-  ]),
-};
-
-/**
- * The look the mockup was showing when it was signed off (2026-09-09): the ground-mist preset
- * as re-tuned by hand in the page — a white base, a near-black billow deck at strength 0.4, a
- * warm haze, and a white smoke top; every layer driven far faster than the presets above.
- * Provisional until the lock-the-defaults session the plan's WP1 leaves for after the settings
- * panel ships (docs/2026-09-09-living-fog-v2-plan.md §4).
- */
-export const DEFAULT_FOG_LOOK: FogLook = {
-  base: '#ffffff',
-  layers: preset([
-    [0, '#05080b', 0.4, 6, 0.12, 345],
-    [2, '#945f14', 0.25, 2.2, 0.155, 300],
-    [1, '#ffffff', 0.6, 4, 0.145, 320],
-  ]),
-  wind: 4,
-  fade: 4,
-  veil: 0.22,
-  glow: 1,
-};
 
 /**
  * D6's provisional heavy-fog cap: at most one 'smoke' layer (12 noise evaluations against 4

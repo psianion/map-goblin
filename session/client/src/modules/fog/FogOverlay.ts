@@ -43,6 +43,7 @@ import { tokensOf } from '../tokens/TokenRenderer';
 import { BRUSH_FLUSH_CELLS, useFogBrush, type BrushOp } from './brush';
 import { FOG_FADE, nightPools } from './FogRenderer';
 import { DEFAULT_FOG_LOOK, MASK_MEMORY, createLivingFog } from './livingFog';
+import { effectiveFogLook } from './effectiveFogLook';
 import { sighted } from './visionSight';
 import {
   DM_FOG_LOOK,
@@ -138,6 +139,9 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   let hoverRoomId: string | null = null;
   /** The cell under the cursor while the brush is armed — the room hover's counterpart. */
   let hoverCell: Cell | null = null;
+  /** D7/WP2 — the look `haze.setLook` last ran with, as JSON; see `FogRenderer`'s own copy of
+   *  this key for why it's gated rather than called on every `draw`. */
+  let lastLookKey = '';
 
   const isDm = () => useSessionStore.getState().you?.role === 'dm';
   const toolArmed = () => isDm() && useActiveTool.getState().activeTool === 'fog';
@@ -248,6 +252,16 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     paint.clear();
     hover.clear();
     if (!layer.visible) return;
+
+    // D7/WP2 — the same weather the player's mask draws (`effectiveFogLook`), keyed the same
+    // way `FogRenderer`'s own rebuild keys it: `setLook` re-renders the soft mask when a rect
+    // is already sized, real GPU work this haze should not repeat for a look that hasn't moved.
+    const look = effectiveFogLook(useStore.getState().mapSettings, fog);
+    const lookKey = JSON.stringify(look);
+    if (lookKey !== lastLookKey) {
+      lastLookKey = lookKey;
+      haze.setLook(look);
+    }
 
     // The state grammar — tints and haze by room status — is drawn only while the fog tool
     // is armed. It is the DM's instrument for *changing* fog, and left on it was the DM's
@@ -387,6 +401,11 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
       // Replaced wholesale on a load and on every merged reveal delta — the rooms this
       // draws come off it, so identity is the whole test.
       mapData,
+      // D7/WP2 — the map-authored fogLook default (`effectiveFogLook`'s other input). Usually
+      // rides in on `mapData` too (a republish is what changes it), but the core store's own
+      // subscription below is what actually catches it: this entry is what lets that
+      // subscriber's every-tick `sync()` call tell "did the look move" from "did the camera".
+      useStore.getState().mapSettings,
       useActiveTool.getState().activeTool,
       hoverRoomId,
       chipHoverRoomId,
@@ -645,8 +664,15 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   document.addEventListener('pointerup', onUp, true);
   document.addEventListener('pointercancel', onUp, true);
   document.addEventListener('pointerleave', onLeave, true);
-  // No core-store subscription: everything this draws now comes off the session store.
   const unsubSession = useSessionStore.subscribe(sync);
+  // D7/WP2 — the one core-store input this layer now has: the map's authored fogLook default.
+  // It normally rides in on the session store's own `mapData` (a republish is what changes
+  // it), but that relay runs through a React effect (`GameRenderer`'s `loadFromFile` bridge)
+  // whose ordering against this subscriber is not a thing to trust; reading `mapSettings`
+  // straight off its own store is one line and removes the question. `sync`'s own comparison
+  // (above) is cheap, so firing it on every camera nudge too costs nothing real — the same
+  // trade `subscribeFogScene` already makes for the player's mask.
+  const unsubMapSettings = useStore.subscribe(sync);
   const unsubTool = useActiveTool.subscribe(() => {
     // Leaving the tool leaves the brush behind with it: a flag surviving a disarm makes
     // re-arming re-enter cell painting silently, on a click the DM meant for a room.
@@ -670,6 +696,7 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
     document.removeEventListener('pointercancel', onUp, true);
     document.removeEventListener('pointerleave', onLeave, true);
     unsubSession();
+    unsubMapSettings();
     unsubTool();
     unsubBrush();
     // The engine may already be gone (GameRenderer unmounting first) — its objects are

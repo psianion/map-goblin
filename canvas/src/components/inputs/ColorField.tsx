@@ -8,6 +8,8 @@ interface ColorFieldProps {
   onChange: (color: string) => void
   /** Called when picker closes with (newColor, startColor) for undoable commits */
   onChangeCommit?: (newColor: string, startColor: string) => void
+  /** Distinguishes swatches when a panel has more than one (e.g. per-layer tints). */
+  ariaLabel?: string
 }
 
 function computePickerPosition(triggerRect: DOMRect): { x: number; y: number } {
@@ -45,7 +47,7 @@ function normalizeHex(hex: string): string {
   return hex.toLowerCase()
 }
 
-export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps) {
+export function ColorField({ value, onChange, onChangeCommit, ariaLabel = 'Pick color' }: ColorFieldProps) {
   const [open, setOpen] = useState(false)
   const [hexInput, setHexInput] = useState(value)
   const [popoverPos, setPopoverPos] = useState({ x: 0, y: 0 })
@@ -178,7 +180,7 @@ export function ColorField({ value, onChange, onChangeCommit }: ColorFieldProps)
         onClick={handleOpen}
         className="flex items-center gap-1.5 rounded border border-border-default px-2 h-7 cursor-pointer hover:border-border-focus transition-colors"
         style={{ backgroundColor: value }}
-        aria-label="Pick color"
+        aria-label={ariaLabel}
       >
         {/* Pure white under `difference` inverts whatever swatch colour sits behind it,
             so the hex stays legible on any user-picked fill. A theme token would not. */}

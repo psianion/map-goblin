@@ -47,7 +47,6 @@ import type { BackgroundLayer, Layer, SerializedMapData } from '@dnd/core/src/st
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { useStore } from '@dnd/core/src/store/store';
-import { RIM_START } from '@dnd/core/src/engine/lighting/LightingRenderer';
 import { computeMapWorldBounds } from '@dnd/core/src/engine/export/exportPipeline';
 import type { AuthoredDoor, DoorLiveState, DoorsState } from '@dnd/mechanics/doors';
 import {
@@ -107,7 +106,8 @@ import {
   serverRooms,
 } from './fog';
 import { placedLights, sightCache, sighted } from './visionSight';
-import { DEFAULT_FOG_LOOK, MASK_MEMORY, createLivingFog, fogPalette, type FogPool } from './livingFog';
+import { DEFAULT_FOG_LOOK, MASK_MEMORY, createLivingFog, fogPalette, type FogLook, type FogPool } from './livingFog';
+import { effectiveFogLook } from './effectiveFogLook';
 import { tierPlan, type DrawPlan, type TierScene } from './tierPlan';
 import { createTierCompositor } from './tierCompositor';
 
@@ -375,6 +375,13 @@ export interface FogScene {
    * `wouldBe` off it; nothing this file draws needs the rest.
    */
   light?: WorldLight;
+  /**
+   * D7/WP2 — the cloud's effective look: the map's authored `fogLook` (absent ⇒
+   * `DEFAULT_FOG_LOOK`), overridden field by field by the DM's live pick (`fog.look`). Every
+   * seat computes the same value off the same two inputs (`effectiveFogLook`), so the
+   * player's mask and the DM's haze never disagree about what the weather is doing.
+   */
+  look: FogLook;
 }
 
 /**
@@ -648,8 +655,14 @@ export function voidStyle(composited = true, grade?: string): VoidStyle {
  * `partySight`), so a second caller with its own `layers`/`tokens`/`eyes` costs only the map
  * this already is, never another sweep.
  */
-/** Where a light's fog pool starts easing toward memory, as a share of its radius. */
-export const LIGHT_POOL_START = 0.5;
+/**
+ * Where a pool starts easing toward memory, as a share of its radius — a light's and a
+ * darkvision eye's alike. The shader keeps the strongest pool at every point, so a token that
+ * carries both is shaped by whichever ramp is steeper; two ramps of the same shape on the same
+ * radius agree, and a darkvision ring that only eased over its last quarter drew a disc at
+ * three quarters of the range around every torch-bearer with darkvision.
+ */
+export const POOL_EASE_START = 0.5;
 
 export function nightPools(
   layers: readonly Layer[],
@@ -672,23 +685,28 @@ export function nightPools(
     // A light source glows the fog warm (D4); a darkvision eye is the party's own sight
     // running out in the dark, not a light, so it stays cold.
     //
-    // A light's pool eases over the outer half of its radius and is gone *at* the radius,
-    // where the lit tier's own mask is cut. The pool used to be whole to the radius and run
-    // out a pad past it, but the mask does not follow it there: the mask goes to memory at
-    // the radius, through half a cell of blur, and a pool still at three quarters on that
-    // line met it as a step — a circle traced around every torch, plain to see once the
-    // memory tier turned pale. Starting at half the radius (the light itself has lost a
-    // quarter there, `falloffAt`, and three quarters by `RIM_START`) lets the mist come in
-    // as the light goes out, and the two ramps meet the mask line together at the memory
-    // level. The darkvision ring below runs to its radius for the same reason.
+    // Every pool eases over the outer half of its radius and is gone *at* the radius, where
+    // the tier's own mask is cut. A light's pool used to be whole to the radius and run out a
+    // pad past it, but the mask does not follow it there: the mask goes to memory at the
+    // radius, through half a cell of blur, and a pool still at three quarters on that line
+    // met it as a step — a circle traced around every torch, plain to see once the memory
+    // tier turned pale. Starting at half the radius (the light itself has lost a quarter
+    // there, `falloffAt`, and three quarters by its rim) lets the mist come in as the light
+    // goes out, and the two ramps meet the mask line together at the memory level.
     ...sources.map((s) => ({
       x: s.x,
       y: s.y,
-      inner: s.radius * LIGHT_POOL_START,
+      inner: s.radius * POOL_EASE_START,
       outer: s.radius,
       warm: true,
     })),
-    ...dark.map((d) => ({ x: d.x, y: d.y, inner: d.radius * RIM_START, outer: d.radius, warm: false })),
+    ...dark.map((d) => ({
+      x: d.x,
+      y: d.y,
+      inner: d.radius * POOL_EASE_START,
+      outer: d.radius,
+      warm: false,
+    })),
   ];
 }
 
@@ -886,6 +904,9 @@ export function fogScene(): FogScene {
     grade,
     timeBucket: timeBucket(light?.minutes ?? NOON),
     light,
+    // Off the *unadjusted* fog record, not the preview's region-stripped copy above: the
+    // weather is table state, not something a sight preview changes.
+    look: effectiveFogLook(mapSettings, fog),
   };
 }
 
@@ -1298,6 +1319,12 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   /** What the last rebuild drew with, for the vision probe below. */
   let sources = 0;
   let cells = 0;
+  /**
+   * D7/WP2 — the look `setLook` last ran with, as JSON: a fresh object every rebuild (`scene`
+   * is never the same reference twice), but the soft mask's re-render inside `setLook` is real
+   * GPU work, so it only runs again when the weather itself actually moved.
+   */
+  let lastLookKey = '';
 
   // Read-only fade probe for the e2e lanes, on `__testProbe`'s rationale (unguarded:
   // nothing here a script on the page could not already read). Pixels stopped being able
@@ -1471,6 +1498,14 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     shownMask.label = raster || !built.cover ? '' : SHOWN_MASK;
     shownSprite.label = raster ? SHOWN_MASK : '';
     fog.setPalette(fogPalette(scene.grade, scene.darkness));
+    // D7/WP2 — the weather itself: the map's authored look, live-overridden by the DM. Keyed
+    // rather than called every rebuild, since `setLook` re-renders the soft mask when a rect
+    // is already sized — a cost every mutation should not pay for weather that did not move.
+    const lookKey = JSON.stringify(scene.look);
+    if (lookKey !== lastLookKey) {
+      lastLookKey = lookKey;
+      fog.setLook(scene.look);
+    }
     fog.setMist(MEMORY_MIST * (MEMORY_WASH_FLOOR + (1 - MEMORY_WASH_FLOOR) * scene.darkness));
     fog.setWash(drawn.void.memory, memoryAlpha(scene.darkness));
     // …and in the dark, the pools the clear tier runs out over, so the cloud closes in on the

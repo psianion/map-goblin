@@ -28,6 +28,7 @@ export function Popover() {
 
   const rootRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const footerRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [top, setTop] = useState(12);
   // Rail icons can register their DOM node after this effect has already run once (mount
@@ -37,17 +38,38 @@ export function Popover() {
 
   // Anchor to the rail icon's own position, clamped so the popover never runs off the bottom.
   // `status-left` panels (no rail icon at all) skip this — they anchor off the status bar.
+  //
+  // The clamp needs the popover's *wanted* height, not its current rendered one — `rootRef`'s
+  // own `offsetHeight` is exactly what `top`/`maxHeight` already capped it to, so reading it
+  // back here can never discover a panel wants more room than that (a disclosure opening, a
+  // list growing) and `top` would stay pinned wherever it first landed. `bodyRef.scrollHeight`
+  // reports the body's full, unclipped content extent regardless of its own `overflow-hidden`
+  // — add the header's fixed height (`h-10`) and the footer's own (it's never itself clipped,
+  // so its rendered height already is its wanted one) and that's the real number. Re-run on a
+  // `ResizeObserver` over the body, not just `openPanel`/window `resize` — the same watcher
+  // the dev-only overflow warning below already uses — so a panel that grows or shrinks after
+  // open reclaims or gives back room live, and the popover can fill the viewport up to its
+  // content's own need rather than the icon's incidental position.
   useLayoutEffect(() => {
     if (!openPanel || anchorKind !== 'rail') return;
+    const HEADER_HEIGHT = 40; // h-10
     const recalc = () => {
       const anchor = railRefs.get(openPanel);
       const raw = anchor ? anchor.getBoundingClientRect().top : 12;
-      const height = rootRef.current?.offsetHeight ?? 0;
-      setTop(Math.max(12, Math.min(raw, window.innerHeight - 12 - height)));
+      const wanted = HEADER_HEIGHT + (bodyRef.current?.scrollHeight ?? 0) + (footerRef.current?.offsetHeight ?? 0);
+      setTop(Math.max(12, Math.min(raw, window.innerHeight - 12 - wanted)));
     };
     recalc();
     window.addEventListener('resize', recalc);
-    return () => window.removeEventListener('resize', recalc);
+    let ro: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== 'undefined' && bodyRef.current) {
+      ro = new ResizeObserver(recalc);
+      ro.observe(bodyRef.current);
+    }
+    return () => {
+      window.removeEventListener('resize', recalc);
+      ro?.disconnect();
+    };
   }, [openPanel, anchorKind, railVersion]);
 
   // Focus the body's first control on open; hand focus back to whatever opened this panel on
@@ -177,7 +199,7 @@ export function Popover() {
       </div>
 
       {Footer && (
-        <div className="flex shrink-0 items-center gap-1.5 border-t border-border-default px-3 py-2">
+        <div ref={footerRef} className="flex shrink-0 items-center gap-1.5 border-t border-border-default px-3 py-2">
           <Footer />
         </div>
       )}

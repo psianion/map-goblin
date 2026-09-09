@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useStore } from './store';
-import { AddChildCommand, PresetApplyCommand, PropertyCommand, RemoveChildCommand, ReorderChildCommand, SetAmbientLightCommand, SetEnvironmentSettingsCommand, ShapeStyleCommand, UpdateChildCommand, createChildRemovalCommand } from './commands';
+import { AddChildCommand, PresetApplyCommand, PropertyCommand, RemoveChildCommand, ReorderChildCommand, SetAmbientLightCommand, SetEnvironmentSettingsCommand, SetFogLookCommand, ShapeStyleCommand, UpdateChildCommand, createChildRemovalCommand } from './commands';
 import { undoManager } from './undoManager';
 import { DUNGEON_STYLE_PRESETS } from './presetRegistry';
 import { resolveStyle } from '../engine/styleResolver';
@@ -215,6 +215,36 @@ describe('SetAmbientLightCommand', () => {
     cmd.execute();
     cmd.undo();
     expect(useStore.getState().mapSettings.ambientLight).toBe(before);
+  });
+});
+
+describe('SetFogLookCommand', () => {
+  beforeEach(() => {
+    useStore.getState().resetToDefault();
+  });
+
+  const look = { base: '#ffffff', layers: [], wind: 4, fade: 4, veil: 0.22, glow: 1 } as unknown as import('./types').FogLook;
+
+  it('a map that never authored a look has none, and execute writes it', () => {
+    expect(useStore.getState().mapSettings.fogLook).toBeUndefined();
+    new SetFogLookCommand(undefined, look).execute();
+    expect(useStore.getState().mapSettings.fogLook).toEqual(look);
+  });
+
+  it('undo takes an authored look back to never-authored', () => {
+    const cmd = new SetFogLookCommand(undefined, look);
+    cmd.execute();
+    cmd.undo();
+    expect('fogLook' in useStore.getState().mapSettings).toBe(false);
+  });
+
+  it('undo restores the previous look rather than clearing it', () => {
+    const first = { ...look, wind: 2 };
+    useStore.getState().setFogLook(first);
+    const cmd = new SetFogLookCommand(first, look);
+    cmd.execute();
+    cmd.undo();
+    expect(useStore.getState().mapSettings.fogLook).toEqual(first);
   });
 });
 

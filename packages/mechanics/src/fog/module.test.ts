@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { PlayerInfo } from '@dnd/core/src/shared/protocol'
+import type { FogLayer, FogLook } from '@dnd/core/src/shared/fogLook'
 import type { Viewer } from '../contract'
 import type { AuthoredDoor, DoorLiveState } from '../doors/types'
 import { fogModule } from './module'
@@ -8,6 +9,7 @@ import { getCell, regionFor, regionOf, setCells } from './region'
 import {
   autoExploreOn,
   containedSightOn,
+  fogLookOf,
   fogModeOf,
   identityRegion,
   sceneFogOf,
@@ -206,6 +208,97 @@ describe('set-conceal (D3)', () => {
     expect(run(empty, DM, 'set-conceal', { concealBehindDoors: 'off' }).error?.code).toBe(
       'invalid-command',
     )
+  })
+})
+
+describe('set-fog-look (D7)', () => {
+  /** Loosely typed on purpose — some tests below deliberately pass a bad `type`/`tint`. */
+  const layer = (patch: Record<string, unknown> = {}): Record<string, unknown> => ({
+    type: 'billow',
+    tint: '#aabbcc',
+    strength: 0.5,
+    scale: 1,
+    speed: 0.05,
+    angle: 10,
+    ...patch,
+  })
+  const validLook: FogLook = {
+    preset: 'mist',
+    base: '#ffffff',
+    layers: [layer(), layer({ type: 'smoke' }), layer({ type: 'haze' })] as unknown as [
+      FogLayer,
+      FogLayer,
+      FogLayer,
+    ],
+    wind: 4,
+    fade: 2.5,
+    veil: 0.18,
+    glow: 0.35,
+    heavy: false,
+  }
+
+  it('is dm-only', () => {
+    expect(run(empty, P1, 'set-fog-look', { look: validLook }).error).toMatchObject({
+      code: 'unauthorized',
+    })
+    expect(run(empty, DM, 'set-fog-look', { look: validLook }).error?.code).not.toBe(
+      'unauthorized',
+    )
+  })
+
+  it('stores a full valid look whole', () => {
+    const { next } = run(empty, DM, 'set-fog-look', { look: validLook })
+    expect(next.byScene[SCENE].look).toEqual(validLook)
+  })
+
+  it('stores a partial payload, touching only the fields sent', () => {
+    const { next } = run(empty, DM, 'set-fog-look', { look: { wind: 6 } })
+    expect(next.byScene[SCENE].look).toEqual({ wind: 6 })
+  })
+
+  it('clears the override with { look: null }, so fogLookOf falls back to the authored default', () => {
+    const set = run(empty, DM, 'set-fog-look', { look: { wind: 6 } }).next
+    const { next } = run(set, DM, 'set-fog-look', { look: null })
+    expect(next.byScene[SCENE].look).toBeUndefined()
+    const authored = { ...validLook, wind: 9 }
+    expect(fogLookOf(sceneFogOf(next, SCENE), authored)).toEqual(authored)
+  })
+
+  it('merges a live override onto the authored default field by field (fogLookOf)', () => {
+    const authored = { ...validLook, wind: 9, glow: 0.1 }
+    const scene = run(empty, DM, 'set-fog-look', { look: { wind: 6 } }).next.byScene[SCENE]
+    expect(fogLookOf(scene, authored)).toEqual({ ...authored, wind: 6 })
+  })
+
+  it('rejects each out-of-range or malformed field', () => {
+    const rejects = (look: Record<string, unknown>) =>
+      run(empty, DM, 'set-fog-look', { look }).error?.code
+
+    expect(rejects({ base: 'red' })).toBe('invalid-command')
+    expect(rejects({ preset: 'foggy' })).toBe('invalid-command')
+    expect(rejects({ wind: 0.1 })).toBe('invalid-command')
+    expect(rejects({ wind: 13 })).toBe('invalid-command')
+    expect(rejects({ fade: 0.5 })).toBe('invalid-command')
+    expect(rejects({ fade: 5 })).toBe('invalid-command')
+    expect(rejects({ veil: -0.1 })).toBe('invalid-command')
+    expect(rejects({ veil: 0.6 })).toBe('invalid-command')
+    expect(rejects({ glow: -0.1 })).toBe('invalid-command')
+    expect(rejects({ glow: 1.1 })).toBe('invalid-command')
+    expect(rejects({ heavy: 'yes' })).toBe('invalid-command')
+    expect(rejects({ layers: [layer(), layer()] })).toBe('invalid-command')
+    expect(rejects({ layers: [layer({ type: 'cloud' }), layer(), layer()] })).toBe(
+      'invalid-command',
+    )
+    expect(rejects({ layers: [layer({ tint: 'blue' }), layer(), layer()] })).toBe(
+      'invalid-command',
+    )
+    expect(rejects({ layers: [layer({ strength: 1.5 }), layer(), layer()] })).toBe(
+      'invalid-command',
+    )
+    expect(rejects({ layers: [layer({ scale: 0.1 }), layer(), layer()] })).toBe('invalid-command')
+    expect(rejects({ layers: [layer({ speed: 1 }), layer(), layer()] })).toBe('invalid-command')
+    expect(rejects({ layers: [layer({ angle: 400 }), layer(), layer()] })).toBe('invalid-command')
+    expect(run(empty, DM, 'set-fog-look', { look: 'clear' }).error?.code).toBe('invalid-command')
   })
 })
 
@@ -666,6 +759,10 @@ describe('the table log (§2.4.3)', () => {
 
   it('says nothing about a setting the table cannot see', () => {
     expect(fire(empty, 'set-conceal', { concealBehindDoors: false }).log ?? []).toEqual([])
+  })
+
+  it('says nothing about a fog-look change either, same convention as set-containment', () => {
+    expect(fire(empty, 'set-fog-look', { look: { wind: 6 } }).log ?? []).toEqual([])
   })
 
   describe('per-seat cut', () => {

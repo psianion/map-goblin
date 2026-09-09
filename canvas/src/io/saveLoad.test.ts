@@ -55,6 +55,36 @@ describe('saveLoad — serializeToBytes / deserializeFromBytes', () => {
     expect(result.customImages).toEqual({});
   });
 
+  // D7 — fogLook is an optional sibling of ambientLight on mapSettings, which the whole
+  // object round-trips generically; this pins that an authored one actually survives rather
+  // than trusting the generic case.
+  it('round-trips an authored fog look, and an absent one stays absent', async () => {
+    const withLook = {
+      ...SAMPLE_DATA,
+      mapSettings: {
+        ...SAMPLE_DATA.mapSettings,
+        fogLook: {
+          base: '#ffffff',
+          layers: [
+            { type: 'billow', tint: '#05080b', strength: 0.4, scale: 6, speed: 0.12, angle: 345 },
+            { type: 'haze', tint: '#945f14', strength: 0.25, scale: 2.2, speed: 0.155, angle: 300 },
+            { type: 'smoke', tint: '#ffffff', strength: 0.6, scale: 4, speed: 0.145, angle: 320 },
+          ],
+          wind: 4,
+          fade: 4,
+          veil: 0.22,
+          glow: 1,
+        },
+      },
+    } as unknown as SerializedMapData;
+
+    const result = await deserializeFromBytes(await serializeToBytes(withLook));
+    expect(result.mapSettings.fogLook).toEqual(withLook.mapSettings.fogLook);
+
+    const resultNoLook = await deserializeFromBytes(await serializeToBytes(SAMPLE_DATA));
+    expect(resultNoLook.mapSettings.fogLook).toBeUndefined();
+  });
+
   // Rooms and connectors are drawn children like any other. Serialization is
   // generic over AnyChild — the zone precedent — so this asserts the round trip
   // rather than adding a schema bump nothing needs.

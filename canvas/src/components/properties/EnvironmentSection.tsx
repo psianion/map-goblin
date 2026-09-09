@@ -3,12 +3,16 @@ import { useShallow } from 'zustand/react/shallow'
 import { Sun, Home, Mountain, Info, Eye, Lock, RotateCcw } from 'lucide-react'
 import { useStore } from '@/store/store'
 import { undoManager } from '@/store/undoManager'
-import { SetAmbientLightCommand, SetEnvironmentSettingsCommand } from '@/store/commands'
+import { SetAmbientLightCommand, SetEnvironmentSettingsCommand, SetFogLookCommand } from '@/store/commands'
 import {
   BUCKET_MINUTES,
   DAY_MINUTES,
+  DEFAULT_FOG_LOOK,
   DEFAULT_PALETTE,
   ENVIRONMENTS,
+  FOG_LAYER_TYPES,
+  FOG_LOOK_PRESETS,
+  FOG_PRESETS,
   KEY_MINUTES,
   NIGHT_SKIES,
   TIME_KEYS,
@@ -20,6 +24,9 @@ import {
   timeColorAt,
   timeOfDayAt,
   type Environment,
+  type FogLayer,
+  type FogLayerType,
+  type FogLook,
   type MapEnvironment,
   type NightSky,
   type TimeKey,
@@ -29,6 +36,7 @@ import { ToggleSwitch } from '@/components/ui/toggle-switch'
 import { ColorChip } from '@/components/inputs/ColorChip'
 import { ColorField } from '@/components/inputs/ColorField'
 import { SelectInput } from '@/components/inputs/SelectInput'
+import { SliderInput } from '@/components/inputs/SliderInput'
 import { OrientationCompass } from '@/components/inputs/OrientationCompass'
 import { DayRibbon, RibbonHead } from '@/components/inputs/DayRibbon'
 import { HATCH, offsetMinutes, ribbonOffset, ribbonX } from '@/lib/dayRibbon'
@@ -62,6 +70,18 @@ const SKY_LABEL: Record<NightSky, string> = {
   crescent: 'Crescent',
   moonless: 'Moonless',
 }
+
+const FOG_PRESET_LABEL: Record<(typeof FOG_LOOK_PRESETS)[number], string> = {
+  cumulus: 'Cumulus',
+  mist: 'Mist',
+  smoke: 'Smoke',
+  rolling: 'Rolling',
+}
+
+const FOG_LAYER_TYPE_OPTIONS = FOG_LAYER_TYPES.map((t) => ({
+  value: t,
+  label: t[0]!.toUpperCase() + t.slice(1),
+}))
 
 const KEY_LABEL: Record<TimeKey, string> = {
   dawn: 'Dawn',
@@ -126,7 +146,8 @@ function Segmented<T extends string>({
   onPick,
 }: {
   label: string
-  value: T
+  /** Absent (no authored pick) leaves every pill unchecked rather than defaulting to the first. */
+  value: T | undefined
   options: readonly (readonly [T, string])[]
   onPick: (value: T) => void
 }) {
@@ -134,7 +155,7 @@ function Segmented<T extends string>({
     <div
       role="radiogroup"
       aria-label={label}
-      className="flex overflow-hidden rounded-md border border-border-default bg-surface-1"
+      className="flex w-full overflow-hidden rounded-md border border-border-default bg-surface-1"
     >
       {options.map(([option, text]) => {
         const active = option === value
@@ -146,7 +167,7 @@ function Segmented<T extends string>({
             aria-checked={active}
             onClick={() => onPick(option)}
             className={cn(
-              'flex-1 py-1.5 text-panel-body transition-colors duration-150 ease-settle',
+              'min-w-0 flex-1 truncate py-1.5 text-panel-body transition-colors duration-150 ease-settle',
               'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-border-focus',
               active
                 ? 'bg-surface-3 text-text-primary shadow-[inset_0_-2px_0_rgb(var(--accent-active))]'
@@ -157,6 +178,71 @@ function Segmented<T extends string>({
           </button>
         )
       })}
+    </div>
+  )
+}
+
+/** One cloud stratum's row: which noise, its tint, and the four dials that shape it. */
+function LayerRow({
+  index,
+  layer,
+  onType,
+  onTint,
+  onCommitTint,
+  onField,
+  onCommitField,
+}: {
+  index: number
+  layer: FogLayer
+  onType: (type: FogLayerType) => void
+  onTint: (color: string) => void
+  onCommitTint: (color: string, start: string) => void
+  onField: (field: 'strength' | 'scale' | 'speed' | 'angle', value: number) => void
+  onCommitField: (field: 'strength' | 'scale' | 'speed' | 'angle', value: number, start: number) => void
+}) {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border border-border-default bg-surface-1 p-2">
+      <div className="flex items-center gap-1.5">
+        <span className="text-panel-small text-text-muted">Layer {index + 1}</span>
+        <div className="flex-1">
+          <SelectInput
+            value={layer.type}
+            onChange={(v) => onType(v as FogLayerType)}
+            options={FOG_LAYER_TYPE_OPTIONS}
+            aria-label={`Layer ${index + 1} type`}
+          />
+        </div>
+        <ColorField
+          value={layer.tint}
+          onChange={onTint}
+          onChangeCommit={onCommitTint}
+          ariaLabel={`Layer ${index + 1} tint`}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+        {(
+          [
+            ['strength', 'Strength', 0, 1, 0.01, ''],
+            ['scale', 'Scale', 0.2, 8, 0.1, ''],
+            ['speed', 'Speed', 0, 0.3, 0.005, ''],
+            ['angle', 'Angle', 0, 360, 1, '°'],
+          ] as const
+        ).map(([field, label, min, max, step, unit]) => (
+          <div key={field} className="flex flex-col gap-0.5">
+            <span className="text-panel-small text-text-muted">{label}</span>
+            <SliderInput
+              value={layer[field]}
+              min={min}
+              max={max}
+              step={step}
+              unit={unit}
+              ariaLabel={label}
+              onChange={(v) => onField(field, v)}
+              onChangeCommit={(v, start) => onCommitField(field, v, start)}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -230,6 +316,75 @@ export function EnvironmentSection({ openSections, onToggleSection }: SectionCon
     if (newColor.toLowerCase() === startColor.toLowerCase()) return
     undoManager.execute(new SetAmbientLightCommand(startColor, newColor))
   }
+
+  // A map that never authored a look shows the shipped default and reads it read-only until
+  // the first edit — same "never authored" convention the mood tint and time palette use.
+  // `map.fogLook` (possibly absent) is what SetFogLookCommand's `before` needs, so it's kept
+  // separate from `look` rather than defaulted away.
+  const fogLook = map.fogLook ?? DEFAULT_FOG_LOOK
+
+  const writeLook = (next: FogLook): void => useStore.getState().setFogLook(next)
+
+  const commitLook = (after: FogLook, before: FogLook): void => {
+    if (JSON.stringify(after) === JSON.stringify(before)) return
+    undoManager.execute(new SetFogLookCommand(map.fogLook, after))
+  }
+
+  const pickFogPreset = (name: (typeof FOG_LOOK_PRESETS)[number]): void => {
+    const before = fogLook
+    const after: FogLook = { ...fogLook, preset: name, layers: FOG_PRESETS[name] }
+    writeLook(after)
+    commitLook(after, before)
+  }
+
+  // ponytail: picking a layer field doesn't clear `preset` — it stays the last preset picked
+  // so this button keeps working after a tweak, rather than one-shot disabling itself the
+  // moment anything moves. The table only reads `preset` as a display hint (D7), nothing
+  // downstream depends on it being exactly in sync with `layers`.
+  const resetFogToPreset = (): void => {
+    if (!fogLook.preset) return
+    const before = fogLook
+    const after: FogLook = { ...fogLook, layers: FOG_PRESETS[fogLook.preset] }
+    writeLook(after)
+    commitLook(after, before)
+  }
+
+  const setFogBase = (color: string): void => writeLook({ ...fogLook, base: color })
+  const commitFogBase = (color: string, start: string): void =>
+    commitLook({ ...fogLook, base: color }, { ...fogLook, base: start })
+
+  const setFogField = (field: 'wind' | 'fade' | 'veil' | 'glow', value: number): void =>
+    writeLook({ ...fogLook, [field]: value })
+  const commitFogField = (field: 'wind' | 'fade' | 'veil' | 'glow', value: number, start: number): void =>
+    commitLook({ ...fogLook, [field]: value }, { ...fogLook, [field]: start })
+
+  const withLayer = (i: number, patch: Partial<FogLayer>): FogLook['layers'] =>
+    fogLook.layers.map((l, idx) => (idx === i ? { ...l, ...patch } : l)) as FogLook['layers']
+
+  const setFogLayerType = (i: number, type: FogLayerType): void => {
+    const after: FogLook = { ...fogLook, layers: withLayer(i, { type }) }
+    writeLook(after)
+    commitLook(after, fogLook)
+  }
+  const setFogLayerTint = (i: number, color: string): void =>
+    writeLook({ ...fogLook, layers: withLayer(i, { tint: color }) })
+  const commitFogLayerTint = (i: number, color: string, start: string): void =>
+    commitLook({ ...fogLook, layers: withLayer(i, { tint: color }) }, { ...fogLook, layers: withLayer(i, { tint: start }) })
+  const setFogLayerField = (
+    i: number,
+    field: 'strength' | 'scale' | 'speed' | 'angle',
+    value: number,
+  ): void => writeLook({ ...fogLook, layers: withLayer(i, { [field]: value }) })
+  const commitFogLayerField = (
+    i: number,
+    field: 'strength' | 'scale' | 'speed' | 'angle',
+    value: number,
+    start: number,
+  ): void =>
+    commitLook(
+      { ...fogLook, layers: withLayer(i, { [field]: value }) },
+      { ...fogLook, layers: withLayer(i, { [field]: start }) },
+    )
 
   // A map that never authored a palette gets the default preset spelled out the first time it
   // is touched. Same five colours either way, so undo restoring `{preset:'temperate'}` rather
@@ -448,6 +603,75 @@ export function EnvironmentSection({ openSections, onToggleSection }: SectionCon
               onChange={(c) => useStore.getState().setAmbientLight(c)}
               onChangeCommit={commitAmbient}
             />
+          </div>
+        </PropertyField>
+
+        <PropertyField label="Fog look">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="min-w-0 flex-1">
+              <Segmented
+                label="Fog preset"
+                value={fogLook.preset}
+                options={FOG_LOOK_PRESETS.map((p) => [p, FOG_PRESET_LABEL[p]] as const)}
+                onPick={pickFogPreset}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={resetFogToPreset}
+              disabled={!fogLook.preset}
+              title="Reset layers to the picked preset"
+              aria-label="Reset layers to the picked preset"
+              className="shrink-0 rounded-sm p-1 text-text-muted transition-colors hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border-focus"
+            >
+              <RotateCcw size={11} />
+            </button>
+          </div>
+
+          <div className="mt-2 flex items-center gap-2">
+            <span className="text-panel-small text-text-muted">Mist base</span>
+            <div data-testid="fog-base-color-swatch">
+              <ColorField value={fogLook.base} onChange={setFogBase} onChangeCommit={commitFogBase} ariaLabel="Mist base" />
+            </div>
+          </div>
+
+          <div className="mt-2 flex flex-col gap-1.5">
+            {fogLook.layers.map((layer, i) => (
+              <LayerRow
+                key={i}
+                index={i}
+                layer={layer}
+                onType={(type) => setFogLayerType(i, type)}
+                onTint={(c) => setFogLayerTint(i, c)}
+                onCommitTint={(c, start) => commitFogLayerTint(i, c, start)}
+                onField={(field, v) => setFogLayerField(i, field, v)}
+                onCommitField={(field, v, start) => commitFogLayerField(i, field, v, start)}
+              />
+            ))}
+          </div>
+
+          <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
+            {(
+              [
+                ['wind', 'Wind', 0.5, 12, 0.1],
+                ['fade', 'Fade', 1, 4, 0.1],
+                ['veil', 'Veil', 0, 0.5, 0.01],
+                ['glow', 'Glow', 0, 1, 0.01],
+              ] as const
+            ).map(([field, label, min, max, step]) => (
+              <div key={field} className="flex flex-col gap-0.5">
+                <span className="text-panel-small text-text-muted">{label}</span>
+                <SliderInput
+                  value={fogLook[field]}
+                  min={min}
+                  max={max}
+                  step={step}
+                  ariaLabel={label}
+                  onChange={(v) => setFogField(field, v)}
+                  onChangeCommit={(v, start) => commitFogField(field, v, start)}
+                />
+              </div>
+            ))}
           </div>
         </PropertyField>
 

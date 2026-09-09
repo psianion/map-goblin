@@ -3,6 +3,7 @@
 // migration — and corridors are rooms like any other (D6), nothing here special-cases them.
 
 import type { Logged } from '../log'
+import type { FogLook } from '@dnd/core/src/shared/fogLook'
 import { orRegion, regionFor, type Frame, type RegionMask } from './region'
 
 export type RoomFogStatus = 'never_revealed' | 'revealed' | 're_hidden'
@@ -67,6 +68,14 @@ export interface SceneFog {
    */
   containedSight?: boolean
   /**
+   * The DM's live override of the cloud's look (D7). Absent ⇒ the map's authored
+   * `MapSettings.fogLook`, and if that too is absent, the shader's own `DEFAULT_FOG_LOOK`
+   * (session/client/src/modules/fog/livingFog.ts). Partial so a DM can nudge one field
+   * (say, `wind`) without re-sending the whole cloud — `fogLookOf` is the one merge every
+   * reader should use rather than re-deriving the fallback chain itself.
+   */
+  look?: Partial<FogLook>
+  /**
    * Region memory — the party's, absent until the first sweep or brush stroke writes one.
    *
    * In `'individual'` share this is also the *seed*: an identity with no record of its own
@@ -106,6 +115,18 @@ export const sightRangeLimitOn = (scene: SceneFog): boolean => scene.sightRangeL
  * preview — hence one reader.
  */
 export const containedSightOn = (scene: SceneFog): boolean => scene.containedSight ?? true
+
+/**
+ * The cloud look a viewer should render: the DM's live override (`scene.look`, field by
+ * field) on top of the map's authored default. `authored` is `MapSettings.fogLook ??
+ * DEFAULT_FOG_LOOK` — callers already have that value at hand (FogRenderer reads
+ * `mapSettings` beside the session in one snapshot), so this stays a pure merge rather than
+ * reaching for either fallback itself.
+ */
+export const fogLookOf = (scene: SceneFog, authored: FogLook): FogLook => ({
+  ...authored,
+  ...scene.look,
+})
 
 /** Whose sight a viewer's mask is drawn through. One reading of the optional field (P5). */
 export const visionShareOf = (scene: SceneFog): VisionShare => scene.visionShare ?? 'party'

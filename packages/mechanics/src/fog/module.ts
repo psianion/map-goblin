@@ -7,6 +7,7 @@
 // the server backs with its map store — the same shape `scenesModule(stores)` uses.
 
 import type { GameModule, ModuleContext } from '../contract'
+import { FOG_LAYER_TYPES, FOG_LOOK_PRESETS, type FogLayer, type FogLook } from '@dnd/core/src/shared/fogLook'
 import { actorOf, logged, type LogAction, type LogEntry } from '../log'
 import { ID_MAX, Reject, bad, bool, num, obj, oneOf, str } from '../tokens/validate'
 import {
@@ -84,6 +85,7 @@ export function fogModule(
       'set-auto-explore': ['dm'],
       'set-range-limit': ['dm'],
       'set-containment': ['dm'],
+      'set-fog-look': ['dm'],
       'open-map': ['dm'],
       'region-set': ['dm'],
       // `auto-explore` is deliberately absent: it is the server's own write (the sweep a
@@ -237,6 +239,12 @@ function run(
         ...scene,
         containedSight: bool(p.containedSight, 'containedSight'),
       })
+    // No log line, same reason as `set-containment`: this changes how the cloud looks, not
+    // what the party has seen, and every seat renders its own copy of it. `{ look: null }`
+    // clears the override back to the map's authored default (`fogLookOf`); the object form
+    // is field-by-field, so a single slider drag sends just the field it moved.
+    case 'set-fog-look':
+      return setScene(ctx, sceneId, { ...scene, look: parseFogLook(p.look) ?? undefined })
     // P3 — "players see everything", as one command because it is one act. Contained sight
     // is fenced by two records at once (the rooms a player holds and the cells the table has
     // opened), so opening only one of them opens nothing: revealed rooms with an empty record
@@ -536,6 +544,60 @@ function parseRooms(
     rooms[id] = { status, wasEverRevealed }
   }
   return rooms
+}
+
+// `set-fog-look` (D7). No clamp helper exists in `tokens/validate` — every numeric field of
+// `FogLook` gets its own range check here, by hand, against the bounds the plan settled on.
+const HEX_COLOR = /^#[0-9a-f]{6}$/i
+
+function hexColor(v: unknown, field: string): string {
+  const s = str(v, field, 7)
+  if (!HEX_COLOR.test(s)) bad(`${field} must be a #rrggbb colour`)
+  return s
+}
+
+function ranged(v: unknown, field: string, lo: number, hi: number): number {
+  const n = num(v, field)
+  if (n < lo || n > hi) bad(`${field} must be between ${lo} and ${hi}`)
+  return n
+}
+
+function parseFogLayer(v: unknown, i: number): FogLayer {
+  const o = obj(v, `look.layers[${i}]`)
+  return {
+    type: oneOf(o.type, FOG_LAYER_TYPES, `look.layers[${i}].type`),
+    tint: hexColor(o.tint, `look.layers[${i}].tint`),
+    strength: ranged(o.strength, `look.layers[${i}].strength`, 0, 1),
+    scale: ranged(o.scale, `look.layers[${i}].scale`, 0.2, 8),
+    speed: ranged(o.speed, `look.layers[${i}].speed`, 0, 0.3),
+    angle: ranged(o.angle, `look.layers[${i}].angle`, 0, 360),
+  }
+}
+
+function parseFogLayers(v: unknown): [FogLayer, FogLayer, FogLayer] {
+  if (!Array.isArray(v) || v.length !== 3) bad('look.layers must be exactly 3 layers')
+  return [parseFogLayer(v[0], 0), parseFogLayer(v[1], 1), parseFogLayer(v[2], 2)]
+}
+
+/**
+ * The DM's live override, or the clear signal. `null` is the whole payload — clears `look`
+ * back to the map's authored default. The object form validates only the fields it carries
+ * (every one of `FogLook` is optional here), so a slider debounced client-side can send just
+ * the field it moved without re-sending the rest of the cloud.
+ */
+function parseFogLook(v: unknown): Partial<FogLook> | null {
+  if (v === null) return null
+  const o = obj(v, 'look')
+  const out: Partial<FogLook> = {}
+  if (o.preset !== undefined) out.preset = oneOf(o.preset, FOG_LOOK_PRESETS, 'look.preset')
+  if (o.base !== undefined) out.base = hexColor(o.base, 'look.base')
+  if (o.layers !== undefined) out.layers = parseFogLayers(o.layers)
+  if (o.wind !== undefined) out.wind = ranged(o.wind, 'look.wind', 0.5, 12)
+  if (o.fade !== undefined) out.fade = ranged(o.fade, 'look.fade', 1, 4)
+  if (o.veil !== undefined) out.veil = ranged(o.veil, 'look.veil', 0, 0.5)
+  if (o.glow !== undefined) out.glow = ranged(o.glow, 'look.glow', 0, 1)
+  if (o.heavy !== undefined) out.heavy = bool(o.heavy, 'look.heavy')
+  return out
 }
 
 /**

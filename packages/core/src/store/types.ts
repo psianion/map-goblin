@@ -1,9 +1,11 @@
 export * from '../shared/types';
 export * from '../shared/prep';
 export * from '../shared/world';
+export * from '../shared/fogLook';
 import type { AnyChild, WallSegment, WallEdits, WallType, WallDirection, DoorStyle, MaskData, Room } from '../shared/types';
 import type { RoomNote, ScenePrep, TriggerDef } from '../shared/prep';
 import type { MapEnvironment, NightSky } from '../shared/world';
+import type { FogLook } from '../shared/fogLook';
 import type { Polygon } from '../types/geometry';
 
 // ─── Map Settings ─────────────────────────────────────────
@@ -35,6 +37,10 @@ export interface MapSettings extends MapEnvironment {
   cellScale: { value: number; unit: string };
   /** The map's mood tint — the base of the grade, "this world in neutral daylight". */
   ambientLight: string;
+  /** Authored default for the living-fog cloud (D7). Absent ⇒ the shader's own
+   * `DEFAULT_FOG_LOOK` (session/client/src/modules/fog/livingFog.ts) — matches every other
+   * optional field here, a pre-fog save just reads as never having set one. */
+  fogLook?: FogLook;
   /** Optional — absent on maps that never painted terrain (and on pre-terrain saves). */
   terrain?: TerrainData;
   /**
@@ -580,6 +586,7 @@ export interface MapBuilderStore {
   setFixedSize: (size: MapSettings['fixedSize']) => void;
   setGridType: (type: MapSettings['gridType']) => void;
   setAmbientLight: (color: string) => void;
+  setFogLook: (look: FogLook | undefined) => void;
   setEnvironmentSettings: (patch: Partial<MapEnvironment>) => void;
   setTerrainData: (patch: Partial<TerrainData>) => void;
   setTerrainSplats: (pngs: [Blob | null, Blob | null, Blob | null]) => void;
