@@ -182,8 +182,12 @@ export const MEMORY_WASH_FLOOR = 0.45;
  * the memory one for a swept-then-re-hidden region, which is what actually wants the fix —
  * unverified and left open; 0.25 is kept only because it is no less correct than 0.62 and was
  * the value this file's own history called safe.
+ *
+ * Stated per unit of layer-stack strength since the shader scales the memory mist by the
+ * stack's total (a strength dial at max has to put real cloud on explored ground): the
+ * default look's stack weighs 1.25, so 0.2 here is the 0.25 that history settled on.
  */
-export const MEMORY_MIST = 0.25;
+export const MEMORY_MIST = 0.2;
 /** The explored wash for one scene, by how dark it is (`FogScene.darkness`). */
 export const memoryAlpha = (darkness: number): number =>
   EXPLORED_TINT_ALPHA * (MEMORY_WASH_FLOOR + (1 - MEMORY_WASH_FLOOR) * darkness);

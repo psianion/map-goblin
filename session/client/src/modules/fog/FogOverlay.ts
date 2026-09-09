@@ -112,7 +112,9 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   // room's boundary keeps reading clearly against the now much lighter cloud. dense is
   // unchanged — it only ever paints a never-revealed room, and that quarter-strength read
   // was already right independent of the mist/rim retune.
-  const haze = createLivingFog(engine, { dense: 0.26, mist: 0.2, rim: 0.35, fade: FOG_FADE / 2 });
+  // mist is per unit of layer-stack strength (the default stack weighs 1.25), so 0.16 is the
+  // 0.2 the retune above settled on.
+  const haze = createLivingFog(engine, { dense: 0.26, mist: 0.16, rim: 0.35, fade: FOG_FADE / 2 });
   haze.setLook(DEFAULT_FOG_LOOK);
   layer.addChild(paint, haze.mesh);
   addWorldOverlay(sceneGraph, layer, 'fogOverlay');

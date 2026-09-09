@@ -281,6 +281,14 @@ const FRAGMENT = /* glsl */ `
       if (i == 2) top = ni;
     }
     den = clamp(den / max(wsum, 0.05), 0.0, 1.0);
+    // The stack's total strength is how much cloud there is; den above is only its shape.
+    // Over hidden ground the cover is flat uDense whatever the stack does, and over live
+    // sight only the veil is left, so the mist over explored ground is where a strength
+    // dial has to show: it scales that mist, capped at three layers at full strength, so a
+    // dial at max puts real cloud on a revealed room instead of re-shaping a fixed haze.
+    // uMist is set for a stack weight of 1, so the look's defaults (weight 1.25) land on
+    // the mist the renderer used to pass whole.
+    float weight = clamp(wsum, 0.0, 3.0);
 
     // Torch glow (D4): the party's light warms the fog around it, as lamps do in real mist.
     // Darkvision pools stay cold — a torch is a light, a darkvision ring is an eye, and only
@@ -328,7 +336,7 @@ const FRAGMENT = /* glsl */ `
     // keeps a trace of the dense cover in its mist — the reference reads that way — while the
     // seam gate below, not this ramp, is what takes the cover off toward live sight.
     float hiddenness = 1.0 - smoothstep(0.10, 0.62, m);
-    float aBody = mix(uMist * (0.45 + 0.55 * den), uDense, hiddenness);
+    float aBody = mix(uMist * weight * (0.45 + 0.55 * den), uDense, hiddenness);
     float alpha = body * aBody + wisp * aBody * 0.28;
 
     // D2 — the live/memory seam, organic instead of the flat ramp v1 shipped. seam wobbles
@@ -456,7 +464,8 @@ export interface LivingFogLook {
    * it from `FogLook.fade` (`FADE_BLUR_CELLS_PER_UNIT`) — the blur radius of the soft mask.
    */
   fade: number;
-  /** The mist over the memory tier. */
+  /** The mist over the memory tier, at a layer-stack weight of 1 (the shader scales it by
+   *  the stack's total strength). */
   mist: number;
   /** How dark the cut edge's rim goes. */
   rim: number;
