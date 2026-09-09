@@ -69,6 +69,7 @@ import { sightParty, type Token, type TokensState } from '@dnd/mechanics/tokens'
 import {
   sceneTriggersOf,
   worldLightOf,
+  type LightEdit,
   type TriggersState,
 } from '@dnd/mechanics/triggers';
 import {
@@ -104,10 +105,9 @@ import {
   serverDoors,
   serverLayers,
   serverRooms,
-  sightPad,
 } from './fog';
 import { placedLights, sightCache, sighted } from './visionSight';
-import { MASK_MEMORY, createLivingFog, fogPalette } from './livingFog';
+import { DEFAULT_FOG_LOOK, MASK_MEMORY, createLivingFog, fogPalette, type FogPool } from './livingFog';
 import { tierPlan, type DrawPlan, type TierScene } from './tierPlan';
 import { createTierCompositor } from './tierCompositor';
 
@@ -166,7 +166,23 @@ export const EXPLORED_TINT_ALPHA = 0.3;
  * room brightens with the level faster than the wash eases.
  */
 export const MEMORY_WASH_FLOOR = 0.45;
-/** The living fog's mist over the memory tier on the darkest scene; it eases by the same floor. */
+/**
+ * The living fog's mist over the memory tier on the darkest scene; it eases by the same floor.
+ *
+ * Held at 0.25 (the last value this file's brightness-order invariant — void < memory < lit,
+ * see the top comment — was actually measured against) rather than moved to 0.62, the mockup's
+ * own player-preset mist (`RIGHT_LOOK`, docs/mockups/2026-09-09-fog-current-vs-living.html):
+ * on `sprint3-vision.spec.ts`'s unlit hall (live floor ~36/255) memory reads ~100/255 either
+ * way, brighter than live — the third-gate inversion again. Bisected 2026-09-09 by sweeping
+ * this constant alone (0 / 0.25 / 0.62) against that same reading: 97.7 / 100.5 / 105.0 — a
+ * ~7-point spread over the whole range this uniform can take, against the ~65-point gap the
+ * invariant needs closed. This constant is not where the brightness is coming from; the
+ * memory-tier mask 'vision' mode paints (`tierPlan.ts`'s `cells`/`MASK_MEMORY_GREY` op,
+ * composited by `tierCompositor.ts`) is landing far closer to the fully-hidden tier than to
+ * the memory one for a swept-then-re-hidden region, which is what actually wants the fix —
+ * unverified and left open; 0.25 is kept only because it is no less correct than 0.62 and was
+ * the value this file's own history called safe.
+ */
 export const MEMORY_MIST = 0.25;
 /** The explored wash for one scene, by how dark it is (`FogScene.darkness`). */
 export const memoryAlpha = (darkness: number): number =>
@@ -624,6 +640,58 @@ export function voidStyle(composited = true, grade?: string): VoidStyle {
   };
 }
 
+/**
+ * D4 — the night's pools: where a light source glows the cloud warm, where a darkvision eye's
+ * own reach fades it cold. Pulled out of `nightSight` (below) so `FogOverlay`'s DM haze can
+ * build the same list for parity without a second copy of the shape. Pools are positions and
+ * radii, not a traced polygon — nothing here is the mask sweep (`sightCache.litArea` /
+ * `partySight`), so a second caller with its own `layers`/`tokens`/`eyes` costs only the map
+ * this already is, never another sweep.
+ */
+/** Where a light's fog pool starts easing toward memory, as a share of its radius. */
+export const LIGHT_POOL_START = 0.5;
+
+export function nightPools(
+  layers: readonly Layer[],
+  tokens: readonly Token[],
+  lightEdits: Record<string, LightEdit>,
+  eyes: readonly Token[],
+): FogPool[] {
+  // The table's own switch is `lightEdits` since M2 — `lightOverrides` is a pre-M2 row that
+  // `sceneTriggersOf` has already folded in, and reading it directly would let a stale `false`
+  // outvote a light the DM has since turned back on.
+  const switches: Record<string, boolean> = {};
+  for (const [id, edit] of Object.entries(lightEdits)) {
+    if (edit.visible !== undefined) switches[id] = edit.visible;
+  }
+  const sources = lightSources(placedLights(layers), tokens, switches);
+  const dark: LightSource[] = eyes
+    .filter((t) => t.sight!.visionMode === 'darkvision')
+    .map((t) => ({ x: t.x, y: t.y, radius: t.sight!.range }));
+  return [
+    // A light source glows the fog warm (D4); a darkvision eye is the party's own sight
+    // running out in the dark, not a light, so it stays cold.
+    //
+    // A light's pool eases over the outer half of its radius and is gone *at* the radius,
+    // where the lit tier's own mask is cut. The pool used to be whole to the radius and run
+    // out a pad past it, but the mask does not follow it there: the mask goes to memory at
+    // the radius, through half a cell of blur, and a pool still at three quarters on that
+    // line met it as a step — a circle traced around every torch, plain to see once the
+    // memory tier turned pale. Starting at half the radius (the light itself has lost a
+    // quarter there, `falloffAt`, and three quarters by `RIM_START`) lets the mist come in
+    // as the light goes out, and the two ramps meet the mask line together at the memory
+    // level. The darkvision ring below runs to its radius for the same reason.
+    ...sources.map((s) => ({
+      x: s.x,
+      y: s.y,
+      inner: s.radius * LIGHT_POOL_START,
+      outer: s.radius,
+      warm: true,
+    })),
+    ...dark.map((d) => ({ x: d.x, y: d.y, inner: d.radius * RIM_START, outer: d.radius, warm: false })),
+  ];
+}
+
 /** Everything the fog draws from, read once per mutation. */
 export function fogScene(): FogScene {
   const { session, you, mapData, paintedArea } = useSessionStore.getState();
@@ -730,14 +798,10 @@ export function fogScene(): FogScene {
     const dark: LightSource[] = eyes
       .filter((t) => t.sight!.visionMode === 'darkvision')
       .map((t) => ({ x: t.x, y: t.y, radius: t.sight!.range }));
-    const reach = sightPad(pad) + FOG_FEATHER;
     return {
       lit: sightCache.litArea(layers, sources),
       darkvision: sightCache.litArea(layers, dark),
-      pools: [
-        ...sources.map((s) => ({ x: s.x, y: s.y, inner: s.radius, outer: s.radius + reach })),
-        ...dark.map((d) => ({ x: d.x, y: d.y, inner: d.radius * RIM_START, outer: d.radius })),
-      ],
+      pools: nightPools(layers, tokens, scene!.lightEdits, eyes),
     };
   };
 
@@ -1174,9 +1238,11 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
   const scrim = new Graphics();
   // The animated cover, above the scrim: the scrim stays the authority on what is hidden
   // (flat black, fail-dark), the mesh is the weather drawn over it.
-  // The rim is the darker band the cloud draws right at its cut. At 0.75 it underlined every
-  // sight line as a stroke; a third of that keeps the edge reading as weather.
-  const fog = createLivingFog(engine, { dense: 1, mist: MEMORY_MIST, rim: 0.25, fade: FOG_FADE / 2 });
+  // The rim is the darker band the cloud draws right at its cut — 0.75 is the mockup's own
+  // player-preset value (`RIGHT_LOOK`), a shadowed crease rather than the thin stroke the
+  // v1 look used before this pass. `setLook` below overrides `fade` immediately.
+  const fog = createLivingFog(engine, { dense: 1, mist: MEMORY_MIST, rim: 0.75, fade: FOG_FADE / 2 });
+  fog.setLook(DEFAULT_FOG_LOOK);
   // Vision mode's whole mask, composited on the GPU (docs/2026-09-01-raster-fog-mask-plan.md).
   // It paints straight into the *same* two textures the cloud shader is bound to, which is
   // the one hard constraint here — a fresh RenderTexture is a source the bind never follows.
@@ -1280,6 +1346,18 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
       const { pixels } = read.pixels(rt);
       const i = (ty * rt.width + tx) * 4;
       return [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]];
+    },
+    // sprint3-vision's palette-independent read: whether the fog visual (scrim + cloud +
+    // stencils — `layer` holds nothing else) is drawn on this canvas at all right now, and a
+    // way to force it off for one frame. Unguarded like the four instruments above it — a
+    // container's `.visible` flag is nothing a page script could not already flip — and not
+    // `maskAt`'s DEV gate, on purpose: this runs in the production build the E2E lanes serve
+    // (`vite preview`), where `maskAt` never fires. A caller flips this, shoots, and flips it
+    // back to what `visible()` read before touching it — this never decides the seat's real
+    // state, `rebuild`'s own `scene.isPlayer || scene.preview` still does.
+    visible: (): boolean => layer.visible,
+    setVisible: (v: boolean): void => {
+      layer.visible = v;
     },
   };
   (window as Window & { __fogProbe?: typeof fogProbe }).__fogProbe = fogProbe;

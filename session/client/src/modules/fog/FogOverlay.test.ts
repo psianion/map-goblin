@@ -23,12 +23,16 @@ import type { PlayerInfo, SessionState } from '@dnd/core/src/shared/protocol';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
 import { clearEngineSingleton, setEngineSingleton } from '@dnd/core/src/engine/engineSingleton';
+import { useStore } from '@dnd/core/src/store/store';
 import { regionOf, setCells, type FogState } from '@dnd/mechanics/fog';
+import type { Token } from '@dnd/mechanics/tokens';
 import type { WebSocketClient } from '../../session/WebSocketClient';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
 import { useFogBrush } from './brush';
 import { DM_FOG_LOOK, regionRects } from './fog';
+import { fogScene } from './FogRenderer';
+import { createLivingFog } from './livingFog';
 import { mountFogOverlayWhenReady } from './FogOverlay';
 
 // The one thing the drawn instructions cannot say: whether the runs were *rebuilt*. Delegating
@@ -38,6 +42,26 @@ vi.mock('./fog', async (importOriginal) => {
   return { ...actual, regionRects: vi.fn(actual.regionRects) };
 });
 const rebuilds = (): number => vi.mocked(regionRects).mock.calls.length;
+
+// D4/WP1 — the haze's own `setPools`, spied the same delegating way: the real cloud still
+// draws, this just remembers what it was told to glow near.
+vi.mock('./livingFog', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./livingFog')>();
+  return {
+    ...actual,
+    createLivingFog: vi.fn((...args: Parameters<typeof actual.createLivingFog>) => {
+      const real = actual.createLivingFog(...args);
+      return { ...real, setPools: vi.fn(real.setPools) };
+    }),
+  };
+});
+/** The pools the most recently created haze was last told to glow near. */
+const hazePools = () => {
+  const results = vi.mocked(createLivingFog).mock.results;
+  const haze = results[results.length - 1]?.value;
+  const calls = vi.mocked(haze.setPools).mock.calls;
+  return calls[calls.length - 1]?.[0];
+};
 
 const room = (id: string, x: number): Room => ({
   id,
@@ -58,6 +82,47 @@ const HALL = room('r-hall', 10);
 
 const dungeonLayer = (rooms: Room[]): Layer =>
   ({ id: 'l1', type: 'dungeon', children: [], standaloneWalls: [], rooms }) as unknown as Layer;
+
+/** A placed light child, the same shape `FogRenderer.test.ts`'s own `lamp` fixture builds. */
+const dungeonWithLamp = (rooms: Room[]): Layer =>
+  ({
+    id: 'l1',
+    type: 'dungeon',
+    standaloneWalls: [],
+    rooms,
+    children: [
+      {
+        id: 'lamp-a',
+        name: 'lamp-a',
+        childType: 'light',
+        visible: true,
+        color: '#ffbb66',
+        radius: 4,
+        featherRadius: 2,
+        intensity: 1,
+        falloff: 'quadratic',
+        position: { x: 2, y: 2 },
+      },
+    ],
+  }) as unknown as Layer;
+
+const token = (over: Partial<Token> = {}): Token => ({
+  id: 't1',
+  name: 'Ayla',
+  imageAssetId: null,
+  size: 'medium',
+  disposition: 'friendly',
+  sight: null,
+  light: null,
+  defId: null,
+  x: 2,
+  y: 2,
+  elevation: 0,
+  z: 0,
+  hidden: false,
+  ownerId: 'p1',
+  ...over,
+});
 
 const dm: PlayerInfo = { identityId: 'dm-1', name: 'Ayla', role: 'dm', connected: true };
 
@@ -518,5 +583,114 @@ describe('the fog brush writes cells, not rooms (P4 §2)', () => {
     useFogBrush.setState({ on: false });
     move(2.5, 2.5);
     expect(drawn(sceneGraph)).toContain(String(DM_FOG_LOOK.never_revealed.hoverColor));
+  });
+});
+
+// ── D4/WP1 — DM haze torch-glow parity ──────────────────────────────────────
+// `nightSight()`'s pools used to reach only a *masked* seat (a player, or the DM's own sight
+// preview — `masked` in `fogScene()`), which a DM's plain view never is, so the haze never
+// learned where a light or a darkvision eye was. `nightPoolsNow` (`FogOverlay.ts`) rebuilds
+// the same list off this seat's own tokens/layers; these pin it against the actual player
+// computation, not just against itself.
+
+/** A placed lamp (a warm pool) and a darkvision-eyed party token (a cold pool) — the same two
+ * kinds of source `FogRenderer.test.ts`'s own `nightTable` fixture gates `night.pools` on. */
+const darkScene = (ambient: 'darkness' | 'daylight' = 'darkness'): void => {
+  const layers = [dungeonWithLamp([CRYPT, HALL])];
+  useStore.setState({ layers });
+  useSessionStore.setState({
+    // `computeMapFrame` measures floor/wall/asset geometry, not the room record (`rooms` is
+    // not among them) — a lamp child does not make the map "content" either, so this fixture
+    // needs the frame stamped, the way the brush section's own scenes do.
+    mapData: { frame: FRAME, layers },
+    session: session({
+      fog: { byScene: { 'scene-1': { rooms: {}, concealBehindDoors: true, mode: 'vision' } } },
+      tokens: {
+        library: {},
+        byScene: {
+          'scene-1': {
+            't-eyes': token({
+              id: 't-eyes',
+              x: 12,
+              y: 2,
+              sight: { range: 3, angle: 360, visionMode: 'darkvision' },
+            }),
+          },
+        },
+      },
+      triggers: {
+        byScene: {
+          'scene-1': {
+            fired: {},
+            armed: {},
+            disabled: {},
+            lightOverrides: {},
+            lightEdits: {},
+            env: { ambient },
+            prompts: [],
+            log: [],
+          },
+        },
+      },
+    }),
+  });
+};
+
+describe('DM haze torch-glow parity (D4/WP1)', () => {
+  it('gives the haze the same warm/cold pools the player fog computes for the same lights and eyes', () => {
+    darkScene('darkness');
+
+    // Ground truth: the very thing a player's own seat would draw its cloud through
+    // (`fogScene().night.pools`), off the lamp and the darkvision eye `darkScene` placed.
+    useSessionStore.setState({ you: { ...dm, role: 'player' } });
+    const playerPools = fogScene().night?.pools;
+    expect(playerPools).toBeDefined();
+    expect(playerPools!.filter((p) => p.warm)).toHaveLength(1);
+    expect(playerPools!.filter((p) => !p.warm)).toHaveLength(1);
+    useSessionStore.setState({ you: dm });
+
+    unmount = mountFogOverlayWhenReady();
+    useActiveTool.getState().setActiveTool('fog');
+
+    expect(hazePools()).toEqual(playerPools);
+  });
+
+  it('leaves the haze with no pools outside darkness', () => {
+    darkScene('daylight');
+    unmount = mountFogOverlayWhenReady();
+    useActiveTool.getState().setActiveTool('fog');
+
+    expect(hazePools()).toEqual([]);
+  });
+
+  it('redraws the haze when a light is struck or doused, not only on the next fog write', () => {
+    darkScene('darkness');
+    unmount = mountFogOverlayWhenReady();
+    useActiveTool.getState().setActiveTool('fog');
+    expect(hazePools()).toHaveLength(2);
+
+    // The table's own switch (`lightEdits`) turns the lamp off — nothing about the fog slice
+    // itself changed, so this is the one case `sync`'s key list has to name on purpose.
+    useSessionStore.setState({
+      session: session({
+        fog: { byScene: { 'scene-1': { rooms: {}, concealBehindDoors: true, mode: 'vision' } } },
+        tokens: useSessionStore.getState().session!.modules.tokens,
+        triggers: {
+          byScene: {
+            'scene-1': {
+              fired: {},
+              armed: {},
+              disabled: {},
+              lightOverrides: {},
+              lightEdits: { 'lamp-a': { visible: false } },
+              env: { ambient: 'darkness' },
+              prompts: [],
+              log: [],
+            },
+          },
+        },
+      }),
+    });
+    expect(hazePools()).toHaveLength(1);
   });
 });
