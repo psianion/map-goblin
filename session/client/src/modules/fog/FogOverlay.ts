@@ -18,6 +18,7 @@ import { Container, Graphics } from 'pixi.js';
 import type { Room } from '@dnd/core/src/shared/types';
 import type { RenderEngine } from '@dnd/core/src/engine/RenderEngine';
 import type { SceneGraph } from '@dnd/core/src/engine/sceneGraph';
+import { useStore } from '@dnd/core/src/store/store';
 import {
   fogModeOf,
   regionOf,
@@ -26,6 +27,8 @@ import {
   type FogState,
   type Frame,
 } from '@dnd/mechanics/fog';
+import { sceneTriggersOf, worldLightOf, type TriggersState } from '@dnd/mechanics/triggers';
+import type { TokensState } from '@dnd/mechanics/tokens';
 import {
   addScreenOverlay,
   addWorldOverlay,
@@ -36,19 +39,23 @@ import { prefersReducedMotion } from '../../session/motion';
 import { frameWorldPoint } from '../../renderer/camera';
 import { useSessionStore } from '../../session/store';
 import { useActiveTool } from '../../session/tools';
+import { tokensOf } from '../tokens/TokenRenderer';
 import { BRUSH_FLUSH_CELLS, useFogBrush, type BrushOp } from './brush';
-import { FOG_FADE } from './FogRenderer';
-import { MASK_MEMORY, createLivingFog } from './livingFog';
+import { FOG_FADE, nightPools } from './FogRenderer';
+import { DEFAULT_FOG_LOOK, MASK_MEMORY, createLivingFog } from './livingFog';
+import { sighted } from './visionSight';
 import {
   DM_FOG_LOOK,
   cellAt,
   cellRect,
   fogActionFor,
   fogFrame,
+  fogPad,
   regionRects,
   roomAt,
   roomFog,
   sceneFog,
+  serverLayers,
   serverRooms,
 } from './fog';
 
@@ -97,7 +104,17 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   // the weight, drawn *over* the tint — which stays, both as the state's flat reading and
   // as the look this seat falls back to if the shader never draws. The mesh lives in the
   // world container, so the lighting composite grades it along with the map beneath it.
-  const haze = createLivingFog(engine, { dense: 0.26, mist: 0.13, rim: 0.3, fade: FOG_FADE / 2 });
+  //
+  // Player mist/rim jumped a lot for the pale v2 look (0.25/0.25 → 0.62/0.75, FogRenderer.ts)
+  // — carrying the old ratio forward unchanged (mist ~52%, rim ~120% of the player value)
+  // would wash every unlit DM room in visible white mist, which is not what a *breathing
+  // haze hint* wants. Kept low instead: mist barely tints the room (the pale base is bright
+  // enough that even a little reads), rim stays a touch above its old absolute value so the
+  // room's boundary keeps reading clearly against the now much lighter cloud. dense is
+  // unchanged — it only ever paints a never-revealed room, and that quarter-strength read
+  // was already right independent of the mist/rim retune.
+  const haze = createLivingFog(engine, { dense: 0.26, mist: 0.2, rim: 0.35, fade: FOG_FADE / 2 });
+  haze.setLook(DEFAULT_FOG_LOOK);
   layer.addChild(paint, haze.mesh);
   addWorldOverlay(sceneGraph, layer, 'fogOverlay');
 
@@ -133,6 +150,34 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
   };
 
   const frameNow = (): Frame | null => fogFrame(useSessionStore.getState().mapData);
+
+  /**
+   * D4/WP1 — the haze's own torch glow, straight off this seat's tokens and layers rather than
+   * `FogRenderer`'s private `nightSight()`: that closure's `pools` only ever built for a
+   * *masked* seat (a player, or the DM's own sight preview — `masked` in `fogScene()`), which a
+   * DM's plain view never is (PRODUCT principle 3), so this seat's `night` stayed `undefined`
+   * and the haze never got a light to glow near. `nightPools` is the pure map `nightSight` built
+   * the pools with (`FogRenderer.ts`); calling it here costs a light-source list and a token
+   * filter, never the mask sweep — the same `layers`/`tokens`/`lightEdits` FogRenderer itself
+   * reads, just fetched fresh for this file's own scope.
+   */
+  const nightPoolsNow = () => {
+    const { session, mapData } = useSessionStore.getState();
+    const sceneId = session?.activeSceneId ?? null;
+    const triggers = session?.modules?.triggers as TriggersState | undefined;
+    if (!sceneId || !triggers) return [];
+    const light = worldLightOf(useStore.getState().mapSettings, triggers, sceneId);
+    // Daylight (or dusk) has no gate to glow through — the same condition `fogScene` gates
+    // `nightSight` on. Empty pools here is what leaves an unlit room's haze plain.
+    if (light?.effectiveLevel !== 'darkness') return [];
+    const layers = useStore.getState().layers;
+    const tokens = tokensOf(session?.modules?.tokens as TokensState | undefined, sceneId);
+    // The DM's own screen has no share to narrow through (`visionShareOf`, player-only), so the
+    // whole party's eyes go in, unseeded — the darkvision half of parity, not just the party's.
+    const eyes = sighted(tokens);
+    const pad = fogPad(serverLayers(mapData));
+    return nightPools(layers, tokens, sceneTriggersOf(triggers, sceneId).lightEdits, eyes, pad);
+  };
 
   /**
    * The brush is a sub-mode of the armed tool (P4 §2) and a vision-mode one: the region record
@@ -245,6 +290,9 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
       haze.setMaskBounds(hazeFrame);
       haze.renderMask();
       haze.cover(hazeFrame);
+      // Torch-glow parity (D4/WP1): the same warm-near-a-light, cold-at-a-darkvision-rim pools
+      // the player's fog runs its cloud out over (`nightPoolsNow`, above).
+      haze.setPools(nightPoolsNow());
     }
 
     // …and over that, in vision mode, the cells themselves — drawn from the same record the
@@ -335,6 +383,10 @@ function mountFogOverlay(engine: RenderEngine, sceneGraph: SceneGraph): () => vo
       you?.role,
       session?.activeSceneId,
       session?.modules?.fog,
+      // The haze's torch glow (`nightPoolsNow`) reads these two: a fired/doused light or a
+      // token gaining/losing darkvision has to redraw the same way a fog write does.
+      session?.modules?.triggers,
+      session?.modules?.tokens,
       // Replaced wholesale on a load and on every merged reveal delta — the rooms this
       // draws come off it, so identity is the whole test.
       mapData,

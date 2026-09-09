@@ -1708,6 +1708,17 @@ describe('fogScene', () => {
     expect(far(scene.sight![1], 4, 2)).toBeGreaterThan(3.01);
   });
 
+  it('marks light-source pools warm and a darkvision eye’s pool cold (D4 torch glow)', () => {
+    const scene = nightTable('darkness');
+    // The two light sources (the map's lamp and t3's carried torch — `lit` above) come
+    // first, then the one darkvision eye (t2) — the same order `nightSight` builds `pools`
+    // in (`FogRenderer.ts`). Only a light should glow the cloud warm; a darkvision eye is
+    // sight running out in the dark, not a source of light.
+    expect(scene.night?.pools).toHaveLength(3);
+    expect(scene.night?.pools.filter((p) => p.warm)).toHaveLength(2);
+    expect(scene.night?.pools.filter((p) => !p.warm)).toHaveLength(1);
+  });
+
   it('answers to the table’s own light switch, not only to the map', () => {
     expect(nightTable('darkness', { 'lamp-a': false })?.night?.lit).toHaveLength(1);
   });
@@ -2204,7 +2215,7 @@ describe('drawFog in the dark', () => {
       nightScene({
         lit: [square(6, 0.5, 8, 2)],
         darkvision: [square(8, 0.5, 9, 2)],
-        pools: [{ x: 7, y: 1.25, inner: 1, outer: 2 }],
+        pools: [{ x: 7, y: 1.25, inner: 1, outer: 2, warm: true }],
       }),
     );
     // The backstop and its holes are the compositor's now, so the vector scrim carries
