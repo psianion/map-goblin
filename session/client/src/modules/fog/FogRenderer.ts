@@ -169,25 +169,14 @@ export const MEMORY_WASH_FLOOR = 0.45;
 /**
  * The living fog's mist over the memory tier on the darkest scene; it eases by the same floor.
  *
- * Held at 0.25 (the last value this file's brightness-order invariant — void < memory < lit,
- * see the top comment — was actually measured against) rather than moved to 0.62, the mockup's
- * own player-preset mist (`RIGHT_LOOK`, docs/mockups/2026-09-09-fog-current-vs-living.html):
- * on `sprint3-vision.spec.ts`'s unlit hall (live floor ~36/255) memory reads ~100/255 either
- * way, brighter than live — the third-gate inversion again. Bisected 2026-09-09 by sweeping
- * this constant alone (0 / 0.25 / 0.62) against that same reading: 97.7 / 100.5 / 105.0 — a
- * ~7-point spread over the whole range this uniform can take, against the ~65-point gap the
- * invariant needs closed. This constant is not where the brightness is coming from; the
- * memory-tier mask 'vision' mode paints (`tierPlan.ts`'s `cells`/`MASK_MEMORY_GREY` op,
- * composited by `tierCompositor.ts`) is landing far closer to the fully-hidden tier than to
- * the memory one for a swept-then-re-hidden region, which is what actually wants the fix —
- * unverified and left open; 0.25 is kept only because it is no less correct than 0.62 and was
- * the value this file's own history called safe.
- *
  * Stated per unit of layer-stack strength since the shader scales the memory mist by the
- * stack's total (a strength dial at max has to put real cloud on explored ground): the
- * default look's stack weighs 1.25, so 0.2 here is the 0.25 that history settled on.
+ * stack's total (a strength dial at max has to put real cloud on explored ground). Locked at
+ * 0.5 with `MEMORY_HOLD` on Goblin Warren (2026-09-14): the 0.2 that shipped with the pale
+ * look left every remembered room reading almost as clean as live sight. The memory tier is
+ * brighter than an unlit live floor by design (mist over dark ground), so the E2E lanes assert
+ * cover deltas (hidden > memory > live), never a luminance order.
  */
-export const MEMORY_MIST = 0.2;
+export const MEMORY_MIST = 0.5;
 /** The explored wash for one scene, by how dark it is (`FogScene.darkness`). */
 export const memoryAlpha = (darkness: number): number =>
   EXPLORED_TINT_ALPHA * (MEMORY_WASH_FLOOR + (1 - MEMORY_WASH_FLOOR) * darkness);
@@ -1329,6 +1318,10 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
    * GPU work, so it only runs again when the weather itself actually moved.
    */
   let lastLookKey = '';
+  /** The memory mist per unit of stack weight, and the light-level ease the last rebuild
+   *  applied to it — split out so the dev knob below can re-apply a new mist without a rebuild. */
+  let memoryMist = MEMORY_MIST;
+  let lastMistEase = 1;
 
   // Read-only fade probe for the e2e lanes, on `__testProbe`'s rationale (unguarded:
   // nothing here a script on the page could not already read). Pixels stopped being able
@@ -1389,6 +1382,16 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
     visible: (): boolean => layer.visible,
     setVisible: (v: boolean): void => {
       layer.visible = v;
+    },
+    /** Dev only — dial the memory tier's cover live while its defaults are being locked:
+     *  `mist` per unit of stack weight (`MEMORY_MIST`), `hold` the dense ramp's top (`MEMORY_HOLD`). */
+    setMemory: (o: { mist?: number; hold?: number }): void => {
+      if (!import.meta.env.DEV) return;
+      if (o.mist != null) {
+        memoryMist = o.mist;
+        fog.setMist(memoryMist * lastMistEase);
+      }
+      if (o.hold != null) fog.setMemoryHold(o.hold);
     },
   };
   (window as Window & { __fogProbe?: typeof fogProbe }).__fogProbe = fogProbe;
@@ -1510,7 +1513,8 @@ function mountPlayerFog(engine: RenderEngine, sceneGraph: SceneGraph): () => voi
       lastLookKey = lookKey;
       fog.setLook(scene.look);
     }
-    fog.setMist(MEMORY_MIST * (MEMORY_WASH_FLOOR + (1 - MEMORY_WASH_FLOOR) * scene.darkness));
+    lastMistEase = MEMORY_WASH_FLOOR + (1 - MEMORY_WASH_FLOOR) * scene.darkness;
+    fog.setMist(memoryMist * lastMistEase);
     fog.setWash(drawn.void.memory, memoryAlpha(scene.darkness));
     // …and in the dark, the pools the clear tier runs out over, so the cloud closes in on the
     // lighting pass's own rim curve rather than on a cut at a radius. Outside darkness the
