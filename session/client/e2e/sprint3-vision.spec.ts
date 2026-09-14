@@ -469,6 +469,18 @@ async function patchCover(
 }
 
 const meanOf = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length
+/**
+ * The patch's thinnest tenth — its 10th-percentile `delta`. The read that tells remembered
+ * ground from hidden ground once the memory tier carries real cloud (MEMORY_MIST/MEMORY_HOLD,
+ * 2026-09-14): hidden ground is the flat opaque tier, alpha exactly 1 at every point, while a
+ * remembered room always has thin spots the floor shows through, whatever phase the drifting
+ * cloud is at. A *mean* over the two can sit within a few levels of each other on a heavy
+ * phase (measured 132.8 against 142.8 on the doorway strip), which is not a margin.
+ */
+const lowOf = (xs: readonly number[]): number => {
+  const sorted = [...xs].sort((a, b) => a - b)
+  return sorted[Math.floor(0.1 * (sorted.length - 1))]
+}
 
 /** Every token id on a seat's canvas, which is how a freshly placed one is picked out.
  *  `token-layer` lives inside the Tokens popover's On Map tab now (M3); every placement in
@@ -734,6 +746,7 @@ test.describe.serial('@sprint3-vision', () => {
     await frameUp(player)
     const reloaded = await look(player)
     const back = await patchCover(player, FAR_STRIP)
+    const kept = await read(player)
 
     // The one thing that takes a memory back (P4's brush, driven here as commands): the room
     // goes under *and* the cells the party earned are rubbed out. Only then is it void again.
@@ -757,8 +770,10 @@ test.describe.serial('@sprint3-vision', () => {
         `room hidden and cells rubbed out ${show(blanked)} (${remembered.cells} swept cell(s)); ` +
         `the strip inside the doorway, cover (natural vs fog-off luminance delta): live ` +
         `${meanOf(live.delta).toFixed(1)} → memory ${meanOf(memory.delta).toFixed(1)} → reloaded ` +
-        `${meanOf(back.delta).toFixed(1)} → void ${meanOf(gone.delta).toFixed(1)}; the floor ` +
-        `underneath: live ${meanOf(live.floor).toFixed(1)}, memory ${meanOf(memory.floor).toFixed(1)}`,
+        `${meanOf(back.delta).toFixed(1)} → void ${meanOf(gone.delta).toFixed(1)}; the thinnest tenth: ` +
+        `memory ${lowOf(memory.delta).toFixed(1)}, reloaded ${lowOf(back.delta).toFixed(1)}, void ` +
+        `${lowOf(gone.delta).toFixed(1)}; the floor underneath: live ${meanOf(live.floor).toFixed(1)}, ` +
+        `memory ${meanOf(memory.floor).toFixed(1)}`,
       'void covered more than memory, memory covered more than live, live and memory share one floor',
     )
 
@@ -775,10 +790,11 @@ test.describe.serial('@sprint3-vision', () => {
       meanOf(memory.delta),
       `memory delta ${meanOf(memory.delta).toFixed(1)} against live's ${meanOf(live.delta).toFixed(1)}`,
     ).toBeGreaterThan(meanOf(live.delta) + 15)
+    // Void against memory on the thinnest tenth (`lowOf`): hidden ground has no thin spots.
     expect(
-      meanOf(gone.delta),
-      `void delta ${meanOf(gone.delta).toFixed(1)} against memory's ${meanOf(memory.delta).toFixed(1)}`,
-    ).toBeGreaterThan(meanOf(memory.delta) + 10)
+      lowOf(gone.delta),
+      `void's thinnest tenth ${lowOf(gone.delta).toFixed(1)} against memory's ${lowOf(memory.delta).toFixed(1)}`,
+    ).toBeGreaterThan(lowOf(memory.delta) + 30)
     // "The same floor": live and memory are one location read twice, fog subtracted — so the
     // ground underneath has to agree regardless of what the fog painted over it. The tolerance
     // is the same 10-level `COVER_EPSILON` `develop` already treats as one frame's round-trip
@@ -787,8 +803,15 @@ test.describe.serial('@sprint3-vision', () => {
       Math.abs(meanOf(memory.floor) - meanOf(live.floor)),
       `memory floor ${meanOf(memory.floor).toFixed(1)} against live's ${meanOf(live.floor).toFixed(1)}`,
     ).toBeLessThan(10)
-    // The reload keeps it — the record is the server's and the mask rebuilds from it.
-    expect(Math.abs(meanOf(back.delta) - meanOf(memory.delta))).toBeLessThan(meanOf(memory.delta) * 0.15)
+    // The reload keeps it — the record is the server's and the mask rebuilds from it: the same
+    // cells come back, and the strip still reads as the memory tier, between live and void.
+    // Not a pixel match against `memory`: the cloud's clock restarts on a reload, so the two
+    // shots are the same tier under two different phases of a drifting cloud, and once the
+    // memory tier carried real cloud (MEMORY_MIST/MEMORY_HOLD, 2026-09-14) the phase alone
+    // moved the mean by more than the old 15% band.
+    expect(kept.cells, 'the reload dropped swept cells').toBe(remembered.cells)
+    expect(meanOf(back.delta), 'reloaded memory reads as live').toBeGreaterThan(meanOf(live.delta) + 15)
+    expect(lowOf(gone.delta), 'reloaded memory reads as void').toBeGreaterThan(lowOf(back.delta) + 30)
     // Region memory only ever ORs: the door shutting takes no ground back.
     expect(remembered.cells).toBeGreaterThan(0)
   })
@@ -818,6 +841,7 @@ test.describe.serial('@sprint3-vision', () => {
     await player.waitForTimeout(REVEAL_MS * 4)
     await frameUp(player)
     const partial = await regionLook(player, FAR_BOX)
+    const partialCover = await patchCover(player, FAR_BOX)
 
     // The wire says what the canvas says: a sweep latches a room, it does not light it.
     expect(await fogStatus(player, FAR.id)).toBe('re_hidden')
@@ -827,6 +851,7 @@ test.describe.serial('@sprint3-vision', () => {
     await expect.poll(() => fogStatus(player, FAR.id)).toBe('revealed')
     await player.waitForTimeout(REVEAL_MS * 4)
     const washed = await regionLook(player, FAR_BOX)
+    const washedCover = await patchCover(player, FAR_BOX)
 
     // How much of the far hall that sightline actually earned, counted the only way the probe
     // can: rub exactly its cells out and read what the total dropped by.
@@ -838,7 +863,9 @@ test.describe.serial('@sprint3-vision', () => {
     record(
       'cell-granular memory against a whole-room wash',
       `${FAR.name}: ${swept} of ${farRoomCells.length} cell(s) swept through the doorway reads ` +
-        `${show(partial)}; the DM's reveal of the same room reads ${show(washed)}`,
+        `${show(partial)}, cover mean ${meanOf(partialCover.delta).toFixed(1)} / thinnest tenth ` +
+        `${lowOf(partialCover.delta).toFixed(1)}; the DM's reveal of the same room reads ${show(washed)}, ` +
+        `cover mean ${meanOf(washedCover.delta).toFixed(1)} / thinnest tenth ${lowOf(washedCover.delta).toFixed(1)}`,
       'a sweep shows its cells; only the DM’s reveal washes the room whole',
     )
 
@@ -848,18 +875,18 @@ test.describe.serial('@sprint3-vision', () => {
       `the doorway sweep recorded ${swept} of the hall’s ${farRoomCells.length} cells`,
     ).toBeLessThan(farRoomCells.length / 2)
     // …and the canvas agrees: revealing the room by hand is visibly more map than the sliver.
-    // On `clear`, still, but read over FAR's own screen box now rather than the whole 1280×720
-    // frame: the sliver and the wash are both a few points of the *frame*, so a wash next
-    // door or the cloud's own drift can swamp a whole-frame reading (the fixed test read
-    // 7.92% before and after a reveal that plainly changed the room — the rest of the frame,
-    // not this room, was moving the whole-frame share). Scoped to the room, the two separate:
-    // measured 2026-09-09, partial 0.7% clear against washed 32.4% — the margin is under a
-    // third of that gap.
+    // Read as cover over FAR's own box, on the thinnest tenth (`lowOf`): with the sliver the
+    // box is hidden ground bar a doorway's worth — flat, no thin spots — and washed whole it is
+    // a remembered room, whose cloud always has thin spots the floor shows through. `clear`
+    // (the natural/fog-off agreement) was the read until the memory tier carried real cloud
+    // (2026-09-14); a remembered room no longer agrees with its fog-off shot anywhere, so on
+    // `clear` the sliver and the wash read the same 0% and the row measured nothing.
     expect(
-      washed.clear,
-      `the swept sliver read ${show(partial)} and the DM's whole-room reveal ${show(washed)} — ` +
-        'a mask washing every explored room whole reads them the same',
-    ).toBeGreaterThan(partial.clear + 0.1)
+      lowOf(washedCover.delta),
+      `the swept sliver's thinnest tenth ${lowOf(partialCover.delta).toFixed(1)} and the DM's ` +
+        `whole-room reveal's ${lowOf(washedCover.delta).toFixed(1)} — a mask washing every ` +
+        'explored room whole reads them the same',
+    ).toBeLessThan(lowOf(partialCover.delta) - 30)
   })
 
   /** §2.6's standing gate condition, on this map too: zero uncaught errors. */

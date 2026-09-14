@@ -962,8 +962,13 @@ test.describe.serial('@sprint3-fog', () => {
     // …against a canvas with no hole in the fog at all: the zero-setup row's own measurement.
     expect(virgin.clear, 'the unexplored map was not black to begin with').toBeLessThan(0.002)
 
-    // The reload keeps all of it (D4).
-    expect(Math.abs(meanOf(remembered.delta) - meanOf(memory.delta))).toBeLessThan(meanOf(memory.delta) * 0.1)
+    // The reload keeps all of it (D4): the patch still reads as the explored tier, under the
+    // same margins as before the reload. Not a pixel match against `memory` — the cloud's
+    // clock restarts on a reload, so the two shots are one tier under two phases of a drifting
+    // cloud, and once the tier carried real cloud (MEMORY_MIST/MEMORY_HOLD, 2026-09-14) the
+    // phase alone moved the mean past the old 10% band.
+    expect(meanOf(remembered.delta), 'reloaded explored reads as live').toBeGreaterThan(meanOf(live.delta) + 10)
+    expect(meanOf(hidden.delta), 'reloaded explored reads as untouched').toBeGreaterThan(meanOf(remembered.delta) + 50)
   })
 
   /**

@@ -41,6 +41,13 @@ import type { Bounds } from './FogRenderer';
 export type { FogLayerType, FogLayer, FogLook } from '@dnd/core/src/shared/fogLook';
 export { FOG_PRESETS, DEFAULT_FOG_LOOK } from '@dnd/core/src/shared/fogLook';
 
+/**
+ * Top of the shader's dense-cover ramp in mask units (memory grey = 0.5, live = 1): the
+ * further past 0.5, the more of the full cover a remembered room keeps under its mist. The
+ * mockup's 0.62 left explored rooms reading almost clean; provisional until the lock-defaults
+ * session settles it.
+ */
+export const MEMORY_HOLD = 0.8;
 /** Mask texel value for the memory tier — must match what the shader's tier ramp expects. */
 export const MASK_MEMORY = 0x808080;
 
@@ -128,6 +135,7 @@ const FRAGMENT = /* glsl */ `
   uniform float uWarp;
   uniform float uDense;
   uniform float uMist;
+  uniform float uMemoryHold;
   uniform float uRim;
   uniform float uFade;
   uniform float uSeamLobe;
@@ -329,13 +337,11 @@ const FRAGMENT = /* glsl */ `
     col = mix(col, uDeep * 0.85, rim * uRim);
 
     // Hidden ground renders at exactly uDense, flat — the player seat passes 1.0, so
-    // nothing beneath the cover (map bounds included) can telegraph through it. The ramp
-    // ends at the memory grey, so a remembered room carries none of the dense cover: its
-    // cloud is the mist alone, thin enough that the map reads through it.
-    // The ramp's top sits past the memory grey (0.62, the mockup's), so a remembered room
-    // keeps a trace of the dense cover in its mist — the reference reads that way — while the
-    // seam gate below, not this ramp, is what takes the cover off toward live sight.
-    float hiddenness = 1.0 - smoothstep(0.10, 0.62, m);
+    // nothing beneath the cover (map bounds included) can telegraph through it. The ramp's
+    // top (uMemoryHold) sits past the memory grey, so a remembered room keeps a share of the
+    // dense cover under its mist — the further past 0.5, the more it keeps — while the seam
+    // gate below, not this ramp, is what takes the cover off toward live sight.
+    float hiddenness = 1.0 - smoothstep(0.10, uMemoryHold, m);
     float aBody = mix(uMist * weight * (0.45 + 0.55 * den), uDense, hiddenness);
     float alpha = body * aBody + wisp * aBody * 0.28;
 
@@ -507,6 +513,9 @@ export interface LivingFog {
   setLook(look: FogLook): void;
   /** The mist over the memory tier, 0..1 — the caller eases it with the light level. */
   setMist(mist: number): void;
+  /** Where the dense cover's ramp ends, in mask units past the memory grey (0.5) — how much of
+   * the full cover a remembered room keeps under its mist. `MEMORY_HOLD` by default. */
+  setMemoryHold(hold: number): void;
   /**
    * The wash under the cloud on the memory tier — a 0xrrggbb colour already graded the way
    * the map beneath it is, and its strength. 0 (the default) draws none: the DM's haze wants
@@ -558,6 +567,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
         uWarp: { value: EDGE_WARP, type: 'f32' },
         uDense: { value: initialLook.dense, type: 'f32' },
         uMist: { value: initialLook.mist, type: 'f32' },
+        uMemoryHold: { value: MEMORY_HOLD, type: 'f32' },
         uRim: { value: initialLook.rim, type: 'f32' },
         uFade: { value: DEFAULT_FOG_LOOK.fade, type: 'f32' },
         uSeamLobe: { value: SEAM_LOBE, type: 'f32' },
@@ -583,6 +593,7 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
     uVeil: number;
     uGlow: number;
     uMist: number;
+    uMemoryHold: number;
     uWashAlpha: number;
     uWash: Float32Array | number[];
     uPools: Float32Array;
@@ -714,6 +725,9 @@ export function createLivingFog(engine: RenderEngine, initialLook: LivingFogLook
     },
     setMist(mist) {
       uniforms.uMist = Math.min(1, Math.max(0, mist));
+    },
+    setMemoryHold(hold) {
+      uniforms.uMemoryHold = Math.min(0.999, Math.max(0.5, hold));
     },
     setWash(color, alpha) {
       setVec(uniforms.uWash, [

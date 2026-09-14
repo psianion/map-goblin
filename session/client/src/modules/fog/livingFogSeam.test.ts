@@ -13,6 +13,7 @@
 // 0.95, m)` is monotonic in `m` for any fixed cloud density, so it can fade but never ring —
 // the exact failure PR #114's fix (5e3ce63, 7e48810) was for.
 import { describe, expect, it } from 'vitest';
+import { MEMORY_HOLD } from './livingFog';
 
 /** Mirrors GLSL's smoothstep exactly (the built-in's own definition). */
 const smoothstep = (a: number, b: number, x: number): number => {
@@ -26,9 +27,18 @@ interface SeamLook {
   veil: number;
   dense: number;
   mist: number;
+  /** uMemoryHold — the dense ramp's top past the memory grey. */
+  hold: number;
 }
 
-const PLAYER_LOOK: SeamLook = { fade: 2.5, seamLobe: 0.12, veil: 0.18, dense: 1, mist: 0.62 };
+const PLAYER_LOOK: SeamLook = {
+  fade: 2.5,
+  seamLobe: 0.12,
+  veil: 0.18,
+  dense: 1,
+  mist: 0.62,
+  hold: MEMORY_HOLD,
+};
 
 /**
  * The scalar mirror. `m` is the tier mask (0 hidden / 0.5 memory / 1 live, continuous through
@@ -55,12 +65,12 @@ function mirrorParts(
   top: number,
   look: SeamLook,
 ): { cloud: number; veil: number } {
-  const { fade, seamLobe, veil, dense, mist } = look;
+  const { fade, seamLobe, veil, dense, mist, hold } = look;
   const mFog = Math.min(m, 0.5) * 2.0;
   const d = den - (mFog * 0.85 - 0.42) + (top - 0.5) * 0.1;
   const body = smoothstep(-0.08 * fade, 0.14 * fade, d);
   const wisp = smoothstep(-0.2 * fade, -0.06 * fade, d) * (1 - body);
-  const hiddenness = 1 - smoothstep(0.1, 0.62, m);
+  const hiddenness = 1 - smoothstep(0.1, hold, m);
   // mist here is the shader's uMist already scaled by the layer stack's weight.
   const aBody = mist * (0.45 + 0.55 * den) * (1 - hiddenness) + dense * hiddenness;
   const cloudAlpha = body * aBody + wisp * aBody * 0.28;
@@ -126,6 +136,19 @@ describe('living fog seam (D2, mirrors livingFog.ts FRAGMENT by hand)', () => {
       for (let top = 0; top <= 1; top += 0.25) {
         expect(mirrorAlpha(1, den, top, PLAYER_LOOK)).toBeLessThanOrEqual(PLAYER_LOOK.veil + 1e-6);
       }
+    }
+  });
+
+  it('a higher memory hold puts more cover on a remembered room, and never as much as hidden ground', () => {
+    // A memory texel under a full cloud column: the 2026-09-14 lock (uMemoryHold 0.8) has to
+    // cover more than the mockup's 0.62 did, and still sit strictly under the hidden floor so
+    // the E2E lanes' cover order (hidden > memory > live) holds.
+    for (let den = 0.5; den <= 1; den += 0.1) {
+      const was = mirrorAlpha(0.5, den, 0.5, { ...PLAYER_LOOK, hold: 0.62 });
+      const now = mirrorAlpha(0.5, den, 0.5, PLAYER_LOOK);
+      expect(now).toBeGreaterThan(was);
+      expect(now).toBeLessThan(1);
+      expect(now).toBeGreaterThan(mirrorAlpha(1, den, 0.5, PLAYER_LOOK));
     }
   });
 
