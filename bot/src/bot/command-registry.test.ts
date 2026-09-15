@@ -264,6 +264,17 @@ interface Sent {
   files?: AttachedFile[]
 }
 
+/** A seat shaped the way the game server signs one: base64url claims, then a signature. The
+ * label stands in for the HMAC, which nothing in the bot ever checks. */
+const seat = (label: string, expiresInMs = 7 * 24 * 60 * 60 * 1000): string =>
+  `${Buffer.from(JSON.stringify({ exp: Date.now() + expiresInMs })).toString('base64url')}.${label}`
+
+const DM_SEAT = seat('dm')
+const PLAYER_SEAT = seat('player')
+/** What a re-mint hands back, so a test can tell the new seat from the one it replaced. */
+const FRESH_DM_SEAT = seat('fresh-dm')
+const FRESH_PLAYER_SEAT = seat('fresh-player')
+
 function seededDeps(over: Partial<Deps> = {}): { deps: Deps; sent: Sent[] } {
   const db = openDb(':memory:')
   const campaigns = createCampaigns(db)
@@ -421,17 +432,37 @@ describe('/session — scene autocomplete', () => {
         ],
       },
     })
-    deps.campaigns.setTokens('camp-1', 'dm-token', 'player-token')
+    deps.campaigns.setTokens('camp-1', DM_SEAT, PLAYER_SEAT)
     const interaction = chatInteraction({ focused: 'vault' })
     await registry.session.autocomplete!(interaction as never, deps)
     expect(interaction.calls).toEqual([['respond', [{ name: 'The Vault', value: 's2' }]]])
   })
 
-  it('offers nothing at all before the campaign has a token', async () => {
+  it('offers nothing at all outside a registered campaign', async () => {
     const { deps } = seededDeps()
-    const interaction = chatInteraction({ focused: '' })
+    const interaction = chatInteraction({ focused: '', channelId: 'random-chan' })
     await registry.session.autocomplete!(interaction as never, deps)
     expect(interaction.calls).toEqual([['respond', []]])
+  })
+
+  it('mints a seat on the spot when the campaign has none, rather than going quiet', async () => {
+    const minted: string[] = []
+    const asked: string[] = []
+    const { deps } = seededDeps({
+      goblin: {
+        ...mintingGoblin(minted),
+        getScenes: async (token) => {
+          asked.push(token)
+          return [{ id: 's1', name: 'The Vault', sortIndex: 0, visibleToPlayers: true, mapId: 'm1', updatedAt: 0 }]
+        },
+      },
+    })
+    const interaction = chatInteraction({ focused: '' })
+    await registry.session.autocomplete!(interaction as never, deps)
+
+    expect(minted.sort()).toEqual(['dm', 'player'])
+    expect(asked).toEqual([FRESH_DM_SEAT])
+    expect(interaction.calls).toEqual([['respond', [{ name: 'The Vault', value: 's1' }]]])
   })
 })
 
@@ -588,11 +619,26 @@ describe('/feedback — anonymous by schema, not just by display', () => {
 // â”€â”€ M6: the map pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /** A campaign with both seats, and a table the observer may or may not be watching. */
+/** A game server that will mint on demand — what a seat refresh needs to get anywhere. */
+const mintingGoblin = (minted: string[]): Deps['goblin'] => ({
+  ...stubGoblin(),
+  mintServiceToken: async (_pass, campaignId, role) => {
+    minted.push(role)
+    return {
+      token: role === 'dm' ? FRESH_DM_SEAT : FRESH_PLAYER_SEAT,
+      campaignId,
+      role,
+      name: 'Goblin Bot',
+    }
+  },
+})
+
 function mapDeps(over: { liveScene?: string | null; tokens?: MapToken[]; maps?: Record<string, unknown> } = {}) {
   const asked: { token: string; sceneId: string }[] = []
+  const minted: string[] = []
   const { deps, sent } = seededDeps({
     goblin: {
-      ...stubGoblin(),
+      ...mintingGoblin(minted),
       getMap: async (token, sceneId) => {
         asked.push({ token, sceneId })
         return over.maps?.[sceneId] ?? playerMap
@@ -604,8 +650,8 @@ function mapDeps(over: { liveScene?: string | null; tokens?: MapToken[]; maps?: 
         over.liveScene === undefined ? undefined : { sceneId: over.liveScene, tokens: over.tokens ?? [] },
     },
   })
-  deps.campaigns.setTokens('camp-1', 'dm-token', 'player-token')
-  return { deps, sent, asked }
+  deps.campaigns.setTokens('camp-1', DM_SEAT, PLAYER_SEAT)
+  return { deps, sent, asked, minted }
 }
 
 describe('/map â€” channel-switched authorize', () => {
@@ -635,7 +681,7 @@ describe('/map â€” which seat renders, and where the picture lands', () => 
     const { deps, sent, asked } = mapDeps({ liveScene: 'scene-1' })
     await registry.map.execute(chatInteraction({}) as never, deps)
 
-    expect(asked).toEqual([{ token: 'player-token', sceneId: 'scene-1' }])
+    expect(asked).toEqual([{ token: PLAYER_SEAT, sceneId: 'scene-1' }])
     expect(sent).toHaveLength(1)
     expect(sent[0].channelId).toBe('player-chan')
     expect(sent[0].spec.header).toContain('Party map')
@@ -647,15 +693,38 @@ describe('/map â€” which seat renders, and where the picture lands', () => 
   it('uses the DM seat in the DM channel, and posts there and nowhere else', async () => {
     const { deps, sent, asked } = mapDeps({ liveScene: 'scene-1', maps: { 'scene-1': dmMap } })
     await registry.map.execute(chatInteraction({ channelId: 'dm-chan', userId: 'dm-1' }) as never, deps)
-    expect(asked).toEqual([{ token: 'dm-token', sceneId: 'scene-1' }])
+    expect(asked).toEqual([{ token: DM_SEAT, sceneId: 'scene-1' }])
     expect(sent[0].channelId).toBe('dm-chan')
     expect(sent[0].spec.header).toContain('DM map')
   })
 
-  it('refuses a campaign registered before the seats existed', async () => {
-    const { deps } = mapDeps({ liveScene: 'scene-1' })
-    deps.campaigns.setTokens('camp-1', 'dm-token', null)
-    await expect(registry.map.execute(chatInteraction({}) as never, deps)).rejects.toThrowError(/campaign setup/)
+  it('draws with a live seat without minting a new one', async () => {
+    const { deps, minted } = mapDeps({ liveScene: 'scene-1' })
+    await registry.map.execute(chatInteraction({}) as never, deps)
+    expect(minted).toEqual([])
+  })
+
+  it('re-mints an expired seat and draws with the new one', async () => {
+    const { deps, minted, asked } = mapDeps({ liveScene: 'scene-1' })
+    // A campaign set up over a week ago: the server's tokens live seven days and nothing
+    // else ever re-mints them.
+    deps.campaigns.setTokens('camp-1', seat('dm', -8 * 24 * 60 * 60 * 1000), seat('player', -1000))
+    await registry.map.execute(chatInteraction({}) as never, deps)
+
+    expect(minted.sort()).toEqual(['dm', 'player'])
+    expect(asked).toEqual([{ token: FRESH_PLAYER_SEAT, sceneId: 'scene-1' }])
+    // Saved, so the next command does not mint again.
+    expect(deps.campaigns.byId('camp-1')).toMatchObject({
+      serviceToken: FRESH_DM_SEAT,
+      playerToken: FRESH_PLAYER_SEAT,
+    })
+  })
+
+  it('mints the pair for a campaign registered before the seats existed', async () => {
+    const { deps, asked } = mapDeps({ liveScene: 'scene-1' })
+    deps.campaigns.setTokens('camp-1', DM_SEAT, null)
+    await registry.map.execute(chatInteraction({}) as never, deps)
+    expect(asked).toEqual([{ token: FRESH_PLAYER_SEAT, sceneId: 'scene-1' }])
   })
 })
 
@@ -710,7 +779,7 @@ describe('/handout â€” the DM pushes to the player channel', () => {
         },
       },
     })
-    deps.campaigns.setTokens('camp-1', 'dm-token', 'player-token')
+    deps.campaigns.setTokens('camp-1', DM_SEAT, PLAYER_SEAT)
     const interaction = chatInteraction({
       channelId: 'dm-chan',
       userId: 'dm-1',
@@ -718,7 +787,7 @@ describe('/handout â€” the DM pushes to the player channel', () => {
     })
     await registry.handout.execute(interaction as never, deps)
 
-    expect(asked).toEqual(['dm-token/asset-7'])
+    expect(asked).toEqual([`${DM_SEAT}/asset-7`])
     // Always the player channel, never the channel it was typed in (plan Â§6).
     expect(sent[0].channelId).toBe('player-chan')
     expect(sent[0].files).toEqual([{ name: 'asset-7.png', data: Buffer.from('fake-png-bytes') }])

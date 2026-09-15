@@ -67,6 +67,7 @@ import { build, SHARED_OWNER, type CustomId } from '../lib/custom-id'
 import { internal, notAuthorized, notFound, userInput, wrongChannel } from '../lib/errors'
 import { container, type AttachedFile, type ContainerSpec } from '../lib/ui'
 import { SNAPSHOT_FILE } from '../goblin/live-session'
+import { freshSeats } from '../goblin/seat'
 import { fetchPortraitDataUri, renderCharacterCard } from '../render/card-kit'
 import { mapSvg } from '../render/map-svg'
 import { rasterize } from '../render/raster'
@@ -543,7 +544,9 @@ export const registry: Registry = {
     ephemeral: true,
     authorize: dmOnly,
     execute: async (interaction, deps) => {
-      const campaign = requireCampaign(interaction, deps)
+      // Both halves open a socket that lives as long as the table does, so the runner is handed
+      // seats that will outlast the evening.
+      const campaign = await freshSeats(requireCampaign(interaction, deps), deps)
       const sub = interaction.options.getSubcommand()
       if (sub === 'start') {
         const { joinLink } = await deps.sessionRunner.start(
@@ -719,8 +722,10 @@ function namedBy(
 /** The scene library lives on the game server, not in the bot DB — the one autocomplete that
  * goes over the wire. A failure here is an empty list (see interaction-router.ts). */
 async function sceneAutocomplete(interaction: AutocompleteInteraction, deps: Deps): Promise<void> {
-  const campaign = deps.campaigns.byChannel(interaction.channelId)
-  if (!campaign?.serviceToken) return interaction.respond([])
+  const registered = deps.campaigns.byChannel(interaction.channelId)
+  if (!registered) return interaction.respond([])
+  const campaign = await freshSeats(registered, deps)
+  if (!campaign.serviceToken) return interaction.respond([])
   const query = interaction.options.getFocused().toLowerCase()
   const scenes = await deps.goblin.getScenes(campaign.serviceToken, campaign.goblinCampaignId)
   await interaction.respond(
@@ -740,7 +745,7 @@ function isDmMapView(channelId: string, userId: string, campaign: Campaign): boo
 const NO_TOKEN = 'This campaign has no game-server seat yet — the DM needs to run `/campaign setup` again.'
 
 async function postMap(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
-  const campaign = requireCampaign(interaction, deps)
+  const campaign = await freshSeats(requireCampaign(interaction, deps), deps)
   const dmView = isDmMapView(interaction.channelId, interaction.user.id, campaign)
   // The token *is* the redaction (plan §4): the player seat gets the server-cut document, so
   // the bot never decides what a player may see.
@@ -789,8 +794,10 @@ async function sendHandout(interaction: ChatInputCommandInteraction, deps: Deps)
   }
 
   if (assetId) {
-    if (!campaign.serviceToken) throw userInput(NO_TOKEN)
-    const asset = await deps.goblin.getAsset(campaign.serviceToken, assetId)
+    // Only the asset branch talks to the server, so only it pays for a seat check.
+    const token = (await freshSeats(campaign, deps)).serviceToken
+    if (!token) throw userInput(NO_TOKEN)
+    const asset = await deps.goblin.getAsset(token, assetId)
     add(assetFileName(assetId, asset.mime), asset.bytes, asset.mime)
   }
   if (upload) {

@@ -118,6 +118,9 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
   const logger = deps.logger ?? defaultLog
   const running = new Map<string, Running>()
 
+  // The seat on the campaign handed in, not a fresh one: keeping it alive is the caller's job
+  // (goblin/seat.ts) — /session start goes through freshSeats, and index.ts refreshes every
+  // live campaign's row before calling resume().
   function tokenOf(campaign: Campaign): string {
     if (!campaign.serviceToken)
       throw userInput('This campaign has no game-server token yet — run `/campaign setup` again.')
