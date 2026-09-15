@@ -147,7 +147,7 @@ export const initiative = guildOnly(
       o.setName('value').setDescription('What you rolled').setMinValue(-99).setMaxValue(999).setRequired(true),
     )
     .addStringOption((o) =>
-      o.setName('character').setDescription('Whose initiative').setRequired(false).setAutocomplete(true),
+      o.setName('character').setDescription('Which combatant').setRequired(false).setAutocomplete(true),
     ),
 )
 

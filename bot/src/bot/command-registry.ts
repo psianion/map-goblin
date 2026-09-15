@@ -423,15 +423,19 @@ export const registry: Registry = {
       // The seat wins when there is one: a claimed token says which combatant is this person's,
       // and no name has to agree with any other name for that to be true.
       const seat = tableIdentityOf(interaction.user.id)
+      // A `character:` picked off the autocomplete carries an entry key, which names one
+      // combatant and nothing else — so it answers before any name has to agree with a name.
+      const chosen = interaction.options.getString('character')
       const entry =
         entries.find((e) => seat !== undefined && e.identityId === seat) ??
+        entries.find((e) => e.key === chosen) ??
         namedBy(entries, interaction, deps, campaign)
       if (!deps.sessionRunner.command(campaign.goblinCampaignId, 'initiative', 'set', { key: entry.key, value }))
         throw internal("I couldn't reach the table — say the number out loud and try again.")
 
       await interaction.editReply(`Sent: **${entry.name}**, initiative ${value}.`)
     },
-    autocomplete: characterAutocomplete,
+    autocomplete: initiativeAutocomplete,
   },
 
   loot: {
@@ -644,6 +648,27 @@ async function characterAutocomplete(interaction: AutocompleteInteraction, deps:
   await interaction.respond(names.map((name) => ({ name, value: name })))
 }
 
+/** `/initiative` picks a combatant, not a character: while an encounter runs its own roster
+ * comes first (value = the entry key, which is exact), then the campaign's characters as
+ * everywhere else. Same-named entries are told apart by their key, the only handle the bot
+ * has for them until a seat carries a Discord id. */
+async function initiativeAutocomplete(interaction: AutocompleteInteraction, deps: Deps): Promise<void> {
+  const campaign = deps.campaigns.byChannel(interaction.channelId)
+  if (!campaign) return interaction.respond([])
+  const query = interaction.options.getFocused()
+  const entries = deps.sessionRunner.encounter(campaign.goblinCampaignId)?.entries ?? []
+  const seen = new Map<string, number>()
+  for (const e of entries) seen.set(e.name.toLowerCase(), (seen.get(e.name.toLowerCase()) ?? 0) + 1)
+  const combatants = entries
+    .filter((e) => e.name.toLowerCase().includes(query.toLowerCase()))
+    .map((e) => ({ name: (seen.get(e.name.toLowerCase()) ?? 0) > 1 ? `${e.name} (${e.key})` : e.name, value: e.key }))
+  const characters = filterAutocomplete(
+    deps.characters.byCampaign(campaign.goblinCampaignId).map((c) => c.name),
+    query,
+  ).map((name) => ({ name, value: name }))
+  await interaction.respond([...combatants, ...characters].slice(0, 25))
+}
+
 /** The rolls module rejects an over-cap string outright rather than trimming it, so anything
  * the bot forwards is cut to fit here — a long roll is worth showing shortened, not losing. */
 const cap = (text: string, max: number): string => (text.length <= max ? text : `${text.slice(0, max - 1)}…`)
@@ -652,10 +677,12 @@ const cap = (text: string, max: number): string => (text.length <= max ? text : 
  * The table identity a Discord member holds, if any — the seam `/initiative` prefers over a
  * name match, because a claimed combatant is a fact and a matching name is a guess.
  *
- * ponytail: always undefined. Nothing maps a Discord id to a table identity yet — no
- * discord_id column exists on any seat — so the name path carries the command. Ceiling: two
- * characters with the same name in one encounter are indistinguishable. When the column lands
- * this becomes that lookup, returns the seat's `identityId`, and nothing else here changes.
+ * ponytail: always undefined. Binding a Discord id to a table seat is a protocol change (the
+ * id travels on the seat, or a bind command sets it) plus a client affordance — its own
+ * workstream, not part of finishing the commands. Ceiling until then: the bot can only ask,
+ * so same-named combatants are answered by picking a key off the autocomplete rather than
+ * resolved for the player. When the seat carries the id, this becomes that lookup and returns
+ * the seat's `identityId`; nothing else here changes.
  */
 function tableIdentityOf(_discordId: string): string | undefined {
   return undefined
@@ -678,9 +705,15 @@ function namedBy(
         : "You don't have a character in this campaign — make one with `/character create`.",
     )
   }
-  const entry = entries.find((e) => e.name.toLowerCase() === char.name.toLowerCase())
-  if (!entry) throw notFound(`${char.name} isn't in this encounter — ask the DM to add them.`)
-  return entry
+  const matches = entries.filter((e) => e.name.toLowerCase() === char.name.toLowerCase())
+  if (matches.length === 0) throw notFound(`${char.name} isn't in this encounter — ask the DM to add them.`)
+  // Two "Bob"s and no seat to tell them apart: guessing puts a number on the wrong row mid-fight,
+  // so ask instead — the autocomplete lists them by key for exactly this.
+  if (matches.length > 1)
+    throw userInput(
+      `${matches.length} combatants are named ${char.name}. Pick one with the \`character\` option.`,
+    )
+  return matches[0]
 }
 
 /** The scene library lives on the game server, not in the bot DB — the one autocomplete that

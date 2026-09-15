@@ -1028,6 +1028,52 @@ describe('/initiative — a Discord roll into the live encounter', () => {
     ).rejects.toThrowError(/character create/)
   })
 
+  it('refuses to guess between two combatants of the same name', async () => {
+    const { deps, sentToTable } = tableDeps({ entries: [entry('e1', 'Zed'), entry('e2', 'Zed')] })
+    deps.characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Zed', className: 'Fighter', level: 1 })
+
+    await expect(
+      registry.initiative.execute(chatInteraction({ integers: { value: 17 } }) as never, deps),
+    ).rejects.toThrowError(/2 combatants are named Zed/)
+    expect(sentToTable).toEqual([])
+  })
+
+  it('sets the entry whose key was picked, without matching any name', async () => {
+    const { deps, sentToTable } = tableDeps({ entries: [entry('e1', 'Zed'), entry('e2', 'Zed')] })
+    deps.characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Zed', className: 'Fighter', level: 1 })
+
+    await registry.initiative.execute(
+      chatInteraction({ integers: { value: 12 }, strings: { character: 'e2' } }) as never,
+      deps,
+    )
+    expect(sentToTable[0].payload).toEqual({ key: 'e2', value: 12 })
+  })
+
+  it('offers the running encounter first, and only characters when none runs', async () => {
+    const fight = tableDeps({ entries: [entry('e1', 'Zed'), entry('e2', 'Zed'), entry('e3', 'Goblin')] })
+    fight.deps.characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Marra', className: 'Cleric', level: 1 })
+
+    const running = chatInteraction({ focused: '' })
+    await registry.initiative.autocomplete!(running as never, fight.deps)
+    expect(running.calls).toEqual([
+      [
+        'respond',
+        [
+          { name: 'Zed (e1)', value: 'e1' },
+          { name: 'Zed (e2)', value: 'e2' },
+          { name: 'Goblin', value: 'e3' },
+          { name: 'Marra', value: 'Marra' },
+        ],
+      ],
+    ])
+
+    const quiet = tableDeps()
+    quiet.deps.characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Marra', className: 'Cleric', level: 1 })
+    const idle = chatInteraction({ focused: '' })
+    await registry.initiative.autocomplete!(idle as never, quiet.deps)
+    expect(idle.calls).toEqual([['respond', [{ name: 'Marra', value: 'Marra' }]]])
+  })
+
   it('admits the number never landed when the seat is gone', async () => {
     const { deps } = tableDeps({ entries: [entry('e1', 'Zed')], reachable: false })
     deps.characters.create({ discordId: 'user-1', campaignId: 'camp-1', name: 'Zed', className: 'Fighter', level: 1 })
