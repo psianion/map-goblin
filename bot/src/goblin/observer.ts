@@ -96,8 +96,21 @@ export interface WireTriggerEntry {
   text: string
 }
 
+/** A card the DM shared with the whole table (`share-note` / `share-card`). Session-scoped,
+ * not per scene, and already redacted to what every role may read. */
+export interface WireJournalEntry {
+  id: string
+  at: number
+  kicker: 'place' | 'person' | 'missive' | 'lore'
+  title: string
+  body: string
+  imageKeys?: string[]
+  sceneId?: string
+}
+
 export interface TriggersState {
   byScene?: Record<string, { log?: WireTriggerEntry[] }>
+  journal?: WireJournalEntry[]
 }
 
 /** A combatant, narrowed to what `/initiative` needs to find the right one. */

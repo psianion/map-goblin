@@ -506,6 +506,32 @@ describe('session runner', () => {
     expect(text(threadPosts[1].spec)).toContain('**9**')
   })
 
+  it('posts a shared Journal card to the party channel and the thread', async () => {
+    const { runner, campaign, posted, observers } = harness()
+    await runner.start(campaign)
+    observers[0].emit(snapshot)
+    const journal = [{ id: 'j1', at: 1_000, kicker: 'place' as const, title: 'The Shrine', body: 'Water to the knee.' }]
+    observers[0].emit({ type: 'triggers', state: { journal } })
+    await settle()
+
+    // The party reads it where they read everything else…
+    const party = posted.filter((p) => p.channelId === 'player-chan' && p.spec.header?.startsWith('Journal'))
+    expect(party).toHaveLength(1)
+    expect(party[0].spec.header).toBe('Journal — The Sunken Keep')
+    expect(text(party[0].spec)).toContain('📜 **Place — The Shrine**')
+    expect(text(party[0].spec)).toContain('> Water to the knee.')
+    // …and the thread stays the full record.
+    const threadPosts = posted.filter((p) => p.channelId === 'thread-1')
+    expect(threadPosts).toHaveLength(1)
+    expect(text(threadPosts[0].spec)).toContain('**Place — The Shrine**')
+
+    // The same state again is not a second card.
+    observers[0].emit({ type: 'triggers', state: { journal } })
+    vi.advanceTimersByTime(EMBED_EDIT_MS * 2)
+    await settle()
+    expect(posted.filter((p) => p.spec.header?.startsWith('Journal'))).toHaveLength(1)
+  })
+
   it('drains, says the session ended and archives the thread on end', async () => {
     const { runner, campaign, posted, archived, observers } = harness()
     await runner.start(campaign)

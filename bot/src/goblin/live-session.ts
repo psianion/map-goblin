@@ -162,6 +162,13 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
       const texts = lines.sort((a, b) => a.at - b.at).map((line) => line.text)
       for (const block of chunkLines(texts)) await deps.announce(threadId, { blocks: [block] })
     }
+    // A shared Journal card is the one line the party is meant to read, and the thread lives
+    // under the DM channel — so the card also goes to the campaign channel, one container each,
+    // unthrottled: cards arrive one per DM command, not in bursts like dice.
+    const postParty = async (lines: LogLine[]): Promise<void> => {
+      for (const line of lines)
+        await deps.announce(campaign.channelId, { header: `Journal — ${campaign.name}`, blocks: [line.text] })
+    }
     let logMissedThread = false
     const logFlush = throttle(deps.throttleMs ?? EMBED_EDIT_MS, () => {
       const threadId = deps.sessions.byId(row.goblinSessionId)?.logThreadId
@@ -222,6 +229,11 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
       if (event.type === 'scene-changed') void loadNames(event.sceneId)
       const lines = sessionLog.apply(event)
       if (lines.length) {
+        const party = lines.filter((line) => line.to === 'party')
+        if (party.length)
+          void postParty(party).catch((error: unknown) =>
+            logger.warn('journal card post failed', { error: String(error) }),
+          )
         logBuffer.push(...lines)
         logFlush.call()
       }
