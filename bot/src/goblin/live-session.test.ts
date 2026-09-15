@@ -327,6 +327,24 @@ describe('session runner', () => {
     await expect(runner.end(campaign)).rejects.toThrow(/no session running/i)
   })
 
+  it('waits for the one recap when the server\'s session-ended echo races the DM command', async () => {
+    const { runner, campaign, sessions, posted, observers } = harness()
+    await runner.start(campaign)
+    observers[0].emit(snapshot)
+
+    // The end call is still telling the server when the server's broadcast lands: two
+    // finalize calls in one tick. The DM's reply must not resolve ahead of the recap post.
+    const ending = runner.end(campaign)
+    observers[0].emit({ type: 'session-ended' })
+    const recap = await ending
+    const recaps = () => posted.filter((p) => p.spec.header?.includes('Session recap'))
+    expect(recaps()).toHaveLength(1)
+    expect(sessions.byId('sess-1')?.recapMessageId).not.toBeNull()
+    expect(recap.scenes).toEqual(['Cragmaw Hideout'])
+    await settle()
+    expect(recaps()).toHaveLength(1)
+  })
+
   it('refuses to end a campaign with no table running', async () => {
     const { runner, campaign } = harness()
     await expect(runner.end(campaign)).rejects.toThrow(/no session running/i)

@@ -105,6 +105,16 @@ describe('mapSvg — an imported battlemap', () => {
     expect(mapSvg(battlemapImageOnly, { dmView: true })).toContain('<image')
   })
 
+  it('cuts tokens to the same seen ground as the image on a player sheet', () => {
+    // A figure on ground the party never swept must not sit on their blank parchment.
+    expect(mapSvg(battlemapImageOnly, { tokens })).not.toContain('<circle')
+    expect(mapSvg(battlemapImageOnly, { tokens, region })).toContain('<g clip-path="url(#seen)"><circle')
+    // The DM's own sheet draws them uncut, and with no clip group at all.
+    const dm = mapSvg(battlemapImageOnly, { tokens, dmView: true })
+    expect(dm).toContain('<circle')
+    expect(dm).not.toContain('clip-path="url(#seen)"')
+  })
+
   it('keeps the base image out of a player sheet even when the rest of the map came through', () => {
     expect(mapSvg(battlemap)).not.toContain('<image')
   })

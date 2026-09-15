@@ -176,7 +176,11 @@ export interface SocketLike {
   on: (event: string, listener: (...args: unknown[]) => void) => unknown
   send: (data: string) => void
   close: () => void
+  /** ws's readyState (1 = OPEN). Absent on a fake counts as open. */
+  readyState?: number
 }
+
+const SOCKET_OPEN = 1
 
 export type SocketFactory = (url: string) => SocketLike
 
@@ -340,7 +344,9 @@ export function createObserver(options: ObserverOptions): Observer {
       // before the join frame is answered, so a command posted into that window is dropped
       // silently — worse than reporting it never went.
       const live = socket
-      if (!live || !joined) return false
+      // A socket that is closing still accepts `send` without throwing and drops the frame;
+      // seen live once when the observer reconnected mid-command. Report it as not sent.
+      if (!live || !joined || (live.readyState ?? SOCKET_OPEN) !== SOCKET_OPEN) return false
       seq += 1
       try {
         live.send(JSON.stringify({ type: 'command', module, action, payload, seq }))

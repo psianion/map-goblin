@@ -594,14 +594,18 @@ function emptySheet(title: string, dmView: boolean): string {
 export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
   const dmView = options.dmView === true
   const scene = readScene(doc, dmView)
-  const tokens = visibleTokens(options.tokens ?? [], dmView)
   const title = options.title ?? scene.name
 
   // Fail closed, and *before* the bounds are taken: a player-facing render with nothing to cut
-  // the base image to drops it here, so a map that is only an image reads as the honest empty
-  // sheet rather than a sheet-sized hole where the dungeon would be.
+  // to drops the base image AND the tokens here, so a map that is only an image reads as the
+  // honest empty sheet rather than a sheet-sized hole where the dungeon would be. Tokens are
+  // the DM's observed list (only `hidden` ones filtered), so on a player sheet they are drawn
+  // through the same seen-clip as the image: a figure standing on ground the party has never
+  // swept must not appear on their parchment.
   const clip = dmView ? '' : seenClip(scene.floors.map(ringsPath).join(''), options.region)
-  if (!dmView && !clip) scene.images = []
+  const seen = dmView || clip !== ''
+  if (!seen) scene.images = []
+  const tokens = seen ? visibleTokens(options.tokens ?? [], dmView) : []
 
   // The frame the server stamps on a redacted document measures the *full* map, so an early
   // party gets a sheet the size of the dungeon rather than the size of one room — which is
@@ -635,13 +639,11 @@ export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
   ]
 
   if (floorPath) out.push(`<defs><clipPath id="floors"><path d="${floorPath}" clip-rule="evenodd"/></clipPath></defs>`)
+  if (clip) out.push(`<defs><clipPath id="${IMAGE_CLIP_ID}">${clip}</clipPath></defs>`)
+  const seenAttr = clip ? ` clip-path="url(#${IMAGE_CLIP_ID})"` : ''
 
   // The base image goes down first: floors, water and ink are the schematic drawn *on* it.
-  if (scene.images.length) {
-    if (clip) out.push(`<defs><clipPath id="${IMAGE_CLIP_ID}">${clip}</clipPath></defs>`)
-    const attr = clip ? ` clip-path="url(#${IMAGE_CLIP_ID})"` : ''
-    for (const image of scene.images) out.push(drawImage(image, attr))
-  }
+  for (const image of scene.images) out.push(drawImage(image, seenAttr))
 
   if (floorPath) {
     out.push(`<path d="${floorPath}" fill-rule="evenodd" fill="${FLOOR}"/>`)
@@ -701,7 +703,8 @@ export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
       }),
     )
 
-  for (const token of tokens) out.push(drawToken(token, dmView))
+  const drawnTokens = tokens.map((token) => drawToken(token, dmView)).join('')
+  if (drawnTokens) out.push(seenAttr ? `<g${seenAttr}>${drawnTokens}</g>` : drawnTokens)
 
   const titleFont = TITLE_PX / cellPx
   out.push(

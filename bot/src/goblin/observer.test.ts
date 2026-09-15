@@ -6,6 +6,7 @@ import { createObserver, socketUrl, PROTOCOL_VERSION, type GoblinEvent, type Soc
 class FakeSocket implements SocketLike {
   readonly sent: string[] = []
   closed = false
+  readyState?: number
   readonly #listeners = new Map<string, ((...args: unknown[]) => void)[]>()
 
   constructor(readonly url: string) {}
@@ -82,6 +83,16 @@ describe('socketUrl', () => {
 })
 
 describe('observer', () => {
+  it('reports a command as not sent once the socket is no longer open', () => {
+    const { observer, latest } = harness()
+    latest().open()
+    latest().deliver(snapshot())
+    expect(observer.command('doors', 'toggle', { id: 'd1' })).toBe(true)
+    latest().readyState = 2 // CLOSING: ws accepts send() and drops the frame
+    expect(observer.command('doors', 'toggle', { id: 'd1' })).toBe(false)
+    expect(latest().sent.filter((s) => s.includes('"command"'))).toHaveLength(1)
+  })
+
   it('sends the join frame first, and nothing before it', () => {
     const { sockets, latest } = harness()
     expect(sockets).toHaveLength(1)

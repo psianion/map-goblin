@@ -249,7 +249,13 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
       stats.apply(event)
       saveStats()
       if (event.type === 'initiative') entry.encounter = event.state
-      if (event.type === 'session-state') void loadNames(event.state.activeSceneId)
+      // Every scene the snapshot lists, not just the active one: a resumed runner comes back on
+      // whatever scene the table is on now, and a door on any other scene would otherwise read
+      // as "a door" for the rest of the session. `namedScenes` makes each fetch happen once.
+      if (event.type === 'session-state') {
+        void loadNames(event.state.activeSceneId)
+        for (const scene of event.state.scenes ?? []) void loadNames(scene.id)
+      }
       if (event.type === 'scene-changed') void loadNames(event.sceneId)
       const lines = sessionLog.apply(event)
       if (lines.length) {
@@ -273,7 +279,19 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
    * `session-ended` and the give-up path all arrive here; the `ended_at IS NULL` guard in the
    * store decides which of them measured the table.
    */
-  async function finalize(campaign: Campaign, sessionId: string): Promise<SessionRecap> {
+  // `/session end` and the server's own `session-ended` broadcast both land here within the
+  // same tick; the second caller waits on the first's promise instead of returning the stored
+  // recap while the first is still posting it — so the DM's "recap posted" reply is true.
+  const finalizing = new Map<string, Promise<SessionRecap>>()
+  function finalize(campaign: Campaign, sessionId: string): Promise<SessionRecap> {
+    const pending = finalizing.get(sessionId)
+    if (pending) return pending
+    const promise = finalizeOnce(campaign, sessionId).finally(() => finalizing.delete(sessionId))
+    finalizing.set(sessionId, promise)
+    return promise
+  }
+
+  async function finalizeOnce(campaign: Campaign, sessionId: string): Promise<SessionRecap> {
     const entry = running.get(sessionId)
     entry?.refresh.cancel()
     entry?.logFlush.cancel()
