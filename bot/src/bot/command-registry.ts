@@ -722,8 +722,10 @@ async function postMap(interaction: ChatInputCommandInteraction, deps: Deps): Pr
   const doc = await deps.goblin.getMap(token, sceneId)
   // Tokens only for the scene the observer is actually watching: positions from another scene
   // would be fiction drawn at full confidence.
+  // Tokens and the swept-ground mask are both "this scene or nothing" for the same reason.
   const tokens = live?.sceneId === sceneId ? live.tokens : undefined
-  const png = rasterize(mapSvg(doc, { tokens, dmView }))
+  const region = live?.sceneId === sceneId ? live.region : undefined
+  const png = rasterize(mapSvg(doc, { tokens, dmView, region }))
 
   await deps.announce(
     dmView ? campaign.dmChannelId : interaction.channelId,

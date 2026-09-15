@@ -133,3 +133,32 @@ describe('session stats', () => {
     expect(stats.recap(0).durationMs).toBe(0)
   })
 })
+
+describe('session stats — the party\'s swept ground', () => {
+  const mask = (bits: string) => ({ minX: 0, minY: 0, cols: 8, rows: 2, bits })
+
+  it('keeps the latest region per scene from a fog event', () => {
+    const stats = feed([
+      { type: 'fog', state: { byScene: { 'scene-1': { region: mask('AQA=') } } } },
+      { type: 'fog', state: { byScene: { 'scene-1': { region: mask('AwA=') }, 'scene-2': { region: mask('/wA=') } } } },
+    ])
+    expect(stats.region('scene-1')?.bits).toBe('AwA=')
+    expect(stats.region('scene-2')?.bits).toBe('/wA=')
+    expect(stats.region('scene-3')).toBeUndefined()
+  })
+
+  it('seeds the region from a session-state snapshot', () => {
+    const stats = feed([
+      { type: 'session-state', state: state({ modules: { fog: { byScene: { 'scene-1': { region: mask('AQA=') } } } } }) },
+    ])
+    expect(stats.region('scene-1')?.bits).toBe('AQA=')
+  })
+
+  it('drops a region the fog module has stopped carrying rather than showing a stale one', () => {
+    const stats = feed([
+      { type: 'fog', state: { byScene: { 'scene-1': { region: mask('AQA=') } } } },
+      { type: 'fog', state: { byScene: { 'scene-1': {} } } },
+    ])
+    expect(stats.region('scene-1')).toBeUndefined()
+  })
+})

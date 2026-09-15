@@ -8,8 +8,16 @@
 // the events that changed it were missed. Cumulative counters are never replaced — the
 // recap of a table that dropped once is still the recap of the whole table.
 
-import type { MapToken } from '../render/map-svg'
-import type { DoorFlags, DoorsState, GoblinEvent, SessionState, TokensState, WireToken } from './observer'
+import type { MapToken, RegionMask } from '../render/map-svg'
+import type {
+  DoorFlags,
+  DoorsState,
+  FogState,
+  GoblinEvent,
+  SessionState,
+  TokensState,
+  WireToken,
+} from './observer'
 
 export interface LiveView {
   /** Connected players, in join order. The DM is not one of them. */
@@ -35,6 +43,9 @@ export interface SessionStats {
   /** The last known token positions for a scene — the map snapshot's overlay. Empty until
    * the `tokens` module has said something about that scene. */
   tokens: (sceneId: string) => MapToken[]
+  /** The party's swept ground on that scene — what cuts a player's base image (map-svg.ts).
+   * Undefined until the `fog` module has carried a region for it. */
+  region: (sceneId: string) => RegionMask | undefined
 }
 
 /** SIZE_CELLS on the game side. Re-declared, like every other wire constant here. */
@@ -76,6 +87,8 @@ export function createSessionStats(startedAt: number): SessionStats {
   let dmConnected = false
   /** Latest positions per scene. Replaced wholesale — the module sends its whole state. */
   const tokensByScene = new Map<string, MapToken[]>()
+  /** Latest party region per scene. Same "latest wins" rule as positions. */
+  const regionsByScene = new Map<string, RegionMask>()
   /** Null means "no baseline" — the next doors state is recorded, not counted. */
   let openDoors: Record<string, Record<string, boolean>> | null = null
 
@@ -89,6 +102,15 @@ export function createSessionStats(startedAt: number): SessionStats {
   function ingestTokens(state: TokensState | undefined): void {
     for (const [scene, tokens] of Object.entries(state?.byScene ?? {}))
       tokensByScene.set(scene, toMapTokens(tokens))
+  }
+
+  /** A scene whose entry has stopped carrying a region *loses* the one it had: a stale mask
+   * is the one way this record could show a player ground the table no longer counts seen. */
+  function ingestFog(state: FogState | undefined): void {
+    for (const [scene, entry] of Object.entries(state?.byScene ?? {})) {
+      if (entry?.region) regionsByScene.set(scene, entry.region)
+      else regionsByScene.delete(scene)
+    }
   }
 
   function join(name: string): void {
@@ -115,6 +137,7 @@ export function createSessionStats(startedAt: number): SessionStats {
     openDoors = hasByScene(state.modules?.doors) ? snapshotOf(state.modules!.doors as DoorsState) : null
     // Positions, unlike door counts, are pure "latest wins" — a snapshot is simply the truth.
     if (hasByScene(state.modules?.tokens)) ingestTokens(state.modules!.tokens as TokensState)
+    if (hasByScene(state.modules?.fog)) ingestFog(state.modules!.fog as FogState)
   }
 
   function countOpens(state: DoorsState): void {
@@ -154,6 +177,9 @@ export function createSessionStats(startedAt: number): SessionStats {
         case 'tokens':
           ingestTokens(event.state)
           return
+        case 'fog':
+          ingestFog(event.state)
+          return
         case 'dm-disconnected':
           dmConnected = false
           return
@@ -168,6 +194,8 @@ export function createSessionStats(startedAt: number): SessionStats {
     live: () => ({ players: [...present], sceneName, sceneId, dmConnected }),
 
     tokens: (scene) => tokensByScene.get(scene) ?? [],
+
+    region: (scene) => regionsByScene.get(scene),
 
     recap: (endedAt) => ({
       scenes: [...scenesVisited],

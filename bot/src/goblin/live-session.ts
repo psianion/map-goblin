@@ -15,7 +15,7 @@ import {
 import { userInput } from '../lib/errors'
 import { log as defaultLog } from '../lib/log'
 import type { AttachedFile, ContainerSpec } from '../lib/ui'
-import { mapSvg, type MapToken } from '../render/map-svg'
+import { mapSvg, type MapToken, type RegionMask } from '../render/map-svg'
 import { rasterize } from '../render/raster'
 import type { InitiativeState, Observer } from './observer'
 import type { GoblinRest } from './rest'
@@ -61,8 +61,11 @@ export interface SessionRunner {
   resume: () => void
   stopAll: () => void
   /** What the observer currently knows about a campaign's table — the scene `/map` defaults
-   * to, and the tokens it overlays. Undefined when no session is being watched. */
-  liveState: (campaignId: string) => { sceneId: string | null; tokens: MapToken[] } | undefined
+   * to, the tokens it overlays, and the swept ground a player sheet is cut to. Undefined when
+   * no session is being watched. */
+  liveState: (
+    campaignId: string,
+  ) => { sceneId: string | null; tokens: MapToken[]; region?: RegionMask } | undefined
   /** The encounter the table is running, if any — what `/initiative` resolves a name against. */
   encounter: (campaignId: string) => InitiativeState | undefined
   /** Runs a command on that campaign's table through the seat the observer holds. False means
@@ -315,7 +318,8 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
     const sceneId = stats?.live().sceneId
     if (!sceneId || !campaign.playerToken) return undefined
     const doc = await deps.rest.getMap(campaign.playerToken, sceneId)
-    return { name: SNAPSHOT_FILE, data: rasterize(mapSvg(doc, { tokens: stats?.tokens(sceneId) })) }
+    const svg = mapSvg(doc, { tokens: stats?.tokens(sceneId), region: stats?.region(sceneId) })
+    return { name: SNAPSHOT_FILE, data: rasterize(svg) }
   }
 
   return {
@@ -382,7 +386,11 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
       const entry = watching(campaignId)
       if (!entry) return undefined
       const sceneId = entry.stats.live().sceneId
-      return { sceneId, tokens: sceneId ? entry.stats.tokens(sceneId) : [] }
+      return {
+        sceneId,
+        tokens: sceneId ? entry.stats.tokens(sceneId) : [],
+        region: sceneId ? entry.stats.region(sceneId) : undefined,
+      }
     },
 
     encounter: (campaignId) => watching(campaignId)?.encounter,

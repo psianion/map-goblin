@@ -6,6 +6,7 @@
 // The wire types are re-declared rather than imported from the game server — the bot depends
 // on the protocol, not on the server package.
 
+import type { RegionMask } from '../render/map-svg'
 import { log as defaultLog } from '../lib/log'
 
 /** Must match the server's PROTOCOL_VERSION, or the join frame is refused outright. */
@@ -78,9 +79,14 @@ export interface RollsState {
   log?: WireRollEvent[]
 }
 
-/** Fog carries the same log shape as doors; its per-scene fog facts are nobody's here. */
+/**
+ * Fog carries the same log shape as doors, plus the one per-scene fact the bot draws: the
+ * party's `region` mask on a roomless (imported) map. Room ids stay nobody's business here —
+ * the server's redactor already decides which rooms reach a player document.
+ */
 export interface FogState {
   log?: WireLogEntry[]
+  byScene?: Record<string, { region?: RegionMask } | undefined>
 }
 
 /** A trigger's log line arrives with its sentence already written server-side. */
