@@ -161,6 +161,7 @@ const stubSessions = (): Deps['sessions'] => ({
   setLiveMessageId: unused,
   setRecapMessageId: unused,
   setLogThreadId: unused,
+  saveStats: unused,
   stats: () => ({ played: 0, lastStartedAt: null }),
 })
 const stubGoblin = (): Deps['goblin'] => ({

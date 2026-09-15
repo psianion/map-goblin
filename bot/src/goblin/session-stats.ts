@@ -74,14 +74,23 @@ function toMapTokens(scene: Record<string, WireToken>): MapToken[] {
   }))
 }
 
-export function createSessionStats(startedAt: number): SessionStats {
+/** What a restarted bot carries back in: the cumulative half of a recap, stored on the
+ * sessions row. Structurally the store's `SessionCounters`. */
+export type StatsSeed = Omit<RecapStats, 'durationMs'>
+
+/**
+ * `seed` resumes an evening the bot was watching before it restarted. Only the cumulative
+ * counters seed — who is here now and which scene is live are replaced by the next
+ * `session-state` snapshot, exactly as a reconnect already does.
+ */
+export function createSessionStats(startedAt: number, seed?: StatsSeed): SessionStats {
   const sceneNames = new Map<string, string>()
   // Insertion-ordered sets: a recap reads as the evening did, not alphabetically.
-  const scenesVisited = new Set<string>()
-  const everPresent = new Set<string>()
+  const scenesVisited = new Set<string>(seed?.scenes)
+  const everPresent = new Set<string>(seed?.players)
   let present = new Set<string>()
-  let peakPlayers = 0
-  let doorsOpened = 0
+  let peakPlayers = seed?.peakPlayers ?? 0
+  let doorsOpened = seed?.doorsOpened ?? 0
   let sceneName: string | null = null
   let sceneId: string | null = null
   let dmConnected = false

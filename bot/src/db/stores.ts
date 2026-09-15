@@ -933,7 +933,13 @@ export interface BotSession {
   recapMessageId: string | null
   /** The session's log thread under the DM channel — kept for the same restart reason. */
   logThreadId: string | null
+  /** The running counters, saved as they change: what a resumed observer starts from. */
+  stats: SessionCounters | null
 }
+
+/** The recap's cumulative half. durationMs is derived from startedAt and the calendar line is
+ * read at the end, so neither is worth storing while the table is still going. */
+export type SessionCounters = Omit<SessionRecap, 'durationMs' | 'calendarLine'>
 
 /** What the observer's accumulator produced — stored verbatim so "Previously on…" and
  * `/campaign status` read it back without re-deriving anything. */
@@ -959,6 +965,9 @@ export interface Sessions {
   setLiveMessageId: (goblinSessionId: string, messageId: string) => BotSession
   setRecapMessageId: (goblinSessionId: string, messageId: string) => BotSession
   setLogThreadId: (goblinSessionId: string, threadId: string) => BotSession
+  /** Overwrites the running counters — called on every counter change, so it stays a single
+   * synchronous UPDATE and returns nothing to read back. */
+  saveStats: (goblinSessionId: string, stats: SessionCounters) => void
   /** Sessions played and when the last one started — `/campaign status`'s M5 block. */
   stats: (campaignId: string) => { played: number; lastStartedAt: number | null }
 }
@@ -973,10 +982,11 @@ interface BotSessionRow {
   live_message_id: string | null
   recap_message_id: string | null
   log_thread_id: string | null
+  stats: string | null
 }
 
 const SESSION_COLUMNS =
-  'goblin_session_id, campaign_id, invite_code, started_at, ended_at, recap, live_message_id, recap_message_id, log_thread_id'
+  'goblin_session_id, campaign_id, invite_code, started_at, ended_at, recap, live_message_id, recap_message_id, log_thread_id, stats'
 
 function toBotSession(row: BotSessionRow): BotSession {
   return {
@@ -989,6 +999,7 @@ function toBotSession(row: BotSessionRow): BotSession {
     liveMessageId: row.live_message_id,
     recapMessageId: row.recap_message_id,
     logThreadId: row.log_thread_id,
+    stats: row.stats ? (JSON.parse(row.stats) as SessionCounters) : null,
   }
 }
 
@@ -1027,6 +1038,9 @@ export function createSessions(db: Database): Sessions {
   const setLogThreadStmt = db.prepare<[string, string]>(
     'UPDATE sessions SET log_thread_id = ? WHERE goblin_session_id = ?',
   )
+  const saveStatsStmt = db.prepare<[string, string]>(
+    'UPDATE sessions SET stats = ? WHERE goblin_session_id = ?',
+  )
   const statsStmt = db.prepare<[string], { played: number; last_started_at: number | null }>(
     'SELECT count(*) AS played, max(started_at) AS last_started_at FROM sessions WHERE campaign_id = ?',
   )
@@ -1060,6 +1074,9 @@ export function createSessions(db: Database): Sessions {
     setLogThreadId: (goblinSessionId, threadId) => {
       setLogThreadStmt.run(threadId, goblinSessionId)
       return toBotSession(byIdStmt.get(goblinSessionId)!)
+    },
+    saveStats: (goblinSessionId, stats) => {
+      saveStatsStmt.run(JSON.stringify(stats), goblinSessionId)
     },
     stats: (campaignId) => {
       const row = statsStmt.get(campaignId)

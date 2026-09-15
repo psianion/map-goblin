@@ -64,6 +64,30 @@ describe('session stats', () => {
     expect(stats.live().dmConnected).toBe(true)
   })
 
+  it('resumes from a seed: cumulative counters continue, the live view does not', () => {
+    const stats = createSessionStats(0, {
+      scenes: ['The Vault'],
+      doorsOpened: 4,
+      players: ['Zed', 'Mira'],
+      peakPlayers: 2,
+    })
+    stats.apply({ type: 'session-state', state: state({ players: [player('Zed')] }) })
+    stats.apply(doors({ 'scene-1': { d1: door(false) } }))
+    stats.apply(doors({ 'scene-1': { d1: door(true) } }))
+
+    const recap = stats.recap(0)
+    expect(recap.doorsOpened).toBe(5)
+    expect(recap.scenes).toEqual(['The Vault', 'Cragmaw Hideout'])
+    expect(recap.players).toEqual(['Zed', 'Mira'])
+    // Seeded peak survives a smaller present set; who is here now is the snapshot's word.
+    expect(recap.peakPlayers).toBe(2)
+    expect(stats.live().players).toEqual(['Zed'])
+  })
+
+  it('starts at zero with no seed', () => {
+    expect(feed([]).recap(0)).toMatchObject({ scenes: [], doorsOpened: 0, players: [], peakPlayers: 0 })
+  })
+
   it('counts a door only on a closed → open transition it actually watched', () => {
     const stats = feed([
       { type: 'session-state', state: state() },

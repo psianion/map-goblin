@@ -141,6 +141,12 @@ const snapshot: GoblinEvent = {
   },
 }
 
+/** The first one is only a baseline — a door is counted on the closed → open transition. */
+const doorsEvent = (open: boolean): GoblinEvent => ({
+  type: 'doors',
+  state: { byScene: { 'scene-1': { d1: { open, locked: false, revealed: true } } } },
+})
+
 const text = (spec: ContainerSpec): string => `${spec.header ?? ''}\n${(spec.blocks ?? []).join('\n')}`
 
 /** Finalize is kicked off by a synchronous event; its posts are a promise chain. */
@@ -330,12 +336,39 @@ describe('session runner', () => {
     const { runner, sessions, observers, edited } = harness()
     sessions.start('sess-old', 'camp-1', 'QQ7QQ7')
     sessions.setLiveMessageId('sess-old', 'msg-old')
+    sessions.saveStats('sess-old', { scenes: ['The Vault'], doorsOpened: 4, players: ['Zed'], peakPlayers: 2 })
 
     runner.resume()
     expect(observers).toHaveLength(1)
     observers[0].emit(snapshot)
     expect(edited.at(-1)?.messageId).toBe('msg-old')
     expect(sessions.byId('sess-old')?.endedAt).toBeNull()
+
+    // The evening's count carried over the restart and kept going.
+    observers[0].emit(doorsEvent(false))
+    observers[0].emit(doorsEvent(true))
+    expect(sessions.byId('sess-old')?.stats).toEqual({
+      scenes: ['The Vault', 'Cragmaw Hideout'],
+      doorsOpened: 5,
+      players: ['Zed'],
+      peakPlayers: 2,
+    })
+  })
+
+  it('a fresh session starts its counters at zero and writes them as they change', async () => {
+    const { runner, campaign, sessions, observers } = harness()
+    await runner.start(campaign)
+    expect(sessions.byId('sess-1')?.stats).toBeNull()
+
+    observers[0].emit(snapshot)
+    observers[0].emit(doorsEvent(false))
+    observers[0].emit(doorsEvent(true))
+    expect(sessions.byId('sess-1')?.stats).toEqual({
+      scenes: ['Cragmaw Hideout'],
+      doorsOpened: 1,
+      players: ['Zed'],
+      peakPlayers: 1,
+    })
   })
 
   it('finalizes a resumed session the server closed while the bot was down', async () => {

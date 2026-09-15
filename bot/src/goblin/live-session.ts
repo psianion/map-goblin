@@ -4,7 +4,15 @@
 // Discord-free by construction — `announce`/`edit` are injected callbacks and the observer
 // factory is too, so the whole lifecycle runs in a unit test with no socket and no gateway.
 
-import type { BotSession, Calendar, Campaign, Characters, SessionRecap, Sessions } from '../db/stores'
+import type {
+  BotSession,
+  Calendar,
+  Campaign,
+  Characters,
+  SessionCounters,
+  SessionRecap,
+  Sessions,
+} from '../db/stores'
 import { calendarLine } from '../features/calendar'
 import {
   joinUrl,
@@ -127,7 +135,19 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
   }
 
   function attach(campaign: Campaign, row: BotSession, resumed: boolean): Running {
-    const stats = createSessionStats(row.startedAt)
+    // A resumed row carries the evening's counters back in; a fresh one has none and starts
+    // at zero. Either way the live view waits for the next snapshot.
+    const stats = createSessionStats(row.startedAt, row.stats ?? undefined)
+    let savedStats = JSON.stringify(countersOf(stats))
+    /** Every counter change, straight to the row: a restart is the only thing this defends
+     * against, and it can happen between any two events. */
+    const saveStats = (): void => {
+      const counters = countersOf(stats)
+      const json = JSON.stringify(counters)
+      if (json === savedStats) return
+      savedStats = json
+      deps.sessions.saveStats(row.goblinSessionId, counters)
+    }
     let missedBeforeReady = false
     const refresh = throttle(deps.throttleMs ?? EMBED_EDIT_MS, () => {
       const current = deps.sessions.byId(row.goblinSessionId)
@@ -224,6 +244,7 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
         })
       }
       stats.apply(event)
+      saveStats()
       if (event.type === 'initiative') entry.encounter = event.state
       if (event.type === 'session-state') void loadNames(event.state.activeSceneId)
       if (event.type === 'scene-changed') void loadNames(event.sceneId)
@@ -259,7 +280,9 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
     const before = deps.sessions.byId(sessionId)
     if (before?.endedAt !== null && before?.recap) return before.recap
 
-    const stats = entry?.stats ?? createSessionStats(before?.startedAt ?? Date.now())
+    // No entry means nothing was watching (a row finished without an observer) — the stored
+    // counters are then all this recap can be built from.
+    const stats = entry?.stats ?? createSessionStats(before?.startedAt ?? Date.now(), before?.stats ?? undefined)
     const recap: SessionRecap = {
       ...stats.recap(Date.now()),
       calendarLine: calendarLine(deps.calendar.get(campaign.goblinCampaignId)),
@@ -418,6 +441,12 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
     }
     return undefined
   }
+}
+
+/** The recap's cumulative half — what the row stores while the table is still running. */
+function countersOf(stats: SessionStats): SessionCounters {
+  const { scenes, doorsOpened, players, peakPlayers } = stats.recap(0)
+  return { scenes, doorsOpened, players, peakPlayers }
 }
 
 export interface Throttled {

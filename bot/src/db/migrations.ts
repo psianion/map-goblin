@@ -178,4 +178,9 @@ export const MIGRATIONS: readonly string[] = [
   // v14: the session's log thread under the DM channel — stored for the same reason as
   // live_message_id: a bot that restarts mid-session keeps writing into the thread it opened.
   `ALTER TABLE sessions ADD COLUMN log_thread_id TEXT`,
+  // v15: the cumulative recap counters, written as they change. `recap` is the finished
+  // article; this is the running total, so a bot that restarts mid-session resumes the
+  // evening's count instead of recapping only its second half. durationMs is not in it —
+  // started_at already says that.
+  `ALTER TABLE sessions ADD COLUMN stats TEXT`,
 ]

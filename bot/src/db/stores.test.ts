@@ -133,6 +133,18 @@ describe('createSessions', () => {
     expect(sessions.byId('sess-1')?.logThreadId).toBe('thread-1')
   })
 
+  it('saves the running counters so a restarted bot can resume them', () => {
+    const sessions = sessionsStore()
+    expect(sessions.start('sess-1', 'camp-1', 'AB2CD3').stats).toBeNull()
+
+    const counters = { scenes: ['The Vault'], doorsOpened: 4, players: ['Zed', 'Mira'], peakPlayers: 2 }
+    sessions.saveStats('sess-1', counters)
+    expect(sessions.byId('sess-1')?.stats).toEqual(counters)
+
+    sessions.saveStats('sess-1', { ...counters, doorsOpened: 5 })
+    expect(sessions.byId('sess-1')?.stats?.doorsOpened).toBe(5)
+  })
+
   it('lastEnded is the most recent finished table, never the live one', () => {
     const sessions = sessionsStore()
     sessions.start('sess-1', 'camp-1', 'A')
