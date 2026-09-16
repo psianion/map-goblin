@@ -115,6 +115,32 @@ describe('mapSvg — an imported battlemap', () => {
     expect(dm).not.toContain('clip-path="url(#seen)"')
   })
 
+  it('cuts lamps and labels the same way — a light on unswept ground says what is there', () => {
+    const lit = {
+      ...battlemapImageOnly,
+      layers: [
+        ...battlemapImageOnly.layers,
+        {
+          id: 'layer-lights',
+          name: 'Lights',
+          type: 'dungeon',
+          visible: true,
+          children: [
+            { childType: 'light', visible: true, position: { x: 3, y: 3 } },
+            { childType: 'text', visible: true, text: 'Millpond', position: { x: 9, y: 6 }, fontSize: 0.5 },
+          ],
+        },
+      ],
+    }
+    const LAMP_RING = 'r="0.85"'
+    expect(mapSvg(lit)).not.toContain(LAMP_RING)
+    expect(mapSvg(lit)).not.toContain('Millpond')
+    const cut = mapSvg(lit, { region })
+    expect(cut.indexOf(LAMP_RING)).toBeGreaterThan(cut.indexOf('<g clip-path="url(#seen)">'))
+    expect(cut.indexOf('Millpond')).toBeGreaterThan(cut.indexOf('<g clip-path="url(#seen)">'))
+    expect(mapSvg(lit, { dmView: true })).toContain(LAMP_RING)
+  })
+
   it('keeps the base image out of a player sheet even when the rest of the map came through', () => {
     expect(mapSvg(battlemap)).not.toContain('<image')
   })

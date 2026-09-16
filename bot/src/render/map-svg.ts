@@ -674,10 +674,16 @@ export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
       `<polyline points="${wall.points.map(([x, y]) => `${f(x)},${f(y)}`).join(' ')}" fill="none" stroke="${INK}" stroke-width="${f(wall.width)}" stroke-linecap="round" stroke-linejoin="round"/>`,
     )
 
+  // Point-anchored ink — lamps, labels, room names, tokens — is gathered and drawn through the
+  // seen-clip on a player sheet: a lamp or a name on unswept parchment gives away what is there.
+  // Walls and doors are not: the server already cuts those per room, and a door leaf straddles
+  // its wall, so a floor-ring clip would halve every door on an ordinary map.
+  const ink: string[] = []
+
   // Lights are a hint, not a bake: a warm mark and a soft ring where the painted render would
   // pool light. The schematic cannot carry the glow, but it can say where to imagine one.
   for (const lamp of scene.lamps)
-    out.push(
+    ink.push(
       `<circle cx="${f(lamp.x)}" cy="${f(lamp.y)}" r="0.85" fill="${ACCENT}" fill-opacity="0.16"/>`,
       `<circle cx="${f(lamp.x)}" cy="${f(lamp.y)}" r="0.18" fill="${ACCENT}" stroke="${INK}" stroke-width="0.04"/>`,
     )
@@ -685,7 +691,7 @@ export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
   for (const door of scene.doors) out.push(drawDoor(door, doorAngle(door, segments)))
 
   for (const label of scene.labels)
-    out.push(
+    ink.push(
       text(label.text, label.x, label.y, label.size, {
         'text-anchor': 'middle',
         fill: MUTED,
@@ -695,7 +701,7 @@ export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
 
   const roomFont = clamp(LABEL_PX / cellPx, 0.3, 0.95)
   for (const room of scene.rooms)
-    out.push(
+    ink.push(
       text(room.text, room.x, room.y + roomFont * 0.35, roomFont, {
         'text-anchor': 'middle',
         'font-weight': '700',
@@ -703,8 +709,8 @@ export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
       }),
     )
 
-  const drawnTokens = tokens.map((token) => drawToken(token, dmView)).join('')
-  if (drawnTokens) out.push(seenAttr ? `<g${seenAttr}>${drawnTokens}</g>` : drawnTokens)
+  for (const token of tokens) ink.push(drawToken(token, dmView))
+  if (ink.length) out.push(seenAttr ? `<g${seenAttr}>${ink.join('')}</g>` : ink.join(''))
 
   const titleFont = TITLE_PX / cellPx
   out.push(
