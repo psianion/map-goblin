@@ -143,6 +143,8 @@ client.on(Events.GuildMemberAdd, (member) => {
 })
 client.once(Events.ClientReady, (ready) => {
   log.info('bot ready', { user: ready.user.tag, guild: env.DISCORD_GUILD_ID })
+  // One line in the log channel per boot, so a restart is visible from Discord itself.
+  channelLog.audit(`🟢 Online as ${ready.user.tag}`)
   // A table the bot was watching when it went down is still running — or was closed while
   // it was away, which the runner discovers and finalizes. Either way it is picked back up
   // here, after the gateway is live, because resuming edits a message.
