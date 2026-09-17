@@ -5,17 +5,28 @@ import { userInput } from '../lib/errors'
 import type { SchedulePoll } from '../db/stores'
 import type { ContainerSpec } from '../lib/ui'
 
-/** Throws BotError(user_input) on anything Date.parse can't read — never on a well-formed date. */
-export function parseCandidateDate(raw: string): number {
+/**
+ * A typed date, or undefined. Date.parse alone is not the test: V8 reads "today at 11" as the
+ * first of November, so a string only counts once it carries a real year-month-day.
+ */
+export function readTypedDate(raw: string): number | undefined {
+  if (!/\d{4}-\d{2}-\d{2}/.test(raw)) return undefined
   const ms = Date.parse(raw)
-  if (Number.isNaN(ms)) throw userInput(`Couldn't read "${raw}" as a date. Try something like "2026-08-22 19:00".`)
+  return Number.isNaN(ms) ? undefined : ms
+}
+
+/** Throws BotError(user_input) on anything that is not a dated slot — never on a well-formed date. */
+export function parseCandidateDate(raw: string): number {
+  const ms = readTypedDate(raw)
+  if (ms === undefined)
+    throw userInput(`Couldn't read "${raw}" as a date. Pick a slot from the list, or type one like "2026-08-22 19:00".`)
   return ms
 }
 
 /** Discord's own long stamp, so every reader sees the slot in their zone; the raw text if unparseable. */
 export function slotStamp(option: string): string {
-  const ms = Date.parse(option)
-  return Number.isNaN(ms) ? option : `<t:${Math.floor(ms / 1000)}:F>`
+  const ms = readTypedDate(option)
+  return ms === undefined ? option : `<t:${Math.floor(ms / 1000)}:F>`
 }
 
 export interface SlotChoice {
@@ -25,8 +36,12 @@ export interface SlotChoice {
   value: string
 }
 
-const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
-const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+/** Words people put between the parts that carry no meaning of their own. */
+const FILLER = new Set(['at', 'on', 'the', 'this', 'next', 'evening', 'night'])
+/** Relative day words → offset from today. */
+const RELATIVE: Record<string, number> = { today: 0, tonight: 0, tomorrow: 1 }
 const DEFAULT_HOUR = 19
 const SLOT_DAYS = 14
 /** Discord caps an autocomplete answer at 25 choices. */
@@ -41,8 +56,8 @@ export function slotValue(d: Date): string {
 
 /** "Fri 19 Sep, 7:00 pm" — what a person scans for. */
 export function slotLabel(d: Date): string {
-  const day = DAYS[d.getDay()]!
-  const month = MONTHS[d.getMonth()]!
+  const day = DAYS[d.getDay()]!.slice(0, 3)
+  const month = MONTHS[d.getMonth()]!.slice(0, 3)
   const h12 = d.getHours() % 12 || 12
   const ampm = d.getHours() < 12 ? 'am' : 'pm'
   const cap = (s: string): string => s[0]!.toUpperCase() + s.slice(1)
@@ -80,23 +95,30 @@ export function slotSuggestions(query: string, now: number): SlotChoice[] {
 
   let hour = DEFAULT_HOUR
   let minute = 0
+  let offsets: number[] | undefined
   const words: string[] = []
   for (const token of tokens) {
+    if (FILLER.has(token)) continue
+    if (token in RELATIVE) {
+      offsets = [RELATIVE[token]!]
+      continue
+    }
     const time = readTime(token)
     if (time && !(token.length <= 2 && Number(token) > 12 && Number(token) <= 31)) [hour, minute] = time
     else words.push(token)
   }
 
   const out: SlotChoice[] = []
-  const typed = query.trim()
-  if (typed.length >= 8 && !Number.isNaN(Date.parse(typed))) {
-    const d = new Date(Date.parse(typed))
+  const typed = readTypedDate(query.trim())
+  if (typed !== undefined) {
+    const d = new Date(typed)
     out.push({ name: `As typed — ${slotLabel(d)}`, value: slotValue(d) })
   }
 
   const start = new Date(now)
   start.setHours(hour, minute, 0, 0)
-  for (let i = 0; i < SLOT_DAYS && out.length < MAX_CHOICES; i++) {
+  for (const i of offsets ?? Array.from({ length: SLOT_DAYS }, (_, k) => k)) {
+    if (out.length >= MAX_CHOICES) break
     const d = new Date(start)
     d.setDate(start.getDate() + i)
     if (d.getTime() <= now) continue

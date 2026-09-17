@@ -121,6 +121,20 @@ describe('slotSuggestions', () => {
   it('answers nothing for a word no slot matches', () => {
     expect(slotSuggestions('whenever', now)).toEqual([])
   })
+
+  it('understands today, tomorrow, full day names and filler words', () => {
+    expect(slotSuggestions('today at 11', now)).toEqual([{ name: 'Wed 16 Sep, 11:00 pm', value: '2026-09-16 23:00' }])
+    expect(slotSuggestions('tomorrow', now).map((s) => s.value)).toEqual(['2026-09-17 19:00'])
+    expect(slotSuggestions('next saturday at 8pm', now)[0]?.value).toBe('2026-09-19 20:00')
+    expect(slotSuggestions('tonight 9', now)[0]?.value).toBe('2026-09-16 21:00')
+  })
+
+  it('never lets the lenient date parser turn loose words into a date', () => {
+    // V8 reads "today at 11" as the first of November; that must not become an "as typed" slot.
+    expect(slotSuggestions('today at 11', now).some((s) => s.name.startsWith('As typed'))).toBe(false)
+    expect(() => parseCandidateDate('today at 11')).toThrowError(/couldn't read/i)
+    expect(parseCandidateDate('2026-08-21T20:00:00Z')).toBe(Date.parse('2026-08-21T20:00:00Z'))
+  })
 })
 
 describe('slotStamp', () => {
