@@ -847,7 +847,7 @@ async function createCharacter(interaction: ChatInputCommandInteraction, deps: D
   if (member) await trySyncNickname(member, character.name)
 
   // The card render rides along on a best-effort basis: the character row is already
-  // committed, so a satori/portrait hiccup degrades to the text confirmation.
+  // committed, so a render/portrait hiccup degrades to the text confirmation.
   try {
     const portraitDataUri = await fetchPortraitDataUri(deps.botData, character.portraitUrl)
     const png = await renderCharacterCard({
