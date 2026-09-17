@@ -12,6 +12,102 @@ export function parseCandidateDate(raw: string): number {
   return ms
 }
 
+/** Discord's own long stamp, so every reader sees the slot in their zone; the raw text if unparseable. */
+export function slotStamp(option: string): string {
+  const ms = Date.parse(option)
+  return Number.isNaN(ms) ? option : `<t:${Math.floor(ms / 1000)}:F>`
+}
+
+export interface SlotChoice {
+  /** What the DM sees in the list: "Fri 19 Sep, 7:00 pm". */
+  name: string
+  /** What the poll stores — readable and Date.parse-able: "2026-09-19 19:00". */
+  value: string
+}
+
+const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+const DEFAULT_HOUR = 19
+const SLOT_DAYS = 14
+/** Discord caps an autocomplete answer at 25 choices. */
+const MAX_CHOICES = 25
+
+const two = (n: number): string => String(n).padStart(2, '0')
+
+/** "2026-09-19 19:00" — local time, the shape the poll has always stored. */
+export function slotValue(d: Date): string {
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`
+}
+
+/** "Fri 19 Sep, 7:00 pm" — what a person scans for. */
+export function slotLabel(d: Date): string {
+  const day = DAYS[d.getDay()]!
+  const month = MONTHS[d.getMonth()]!
+  const h12 = d.getHours() % 12 || 12
+  const ampm = d.getHours() < 12 ? 'am' : 'pm'
+  const cap = (s: string): string => s[0]!.toUpperCase() + s.slice(1)
+  return `${cap(day)} ${d.getDate()} ${cap(month)}, ${h12}:${two(d.getMinutes())} ${ampm}`
+}
+
+/** "8", "8pm", "20:30", "7:30 pm" → [hour, minute] in 24h; anything else undefined. */
+function readTime(token: string): [number, number] | undefined {
+  const m = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i.exec(token)
+  if (!m) return undefined
+  let hour = Number(m[1])
+  const minute = Number(m[2] ?? '0')
+  const suffix = m[3]?.toLowerCase()
+  if (hour > 23 || minute > 59) return undefined
+  if (suffix === 'pm' && hour < 12) hour += 12
+  if (suffix === 'am' && hour === 12) hour = 0
+  // A bare small number is an evening hour: "7" is 7 pm, not 7 am — nobody polls for dawn.
+  if (!suffix && !m[2] && hour >= 1 && hour <= 11) hour += 12
+  return [hour, minute]
+}
+
+/**
+ * The next two weeks of evenings, filtered by whatever the DM has typed so far: a weekday
+ * ("sat"), a month ("oct"), a day number ("19"), a time ("8pm", "20:30") — in any order —
+ * or a full date, which is offered first exactly as typed.
+ *
+ * ponytail: local time of the bot process, one default hour. Ceiling: a table in another zone
+ * reads 7 pm as the host's 7 pm. Upgrade path: a timezone and usual-slot on the campaign row.
+ */
+export function slotSuggestions(query: string, now: number): SlotChoice[] {
+  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  // "7:30 pm" arrives as two tokens; glue a trailing am/pm onto the number before it.
+  for (let i = tokens.length - 1; i > 0; i--)
+    if (/^(am|pm)$/.test(tokens[i]!) && /^\d/.test(tokens[i - 1]!)) tokens.splice(i - 1, 2, `${tokens[i - 1]}${tokens[i]}`)
+
+  let hour = DEFAULT_HOUR
+  let minute = 0
+  const words: string[] = []
+  for (const token of tokens) {
+    const time = readTime(token)
+    if (time && !(token.length <= 2 && Number(token) > 12 && Number(token) <= 31)) [hour, minute] = time
+    else words.push(token)
+  }
+
+  const out: SlotChoice[] = []
+  const typed = query.trim()
+  if (typed.length >= 8 && !Number.isNaN(Date.parse(typed))) {
+    const d = new Date(Date.parse(typed))
+    out.push({ name: `As typed — ${slotLabel(d)}`, value: slotValue(d) })
+  }
+
+  const start = new Date(now)
+  start.setHours(hour, minute, 0, 0)
+  for (let i = 0; i < SLOT_DAYS && out.length < MAX_CHOICES; i++) {
+    const d = new Date(start)
+    d.setDate(start.getDate() + i)
+    if (d.getTime() <= now) continue
+    const label = slotLabel(d)
+    const hay = [DAYS[d.getDay()]!, MONTHS[d.getMonth()]!, String(d.getDate()), label.toLowerCase()]
+    const matches = words.every((w) => hay.some((h) => h.startsWith(w)))
+    if (matches) out.push({ name: label, value: slotValue(d) })
+  }
+  return out
+}
+
 /** Clicking your current option removes your vote; clicking a different one switches it. */
 export function toggleVote(votes: Record<string, number>, discordId: string, optionIndex: number): Record<string, number> {
   const next = { ...votes }
@@ -38,18 +134,18 @@ export function winningOption(poll: SchedulePoll): Winner | undefined {
 export function pollAnnouncement(campaignName: string, roleId: string, options: string[]): ContainerSpec {
   return {
     header: `Session poll — ${campaignName}`,
-    blocks: [`<@&${roleId}> pick a time:`, options.map((o, i) => `${i + 1}. ${o}`).join('\n')],
+    blocks: [`<@&${roleId}> pick a time:`, options.map((o, i) => `${i + 1}. ${slotStamp(o)}`).join('\n')],
   }
 }
 
 export function pollResultAnnouncement(winner: Winner | undefined): ContainerSpec {
   if (!winner) return { header: 'Poll closed', blocks: ['No votes were cast.'] }
-  return { header: 'Session scheduled!', blocks: [`**${winner.label}** wins with ${winner.votes} vote(s).`] }
+  return { header: 'Session scheduled!', blocks: [`**${slotStamp(winner.label)}** wins with ${winner.votes} vote(s).`] }
 }
 
 export function voteConfirmation(poll: SchedulePoll, discordId: string): string {
   const choice = poll.votes[discordId]
-  return choice === undefined ? 'Vote removed.' : `Voted for **${poll.options[choice]}**.`
+  return choice === undefined ? 'Vote removed.' : `Voted for **${slotStamp(poll.options[choice])}**.`
 }
 
 export function pollCreatedConfirmation(): string {

@@ -181,10 +181,10 @@ export const schedule = guildOnly(
   new SlashCommandBuilder()
     .setName('schedule')
     .setDescription('Poll the party for the next session time (DM only)')
-    .addStringOption((o) => o.setName('option1').setDescription('Candidate date, e.g. 2026-08-22 19:00').setRequired(true))
-    .addStringOption((o) => o.setName('option2').setDescription('Candidate date').setRequired(true))
-    .addStringOption((o) => o.setName('option3').setDescription('Candidate date').setRequired(false))
-    .addStringOption((o) => o.setName('option4').setDescription('Candidate date').setRequired(false)),
+    .addStringOption((o) => o.setName('option1').setDescription('Pick a slot or type one, e.g. sat 8pm').setRequired(true).setAutocomplete(true))
+    .addStringOption((o) => o.setName('option2').setDescription('Second slot').setRequired(true).setAutocomplete(true))
+    .addStringOption((o) => o.setName('option3').setDescription('Third slot').setRequired(false).setAutocomplete(true))
+    .addStringOption((o) => o.setName('option4').setDescription('Fourth slot').setRequired(false).setAutocomplete(true)),
 )
 
 export const session = guildOnly(

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SchedulePoll } from '../db/stores'
-import { parseCandidateDate, pollAnnouncement, pollResultAnnouncement, toggleVote, voteConfirmation, winningOption } from './schedule'
+import { parseCandidateDate, pollAnnouncement, pollResultAnnouncement, slotStamp, slotSuggestions, toggleVote, voteConfirmation, winningOption } from './schedule'
 
 describe('parseCandidateDate', () => {
   it('parses a well-formed date', () => {
@@ -80,5 +80,52 @@ describe('voteConfirmation', () => {
 
   it('confirms a removal', () => {
     expect(voteConfirmation(poll({}), 'user-1')).toBe('Vote removed.')
+  })
+})
+
+describe('slotSuggestions', () => {
+  // Wed 16 Sep 2026, 10:00 local — every slot below is relative to this.
+  const now = new Date(2026, 8, 16, 10, 0, 0).getTime()
+
+  it('offers the next fortnight of evenings when nothing is typed', () => {
+    const slots = slotSuggestions('', now)
+    expect(slots).toHaveLength(14)
+    expect(slots[0]).toEqual({ name: 'Wed 16 Sep, 7:00 pm', value: '2026-09-16 19:00' })
+    expect(slots[13]?.value).toBe('2026-09-29 19:00')
+    expect(Date.parse(slots[0]!.value)).toBe(new Date(2026, 8, 16, 19, 0).getTime())
+  })
+
+  it('narrows by weekday, and moves the hour when one is typed', () => {
+    expect(slotSuggestions('sat', now).map((s) => s.name)).toEqual(['Sat 19 Sep, 7:00 pm', 'Sat 26 Sep, 7:00 pm'])
+    expect(slotSuggestions('sat 8pm', now)[0]).toEqual({ name: 'Sat 19 Sep, 8:00 pm', value: '2026-09-19 20:00' })
+    expect(slotSuggestions('20:30 fri', now)[0]?.value).toBe('2026-09-18 20:30')
+    expect(slotSuggestions('7:30 pm sun', now)[0]?.value).toBe('2026-09-20 19:30')
+  })
+
+  it('reads a bare small number as an evening hour and a large one as a day of the month', () => {
+    expect(slotSuggestions('8', now)[0]?.value).toBe('2026-09-16 20:00')
+    expect(slotSuggestions('19', now).map((s) => s.value)).toEqual(['2026-09-19 19:00'])
+  })
+
+  it('never offers a slot already in the past', () => {
+    const evening = new Date(2026, 8, 16, 21, 0).getTime()
+    expect(slotSuggestions('', evening)[0]?.value).toBe('2026-09-17 19:00')
+  })
+
+  it('puts a fully typed date first, exactly as typed, and stays within Discord\'s 25', () => {
+    const slots = slotSuggestions('2026-10-31 18:00', now)
+    expect(slots[0]).toEqual({ name: 'As typed — Sat 31 Oct, 6:00 pm', value: '2026-10-31 18:00' })
+    expect(slots.length).toBeLessThanOrEqual(25)
+  })
+
+  it('answers nothing for a word no slot matches', () => {
+    expect(slotSuggestions('whenever', now)).toEqual([])
+  })
+})
+
+describe('slotStamp', () => {
+  it('renders a parseable option as a Discord long stamp and leaves free text alone', () => {
+    expect(slotStamp('2026-09-19 19:00')).toBe(`<t:${Math.floor(Date.parse('2026-09-19 19:00') / 1000)}:F>`)
+    expect(slotStamp('Saturday 2pm')).toBe('Saturday 2pm')
   })
 })

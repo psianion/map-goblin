@@ -57,6 +57,7 @@ import {
   pollAnnouncement,
   pollCreatedConfirmation,
   pollResultAnnouncement,
+  slotSuggestions,
   toggleVote,
   voteConfirmation,
   winningOption,
@@ -490,6 +491,10 @@ export const registry: Registry = {
     data: scheduleCommand,
     ephemeral: true,
     authorize: dmOnly,
+    // The next fortnight of evenings, narrowed by whatever is typed; a full date is offered as typed.
+    autocomplete: async (interaction) => {
+      await interaction.respond(slotSuggestions(interaction.options.getFocused(), Date.now()))
+    },
     execute: async (interaction, deps) => {
       const campaign = requireCampaign(interaction, deps)
       const options = [

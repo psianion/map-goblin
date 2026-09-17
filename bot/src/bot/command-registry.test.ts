@@ -531,7 +531,8 @@ describe('/schedule — poll create, vote toggle/switch, close', () => {
     const poll = deps.schedulePolls.byId(1)!
     expect(poll.status).toBe('closed')
     expect(deps.campaigns.byId('camp-1')!.nextSessionAt).toBe(Date.parse('2026-08-21T20:00:00Z'))
-    expect(sent.at(-1)!.spec.blocks?.[0]).toContain('2026-08-21T20:00:00Z')
+    // Rendered as Discord's own stamp, so each voter reads the winning slot in their zone.
+    expect(sent.at(-1)!.spec.blocks?.[0]).toContain(`<t:${Math.floor(Date.parse('2026-08-21T20:00:00Z') / 1000)}:F>`)
   })
 
   it('rejects closing from anyone but the DM, even with a forged owner-stamp bypass', async () => {
