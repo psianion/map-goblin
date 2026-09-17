@@ -38,13 +38,31 @@ export interface CharacterCardInput {
   portraitDataUri?: string
 }
 
+/** The portrait slot: top-left inside the card's padding, a rounded square with an accent ring. */
+const PORTRAIT = { x: 32, y: 32, size: 240, radius: 16 }
+
+/**
+ * Satori draws the ring and the monogram, never the picture. Its handling of an embedded image
+ * grows far worse than linearly with the bytes — a 64 px portrait costs a third of a second, a
+ * 256 px one fifteen seconds, and a 512 px one never returns, blocking the whole bot with it
+ * (seen live on a 1254 px upload). The picture is placed into the finished SVG instead, where
+ * resvg draws a full-size one in well under a second (`placePortrait`).
+ */
 function portraitHtml(input: CharacterCardInput): string {
-  const size = 240
-  if (input.portraitDataUri) {
-    return `<img width="${size}" height="${size}" src="${input.portraitDataUri}" style="border-radius:16px;object-fit:cover;box-shadow:0 0 0 4px ${ACCENT}" />`
-  }
-  const initial = input.name.trim().charAt(0).toUpperCase() || '?'
-  return `<div style="display:flex;width:${size}px;height:${size}px;border-radius:16px;align-items:center;justify-content:center;background-color:${PARCHMENT_2};box-shadow:0 0 0 4px ${ACCENT};font-size:96px;font-weight:700;color:${MUTED}">${initial}</div>`
+  const { size, radius } = PORTRAIT
+  const initial = input.portraitDataUri ? '' : input.name.trim().charAt(0).toUpperCase() || '?'
+  return `<div style="display:flex;width:${size}px;height:${size}px;border-radius:${radius}px;align-items:center;justify-content:center;background-color:${PARCHMENT_2};box-shadow:0 0 0 4px ${ACCENT};font-size:96px;font-weight:700;color:${MUTED}">${initial}</div>`
+}
+
+/** Lays the portrait over its slot in satori's SVG, clipped to the same rounded square. */
+export function placePortrait(svg: string, portraitDataUri: string | undefined): string {
+  if (!portraitDataUri) return svg
+  const { x, y, size, radius } = PORTRAIT
+  const image =
+    `<defs><clipPath id="portrait"><rect x="${x}" y="${y}" width="${size}" height="${size}" rx="${radius}"/></clipPath></defs>` +
+    `<image x="${x}" y="${y}" width="${size}" height="${size}" href="${portraitDataUri}" preserveAspectRatio="xMidYMid slice" clip-path="url(#portrait)"/>`
+  const end = svg.lastIndexOf('</svg>')
+  return end < 0 ? svg : svg.slice(0, end) + image + svg.slice(end)
 }
 
 function cardMarkup(input: CharacterCardInput): string {
@@ -71,7 +89,7 @@ export async function renderCharacterCard(input: CharacterCardInput): Promise<Bu
     height: HEIGHT,
     fonts: FONTS,
   })
-  return new Resvg(svg, { fitTo: { mode: 'width', value: WIDTH * 2 } }).render().asPng()
+  return new Resvg(placePortrait(svg, input.portraitDataUri), { fitTo: { mode: 'width', value: WIDTH * 2 } }).render().asPng()
 }
 
 const MIME_BY_EXT: Record<string, string> = {
