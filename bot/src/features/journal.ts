@@ -1,10 +1,9 @@
-// Pure helpers for the party journal (plan §11 M3): FTS5 query sanitizing, relative-date
-// formatting, and reply/embed building. No discord.js import — command-registry.ts wires
-// this to the notes store.
+// Pure helpers for the party journal (plan §11 M3): FTS5 query sanitizing and card building.
+// No discord.js import — command-registry.ts wires this to the notes store.
 
 import { userInput } from '../lib/errors'
 import type { Note } from '../db/stores'
-import type { ContainerSpec } from '../lib/ui'
+import { type Block, type ContainerSpec } from '../lib/card'
 
 /**
  * Turns free-text user input into a safe FTS5 MATCH string: every token becomes its own
@@ -18,28 +17,41 @@ export function sanitizeFtsQuery(raw: string): string {
   return tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(' ')
 }
 
-const MINUTE = 60_000
-const HOUR = 60 * MINUTE
-const DAY = 24 * HOUR
+/** Discord draws these in each reader's own timezone and keeps the relative one counting. */
+const stamp = (ms: number): string => `<t:${Math.floor(ms / 1000)}:R>`
 
-/** "just now" / "12m ago" / "3h ago" / "5d ago" / calendar date beyond that. */
-export function relativeTime(ts: number, now: number = Date.now()): string {
-  const delta = Math.max(0, now - ts)
-  if (delta < MINUTE) return 'just now'
-  if (delta < HOUR) return `${Math.floor(delta / MINUTE)}m ago`
-  if (delta < DAY) return `${Math.floor(delta / HOUR)}h ago`
-  if (delta < 30 * DAY) return `${Math.floor(delta / DAY)}d ago`
-  return new Date(ts).toISOString().slice(0, 10)
+/** A player's own words, block-quoted so the card never reads them as the bot's, and cut
+ * before a novel of a note can push the card past Discord's per-text limit. */
+function quoted(text: string, limit: number): string {
+  const cut = text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text
+  return `> ${cut.replace(/\n/g, '\n> ')}`
 }
 
-export function noteSavedReply(): string {
-  return 'Noted.'
-}
+// A journal grows forever and a card does not: show a window and count the rest.
+const SHOWN = 8
 
-export function recallEmbed(query: string, matches: Note[]): ContainerSpec {
-  if (matches.length === 0) return { header: `Recall: "${query}"`, blocks: ["Nothing found for that."] }
+export function noteSavedReply(text: string): ContainerSpec {
   return {
-    header: `Recall: "${query}"`,
-    blocks: matches.map((n) => `<@${n.discordId}> · ${relativeTime(n.createdAt)}\n${n.text}`),
+    eyebrow: 'Party journal',
+    blocks: [`**Noted.**\n${quoted(text, 300)}\n-# \`/recall\` finds it again`],
   }
+}
+
+export function recallResults(campaignName: string, query: string, matches: Note[], thumb?: string): ContainerSpec {
+  const head = {
+    eyebrow: `Party journal · ${campaignName}`,
+    header: `“${query}”`,
+    subhead: `**${matches.length}** note${matches.length === 1 ? '' : 's'} found`,
+    ...(thumb ? { thumb, thumbAlt: 'Party journal' } : {}),
+    footer: '`/note` adds to the journal',
+  }
+  if (matches.length === 0) return { ...head, blocks: ['_Nothing found for that. Nobody wrote it down._'] }
+  // One note per block, a hairline between them: each is its own voice and its own day.
+  const blocks = matches.slice(0, SHOWN).flatMap((n, i): Block[] => [
+    ...(i > 0 ? [{ rule: 'line' } as const] : []),
+    `${quoted(n.text, 400)}\n-# <@${n.discordId}> · ${stamp(n.createdAt)}`,
+  ])
+  const hidden = matches.length - SHOWN
+  if (hidden > 0) blocks.push(`-# and ${hidden} more — narrow the search`)
+  return { ...head, blocks }
 }

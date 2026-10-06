@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { battlemap, region } from './__fixtures__/battlemap'
 import { playerMap, tokens } from './__fixtures__/two-rooms'
 import { mapSvg } from './map-svg'
 import { rasterize } from './raster'
@@ -17,6 +18,17 @@ describe('rasterize', () => {
     // 2048 wide at the SVG's own 10:1 aspect.
     expect(rasterize(wide).length).toBeGreaterThan(0)
     expect(rasterize(wide, 64).length).toBeGreaterThan(0)
+  })
+
+  it('draws an imported battlemap\'s data-URL image, cut or whole', () => {
+    // resvg resolves `href="data:image/png;base64,…"` itself; if it ever stopped, the render
+    // would be identical to the same document with no image bytes at all.
+    const blind = { ...battlemap, customImages: {} }
+    const whole = rasterize(mapSvg(battlemap, { dmView: true }))
+    const cut = rasterize(mapSvg(battlemap, { region }))
+    expect(whole.equals(rasterize(mapSvg(blind, { dmView: true })))).toBe(false)
+    expect(cut.equals(rasterize(mapSvg(blind, { region })))).toBe(false)
+    expect(whole.equals(cut)).toBe(false)
   })
 
   it('draws the bundled font rather than failing on a missing one', () => {

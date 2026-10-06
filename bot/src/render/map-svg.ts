@@ -30,6 +30,21 @@ export interface MapToken {
   hidden: boolean
 }
 
+/**
+ * The fog module's per-scene region record, re-declared rather than imported from
+ * `@dnd/mechanics/fog` — the bot depends on the wire shape, not on the workspace (the
+ * `SIZE_CELLS` precedent in session-stats.ts).
+ */
+export interface RegionMask {
+  /** World cell of mask cell (0, 0). */
+  minX: number
+  minY: number
+  cols: number
+  rows: number
+  /** base64 of `ceil(cols * rows / 8)` bytes, row-major, LSB first within a byte. */
+  bits: string
+}
+
 export interface MapSvgOptions {
   /** Live tokens for this scene, when a session is running. */
   tokens?: MapToken[]
@@ -37,7 +52,28 @@ export interface MapSvgOptions {
   dmView?: boolean
   /** Overrides the document's own map name in the sheet header. */
   title?: string
+  /**
+   * What the party has swept on a roomless (imported) map. A player-facing render cuts the
+   * base image to these cells ∪ the floors it was handed; without either, no image is drawn
+   * at all. A missing mask never means "show everything".
+   */
+  region?: RegionMask
 }
+
+/**
+ * One bit of the mask, by mask-local column and row.
+ *
+ * ponytail: decodes the whole mask per probe — the same trade `@dnd/mechanics/fog` makes, and
+ * fine for a single question. Anything asking about a run of cells goes through `regionRects`,
+ * which decodes once.
+ */
+export function regionCell(region: RegionMask | undefined, col: number, row: number): boolean {
+  if (!region || col < 0 || row < 0 || col >= region.cols || row >= region.rows) return false
+  const bit = row * region.cols + col
+  return (regionBytes(region.bits)[bit >>> 3] & (1 << (bit & 7))) !== 0
+}
+
+const regionBytes = (bits: string): Uint8Array => new Uint8Array(Buffer.from(bits, 'base64'))
 
 // ── palette (art style guide §4, matching render/card-kit.ts) ────────────────────────────
 const PAGE = '#e7d9bf'
@@ -95,6 +131,15 @@ interface RoomLabel {
   x: number
   y: number
 }
+/** A base image: top-left corner and size in cells, plus the rotation about its centre. */
+interface MapImage {
+  href: string
+  x: number
+  y: number
+  width: number
+  height: number
+  rotation: number
+}
 interface Scene {
   name: string
   cellScale: { value: number; unit: string }
@@ -106,6 +151,7 @@ interface Scene {
   labels: Label[]
   rooms: RoomLabel[]
   lamps: { x: number; y: number }[]
+  images: MapImage[]
 }
 
 // ── defensive readers ────────────────────────────────────────────────────────────────────
@@ -172,7 +218,11 @@ export function readScene(doc: unknown, dmView: boolean): Scene {
     labels: [],
     rooms: [],
     lamps: [],
+    images: [],
   }
+  // Imported maps (Foundry, UVTT) carry their ground as one image child per layer; the bytes
+  // live inline on the document `GET /api/maps/:sceneId` already returns as data URLs.
+  const customImages = isRec(root.customImages) ? root.customImages : {}
 
   for (const layer of list(root.layers).filter(isRec)) {
     if (layer.type !== 'dungeon' || layer.visible === false) continue
@@ -231,7 +281,26 @@ export function readScene(doc: unknown, dmView: boolean): Scene {
           scene.lamps.push({ x: num(position.x), y: num(position.y) })
           break
         }
-        // assets keep their meaning in the painted render, not in a schematic — skipped.
+        case 'asset': {
+          // Only the base image. Every other asset keeps its meaning in the painted render,
+          // not in a schematic, and stays skipped.
+          if (child.objectType !== 'image') break
+          const href = str(customImages[str(child.assetId)])
+          const position = isRec(child.position) ? child.position : {}
+          const scale = num(child.scale, 1) || 1
+          const width = num(child.width) * scale
+          const height = num(child.height) * scale
+          if (!href.startsWith('data:') || width <= 0 || height <= 0) break
+          scene.images.push({
+            href,
+            x: num(position.x) - width / 2,
+            y: num(position.y) - height / 2,
+            width,
+            height,
+            rotation: num(child.rotation),
+          })
+          break
+        }
         default:
           break
       }
@@ -258,7 +327,6 @@ function boundsOf(scene: Scene, tokens: MapToken[]): Bounds | null {
   for (const room of scene.rooms) add(room.x, room.y)
   for (const label of scene.labels) add(label.x, label.y)
   for (const token of tokens) add(token.x, token.y)
-  if (box.minX === Infinity) return null
 
   // A standalone wall can run far past the rooms it divides (they are drawn as long lines and
   // trimmed at render time on the game side). Clipping the view to the floors keeps one such
@@ -270,7 +338,13 @@ function boundsOf(scene: Scene, tokens: MapToken[]): Bounds | null {
     box.maxX = Math.min(box.maxX, floors.maxX + 2)
     box.maxY = Math.min(box.maxY, floors.maxY + 2)
   }
-  return box
+  // After the clamp, never inside it: a base image *is* the map, so it sets the sheet rather
+  // than being trimmed to the floors somebody happened to trace on top of it.
+  for (const image of scene.images) {
+    add(image.x, image.y)
+    add(image.x + image.width, image.y + image.height)
+  }
+  return box.minX === Infinity ? null : box
 }
 
 function floorBounds(scene: Scene): Bounds | null {
@@ -414,6 +488,53 @@ function drawDoor(door: Door, angle: number): string {
   return parts.join('')
 }
 
+/**
+ * The mask's set cells as SVG, merged into one `<rect>` per horizontal run. A 200×200 map is
+ * a few hundred rects this way and forty thousand without.
+ */
+function regionRects(region: RegionMask): string {
+  const bytes = regionBytes(region.bits)
+  const out: string[] = []
+  for (let row = 0; row < region.rows; row++) {
+    let start = -1
+    for (let col = 0; col <= region.cols; col++) {
+      const bit = row * region.cols + col
+      const on = col < region.cols && (bytes[bit >>> 3] & (1 << (bit & 7))) !== 0
+      if (on && start < 0) start = col
+      else if (!on && start >= 0) {
+        out.push(
+          `<rect x="${f(region.minX + start)}" y="${f(region.minY + row)}" width="${f(col - start)}" height="1"/>`,
+        )
+        start = -1
+      }
+    }
+  }
+  return out.join('')
+}
+
+/**
+ * The fence around a player's base image: the floors the server let through, plus the cells
+ * the party has swept. Empty means nothing is visible, and an empty clip is the whole point —
+ * the caller draws no image at all rather than falling back to the uncut one.
+ *
+ * ponytail: one flat tier. The table client's `tierPlan` dims remembered ground below what a
+ * token can see right now; this sheet draws every swept cell at full strength, which is never
+ * *more* than the party has seen. Upgrade path is a second clip of the live-sight cells and a
+ * dimming rect over the difference — worth it only once someone asks for the memory look.
+ */
+function seenClip(floorPath: string, region: RegionMask | undefined): string {
+  return (floorPath ? `<path d="${floorPath}" clip-rule="evenodd"/>` : '') + (region ? regionRects(region) : '')
+}
+
+const IMAGE_CLIP_ID = 'seen'
+
+function drawImage(image: MapImage, clip: string): string {
+  const transform = image.rotation
+    ? ` transform="rotate(${f((image.rotation * 180) / Math.PI)} ${f(image.x + image.width / 2)} ${f(image.y + image.height / 2)})"`
+    : ''
+  return `<image href="${escapeXml(image.href)}" x="${f(image.x)}" y="${f(image.y)}" width="${f(image.width)}" height="${f(image.height)}" preserveAspectRatio="none"${transform}${clip}/>`
+}
+
 function drawToken(token: MapToken, dmView: boolean): string {
   const r = clamp(token.cells, 0.5, 6) / 2
   const fill = DISPOSITION[token.disposition] ?? DISPOSITION.neutral
@@ -473,8 +594,18 @@ function emptySheet(title: string, dmView: boolean): string {
 export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
   const dmView = options.dmView === true
   const scene = readScene(doc, dmView)
-  const tokens = visibleTokens(options.tokens ?? [], dmView)
   const title = options.title ?? scene.name
+
+  // Fail closed, and *before* the bounds are taken: a player-facing render with nothing to cut
+  // to drops the base image AND the tokens here, so a map that is only an image reads as the
+  // honest empty sheet rather than a sheet-sized hole where the dungeon would be. Tokens are
+  // the DM's observed list (only `hidden` ones filtered), so on a player sheet they are drawn
+  // through the same seen-clip as the image: a figure standing on ground the party has never
+  // swept must not appear on their parchment.
+  const clip = dmView ? '' : seenClip(scene.floors.map(ringsPath).join(''), options.region)
+  const seen = dmView || clip !== ''
+  if (!seen) scene.images = []
+  const tokens = seen ? visibleTokens(options.tokens ?? [], dmView) : []
 
   // The frame the server stamps on a redacted document measures the *full* map, so an early
   // party gets a sheet the size of the dungeon rather than the size of one room — which is
@@ -508,6 +639,11 @@ export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
   ]
 
   if (floorPath) out.push(`<defs><clipPath id="floors"><path d="${floorPath}" clip-rule="evenodd"/></clipPath></defs>`)
+  if (clip) out.push(`<defs><clipPath id="${IMAGE_CLIP_ID}">${clip}</clipPath></defs>`)
+  const seenAttr = clip ? ` clip-path="url(#${IMAGE_CLIP_ID})"` : ''
+
+  // The base image goes down first: floors, water and ink are the schematic drawn *on* it.
+  for (const image of scene.images) out.push(drawImage(image, seenAttr))
 
   if (floorPath) {
     out.push(`<path d="${floorPath}" fill-rule="evenodd" fill="${FLOOR}"/>`)
@@ -518,7 +654,8 @@ export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
       lines.push(`M${f(x)} ${f(box.minY)}V${f(box.maxY)}`)
     for (let y = Math.ceil(box.minY); y <= Math.floor(box.maxY); y++)
       lines.push(`M${f(box.minX)} ${f(y)}H${f(box.maxX)}`)
-    if (lines.length)
+    // An imported map carries its own grid baked into the image; a second one over it is noise.
+    if (lines.length && !scene.images.length)
       out.push(
         `<g clip-path="url(#floors)"><path d="${lines.join('')}" fill="none" stroke="${MUTED}" stroke-opacity="0.3" stroke-width="0.025"/></g>`,
       )
@@ -537,10 +674,16 @@ export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
       `<polyline points="${wall.points.map(([x, y]) => `${f(x)},${f(y)}`).join(' ')}" fill="none" stroke="${INK}" stroke-width="${f(wall.width)}" stroke-linecap="round" stroke-linejoin="round"/>`,
     )
 
+  // Point-anchored ink — lamps, labels, room names, tokens — is gathered and drawn through the
+  // seen-clip on a player sheet: a lamp or a name on unswept parchment gives away what is there.
+  // Walls and doors are not: the server already cuts those per room, and a door leaf straddles
+  // its wall, so a floor-ring clip would halve every door on an ordinary map.
+  const ink: string[] = []
+
   // Lights are a hint, not a bake: a warm mark and a soft ring where the painted render would
   // pool light. The schematic cannot carry the glow, but it can say where to imagine one.
   for (const lamp of scene.lamps)
-    out.push(
+    ink.push(
       `<circle cx="${f(lamp.x)}" cy="${f(lamp.y)}" r="0.85" fill="${ACCENT}" fill-opacity="0.16"/>`,
       `<circle cx="${f(lamp.x)}" cy="${f(lamp.y)}" r="0.18" fill="${ACCENT}" stroke="${INK}" stroke-width="0.04"/>`,
     )
@@ -548,7 +691,7 @@ export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
   for (const door of scene.doors) out.push(drawDoor(door, doorAngle(door, segments)))
 
   for (const label of scene.labels)
-    out.push(
+    ink.push(
       text(label.text, label.x, label.y, label.size, {
         'text-anchor': 'middle',
         fill: MUTED,
@@ -558,7 +701,7 @@ export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
 
   const roomFont = clamp(LABEL_PX / cellPx, 0.3, 0.95)
   for (const room of scene.rooms)
-    out.push(
+    ink.push(
       text(room.text, room.x, room.y + roomFont * 0.35, roomFont, {
         'text-anchor': 'middle',
         'font-weight': '700',
@@ -566,7 +709,8 @@ export function mapSvg(doc: unknown, options: MapSvgOptions = {}): string {
       }),
     )
 
-  for (const token of tokens) out.push(drawToken(token, dmView))
+  for (const token of tokens) ink.push(drawToken(token, dmView))
+  if (ink.length) out.push(seenAttr ? `<g${seenAttr}>${ink.join('')}</g>` : ink.join(''))
 
   const titleFont = TITLE_PX / cellPx
   out.push(

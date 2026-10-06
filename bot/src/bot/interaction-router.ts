@@ -9,9 +9,12 @@ import {
   type ChatInputCommandInteraction,
   type Interaction,
   type MessageComponentInteraction,
+  type ModalSubmitInteraction,
 } from 'discord.js'
 import { parse, SHARED_OWNER } from '../lib/custom-id'
-import { BotError, notAuthorized, notFound, toUserReply } from '../lib/errors'
+import { notice, TONE } from '../lib/card'
+import { BotError, notAuthorized, notFound, toUserReply, type BotErrorCode } from '../lib/errors'
+import { container } from '../lib/ui'
 import { log as defaultLog } from '../lib/log'
 import type { AuthContext, Deps, Registry } from './command-registry'
 
@@ -21,6 +24,14 @@ export interface RouterDeps extends Deps {
   audit?: (line: string) => void
   logger?: Pick<typeof defaultLog, 'warn' | 'error'>
 }
+
+/** A button the bot can no longer act on — the message outlived the build that made it. Says
+ * the one thing that fixes it, because nothing about a dead button suggests it. */
+const OLD_CONTROL = 'That control is from an older message — run the command again.'
+
+/** Its modal twin: a form left open across a restart submits into a build that no longer
+ * knows it. Same fix, different noun. */
+const OLD_FORM = 'That form is from an older message — run the command again.'
 
 type MemberLike = { roles?: string[] | { cache: Map<string, unknown> } } | null
 
@@ -45,6 +56,7 @@ export async function routeInteraction(interaction: Interaction, deps: RouterDep
   if (interaction.isChatInputCommand()) return routeCommand(interaction, deps)
   if (interaction.isAutocomplete()) return routeAutocomplete(interaction, deps)
   if (interaction.isMessageComponent()) return routeComponent(interaction, deps)
+  if (interaction.isModalSubmit()) return routeModal(interaction, deps)
 }
 
 async function routeCommand(interaction: ChatInputCommandInteraction, deps: RouterDeps): Promise<void> {
@@ -55,8 +67,12 @@ async function routeCommand(interaction: ChatInputCommandInteraction, deps: Rout
     if (!command) throw notFound(`I don't have a /${interaction.commandName} any more.`)
 
     command.authorize(contextOf(interaction), deps)
-    const ephemeral = typeof command.ephemeral === 'function' ? command.ephemeral(interaction) : command.ephemeral !== false
-    await interaction.deferReply(ephemeral ? { flags: MessageFlags.Ephemeral } : {})
+    // A modal has to be the command's *first* response, so a command that opens one is never
+    // deferred — its execute calls showModal and the work happens on the submit.
+    if (!command.opensModal?.(interaction)) {
+      const ephemeral = typeof command.ephemeral === 'function' ? command.ephemeral(interaction) : command.ephemeral !== false
+      await interaction.deferReply(ephemeral ? { flags: MessageFlags.Ephemeral } : {})
+    }
     await command.execute(interaction, deps)
 
     deps.audit?.(`✅ ${label} — ${elapsed(started)}`)
@@ -70,17 +86,38 @@ async function routeCommand(interaction: ChatInputCommandInteraction, deps: Rout
 async function routeComponent(interaction: MessageComponentInteraction, deps: RouterDeps): Promise<void> {
   try {
     const id = parse(interaction.customId)
-    if (!id) throw notFound('That control is from an older message.')
+    if (!id) throw notFound(OLD_CONTROL)
     // Owner stamp: one player cannot drive another player's buttons — unless it's stamped
     // shared (poll votes, LFG apply), where the handler itself does the auth.
     if (id.userId !== SHARED_OWNER && id.userId !== interaction.user.id)
-      throw notAuthorized("That's someone else's button.")
+      throw notAuthorized("That's someone else's button — run the command yourself to get your own.")
 
     const handler = deps.registry[id.namespace]?.component
-    if (!handler) throw notFound('That control is from an older message.')
+    if (!handler) throw notFound(OLD_CONTROL)
     await handler(interaction, id, deps)
   } catch (err) {
     report(err, deps, { component: interaction.customId })
+    await replyError(interaction, err)
+  }
+}
+
+async function routeModal(interaction: ModalSubmitInteraction, deps: RouterDeps): Promise<void> {
+  try {
+    const id = parse(interaction.customId)
+    if (!id) throw notFound(OLD_FORM)
+    // Same owner stamp as a button: the form was opened for one person, and only they submit
+    // it — unless it is stamped shared, where the handler does its own auth.
+    if (id.userId !== SHARED_OWNER && id.userId !== interaction.user.id)
+      throw notAuthorized("That's someone else's form — run the command yourself to get your own.")
+
+    const handler = deps.registry[id.namespace]?.modal
+    if (!handler) throw notFound(OLD_FORM)
+    // Deferred here rather than in every handler: a submit always writes something and often
+    // talks to the game server first, and a modal has no "thinking" state of its own.
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral })
+    await handler(interaction, id, deps)
+  } catch (err) {
+    report(err, deps, { modal: interaction.customId })
     await replyError(interaction, err)
   }
 }
@@ -105,12 +142,24 @@ function report(err: unknown, deps: RouterDeps, context: Record<string, unknown>
   else logger.error('unhandled interaction error', { ...context, error: String(err) })
 }
 
+/** What went wrong, in two words, above the sentence that says what to do about it. */
+const ERROR_EYEBROW: Record<BotErrorCode, string> = {
+  not_authorized: 'Not yours to use',
+  wrong_channel: 'Wrong channel',
+  not_found: 'Not found',
+  user_input: 'Check that again',
+  internal: 'Something broke',
+}
+
 async function replyError(
-  interaction: ChatInputCommandInteraction | MessageComponentInteraction,
+  interaction: ChatInputCommandInteraction | MessageComponentInteraction | ModalSubmitInteraction,
   err: unknown,
 ): Promise<void> {
-  const content = toUserReply(err)
+  const eyebrow = ERROR_EYEBROW[err instanceof BotError ? err.code : 'internal']
+  const components = [container(notice(toUserReply(err), eyebrow, TONE.alert))]
   // Swallowed: a dead or expired interaction is not worth a second failure.
-  if (interaction.deferred || interaction.replied) await interaction.editReply({ content }).catch(() => {})
-  else await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => {})
+  if (interaction.deferred || interaction.replied)
+    await interaction.editReply({ components, flags: MessageFlags.IsComponentsV2 }).catch(() => {})
+  else
+    await interaction.reply({ components, flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] }).catch(() => {})
 }

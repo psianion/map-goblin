@@ -6,6 +6,7 @@
 // The wire types are re-declared rather than imported from the game server — the bot depends
 // on the protocol, not on the server package.
 
+import type { RegionMask } from '../render/map-svg'
 import { log as defaultLog } from '../lib/log'
 
 /** Must match the server's PROTOCOL_VERSION, or the join frame is refused outright. */
@@ -78,9 +79,14 @@ export interface RollsState {
   log?: WireRollEvent[]
 }
 
-/** Fog carries the same log shape as doors; its per-scene fog facts are nobody's here. */
+/**
+ * Fog carries the same log shape as doors, plus the one per-scene fact the bot draws: the
+ * party's `region` mask on a roomless (imported) map. Room ids stay nobody's business here —
+ * the server's redactor already decides which rooms reach a player document.
+ */
 export interface FogState {
   log?: WireLogEntry[]
+  byScene?: Record<string, { region?: RegionMask } | undefined>
 }
 
 /** A trigger's log line arrives with its sentence already written server-side. */
@@ -90,8 +96,21 @@ export interface WireTriggerEntry {
   text: string
 }
 
+/** A card the DM shared with the whole table (`share-note` / `share-card`). Session-scoped,
+ * not per scene, and already redacted to what every role may read. */
+export interface WireJournalEntry {
+  id: string
+  at: number
+  kicker: 'place' | 'person' | 'missive' | 'lore'
+  title: string
+  body: string
+  imageKeys?: string[]
+  sceneId?: string
+}
+
 export interface TriggersState {
   byScene?: Record<string, { log?: WireTriggerEntry[] }>
+  journal?: WireJournalEntry[]
 }
 
 /** A combatant, narrowed to what `/initiative` needs to find the right one. */
@@ -142,7 +161,7 @@ export type GoblinEvent =
   | { type: 'dm-disconnected' }
   | { type: 'dm-reconnected' }
   | { type: 'doors'; state: DoorsState }
-  /** Where everyone is standing — the overlay `/map` and the recap snapshot draw (§5). */
+  /** Where everyone is standing — the overlay the recap snapshot draws (§5). */
   | { type: 'tokens'; state: TokensState }
   /** The session thread's feed (session-log.ts): dice, fog lines, trigger text. */
   | { type: 'rolls'; state: RollsState }
@@ -157,7 +176,11 @@ export interface SocketLike {
   on: (event: string, listener: (...args: unknown[]) => void) => unknown
   send: (data: string) => void
   close: () => void
+  /** ws's readyState (1 = OPEN). Absent on a fake counts as open. */
+  readyState?: number
 }
+
+const SOCKET_OPEN = 1
 
 export type SocketFactory = (url: string) => SocketLike
 
@@ -189,6 +212,8 @@ export interface Observer {
    * which nothing here is waiting on.
    */
   command: (module: string, action: string, payload: unknown) => boolean
+  /** Health: joined on an open socket, and how many reconnects the current outage has cost. */
+  state: () => { connected: boolean; attempts: number }
   stop: () => void
 }
 
@@ -316,12 +341,18 @@ export function createObserver(options: ObserverOptions): Observer {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
+    state: () => ({
+      connected: !!socket && joined && (socket.readyState ?? SOCKET_OPEN) === SOCKET_OPEN,
+      attempts,
+    }),
     command: (module, action, payload) => {
       // `joined`, not merely "the socket object exists": the server refuses everything sent
       // before the join frame is answered, so a command posted into that window is dropped
       // silently — worse than reporting it never went.
       const live = socket
-      if (!live || !joined) return false
+      // A socket that is closing still accepts `send` without throwing and drops the frame;
+      // seen live once when the observer reconnected mid-command. Report it as not sent.
+      if (!live || !joined || (live.readyState ?? SOCKET_OPEN) !== SOCKET_OPEN) return false
       seq += 1
       try {
         live.send(JSON.stringify({ type: 'command', module, action, payload, seq }))

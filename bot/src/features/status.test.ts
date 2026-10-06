@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { Campaign, Character, Quest, RollStats } from '../db/stores'
+import type { Campaign, Character } from '../db/stores'
+import type { TableHealth } from '../goblin/live-session'
+import { cardText, TONE } from '../lib/card'
 import { campaignStatus, needsScheduleNudge } from './status'
 
 const campaign: Campaign = {
@@ -25,12 +27,19 @@ const zed: Character = {
   lastPlayed: null,
 }
 
-const quests: Quest[] = [
-  { id: 1, campaignId: 'camp-1', title: 'Find the key', status: 'active', addedBy: 'dm-user', createdAt: 0 },
-  { id: 2, campaignId: 'camp-1', title: 'Slay the dragon', status: 'done', addedBy: 'dm-user', createdAt: 0 },
-]
+const table: TableHealth = {
+  campaignId: 'camp-1',
+  joinUrl: 'https://table.example/join/AB2CD3',
+  campaignName: 'The Sunken Keep',
+  sceneName: 'Cragmaw Hideout',
+  players: 2,
+  dmConnected: true,
+  connected: true,
+  attempts: 0,
+  startedAt: 1_700_000_000_000,
+}
 
-const rollStats: RollStats[] = [{ characterId: 1, rolls: 12, nat20s: 2, nat1s: 1 }]
+const stampOf = (iso: string): number => Math.floor(Date.parse(iso) / 1000)
 
 describe('needsScheduleNudge', () => {
   it('nudges when nothing is scheduled', () => {
@@ -47,75 +56,77 @@ describe('needsScheduleNudge', () => {
 })
 
 describe('campaignStatus', () => {
-  it('assembles roster, quests, gold, calendar, schedule and leaderboard', () => {
+  it('heads the card with the campaign, its DM and the D&D Beyond link when there is one', () => {
+    const plain = campaignStatus({ campaign, characters: [], now: 1000 })
+    expect(plain.header).toBe('The Sunken Keep')
+    expect(plain.subhead).toBe('**DM** <@dm-user>')
+
+    const linked = campaignStatus({
+      campaign: { ...campaign, ddbUrl: 'https://www.dndbeyond.com/campaigns/1234567' },
+      characters: [],
+      thumb: 'attachment://thumb-campaign.png',
+      now: 1000,
+    })
+    expect(linked.subhead).toContain('[D&D Beyond campaign](https://www.dndbeyond.com/campaigns/1234567)')
+    expect(linked.thumb).toBe('attachment://thumb-campaign.png')
+  })
+
+  it('links to an open table and says who is at it and whether the bot still hears it', () => {
+    const spec = campaignStatus({ campaign, characters: [], table, now: 1_700_000_600_000 })
+    const text = cardText(spec)
+    expect(spec.accent).toBe(TONE.live)
+    expect(text).toContain('### Table · Open')
+    expect(text).toContain('**Cragmaw Hideout** · 2 players seated · opened <t:1700000000:R>')
+    expect(text).toContain('Online · DM at the table')
+    expect(text).toContain('[Join the table] https://table.example/join/AB2CD3')
+
+    const shaky = cardText(campaignStatus({ campaign, characters: [], table: { ...table, connected: false, dmConnected: false } }))
+    expect(shaky).toContain('Bot is reconnecting to the table · DM away')
+  })
+
+  it('says the table is closed, in the resting colour, when no session is running', () => {
+    const spec = campaignStatus({ campaign, characters: [], now: 1000 })
+    expect(spec.accent).toBe(TONE.ink)
+    expect(cardText(spec)).toContain('### Table · Closed')
+    expect(cardText(spec)).not.toContain('Join the table')
+  })
+
+  it('gives the next session as Discord timestamps, so every reader sees their own timezone', () => {
     const spec = campaignStatus({
-      campaign: { ...campaign, nextSessionAt: Date.parse('2030-01-01') },
-      characters: [zed],
-      quests,
-      goldTotal: 150,
-      calendarState: { campaignId: 'camp-1', day: 12, epochLabel: null },
-      rollStats,
+      campaign: { ...campaign, nextSessionAt: Date.parse('2030-01-01T19:00:00Z') },
+      characters: [],
       now: Date.parse('2026-01-01'),
     })
-    const text = spec.blocks?.join('\n') ?? ''
-    expect(text).toContain('**Zed** — Fighter 3 — <@user-1>')
-    expect(text).toContain('1 active / 1 done')
-    expect(text).toContain('150')
-    expect(text).toContain('Day 12')
-    expect(text).toContain('2030-01-01')
-    expect(text).toContain('12 rolls, 2 nat 20s, 1 nat 1s')
+    const at = stampOf('2030-01-01T19:00:00Z')
+    expect(cardText(spec)).toContain(`**Next**  <t:${at}:F> · <t:${at}:R>`)
+    expect(cardText(spec)).not.toMatch(/\d{4}-\d{2}-\d{2}/)
   })
 
-  it('shows the /schedule nudge when nothing is booked', () => {
+  it('nudges toward /schedule when nothing is booked, or the booked date has passed', () => {
+    for (const nextSessionAt of [null, 500])
+      expect(cardText(campaignStatus({ campaign: { ...campaign, nextSessionAt }, characters: [], now: 1000 }))).toContain(
+        '**Next**  _Nothing scheduled._ `/schedule` puts it to a vote.',
+      )
+  })
+
+  it('reports sessions played and how long ago the last one was', () => {
     const spec = campaignStatus({
       campaign,
       characters: [],
-      quests: [],
-      goldTotal: 0,
-      calendarState: undefined,
-      rollStats: [],
-      now: 1000,
-    })
-    expect(spec.blocks?.join('\n')).toContain('No session scheduled — /schedule one.')
-  })
-
-  it('still nudges when the scheduled date has already passed', () => {
-    const spec = campaignStatus({
-      campaign: { ...campaign, nextSessionAt: 500 },
-      characters: [],
-      quests: [],
-      goldTotal: 0,
-      calendarState: undefined,
-      rollStats: [],
-      now: 1000,
-    })
-    expect(spec.blocks?.join('\n')).toContain('No session scheduled — /schedule one.')
-  })
-
-  it('reports sessions played and the last one, from the bot sessions table', () => {
-    const spec = campaignStatus({
-      campaign,
-      characters: [],
-      quests: [],
-      goldTotal: 0,
-      calendarState: undefined,
-      rollStats: [],
       sessionStats: { played: 7, lastStartedAt: Date.parse('2026-08-17T19:00:00Z') },
       now: 1000,
     })
-    expect(spec.blocks?.join('\n')).toContain('**Sessions played**: **7** — last on 2026-08-17')
+    expect(cardText(spec)).toContain(`**Played**  7 · last one <t:${stampOf('2026-08-17T19:00:00Z')}:R>`)
   })
 
   it('says none rather than zero-with-a-date before a first table', () => {
-    const spec = campaignStatus({
-      campaign,
-      characters: [],
-      quests: [],
-      goldTotal: 0,
-      calendarState: undefined,
-      rollStats: [],
-      now: 1000,
-    })
-    expect(spec.blocks?.join('\n')).toContain('**Sessions played**: None yet.')
+    expect(cardText(campaignStatus({ campaign, characters: [], now: 1000 }))).toContain('**Played**  None yet')
+  })
+
+  it('lists the party, and leaves out the ledger, quests, calendar and dice board', () => {
+    const text = cardText(campaignStatus({ campaign, characters: [zed], now: 1000 }))
+    expect(text).toContain('### Party · 1')
+    expect(text).toContain('**Zed** · Fighter 3 · <@user-1>')
+    expect(text).not.toMatch(/gold|quest|leaderboard|world date/i)
   })
 })

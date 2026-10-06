@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { rollExpression, rollReply, summarizeFaces } from './dice'
+import { cardText } from '../lib/card'
 
 /** Deterministic rng: returns values from a fixed sequence, wrapping if exhausted. */
 function sequence(...values: number[]): () => number {
@@ -85,19 +86,24 @@ describe('rollReply', () => {
   it('adds crit flair', () => {
     const result = rollExpression('d20', sequence(19 / 20))
     const spec = rollReply('Thalor', result)
-    expect(spec.blocks?.[0]).toMatch(/CRITICAL/)
-    expect(spec.header).toBe('Thalor rolls d20')
+    expect(cardText(spec)).toMatch(/CRITICAL/)
+    expect(spec.eyebrow).toBe('Thalor rolls d20')
+    // The total is the headline at h1, the arithmetic rides under it, the flair gets its own line.
+    expect(spec.header).toBe('20')
+    expect(spec.big).toBe(true)
+    expect(spec.subhead).toBe('`1d20 [20]`')
+    expect(spec.blocks).toEqual(['**Natural 20** — a CRITICAL hit!'])
   })
 
   it('adds fumble flair', () => {
     const result = rollExpression('d20', sequence(0))
     const spec = rollReply('Thalor', result)
-    expect(spec.blocks?.[0]).toMatch(/fumble/)
+    expect(cardText(spec)).toMatch(/fumble/)
   })
 
   it('is plain for a non-d20 roll', () => {
     const result = rollExpression('2d6', sequence(0, 0))
     const spec = rollReply('Thalor', result)
-    expect(spec.blocks?.[0]).not.toMatch(/CRITICAL|fumble/)
+    expect(cardText(spec)).not.toMatch(/CRITICAL|fumble/)
   })
 })

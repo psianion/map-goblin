@@ -178,4 +178,23 @@ export const MIGRATIONS: readonly string[] = [
   // v14: the session's log thread under the DM channel — stored for the same reason as
   // live_message_id: a bot that restarts mid-session keeps writing into the thread it opened.
   `ALTER TABLE sessions ADD COLUMN log_thread_id TEXT`,
+  // v15: the cumulative recap counters, written as they change. `recap` is the finished
+  // article; this is the running total, so a bot that restarts mid-session resumes the
+  // evening's count instead of recapping only its second half. durationMs is not in it —
+  // started_at already says that.
+  `ALTER TABLE sessions ADD COLUMN stats TEXT`,
+  // v16: the campaign's D&D Beyond page, shown on /campaign status. Optional — a table that
+  // does not use D&D Beyond never sets it.
+  `ALTER TABLE campaigns ADD COLUMN ddb_url TEXT`,
+  // v17: what the recruiting, application and feedback forms ask for beyond one text box.
+  // All nullable: every row written before this migration answered none of them. tags is a
+  // comma list rather than a table — it is a handful of fixed labels shown on one card, and
+  // nothing ever queries by one.
+  `
+    ALTER TABLE lfg_posts ADD COLUMN seats INTEGER;
+    ALTER TABLE lfg_posts ADD COLUMN tags TEXT;
+    ALTER TABLE lfg_applications ADD COLUMN experience TEXT;
+    ALTER TABLE lfg_applications ADD COLUMN availability TEXT;
+    ALTER TABLE feedback ADD COLUMN category TEXT;
+  `,
 ]

@@ -1,5 +1,5 @@
-// SVG string → PNG buffer. The map schematic is hand-written SVG rather than satori output,
-// so unlike card-kit.ts its text is still text — resvg needs the bundled fonts to draw it.
+// SVG string → PNG buffer. Both the map schematic and the character card are hand-written SVG,
+// so their text is still text — resvg needs the bundled fonts to draw it.
 
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
