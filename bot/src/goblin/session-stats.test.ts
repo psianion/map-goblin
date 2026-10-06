@@ -64,6 +64,41 @@ describe('session stats', () => {
     expect(stats.live().dmConnected).toBe(true)
   })
 
+  it('leaves its own two seats off the roster entirely', () => {
+    // Both of the bot's own seats are named this by the server.
+    const botDm = { identityId: 'bot-dm', name: 'Goblin Bot', role: 'dm' as const, connected: true }
+    const botPlayer = { identityId: 'bot-p', name: 'Goblin Bot', role: 'player' as const, connected: true }
+    const stats = feed([
+      { type: 'session-state', state: state({ players: [botDm, botPlayer, player('Zed')] }) },
+      { type: 'player-joined', player: botPlayer },
+      { type: 'player-left', player: botDm },
+    ])
+    expect(stats.live().players).toEqual(['Zed'])
+    expect(stats.recap(0).players).toEqual(['Zed'])
+    expect(stats.recap(0).peakPlayers).toBe(1)
+    // And the bot's own DM seat does not get to report the DM as present, nor its departure
+    // as the DM leaving — the human DM never connected here.
+    expect(stats.live().dmConnected).toBe(false)
+  })
+
+  it('ignores a second bot seat coming and going while the human DM is at the table', () => {
+    // Any further seat the server mints for the bot is named after the same stem. Its
+    // arrival and departure are not the DM's.
+    const second = { identityId: 'bot-2', name: 'Goblin Bot 2', role: 'dm' as const, connected: true }
+    const stats = feed([
+      {
+        type: 'session-state',
+        state: state({
+          players: [{ identityId: 'dm', name: 'The DM', role: 'dm' as const, connected: true }, second, player('Zed')],
+        }),
+      },
+      { type: 'player-joined', player: second },
+      { type: 'player-left', player: second },
+    ])
+    expect(stats.live().players).toEqual(['Zed'])
+    expect(stats.live().dmConnected).toBe(true)
+  })
+
   it('resumes from a seed: cumulative counters continue, the live view does not', () => {
     const stats = createSessionStats(0, {
       scenes: ['The Vault'],

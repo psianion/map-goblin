@@ -23,7 +23,7 @@ export interface LiveView {
   /** Connected players, in join order. The DM is not one of them. */
   players: string[]
   sceneName: string | null
-  /** The scene `/map` and the recap snapshot default to (plan §7). */
+  /** The scene the recap snapshot defaults to (plan §7). */
   sceneId: string | null
   dmConnected: boolean
 }
@@ -59,6 +59,17 @@ const SIZE_CELLS: Record<string, number> = {
 }
 
 const DISPOSITIONS = new Set(['friendly', 'neutral', 'hostile'])
+
+/**
+ * The bot's own seats. The server names every one of them from this stem
+ * (`SERVICE_IDENTITY_NAME` in session/server/src/http.ts). None of them is a person at the
+ * table, so none belongs in the roster, the peak count or the recap — and a DM-role one
+ * would otherwise report the DM as connected for as long as the bot itself was.
+ */
+const BOT_SEAT_NAME = 'Goblin Bot'
+
+/** Prefix, not equality: any seat the server names after the stem is the bot's. */
+const isBotSeat = (name: string): boolean => name.startsWith(BOT_SEAT_NAME)
 
 /** Wire token → what the schematic draws. Hidden tokens are *kept*: the bot watches with the
  * DM's seat, and the renderer is what drops them from a player-facing sheet (map-svg.ts). */
@@ -133,6 +144,7 @@ export function createSessionStats(startedAt: number, seed?: StatsSeed): Session
     present = new Set()
     dmConnected = false
     for (const player of state.players ?? []) {
+      if (isBotSeat(player.name)) continue
       if (player.role === 'dm') {
         dmConnected ||= player.connected
         continue
@@ -170,10 +182,12 @@ export function createSessionStats(startedAt: number, seed?: StatsSeed): Session
           resync(event.state)
           return
         case 'player-joined':
+          if (isBotSeat(event.player.name)) return
           if (event.player.role === 'dm') dmConnected = true
           else join(event.player.name)
           return
         case 'player-left':
+          if (isBotSeat(event.player.name)) return
           if (event.player.role === 'dm') dmConnected = false
           else present.delete(event.player.name)
           return

@@ -3,7 +3,7 @@
 // the rolls store.
 
 import { userInput } from '../lib/errors'
-import type { ContainerSpec } from '../lib/ui'
+import { type ContainerSpec } from '../lib/card'
 
 const MAX_EXPR_LENGTH = 100
 const MAX_DICE_COUNT = 100
@@ -109,7 +109,7 @@ const CRIT_ACCENT = 0xd4af37
 const FAIL_ACCENT = 0x8b2c2c
 
 /** The public reply container: expression, per-die breakdown, total, crit/fail flair. */
-export function rollReply(rollerLabel: string, result: DiceResult): ContainerSpec {
+export function rollReply(rollerLabel: string, result: DiceResult, thumb?: string): ContainerSpec {
   const breakdown = result.terms
     .map((t, i) => {
       const body = t.rolls.length ? `${t.label} [${t.rolls.join(', ')}]` : t.label
@@ -117,11 +117,17 @@ export function rollReply(rollerLabel: string, result: DiceResult): ContainerSpe
       return t.sign < 0 ? `- ${body}` : `+ ${body}`
     })
     .join(' ')
-  const flair = result.isCrit ? ' — **CRITICAL!**' : result.isFail ? ' — fumble.' : ''
+  const flair = result.isCrit ? '**Natural 20** — a CRITICAL hit!' : result.isFail ? '**Natural 1** — a fumble.' : undefined
 
+  // The total is the headline, as big as Discord draws text; the arithmetic sits under it in
+  // code type for anyone who wants to check, beside the die.
   return {
     accent: result.isCrit ? CRIT_ACCENT : result.isFail ? FAIL_ACCENT : undefined,
-    header: `${rollerLabel} rolls ${result.expr}`,
-    blocks: [`${breakdown} = **${result.total}**${flair}`],
+    eyebrow: `${rollerLabel} rolls ${result.expr}`,
+    header: String(result.total),
+    big: true,
+    subhead: `\`${breakdown}\``,
+    ...(thumb ? { thumb, thumbAlt: 'A twenty-sided die' } : {}),
+    ...(flair ? { blocks: [flair] } : {}),
   }
 }

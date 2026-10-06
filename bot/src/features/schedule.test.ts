@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SchedulePoll } from '../db/stores'
 import { parseCandidateDate, pollAnnouncement, pollResultAnnouncement, slotStamp, slotSuggestions, toggleVote, voteConfirmation, winningOption } from './schedule'
+import { cardText, componentCount, MAX_COMPONENTS } from '../lib/card'
 
 describe('parseCandidateDate', () => {
   it('parses a well-formed date', () => {
@@ -58,18 +59,38 @@ describe('winningOption', () => {
 describe('pollAnnouncement', () => {
   it('pings the campaign role and numbers the options', () => {
     const spec = pollAnnouncement('The Sunken Keep', 'role-1', ['Friday 8pm', 'Saturday 2pm'])
-    expect(spec.blocks?.[0]).toContain('<@&role-1>')
-    expect(spec.blocks?.[1]).toBe('1. Friday 8pm\n2. Saturday 2pm')
+    expect(cardText(spec)).toContain('<@&role-1>')
+    expect(spec.noPing).toBeUndefined() // the role line is the point of the card
+    expect(cardText(spec)).toContain('**1.** Friday 8pm\n**2.** Saturday 2pm')
+  })
+
+  it('stamps a dated slot long and counts it down underneath', () => {
+    const sec = Math.floor(Date.parse('2026-09-19 19:00') / 1000)
+    const spec = pollAnnouncement('The Sunken Keep', 'role-1', ['2026-09-19 19:00'])
+    expect(cardText(spec)).toContain(`**1.** <t:${sec}:F>\n-# <t:${sec}:R>`)
+  })
+
+  it('stays inside the component budget at its widest', () => {
+    const spec = pollAnnouncement('The Sunken Keep', 'role-1', ['2026-09-19 19:00', '2026-09-20 19:00', '2026-09-21 19:00', '2026-09-22 19:00'], 'attachment://thumb-schedule.png')
+    expect(componentCount(spec)).toBeLessThan(MAX_COMPONENTS)
   })
 })
 
 describe('pollResultAnnouncement', () => {
   it('announces the winner', () => {
-    expect(pollResultAnnouncement({ index: 0, label: 'Friday 8pm', votes: 3 }).blocks?.[0]).toContain('Friday 8pm')
+    expect(cardText(pollResultAnnouncement({ index: 0, label: 'Friday 8pm', votes: 3 }))).toContain('Friday 8pm')
+  })
+
+  it('leads a dated winner with the long stamp and the countdown', () => {
+    const sec = Math.floor(Date.parse('2026-09-19 19:00') / 1000)
+    const spec = pollResultAnnouncement({ index: 0, label: '2026-09-19 19:00', votes: 3 })
+    expect(cardText(spec)).toContain(`### <t:${sec}:F>\n<t:${sec}:R>`)
+    expect(spec.footer).toBe('Won with 3 votes')
   })
 
   it('handles a poll nobody voted in', () => {
-    expect(pollResultAnnouncement(undefined).blocks?.[0]).toMatch(/no votes/i)
+    expect(cardText(pollResultAnnouncement(undefined, 'attachment://thumb-schedule.png'))).toMatch(/no votes/i)
+    expect(pollResultAnnouncement(undefined, 'attachment://thumb-schedule.png').thumb).toBe('attachment://thumb-schedule.png')
   })
 })
 

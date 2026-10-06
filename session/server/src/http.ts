@@ -223,19 +223,20 @@ async function mintServiceToken(
   if (!body) return
   const role = text(body.role) ?? 'dm'
   if (role !== 'dm' && role !== 'player') return json(res, 400, { error: "role must be 'dm' or 'player'" })
+  const name = SERVICE_IDENTITY_NAME
 
   // Reused by name *and* role: `findByCampaignAndRole` would hand back the human DM's
   // identity (or an arbitrary player's), and the bot's activity belongs to the bot.
   const bot =
     deps.stores.identities
       .listByCampaign(campaignId)
-      .find((i) => i.name === SERVICE_IDENTITY_NAME && i.role === role && i.banned === 0) ??
-    deps.stores.identities.mint(randomUUID(), campaignId, SERVICE_IDENTITY_NAME, role)
+      .find((i) => i.name === name && i.role === role && i.banned === 0) ??
+    deps.stores.identities.mint(randomUUID(), campaignId, name, role)
   json(res, 200, {
     token: issueToken(deps.hmacSecret, bot.id, campaignId, role),
     campaignId,
     role,
-    name: SERVICE_IDENTITY_NAME,
+    name,
   })
 }
 

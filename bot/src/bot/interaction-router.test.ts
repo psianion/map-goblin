@@ -4,6 +4,10 @@ import { routeInteraction, type RouterDeps } from './interaction-router'
 import { notAuthorized, userInput } from '../lib/errors'
 import type { Command, Registry } from './command-registry'
 import { build, SHARED_OWNER } from '../lib/custom-id'
+import { payloadText } from '../lib/ui'
+
+/** The sentence a reply card carries, under its eyebrow. */
+const said = (opts: unknown): string => payloadText(opts).split('\n').at(-1) ?? ''
 
 const silentLogger = { warn: vi.fn(), error: vi.fn() }
 
@@ -19,6 +23,7 @@ function depsFor(registry: Registry, overrides: Partial<RouterDeps> = {}): Route
     campaigns: {
       byChannel: () => undefined,
       byId: () => undefined,
+      all: () => [],
       upsert: (c) => ({ ...c, nextSessionAt: null, serviceToken: null, playerToken: null }),
       setNextSession: () => {
         throw new Error('not used in this test')
@@ -132,6 +137,8 @@ function depsFor(registry: Registry, overrides: Partial<RouterDeps> = {}): Route
       endSession: unused,
       getMap: unused,
       getAsset: unused,
+      ping: unused,
+      baseUrl: 'http://goblin.test',
     },
     goblinAdminPass: 'admin-pass',
     sessionRunner: {
@@ -142,6 +149,7 @@ function depsFor(registry: Registry, overrides: Partial<RouterDeps> = {}): Route
       command: () => false,
       resume: unused,
       stopAll: unused,
+      health: () => [],
     },
     db: {} as RouterDeps['db'],
     announce: async () => undefined,
@@ -165,15 +173,16 @@ function commandInteraction(name: string, userId = 'user-1') {
     isChatInputCommand: () => true,
     isAutocomplete: () => false,
     isMessageComponent: () => false,
+    isModalSubmit: () => false,
     deferReply: vi.fn(async () => {
       calls.push('defer')
       interaction.deferred = true
     }),
-    reply: vi.fn(async (opts: { content: string }) => {
-      calls.push(`reply:${opts.content}`)
+    reply: vi.fn(async (opts: unknown) => {
+      calls.push(`reply:${said(opts)}`)
     }),
-    editReply: vi.fn(async (opts: string | { content: string }) => {
-      calls.push(`edit:${typeof opts === 'string' ? opts : opts.content}`)
+    editReply: vi.fn(async (opts: unknown) => {
+      calls.push(`edit:${said(opts)}`)
     }),
   }
   return interaction
@@ -283,8 +292,9 @@ describe('routeInteraction — components', () => {
       isChatInputCommand: () => false,
       isAutocomplete: () => false,
       isMessageComponent: () => true,
-      reply: vi.fn(async (opts: { content: string }) => {
-        calls.push(`reply:${opts.content}`)
+      isModalSubmit: () => false,
+      reply: vi.fn(async (opts: unknown) => {
+        calls.push(`reply:${said(opts)}`)
       }),
       editReply: vi.fn(async () => {}),
     }
@@ -305,13 +315,13 @@ describe('routeInteraction — components', () => {
     const interaction = componentInteraction(build('map', 'refresh', 'user-1'), 'intruder')
     await routeInteraction(interaction as unknown as Interaction, depsFor(registry))
     expect(handler).not.toHaveBeenCalled()
-    expect(interaction.calls).toEqual(["reply:That's someone else's button."])
+    expect(interaction.calls[0]).toMatch(/^reply:That's someone else's button — run the command yourself/)
   })
 
   it('rejects an id it did not build', async () => {
     const interaction = componentInteraction('legacy-button', 'user-1')
     await routeInteraction(interaction as unknown as Interaction, depsFor({}))
-    expect(interaction.calls).toEqual(['reply:That control is from an older message.'])
+    expect(interaction.calls[0]).toMatch(/^reply:That control is from an older message — run the command again/)
   })
 
   it('runs the handler for ANY clicker on a shared-sentinel control (poll votes, LFG apply)', async () => {
@@ -334,7 +344,98 @@ describe('routeInteraction — components', () => {
     const interaction = componentInteraction(id, 'someone-else')
     await routeInteraction(interaction as unknown as Interaction, depsFor(registry))
     expect(handler).not.toHaveBeenCalled()
-    expect(interaction.calls).toEqual(["reply:That's someone else's button."])
+    expect(interaction.calls[0]).toMatch(/^reply:That's someone else's button — run the command yourself/)
+  })
+})
+
+describe('routeInteraction — modal submits', () => {
+  function modalInteraction(customId: string, userId: string) {
+    const calls: string[] = []
+    const interaction = {
+      calls,
+      customId,
+      channelId: 'chan-1',
+      user: { id: userId, username: 'goblin' },
+      member: { roles: [] },
+      deferred: false,
+      replied: false,
+      isChatInputCommand: () => false,
+      isAutocomplete: () => false,
+      isMessageComponent: () => false,
+      isModalSubmit: () => true,
+      deferReply: vi.fn(async () => {
+        calls.push('defer')
+        interaction.deferred = true
+      }),
+      reply: vi.fn(async (opts: unknown) => {
+        calls.push(`reply:${said(opts)}`)
+      }),
+      editReply: vi.fn(async (opts: unknown) => {
+        calls.push(`edit:${said(opts)}`)
+      }),
+    }
+    return interaction
+  }
+
+  it('defers, then hands the parsed id to the namespace’s modal handler', async () => {
+    const handler = vi.fn<NonNullable<Command['modal']>>(async () => {})
+    const registry: Registry = { character: command({ modal: handler }) }
+    const interaction = modalInteraction(build('character', 'update', 'user-1', '7'), 'user-1')
+    await routeInteraction(interaction as unknown as Interaction, depsFor(registry))
+    expect(interaction.calls).toEqual(['defer'])
+    expect(handler.mock.calls[0][1]).toMatchObject({ namespace: 'character', action: 'update', extra: ['7'] })
+  })
+
+  it("refuses someone else's form, without deferring", async () => {
+    const handler = vi.fn<NonNullable<Command['modal']>>(async () => {})
+    const registry: Registry = { character: command({ modal: handler }) }
+    const interaction = modalInteraction(build('character', 'update', 'user-1', '7'), 'intruder')
+    await routeInteraction(interaction as unknown as Interaction, depsFor(registry))
+    expect(handler).not.toHaveBeenCalled()
+    expect(interaction.calls[0]).toMatch(/^reply:That's someone else's form/)
+  })
+
+  it('answers an unknown namespace, and an id it did not build, the same way — never deferring', async () => {
+    for (const customId of [build('ghost', 'submit', 'user-1'), 'legacy-modal']) {
+      const interaction = modalInteraction(customId, 'user-1')
+      await routeInteraction(interaction as unknown as Interaction, depsFor({}))
+      expect(interaction.calls).toEqual(['reply:That form is from an older message — run the command again.'])
+    }
+  })
+
+  it('maps a BotError from the handler onto the deferred reply', async () => {
+    const registry: Registry = {
+      character: command({
+        modal: async () => {
+          throw userInput('Level has to be a whole number from 1 to 20 — you put "99".')
+        },
+      }),
+    }
+    const interaction = modalInteraction(build('character', 'create', 'user-1'), 'user-1')
+    await routeInteraction(interaction as unknown as Interaction, depsFor(registry))
+    expect(interaction.calls).toEqual(['defer', 'edit:Level has to be a whole number from 1 to 20 — you put "99".'])
+  })
+})
+
+describe('routeInteraction — a command that opens a modal', () => {
+  it('skips the defer, so showModal can be the first response', async () => {
+    const interaction = commandInteraction('campaign')
+    const registry: Registry = {
+      campaign: command({
+        opensModal: () => true,
+        execute: async () => void interaction.calls.push('showModal'),
+      }),
+    }
+    await routeInteraction(interaction as unknown as Interaction, depsFor(registry))
+    expect(interaction.deferReply).not.toHaveBeenCalled()
+    expect(interaction.calls).toEqual(['showModal'])
+  })
+
+  it('still defers the subcommands that do not', async () => {
+    const interaction = commandInteraction('campaign')
+    const registry: Registry = { campaign: command({ opensModal: () => false }) }
+    await routeInteraction(interaction as unknown as Interaction, depsFor(registry))
+    expect(interaction.calls).toEqual(['defer'])
   })
 })
 

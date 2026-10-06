@@ -2,7 +2,9 @@
 // context object and the deps, never of a live interaction, so every rule in plan §6 is
 // unit-testable and runs before deferReply (see interaction-router.ts).
 
-import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, MessageFlags, type AutocompleteInteraction, type ChatInputCommandInteraction, type GuildMember, type MessageComponentInteraction } from 'discord.js'
+import { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, MessageFlags, StringSelectMenuBuilder, type AutocompleteInteraction, type ChatInputCommandInteraction, type GuildMember, type MessageComponentInteraction, type ModalBuilder, type ModalSubmitInteraction } from 'discord.js'
+import { existsSync, readFileSync } from 'node:fs'
+import { extname, join } from 'node:path'
 import type { Database } from '../db/db'
 import type {
   Calendar,
@@ -25,31 +27,46 @@ import type { SessionRunner } from '../goblin/live-session'
 import type { WireInitiativeEntry } from '../goblin/observer'
 import type { GoblinRest } from '../goblin/rest'
 import { calendarAdvanceAnnouncement, calendarSetConfirmation, calendarShow } from '../features/calendar'
-import { campaignSetupConfirmation, campaignSetupTokenFailure } from '../features/campaign'
+import { campaignSetupConfirmation, campaignSetupTokenFailure, readCampaignDraft } from '../features/campaign'
 import {
   characterCreatedReply,
+  characterSubhead,
   characterUpdatedReply,
   deleteLocalPortrait,
   downloadPortrait,
   filterAutocomplete,
+  isLocalPortraitPath,
   leveledUp,
   levelUpAnnouncement,
   myCharactersList,
+  readCharacterDraft,
   writePortraitFile,
 } from '../features/character'
 import { rollExpression, rollReply, summarizeFaces } from '../features/dice'
-import { goldSplitAnnouncement, goldSplitConfirmation, lootAddedReply, lootListEmbed, splitNote, splitShares } from '../features/economy'
-import { feedbackCard, feedbackThanks } from '../features/feedback'
+import { goldSplitAnnouncement, goldSplitConfirmation, lootAddedReply, lootLedger, splitNote, splitShares } from '../features/economy'
+import { feedbackCard, feedbackThanks, readFeedbackDraft } from '../features/feedback'
 import {
   assetFileName,
   fetchAttachment,
   handoutConfirmation,
   handoutPost,
   isImage,
+  readHandoutDraft,
   safeFileName,
 } from '../features/handout'
-import { noteSavedReply, recallEmbed, sanitizeFtsQuery } from '../features/journal'
-import { applicationCard, applyConfirmation, lfgBoardPost, lfgCloseConfirmation, lfgClosedNotice, lfgOpenConfirmation } from '../features/lfg'
+import { initiativeReceipt } from '../features/initiative'
+import { noteSavedReply, recallResults, sanitizeFtsQuery } from '../features/journal'
+import {
+  applicationCard,
+  applyConfirmation,
+  lfgBoardPost,
+  lfgCloseConfirmation,
+  lfgClosedNotice,
+  lfgOpenConfirmation,
+  readApplicationDraft,
+  readRecruitDraft,
+  type ApplicationDraft,
+} from '../features/lfg'
 import { trySyncNickname } from '../features/nickname'
 import { questAddedReply, questCompletedReply, questLog } from '../features/quests'
 import {
@@ -63,15 +80,16 @@ import {
   winningOption,
 } from '../features/schedule'
 import { sessionEndedReply, sessionStartedReply } from '../features/session'
+import { healthBoard } from '../features/health'
 import { campaignStatus } from '../features/status'
 import { build, SHARED_OWNER, type CustomId } from '../lib/custom-id'
 import { internal, notAuthorized, notFound, userInput, wrongChannel } from '../lib/errors'
+import { notice } from '../lib/card'
 import { container, type AttachedFile, type ContainerSpec } from '../lib/ui'
-import { SNAPSHOT_FILE } from '../goblin/live-session'
-import { freshSeats } from '../goblin/seat'
+import { freshSeats, seatExpiresAt } from '../goblin/seat'
+import { BOOT_AT, COMMIT } from '../lib/build-info'
 import { fetchPortraitDataUri, renderCharacterCard } from '../render/card-kit'
-import { mapSvg } from '../render/map-svg'
-import { rasterize } from '../render/raster'
+import { placeholderThumb } from '../render/placeholder'
 import {
   apply as applyCommand,
   calendar as calendarCommand,
@@ -81,8 +99,7 @@ import {
   gold as goldCommand,
   handout as handoutCommand,
   initiative as initiativeCommand,
-  lfg as lfgCommand,
-  map as mapCommand,
+  recruit as recruitCommand,
   loot as lootCommand,
   mycharacters as mycharactersCommand,
   note as noteCommand,
@@ -93,6 +110,48 @@ import {
   schedule as scheduleCommand,
   session as sessionCommand,
 } from './commands'
+import {
+  APPLY_FIELDS,
+  campaignSettingsFields,
+  CAMPAIGN_SETUP_FIELDS,
+  characterFields,
+  FEEDBACK_FIELDS,
+  HANDOUT_FIELDS,
+  modal,
+  modalValues,
+  RECRUIT_FIELDS,
+} from './modals'
+
+/** Every reply is a card — nothing the bot says goes out as bare text. */
+const card = (spec: ContainerSpec, files: AttachedFile[] = []) => ({
+  components: [container(spec)],
+  flags: MessageFlags.IsComponentsV2 as const,
+  allowedMentions: { parse: [] },
+  files: files.map((file) => new AttachmentBuilder(file.data, { name: file.name })),
+})
+
+/** A card only the person who pressed the button sees. */
+const whisper = (spec: ContainerSpec) => ({
+  components: [container(spec)],
+  flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] as const,
+})
+
+/**
+ * Saved portraits as files a thumbnail can point at, keyed by character id. Only portraits on
+ * disk: a legacy CDN link expires, and one dead url fails the whole message.
+ */
+function portraitThumbs(botData: string, characters: Character[]): { files: AttachedFile[]; thumbs: Map<number, string> } {
+  const files: AttachedFile[] = []
+  const thumbs = new Map<number, string>()
+  for (const character of characters) {
+    const saved = character.portraitUrl
+    if (!saved || !isLocalPortraitPath(saved) || !existsSync(join(botData, saved))) continue
+    const name = `portrait-${character.id}${extname(saved)}`
+    files.push({ name, data: readFileSync(join(botData, saved)) })
+    thumbs.set(character.id, `attachment://${name}`)
+  }
+  return { files, thumbs }
+}
 
 export interface Deps {
   /** DISCORD_OWNER_ID — the bot operator. */
@@ -154,11 +213,17 @@ export interface Command {
   /** Ephemeral defer + reply. Public output posts to a registered channel instead. A function
    * picks per-subcommand (e.g. /loot add is public, /loot list is ephemeral). */
   ephemeral?: boolean | ((interaction: ChatInputCommandInteraction) => boolean)
+  /** True for a subcommand whose execute calls showModal — the router then skips the defer,
+   * since a modal can only be a command's first response. */
+  opensModal?: (interaction: ChatInputCommandInteraction) => boolean
   authorize: Authorize
   execute: (interaction: ChatInputCommandInteraction, deps: Deps) => Promise<void>
   autocomplete?: (interaction: AutocompleteInteraction, deps: Deps) => Promise<void>
   /** Buttons/selects whose custom-id namespace is this command's name. */
   component?: (interaction: MessageComponentInteraction, id: CustomId, deps: Deps) => Promise<void>
+  /** Modal submits whose custom-id namespace is this command's name. Already deferred
+   * ephemerally by the router, so the body edits its reply as an execute would. */
+  modal?: (interaction: ModalSubmitInteraction, id: CustomId, deps: Deps) => Promise<void>
 }
 
 export type Registry = Record<string, Command>
@@ -203,15 +268,20 @@ function memberViews(...viewSubcommands: string[]): Authorize {
 /** Same resolution as campaignForChannel, called again from execute (authorize and execute
  * run as separate calls — see interaction-router.ts). Always defined here: authorize already
  * proved the channel resolves, this just re-reads it. */
-function requireCampaign(interaction: ChatInputCommandInteraction, deps: Deps): Campaign {
-  const campaign = deps.campaigns.byChannel(interaction.channelId)
+function requireCampaign(interaction: { channelId: string | null }, deps: Deps): Campaign {
+  const campaign = interaction.channelId ? deps.campaigns.byChannel(interaction.channelId) : undefined
   if (!campaign) throw wrongChannel("This isn't a campaign channel.")
   return campaign
 }
 
+/** Discord draws this in each reader's own timezone and keeps it counting. Store times are ms. */
+const stampR = (ms: number): string => `<t:${Math.floor(ms / 1000)}:R>`
+
 /** Fetches a full GuildMember (not the partial the gateway sometimes hands the interaction)
  * so `.manageable` and `.setNickname` are reliably available. Never throws. */
-async function guildMemberOf(interaction: ChatInputCommandInteraction): Promise<GuildMember | undefined> {
+async function guildMemberOf(
+  interaction: ChatInputCommandInteraction | ModalSubmitInteraction,
+): Promise<GuildMember | undefined> {
   if (!interaction.guild) return undefined
   return interaction.guild.members.fetch(interaction.user.id).catch(() => undefined)
 }
@@ -256,10 +326,24 @@ export const registry: Registry = {
     authorize: ownerOnly,
     execute: async (interaction, deps) => {
       const dbOk = deps.db.prepare<[], { ok: number }>('SELECT 1 AS ok').get()?.ok === 1
-      const latency = Math.round(interaction.client.ws.ping)
-      await interaction.editReply(
-        `Gateway ${latency < 0 ? 'n/a' : `${latency}ms`} · db ${dbOk ? 'ok' : 'unreachable'}`,
-      )
+      const board = healthBoard({
+        botTag: interaction.client.user.tag,
+        commit: COMMIT,
+        bootAt: BOOT_AT,
+        gatewayMs: Math.round(interaction.client.ws.ping),
+        commandCount: Object.keys(registry).length,
+        guildName: interaction.guild?.name ?? null,
+        serverMs: await deps.goblin.ping(),
+        serverUrl: deps.goblin.baseUrl,
+        seats: deps.campaigns
+          .all()
+          .map((c) => ({ campaignName: c.name, expiresAt: seatExpiresAt(c.serviceToken) })),
+        tables: deps.sessionRunner.health(),
+        dbOk,
+        rssBytes: process.memoryUsage().rss,
+        nodeVersion: process.version,
+      })
+      await interaction.editReply(card(board))
     },
   },
 
@@ -268,11 +352,38 @@ export const registry: Registry = {
     ephemeral: true,
     // Every other subcommand is owner-only registration; status is a member-level read.
     authorize: (ctx, deps) => (ctx.subcommand === 'status' ? memberOnly(ctx, deps) : ownerOnly(ctx, deps)),
+    opensModal: (interaction) => interaction.options.getSubcommand() !== 'status',
     execute: async (interaction, deps) => {
       const sub = interaction.options.getSubcommand()
-      if (sub === 'setup') return campaignSetup(interaction, deps)
+      if (sub === 'setup') {
+        await interaction.showModal(
+          modal(build('campaign', 'setup', interaction.user.id), 'Register a campaign', CAMPAIGN_SETUP_FIELDS),
+        )
+        return
+      }
+      if (sub === 'settings') {
+        const campaign = requireCampaign(interaction, deps)
+        await interaction.showModal(
+          modal(
+            build('campaign', 'settings', interaction.user.id),
+            'Campaign settings',
+            campaignSettingsFields(campaign.ddbUrl),
+          ),
+        )
+        return
+      }
       if (sub === 'status') return campaignStatusCmd(interaction, deps)
       throw notFound("I don't have that campaign subcommand.")
+    },
+    // The only control under this namespace is the status card's Share button.
+    component: async (interaction, _id, deps) => {
+      const { spec, files } = campaignStatusCard(deps, requireCampaign(interaction, deps))
+      await shareToChannel(interaction, deps, spec, files)
+    },
+    modal: async (interaction, id, deps) => {
+      if (id.action === 'setup') return campaignSetup(interaction, deps)
+      if (id.action === 'settings') return campaignSettings(interaction, deps)
+      throw notFound("I don't have that campaign form any more.")
     },
   },
 
@@ -280,10 +391,16 @@ export const registry: Registry = {
     data: characterCommand,
     ephemeral: true,
     authorize: memberOnly,
+    opensModal: (interaction) => interaction.options.getSubcommand() !== 'show',
     execute: async (interaction, deps) => {
       const sub = interaction.options.getSubcommand()
-      if (sub === 'create') return createCharacter(interaction, deps)
-      if (sub === 'update') return updateCharacter(interaction, deps)
+      if (sub === 'create') {
+        await interaction.showModal(
+          modal(build('character', 'create', interaction.user.id), 'New character', characterFields()),
+        )
+        return
+      }
+      if (sub === 'update') return openCharacterUpdate(interaction, deps)
       if (sub === 'show') return showCharacter(interaction, deps)
       throw notFound("I don't have that character subcommand.")
     },
@@ -301,6 +418,29 @@ export const registry: Registry = {
       )
       await interaction.respond(names.map((name) => ({ name, value: name })))
     },
+    // Two controls: the Share button, which carries the character id so the public copy is
+    // rendered again rather than copied, and the switch select, which carries the id it picked.
+    component: async (interaction, id, deps) => {
+      const campaign = requireCampaign(interaction, deps)
+      const character = deps.characters.byId(Number(id.action === 'switch' ? selectedValue(interaction) : id.extra[0]))
+      // Campaign-checked, not just id-checked: a button from another campaign's channel must
+      // not pull that campaign's character into this one.
+      if (!character || character.campaignId !== campaign.goblinCampaignId)
+        throw notFound('That character is gone.')
+      const { spec, files } = await characterShowCard(deps, campaign, character)
+      if (id.action === 'switch') {
+        // The same private message, a different character — the old picture goes with it.
+        const rows = showCharacterRows(deps, campaign, interaction.user.id, character)
+        await interaction.update({ ...card({ ...spec, rows }, files), attachments: [] })
+        return
+      }
+      await shareToChannel(interaction, deps, spec, files)
+    },
+    modal: async (interaction, id, deps) => {
+      if (id.action === 'create') return createCharacter(interaction, deps)
+      if (id.action === 'update') return updateCharacter(interaction, deps, Number(id.extra[0]))
+      throw notFound("I don't have that character form any more.")
+    },
   },
 
   mycharacters: {
@@ -308,12 +448,21 @@ export const registry: Registry = {
     ephemeral: true,
     authorize: memberOnly,
     execute: async (interaction, deps) => {
+      const { spec, files } = myCharactersCard(deps, requireCampaign(interaction, deps), interaction.user.id)
+      await interaction.editReply(card({ ...spec, rows: [shareRow('mycharacters', interaction.user.id)] }, files))
+    },
+    component: async (interaction, id, deps) => {
       const campaign = requireCampaign(interaction, deps)
-      const mine = deps.characters.byOwner(campaign.goblinCampaignId, interaction.user.id)
-      await interaction.editReply({
-        components: [container(myCharactersList(campaign.name, mine))],
-        flags: MessageFlags.IsComponentsV2,
-      })
+      // A row's own button: the full card for that one character, still only they can see it.
+      if (id.action === 'show') {
+        const character = deps.characters.byId(Number(id.extra[0]))
+        if (!character || character.campaignId !== campaign.goblinCampaignId) throw notFound('That character is gone.')
+        const { spec, files } = await characterShowCard(deps, campaign, character)
+        await interaction.reply({ ...card(spec, files), flags: [MessageFlags.IsComponentsV2, MessageFlags.Ephemeral] })
+        return
+      }
+      const { spec, files } = myCharactersCard(deps, campaign, interaction.user.id, interaction.user.displayName)
+      await shareToChannel(interaction, deps, spec, files)
     },
   },
 
@@ -337,6 +486,23 @@ export const registry: Registry = {
       )
       await interaction.respond(names.map((name) => ({ name, value: name })))
     },
+    component: async (interaction, id, deps) => {
+      const campaign = requireCampaign(interaction, deps)
+      // The select is owner-stamped to the DM already; proved again here, as the poll's close
+      // button does — the stamp is on the id, and the id is on a message anyone can see.
+      if (id.action === 'complete') {
+        if (interaction.user.id !== campaign.dmDiscordId) throw notAuthorized("Only this campaign's DM can do that.")
+        const quest = deps.quests.active(campaign.goblinCampaignId).find((q) => q.id === Number(selectedValue(interaction)))
+        if (!quest) throw notFound('That quest is already closed.')
+        deps.quests.complete(campaign.goblinCampaignId, quest.title)
+        const { spec, files } = questLogCard(deps, campaign)
+        const rows = questLogRows(deps, campaign, interaction.user.id)
+        await interaction.update({ ...card({ ...spec, rows }, files), attachments: [] })
+        return
+      }
+      const { spec, files } = questLogCard(deps, campaign)
+      await shareToChannel(interaction, deps, spec, files)
+    },
   },
 
   note: {
@@ -345,8 +511,9 @@ export const registry: Registry = {
     authorize: memberOnly,
     execute: async (interaction, deps) => {
       const campaign = requireCampaign(interaction, deps)
-      deps.notes.add(campaign.goblinCampaignId, interaction.user.id, interaction.options.getString('text', true))
-      await interaction.editReply(noteSavedReply())
+      const text = interaction.options.getString('text', true)
+      deps.notes.add(campaign.goblinCampaignId, interaction.user.id, text)
+      await interaction.editReply(card(noteSavedReply(text)))
     },
   },
 
@@ -355,13 +522,16 @@ export const registry: Registry = {
     ephemeral: true,
     authorize: memberOnly,
     execute: async (interaction, deps) => {
-      const campaign = requireCampaign(interaction, deps)
       const query = interaction.options.getString('query', true)
-      const matches = deps.notes.search(campaign.goblinCampaignId, sanitizeFtsQuery(query))
-      await interaction.editReply({
-        components: [container(recallEmbed(query, matches))],
-        flags: MessageFlags.IsComponentsV2,
-      })
+      const { spec, files } = recallCard(deps, requireCampaign(interaction, deps), query)
+      await interaction.editReply(card({ ...spec, rows: recallShareRows(interaction.user.id, query) }, files))
+    },
+    // The only control under this namespace is the results card's Share button, which carries
+    // the query — percent-encoded, see recallShareRows — so the public copy is searched again
+    // rather than copied.
+    component: async (interaction, id, deps) => {
+      const { spec, files } = recallCard(deps, requireCampaign(interaction, deps), decodeURIComponent(id.extra[0] ?? ''))
+      await shareToChannel(interaction, deps, spec, files)
     },
   },
 
@@ -402,10 +572,8 @@ export const registry: Registry = {
         visibility: 'public',
       })
 
-      await interaction.editReply({
-        components: [container(rollReply(char?.name ?? interaction.user.username, result))],
-        flags: MessageFlags.IsComponentsV2,
-      })
+      const die = placeholderThumb('dice')
+      await interaction.editReply(card(rollReply(char?.name ?? interaction.user.username, result, die.url), [die.file]))
     },
     autocomplete: characterAutocomplete,
   },
@@ -435,7 +603,13 @@ export const registry: Registry = {
       if (!deps.sessionRunner.command(campaign.goblinCampaignId, 'initiative', 'set', { key: entry.key, value }))
         throw internal("I couldn't reach the table — say the number out loud and try again.")
 
-      await interaction.editReply(`Sent: **${entry.name}**, initiative ${value}.`)
+      const die = placeholderThumb('dice')
+      await interaction.editReply(
+        card(
+          initiativeReceipt({ campaignName: campaign.name, entry, value, entries, thumb: die.url }),
+          [die.file],
+        ),
+      )
     },
     autocomplete: initiativeAutocomplete,
   },
@@ -449,6 +623,11 @@ export const registry: Registry = {
       if (sub === 'add') return lootAdd(interaction, deps)
       if (sub === 'list') return lootList(interaction, deps)
       throw notFound("I don't have that loot subcommand.")
+    },
+    // The only control under this namespace is the ledger card's Share button.
+    component: async (interaction, _id, deps) => {
+      const { spec, files } = lootLedgerCard(deps, requireCampaign(interaction, deps))
+      await shareToChannel(interaction, deps, spec, files)
     },
   },
 
@@ -469,8 +648,9 @@ export const registry: Registry = {
         actor: interaction.user.id,
         note: splitNote(partySize, split),
       })
-      await deps.announce(campaign.channelId, goldSplitAnnouncement(total, partySize, split))
-      await interaction.editReply(goldSplitConfirmation(total, partySize, split))
+      const purse = placeholderThumb('purse')
+      await deps.announce(campaign.channelId, goldSplitAnnouncement(total, partySize, split, purse.url), [purse.file])
+      await interaction.editReply(card(notice(goldSplitConfirmation(total, partySize, split), 'Party purse')))
     },
   },
 
@@ -484,6 +664,11 @@ export const registry: Registry = {
       if (sub === 'set') return calendarSet(interaction, deps)
       if (sub === 'advance') return calendarAdvance(interaction, deps)
       throw notFound("I don't have that calendar subcommand.")
+    },
+    // The only control under this namespace is the day card's Share button.
+    component: async (interaction, _id, deps) => {
+      const { spec, files } = calendarCard(deps, requireCampaign(interaction, deps))
+      await shareToChannel(interaction, deps, spec, files)
     },
   },
 
@@ -506,12 +691,17 @@ export const registry: Registry = {
       options.forEach(parseCandidateDate) // throws user_input on anything Date.parse can't read
 
       const poll = deps.schedulePolls.create(campaign.goblinCampaignId, options)
-      const sent = await deps.announce(campaign.channelId, {
-        ...pollAnnouncement(campaign.name, campaign.roleId, options),
-        rows: [scheduleVoteRow(poll.id, options), scheduleCloseRow(poll.id, campaign.dmDiscordId)],
-      })
+      const glass = placeholderThumb('schedule')
+      const sent = await deps.announce(
+        campaign.channelId,
+        {
+          ...pollAnnouncement(campaign.name, campaign.roleId, options, glass.url),
+          rows: [scheduleVoteRow(poll.id, options), scheduleCloseRow(poll.id, campaign.dmDiscordId)],
+        },
+        [glass.file],
+      )
       if (sent) deps.schedulePolls.setMessageRef(poll.id, campaign.channelId, sent.messageId)
-      await interaction.editReply(pollCreatedConfirmation())
+      await interaction.editReply(card(notice(pollCreatedConfirmation(), 'Session poll')))
     },
     component: async (interaction, id, deps) => {
       const poll = deps.schedulePolls.byId(Number(id.extra[0]))
@@ -527,7 +717,7 @@ export const registry: Registry = {
           poll.id,
           toggleVote(poll.votes, interaction.user.id, Number(id.extra[1])),
         )
-        await interaction.reply({ content: voteConfirmation(updated, interaction.user.id), flags: MessageFlags.Ephemeral })
+        await interaction.reply(whisper(notice(voteConfirmation(updated, interaction.user.id), 'Session poll')))
         return
       }
 
@@ -538,8 +728,9 @@ export const registry: Registry = {
         const closed = deps.schedulePolls.close(poll.id)
         const winner = winningOption(closed)
         if (winner) deps.campaigns.setNextSession(campaign.goblinCampaignId, parseCandidateDate(winner.label))
-        await deps.announce(campaign.channelId, pollResultAnnouncement(winner))
-        await interaction.reply({ content: 'Poll closed.', flags: MessageFlags.Ephemeral })
+        const glass = placeholderThumb('schedule')
+        await deps.announce(campaign.channelId, pollResultAnnouncement(winner, glass.url), [glass.file])
+        await interaction.reply(whisper(notice('Poll closed.', 'Session poll')))
       }
     },
   },
@@ -558,11 +749,11 @@ export const registry: Registry = {
           campaign,
           interaction.options.getString('scene') ?? undefined,
         )
-        await interaction.editReply(sessionStartedReply(joinLink))
+        await interaction.editReply(card(sessionStartedReply(joinLink, campaign.channelId)))
         return
       }
       if (sub === 'end') {
-        await interaction.editReply(sessionEndedReply(await deps.sessionRunner.end(campaign)))
+        await interaction.editReply(card(sessionEndedReply(await deps.sessionRunner.end(campaign), campaign.channelId)))
         return
       }
       throw notFound("I don't have that session subcommand.")
@@ -570,37 +761,38 @@ export const registry: Registry = {
     autocomplete: sceneAutocomplete,
   },
 
-  map: {
-    data: mapCommand,
-    // The picture is the post; the invoker's own reply is a receipt.
-    ephemeral: true,
-    // Channel-switched (plan §7): the DM's own channel is the only place the unfogged map
-    // exists, and everywhere else in the campaign is a member-level party map.
-    authorize: (ctx, deps) => {
-      const campaign = campaignForChannel(ctx, deps)
-      if (isDmMapView(ctx.channelId, ctx.userId, campaign)) return
-      memberOnly(ctx, deps)
-    },
-    execute: postMap,
-    autocomplete: sceneAutocomplete,
-  },
-
   handout: {
     data: handoutCommand,
     ephemeral: true,
     authorize: dmOnly,
-    execute: sendHandout,
+    opensModal: () => true,
+    execute: async (interaction) => {
+      await interaction.showModal(
+        modal(build('handout', 'send', interaction.user.id), 'Hand something to the party', HANDOUT_FIELDS),
+      )
+    },
+    modal: async (interaction, _id, deps) => sendHandout(interaction, deps),
   },
 
-  lfg: {
-    data: lfgCommand,
+  recruit: {
+    data: recruitCommand,
     ephemeral: true,
     authorize: dmOnly,
+    opensModal: (interaction) => interaction.options.getSubcommand() === 'open',
     execute: async (interaction, deps) => {
       const sub = interaction.options.getSubcommand()
-      if (sub === 'open') return lfgOpen(interaction, deps)
-      if (sub === 'close') return lfgClose(interaction, deps)
-      throw notFound("I don't have that lfg subcommand.")
+      if (sub === 'open') {
+        await interaction.showModal(
+          modal(build('recruit', 'open', interaction.user.id), 'Recruit for this table', RECRUIT_FIELDS),
+        )
+        return
+      }
+      if (sub === 'close') return recruitClose(interaction, deps)
+      throw notFound("I don't have that recruit subcommand.")
+    },
+    modal: async (interaction, id, deps) => {
+      if (id.action === 'open') return recruitOpen(interaction, deps)
+      throw notFound("I don't have that recruiting form any more.")
     },
   },
 
@@ -608,11 +800,9 @@ export const registry: Registry = {
     data: applyCommand,
     ephemeral: true,
     authorize: everyone,
-    execute: async (interaction, deps) => {
-      const campaignId = interaction.options.getString('campaign', true)
-      const message = interaction.options.getString('message')
-      const campaign = await submitApplication(deps, campaignId, interaction.user.id, message)
-      await interaction.editReply(applyConfirmation(campaign.name))
+    opensModal: () => true,
+    execute: async (interaction) => {
+      await interaction.showModal(applyModal(interaction.user.id, interaction.options.getString('campaign', true)))
     },
     autocomplete: async (interaction, deps) => {
       const query = interaction.options.getFocused().toLowerCase()
@@ -624,9 +814,15 @@ export const registry: Registry = {
         .slice(0, 25)
       await interaction.respond(choices.map((c) => ({ name: c.name, value: c.goblinCampaignId })))
     },
-    component: async (interaction, id, deps) => {
-      const campaign = await submitApplication(deps, id.extra[0], interaction.user.id, null)
-      await interaction.reply({ content: applyConfirmation(campaign.name), flags: MessageFlags.Ephemeral })
+    // The board's Apply button opens the same form the slash command does — it just already
+    // knows which campaign, so that id travels on through the modal's own custom id.
+    component: async (interaction, id) => {
+      await interaction.showModal(applyModal(interaction.user.id, id.extra[0] ?? ''))
+    },
+    modal: async (interaction, id, deps) => {
+      const draft = readApplicationDraft(modalValues(interaction, APPLY_FIELDS))
+      const campaign = await submitApplication(deps, id.extra[0], interaction.user, draft)
+      await interaction.editReply(card(notice(applyConfirmation(campaign.name), 'Application sent')))
     },
   },
 
@@ -634,14 +830,35 @@ export const registry: Registry = {
     data: feedbackCommand,
     ephemeral: true,
     authorize: memberOnly,
-    execute: async (interaction, deps) => {
+    opensModal: () => true,
+    execute: async (interaction) => {
+      await interaction.showModal(
+        modal(build('feedback', 'send', interaction.user.id), 'Tell the DM', FEEDBACK_FIELDS),
+      )
+    },
+    modal: async (interaction, _id, deps) => {
       const campaign = requireCampaign(interaction, deps)
-      const text = interaction.options.getString('text', true)
-      deps.feedback.add(campaign.goblinCampaignId, text) // no discord_id stored anywhere (plan §7)
-      await deps.announce(campaign.dmChannelId, feedbackCard(campaign.name, text))
-      await interaction.editReply(feedbackThanks())
+      const { text, category } = readFeedbackDraft(modalValues(interaction, FEEDBACK_FIELDS))
+      // No discord_id stored anywhere (plan §7) — the category is about the message, not who sent it.
+      const entry = deps.feedback.add(campaign.goblinCampaignId, text, category)
+      // The seal, not the party banner: the one thing this card must not carry is a campaign
+      // face anyone could read an author off.
+      const seal = placeholderThumb('handout')
+      await deps.announce(
+        campaign.dmChannelId,
+        feedbackCard(campaign.name, text, entry.createdAt, seal.url, category),
+        [seal.file],
+      )
+      await interaction.editReply(card(notice(feedbackThanks(), 'Feedback')))
     },
   },
+}
+
+/** One form for `/apply` and the board button alike. The campaign id rides in the custom id
+ * because the applicant never types it — the slash option or the button already said it. */
+function applyModal(userId: string, campaignId: string): ModalBuilder {
+  if (!campaignId) throw notFound("That campaign isn't recruiting.")
+  return modal(build('apply', 'submit', userId, campaignId), 'Apply for a seat', APPLY_FIELDS)
 }
 
 /** Every character in the campaign, for the commands that take a `character:` — anyone may
@@ -741,100 +958,79 @@ async function sceneAutocomplete(interaction: AutocompleteInteraction, deps: Dep
   )
 }
 
-/** The DM, in their own channel. Both halves matter: the DM asking elsewhere gets the party's
- * map (nothing leaks into a shared channel), and a member in the DM channel is still a member. */
-function isDmMapView(channelId: string, userId: string, campaign: Campaign): boolean {
-  return channelId === campaign.dmChannelId && userId === campaign.dmDiscordId
-}
-
 const NO_TOKEN = 'This campaign has no game-server seat yet — the DM needs to run `/campaign setup` again.'
 
-async function postMap(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
-  const campaign = await freshSeats(requireCampaign(interaction, deps), deps)
-  const dmView = isDmMapView(interaction.channelId, interaction.user.id, campaign)
-  // The token *is* the redaction (plan §4): the player seat gets the server-cut document, so
-  // the bot never decides what a player may see.
-  const token = dmView ? campaign.serviceToken : campaign.playerToken
-  if (!token) throw userInput(NO_TOKEN)
-
-  const live = deps.sessionRunner.liveState(campaign.goblinCampaignId)
-  const sceneId = interaction.options.getString('scene') ?? live?.sceneId
-  if (!sceneId)
-    throw userInput("No session is running, so there's no current scene — pass the `scene` option.")
-
-  const doc = await deps.goblin.getMap(token, sceneId)
-  // Tokens only for the scene the observer is actually watching: positions from another scene
-  // would be fiction drawn at full confidence.
-  // Tokens and the swept-ground mask are both "this scene or nothing" for the same reason.
-  const tokens = live?.sceneId === sceneId ? live.tokens : undefined
-  const region = live?.sceneId === sceneId ? live.region : undefined
-  const png = rasterize(mapSvg(doc, { tokens, dmView, region }))
-
-  await deps.announce(
-    dmView ? campaign.dmChannelId : interaction.channelId,
-    {
-      header: `${campaign.name} — ${dmView ? 'DM map' : 'Party map'}`,
-      blocks: [dmView ? '_Unfogged, secrets included._' : '_What the party has uncovered so far._'],
-      media: [`attachment://${SNAPSHOT_FILE}`],
-    },
-    [{ name: SNAPSHOT_FILE, data: png }],
-  )
-  await interaction.editReply(dmView ? 'Posted to your DM channel.' : 'Map posted.')
-}
-
-async function sendHandout(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+async function sendHandout(interaction: ModalSubmitInteraction, deps: Deps): Promise<void> {
   const campaign = requireCampaign(interaction, deps)
-  const note = interaction.options.getString('note')
-  const assetId = interaction.options.getString('asset')
-  const upload = interaction.options.getAttachment('file')
-  if (!note && !assetId && !upload)
-    throw userInput('Give me something to hand out: a file, an asset id, or a note.')
+  const uploads = [...(interaction.fields.getUploadedFiles('files')?.values() ?? [])]
+  const draft = readHandoutDraft(modalValues(interaction, HANDOUT_FIELDS), uploads.length > 0)
 
   const files: AttachedFile[] = []
   const imageNames: string[] = []
   const fileNames: string[] = []
   const add = (name: string, data: Buffer, mime: string | null | undefined): void => {
-    files.push({ name, data })
-    ;(isImage(mime) ? imageNames : fileNames).push(name)
+    // Ten uploads can scrub down to the same name, and a gallery pointing twice at one
+    // attachment name shows one picture twice and loses the other.
+    let unique = name
+    while (files.some((file) => file.name === unique)) unique = `_${unique}`
+    files.push({ name: unique, data })
+    ;(isImage(mime) ? imageNames : fileNames).push(unique)
   }
 
-  if (assetId) {
+  if (draft.assetId) {
     // Only the asset branch talks to the server, so only it pays for a seat check.
     const token = (await freshSeats(campaign, deps)).serviceToken
     if (!token) throw userInput(NO_TOKEN)
-    const asset = await deps.goblin.getAsset(token, assetId)
-    add(assetFileName(assetId, asset.mime), asset.bytes, asset.mime)
+    const asset = await deps.goblin.getAsset(token, draft.assetId)
+    add(assetFileName(draft.assetId, asset.mime), asset.bytes, asset.mime)
   }
-  if (upload) {
+  for (const upload of uploads) {
     // Re-uploaded rather than linked: a Discord CDN url is signed and expires, and a handout
     // that 404s a month later is worse than no handout.
     const data = await fetchAttachment(upload.url)
-    if (!data) throw userInput("I couldn't fetch that upload — try attaching it again.")
+    if (!data) throw userInput(`I couldn't fetch "${upload.name}" — try attaching it again.`)
     add(safeFileName(upload.name), data, upload.contentType)
   }
 
+  // The seal rides along with the handout's own files: a thumbnail pointing at an attachment
+  // this message doesn't carry renders as a broken image. An upload named like the seal would
+  // take its place, so the seal steps aside until its name is its own.
+  const seal = placeholderThumb('handout')
+  let sealName = seal.file.name
+  while (files.some((file) => file.name === sealName)) sealName = `_${sealName}`
+
   await deps.announce(
     campaign.channelId,
-    handoutPost({ campaignName: campaign.name, note, imageNames, fileNames }),
-    files,
+    handoutPost({
+      campaignName: campaign.name,
+      dmDiscordId: campaign.dmDiscordId,
+      title: draft.title,
+      note: draft.note,
+      imageNames,
+      fileNames,
+      thumb: `attachment://${sealName}`,
+      spoiler: draft.spoiler,
+    }),
+    [...files, { name: sealName, data: seal.file.data }],
   )
-  await interaction.editReply(handoutConfirmation(campaign.name))
+  await interaction.editReply(card(handoutConfirmation(campaign.channelId)))
 }
 
-async function createCharacter(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+async function createCharacter(interaction: ModalSubmitInteraction, deps: Deps): Promise<void> {
   const campaign = requireCampaign(interaction, deps)
-  const portrait = interaction.options.getAttachment('portrait')
-  // Downloaded and validated before the row exists: a bad attachment (network failure, wrong
-  // content-type, too large) must fail the command with no character created — not create one
+  const draft = readCharacterDraft(modalValues(interaction, characterFields()))
+  const portrait = interaction.fields.getUploadedFiles('portrait')?.first()
+  // Downloaded and validated before the row exists: a bad upload (network failure, wrong
+  // content-type, too large) must fail the submit with no character created — not create one
   // with a portrait link that never resolves.
   const download = portrait ? await downloadPortrait(portrait.url) : undefined
 
   const character = deps.characters.create({
     discordId: interaction.user.id,
     campaignId: campaign.goblinCampaignId,
-    name: interaction.options.getString('name', true),
-    className: interaction.options.getString('class', true),
-    level: interaction.options.getInteger('level', true),
+    name: draft.name,
+    className: draft.className,
+    level: draft.level,
     portraitUrl: null,
   })
 
@@ -857,37 +1053,60 @@ async function createCharacter(interaction: ChatInputCommandInteraction, deps: D
       campaignName: campaign.name,
       portraitDataUri,
     })
-    await interaction.editReply({
-      files: [new AttachmentBuilder(png, { name: 'character.png' })],
-      components: [
-        container({ blocks: [characterCreatedReply(character)], media: ['attachment://character.png'] }),
-      ],
-      flags: MessageFlags.IsComponentsV2,
-    })
+    await interaction.editReply(
+      card(
+        {
+          eyebrow: `New character · ${campaign.name}`,
+          header: character.name,
+          subhead: characterSubhead(character),
+          noPing: true,
+          blocks: [characterCreatedReply(character)],
+          media: [{ url: 'attachment://character.png', alt: characterCardAlt(character) }],
+          footer: '`/character show` · `/character update`',
+        },
+        [{ name: 'character.png', data: png }],
+      ),
+    )
   } catch {
-    await interaction.editReply(characterCreatedReply(character))
+    await interaction.editReply(card(notice(characterCreatedReply(character), 'New character')))
   }
 }
 
-async function updateCharacter(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+/** `/character update` picks the character off the autocomplete, then opens the create form
+ * filled in — so the same four fields do the rename, the level bump and the new portrait. */
+async function openCharacterUpdate(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
   const campaign = requireCampaign(interaction, deps)
   const currentName = interaction.options.getString('name', true)
   const existing = deps.characters.byCampaignAndName(campaign.goblinCampaignId, currentName)
   if (!existing) throw notFound(`No character named "${currentName}" here.`)
   if (existing.discordId !== interaction.user.id) throw notAuthorized("That's not your character.")
+  await interaction.showModal(
+    modal(
+      // The id travels in the custom id: the name in the form is the *new* one, so it cannot
+      // also be what finds the row.
+      build('character', 'update', interaction.user.id, String(existing.id)),
+      cap(`Update ${existing.name}`, 45),
+      characterFields(existing),
+    ),
+  )
+}
 
-  const portrait = interaction.options.getAttachment('portrait')
-  // Downloaded before anything is patched — a bad attachment leaves the existing row untouched.
+async function updateCharacter(interaction: ModalSubmitInteraction, deps: Deps, characterId: number): Promise<void> {
+  const campaign = requireCampaign(interaction, deps)
+  const existing = deps.characters.byId(characterId)
+  // Campaign-checked as well as id-checked, as the share button is: a form opened elsewhere
+  // must not reach into this campaign's roster.
+  if (!existing || existing.campaignId !== campaign.goblinCampaignId) throw notFound('That character is gone.')
+  if (existing.discordId !== interaction.user.id) throw notAuthorized("That's not your character.")
+
+  const draft = readCharacterDraft(modalValues(interaction, characterFields()))
+  const portrait = interaction.fields.getUploadedFiles('portrait')?.first()
+  // Downloaded before anything is patched — a bad upload leaves the existing row untouched.
   const download = portrait ? await downloadPortrait(portrait.url) : undefined
 
-  const patch: CharacterPatch = {}
-  const newClass = interaction.options.getString('class')
-  if (newClass) patch.className = newClass
-  const newLevel = interaction.options.getInteger('level')
-  if (newLevel !== null) patch.level = newLevel
+  const patch: CharacterPatch = { name: draft.name, className: draft.className, level: draft.level }
   if (download) patch.portraitUrl = writePortraitFile(deps.botData, existing.id, download.bytes, download.ext)
-  const rename = interaction.options.getString('rename')
-  if (rename) patch.name = rename
+  const rename = draft.name !== existing.name
 
   const updated = deps.characters.update(existing.id, patch)
 
@@ -901,11 +1120,20 @@ async function updateCharacter(interaction: ChatInputCommandInteraction, deps: D
     const member = await guildMemberOf(interaction)
     if (member) await trySyncNickname(member, updated.name)
   }
-  if (newLevel !== null && leveledUp(existing.level, newLevel)) {
-    await deps.announce(campaign.channelId, levelUpAnnouncement(updated))
+  if (leveledUp(existing.level, draft.level)) {
+    const { files, thumbs } = portraitThumbs(deps.botData, [updated])
+    // The blank tile stands in for a character with no portrait saved, and rides along as this
+    // message's own attachment — a thumbnail may only point at a file on the message it is on.
+    const blank = placeholderThumb('character')
+    const portrait = thumbs.get(updated.id)
+    await deps.announce(
+      campaign.channelId,
+      levelUpAnnouncement(updated, portrait ?? blank.url),
+      portrait ? files : [...files, blank.file],
+    )
   }
 
-  await interaction.editReply(characterUpdatedReply(updated))
+  await interaction.editReply(card(notice(characterUpdatedReply(updated), 'Character updated')))
 }
 
 async function showCharacter(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
@@ -914,45 +1142,73 @@ async function showCharacter(interaction: ChatInputCommandInteraction, deps: Dep
   const character = deps.characters.byCampaignAndName(campaign.goblinCampaignId, name)
   if (!character) throw notFound(`No character named "${name}" here.`)
 
-  const portraitDataUri = await fetchPortraitDataUri(deps.botData, character.portraitUrl)
-  const png = await renderCharacterCard({
-    name: character.name,
-    className: character.className,
-    level: character.level,
-    campaignName: campaign.name,
-    lastPlayed: character.lastPlayed ?? undefined,
-    portraitDataUri,
-  })
-  const file = new AttachmentBuilder(png, { name: 'character.png' })
+  const { spec, files } = await characterShowCard(deps, campaign, character)
+  await interaction.editReply(card({ ...spec, rows: showCharacterRows(deps, campaign, interaction.user.id, character) }, files))
+}
 
-  await interaction.editReply({
-    files: [file],
-    components: [container({ media: ['attachment://character.png'] })],
-    flags: MessageFlags.IsComponentsV2,
-  })
+/** The Share button, and — for someone who keeps more than one character here — a select that
+ * swaps this same private card to another of theirs. Their own characters only: the card is
+ * readable for anyone in the campaign, but "switch" means switch between yours. */
+function showCharacterRows(
+  deps: Deps,
+  campaign: Campaign,
+  userId: string,
+  character: Character,
+): ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>[] {
+  const mine = deps.characters.byOwner(campaign.goblinCampaignId, userId)
+  const share = shareRow('character', userId, String(character.id))
+  if (mine.length < 2) return [share]
+  const select = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(build('character', 'switch', userId))
+      .setPlaceholder('Show another of your characters')
+      .addOptions(
+        mine.slice(0, 25).map((c) => ({
+          label: `${c.name}`.slice(0, 100),
+          description: `${c.className} · Level ${c.level}`.slice(0, 100),
+          value: String(c.id),
+          default: c.id === character.id,
+        })),
+      ),
+  )
+  return [select, share]
 }
 
 async function questsLog(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
   const campaign = requireCampaign(interaction, deps)
-  const all = deps.quests.byCampaign(campaign.goblinCampaignId)
-  await interaction.editReply({
-    components: [container(questLog(campaign.name, all))],
-    flags: MessageFlags.IsComponentsV2,
-  })
+  const { spec, files } = questLogCard(deps, campaign)
+  await interaction.editReply(card({ ...spec, rows: questLogRows(deps, campaign, interaction.user.id) }, files))
+}
+
+/** The Share button, and — for the DM alone — a select that closes one of the open quests
+ * without retyping its title. Owner-stamped to them, so the router turns anyone else away
+ * before the handler runs; a player's copy of the card simply has no select on it. */
+function questLogRows(deps: Deps, campaign: Campaign, userId: string): ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>[] {
+  const share = shareRow('quests', userId)
+  const open = userId === campaign.dmDiscordId ? deps.quests.active(campaign.goblinCampaignId) : []
+  if (open.length === 0) return [share]
+  // The id, not the title: an option value is capped at 100 characters and a quest title is not.
+  const select = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(build('quests', 'complete', userId))
+      .setPlaceholder('Mark complete')
+      .addOptions(open.slice(0, 25).map((quest) => ({ label: quest.title.slice(0, 100), value: String(quest.id) }))),
+  )
+  return [select, share]
 }
 
 async function questsAdd(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
   const campaign = requireCampaign(interaction, deps)
   const title = interaction.options.getString('title', true)
   const quest = deps.quests.add(campaign.goblinCampaignId, title, interaction.user.id)
-  await interaction.editReply(questAddedReply(quest))
+  await interaction.editReply(card(notice(questAddedReply(quest), 'Quest log')))
 }
 
 async function questsComplete(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
   const campaign = requireCampaign(interaction, deps)
   const title = interaction.options.getString('title', true)
   const quest = deps.quests.complete(campaign.goblinCampaignId, title)
-  await interaction.editReply(questCompletedReply(quest))
+  await interaction.editReply(card(notice(questCompletedReply(quest), 'Quest log')))
 }
 
 async function lootAdd(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
@@ -960,26 +1216,17 @@ async function lootAdd(interaction: ChatInputCommandInteraction, deps: Deps): Pr
   const item = interaction.options.getString('item', true)
   const note = interaction.options.getString('note')
   deps.ledger.add({ campaignId: campaign.goblinCampaignId, kind: 'item', item, actor: interaction.user.id, note })
-  await interaction.editReply(lootAddedReply(item, note))
+  await interaction.editReply(card(notice(lootAddedReply(item, note), 'Party purse')))
 }
 
 async function lootList(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
-  const campaign = requireCampaign(interaction, deps)
-  const goldTotal = deps.ledger.goldTotal(campaign.goblinCampaignId)
-  const recent = deps.ledger.recent(campaign.goblinCampaignId)
-  await interaction.editReply({
-    components: [container(lootListEmbed(goldTotal, recent))],
-    flags: MessageFlags.IsComponentsV2,
-  })
+  const { spec, files } = lootLedgerCard(deps, requireCampaign(interaction, deps))
+  await interaction.editReply(card({ ...spec, rows: [shareRow('loot', interaction.user.id)] }, files))
 }
 
 async function calendarShowCmd(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
-  const campaign = requireCampaign(interaction, deps)
-  const state = deps.calendar.get(campaign.goblinCampaignId)
-  await interaction.editReply({
-    components: [container(calendarShow(state))],
-    flags: MessageFlags.IsComponentsV2,
-  })
+  const { spec, files } = calendarCard(deps, requireCampaign(interaction, deps))
+  await interaction.editReply(card({ ...spec, rows: [shareRow('calendar', interaction.user.id)] }, files))
 }
 
 async function calendarSet(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
@@ -987,27 +1234,43 @@ async function calendarSet(interaction: ChatInputCommandInteraction, deps: Deps)
   const day = interaction.options.getInteger('day', true)
   const epoch = interaction.options.getString('epoch')
   const state = deps.calendar.set(campaign.goblinCampaignId, day, epoch ?? undefined)
-  await interaction.editReply(calendarSetConfirmation(state))
+  await interaction.editReply(card(notice(calendarSetConfirmation(state), 'World calendar')))
 }
 
 async function calendarAdvance(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
   const campaign = requireCampaign(interaction, deps)
   const days = interaction.options.getInteger('days', true)
   const state = deps.calendar.advance(campaign.goblinCampaignId, days)
-  await deps.announce(campaign.channelId, calendarAdvanceAnnouncement(state, days))
-  await interaction.editReply(calendarSetConfirmation(state))
+  const page = placeholderThumb('calendar')
+  await deps.announce(campaign.channelId, calendarAdvanceAnnouncement(state, days, page.url), [page.file])
+  await interaction.editReply(card(notice(calendarSetConfirmation(state), 'World calendar')))
 }
 
-async function campaignSetup(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
-  const input = {
-    goblinCampaignId: interaction.options.getString('id', true),
-    name: interaction.options.getString('name', true),
-    channelId: interaction.options.getChannel('channel', true).id,
-    dmChannelId: interaction.options.getChannel('dm-channel', true).id,
-    roleId: interaction.options.getRole('role', true).id,
-    dmDiscordId: interaction.options.getUser('dm', true).id,
-  }
-  const campaign = deps.campaigns.upsert(input)
+/** Only a real D&D Beyond address is kept: the link is shown to the whole party as-is. */
+function readDdbUrl(raw: string | null): string | null {
+  if (!raw) return null
+  const url = URL.canParse(raw.trim()) ? new URL(raw.trim()) : undefined
+  if (url?.protocol !== 'https:' || !/(^|\.)dndbeyond\.com$/.test(url.hostname))
+    throw userInput('That D&D Beyond link should look like https://www.dndbeyond.com/campaigns/1234567.')
+  return url.toString()
+}
+
+async function campaignSetup(interaction: ModalSubmitInteraction, deps: Deps): Promise<void> {
+  const values = modalValues(interaction, CAMPAIGN_SETUP_FIELDS)
+  const draft = readCampaignDraft(values)
+  // Role and the D&D Beyond link are `/campaign settings` — five labels is a modal's cap, and
+  // these five are the ones nothing routes without. Re-running setup keeps the role already
+  // set; a brand-new campaign starts on @everyone, whose id is the guild's, so it is open to
+  // the server until the settings form narrows it.
+  const existing = deps.campaigns.byId(draft.goblinCampaignId)
+  const campaign = deps.campaigns.upsert({
+    goblinCampaignId: draft.goblinCampaignId,
+    name: draft.name,
+    channelId: values.channel,
+    dmChannelId: values.dmChannel,
+    dmDiscordId: values.dm,
+    roleId: existing?.roleId ?? interaction.guildId ?? '',
+  })
 
   // The row is saved before the mint, and deliberately not rolled back if the mint fails:
   // re-running setup with the same options is the retry, and losing the channel mapping to
@@ -1022,32 +1285,192 @@ async function campaignSetup(interaction: ChatInputCommandInteraction, deps: Dep
     throw internal(campaignSetupTokenFailure(campaign))
   }
 
-  await interaction.editReply(campaignSetupConfirmation(campaign))
+  const banner = placeholderThumb('campaign')
+  await interaction.editReply(card(campaignSetupConfirmation(campaign, banner.url), [banner.file]))
 }
 
-async function campaignStatusCmd(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
-  const campaign = requireCampaign(interaction, deps)
-  const status = campaignStatus({
+/** The half `/campaign setup` had to leave behind. Same upsert, same read-back card — only
+ * the headline differs, because nothing is being registered here. */
+async function campaignSettings(interaction: ModalSubmitInteraction, deps: Deps): Promise<void> {
+  const current = requireCampaign(interaction, deps)
+  const values = modalValues(interaction, campaignSettingsFields())
+  const campaign = deps.campaigns.upsert({
+    goblinCampaignId: current.goblinCampaignId,
+    name: current.name,
+    channelId: current.channelId,
+    dmChannelId: current.dmChannelId,
+    dmDiscordId: current.dmDiscordId,
+    roleId: values.role || current.roleId,
+    // A blank link keeps the stored one (the upsert coalesces) rather than clearing it.
+    ddbUrl: readDdbUrl(values.dndbeyond),
+  })
+  const banner = placeholderThumb('campaign')
+  await interaction.editReply(
+    card(campaignSetupConfirmation(campaign, banner.url, `${campaign.name} is set`), [banner.file]),
+  )
+}
+
+/** A card and the files its thumbnails point at — built once for the private reply, and again
+ * (fresh, not copied) when its owner shares it. */
+interface BuiltCard {
+  spec: ContainerSpec
+  files: AttachedFile[]
+}
+
+function campaignStatusCard(deps: Deps, campaign: Campaign): BuiltCard {
+  const banner = placeholderThumb('campaign')
+  const spec = campaignStatus({
     campaign,
     characters: deps.characters.byCampaign(campaign.goblinCampaignId),
-    quests: deps.quests.byCampaign(campaign.goblinCampaignId),
-    goldTotal: deps.ledger.goldTotal(campaign.goblinCampaignId),
-    calendarState: deps.calendar.get(campaign.goblinCampaignId),
-    rollStats: deps.rolls.statsByCampaign(campaign.goblinCampaignId),
     sessionStats: deps.sessions.stats(campaign.goblinCampaignId),
+    table: deps.sessionRunner.health().find((row) => row.campaignId === campaign.goblinCampaignId),
+    thumb: banner.url,
   })
-  await interaction.editReply({ components: [container(status)], flags: MessageFlags.IsComponentsV2 })
+  return { spec, files: [banner.file] }
 }
 
-/** One button per candidate date. Anyone may click (shared owner-stamp) — the schedule
- * component handler checks campaign membership itself. */
+function questLogCard(deps: Deps, campaign: Campaign): BuiltCard {
+  const scroll = placeholderThumb('quest')
+  return {
+    spec: questLog(campaign.name, deps.quests.byCampaign(campaign.goblinCampaignId), scroll.url),
+    files: [scroll.file],
+  }
+}
+
+function recallCard(deps: Deps, campaign: Campaign, query: string): BuiltCard {
+  const book = placeholderThumb('journal')
+  const matches = deps.notes.search(campaign.goblinCampaignId, sanitizeFtsQuery(query))
+  return { spec: recallResults(campaign.name, query, matches, book.url), files: [book.file] }
+}
+
+function lootLedgerCard(deps: Deps, campaign: Campaign): BuiltCard {
+  const purse = placeholderThumb('purse')
+  const spec = lootLedger(
+    campaign.name,
+    deps.ledger.goldTotal(campaign.goblinCampaignId),
+    deps.ledger.recent(campaign.goblinCampaignId),
+    purse.url,
+  )
+  return { spec, files: [purse.file] }
+}
+
+function calendarCard(deps: Deps, campaign: Campaign): BuiltCard {
+  const page = placeholderThumb('calendar')
+  return { spec: calendarShow(deps.calendar.get(campaign.goblinCampaignId), campaign.name, page.url), files: [page.file] }
+}
+
+const characterCardAlt = (character: Character): string =>
+  `${character.name}, ${character.className} level ${character.level}`
+
+/** Re-rendered rather than copied when shared: the picture a card points at must be that
+ * message's own attachment, and the public copy is its own message. */
+async function characterShowCard(deps: Deps, campaign: Campaign, character: Character): Promise<BuiltCard> {
+  const portraitDataUri = await fetchPortraitDataUri(deps.botData, character.portraitUrl)
+  const png = await renderCharacterCard({
+    name: character.name,
+    className: character.className,
+    level: character.level,
+    campaignName: campaign.name,
+    lastPlayed: character.lastPlayed ?? undefined,
+    portraitDataUri,
+  })
+  return {
+    spec: {
+      eyebrow: campaign.name,
+      header: character.name,
+      subhead: characterSubhead(character),
+      noPing: true,
+      media: [{ url: 'attachment://character.png', alt: characterCardAlt(character) }],
+      footer: character.lastPlayed ? `Last at the table ${stampR(character.lastPlayed)}` : 'Yet to sit at the table',
+    },
+    files: [{ name: 'character.png', data: png }],
+  }
+}
+
+function myCharactersCard(deps: Deps, campaign: Campaign, userId: string, ownerName?: string): BuiltCard {
+  const mine = deps.characters.byOwner(campaign.goblinCampaignId, userId)
+  // The private card spends each row's one accessory slot on a button, so it needs no portrait
+  // attachments at all; the shared copy, which nobody else may press, keeps the pictures.
+  if (!ownerName) {
+    const showId = (c: Character): string => build('mycharacters', 'show', userId, String(c.id))
+    return { spec: myCharactersList(campaign.name, mine, undefined, undefined, undefined, showId), files: [] }
+  }
+  const { files, thumbs } = portraitThumbs(deps.botData, mine.slice(0, 8))
+  const blank = placeholderThumb('character')
+  const needsBlank = mine.slice(0, 8).some((c) => !thumbs.has(c.id))
+  return {
+    spec: myCharactersList(campaign.name, mine, thumbs, blank.url, ownerName),
+    files: needsBlank ? [...files, blank.file] : files,
+  }
+}
+
+/** The button under a private card. Owner-stamped: only the person who asked can share it.
+ * `extra` is whatever the share handler needs to rebuild the card (see recallShareRows). */
+function shareRow(namespace: string, userId: string, ...extra: string[]): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(build(namespace, 'share', userId, ...extra)).setLabel('Share to channel').setStyle(ButtonStyle.Secondary),
+  )
+}
+
+/** /recall's button carries the query itself — the search runs again when it is pressed. Ids
+ * are split on `:` and capped at 100 chars, so the query is percent-encoded (which escapes the
+ * separator as %3A) and decoded again in the handler. Only the cap is left: a query too long to
+ * encode into 100 chars gets no button at all, and a missing button beats a send Discord
+ * rejects. */
+function recallShareRows(userId: string, query: string): ActionRowBuilder<ButtonBuilder>[] {
+  try {
+    return [shareRow('recall', userId, encodeURIComponent(query))]
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Posts a freshly built card to the channel the button was pressed in, says who shared it, and
+ * swaps the private card for a one-line receipt so the button cannot be pressed twice. The
+ * public card names people without notifying them.
+ */
+async function shareToChannel(
+  interaction: MessageComponentInteraction,
+  deps: Deps,
+  spec: ContainerSpec,
+  files: AttachedFile[],
+): Promise<void> {
+  const sent = await deps.announce(
+    interaction.channelId,
+    { ...spec, noPing: true, footer: [spec.footer, `Shared by <@${interaction.user.id}>`].filter(Boolean).join(' · ') },
+    files,
+  )
+  if (!sent) throw internal("I can't post in this channel.")
+  await interaction.update({ ...whisperless(notice('Shared to the channel.', 'Shared')), attachments: [] })
+}
+
+/** The one option a select carried. `component` is handed the whole component union, so the
+ * narrowing lives here rather than in every handler that put a select on a card. */
+function selectedValue(interaction: MessageComponentInteraction): string {
+  const value = interaction.isStringSelectMenu() ? interaction.values[0] : undefined
+  if (!value) throw userInput('Nothing was picked — try that again.')
+  return value
+}
+
+/** A card for `interaction.update`, which keeps the message's ephemeral flag on its own. */
+const whisperless = (spec: ContainerSpec) => ({ components: [container(spec)], flags: MessageFlags.IsComponentsV2 as const })
+
+async function campaignStatusCmd(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+  const { spec, files } = campaignStatusCard(deps, requireCampaign(interaction, deps))
+  await interaction.editReply(card({ ...spec, rows: [shareRow('campaign', interaction.user.id)] }, files))
+}
+
+/** One button per candidate date, numbered to match the card's list — a label can't carry a
+ * Discord timestamp, so the number is what ties a button to the evening above it. Anyone may
+ * click (shared owner-stamp); the schedule component handler checks campaign membership itself. */
 function scheduleVoteRow(pollId: number, options: string[]): ActionRowBuilder<ButtonBuilder> {
   const row = new ActionRowBuilder<ButtonBuilder>()
   options.forEach((label, index) => {
     row.addComponents(
       new ButtonBuilder()
         .setCustomId(build('schedule', 'vote', SHARED_OWNER, String(pollId), String(index)))
-        .setLabel(label.slice(0, 80))
+        .setLabel(`${index + 1}. ${label}`.slice(0, 80))
         .setStyle(ButtonStyle.Secondary),
     )
   })
@@ -1065,41 +1488,75 @@ function scheduleCloseRow(pollId: number, dmDiscordId: string): ActionRowBuilder
   )
 }
 
-async function lfgOpen(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+async function recruitOpen(interaction: ModalSubmitInteraction, deps: Deps): Promise<void> {
   const campaign = requireCampaign(interaction, deps)
-  const blurb = interaction.options.getString('blurb', true)
+  const draft = readRecruitDraft(modalValues(interaction, RECRUIT_FIELDS))
   const applyRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(build('apply', 'apply', SHARED_OWNER, campaign.goblinCampaignId))
       .setLabel('Apply')
       .setStyle(ButtonStyle.Primary),
   )
-  const sent = await deps.announce(deps.lfgChannelId, { ...lfgBoardPost(campaign.name, blurb), rows: [applyRow] })
-  deps.lfgPosts.create(campaign.goblinCampaignId, blurb, deps.lfgChannelId, sent?.messageId ?? '')
-  await interaction.editReply(lfgOpenConfirmation(campaign.name))
+  const banner = placeholderThumb('campaign')
+  const sent = await deps.announce(
+    deps.lfgChannelId,
+    { ...lfgBoardPost(campaign, draft.blurb, banner.url, draft.seats, draft.tags), rows: [applyRow] },
+    [banner.file],
+  )
+  deps.lfgPosts.create(
+    campaign.goblinCampaignId,
+    draft.blurb,
+    deps.lfgChannelId,
+    sent?.messageId ?? '',
+    draft.seats,
+    draft.tags,
+  )
+  await interaction.editReply(card(notice(lfgOpenConfirmation(campaign.name), 'Recruiting')))
 }
 
-async function lfgClose(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
+async function recruitClose(interaction: ChatInputCommandInteraction, deps: Deps): Promise<void> {
   const campaign = requireCampaign(interaction, deps)
   deps.lfgPosts.close(campaign.goblinCampaignId)
   // "Replaces the board post" (plan §11 M4): a fresh closed-notice supersedes the open one
   // rather than editing it in place — announce only ever posts, matching every other CBAC seam.
-  await deps.announce(deps.lfgChannelId, lfgClosedNotice(campaign.name))
-  await interaction.editReply(lfgCloseConfirmation(campaign.name))
+  // Being its own message, it carries its own copy of the banner: the board's attachment is
+  // the board's, and a thumbnail may only point at a file on the same message.
+  const banner = placeholderThumb('campaign')
+  await deps.announce(deps.lfgChannelId, lfgClosedNotice(campaign.name, banner.url), [banner.file])
+  await interaction.editReply(card(notice(lfgCloseConfirmation(campaign.name), 'Recruiting')))
 }
 
-/** Shared by /apply and the board's Apply button. Throws user_input if the campaign isn't
- * (or is no longer) recruiting, not_found if it doesn't exist at all. */
+/** The one submit both routes into /apply reach — the slash form and the board button open
+ * the same modal. Throws user_input if the campaign isn't (or is no longer) recruiting,
+ * not_found if it doesn't exist at all. */
 async function submitApplication(
   deps: Deps,
   campaignId: string,
-  applicantId: string,
-  message: string | null,
+  applicant: { id: string; displayAvatarURL: (options?: { size?: 128 }) => string },
+  draft: ApplicationDraft,
 ): Promise<Campaign> {
   const campaign = deps.campaigns.byId(campaignId)
   if (!campaign) throw notFound("That campaign isn't recruiting.")
   if (!deps.lfgPosts.openForCampaign(campaignId)) throw userInput("That campaign isn't recruiting right now.")
-  deps.lfgApplications.add(campaignId, applicantId, message)
-  await deps.announce(campaign.dmChannelId, applicationCard(campaign.name, campaign.dmDiscordId, applicantId, message))
+  const application = deps.lfgApplications.add(
+    campaignId,
+    applicant.id,
+    draft.message,
+    draft.experience,
+    draft.availability,
+  )
+  await deps.announce(
+    campaign.dmChannelId,
+    applicationCard(
+      campaign.name,
+      campaign.dmDiscordId,
+      applicant.id,
+      draft.message,
+      application.createdAt,
+      applicant.displayAvatarURL({ size: 128 }),
+      draft.experience,
+      draft.availability,
+    ),
+  )
   return campaign
 }

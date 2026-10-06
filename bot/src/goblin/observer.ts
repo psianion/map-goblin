@@ -161,7 +161,7 @@ export type GoblinEvent =
   | { type: 'dm-disconnected' }
   | { type: 'dm-reconnected' }
   | { type: 'doors'; state: DoorsState }
-  /** Where everyone is standing — the overlay `/map` and the recap snapshot draw (§5). */
+  /** Where everyone is standing — the overlay the recap snapshot draws (§5). */
   | { type: 'tokens'; state: TokensState }
   /** The session thread's feed (session-log.ts): dice, fog lines, trigger text. */
   | { type: 'rolls'; state: RollsState }
@@ -212,6 +212,8 @@ export interface Observer {
    * which nothing here is waiting on.
    */
   command: (module: string, action: string, payload: unknown) => boolean
+  /** Health: joined on an open socket, and how many reconnects the current outage has cost. */
+  state: () => { connected: boolean; attempts: number }
   stop: () => void
 }
 
@@ -339,6 +341,10 @@ export function createObserver(options: ObserverOptions): Observer {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
+    state: () => ({
+      connected: !!socket && joined && (socket.readyState ?? SOCKET_OPEN) === SOCKET_OPEN,
+      attempts,
+    }),
     command: (module, action, payload) => {
       // `joined`, not merely "the socket object exists": the server refuses everything sent
       // before the join frame is answered, so a command posted into that window is dropped

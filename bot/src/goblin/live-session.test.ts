@@ -4,6 +4,7 @@ import { PROTOCOL_VERSION, type GoblinEvent, type Observer } from './observer'
 import type { GoblinRest } from './rest'
 import { openDb } from '../db/db'
 import { createCalendar, createCampaigns, createCharacters, createSessions, type Campaign } from '../db/stores'
+import { cardText } from '../lib/card'
 import type { AttachedFile, ContainerSpec } from '../lib/ui'
 import { playerMap } from '../render/__fixtures__/two-rooms'
 
@@ -75,6 +76,8 @@ function harness(
       },
       getMap: over.getMap ?? unused,
       getAsset: unused,
+      ping: unused,
+      baseUrl: 'http://goblin.test',
     },
     sessions,
     calendar: createCalendar(db),
@@ -115,6 +118,7 @@ function harness(
           sent.push({ module, action, payload })
           return true
         },
+        state: () => ({ connected: !stopped, attempts: 0 }),
         stop: () => {
           stopped = true
           listeners.clear()
@@ -147,7 +151,7 @@ const doorsEvent = (open: boolean): GoblinEvent => ({
   state: { byScene: { 'scene-1': { d1: { open, locked: false, revealed: true } } } },
 })
 
-const text = (spec: ContainerSpec): string => `${spec.header ?? ''}\n${(spec.blocks ?? []).join('\n')}`
+const text = cardText
 
 /** Finalize is kicked off by a synchronous event; its posts are a promise chain. */
 const settle = (): Promise<void> => vi.advanceTimersByTimeAsync(0).then(() => {})
@@ -214,7 +218,7 @@ describe('session runner', () => {
     await runner.start(campaign)
     expect(posted[0].spec.header).toBe('Previously on…')
     expect(text(posted[0].spec)).toContain('The Vault')
-    expect(posted[1].spec.header).toContain('Live')
+    expect(posted[1].spec.eyebrow).toContain('Live session')
   })
 
   it('edits the board in place, at most once per window', async () => {
@@ -242,7 +246,7 @@ describe('session runner', () => {
     // live message id is known, which is exactly the race the fix has to survive.
     const { runner, campaign, edited, observers } = harness({
       onAnnounce: (spec) => {
-        if (spec.header?.startsWith('Live')) observers[0]?.emit(snapshot)
+        if (spec.eyebrow?.startsWith('Live session')) observers[0]?.emit(snapshot)
       },
     })
     await runner.start(campaign) // no sceneId option passed
@@ -277,9 +281,10 @@ describe('session runner', () => {
     expect(row.recap).toMatchObject({ scenes: ['Cragmaw Hideout'], doorsOpened: 1, players: ['Zed'] })
     // msg-1 was the board, msg-2 the thread's closing line — the recap is the third send.
     expect(row.recapMessageId).toBe('msg-3')
-    expect(posted.at(-1)?.spec.header).toContain('Session recap')
-    // The board stops advertising a table that is over.
-    expect(text(edited.at(-1)!.spec)).toContain('Doors opened')
+    expect(posted.at(-1)?.spec.eyebrow).toContain('Session recap')
+    // The board stops advertising a table that is over — a stub, not the recap over again.
+    expect(edited.at(-1)!.spec.header).toBe('The table has closed')
+    expect(text(edited.at(-1)!.spec)).not.toContain('Doors opened')
     expect(observers[0].stopped()).toBe(true)
   })
 
@@ -319,7 +324,7 @@ describe('session runner', () => {
     // Told to the server first — it is the authority on the table being over.
     expect(endCalls).toEqual(['sess-1'])
     expect(recap.scenes).toEqual(['Cragmaw Hideout'])
-    expect(posted.filter((p) => p.spec.header?.includes('Session recap'))).toHaveLength(1)
+    expect(posted.filter((p) => p.spec.eyebrow?.includes('Session recap'))).toHaveLength(1)
     expect(sessions.byId('sess-1')?.endedAt).not.toBeNull()
     // The observer is stopped, so the server's own `session-ended` echo lands on nobody, and
     // the row is no longer live for a second command either.
@@ -337,7 +342,7 @@ describe('session runner', () => {
     const ending = runner.end(campaign)
     observers[0].emit({ type: 'session-ended' })
     const recap = await ending
-    const recaps = () => posted.filter((p) => p.spec.header?.includes('Session recap'))
+    const recaps = () => posted.filter((p) => p.spec.eyebrow?.includes('Session recap'))
     expect(recaps()).toHaveLength(1)
     expect(sessions.byId('sess-1')?.recapMessageId).not.toBeNull()
     expect(recap.scenes).toEqual(['Cragmaw Hideout'])
@@ -402,7 +407,7 @@ describe('session runner', () => {
     await settle()
 
     expect(sessions.byId('sess-old')?.endedAt).not.toBeNull()
-    expect(posted.at(-1)?.spec.header).toContain('Session recap')
+    expect(posted.at(-1)?.spec.eyebrow).toContain('Session recap')
   })
 
   // ── M6: the recap carries the evening's last map ──────────────────────────────────────
@@ -434,10 +439,13 @@ describe('session runner', () => {
     // with the DM's.
     expect(asked).toEqual(['dm-token/scene-1', 'player-token/scene-1'])
     const recap = posted.at(-1)!
-    expect(recap.spec.header).toContain('Session recap')
-    expect(recap.spec.media).toEqual(['attachment://map.png'])
+    expect(recap.spec.eyebrow).toContain('Session recap')
+    expect(recap.spec.media).toEqual([{ url: 'attachment://map.png', alt: 'The map as the party left it' }])
     expect(recap.files?.[0].name).toBe('map.png')
     expect(recap.files?.[0].data.length).toBeGreaterThan(1000)
+    // The card's own thumbnail rides along, so nothing points at a missing attachment.
+    expect(recap.files?.map((f) => f.name)).toContain('thumb-campaign.png')
+    expect(recap.spec.thumb).toBe('attachment://thumb-campaign.png')
   })
 
   it('still posts the recap when the map render fails', async () => {
@@ -450,14 +458,14 @@ describe('session runner', () => {
 
     // The words survive; only the picture is lost, and it is logged rather than swallowed.
     expect(recap.scenes).toEqual(['Cragmaw Hideout'])
-    expect(posted.at(-1)!.spec.header).toContain('Session recap')
+    expect(posted.at(-1)!.spec.eyebrow).toContain('Session recap')
     expect(posted.at(-1)!.spec.media).toBeUndefined()
-    expect(posted.at(-1)!.files).toBeUndefined()
+    expect(posted.at(-1)!.files?.map((f) => f.name)).toEqual(['thumb-campaign.png'])
     expect(sessions.byId('sess-1')?.recapMessageId).toBe('msg-3')
     expect(warn).toHaveBeenCalledWith('recap map snapshot failed', expect.anything())
   })
 
-  it('hands /map the scene and tokens the observer is holding', async () => {
+  it('exposes the scene and tokens the observer is holding', async () => {
     const { runner, campaign, observers } = harness()
     await runner.start(campaign)
     observers[0].emit(snapshot)
@@ -566,9 +574,9 @@ describe('session runner', () => {
     await settle()
 
     // The party reads it where they read everything else…
-    const party = posted.filter((p) => p.channelId === 'player-chan' && p.spec.header?.startsWith('Journal'))
+    const party = posted.filter((p) => p.channelId === 'player-chan' && p.spec.eyebrow?.startsWith('Journal'))
     expect(party).toHaveLength(1)
-    expect(party[0].spec.header).toBe('Journal — The Sunken Keep')
+    expect(party[0].spec.eyebrow).toBe('Journal · The Sunken Keep')
     expect(text(party[0].spec)).toContain('📜 **Place — The Shrine**')
     expect(text(party[0].spec)).toContain('> Water to the knee.')
     // …and the thread stays the full record.
@@ -580,7 +588,7 @@ describe('session runner', () => {
     observers[0].emit({ type: 'triggers', state: { journal } })
     vi.advanceTimersByTime(EMBED_EDIT_MS * 2)
     await settle()
-    expect(posted.filter((p) => p.spec.header?.startsWith('Journal'))).toHaveLength(1)
+    expect(posted.filter((p) => p.spec.eyebrow?.startsWith('Journal'))).toHaveLength(1)
   })
 
   it('drains, says the session ended and archives the thread on end', async () => {

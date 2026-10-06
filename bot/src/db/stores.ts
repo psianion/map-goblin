@@ -25,6 +25,8 @@ export interface Campaign {
   /** Its player-role twin. Anything player-facing is fetched with this one, so the server's
    * redactor decides what a player may see and the bot never filters map data itself (§4). */
   playerToken: string | null
+  /** The campaign's D&D Beyond page, when the DM gave one at setup. */
+  ddbUrl?: string | null
 }
 
 /** `/campaign setup` never touches the schedule, and mints the tokens separately — both are
@@ -43,6 +45,8 @@ export interface Campaigns {
   setNextSession: (goblinCampaignId: string, at: number) => Campaign
   /** Stores a fresh pair of game-server tokens (plan §11 M5's `/campaign setup` mint). */
   setTokens: (goblinCampaignId: string, serviceToken: string, playerToken: string | null) => Campaign
+  /** Every registered campaign, by name — the seat sweep in /ping. */
+  all: () => Campaign[]
 }
 
 interface CampaignRow {
@@ -55,10 +59,11 @@ interface CampaignRow {
   next_session_at: number | null
   game_server_token: string | null
   player_token: string | null
+  ddb_url: string | null
 }
 
 const CAMPAIGN_COLUMNS =
-  'goblin_campaign_id, name, channel_id, dm_channel_id, dm_discord_id, role_id, next_session_at, game_server_token, player_token'
+  'goblin_campaign_id, name, channel_id, dm_channel_id, dm_discord_id, role_id, next_session_at, game_server_token, player_token, ddb_url'
 
 function toCampaign(row: CampaignRow): Campaign {
   return {
@@ -71,6 +76,7 @@ function toCampaign(row: CampaignRow): Campaign {
     nextSessionAt: row.next_session_at,
     serviceToken: row.game_server_token,
     playerToken: row.player_token,
+    ddbUrl: row.ddb_url,
   }
 }
 
@@ -81,6 +87,7 @@ export function createCampaigns(db: Database): Campaigns {
   const byIdStmt = db.prepare<[string], CampaignRow>(
     `SELECT ${CAMPAIGN_COLUMNS} FROM campaigns WHERE goblin_campaign_id = ?`,
   )
+  const allStmt = db.prepare<[], CampaignRow>(`SELECT ${CAMPAIGN_COLUMNS} FROM campaigns ORDER BY name`)
   const upsertStmt = db.prepare<{
     goblinCampaignId: string
     name: string
@@ -88,16 +95,18 @@ export function createCampaigns(db: Database): Campaigns {
     dmChannelId: string
     dmDiscordId: string
     roleId: string
+    ddbUrl: string | null
     createdAt: number
   }>(`
-    INSERT INTO campaigns (goblin_campaign_id, name, channel_id, dm_channel_id, dm_discord_id, role_id, created_at)
-    VALUES (@goblinCampaignId, @name, @channelId, @dmChannelId, @dmDiscordId, @roleId, @createdAt)
+    INSERT INTO campaigns (goblin_campaign_id, name, channel_id, dm_channel_id, dm_discord_id, role_id, ddb_url, created_at)
+    VALUES (@goblinCampaignId, @name, @channelId, @dmChannelId, @dmDiscordId, @roleId, @ddbUrl, @createdAt)
     ON CONFLICT (goblin_campaign_id) DO UPDATE SET
       name = excluded.name,
       channel_id = excluded.channel_id,
       dm_channel_id = excluded.dm_channel_id,
       dm_discord_id = excluded.dm_discord_id,
-      role_id = excluded.role_id
+      role_id = excluded.role_id,
+      ddb_url = COALESCE(excluded.ddb_url, ddb_url)
   `)
   const setNextSessionStmt = db.prepare<[number, string]>(
     'UPDATE campaigns SET next_session_at = ? WHERE goblin_campaign_id = ?',
@@ -107,6 +116,7 @@ export function createCampaigns(db: Database): Campaigns {
   )
 
   return {
+    all: () => allStmt.all().map(toCampaign),
     byChannel: (channelId) => {
       const row = byChannelStmt.get(channelId, channelId)
       return row ? toCampaign(row) : undefined
@@ -116,7 +126,7 @@ export function createCampaigns(db: Database): Campaigns {
       return row ? toCampaign(row) : undefined
     },
     upsert: (input) => {
-      upsertStmt.run({ ...input, createdAt: Date.now() })
+      upsertStmt.run({ ...input, ddbUrl: input.ddbUrl ?? null, createdAt: Date.now() })
       return toCampaign(byIdStmt.get(input.goblinCampaignId)!)
     },
     setNextSession: (goblinCampaignId, at) => {
@@ -808,6 +818,10 @@ export interface LfgPost {
   id: number
   campaignId: string
   blurb: string
+  /** How many seats the table has open, or null for a post from before the form asked. */
+  seats: number | null
+  /** What the DM is after ("Voice", "Weekly"), stored as a comma list (see migration v17). */
+  tags: string[]
   channelId: string
   messageId: string
   status: PollStatus
@@ -815,7 +829,14 @@ export interface LfgPost {
 }
 
 export interface LfgPosts {
-  create: (campaignId: string, blurb: string, channelId: string, messageId: string) => LfgPost
+  create: (
+    campaignId: string,
+    blurb: string,
+    channelId: string,
+    messageId: string,
+    seats?: number | null,
+    tags?: string[],
+  ) => LfgPost
   /** Every currently-open post — the pool /apply's autocomplete filters. */
   open: () => LfgPost[]
   openForCampaign: (campaignId: string) => LfgPost | undefined
@@ -826,19 +847,23 @@ interface LfgPostRow {
   id: number
   campaign_id: string
   blurb: string
+  seats: number | null
+  tags: string | null
   channel_id: string
   message_id: string
   status: PollStatus
   created_at: number
 }
 
-const LFG_POST_COLUMNS = 'id, campaign_id, blurb, channel_id, message_id, status, created_at'
+const LFG_POST_COLUMNS = 'id, campaign_id, blurb, seats, tags, channel_id, message_id, status, created_at'
 
 function toLfgPost(row: LfgPostRow): LfgPost {
   return {
     id: row.id,
     campaignId: row.campaign_id,
     blurb: row.blurb,
+    seats: row.seats,
+    tags: row.tags ? row.tags.split(',') : [],
     channelId: row.channel_id,
     messageId: row.message_id,
     status: row.status,
@@ -847,9 +872,17 @@ function toLfgPost(row: LfgPostRow): LfgPost {
 }
 
 export function createLfgPosts(db: Database): LfgPosts {
-  const insertStmt = db.prepare<{ campaignId: string; blurb: string; channelId: string; messageId: string; createdAt: number }>(`
-    INSERT INTO lfg_posts (campaign_id, blurb, channel_id, message_id, created_at)
-    VALUES (@campaignId, @blurb, @channelId, @messageId, @createdAt)
+  const insertStmt = db.prepare<{
+    campaignId: string
+    blurb: string
+    seats: number | null
+    tags: string | null
+    channelId: string
+    messageId: string
+    createdAt: number
+  }>(`
+    INSERT INTO lfg_posts (campaign_id, blurb, seats, tags, channel_id, message_id, created_at)
+    VALUES (@campaignId, @blurb, @seats, @tags, @channelId, @messageId, @createdAt)
   `)
   const byIdStmt = db.prepare<[number], LfgPostRow>(`SELECT ${LFG_POST_COLUMNS} FROM lfg_posts WHERE id = ?`)
   const openStmt = db.prepare<[], LfgPostRow>(`SELECT ${LFG_POST_COLUMNS} FROM lfg_posts WHERE status = 'open'`)
@@ -859,8 +892,16 @@ export function createLfgPosts(db: Database): LfgPosts {
   const closeStmt = db.prepare<[string]>(`UPDATE lfg_posts SET status = 'closed' WHERE campaign_id = ? AND status = 'open'`)
 
   return {
-    create: (campaignId, blurb, channelId, messageId) => {
-      const info = insertStmt.run({ campaignId, blurb, channelId, messageId, createdAt: Date.now() })
+    create: (campaignId, blurb, channelId, messageId, seats = null, tags = []) => {
+      const info = insertStmt.run({
+        campaignId,
+        blurb,
+        seats,
+        tags: tags.length ? tags.join(',') : null,
+        channelId,
+        messageId,
+        createdAt: Date.now(),
+      })
       return toLfgPost(byIdStmt.get(Number(info.lastInsertRowid))!)
     },
     open: () => openStmt.all().map(toLfgPost),
@@ -881,11 +922,20 @@ export interface LfgApplication {
   campaignId: string
   discordId: string
   message: string | null
+  /** One of the form's experience levels, or null for a row from before it asked. */
+  experience: string | null
+  availability: string | null
   createdAt: number
 }
 
 export interface LfgApplications {
-  add: (campaignId: string, discordId: string, message: string | null) => LfgApplication
+  add: (
+    campaignId: string,
+    discordId: string,
+    message: string | null,
+    experience?: string | null,
+    availability?: string | null,
+  ) => LfgApplication
 }
 
 interface LfgApplicationRow {
@@ -893,23 +943,40 @@ interface LfgApplicationRow {
   campaign_id: string
   discord_id: string
   message: string | null
+  experience: string | null
+  availability: string | null
   created_at: number
 }
 
 export function createLfgApplications(db: Database): LfgApplications {
-  const insertStmt = db.prepare<{ campaignId: string; discordId: string; message: string | null; createdAt: number }>(`
-    INSERT INTO lfg_applications (campaign_id, discord_id, message, created_at)
-    VALUES (@campaignId, @discordId, @message, @createdAt)
+  const insertStmt = db.prepare<{
+    campaignId: string
+    discordId: string
+    message: string | null
+    experience: string | null
+    availability: string | null
+    createdAt: number
+  }>(`
+    INSERT INTO lfg_applications (campaign_id, discord_id, message, experience, availability, created_at)
+    VALUES (@campaignId, @discordId, @message, @experience, @availability, @createdAt)
   `)
   const byIdStmt = db.prepare<[number], LfgApplicationRow>(
-    'SELECT id, campaign_id, discord_id, message, created_at FROM lfg_applications WHERE id = ?',
+    'SELECT id, campaign_id, discord_id, message, experience, availability, created_at FROM lfg_applications WHERE id = ?',
   )
 
   return {
-    add: (campaignId, discordId, message) => {
-      const info = insertStmt.run({ campaignId, discordId, message, createdAt: Date.now() })
+    add: (campaignId, discordId, message, experience = null, availability = null) => {
+      const info = insertStmt.run({ campaignId, discordId, message, experience, availability, createdAt: Date.now() })
       const row = byIdStmt.get(Number(info.lastInsertRowid))!
-      return { id: row.id, campaignId: row.campaign_id, discordId: row.discord_id, message: row.message, createdAt: row.created_at }
+      return {
+        id: row.id,
+        campaignId: row.campaign_id,
+        discordId: row.discord_id,
+        message: row.message,
+        experience: row.experience,
+        availability: row.availability,
+        createdAt: row.created_at,
+      }
     },
   }
 }
@@ -1093,26 +1160,37 @@ export interface FeedbackEntry {
   id: number
   campaignId: string
   text: string
+  /** Bug, Idea or Praise — null for a row from before the form asked. */
+  category: string | null
   createdAt: number
 }
 
 export interface Feedback {
-  add: (campaignId: string, text: string) => FeedbackEntry
+  add: (campaignId: string, text: string, category?: string | null) => FeedbackEntry
+}
+
+interface FeedbackRow {
+  id: number
+  campaign_id: string
+  text: string
+  category: string | null
+  created_at: number
 }
 
 export function createFeedback(db: Database): Feedback {
-  const insertStmt = db.prepare<{ campaignId: string; text: string; createdAt: number }>(`
-    INSERT INTO feedback (campaign_id, text, created_at) VALUES (@campaignId, @text, @createdAt)
+  const insertStmt = db.prepare<{ campaignId: string; text: string; category: string | null; createdAt: number }>(`
+    INSERT INTO feedback (campaign_id, text, category, created_at)
+    VALUES (@campaignId, @text, @category, @createdAt)
   `)
-  const byIdStmt = db.prepare<[number], { id: number; campaign_id: string; text: string; created_at: number }>(
-    'SELECT id, campaign_id, text, created_at FROM feedback WHERE id = ?',
+  const byIdStmt = db.prepare<[number], FeedbackRow>(
+    'SELECT id, campaign_id, text, category, created_at FROM feedback WHERE id = ?',
   )
 
   return {
-    add: (campaignId, text) => {
-      const info = insertStmt.run({ campaignId, text, createdAt: Date.now() })
+    add: (campaignId, text, category = null) => {
+      const info = insertStmt.run({ campaignId, text, category, createdAt: Date.now() })
       const row = byIdStmt.get(Number(info.lastInsertRowid))!
-      return { id: row.id, campaignId: row.campaign_id, text: row.text, createdAt: row.created_at }
+      return { id: row.id, campaignId: row.campaign_id, text: row.text, category: row.category, createdAt: row.created_at }
     },
   }
 }

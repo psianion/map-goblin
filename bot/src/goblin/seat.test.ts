@@ -55,6 +55,8 @@ function harness(over: Partial<GoblinRest> = {}) {
     endSession: unused,
     getMap: unused,
     getAsset: unused,
+    ping: unused,
+    baseUrl: 'http://goblin.test',
     ...over,
   }
   const set = (dm: string | null, player: string | null): Campaign =>

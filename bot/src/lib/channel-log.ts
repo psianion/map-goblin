@@ -18,7 +18,7 @@ export interface ChannelLogOptions {
 }
 
 export interface ChannelLog {
-  /** `✅ /map by @user — 1.2s` */
+  /** `✅ /roll by @user — 1.2s` */
   audit: (line: string) => void
   /** Subscribe this to the logger; debug/info are dropped. */
   mirror: (event: LogEvent) => void

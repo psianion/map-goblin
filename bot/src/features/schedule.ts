@@ -3,7 +3,7 @@
 
 import { userInput } from '../lib/errors'
 import type { SchedulePoll } from '../db/stores'
-import type { ContainerSpec } from '../lib/ui'
+import { TONE, type ContainerSpec } from '../lib/card'
 
 /**
  * A typed date, or undefined. Date.parse alone is not the test: V8 reads "today at 11" as the
@@ -23,10 +23,13 @@ export function parseCandidateDate(raw: string): number {
   return ms
 }
 
+/** Discord draws these in each reader's own timezone and keeps the relative one counting. */
+const stamp = (ms: number, style: 'F' | 'R'): string => `<t:${Math.floor(ms / 1000)}:${style}>`
+
 /** Discord's own long stamp, so every reader sees the slot in their zone; the raw text if unparseable. */
 export function slotStamp(option: string): string {
   const ms = readTypedDate(option)
-  return ms === undefined ? option : `<t:${Math.floor(ms / 1000)}:F>`
+  return ms === undefined ? option : stamp(ms, 'F')
 }
 
 export interface SlotChoice {
@@ -153,16 +156,39 @@ export function winningOption(poll: SchedulePoll): Winner | undefined {
   return { index, label: poll.options[index], votes: max }
 }
 
-export function pollAnnouncement(campaignName: string, roleId: string, options: string[]): ContainerSpec {
+/** The role line must keep notifying, so this card never sets noPing. No running tally either:
+ * the poll message is posted once and never edited, so a count printed here would freeze. */
+export function pollAnnouncement(campaignName: string, roleId: string, options: string[], thumb?: string): ContainerSpec {
+  const evenings = options.map((option, i) => {
+    const ms = readTypedDate(option)
+    return ms === undefined ? `**${i + 1}.** ${option}` : `**${i + 1}.** ${stamp(ms, 'F')}\n-# ${stamp(ms, 'R')}`
+  })
   return {
-    header: `Session poll — ${campaignName}`,
-    blocks: [`<@&${roleId}> pick a time:`, options.map((o, i) => `${i + 1}. ${slotStamp(o)}`).join('\n')],
+    eyebrow: `Session poll · ${campaignName}`,
+    header: 'When do we play?',
+    ...(thumb ? { thumb, thumbAlt: 'Session poll' } : {}),
+    blocks: [
+      `<@&${roleId}> pick the evening that suits you best. One vote each; press again to change it.`,
+      { rule: 'line' },
+      ['### The evenings', ...evenings].join('\n'),
+    ],
+    footer: 'Times show in your own timezone · vote with the buttons below',
   }
 }
 
-export function pollResultAnnouncement(winner: Winner | undefined): ContainerSpec {
-  if (!winner) return { header: 'Poll closed', blocks: ['No votes were cast.'] }
-  return { header: 'Session scheduled!', blocks: [`**${slotStamp(winner.label)}** wins with ${winner.votes} vote(s).`] }
+export function pollResultAnnouncement(winner: Winner | undefined, thumb?: string): ContainerSpec {
+  const thumbed = thumb ? { thumb, thumbAlt: 'Session poll' } : {}
+  if (!winner)
+    return { accent: TONE.quiet, eyebrow: 'Session poll', header: 'Poll closed', ...thumbed, blocks: ['No votes were cast. The table stays dark for now.'] }
+  const ms = readTypedDate(winner.label)
+  return {
+    accent: TONE.live,
+    eyebrow: 'Session poll',
+    header: 'Session scheduled',
+    ...thumbed,
+    blocks: [ms === undefined ? `### ${winner.label}` : `### ${stamp(ms, 'F')}\n${stamp(ms, 'R')}`],
+    footer: `Won with ${winner.votes} vote${winner.votes === 1 ? '' : 's'}`,
+  }
 }
 
 export function voteConfirmation(poll: SchedulePoll, discordId: string): string {

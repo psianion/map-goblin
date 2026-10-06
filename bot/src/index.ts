@@ -66,6 +66,7 @@ const announce = async (
     // is what puts the map inside the recap rather than beside it.
     ...(files?.length ? { files: files.map((f) => new AttachmentBuilder(f.data, { name: f.name })) } : {}),
     flags: MessageFlags.IsComponentsV2,
+    ...(spec.noPing ? { allowedMentions: { parse: [] } } : {}),
   })
   return { messageId: message.id }
 }
@@ -139,7 +140,7 @@ const deps: RouterDeps = {
 client.on(Events.InteractionCreate, (interaction) => void routeInteraction(interaction, deps))
 client.on(Events.GuildMemberAdd, (member) => {
   if (!env.WELCOME_CHANNEL_ID) return
-  void deps.announce(env.WELCOME_CHANNEL_ID, welcomeMessage(member.toString()))
+  void deps.announce(env.WELCOME_CHANNEL_ID, welcomeMessage(member.toString(), member.displayAvatarURL({ size: 256 })))
 })
 client.once(Events.ClientReady, (ready) => {
   log.info('bot ready', { user: ready.user.tag, guild: env.DISCORD_GUILD_ID })

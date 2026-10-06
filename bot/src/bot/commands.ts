@@ -1,7 +1,7 @@
 // Pure declarations — no handlers, no side effects. sync-commands.ts and the registry both
 // read these, so what is deployed and what is dispatched cannot drift.
 
-import { ChannelType, InteractionContextType, SlashCommandBuilder } from 'discord.js'
+import { InteractionContextType, SlashCommandBuilder } from 'discord.js'
 
 /**
  * Guild-scoped only (plan §6): no global registration path exists, so the bot cannot be
@@ -16,35 +16,18 @@ export const ping = guildOnly(
   new SlashCommandBuilder().setName('ping').setDescription('Check gateway latency and database health'),
 )
 
-const LEVEL_MIN = 1
-const LEVEL_MAX = 20
+// A command that opens a modal declares no options for what the form asks — the fields carry
+// their own labels and descriptions (see bot/modals.ts). The exceptions are the two options
+// that pick *which* thing the form is about, and those are autocompletes a modal cannot be:
+// `/character update name` and `/apply campaign`.
 
 export const campaign = guildOnly(
   new SlashCommandBuilder()
     .setName('campaign')
     .setDescription('Campaign administration')
+    .addSubcommand((sub) => sub.setName('setup').setDescription('Register a goblin campaign to this guild'))
     .addSubcommand((sub) =>
-      sub
-        .setName('setup')
-        .setDescription('Register a goblin campaign to this guild')
-        .addStringOption((o) => o.setName('id').setDescription('Goblin campaign id').setRequired(true))
-        .addStringOption((o) => o.setName('name').setDescription('Campaign name').setRequired(true))
-        .addChannelOption((o) =>
-          o
-            .setName('channel')
-            .setDescription('Player channel')
-            .addChannelTypes(ChannelType.GuildText)
-            .setRequired(true),
-        )
-        .addChannelOption((o) =>
-          o
-            .setName('dm-channel')
-            .setDescription('DM-only channel')
-            .addChannelTypes(ChannelType.GuildText)
-            .setRequired(true),
-        )
-        .addRoleOption((o) => o.setName('role').setDescription('Campaign member role').setRequired(true))
-        .addUserOption((o) => o.setName('dm').setDescription('The DM').setRequired(true)),
+      sub.setName('settings').setDescription('Set the member role and the D&D Beyond link'),
     )
     .addSubcommand((sub) => sub.setName('status').setDescription('Show the campaign status board')),
 )
@@ -53,30 +36,14 @@ export const character = guildOnly(
   new SlashCommandBuilder()
     .setName('character')
     .setDescription('Manage your characters')
-    .addSubcommand((sub) =>
-      sub
-        .setName('create')
-        .setDescription('Create a character in this campaign')
-        .addStringOption((o) => o.setName('name').setDescription('Character name').setRequired(true))
-        .addStringOption((o) => o.setName('class').setDescription('Class').setRequired(true))
-        .addIntegerOption((o) =>
-          o.setName('level').setDescription('Level').setMinValue(LEVEL_MIN).setMaxValue(LEVEL_MAX).setRequired(true),
-        )
-        .addAttachmentOption((o) => o.setName('portrait').setDescription('Portrait image').setRequired(false)),
-    )
+    .addSubcommand((sub) => sub.setName('create').setDescription('Create a character in this campaign'))
     .addSubcommand((sub) =>
       sub
         .setName('update')
         .setDescription('Update one of your characters')
         .addStringOption((o) =>
           o.setName('name').setDescription('Character name').setRequired(true).setAutocomplete(true),
-        )
-        .addStringOption((o) => o.setName('class').setDescription('New class').setRequired(false))
-        .addIntegerOption((o) =>
-          o.setName('level').setDescription('New level').setMinValue(LEVEL_MIN).setMaxValue(LEVEL_MAX).setRequired(false),
-        )
-        .addAttachmentOption((o) => o.setName('portrait').setDescription('New portrait').setRequired(false))
-        .addStringOption((o) => o.setName('rename').setDescription('New name').setRequired(false)),
+        ),
     )
     .addSubcommand((sub) =>
       sub
@@ -202,57 +169,33 @@ export const session = guildOnly(
     .addSubcommand((sub) => sub.setName('end').setDescription('Close the table and post the recap')),
 )
 
-/**
- * One command, two outputs (plan §7). Typed in the DM channel by the DM it renders the
- * unfogged map there; anywhere else in the campaign it renders the party's own copy in the
- * channel it was typed in. The switch is the channel, so there is nothing to get wrong.
- */
-export const map = guildOnly(
-  new SlashCommandBuilder()
-    .setName('map')
-    .setDescription('Post a snapshot of the current map')
-    .addStringOption((o) =>
-      o.setName('scene').setDescription('Scene to render (default: the live one)').setRequired(false).setAutocomplete(true),
-    ),
-)
-
 export const handout = guildOnly(
   new SlashCommandBuilder()
     .setName('handout')
-    .setDescription('Share an image, file or note with the players (DM only)')
-    .addAttachmentOption((o) => o.setName('file').setDescription('Image or file to share').setRequired(false))
-    .addStringOption((o) => o.setName('asset').setDescription('Game-server asset id').setRequired(false))
-    .addStringOption((o) => o.setName('note').setDescription('A note for the players').setMaxLength(1000).setRequired(false)),
+    .setDescription('Share an image, file or note with the players (DM only)'),
 )
 
-export const lfg = guildOnly(
+export const recruit = guildOnly(
   new SlashCommandBuilder()
-    .setName('lfg')
+    .setName('recruit')
     .setDescription('Recruit for this campaign (DM only)')
-    .addSubcommand((sub) =>
-      sub
-        .setName('open')
-        .setDescription('Post this campaign to the LFG board')
-        .addStringOption((o) => o.setName('blurb').setDescription("What you're looking for").setRequired(true)),
-    )
-    .addSubcommand((sub) => sub.setName('close').setDescription('Take this campaign off the LFG board')),
+    .addSubcommand((sub) => sub.setName('open').setDescription('Post this campaign to the recruiting board'))
+    .addSubcommand((sub) => sub.setName('close').setDescription('Take this campaign off the recruiting board')),
 )
 
+/** The campaign stays a slash option: it is an autocomplete over what is recruiting right
+ * now, which a modal field cannot be. Everything the applicant types is in the form. */
 export const apply = guildOnly(
   new SlashCommandBuilder()
     .setName('apply')
     .setDescription('Apply to a recruiting campaign')
     .addStringOption((o) =>
       o.setName('campaign').setDescription('Campaign to apply to').setRequired(true).setAutocomplete(true),
-    )
-    .addStringOption((o) => o.setName('message').setDescription('A note for the DM').setRequired(false)),
+    ),
 )
 
 export const feedback = guildOnly(
-  new SlashCommandBuilder()
-    .setName('feedback')
-    .setDescription('Send anonymous session feedback to the DM')
-    .addStringOption((o) => o.setName('text').setDescription('Your feedback').setRequired(true).setMaxLength(1000)),
+  new SlashCommandBuilder().setName('feedback').setDescription('Send anonymous session feedback to the DM'),
 )
 
 export const calendar = guildOnly(

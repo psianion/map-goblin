@@ -16,14 +16,16 @@ import type {
 import { calendarLine } from '../features/calendar'
 import {
   joinUrl,
-  liveSessionEmbed,
-  previouslyOnEmbed,
-  sessionRecapEmbed,
+  liveSessionBoard,
+  previouslyOnCard,
+  sessionClosedBoard,
+  sessionRecapCard,
 } from '../features/session'
 import { userInput } from '../lib/errors'
 import { log as defaultLog } from '../lib/log'
 import type { AttachedFile, ContainerSpec } from '../lib/ui'
 import { mapSvg, type MapToken, type RegionMask } from '../render/map-svg'
+import { placeholderThumb } from '../render/placeholder'
 import { rasterize } from '../render/raster'
 import type { InitiativeState, Observer } from './observer'
 import type { GoblinRest } from './rest'
@@ -68,8 +70,8 @@ export interface SessionRunner {
   /** Boot: pick the live rows back up (plan §11 M5). */
   resume: () => void
   stopAll: () => void
-  /** What the observer currently knows about a campaign's table — the scene `/map` defaults
-   * to, the tokens it overlays, and the swept ground a player sheet is cut to. Undefined when
+  /** What the observer currently knows about a campaign's table — the scene the recap draws,
+   * the tokens it overlays, and the swept ground a player sheet is cut to. Undefined when
    * no session is being watched. */
   liveState: (
     campaignId: string,
@@ -79,6 +81,21 @@ export interface SessionRunner {
   /** Runs a command on that campaign's table through the seat the observer holds. False means
    * there was nothing live to say it through, so the caller must not claim it landed. */
   command: (campaignId: string, module: string, action: string, payload: unknown) => boolean
+  /** One row per watched table — what /ping shows under "Tables". */
+  health: () => TableHealth[]
+}
+
+export interface TableHealth {
+  campaignId: string
+  /** The shared `/join/<code>` link for the running table. */
+  joinUrl: string
+  campaignName: string
+  sceneName: string | null
+  players: number
+  dmConnected: boolean
+  connected: boolean
+  attempts: number
+  startedAt: number
 }
 
 /** The recap's map file name; `media` references it as `attachment://` (plan §7). */
@@ -94,6 +111,8 @@ export const threadName = (row: BotSession): string =>
 
 interface Running {
   campaign: Campaign
+  startedAt: number
+  joinUrl: string
   stats: SessionStats
   observer: Observer
   refresh: Throttled
@@ -128,12 +147,15 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
   }
 
   function boardFor(campaign: Campaign, row: BotSession, stats: SessionStats): ContainerSpec {
-    return liveSessionEmbed({
+    return liveSessionBoard({
       campaignName: campaign.name,
+      dmDiscordId: campaign.dmDiscordId,
       joinUrl: joinUrl(deps.publicTableUrl, row.inviteCode ?? ''),
       startedAt: row.startedAt,
       calendarLine: calendarLine(deps.calendar.get(campaign.goblinCampaignId)),
       live: stats.live(),
+      // Attached once by start(); every later edit passes no files, so it stays on the message.
+      thumb: placeholderThumb('campaign').url,
     })
   }
 
@@ -189,8 +211,24 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
     // under the DM channel — so the card also goes to the campaign channel, one container each,
     // unthrottled: cards arrive one per DM command, not in bursts like dice.
     const postParty = async (lines: LogLine[]): Promise<void> => {
-      for (const line of lines)
-        await deps.announce(campaign.channelId, { header: `Journal — ${campaign.name}`, blocks: [line.text] })
+      for (const line of lines) {
+        // Its own copy of the book, because a thumbnail may only point at a file on the same
+        // message — and each card is its own message.
+        const book = placeholderThumb('journal')
+        await deps.announce(
+          campaign.channelId,
+          {
+            eyebrow: `Journal · ${campaign.name}`,
+            header: 'From the table',
+            subhead: `Shared by the DM · <t:${Math.floor(line.at / 1000)}:R>`,
+            thumb: book.url,
+            thumbAlt: 'Party journal',
+            blocks: [line.text],
+            footer: '`/note` writes it into the party journal · `/recall` finds it again',
+          },
+          [book.file],
+        )
+      }
     }
     let logMissedThread = false
     const logFlush = throttle(deps.throttleMs ?? EMBED_EDIT_MS, () => {
@@ -207,6 +245,8 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
     const observer = deps.createObserver(tokenOf(campaign))
     const entry: Running = {
       campaign,
+      startedAt: row.startedAt,
+      joinUrl: joinUrl(deps.publicTableUrl, row.inviteCode ?? ''),
       stats,
       observer,
       refresh,
@@ -349,17 +389,20 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
       logger.warn('recap map snapshot failed', { error: String(error) })
       return undefined
     })
-    const spec = sessionRecapEmbed(campaign.name, recap)
+    const banner = placeholderThumb('campaign')
+    const spec = sessionRecapCard(campaign.name, recap, row.endedAt ?? Date.now(), banner.url)
     const sent = await deps.announce(
       campaign.channelId,
-      snapshot ? { ...spec, media: [`attachment://${SNAPSHOT_FILE}`] } : spec,
-      snapshot ? [snapshot] : undefined,
+      snapshot
+        ? { ...spec, media: [{ url: `attachment://${SNAPSHOT_FILE}`, alt: 'The map as the party left it' }] }
+        : spec,
+      snapshot ? [snapshot, banner.file] : [banner.file],
     )
     if (sent) deps.sessions.setRecapMessageId(sessionId, sent.messageId)
-    // The board stops claiming a table that is over.
+    // The board stops claiming a table that is over — a stub, not a second copy of the recap.
     if (row.liveMessageId) {
       await deps
-        .edit(campaign.channelId, row.liveMessageId, sessionRecapEmbed(campaign.name, recap))
+        .edit(campaign.channelId, row.liveMessageId, sessionClosedBoard(campaign.name, recap, banner.url))
         .catch((error: unknown) => logger.warn('live board close-out failed', { error: String(error) }))
     }
     return recap
@@ -383,11 +426,17 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
       const opened = await deps.rest.openSession(tokenOf(campaign), campaign.goblinCampaignId, sceneId)
       const row = deps.sessions.start(opened.sessionId, campaign.goblinCampaignId, opened.inviteCode)
 
+      const banner = placeholderThumb('campaign')
       const previous = deps.sessions.lastEnded(campaign.goblinCampaignId)
-      if (previous?.recap) await deps.announce(campaign.channelId, previouslyOnEmbed(campaign.name, previous.recap))
+      if (previous?.recap)
+        await deps.announce(
+          campaign.channelId,
+          previouslyOnCard(campaign.name, previous.recap, previous.endedAt, banner.url),
+          [banner.file],
+        )
 
       const entry = attach(campaign, row, false)
-      const sent = await deps.announce(campaign.channelId, boardFor(campaign, row, entry.stats))
+      const sent = await deps.announce(campaign.channelId, boardFor(campaign, row, entry.stats), [banner.file])
       if (sent) {
         deps.sessions.setLiveMessageId(row.goblinSessionId, sent.messageId)
         entry.flushIfMissed()
@@ -453,6 +502,21 @@ export function createSessionRunner(deps: SessionRunnerDeps): SessionRunner {
 
     command: (campaignId, module, action, payload) =>
       watching(campaignId)?.observer.command(module, action, payload) ?? false,
+
+    health: () =>
+      [...running.values()].map((entry) => {
+        const live = entry.stats.live()
+        return {
+          campaignId: entry.campaign.goblinCampaignId,
+          joinUrl: entry.joinUrl,
+          campaignName: entry.campaign.name,
+          sceneName: live.sceneName,
+          players: live.players.length,
+          dmConnected: live.dmConnected,
+          ...entry.observer.state(),
+          startedAt: entry.startedAt,
+        }
+      }),
   }
 
   /** The one session being watched for a campaign — a campaign runs at most one table. */

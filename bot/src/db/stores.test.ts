@@ -30,7 +30,7 @@ describe('createCampaigns', () => {
   it('resolves a campaign by either the player or DM channel', () => {
     const campaigns = createCampaigns(openDb(':memory:'))
     campaigns.upsert(campaignInput)
-    const stored = { ...campaignInput, nextSessionAt: null, serviceToken: null, playerToken: null }
+    const stored = { ...campaignInput, nextSessionAt: null, serviceToken: null, playerToken: null, ddbUrl: null }
     expect(campaigns.byChannel('player-chan')).toEqual(stored)
     expect(campaigns.byChannel('dm-chan')).toEqual(stored)
     expect(campaigns.byChannel('random')).toBeUndefined()
@@ -42,6 +42,16 @@ describe('createCampaigns', () => {
     campaigns.upsert({ ...campaignInput, name: 'Renamed', channelId: 'new-player-chan' })
     expect(campaigns.byChannel('player-chan')).toBeUndefined()
     expect(campaigns.byChannel('new-player-chan')).toMatchObject({ name: 'Renamed' })
+  })
+
+  it('keeps the D&D Beyond link when setup is re-run without one', () => {
+    const campaigns = createCampaigns(openDb(':memory:'))
+    const ddbUrl = 'https://www.dndbeyond.com/campaigns/1234567'
+    campaigns.upsert({ ...campaignInput, ddbUrl })
+    expect(campaigns.upsert({ ...campaignInput, name: 'Renamed' }).ddbUrl).toBe(ddbUrl)
+    expect(campaigns.upsert({ ...campaignInput, ddbUrl: 'https://www.dndbeyond.com/campaigns/7' }).ddbUrl).toBe(
+      'https://www.dndbeyond.com/campaigns/7',
+    )
   })
 
   it('resolves by goblin id, for lookups that are not channel-based', () => {
@@ -407,6 +417,17 @@ describe('createLfgPosts', () => {
     expect(posts.openForCampaign('camp-2')).toBeUndefined()
     expect(camp2.blurb).toBe('Looking for a cleric')
   })
+
+  it('keeps the seat count and the tags, and reads a post that answered neither', () => {
+    const posts = createLfgPosts(seededDb())
+    const withBoth = posts.create('camp-1', 'Need a rogue', 'lfg-chan', 'msg-1', 3, ['Voice', 'Weekly'])
+    expect(withBoth).toMatchObject({ seats: 3, tags: ['Voice', 'Weekly'] })
+    expect(posts.openForCampaign('camp-1')).toMatchObject({ seats: 3, tags: ['Voice', 'Weekly'] })
+
+    posts.close('camp-1')
+    const bare = posts.create('camp-1', 'Need a cleric', 'lfg-chan', 'msg-2')
+    expect(bare).toMatchObject({ seats: null, tags: [] })
+  })
 })
 
 describe('createLfgApplications', () => {
@@ -417,14 +438,30 @@ describe('createLfgApplications', () => {
     const withoutMessage = applications.add('camp-1', 'user-2', null)
     expect(withoutMessage.message).toBeNull()
   })
+
+  it('keeps what the form asks beyond the pitch, and nulls for a row that answered neither', () => {
+    const applications = createLfgApplications(seededDb())
+    expect(applications.add('camp-1', 'user-1', null, 'Veteran', 'Weeknights after 8')).toMatchObject({
+      experience: 'Veteran',
+      availability: 'Weeknights after 8',
+    })
+    expect(applications.add('camp-1', 'user-2', null)).toMatchObject({ experience: null, availability: null })
+  })
 })
 
 describe('createFeedback', () => {
   it('stores feedback with no author column at all — the row shape itself is anonymous', () => {
     const feedback = createFeedback(seededDb())
-    const entry = feedback.add('camp-1', 'Loved the ambush, pacing dragged in act 2')
-    expect(entry).toEqual({ id: entry.id, campaignId: 'camp-1', text: 'Loved the ambush, pacing dragged in act 2', createdAt: entry.createdAt })
+    const entry = feedback.add('camp-1', 'Loved the ambush, pacing dragged in act 2', 'Praise')
+    expect(entry).toEqual({
+      id: entry.id,
+      campaignId: 'camp-1',
+      text: 'Loved the ambush, pacing dragged in act 2',
+      category: 'Praise',
+      createdAt: entry.createdAt,
+    })
     expect(Object.keys(entry)).not.toContain('discordId')
+    expect(feedback.add('camp-1', 'No category here').category).toBeNull()
   })
 })
 
