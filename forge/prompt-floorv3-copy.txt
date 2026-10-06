@@ -1,0 +1,1 @@
+faithful repaint of the input image, keep the same layout, shapes and colors, hand-painted RPG battlemap floor texture, painterly visible brush strokes, flat orthographic top-down view, crisp defined edges, muted natural palette, matte surface, no cast shadow, no border, edge to edge
