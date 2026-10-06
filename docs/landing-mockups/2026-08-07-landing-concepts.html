@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Good Goblin — Landing Concepts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Void + stone — the landing lives in dungeon negative space */
+    --void: #0b0a08;
+    --void-2: #12110d;
+    --stone: #2b2e26;
+    --stone-deep: #1d1f19;
+    --ink: #16180f;
+    /* Text */
+    --parchment-ink: #e6e1d3;
+    --text-2: #b5af9e;
+    --text-mut: #90897a;
+    /* Brand */
+    --goblin: #b6d648;        /* the yellow-green — marketing only, never in-app */
+    --goblin-deep: #7e9c2a;
+    --torch: #eda94e;
+    --torch-hot: #ffd9a0;
+    --parchment: #e8dfc6;
+    --wood: #6d4a2c;
+    --wood-lit: #8a6138;
+    --ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--void);
+    color: var(--parchment-ink);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+  ::selection { background: var(--goblin); color: var(--ink); }
+
+  h1, h2, h3 { font-family: 'Newsreader', Georgia, serif; font-weight: 500; text-wrap: balance; }
+  p { max-width: 62ch; text-wrap: pretty; }
+  .voice { font-family: 'Newsreader', Georgia, serif; font-style: italic; color: var(--goblin); }
+  .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+
+  /* ============ board chrome ============ */
+  .board-intro {
+    padding: clamp(3rem, 8vh, 6rem) clamp(1.5rem, 6vw, 6rem) clamp(2rem, 5vh, 4rem);
+    border-bottom: 1px solid #26241d;
+  }
+  .board-intro .stamp {
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-mut);
+    margin-bottom: 2.5rem; display: flex; gap: 2rem; flex-wrap: wrap;
+  }
+  .board-intro h1 { font-size: clamp(2rem, 4.5vw, 3.4rem); line-height: 1.1; letter-spacing: -0.015em; max-width: 22ch; }
+  .board-intro h1 em { font-style: italic; color: var(--goblin); }
+  .board-intro > p { margin-top: 1.5rem; color: var(--text-2); }
+
+  .dir-head {
+    padding: clamp(3rem, 8vh, 5rem) clamp(1.5rem, 6vw, 6rem) 2rem;
+    display: flex; align-items: baseline; gap: 1.5rem; flex-wrap: wrap;
+  }
+  .dir-head .tag {
+    font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--void);
+    background: var(--goblin); padding: 3px 10px; border-radius: 2px; font-weight: 500;
+  }
+  .dir-head .tag.alt { background: transparent; color: var(--text-mut); border: 1px solid #3a382e; }
+  .dir-head h2 { font-size: clamp(1.6rem, 3vw, 2.4rem); letter-spacing: -0.01em; }
+  .dir-head .verdict { font-size: 14px; color: var(--text-mut); font-style: italic; font-family: 'Newsreader', Georgia, serif; }
+  .dir-note { padding: 0 clamp(1.5rem, 6vw, 6rem) 2.5rem; color: var(--text-2); }
+
+  /* annotation strip under each frame */
+  .annot {
+    display: flex; gap: clamp(1rem, 4vw, 3.5rem); flex-wrap: wrap;
+    padding: 1.1rem clamp(1.5rem, 6vw, 6rem);
+    border-top: 1px solid #23211a; border-bottom: 1px solid #23211a;
+    background: var(--void-2);
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.7;
+    color: var(--text-mut);
+  }
+  .annot b { color: var(--text-2); font-weight: 500; }
+  .annot span { max-width: 34ch; }
+
+  /* corridor divider between board sections */
+  .corridor { display: flex; align-items: center; gap: 0; padding: clamp(3rem, 9vh, 6rem) 0; }
+  .corridor::before, .corridor::after { content: ''; flex: 1; height: 1px; background: #2c2a21; }
+  .corridor svg { flex: none; margin: 0 1rem; display: block; }
+
+  /* ============ frames ============ */
+  .frame { position: relative; min-height: 92vh; display: grid; overflow: hidden; background: var(--void); }
+  .frame-label {
+    position: absolute; top: 1.2rem; left: clamp(1.5rem, 6vw, 6rem); z-index: 5;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em;
+    color: var(--text-mut);
+  }
+
+  /* --- A1 hero --- */
+  .a1 { grid-template-columns: minmax(0, 44%) minmax(0, 56%); align-items: center; }
+  .a1 .copy { padding: 0 0 0 clamp(1.5rem, 6vw, 6rem); z-index: 2; }
+  .a1 h3 {
+    font-size: clamp(2.6rem, 5.2vw, 5.2rem); line-height: 1.04; letter-spacing: -0.02em;
+    font-weight: 500;
+  }
+  .a1 h3 .drew { font-style: italic; }
+  .a1 h3 .run { color: var(--torch); }
+  .a1 .sub { margin-top: 1.6rem; color: var(--text-2); font-size: 17px; }
+  .a1 .aside { margin-top: 2.2rem; font-size: 15px; }
+  .cta-row { margin-top: 2rem; display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; }
+  .cta {
+    display: inline-block; background: var(--goblin); color: var(--ink);
+    font-weight: 600; font-size: 15px; padding: 0.85rem 1.7rem; border-radius: 3px;
+    text-decoration: none; box-shadow: 0 0 32px rgb(182 214 72 / 0.18);
+  }
+  .cta-quiet { font-size: 14px; color: var(--text-mut); }
+  .mapwrap { position: relative; height: 100%; min-height: 60vh; }
+  .mapwrap svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  .torchglow {
+    position: absolute; border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle, rgb(237 169 78 / 0.32) 0%, rgb(237 169 78 / 0.10) 45%, transparent 70%);
+    animation: flicker 4.5s ease-in-out infinite;
+  }
+  @keyframes flicker {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    48% { opacity: 0.86; transform: scale(0.97); }
+    72% { opacity: 0.95; transform: scale(1.02); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .torchglow, .eyes ellipse { animation: none !important; }
+    html { scroll-behavior: auto; }
+  }
+
+  /* --- A2 sight --- */
+  .a2 { grid-template-columns: minmax(0, 58%) minmax(0, 42%); align-items: center; background: #080706; }
+  .a2 .copy { padding: 0 clamp(1.5rem, 6vw, 5rem); }
+  .a2 h3 { font-size: clamp(1.9rem, 3.4vw, 3rem); line-height: 1.12; letter-spacing: -0.015em; }
+  .a2 .sub, .a3 .sub, .a4 .sub { margin-top: 1.2rem; color: var(--text-2); }
+
+  /* --- A3 trust split --- */
+  .a3 { grid-template-rows: auto 1fr; min-height: 100vh; }
+  .a3 .copy { padding: clamp(4rem, 10vh, 6rem) clamp(1.5rem, 6vw, 6rem) 2.5rem; }
+  .a3 h3 { font-size: clamp(1.9rem, 3.4vw, 3rem); letter-spacing: -0.015em; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: #26241d; min-height: 54vh; }
+  .pane { position: relative; background: var(--void-2); overflow: hidden; }
+  .pane .pane-tag {
+    position: absolute; top: 1rem; left: 1.2rem; z-index: 4;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em;
+  }
+  .pane .pane-tag.dm { color: var(--torch); }
+  .pane .pane-tag.pl { color: var(--text-mut); }
+  .pane svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  /* --- A4 time --- */
+  .a4 { grid-template-columns: minmax(0, 42%) minmax(0, 58%); align-items: center; background: #06070a; }
+  .a4 .copy { padding: 0 0 0 clamp(1.5rem, 6vw, 6rem); z-index: 2; }
+  .a4 h3 { font-size: clamp(1.9rem, 3.4vw, 3rem); line-height: 1.12; letter-spacing: -0.015em; }
+  .nightwrap { position: relative; height: 100%; min-height: 62vh; }
+  .nightwrap svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .rain {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0.5;
+    background: repeating-linear-gradient(112deg, transparent 0 7px, rgb(190 210 235 / 0.055) 7px 8px);
+  }
+  .scrub {
+    position: absolute; left: 8%; right: 8%; bottom: 9%;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text-mut);
+  }
+  .scrub .track { position: relative; height: 2px; background: #2e3038; border-radius: 1px; margin-bottom: 0.6rem; }
+  .scrub .fill { position: absolute; left: 0; top: 0; bottom: 0; width: 82%; background: linear-gradient(90deg, var(--torch), #8fa8d8); }
+  .scrub .thumb {
+    position: absolute; left: 82%; top: 50%; width: 14px; height: 14px; border-radius: 50%;
+    background: #aebfe0; transform: translate(-50%, -50%); box-shadow: 0 0 14px rgb(174 191 224 / 0.6);
+  }
+  .scrub .ticks { display: flex; justify-content: space-between; }
+
+  /* --- A5 door --- */
+  .a5 { place-items: center; background: radial-gradient(ellipse 70% 55% at 50% 62%, #17150f 0%, var(--void) 68%); min-height: 100vh; }
+  .doorstage { position: relative; text-align: center; padding: 4rem 1.5rem; }
+  .eyes { margin-bottom: 0.5rem; }
+  .eyes ellipse { animation: blink 6s infinite; transform-origin: center; }
+  @keyframes blink { 0%, 91%, 100% { transform: scaleY(1); } 93.5% { transform: scaleY(0.06); } 96% { transform: scaleY(1); } }
+  .door {
+    position: relative; width: min(320px, 78vw); margin: 0 auto;
+    border-radius: 160px 160px 4px 4px;
+    background:
+      repeating-linear-gradient(90deg, transparent 0 38px, rgb(0 0 0 / 0.28) 38px 41px),
+      linear-gradient(178deg, var(--wood-lit) 0%, var(--wood) 45%, #4e3520 100%);
+    border: 5px solid var(--ink);
+    box-shadow: 0 0 0 10px #241f16, 0 0 70px rgb(237 169 78 / 0.12), inset 0 -30px 60px rgb(0 0 0 / 0.4);
+    padding: 4.5rem 2rem 2.6rem;
+  }
+  .door::before, .door::after {
+    content: ''; position: absolute; left: -14px; width: 46px; height: 12px;
+    background: #1b1c18; border-radius: 2px; box-shadow: 0 2px 0 rgb(0 0 0 / 0.5);
+  }
+  .door::before { top: 26%; } .door::after { top: 62%; }
+  .plaque {
+    background: var(--parchment); color: var(--ink); border-radius: 3px;
+    border: 2px solid var(--ink); padding: 1.4rem 1.3rem 1.2rem;
+    box-shadow: 0 4px 0 rgb(0 0 0 / 0.35);
+    text-align: left;
+  }
+  .plaque h3 { font-size: 1.5rem; line-height: 1.15; letter-spacing: -0.01em; }
+  .plaque p { font-size: 13.5px; color: #4a4433; margin-top: 0.5rem; }
+  .plaque form { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
+  .plaque input {
+    font: inherit; font-size: 14px; padding: 0.7rem 0.9rem; border: 2px solid var(--ink);
+    border-radius: 3px; background: #f4eeda; color: var(--ink); width: 100%;
+  }
+  .plaque input::placeholder { color: #5c5540; }
+  .plaque button {
+    font: inherit; font-weight: 600; font-size: 14.5px; padding: 0.75rem;
+    background: var(--ink); color: var(--parchment); border: 0; border-radius: 3px; cursor: pointer;
+  }
+  .under-door { margin-top: 1.4rem; font-size: 13px; color: var(--text-mut); }
+
+  /* --- Direction B: war table --- */
+  .b1 { place-items: center; min-height: 96vh; background: radial-gradient(ellipse 90% 70% at 50% 30%, #241a10 0%, #120d08 55%, var(--void) 100%); }
+  .tablescene { position: relative; width: min(880px, 92vw); padding: 3rem 0 4rem; }
+  .tabletop {
+    position: relative; margin: 0 auto; width: 88%; aspect-ratio: 16 / 9.5;
+    background:
+      repeating-linear-gradient(0deg, transparent 0 46px, rgb(0 0 0 / 0.18) 46px 48px),
+      linear-gradient(160deg, #4a3420, #3a2a18 60%, #2a1e11);
+    border-radius: 10px; border: 3px solid #17110a;
+    box-shadow: 0 40px 80px -30px rgb(0 0 0 / 0.9), inset 0 0 90px rgb(0 0 0 / 0.55);
+    transform: perspective(1400px) rotateX(16deg);
+  }
+  .tablemap {
+    position: absolute; inset: 9% 14%;
+    background: var(--stone-deep); border: 4px solid var(--ink); border-radius: 4px;
+    box-shadow: 0 0 60px rgb(237 169 78 / 0.22);
+    overflow: hidden;
+  }
+  .tablemap svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .dice { position: absolute; width: 26px; height: 26px; background: #b53a3a; border: 2px solid var(--ink); border-radius: 6px; transform: rotate(14deg); box-shadow: 0 6px 10px rgb(0 0 0 / 0.5); }
+  .dice.d2 { width: 20px; height: 20px; background: #3a5bb5; transform: rotate(-22deg); }
+  .mug { position: absolute; width: 42px; height: 42px; background: radial-gradient(circle at 40% 35%, #6b4a2e, #40291a 70%); border: 2px solid var(--ink); border-radius: 50%; box-shadow: 0 8px 14px rgb(0 0 0 / 0.55); }
+  .b1 .copy { text-align: center; margin-top: 2.5rem; }
+  .b1 h3 { font-size: clamp(2.4rem, 4.6vw, 4.4rem); line-height: 1.06; letter-spacing: -0.02em; }
+  .b1 h3 em { color: var(--goblin); }
+  .b1 .sub { margin: 1.2rem auto 0; color: var(--text-2); }
+
+  /* --- Direction C: merchant --- */
+  .c1 { background: var(--goblin); color: var(--ink); min-height: 96vh; grid-template-rows: 1fr auto; }
+  .c1 .copy { padding: clamp(4rem, 12vh, 8rem) clamp(1.5rem, 6vw, 6rem) 3rem; align-self: center; }
+  .c1 .whisper { font-family: 'Newsreader', Georgia, serif; font-style: italic; font-size: clamp(1.1rem, 1.8vw, 1.4rem); color: #3d4713; }
+  .c1 h3 {
+    margin-top: 1rem; font-size: clamp(2.8rem, 6vw, 5.8rem); line-height: 0.98;
+    letter-spacing: -0.025em; font-weight: 600; max-width: 14ch;
+  }
+  .c1 .sub { margin-top: 1.8rem; font-size: 17.5px; color: #2a3110; max-width: 52ch; }
+  .c1 .cta { background: var(--ink); color: var(--goblin); box-shadow: none; }
+  .c1 .cta-quiet { color: #4a5518; }
+  .c1 .ledger {
+    border-top: 2px solid var(--ink); padding: 1.3rem clamp(1.5rem, 6vw, 6rem);
+    display: flex; gap: 2.5rem; flex-wrap: wrap;
+    font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #2a3110;
+  }
+  .c1 .ledger b { font-weight: 500; color: var(--ink); }
+
+  /* ============ copy board ============ */
+  .copyboard { padding: 0 clamp(1.5rem, 6vw, 6rem); }
+  .hset { border-top: 1px solid #2c2a21; padding: 2.6rem 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.2fr); gap: 1rem 3rem; }
+  .hset .meta { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-mut); line-height: 1.8; }
+  .hset .meta b { color: var(--goblin); font-weight: 500; }
+  .hset h3 { font-size: clamp(1.7rem, 3vw, 2.6rem); line-height: 1.1; letter-spacing: -0.015em; }
+  .hset .sub { margin-top: 0.9rem; color: var(--text-2); }
+  .hset .cta-line { margin-top: 0.9rem; font-size: 14px; }
+  .hset .cta-line b { color: var(--goblin); font-weight: 500; }
+  .micro { border-top: 1px solid #2c2a21; padding: 2.6rem 0 3.5rem; }
+  .micro h3 { font-size: 1.5rem; margin-bottom: 1.5rem; }
+  .micro dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.2fr); gap: 0.9rem 3rem; max-width: 70rem; }
+  .micro dt { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-mut); padding-top: 3px; }
+  .micro dd { color: var(--parchment-ink); }
+  .micro dd small { display: block; color: var(--text-mut); font-size: 13px; margin-top: 2px; }
+
+  /* ============ spec ============ */
+  .spec { padding: 0 clamp(1.5rem, 6vw, 6rem) 4rem; }
+  .spec h3 { font-size: 1.5rem; margin: 3rem 0 1.2rem; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; }
+  .chip { width: 150px; border: 1px solid #33312a; border-radius: 4px; overflow: hidden; }
+  .chip .swatch { height: 64px; }
+  .chip .label { padding: 8px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 1.6; color: var(--text-2); background: var(--void-2); }
+  .spec ol, .spec ul { max-width: 68ch; padding-left: 1.3rem; color: var(--text-2); }
+  .spec li { margin-bottom: 0.55rem; }
+  .spec li b { color: var(--parchment-ink); font-weight: 500; }
+  .typerow { border-top: 1px solid #2c2a21; padding: 1.2rem 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); gap: 1rem 3rem; align-items: baseline; }
+  .typerow .m { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--text-mut); line-height: 1.7; }
+
+  footer { border-top: 1px solid #26241d; padding: 3rem clamp(1.5rem, 6vw, 6rem) 5rem; color: var(--text-mut); font-size: 14px; }
+  footer b { color: var(--text-2); font-weight: 500; }
+
+  @media (max-width: 900px) {
+    .a1, .a2, .a4 { grid-template-columns: 1fr; }
+    .a1 .copy, .a4 .copy { padding: 4rem clamp(1.5rem, 6vw, 3rem) 1rem; }
+    .a2 { display: flex; flex-direction: column-reverse; }
+    .a2 .copy { padding: 4rem clamp(1.5rem, 6vw, 3rem) 1rem; }
+    .mapwrap, .nightwrap { min-height: 52vh; }
+    .split { grid-template-columns: 1fr; }
+    .hset, .micro dl { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="board-intro">
+  <div class="stamp">
+    <span>GOOD GOBLIN · LANDING CONCEPTS</span>
+    <span>2026-08-07</span>
+    <span>R3F + GSAP SCROLL STORY · WAITLIST</span>
+  </div>
+  <h1>Three doors. The goblin recommends the <em>first</em> one.</h1>
+  <p>Every frame below is composed at real scale with real copy: scroll it like the page. Direction A is the full scroll-story; B and C are genuine alternatives, not strawmen. Mono strips under each frame are motion &amp; camera notes for the R3F/GSAP build, not page content.</p>
+</header>
+
+<!-- ================= DIRECTION A ================= -->
+<div class="dir-head">
+  <span class="tag">DIRECTION A</span>
+  <h2>From Ink to Alive</h2>
+  <span class="verdict">the recommendation — one continuous WebGL scene, eight beats</span>
+</div>
+<p class="dir-note">The page is the product's argument performed: a flat ink drawing becomes a lit, breathing table as you scroll. Below: five of the eight beats, composed as stills.</p>
+
+<!-- A · BEAT 1–2 · HERO -->
+<section class="frame a1">
+  <span class="frame-label">BEAT 01–02 · INK → THE RISE</span>
+  <div class="copy">
+    <h3>The map you <span class="drew">drew</span><br>is the game you <span class="run">run</span>.</h3>
+    <p class="sub">Draw walls, doors, torches — once. Fog, sight, and light run themselves at the table, live, in front of your players.</p>
+    <p class="aside voice">No re-tracing. No lighting homework. The goblin finds double work insulting.</p>
+    <div class="cta-row">
+      <a class="cta" href="#door">Join the waitlist</a>
+      <span class="cta-quiet">Free while in the goblin's favor</span>
+    </div>
+  </div>
+  <div class="mapwrap">
+    <svg viewBox="0 0 800 560" role="img" aria-label="Hand-drawn dungeon map: two rooms joined by a corridor, torch glows at the walls">
+      <defs>
+        <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+          <path d="M40 0H0V40" fill="none" stroke="#3a3e33" stroke-width="1" opacity="0.5"/>
+        </pattern>
+        <radialGradient id="tg" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#eda94e" stop-opacity="0.5"/>
+          <stop offset="45%" stop-color="#eda94e" stop-opacity="0.16"/>
+          <stop offset="100%" stop-color="#eda94e" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <!-- room floors -->
+      <rect x="90" y="70" width="300" height="230" fill="#2b2e26"/>
+      <rect x="90" y="70" width="300" height="230" fill="url(#grid)"/>
+      <rect x="470" y="230" width="250" height="240" fill="#2b2e26"/>
+      <rect x="470" y="230" width="250" height="240" fill="url(#grid)"/>
+      <rect x="390" y="180" width="80" height="80" fill="#2b2e26"/>
+      <rect x="390" y="180" width="80" height="80" fill="url(#grid)"/>
+      <!-- torch glows -->
+      <circle cx="120" cy="100" r="110" fill="url(#tg)"/>
+      <circle cx="360" cy="280" r="100" fill="url(#tg)"/>
+      <circle cx="690" cy="260" r="110" fill="url(#tg)"/>
+      <circle cx="500" cy="450" r="90" fill="url(#tg)"/>
+      <!-- walls: thick ink, gaps where doors sit -->
+      <g stroke="#14160f" stroke-width="14" fill="none" stroke-linecap="square">
+        <path d="M90 300 V70 H390 V180"/>
+        <path d="M390 260 V300 H240"/>
+        <path d="M160 300 H90"/>
+        <path d="M390 180 H470 V230 H720 V470 H560"/>
+        <path d="M480 470 H470 V260 H440"/>
+      </g>
+      <!-- doors: drawn wooden rectangles sitting in the gaps -->
+      <g stroke="#14160f" stroke-width="4">
+        <rect x="164" y="292" width="72" height="16" fill="#6d4a2c"/>
+        <rect x="484" y="462" width="72" height="16" fill="#6d4a2c"/>
+      </g>
+      <!-- one focal accent: treasure glint -->
+      <circle cx="650" cy="420" r="12" fill="#eda94e"/>
+      <circle cx="650" cy="420" r="26" fill="url(#tg)"/>
+      <!-- half-drawn ink line: beat 1 remnant -->
+      <path d="M90 300 C 60 380, 120 470, 210 500" stroke="#5a5d50" stroke-width="3" stroke-dasharray="7 9" fill="none"/>
+    </svg>
+    <div class="torchglow" style="width: 260px; height: 260px; left: 4%; top: 2%;"></div>
+    <div class="torchglow" style="width: 240px; height: 240px; right: 6%; top: 28%; animation-delay: -2.1s;"></div>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Camera</b> · top-down orthographic, slow push-in as the walls extrude</span>
+  <span><b>GSAP</b> · ScrollTrigger scrub pins the hero; wall ExtrudeGeometry height 0→1; torches ignite staggered 120ms</span>
+  <span><b>Beat 1 state</b> · black void, ink lines draw themselves (dashoffset), headline: "You draw the map."</span>
+  <span><b>Landing line</b> · positioning headline lands as the last torch catches</span>
+</div>
+
+<!-- A · BEAT 3 · SIGHT -->
+<section class="frame a2">
+  <span class="frame-label">BEAT 03 · SIGHT</span>
+  <div class="mapwrap">
+    <svg viewBox="0 0 800 560" role="img" aria-label="The same map under fog of war: a token sees a wedge of the room, the rest is darkness">
+      <defs>
+        <radialGradient id="tg2" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#eda94e" stop-opacity="0.5"/>
+          <stop offset="45%" stop-color="#eda94e" stop-opacity="0.16"/>
+          <stop offset="100%" stop-color="#eda94e" stop-opacity="0"/>
+        </radialGradient>
+        <pattern id="grid2" width="40" height="40" patternUnits="userSpaceOnUse">
+          <path d="M40 0H0V40" fill="none" stroke="#3a3e33" stroke-width="1" opacity="0.5"/>
+        </pattern>
+        <clipPath id="seen">
+          <path d="M240 240 L470 120 L560 240 L470 400 Z"/>
+        </clipPath>
+      </defs>
+      <rect width="800" height="560" fill="#080706"/>
+      <g clip-path="url(#seen)">
+        <rect x="90" y="70" width="300" height="230" fill="#2b2e26"/>
+        <rect x="90" y="70" width="300" height="230" fill="url(#grid2)"/>
+        <rect x="390" y="180" width="80" height="80" fill="#2b2e26"/>
+        <rect x="470" y="230" width="250" height="240" fill="#2b2e26"/>
+        <rect x="470" y="230" width="250" height="240" fill="url(#grid2)"/>
+        <circle cx="360" cy="280" r="130" fill="url(#tg2)"/>
+        <g stroke="#14160f" stroke-width="14" fill="none" stroke-linecap="square">
+          <path d="M90 300 V70 H390 V180"/>
+          <path d="M390 260 V300 H240"/>
+          <path d="M390 180 H470 V230 H720 V470 H560"/>
+        </g>
+        <rect x="484" y="462" width="72" height="16" fill="#6d4a2c" stroke="#14160f" stroke-width="4"/>
+      </g>
+      <!-- explored-dim remnant -->
+      <g opacity="0.18">
+        <rect x="90" y="70" width="150" height="230" fill="#2b2e26"/>
+        <path d="M90 300 V70 H240" stroke="#14160f" stroke-width="14" fill="none"/>
+      </g>
+      <!-- token -->
+      <circle cx="240" cy="240" r="17" fill="#b53a3a" stroke="#14160f" stroke-width="4"/>
+      <circle cx="240" cy="240" r="26" fill="none" stroke="#eda94e" stroke-width="2" opacity="0.7"/>
+    </svg>
+  </div>
+  <div class="copy">
+    <h3>Fog of war that reads your walls.</h3>
+    <p class="sub">Line of sight is computed from the walls you drew. Doors block until they swing open; torches carry exactly as far as you placed them. Nothing to trace, nothing to mask, nothing to babysit.</p>
+    <p class="aside voice" style="margin-top: 1.4rem;">You drew the walls. Why would you draw them again?</p>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Camera</b> · holds top-down; token drags itself along a path</span>
+  <span><b>Live geometry</b> · visibility polygon re-sweeps per frame from wall segments: the actual product algorithm, in miniature</span>
+  <span><b>Door moment</b> · token reaches door, it swings, light spills into the next room</span>
+</div>
+
+<!-- A · BEAT 4 · TRUST -->
+<section class="frame a3">
+  <span class="frame-label">BEAT 04 · TRUST</span>
+  <div class="copy">
+    <h3>The server never sends your players the secret door.</h3>
+    <p class="sub">Not hidden with styling. Not ghosted and hoping. What a player hasn't been shown is <em>not in the data their browser receives</em>. And you, the DM, never lose sight of any of it.</p>
+    <p class="aside voice" style="margin-top: 1rem;">The goblin keeps secrets professionally.</p>
+  </div>
+  <div class="split">
+    <div class="pane">
+      <span class="pane-tag dm">YOUR VIEW</span>
+      <svg viewBox="0 0 400 300" role="img" aria-label="DM view: full map, secret door marked with a badge">
+        <rect width="400" height="300" fill="#12110d"/>
+        <rect x="60" y="60" width="280" height="180" fill="#2b2e26"/>
+        <g stroke="#14160f" stroke-width="10" fill="none">
+          <rect x="60" y="60" width="280" height="180"/>
+          <path d="M200 60 V240"/>
+        </g>
+        <!-- secret door: dashed break + badge -->
+        <path d="M200 130 V170" stroke="#2b2e26" stroke-width="10"/>
+        <path d="M200 130 V170" stroke="#eda94e" stroke-width="3" stroke-dasharray="5 5"/>
+        <circle cx="222" cy="150" r="11" fill="#eda94e"/>
+        <text x="222" y="155" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="13" font-weight="600" fill="#16180f">S</text>
+        <circle cx="120" cy="150" r="12" fill="#b53a3a" stroke="#14160f" stroke-width="3"/>
+        <circle cx="290" cy="120" r="12" fill="#3a5bb5" stroke="#14160f" stroke-width="3"/>
+      </svg>
+    </div>
+    <div class="pane">
+      <span class="pane-tag pl">THEIR VIEW</span>
+      <svg viewBox="0 0 400 300" role="img" aria-label="Player view: half the map is darkness; the secret door does not exist">
+        <rect width="400" height="300" fill="#080706"/>
+        <rect x="60" y="60" width="140" height="180" fill="#2b2e26"/>
+        <g stroke="#14160f" stroke-width="10" fill="none">
+          <path d="M200 60 H60 V240 H200"/>
+          <path d="M200 60 V240"/>
+        </g>
+        <circle cx="120" cy="150" r="12" fill="#b53a3a" stroke="#14160f" stroke-width="3"/>
+      </svg>
+    </div>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Scene split</b> · one diorama, two render targets; right pane's geometry genuinely lacks the secret wall segment</span>
+  <span><b>Anti-reference</b> · this is the Owlbear jab — say it visually, never name them</span>
+  <span><b>Motion</b> · panes slide apart from the single scene as the section pins</span>
+</div>
+
+<!-- A · BEAT 5 · TIME & WEATHER -->
+<section class="frame a4">
+  <span class="frame-label">BEAT 05 · THE WORLD TURNS</span>
+  <div class="copy">
+    <h3>Night falls on schedule. Or when you say so.</h3>
+    <p class="sub">Scrub the hour and the whole map relights — torch pools holding warm against the blue, rain rolling over the roofs. Your weather is a play tool, not a slider buried in settings.</p>
+    <p class="aside voice" style="margin-top: 1.4rem;">Players argue about the marching order; the goblin brings the storm.</p>
+  </div>
+  <div class="nightwrap">
+    <svg viewBox="0 0 800 560" role="img" aria-label="The same dungeon at night: cool moonlight, torch pools holding warm">
+      <defs>
+        <radialGradient id="tg3" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#eda94e" stop-opacity="0.55"/>
+          <stop offset="45%" stop-color="#eda94e" stop-opacity="0.18"/>
+          <stop offset="100%" stop-color="#eda94e" stop-opacity="0"/>
+        </radialGradient>
+        <pattern id="grid3" width="40" height="40" patternUnits="userSpaceOnUse">
+          <path d="M40 0H0V40" fill="none" stroke="#333a44" stroke-width="1" opacity="0.5"/>
+        </pattern>
+      </defs>
+      <rect width="800" height="560" fill="#06070a"/>
+      <g>
+        <rect x="90" y="70" width="300" height="230" fill="#232833"/>
+        <rect x="90" y="70" width="300" height="230" fill="url(#grid3)"/>
+        <rect x="390" y="180" width="80" height="80" fill="#232833"/>
+        <rect x="470" y="230" width="250" height="240" fill="#232833"/>
+        <rect x="470" y="230" width="250" height="240" fill="url(#grid3)"/>
+        <circle cx="360" cy="280" r="110" fill="url(#tg3)"/>
+        <circle cx="690" cy="260" r="100" fill="url(#tg3)"/>
+        <g stroke="#0c0e12" stroke-width="14" fill="none" stroke-linecap="square">
+          <path d="M90 300 V70 H390 V180"/>
+          <path d="M390 260 V300 H240"/>
+          <path d="M160 300 H90"/>
+          <path d="M390 180 H470 V230 H720 V470 H560"/>
+          <path d="M480 470 H470 V260 H440"/>
+        </g>
+        <rect x="164" y="292" width="72" height="16" fill="#54391f" stroke="#0c0e12" stroke-width="4"/>
+        <rect x="484" y="462" width="72" height="16" fill="#54391f" stroke="#0c0e12" stroke-width="4"/>
+      </g>
+    </svg>
+    <div class="rain"></div>
+    <div class="scrub" aria-hidden="true">
+      <div class="track"><div class="fill"></div><div class="thumb"></div></div>
+      <div class="ticks"><span>dawn</span><span>noon</span><span>dusk</span><span>23:40</span></div>
+    </div>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Interaction</b> · scroll scrubs the clock; ambient lerps warm→cool, shadow direction wheels</span>
+  <span><b>Shipped feature</b> · this is #84's relighting, performed</span>
+  <span><b>Weather</b> · rain as instanced streaks + wet-sheen bump on stone; skip god-rays</span>
+</div>
+
+<!-- A · BEAT 8 · THE DOOR -->
+<section class="frame a5" id="door">
+  <span class="frame-label">BEAT 08 · THE DOOR (WAITLIST)</span>
+  <div class="doorstage">
+    <svg class="eyes" width="120" height="44" viewBox="0 0 120 44" aria-label="Two goblin eyes blinking in the dark">
+      <ellipse cx="38" cy="22" rx="13" ry="9" fill="#b6d648"/>
+      <ellipse cx="82" cy="22" rx="13" ry="9" fill="#b6d648"/>
+      <circle cx="41" cy="22" r="3.5" fill="#0b0a08"/>
+      <circle cx="85" cy="22" r="3.5" fill="#0b0a08"/>
+    </svg>
+    <div class="door">
+      <div class="plaque">
+        <h3>The doors aren't open yet.</h3>
+        <p>Leave your email and you'll hear the knock first. One email at launch, no more. Goblins don't spam; it's beneath us.</p>
+        <form onsubmit="return false">
+          <label class="mono" style="font-size: 11px; letter-spacing: 0.06em; color: #4a4433;" for="em">YOUR EMAIL</label>
+          <input id="em" type="email" placeholder="dm@yourtable.com" autocomplete="email">
+          <button type="submit">Knock</button>
+        </form>
+      </div>
+    </div>
+    <p class="under-door">Success state: <span class="voice">“Hoarded. You'll hear a knock when the doors open.”</span> · Error: <span style="color: var(--text-2);">“That bounced off the door. Check it and knock again.”</span></p>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Camera</b> · pushes through darkness to the door; eyes blink above, track cursor subtly</span>
+  <span><b>Submit</b> · knock <i>thunk</i> (if sound on), door cracks, warm light spills, eyes widen</span>
+  <span><b>Beats 6–7 (not framed)</b> · scene-swap-in-place (walls sink, new map rises — #80), then pull-back reveal: the diorama sits on a physical DM's table = "the whole kit" repositioning beat</span>
+</div>
+
+<div class="corridor" aria-hidden="true">
+  <svg width="90" height="26" viewBox="0 0 90 26"><rect x="30" y="4" width="30" height="18" fill="#6d4a2c" stroke="#16180f" stroke-width="3"/><path d="M0 13 H27 M63 13 H90" stroke="#2c2a21" stroke-width="2"/></svg>
+</div>
+
+<!-- ================= DIRECTION B ================= -->
+<div class="dir-head">
+  <span class="tag alt">DIRECTION B</span>
+  <h2>The War Table</h2>
+  <span class="verdict">opens where A ends — warmer, faster to build, less sorcery</span>
+</div>
+<p class="dir-note">Leads with the physical scene: a map glowing on a wooden table in a dim room. The camera then dives <em>into</em> the map and the page becomes conventional bands. Half the choreography of A, still unmistakably ours.</p>
+
+<section class="frame b1">
+  <span class="frame-label">B · HERO</span>
+  <div class="tablescene">
+    <div class="tabletop">
+      <div class="tablemap">
+        <svg viewBox="0 0 800 560" preserveAspectRatio="xMidYMid slice" aria-label="A lit battlemap glowing on a dark wooden table">
+          <defs>
+            <radialGradient id="tg4" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#eda94e" stop-opacity="0.5"/>
+              <stop offset="45%" stop-color="#eda94e" stop-opacity="0.16"/>
+              <stop offset="100%" stop-color="#eda94e" stop-opacity="0"/>
+            </radialGradient>
+            <pattern id="grid4" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M40 0H0V40" fill="none" stroke="#3a3e33" stroke-width="1" opacity="0.5"/>
+            </pattern>
+          </defs>
+          <rect width="800" height="560" fill="#1d1f19"/>
+          <rect x="90" y="70" width="300" height="230" fill="#2b2e26"/>
+          <rect x="90" y="70" width="300" height="230" fill="url(#grid4)"/>
+          <rect x="470" y="230" width="250" height="240" fill="#2b2e26"/>
+          <rect x="470" y="230" width="250" height="240" fill="url(#grid4)"/>
+          <rect x="390" y="180" width="80" height="80" fill="#2b2e26"/>
+          <circle cx="360" cy="280" r="120" fill="url(#tg4)"/>
+          <circle cx="690" cy="260" r="110" fill="url(#tg4)"/>
+          <g stroke="#14160f" stroke-width="14" fill="none" stroke-linecap="square">
+            <path d="M90 300 V70 H390 V180"/>
+            <path d="M390 260 V300 H240"/>
+            <path d="M390 180 H470 V230 H720 V470 H560"/>
+          </g>
+          <circle cx="240" cy="240" r="16" fill="#b53a3a" stroke="#14160f" stroke-width="4"/>
+          <circle cx="620" cy="330" r="16" fill="#3a5bb5" stroke="#14160f" stroke-width="4"/>
+        </svg>
+      </div>
+      <div class="dice" style="right: 5%; top: 14%;"></div>
+      <div class="dice d2" style="right: 8.5%; top: 24%;"></div>
+      <div class="mug" style="left: 3.5%; bottom: 10%;"></div>
+    </div>
+    <div class="copy">
+      <h3>Every table deserves<br>a <em>good</em> goblin.</h3>
+      <p class="sub">The whole DM kit: author battlemaps in the Editor, run them at the Table minutes later. Players click a link. That's the entire install.</p>
+      <div class="cta-row" style="justify-content: center;">
+        <a class="cta" href="#door">Join the waitlist</a>
+      </div>
+    </div>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Camera</b> · slow dolly over the table on load; scroll dives through the map surface into A's beats 3–5 as standalone bands</span>
+  <span><b>Build cost</b> · one hero scene + flat sections; ~40% of A's motion work</span>
+  <span><b>Risk</b> · warmer but more conventional; the "map becomes game" argument is told, not performed</span>
+</div>
+
+<div class="corridor" aria-hidden="true">
+  <svg width="90" height="26" viewBox="0 0 90 26"><rect x="30" y="4" width="30" height="18" fill="#6d4a2c" stroke="#16180f" stroke-width="3"/><path d="M0 13 H27 M63 13 H90" stroke="#2c2a21" stroke-width="2"/></svg>
+</div>
+
+<!-- ================= DIRECTION C ================= -->
+<div class="dir-head">
+  <span class="tag alt">DIRECTION C</span>
+  <h2>The Merchant</h2>
+  <span class="verdict">voice-forward, chartreuse-drenched — loudest, riskiest, cheapest</span>
+</div>
+<p class="dir-note">The goblin sells you the kit like a shady-but-honest merchant. Typography carries everything; the yellow-green IS the page. 3D reduced to one hovering diorama vignette. If the mascot art never materializes, this direction still works — the voice is the mascot.</p>
+
+<section class="frame c1">
+  <span class="frame-label" style="color: #4a5518;">C · HERO</span>
+  <div class="copy">
+    <p class="whisper">psst. over here. yes, you, the one with the folder of half-finished maps —</p>
+    <h3>You build every map twice. Why?</h3>
+    <p class="sub">Once to look right, once more so your tool understands it. Good Goblin reads the walls you drew and runs the whole night from them: fog, sight, torchlight, doors, weather. You bring the rules. I bring everything else.</p>
+    <div class="cta-row">
+      <a class="cta" href="#door">Get on the list</a>
+      <span class="cta-quiet">I hoard emails carefully. One at launch, no more.</span>
+    </div>
+  </div>
+  <div class="ledger">
+    <span><b>fog &amp; sight</b> · from your walls</span>
+    <span><b>secrets</b> · never sent, not just hidden</span>
+    <span><b>weather &amp; time</b> · relights live</span>
+    <span><b>players</b> · one link, zero installs</span>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Palette</b> · drenched — chartreuse is the surface, ink does the talking; torch amber appears only inside the diorama vignette</span>
+  <span><b>Risk</b> · feral tone can undercut "dependable"; the table register must never leak in-app, and this flirts with the line</span>
+  <span><b>Best use</b> · steal the whisper-lede and ledger strip into A even if C loses</span>
+</div>
+
+<div class="corridor" aria-hidden="true">
+  <svg width="90" height="26" viewBox="0 0 90 26"><rect x="30" y="4" width="30" height="18" fill="#6d4a2c" stroke="#16180f" stroke-width="3"/><path d="M0 13 H27 M63 13 H90" stroke="#2c2a21" stroke-width="2"/></svg>
+</div>
+
+<!-- ================= COPY BOARD ================= -->
+<div class="dir-head">
+  <span class="tag alt">COPY BOARD</span>
+  <h2>Headline sets &amp; microcopy</h2>
+</div>
+<div class="copyboard">
+
+  <div class="hset">
+    <div class="meta">SET 1 · <b>the positioning line</b><br>anchor of Direction A<br>register: dramatic, plain</div>
+    <div>
+      <h3>The map you drew is the game you run.</h3>
+      <p class="sub">Draw walls, doors, torches — once. Fog, sight, and light run themselves at the table, live, in front of your players.</p>
+      <p class="cta-line">CTA: <b>Join the waitlist</b> · quiet line: “Free while in the goblin's favor”</p>
+    </div>
+  </div>
+
+  <div class="hset">
+    <div class="meta">SET 2 · <b>the grievance</b><br>anti-Foundry, leads with pain<br>register: feral, direct</div>
+    <div>
+      <h3>Stop building your maps twice.</h3>
+      <p class="sub">Other tools make you draw the map, then trace every wall again before it's playable. Good Goblin reads the map you already drew and runs the night from it.</p>
+      <p class="cta-line">CTA: <b>Get on the list</b> · quiet line: “Your prep is the game.”</p>
+    </div>
+  </div>
+
+  <div class="hset">
+    <div class="meta">SET 3 · <b>the companion</b><br>warmest; fits Direction B<br>register: warm, dependable</div>
+    <div>
+      <h3>Every table deserves a good goblin.</h3>
+      <p class="sub">The whole DM kit: battlemap editor and live table in one. Prep in minutes, run for hours, players join with a link.</p>
+      <p class="cta-line">CTA: <b>Join the waitlist</b> · quiet line: “The goblin holds your seat.”</p>
+    </div>
+  </div>
+
+  <div class="hset">
+    <div class="meta">SET 4 · <b>the whisper</b><br>voice-led; fits Direction C<br>register: cheeky, conspiratorial</div>
+    <div>
+      <h3>You build every map twice. Why?</h3>
+      <p class="sub">Lede whisper above: “psst. over here. yes, you, the one with the folder of half-finished maps —”</p>
+      <p class="cta-line">CTA: <b>Get on the list</b> · quiet line: “I hoard emails carefully.”</p>
+    </div>
+  </div>
+
+  <div class="micro">
+    <h3>Feature copy — the rooms</h3>
+    <dl>
+      <dt>FOG &amp; SIGHT</dt>
+      <dd>Fog of war that reads your walls. <small>You drew them; why would you trace them again?</small></dd>
+      <dt>TRUST</dt>
+      <dd>The server never sends your players the secret door. <small>Not hidden-with-styling. Not-sent. And you never lose sight of any of it.</small></dd>
+      <dt>LIVE TABLE</dt>
+      <dd>Doors swing, traps trip, night falls. <small>Time and weather relight the map while your players argue about the marching order.</small></dd>
+      <dt>SCENES</dt>
+      <dd>Swap scenes mid-session. <small>No blackout, no loading bar, no “one sec, guys.”</small></dd>
+      <dt>PLAYERS</dt>
+      <dd>Players click a link. <small>That's the whole install. They see exactly what you've revealed — nothing else ever reaches them.</small></dd>
+    </dl>
+  </div>
+
+  <div class="micro">
+    <h3>Waitlist microcopy</h3>
+    <dl>
+      <dt>FIELD LABEL</dt><dd>Your email</dd>
+      <dt>PLACEHOLDER</dt><dd>dm@yourtable.com</dd>
+      <dt>BUTTON</dt><dd>Knock <small>(Direction A/B) · “Get on the list” (C, or anywhere in-world framing feels too cute)</small></dd>
+      <dt>REASSURANCE</dt><dd>One email at launch, no more. Goblins don't spam; it's beneath us.</dd>
+      <dt>SUCCESS</dt><dd>Hoarded. You'll hear a knock when the doors open.</dd>
+      <dt>ERROR</dt><dd>That bounced off the door. Check it and knock again.</dd>
+      <dt>DUPLICATE</dt><dd>Already hoarded. The goblin never forgets an email.</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="corridor" aria-hidden="true">
+  <svg width="90" height="26" viewBox="0 0 90 26"><rect x="30" y="4" width="30" height="18" fill="#6d4a2c" stroke="#16180f" stroke-width="3"/><path d="M0 13 H27 M63 13 H90" stroke="#2c2a21" stroke-width="2"/></svg>
+</div>
+
+<!-- ================= SPEC ================= -->
+<div class="dir-head">
+  <span class="tag alt">SPEC</span>
+  <h2>System notes for the build</h2>
+</div>
+<div class="spec">
+
+  <h3>Palette — “torchlit drench”</h3>
+  <div class="chips">
+    <div class="chip"><div class="swatch" style="background: #0b0a08;"></div><div class="label">void<br>#0B0A08<br>page surface</div></div>
+    <div class="chip"><div class="swatch" style="background: #2b2e26;"></div><div class="label">stone<br>#2B2E26<br>diorama floors</div></div>
+    <div class="chip"><div class="swatch" style="background: #16180f;"></div><div class="label">ink<br>#16180F<br>linework, walls</div></div>
+    <div class="chip"><div class="swatch" style="background: #eda94e;"></div><div class="label">torch<br>#EDA94E<br>light pools, warm accents</div></div>
+    <div class="chip"><div class="swatch" style="background: #b6d648;"></div><div class="label">goblin<br>#B6D648<br>CTA + eyes + voice ONLY</div></div>
+    <div class="chip"><div class="swatch" style="background: #e8dfc6;"></div><div class="label">parchment<br>#E8DFC6<br>plaque/props, never body bg</div></div>
+    <div class="chip"><div class="swatch" style="background: #e6e1d3;"></div><div class="label">text<br>#E6E1D3<br>15:1 on void</div></div>
+  </div>
+  <ul style="margin-top: 1.2rem;">
+    <li><b>Strategy: drenched dark.</b> The void IS the brand surface (dungeon negative space per the art style guide). Torch amber does the drama; goblin yellow-green is rationed to CTA, the eyes, and voice asides (≈2% of any viewport) so it stays feral, not wallpaper.</li>
+    <li><b>Marketing-only rule holds:</b> #B6D648 never enters the app. The app's moss accent (rgb 52 91 37) stays in-app. Two greens, two worlds.</li>
+  </ul>
+
+  <h3>Type</h3>
+  <div class="typerow">
+    <div class="m">DISPLAY<br>Newsreader 500–600<br>clamp ceiling 5.5rem · ls −0.02em</div>
+    <div style="font-family: 'Newsreader', Georgia, serif; font-size: clamp(1.8rem, 3.4vw, 2.8rem); font-weight: 500; letter-spacing: -0.02em;">The map you drew is the game you run.</div>
+  </div>
+  <div class="typerow">
+    <div class="m">GOBLIN VOICE<br>Newsreader italic · #B6D648<br>asides &amp; whispers only</div>
+    <div class="voice" style="font-size: 1.25rem;">The goblin finds double work insulting.</div>
+  </div>
+  <div class="typerow">
+    <div class="m">BODY / UI<br>IBM Plex Sans 400/500<br>16–17px · 62ch cap</div>
+    <div style="color: var(--text-2);">Draw walls, doors, torches — once. Fog, sight, and light run themselves at the table.</div>
+  </div>
+  <div class="typerow">
+    <div class="m">ANNOTATION<br>IBM Plex Mono · 11–13px<br>beat labels, view tags, scrubber</div>
+    <div class="mono" style="font-size: 13px; color: var(--text-mut);">BEAT 03 · SIGHT · visibility re-sweeps per frame</div>
+  </div>
+  <ul style="margin-top: 1.2rem;">
+    <li><b>Identity call:</b> Newsreader + Plex are the product's committed families (Moss chrome). The landing keeps them and changes the <em>volume</em> — Newsreader at display optical sizes, italic as the goblin's voice. One product, one typographic self.</li>
+  </ul>
+
+  <h3>Motion spec (GSAP × R3F)</h3>
+  <ol>
+    <li><b>One pinned timeline per beat,</b> ScrollTrigger scrub; camera on a CatmullRom path, eased with ease-out quint. No bounce anywhere — state settles (the app's <span class="mono" style="font-size: 13px;">--ease-settle</span> carries over).</li>
+    <li><b>Beat 1 → 2:</b> line-draw via dashoffset on SVG-extruded splines, then wall meshes scale-Y 0→1 staggered along the draw order; torches ignite 120ms apart, light intensity 0→1 with a 2-frame overshoot flicker.</li>
+    <li><b>Beat 3:</b> visibility polygon computed per frame from the same wall segments (the product's sweep, miniaturized). It must be real geometry, not a baked video, or the claim rings false.</li>
+    <li><b>Beat 4:</b> pane split via viewport scissor, not two canvases.</li>
+    <li><b>Beat 5:</b> scroll maps to clock; ambient color + shadow azimuth lerp; rain = instanced quads, on-demand only.</li>
+    <li><b>Reduced motion:</b> every beat has a composed still; scroll becomes hard cuts between them, the same rule as the app's fog reveals. Content never gated on animation.</li>
+    <li><b>Mobile:</b> pre-rendered scrubbed image sequence of the same choreography; the WebGL scene never ships to phones.</li>
+    <li><b>Perf floor:</b> DPR clamp at 1.5, frameloop="demand" outside pinned ranges, single scene graph reused across beats (one diorama the whole way; that's the point).</li>
+  </ol>
+
+  <h3>Hard constraints carried from the repo</h3>
+  <ul>
+    <li><b>Licensing:</b> dungeon-classic pack art is FA-derived and non-redistributable. Nothing from it (including raw app screenshots) goes on a public page. The diorama's materials are bespoke to the page; product-accurate textures wait on forge output.</li>
+    <li><b>Art style gate applies:</b> painterly + ink outline post-pass (inverted hull), matte everything, one global shadow direction, black negative space with torn edge. If a frame reads as "Unity demo," it fails the gate.</li>
+    <li><b>Naming:</b> Good Goblin everywhere; "the Editor" / "the Table" capitalized as proper surfaces; map-goblin never appears.</li>
+  </ul>
+</div>
+
+<footer>
+  <p><b>Next steps:</b> pick a direction (or A with B's table-reveal kept as beat 7 and C's whisper-lede stolen for the hero). Then: greybox the diorama in R3F, camera path first, art pass last. The waitlist backend is an afternoon; the diorama is the schedule.</p>
+</footer>
+
+</body>
+</html>

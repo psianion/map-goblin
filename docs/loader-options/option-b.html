@@ -1,0 +1,527 @@
+<!--
+  LOADER OPTION B — "Lamp-Up"
+  Narrative: the table is dark and something is already sitting at it — two goblin
+             eyes open, look you over, blink while the big pack lands, then find the
+             lamp; light spreads from the lamp corner until the whole table is warm
+             and the map is lying there waiting.
+  Exit: the lamp is turned all the way up (a short warm bloom), then settles to
+        exactly the page's own .stage-lamp gradient while the sheet grows to
+        full-bleed — the loader's last frame and the page's first frame are the
+        same lit table, so the hero simply rises onto it.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Good Goblin — loader option B · Lamp-Up</title>
+<style>
+  :root {
+    --void: #0b0a08;
+    --void-2: #12110d;
+    --ink: #16180f;
+    --torch: #eda94e;
+    --torch-hot: #ffd9a0;
+    --goblin: #b6d648;
+    --parchment: #e8dfc6;
+    --text-2: #b5af9e;
+    --ink-mut: #4a4433;
+    --goblin-ink: #4d6410;
+    --torch-ink: #8a5314;
+    --wood: #6d4a2c;
+
+    --display: Georgia, 'Iowan Old Style', 'Times New Roman', serif;
+    --body: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: ui-monospace, 'Cascadia Mono', Consolas, 'SF Mono', monospace;
+
+    --rev: 0;        /* how far the dark has been pushed back */
+    --lit: 0;        /* how lit the table reads, 0..1        */
+    --bloom: 0;      /* the exit flare                        */
+    --cover: 1;      /* sheet scale on exit                   */
+  }
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--parchment);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px; line-height: 1.6;
+    overflow: hidden;
+  }
+  :focus-visible { outline: 2px solid var(--torch-hot); outline-offset: 3px; border-radius: 2px; }
+
+  /* ============ the room ============ */
+  /* --sceneA lives on the base rule, never inside the reduced-motion block:
+     the JS branch that clears the loader must never depend on a media query
+     agreeing with it, or the loader can be left covering the page forever. */
+  .scene { position: fixed; inset: 0; z-index: 4; overflow: hidden; opacity: var(--sceneA, 1); }
+
+  /* A table with the lamp off, not a void — dark wood that the lamp actually
+     finds. If this stayed near-black the lit frame would be a bright sheet
+     floating in nothing. */
+  .room {
+    position: absolute; inset: 0;
+    background:
+      repeating-linear-gradient(90deg,
+        transparent 0 108px, rgb(0 0 0 / 0.34) 108px 111px, rgb(255 214 160 / 0.03) 111px 112px, transparent 112px 116px),
+      linear-gradient(176deg, #3d2a16 0%, #2b1d0e 52%, #171006 100%);
+  }
+
+  /* the sheet on the table */
+  .sheet {
+    position: absolute; left: 50%; top: 50%;
+    width: min(72vw, 790px); aspect-ratio: 3 / 2;
+    background: var(--parchment);
+    transform:
+      translate(-50%, -50%)
+      rotate(calc(-0.7deg * (1 - var(--flat, 0))))
+      scale(var(--cover));
+    transform-origin: 50% 50%;
+  }
+  .sheet-edge {
+    position: absolute; inset: 0;
+    border: 3px solid var(--ink);
+    border-radius: 2px;
+    box-shadow: 0 22px 60px rgb(0 0 0 / 0.55), 0 3px 0 rgb(0 0 0 / 0.4);
+    opacity: var(--edge, 1);
+    pointer-events: none;
+  }
+  .sheet svg { display: block; width: 100%; height: 100%; opacity: var(--mapAlpha, 1); }
+
+  /* The dark, pushed back from the lamp corner as the load advances — this is
+     the progress bar. The -30% offset means rev must reach ~0.21 before any
+     light shows at all, so the goblin gets his beat in the dark and the reveal
+     starts from a genuinely black frame instead of popping. */
+  .dark {
+    position: absolute; inset: 0;
+    background: #0b0a08;
+    /* three stops, not two: a lamp has a long falloff, and a two-stop mask
+       reads as a hard-edged spotlight arc dragged across the sheet */
+    -webkit-mask-image: radial-gradient(circle farthest-corner at 26% 12%,
+      transparent calc(var(--rev) * 160% - 52%),
+      rgb(0 0 0 / 0.5) calc(var(--rev) * 160% - 36%),
+      #000 calc(var(--rev) * 160% - 10%));
+    mask-image: radial-gradient(circle farthest-corner at 26% 12%,
+      transparent calc(var(--rev) * 160% - 52%),
+      rgb(0 0 0 / 0.5) calc(var(--rev) * 160% - 36%),
+      #000 calc(var(--rev) * 160% - 10%));
+  }
+  /* the room is still dim even where the dark has pulled back — the lamp is
+     coming up, not snapping on */
+  .dim {
+    position: absolute; inset: 0; background: #0b0a08;
+    opacity: calc(0.52 * (1 - var(--lit)));
+  }
+
+  /* the lamp itself — final stops are verbatim the page's .stage-lamp */
+  .lamp {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(
+      75% 90% at 26% 12%,
+      rgb(255 217 160 / 0.32) 0%,
+      rgb(255 217 160 / 0.10) 38%,
+      rgb(20 12 6 / 0.15) 100%
+    );
+    opacity: var(--lit);
+  }
+  /* the flare when it gets turned all the way up */
+  .bloom {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(78% 96% at 26% 12%,
+      rgb(255 217 160 / 0.92) 0%, rgb(255 217 160 / 0.34) 44%, rgb(255 217 160 / 0) 84%);
+    opacity: var(--bloom);
+  }
+
+  /* ============ the goblin ============ */
+  /* below the sheet's near edge — the goblin is across the table from you,
+     never sitting on top of the map */
+  .goblin {
+    position: absolute; left: 50%; top: 88%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    opacity: var(--gob, 1);
+  }
+  /* Just enough spill to read as "these are lit from inside" — goblin green is
+     an accent on the eyes, never a wash on the scene. */
+  .eyeglow {
+    position: absolute; left: 50%; top: 34px; width: 210px; height: 96px;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(closest-side, rgb(182 214 72 / 0.16), rgb(182 214 72 / 0));
+    opacity: var(--glow, 0); pointer-events: none;
+  }
+  .eyes { display: block; position: relative; margin: 0 auto; }
+  .eyes .lid { transform-box: fill-box; transform-origin: center; }
+  .caption {
+    position: relative; margin-top: 1.1rem;
+    display: flex; align-items: baseline; justify-content: center; gap: 0.7rem;
+    white-space: nowrap;
+  }
+  /* the caption always sits on dark wood, never on the sheet, so it stays
+     light the whole way through — one color, always legible */
+  .phase {
+    font-family: var(--display); font-style: italic; font-size: 15px;
+    color: var(--text-2);
+    transition: opacity 130ms linear;
+  }
+  .pct {
+    font-family: var(--mono); font-size: 12.5px; color: var(--text-2);
+    font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1;
+    width: 4.2ch; text-align: left; opacity: 0.8;
+  }
+
+  /* ============ the page it hands off to ============ */
+  .page {
+    position: fixed; inset: 0; z-index: 5;
+    display: grid; align-content: center;
+    padding: 0 clamp(1.5rem, 8vw, 7rem);
+    pointer-events: none;
+  }
+  .brand {
+    position: fixed; z-index: 5; top: 1.5rem; left: clamp(1.5rem, 6vw, 3rem);
+    font-family: var(--mono); font-size: 13px; letter-spacing: 0.06em; color: var(--ink-mut);
+  }
+  .page h1 {
+    font-family: var(--display); font-weight: 500;
+    font-size: clamp(2.2rem, 5vw, 4.6rem); line-height: 1.04;
+    letter-spacing: -0.02em; max-width: 20ch; text-wrap: balance;
+  }
+  .page h1 .drew { font-style: italic; }
+  .page h1 .run { color: var(--torch-ink); }
+  .page .sub { margin-top: 1.25rem; max-width: 52ch; font-size: 1.05rem; color: var(--ink-mut); }
+  .page .voice { margin-top: 0.9rem; font-family: var(--display); font-style: italic; color: var(--goblin-ink); max-width: 52ch; }
+  .cta-row { margin-top: 2rem; display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; }
+  .cta {
+    background: var(--goblin); color: var(--ink); font-weight: 600; font-size: 15px;
+    padding: 0.85rem 1.7rem; border-radius: 3px; text-decoration: none;
+    box-shadow: 0 0 32px rgb(182 214 72 / 0.18);
+  }
+  .cta-quiet { font-size: 14px; color: var(--ink-mut); }
+  .page > *, .brand { opacity: 0; }
+
+  .grain {
+    position: fixed; inset: 0; z-index: 6; pointer-events: none;
+    opacity: 0.12; mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.55' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.6 -0.5'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 140px 140px;
+  }
+
+  .replay {
+    position: fixed; right: 1rem; bottom: 1rem; z-index: 9;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+    color: #e6e1d3; background: rgb(11 10 8 / 0.62);
+    border: 1px solid rgb(230 225 211 / 0.28); border-radius: 999px;
+    padding: 0.45rem 0.9rem; cursor: pointer;
+    transition: background 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .replay:hover { background: rgb(11 10 8 / 0.82); }
+
+  /* Reduced motion: the lit table shown as a still — no reveal, no blinking,
+     no bloom, no growth — then a plain cross-fade into the page. */
+  @media (prefers-reduced-motion: reduce) {
+    .sheet { transform: translate(-50%, -50%) !important; }
+    .scene { transition: opacity 300ms linear; }
+    .page > *, .brand { transition: opacity 300ms linear; }
+    .phase { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="scene" id="scene" role="progressbar" aria-label="Lighting the table" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+  <div class="room"></div>
+
+  <div class="sheet" id="sheet">
+    <svg viewBox="0 0 900 600" aria-hidden="true">
+      <defs>
+        <pattern id="g" width="50" height="50" patternUnits="userSpaceOnUse">
+          <path d="M50 0 L0 0 0 50" fill="none" stroke="#16180f" stroke-opacity="0.10" stroke-width="1" />
+        </pattern>
+        <filter id="wob" x="-3%" y="-3%" width="106%" height="106%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.014" numOctaves="2" seed="4" result="n" />
+          <feDisplacementMap in="SourceGraphic" in2="n" scale="3" xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+        <radialGradient id="t">
+          <stop offset="0%" stop-color="#ffd9a0" stop-opacity="0.8" />
+          <stop offset="42%" stop-color="#eda94e" stop-opacity="0.27" />
+          <stop offset="100%" stop-color="#eda94e" stop-opacity="0" />
+        </radialGradient>
+      </defs>
+      <rect x="60" y="50" width="780" height="500" fill="url(#g)" />
+      <circle cx="250" cy="210" r="150" fill="url(#t)" />
+      <circle cx="660" cy="400" r="130" fill="url(#t)" />
+      <g filter="url(#wob)">
+        <g fill="#cbc4aa" fill-opacity="0.92">
+          <rect x="120" y="110" width="300" height="220" />
+          <rect x="420" y="190" width="80" height="50" />
+          <rect x="500" y="150" width="270" height="180" />
+          <rect x="250" y="330" width="60" height="130" />
+          <rect x="250" y="410" width="360" height="80" />
+          <rect x="560" y="330" width="210" height="160" />
+        </g>
+        <g fill="none" stroke="#16180f" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M120,190 L120,110 L420,110 L420,190 M420,240 L420,330 L310,330 M250,330 L120,330 L120,240" />
+          <path d="M420,190 L500,190 L500,150 L770,150 L770,330 L610,330 M560,330 L500,330 L500,240 L420,240" />
+          <path d="M310,330 L310,410 L560,410 L560,330 M560,490 L770,490 L770,330 M250,490 L250,330 M250,490 L560,490" />
+        </g>
+        <g stroke="#16180f" stroke-width="3">
+          <rect x="112" y="192" width="16" height="46" rx="2" fill="#8a6138" />
+          <rect x="412" y="192" width="16" height="46" rx="2" fill="#8a6138" />
+          <rect x="552" y="322" width="16" height="46" rx="2" fill="#8a6138" />
+          <rect x="620" y="368" width="86" height="50" rx="3" fill="#e0b063" stroke-width="4" />
+        </g>
+      </g>
+    </svg>
+    <div class="sheet-edge"></div>
+  </div>
+
+  <div class="dark" id="dark"></div>
+  <div class="dim"></div>
+  <div class="lamp" id="lamp"></div>
+  <div class="bloom" id="bloom"></div>
+
+  <div class="goblin" id="goblin">
+    <div class="eyeglow" id="eyeglow"></div>
+    <!-- the page's own eyes, verbatim: two goblin ellipses, ink stroke, ink pupils -->
+    <svg class="eyes" width="196" height="72" viewBox="0 0 120 44" aria-hidden="true">
+      <g class="lid" id="lidL">
+        <ellipse cx="38" cy="22" rx="13" ry="9" fill="#b6d648" stroke="#16180f" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+        <circle id="pupL" cx="41" cy="22" r="3.5" fill="#16180f" />
+      </g>
+      <g class="lid" id="lidR">
+        <ellipse cx="82" cy="22" rx="13" ry="9" fill="#b6d648" stroke="#16180f" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+        <circle id="pupR" cx="85" cy="22" r="3.5" fill="#16180f" />
+      </g>
+    </svg>
+    <div class="caption">
+      <span class="phase" id="phase">&nbsp;</span>
+      <span class="pct" id="pct">0%</span>
+    </div>
+  </div>
+</div>
+
+<header class="brand" id="pgBrand">GOOD GOBLIN</header>
+<div class="page">
+  <div id="pg1">
+    <h1>The map you <span class="drew">drew</span><br />is the game you <span class="run">run</span>.</h1>
+  </div>
+  <div id="pg2">
+    <p class="sub">Draw walls, doors, torches — once. Fog, sight, and light run themselves at the table, live, in front of your players.</p>
+    <p class="voice">No re-tracing. No lighting homework. The goblin finds double work insulting.</p>
+  </div>
+  <div id="pg3">
+    <div class="cta-row">
+      <span class="cta">Join the waitlist</span>
+      <span class="cta-quiet">Free while in the goblin's favor</span>
+    </div>
+  </div>
+</div>
+
+<div class="grain" aria-hidden="true"></div>
+<button class="replay" id="replay" type="button">↻ replay</button>
+
+<script>
+(function () {
+  'use strict';
+
+  var root = document.documentElement;
+  var $ = function (id) { return document.getElementById(id); };
+
+  var KEYS = [
+    [0, 0], [620, 0.30], [1080, 0.37], [1880, 0.42],
+    [2620, 0.72], [2960, 0.76], [3560, 0.94], [4200, 1]
+  ];
+  var LOAD_MS = 4200, HOLD_MS = 200, EXIT_MS = 1180;
+
+  function smoothstep(t) { return t * t * (3 - 2 * t); }
+  function progressAt(ms) {
+    if (ms <= 0) return 0;
+    for (var i = 1; i < KEYS.length; i++) {
+      if (ms <= KEYS[i][0]) {
+        var a = KEYS[i - 1], b = KEYS[i];
+        return a[1] + (b[1] - a[1]) * smoothstep((ms - a[0]) / (b[0] - a[0]));
+      }
+    }
+    return 1;
+  }
+  function span(p, a, b) { var t = (p - a) / (b - a); return t < 0 ? 0 : t > 1 ? 1 : t; }
+  var outQuart = function (t) { return 1 - Math.pow(1 - t, 4); };
+  var outQuint = function (t) { return 1 - Math.pow(1 - t, 5); };
+  var outExpo = function (t) { return t >= 1 ? 1 : 1 - Math.pow(2, -10 * t); };
+
+  /* pupils drift while the goblin sizes you up — smoothstepped keyframes,
+     so the glances ease rather than tick */
+  var LOOK = [[0, 0], [0.13, 0], [0.20, -1], [0.27, -1], [0.33, 1], [0.40, 1], [0.50, 0], [1, 0]];
+  function lookAt(p) {
+    for (var i = 1; i < LOOK.length; i++) {
+      if (p <= LOOK[i][0]) {
+        var a = LOOK[i - 1], b = LOOK[i];
+        return a[1] + (b[1] - a[1]) * smoothstep((p - a[0]) / (b[0] - a[0]));
+      }
+    }
+    return 0;
+  }
+  /* blinks are on the clock, not on progress — that is the point: the loader
+     stalls and the goblin blinks at you while it waits. */
+  var BLINKS = [[1230, 150], [1650, 150], [3040, 130]];
+  function blinkAt(ms) {
+    var v = 0;
+    for (var i = 0; i < BLINKS.length; i++) {
+      var d = Math.abs(ms - BLINKS[i][0]) / BLINKS[i][1];
+      if (d < 1) v = Math.max(v, Math.cos(d * Math.PI / 2));
+    }
+    return v;
+  }
+
+  var lidL = $('lidL'), lidR = $('lidR'), pupL = $('pupL'), pupR = $('pupR');
+  var phaseEl = $('phase'), pctEl = $('pct'), scene = $('scene'), sheet = $('sheet');
+  var pageParts = [$('pgBrand'), $('pg1'), $('pg2'), $('pg3')];
+
+  var PHASES = [
+    [0.34, 'something is awake in here'],
+    [0.60, 'it has found the lamp'],
+    [0.90, 'the light comes up'],
+    [0.995, 'and there is your map'],
+    [2, 'ready when you are']
+  ];
+  var phaseIdx = -1, phaseTimer = null;
+  function setPhase(p) {
+    var i = 0;
+    while (PHASES[i][0] < p) i++;
+    if (i === phaseIdx) return;
+    var first = phaseIdx === -1;
+    phaseIdx = i;
+    if (first) { phaseEl.textContent = PHASES[i][1]; return; }
+    phaseEl.style.opacity = '0';
+    clearTimeout(phaseTimer);
+    phaseTimer = setTimeout(function () {
+      phaseEl.textContent = PHASES[phaseIdx][1];
+      phaseEl.style.opacity = '1';
+    }, 130);
+  }
+
+  var coverScale = 1;
+  function measure() {
+    var r = sheet.getBoundingClientRect();
+    var w = r.width / (parseFloat(getComputedStyle(root).getPropertyValue('--cover')) || 1);
+    var h = r.height / (parseFloat(getComputedStyle(root).getPropertyValue('--cover')) || 1);
+    coverScale = Math.max(innerWidth / w, innerHeight / h) * 1.06;
+  }
+
+  var lastAria = -1;
+  function render(p, ms) {
+    /* the dark retreats from the lamp corner — this IS the progress bar.
+       smoothstep, not an ease-out: a front-loaded curve would dump most of
+       the room into view in the first half-second of the reveal. */
+    var rev = smoothstep(span(p, 0.04, 0.94));
+    root.style.setProperty('--rev', rev.toFixed(4));
+
+    var lit = smoothstep(span(p, 0.20, 1));
+    root.style.setProperty('--lit', lit.toFixed(4));
+
+    /* eyes: open, look around, blink through the stall, close as light lands */
+    var open = outQuint(span(p, 0.015, 0.10));
+    var shut = outQuart(span(p, 0.90, 1));
+    var sy = Math.max(0.05, open * (1 - 0.94 * blinkAt(ms)) * (1 - 0.95 * shut));
+    lidL.style.transform = 'scaleY(' + sy.toFixed(3) + ')';
+    lidR.style.transform = 'scaleY(' + sy.toFixed(3) + ')';
+    var look = lookAt(p) * 4;
+    pupL.setAttribute('cx', (41 + look).toFixed(2));
+    pupR.setAttribute('cx', (85 + look).toFixed(2));
+
+    root.style.setProperty('--glow', (open * (1 - span(p, 0.38, 0.80)) * (1 - shut)).toFixed(3));
+    root.style.setProperty('--gob', (open * (1 - outQuart(span(p, 0.955, 1)))).toFixed(3));
+
+    pctEl.textContent = Math.round(p * 100) + '%';
+    setPhase(p);
+
+    var a = Math.round(p * 100);
+    if (a !== lastAria) { scene.setAttribute('aria-valuenow', a); lastAria = a; }
+  }
+
+  /* ---------- exit: turn it all the way up, then let it settle ---------- */
+  function renderExit(e) {
+    root.style.setProperty('--gob', '0');
+    root.style.setProperty('--glow', '0');
+    root.style.setProperty('--rev', '1');
+
+    /* flare up fast, fall away slowly */
+    var up = outQuart(span(e, 0.02, 0.20));
+    var down = outExpo(span(e, 0.20, 0.92));
+    root.style.setProperty('--bloom', (0.58 * up * (1 - down)).toFixed(4));
+    root.style.setProperty('--lit', (1).toFixed(2));
+
+    /* the sheet becomes the page's ground */
+    var grow = outExpo(span(e, 0.16, 1));
+    root.style.setProperty('--cover', (1 + (coverScale - 1) * grow).toFixed(4));
+    root.style.setProperty('--flat', grow.toFixed(4));
+    root.style.setProperty('--edge', (1 - outQuart(span(e, 0.14, 0.48))).toFixed(3));
+    root.style.setProperty('--mapAlpha', (1 - outQuart(span(e, 0.18, 0.62))).toFixed(3));
+
+    for (var i = 0; i < pageParts.length; i++) {
+      var t = outQuint(span(e, 0.38 + i * 0.06, 0.82 + i * 0.06));
+      pageParts[i].style.opacity = t.toFixed(3);
+      pageParts[i].style.transform = 'translateY(' + (14 * (1 - t)).toFixed(2) + 'px)';
+    }
+  }
+
+  var reduce = matchMedia('(prefers-reduced-motion: reduce)');
+  var raf = 0, t0 = 0;
+
+  function frame(now) {
+    var ms = now - t0;
+    if (ms < LOAD_MS) { render(progressAt(ms), ms); }
+    else if (ms < LOAD_MS + HOLD_MS) { render(1, ms); }
+    else {
+      var e = Math.min(1, (ms - LOAD_MS - HOLD_MS) / EXIT_MS);
+      renderExit(e);
+      if (e >= 1) { raf = 0; return; }
+    }
+    raf = requestAnimationFrame(frame);
+  }
+
+  function start() {
+    cancelAnimationFrame(raf);
+    clearTimeout(phaseTimer);
+    phaseIdx = -1;
+    root.style.setProperty('--cover', '1');
+    root.style.setProperty('--flat', '0');
+    root.style.setProperty('--edge', '1');
+    root.style.setProperty('--mapAlpha', '1');
+    root.style.setProperty('--bloom', '0');
+    root.style.setProperty('--sceneA', '1');
+    measure();
+
+    if (reduce.matches) {
+      /* composed still: table lit, map on it, the goblin still watching */
+      render(1, 0);
+      root.style.setProperty('--rev', '1');
+      root.style.setProperty('--lit', '1');
+      root.style.setProperty('--gob', '1');
+      root.style.setProperty('--glow', '0.25');
+      phaseEl.textContent = 'ready when you are';
+      pctEl.textContent = '100%';
+      lidL.style.transform = 'scaleY(1)';
+      lidR.style.transform = 'scaleY(1)';
+      pageParts.forEach(function (el) { el.style.transform = 'none'; el.style.opacity = '0'; });
+      setTimeout(function () {
+        root.style.setProperty('--sceneA', '0');
+        pageParts.forEach(function (el) { el.style.opacity = '1'; });
+      }, 800);
+      return;
+    }
+
+    render(0, 0);
+    pageParts.forEach(function (el) { el.style.opacity = '0'; el.style.transform = 'translateY(14px)'; });
+    t0 = performance.now();
+    raf = requestAnimationFrame(frame);
+  }
+
+  addEventListener('resize', measure);
+  $('replay').addEventListener('click', start);
+  reduce.addEventListener('change', start);
+  start();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #48 UI options: context menus, transform, nodes</title>
+<style>
+  :root {
+    --s0: 15 16 14; --s1: 24 26 23; --s2: 35 37 34; --s3: 48 51 46;
+    --tp: 234 236 233; --ts: 182 188 179; --tm: 151 158 148;
+    --b-struct: 77 84 74; --b-def: 58 62 56; --b-sub: 35 37 34;
+    --accent: 145 196 100; --accent-dim: 102 139 75; --on-accent: 15 17 14;
+    --danger: 224 133 123; --warning: 212 174 84; --info: 114 165 202;
+    --ink: 16 13 9;
+    --panel-shadow: 0 10px 26px -14px rgb(0 0 0 / 0.9);
+    --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: rgb(var(--s0)); color: rgb(var(--tp));
+    font: 14px/1.55 'IBM Plex Sans', system-ui, sans-serif;
+    padding: 48px 24px 96px;
+  }
+  main { max-width: 1080px; margin: 0 auto; }
+
+  h1 { font-family: 'Newsreader', Georgia, serif; font-weight: 500; font-size: 28px; letter-spacing: -0.01em; }
+  .sub { color: rgb(var(--ts)); margin-top: 6px; max-width: 76ch; }
+  h2 {
+    font-family: 'Newsreader', Georgia, serif; font-weight: 500; font-size: 21px;
+    margin: 64px 0 4px; padding-top: 24px; border-top: 1px solid rgb(var(--b-def));
+  }
+  .lede { color: rgb(var(--ts)); margin-bottom: 24px; max-width: 80ch; }
+  h3 { font-size: 13px; font-weight: 600; margin: 28px 0 2px; display: flex; align-items: center; gap: 8px; }
+  .cap { font-size: 12.5px; color: rgb(var(--tm)); margin: 0 0 10px; max-width: 86ch; }
+  .rec {
+    font: 600 9px/1 var(--mono); letter-spacing: 0.08em; color: rgb(var(--accent));
+    border: 1px solid rgb(var(--accent-dim)); border-radius: 3px; padding: 3px 5px 2px;
+  }
+  .no { color: rgb(var(--tm)); border-color: rgb(var(--b-struct)); }
+
+  /* ---- fake canvas stages ---- */
+  .stage {
+    position: relative; border: 1px solid rgb(var(--b-def)); border-radius: 8px;
+    overflow: hidden; height: 340px;
+    background:
+      radial-gradient(620px 420px at 72% 18%, rgb(255 166 77 / .10), transparent 62%),
+      radial-gradient(420px 320px at 14% 85%, rgb(255 140 60 / .06), transparent 60%),
+      linear-gradient(rgb(255 255 255 / .035) 1px, transparent 1px) 0 0 / 48px 48px,
+      linear-gradient(90deg, rgb(255 255 255 / .035) 1px, transparent 1px) 0 0 / 48px 48px,
+      #262019;
+  }
+  .stage.ref {
+    background:
+      url('./2026-08-05-issue-48-ref-bridge.png') center / cover no-repeat,
+      linear-gradient(rgb(24 34 12 / .35) 1px, transparent 1px) 0 0 / 48px 48px,
+      linear-gradient(90deg, rgb(24 34 12 / .35) 1px, transparent 1px) 0 0 / 48px 48px,
+      #6a8f3c;
+  }
+  .stage.short { height: 220px; }
+  .stage.tall { height: 420px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .row2 { grid-template-columns: 1fr; } }
+
+  .cursor { position: absolute; width: 13px; height: 19px; z-index: 5; }
+
+  /* ---- menus (extends components/ui/context-menu.tsx) ---- */
+  .menu {
+    position: absolute; z-index: 4; min-width: 190px;
+    background: rgb(var(--s1)); border: 1px solid rgb(var(--b-struct));
+    border-radius: 6px; padding: 4px 0; box-shadow: var(--panel-shadow);
+    font-size: 13px;
+  }
+  .mi { display: flex; align-items: center; gap: 10px; padding: 6px 12px; color: rgb(var(--tp)); cursor: default; }
+  .mi .lbl { flex: 1; }
+  .mi .kbd { font: 11px var(--mono); color: rgb(var(--tm)); }
+  .mi.hov { background-image: radial-gradient(120% 160% at 50% 120%, rgb(var(--accent) / 0.18) 0%, transparent 70%); }
+  .mi.danger { color: rgb(var(--danger)); }
+  .mi .sub-arrow { color: rgb(var(--tm)); font-size: 11px; }
+  .sep { height: 1px; background: rgb(var(--b-def)); margin: 4px 8px; }
+  .mgroup {
+    font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+    color: rgb(var(--tm)); padding: 6px 12px 3px;
+  }
+  .mhead { display: flex; align-items: center; gap: 10px; padding: 8px 12px 7px; }
+  .mhead .thumb { width: 30px; height: 30px; flex: none; }
+  .mhead .name { font-size: 13px; font-weight: 600; line-height: 1.25; }
+  .mhead .where { font-size: 11px; color: rgb(var(--tm)); }
+  .strip { display: flex; gap: 6px; padding: 4px 12px 8px; align-items: center; }
+  .thumb {
+    width: 42px; height: 42px; border-radius: 4px; flex: none;
+    background: rgb(var(--s2)); border: 1px solid rgb(var(--b-def));
+    display: grid; place-items: center;
+  }
+  .thumb.hov { border-color: rgb(var(--accent)); box-shadow: 0 0 0 1px rgb(var(--accent) / .5); }
+  .more { font-size: 11px; color: rgb(var(--ts)); padding: 0 2px; }
+  /* embedded control rows */
+  .mrow { display: flex; align-items: center; gap: 8px; padding: 5px 12px; font-size: 12px; color: rgb(var(--ts)); }
+  .mrow .rl { width: 52px; flex: none; }
+  .mrow .val { font: 11px var(--mono); color: rgb(var(--tp)); min-width: 44px; text-align: right; }
+  .slider { flex: 1; height: 4px; border-radius: 2px; background: rgb(var(--s3)); position: relative; }
+  .slider .fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 2px; background: rgb(var(--accent-dim)); }
+  .slider .knob {
+    position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%;
+    background: rgb(var(--tp)); border: 1px solid rgb(var(--b-struct)); transform: translate(-50%, -50%);
+  }
+  .swrow { display: flex; gap: 7px; padding: 4px 12px 8px; align-items: center; }
+  .sw { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgb(var(--b-struct)); }
+  .sw.on { box-shadow: 0 0 0 2px rgb(var(--s1)), 0 0 0 3.5px rgb(var(--accent)); }
+  .tog { width: 26px; height: 14px; border-radius: 7px; background: rgb(var(--accent-dim)); position: relative; flex: none; }
+  .tog::after { content: ''; position: absolute; top: 1.5px; right: 1.5px; width: 11px; height: 11px; border-radius: 50%; background: rgb(var(--tp)); }
+  .tog.off { background: rgb(var(--s3)); }
+  .tog.off::after { right: auto; left: 1.5px; background: rgb(var(--tm)); }
+
+  /* ---- neutral overlay vocabulary: white + ink, no theme color ---- */
+  .hnd {
+    position: absolute; width: 11px; height: 11px; border-radius: 2.5px; z-index: 3;
+    background: #fff; border: 1.5px solid rgb(var(--ink) / .85);
+    box-shadow: 0 1px 3px rgb(0 0 0 / .45); transform: translate(-50%, -50%);
+  }
+  .hnd.pill-h { width: 18px; height: 7px; border-radius: 3.5px; }
+  .hnd.pill-v { width: 7px; height: 18px; border-radius: 3.5px; }
+  .hnd.rot { width: 13px; height: 13px; border-radius: 50%; }
+  .hnd.sel {
+    width: 12px; height: 12px;
+    box-shadow: 0 0 0 2px rgb(var(--ink) / .9), 0 0 0 3.5px #fff, 0 1px 4px rgb(0 0 0 / .55);
+  }
+  .hnd.node { border-radius: 2.5px; }
+  .hnd.smooth { border-radius: 50%; }
+  .hnd.insert {
+    width: 15px; height: 15px; border-radius: 50%;
+    background: rgb(var(--s1) / .92); border: 1px solid rgb(var(--ink) / .8);
+    color: rgb(var(--tp)); display: grid; place-items: center;
+    font: 600 11px/1 var(--mono); box-shadow: 0 1px 3px rgb(0 0 0 / .45);
+  }
+  .bounds {
+    position: absolute; z-index: 2; border: 1.5px solid #fff;
+    box-shadow: 0 0 0 1px rgb(var(--ink) / .7), inset 0 0 0 1px rgb(var(--ink) / .5);
+  }
+  .stem { position: absolute; width: 1.5px; height: 14px; background: #fff; box-shadow: 0 0 0 1px rgb(var(--ink) / .7); z-index: 2; transform: translateX(-50%); }
+
+  .chip {
+    position: absolute; z-index: 4; padding: 3px 8px; border-radius: 4px;
+    background: rgb(var(--s1) / .95); border: 1px solid rgb(var(--b-def));
+    font: 11px var(--mono); color: rgb(var(--ts)); white-space: nowrap;
+    box-shadow: var(--panel-shadow);
+  }
+  .chip b { color: rgb(var(--tp)); font-weight: 600; }
+
+  /* floating action bar */
+  .fab {
+    position: absolute; z-index: 4; display: flex; align-items: center; gap: 2px;
+    background: rgb(var(--s1)); border: 1px solid rgb(var(--b-struct));
+    border-radius: 6px; padding: 3px; box-shadow: var(--panel-shadow);
+  }
+  .fab button {
+    all: unset; width: 26px; height: 26px; border-radius: 4px;
+    display: grid; place-items: center; color: rgb(var(--ts));
+  }
+  .fab button.hov { background: rgb(var(--s2)); color: rgb(var(--tp)); }
+  .fab .vr { width: 1px; height: 16px; background: rgb(var(--b-def)); margin: 0 3px; }
+
+  /* properties panel snippet */
+  .panel {
+    width: 252px; background: rgb(var(--s1)); border: 1px solid rgb(var(--b-struct));
+    border-radius: 8px; box-shadow: var(--panel-shadow); padding: 12px 14px 14px;
+  }
+  .panel h4 { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; font-weight: 400; color: rgb(var(--tm)); margin-bottom: 10px; }
+  .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; }
+  .field { display: flex; align-items: center; gap: 6px; background: rgb(var(--s2)); border: 1px solid rgb(var(--b-def)); border-radius: 4px; padding: 4px 8px; }
+  .field label { font-size: 10px; letter-spacing: .08em; color: rgb(var(--tm)); }
+  .field .val { font: 12px var(--mono); color: rgb(var(--tp)); margin-left: auto; }
+  .prow { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+  .tbtn {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+    border: 1px solid rgb(var(--b-def)); border-radius: 4px; padding: 5px 0;
+    font-size: 11px; color: rgb(var(--ts)); background: rgb(var(--s2));
+  }
+  .tbtn.on { border-color: rgb(var(--accent-dim)); color: rgb(var(--accent)); }
+
+  /* status bar */
+  .statusbar {
+    display: flex; align-items: center; gap: 16px; margin-top: -1px;
+    background: rgb(var(--s1)); border: 1px solid rgb(var(--b-def));
+    border-radius: 0 0 8px 8px; padding: 6px 14px; font-size: 12px;
+  }
+  .statusbar .mode { color: rgb(var(--accent)); font-weight: 600; }
+  .statusbar .hints { margin-left: auto; font: 11px var(--mono); color: rgb(var(--tm)); }
+  .statusbar .hints b { color: rgb(var(--ts)); font-weight: 600; }
+  .stage.open-bottom { border-radius: 8px 8px 0 0; }
+
+  /* notes */
+  .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 16px; }
+  .notes section { background: rgb(var(--s1)); border: 1px solid rgb(var(--b-def)); border-radius: 8px; padding: 16px 18px; }
+  .notes h4 { font-size: 13px; margin-bottom: 8px; }
+  .notes ul { list-style: none; }
+  .notes li { font-size: 12.5px; color: rgb(var(--ts)); padding: 3px 0 3px 14px; position: relative; }
+  .notes li::before { content: ''; position: absolute; left: 0; top: 10px; width: 5px; height: 5px; border-radius: 1px; background: rgb(var(--accent-dim)); }
+  .notes li.eng::before { background: rgb(var(--warning)); }
+  .notes .k { font: 11px var(--mono); color: rgb(var(--tp)); background: rgb(var(--s2)); border: 1px solid rgb(var(--b-def)); border-radius: 3px; padding: 0 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Context menus · transform · node editing</h1>
+  <p class="sub">Issue #48 + node UX, round two: the directions you picked, tightened. Overlays are now fully neutral (white + ink, zero theme color) since the app accent will be user-configurable; the chrome keeps whatever accent the theme provides (moss shown). Menus merge the identity header with a per-type contribution system. Nodes gain pen-tool controls.</p>
+
+  <!-- ============ 0. SHARED OVERLAY LANGUAGE ============ -->
+  <h2>Neutral overlay language</h2>
+  <p class="lede">Selection furniture is a target, not a brand moment: white strokes and handles with a near-black ink ring, the same double-line trick Inkarnate-style art uses for outlines. It carries zero hue, so it survives every biome and every future theme accent without a palette swap. Selected things get a <em>double-ring</em> (ink ring inside a white halo). The old purple gizmo and sky/amber node colors retire; nothing overlay-side ever reads from the theme.</p>
+
+  <div class="row2">
+    <figure>
+      <div class="stage short">
+        <div class="bounds" style="left:36px; top:48px; width:190px; height:120px;"></div>
+        <div class="hnd" style="left:36px; top:48px;"></div>
+        <div class="hnd" style="left:226px; top:48px;"></div>
+        <div class="hnd" style="left:36px; top:168px;"></div>
+        <div class="hnd sel" style="left:226px; top:168px;"></div>
+        <div class="hnd pill-h" style="left:131px; top:48px;"></div>
+        <div class="hnd pill-v" style="left:226px; top:108px;"></div>
+        <div class="stem" style="left:131px; top:34px;"></div>
+        <div class="hnd rot" style="left:131px; top:27px;"></div>
+        <span class="chip" style="left:250px; top:180px;"><b>3.5 × 2.0</b> sq · 15°</span>
+        <div class="hnd node" style="left:330px; top:70px;"></div>
+        <div class="hnd node smooth" style="left:398px; top:76px;"></div>
+        <div class="hnd node sel" style="left:370px; top:120px;"></div>
+        <div class="hnd insert" style="left:348px; top:95px;">+</div>
+      </div>
+      <p class="cap" style="margin-top:8px">Vocabulary: square = corner anchor or corner scale · small circle = smooth (curved) anchor · pill = one-axis stretch · circle on stem = rotate · double-ring = selected · <b>+</b> puck = insert · mono chip = live measurement in grid squares.</p>
+    </figure>
+    <figure>
+      <div class="stage ref short">
+        <div class="bounds" style="left:60px; top:60px; width:160px; height:100px;"></div>
+        <div class="hnd" style="left:60px; top:60px;"></div>
+        <div class="hnd" style="left:220px; top:60px;"></div>
+        <div class="hnd" style="left:60px; top:160px;"></div>
+        <div class="hnd sel" style="left:220px; top:160px;"></div>
+        <div class="hnd pill-h" style="left:140px; top:60px;"></div>
+        <div class="hnd node" style="left:330px; top:80px;"></div>
+        <div class="hnd node sel" style="left:380px; top:130px;"></div>
+        <div class="hnd insert" style="left:354px; top:104px;">+</div>
+      </div>
+      <p class="cap" style="margin-top:8px">The same furniture over the reference art you sent (Crosshead Studios bridge frame, saved beside this file as an internal reference). Saturated grass + teal water is the hardest case for any colored overlay; white + ink stays legible.</p>
+    </figure>
+  </div>
+
+  <!-- ============ 1. CONTEXT MENUS ============ -->
+  <h2>1 · Context menus: one anatomy, per-type contributions</h2>
+  <p class="lede">Every menu is built from the same five slots: <b>identity header</b> (what you hit, where it lives) → <b>quick controls</b> (type-specific embedded rows) → <b>type verbs</b> → <b>shared verbs</b> (duplicate, move to layer) → <b>danger</b>. Each child kind registers a builder that contributes rows for the middle slots; the menu renderer only knows row types (action, submenu, toggle, slider, swatches, thumb strip), never child kinds. Lights get sliders, assets get a swap strip, walls get wall verbs, and adding a new tool never touches the menu component.</p>
+
+  <h3>Asset <span class="rec">CHOSEN · swap strip</span> · Light <span class="rec">CHOSEN · live controls</span></h3>
+  <p class="cap">The light menu is the stress test for embedded rows: radius and intensity sliders write to the store live (same one-undo-per-gesture rule as the gizmo), swatches recolor, flicker toggles. No property panel round-trip mid-session.</p>
+  <div class="row2">
+    <div class="stage">
+      <div class="bounds" style="left:30px; top:90px; width:120px; height:80px;"></div>
+      <svg style="position:absolute; left:38px; top:98px; z-index:1" width="104" height="64"><rect x="2" y="2" width="100" height="60" rx="4" fill="#77522f" stroke="#1a1108" stroke-width="2.5"/><line x1="36" y1="4" x2="36" y2="62" stroke="#1a1108" stroke-width="1" opacity=".5"/><line x1="70" y1="4" x2="70" y2="62" stroke="#1a1108" stroke-width="1" opacity=".5"/></svg>
+      <div class="menu" style="left:170px; top:20px; min-width:236px;">
+        <div class="mhead">
+          <span class="thumb" style="width:30px;height:30px"><svg width="22" height="16"><rect x="1" y="1" width="20" height="14" rx="2" fill="#77522f" stroke="#1a1108" stroke-width="1.5"/></svg></span>
+          <span><span class="name">Oak table</span><br><span class="where">Props · Great Hall</span></span>
+        </div>
+        <div class="mgroup">Swap for similar</div>
+        <div class="strip">
+          <span class="thumb"><svg width="26" height="26"><circle cx="13" cy="13" r="11" fill="#8a5a33" stroke="#1a1108" stroke-width="1.8"/><circle cx="13" cy="13" r="6.5" fill="none" stroke="#1a1108" stroke-width="1" opacity=".6"/></svg></span>
+          <span class="thumb hov"><svg width="26" height="26"><rect x="2" y="2" width="22" height="22" rx="2" fill="#7a6a3f" stroke="#1a1108" stroke-width="1.8"/><path d="M2 2l22 22M24 2L2 24" stroke="#1a1108" stroke-width="1" opacity=".6"/></svg></span>
+          <span class="thumb"><svg width="24" height="26"><rect x="3" y="6" width="18" height="16" rx="2" fill="#6f4d2c" stroke="#1a1108" stroke-width="1.8"/><rect x="3" y="2" width="18" height="4" rx="1.5" fill="#5c3f24" stroke="#1a1108" stroke-width="1.5"/></svg></span>
+          <span class="thumb"><svg width="28" height="16"><rect x="1" y="4" width="26" height="9" rx="2" fill="#77522f" stroke="#1a1108" stroke-width="1.8"/></svg></span>
+          <span class="more">More…</span>
+        </div>
+        <div class="sep"></div>
+        <div class="mi"><span class="lbl">Duplicate</span><span class="kbd">Ctrl+D</span></div>
+        <div class="mi hov"><span class="lbl">Flip horizontal</span><span class="kbd">Shift+H</span></div>
+        <div class="mi"><span class="lbl">Rotate 90°</span></div>
+        <div class="sep"></div>
+        <div class="mi"><span class="lbl">Move to layer</span><span class="sub-arrow">▸</span></div>
+        <div class="sep"></div>
+        <div class="mi danger"><span class="lbl">Delete</span><span class="kbd">Del</span></div>
+      </div>
+    </div>
+    <div class="stage">
+      <svg style="position:absolute; left:40px; top:110px; z-index:1" width="90" height="90">
+        <circle cx="45" cy="45" r="42" fill="rgb(255 180 90 / .16)"/>
+        <circle cx="45" cy="45" r="26" fill="rgb(255 190 100 / .20)"/>
+        <circle cx="45" cy="45" r="7" fill="#f4c46a" stroke="#1a1108" stroke-width="2"/>
+      </svg>
+      <div class="menu" style="left:160px; top:26px; min-width:240px;">
+        <div class="mhead">
+          <span class="thumb" style="width:30px;height:30px"><svg width="20" height="20"><circle cx="10" cy="10" r="8" fill="rgb(255 190 100 / .3)"/><circle cx="10" cy="10" r="3.5" fill="#f4c46a" stroke="#1a1108" stroke-width="1.5"/></svg></span>
+          <span><span class="name">Torch light</span><br><span class="where">Lights · Great Hall</span></span>
+        </div>
+        <div class="mgroup">Light</div>
+        <div class="mrow"><span class="rl">Radius</span><span class="slider"><span class="fill" style="width:62%"></span><span class="knob" style="left:62%"></span></span><span class="val">6.5 sq</span></div>
+        <div class="mrow"><span class="rl">Intensity</span><span class="slider"><span class="fill" style="width:80%"></span><span class="knob" style="left:80%"></span></span><span class="val">80%</span></div>
+        <div class="swrow">
+          <span class="sw on" style="background:#f4c46a"></span>
+          <span class="sw" style="background:#e8935a"></span>
+          <span class="sw" style="background:#d96a5a"></span>
+          <span class="sw" style="background:#7fb8a8"></span>
+          <span class="sw" style="background:#9b8fd4"></span>
+          <span class="sw" style="background:#e8e4da"></span>
+        </div>
+        <div class="mi"><span class="lbl">Flicker</span><span class="tog"></span></div>
+        <div class="sep"></div>
+        <div class="mi hov"><span class="lbl">Recenter on prop</span></div>
+        <div class="mi"><span class="lbl">Duplicate</span><span class="kbd">Ctrl+D</span></div>
+        <div class="sep"></div>
+        <div class="mi danger"><span class="lbl">Delete</span><span class="kbd">Del</span></div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Wall · Door: same skeleton, different verbs</h3>
+  <div class="row2">
+    <div class="stage short">
+      <svg style="position:absolute; left:24px; top:96px; z-index:1" width="220" height="30">
+        <g fill="#5a544c" stroke="#17120c" stroke-width="2">
+          <rect x="2"  y="6" width="34" height="18" rx="5" transform="rotate(-2 19 15)"/>
+          <rect x="40" y="5" width="30" height="19" rx="5" transform="rotate(1.5 55 15)"/>
+          <rect x="74" y="6" width="36" height="18" rx="5"/>
+          <rect x="114" y="5" width="30" height="19" rx="5" transform="rotate(-1.5 129 15)"/>
+          <rect x="148" y="6" width="34" height="18" rx="5" transform="rotate(2 165 15)"/>
+          <rect x="186" y="6" width="30" height="18" rx="5" transform="rotate(-1 201 15)"/>
+        </g>
+      </svg>
+      <div class="menu" style="left:150px; top:126px;">
+        <div class="mhead" style="padding-bottom:4px"><span><span class="name">Stone wall</span><br><span class="where">Walls · outer ring</span></span></div>
+        <div class="sep"></div>
+        <div class="mi"><span class="lbl">Edit nodes</span><span class="kbd">dbl-click</span></div>
+        <div class="mi hov"><span class="lbl">Add door here</span></div>
+        <div class="mi"><span class="lbl">Flip direction</span></div>
+        <div class="mi"><span class="lbl">Wall style</span><span class="sub-arrow">▸</span></div>
+        <div class="sep"></div>
+        <div class="mi danger"><span class="lbl">Delete wall</span><span class="kbd">Del</span></div>
+      </div>
+    </div>
+    <div class="stage short">
+      <svg style="position:absolute; left:60px; top:80px; z-index:1" width="120" height="60">
+        <rect x="2" y="24" width="46" height="14" rx="4" fill="#5a544c" stroke="#17120c" stroke-width="2"/>
+        <rect x="72" y="24" width="46" height="14" rx="4" fill="#5a544c" stroke="#17120c" stroke-width="2"/>
+        <rect x="48" y="26" width="24" height="10" rx="2" fill="#77522f" stroke="#17120c" stroke-width="2"/>
+        <path d="M50 26 A 26 26 0 0 1 74 4" fill="none" stroke="#caa25a" stroke-width="1.5" stroke-dasharray="3 3" opacity=".9"/>
+      </svg>
+      <div class="menu" style="left:190px; top:96px;">
+        <div class="mhead" style="padding-bottom:4px"><span><span class="name">Wooden door</span><br><span class="where">Walls · outer ring</span></span></div>
+        <div class="sep"></div>
+        <div class="mi"><span class="lbl">Open / close</span><span class="kbd">Space</span></div>
+        <div class="mi hov"><span class="lbl">Door style</span><span class="sub-arrow">▸</span></div>
+        <div class="mi"><span class="lbl">Flip swing</span></div>
+        <div class="mi"><span class="lbl">Slide along wall</span></div>
+        <div class="sep"></div>
+        <div class="mi danger"><span class="lbl">Delete door</span><span class="kbd">Del</span></div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Empty canvas · Mixed multi-select</h3>
+  <p class="cap">Empty ground gets canvas verbs. A mixed selection shows only the intersection: shared verbs survive, type slots drop out.</p>
+  <div class="row2">
+    <div class="stage short">
+      <svg class="cursor" style="left:150px; top:70px" viewBox="0 0 13 19"><path d="M1 1l10 10-4.5.5L9 17l-2.5 1-2.5-5.5L1 15z" fill="#fff" stroke="#000" stroke-width="1"/></svg>
+      <div class="menu" style="left:162px; top:80px;">
+        <div class="mi"><span class="lbl">Paste here</span><span class="kbd">Ctrl+V</span></div>
+        <div class="mi hov"><span class="lbl">Select all in layer</span></div>
+        <div class="sep"></div>
+        <div class="mi"><span class="lbl">Zoom to fit</span><span class="kbd">Shift+1</span></div>
+      </div>
+    </div>
+    <div class="stage short">
+      <div class="bounds" style="left:40px; top:50px; width:70px; height:50px;"></div>
+      <div class="bounds" style="left:80px; top:120px; width:60px; height:60px;"></div>
+      <div class="menu" style="left:180px; top:60px;">
+        <div class="mhead" style="padding-bottom:4px"><span><span class="name">3 objects</span><br><span class="where">asset · light · text</span></span></div>
+        <div class="sep"></div>
+        <div class="mi"><span class="lbl">Duplicate</span><span class="kbd">Ctrl+D</span></div>
+        <div class="mi hov"><span class="lbl">Move to layer</span><span class="sub-arrow">▸</span></div>
+        <div class="sep"></div>
+        <div class="mi danger"><span class="lbl">Delete all</span><span class="kbd">Del</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 2. TRANSFORM ============ -->
+  <h2>2 · Transform: gizmo + floating bar + panel</h2>
+  <p class="lede">All three layers ship. The gizmo does the direct manipulation, the floating bar carries one-click verbs, the panel section holds exact numbers. Underneath: repro pass first, then the <code style="font:12px var(--mono)">childTransform</code> scalar-scale split so edge pills stretch one axis and negative scale gives real flips.</p>
+
+  <h3>Gizmo + live measurement <span class="rec">CHOSEN</span></h3>
+  <div class="stage">
+    <div class="bounds" style="left:330px; top:80px; width:192px; height:128px;"></div>
+    <svg style="position:absolute; left:342px; top:92px; z-index:1" width="168" height="104"><rect x="3" y="3" width="162" height="98" rx="5" fill="#77522f" stroke="#1a1108" stroke-width="3"/><line x1="57" y1="5" x2="57" y2="99" stroke="#1a1108" stroke-width="1.2" opacity=".5"/><line x1="111" y1="5" x2="111" y2="99" stroke="#1a1108" stroke-width="1.2" opacity=".5"/></svg>
+    <div class="hnd" style="left:330px; top:80px;"></div>
+    <div class="hnd" style="left:522px; top:80px;"></div>
+    <div class="hnd" style="left:330px; top:208px;"></div>
+    <div class="hnd sel" style="left:522px; top:208px;"></div>
+    <div class="hnd pill-h" style="left:426px; top:80px;"></div>
+    <div class="hnd pill-h" style="left:426px; top:208px;"></div>
+    <div class="hnd pill-v" style="left:330px; top:144px;"></div>
+    <div class="hnd pill-v" style="left:522px; top:144px;"></div>
+    <div class="stem" style="left:426px; top:66px;"></div>
+    <div class="hnd rot" style="left:426px; top:59px;"></div>
+    <span class="chip" style="left:540px; top:222px;"><b>4.0 × 2.5</b> sq · 0°</span>
+    <span class="chip" style="left:16px; top:14px;">corner drag in progress · Alt from center · Ctrl toggles snap · Shift frees ratio</span>
+  </div>
+  <p class="cap" style="margin-top:8px">Corners scale uniformly, pills stretch one axis, rotation stays an explicit handle with 15° snap. During a drag the bar and idle handles fade; the mono chip tracks size in grid squares and angle.</p>
+
+  <h3>Floating action bar <span class="rec">CHOSEN</span></h3>
+  <p class="cap">Sits above the bounds, hides while dragging, overflows into the context menu. Verbs: flip H/V, rotate 90°, duplicate, swap, delete, more. Type contributions can inject one quick verb here too (door: open/close; light: recenter).</p>
+  <div class="stage short">
+    <div class="fab" style="left:352px; top:26px;">
+      <button class="hov" title="Flip horizontal"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1v12" stroke-dasharray="2 2"/><path d="M5 4L1.5 7 5 10zM9 4l3.5 3L9 10z" fill="currentColor" stroke="none"/></svg></button>
+      <button title="Flip vertical"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 7h12" stroke-dasharray="2 2"/><path d="M4 5L7 1.5 10 5zM4 9l3 3.5L10 9z" fill="currentColor" stroke="none"/></svg></button>
+      <button title="Rotate 90°"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 7a5 5 0 1 1-2-4"/><path d="M10 .5V3.5H13" stroke-linecap="round"/></svg></button>
+      <span class="vr"></span>
+      <button title="Duplicate"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="4" width="9" height="9" rx="1.5"/><path d="M4 4V2.5A1.5 1.5 0 0 1 5.5 1H11a2 2 0 0 1 2 2v5.5A1.5 1.5 0 0 1 11.5 10H10"/></svg></button>
+      <button title="Swap asset"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5h9M9 2.5L11.5 5 9 7.5M12 9H3M5 6.5L2.5 9 5 11.5"/></svg></button>
+      <span class="vr"></span>
+      <button title="Delete" style="color:rgb(var(--danger))"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5h10M5.5 3.5V2h3v1.5M3.5 3.5l.7 9h5.6l.7-9"/></svg></button>
+      <button title="More"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><circle cx="3" cy="7" r="1.2"/><circle cx="7" cy="7" r="1.2"/><circle cx="11" cy="7" r="1.2"/></svg></button>
+    </div>
+    <div class="bounds" style="left:352px; top:70px; width:150px; height:100px;"></div>
+    <svg style="position:absolute; left:362px; top:80px; z-index:1" width="130" height="80"><rect x="3" y="3" width="124" height="74" rx="5" fill="#77522f" stroke="#1a1108" stroke-width="3"/></svg>
+    <div class="hnd" style="left:352px; top:70px;"></div>
+    <div class="hnd" style="left:502px; top:70px;"></div>
+    <div class="hnd" style="left:352px; top:170px;"></div>
+    <div class="hnd" style="left:502px; top:170px;"></div>
+  </div>
+
+  <h3>Transform section in the properties panel <span class="rec">CHOSEN</span></h3>
+  <div class="panel">
+    <h4>Transform</h4>
+    <div class="fields">
+      <div class="field"><label>X</label><span class="val">12.5</span></div>
+      <div class="field"><label>Y</label><span class="val">8.0</span></div>
+      <div class="field"><label>W</label><span class="val">4.0</span></div>
+      <div class="field"><label>H</label><span class="val">2.5</span></div>
+      <div class="field"><label>⟳</label><span class="val">45°</span></div>
+      <div class="field"><label>Ratio</label><span class="val" style="color:rgb(var(--accent))">🔒</span></div>
+    </div>
+    <div class="prow">
+      <span class="tbtn on">Flip H</span>
+      <span class="tbtn">Flip V</span>
+      <span class="tbtn">Rotate 90°</span>
+    </div>
+  </div>
+
+  <!-- ============ 3. NODES ============ -->
+  <h2>3 · Node editing: pen-tool controls</h2>
+  <p class="lede">Three pieces, all chosen: bigger shape-coded handles with a loud edit state, key hints that follow the node plus the full map in the status bar, and full pen-tool beziers. Curved edges become first-class: outlines carry optional per-vertex tangents, and everything downstream (walls, fog, Clipper2 booleans) consumes a flattened ring, so curves work everywhere straight edges do today.</p>
+
+  <h3>Edit state + handles + status bar <span class="rec">CHOSEN</span></h3>
+  <div class="stage tall open-bottom" style="border-bottom:none">
+    <div style="position:absolute; inset:0; background:rgb(0 0 0 / .15); z-index:0"></div>
+    <svg style="position:absolute; inset:0; z-index:1" width="100%" height="100%" viewBox="0 0 1040 420" preserveAspectRatio="xMidYMid slice">
+      <polygon points="300,90 640,90 640,180 740,180 740,330 380,330 380,250 300,250" fill="#3a332b" stroke="rgb(16,13,9)" stroke-width="4" stroke-dasharray="7 5"/>
+      <polygon points="300,90 640,90 640,180 740,180 740,330 380,330 380,250 300,250" fill="none" stroke="#fff" stroke-width="1.5" stroke-dasharray="7 5"/>
+      <g fill="#5a544c" stroke="#17120c" stroke-width="2">
+        <rect x="310" y="79" width="40" height="18" rx="5" transform="rotate(-1.5 330 88)"/>
+        <rect x="356" y="78" width="36" height="19" rx="5" transform="rotate(1 374 88)"/>
+        <rect x="398" y="79" width="40" height="18" rx="5"/>
+        <rect x="444" y="78" width="36" height="19" rx="5" transform="rotate(-1 462 88)"/>
+        <rect x="486" y="79" width="40" height="18" rx="5" transform="rotate(1.5 506 88)"/>
+        <rect x="532" y="79" width="38" height="18" rx="5"/>
+        <rect x="576" y="78" width="38" height="19" rx="5" transform="rotate(-1.5 595 88)"/>
+        <rect x="646" y="96" width="18" height="38" rx="5" transform="rotate(1 655 115)"/>
+        <rect x="645" y="140" width="19" height="34" rx="5"/>
+      </g>
+    </svg>
+    <div class="hnd node" style="left:300px; top:90px;"></div>
+    <div class="hnd node" style="left:640px; top:90px;"></div>
+    <div class="hnd node" style="left:640px; top:180px;"></div>
+    <div class="hnd node sel" style="left:740px; top:180px;"></div>
+    <div class="hnd node" style="left:740px; top:330px;"></div>
+    <div class="hnd node" style="left:380px; top:330px;"></div>
+    <div class="hnd node" style="left:380px; top:250px;"></div>
+    <div class="hnd node" style="left:300px; top:250px;"></div>
+    <div class="hnd insert" style="left:470px; top:90px;">+</div>
+    <span class="chip" style="left:756px; top:150px;">node <b>4</b> · <b>[ ]</b> rotate · <b>+ −</b> scale · <b>Del</b></span>
+    <span class="chip" style="left:16px; top:14px;">double-click a wall or floor ring → edit mode · map dims 15% · rope-dash outline = ink under white, no theme color</span>
+  </div>
+  <div class="statusbar">
+    <span class="mode">Editing wall</span>
+    <span style="color:rgb(var(--tm))">Great Hall · outer ring</span>
+    <span class="hints"><b>[ ]</b> rotate · <b>− +</b> scale · <b>, .</b> gap · <b>Tab</b> piece · <b>{ }</b> insert · <b>Del</b> remove · <b>Esc</b> done</span>
+  </div>
+  <p class="cap" style="margin-top:8px">The chip follows the selected node with its three most-used keys; the status bar holds the complete map. Both update contextually (nothing selected → "click a node · drag an edge · Esc to finish").</p>
+
+  <h3>Pen-tool anchors + tangents <span class="rec">CHOSEN · FULL BEZIERS</span></h3>
+  <p class="cap">Photoshop pen semantics on shape outlines: click adds a corner anchor (square), click-drag adds a smooth anchor (circle) and pulls symmetric tangents, Alt-drag breaks a tangent pair, double-click toggles corner ↔ smooth, and dragging the middle of a straight edge bows it into a curve. Tangent arms render only for the selected anchor and its neighbors, so the outline never turns into spaghetti.</p>
+  <div class="stage">
+    <svg style="position:absolute; inset:0; z-index:1" width="100%" height="100%" viewBox="0 0 1040 340" preserveAspectRatio="xMidYMid slice">
+      <path d="M 300,240 C 340,140 500,100 620,130 C 720,155 800,220 760,280 C 720,335 520,330 430,305 C 360,285 275,300 300,240 Z"
+        fill="rgb(63 125 132 / .8)" stroke="rgb(16,13,9)" stroke-width="4" stroke-dasharray="7 5"/>
+      <path d="M 300,240 C 340,140 500,100 620,130 C 720,155 800,220 760,280 C 720,335 520,330 430,305 C 360,285 275,300 300,240 Z"
+        fill="none" stroke="#fff" stroke-width="1.5" stroke-dasharray="7 5"/>
+      <g style="filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / .7))">
+        <line x1="620" y1="130" x2="500" y2="100" stroke="rgb(16,13,9)" stroke-width="3"/>
+        <line x1="620" y1="130" x2="720" y2="155" stroke="rgb(16,13,9)" stroke-width="3"/>
+        <line x1="620" y1="130" x2="500" y2="100" stroke="#fff" stroke-width="1.2"/>
+        <line x1="620" y1="130" x2="720" y2="155" stroke="#fff" stroke-width="1.2"/>
+        <circle cx="500" cy="100" r="4.5" fill="#fff" stroke="rgb(16,13,9)" stroke-width="1.5"/>
+        <circle cx="720" cy="155" r="4.5" fill="#fff" stroke="rgb(16,13,9)" stroke-width="1.5"/>
+      </g>
+    </svg>
+    <div class="hnd node" style="left:300px; top:240px;"></div>
+    <div class="hnd node smooth sel" style="left:620px; top:130px;"></div>
+    <div class="hnd node smooth" style="left:760px; top:280px;"></div>
+    <div class="hnd node" style="left:430px; top:305px;"></div>
+    <span class="chip" style="left:16px; top:14px;">smooth anchor selected · round knobs = tangent handles · Alt-drag breaks the pair</span>
+    <span class="chip" style="left:640px; top:60px;">anchor <b>2</b> · smooth · <b>Alt</b> break · <b>dbl-click</b> corner</span>
+  </div>
+
+  <h3>What full beziers buy: walls on curved rings</h3>
+  <p class="cap">Wall stones already lay out by arc length, so a curved ring gets a real stone wall with no extra authoring: bend the floor outline and the wall, fog, and lighting follow. This is the piece that makes caves, riverbanks, and round towers feel drawn instead of segmented.</p>
+  <div class="stage short" style="height:260px">
+    <svg style="position:absolute; inset:0; z-index:1" width="100%" height="100%" viewBox="0 0 1040 260" preserveAspectRatio="xMidYMid slice">
+      <path d="M 240,200 C 380,80 620,80 780,180" fill="none" stroke="rgb(16,13,9)" stroke-width="4" stroke-dasharray="7 5"/>
+      <path d="M 240,200 C 380,80 620,80 780,180" fill="none" stroke="#fff" stroke-width="1.5" stroke-dasharray="7 5"/>
+      <g fill="#5a544c" stroke="#17120c" stroke-width="2">
+        <rect x="265" y="159" width="40" height="18" rx="5" transform="rotate(-31 285 168)"/>
+        <rect x="341" y="123" width="40" height="18" rx="5" transform="rotate(-19 361 132)"/>
+        <rect x="425" y="103" width="40" height="18" rx="5" transform="rotate(-8 445 112)"/>
+        <rect x="512" y="99"  width="40" height="18" rx="5" transform="rotate(2 532 108)"/>
+        <rect x="599" y="109" width="40" height="18" rx="5" transform="rotate(11 619 118)"/>
+        <rect x="683" y="133" width="40" height="18" rx="5" transform="rotate(21 703 142)"/>
+      </g>
+      <g style="filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / .7))">
+        <line x1="240" y1="200" x2="380" y2="80" stroke="rgb(16,13,9)" stroke-width="3"/>
+        <line x1="240" y1="200" x2="380" y2="80" stroke="#fff" stroke-width="1.2"/>
+        <circle cx="380" cy="80" r="4.5" fill="#fff" stroke="rgb(16,13,9)" stroke-width="1.5"/>
+      </g>
+    </svg>
+    <div class="hnd node smooth sel" style="left:240px; top:200px;"></div>
+    <div class="hnd node smooth" style="left:780px; top:180px;"></div>
+    <span class="chip" style="left:16px; top:14px;">stones follow the flattened arc · same layout code as straight walls</span>
+  </div>
+
+  <!-- ============ 4. WORKING NOTES ============ -->
+  <h2>4 · How it works: behavior spec</h2>
+  <p class="lede">Green bullets are interaction rules; amber bullets are the engineering changes underneath them.</p>
+  <div class="notes">
+    <section>
+      <h4>Context menus</h4>
+      <ul>
+        <li>Right-click never pans, never fires the active tool; it hit-tests, adjusts selection, opens the menu.</li>
+        <li>Object outside selection → becomes the selection. Object inside a multi-selection → selection kept, verbs apply to all; mixed types show intersection verbs only.</li>
+        <li>Slider rows edit the store live with one undo entry per gesture, same rule as gizmo drags.</li>
+        <li>Suggestion strip: nearest by asset tag/category; "More…" opens the full browser pre-filtered.</li>
+        <li class="eng">Row vocabulary as a typed union: <span class="k">action | submenu | toggle | slider | swatches | thumbStrip</span>. Renderer switches on row type only.</li>
+        <li class="eng">Per-kind builders: <span class="k">registerMenu(kind, (ctx) =&gt; rows)</span> where ctx = child, layer, selection, active tool. Shared verbs and the danger slot are appended by the menu builder, never re-implemented per type.</li>
+        <li class="eng">Capture point in <span class="k">useCanvasInput</span> before tool dispatch; tools drop their ad-hoc button-2 no-ops.</li>
+        <li class="eng">Locked/hidden layers render verbs disabled, mirroring the layer-panel rules.</li>
+      </ul>
+    </section>
+    <section>
+      <h4>Transform</h4>
+      <ul>
+        <li>Corners = uniform scale (Shift frees ratio). Pills = one-axis stretch. Rotate handle explicit, 15° snap, Shift frees.</li>
+        <li>Flip H/V = negative scale, via bar, menu, panel, and Shift+H / Shift+V.</li>
+        <li>Arrow keys nudge one grid square; Shift+arrows a quarter square. Ctrl+D duplicates with the paste offset.</li>
+        <li>Floating bar hides during any drag and near screen edges clamps into view; "…" opens the context menu.</li>
+        <li class="eng">Repro pass first: "doesn't work at all" is unverified; test per handle × child type in the browser before rewiring.</li>
+        <li class="eng"><span class="k">childTransform.ts:125-134</span>: split scalar <span class="k">scale</span> into scaleX/scaleY for assets/text; allow negative for flip.</li>
+        <li class="eng">One undo entry per gesture stays (existing <span class="k">CompositeCommand</span> path).</li>
+      </ul>
+    </section>
+    <section>
+      <h4>Nodes + overlays</h4>
+      <ul>
+        <li>Handles 11px visual, ≥20px hit. Edit mode: rope-dash outline, map dims 15%, status bar names mode and keys, chip follows the node.</li>
+        <li>Pen semantics: click = corner · drag = smooth · Alt breaks tangents · dbl-click toggles · edge-drag bows a straight edge into a curve · tangents only on selected + neighbors.</li>
+        <li>Delete refuses below 3 points with a status-bar notice, not a silent no-op. Esc order stays: cancel drag, then exit.</li>
+        <li class="eng">Overlay palette is theme-free by design: white/ink constants in one module shared by gizmo + node overlays. Retire <span class="k">0x6c63ff</span>, <span class="k">0x38bdf8</span>, <span class="k">0xfbbf24</span>. Chrome accent stays themeable app-side and never leaks onto the canvas.</li>
+        <li class="eng">Schema: optional per-vertex in/out tangents; absent tangents = straight edge, so every existing shape stays valid untouched.</li>
+        <li class="eng">Flatten once per edit (fixed world-unit tolerance) into straight rings for Clipper2 / walls / fog; stone layout already parametrizes by arc length, so curved rings reuse it.</li>
+        <li class="eng">Insert-on-curve splits with de Casteljau so the outline shape is preserved exactly; curve hit-testing projects the cursor to the flattened ring.</li>
+        <li class="eng">Floor-ring edits keyed by ring index (<span class="k">floorWallEdits</span>) can silently retarget after shape edits. Decide this session: fix or document, don't leave it implicit.</li>
+      </ul>
+    </section>
+  </div>
+</main>
+</body>
+</html>

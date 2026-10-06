@@ -40,3 +40,6 @@ bot/data/
 bot/check-live/out/
 bot/check-live/*.json
 bot/test-output/
+
+# Design docs, gate results and mockup images are tracked.
+!docs/**/*.png

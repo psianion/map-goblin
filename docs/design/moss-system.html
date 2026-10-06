@@ -1,0 +1,994 @@
+<title>Good Goblin — Moss Flat Component System</title>
+
+<style>
+  /* ============================================================
+     PAGE FRAME
+     ============================================================ */
+  :root {
+    --pg-ground: #e6e9de;
+    --pg-surface: #f1f3ec;
+    --pg-surface-2: #dbe0d2;
+    --pg-ink: #b3bca6;
+    --pg-ink-soft: #d5dbc9;
+    --pg-text: #1e241b;
+    --pg-muted: #5c6555;
+    --pg-accent: #3f6b34;
+    --pg-danger: #a33a2b;
+
+    --pg-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+    --pg-ui: system-ui, 'Segoe UI', Roboto, sans-serif;
+    --pg-mono: 'Cascadia Mono', Consolas, 'SF Mono', ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --pg-ground: #0a0c09; --pg-surface: #121510; --pg-surface-2: #1a1e17;
+      --pg-ink: #2b3227; --pg-ink-soft: #1c211a;
+      --pg-text: #e3e8dc; --pg-muted: #7b8474; --pg-accent: #86b566; --pg-danger: #c0392b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --pg-ground: #0a0c09; --pg-surface: #121510; --pg-surface-2: #1a1e17;
+    --pg-ink: #2b3227; --pg-ink-soft: #1c211a;
+    --pg-text: #e3e8dc; --pg-muted: #7b8474; --pg-accent: #86b566; --pg-danger: #c0392b;
+  }
+  :root[data-theme="light"] {
+    --pg-ground: #e6e9de; --pg-surface: #f1f3ec; --pg-surface-2: #dbe0d2;
+    --pg-ink: #b3bca6; --pg-ink-soft: #d5dbc9;
+    --pg-text: #1e241b; --pg-muted: #5c6555; --pg-accent: #3f6b34; --pg-danger: #a33a2b;
+  }
+
+  body {
+    background: var(--pg-ground); color: var(--pg-text);
+    font-family: var(--pg-ui); font-size: 16px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px 120px; }
+
+  h1, h2, h3, h4 { text-wrap: balance; margin: 0; }
+  h1 { font-family: var(--pg-display); font-size: clamp(2.2rem, 5vw, 3.3rem); line-height: 1.05; font-weight: 400; }
+  h2 { font-family: var(--pg-display); font-size: clamp(1.45rem, 3vw, 1.95rem); font-weight: 400; line-height: 1.2; }
+  h3 { font-size: 0.98rem; font-weight: 600; }
+  p { margin: 0; max-width: 68ch; }
+  .eyebrow { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.16em; color: var(--pg-muted); font-weight: 600; }
+  .lede { color: var(--pg-muted); font-size: 1.05rem; }
+  .note { color: var(--pg-muted); font-size: 0.87rem; }
+  code { font-family: var(--pg-mono); font-size: 0.85em; background: var(--pg-ink-soft); padding: 0.12em 0.4em; border-radius: 3px; }
+  header.masthead { padding: 68px 0 40px; border-bottom: 1px solid var(--pg-ink); display: flex; flex-direction: column; gap: 16px; }
+  section.block { padding: 52px 0; border-bottom: 1px solid var(--pg-ink); display: flex; flex-direction: column; gap: 22px; }
+  .head-row { display: flex; flex-direction: column; gap: 8px; }
+  .callout { border-left: 2px solid var(--pg-accent); padding: 4px 0 4px 16px; color: var(--pg-muted); }
+  .callout strong { color: var(--pg-text); font-weight: 600; }
+
+  .switcher {
+    position: sticky; top: 0; z-index: 40;
+    background: color-mix(in srgb, var(--pg-ground) 93%, transparent);
+    backdrop-filter: blur(10px); border-bottom: 1px solid var(--pg-ink);
+    margin: 0 -24px; padding: 11px 24px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  }
+  .sw-label { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.14em; color: var(--pg-muted); font-weight: 600; }
+  .mode-btn {
+    font-family: var(--pg-ui); font-size: 0.82rem; color: var(--pg-muted);
+    background: transparent; border: 1px solid var(--pg-ink); border-radius: 3px;
+    padding: 6px 14px; cursor: pointer;
+    transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+  }
+  .mode-btn:hover { color: var(--pg-text); border-color: var(--pg-accent); }
+  .mode-btn:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: 2px; }
+  .mode-btn[aria-pressed="true"] {
+    color: var(--pg-text); border-color: var(--pg-accent); font-weight: 600;
+    background: color-mix(in srgb, var(--pg-accent) 14%, transparent);
+  }
+
+  /* ============================================================
+     THE SYSTEM — Moss Flat.
+     Token names are the ones the codebase already uses.
+     ============================================================ */
+  .sys[data-mode="day"] {
+    --surface-0: #e3e7db;
+    --surface-1: #eef1e8;
+    --surface-2: #dce0d1;
+    --surface-3: #cdd4bf;
+    --text-primary: #1f251c;
+    --text-secondary: #4d5645;
+    --text-muted: #5c6555;
+    --border-subtle: #d3d9c7;
+    --border-default: #b6bfa6;
+    --border-focus: #3f6b34;
+    --accent-active: #3f6b34;
+    --accent-dim: #6d8b5f;
+    --danger: #a33a2b;
+    --warning: #8a6410;
+    --success: #3f6b34;
+    --info: #2c5f7a;
+    --on-accent: #f2f5ec;
+    --shade: rgba(31, 37, 28, 0.14);
+  }
+  .sys[data-mode="night"] {
+    --surface-0: #0b0d0a;
+    --surface-1: #141712;
+    --surface-2: #1c211a;
+    --surface-3: #262c23;
+    --text-primary: #e4e9dd;
+    --text-secondary: #a8b09f;
+    --text-muted: #7c8675;
+    --border-subtle: #1f251d;
+    --border-default: #2b3327;
+    --border-focus: #86b566;
+    --accent-active: #86b566;
+    --accent-dim: #5f7f4c;
+    --danger: #c0392b;
+    --warning: #d4a017;
+    --success: #86b566;
+    --info: #5b9cc4;
+    --on-accent: #0c0f0a;
+    --shade: rgba(0, 0, 0, 0.5);
+  }
+  .sys {
+    --radius-sm: 2px;
+    --radius: 4px;
+    --radius-md: 6px;
+    font-family: var(--pg-ui);
+    color: var(--text-primary);
+  }
+
+  /* demo surface a component sits on */
+  .demo {
+    background: var(--surface-0);
+    border: 1px solid var(--pg-ink);
+    border-radius: 4px;
+    padding: 20px;
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+  }
+  .demo.col { flex-direction: column; align-items: stretch; }
+  .demo.pad-lg { padding: 26px; }
+  .demo-label {
+    width: 100%; font-size: 0.64rem; text-transform: uppercase;
+    letter-spacing: 0.13em; color: var(--pg-muted); font-weight: 600;
+  }
+  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; }
+
+  /* ---------- foundations: swatches ---------- */
+  .ramp { display: flex; flex-direction: column; gap: 2px; width: 100%; }
+  .ramp-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 12px; font-size: 0.8rem;
+    border: 1px solid var(--border-subtle);
+  }
+  .ramp-row .nm { flex: 1; font-family: var(--pg-mono); font-size: 0.76rem; }
+  .ramp-row .hx { font-family: var(--pg-mono); font-size: 0.74rem; opacity: 0.75; font-variant-numeric: tabular-nums; }
+  .type-row { display: flex; align-items: baseline; gap: 14px; padding: 6px 0; }
+  .type-row .tag { font-family: var(--pg-mono); font-size: 0.7rem; color: var(--text-muted); width: 108px; flex: none; }
+
+  /* ============================================================
+     REAL COMPONENTS
+     Contracts mirrored from canvas/src/components/ui/*
+     ============================================================ */
+
+  /* ---------- Button (6 variants × 4 sizes, base-ui + cva contract) ---------- */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 6px; white-space: nowrap; flex-shrink: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    font-family: inherit; font-weight: 500;
+    cursor: pointer; user-select: none;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+    background: transparent; color: var(--text-primary);
+  }
+  .btn svg { width: 14px; height: 14px; flex: none; pointer-events: none; }
+  .btn:focus-visible {
+    outline: none;
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--border-focus) 45%, transparent);
+  }
+  .btn:disabled, .btn[aria-disabled="true"] { opacity: 0.5; pointer-events: none; }
+
+  .btn-default { background: var(--accent-active); color: var(--on-accent); }
+  .btn-default:hover { background: color-mix(in srgb, var(--accent-active) 84%, var(--surface-0)); }
+  .btn-outline { border-color: var(--border-default); background: var(--surface-0); }
+  .btn-outline:hover { background: var(--surface-2); }
+  .btn-secondary { background: var(--surface-2); color: var(--text-primary); }
+  .btn-secondary:hover { background: var(--surface-3); }
+  .btn-ghost { background: transparent; color: var(--text-secondary); }
+  .btn-ghost:hover { background: var(--surface-2); color: var(--text-primary); }
+  .btn-destructive {
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    color: var(--danger);
+  }
+  .btn-destructive:hover { background: color-mix(in srgb, var(--danger) 22%, transparent); }
+  .btn-destructive:focus-visible {
+    border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 28%, transparent);
+  }
+  .btn-link { background: transparent; color: var(--accent-active); text-underline-offset: 4px; padding-left: 2px; padding-right: 2px; }
+  .btn-link:hover { text-decoration: underline; }
+
+  .sz-xs { height: 24px; padding: 0 8px; font-size: 11px; border-radius: var(--radius); gap: 4px; }
+  .sz-xs svg { width: 12px; height: 12px; }
+  .sz-sm { height: 28px; padding: 0 10px; font-size: 12.8px; border-radius: var(--radius); }
+  .sz-df { height: 32px; padding: 0 10px; font-size: 14px; }
+  .sz-lg { height: 36px; padding: 0 12px; font-size: 14px; }
+  .sz-icon { width: 32px; height: 32px; padding: 0; }
+  .sz-icon-sm { width: 28px; height: 28px; padding: 0; border-radius: var(--radius); }
+
+  /* ---------- inputs ---------- */
+  .field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .field > label { font-size: 11px; letter-spacing: 0.06em; color: var(--text-secondary); }
+  .input {
+    height: 28px; padding: 0 8px;
+    background: var(--surface-0);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-family: inherit; font-size: 12px;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+    min-width: 0; width: 100%;
+  }
+  .input:hover { border-color: var(--accent-dim); }
+  .input:focus-visible {
+    outline: none; border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--border-focus) 40%, transparent);
+  }
+  .input[aria-invalid="true"] {
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
+  }
+  .input:disabled { opacity: 0.5; cursor: not-allowed; }
+  .input.num { font-variant-numeric: tabular-nums; text-align: right; }
+  select.input { cursor: pointer; appearance: none; padding-right: 24px;
+    background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+    background-position: calc(100% - 13px) 12px, calc(100% - 9px) 12px;
+    background-size: 4px 4px, 4px 4px; background-repeat: no-repeat;
+  }
+  .hint { font-size: 10.5px; color: var(--text-muted); }
+  .hint.err { color: var(--danger); }
+
+  /* slider */
+  .slider { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; background: transparent; cursor: pointer; }
+  .slider::-webkit-slider-runnable-track { height: 3px; background: var(--surface-3); border-radius: 2px; }
+  .slider::-moz-range-track { height: 3px; background: var(--surface-3); border-radius: 2px; }
+  .slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 13px; height: 13px; border-radius: 50%;
+    background: var(--accent-active); border: 2px solid var(--surface-0);
+    margin-top: -5px; box-shadow: 0 0 0 1px var(--border-default);
+  }
+  .slider::-moz-range-thumb {
+    width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--surface-0);
+    background: var(--accent-active); box-shadow: 0 0 0 1px var(--border-default);
+  }
+  .slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px color-mix(in srgb, var(--border-focus) 45%, transparent); }
+  .slider:focus-visible { outline: none; }
+
+  /* toggle switch */
+  .toggle {
+    width: 30px; height: 17px; border-radius: 9px; flex: none;
+    background: var(--surface-3); border: 1px solid var(--border-default);
+    position: relative; cursor: pointer; padding: 0;
+    transition: background-color 160ms ease, border-color 160ms ease;
+  }
+  .toggle::after {
+    content: ''; position: absolute; top: 1.5px; left: 2px;
+    width: 11px; height: 11px; border-radius: 50%;
+    background: var(--text-secondary);
+    transition: transform 160ms cubic-bezier(0.25, 1, 0.5, 1), background-color 160ms ease;
+  }
+  .toggle[aria-checked="true"] { background: var(--accent-active); border-color: var(--accent-active); }
+  .toggle[aria-checked="true"]::after { transform: translateX(13px); background: var(--on-accent); }
+  .toggle:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--border-focus) 45%, transparent); }
+
+  /* checkbox */
+  .check {
+    width: 15px; height: 15px; flex: none; border-radius: var(--radius-sm);
+    border: 1px solid var(--border-default); background: var(--surface-0);
+    display: grid; place-items: center; cursor: pointer; padding: 0;
+  }
+  .check[aria-checked="true"] { background: var(--accent-active); border-color: var(--accent-active); }
+  .check svg { width: 10px; height: 10px; color: var(--on-accent); opacity: 0; }
+  .check[aria-checked="true"] svg { opacity: 1; }
+  .check:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--border-focus) 45%, transparent); }
+
+  /* color chip (canvas ColorChip: 56×20, radius 2) */
+  .colorchip {
+    width: 56px; height: 20px; border-radius: 2px;
+    border: 1px solid var(--border-default); cursor: pointer; padding: 0; flex: none;
+  }
+  .colorchip:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--border-focus) 45%, transparent); }
+
+  /* ---------- panel ---------- */
+  .panel {
+    background: var(--surface-1);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius);
+    display: flex; flex-direction: column; overflow: hidden; min-width: 0;
+  }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 8px 10px; border-bottom: 1px solid var(--border-subtle);
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-secondary); font-weight: 600;
+  }
+  .panel-body { padding: 9px 10px; display: flex; flex-direction: column; gap: 7px; }
+
+  /* rows (LayerRow / ChildRow) */
+  .row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 7px; border-radius: var(--radius);
+    border: 1px solid transparent; cursor: pointer; font-size: 12px;
+    transition: background-color 150ms ease, border-color 150ms ease;
+  }
+  .row:hover { background: var(--surface-2); }
+  .row:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--border-focus) 55%, transparent); }
+  .row[aria-selected="true"] {
+    background: color-mix(in srgb, var(--accent-active) 14%, transparent);
+    border-color: color-mix(in srgb, var(--accent-active) 45%, transparent);
+  }
+  .row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .meta { font-size: 10.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .row .handle { color: var(--text-muted); cursor: grab; display: grid; place-items: center; }
+  .row .handle svg { width: 12px; height: 12px; }
+
+  /* collapsible */
+  .collapsible { border: 1px solid var(--border-subtle); border-radius: var(--radius); overflow: hidden; }
+  .collapsible > button {
+    width: 100%; display: flex; align-items: center; gap: 7px;
+    padding: 7px 9px; background: var(--surface-2); border: 0; cursor: pointer;
+    font-family: inherit; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-secondary); font-weight: 600;
+  }
+  .collapsible > button:hover { color: var(--text-primary); }
+  .collapsible > button:focus-visible { outline: none; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--border-focus) 55%, transparent); }
+  .collapsible .chev { transition: transform 160ms ease; display: grid; place-items: center; }
+  .collapsible .chev svg { width: 11px; height: 11px; }
+  .collapsible[data-open="false"] .chev { transform: rotate(-90deg); }
+  .collapsible[data-open="false"] .collapsible-body { display: none; }
+  .collapsible-body { padding: 9px; display: flex; flex-direction: column; gap: 9px; background: var(--surface-1); }
+
+  /* tab bar (PanelTabBar) */
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border-subtle); }
+  .tab {
+    padding: 6px 11px; font-size: 12px; font-weight: 600; font-family: inherit;
+    background: transparent; border: 0; border-bottom: 2px solid transparent;
+    color: var(--text-muted); cursor: pointer; margin-bottom: -1px;
+    transition: color 150ms ease, border-color 150ms ease;
+  }
+  .tab:hover { color: var(--text-primary); }
+  .tab[aria-selected="true"] { color: var(--accent-active); border-bottom-color: var(--accent-active); }
+  .tab:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--border-focus) 55%, transparent); border-radius: 2px 2px 0 0; }
+
+  /* dialog (ConfirmDialog) */
+  .dialog-scrim {
+    background: var(--shade); border-radius: var(--radius);
+    padding: 26px; display: grid; place-items: center;
+  }
+  .dialog {
+    background: var(--surface-1); border: 1px solid var(--border-default);
+    border-radius: var(--radius-md); width: 100%; max-width: 340px;
+    box-shadow: 0 16px 40px -18px var(--shade);
+    display: flex; flex-direction: column;
+  }
+  .dialog-head { padding: 14px 16px 0; font-size: 14px; font-weight: 600; }
+  .dialog-body { padding: 8px 16px 14px; font-size: 12.5px; color: var(--text-secondary); }
+  .dialog-foot {
+    padding: 11px 16px; border-top: 1px solid var(--border-subtle);
+    display: flex; justify-content: flex-end; gap: 8px;
+  }
+
+  /* context menu */
+  .ctxmenu {
+    background: var(--surface-1); border: 1px solid var(--border-default);
+    border-radius: var(--radius); padding: 4px; min-width: 190px;
+    box-shadow: 0 12px 28px -14px var(--shade);
+    display: flex; flex-direction: column; gap: 1px;
+  }
+  .ctxitem {
+    display: flex; align-items: center; gap: 9px;
+    padding: 6px 8px; border-radius: var(--radius-sm);
+    font-size: 12px; color: var(--text-primary); cursor: pointer;
+    background: transparent; border: 0; font-family: inherit; text-align: left; width: 100%;
+  }
+  .ctxitem:hover { background: var(--surface-2); }
+  .ctxitem:focus-visible { outline: none; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--border-focus) 55%, transparent); }
+  .ctxitem .k { margin-left: auto; }
+  .ctxitem.danger { color: var(--danger); }
+  .ctxitem.danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+  .ctxsep { height: 1px; background: var(--border-subtle); margin: 3px 0; }
+
+  /* kbd */
+  .kbd {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 20px; padding: 1px 5px;
+    font-family: var(--pg-mono); font-size: 10.5px;
+    background: var(--surface-2); border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm); color: var(--text-secondary);
+  }
+
+  /* badge */
+  .badge {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600;
+    padding: 2px 5px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border-default); color: var(--text-muted); flex: none;
+  }
+  .badge.accent { border-color: color-mix(in srgb, var(--accent-active) 55%, transparent); color: var(--accent-active); }
+  .badge.danger { border-color: color-mix(in srgb, var(--danger) 55%, transparent); color: var(--danger); }
+  .badge.warn { border-color: color-mix(in srgb, var(--warning) 55%, transparent); color: var(--warning); }
+
+  /* presence marks — shape carries state */
+  .mark { flex: none; display: block; }
+  .mark.here { width: 9px; height: 9px; border-radius: 50%; background: var(--success); }
+  .mark.away { width: 9px; height: 9px; border-radius: 50%; background: transparent; border: 1.5px solid var(--text-muted); }
+  .mark.lost {
+    width: 0; height: 0;
+    border-left: 5px solid transparent; border-right: 5px solid transparent;
+    border-bottom: 9px solid var(--danger);
+  }
+
+  /* toast */
+  .toast {
+    display: inline-flex; align-items: center; gap: 9px;
+    background: var(--surface-1); border: 1px solid var(--border-default);
+    border-radius: 999px; padding: 7px 14px; font-size: 12px;
+    box-shadow: 0 4px 14px -6px var(--shade); color: var(--text-primary);
+  }
+  .toast .ic { display: grid; place-items: center; }
+  .toast .ic svg { width: 13px; height: 13px; }
+  .toast.ok .ic { color: var(--success); }
+  .toast.err .ic { color: var(--danger); }
+  .toast.warn .ic { color: var(--warning); }
+  .toast.info .ic { color: var(--info); }
+
+  /* status bar */
+  .statusbar {
+    display: flex; align-items: center; gap: 16px;
+    background: var(--surface-1); border: 1px solid var(--border-default);
+    border-radius: var(--radius); padding: 5px 11px;
+    font-size: 11px; color: var(--text-secondary); width: 100%;
+    font-variant-numeric: tabular-nums; flex-wrap: wrap;
+  }
+  .statusbar .sep { width: 1px; height: 12px; background: var(--border-subtle); }
+  .statusbar .push { margin-left: auto; }
+
+  /* density comparison */
+  .density { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .dens-editor { font-size: 11px; }
+  .dens-editor .panel-head { font-size: 10px; }
+  .dens-editor .row { padding: 3px 6px; font-size: 11px; }
+  .dens-runner { font-size: 13px; }
+  .dens-runner .panel-head { font-size: 11px; }
+  .dens-runner .row { padding: 7px 9px; font-size: 13px; }
+
+  /* code block */
+  .codeblock {
+    font-family: var(--pg-mono); font-size: 0.76rem; line-height: 1.7;
+    background: var(--pg-surface); border: 1px solid var(--pg-ink);
+    border-radius: 4px; padding: 16px 18px; overflow-x: auto;
+    color: var(--pg-muted); white-space: pre;
+  }
+  .codeblock b { color: var(--pg-accent); font-weight: 400; }
+  .codeblock i { color: var(--pg-text); font-style: normal; }
+
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.87rem; min-width: 580px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--pg-ink); vertical-align: top; }
+  th { font-size: 0.67rem; text-transform: uppercase; letter-spacing: 0.13em; color: var(--pg-muted); font-weight: 600; }
+  td.a { color: var(--pg-muted); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <span class="eyebrow">Good Goblin · component system · moss flat</span>
+    <h1>Moss Flat, built<br>from the real components.</h1>
+    <p class="lede">Every control below mirrors something that actually exists in the codebase — the six <code>buttonVariants</code> and their size scale from <code>canvas/src/components/ui/button.tsx</code>, the toggle switch, collapsible section, context menu, confirm dialog, colour chip, sliders, layer rows, tab bar, pill toasts and status bar. Real variants, real sizes, real states: hover, focus-visible, disabled, invalid, selected.</p>
+    <p class="note">Fonts here are the system stack. Canvas currently loads Cinzel, Raleway and Space Mono from the Google Fonts CDN while the runner deliberately refuses webfonts — that split is unresolved and is listed at the bottom.</p>
+  </header>
+
+  <div class="switcher">
+    <span class="sw-label">Mode</span>
+    <button class="mode-btn" data-val="day" aria-pressed="true">Day</button>
+    <button class="mode-btn" data-val="night" aria-pressed="false">Night</button>
+    <span class="note" style="margin-left: 8px;">Switches every component on the page.</span>
+  </div>
+
+  <div class="sys" id="sys" data-mode="day">
+
+    <section class="block">
+      <div class="head-row">
+        <span class="eyebrow">What this replaces</span>
+        <h2>The Achromatic Shell, retired</h2>
+        <p class="lede">The current system has a name and a stated premise. <code>canvas/tailwind.config.ts</code> calls it the “Achromatic Shell” and comments that the accent is achromatic “so colour never becomes the only state encoding.” Moss breaks that premise deliberately, so the guarantee has to be kept another way — shape-encoded state, below.</p>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width: 30%;">Reality in the code</th><th>Consequence for this system</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Two token vocabularies, duplicated in both apps: the Tailwind theme (<code>surface-0…3</code>, <code>text-*</code>, <code>border-*</code>, <code>accent-*</code>) and the shadcn CSS variables.</td>
+              <td class="a">A revalue touches four files, not two. The names below are the Tailwind ones because that is what components actually reference; the shadcn block maps onto them one-for-one.</td>
+            </tr>
+            <tr>
+              <td>The runner's <code>index.css</code> hard-codes one dark theme on <code>:root</code>, with a comment explaining the table has only one theme on purpose.</td>
+              <td class="a">Day mode makes that comment false. The runner needs a light block it has never had, plus a switch and a stored preference.</td>
+            </tr>
+            <tr>
+              <td>Sonner toast overrides hard-code a blue-grey palette — <code>rgba(19,19,26)</code>, <code>#B0B0C0</code>, <code>rgba(42,42,58)</code> — matching neither vocabulary.</td>
+              <td class="a">Toasts are outside the system today. The pill below keeps sonner's shape and radius but takes its colour from tokens.</td>
+            </tr>
+            <tr>
+              <td><code>Kbd</code> uses <code>bg-surface-2</code>, <code>border-border-subtle</code>, <code>text-text-secondary</code> — the second of those resolves only because the theme key is literally <code>border-subtle</code>.</td>
+              <td class="a">Worth a grep pass for other near-miss class names while the values are being changed anyway.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="head-row">
+        <span class="eyebrow">Foundations</span>
+        <h2>Surfaces, text, borders, semantics</h2>
+        <p class="lede">Same four-step surface hierarchy the code already has, revalued. Neutrals are green-shifted rather than pure grey, so the chrome reads as one material instead of grey furniture with a green button on it.</p>
+      </div>
+
+      <div class="grid-2">
+        <div class="demo col">
+          <span class="demo-label">Surfaces</span>
+          <div class="ramp">
+            <div class="ramp-row" style="background: var(--surface-0);"><span class="nm">surface-0</span><span class="hx" id="hx-s0"></span></div>
+            <div class="ramp-row" style="background: var(--surface-1);"><span class="nm">surface-1</span><span class="hx" id="hx-s1"></span></div>
+            <div class="ramp-row" style="background: var(--surface-2);"><span class="nm">surface-2</span><span class="hx" id="hx-s2"></span></div>
+            <div class="ramp-row" style="background: var(--surface-3);"><span class="nm">surface-3</span><span class="hx" id="hx-s3"></span></div>
+          </div>
+        </div>
+
+        <div class="demo col">
+          <span class="demo-label">Text &amp; accent</span>
+          <div class="ramp">
+            <div class="ramp-row" style="background: var(--surface-1); color: var(--text-primary);"><span class="nm">text-primary</span><span class="hx" id="hx-tp"></span></div>
+            <div class="ramp-row" style="background: var(--surface-1); color: var(--text-secondary);"><span class="nm">text-secondary</span><span class="hx" id="hx-ts"></span></div>
+            <div class="ramp-row" style="background: var(--surface-1); color: var(--text-muted);"><span class="nm">text-muted</span><span class="hx" id="hx-tm"></span></div>
+            <div class="ramp-row" style="background: var(--surface-1); color: var(--accent-active);"><span class="nm">accent-active</span><span class="hx" id="hx-aa"></span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="demo">
+        <span class="demo-label">Semantic — distinct from the accent by hue and by shape</span>
+        <span class="badge accent">accent</span>
+        <span class="badge">neutral</span>
+        <span class="badge warn">warning</span>
+        <span class="badge danger">danger</span>
+        <span style="width: 20px;"></span>
+        <span style="display:flex;align-items:center;gap:7px;font-size:12px;"><span class="mark here"></span> connected</span>
+        <span style="display:flex;align-items:center;gap:7px;font-size:12px;"><span class="mark away"></span> away</span>
+        <span style="display:flex;align-items:center;gap:7px;font-size:12px;"><span class="mark lost"></span> lost</span>
+      </div>
+      <p class="callout"><strong>The collision, handled:</strong> with a green accent, <code>success</code> and <code>accent-active</code> are the same hue — fighting that would be worse than accepting it, since green already means "fine" to everyone. So presence never leans on hue: filled disc, hollow ring, triangle. That preserves exactly what the Achromatic Shell's comment was protecting.</p>
+    </section>
+
+    <section class="block">
+      <div class="head-row">
+        <span class="eyebrow">Controls</span>
+        <h2>Buttons — six variants, real sizes</h2>
+        <p class="lede">Variants and sizes are the ones <code>buttonVariants</code> already declares. Tab through them: focus-visible is a 3px ring at 45% of the focus colour plus a solid border, matching the existing <code>focus-visible:ring-3 ring-ring/50</code> contract.</p>
+      </div>
+
+      <div class="demo">
+        <span class="demo-label">Variants — default size (h-8)</span>
+        <button class="btn btn-default sz-df">Load a map</button>
+        <button class="btn btn-outline sz-df">Import</button>
+        <button class="btn btn-secondary sz-df">Duplicate</button>
+        <button class="btn btn-ghost sz-df">Cancel</button>
+        <button class="btn btn-destructive sz-df">Delete scene</button>
+        <button class="btn btn-link sz-df">Learn more</button>
+      </div>
+
+      <div class="demo">
+        <span class="demo-label">Sizes — xs 24 · sm 28 · default 32 · lg 36</span>
+        <button class="btn btn-default sz-xs">Reveal</button>
+        <button class="btn btn-default sz-sm">Reveal</button>
+        <button class="btn btn-default sz-df">Reveal</button>
+        <button class="btn btn-default sz-lg">Reveal</button>
+        <span style="width: 14px;"></span>
+        <button class="btn btn-outline sz-icon-sm" aria-label="Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>
+        </button>
+        <button class="btn btn-outline sz-icon" aria-label="Add layer">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+
+      <div class="demo">
+        <span class="demo-label">States</span>
+        <button class="btn btn-default sz-df">Normal</button>
+        <button class="btn btn-default sz-df" disabled>Disabled</button>
+        <button class="btn btn-outline sz-df" disabled>Disabled outline</button>
+        <button class="btn btn-secondary sz-df">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+          With icon
+        </button>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="head-row">
+        <span class="eyebrow">Controls</span>
+        <h2>Inputs, sliders, toggles</h2>
+        <p class="lede">These are the editor's property-panel workhorses: <code>NumberInput</code>, <code>SelectInput</code>, <code>SliderInput</code>, <code>DualRangeSlider</code>, <code>ColorChip</code>, <code>ToggleSwitch</code>. Density is the editor's — the runner uses the same components one step larger.</p>
+      </div>
+
+      <div class="grid-3">
+        <div class="demo col">
+          <span class="demo-label">Text &amp; number</span>
+          <div class="field">
+            <label for="f1">Scene name</label>
+            <input class="input" id="f1" value="The Sunken Vestry">
+          </div>
+          <div class="field">
+            <label for="f2">Wall thickness</label>
+            <input class="input num" id="f2" value="0.35" inputmode="decimal">
+          </div>
+          <div class="field">
+            <label for="f3">Grid size</label>
+            <input class="input num" id="f3" value="-4" aria-invalid="true">
+            <span class="hint err">Must be greater than zero.</span>
+          </div>
+          <div class="field">
+            <label for="f4">Locked field</label>
+            <input class="input" id="f4" value="dungeon-classic" disabled>
+          </div>
+        </div>
+
+        <div class="demo col">
+          <span class="demo-label">Select &amp; colour</span>
+          <div class="field">
+            <label for="f5">Style preset</label>
+            <select class="input" id="f5">
+              <option>Stone Dungeon</option>
+              <option>Wood Tavern</option>
+              <option>Cave / Natural</option>
+              <option>Crypt</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Floor colour</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button class="colorchip" style="background:#6b7355;" aria-label="Floor colour"></button>
+              <input class="input num" value="#6B7355" style="width: 88px;">
+            </div>
+          </div>
+          <div class="field">
+            <label>Falloff</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button class="btn btn-secondary sz-xs" aria-pressed="true">Linear</button>
+              <button class="btn btn-ghost sz-xs">Quadratic</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="demo col">
+          <span class="demo-label">Sliders &amp; switches</span>
+          <div class="field">
+            <label for="f6">Light radius <span style="color:var(--text-muted);font-variant-numeric:tabular-nums;">· 8.5</span></label>
+            <input class="slider" type="range" id="f6" min="0" max="20" value="8.5" step="0.5">
+          </div>
+          <div class="field">
+            <label for="f7">Bright zone <span style="color:var(--text-muted);font-variant-numeric:tabular-nums;">· 40%</span></label>
+            <input class="slider" type="range" id="f7" min="0" max="100" value="40">
+          </div>
+          <div style="display:flex;align-items:center;gap:9px;font-size:12px;">
+            <button class="toggle" role="switch" aria-checked="true" aria-label="Snap to grid"></button> Snap to grid
+          </div>
+          <div style="display:flex;align-items:center;gap:9px;font-size:12px;">
+            <button class="toggle" role="switch" aria-checked="false" aria-label="Rough edges"></button> Rough edges
+          </div>
+          <div style="display:flex;align-items:center;gap:9px;font-size:12px;">
+            <button class="check" role="checkbox" aria-checked="true" aria-label="Blocks vision">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>
+            </button> Blocks vision
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="head-row">
+        <span class="eyebrow">Containers</span>
+        <h2>Panels, sections, tabs, menus, dialogs</h2>
+      </div>
+
+      <div class="grid-3">
+        <div class="demo col pad-lg">
+          <span class="demo-label">Panel with rows</span>
+          <div class="panel">
+            <div class="panel-head"><span>Layers</span><span class="badge">3</span></div>
+            <div class="panel-body">
+              <div class="row" aria-selected="true" tabindex="0">
+                <span class="handle"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span>
+                <span class="grow">Dungeon floor</span><span class="meta">42</span>
+              </div>
+              <div class="row" tabindex="0">
+                <span class="handle"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span>
+                <span class="grow">Walls</span><span class="meta">118</span>
+              </div>
+              <div class="row" tabindex="0">
+                <span class="handle"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span>
+                <span class="grow">Lights</span><span class="meta">7</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="demo col pad-lg">
+          <span class="demo-label">Collapsible sections &amp; tabs</span>
+          <div class="tabs">
+            <button class="tab" aria-selected="true">Properties</button>
+            <button class="tab" aria-selected="false">Assets</button>
+            <button class="tab" aria-selected="false">Maps</button>
+          </div>
+          <div class="collapsible" data-open="true">
+            <button aria-expanded="true">
+              <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg></span>
+              Light
+            </button>
+            <div class="collapsible-body">
+              <div class="field">
+                <label for="f8">Intensity</label>
+                <input class="slider" type="range" id="f8" min="0" max="100" value="72">
+              </div>
+            </div>
+          </div>
+          <div class="collapsible" data-open="false">
+            <button aria-expanded="false">
+              <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg></span>
+              Shadow
+            </button>
+            <div class="collapsible-body"><span class="hint">Hidden while collapsed.</span></div>
+          </div>
+        </div>
+
+        <div class="demo col pad-lg">
+          <span class="demo-label">Context menu</span>
+          <div class="ctxmenu">
+            <button class="ctxitem">Duplicate <span class="k"><span class="kbd">Ctrl</span> <span class="kbd">D</span></span></button>
+            <button class="ctxitem">Bring forward <span class="k"><span class="kbd">]</span></span></button>
+            <button class="ctxitem">Send backward <span class="k"><span class="kbd">[</span></span></button>
+            <div class="ctxsep"></div>
+            <button class="ctxitem">Lock layer</button>
+            <button class="ctxitem danger">Delete <span class="k"><span class="kbd">Del</span></span></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="dialog-scrim">
+          <div class="dialog">
+            <div class="dialog-head">Delete “The Sunken Vestry”?</div>
+            <div class="dialog-body">This removes the scene and everything drawn on it. Players currently at the table will be moved to the lobby.</div>
+            <div class="dialog-foot">
+              <button class="btn btn-ghost sz-sm">Keep it</button>
+              <button class="btn btn-destructive sz-sm">Delete scene</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="demo col">
+          <span class="demo-label">Toasts — sonner's pill, tokenised colour</span>
+          <div class="toast ok"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 13l4 4L19 7"/></svg></span> Scene saved</div>
+          <div class="toast err"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M18 6L6 18M6 6l12 12"/></svg></span> Couldn't reach the table — retrying</div>
+          <div class="toast warn"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 9v5M12 17.5v.5"/><path d="M10.3 3.9L2.6 17.4A1.7 1.7 0 004 20h16a1.7 1.7 0 001.5-2.6L13.7 3.9a1.9 1.9 0 00-3.4 0z"/></svg></span> Two lights share a position</div>
+          <div class="toast info"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.5"/></svg></span> Wren joined the table</div>
+        </div>
+      </div>
+
+      <div class="demo">
+        <span class="demo-label">Status bar</span>
+        <div class="statusbar">
+          <span>x 42.5 · y 118.0</span>
+          <span class="sep"></span>
+          <span>zoom 68%</span>
+          <span class="sep"></span>
+          <span>3 selected</span>
+          <span class="push" style="display:flex;align-items:center;gap:7px;"><span class="mark here"></span> Connected · 24ms</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="head-row">
+        <span class="eyebrow">Density</span>
+        <h2>One system, two densities</h2>
+        <p class="lede">This split already exists in the code and is deliberate: canvas declares a 10–12px panel type scale for authoring density, and the runner's config explicitly refuses it because that chrome gets read across a table in a dim room. Same tokens, same components, different scale — that's the part worth keeping.</p>
+      </div>
+      <div class="density">
+        <div class="demo col dens-editor">
+          <span class="demo-label">Editor — authoring density</span>
+          <div class="panel">
+            <div class="panel-head"><span>Properties</span></div>
+            <div class="panel-body">
+              <div class="row" tabindex="0"><span class="grow">Blocks vision</span><button class="toggle" role="switch" aria-checked="true" aria-label="Blocks vision"></button></div>
+              <div class="row" tabindex="0"><span class="grow">Blocks light</span><button class="toggle" role="switch" aria-checked="true" aria-label="Blocks light"></button></div>
+              <div class="row" tabindex="0"><span class="grow">Blocks movement</span><button class="toggle" role="switch" aria-checked="false" aria-label="Blocks movement"></button></div>
+            </div>
+          </div>
+        </div>
+        <div class="demo col dens-runner">
+          <span class="demo-label">Runner — across-the-table density</span>
+          <div class="panel">
+            <div class="panel-head"><span>At the table</span></div>
+            <div class="panel-body">
+              <div class="row" tabindex="0"><span class="mark here"></span><span class="grow">Wren</span><span class="meta">28ms</span></div>
+              <div class="row" tabindex="0"><span class="mark here"></span><span class="grow">Bel</span><span class="meta">41ms</span></div>
+              <div class="row" tabindex="0"><span class="mark away"></span><span class="grow">Tomas</span><span class="meta">away</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="head-row">
+        <span class="eyebrow">What lands in code</span>
+        <h2>The four files</h2>
+        <p class="lede">Tailwind theme values first, since components reference those names directly. The shadcn variables map onto the same scale one-for-one.</p>
+      </div>
+      <div class="codeblock" id="codeout"></div>
+      <p class="note">Also needed: a light block for the runner (it has never had one), a theme switch with a stored preference, and deleting the sonner hard-coded colours so toasts inherit tokens.</p>
+    </section>
+
+    <section class="block">
+      <div class="head-row">
+        <span class="eyebrow">Found while building</span>
+        <h2>Loose ends worth a decision</h2>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th style="width: 28%;">Issue</th><th>Detail</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Typeface split across apps</td>
+              <td class="a">Canvas pulls Cinzel, Raleway and Space Mono from the Google Fonts CDN; the runner refuses webfonts on purpose so a live table never waits on a CDN. Right now the two apps literally render in different faces. Either self-host one shared face for both, or drop to system sans everywhere and keep a display face for marketing only. Recommendation: self-host one text face, system stack as the fallback, display face never in-app.</td>
+            </tr>
+            <tr>
+              <td>Radius disagrees with itself</td>
+              <td class="a"><code>--radius</code> is <code>0.25rem</code> (4px), but <code>button.tsx</code> uses <code>rounded-lg</code> and references <code>--radius-md</code>, which is not declared in either app's block. Buttons above use 6px, controls 4px, chips 2px — pick a scale and declare all three.</td>
+            </tr>
+            <tr>
+              <td>Sonner is outside the system</td>
+              <td class="a">Hard-coded blue-grey pills with per-type border tints in raw rgba. The pill shape is good and worth keeping; the colours should come from tokens.</td>
+            </tr>
+            <tr>
+              <td>Semantic <code>success</code> equals the accent</td>
+              <td class="a">Accepted deliberately, with shape carrying presence state instead. Worth confirming you agree rather than discovering it later.</td>
+            </tr>
+            <tr>
+              <td>Contrast needs a real check</td>
+              <td class="a">Day-mode <code>text-muted</code> on <code>surface-1</code> is the tightest pair here and lands close to 4.5:1. It should be measured against PRODUCT.md's ≥4.5:1 commitment before this ships, not eyeballed.</td>
+            </tr>
+            <tr>
+              <td>Sprint 3 is mid-flight</td>
+              <td class="a">The branch is paused before its verification gate. Retheming both apps now would churn the visual E2E baseline and muddy that gate — this belongs on its own branch after Sprint 3 closes.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script>
+  (function () {
+    var sys = document.getElementById('sys');
+    var codeout = document.getElementById('codeout');
+    var buttons = Array.prototype.slice.call(document.querySelectorAll('.mode-btn'));
+
+    var VALUES = {
+      day: {
+        'surface-0': '#e3e7db', 'surface-1': '#eef1e8', 'surface-2': '#dce0d1', 'surface-3': '#cdd4bf',
+        'text-primary': '#1f251c', 'text-secondary': '#4d5645', 'text-muted': '#5c6555',
+        'border-subtle': '#d3d9c7', 'border-default': '#b6bfa6', 'border-focus': '#3f6b34',
+        'accent-active': '#3f6b34', 'accent-dim': '#6d8b5f',
+        'danger': '#a33a2b', 'warning': '#8a6410', 'success': '#3f6b34'
+      },
+      night: {
+        'surface-0': '#0b0d0a', 'surface-1': '#141712', 'surface-2': '#1c211a', 'surface-3': '#262c23',
+        'text-primary': '#e4e9dd', 'text-secondary': '#a8b09f', 'text-muted': '#7c8675',
+        'border-subtle': '#1f251d', 'border-default': '#2b3327', 'border-focus': '#86b566',
+        'accent-active': '#86b566', 'accent-dim': '#5f7f4c',
+        'danger': '#c0392b', 'warning': '#d4a017', 'success': '#86b566'
+      }
+    };
+
+    var NOTES = {
+      'surface-0': 'app background',
+      'surface-1': 'panels',
+      'surface-2': 'cards, nested, hover',
+      'surface-3': 'active / pressed',
+      'border-focus': 'was #FFFFFF',
+      'accent-active': 'was #FFFFFF',
+      'success': 'same hue as accent — shape carries state'
+    };
+
+    var HX = {
+      'hx-s0': 'surface-0', 'hx-s1': 'surface-1', 'hx-s2': 'surface-2', 'hx-s3': 'surface-3',
+      'hx-tp': 'text-primary', 'hx-ts': 'text-secondary', 'hx-tm': 'text-muted', 'hx-aa': 'accent-active'
+    };
+
+    function render(mode) {
+      var v = VALUES[mode];
+      Object.keys(HX).forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.textContent = v[HX[id]].toUpperCase();
+      });
+
+      var lines = Object.keys(v).map(function (k) {
+        var quoted = "'" + k + "'";
+        var pad = '                  '.slice(0, Math.max(1, 18 - quoted.length));
+        var note = NOTES[k] ? '   // ' + NOTES[k] : '';
+        return '    ' + quoted + ':' + pad + "<b>'" + v[k] + "'</b>," + note;
+      });
+
+      codeout.innerHTML =
+        '<i>// canvas/tailwind.config.ts + session/client/tailwind.config.ts</i>\n' +
+        '<i>// theme.extend.colors — ' + (mode === 'day' ? 'Moss Day' : 'Moss Night') + '</i>\n' +
+        '  colors: {\n' + lines.join('\n') + '\n  }\n\n' +
+        '<i>// canvas/src/index.css + session/client/src/index.css — shadcn mapping</i>\n' +
+        '  --background:  <b>' + v['surface-0'] + '</b>;\n' +
+        '  --card:        <b>' + v['surface-1'] + '</b>;\n' +
+        '  --popover:     <b>' + v['surface-1'] + '</b>;\n' +
+        '  --secondary:   <b>' + v['surface-2'] + '</b>;\n' +
+        '  --muted:       <b>' + v['surface-2'] + '</b>;\n' +
+        '  --accent:      <b>' + v['surface-3'] + '</b>;\n' +
+        '  --foreground:  <b>' + v['text-primary'] + '</b>;\n' +
+        '  --muted-foreground: <b>' + v['text-muted'] + '</b>;\n' +
+        '  --border:      <b>' + v['border-default'] + '</b>;\n' +
+        '  --input:       <b>' + v['border-default'] + '</b>;\n' +
+        '  --ring:        <b>' + v['border-focus'] + '</b>;\n' +
+        '  --primary:     <b>' + v['accent-active'] + '</b>;\n' +
+        '  --destructive: <b>' + v['danger'] + '</b>;';
+    }
+
+    buttons.forEach(function (b) {
+      b.addEventListener('click', function () {
+        sys.setAttribute('data-mode', b.dataset.val);
+        buttons.forEach(function (o) { o.setAttribute('aria-pressed', String(o === b)); });
+        render(b.dataset.val);
+      });
+    });
+
+    // collapsible demo
+    Array.prototype.slice.call(document.querySelectorAll('.collapsible > button')).forEach(function (b) {
+      b.addEventListener('click', function () {
+        var box = b.parentElement;
+        var open = box.getAttribute('data-open') === 'true';
+        box.setAttribute('data-open', String(!open));
+        b.setAttribute('aria-expanded', String(!open));
+      });
+    });
+
+    // toggles / checks
+    Array.prototype.slice.call(document.querySelectorAll('.toggle, .check')).forEach(function (t) {
+      t.addEventListener('click', function () {
+        t.setAttribute('aria-checked', t.getAttribute('aria-checked') === 'true' ? 'false' : 'true');
+      });
+    });
+
+    // tabs
+    Array.prototype.slice.call(document.querySelectorAll('.tabs')).forEach(function (bar) {
+      var tabs = Array.prototype.slice.call(bar.querySelectorAll('.tab'));
+      tabs.forEach(function (t) {
+        t.addEventListener('click', function () {
+          tabs.forEach(function (o) { o.setAttribute('aria-selected', String(o === t)); });
+        });
+      });
+    });
+
+    render('day');
+  })();
+</script>

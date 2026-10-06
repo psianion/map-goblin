@@ -1,0 +1,339 @@
+<title>Goblin Keys</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Karla:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #10140f;
+    --surface: #171c15;
+    --border: #2a3226;
+    --text: #e8ecdf;
+    --muted: #9aa78e;
+    --accent: #a3c47c;
+    --chip-bg: #1e2519;
+    --chip-border: #3a4433;
+    --chip-text: #cde3ac;
+    --mouse-text: #b7c9e0;
+    --mouse-border: #34404d;
+    --note-bg: #1b2118;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f2f4ec;
+      --surface: #fbfcf7;
+      --border: #d9decc;
+      --text: #232b1e;
+      --muted: #5c6852;
+      --accent: #47691f;
+      --chip-bg: #edf1e0;
+      --chip-border: #c4cdae;
+      --chip-text: #3c5417;
+      --mouse-text: #33506e;
+      --mouse-border: #b9c8d8;
+      --note-bg: #eef1e4;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f2f4ec;
+    --surface: #fbfcf7;
+    --border: #d9decc;
+    --text: #232b1e;
+    --muted: #5c6852;
+    --accent: #47691f;
+    --chip-bg: #edf1e0;
+    --chip-border: #c4cdae;
+    --chip-text: #3c5417;
+    --mouse-text: #33506e;
+    --mouse-border: #b9c8d8;
+    --note-bg: #eef1e4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Karla', system-ui, sans-serif;
+    font-size: 13.5px;
+    line-height: 1.45;
+    margin: 0;
+    padding: 28px 24px 56px;
+  }
+  header { max-width: 1200px; margin: 0 auto 22px; }
+  h1 {
+    font-family: 'Bricolage Grotesque', Georgia, serif;
+    font-weight: 700;
+    font-size: 30px;
+    letter-spacing: -0.01em;
+    margin: 0 0 4px;
+  }
+  h1 .gg { color: var(--accent); }
+  header p { color: var(--muted); margin: 0; max-width: 70ch; }
+  .cols {
+    max-width: 1200px;
+    margin: 0 auto;
+    columns: 330px;
+    column-gap: 16px;
+  }
+  section {
+    break-inside: avoid;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 13px 14px 11px;
+    margin: 0 0 16px;
+  }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.13em;
+    color: var(--accent);
+    margin: 0 0 9px;
+  }
+  h2 small {
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--muted);
+    font-family: 'Karla', system-ui, sans-serif;
+    font-weight: 400;
+    font-size: 11.5px;
+  }
+  .row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 2.5px 0;
+  }
+  .row .k { flex: 0 0 118px; text-align: right; white-space: nowrap; }
+  .row .a { flex: 1; }
+  .row .a em { color: var(--muted); font-style: normal; }
+  kbd, .m {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    border-radius: 4px;
+    padding: 1px 5px 2px;
+    white-space: nowrap;
+  }
+  kbd {
+    background: var(--chip-bg);
+    border: 1px solid var(--chip-border);
+    border-bottom-width: 2px;
+    color: var(--chip-text);
+  }
+  .m {
+    border: 1px dashed var(--mouse-border);
+    color: var(--mouse-text);
+  }
+  .plus { color: var(--muted); font-size: 11px; padding: 0 1px; }
+  .group {
+    font-weight: 600;
+    font-size: 12.5px;
+    margin: 8px 0 2px;
+  }
+  .group:first-of-type { margin-top: 0; }
+  .group em { color: var(--muted); font-weight: 400; font-style: normal; }
+  ol.ladder { margin: 4px 0 2px; padding-left: 20px; }
+  ol.ladder li { padding: 1.5px 0; }
+  ol.ladder li em { color: var(--muted); font-style: normal; }
+  .note {
+    background: var(--note-bg);
+    border-radius: 5px;
+    padding: 6px 9px;
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 8px;
+  }
+  .note b { color: var(--text); font-weight: 600; }
+</style>
+
+<header>
+  <h1><span class="gg">Good Goblin</span> — keys &amp; mouse cheatsheet</h1>
+  <p>Solid chips are keyboard keys, dashed chips are mouse gestures. What a key does depends on the active tool and mode — the ladders in <b>“What Esc &amp; Delete mean”</b> show the exact order. Press <b>?</b> in the editor for the built-in reference.</p>
+</header>
+
+<div class="cols">
+
+<section>
+  <h2>Editor · Tools</h2>
+  <div class="row"><span class="k"><kbd>V</kbd></span><span class="a">Select</span></div>
+  <div class="row"><span class="k"><kbd>G</kbd></span><span class="a">Pan</span></div>
+  <div class="row"><span class="k"><kbd>R</kbd></span><span class="a">Rectangle</span></div>
+  <div class="row"><span class="k"><kbd>P</kbd></span><span class="a">Polygon</span></div>
+  <div class="row"><span class="k"><kbd>H</kbd></span><span class="a">Regular polygon</span></div>
+  <div class="row"><span class="k"><kbd>A</kbd></span><span class="a">Path (corridor)</span></div>
+  <div class="row"><span class="k"><kbd>W</kbd></span><span class="a">Wall</span></div>
+  <div class="row"><span class="k"><kbd>D</kbd></span><span class="a">Door</span></div>
+  <div class="row"><span class="k"><kbd>L</kbd></span><span class="a">Light</span></div>
+  <div class="row"><span class="k"><kbd>T</kbd></span><span class="a">Terrain brush</span></div>
+  <div class="row"><span class="k"><kbd>U</kbd></span><span class="a">Water</span></div>
+  <div class="row"><span class="k"><kbd>Z</kbd></span><span class="a">Zone</span></div>
+  <div class="row"><span class="k"><kbd>N</kbd></span><span class="a">Label</span></div>
+  <div class="row"><span class="k"><kbd>M</kbd></span><span class="a">Measure (ruler)</span></div>
+  <div class="note">Pressing the <b>active</b> tool's key again opens its settings popover (all except V, G, N, M).</div>
+</section>
+
+<section>
+  <h2>Editor · Drawing modes</h2>
+  <div class="row"><span class="k"><kbd>E</kbd></span><span class="a">Erase mode — drawing tools subtract instead of add</span></div>
+  <div class="row"><span class="k"><kbd>X</kbd></span><span class="a">Rough / smooth outline</span></div>
+  <div class="row"><span class="k"><kbd>C</kbd></span><span class="a">Curved / straight segments</span></div>
+</section>
+
+<section>
+  <h2>Editor · Edit</h2>
+  <div class="row"><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Z</kbd></span><span class="a">Undo</span></div>
+  <div class="row"><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Y</kbd></span><span class="a">Redo <em>(also Ctrl+Shift+Z)</em></span></div>
+  <div class="row"><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>C</kbd> / <kbd>X</kbd> / <kbd>V</kbd></span><span class="a">Copy / cut / paste <em>(paste lands +1 square, on the active layer)</em></span></div>
+  <div class="row"><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>D</kbd></span><span class="a">Duplicate into its own layer, selection follows the copy</span></div>
+  <div class="row"><span class="k"><kbd>Del</kbd> / <kbd>Bksp</kbd></span><span class="a">Delete selection</span></div>
+  <div class="row"><span class="k"><kbd>Shift</kbd><span class="plus">+</span><kbd>H</kbd> / <kbd>V</kbd></span><span class="a">Flip selection horizontal / vertical</span></div>
+  <div class="row"><span class="k"><kbd>←↑→↓</kbd></span><span class="a">Nudge selection 1 square</span></div>
+  <div class="row"><span class="k"><kbd>Shift</kbd><span class="plus">+</span><kbd>←↑→↓</kbd></span><span class="a">Nudge ¼ square</span></div>
+  <div class="note">Selection shortcuts need the Select tool active and no node-edit session open — arrows there move nodes, not the shape.</div>
+</section>
+
+<section>
+  <h2>Editor · File</h2>
+  <div class="row"><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>S</kbd></span><span class="a">Save map</span></div>
+  <div class="row"><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>O</kbd></span><span class="a">Open map</span></div>
+  <div class="row"><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>E</kbd></span><span class="a">Export (PNG / JPEG)</span></div>
+  <div class="row"><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>I</kbd></span><span class="a">Import image <em>(or drag-drop / paste an image onto the canvas)</em></span></div>
+  <div class="row"><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Shift</kbd><span class="plus">+</span><kbd>N</kbd></span><span class="a">New map</span></div>
+</section>
+
+<section>
+  <h2>Editor · View &amp; navigation</h2>
+  <div class="row"><span class="k"><span class="m">wheel</span></span><span class="a">Zoom about the cursor</span></div>
+  <div class="row"><span class="k"><span class="m">mid-drag</span></span><span class="a">Pan — works with any tool</span></div>
+  <div class="row"><span class="k"><span class="m">right-click</span></span><span class="a">Context menu — always, on any tool</span></div>
+  <div class="row"><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>0</kbd></span><span class="a">Zoom to fit</span></div>
+  <div class="row"><span class="k"><kbd>`</kbd></span><span class="a">Cycle focus mode: auto → manual → fullscreen</span></div>
+  <div class="row"><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Shift</kbd><span class="plus">+</span><kbd>M</kbd></span><span class="a">Toggle maps panel</span></div>
+  <div class="row"><span class="k"><kbd>?</kbd></span><span class="a">Shortcut reference</span></div>
+</section>
+
+<section>
+  <h2>Mouse · By tool family</h2>
+  <div class="group">Chain tools <em>— Wall, Path, Polygon, Water (lake)</em></div>
+  <div class="row"><span class="k"><span class="m">click</span></span><span class="a">Add a point</span></div>
+  <div class="row"><span class="k"><span class="m">dbl-click</span></span><span class="a">Commit the chain <em>(Polygon: click near the first point closes it)</em></span></div>
+  <div class="row"><span class="k"><kbd>Enter</kbd> / <kbd>Esc</kbd></span><span class="a">Commit / cancel the chain</span></div>
+  <div class="row"><span class="k"><kbd>Shift</kbd><span class="plus">+</span><span class="m">move</span></span><span class="a">Snap the pending segment to 15° steps</span></div>
+  <div class="group">Drag tools <em>— Rectangle, Regular polygon, Water (river), Ruler, Terrain</em></div>
+  <div class="row"><span class="k"><span class="m">drag</span></span><span class="a">Draw / paint / measure; release commits</span></div>
+  <div class="row"><span class="k"><kbd>Shift</kbd><span class="plus">+</span><span class="m">drag</span></span><span class="a">Rectangle: constrain to a square</span></div>
+  <div class="group">Click tools <em>— Light, Label, Stamp/Scatter</em></div>
+  <div class="row"><span class="k"><span class="m">click</span></span><span class="a">Place at the cursor <em>(lights attach to a nearby asset; label text is edited in the properties panel)</em></span></div>
+  <div class="group">Door</div>
+  <div class="row"><span class="k"><span class="m">click</span></span><span class="a">Place on the nearest wall / select an existing door</span></div>
+  <div class="row"><span class="k"><span class="m">dbl-click</span></span><span class="a">Cycle closed → open → locked</span></div>
+  <div class="row"><span class="k"><span class="m">drag</span></span><span class="a">Slide the door along its wall (re-anchors as you cross walls)</span></div>
+  <div class="row"><span class="k"><kbd>Del</kbd></span><span class="a">Delete selected (or hovered) door</span></div>
+  <div class="group">Zone</div>
+  <div class="row"><span class="k"><span class="m">click / drag</span></span><span class="a">Place a point zone, or drag out a circle/rect zone; drag a marker to move it</span></div>
+</section>
+
+<section>
+  <h2>Select tool</h2>
+  <div class="row"><span class="k"><span class="m">click</span></span><span class="a">Select; drag in the same gesture to move</span></div>
+  <div class="row"><span class="k"><span class="m">drag empty</span></span><span class="a">Marquee select <em>(Shift on release adds to selection)</em></span></div>
+  <div class="row"><span class="k"><kbd>Shift</kbd><span class="plus">+</span><span class="m">click</span></span><span class="a">Toggle item in/out of selection</span></div>
+  <div class="row"><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><span class="m">click</span></span><span class="a">Toggle the whole layer's children</span></div>
+  <div class="row"><span class="k"><span class="m">dbl-click</span></span><span class="a">Light/door: toggle it · wall: edit its stones · floor/shape: edit its outline</span></div>
+  <div class="row"><span class="k"><kbd>Alt</kbd><span class="plus">+</span><span class="m">drag empty</span></span><span class="a">Region-cut mode on the merged floor</span></div>
+  <div class="group">While dragging a gizmo handle</div>
+  <div class="row"><span class="k"><kbd>Shift</kbd></span><span class="a">Corner handle: free the aspect ratio · rotate handle: snap the angle</span></div>
+  <div class="row"><span class="k"><kbd>Ctrl</kbd></span><span class="a">Invert grid snap for this drag</span></div>
+  <div class="row"><span class="k"><kbd>Alt</kbd></span><span class="a">Resize about the center</span></div>
+  <div class="row"><span class="k"><kbd>Esc</kbd></span><span class="a">Abort the drag, nothing commits</span></div>
+</section>
+
+<section>
+  <h2>Node edit · Wall stones <small>(dbl-click a wall)</small></h2>
+  <div class="row"><span class="k"><span class="m">click / drag</span></span><span class="a">Select a stone / move it <em>(Shift+click builds a group)</em></span></div>
+  <div class="row"><span class="k"><kbd>[</kbd> <kbd>]</kbd></span><span class="a">Rotate stone −/+ 5°</span></div>
+  <div class="row"><span class="k"><kbd>-</kbd> <kbd>=</kbd></span><span class="a">Scale stone down / up</span></div>
+  <div class="row"><span class="k"><kbd>,</kbd> <kbd>.</kbd></span><span class="a">Tighten / widen the gap after the stone</span></div>
+  <div class="row"><span class="k"><kbd>Tab</kbd></span><span class="a">Swap to the next piece of the same role</span></div>
+  <div class="row"><span class="k"><kbd>{</kbd> <kbd>}</kbd></span><span class="a">Insert a stone before / after</span></div>
+  <div class="row"><span class="k"><kbd>Del</kbd></span><span class="a">Remove the stone</span></div>
+  <div class="row"><span class="k"><kbd>Esc</kbd></span><span class="a">Cancel a drag, then exit edit mode</span></div>
+</section>
+
+<section>
+  <h2>Node edit · Cave bands <small>(dbl-click a band)</small></h2>
+  <div class="row"><span class="k"><span class="m">drag joint</span></span><span class="a">Reshape the band; the kit re-fits pieces live</span></div>
+  <div class="row"><span class="k"><kbd>{</kbd> <kbd>}</kbd></span><span class="a">Drop a new joint handle before / after</span></div>
+  <div class="row"><span class="k"><kbd>Tab</kbd></span><span class="a">Re-lay the whole band over the floor outline</span></div>
+  <div class="row"><span class="k"><kbd>Del</kbd></span><span class="a">Straighten — remove joint(s), re-walk that stretch</span></div>
+</section>
+
+<section>
+  <h2>Node edit · Shape outlines <small>(dbl-click a floor/shape)</small></h2>
+  <div class="row"><span class="k"><span class="m">drag vertex/edge</span></span><span class="a">Move it; the floor and walls follow</span></div>
+  <div class="row"><span class="k"><span class="m">click edge ○</span></span><span class="a">Insert a vertex at the midpoint marker</span></div>
+  <div class="row"><span class="k"><kbd>Alt</kbd><span class="plus">+</span><span class="m">drag vertex</span></span><span class="a">Pull out curve tangents</span></div>
+  <div class="row"><span class="k"><kbd>Alt</kbd><span class="plus">+</span><span class="m">drag edge</span></span><span class="a">Bow the edge toward the cursor</span></div>
+  <div class="row"><span class="k"><span class="m">dbl-click vertex</span></span><span class="a">Toggle corner ↔ smooth</span></div>
+  <div class="row"><span class="k"><kbd>Del</kbd></span><span class="a">Delete the selected vertex</span></div>
+  <div class="row"><span class="k"><kbd>Esc</kbd></span><span class="a">Cancel a drag, then exit edit mode</span></div>
+</section>
+
+<section>
+  <h2>What Esc &amp; Delete mean</h2>
+  <div class="group">Esc <em>— first match wins</em></div>
+  <ol class="ladder">
+    <li>Node/outline edit: cancel the drag in flight <em>(stays in edit mode)</em></li>
+    <li>Node/outline edit: exit the mode</li>
+    <li>Active tool: cancel its chain / drag / preview</li>
+    <li>Clear layer solo, leave the terrain panel</li>
+  </ol>
+  <div class="group">Delete / Backspace</div>
+  <ol class="ladder">
+    <li>Outline edit: the selected vertex</li>
+    <li>Wall/band edit: the selected stone or joint</li>
+    <li>Otherwise: the selected shape(s)</li>
+  </ol>
+  <div class="note">Same idea everywhere: the innermost editing session claims the key first.</div>
+</section>
+
+<section>
+  <h2>Layers panel</h2>
+  <div class="row"><span class="k"><kbd>↑</kbd> <kbd>↓</kbd></span><span class="a">Move through rows</span></div>
+  <div class="row"><span class="k"><kbd>Enter</kbd></span><span class="a">Select layer <em>(on the grip: grab/drop to reorder, also Space)</em></span></div>
+  <div class="row"><span class="k"><kbd>F2</kbd> / <span class="m">dbl-click</span></span><span class="a">Rename</span></div>
+  <div class="row"><span class="k"><kbd>Space</kbd></span><span class="a">Show / hide</span></div>
+  <div class="row"><span class="k"><kbd>Del</kbd></span><span class="a">Delete layer</span></div>
+  <div class="row"><span class="k"><kbd>Alt</kbd><span class="plus">+</span><span class="m">click</span></span><span class="a">Solo the layer <em>(Esc exits solo)</em></span></div>
+  <div class="row"><span class="k"><kbd>Ctrl</kbd><span class="plus">+</span><span class="m">click</span></span><span class="a">Select all the layer's children</span></div>
+  <div class="row"><span class="k"><kbd>Shift</kbd><span class="plus">+</span><kbd>F10</kbd></span><span class="a">Row menu</span></div>
+</section>
+
+<section>
+  <h2>Table · Panels &amp; play</h2>
+  <div class="row"><span class="k"><kbd>M</kbd></span><span class="a">Me</span></div>
+  <div class="row"><span class="k"><kbd>T</kbd></span><span class="a">Tokens</span></div>
+  <div class="row"><span class="k"><kbd>D</kbd></span><span class="a">Doors</span></div>
+  <div class="row"><span class="k"><kbd>I</kbd></span><span class="a">Initiative</span></div>
+  <div class="row"><span class="k"><kbd>L</kbd></span><span class="a">Lights <em>(DM)</em> · Log drawer <em>(player)</em></span></div>
+  <div class="row"><span class="k"><kbd>F</kbd> <kbd>S</kbd> <kbd>W</kbd> <kbd>G</kbd></span><span class="a">Fog · Scene · World · Triggers <em>(DM)</em></span></div>
+  <div class="row"><span class="k"><kbd>R</kbd> / <kbd>H</kbd> / <kbd>B</kbd></span><span class="a">Arm fog reveal / hide / brush <em>(DM)</em></span></div>
+  <div class="row"><span class="k"><kbd>N</kbd></span><span class="a">Next initiative turn <em>(DM, order locked)</em></span></div>
+  <div class="row"><span class="k"><kbd>/</kbd></span><span class="a">Focus the roll composer</span></div>
+  <div class="row"><span class="k"><kbd>Shift</kbd><span class="plus">+</span><kbd>D</kbd></span><span class="a">Diagnostics overlay</span></div>
+  <div class="group">Esc <em>— first match wins</em></div>
+  <ol class="ladder">
+    <li>Close the open popover</li>
+    <li>Close the drawer</li>
+    <li>Deselect door, then token</li>
+    <li>Disarm the active tool</li>
+  </ol>
+</section>
+
+<section>
+  <h2>Table · Camera</h2>
+  <div class="row"><span class="k"><span class="m">drag</span></span><span class="a">Pan <em>(left or middle button)</em></span></div>
+  <div class="row"><span class="k"><span class="m">wheel</span></span><span class="a">Zoom about the cursor <em>(pinch works too)</em></span></div>
+  <div class="row"><span class="k"><kbd>+</kbd> <kbd>-</kbd></span><span class="a">Zoom in / out about the center</span></div>
+  <div class="row"><span class="k"><kbd>0</kbd></span><span class="a">Fit the map — the opening view</span></div>
+</section>
+
+</div>

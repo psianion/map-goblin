@@ -1,0 +1,394 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 350" width="800" height="700">
+<!--
+====================================================================================
+  GOOD GOBLIN loader background. Hand-authored SVG. No scripts, no animation,
+  no external refs, literal hex only.
+====================================================================================
+
+  SCENE CONTRACT
+    viewBox 0 0 400 350. Die (hull R=80) centres at (200,210); its bottom vertex
+    lands on the floor at (200,290). Goblin rises behind the die through
+    x 130..270, roughly y 80..210. Counter and wordmark live below the SVG.
+
+  GROUPS
+    #bg-scene   everything BEHIND the die and goblin. Drop it in first.
+    #bg-fore    sparse atmosphere that composites IN FRONT of die and goblin.
+                Motes #bg-mote-1 .. #bg-mote-10, wisps #bg-wisp-1, #bg-wisp-2.
+    #preview-only-guides   delete on integration. Ghost of the die hull and the
+                goblin keep-clear box so this file can be judged standing alone.
+
+  ONE LIGHT. A torch pool on the floor centred at (200,294), just where the die
+  meets stone. It is baked into the ground here, so the old CSS gradient, the gold
+  ellipse and the AO ellipse all come out. Keep only your soft dynamic AO under the
+  die. Nothing else in the frame emits.
+
+  VALUE DISCIPLINE. The die is the hero and the ground is measured against it.
+  Relative luminance, all measured rather than guessed:
+
+      die centre facet      0.191      <- the ceiling nothing here may approach
+      die inner ring        0.064      <- the die's midtone
+      die outer ring        0.027
+      bg hottest ground     0.049      0.77x the die's midtone, 0.26x its face
+      bg lit slab (unlit)   0.023
+      bg surround           0.005      the pool leads it 10.5x, so it still reads
+
+  The only marks allowed near the die's midtone are hairline: the slab lip catches
+  (0.063 on a 1.3px stroke) and the foreground motes (0.069 on a 1.5px dot). Both
+  sit far under the die's own gold glints. If you retune the pool, re-measure:
+  the ground crosses into competing with the die somewhere around 0.06 flat.
+
+  Detail is dense in the pool and gone within about 90px of it.
+
+  GOBLIN KEEP-CLEAR. x 130..270 above y 250 carries no flagstone seams, no grit and
+  no rubble. It is pure falloff, so the goblin reads against flat darkness.
+
+  EDGE TREATMENT. Per the crypt biome the surround is near-black doing the negative
+  space work, and the lit floor does not fade out on a clean gradient: its perimeter
+  breaks into rubble chunks and torn slab corners, then dies. #bgFloorDissolve is
+  the mask doing the dying.
+
+  TEXTURE. Four noise passes, all clipped to the floor island and all low contrast:
+  blotch (broad damp patches), stone (mid grain), grit (the crisp speckle that
+  pushes this a notch past the die's surface), fine (tooth). Painted over the top:
+  cracks with a lit lip, chipped slab corners, damp sheen where the pool is hottest.
+
+  All ids are bg-prefixed. Verified against die-art.svg: no collisions.
+-->
+
+<defs>
+  <!-- ============ ground and air ============ -->
+  <linearGradient id="bgNight" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="350">
+    <stop offset="0"    stop-color="#07080a"/>
+    <stop offset="0.42" stop-color="#0b0d0e"/>
+    <stop offset="0.72" stop-color="#0d0f10"/>
+    <stop offset="1"    stop-color="#060708"/>
+  </linearGradient>
+
+  <!-- THE torch pool, baked into the floor. Wide spill, then a hotter core.
+       These alphas look absurdly low written down and they are correct: gold at
+       6 percent over near-black stone still gives the pool a 10x luminance lead
+       over the surround, while keeping the hottest composited ground pixel BELOW
+       the die's inner-ring midtone. Raising them is how the ground starts
+       out-lighting the hero. Measured budget: total effective gold alpha over a
+       lit slab must stay under about 0.13. -->
+  <radialGradient id="bgPoolWide">
+    <stop offset="0"    stop-color="#ffb84d" stop-opacity="0.06"/>
+    <stop offset="0.34" stop-color="#e8a04a" stop-opacity="0.036"/>
+    <stop offset="0.64" stop-color="#a9743a" stop-opacity="0.015"/>
+    <stop offset="1"    stop-color="#8a6030" stop-opacity="0"/>
+  </radialGradient>
+  <radialGradient id="bgPoolCore">
+    <stop offset="0"    stop-color="#ffc873" stop-opacity="0.045"/>
+    <stop offset="0.45" stop-color="#f0a344" stop-opacity="0.024"/>
+    <stop offset="1"    stop-color="#c98a3e" stop-opacity="0"/>
+  </radialGradient>
+  <!-- the air above the pool takes a little of the glow, which is what stops the
+       floor from looking like a sticker on black -->
+  <radialGradient id="bgHaze">
+    <stop offset="0"    stop-color="#e09a45" stop-opacity="0.05"/>
+    <stop offset="0.5"  stop-color="#b47a38" stop-opacity="0.02"/>
+    <stop offset="1"    stop-color="#8a6030" stop-opacity="0"/>
+  </radialGradient>
+
+  <!-- the floor recedes into shadow at the very bottom so the wordmark below the
+       SVG has calm dark to sit against -->
+  <linearGradient id="bgBottomFade" gradientUnits="userSpaceOnUse" x1="0" y1="296" x2="0" y2="350">
+    <stop offset="0"   stop-color="#050607" stop-opacity="0"/>
+    <stop offset="0.5" stop-color="#050607" stop-opacity="0.45"/>
+    <stop offset="1"   stop-color="#050607" stop-opacity="0.9"/>
+  </linearGradient>
+
+  <radialGradient id="bgVignette">
+    <stop offset="0"    stop-color="#000000" stop-opacity="0"/>
+    <stop offset="0.55" stop-color="#000000" stop-opacity="0"/>
+    <stop offset="0.78" stop-color="#000000" stop-opacity="0.3"/>
+    <stop offset="1"    stop-color="#000000" stop-opacity="0.72"/>
+  </radialGradient>
+
+  <!-- damp sheen: the stone is wet where the pool is hottest -->
+  <radialGradient id="bgSheen">
+    <stop offset="0"   stop-color="#ffd08a" stop-opacity="0.03"/>
+    <stop offset="1"   stop-color="#ffd08a" stop-opacity="0"/>
+  </radialGradient>
+
+  <!-- ============ texture ============ -->
+  <filter id="bgGrainBlotch" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.011" numOctaves="3" seed="41" result="t"/>
+    <feColorMatrix in="t" type="matrix"
+      values="0 0 0 0 0.09  0 0 0 0 0.09  0 0 0 0 0.085  0.7 0 0 0 -0.26"/>
+  </filter>
+  <filter id="bgGrainStone" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.07" numOctaves="3" seed="13" result="t"/>
+    <feColorMatrix in="t" type="matrix"
+      values="0 0 0 0 0.30  0 0 0 0 0.29  0 0 0 0 0.26  0.8 0 0 0 -0.3"/>
+  </filter>
+  <!-- GRIT. The table transfer clips the noise into crisp specks instead of a
+       smooth veil, which is what reads as real cut stone rather than airbrush.
+       This is the one pass that puts the ground a notch past the die's surface. -->
+  <filter id="bgGrainGrit" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.42" numOctaves="2" seed="61" result="t"/>
+    <feColorMatrix in="t" type="matrix"
+      values="0 0 0 0 0.42  0 0 0 0 0.40  0 0 0 0 0.35  1 0 0 0 -0.52" result="c"/>
+    <feComponentTransfer in="c">
+      <feFuncA type="table" tableValues="0 0 0.15 0.75 1"/>
+    </feComponentTransfer>
+  </filter>
+  <filter id="bgGrainFine" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="t"/>
+    <feColorMatrix in="t" type="matrix"
+      values="0 0 0 0 0.34  0 0 0 0 0.34  0 0 0 0 0.31  0.7 0 0 0 -0.34"/>
+  </filter>
+
+  <!-- ============ the torn island ============ -->
+  <!-- Jagged perimeter, not an ellipse. Grain and sheen are cut to this, so even
+       the texture stops on a broken edge. -->
+  <clipPath id="bgClipFloor">
+    <path d="M 200 244 L 246 246 L 282 250 L 310 247 L 334 256 L 352 253 L 368 264
+             L 360 280 L 374 292 L 366 308 L 380 322 L 372 340 L 388 350 L 12 350
+             L 26 336 L 16 320 L 30 306 L 20 292 L 34 280 L 26 262 L 44 254
+             L 62 258 L 88 248 L 116 252 L 152 246 Z"/>
+  </clipPath>
+  <!-- and the island dies rather than fades: white where the pool lives, gone by
+       the time it reaches the surround -->
+  <radialGradient id="bgDissolveRamp">
+    <stop offset="0"    stop-color="#ffffff" stop-opacity="1"/>
+    <stop offset="0.52" stop-color="#ffffff" stop-opacity="0.94"/>
+    <stop offset="0.76" stop-color="#ffffff" stop-opacity="0.5"/>
+    <stop offset="0.92" stop-color="#ffffff" stop-opacity="0.12"/>
+    <stop offset="1"    stop-color="#ffffff" stop-opacity="0"/>
+  </radialGradient>
+  <mask id="bgFloorDissolve">
+    <ellipse cx="200" cy="296" rx="212" ry="104" fill="url(#bgDissolveRamp)"/>
+  </mask>
+
+  <!-- ============ the scene's own outer edge ============
+       Without this the painted surround stops on the viewBox rectangle and the
+       composed page shows a hard square frame against its own near-black CSS.
+       Three full-frame fills cause it (bgNight, the bottom fade, the vignette),
+       so the cure goes on the group rather than on each of them.
+
+       The contour is deliberately ragged and its inset wanders between about 14
+       and 46px, so the scene does not dissolve on an even border. Blurring that
+       ragged path is what buys the organic falloff: a per-side linear fade would
+       read as a clean vignette frame, which is the thing being fixed. Corners are
+       inset furthest and so vanish first, which is how a torn edge behaves.
+       Feather lands inside the outer 30 to 45px on all four sides. -->
+  <filter id="bgEdgeFeather" x="-20%" y="-20%" width="140%" height="140%">
+    <feGaussianBlur stdDeviation="11"/>
+  </filter>
+  <mask id="bgSceneEdge">
+    <path filter="url(#bgEdgeFeather)" fill="#ffffff"
+          d="M 30 30 L 72 16 L 114 34 L 156 18 L 200 36 L 242 16 L 284 32 L 326 18
+             L 368 34 L 384 72 L 362 110 L 386 148 L 366 186 L 382 224 L 360 262
+             L 384 300 L 366 322 L 324 336 L 282 320 L 240 334 L 198 318 L 156 334
+             L 114 320 L 72 336 L 32 320 L 16 282 L 34 244 L 14 206 L 32 168
+             L 16 130 L 34 92 L 14 54 Z"/>
+  </mask>
+</defs>
+
+
+<!-- ================================================================================
+     BG-SCENE. Everything behind the die and the goblin.
+     ================================================================================ -->
+<g id="bg-scene">
+
+  <!-- near-black surround doing the negative space work -->
+  <rect x="0" y="0" width="400" height="350" fill="url(#bgNight)"/>
+
+  <!-- the glow in the air, under everything, so the floor is not a sticker -->
+  <ellipse cx="200" cy="286" rx="230" ry="150" fill="url(#bgHaze)"/>
+
+  <!-- ===========================================================================
+       THE FLOOR. Worn flagstones, cut by the torn island mask.
+       Slabs get larger toward the bottom of frame as the floor comes forward.
+       Mortar is the gap between slabs: the surround shows through, so the seams
+       are genuinely dark rather than drawn dark lines.
+       =========================================================================== -->
+  <g id="bg-floor" mask="url(#bgFloorDissolve)">
+
+    <!-- a dull under-plane so the mortar gaps are stone-dark, not page-black -->
+    <path d="M 200 244 L 246 246 L 282 250 L 310 247 L 334 256 L 352 253 L 368 264
+             L 360 280 L 374 292 L 366 308 L 380 322 L 372 340 L 388 350 L 12 350
+             L 26 336 L 16 320 L 30 306 L 20 292 L 34 280 L 26 262 L 44 254
+             L 62 258 L 88 248 L 116 252 L 152 246 Z" fill="#141513"/>
+
+    <g id="bg-slabs">
+      <!-- far row -->
+      <path d="M 58 262 L 89 257 L 91 275 L 62 278 Z"      fill="#252625"/>
+      <path d="M 92 256 L 138 254 L 140 274 L 94 275 Z"    fill="#292a28"/>
+      <path d="M 141 254 L 189 253 L 190 274 L 143 274 Z"  fill="#272827"/>
+      <path d="M 192 253 L 240 254 L 241 274 L 193 274 Z"  fill="#2b2c2a"/>
+      <path d="M 243 254 L 292 256 L 290 275 L 244 274 Z"  fill="#282927"/>
+      <path d="M 295 256 L 330 262 L 326 278 L 293 275 Z"  fill="#242524"/>
+      <!-- mid row, the one the die stands on -->
+      <path d="M 40 290 L 71 282 L 73 304 L 44 312 Z"      fill="#232423"/>
+      <path d="M 74 281 L 128 278 L 130 300 L 76 303 Z"    fill="#292a28"/>
+      <path d="M 131 278 L 189 277 L 190 300 L 133 300 Z"  fill="#272826"/>
+      <path d="M 192 277 L 250 278 L 251 300 L 193 300 Z"  fill="#2a2b29"/>
+      <path d="M 253 278 L 308 281 L 306 303 L 252 300 Z"  fill="#2a2b29"/>
+      <path d="M 311 282 L 344 291 L 340 313 L 309 304 Z"  fill="#232423"/>
+      <!-- near row -->
+      <path d="M 20 320 L 59 309 L 61 333 L 26 344 Z"      fill="#1f201f"/>
+      <path d="M 62 308 L 124 304 L 126 328 L 64 332 Z"    fill="#292a28"/>
+      <path d="M 127 304 L 190 303 L 191 328 L 129 328 Z"  fill="#262725"/>
+      <path d="M 193 303 L 256 304 L 257 328 L 194 328 Z"  fill="#2a2b29"/>
+      <path d="M 259 304 L 320 308 L 318 332 L 258 328 Z"  fill="#262725"/>
+      <path d="M 323 309 L 362 321 L 356 345 L 321 333 Z"  fill="#1f201f"/>
+      <!-- nearest row, mostly in the bottom shadow -->
+      <path d="M 48 336 L 122 332 L 124 350 L 50 350 Z"    fill="#212220"/>
+      <path d="M 125 332 L 196 331 L 197 350 L 127 350 Z"  fill="#1e1f1e"/>
+      <path d="M 199 331 L 270 332 L 271 350 L 200 350 Z"  fill="#212220"/>
+      <path d="M 273 332 L 346 336 L 344 350 L 272 350 Z"  fill="#1d1e1d"/>
+    </g>
+
+    <!-- chipped slab corners: bites taken out, filled with the dark under-plane -->
+    <g fill="#141513">
+      <path d="M 189 277 L 189 285 L 181 277 Z"/>
+      <path d="M 250 278 L 250 287 L 259 279 Z"/>
+      <path d="M 126 328 L 118 328 L 126 320 Z"/>
+      <path d="M 193 303 L 202 303 L 193 311 Z"/>
+      <path d="M 292 256 L 284 256 L 291 263 Z"/>
+      <path d="M 64 332 L 73 332 L 64 325 Z"/>
+      <path d="M 256 304 L 256 313 L 248 304 Z"/>
+    </g>
+
+    <!-- cracks. Hairline dark cut with a lit lip on the pool side. -->
+    <g fill="none" stroke-linecap="round">
+      <g stroke="#101110" stroke-width="1.1" opacity="0.85">
+        <path d="M 148 278 q 6 9 3 22"/>
+        <path d="M 216 300 q 10 6 14 17 q 1 6 -2 11"/>
+        <path d="M 96 306 q 14 4 20 14"/>
+        <path d="M 268 258 q 5 7 4 16"/>
+        <path d="M 172 332 q 9 7 11 18"/>
+      </g>
+      <g stroke="#6b4f2c" stroke-width="0.7" opacity="0.3">
+        <path d="M 149.4 278.6 q 6 9 3 21.4"/>
+        <path d="M 217.4 300.6 q 10 6 14 17"/>
+        <path d="M 97 307.4 q 13.6 4 19.4 13.6"/>
+      </g>
+    </g>
+
+    <!-- the torch catching the near lip of each slab. Only slabs inside the pool
+         get one, and the accent stays desaturated brown-gold. -->
+    <g fill="none" stroke-linecap="round" stroke="#75592f">
+      <path d="M 133 300 L 190 300"  stroke-width="1.3" opacity="0.26"/>
+      <path d="M 193 300 L 251 300"  stroke-width="1.3" opacity="0.28"/>
+      <path d="M 76 303 L 130 300"   stroke-width="1.1" opacity="0.15"/>
+      <path d="M 252 300 L 306 303"  stroke-width="1.1" opacity="0.17"/>
+      <path d="M 143 274 L 190 274"  stroke-width="1"   opacity="0.17"/>
+      <path d="M 193 274 L 241 274"  stroke-width="1"   opacity="0.18"/>
+      <path d="M 129 328 L 191 328"  stroke-width="1.1" opacity="0.14"/>
+      <path d="M 194 328 L 257 328"  stroke-width="1.1" opacity="0.15"/>
+      <path d="M 94 275 L 140 274"   stroke-width="0.9" opacity="0.11"/>
+      <path d="M 244 274 L 290 275"  stroke-width="0.9" opacity="0.12"/>
+    </g>
+
+    <!-- four noise passes, all cut to the torn island -->
+    <g clip-path="url(#bgClipFloor)">
+      <rect x="0" y="230" width="400" height="120" filter="url(#bgGrainBlotch)" opacity="0.55"/>
+      <rect x="0" y="230" width="400" height="120" filter="url(#bgGrainStone)"  opacity="0.3"/>
+      <rect x="0" y="230" width="400" height="120" filter="url(#bgGrainGrit)"   opacity="0.16"/>
+      <rect x="0" y="230" width="400" height="120" filter="url(#bgGrainFine)"   opacity="0.12"/>
+    </g>
+  </g>
+
+  <!-- ===========================================================================
+       RUBBLE. The torn edge: the floor does not fade out, it breaks up. Chunks sit
+       around the perimeter, brighter on the side facing the pool, and stop dead.
+       None of them sit in the goblin keep-clear.
+       =========================================================================== -->
+  <g id="bg-rubble">
+    <g fill="#1c1d1c">
+      <path d="M 44 268 q 7 -5 12 -1 q 2 6 -3 9 q -8 1 -9 -8 Z"/>
+      <path d="M 28 300 q 9 -4 13 2 q -1 7 -8 7 q -7 -2 -5 -9 Z"/>
+      <path d="M 62 246 q 8 -3 11 3 q -3 5 -9 5 q -5 -3 -2 -8 Z"/>
+      <path d="M 340 272 q 8 -5 13 0 q 1 7 -6 8 q -8 -1 -7 -8 Z"/>
+      <path d="M 358 302 q 9 -3 12 3 q -3 6 -10 5 q -5 -3 -2 -8 Z"/>
+      <path d="M 322 248 q 7 -4 11 1 q -1 6 -7 6 q -6 -2 -4 -7 Z"/>
+      <path d="M 96 240 q 6 -4 10 0 q 0 5 -5 6 q -6 -1 -5 -6 Z"/>
+      <path d="M 300 240 q 7 -3 10 2 q -2 5 -8 4 q -4 -3 -2 -6 Z"/>
+      <path d="M 14 330 q 8 -4 12 2 q -2 6 -9 6 q -6 -3 -3 -8 Z"/>
+      <path d="M 374 332 q 8 -3 11 3 q -3 6 -9 5 q -5 -4 -2 -8 Z"/>
+    </g>
+    <!-- the pool just catching the top of the nearer chunks -->
+    <g fill="none" stroke="#6f5530" stroke-linecap="round" stroke-width="0.9">
+      <path d="M 45 267 q 6 -4 11 -1"  opacity="0.22"/>
+      <path d="M 29 299 q 8 -3 12 1"   opacity="0.19"/>
+      <path d="M 341 271 q 7 -4 12 0"  opacity="0.22"/>
+      <path d="M 359 301 q 8 -2 11 2"  opacity="0.18"/>
+      <path d="M 63 245 q 7 -2 10 3"   opacity="0.12"/>
+      <path d="M 323 247 q 6 -3 10 1"  opacity="0.12"/>
+    </g>
+  </g>
+
+  <!-- ===========================================================================
+       THE POOL. Painted over the stone so the light sits ON the floor. Elliptical
+       because the floor recedes; centred where the die meets stone.
+       =========================================================================== -->
+  <ellipse cx="200" cy="296" rx="186" ry="80" fill="url(#bgPoolWide)"/>
+  <ellipse cx="200" cy="294" rx="96"  ry="38" fill="url(#bgPoolCore)"/>
+
+  <!-- damp sheen: three wet patches, only where the pool is hottest, each a
+       different size so they do not read as stamped copies -->
+  <ellipse cx="164" cy="298" rx="30" ry="9"  fill="url(#bgSheen)"/>
+  <ellipse cx="238" cy="292" rx="22" ry="7"  fill="url(#bgSheen)"/>
+  <ellipse cx="200" cy="312" rx="42" ry="11" fill="url(#bgSheen)"/>
+  <g fill="#8a6f45">
+    <path d="M 150 300 q 12 -2 22 1 q -10 2 -22 -1 Z"  opacity="0.14"/>
+    <path d="M 232 291 q 9 -2 16 1 q -8 2 -16 -1 Z"    opacity="0.12"/>
+    <path d="M 186 314 q 14 -2 26 1 q -12 2 -26 -1 Z"  opacity="0.1"/>
+  </g>
+
+  <!-- the floor falls away into shadow at the bottom of frame -->
+  <rect x="0" y="296" width="400" height="54" fill="url(#bgBottomFade)"/>
+
+  <!-- vignette last: corners go, centre is untouched -->
+  <rect x="0" y="0" width="400" height="350" fill="url(#bgVignette)"/>
+</g>
+
+
+<!-- ================================================================================
+     BG-FORE. Composites IN FRONT of die and goblin. Deliberately sparse and faint:
+     nothing here may read before the die does.
+       #bg-mote-1 .. #bg-mote-10   dust in the torch light. Drift them slowly and
+                                   independently, a few px over several seconds,
+                                   mostly upward. Vary the periods or they pulse
+                                   as a group.
+       #bg-wisp-1, #bg-wisp-2      smoke. Drift sideways even slower, or leave them.
+     Motes avoid the goblin keep-clear centre; the two that cross it are the
+     faintest in the set.
+     ================================================================================ -->
+<g id="bg-fore">
+  <g fill="#ffcf8a">
+    <circle id="bg-mote-1"  cx="96"  cy="252" r="1.5" opacity="0.3"/>
+    <circle id="bg-mote-2"  cx="118" cy="214" r="1"   opacity="0.22"/>
+    <circle id="bg-mote-3"  cx="74"  cy="286" r="1.9" opacity="0.26"/>
+    <circle id="bg-mote-4"  cx="140" cy="268" r="0.9" opacity="0.17"/>
+    <circle id="bg-mote-5"  cx="306" cy="246" r="1.6" opacity="0.28"/>
+    <circle id="bg-mote-6"  cx="284" cy="206" r="1.1" opacity="0.2"/>
+    <circle id="bg-mote-7"  cx="330" cy="288" r="2"   opacity="0.23"/>
+    <circle id="bg-mote-8"  cx="262" cy="272" r="0.9" opacity="0.15"/>
+    <circle id="bg-mote-9"  cx="176" cy="188" r="0.8" opacity="0.14"/>
+    <circle id="bg-mote-10" cx="228" cy="164" r="0.8" opacity="0.12"/>
+  </g>
+  <g fill="none" stroke="#c9a273" stroke-linecap="round">
+    <path id="bg-wisp-1" d="M 88 300 q 14 -30 6 -56 q -6 -20 8 -36"
+          stroke-width="7" opacity="0.05"/>
+    <path id="bg-wisp-2" d="M 318 296 q -12 -26 -4 -48 q 6 -16 -2 -28"
+          stroke-width="6" opacity="0.04"/>
+  </g>
+</g>
+
+
+<!-- ================================================================================
+     PREVIEW ONLY. Delete this group on integration. Ghosts the die hull and the
+     goblin keep-clear box so the composition can be judged from this file alone.
+     ================================================================================ -->
+<g id="preview-only-guides" opacity="0.16">
+  <polygon points="200,130 269.28,170 269.28,250 200,290 130.72,250 130.72,170"
+           fill="#4a5559" stroke="#8ea3ae" stroke-width="1" stroke-dasharray="4 4"/>
+  <rect x="130" y="80" width="140" height="130" fill="none" stroke="#8ea3ae"
+        stroke-width="1" stroke-dasharray="2 5"/>
+</g>
+
+</svg>

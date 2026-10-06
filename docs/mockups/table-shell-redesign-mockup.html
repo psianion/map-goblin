@@ -1,0 +1,1252 @@
+<title>The DM Screen</title>
+<style>
+  /* ── Moss chrome, night only — values copied verbatim from session/client/src/index.css ── */
+  :root {
+    --surface-0: 15 16 14;
+    --surface-1: 24 26 23;
+    --surface-2: 35 37 34;
+    --surface-3: 48 51 46;
+    --text-primary: 234 236 233;
+    --text-secondary: 182 188 179;
+    --text-muted: 151 158 148;
+    --text-dim: 213 217 211;
+    --border-structure: 77 84 74;
+    --border-default: 58 62 56;
+    --border-subtle: 35 37 34;
+    --border-focus: 145 196 100;
+    --accent-active: 145 196 100;
+    --accent-dim: 102 139 75;
+    --on-accent: 15 17 14;
+    --danger: 224 133 123;
+    --warning: 212 174 84;
+    --success: 145 196 100;
+    --info: 114 165 202;
+    --radius: 6px;
+    --radius-md: 4px;
+    --radius-sm: 2px;
+    --hover-glow: radial-gradient(120% 160% at 50% 120%, rgb(var(--accent-active) / 0.18) 0%, transparent 70%);
+    --panel-shadow: 0 10px 26px -14px rgb(0 0 0 / 0.9);
+    --z-overlay: 10; --z-toolbar: 20; --z-banner: 30; --z-toast: 40; --z-mock: 50;
+    --ease-settle: cubic-bezier(0.23, 1, 0.32, 1);
+    --sidebar-w: 300px;
+    --rail-w: 56px;
+    --status-h: 28px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    background: rgb(var(--surface-0));
+    color: rgb(var(--text-primary));
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.45;
+    overflow: hidden;
+  }
+  .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+  button:focus-visible, [tabindex]:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+    outline: 2px solid rgb(var(--border-focus) / 0.8); outline-offset: 1px; border-radius: var(--radius-md);
+  }
+  input, textarea, select { font: inherit; color: rgb(var(--text-primary)); }
+  kbd { font-family: 'IBM Plex Mono', monospace; font-size: 10px; border: 1px solid rgb(var(--border-default));
+    background: rgb(var(--surface-2)); border-radius: 3px; padding: 0 4px; color: rgb(var(--text-muted)); }
+
+  .shell { position: fixed; inset: 0; }
+
+  /* ═══ Map stage ═══ */
+  .map {
+    position: absolute; inset: 0; right: var(--rail-w); left: 0; bottom: var(--status-h);
+    background: radial-gradient(90% 70% at 42% 44%, rgb(43 46 38) 0%, rgb(30 32 27) 46%, rgb(19 20 17) 78%, rgb(13 14 12) 100%);
+    transition: left 200ms var(--ease-settle), right 200ms var(--ease-settle);
+    overflow: hidden;
+  }
+  .shell.sidebar-open:not(.overlay-mode) .map { left: var(--sidebar-w); }
+  .map::before {
+    content: ''; position: absolute; inset: -2px;
+    background-image:
+      linear-gradient(rgb(255 255 255 / 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(255 255 255 / 0.025) 1px, transparent 1px);
+    background-size: 52px 52px;
+    mask-image: radial-gradient(75% 65% at 45% 45%, #000 30%, transparent 85%);
+  }
+  .map-hint {
+    position: absolute; top: 58%; left: 50%; transform: translate(-50%, -50%);
+    color: rgb(var(--text-muted) / 0.55); font-size: 12px; letter-spacing: 0.08em;
+    text-transform: uppercase; user-select: none; text-align: center;
+  }
+  .tok { position: absolute; width: 34px; height: 34px; border-radius: 50%;
+    border: 2px solid rgb(var(--border-structure)); background: rgb(var(--surface-3));
+    display: grid; place-items: center; font-weight: 600; font-size: 12px;
+    color: rgb(var(--text-dim)); box-shadow: 0 4px 10px rgb(0 0 0 / 0.5); cursor: pointer; }
+  .tok.pc { border-color: rgb(var(--accent-dim)); }
+  /* on-map pins (door / light) */
+  .pin { position: absolute; width: 26px; height: 26px; border-radius: var(--radius-md);
+    background: rgb(var(--surface-1) / 0.9); border: 1px solid rgb(var(--border-default));
+    display: grid; place-items: center; color: rgb(var(--text-muted)); cursor: pointer; }
+  .pin:hover { color: rgb(var(--text-dim)); border-color: rgb(var(--border-structure)); }
+  .pin svg { width: 14px; height: 14px; stroke: currentColor; stroke-width: 1.75; fill: none;
+    stroke-linecap: round; stroke-linejoin: round; }
+  /* on-map context menu (DoorMenu / TokenMenu / LightPopover) */
+  .ctx-menu {
+    position: absolute; min-width: 150px; background: rgb(var(--surface-1));
+    border: 1px solid rgb(var(--border-structure)); border-radius: var(--radius);
+    box-shadow: var(--panel-shadow); padding: 6px; z-index: var(--z-toolbar);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .ctx-menu .cm-title { font-size: 11px; color: rgb(var(--text-muted)); padding: 2px 6px 4px; }
+  .ctx-menu button.cm-item { text-align: left; font-size: 12px; padding: 4px 6px; border-radius: var(--radius-md);
+    color: rgb(var(--text-secondary)); }
+  .ctx-menu button.cm-item:hover { background: rgb(var(--surface-2)); color: rgb(var(--text-primary)); }
+  .ctx-menu .cm-slider { display: flex; align-items: center; gap: 6px; font-size: 11px;
+    color: rgb(var(--text-muted)); padding: 3px 6px; }
+  .ctx-menu input[type=range] { flex: 1; accent-color: rgb(var(--accent-dim)); height: 12px; }
+
+  /* ═══ Right rail ═══ */
+  .rail {
+    position: absolute; inset: 0 0 0 auto; width: var(--rail-w);
+    background: rgb(var(--surface-1)); border-left: 1px solid rgb(var(--border-default));
+    display: flex; flex-direction: column; align-items: center; padding: 8px 0; gap: 2px;
+    z-index: var(--z-toolbar);
+  }
+  .rail-btn {
+    width: 40px; height: 40px; border-radius: var(--radius); display: grid; place-items: center;
+    color: rgb(var(--text-muted)); position: relative;
+  }
+  .rail-btn:hover { background: rgb(var(--surface-2)); color: rgb(var(--text-dim)); }
+  .rail-btn[aria-pressed="true"] { background: rgb(var(--surface-3)); color: rgb(var(--accent-active)); }
+  .rail-btn.docked { opacity: 0.4; }
+  .rail-btn svg { width: 18px; height: 18px; stroke: currentColor; stroke-width: 1.75; fill: none;
+    stroke-linecap: round; stroke-linejoin: round; }
+  .rail-badge { position: absolute; top: 3px; right: 3px; min-width: 14px; height: 14px; padding: 0 3px;
+    border-radius: 7px; background: rgb(var(--surface-3)); color: rgb(var(--text-dim));
+    font-size: 9px; font-weight: 700; line-height: 14px; font-family: 'IBM Plex Mono', monospace; }
+  .rail-div { width: 28px; height: 1px; background: rgb(var(--border-default)); margin: 6px 0; }
+  .rail-spacer { flex: 1; }
+
+  /* ═══ Popover (one shared frame, anchored to the rail) ═══ */
+  .popover {
+    position: absolute; right: calc(var(--rail-w) + 10px); width: 300px;
+    max-height: calc(100% - 120px);
+    background: rgb(var(--surface-1)); border: 1px solid rgb(var(--border-structure));
+    border-radius: var(--radius); box-shadow: var(--panel-shadow); z-index: var(--z-toolbar);
+    display: flex; flex-direction: column; animation: panelIn 160ms var(--ease-settle);
+  }
+  @keyframes panelIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  .popover.status-left { right: auto; left: 10px; bottom: 36px; top: auto !important; }
+  .shell.sidebar-open:not(.overlay-mode) .popover.status-left { left: calc(var(--sidebar-w) + 10px); }
+  .pop-head { display: flex; align-items: center; gap: 7px; padding: 9px 11px 7px;
+    border-bottom: 1px solid rgb(var(--border-subtle)); }
+  .pop-title { font-size: 13px; font-weight: 600; }
+  .pop-sub { font-size: 11px; color: rgb(var(--text-muted)); min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .pop-head .spacer { flex: 1; }
+  .pop-close { width: 22px; height: 22px; display: grid; place-items: center; border-radius: var(--radius-md);
+    color: rgb(var(--text-muted)); }
+  .pop-close:hover { background: rgb(var(--surface-2)); color: rgb(var(--text-dim)); }
+  .pop-body { padding: 9px 11px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
+  .pop-foot { border-top: 1px solid rgb(var(--border-subtle)); padding: 7px 11px;
+    font-size: 11px; color: rgb(var(--text-muted)); display: flex; align-items: center; gap: 8px; }
+  .pop-foot .grow { flex: 1; }
+
+  /* shared panel bits */
+  .seg2 { display: flex; border: 1px solid rgb(var(--border-default)); border-radius: var(--radius-md);
+    overflow: hidden; width: max-content; }
+  .seg2 button { font-size: 11px; padding: 3px 9px; color: rgb(var(--text-muted)); }
+  .seg2 button[aria-pressed="true"] { background: rgb(var(--surface-3)); color: rgb(var(--text-primary)); font-weight: 500; }
+  .filter-in { width: 100%; background: rgb(var(--surface-0)); border: 1px solid rgb(var(--border-default));
+    border-radius: var(--radius-md); padding: 4px 8px; font-size: 12px; }
+  .filter-in::placeholder { color: rgb(var(--text-muted)); }
+  .prow { display: flex; align-items: center; gap: 8px; padding: 4px 2px; font-size: 12px;
+    color: rgb(var(--text-secondary)); border-radius: var(--radius-md); }
+  .prow:hover { background: rgb(var(--surface-2) / 0.6); }
+  .prow .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prow .sub { font-size: 10.5px; color: rgb(var(--text-muted)); }
+  .glyph { width: 9px; height: 9px; flex: none; }
+  .glyph.closed { background: rgb(var(--text-muted)); border-radius: 1px; }        /* filled square */
+  .glyph.open { border: 1.5px solid rgb(var(--text-muted)); border-radius: 1px; }  /* hollow square */
+  .glyph.secret { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent;
+    border-bottom: 9px solid rgb(var(--warning)); background: none; }              /* triangle */
+  .glyph.lit { background: rgb(var(--accent-dim)); border-radius: 50%; }
+  .glyph.unlit { border: 1.5px solid rgb(var(--border-structure)); border-radius: 50%; background: none; }
+  .chip-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .room-chip { display: flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 4px 7px;
+    border: 1px solid rgb(var(--border-default)); border-radius: var(--radius-md);
+    color: rgb(var(--text-secondary)); text-align: left; }
+  .room-chip:hover { border-color: rgb(var(--border-structure)); }
+  .room-chip .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tool-row { display: flex; gap: 4px; }
+  .tool-btn { display: flex; align-items: center; gap: 5px; font-size: 11.5px; padding: 4px 9px;
+    border: 1px solid rgb(var(--border-default)); border-radius: var(--radius-md); color: rgb(var(--text-dim)); }
+  .tool-btn[aria-pressed="true"] { background: rgb(var(--surface-3)); border-color: rgb(var(--border-structure));
+    color: rgb(var(--accent-active)); }
+  .hint-line { font-size: 11px; color: rgb(var(--text-muted)); }
+
+  /* initiative rows */
+  .init-row { display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 6px;
+    border-radius: var(--radius-md); font-size: 12.5px; color: rgb(var(--text-secondary)); }
+  .init-row:hover { background: rgb(var(--surface-2) / 0.6); }
+  .init-row.current { background: rgb(var(--surface-3)); color: rgb(var(--text-primary)); }
+  .init-row .num { width: 18px; text-align: right; color: rgb(var(--text-muted)); flex: none; }
+  .init-row.current .num { color: rgb(var(--accent-active)); }
+  .init-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .init-row .hp { font-size: 11px; color: rgb(var(--text-muted)); }
+  .hp-bar { width: 36px; height: 3px; border-radius: 2px; background: rgb(var(--surface-3)); overflow: hidden; flex: none; }
+  .hp-bar i { display: block; height: 100%; background: rgb(var(--text-muted)); }
+  .round-chip { margin-left: auto; font-size: 10px; color: rgb(var(--text-dim));
+    background: rgb(var(--surface-3)); border-radius: 8px; padding: 1px 7px; }
+
+  /* mini switch + slider rows */
+  .sw { position: relative; width: 26px; height: 15px; border-radius: 8px; flex: none;
+    background: rgb(var(--surface-3)); border: 1px solid rgb(var(--border-default)); transition: background 150ms; }
+  .sw::after { content: ''; position: absolute; top: 1px; left: 1px; width: 11px; height: 11px;
+    border-radius: 50%; background: rgb(var(--text-muted)); transition: transform 150ms var(--ease-settle), background 150ms; }
+  .sw[aria-checked="true"] { background: rgb(var(--accent-dim)); border-color: rgb(var(--accent-dim)); }
+  .sw[aria-checked="true"]::after { transform: translateX(11px); background: rgb(var(--on-accent)); }
+  .lbl-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: rgb(var(--text-secondary)); }
+  .lbl-row .lbl { width: 74px; flex: none; font-size: 11px; color: rgb(var(--text-muted)); }
+  .lbl-row input[type=range] { flex: 1; accent-color: rgb(var(--accent-dim)); height: 12px; }
+
+  /* ═══ Status bar + ticker ═══ */
+  .statusbar {
+    position: absolute; left: 0; right: var(--rail-w); bottom: 0; height: var(--status-h);
+    background: rgb(var(--surface-1)); border-top: 1px solid rgb(var(--border-default));
+    display: flex; align-items: center; gap: 12px; padding: 0 10px;
+    font-size: 11px; color: rgb(var(--text-muted)); z-index: var(--z-toolbar);
+    transition: left 200ms var(--ease-settle);
+  }
+  .shell.sidebar-open:not(.overlay-mode) .statusbar { left: var(--sidebar-w); }
+  .statusbar .scene-name { color: rgb(var(--text-secondary)); font-weight: 500; padding: 2px 6px;
+    border-radius: var(--radius-md); }
+  .statusbar .scene-name:hover { background: rgb(var(--surface-2)); color: rgb(var(--text-primary)); }
+  .statusbar .dot { width: 6px; height: 6px; border-radius: 50%; background: rgb(var(--success)); flex: none; }
+  .statusbar .sep { color: rgb(var(--text-muted) / 0.5); }
+  .statusbar .armed { display: flex; align-items: center; gap: 5px; color: rgb(var(--accent-active)); }
+  .statusbar .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .statusbar .zoom { width: 70px; accent-color: rgb(var(--accent-dim)); height: 10px; }
+  .sb-parties { display: none; align-items: center; gap: 3px; }
+  .shell.v-party-status .sb-parties { display: flex; }
+  .sb-parties .pdisc { width: 16px; height: 16px; font-size: 8px; border-width: 1px; }
+
+  .ticker {
+    position: absolute; bottom: 36px; left: 10px; max-width: 420px;
+    background: rgb(var(--surface-1) / 0.92); border: 1px solid rgb(var(--border-default));
+    border-radius: var(--radius); padding: 4px 10px; font-size: 11.5px;
+    color: rgb(var(--text-muted)); z-index: var(--z-toolbar); text-align: left;
+    transition: left 200ms var(--ease-settle);
+  }
+  .ticker:hover { border-color: rgb(var(--border-structure)); color: rgb(var(--text-dim)); }
+  .shell.sidebar-open:not(.overlay-mode) .ticker { left: calc(var(--sidebar-w) + 10px); }
+  .ticker b { color: rgb(var(--text-secondary)); font-weight: 500; }
+
+  /* ═══ Log drawer ═══ */
+  .drawer {
+    position: absolute; left: 0; right: var(--rail-w); bottom: var(--status-h); height: 260px;
+    background: rgb(var(--surface-1)); border-top: 1px solid rgb(var(--border-structure));
+    z-index: var(--z-toolbar); display: flex; flex-direction: column;
+    transition: left 200ms var(--ease-settle);
+  }
+  .shell.sidebar-open:not(.overlay-mode) .drawer { left: var(--sidebar-w); }
+  .drawer-head { display: flex; align-items: center; gap: 6px; height: 36px; flex: none;
+    border-bottom: 1px solid rgb(var(--border-default)); padding: 0 12px; }
+  .drawer-title { font-family: Georgia, serif; font-size: 15px; color: rgb(var(--text-primary)); margin-right: 6px; }
+  .fchip { font-size: 10.5px; padding: 2px 8px; border-radius: 10px; border: 1px solid transparent;
+    color: rgb(var(--text-muted)); }
+  .fchip:hover { color: rgb(var(--text-dim)); }
+  .fchip[aria-pressed="true"] { border-color: rgb(var(--border-structure)); background: rgb(var(--surface-2));
+    color: rgb(var(--text-primary)); }
+  .drawer-head .hint { margin-left: auto; font-size: 11px; color: rgb(var(--text-muted)); }
+  .drawer-feed { flex: 1; min-height: 0; display: flex; gap: 18px; padding: 6px 12px; overflow: hidden; }
+  .drawer-feed ol { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end;
+    gap: 1px; list-style: none; }
+  .logline { display: flex; align-items: baseline; gap: 8px; font-size: 12px; line-height: 22px;
+    color: rgb(var(--text-secondary)); min-width: 0; }
+  .logline time { width: 36px; flex: none; font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    color: rgb(var(--text-muted)); }
+  .logline .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .logline b { color: rgb(var(--text-primary)); font-weight: 500; }
+  .logline .res { font-family: 'IBM Plex Mono', monospace; font-weight: 600; color: rgb(var(--text-primary)); }
+  .logline .lock { font-size: 10px; }
+  .drawer-composer { flex: none; display: flex; gap: 8px; align-items: center;
+    border-top: 1px solid rgb(var(--border-default)); padding: 7px 12px; }
+  .drawer-composer input { flex: 1; background: rgb(var(--surface-0)); border: 1px solid rgb(var(--border-default));
+    border-radius: var(--radius-md); padding: 4px 9px; font-size: 12px; }
+  .drawer-composer input::placeholder { color: rgb(var(--text-muted)); }
+  /* Variant: log on the right */
+  .shell.v-log-right .drawer { left: auto !important; right: var(--rail-w); top: 0; bottom: var(--status-h);
+    height: auto; width: 300px; border-top: none; border-left: 1px solid rgb(var(--border-structure)); }
+  .shell.v-log-right .drawer-feed { flex-direction: column; gap: 0; overflow-y: auto; }
+  .shell.v-log-right.drawer-open .map { right: calc(var(--rail-w) + 300px); }
+  .shell.v-log-right .ticker { display: none; }
+
+  /* ═══ Left sidebar ═══ */
+  .sidebar {
+    position: absolute; inset: 0 auto 0 0; width: var(--sidebar-w);
+    background: rgb(var(--surface-1)); border-right: 1px solid rgb(var(--border-default));
+    display: flex; flex-direction: column;
+    transform: translateX(-100%); transition: transform 200ms var(--ease-settle);
+    z-index: var(--z-toolbar);
+  }
+  .shell.sidebar-open .sidebar { transform: translateX(0); }
+  .shell.overlay-mode .sidebar { z-index: calc(var(--z-banner) + 1); box-shadow: var(--panel-shadow); }
+  .scrim {
+    position: absolute; inset: 0; background: rgb(0 0 0 / 0.45); z-index: var(--z-banner);
+    opacity: 0; pointer-events: none; transition: opacity 200ms var(--ease-settle);
+  }
+  .shell.overlay-mode.sidebar-open .scrim { opacity: 1; pointer-events: auto; }
+
+  .sb-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px;
+    border-bottom: 1px solid rgb(var(--border-subtle)); }
+  .sb-title { font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+  .sb-scene { font-size: 11px; color: rgb(var(--text-muted)); margin-left: auto; }
+  .sb-collapse { width: 24px; height: 24px; border-radius: var(--radius-md); display: grid;
+    place-items: center; color: rgb(var(--text-muted)); }
+  .sb-collapse:hover { background: rgb(var(--surface-2)); color: rgb(var(--text-dim)); }
+  .sb-collapse svg { width: 14px; height: 14px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; }
+  .sb-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 6px 0 10px; }
+  .sb-body::-webkit-scrollbar { width: 10px; }
+  .sb-body::-webkit-scrollbar-thumb { background: rgb(var(--surface-3)); border-radius: 5px;
+    border: 2px solid rgb(var(--surface-1)); }
+
+  /* docked initiative (variant) */
+  .sb-init { border-bottom: 1px solid rgb(var(--border-subtle)); padding: 6px 6px 8px; display: none; }
+  .shell.v-init-sb .sb-init { display: block; }
+  .sb-init .qa-label { padding: 0 6px 4px; }
+
+  .zone { margin-top: 6px; }
+  .zone-head { width: 100%; display: flex; align-items: center; gap: 7px; padding: 5px 12px;
+    color: rgb(var(--text-secondary)); font-size: 12px; font-weight: 500; text-align: left; }
+  .zone-head:hover { background: rgb(var(--surface-2) / 0.6); }
+  .zone-caret { width: 10px; height: 10px; stroke: currentColor; stroke-width: 2; fill: none;
+    transition: transform 150ms var(--ease-settle); flex: none; }
+  .zone.collapsed .zone-caret { transform: rotate(-90deg); }
+  .reveal-mark { width: 8px; height: 8px; flex: none; border: 1.5px solid rgb(var(--border-structure)); border-radius: 1px; }
+  .reveal-mark.revealed { background: rgb(var(--text-muted)); border-color: rgb(var(--text-muted)); }
+  .zone-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .zone-pan { font-size: 10px; color: rgb(var(--text-muted)); opacity: 0; }
+  .zone-head:hover .zone-pan, .zone-head:focus-visible .zone-pan { opacity: 1; }
+  .zone.collapsed .zone-rows { display: none; }
+
+  .trow { display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 29px; min-height: 40px; }
+  .trow:hover { background: rgb(var(--surface-2) / 0.6); }
+  .trow.sunk { background: rgb(var(--surface-0)); }
+  .trow.just-fired { animation: rowGlow 1.2s var(--ease-settle); }
+  @keyframes rowGlow { 0% { background: rgb(var(--accent-active) / 0.14); } 100% { background: transparent; } }
+  .state-mark { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .state-mark.armed { background: rgb(var(--accent-dim)); }
+  .state-mark.fired { background: transparent; border: 1.5px solid rgb(var(--border-structure)); }
+  .state-mark.off { background: rgb(var(--surface-3)); }
+  .trow-main { flex: 1; min-width: 0; }
+  .trow-name { font-size: 12.5px; color: rgb(var(--text-primary)); font-weight: 500;
+    display: flex; align-items: center; gap: 6px; }
+  .trow.sunk .trow-name { color: rgb(var(--text-dim)); font-weight: 400; }
+  .trow-cond { font-size: 11px; color: rgb(var(--text-muted)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge { font-size: 9.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 1px 5px; border-radius: var(--radius-sm); flex: none; }
+  .badge.inert { color: rgb(var(--warning)); border: 1px solid rgb(var(--warning) / 0.45); }
+  .badge.tracker { color: rgb(var(--info)); border: 1px solid rgb(var(--info) / 0.45); }
+  .badge.onreveal { color: rgb(var(--text-muted)); border: 1px solid rgb(var(--border-structure)); }
+
+  .fire-btn { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-md); flex: none;
+    background: rgb(var(--surface-3)); color: rgb(var(--text-dim)); border: 1px solid rgb(var(--border-default)); }
+  .fire-btn:hover:not(:disabled) { border-color: rgb(var(--border-structure)); color: rgb(var(--text-primary)); }
+  .fire-btn:disabled { cursor: default; background: transparent; border-color: transparent;
+    color: rgb(var(--text-muted)); font-weight: 400; }
+  .share-btn { font-size: 11px; padding: 3px 9px; border-radius: var(--radius-md); flex: none;
+    color: rgb(var(--accent-active)); border: 1px solid rgb(var(--accent-dim) / 0.6); }
+  .share-btn:hover:not(:disabled) { background: rgb(var(--accent-active) / 0.1); }
+  .share-btn:disabled { cursor: default; border-color: transparent; color: rgb(var(--text-muted)); }
+
+  .shell.dense .trow { min-height: 32px; padding-top: 3px; padding-bottom: 3px; }
+  .shell.dense .trow-cond { display: none; }
+
+  .note-body { padding: 2px 12px 8px 29px; }
+  .note-text { font-size: 12px; color: rgb(var(--text-secondary)); white-space: pre-wrap; max-width: 62ch; }
+  .note-img { margin-top: 6px; height: 84px; border-radius: var(--radius-md); border: 1px solid rgb(var(--border-default));
+    background: radial-gradient(70% 90% at 30% 35%, rgb(64 70 52) 0%, rgb(40 44 35) 55%, rgb(26 28 24) 100%);
+    position: relative; overflow: hidden; }
+  .note-img::after { content: 'camp illustration'; position: absolute; right: 6px; bottom: 4px;
+    font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; color: rgb(var(--text-muted) / 0.7); }
+
+  .qa-strip { border-top: 1px solid rgb(var(--border-subtle)); padding: 8px 12px 4px; }
+  .qa-label { font-size: 10px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+    color: rgb(var(--text-muted)); margin-bottom: 6px; }
+  .qa-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .qa-btn { font-size: 11.5px; padding: 4px 10px; border-radius: var(--radius-md);
+    border: 1px solid rgb(var(--border-default)); background: rgb(var(--surface-2)); color: rgb(var(--text-dim)); }
+  .qa-btn:hover { border-color: rgb(var(--border-structure)); color: rgb(var(--text-primary)); }
+  .qa-named { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+  .qa-inst { display: flex; align-items: center; gap: 8px; padding: 4px 2px; font-size: 12px;
+    color: rgb(var(--text-secondary)); }
+  .qa-inst .grow { flex: 1; }
+  .qa-inst .kind { font-size: 10px; color: rgb(var(--text-muted)); text-transform: uppercase; letter-spacing: 0.05em; }
+  .mini-btn { font-size: 11px; padding: 2px 8px; border-radius: var(--radius-md);
+    border: 1px solid rgb(var(--border-default)); color: rgb(var(--text-dim)); }
+  .mini-btn:hover { border-color: rgb(var(--border-structure)); color: rgb(var(--text-primary)); }
+  .sb-footer { padding: 6px 12px 10px; font-size: 10.5px; color: rgb(var(--text-muted));
+    border-top: 1px solid rgb(var(--border-subtle)); }
+
+  .composer { padding: 8px 12px; border-top: 1px solid rgb(var(--border-subtle));
+    display: none; flex-direction: column; gap: 6px; }
+  .composer.open { display: flex; }
+  .composer input, .composer textarea { background: rgb(var(--surface-0)); border: 1px solid rgb(var(--border-default));
+    border-radius: var(--radius-md); padding: 5px 8px; font-size: 12px; resize: none; }
+  .composer input::placeholder, .composer textarea::placeholder { color: rgb(var(--text-muted)); }
+  .composer-actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .primary-btn { font-size: 11.5px; font-weight: 600; padding: 4px 12px; border-radius: var(--radius-md);
+    background: rgb(var(--accent-active)); color: rgb(var(--on-accent)); }
+  .primary-btn:hover { background: rgb(var(--accent-active) / 0.88); }
+  .ghost-btn { font-size: 11.5px; padding: 4px 10px; border-radius: var(--radius-md); color: rgb(var(--text-muted)); }
+  .ghost-btn:hover { color: rgb(var(--text-dim)); background: rgb(var(--surface-2)); }
+
+  .edge-toggle { position: absolute; left: 8px; top: 8px; z-index: var(--z-toolbar);
+    width: 34px; height: 34px; border-radius: var(--radius);
+    background: rgb(var(--surface-1) / 0.94); border: 1px solid rgb(var(--border-default));
+    display: grid; place-items: center; color: rgb(var(--text-muted)); opacity: 1; transition: opacity 150ms; }
+  .edge-toggle:hover { color: rgb(var(--text-dim)); background: rgb(var(--surface-2)); }
+  .edge-toggle svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.75; fill: none;
+    stroke-linecap: round; stroke-linejoin: round; }
+  .shell.sidebar-open .edge-toggle { opacity: 0; pointer-events: none; }
+  .edge-badge { position: absolute; top: -5px; right: -5px; min-width: 15px; height: 15px; padding: 0 4px;
+    border-radius: 8px; background: rgb(var(--accent-active)); color: rgb(var(--on-accent));
+    font-size: 9.5px; font-weight: 700; display: none; place-items: center; line-height: 15px; }
+  .edge-badge.show { display: grid; }
+
+  /* ═══ Party strip / turn pill / roll bar ═══ */
+  .party-strip { position: absolute; top: 10px; left: 52px; display: flex; align-items: center; gap: 5px;
+    z-index: var(--z-overlay); }
+  .shell.v-party-status .party-strip { display: none; }
+  .pdisc { width: 22px; height: 22px; border-radius: 50%; background: rgb(var(--surface-3));
+    border: 1.5px solid rgb(var(--border-structure)); display: grid; place-items: center;
+    font-size: 9.5px; font-weight: 600; color: rgb(var(--text-dim)); }
+  .pdisc.current { border-color: rgb(var(--accent-active)); color: rgb(var(--text-primary)); }
+  .pdisc.npc { border-style: dashed; }
+  .party-round { font-size: 10px; color: rgb(var(--text-dim)); background: rgb(var(--surface-3));
+    border-radius: 8px; padding: 1px 7px; font-family: 'IBM Plex Mono', monospace; }
+  .turn-pill { position: absolute; top: 52px; left: 50%; transform: translateX(-50%);
+    background: rgb(var(--surface-1) / 0.94); border: 1px solid rgb(var(--border-default));
+    border-radius: 20px; padding: 3px 12px; font-size: 11.5px; color: rgb(var(--text-secondary));
+    z-index: var(--z-overlay); }
+  .rollbar { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 6px; width: 340px; z-index: var(--z-overlay);
+    background: rgb(var(--surface-1) / 0.94); border: 1px solid rgb(var(--border-default));
+    border-radius: 18px; padding: 4px 6px 4px 12px; }
+  .rollbar input { flex: 1; background: none; border: none; font-size: 12px; min-width: 0; }
+  .rollbar input::placeholder { color: rgb(var(--text-muted)); }
+  .rollbar input:focus-visible { outline: none; }
+  .rollbar .whisper { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%;
+    color: rgb(var(--text-muted)); flex: none; }
+  .rollbar .whisper:hover { background: rgb(var(--surface-2)); color: rgb(var(--text-dim)); }
+  .rollbar svg { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.75; fill: none;
+    stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ═══ Player Journal ═══ */
+  .journal-feed { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; }
+  .jday { font-size: 10px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase;
+    color: rgb(var(--text-muted)); padding-top: 2px; }
+  .card { background: rgb(var(--surface-2)); border: 1px solid rgb(var(--border-default));
+    border-radius: var(--radius); overflow: hidden; }
+  .card.arriving { animation: cardIn 240ms var(--ease-settle); }
+  @keyframes cardIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .card-img { height: 92px; background: radial-gradient(70% 90% at 30% 35%, rgb(64 70 52) 0%, rgb(40 44 35) 55%, rgb(26 28 24) 100%); }
+  .card-body { padding: 9px 11px 10px; }
+  .card-kicker { font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: rgb(var(--text-muted)); }
+  .card-title { font-size: 13px; font-weight: 600; margin: 2px 0 4px; text-wrap: balance; }
+  .card-text { font-size: 12px; color: rgb(var(--text-secondary)); max-width: 62ch; }
+  .card-time { font-size: 10.5px; color: rgb(var(--text-muted)); margin-top: 6px; }
+  .journal-empty { padding: 26px 18px; text-align: center; color: rgb(var(--text-muted)); font-size: 12px; }
+  .sb-empty { padding: 24px 18px; color: rgb(var(--text-muted)); font-size: 12px; }
+
+  /* ═══ Prompts + toast ═══ */
+  .prompt-card { position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+    background: rgb(var(--surface-1)); border: 1px solid rgb(var(--border-structure));
+    border-radius: var(--radius); box-shadow: var(--panel-shadow);
+    padding: 10px 12px; width: 280px; z-index: var(--z-toolbar); }
+  .prompt-card.init { bottom: 132px; }
+  .prompt-card p { font-size: 12px; color: rgb(var(--text-secondary)); margin-bottom: 8px; }
+  .prompt-card .row { display: flex; gap: 6px; align-items: center; }
+  .prompt-card .dc { font-size: 11px; color: rgb(var(--text-muted)); margin-left: auto; }
+  .toast { position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%);
+    background: rgb(var(--surface-2)); border: 1px solid rgb(var(--border-structure));
+    border-radius: var(--radius); padding: 6px 14px; font-size: 12px; color: rgb(var(--text-dim));
+    z-index: var(--z-toast); box-shadow: var(--panel-shadow); animation: toastIn 200ms var(--ease-settle); }
+  @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 5px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+  /* ═══ Mockup chrome ═══ */
+  .mock-chrome { position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    z-index: var(--z-mock); display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    justify-content: center; max-width: 92%;
+    background: rgb(var(--surface-0) / 0.92); border: 1px dashed rgb(var(--border-structure));
+    border-radius: 8px; padding: 5px 8px; }
+  .mock-tag { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; color: rgb(var(--warning));
+    text-transform: uppercase; padding-right: 2px; }
+  .seg { display: flex; border: 1px solid rgb(var(--border-default)); border-radius: var(--radius-md); overflow: hidden; }
+  .seg button { font-size: 11px; padding: 3px 10px; color: rgb(var(--text-muted)); }
+  .seg button[aria-pressed="true"] { background: rgb(var(--surface-3)); color: rgb(var(--text-primary)); font-weight: 600; }
+  .chip { font-size: 10.5px; padding: 3px 8px; border-radius: 10px; border: 1px solid rgb(var(--border-default));
+    color: rgb(var(--text-muted)); }
+  .chip:hover { color: rgb(var(--text-dim)); border-color: rgb(var(--border-structure)); }
+  .chip[aria-pressed="true"] { color: rgb(var(--text-primary)); border-color: rgb(var(--border-structure));
+    background: rgb(var(--surface-2)); }
+  .chip.variant { border-style: dashed; }
+  .mock-div { width: 1px; height: 16px; background: rgb(var(--border-default)); }
+
+  /* annotations */
+  .annot-layer { position: absolute; inset: 0; z-index: calc(var(--z-mock) - 1); pointer-events: none; display: none; }
+  .shell.annotated .annot-layer { display: block; }
+  .annot { position: absolute; max-width: 236px; background: rgb(var(--surface-0) / 0.96);
+    border: 1px dashed rgb(var(--warning) / 0.7); border-radius: var(--radius-md);
+    padding: 7px 10px; font-size: 11px; color: rgb(var(--text-dim)); }
+  .annot b { color: rgb(var(--warning)); font-weight: 600; display: block; font-size: 10px;
+    letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 2px; }
+  .annot .move { color: rgb(var(--info)); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+  }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<div class="shell sidebar-open" id="shell">
+
+  <!-- map stage -->
+  <div class="map" id="map">
+    <div class="map-hint">map stage<br>(art lives here — chrome stays out of its way)</div>
+    <div class="tok pc" style="top: 46%; left: 44%;" data-tokmenu="perrin">P</div>
+    <div class="tok pc" style="top: 52%; left: 40%;" data-tokmenu="kestrel">K</div>
+    <div class="tok" style="top: 34%; left: 58%;" id="bossTok" hidden data-tokmenu="boss">B</div>
+    <div class="tok" style="top: 30%; left: 54%;" id="gobTok" hidden data-tokmenu="gob">g</div>
+    <!-- on-map pins -->
+    <button class="pin" style="top: 24%; left: 36%;" data-pin="door" aria-label="Warren Gate door">
+      <svg viewBox="0 0 24 24"><path d="M18 20V6a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14M2 20h20"/><circle cx="14.5" cy="12" r=".6"/></svg>
+    </button>
+    <button class="pin" style="top: 62%; left: 55%;" data-pin="light" aria-label="Campfire light">
+      <svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5.9 1.2.9 2V17h5.2v-1.1c0-.8.3-1.5.9-2A6 6 0 0 0 12 3Z"/></svg>
+    </button>
+    <div class="party-strip" id="partyStrip"></div>
+    <div class="turn-pill" id="turnPill" hidden>Waiting on the DM</div>
+    <div id="ctxHost"></div>
+  </div>
+
+  <!-- prompt cards, context only -->
+  <div class="prompt-card" id="promptCard" hidden>
+    <p>A tripwire snaps taut across the path.</p>
+    <div class="row">
+      <button class="primary-btn">Roll</button>
+      <button class="ghost-btn">Dismiss</button>
+      <span class="dc mono">DEX save · DC 13</span>
+    </div>
+  </div>
+  <div class="prompt-card init" id="initPrompt" hidden>
+    <p>Roll for initiative</p>
+    <div class="row">
+      <button class="primary-btn">Roll</button>
+      <button class="ghost-btn">Use my last roll, 14</button>
+    </div>
+  </div>
+  <div id="toastHost"></div>
+
+  <!-- ticker + status bar -->
+  <button class="ticker" id="ticker" aria-label="Open the log">
+    <b>Triggers</b> · Snare Line — Perrin fails the save, 2 damage
+  </button>
+  <div class="statusbar" id="statusbar">
+    <span class="sb-parties" id="sbParties"></span>
+    <button class="scene-name" id="sceneNameBtn">Goblin Warren</button>
+    <span class="sep">·</span>
+    <span style="display:flex;align-items:center;gap:5px"><span class="dot"></span>Connected</span>
+    <span class="sep">·</span>
+    <span class="mono">41 ms</span>
+    <span class="sep">·</span>
+    <span>Storm · Dawn</span>
+    <span class="armed" id="armedTool" hidden>Reveal armed <kbd>Esc</kbd></span>
+    <span class="right">
+      <button class="mini-btn" title="Fit to screen (0)" aria-label="Fit to screen">Fit</button>
+      <input class="zoom" type="range" min="0" max="100" value="42" aria-label="Zoom">
+    </span>
+  </div>
+
+  <!-- log drawer -->
+  <div class="drawer" id="drawer" hidden>
+    <div class="drawer-head">
+      <span class="drawer-title">Log</span>
+      <button class="fchip" aria-pressed="true" data-filter="all">All</button>
+      <button class="fchip" aria-pressed="false" data-filter="rolls">Rolls</button>
+      <button class="fchip" aria-pressed="false" data-filter="doors">Doors &amp; fog</button>
+      <button class="fchip" aria-pressed="false" data-filter="triggers">Triggers</button>
+      <button class="fchip" aria-pressed="false" data-filter="combat">Combat</button>
+      <span class="hint">Whispers to you show a lock</span>
+      <button class="pop-close" id="drawerClose" aria-label="Close the log">✕</button>
+      <kbd>L</kbd>
+    </div>
+    <div class="drawer-feed" id="drawerFeed"></div>
+    <div class="drawer-composer">
+      <input placeholder="stealth 17" aria-label="Post a roll">
+      <button class="mini-btn" title="Whisper">Whisper</button>
+      <button class="primary-btn">Post a roll</button>
+    </div>
+  </div>
+
+  <!-- edge toggle -->
+  <button class="edge-toggle" id="edgeToggle" aria-label="Open sidebar (G)">
+    <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
+    <span class="edge-badge" id="edgeBadge">1</span>
+  </button>
+
+  <div class="scrim" id="scrim"></div>
+
+  <!-- ═══ LEFT SIDEBAR ═══ -->
+  <aside class="sidebar" id="sidebar" aria-label="Sidebar">
+    <div class="sb-header">
+      <span class="sb-title" id="sbTitle">Prep</span>
+      <span class="sb-scene" id="sbScene">Goblin Warren</span>
+      <button class="sb-collapse" id="sbCollapse" aria-label="Collapse sidebar (G)">
+        <svg viewBox="0 0 24 24"><polyline points="14 6 8 12 14 18"/></svg>
+      </button>
+    </div>
+    <div class="sb-init" id="sbInit"></div>
+    <div class="sb-body" id="sbBody"></div>
+    <div class="composer" id="composer">
+      <input id="cTitle" placeholder="Card title" aria-label="Card title">
+      <textarea id="cBody" rows="2" placeholder="What the players are told" aria-label="Card text"></textarea>
+      <div class="composer-actions">
+        <button class="ghost-btn" id="cCancel">Cancel</button>
+        <button class="primary-btn" id="cShare">Share</button>
+      </div>
+    </div>
+    <div class="qa-strip" id="qaStrip">
+      <div class="qa-label">Quick actions</div>
+      <div class="qa-row">
+        <button class="qa-btn" id="qaCard">Send a card</button>
+        <button class="qa-btn">Spawn encounter</button>
+      </div>
+      <div class="qa-named">
+        <div class="qa-inst"><span class="kind">Light</span><span class="grow">Warren Hall Fire</span>
+          <button class="mini-btn" id="hallFire">Douse</button></div>
+        <div class="qa-inst"><span class="kind">Door</span><span class="grow">Warren Gate</span>
+          <button class="mini-btn" id="gateBtn">Open</button></div>
+      </div>
+    </div>
+    <div class="sb-footer" id="sbFooter">Fired triggers narrate into the log under 'Triggers'.</div>
+  </aside>
+
+  <!-- right rail -->
+  <nav class="rail" id="rail" aria-label="Panels"></nav>
+
+  <!-- popover host -->
+  <div id="popHost"></div>
+
+  <!-- mockup chrome -->
+  <div class="mock-chrome">
+    <span class="mock-tag">Mockup</span>
+    <div class="seg" role="group" aria-label="View as">
+      <button id="vDm" aria-pressed="true">DM</button>
+      <button id="vPl" aria-pressed="false">Player</button>
+    </div>
+    <button class="chip" id="mDense" aria-pressed="false">Dense</button>
+    <button class="chip" id="mEmpty" aria-pressed="false">Empty state</button>
+    <button class="chip" id="mNarrow" aria-pressed="false">Narrow</button>
+    <button class="chip" id="mPrompt" aria-pressed="false">Prompts</button>
+    <button class="chip" id="mEnc" aria-pressed="false">Encounter</button>
+    <button class="chip" id="mAnnot" aria-pressed="false">Notes</button>
+    <span class="mock-div"></span>
+    <span class="mock-tag" style="color: rgb(var(--info))">Variants</span>
+    <button class="chip variant" id="vInitSb" aria-pressed="false">Initiative in sidebar</button>
+    <button class="chip variant" id="vLogRight" aria-pressed="false">Log on right</button>
+    <button class="chip variant" id="vPartyStatus" aria-pressed="false">Party in status bar</button>
+  </div>
+
+  <!-- annotations -->
+  <div class="annot-layer">
+    <div class="annot" style="top: 64px; left: 310px;">
+      <b>Left sidebar — story</b>
+      Job: what happens. New home for prep (was a rail popover). Player side becomes the Journal.
+    </div>
+    <div class="annot" style="top: 200px; left: 310px;">
+      <b>Shape-coded state</b>
+      Armed = filled · fired = hollow + time · disabled = sunk row · inert = badge with reason. Never hue alone.
+    </div>
+    <div class="annot" style="bottom: 170px; left: 310px;">
+      <b>Share is the one publish verb</b>
+      Nothing reaches players except a DM act. Shared rows keep a timestamp receipt.
+    </div>
+    <div class="annot" style="top: 56px; right: 76px;">
+      <b>Right rail — tools</b>
+      Job: how you touch the map. Roster unchanged (Prep icon removed — it moved left).
+      <span class="move">Could move: Initiative into the left sidebar — try the variant.</span>
+    </div>
+    <div class="annot" style="top: 10px; left: 60px; max-width: 200px;">
+      <b>Party strip — play</b>
+      Job: who's here; becomes turn order + round chip mid-encounter. Click a disc to frame its token.
+      <span class="move">Could move: into the status bar — try the variant.</span>
+    </div>
+    <div class="annot" style="bottom: 96px; left: 12px; max-width: 210px;">
+      <b>Ticker — record</b>
+      One-line peek at the newest log line; opens the drawer. Stays out of the sidebar so the record and the story don't share a column.
+    </div>
+    <div class="annot" style="bottom: 40px; left: 260px; max-width: 230px;">
+      <b>Status bar — state</b>
+      Scene (opens Session), connection, latency, environment, armed tool, zoom. The armed-tool readout is the fix for silent tool-eaten drags.
+    </div>
+    <div class="annot" style="bottom: 150px; right: 76px; max-width: 220px;">
+      <b>Log drawer — record</b>
+      Job: what happened. Two columns read down-then-across; filters narrow the feed.
+      <span class="move">Could move: right-side vertical drawer — try the variant.</span>
+    </div>
+    <div class="annot" style="bottom: 230px; left: 50%; transform: translateX(-50%); max-width: 250px;">
+      <b>Prompts + toasts — moments</b>
+      Trap/check cards float non-blocking above the toast slot; initiative stacks one strip higher. Toasts stay ephemeral — nothing is <i>only</i> a toast anymore.
+    </div>
+  </div>
+</div>
+
+<script>
+// ── demo data (real content from the QA walk) ─────────────────────────────
+const zones = [
+  { id: 'z1', name: 'Campfire Ward', revealed: true },
+  { id: 'z2', name: 'Clearing Path Mouth', revealed: true },
+  { id: 'z3', name: 'Tree Line Ambush', revealed: false },
+  { id: 'z4', name: "Scout's Tent", revealed: true },
+  { id: 'z5', name: 'Bedroll Cache', revealed: false },
+  { id: 'z6', name: 'Storm Watch', revealed: false },
+];
+const triggers = [
+  { id: 't1', zone: 'z2', name: 'Snare Line', cond: 'Enters region', meta: 'Trap · DEX save · DC 13 · 2d6', state: 'armed', enabled: true },
+  { id: 't2', zone: 'z1', name: "Warden's Gaze", cond: 'Within radius', meta: 'Ability check · WIS · DC 12', state: 'armed', enabled: true },
+  { id: 't3', zone: 'z3', name: 'Warren Ambush', cond: 'Enters region', meta: 'Encounter · Goblin ×3 · Goblin Boss', state: 'armed', enabled: true, encounter: true },
+  { id: 't4', zone: 'z4', name: 'Tent Discovered', cond: 'Room revealed', meta: 'Show text · to players', state: 'fired', firedAt: '9:38', enabled: true },
+  { id: 't5', zone: 'z5', name: 'Buried Spike', cond: 'Enters region', meta: 'Trap · no save · 1d4', state: 'armed', enabled: false },
+  { id: 't6', zone: 'z6', name: 'Night Falls', cond: 'Enters region', meta: 'Storm · Dawn · initiative · DM text', state: 'armed', enabled: true },
+  { id: 't7', zone: 'z6', name: 'Douse the Hall Fire', cond: 'Enters region', meta: 'Light · repeatable', state: 'armed', enabled: true },
+];
+const notes = [
+  { id: 'n1', zone: 'z1', title: 'The Warren Camp', body: 'A ring of crooked tents around a fire pit still warm. Whoever camps here left in a hurry — or means to come back.', img: true, onReveal: true, shared: false },
+  { id: 'n2', zone: 'z4', title: 'Loot Reminder', body: 'The strongbox under the bedroll holds the wardstone. Don’t let them leave without it.', img: false, onReveal: false, shared: false },
+];
+let journal = [
+  { kicker: 'Missive', title: 'Scrawled Warning', body: '"TURN BACK" — charcoal on bark, nailed to the first tree on the track.', time: '9:12', img: false },
+];
+const initiative = [
+  { n: 17, name: 'Goblin Boss', hp: [14, 14], npc: true, current: true },
+  { n: 15, name: 'Kestrel', hp: null, you: false },
+  { n: 12, name: 'Goblin 1', hp: [8, 8], npc: true },
+  { n: 9, name: 'Perrin', hp: null, you: true },
+  { n: 8, name: 'Goblin 2', hp: [5, 5], npc: true },
+  { n: 6, name: 'Goblin 3', hp: [8, 8], npc: true },
+];
+const logLines = [
+  { t: '9:12', f: 'triggers', h: '<b>Card</b> · Scrawled Warning shared with the table' },
+  { t: '9:31', f: 'doors', h: '<b>Perrin</b> opens the Warren Gate' },
+  { t: '9:33', f: 'doors', h: '<b>DM</b> reveals Room 1' },
+  { t: '9:38', f: 'triggers', h: '<b>Tent Discovered</b> · "An eerie chill fills the room…"' },
+  { t: '9:38', f: 'triggers', h: '<b>Note</b> · The Warren Camp <span class="lock" title="DM only">◈</span>' },
+  { t: '9:41', f: 'rolls', h: '<b>Kestrel</b> WIS save <span class="res">17</span> vs DC 12 — success' },
+  { t: '9:52', f: 'rolls', h: '<b>Perrin</b> DEX save <span class="res">1</span> vs DC 13 — fails, 2 damage' },
+  { t: '9:52', f: 'combat', h: '<b>Warren Ambush</b> · 4 spawned, initiative seeded' },
+  { t: '9:53', f: 'combat', h: 'Round 1 — <b>Goblin Boss</b> acts' },
+  { t: '9:54', f: 'triggers', h: '<b>Warren Hall Fire</b> goes dark' },
+];
+
+// ── rail ──────────────────────────────────────────────────────────────────
+const icons = {
+  initiative: '<path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+  fog: '<path d="M17.5 19H9a7 7 0 1 1 6.7-9h1.8a4.5 4.5 0 1 1 0 9Z"/>',
+  doors: '<path d="M18 20V6a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14M2 20h20"/><circle cx="14.5" cy="12" r=".6"/>',
+  lights: '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5.9 1.2.9 2V17h5.2v-1.1c0-.8.3-1.5.9-2A6 6 0 0 0 12 3Z"/>',
+  tokens: '<circle cx="9" cy="10" r="4"/><circle cx="16.5" cy="15" r="3.5"/>',
+  scene: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18M8 5l2 4M14 5l2 4"/>',
+  world: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13 13 0 0 1 0 18M12 3a13 13 0 0 0 0 18"/>',
+  me: '<circle cx="12" cy="8.5" r="3.5"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/>',
+  log: '<path d="M6 4h12a1 1 0 0 1 1 1v15l-3-2-3 2-3-2-3 2V5a1 1 0 0 1 1-1ZM9 9h6M9 13h6"/>',
+};
+const railDm = [
+  ['initiative', 'Initiative'], ['fog', 'Fog'], ['doors', 'Doors'], ['lights', 'Lights'], ['tokens', 'Tokens'],
+  'div', ['scene', 'Scene'], ['world', 'World'], 'spacer', ['log', 'Log'],
+];
+const railPl = [['initiative', 'Initiative'], ['me', 'Me'], 'spacer', ['log', 'Log']];
+
+// ── state ─────────────────────────────────────────────────────────────────
+const S = { view: 'dm', open: true, dense: false, empty: false, narrow: false, annot: false,
+  encounter: false, unread: 0, openPanel: null, drawer: false,
+  vInitSb: false, vLogRight: false, vPartyStatus: false };
+const $ = (id) => document.getElementById(id);
+const shell = $('shell'), body = $('sbBody');
+function svg(name) { return `<svg viewBox="0 0 24 24">${icons[name]}</svg>`; }
+
+function renderRail() {
+  const roster = S.view === 'dm' ? railDm : railPl;
+  $('rail').innerHTML = roster.map((e) => {
+    if (e === 'div') return '<div class="rail-div"></div>';
+    if (e === 'spacer') return '<div class="rail-spacer"></div>';
+    const [id, label] = e;
+    const pressed = id === 'log' ? S.drawer : S.openPanel === id;
+    const docked = id === 'initiative' && S.vInitSb && S.view === 'dm';
+    const badge = id === 'initiative' && S.encounter && S.view === 'dm' ? '<span class="rail-badge">R1</span>' : '';
+    return `<button class="rail-btn ${docked ? 'docked' : ''}" data-panel="${id}" aria-pressed="${pressed}"
+      aria-label="${label}" title="${docked ? label + ' — docked in the sidebar (variant)' : label}">${svg(id)}${badge}</button>`;
+  }).join('');
+}
+
+// ── popovers ──────────────────────────────────────────────────────────────
+function initRows(redact) {
+  return initiative.map((e) => `
+    <div class="init-row ${e.current && S.encounter ? 'current' : ''}">
+      <span class="num mono">${e.n}</span>
+      <span class="grow">${e.name}${e.you ? ' <span style="color:rgb(var(--text-muted))">(you)</span>' : ''}</span>
+      ${e.hp ? (redact
+        ? '<span class="hp mono">—</span>'
+        : `<span class="hp mono">${e.hp[0]}/${e.hp[1]}</span><span class="hp-bar"><i style="width:${(e.hp[0] / e.hp[1]) * 100}%"></i></span>`)
+        : ''}
+    </div>`).join('');
+}
+const rooms = [
+  ['Room 1', 'revealed'], ['Cave Mouth', 'partly'], ['Web Gallery', ''], ['Room 2', ''],
+  ['Hidden Vein', ''], ["Chief's Den", ''], ['Fungus Grotto', ''], ['Plunder Nook', ''],
+];
+function panelHtml(id) {
+  const dm = S.view === 'dm';
+  switch (id) {
+    case 'initiative': {
+      if (!S.encounter) return { title: 'Initiative', sub: '', body: `
+        <p class="hint-line">No encounter running.</p>
+        <p class="hint-line">Pick combatants, then Begin:</p>
+        <div class="prow"><input type="checkbox" checked aria-label="Perrin"> <span class="grow">Perrin</span><span class="sub">Player</span></div>
+        <div class="prow"><input type="checkbox" checked aria-label="Kestrel"> <span class="grow">Kestrel</span><span class="sub">Player</span></div>
+        <input class="filter-in" placeholder="Add a combatant" aria-label="Add a combatant">`,
+        foot: `<span class="grow"></span><button class="primary-btn">Begin <kbd style="border-color:rgb(var(--on-accent)/.35);color:inherit">I</kbd></button>` };
+      return { title: 'Initiative', sub: 'Round 1', body: initRows(!dm),
+        foot: dm ? `<span class="grow">Goblin Boss acts</span><button class="primary-btn">Next turn</button>`
+                 : `<span class="grow">Your turn is coming up.</span>` };
+    }
+    case 'fog': return { title: 'Fog', sub: '2 of 8 rooms revealed', body: `
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="seg2"><button aria-pressed="true">Rooms</button><button aria-pressed="false">Vision</button></div>
+        <button class="mini-btn" aria-label="Fog settings" style="margin-left:auto">⋯</button>
+      </div>
+      <div class="tool-row">
+        <button class="tool-btn" data-arm="Reveal" aria-pressed="false">Reveal <kbd>R</kbd></button>
+        <button class="tool-btn" data-arm="Hide" aria-pressed="false">Hide <kbd>H</kbd></button>
+        <button class="tool-btn" data-arm="Brush" aria-pressed="false">Brush <kbd>B</kbd></button>
+      </div>
+      <p class="hint-line">Arm a tool, then click rooms on the map. <kbd>Esc</kbd> stands down.</p>
+      <input class="filter-in" placeholder="Filter rooms" aria-label="Filter rooms">
+      <div class="chip-grid">${rooms.map(([n, st]) => `
+        <button class="room-chip"><span class="glyph ${st === 'revealed' ? 'closed' : 'open'}"
+          title="${st === 'revealed' ? 'Revealed' : st === 'partly' ? 'Partly seen' : 'Hidden'}"></span>
+          <span class="grow">${n}</span>${st === 'partly' ? '<span class="sub">partly</span>' : ''}</button>`).join('')}
+      </div>`,
+      foot: `<button class="mini-btn">Reveal all</button><button class="mini-btn">Hide explored</button><span class="grow"></span><span>Conceal behind doors: on</span>` };
+    case 'doors': return { title: 'Doors', sub: '3 on this scene', body: `
+      <input class="filter-in" placeholder="Filter doors" aria-label="Filter doors">
+      <div class="prow"><span class="glyph open" title="Open"></span><span class="grow">Warren Gate</span>
+        <button class="mini-btn">Close</button><button class="mini-btn">Lock</button></div>
+      <div class="prow"><span class="glyph closed" title="Closed"></span><span class="grow">Chief's Den Door <span class="sub">· Locked</span></span>
+        <button class="mini-btn">Unlock</button></div>
+      <div class="prow"><span class="glyph secret" title="Secret"></span><span class="grow">Hidden Vein Passage</span>
+        <button class="mini-btn">Reveal secret</button></div>`,
+      foot: `Select a door, or click one on the map.` };
+    case 'lights': return { title: 'Lights', sub: '3 placed', body: `
+      <div class="prow"><span class="glyph ${S.hallFireLit === false ? 'unlit' : 'lit'}"></span><span class="grow">Warren Hall Fire</span>
+        <button class="mini-btn" data-douse>${S.hallFireLit === false ? 'Relight' : 'Douse'}</button></div>
+      <div class="prow"><span class="glyph lit"></span><span class="grow">Campfire</span><button class="mini-btn">Douse</button></div>
+      <div class="prow"><span class="glyph lit"></span><span class="grow">Chief's Brazier</span><button class="mini-btn">Douse</button></div>
+      <p class="hint-line">Click a light on the map to edit radius, intensity and colour.</p>`,
+      foot: `Live edits layer over the authored map. Reset returns a light to how it was drawn.` };
+    case 'tokens': return { title: 'Tokens', sub: dm ? '2 placed · 4 spawned' : '', body: `
+      <input class="filter-in" placeholder="Filter tokens" aria-label="Filter tokens">
+      <div class="prow"><span class="glyph lit" style="background:rgb(var(--accent-dim))"></span><span class="grow">Perrin <span class="sub">· claimed</span></span><span class="sub">Vision 30 ft</span></div>
+      <div class="prow"><span class="glyph lit" style="background:rgb(var(--accent-dim))"></span><span class="grow">Kestrel <span class="sub">· Unassigned</span></span><span class="sub">Vision 30 ft</span></div>
+      <div class="prow"><span class="glyph unlit"></span><span class="grow">Goblin Boss</span><span class="sub">hidden</span><button class="mini-btn">Reveal</button></div>
+      <div class="prow"><span class="glyph unlit"></span><span class="grow">Goblin 1–3</span><button class="mini-btn">Hide</button></div>`,
+      foot: `Portraits: png, jpg, webp` };
+    case 'me': return { title: 'Me', sub: 'Perrin', body: `
+      <div class="prow"><span class="grow">HP</span><span class="mono">9 / 11</span></div>
+      <div class="prow"><span class="grow">Conditions</span><span class="sub">none</span></div>
+      <div class="prow"><span class="grow">You see</span><span class="sub">30 ft</span></div>
+      <div class="prow"><span class="grow">Carrying</span><span class="sub">carries none</span></div>
+      <p class="hint-line">HP and conditions are set by the DM.</p>`,
+      foot: `<button class="mini-btn">Find me</button>` };
+    case 'scene': return { title: 'Scene', sub: '2 published', body: `
+      <div class="prow"><span class="glyph closed"></span><span class="grow"><b style="color:rgb(var(--text-primary));font-weight:500">Goblin Warren</b> <span class="sub">· active</span></span>
+        <button class="mini-btn" aria-label="More actions for Goblin Warren">⋯</button></div>
+      <div class="prow"><span class="glyph open"></span><span class="grow">Fieldstone Keep</span>
+        <button class="mini-btn">Show to players</button></div>
+      <div class="lbl-row"><span class="lbl">Weather</span>
+        <select aria-label="Weather" style="background:rgb(var(--surface-0));border:1px solid rgb(var(--border-default));border-radius:4px;padding:2px 6px;font-size:12px">
+          <option>Storm</option><option>Clear</option><option>Rain</option></select></div>`,
+      foot: `Rename · Replace · Delete under ⋯` };
+    case 'world': return { title: 'World', sub: 'Dawn', body: `
+      <div class="prow"><span class="grow">World clock</span><span class="mono">06:12</span></div>
+      <div class="lbl-row"><span class="lbl">Level</span><input type="range" min="0" max="100" value="30" aria-label="Level"></div>
+      <div class="lbl-row"><span class="lbl">Night sky</span>
+        <div class="seg2"><button aria-pressed="false">Full</button><button aria-pressed="true">Crescent</button><button aria-pressed="false">None</button></div></div>
+      <div class="lbl-row"><span class="lbl">Speed</span>
+        <div class="seg2"><button aria-pressed="false">Paused</button><button aria-pressed="true">Real</button><button aria-pressed="false">Fast</button></div></div>`,
+      foot: `This scene follows the world clock.` };
+    case 'session': return { title: 'Session', sub: 'Goblin Warren', body: `
+      <div class="prow"><span class="grow">Invite</span><button class="mini-btn mono">GHSR2Z · copy</button></div>
+      <div class="prow"><span class="glyph lit"></span><span class="grow">Perrin</span><span class="sub">connected</span></div>
+      <div class="prow"><span class="glyph unlit"></span><span class="grow">Kestrel</span><span class="sub">away</span></div>
+      <p class="hint-line">Players keep the link until you do.</p>`,
+      foot: dm ? `<span class="grow"></span><button class="mini-btn" style="color:rgb(var(--danger));border-color:rgb(var(--danger)/.4)">End session</button>`
+               : `<span class="grow"></span><button class="mini-btn">Leave table</button>` };
+  }
+  return null;
+}
+function openPanel(id, anchorBtn) {
+  if (id === 'log') { setDrawer(!S.drawer); renderRail(); return; }
+  if (S.openPanel === id) { S.openPanel = null; renderPopover(); renderRail(); return; }
+  S.openPanel = id;
+  S.popTop = anchorBtn ? Math.min(anchorBtn.getBoundingClientRect().top, innerHeight - 420) : 60;
+  renderPopover(); renderRail();
+}
+function renderPopover() {
+  const host = $('popHost');
+  if (!S.openPanel) { host.innerHTML = ''; return; }
+  const p = panelHtml(S.openPanel);
+  if (!p) { host.innerHTML = ''; return; }
+  const statusLeft = S.openPanel === 'session';
+  host.innerHTML = `
+    <div class="popover ${statusLeft ? 'status-left' : ''}" style="top:${statusLeft ? 'auto' : Math.max(8, S.popTop) + 'px'}" role="dialog" aria-label="${p.title}">
+      <div class="pop-head">
+        <span class="pop-title">${p.title}</span>
+        <span class="pop-sub">${p.sub}</span>
+        <span class="spacer"></span>
+        <button class="pop-close" data-close aria-label="Close">✕</button>
+      </div>
+      <div class="pop-body">${p.body}</div>
+      ${p.foot ? `<div class="pop-foot">${p.foot}</div>` : ''}
+    </div>`;
+  host.querySelector('[data-close]').addEventListener('click', () => { S.openPanel = null; renderPopover(); renderRail(); });
+  host.querySelectorAll('[data-arm]').forEach((b) => b.addEventListener('click', () => {
+    const on = b.getAttribute('aria-pressed') !== 'true';
+    host.querySelectorAll('[data-arm]').forEach((x) => x.setAttribute('aria-pressed', 'false'));
+    b.setAttribute('aria-pressed', on);
+    $('armedTool').hidden = !on;
+    if (on) $('armedTool').firstChild.textContent = b.dataset.arm + ' armed ';
+  }));
+  const douse = host.querySelector('[data-douse]');
+  if (douse) douse.addEventListener('click', () => { toggleHallFire(); renderPopover(); });
+}
+$('rail').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-panel]'); if (b) openPanel(b.dataset.panel, b);
+});
+$('sceneNameBtn').addEventListener('click', () => openPanel('session'));
+
+// ── drawer ────────────────────────────────────────────────────────────────
+let logFilter = 'all';
+function setDrawer(open) {
+  S.drawer = open;
+  $('drawer').hidden = !open;
+  $('ticker').hidden = open && !S.vLogRight;
+  shell.classList.toggle('drawer-open', open);
+  renderDrawer(); renderRail();
+}
+function renderDrawer() {
+  if (!S.drawer) return;
+  const lines = logLines.filter((l) => logFilter === 'all' || l.f === logFilter);
+  const mk = (arr) => `<ol>${arr.map((l) => `<li class="logline"><time>${l.t}</time><span class="t">${l.h}</span></li>`).join('')}</ol>`;
+  const half = Math.ceil(lines.length / 2);
+  $('drawerFeed').innerHTML = lines.length === 0
+    ? '<p class="hint-line" style="align-self:center;margin:auto">Nothing has happened yet.</p>'
+    : (S.vLogRight ? mk(lines) : mk(lines.slice(0, half)) + mk(lines.slice(half)));
+}
+$('ticker').addEventListener('click', () => setDrawer(true));
+$('drawerClose').addEventListener('click', () => setDrawer(false));
+$('drawer').addEventListener('click', (e) => {
+  const f = e.target.closest('[data-filter]'); if (!f) return;
+  logFilter = f.dataset.filter;
+  $('drawer').querySelectorAll('[data-filter]').forEach((x) => x.setAttribute('aria-pressed', x === f));
+  renderDrawer();
+});
+
+// ── party strip / pills ───────────────────────────────────────────────────
+function renderParty() {
+  const discs = S.encounter
+    ? [['B', 'npc current'], ['K', ''], ['g', 'npc'], ['P', ''], ['g', 'npc'], ['g', 'npc']]
+    : [['P', ''], ['K', ''], ['M', '']];
+  const html = discs.map(([t, c]) => `<span class="pdisc ${c}">${t}</span>`).join('')
+    + (S.encounter ? '<span class="party-round mono">R1</span>' : '');
+  $('partyStrip').innerHTML = html;
+  $('sbParties').innerHTML = html;
+}
+
+// ── on-map menus ──────────────────────────────────────────────────────────
+function closeCtx() { $('ctxHost').innerHTML = ''; }
+function openCtx(kind, x, y) {
+  const menus = {
+    door: `<div class="cm-title">Warren Gate · Open</div>
+      <button class="cm-item">Close</button><button class="cm-item">Lock</button>`,
+    light: `<div class="cm-title">Campfire</div>
+      <div class="cm-slider"><span>Radius</span><input type="range" min="1" max="12" value="6" aria-label="Radius"></div>
+      <div class="cm-slider"><span>Bright</span><input type="range" min="0" max="100" value="60" aria-label="Bright zone"></div>
+      <div class="cm-slider"><span>Intensity</span><input type="range" min="0" max="100" value="90" aria-label="Intensity"></div>
+      <button class="cm-item">Reset to authored</button>`,
+    perrin: `<div class="cm-title">Perrin · yours</div>
+      <button class="cm-item">Show sight</button><button class="cm-item">Find me</button>`,
+    kestrel: `<div class="cm-title">Kestrel · unclaimed</div>
+      <button class="cm-item">Claim</button>`,
+    boss: `<div class="cm-title">Goblin Boss</div>
+      <button class="cm-item">Hide</button><button class="cm-item">Damage…</button><button class="cm-item">More</button>`,
+    gob: `<div class="cm-title">Goblin 1</div>
+      <button class="cm-item">Hide</button><button class="cm-item">Damage…</button>`,
+  };
+  $('ctxHost').innerHTML = `<div class="ctx-menu" style="left:${x}px;top:${y}px" role="menu">${menus[kind]}</div>`;
+}
+$('map').addEventListener('click', (e) => {
+  const pin = e.target.closest('[data-pin]'); const tok = e.target.closest('[data-tokmenu]');
+  closeCtx();
+  const r = $('map').getBoundingClientRect();
+  if (pin) { openCtx(pin.dataset.pin, pin.offsetLeft + 30, pin.offsetTop); e.stopPropagation(); return; }
+  if (tok) { openCtx(tok.dataset.tokmenu, e.clientX - r.left + 12, e.clientY - r.top); e.stopPropagation(); }
+});
+
+// ── toast (single slot, like toasts.ts) ───────────────────────────────────
+let toastTimer = null;
+function showToast(text) {
+  $('toastHost').innerHTML = `<div class="toast">${text}</div>`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { $('toastHost').innerHTML = ''; }, 2600);
+}
+
+// ── DM sidebar ────────────────────────────────────────────────────────────
+function renderDm() {
+  $('sbTitle').textContent = 'Prep';
+  $('sbFooter').hidden = false;
+  $('qaStrip').hidden = false;
+  $('sbInit').innerHTML = S.vInitSb
+    ? `<div class="qa-label">Encounter${S.encounter ? ' · Round 1' : ''}</div>`
+      + (S.encounter ? initRows(false) : '<p class="hint-line" style="padding:0 6px 2px">No encounter running.</p>')
+    : '';
+  if (S.empty) {
+    body.innerHTML = `<div class="sb-empty">No prep for this scene. Author triggers and notes in the Editor, or send a card on the fly.</div>`;
+    return;
+  }
+  body.innerHTML = zones.map((z) => {
+    const zTriggers = triggers.filter((t) => t.zone === z.id);
+    const zNotes = notes.filter((n) => n.zone === z.id);
+    if (!zTriggers.length && !zNotes.length) return '';
+    return `<section class="zone" data-zone="${z.id}">
+      <button class="zone-head" data-collapse="${z.id}">
+        <svg class="zone-caret" viewBox="0 0 24 24"><polyline points="7 10 12 15 17 10"/></svg>
+        <span class="reveal-mark ${z.revealed ? 'revealed' : ''}" title="${z.revealed ? 'Revealed' : 'Not yet revealed'}"></span>
+        <span class="zone-name">${z.name}</span>
+        <span class="zone-pan">pan to zone</span>
+      </button>
+      <div class="zone-rows">
+        ${zTriggers.map(triggerRow).join('')}
+        ${zNotes.map(noteRow).join('')}
+      </div>
+    </section>`;
+  }).join('');
+}
+function triggerRow(t) {
+  const off = !t.enabled;
+  const fired = t.state === 'fired';
+  const mark = off ? 'off' : (fired ? 'fired' : 'armed');
+  const title = off ? 'Disabled — will not fire on its own' : (fired ? `Fired ${t.firedAt}` : 'Armed');
+  return `<div class="trow ${off ? 'sunk' : ''}" data-trigger="${t.id}" title="${t.cond}">
+    <span class="state-mark ${mark}" title="${title}"></span>
+    <div class="trow-main">
+      <div class="trow-name">${t.name}
+        ${t.inert ? '<span class="badge inert" title="Zone shape does not fit the condition">Inert</span>' : ''}
+        ${fired && t.encounter ? '<span class="badge tracker">in tracker</span>' : ''}
+      </div>
+      <div class="trow-cond">${t.cond} · ${t.meta}</div>
+    </div>
+    ${fired
+      ? `<button class="fire-btn" disabled>Fired <span class="mono">${t.firedAt}</span></button>`
+      : `<button class="fire-btn" data-fire="${t.id}">Fire</button>`}
+    <button class="sw" role="switch" aria-checked="${t.enabled}" data-toggle="${t.id}"
+      aria-label="${t.name} enabled" title="${off ? 'Off — enable to arm' : 'On'}"></button>
+  </div>`;
+}
+function noteRow(n) {
+  return `<div class="trow" data-note="${n.id}">
+    <span class="state-mark ${n.shared ? 'fired' : 'armed'}" title="${n.shared ? 'Shared' : 'Not shared'}" style="border-radius:1px"></span>
+    <div class="trow-main">
+      <div class="trow-name">${n.title}
+        ${n.onReveal ? '<span class="badge onreveal">On reveal</span>' : ''}
+      </div>
+      <div class="trow-cond">Note${n.img ? ' · image' : ''}</div>
+    </div>
+    ${n.shared
+      ? `<button class="share-btn" disabled>Shared <span class="mono">${n.sharedAt}</span></button>`
+      : `<button class="share-btn" data-share="${n.id}">Share</button>`}
+  </div>
+  ${n.img ? `<div class="note-body"><div class="note-text">${n.body}</div><div class="note-img" role="img" aria-label="Note image"></div></div>` : ''}`;
+}
+
+// ── player journal ────────────────────────────────────────────────────────
+function renderPlayer() {
+  $('sbTitle').textContent = 'Journal';
+  $('sbFooter').hidden = true;
+  $('qaStrip').hidden = true;
+  $('sbInit').innerHTML = '';
+  $('composer').classList.remove('open');
+  if (S.empty || journal.length === 0) {
+    body.innerHTML = `<div class="journal-empty">Nothing shared yet.<br>What the world tells you will be kept here.</div>`;
+    return;
+  }
+  body.innerHTML = `<div class="journal-feed">
+    <div class="jday">Tonight</div>
+    ${journal.map((c) => `
+      <article class="card ${c.fresh ? 'arriving' : ''}">
+        ${c.img ? '<div class="card-img" role="img" aria-label="Shared illustration"></div>' : ''}
+        <div class="card-body">
+          <div class="card-kicker">${c.kicker}</div>
+          <div class="card-title">${c.title}</div>
+          <div class="card-text">${c.body}</div>
+          <div class="card-time mono">${c.time}</div>
+        </div>
+      </article>`).join('')}
+  </div>`;
+  journal.forEach((c) => (c.fresh = false));
+}
+
+function render() {
+  renderRail(); renderParty();
+  $('partyStrip').hidden = S.view !== 'dm';
+  $('turnPill').hidden = S.view !== 'player';
+  $('turnPill').textContent = S.encounter ? 'Goblin Boss acts · you’re up after Kestrel' : 'Waiting on the DM';
+  const rb = document.getElementById('rollbar');
+  if (rb) rb.hidden = S.view !== 'player' || S.drawer;
+  if (S.view === 'dm') renderDm(); else renderPlayer();
+  if (S.view === 'player') {
+    const b = $('edgeBadge');
+    if (S.unread > 0 && !S.open) { b.textContent = S.unread; b.classList.add('show'); }
+    else b.classList.remove('show');
+  } else $('edgeBadge').classList.remove('show');
+  renderPopover();
+}
+
+// ── interactions ──────────────────────────────────────────────────────────
+function setOpen(open) {
+  S.open = open;
+  shell.classList.toggle('sidebar-open', open);
+  if (open && S.view === 'player') S.unread = 0;
+  render();
+}
+$('edgeToggle').addEventListener('click', () => setOpen(true));
+$('sbCollapse').addEventListener('click', () => setOpen(false));
+$('scrim').addEventListener('click', () => setOpen(false));
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if ($('ctxHost').innerHTML) { closeCtx(); return; }
+    if (S.openPanel) { S.openPanel = null; renderPopover(); renderRail(); return; }
+    if ($('armedTool') && !$('armedTool').hidden) { $('armedTool').hidden = true; return; }
+    if (shell.classList.contains('overlay-mode') && S.open) setOpen(false);
+    return;
+  }
+  if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  if (e.key === 'g' || e.key === 'G') setOpen(!S.open);
+  if (e.key === 'l' || e.key === 'L') setDrawer(!S.drawer);
+});
+
+body.addEventListener('click', (e) => {
+  const zoneBtn = e.target.closest('[data-collapse]');
+  if (zoneBtn) { zoneBtn.closest('.zone').classList.toggle('collapsed'); return; }
+  const fire = e.target.closest('[data-fire]');
+  if (fire) {
+    const t = triggers.find((x) => x.id === fire.dataset.fire);
+    if (t.id === 't7') { toggleHallFire(); flashRow(t.id); return; } // repeatable: fires, stays armed
+    t.state = 'fired'; t.firedAt = '9:52';
+    if (t.id === 't3') { $('bossTok').hidden = false; $('gobTok').hidden = false; S.encounter = true; setChip($('mEnc'), true); }
+    render(); flashRow(t.id);
+    return;
+  }
+  const tog = e.target.closest('[data-toggle]');
+  if (tog) {
+    const t = triggers.find((x) => x.id === tog.dataset.toggle);
+    t.enabled = !t.enabled; renderDm();
+    return;
+  }
+  const share = e.target.closest('[data-share]');
+  if (share) {
+    const n = notes.find((x) => x.id === share.dataset.share);
+    n.shared = true; n.sharedAt = '9:41';
+    journal.push({ kicker: 'Place', title: n.title, body: n.body, time: '9:41', img: n.img, fresh: true });
+    S.unread += 1;
+    renderDm();
+    showToast(`Shared — ${n.title}`);
+  }
+});
+function flashRow(id) {
+  const row = body.querySelector(`[data-trigger="${id}"]`);
+  if (row) { row.classList.add('just-fired'); setTimeout(() => row.classList.remove('just-fired'), 1200); }
+}
+function toggleHallFire() {
+  S.hallFireLit = S.hallFireLit === false;
+  $('hallFire').textContent = S.hallFireLit === false ? 'Relight' : 'Douse';
+  showToast(S.hallFireLit === false ? 'Warren Hall Fire goes dark' : 'Warren Hall Fire is lit again');
+}
+
+$('qaCard').addEventListener('click', () => { $('composer').classList.add('open'); $('cTitle').focus(); });
+$('cCancel').addEventListener('click', () => $('composer').classList.remove('open'));
+$('cShare').addEventListener('click', () => {
+  const title = $('cTitle').value.trim(), text = $('cBody').value.trim();
+  if (!title && !text) { $('composer').classList.remove('open'); return; }
+  journal.push({ kicker: 'Missive', title: title || 'From the DM', body: text, time: '9:54', img: false, fresh: true });
+  S.unread += 1;
+  $('cTitle').value = ''; $('cBody').value = ''; $('composer').classList.remove('open');
+  showToast(`Shared — ${title || 'From the DM'}`);
+});
+$('hallFire').addEventListener('click', toggleHallFire);
+$('gateBtn').addEventListener('click', function () {
+  this.textContent = this.textContent === 'Open' ? 'Close' : 'Open';
+});
+
+// player roll bar
+const rollbar = document.createElement('form');
+rollbar.className = 'rollbar'; rollbar.id = 'rollbar'; rollbar.hidden = true;
+rollbar.innerHTML = `
+  <input placeholder="Roll or say something · stealth 17 · 1d20+2" aria-label="Roll or say something">
+  <button class="whisper" type="button" title="Send this line to only you and the DM" aria-label="Whisper">
+    <svg viewBox="0 0 24 24"><path d="M12 4a8 8 0 0 0-8 8c0 1.4.4 2.8 1 4l-1 4 4-1a8 8 0 1 0 4-15Z"/></svg>
+  </button>`;
+rollbar.addEventListener('submit', (e) => e.preventDefault());
+$('map').appendChild(rollbar);
+
+// ── mockup chrome ─────────────────────────────────────────────────────────
+function setChip(el, on) { el.setAttribute('aria-pressed', on); }
+$('vDm').addEventListener('click', () => { S.view = 'dm'; setChip($('vDm'), true); setChip($('vPl'), false); S.openPanel = null; render(); });
+$('vPl').addEventListener('click', () => { S.view = 'player'; setChip($('vDm'), false); setChip($('vPl'), true); S.openPanel = null; render(); });
+$('mDense').addEventListener('click', function () { S.dense = !S.dense; shell.classList.toggle('dense', S.dense); setChip(this, S.dense); });
+$('mEmpty').addEventListener('click', function () { S.empty = !S.empty; setChip(this, S.empty); render(); });
+$('mNarrow').addEventListener('click', function () { S.narrow = !S.narrow; applyMq(); setChip(this, S.narrow); });
+$('mPrompt').addEventListener('click', function () {
+  const on = $('promptCard').hidden;
+  $('promptCard').hidden = !on; $('initPrompt').hidden = !on; setChip(this, on);
+});
+$('mEnc').addEventListener('click', function () {
+  S.encounter = !S.encounter; setChip(this, S.encounter);
+  if (S.encounter) { $('bossTok').hidden = false; $('gobTok').hidden = false; }
+  render();
+});
+$('mAnnot').addEventListener('click', function () { S.annot = !S.annot; shell.classList.toggle('annotated', S.annot); setChip(this, S.annot); });
+
+// variants — honest moves, each one a question for the user, not a decision
+$('vInitSb').addEventListener('click', function () {
+  S.vInitSb = !S.vInitSb; shell.classList.toggle('v-init-sb', S.vInitSb); setChip(this, S.vInitSb);
+  if (S.vInitSb && S.openPanel === 'initiative') S.openPanel = null;
+  render();
+  if (S.vInitSb) showToast('Variant: turn order docks above prep — story and combat share the left column');
+});
+$('vLogRight').addEventListener('click', function () {
+  S.vLogRight = !S.vLogRight; shell.classList.toggle('v-log-right', S.vLogRight); setChip(this, S.vLogRight);
+  if (S.vLogRight) setDrawer(true); else setDrawer(false);
+  if (S.vLogRight) showToast('Variant: the record gets a tall column — the map narrows between two sidebars');
+});
+$('vPartyStatus').addEventListener('click', function () {
+  S.vPartyStatus = !S.vPartyStatus; shell.classList.toggle('v-party-status', S.vPartyStatus); setChip(this, S.vPartyStatus);
+  render();
+  if (S.vPartyStatus) showToast('Variant: one chrome strip — but whose-turn moves far from the action');
+});
+
+const mq = matchMedia('(max-width: 900px)');
+function applyMq() { shell.classList.toggle('overlay-mode', mq.matches || S.narrow); }
+mq.addEventListener('change', applyMq); applyMq();
+
+render();
+</script>

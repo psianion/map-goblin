@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Good Goblin — loading concept v3</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(ellipse at 50% 42%, #17140f 0%, #0b0a08 70%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-family: Georgia, 'Times New Roman', serif;
+    color: #f0e6d2;
+    overflow: hidden;
+    user-select: none;
+  }
+  #stage { width: min(74vmin, 460px); }
+  svg { width: 100%; height: auto; display: block; overflow: visible; }
+
+  #counterWrap { text-align: center; margin-top: 0.4em; }
+  #counter {
+    font-size: 2.4rem; letter-spacing: 0.06em;
+    color: #ffb84d;
+    text-shadow: 0 0 18px rgba(245,166,35,0.45);
+    font-variant-numeric: tabular-nums lining-nums;
+    transition: transform 0.12s ease-out;
+  }
+  #counter.bump { transform: scale(1.18); }
+  #loadingLabel {
+    font-size: 0.8rem; letter-spacing: 0.35em; text-transform: uppercase;
+    color: #8a7f68; margin-top: 0.4em;
+  }
+  #loadingLabel::after { content: '...'; animation: dots 1.5s steps(4) infinite; }
+  @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+
+  #logo { opacity: 0; text-align: center; margin-top: 0.3em; transition: opacity 1.4s ease; }
+  /* ponytail: wordmark markup swaps to the drawn lettering SVG when wordmark.svg passes review */
+  #logo .word {
+    font-size: 2.6rem; letter-spacing: 0.14em;
+    color: #f0e6d2;
+    text-shadow: 0 2px 0 #1a1712, 0 0 30px rgba(245,166,35,0.25);
+  }
+  #logo .word b { color: #ffb84d; font-weight: normal; }
+
+  .done #loadingLabel, .done #counter { display: none; }
+  .done #logo { opacity: 1; }
+
+  #replay {
+    position: fixed; bottom: 16px; right: 16px;
+    background: none; border: 1px solid #3a352b; color: #8a7f68;
+    font-family: inherit; letter-spacing: 0.2em; text-transform: uppercase;
+    font-size: 0.65rem; padding: 8px 14px; cursor: pointer; opacity: 0.7;
+  }
+  #replay:hover { color: #ffb84d; border-color: #f5a623; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <svg id="scene" viewBox="0 0 400 350" aria-label="A d20 tumbling; the goblin rolls any natural 1 clean over to a 20">
+    <defs>
+      <radialGradient id="poolG" cx="50%" cy="50%" r="50%">
+        <stop offset="0%"  stop-color="#f5a623" stop-opacity="0.55"/>
+        <stop offset="55%" stop-color="#f5a623" stop-opacity="0.14"/>
+        <stop offset="100%" stop-color="#f5a623" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="aoG" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="#000" stop-opacity="0.55"/>
+        <stop offset="60%" stop-color="#000" stop-opacity="0.35"/>
+        <stop offset="100%" stop-color="#000" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="flashG" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="#ffe9b8" stop-opacity="0.9"/>
+        <stop offset="35%" stop-color="#ffb84d" stop-opacity="0.5"/>
+        <stop offset="100%" stop-color="#f5a623" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+
+    <!-- placeholder ground until background.svg lands; #bgSlot gets the painted scene -->
+    <g id="bgSlot"><ellipse cx="200" cy="278" rx="155" ry="48" fill="url(#poolG)"/></g>
+    <ellipse id="ao" cx="200" cy="286" rx="78" ry="15" fill="url(#aoG)"/>
+
+    <g id="gobBack" transform="translate(200 210)" opacity="0"></g>
+
+    <g id="dieWrap" transform="translate(200 210)">
+      <g id="weight"></g>
+      <g id="midSlot" display="none"></g>
+      <g id="engine" opacity="0"></g>
+    </g>
+
+    <g id="gobFront" transform="translate(200 210)" opacity="0"></g>
+
+    <g id="fgSlot"></g>
+    <g id="flashWrap" transform="translate(200 210)">
+      <circle id="flash" cx="0" cy="0" r="95" fill="url(#flashG)" opacity="0"/>
+    </g>
+  </svg>
+
+  <div id="counterWrap">
+    <div id="counter">0</div>
+    <div id="loadingLabel">Loading</div>
+    <div id="logo"><div class="word">GOOD <b>GOBLIN</b></div></div>
+  </div>
+</div>
+<button id="replay" onclick="location.reload()">Replay</button>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const NS = 'http://www.w3.org/2000/svg';
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const easeIO = u => u < 0.5 ? 4*u*u*u : 1 - Math.pow(-2*u + 2, 3) / 2;
+const easeOut = u => 1 - Math.pow(1 - u, 3);
+function tw(dur, fn, ease = easeIO) {
+  return new Promise(res => {
+    const t0 = performance.now();
+    (function step(now) {
+      const u = Math.min(1, (now - t0) / dur);
+      fn(ease(u), u);
+      u < 1 ? requestAnimationFrame(step) : res();
+    })(t0);
+  });
+}
+const rnd = (a, b) => a + Math.random() * (b - a);
+
+const LOAD_MS = 15000; // ponytail: fixed demo duration; real app ties this to load progress
+let total = 0;
+
+function setCounter(v) {
+  const c = $('counter');
+  c.textContent = v;
+  c.classList.add('bump');
+  setTimeout(() => c.classList.remove('bump'), 130);
+}
+async function addToCounter(amount) {
+  const from = total; total += amount;
+  const steps = Math.min(amount, 8);
+  for (let i = 1; i <= steps; i++) { setCounter(Math.round(from + amount * i / steps)); await wait(45); }
+}
+
+// ================= vector / quaternion =================
+const sub = (a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+const dot = (a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const cross = (a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const nv = a=>{const l=Math.hypot(...a);return [a[0]/l,a[1]/l,a[2]/l];};
+const qmul=(a,b)=>[a[0]*b[0]-a[1]*b[1]-a[2]*b[2]-a[3]*b[3],
+                   a[0]*b[1]+a[1]*b[0]+a[2]*b[3]-a[3]*b[2],
+                   a[0]*b[2]-a[1]*b[3]+a[2]*b[0]+a[3]*b[1],
+                   a[0]*b[3]+a[1]*b[2]-a[2]*b[1]+a[3]*b[0]];
+const aaq=(axis,ang)=>{const s=Math.sin(ang/2);return [Math.cos(ang/2),axis[0]*s,axis[1]*s,axis[2]*s];};
+function qmat(q){const[w,x,y,z]=q;return[
+  [1-2*(y*y+z*z),2*(x*y-w*z),2*(x*z+w*y)],
+  [2*(x*y+w*z),1-2*(x*x+z*z),2*(y*z-w*x)],
+  [2*(x*z-w*y),2*(y*z+w*x),1-2*(x*x+y*y)]];}
+const mv=(m,v)=>[dot(m[0],v),dot(m[1],v),dot(m[2],v)];
+function matq(m){ // orthonormal 3x3 -> quat
+  const tr=m[0][0]+m[1][1]+m[2][2]; let w,x,y,z,s;
+  if(tr>0){s=Math.sqrt(tr+1)*2;w=s/4;x=(m[2][1]-m[1][2])/s;y=(m[0][2]-m[2][0])/s;z=(m[1][0]-m[0][1])/s;}
+  else if(m[0][0]>m[1][1]&&m[0][0]>m[2][2]){s=Math.sqrt(1+m[0][0]-m[1][1]-m[2][2])*2;w=(m[2][1]-m[1][2])/s;x=s/4;y=(m[0][1]+m[1][0])/s;z=(m[0][2]+m[2][0])/s;}
+  else if(m[1][1]>m[2][2]){s=Math.sqrt(1+m[1][1]-m[0][0]-m[2][2])*2;w=(m[0][2]-m[2][0])/s;x=(m[0][1]+m[1][0])/s;y=s/4;z=(m[1][2]+m[2][1])/s;}
+  else{s=Math.sqrt(1+m[2][2]-m[0][0]-m[1][1])*2;w=(m[1][0]-m[0][1])/s;x=(m[0][2]+m[2][0])/s;y=(m[1][2]+m[2][1])/s;z=s/4;}
+  const l=Math.hypot(w,x,y,z);return[w/l,x/l,y/l,z/l];}
+function slerp(a,b,t){
+  let d=a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];
+  let bb=b; if(d<0){d=-d;bb=[-b[0],-b[1],-b[2],-b[3]];}
+  if(d>0.9995){const r=a.map((v,i)=>v+(bb[i]-v)*t);const l=Math.hypot(...r);return r.map(v=>v/l);}
+  const th=Math.acos(d),s=Math.sin(th);
+  const f0=Math.sin((1-t)*th)/s,f1=Math.sin(t*th)/s;
+  return a.map((v,i)=>v*f0+bb[i]*f1);
+}
+
+// ================= icosahedron =================
+const PHI=(1+Math.sqrt(5))/2, VN=Math.hypot(1,PHI);
+const VERT=[];
+for(const a of [1,-1]) for(const b of [1,-1]){
+  VERT.push([0,a/VN,b*PHI/VN]);
+  VERT.push([a/VN,b*PHI/VN,0]);
+  VERT.push([a*PHI/VN,0,b/VN]);
+}
+const EDGE2=4/(VN*VN);
+const d2=(a,b)=>{const s=sub(a,b);return dot(s,s);};
+const FACE=[]; // {v:[i,j,k], n, c, e1, e2}
+for(let i=0;i<12;i++)for(let j=i+1;j<12;j++)for(let k=j+1;k<12;k++){
+  if(d2(VERT[i],VERT[j])<EDGE2*1.01&&d2(VERT[j],VERT[k])<EDGE2*1.01&&d2(VERT[i],VERT[k])<EDGE2*1.01){
+    let v=[i,j,k];
+    const c=[0,1,2].map(a=>(VERT[i][a]+VERT[j][a]+VERT[k][a])/3);
+    if(dot(cross(sub(VERT[v[1]],VERT[v[0]]),sub(VERT[v[2]],VERT[v[0]])),c)<0) v=[i,k,j];
+    const n=nv(c);
+    const e2=nv(sub(VERT[v[0]],c));           // numeral-up points at the face's first vertex
+    let e1=nv(cross(n,e2));
+    if(dot(cross(e1,e2),n)>0) e1=e1.map(x=>-x); // left-handed basis: proper rotation onto y-down screen
+    FACE.push({v,n,c,e1,e2});
+  }
+}
+// edges with their two adjoining faces (for silhouette-vs-interior ink weight)
+const EDGES=[];
+for(let a=0;a<20;a++)for(let b=a+1;b<20;b++){
+  const shared=FACE[a].v.filter(x=>FACE[b].v.includes(x));
+  if(shared.length===2) EDGES.push({p:shared[0],q:shared[1],fa:a,fb:b});
+}
+// numbering: opposite faces sum to 21 (1 opposite 20)
+const OPP=FACE.map((f,i)=>{let bi=0,bd=9;FACE.forEach((g,j)=>{const s=[0,1,2].map(a=>f.c[a]+g.c[a]);const d=dot(s,s);if(d<bd){bd=d;bi=j;}});return bi;});
+const NUMOF=Array(20).fill(0), FACEOF={};
+{let n=1;for(let i=0;i<20;i++)if(!NUMOF[i]){NUMOF[i]=n;NUMOF[OPP[i]]=21-n;n++;}}
+NUMOF.forEach((num,i)=>FACEOF[num]=i);
+
+function canonicalQ(fi){ // face fi front, numeral upright
+  const f=FACE[fi];
+  const B=[f.e1,f.e2,f.n]; // rows -> transpose gives columns
+  // R = Bscreen * Bface^T with Bscreen columns (1,0,0),(0,-1,0),(0,0,1)
+  const Bt=[[B[0][0],B[1][0],B[2][0]],[B[0][1],B[1][1],B[2][1]],[B[0][2],B[1][2],B[2][2]]];
+  const R=[Bt[0].slice(), Bt[1].map(x=>-x), Bt[2].slice()].map((row,ri)=>[B[0][ri],B[1][ri],B[2][ri]]);
+  // build explicitly: R[r][c] = Bscreen[r]·(row of B^T) — do it directly:
+  const Rm=[[0,0,0],[0,0,0],[0,0,0]];
+  for(let r=0;r<3;r++)for(let c=0;c<3;c++){
+    // Bscreen columns: e1->(1,0,0), e2->(0,-1,0), n->(0,0,1)
+    Rm[r][c]=( (r===0?1:0)*B[0][c] ) + ( (r===1?-1:0)*B[1][c] ) + ( (r===2?1:0)*B[2][c] );
+  }
+  return matq(Rm);
+}
+// px scale so the face-on silhouette matches the painted hull (R=80)
+let SCALE=80;
+{const m=qmat(canonicalQ(0));let mx=0;VERT.forEach(v=>{const p=mv(m,v);mx=Math.max(mx,Math.hypot(p[0],p[1]));});SCALE=80/mx;}
+
+// ================= engine rendering =================
+const SLATE=['#232b30','#39434a','#4a565b','#5d696d','#6f7c7f'];
+const WARM='#c9995a', INK_SIL='#14181a', INK_INT='#1c2226';
+const LWARM=nv([0,0.78,0.63]), LCOOL=nv([0.15,-0.9,0.42]);
+function hexRGB(h){return [1,3,5].map(i=>parseInt(h.slice(i,i+2),16));}
+function lerpHex(a,b,t){const A=hexRGB(a),B=hexRGB(b);return '#'+A.map((v,i)=>Math.round(v+(B[i]-v)*t).toString(16).padStart(2,'0')).join('');}
+
+const engineG=$('engine');
+let facePaths=[], numGs=[], silPath, intPath;
+function buildEngine(){
+  const faces=document.createElementNS(NS,'g');
+  // no grain filter here: screen-space noise over a rotating solid reads as a shower door (director M3);
+  // the painted rest frames carry the grain, the tumble carries the form
+  for(let i=0;i<20;i++){const p=document.createElementNS(NS,'path');faces.appendChild(p);facePaths.push(p);}
+  intPath=document.createElementNS(NS,'path');
+  intPath.setAttribute('fill','none');intPath.setAttribute('stroke',INK_INT);
+  intPath.setAttribute('stroke-width','2.6');intPath.setAttribute('stroke-linecap','round');intPath.setAttribute('opacity','0.85');
+  silPath=document.createElementNS(NS,'path');
+  silPath.setAttribute('fill','none');silPath.setAttribute('stroke',INK_SIL);
+  silPath.setAttribute('stroke-width','5.5');silPath.setAttribute('stroke-linejoin','round');silPath.setAttribute('stroke-linecap','round');
+  engineG.appendChild(faces);engineG.appendChild(intPath);engineG.appendChild(silPath);
+  const nums=document.createElementNS(NS,'g');
+  for(let i=0;i<20;i++){
+    const g=document.createElementNS(NS,'g');
+    const t=document.createElementNS(NS,'text');
+    t.setAttribute('text-anchor','middle');t.setAttribute('y','12');
+    t.setAttribute('font-family','Georgia, serif');t.setAttribute('font-weight','bold');t.setAttribute('font-size','34');
+    t.setAttribute('style','font-variant-numeric:lining-nums');
+    t.setAttribute('fill','#f4ecd6');t.setAttribute('stroke','#2c3438');t.setAttribute('stroke-width','1.1');
+    t.setAttribute('paint-order','stroke');
+    t.textContent=NUMOF[i];
+    g.appendChild(t);nums.appendChild(g);numGs.push(g);
+  }
+  engineG.appendChild(nums);
+}
+function renderEngine(q, hop=0, wx=0){
+  const m=qmat(q);
+  const P=VERT.map(v=>{const p=mv(m,v);return [p[0]*SCALE+wx, p[1]*SCALE-hop];});
+  const vis=FACE.map(f=>mv(m,f.n)[2]>0);
+  for(let i=0;i<20;i++){
+    const f=FACE[i], path=facePaths[i];
+    if(!vis[i]){path.setAttribute('d','');numGs[i].setAttribute('display','none');continue;}
+    const n2=mv(m,f.n);
+    const [a,b,c]=f.v.map(vi=>P[vi]);
+    path.setAttribute('d',`M${a[0].toFixed(1)} ${a[1].toFixed(1)}L${b[0].toFixed(1)} ${b[1].toFixed(1)}L${c[0].toFixed(1)} ${c[1].toFixed(1)}Z`);
+    const cool=Math.max(0,dot(n2,LCOOL)), warm=Math.max(0,dot(n2,LWARM));
+    const base=SLATE[Math.min(4,Math.round(cool*4))];              // quantized value steps, not smooth 3D shading
+    path.setAttribute('fill',lerpHex(base,WARM,[0,0.22,0.45][Math.min(2,Math.floor(warm*2.6))]));
+    const nz=n2[2];
+    if(nz>0.55){
+      const e1=mv(m,f.e1), e2=mv(m,f.e2);
+      const cc=mv(m,f.c);
+      numGs[i].removeAttribute('display');
+      numGs[i].setAttribute('opacity',((nz-0.55)/0.45).toFixed(2));
+      numGs[i].setAttribute('transform',
+        `matrix(${e1[0].toFixed(3)} ${e1[1].toFixed(3)} ${(-e2[0]).toFixed(3)} ${(-e2[1]).toFixed(3)} ${(cc[0]*SCALE+wx).toFixed(1)} ${(cc[1]*SCALE-hop).toFixed(1)})`);
+    } else numGs[i].setAttribute('display','none');
+  }
+  let sd='',id='';
+  for(const e of EDGES){
+    const seg=`M${P[e.p][0].toFixed(1)} ${P[e.p][1].toFixed(1)}L${P[e.q][0].toFixed(1)} ${P[e.q][1].toFixed(1)}`;
+    if(vis[e.fa]!==vis[e.fb]) sd+=seg; else if(vis[e.fa]&&vis[e.fb]) id+=seg;
+  }
+  silPath.setAttribute('d',sd);intPath.setAttribute('d',id);
+  // ground shadow reacts to the hop
+  const ao=$('ao');
+  ao.setAttribute('rx',(78-hop*0.35).toFixed(1));
+  ao.setAttribute('opacity',Math.max(0.25,1-hop/120).toFixed(2));
+}
+
+// ================= painted <-> engine handoff =================
+let facets, light, gNum, stateOne, stateMid, stateTwenty, curQ;
+function paintedShow(state){ // 'one' | 'twenty' — the held frames
+  facets.setAttribute('transform',`scale(1 ${state==='twenty'?-1:1})`);
+  light.setAttribute('transform','scale(1 1)');
+  $('weight').removeAttribute('transform');
+  [gNum,stateOne,stateTwenty,stateMid].forEach(s=>s.setAttribute('display','none'));
+  const el=state==='one'?stateOne:stateTwenty;
+  el.removeAttribute('display');
+  el.setAttribute('transform','scale(1 1)'); // state-twenty's children are pre-mirrored; identity is correct
+}
+async function toPainted(state){
+  paintedShow(state);
+  $('weight').removeAttribute('display');
+  await tw(150,e=>{engineG.setAttribute('opacity',(1-e).toFixed(2));$('weight').setAttribute('opacity',e.toFixed(2));});
+}
+async function toEngine(){
+  renderEngine(curQ,0);
+  await tw(150,e=>{engineG.setAttribute('opacity',e.toFixed(2));$('weight').setAttribute('opacity',(1-e).toFixed(2));});
+  $('weight').setAttribute('display','none');
+}
+
+// painted half-turn driver (director M6: the turn is painted die under painted hands, never the engine's)
+function setKFlip(k){
+  facets.setAttribute('transform',`scale(1 ${k.toFixed(4)})`);
+  light.setAttribute('transform',`scale(1 ${Math.abs(k).toFixed(4)})`);
+  stateOne.setAttribute('transform',`scale(1 ${k.toFixed(4)})`);
+  stateTwenty.setAttribute('transform',`scale(1 ${(-k).toFixed(4)})`); // composes over its baked mirror
+  $('weight').setAttribute('transform',
+    `translate(0 ${(11*(1-k*k)).toFixed(2)}) rotate(${(-3.5*(1-k*k)).toFixed(2)}) scale(${(1+0.07*(1-Math.abs(k))).toFixed(3)} 1)`);
+  const inMid=Math.abs(k)<=0.16;
+  const db=$('die-body');
+  inMid?db.setAttribute('display','none'):db.removeAttribute('display');
+  inMid?stateOne.setAttribute('display','none'):(k>0?stateOne.removeAttribute('display'):stateOne.setAttribute('display','none'));
+  inMid?stateTwenty.setAttribute('display','none'):(k<0?stateTwenty.removeAttribute('display'):stateTwenty.setAttribute('display','none'));
+  if(inMid){
+    $('midSlot').removeAttribute('display');
+    stateMid.removeAttribute('display');
+    stateMid.setAttribute('transform',`scale(1 ${(0.8+0.2*(1-Math.abs(k)/0.16)).toFixed(3)})`);
+  } else { $('midSlot').setAttribute('display','none'); stateMid.setAttribute('display','none'); }
+}
+
+// ================= tumble physics =================
+async function engineRoll(value, ms=1150){
+  const tumbleMs=ms-300;
+  let q=curQ;
+  const axis=nv([rnd(-1,1)||0.3, rnd(-1,1)||0.5, rnd(-0.35,0.35)]); // tumbling axes mostly in the screen plane
+  const drift=nv([rnd(-1,1)||0.4, rnd(-1,1)||-0.5, rnd(-0.3,0.3)]);
+  const om0=rnd(10,14);
+  let hy=0, hv=rnd(240,320);
+  const wobX=rnd(-9,9);
+  await new Promise(res=>{
+    let last=performance.now(); const t0=last;
+    function step(now){
+      const dt=Math.min(0.04,(now-last)/1000); last=now;
+      const el=now-t0, u=Math.min(1,el/tumbleMs);
+      const om=om0*(1-0.85*u*u);
+      const ax=nv([axis[0]+(drift[0]-axis[0])*u, axis[1]+(drift[1]-axis[1])*u, axis[2]+(drift[2]-axis[2])*u]);
+      q=qmul(aaq(ax,om*dt),q);
+      hv-=1500*dt; hy+=hv*dt;
+      if(hy<0){hy=0; hv=Math.abs(hv)*0.48; if(hv<60) hv=0;}
+      renderEngine(q, hy, wobX*Math.sin(u*Math.PI));
+      el<tumbleMs?requestAnimationFrame(step):res();
+    }
+    requestAnimationFrame(step);
+  });
+  const target=canonicalQ(FACEOF[value]);
+  const q0=q;
+  await tw(300,e=>renderEngine(slerp(q0,target,e),0),easeOut);
+  curQ=target;
+}
+
+// ================= goblin =================
+let gobY=210;
+function showPose(pose){
+  for(const pz of ['peek','turn','proud']){
+    const on=pz===pose;
+    for(const half of ['back','front']){
+      const el=$(`gob-${pz}-${half}`);
+      if(el) on?el.removeAttribute('display'):el.setAttribute('display','none');
+    }
+  }
+}
+function gobPlace(u, y0=210, lean=0){ // u: 0 hidden below, 1 fully risen
+  const y=y0+46*(1-u)+lean;
+  for(const g of [$('gobBack'),$('gobFront')]){
+    g.setAttribute('transform',`translate(200 ${y.toFixed(1)})`);
+    g.setAttribute('opacity',Math.min(1,u*1.6).toFixed(2));
+  }
+  gobY=y;
+}
+function setArms(deg){
+  const l=$('gob-arm-l'), r=$('gob-arm-r');
+  if(l) l.setAttribute('transform',`rotate(${deg.toFixed(1)} -50 -98)`);
+  if(r) r.setAttribute('transform',`rotate(${(-deg).toFixed(1)} 50 -98)`);
+}
+function flash(){
+  return tw(700,e=>{
+    const f=$('flash');
+    f.setAttribute('opacity',(e<0.3?e/0.3:1-(e-0.3)/0.7).toFixed(2));
+    f.setAttribute('transform',`scale(${(0.7+0.6*e).toFixed(2)})`);
+  });
+}
+
+async function goblinRollsItOver(){
+  await toPainted('one'); // the held nat-1 frame
+  showPose('peek');
+  await tw(430,e=>gobPlace(e),easeOut);
+  const pupils=[$('pupilL'),$('pupilR')].filter(Boolean);
+  for(const dx of [-7,14,-7]){
+    pupils.forEach(pp=>pp.setAttribute('x',+pp.getAttribute('x')+dx));
+    await wait(240);
+  }
+  await wait(150);
+
+  showPose('turn');
+  await tw(200,e=>{gobPlace(1,210,4*e);setArms(-16*e);}); // anticipation: sink into the push
+
+  // the half-turn, fully painted: 1 rolls clean over to its opposite face (sum-21)
+  const effort=u=>Math.pow(u,1.85); // heavy start, accelerating over the top
+  await tw(900,(e,u)=>{
+    const t=effort(u);
+    setKFlip(1-2*t);
+    setArms(-16+46*t);
+    gobPlace(1,210,4-10*t); // body drives up through the push
+  }, u=>u);
+  paintedShow('twenty');
+  curQ=canonicalQ(FACEOF[20]); // engine resumes from the landed 20
+  // impact: a small honest rock of the whole painted die, no scaling
+  await tw(240,e=>{
+    const d=2.4*Math.sin(Math.PI*e)*(1-e);
+    $('weight').setAttribute('transform',`rotate(${d.toFixed(2)})`);
+    setArms(30*(1-e));
+  });
+  $('weight').removeAttribute('transform');
+  flash();
+  await wait(320);
+
+  showPose('peek');
+  await tw(320,e=>gobPlace(1-e));
+  showPose(null);
+  await toEngine();
+}
+
+// ================= art loading =================
+async function grab(url){
+  const t=await (await fetch(url)).text();
+  const doc=new DOMParser().parseFromString(t,'image/svg+xml');
+  const err=doc.querySelector('parsererror');
+  if(err) throw new Error(url+': '+err.textContent.slice(0,200));
+  return doc;
+}
+const importInto=(parent,node)=>parent.appendChild(document.importNode(node,true));
+async function loadArt(){
+  const scene=$('scene');
+  const [dieDoc,gobDoc]=await Promise.all([grab('die-art.svg'),grab('goblin-art.svg')]);
+  for(const doc of [dieDoc,gobDoc]) doc.querySelectorAll('defs').forEach(d=>importInto(scene,d));
+  const w=$('weight');
+  ['die-body','die-numbers-generic','state-one','state-twenty'].forEach(id=>importInto(w,dieDoc.getElementById(id)));
+  importInto($('midSlot'),dieDoc.getElementById('state-mid'));
+  for(const pose of ['peek','turn','proud']){
+    importInto($('gobBack'),gobDoc.getElementById(`gob-${pose}-back`));
+    importInto($('gobFront'),gobDoc.getElementById(`gob-${pose}-front`));
+  }
+  facets=$('die-facets');light=$('die-light');gNum=$('die-numbers-generic');
+  stateOne=$('state-one');stateMid=$('state-mid');stateTwenty=$('state-twenty');
+  showPose(null);
+  // drawn wordmark, if delivered (falls back to the CSS placeholder)
+  try{
+    const wm=await grab('wordmark.svg');
+    const el=document.createElementNS(NS,'svg');
+    el.setAttribute('viewBox','-270 0 540 238');
+    el.setAttribute('style','width:min(52vmin,340px);height:auto;display:block;margin:0 auto;overflow:visible');
+    wm.querySelectorAll('defs').forEach(d=>importInto(el,d));
+    importInto(el,wm.getElementById('wordmark'));
+    $('logo').textContent='';
+    $('logo').appendChild(el);
+  }catch(e){/* wordmark not delivered yet */}
+  // painted background + foreground, if delivered
+  try{
+    const bg=await grab('background.svg');
+    $('bgSlot').textContent='';
+    bg.querySelectorAll('defs').forEach(d=>importInto(scene,d));
+    importInto($('bgSlot'),bg.getElementById('bg-scene'));
+    const fore=bg.getElementById('bg-fore');
+    if(fore) importInto($('fgSlot'),fore);
+    const motes=[...Array(10)].map((_,i)=>$(`bg-mote-${i+1}`)).filter(Boolean);
+    if(motes.length){ // slow per-mote drift, distinct periods so they never pulse as a group
+      (function drift(now){
+        motes.forEach((m,i)=>{
+          const t=now/(4200+i*730)+i*1.7;
+          m.setAttribute('transform',`translate(${(3*Math.sin(t*0.7)).toFixed(1)} ${(-6*Math.sin(t)).toFixed(1)})`);
+        });
+        requestAnimationFrame(drift);
+      })(0);
+    }
+  }catch(e){/* background not delivered yet */}
+  buildEngine();
+}
+
+// ================= show flow =================
+async function finale(){
+  await engineRoll(20,1250);
+  await toPainted('twenty');
+  showPose('proud');
+  await tw(550,e=>gobPlace(e,199),easeOut); // clear of the die's apex
+  flash();
+  await wait(500);
+  document.body.classList.add('done');
+}
+
+async function main(){
+  await loadArt();
+  curQ=canonicalQ(FACEOF[20]);
+  $('weight').setAttribute('display','none');
+  engineG.setAttribute('opacity','1');
+  renderEngine(curQ,0);
+  const start=performance.now();
+  let rollCount=0;
+  await wait(400);
+  while(performance.now()-start<LOAD_MS){
+    rollCount++;
+    // rig the third roll to a 1 so the gag always shows; afterwards the goblin has scared off the 1s
+    let value=rollCount===3?1:2+Math.floor(Math.random()*19);
+    await engineRoll(value);
+    if(value===1){
+      await wait(420);
+      await goblinRollsItOver();
+      value=20;
+    }
+    await addToCounter(value);
+    await wait(300);
+  }
+  await finale();
+}
+main().catch(e=>{document.body.insertAdjacentHTML('beforeend',`<pre style="position:fixed;top:8px;left:8px;color:#c66">${e.message}\n${e.stack}</pre>`);});
+</script>
+</body>
+</html>
