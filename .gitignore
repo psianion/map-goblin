@@ -24,7 +24,7 @@ coverage
 # forge/dist holds set masters + manifests; published art lives in the bucket,
 # only the bundled baseline under canvas/public/packs is committed.
 forge/staging/
-forge/dist/
+# forge/dist is committed: set masters + manifests are small and needed to rebuild packs.
 forge/jobs/
 forge/examples/
 catalog.db
@@ -35,3 +35,8 @@ assets/test/
 
 # Discord bot runtime state (sqlite), never committed.
 bot/data/
+
+# forge/templates are hand-made source tiles, not generated output.
+!forge/templates/*.png
+!forge/dist/
+!forge/dist/**

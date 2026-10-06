@@ -1,0 +1,329 @@
+{
+  "set": "GG_Fieldstone",
+  "family": "stone",
+  "grid": 200,
+  "band": {
+    "h": 68,
+    "y": 66
+  },
+  "tint": "runtime (grey master, multiplicative)",
+  "pieces": [
+    {
+      "file": "GG_Fieldstone_Straight_3x1_A.png",
+      "piece": "straight",
+      "gridSize": "3x1",
+      "naturalWidth": 600,
+      "naturalHeight": 200,
+      "variant": "A",
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 600,
+        "h": 68
+      }
+    },
+    {
+      "file": "GG_Fieldstone_Straight_3x1_B.png",
+      "piece": "straight",
+      "gridSize": "3x1",
+      "naturalWidth": 600,
+      "naturalHeight": 200,
+      "variant": "B",
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 600,
+        "h": 68
+      }
+    },
+    {
+      "file": "GG_Fieldstone_Straight_3x1_C.png",
+      "piece": "straight",
+      "gridSize": "3x1",
+      "naturalWidth": 600,
+      "naturalHeight": 200,
+      "variant": "C",
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 600,
+        "h": 68
+      }
+    },
+    {
+      "file": "GG_Fieldstone_Straight_2x1_A.png",
+      "piece": "straight",
+      "gridSize": "2x1",
+      "naturalWidth": 400,
+      "naturalHeight": 200,
+      "variant": "A",
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 400,
+        "h": 68
+      }
+    },
+    {
+      "file": "GG_Fieldstone_Straight_2x1_B.png",
+      "piece": "straight",
+      "gridSize": "2x1",
+      "naturalWidth": 400,
+      "naturalHeight": 200,
+      "variant": "B",
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 400,
+        "h": 68
+      }
+    },
+    {
+      "file": "GG_Fieldstone_Straight_2x1_C.png",
+      "piece": "straight",
+      "gridSize": "2x1",
+      "naturalWidth": 400,
+      "naturalHeight": 200,
+      "variant": "C",
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 400,
+        "h": 68
+      }
+    },
+    {
+      "file": "GG_Fieldstone_Straight_1x1_A.png",
+      "piece": "straight",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200,
+      "variant": "A",
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 200,
+        "h": 68
+      }
+    },
+    {
+      "file": "GG_Fieldstone_Straight_1x1_B.png",
+      "piece": "straight",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200,
+      "variant": "B",
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 200,
+        "h": 68
+      }
+    },
+    {
+      "file": "GG_Fieldstone_Straight_1x1_C.png",
+      "piece": "straight",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200,
+      "variant": "C",
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 200,
+        "h": 68
+      }
+    },
+    {
+      "file": "GG_Fieldstone_Straight_Half_A.png",
+      "piece": "straight",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200,
+      "variant": "A",
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 100,
+        "h": 68
+      }
+    },
+    {
+      "file": "GG_Fieldstone_Straight_Half_B.png",
+      "piece": "straight",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200,
+      "variant": "B",
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 100,
+        "h": 68
+      }
+    },
+    {
+      "file": "GG_Fieldstone_Straight_Half_C.png",
+      "piece": "straight",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200,
+      "variant": "C",
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 100,
+        "h": 68
+      }
+    },
+    {
+      "file": "GG_Fieldstone_Corner_A_1x1.png",
+      "piece": "corner",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200,
+      "tags": [
+        "standalone"
+      ]
+    },
+    {
+      "file": "GG_Fieldstone_Corner_B_1x1.png",
+      "piece": "corner",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200,
+      "tags": [
+        "standalone"
+      ]
+    },
+    {
+      "file": "GG_Fieldstone_Corner_C_1x1.png",
+      "piece": "corner",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200
+    },
+    {
+      "file": "GG_Fieldstone_Corner_D_1x1.png",
+      "piece": "corner",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200
+    },
+    {
+      "file": "GG_Fieldstone_Corner_E_1x1.png",
+      "piece": "corner",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200
+    },
+    {
+      "file": "GG_Fieldstone_Corner_F_2x2.png",
+      "piece": "corner",
+      "gridSize": "2x2",
+      "naturalWidth": 400,
+      "naturalHeight": 400
+    },
+    {
+      "file": "GG_Fieldstone_Corner_G_2x2.png",
+      "piece": "corner",
+      "gridSize": "2x2",
+      "naturalWidth": 400,
+      "naturalHeight": 400
+    },
+    {
+      "file": "GG_Fieldstone_Corner_H_3x3.png",
+      "piece": "corner",
+      "gridSize": "3x3",
+      "naturalWidth": 600,
+      "naturalHeight": 600
+    },
+    {
+      "file": "GG_Fieldstone_Joint_A_1x1.png",
+      "piece": "joint",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200
+    },
+    {
+      "file": "GG_Fieldstone_Joint_B_1x1.png",
+      "piece": "joint",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200
+    },
+    {
+      "file": "GG_Fieldstone_Joint_C_1x1.png",
+      "piece": "joint",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200
+    },
+    {
+      "file": "GG_Fieldstone_Joint_D_1x1.png",
+      "piece": "joint",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200
+    },
+    {
+      "file": "GG_Fieldstone_Connector_A_1x1.png",
+      "piece": "connector",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200,
+      "contentRect": {
+        "x": 51,
+        "y": 66,
+        "w": 99,
+        "h": 68
+      }
+    },
+    {
+      "file": "GG_Fieldstone_Connector_B_1x1.png",
+      "piece": "connector",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200,
+      "contentRect": {
+        "x": 80,
+        "y": 66,
+        "w": 40,
+        "h": 68
+      }
+    },
+    {
+      "file": "GG_Fieldstone_Connector_DIAG_A_1x1.png",
+      "piece": "connector",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200,
+      "contentRect": {
+        "x": 16,
+        "y": 66,
+        "w": 151,
+        "h": 114
+      }
+    },
+    {
+      "file": "GG_Fieldstone_Ending_A_1x1.png",
+      "piece": "ending",
+      "gridSize": "1x1",
+      "naturalWidth": 200,
+      "naturalHeight": 200
+    },
+    {
+      "file": "GG_Fieldstone_Straight_Path.png",
+      "piece": "path",
+      "gridSize": "8x1",
+      "naturalWidth": 1650,
+      "naturalHeight": 200,
+      "contentRect": {
+        "x": 0,
+        "y": 66,
+        "w": 1650,
+        "h": 68
+      }
+    }
+  ]
+}
