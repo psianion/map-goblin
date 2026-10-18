@@ -1,0 +1,520 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-300 -34 600 306" width="600" height="306">
+<!--
+  ==================================================================================
+  GOOD GOBLIN  =  drawn wordmark
+  Hand authored SVG. Every glyph is a closed path. No text elements, no font refs,
+  no scripts, no CSS variables, no external references, no animation.
+  ==================================================================================
+
+  LOCKUP  (group id="wordmark", horizontally centred on x=0, top edge at y approx 1)
+
+      nominal art box   540 x 238 user units   (x from -270 to 270, y from 0 to 238)
+      glyph ink extent  x -267.5 .. 267.5, y 1.2 .. 130.8 (stroke included)
+      aspect            2.27 : 1
+
+      at 360 px wide  ->  159 px tall, cap height 66 px, stem 12.7 px
+      at 120 px wide  ->   53 px tall, cap height 22 px, stem  4.2 px
+
+  Scale the group only. Do not restyle it, the value ramps are baked per glyph.
+
+  ==================================================================================
+  WHY STACKED, NOT ONE LINE
+  ==================================================================================
+  One line reads 940 units wide by 100 tall, aspect 9.4 : 1. Dropped to the 120 px
+  small size that leaves a 12.8 px cap height and 2.5 px stems, and every painterly
+  step, every serif bracket and every ink weight change dissolves into mush. It also
+  makes a long thin ribbon under a roughly square mark, which fights the mark instead
+  of sitting under it.
+
+  Stacked gives cap height 22 px at the same 120 px width, so the serifs, the bracket
+  transitions and the warm bottom lip all still read. It also makes the parchment or
+  gold split a two band composition instead of a colour change halfway along a line,
+  which is the whole reason for the split.
+
+  GOOD  is parchment, small, tracked open (letter gap 30 units) so it reads as the
+        quiet qualifier and its width (452) sits inside GOBLIN's.
+  GOBLIN is warm gold, tight (letter gap 14 units), width 534, the load bearing word.
+        Gold is the only accent in the whole crypt palette, so the name gets it.
+
+  Two small gold lozenges flank GOOD and bridge the 41 unit width difference between
+  the lines so the block squares up. They are mass, not hairline, and survive at
+  small size as two gold specks, which is all they need to do.
+
+  ==================================================================================
+  METRICS
+  ==================================================================================
+    cap height 100, baseline of line 1 at y=0 (before the +104 lift), line 2 at 128.
+    stem 19, thin stroke 13, slab serifs project 6 to 9 with a short bracket.
+    Advances: G 92, O 92, D 86, B 82, L 72, I 34, N 92.
+    Line 1 origins: G -226, O -104, O 18, D 140.
+    Line 2 origins: G -267, O -161, B -55, L 41, I 127, N 175   (all at y 128)
+
+  Every glyph is authored separately, so no two O contours are the same curve. Same
+  logic as the die's silhouette pen: nothing ruler straight, every edge carries a
+  small wobble, corners knit with round joins.
+
+  ==================================================================================
+  PAINT, matched to the die and the goblin
+  ==================================================================================
+    ink        #161a17   the die's silhouette ink, same colour exactly
+    parchment  #a89a7b .. #f2e3bf   (die numeral inlay family, goblin sclera family)
+    gold       #6f5a30 .. #eec87c   (goblin torch catch family, die glint family)
+
+    ONE light source and it is BELOW the lockup, same as the die and the goblin. So:
+      * every fill ramps dark at the cap line to warm and light at the baseline
+      * a warm lip band, masked to the glyphs, brightens the last 20 units of each
+        line, which follows each letter's own bottom contour for free
+      * a cool near black band darkens the top 42 units, the form turning away
+      * the ink is re stroked heavier inside the top band and broken warm inside the
+        bottom band, so contour weight varies exactly the way the die's does
+      * a handful of glints, all on the torch side, nothing else
+
+    Grain is three feTurbulence passes at low opacity, masked to the glyphs, plus a
+    set of blurred value patches so no stroke is ever a clean two stop ramp.
+
+    NOTE for anyone editing: the glyph silhouette is a MASK (#wmMask), not a
+    clipPath. See the comment on it. Do not "simplify" it back to a clipPath.
+
+  ==================================================================================
+  GROUP INDEX
+    #wordmark              the art. This is the only thing to integrate.
+    #preview-only-backdrop sits OUTSIDE it. Delete on integration.
+  ==================================================================================
+-->
+
+<defs>
+
+  <!-- ============================ PAINT RAMPS ============================ -->
+  <linearGradient id="wmParch" x1="0.16" y1="0" x2="0" y2="1">
+    <stop offset="0"    stop-color="#a89a7b"/>
+    <stop offset="0.26" stop-color="#c1b291"/>
+    <stop offset="0.55" stop-color="#d6c7a4"/>
+    <stop offset="0.80" stop-color="#e6d7b3"/>
+    <stop offset="1"    stop-color="#f2e3bf"/>
+  </linearGradient>
+
+  <linearGradient id="wmGold" x1="0.16" y1="0" x2="0" y2="1">
+    <stop offset="0"    stop-color="#836b3a"/>
+    <stop offset="0.24" stop-color="#9c7f46"/>
+    <stop offset="0.52" stop-color="#b28f4c"/>
+    <stop offset="0.78" stop-color="#d3aa60"/>
+    <stop offset="1"    stop-color="#eec87c"/>
+  </linearGradient>
+
+  <!-- torch lip, one per line. userSpaceOnUse so it tracks the baselines. -->
+  <linearGradient id="wmLip1" gradientUnits="userSpaceOnUse" x1="0" y1="-20" x2="0" y2="2">
+    <stop offset="0"    stop-color="#ffc46b" stop-opacity="0"/>
+    <stop offset="0.55" stop-color="#ffc46b" stop-opacity="0.10"/>
+    <stop offset="1"    stop-color="#ffd9a0" stop-opacity="0.34"/>
+  </linearGradient>
+  <linearGradient id="wmLip2" gradientUnits="userSpaceOnUse" x1="0" y1="108" x2="0" y2="130">
+    <stop offset="0"    stop-color="#ffc46b" stop-opacity="0"/>
+    <stop offset="0.55" stop-color="#ffc46b" stop-opacity="0.12"/>
+    <stop offset="1"    stop-color="#ffd9a0" stop-opacity="0.38"/>
+  </linearGradient>
+
+  <!-- the cool near black roll off at the cap line -->
+  <linearGradient id="wmTop1" gradientUnits="userSpaceOnUse" x1="0" y1="-104" x2="0" y2="-58">
+    <stop offset="0"   stop-color="#0d1114" stop-opacity="0.27"/>
+    <stop offset="0.5" stop-color="#141a1d" stop-opacity="0.11"/>
+    <stop offset="1"   stop-color="#141a1d" stop-opacity="0"/>
+  </linearGradient>
+  <linearGradient id="wmTop2" gradientUnits="userSpaceOnUse" x1="0" y1="24" x2="0" y2="70">
+    <stop offset="0"   stop-color="#0d1114" stop-opacity="0.25"/>
+    <stop offset="0.5" stop-color="#141a1d" stop-opacity="0.10"/>
+    <stop offset="1"   stop-color="#141a1d" stop-opacity="0"/>
+  </linearGradient>
+
+  <!-- ============================== TEXTURE ============================== -->
+  <filter id="wmGrainFine" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.62" numOctaves="3" seed="23" result="t"/>
+    <feColorMatrix in="t" type="matrix"
+      values="0 0 0 0 0.74  0 0 0 0 0.69  0 0 0 0 0.56  0.85 0 0 0 -0.36"/>
+  </filter>
+  <filter id="wmGrainMottle" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.026" numOctaves="2" seed="11" result="t"/>
+    <feColorMatrix in="t" type="matrix"
+      values="0 0 0 0 0.13  0 0 0 0 0.13  0 0 0 0 0.11  0.78 0 0 0 -0.30"/>
+  </filter>
+  <filter id="wmGrainCoarse" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.007" numOctaves="3" seed="41" result="t"/>
+    <feColorMatrix in="t" type="matrix"
+      values="0 0 0 0 0.62  0 0 0 0 0.58  0 0 0 0 0.47  0.55 0 0 0 -0.24"/>
+  </filter>
+  <filter id="wmSoft" x="-60%" y="-60%" width="220%" height="220%">
+    <feGaussianBlur stdDeviation="10"/>
+  </filter>
+
+  <!-- ==================================================================== -->
+  <!--  GLYPHS. One closed path each, placement baked into its transform,   -->
+  <!--  so a single clipPath can gather the whole lockup.                   -->
+  <!--  No fill or stroke here on purpose, both passes inherit.             -->
+  <!-- ==================================================================== -->
+
+  <!-- ============ LINE 1 : G O O D, parchment, letter gap 30 ============ -->
+
+  <!-- G. Bowl opens at 1 o'clock, bar cuts in at mid height, terminal sheared
+       like a chisel cut. Same logic as the die's engraved numerals. -->
+  <path id="wmG1" transform="translate(-226,0)" d="
+    M 87 -77.6
+    C 79.4 -91.6 63.8 -100.8 46 -100.2
+    C 20.4 -100.8 -0.8 -78 0 -50.2
+    C -0.8 -22.4 20.2 0.8 46 0
+    C 63.6 0.6 78.6 -8.4 85.6 -21.2
+    C 88.6 -28.2 91.2 -38.4 91.4 -47.8
+    C 79.8 -48.6 66.4 -48.2 54.6 -48.4
+    C 53.6 -44 53.8 -39.8 54.4 -35.4
+    C 60.2 -35.8 65.4 -35.6 71 -35.2
+    C 70.4 -25.8 61 -13.4 46 -13
+    C 30.4 -13.4 19.4 -28.6 19 -50
+    C 19.4 -71.6 30.6 -87.4 46 -87
+    C 59.8 -86.6 68.8 -76.4 71.4 -64.4
+    C 76.2 -68.8 81.8 -73.2 87 -77.6 Z"/>
+
+  <!-- O, first. Outer clockwise, counter anticlockwise, so the counter is a hole
+       and the ink pass strokes both contours. -->
+  <path id="wmO1" transform="translate(-104,0)" d="
+    M 46 -100.4
+    C 71.6 -99.6 92.6 -78.2 92 -50.2
+    C 91.4 -22.2 71.4 0.6 46 0
+    C 20.4 0.6 -0.6 -22 0 -50
+    C 0.6 -78.2 20.4 -101 46 -100.4 Z
+    M 46 -87
+    C 30.2 -86.6 19.4 -71.2 19 -50
+    C 18.6 -28.8 30.8 -13.4 46 -13
+    C 61.2 -13.4 73.4 -28.6 73 -50
+    C 72.6 -71.4 61.8 -87.4 46 -87 Z"/>
+
+  <!-- O, second. Deliberately a different curve, not a copy of the first. -->
+  <path id="wmO2" transform="translate(18,0)" d="
+    M 45.6 -100.2
+    C 71 -100.8 92.8 -77.6 92 -50
+    C 92.6 -22.6 71.8 0.8 46.4 0
+    C 20.6 0.8 -0.8 -22.6 0 -50.4
+    C -0.6 -78 20.2 -100.8 45.6 -100.2 Z
+    M 46 -86.8
+    C 30.8 -87.4 18.6 -71.8 19 -50.2
+    C 19.4 -28.4 30.4 -12.6 46 -13.2
+    C 61.6 -12.8 73.4 -28.2 73 -49.8
+    C 73.4 -71.8 61.2 -87.2 46 -86.8 Z"/>
+
+  <path id="wmD1" transform="translate(140,0)" d="
+    M 1.4 -100
+    L 40.4 -100.4
+    C 66.4 -100 86.6 -78 86 -50.2
+    C 86.6 -22.4 66 0.6 40.4 0.2
+    L 1.2 0.2
+    C 0.6 -2.4 0.4 -6.2 1 -8.6
+    C 4.4 -9.4 5.6 -10.8 6.2 -14
+    C 6.8 -38 6.6 -62 6 -86
+    C 5.4 -89.2 4.2 -90.6 0.8 -91.4
+    C 0.2 -93.8 0.8 -96.4 1.4 -100 Z
+    M 40 -87
+    L 25.6 -86.6
+    C 25 -62 25.2 -38 25.6 -13.4
+    L 40 -13
+    C 60.8 -13.4 73.4 -30 73 -50
+    C 73.4 -70 60.6 -86.6 40 -87 Z"/>
+
+  <!-- ========= LINE 2 : G O B L I N, warm gold, letter gap 14 ========= -->
+
+  <path id="wmG2" transform="translate(-267,128)" d="
+    M 87.2 -77.2
+    C 79 -91.2 63.4 -100.8 46 -100
+    C 20 -100.8 -0.8 -77.6 0 -50
+    C -0.8 -22.6 20.4 0.8 46 0.2
+    C 63.4 0.8 78.8 -8.2 85.8 -21
+    C 88.8 -28 91.4 -38.2 91.2 -47.6
+    C 79.4 -48.4 66 -48 54.4 -48.2
+    C 53.4 -43.8 53.6 -39.6 54.2 -35.2
+    C 60 -35.6 65.2 -35.4 70.8 -35
+    C 70.2 -25.4 60.8 -13.2 46 -12.8
+    C 30.2 -13.2 19.2 -28.4 18.8 -50.2
+    C 19.2 -71.8 30.8 -87.2 46 -86.8
+    C 60 -86.4 69 -76.2 71.6 -64.2
+    C 76.6 -68.4 82 -72.8 87.2 -77.2 Z"/>
+
+  <path id="wmO3" transform="translate(-161,128)" d="
+    M 46 -100.6
+    C 71.2 -99.4 92.4 -78.6 92 -50
+    C 91.6 -21.8 71.8 0.8 45.8 0
+    C 20 0.8 -0.4 -21.6 0 -50.2
+    C 0.4 -78.4 20.8 -101.2 46 -100.6 Z
+    M 46 -86.8
+    C 30.6 -87.2 19.2 -71.6 18.8 -50
+    C 18.4 -28.4 30.4 -13.2 46 -12.8
+    C 61.6 -13.2 73.2 -28.6 73.2 -50.2
+    C 73.2 -71.6 61.4 -87.2 46 -86.8 Z"/>
+
+  <!-- B. Small bowl over big bowl, waist bar 15 units, both counters cut
+       anticlockwise so they punch through. -->
+  <path id="wmB1" transform="translate(-55,128)" d="
+    M 1.4 -100
+    L 42.4 -100.4
+    C 63.4 -100 76.6 -88 76 -75.4
+    C 75.4 -63.6 68 -54.8 56 -52.4
+    C 71.8 -50.4 82.6 -40.2 82 -26.4
+    C 81.4 -11 68.4 0.6 44.4 0.2
+    L 1.2 0.2
+    C 0.6 -2.4 0.4 -6.2 1 -8.6
+    C 4.4 -9.4 5.6 -10.8 6.2 -14
+    C 6.8 -38 6.6 -62 6 -86
+    C 5.4 -89.2 4.2 -90.6 0.8 -91.4
+    C 0.2 -93.8 0.8 -96.4 1.4 -100 Z
+    M 42 -87
+    L 25.6 -86.6
+    C 25.2 -78 25.2 -68 25.4 -60.4
+    L 42 -60
+    C 55.2 -60.4 62.4 -66.8 62 -73.6
+    C 61.6 -80.6 55 -86.6 42 -87 Z
+    M 44 -45
+    L 25.6 -44.6
+    C 25.2 -34 25.2 -22 25.4 -13.4
+    L 44 -13
+    C 60.2 -13.4 68.4 -20.8 68 -28.6
+    C 67.6 -36.6 60 -44.6 44 -45 Z"/>
+
+  <!-- L. Foot flares up into a taller terminal serif so the arm does not read thin. -->
+  <path id="wmL1" transform="translate(41,128)" d="
+    M 1.4 -100
+    L 32 -100.4
+    C 32.6 -96.4 32.4 -93.6 31.8 -91.2
+    C 28.4 -90.4 26 -89 25.4 -86
+    C 24.8 -62 25 -34 25.4 -14.4
+    L 51.6 -14.8
+    C 56.8 -15 59.6 -17.4 61.8 -23
+    L 68.4 -22.4
+    C 69 -14.6 68.4 -6.4 67.4 -0.4
+    L 1.2 0.2
+    C 0.6 -2.4 0.4 -6.2 1 -8.6
+    C 4.4 -9.4 5.6 -10.8 6.2 -14
+    C 6.8 -38 6.6 -62 6 -86
+    C 5.4 -89.2 4.2 -90.6 0.8 -91.4
+    C 0.2 -93.8 0.8 -96.4 1.4 -100 Z"/>
+
+  <path id="wmI1" transform="translate(127,128)" d="
+    M 1.4 -100
+    L 32.8 -100.6
+    C 33.4 -96 33 -93.4 32.4 -91.2
+    C 29 -90.4 27.6 -89 26.8 -86
+    C 26.2 -62 26.4 -38 27 -14
+    C 27.8 -11 29.2 -9.6 32.6 -8.8
+    C 33.2 -6.4 33.4 -2.6 32.8 -0.4
+    L 1.2 0.2
+    C 0.6 -2.4 0.4 -6.2 1 -8.6
+    C 4.4 -9.4 6 -10.8 6.6 -14
+    C 7.2 -38 7 -62 6.4 -86
+    C 5.8 -89.2 4.2 -90.6 0.8 -91.4
+    C 0.2 -93.6 0.8 -96.4 1.4 -100 Z"/>
+
+  <!-- N. Diagonal is the heaviest stroke in the whole lockup (21 units on the
+       perpendicular), springing off the top left serif and landing merged into
+       the bottom right serif. -->
+  <path id="wmN1" transform="translate(175,128)" d="
+    M 1.4 -100
+    L 34.4 -100.4
+    C 44.8 -74.4 55.2 -47 65.8 -19.6
+    C 65.4 -42 65.2 -64 65.6 -86
+    C 65 -89.2 63.6 -90.6 60.2 -91.4
+    C 59.6 -93.8 60.2 -96.4 60.8 -100
+    L 91 -100.4
+    C 91.6 -96.4 91.4 -93.6 90.8 -91.2
+    C 87.4 -90.4 86.2 -89 85.6 -86
+    C 85 -62 85.2 -38 85.8 -14
+    C 86.4 -10.8 87.6 -9.4 91 -8.6
+    C 91.6 -6.2 91.4 -2.4 90.8 0.2
+    L 57 0.2
+    C 47 -22.4 36.2 -44.4 25.6 -66.2
+    C 25.2 -48.8 25 -31.4 25.4 -14
+    C 26 -10.8 27.2 -9.4 30.6 -8.6
+    C 31.2 -6.2 31 -2.4 30.4 0.2
+    L 1.2 0.2
+    C 0.6 -2.4 0.4 -6.2 1 -8.6
+    C 4.4 -9.4 5.6 -10.8 6.2 -14
+    C 6.8 -38 6.6 -62 6 -86
+    C 5.4 -89.2 4.2 -90.6 0.8 -91.4
+    C 0.2 -93.8 0.8 -96.4 1.4 -100 Z"/>
+
+  <!-- flanking lozenges, gold, mass only -->
+  <path id="wmLozL" transform="translate(-246,0)" d="
+    M 0 -61.4 C 5.4 -57 10.2 -53.4 12.6 -50.2
+    C 10.2 -46.8 5.2 -43 -0.2 -38.6
+    C -5.6 -43.2 -10.4 -46.8 -12.6 -50
+    C -10.2 -53.6 -5.4 -57.2 0 -61.4 Z"/>
+  <path id="wmLozR" transform="translate(246,0)" d="
+    M 0 -61.6 C 5.6 -57.2 10.4 -53.2 12.6 -50
+    C 10.4 -46.6 5.4 -43.2 0.2 -38.6
+    C -5.4 -43 -10.2 -47 -12.6 -50.2
+    C -10.4 -53.4 -5.6 -57 0 -61.6 Z"/>
+
+  <!-- ==================================================================== -->
+  <!--  CLIPS                                                               -->
+  <!-- ==================================================================== -->
+
+  <!-- Every glyph, both lines, one silhouette. This is a MASK, not a clipPath, and
+       that is deliberate: a clipPath built from use elements unions the subpaths in
+       Chromium, so the counters of O, D and B fill in and every texture pass leaks
+       into the holes. A luminance mask honours each glyph's own fill rule, so the
+       counters stay punched. Verified in the browser. -->
+  <mask id="wmMask" maskUnits="userSpaceOnUse" x="-292" y="-110" width="584" height="250">
+    <g fill="#ffffff">
+      <use href="#wmG1"/><use href="#wmO1"/><use href="#wmO2"/><use href="#wmD1"/>
+      <use href="#wmG2"/><use href="#wmO3"/><use href="#wmB1"/><use href="#wmL1"/>
+      <use href="#wmI1"/><use href="#wmN1"/>
+      <use href="#wmLozL"/><use href="#wmLozR"/>
+    </g>
+  </mask>
+
+  <!-- the top 42 units of each line: where the form turns away from the torch -->
+  <clipPath id="wmTopBand">
+    <rect x="-292" y="-105" width="584" height="42"/>
+    <rect x="-292" y="23"   width="584" height="42"/>
+  </clipPath>
+
+  <!-- the bottom 24 units of each line: where the torch eats the contour -->
+  <clipPath id="wmBotBand">
+    <rect x="-292" y="-21" width="584" height="26"/>
+    <rect x="-292" y="107" width="584" height="26"/>
+  </clipPath>
+</defs>
+
+
+<!-- ================================================================================
+     PREVIEW ONLY. Sits OUTSIDE #wordmark. Delete on integration. Reproduces the
+     scene the lettering is painted for: near black crypt surround, one warm torch
+     pool below the lockup, nothing else.
+     ================================================================================ -->
+<g id="preview-only-backdrop">
+  <rect x="-300" y="-34" width="600" height="306" fill="#0d0f10"/>
+  <radialGradient id="pvTorch" gradientUnits="userSpaceOnUse" cx="0" cy="286" r="290">
+    <stop offset="0"    stop-color="#f5a623" stop-opacity="0.26"/>
+    <stop offset="0.45" stop-color="#f5a623" stop-opacity="0.09"/>
+    <stop offset="1"    stop-color="#f5a623" stop-opacity="0"/>
+  </radialGradient>
+  <rect x="-300" y="-34" width="600" height="306" fill="url(#pvTorch)"/>
+</g>
+
+
+<!-- ================================================================================
+     THE ART. Scale this group and nothing inside it.
+     The inner lift of 104 puts the line 1 cap line at y=4 so the top ink edge lands
+     at y approx 1.2, and the line 2 baseline at y=232.
+     ================================================================================ -->
+<g id="wordmark">
+<g transform="translate(0,104)">
+
+  <!-- ============================ 1. FLAT FILLS ============================ -->
+  <g fill="url(#wmParch)">
+    <use href="#wmG1"/><use href="#wmO1"/><use href="#wmO2"/><use href="#wmD1"/>
+  </g>
+  <g fill="url(#wmGold)">
+    <use href="#wmG2"/><use href="#wmO3"/><use href="#wmB1"/><use href="#wmL1"/>
+    <use href="#wmI1"/><use href="#wmN1"/>
+    <use href="#wmLozL"/><use href="#wmLozR"/>
+  </g>
+
+  <!-- ================= 2. PAINTED VALUE STEPS, inside the strokes =================
+       Broad soft patches so no stroke is ever a clean two stop ramp. All under 0.15
+       opacity, all masked to the lettering. Dark reads high, warm reads low. -->
+  <g mask="url(#wmMask)">
+    <g fill="#0f1412" filter="url(#wmSoft)">
+      <ellipse cx="-152" cy="-86" rx="104" ry="21" opacity="0.13"/>
+      <ellipse cx="118"  cy="-90" rx="94"  ry="18" opacity="0.11"/>
+      <ellipse cx="-24"  cy="-72" rx="70"  ry="15" opacity="0.08"/>
+      <ellipse cx="-184" cy="44"  rx="112" ry="21" opacity="0.14"/>
+      <ellipse cx="146"  cy="38"  rx="104" ry="19" opacity="0.12"/>
+      <ellipse cx="-16"  cy="58"  rx="74"  ry="15" opacity="0.08"/>
+    </g>
+    <g filter="url(#wmSoft)">
+      <ellipse cx="-70" cy="-16" rx="118" ry="17" fill="#efe2c0" opacity="0.11"/>
+      <ellipse cx="168" cy="-12" rx="72"  ry="14" fill="#efe2c0" opacity="0.10"/>
+      <ellipse cx="-96" cy="114" rx="126" ry="17" fill="#f2cf87" opacity="0.13"/>
+      <ellipse cx="176" cy="118" rx="94"  ry="14" fill="#f2cf87" opacity="0.11"/>
+      <ellipse cx="-206" cy="-44" rx="46" ry="26" fill="#dccfae" opacity="0.07"/>
+      <ellipse cx="86"   cy="82"  rx="52" ry="26" fill="#c9a45a" opacity="0.08"/>
+    </g>
+  </g>
+
+  <!-- ==================== 3. GRAIN, three passes, low contrast ==================== -->
+  <g mask="url(#wmMask)">
+    <rect x="-286" y="-108" width="572" height="248" filter="url(#wmGrainCoarse)" opacity="0.30"/>
+    <rect x="-286" y="-108" width="572" height="248" filter="url(#wmGrainMottle)" opacity="0.42"/>
+    <rect x="-286" y="-108" width="572" height="248" filter="url(#wmGrainFine)"   opacity="0.14"/>
+  </g>
+
+  <!-- ============ 4. THE ONE LIGHT. Cool roll off up top, torch lip below. ============
+       Both masked to the glyphs, so each band follows that letter's own contour. -->
+  <g mask="url(#wmMask)">
+    <rect x="-286" y="-105" width="572" height="48" fill="url(#wmTop1)"/>
+    <rect x="-286" y="23"   width="572" height="48" fill="url(#wmTop2)"/>
+    <rect x="-286" y="-21"  width="572" height="24" fill="url(#wmLip1)"/>
+    <rect x="-286" y="107"  width="572" height="24" fill="url(#wmLip2)"/>
+  </g>
+
+  <!-- ================================ 5. INK ================================
+       Base pass. Weight varies per glyph the way a brush does, 4.4 to 5.6, never
+       a uniform outline. Round joins so the serif corners knit. -->
+  <g fill="none" stroke="#161a17" stroke-linejoin="round" stroke-linecap="round">
+    <use href="#wmG1" stroke-width="5.2"/>
+    <use href="#wmO1" stroke-width="5"/>
+    <use href="#wmO2" stroke-width="5.4"/>
+    <use href="#wmD1" stroke-width="4.9"/>
+    <use href="#wmG2" stroke-width="5.4"/>
+    <use href="#wmO3" stroke-width="5.1"/>
+    <use href="#wmB1" stroke-width="5.5"/>
+    <use href="#wmL1" stroke-width="5"/>
+    <use href="#wmI1" stroke-width="4.6"/>
+    <use href="#wmN1" stroke-width="5.3"/>
+    <use href="#wmLozL" stroke-width="3.4"/>
+    <use href="#wmLozR" stroke-width="3.4"/>
+  </g>
+
+  <!-- Ink runs HEAVY across the top band. Same paths, re stroked, clipped. -->
+  <g fill="none" stroke="#12160f" stroke-linejoin="round" stroke-linecap="round"
+     clip-path="url(#wmTopBand)" opacity="0.92">
+    <use href="#wmG1" stroke-width="6.8"/>
+    <use href="#wmO1" stroke-width="6.6"/>
+    <use href="#wmO2" stroke-width="7"/>
+    <use href="#wmD1" stroke-width="6.5"/>
+    <use href="#wmG2" stroke-width="7"/>
+    <use href="#wmO3" stroke-width="6.7"/>
+    <use href="#wmB1" stroke-width="7.1"/>
+    <use href="#wmL1" stroke-width="6.6"/>
+    <use href="#wmI1" stroke-width="6.2"/>
+    <use href="#wmN1" stroke-width="6.9"/>
+  </g>
+
+  <!-- and the torch EATS it across the bottom band, warm over the ink. -->
+  <g fill="none" stroke="#d9a349" stroke-linejoin="round" stroke-linecap="round"
+     clip-path="url(#wmBotBand)" opacity="0.5">
+    <use href="#wmG1" stroke-width="2.4"/>
+    <use href="#wmO1" stroke-width="2.3"/>
+    <use href="#wmO2" stroke-width="2.5"/>
+    <use href="#wmD1" stroke-width="2.3"/>
+    <use href="#wmG2" stroke-width="2.7"/>
+    <use href="#wmO3" stroke-width="2.6"/>
+    <use href="#wmB1" stroke-width="2.7"/>
+    <use href="#wmL1" stroke-width="2.5"/>
+    <use href="#wmI1" stroke-width="2.2"/>
+    <use href="#wmN1" stroke-width="2.6"/>
+  </g>
+
+  <!-- ================== 6. RESTRAINT ON GOLD: glints, torch side only ================== -->
+  <g fill="#ffd9a0">
+    <ellipse cx="-180" cy="-3"  rx="5.6" ry="1.9" opacity="0.5"/>
+    <ellipse cx="-58"  cy="-3"  rx="5.8" ry="2"   opacity="0.52"/>
+    <ellipse cx="64"   cy="-3"  rx="5.6" ry="1.9" opacity="0.48"/>
+    <ellipse cx="185"  cy="-3"  rx="5.2" ry="1.8" opacity="0.44"/>
+    <ellipse cx="-221" cy="125" rx="6"   ry="2.1" opacity="0.5"/>
+    <ellipse cx="-115" cy="125" rx="6.2" ry="2.2" opacity="0.54"/>
+    <ellipse cx="-11"  cy="125" rx="5.6" ry="2"   opacity="0.48"/>
+    <ellipse cx="76"   cy="125" rx="6.4" ry="2"   opacity="0.44"/>
+    <ellipse cx="191"  cy="125" rx="5"   ry="1.9" opacity="0.42"/>
+    <ellipse cx="250"  cy="125" rx="5.4" ry="1.9" opacity="0.42"/>
+    <ellipse cx="-246" cy="-40" rx="3.2" ry="1.3" opacity="0.4"/>
+    <ellipse cx="246"  cy="-40" rx="3.2" ry="1.3" opacity="0.4"/>
+  </g>
+
+</g>
+</g>
+</svg>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { lootListEmbed, splitNote, splitShares } from './economy'
+import { goldSplitAnnouncement, lootLedger, splitNote, splitShares } from './economy'
 import type { LedgerEntry } from '../db/stores'
+import { cardText } from '../lib/card'
 
 describe('splitShares', () => {
   it('splits evenly with no remainder', () => {
@@ -24,19 +25,29 @@ describe('splitNote', () => {
   })
 })
 
-describe('lootListEmbed', () => {
+describe('lootLedger', () => {
   it('shows the gold total and recent entries, item and gold formatted differently', () => {
     const entries: LedgerEntry[] = [
       { id: 1, campaignId: 'c', kind: 'gold', delta: 50, item: null, actor: 'u1', note: null, createdAt: 1 },
       { id: 2, campaignId: 'c', kind: 'item', delta: null, item: 'Ruby', actor: 'u1', note: 'shiny', createdAt: 2 },
     ]
-    const spec = lootListEmbed(150, entries)
-    expect(spec.header).toBe('Party gold: 150')
-    expect(spec.blocks?.[0]).toContain('+50 gold')
-    expect(spec.blocks?.[0]).toContain('Ruby — shiny')
+    const spec = lootLedger('The Sunken Keep', 150, entries)
+    expect(spec.header).toBe('150 gold')
+    expect(cardText(spec)).toContain('**+50 gold**')
+    expect(cardText(spec)).toContain('**Ruby** — shiny')
+  })
+
+  it('separates thousands in the total, the entries and a split', () => {
+    const entries: LedgerEntry[] = [
+      { id: 1, campaignId: 'c', kind: 'gold', delta: -2500, item: null, actor: 'u1', note: null, createdAt: 1 },
+    ]
+    const spec = lootLedger('The Sunken Keep', 1234567, entries)
+    expect(spec.header).toBe('1,234,567 gold')
+    expect(cardText(spec)).toContain('**-2,500 gold**')
+    expect(goldSplitAnnouncement(12000, 4, splitShares(12000, 4)).header).toBe('12,000 gold, split 4 ways')
   })
 
   it('says nothing logged for an empty ledger', () => {
-    expect(lootListEmbed(0, []).blocks?.[0]).toMatch(/nothing logged/i)
+    expect(cardText(lootLedger('The Sunken Keep', 0, []))).toMatch(/nothing logged/i)
   })
 })

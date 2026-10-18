@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hand — Table</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<style>
+  :root{
+    --ink:oklch(0.97 0.004 80);
+    --ink-2:oklch(0.80 0.006 80);
+    --ink-3:oklch(0.68 0.008 80);
+    --chrome:oklch(0.19 0.006 70);
+    --chrome-2:oklch(0.24 0.007 70);
+    --chrome-3:oklch(0.30 0.008 70);
+    --line:oklch(0.34 0.008 70);
+    --amber:oklch(0.80 0.15 72);
+    --amber-ink:oklch(0.22 0.04 72);
+    --white:oklch(0.99 0 0);
+    --black:oklch(0.12 0 0);
+    --shadow-lift:0 1px 0 oklch(1 0 0 / .06) inset, 0 10px 30px -10px oklch(0 0 0 / .8), 0 2px 6px oklch(0 0 0 / .4);
+    --shadow-card:0 1px 0 oklch(1 0 0 / .05) inset, 0 24px 60px -20px oklch(0 0 0 / .9), 0 4px 10px oklch(0 0 0 / .4);
+    --r:14px;
+    --ease:cubic-bezier(.22,1,.36,1);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:oklch(0.07 0 0)}
+  body{font:13px/1.35 "Schibsted Grotesk",system-ui,sans-serif;color:var(--ink);font-feature-settings:"tnum";-webkit-font-smoothing:antialiased;display:grid;place-items:center;overflow:hidden}
+  .stage{display:grid;place-items:center}
+  .board{grid-area:1/1;width:1440px;height:900px;position:relative;overflow:hidden;background:#0a0908;transform-origin:center;box-shadow:0 0 0 1px oklch(0.18 0 0)}
+  .board.player{display:none}
+  .stage.show-player .board.dm{display:none}.stage.show-player .board.player{display:block}
+
+  .seat{position:fixed;top:14px;right:16px;display:flex;background:oklch(0.16 0 0);border-radius:10px;padding:3px;z-index:9;box-shadow:0 4px 14px oklch(0 0 0 / .5)}
+  .seat button{border:0;background:transparent;color:var(--ink-3);font:inherit;font-weight:500;padding:6px 12px;border-radius:8px;cursor:pointer}
+  .seat button.on{background:var(--chrome-3);color:var(--ink)}
+
+  .map{position:absolute;inset:0;background:url("map-table.jpg") center/cover no-repeat}
+  .map::after{content:"";position:absolute;inset:0;background:radial-gradient(120% 90% at 50% 45%, transparent 55%, oklch(0 0 0 / .35) 100%);pointer-events:none}
+
+  /* tokens: white + ink rings; DM sees hidden things at full strength with a badge */
+  .tok{position:absolute;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:13px;color:var(--white);background:oklch(0.22 0.02 60);box-shadow:0 0 0 2.5px var(--white),0 0 0 4px oklch(0 0 0 / .85),0 6px 14px -4px oklch(0 0 0 / .9);letter-spacing:.01em}
+  .tok.turn::before{content:"";position:absolute;inset:-9px;border-radius:50%;border:2px solid var(--white);opacity:.9}
+  .tok.hidden{box-shadow:0 0 0 2.5px transparent,0 0 0 4px transparent;outline:2.5px dashed var(--white);outline-offset:0;background:oklch(0.25 0.06 30)}
+  .tok .badge{position:absolute;bottom:-9px;left:50%;transform:translateX(-50%);height:18px;padding:0 6px;border-radius:9px;background:var(--white);color:var(--black);font-size:10.5px;font-weight:600;display:flex;align-items:center;gap:3px;white-space:nowrap}
+  .tok .badge i{font-size:11px}
+
+  .top{position:absolute;left:0;right:0;top:0;height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;pointer-events:none}
+  .top > *{pointer-events:auto}
+  .title{display:flex;align-items:center;gap:10px;height:36px;padding:0 12px 0 10px;border-radius:10px;background:var(--chrome);box-shadow:var(--shadow-lift);cursor:pointer}
+  .title:hover{background:var(--chrome-2)}
+  .title .name{font-weight:600;font-size:14px;letter-spacing:-.005em}
+  .title .sub{color:var(--ink-3);font-size:12px;display:flex;align-items:center;gap:6px}
+  .title .sub i{font-size:13px}
+  .title > i{font-size:16px;color:var(--ink-2)}
+  .turn{position:absolute;left:50%;top:10px;transform:translateX(-50%);height:36px;display:flex;align-items:center;gap:10px;padding:0 6px 0 14px;border-radius:10px;background:var(--chrome);box-shadow:var(--shadow-lift)}
+  .turn .r{color:var(--ink-3);font-size:12px}
+  .turn .who{font-weight:600;font-size:14px}
+  .turn .next{height:26px;padding:0 10px 0 8px;border-radius:7px;background:var(--amber);color:var(--amber-ink);font-weight:600;font-size:12px;display:inline-flex;align-items:center;gap:4px;cursor:pointer}
+  .turn .next i{font-size:13px}
+  .right{display:flex;align-items:center;gap:8px}
+  .seats{display:flex;align-items:center;height:36px;padding:0 10px 0 6px;border-radius:10px;background:var(--chrome);box-shadow:var(--shadow-lift);gap:8px}
+  .seats .av{display:flex}
+  .seats .av span{width:26px;height:26px;border-radius:50%;background:var(--chrome-3);display:grid;place-items:center;font-size:10px;font-weight:600;margin-left:-3px;box-shadow:0 0 0 2px var(--chrome)}
+  .seats .av span:first-child{margin-left:0}
+  .seats .av span.off{color:var(--ink-3);background:var(--chrome-2)}
+  .seats .ms{color:var(--ink-3);font-size:12px}
+  .btn{white-space:nowrap;height:36px;padding:0 14px;border-radius:10px;background:var(--chrome);color:var(--ink);border:0;font:inherit;font-weight:500;display:inline-flex;align-items:center;gap:8px;box-shadow:var(--shadow-lift);cursor:pointer;transition:transform .12s var(--ease),background .12s}
+  .btn i{font-size:17px;color:var(--ink-2)}
+  .btn:hover{background:var(--chrome-2)}
+  .btn:active{transform:translateY(1px) scale(.985)}
+  .btn.icon{width:36px;padding:0;justify-content:center}
+  .btn .code{font-weight:600;letter-spacing:.08em}
+  .kbd{font-size:10.5px;color:var(--ink-3);border:1px solid var(--line);border-radius:4px;padding:1px 5px;line-height:1.3;margin-left:2px}
+
+  .hand{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);height:64px;display:flex;align-items:center;padding:0 10px 0 8px;gap:6px;background:var(--chrome);border-radius:18px;box-shadow:var(--shadow-card)}
+  .tool{position:relative;width:46px;height:46px;border-radius:12px;display:grid;place-items:center;color:var(--ink-2);cursor:pointer;transition:transform .14s var(--ease),background .14s,color .14s}
+  .tool i{font-size:22px}
+  .tool:hover{background:var(--chrome-2);color:var(--ink);transform:translateY(-2px)}
+  .tool:active{transform:translateY(0) scale(.94)}
+  .tool.on{background:var(--chrome-3);color:var(--ink);box-shadow:0 1px 0 oklch(1 0 0 / .08) inset,0 6px 14px -6px oklch(0 0 0 / .8)}
+  .tool.on::after{content:"";position:absolute;bottom:5px;width:5px;height:5px;border-radius:50%;background:var(--amber);box-shadow:0 0 8px var(--amber)}
+  .tool.open{color:var(--ink);background:var(--chrome-2)}
+  .tool .dot{position:absolute;top:7px;right:7px;width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 2px var(--chrome)}
+  .tool .tip{position:absolute;bottom:calc(100% + 12px);left:50%;transform:translateX(-50%) translateY(2px);white-space:nowrap;font-size:12px;color:var(--ink);background:oklch(0.16 0 0);padding:6px 9px;border-radius:8px;opacity:0;pointer-events:none;transition:opacity .12s,transform .12s var(--ease);box-shadow:0 8px 20px -8px oklch(0 0 0 / .8)}
+  .tool .tip .kbd{margin-left:6px}
+  .tool:hover .tip{opacity:1;transform:translateX(-50%) translateY(0)}
+  .gap{width:1px;height:34px;background:var(--line);margin:0 6px}
+  .knobs{display:flex;align-items:center;gap:14px;padding-right:6px}
+  .seg{display:flex;background:var(--chrome-2);border-radius:9px;padding:3px;gap:2px}
+  .seg span{height:26px;padding:0 10px;border-radius:7px;display:inline-flex;align-items:center;color:var(--ink-2);font-weight:500;font-size:12.5px;cursor:pointer}
+  .seg span:hover{color:var(--ink)}
+  .seg span.on{background:var(--chrome-3);color:var(--ink);box-shadow:0 1px 2px oklch(0 0 0 / .4)}
+  .knob{display:flex;align-items:center;gap:8px;color:var(--ink-2);font-size:12.5px}
+  .knob > i{font-size:17px;color:var(--ink-3)}
+  .knob .v{color:var(--ink);font-weight:500}
+  .stepper{display:inline-flex;align-items:center;height:30px;border-radius:9px;background:var(--chrome-2);padding:0 4px}
+  .stepper i{width:22px;text-align:center;color:var(--ink-3);cursor:pointer;font-size:13px}
+  .stepper i:hover{color:var(--ink)}
+  .stepper .v{padding:0 4px;min-width:4.5ch;text-align:center;white-space:nowrap}
+  .toggle{width:34px;height:20px;border-radius:10px;background:var(--amber);position:relative;cursor:pointer;box-shadow:0 1px 2px oklch(0 0 0 / .4) inset}
+  .toggle::after{content:"";position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:var(--white);box-shadow:0 1px 2px oklch(0 0 0 / .5)}
+
+  /* card rises from the tray, one at a time */
+  .card{position:absolute;left:50%;bottom:100px;transform:translateX(calc(-50% + var(--dx,0px)));width:320px;background:var(--chrome);border-radius:var(--r);box-shadow:var(--shadow-card);padding:6px 0 10px;animation:rise .32s var(--ease) both}
+  @keyframes rise{from{transform:translateX(calc(-50% + var(--dx,0px))) translateY(16px);opacity:0}to{transform:translateX(calc(-50% + var(--dx,0px)));opacity:1}}
+  @media (prefers-reduced-motion: reduce){.card{animation:none}}
+  .card .head{display:flex;align-items:center;gap:10px;padding:10px 12px 8px 16px}
+  .card .head i{font-size:18px;color:var(--ink-2)}
+  .card .head .t{font-weight:600;font-size:14px;flex:1;letter-spacing:-.005em}
+  .card .head .sub{font-size:12px;color:var(--ink-3)}
+  .card .head .x{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:var(--ink-3);cursor:pointer}
+  .card .head .x:hover{background:var(--chrome-2);color:var(--ink)}
+  .cmb{display:grid;grid-template-columns:28px 1fr auto auto;align-items:center;gap:10px;height:40px;padding:0 12px 0 14px;border-radius:10px;margin:0 6px;color:var(--ink-2)}
+  .cmb.now{background:var(--chrome-2);color:var(--ink)}
+  .cmb .av{width:26px;height:26px;border-radius:50%;background:var(--chrome-3);display:grid;place-items:center;font-size:10.5px;font-weight:600;color:var(--ink)}
+  .cmb.now .av{box-shadow:0 0 0 2px var(--white)}
+  .cmb .av.npc{border-radius:7px;background:oklch(0.28 0.06 30)}
+  .cmb .n{font-weight:500}
+  .cmb .n small{display:block;font-weight:400;color:var(--ink-3);font-size:11.5px}
+  .cmb .hp{display:flex;flex-direction:column;align-items:flex-end;gap:3px;font-size:11.5px;color:var(--ink-3)}
+  .cmb .hp b{color:var(--ink);font-weight:500}
+  .cmb .bar{width:64px;height:4px;border-radius:2px;background:var(--chrome-3);overflow:hidden}
+  .cmb .bar i{display:block;height:100%;background:var(--ink-2)}
+  .cmb .bar i.low{background:var(--amber)}
+  .cmb .init{font-weight:500;color:var(--ink-3);min-width:2.5ch;text-align:right}
+  .cmb.now .init{color:var(--ink)}
+  .card .foot{display:flex;gap:8px;padding:10px 16px 0}
+  .card .foot .btn{height:32px;flex:1;justify-content:center;font-size:12.5px;box-shadow:none;background:var(--chrome-2)}
+  .card .foot .btn.primary{background:var(--amber);color:var(--amber-ink);font-weight:600}
+  .card .foot .btn.primary i{color:var(--amber-ink)}
+  .card .foot .btn:hover{background:var(--chrome-3)}
+  .card .foot .btn.primary:hover{background:var(--amber)}
+
+  .read{position:absolute;left:18px;bottom:22px;font-size:11.5px;color:var(--ink-2);background:oklch(0.12 0 0 / .7);padding:5px 9px;border-radius:7px;letter-spacing:.005em;display:flex;align-items:center;gap:6px}
+  .read b{font-weight:500;color:var(--ink)}
+  .read .kbd{margin:0}
+  .log{position:absolute;right:18px;bottom:22px;font-size:12px;color:var(--ink-2);background:oklch(0.12 0 0 / .7);padding:5px 10px 5px 8px;border-radius:7px;display:flex;align-items:center;gap:8px;cursor:pointer;max-width:300px}
+  .log:hover{background:oklch(0.16 0 0 / .85);color:var(--ink)}
+  .log i{font-size:14px;color:var(--ink-3)}
+  .log .t{color:var(--ink-3)}
+
+  /* player seat: the map, the turn, your own card */
+  .me{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);height:64px;display:flex;align-items:center;padding:0 10px 0 10px;gap:6px;background:var(--chrome);border-radius:18px;box-shadow:var(--shadow-card)}
+  .me .who{display:flex;align-items:center;gap:12px;padding:0 10px 0 2px}
+  .me .who .av{width:40px;height:40px;border-radius:50%;background:oklch(0.22 0.02 60);display:grid;place-items:center;font-weight:600;box-shadow:0 0 0 2px var(--white),0 0 0 3.5px oklch(0 0 0 / .8)}
+  .me .who .n{font-weight:600;font-size:14px;line-height:1.2}
+  .me .who .hp{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-3);margin-top:3px}
+  .me .who .hp b{color:var(--ink);font-weight:500}
+  .me .who .bar{width:90px;height:4px;border-radius:2px;background:var(--chrome-3);overflow:hidden}
+  .me .who .bar i{display:block;height:100%;width:82%;background:var(--ink-2)}
+  .me .who .cond{font-size:11px;color:var(--amber);font-weight:500}
+  .pturn{position:absolute;left:50%;top:14px;transform:translateX(-50%);height:34px;padding:0 14px;border-radius:10px;background:var(--amber);color:var(--amber-ink);display:flex;align-items:center;gap:8px;font-weight:600;font-size:13.5px;box-shadow:var(--shadow-lift)}
+  .pturn i{font-size:15px}
+</style>
+</head>
+<body>
+<div class="seat"><button class="on" onclick="seat('dm',this)">DM</button><button onclick="seat('player',this)">Player</button></div>
+<div class="stage">
+
+<div class="board dm">
+  <div class="map"></div>
+
+  <div class="tok turn" style="left:322px;top:388px">SA</div>
+  <div class="tok" style="left:412px;top:470px">KE</div>
+  <div class="tok" style="left:700px;top:262px">MO</div>
+  <div class="tok" style="left:236px;top:760px">TH</div>
+  <div class="tok hidden" style="left:790px;top:392px">GB<span class="badge"><i class="ph-fill ph-eye-slash"></i>hidden</span></div>
+
+  <div class="top">
+    <div class="title"><i class="ph ph-caret-down"></i><span class="name">Fieldstone Keep</span><span class="sub"><i class="ph ph-moon"></i>Night · 22:40</span></div>
+    <div class="right">
+      <div class="seats"><div class="av"><span>SA</span><span>KE</span><span>MO</span><span>TH</span><span class="off">+</span></div><span class="ms">38 ms</span></div>
+      <button class="btn"><i class="ph ph-link"></i><span class="code">RPQWXN</span></button>
+    </div>
+  </div>
+  <div class="turn"><span class="r">Round 3</span><span class="who">Sabra</span><span class="next">Next<i class="ph-fill ph-caret-right"></i></span></div>
+
+  <div class="card" style="--dx:-60px">
+    <div class="head"><i class="ph-fill ph-sword"></i><span class="t">Initiative</span><span class="sub">Round 3</span><span class="x"><i class="ph ph-x"></i></span></div>
+    <div class="cmb"><span class="av">KE</span><span class="n">Kell</span><span class="hp"><span class="num"><b>44</b> / 44</span><span class="bar"><i style="width:100%"></i></span></span><span class="init">21</span></div>
+    <div class="cmb now"><span class="av">SA</span><span class="n">Sabra Vell<small>Blessed</small></span><span class="hp"><span class="num"><b>31</b> / 38</span><span class="bar"><i style="width:82%"></i></span></span><span class="init">18</span></div>
+    <div class="cmb"><span class="av npc">G</span><span class="n">Goblin ambush<small>4 goblins · hidden</small></span><span class="hp"><span class="num"><b>7</b> / 7</span><span class="bar"><i style="width:100%"></i></span></span><span class="init">15</span></div>
+    <div class="cmb"><span class="av">MO</span><span class="n">Moss</span><span class="hp"><span class="num"><b>12</b> / 30</span><span class="bar"><i class="low" style="width:40%"></i></span></span><span class="init">11</span></div>
+    <div class="cmb"><span class="av">TH</span><span class="n">Thane</span><span class="hp"><span class="num"><b>29</b> / 29</span><span class="bar"><i style="width:100%"></i></span></span><span class="init">6</span></div>
+    <div class="foot"><button class="btn"><i class="ph ph-plus"></i>Add</button><button class="btn"><i class="ph ph-clock-counter-clockwise"></i>Delay</button><button class="btn primary"><i class="ph-fill ph-caret-right"></i>Next</button></div>
+  </div>
+
+  <div class="hand">
+    <div class="tool on"><i class="ph-fill ph-cloud"></i><span class="tip">Fog<span class="kbd">F</span></span></div>
+    <div class="tool"><i class="ph ph-door"></i><span class="tip">Doors<span class="kbd">D</span></span></div>
+    <div class="tool"><i class="ph ph-lamp"></i><span class="tip">Lights<span class="kbd">L</span></span></div>
+    <div class="tool"><i class="ph ph-user-circle"></i><span class="tip">Tokens<span class="kbd">T</span></span></div>
+    <div class="gap"></div>
+    <div class="tool open"><i class="ph-fill ph-sword"></i><span class="tip">Initiative<span class="kbd">I</span></span></div>
+    <div class="tool"><i class="ph ph-notebook"></i><span class="dot"></span><span class="tip">Prep · 1 armed<span class="kbd">P</span></span></div>
+    <div class="tool"><i class="ph ph-dice-five"></i><span class="tip">Roll<span class="kbd">R</span></span></div>
+    <div class="gap"></div>
+    <div class="knobs">
+      <div class="seg"><span class="on">Reveal</span><span>Hide</span></div>
+      <div class="seg"><span class="on">Brush</span><span>Box</span><span>Room</span></div>
+      <div class="knob"><span class="stepper"><i class="ph ph-minus"></i><span class="v">30 ft</span><i class="ph ph-plus"></i></span></div>
+      <div class="knob" title="Contained sight"><i class="ph ph-arrows-in"></i><span class="toggle"></span></div>
+    </div>
+  </div>
+
+  <div class="read"><b>Fog · Reveal</b> drag on the map <span class="kbd">Esc</span></div>
+  <div class="log"><i class="ph ph-chat-centered-text"></i><span>Kell opens the gate door</span><span class="t">22:41</span></div>
+</div>
+
+<div class="board player">
+  <div class="map"></div>
+  <div class="tok turn" style="left:322px;top:388px">SA</div>
+  <div class="tok" style="left:412px;top:470px">KE</div>
+  <div class="tok" style="left:700px;top:262px">MO</div>
+  <div class="tok" style="left:236px;top:760px">TH</div>
+  <div class="pturn"><i class="ph-fill ph-sword"></i>Your turn</div>
+  <div class="me">
+    <div class="who"><span class="av">SA</span><div><div class="n">Sabra Vell</div><div class="hp"><b>31</b> / 38<span class="bar"><i></i></span><span class="cond">Blessed</span></div></div></div>
+    <div class="gap"></div>
+    <div class="tool"><i class="ph ph-cursor-click"></i><span class="tip">Ping</span></div>
+    <div class="tool"><i class="ph ph-dice-five"></i><span class="tip">Roll<span class="kbd">R</span></span></div>
+    <div class="tool"><i class="ph ph-book-open"></i><span class="dot"></span><span class="tip">Journal · 1 new</span></div>
+  </div>
+</div>
+
+</div>
+<script>
+  const fit=()=>{const s=Math.min(innerWidth/1440,innerHeight/900,1);document.querySelectorAll('.board').forEach(b=>b.style.transform=`scale(${s})`)};
+  const seat=(who,btn)=>{document.querySelector('.stage').classList.toggle('show-player',who==='player');document.querySelectorAll('.seat button').forEach(b=>b.classList.toggle('on',b===btn))};
+  addEventListener('resize',fit);fit();
+  if(location.hash==='#player')seat('player',document.querySelectorAll('.seat button')[1]);
+</script>
+</body>
+</html>

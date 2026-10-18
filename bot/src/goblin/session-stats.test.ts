@@ -64,6 +64,65 @@ describe('session stats', () => {
     expect(stats.live().dmConnected).toBe(true)
   })
 
+  it('leaves its own two seats off the roster entirely', () => {
+    // Both of the bot's own seats are named this by the server.
+    const botDm = { identityId: 'bot-dm', name: 'Goblin Bot', role: 'dm' as const, connected: true }
+    const botPlayer = { identityId: 'bot-p', name: 'Goblin Bot', role: 'player' as const, connected: true }
+    const stats = feed([
+      { type: 'session-state', state: state({ players: [botDm, botPlayer, player('Zed')] }) },
+      { type: 'player-joined', player: botPlayer },
+      { type: 'player-left', player: botDm },
+    ])
+    expect(stats.live().players).toEqual(['Zed'])
+    expect(stats.recap(0).players).toEqual(['Zed'])
+    expect(stats.recap(0).peakPlayers).toBe(1)
+    // And the bot's own DM seat does not get to report the DM as present, nor its departure
+    // as the DM leaving — the human DM never connected here.
+    expect(stats.live().dmConnected).toBe(false)
+  })
+
+  it('ignores a second bot seat coming and going while the human DM is at the table', () => {
+    // Any further seat the server mints for the bot is named after the same stem. Its
+    // arrival and departure are not the DM's.
+    const second = { identityId: 'bot-2', name: 'Goblin Bot 2', role: 'dm' as const, connected: true }
+    const stats = feed([
+      {
+        type: 'session-state',
+        state: state({
+          players: [{ identityId: 'dm', name: 'The DM', role: 'dm' as const, connected: true }, second, player('Zed')],
+        }),
+      },
+      { type: 'player-joined', player: second },
+      { type: 'player-left', player: second },
+    ])
+    expect(stats.live().players).toEqual(['Zed'])
+    expect(stats.live().dmConnected).toBe(true)
+  })
+
+  it('resumes from a seed: cumulative counters continue, the live view does not', () => {
+    const stats = createSessionStats(0, {
+      scenes: ['The Vault'],
+      doorsOpened: 4,
+      players: ['Zed', 'Mira'],
+      peakPlayers: 2,
+    })
+    stats.apply({ type: 'session-state', state: state({ players: [player('Zed')] }) })
+    stats.apply(doors({ 'scene-1': { d1: door(false) } }))
+    stats.apply(doors({ 'scene-1': { d1: door(true) } }))
+
+    const recap = stats.recap(0)
+    expect(recap.doorsOpened).toBe(5)
+    expect(recap.scenes).toEqual(['The Vault', 'Cragmaw Hideout'])
+    expect(recap.players).toEqual(['Zed', 'Mira'])
+    // Seeded peak survives a smaller present set; who is here now is the snapshot's word.
+    expect(recap.peakPlayers).toBe(2)
+    expect(stats.live().players).toEqual(['Zed'])
+  })
+
+  it('starts at zero with no seed', () => {
+    expect(feed([]).recap(0)).toMatchObject({ scenes: [], doorsOpened: 0, players: [], peakPlayers: 0 })
+  })
+
   it('counts a door only on a closed → open transition it actually watched', () => {
     const stats = feed([
       { type: 'session-state', state: state() },
@@ -131,5 +190,34 @@ describe('session stats', () => {
     const stats = feed([], 1_000)
     expect(stats.recap(1_000 + 90 * 60_000).durationMs).toBe(90 * 60_000)
     expect(stats.recap(0).durationMs).toBe(0)
+  })
+})
+
+describe('session stats — the party\'s swept ground', () => {
+  const mask = (bits: string) => ({ minX: 0, minY: 0, cols: 8, rows: 2, bits })
+
+  it('keeps the latest region per scene from a fog event', () => {
+    const stats = feed([
+      { type: 'fog', state: { byScene: { 'scene-1': { region: mask('AQA=') } } } },
+      { type: 'fog', state: { byScene: { 'scene-1': { region: mask('AwA=') }, 'scene-2': { region: mask('/wA=') } } } },
+    ])
+    expect(stats.region('scene-1')?.bits).toBe('AwA=')
+    expect(stats.region('scene-2')?.bits).toBe('/wA=')
+    expect(stats.region('scene-3')).toBeUndefined()
+  })
+
+  it('seeds the region from a session-state snapshot', () => {
+    const stats = feed([
+      { type: 'session-state', state: state({ modules: { fog: { byScene: { 'scene-1': { region: mask('AQA=') } } } } }) },
+    ])
+    expect(stats.region('scene-1')?.bits).toBe('AQA=')
+  })
+
+  it('drops a region the fog module has stopped carrying rather than showing a stale one', () => {
+    const stats = feed([
+      { type: 'fog', state: { byScene: { 'scene-1': { region: mask('AQA=') } } } },
+      { type: 'fog', state: { byScene: { 'scene-1': {} } } },
+    ])
+    expect(stats.region('scene-1')).toBeUndefined()
   })
 })

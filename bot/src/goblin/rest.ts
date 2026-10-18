@@ -52,6 +52,10 @@ export interface GoblinRest {
   /** Milestone 6's map renderer input. A player token gets the server-redacted document. */
   getMap: (token: string, sceneId: string) => Promise<unknown>
   getAsset: (token: string, assetId: string) => Promise<GoblinAsset>
+  /** Round-trip to the server in ms, or null when nothing answered within 3s. Any HTTP status
+   * counts: reachability is the question, not authorization. */
+  ping: () => Promise<number | null>
+  baseUrl: string
 }
 
 export function createGoblinRest(options: GoblinRestOptions): GoblinRest {
@@ -106,6 +110,16 @@ export function createGoblinRest(options: GoblinRestOptions): GoblinRest {
 
     getMap: (token, sceneId) => json<unknown>(token, 'GET', `/api/maps/${enc(sceneId)}`),
 
+    baseUrl: base,
+    ping: async () => {
+      const started = Date.now()
+      try {
+        await doFetch(`${base}/api/health`, { method: 'GET', signal: AbortSignal.timeout(3000) })
+        return Date.now() - started
+      } catch {
+        return null
+      }
+    },
     getAsset: async (token, assetId) => {
       const response = await call(token, 'GET', `/api/assets/${enc(assetId)}`)
       return {

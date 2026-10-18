@@ -1,0 +1,686 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-110 -110 220 220" width="440" height="440">
+<!--
+====================================================================================
+  GOOD GOBLIN — top-down d20 die art
+  Hand-authored SVG. No scripts, no external assets, no CSS vars, no animation.
+====================================================================================
+
+  GEOMETRY — projected from a real icosahedron down a face normal, then scaled so
+  the hexagonal silhouette circumradius = 80. Die centre = (0,0). Fits 200x200.
+
+    Hull (6 verts):  (0,-80) (69.28,-40) (69.28,40) (0,80) (-69.28,40) (-69.28,-40)
+    Centre face   :  (0,-49.44) (42.82,24.72) (-42.82,24.72)      point-UP
+    Inner ring (3):  tilt 0.745 to the view axis
+    Outer ring (6):  tilt 0.333 to the view axis
+    10 visible facets, 12 interior edges, 6 hull edges.
+
+  Two useful symmetries, both exact:
+    * rotate(120) maps the whole facet layout onto itself.
+    * the layout is mirror-symmetric about BOTH axes, and the hexagonal hull is
+      invariant under scale(1,-1).
+
+  =================================================================================
+  THE TURN — the goblin rolls the die a HALF-TURN clean over onto its opposite face
+  =================================================================================
+
+  On a real d20 opposite faces sum to 21, so 1 is OPPOSITE 20 — never adjacent. No
+  amount of in-plane rotation gets from 1 to 20. The move is a 180-degree roll about
+  a HORIZONTAL axis: the goblin plants a claw on the far edge and shoves the die
+  over toward himself. The far side of the solid comes up.
+
+  Seen from directly above, a 180-degree roll about the screen x-axis is EXACTLY
+  scale(1,-1) on the projection. That is not an approximation — the antipodal face
+  view of an icosahedron is the vertically mirrored image, which is why the centre
+  triangle ends up point-DOWN. So the whole choreography is one scalar:
+
+      k  tweened  +1  ->  -1     (ease-in-out, ~520ms feels right)
+
+      #die-facets   transform = scale(1, k)        <- mirrors. the solid turns.
+      #die-light    transform = scale(1, abs(k))   <- NEVER mirrors.
+      numerals group transform = scale(1, k)       <- rides the facets.
+
+      k = +1  die at rest, 1 up
+      k =  0  edge-on, the die stood up on one edge
+      k = -1  die at rest, 20 up
+
+  WHY THE LIGHT LAYER IS SPLIT OUT: the torch pool sits BELOW the die and must stay
+  below it. If the baked rim light mirrored with the geometry the gold would jump to
+  the top of the frame halfway through the roll. So #die-body is two children:
+    #die-facets  — stone planes, interior ink, grain, chips. Tilt-shaded only
+                   (value by facet tilt), carries NO light direction. Mirrors freely.
+    #die-light   — the single warm source below plus cool sky ambient, AO falloff,
+                   rim catches, glints, and the silhouette ink. View space. Squashes
+                   with abs(k) but never flips.
+  Do NOT put a transform on #die-body itself — transform its two children.
+
+  STATE SWAP POINTS (three frames, hard cuts at the sliver — nothing is legible
+  there, which is what makes the flip read as physical rather than as a crossfade):
+
+    k  +1.00 -> +0.16   show #die-facets + #die-light + #state-one
+    k  +0.16 -> -0.16   show #state-mid ONLY. Hide #die-facets, #die-light and the
+                        numerals. ~110ms. THIS IS THE MONEY FRAME — the die up on
+                        its edge, near-side facets swung down into the torch.
+                        #state-mid is authored at FULL SIZE in view space: give it
+                        its OWN scale(1, 0.8 -> 1 -> 0.8) across the window and keep
+                        it OUTSIDE the k-squash wrapper, or it collapses too.
+    k  -0.16 -> -1.00   show #die-facets + #die-light + #state-twenty
+
+  END STATE: leave the wrapper at scale(1,-1). Do not reset it — the body is
+  symmetric so it costs nothing to leave, but the numerals are not.
+
+  #state-twenty carries a baked transform="scale(1,-1)" that cancels the wrapper's
+  final scale(1,-1). Its children are therefore written in POST-FLIP SCREEN
+  coordinates, so it previews right side up. Everything in it is already correct for
+  the point-DOWN centre triangle.
+
+  OPTIONAL WEIGHT (all derived from k, all optional):
+    translate(0, 11*(1-k*k))     the die rides up over its pivot edge and drops back
+    scale(1 + 0.07*(1-|k|), 1)   squash-and-stretch, widest at edge-on
+    rotate(-3.5*(1-k*k))         a touch of tilt so it does not feel machined
+
+  ROLLING (not the turn): tumble with small k dips — k: 1 -> 0.35 -> 1 with a little
+  translate and rotate. The interior ink flipping is what sells a solid turning; a
+  big in-plane spin just reads as a sticker rotating.
+
+  =================================================================================
+  NUMERALS — they belong to facets, not to the picture plane
+  =================================================================================
+  Every numeral is engraved into a specific facet and foreshortened by that facet's
+  tilt: scale(1, 0.78) on the inner ring, scale(1, 0.50) on the outer ring, none on
+  the centre face (which is flat to the camera). Slot rotation r = facetNormalAngle
+  - 90, so each glyph lies flat on its own plane. They all ride the k-mirror with
+  the facets.
+
+  <text id="num"> is the ONE JS-writable element: it is the engraved lettering on
+  the CENTRE FACET for the ordinary rolling state (#die-numbers-generic), set to
+  1..20 while the die tumbles. The two turn states use their own static numerals.
+  Its authored default is 12. Do not ship 20 as the default: the satellites in
+  #die-numbers-generic are the neighbours of 1, so a settled 20 in that group is a
+  face arrangement no real die has. The finale shows a settled 20 via #state-twenty.
+
+  Numbering obeys the sum-21 rule, so the two states are genuinely the two sides of
+  one die: the faces around 1 are 13/7/19 + 11/5/17, and the faces around 20 are
+  their partners 8/14/2 + 10/16/4.
+
+  Engraving recipe (single <text> per numeral so JS can rewrite #num freely):
+    paint-order="stroke" -> the dark stroke paints BEHIND the fill = the cut wall
+    fill                 -> parchment inlay sitting down in the recess
+    filter               -> warm lip below, the torch catching the near cut edge
+
+  =================================================================================
+  GROUP INDEX
+    #die-body   > #die-facets, #die-light
+    #die-numbers-generic  (visible)   contains <text id="num">
+    #state-one            (display:none)
+    #state-mid            (display:none)   edge-on frame, view space, unsquashed
+    #state-twenty         (display:none)   baked scale(1,-1)
+  All numeral groups draw above #die-body. Exactly one is shown at a time.
+-->
+
+<defs>
+  <!-- =====================================================================
+       FACET PLANES. Value is driven by facet TILT only — no light direction
+       lives here, because these mirror. Each plane gets 4 stops of quiet
+       stone mottle so no plane is ever a two-stop vector ramp.
+       ===================================================================== -->
+  <!-- centre face, tilt 1.00 — flat to the camera, the brightest plane -->
+  <linearGradient id="fCentre" gradientUnits="userSpaceOnUse" x1="-30" y1="-44" x2="26" y2="24">
+    <stop offset="0"    stop-color="#788484"/>
+    <stop offset="0.34" stop-color="#6c787a"/>
+    <stop offset="0.63" stop-color="#74807f"/>
+    <stop offset="0.85" stop-color="#667275"/>
+    <stop offset="1"    stop-color="#6e7a7a"/>
+  </linearGradient>
+  <!-- inner ring, tilt 0.745 -->
+  <linearGradient id="fInNE" gradientUnits="userSpaceOnUse" x1="10" y1="-4" x2="62" y2="-36">
+    <stop offset="0"    stop-color="#454f53"/>
+    <stop offset="0.4"  stop-color="#3c464b"/>
+    <stop offset="0.68" stop-color="#424c4f"/>
+    <stop offset="1"    stop-color="#384247"/>
+  </linearGradient>
+  <linearGradient id="fInNW" gradientUnits="userSpaceOnUse" x1="-10" y1="-4" x2="-62" y2="-36">
+    <stop offset="0"    stop-color="#434d4f"/>
+    <stop offset="0.36" stop-color="#3a4449"/>
+    <stop offset="0.7"  stop-color="#414a4e"/>
+    <stop offset="1"    stop-color="#364045"/>
+  </linearGradient>
+  <linearGradient id="fInS" gradientUnits="userSpaceOnUse" x1="-16" y1="26" x2="14" y2="78">
+    <stop offset="0"    stop-color="#444e51"/>
+    <stop offset="0.33" stop-color="#3b454a"/>
+    <stop offset="0.62" stop-color="#424b4f"/>
+    <stop offset="0.86" stop-color="#384247"/>
+    <stop offset="1"    stop-color="#3e484b"/>
+  </linearGradient>
+  <!-- outer ring, tilt 0.333 — steepest, darkest -->
+  <linearGradient id="fO1" gradientUnits="userSpaceOnUse" x1="-4" y1="-52" x2="-48" y2="-68">
+    <stop offset="0"    stop-color="#2c3438"/>
+    <stop offset="0.42" stop-color="#242c31"/>
+    <stop offset="0.74" stop-color="#2a3236"/>
+    <stop offset="1"    stop-color="#20282d"/>
+  </linearGradient>
+  <linearGradient id="fO2" gradientUnits="userSpaceOnUse" x1="4" y1="-52" x2="48" y2="-68">
+    <stop offset="0"    stop-color="#2d3539"/>
+    <stop offset="0.38" stop-color="#252d32"/>
+    <stop offset="0.7"  stop-color="#2b3337"/>
+    <stop offset="1"    stop-color="#212930"/>
+  </linearGradient>
+  <linearGradient id="fO3" gradientUnits="userSpaceOnUse" x1="44" y1="16" x2="69" y2="-6">
+    <stop offset="0"    stop-color="#2f373b"/>
+    <stop offset="0.4"  stop-color="#262e33"/>
+    <stop offset="0.72" stop-color="#2c3438"/>
+    <stop offset="1"    stop-color="#232b30"/>
+  </linearGradient>
+  <linearGradient id="fO5" gradientUnits="userSpaceOnUse" x1="-44" y1="16" x2="-69" y2="-6">
+    <stop offset="0"    stop-color="#2e3639"/>
+    <stop offset="0.44" stop-color="#252d32"/>
+    <stop offset="0.76" stop-color="#2b3337"/>
+    <stop offset="1"    stop-color="#222a2f"/>
+  </linearGradient>
+  <linearGradient id="fO4" gradientUnits="userSpaceOnUse" x1="44" y1="28" x2="24" y2="66">
+    <stop offset="0"    stop-color="#30383c"/>
+    <stop offset="0.4"  stop-color="#272f34"/>
+    <stop offset="0.74" stop-color="#2d3539"/>
+    <stop offset="1"    stop-color="#242c31"/>
+  </linearGradient>
+  <linearGradient id="fO6" gradientUnits="userSpaceOnUse" x1="-44" y1="28" x2="-24" y2="66">
+    <stop offset="0"    stop-color="#2f373a"/>
+    <stop offset="0.36" stop-color="#262e33"/>
+    <stop offset="0.7"  stop-color="#2c3438"/>
+    <stop offset="1"    stop-color="#232b30"/>
+  </linearGradient>
+
+  <!-- =====================================================================
+       LIGHT. ONE warm source, below the die, always below the die.
+       ===================================================================== -->
+  <radialGradient id="torchWash" gradientUnits="userSpaceOnUse" cx="0" cy="104" r="132">
+    <stop offset="0"    stop-color="#ffb84d" stop-opacity="0.30"/>
+    <stop offset="0.42" stop-color="#f0a344" stop-opacity="0.15"/>
+    <stop offset="0.72" stop-color="#c98a3e" stop-opacity="0.05"/>
+    <stop offset="1"    stop-color="#c98a3e" stop-opacity="0"/>
+  </radialGradient>
+  <radialGradient id="torchCore" gradientUnits="userSpaceOnUse" cx="0" cy="86" r="58">
+    <stop offset="0"   stop-color="#ffc46b" stop-opacity="0.26"/>
+    <stop offset="1"   stop-color="#ffc46b" stop-opacity="0"/>
+  </radialGradient>
+  <linearGradient id="skyWash" gradientUnits="userSpaceOnUse" x1="0" y1="-84" x2="0" y2="14">
+    <stop offset="0"    stop-color="#a9bdc6" stop-opacity="0.15"/>
+    <stop offset="0.55" stop-color="#a9bdc6" stop-opacity="0.05"/>
+    <stop offset="1"    stop-color="#a9bdc6" stop-opacity="0"/>
+  </linearGradient>
+  <!-- contact / ambient occlusion: soft falloff into the form's own rim.
+       NOT a cast shadow and NOT a flat ellipse — the scene owns its shadow.
+       The centre is pushed DOWN to y=20 and the radius widened, so the falloff
+       reaches the torch-lit lower arc late and the shadowed upper arc early.
+       Without that bias the rim darkens evenly and the die reads as a vignetted
+       sphere with gold painted back over it. -->
+  <radialGradient id="aoFalloff" gradientUnits="userSpaceOnUse" cx="0" cy="20" r="94">
+    <stop offset="0"    stop-color="#0d1114" stop-opacity="0"/>
+    <stop offset="0.5"  stop-color="#0d1114" stop-opacity="0.02"/>
+    <stop offset="0.72" stop-color="#0d1114" stop-opacity="0.09"/>
+    <stop offset="0.9"  stop-color="#0d1114" stop-opacity="0.28"/>
+    <stop offset="1"    stop-color="#0d1114" stop-opacity="0.48"/>
+  </radialGradient>
+
+  <!-- =====================================================================
+       PAINTERLY GRAIN — two passes, both deliberately low contrast.
+       ===================================================================== -->
+  <filter id="grainFine" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.92" numOctaves="3" seed="17" result="t"/>
+    <feColorMatrix in="t" type="matrix"
+      values="0 0 0 0 0.60  0 0 0 0 0.64  0 0 0 0 0.66  0.85 0 0 0 -0.34"/>
+  </filter>
+  <filter id="grainMottle" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="2" seed="5" result="t"/>
+    <feColorMatrix in="t" type="matrix"
+      values="0 0 0 0 0.12  0 0 0 0 0.15  0 0 0 0 0.16  0.8 0 0 0 -0.28"/>
+  </filter>
+  <filter id="grainCoarse" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.014" numOctaves="3" seed="29" result="t"/>
+    <feColorMatrix in="t" type="matrix"
+      values="0 0 0 0 0.55  0 0 0 0 0.59  0 0 0 0 0.60  0.55 0 0 0 -0.22"/>
+  </filter>
+
+  <!-- engraving light-catch: warm lip below the cut, one source, always below -->
+  <filter id="engraveBig" x="-25%" y="-25%" width="150%" height="150%">
+    <feDropShadow dx="0" dy="1.8" stdDeviation="0.6" flood-color="#ffc46b" flood-opacity="0.44"/>
+  </filter>
+  <filter id="engraveSmall" x="-45%" y="-45%" width="190%" height="190%">
+    <feDropShadow dx="0" dy="1.1" stdDeviation="0.4" flood-color="#ffc46b" flood-opacity="0.32"/>
+  </filter>
+
+  <clipPath id="clipHull">
+    <polygon points="0,-80 69.28,-40 69.28,40 0,80 -69.28,40 -69.28,-40"/>
+  </clipPath>
+  <clipPath id="clipEdgeBand">
+    <path d="M -77 -4 C -74 -19 -44 -26.5 0 -26 C 44 -25.6 74 -19 77 -4
+             C 78 8 46 25.4 0 25 C -46 24.6 -78 8 -77 -4 Z"/>
+  </clipPath>
+</defs>
+
+
+<!-- ================================================================================
+     PREVIEW ONLY — delete on integration. Sits OUTSIDE every art group. Reproduces
+     the scene the die is painted for: near-black crypt ground, one warm torch pool
+     below, and a soft AO falloff contact (not a flat black ellipse).
+     ================================================================================ -->
+<g id="preview-only-backdrop">
+  <rect x="-110" y="-110" width="220" height="220" fill="#0d0f10"/>
+  <ellipse cx="0" cy="106" rx="118" ry="42" fill="#f5a623" opacity="0.13"/>
+  <ellipse cx="0" cy="98" rx="78" ry="26" fill="#f5a623" opacity="0.08"/>
+  <radialGradient id="previewContact" gradientUnits="userSpaceOnUse" cx="0" cy="92" r="62">
+    <stop offset="0"    stop-color="#000000" stop-opacity="0.55"/>
+    <stop offset="0.45" stop-color="#000000" stop-opacity="0.30"/>
+    <stop offset="0.8"  stop-color="#000000" stop-opacity="0.08"/>
+    <stop offset="1"    stop-color="#000000" stop-opacity="0"/>
+  </radialGradient>
+  <ellipse cx="0" cy="92" rx="62" ry="21" fill="url(#previewContact)"/>
+</g>
+
+
+<!-- ================================================================================
+     DIE BODY. Do not transform this group — transform its two children (see header).
+     ================================================================================ -->
+<g id="die-body">
+
+<!-- ==============================================================================
+     #die-facets — the stone itself. Mirrors with scale(1,k). Tilt-shaded only.
+     ============================================================================== -->
+<g id="die-facets">
+
+  <!-- solid base so no hairline seam can ever open between facet polygons -->
+  <polygon points="0,-80 69.28,-40 69.28,40 0,80 -69.28,40 -69.28,-40" fill="#2a3236"/>
+
+  <g id="facet-planes">
+    <!-- outer ring first (they sit lowest), then inner, then the centre face -->
+    <polygon points="0,-49.44 0,-80 -69.28,-40"         fill="url(#fO1)"/>
+    <polygon points="0,-49.44 0,-80 69.28,-40"          fill="url(#fO2)"/>
+    <polygon points="42.82,24.72 69.28,40 69.28,-40"    fill="url(#fO3)"/>
+    <polygon points="42.82,24.72 69.28,40 0,80"         fill="url(#fO4)"/>
+    <polygon points="-42.82,24.72 -69.28,40 -69.28,-40" fill="url(#fO5)"/>
+    <polygon points="-42.82,24.72 -69.28,40 0,80"       fill="url(#fO6)"/>
+    <polygon points="0,-49.44 42.82,24.72 69.28,-40"    fill="url(#fInNE)"/>
+    <polygon points="0,-49.44 -42.82,24.72 -69.28,-40"  fill="url(#fInNW)"/>
+    <polygon points="42.82,24.72 -42.82,24.72 0,80"     fill="url(#fInS)"/>
+    <polygon points="0,-49.44 42.82,24.72 -42.82,24.72" fill="url(#fCentre)"/>
+  </g>
+
+  <!-- hand-brushed value breakup inside the planes: soft patches that give every
+       facet more steps than its gradient alone. Kept under 0.09 opacity. -->
+  <g clip-path="url(#clipHull)">
+    <g fill="#8b9a9c">
+      <path d="M -30 -34 q 20 -9 36 2 q -12 16 -30 12 q -12 -6 -6 -14 Z" opacity="0.055"/>
+      <path d="M 6 4 q 22 -4 30 8 q -16 12 -32 6 q -6 -8 2 -14 Z"        opacity="0.045"/>
+      <path d="M -14 42 q 18 -6 28 4 q -14 12 -28 6 Z"                   opacity="0.05"/>
+      <path d="M 44 -50 q 14 -4 20 4 q -12 10 -22 4 Z"                   opacity="0.04"/>
+    </g>
+    <g fill="#161c1f">
+      <path d="M -46 -8 q 18 6 22 20 q -20 6 -30 -6 q -2 -10 8 -14 Z"    opacity="0.075"/>
+      <path d="M 16 -40 q 18 4 22 16 q -18 8 -30 -2 q -4 -10 8 -14 Z"    opacity="0.06"/>
+      <path d="M -8 56 q 20 2 26 12 q -18 8 -30 0 Z"                     opacity="0.06"/>
+      <path d="M 50 8 q 14 6 16 18 q -16 4 -22 -8 Z"                     opacity="0.05"/>
+    </g>
+  </g>
+
+  <!-- three noise passes: broad blotch, mid mottle, fine tooth. Held low on
+       purpose — a hull-wide veil closes the value step between the centre facet
+       and the inner ring and the die starts reading as frosted resin. -->
+  <g clip-path="url(#clipHull)">
+    <rect x="-84" y="-84" width="168" height="168" filter="url(#grainCoarse)"  opacity="0.2"/>
+    <rect x="-84" y="-84" width="168" height="168" filter="url(#grainMottle)"  opacity="0.3"/>
+    <rect x="-84" y="-84" width="168" height="168" filter="url(#grainFine)"    opacity="0.13"/>
+  </g>
+
+  <!-- hand-placed wear -->
+  <g id="wear" clip-path="url(#clipHull)">
+    <!-- pits: mostly irregular bites, only the smallest few left as round -->
+    <g fill="#1a2024">
+      <path d="M -20.6 -9.8 q 2.4 -1.6 4 -0.2 q 0.4 1.8 -1.4 2.6 q -2.6 0.4 -2.6 -2.4 Z" opacity="0.24"/>
+      <path d="M 24.6 -26.2 q 3 -0.4 3.4 1.6 q -0.8 2.2 -3.4 1.8 q -1.8 -1.4 0 -3.4 Z"   opacity="0.21"/>
+      <path d="M 2.4 48.8 q 2.6 -1.4 4.2 0.4 q 0.2 2.6 -2.2 3 q -2.8 -0.6 -2 -3.4 Z"     opacity="0.21"/>
+      <path d="M -50.4 9.2 q 2.8 -1 3.6 1 q -0.2 2.4 -2.6 2.4 q -2.2 -1 -1 -3.4 Z"       opacity="0.19"/>
+      <path d="M 32.8 33 q 3.2 -0.6 3.6 1.6 q -1.2 2 -3.4 1.6 q -1.6 -1.4 -0.2 -3.2 Z"   opacity="0.15"/>
+      <ellipse cx="12"  cy="6"   rx="1.2" ry="1.0" opacity="0.19"/>
+      <ellipse cx="-31" cy="-30" rx="1.1" ry="0.9" opacity="0.17"/>
+      <ellipse cx="47"  cy="-46" rx="1.2" ry="0.9" opacity="0.17"/>
+      <ellipse cx="-14" cy="34"  rx="1.0" ry="0.8" opacity="0.16"/>
+    </g>
+    <g stroke="#94a3a6" stroke-linecap="round" fill="none">
+      <path d="M -33 -20 q 12 -5 24 -3" stroke-width="0.8" opacity="0.14"/>
+      <path d="M 8 -33 q 9 3 17 8"      stroke-width="0.7" opacity="0.11"/>
+      <path d="M -8 12 q 14 3 25 -2"    stroke-width="0.9" opacity="0.12"/>
+      <path d="M 30 -8 q -5 6 -9 12"    stroke-width="0.7" opacity="0.10"/>
+      <path d="M -52 -46 q 7 1 14 4"    stroke-width="0.8" opacity="0.10"/>
+      <path d="M 50 34 q 8 4 14 3"      stroke-width="0.8" opacity="0.11"/>
+      <path d="M -24 62 q 10 -3 19 -1"  stroke-width="0.7" opacity="0.10"/>
+    </g>
+    <g stroke="#171d20" stroke-linecap="round" fill="none">
+      <path d="M -26 -2 q 16 6 30 1" stroke-width="0.9" opacity="0.21"/>
+      <path d="M 16 -40 q -6 7 -11 14" stroke-width="0.8" opacity="0.19"/>
+      <path d="M -40 44 q 7 -3 13 -6"  stroke-width="0.8" opacity="0.17"/>
+    </g>
+    <!-- chipped corners: a dark bite plus the brighter fresh stone it exposes -->
+    <g>
+      <path d="M -6.2 -72.6 q 4 -4.8 8.6 -6.6 q 2 4.4 3.4 8.8 q -5.8 1.8 -12 -2.2 Z"
+            fill="#1b2126" opacity="0.55"/>
+      <path d="M -6.2 -72.6 q 6 -1 11.8 2.6" stroke="#8e9da0" stroke-width="0.9"
+            opacity="0.20" fill="none" stroke-linecap="round"/>
+      <path d="M 69 -4.4 q -4.4 3.6 -6.8 8.2 q 3.2 4 6.8 8.2 Z" fill="#1b2126" opacity="0.48"/>
+      <path d="M 69 -4.4 q -4.4 3.6 -6.8 8.2" stroke="#8e9da0" stroke-width="0.9"
+            opacity="0.17" fill="none" stroke-linecap="round"/>
+      <path d="M -69 31.6 q 4.4 4.4 7.6 8.6 q -3.6 3 -7.6 5.2 Z" fill="#1b2126" opacity="0.44"/>
+      <path d="M -69 31.6 q 4.4 4.4 7.6 8.6" stroke="#8e9da0" stroke-width="0.9"
+            opacity="0.18" fill="none" stroke-linecap="round"/>
+      <path d="M -37.6 62.2 q 4 -2.6 7.2 -3.8 q 1.4 4 2.2 7.8 Z" fill="#1b2126" opacity="0.33"/>
+      <path d="M 33.8 -62 q 4.2 2 7.2 4.2 q -2.6 3 -5.4 5.2 Z"   fill="#1b2126" opacity="0.30"/>
+    </g>
+  </g>
+
+  <!-- INTERIOR INK. Weight steps down outward: centre face heaviest, outer-ring
+       radials lightest. Every edge is a shallow curve — nothing is ruler-straight,
+       and lines lighten or break where the torch reaches them. -->
+  <g fill="none" stroke-linecap="round">
+    <!-- outer-ring radial edges, lightest -->
+    <g stroke="#242a26" stroke-width="2.6" opacity="0.82">
+      <path d="M 0 -49.44 Q 1.1 -64.5 0 -80"/>
+      <path d="M 42.82 24.72 Q 55.2 33.5 69.28 40"/>
+      <path d="M -42.82 24.72 Q -56.6 31.4 -69.28 40"/>
+    </g>
+    <!-- inner-ring outer edges. The two lower ones break for the torch. -->
+    <g stroke="#1e2320" stroke-width="3.1" opacity="0.9">
+      <path d="M 0 -49.44 Q 34.0 -46.6 69.28 -40"/>
+      <path d="M 0 -49.44 Q -35.4 -42.9 -69.28 -40"/>
+      <path d="M 42.82 24.72 Q 57.6 -8.4 69.28 -40"/>
+      <path d="M -42.82 24.72 Q -57.4 -6.6 -69.28 -40"/>
+    </g>
+    <g stroke="#1e2320" stroke-linecap="round">
+      <path d="M 42.82 24.72 Q 30.6 39.4 24.2 51.6"  stroke-width="3.1" opacity="0.9"/>
+      <path d="M 18.4 61.8 Q 9.8 71.6 0 80"          stroke-width="2.4" opacity="0.6"/>
+      <path d="M -42.82 24.72 Q -30.2 40.2 -24.2 51.6" stroke-width="3.1" opacity="0.9"/>
+      <path d="M -18.4 61.8 Q -9.4 72.2 0 80"        stroke-width="2.4" opacity="0.6"/>
+    </g>
+    <!-- centre face, the structural read: heaviest interior line, and it thins
+         along the bottom edge where the torch washes over it -->
+    <path d="M 0 -49.44 Q 22.8 -10.2 42.82 24.72" stroke="#181c19" stroke-width="3.5" opacity="0.95"/>
+    <path d="M 0 -49.44 Q -23.2 -10.4 -42.82 24.72" stroke="#181c19" stroke-width="3.5" opacity="0.95"/>
+    <path d="M -42.82 24.72 Q -20 27.6 -2 27.2" stroke="#181c19" stroke-width="3.2" opacity="0.8"/>
+    <path d="M 4 27.2 Q 22 27.4 42.82 24.72"    stroke="#181c19" stroke-width="2.9" opacity="0.68"/>
+  </g>
+</g>
+
+<!-- ==============================================================================
+     #die-light — one warm source below, cool sky ambient above, AO falloff, rim
+     catches, glints, silhouette ink. VIEW SPACE. Squashes with abs(k), never flips.
+     ============================================================================== -->
+<g id="die-light">
+
+  <g clip-path="url(#clipHull)">
+    <!-- cool ambient from directly above (not a source — just sky fill) -->
+    <rect x="-84" y="-84" width="168" height="100" fill="url(#skyWash)"/>
+    <!-- THE torch. Below the die, always below the die. -->
+    <rect x="-84" y="-40" width="168" height="124" fill="url(#torchWash)"/>
+    <rect x="-84" y="10"  width="168" height="74"  fill="url(#torchCore)"/>
+  </g>
+
+  <!-- ambient occlusion: the form falling away into its own rim -->
+  <polygon points="0,-80 69.28,-40 69.28,40 0,80 -69.28,40 -69.28,-40" fill="url(#aoFalloff)"/>
+
+  <!-- edge catches -->
+  <g fill="none" stroke-linecap="round">
+    <!-- Cool sky skimming the two upper hull edges. This is the ONLY thing giving
+         the unlit top half a contour against a near-black page, so it is carried
+         well above "quiet" — at 48px the dark silhouette ink alone disappears and
+         the die loses its top edge entirely. Two weights: a soft spread plus a
+         tighter catch, uneven left to right so it is not a symmetric wire. -->
+    <path d="M -69.28 -40 Q -35.6 -61.5 0 -80" stroke="#8ea3ae" stroke-width="4.4" opacity="0.18"/>
+    <path d="M 0 -80 Q 35.6 -59.2 69.28 -40"   stroke="#8ea3ae" stroke-width="4"   opacity="0.15"/>
+    <path d="M -69.28 -40 Q -35.6 -61.5 0 -80" stroke="#b7cbd4" stroke-width="1.8" opacity="0.46"/>
+    <path d="M 0 -80 Q 33.4 -59.8 62 -43.4"    stroke="#b7cbd4" stroke-width="1.6" opacity="0.38"/>
+    <!-- the same ambient just catching the two upper side edges, fading down -->
+    <path d="M -69.5 -38 Q -70.2 -20 -69.4 -4" stroke="#b7cbd4" stroke-width="1.4" opacity="0.24"/>
+    <path d="M 69.5 -38 Q 70.2 -22 69.4 -8"    stroke="#b7cbd4" stroke-width="1.4" opacity="0.2"/>
+    <!-- warm rim, lower hull: soft halo then the tight catch, broken by the glints -->
+    <path d="M -69.28 40 Q -44 55 0 80 Q 44 55 69.28 40" stroke="#ffb84d"
+          stroke-width="9" opacity="0.13" fill="none"/>
+    <path d="M 69.28 40 Q 50.4 52.6 31.4 63"   stroke="#e8a94e" stroke-width="2.9" opacity="0.5"/>
+    <path d="M 19.6 69.4 Q 9.6 75 0 80.2"      stroke="#ffc46b" stroke-width="2.6" opacity="0.62"/>
+    <path d="M 0 80.2 Q -9.8 75 -19.6 69.4"    stroke="#ffc46b" stroke-width="2.6" opacity="0.62"/>
+    <path d="M -31.4 63 Q -50.8 52.2 -69.28 40" stroke="#e8a94e" stroke-width="2.9" opacity="0.48"/>
+    <!-- rim creeping a little way up the vertical sides, fading out -->
+    <path d="M -69.6 6 Q -70.2 24 -69.28 40" stroke="#c98a3e" stroke-width="2.1" opacity="0.24"/>
+    <path d="M 69.6 6 Q 70.2 24 69.28 40"    stroke="#c98a3e" stroke-width="2.1" opacity="0.24"/>
+    <!-- the torch catching the two lower interior ridges and the centre-face lip -->
+    <path d="M 42.82 24.72 Q 30.6 39.4 24.2 51.6"   stroke="#d99a45" stroke-width="1.5" opacity="0.24"/>
+    <path d="M -42.82 24.72 Q -30.2 40.2 -24.2 51.6" stroke="#d99a45" stroke-width="1.5" opacity="0.24"/>
+    <path d="M -36 26.8 Q 0 29.4 36 26.8"           stroke="#d99a45" stroke-width="1.3" opacity="0.2"/>
+  </g>
+
+  <!-- SILHOUETTE INK. Six separate strokes: heaviest where the form turns away into
+       shadow (top), thinnest and broken where the torch eats the contour (bottom).
+       Every edge wobbles. Round caps so the corners knit and the breaks read as
+       brush ends. -->
+  <g fill="none" stroke="#161a17" stroke-linecap="round">
+    <path d="M -69.28 -40 Q -35.2 -62.2 0 -80"  stroke-width="6.2"/>
+    <path d="M 0 -80 Q 35.9 -58.8 69.28 -40"    stroke-width="6"/>
+    <path d="M 69.28 -40 Q 70.7 0.6 69.28 40"   stroke-width="5.1"/>
+    <path d="M -69.28 -40 Q -70.8 -0.4 -69.28 40" stroke-width="5.1"/>
+    <path d="M 69.28 40 Q 50 53.4 30.6 63.6"    stroke-width="4.1" opacity="0.94"/>
+    <path d="M 20.4 68.8 Q 10.4 74.6 0 80"      stroke-width="3.5" opacity="0.8"/>
+    <path d="M 0 80 Q -10.6 74.4 -20.4 68.8"    stroke-width="3.5" opacity="0.8"/>
+    <path d="M -30.6 63.6 Q -50.4 53 -69.28 40" stroke-width="4.1" opacity="0.94"/>
+  </g>
+
+  <!-- Restraint on gold: three glints, all on the torch side, nothing else. They
+       are deliberately mismatched — the bottom one is a broken smear rather than a
+       pill, and the two side ones differ in size, angle and strength, so the rim
+       does not read as three stamped copies of one lozenge. -->
+  <g fill="#ffd9a0">
+    <path d="M -6.4 76 q 4.6 -1.8 8.4 -0.4 q -0.6 2.4 -4.2 2.8 q -3.4 0.1 -4.2 -2.4 Z" opacity="0.55"/>
+    <path d="M 5.6 74.4 q 2.8 0.2 4 1.4 q -1.8 1.4 -4.2 0.8 Z" opacity="0.34"/>
+    <path d="M -63.4 39 q 3.8 0.6 5 2.6 q -3.2 1.2 -5.8 -0.4 Z" opacity="0.32"/>
+    <ellipse cx="61.6" cy="41.6" rx="1.5" ry="1.1" opacity="0.22" transform="rotate(-18 61.6 41.6)"/>
+  </g>
+</g>
+
+</g><!-- /#die-body -->
+
+
+<!-- ================================================================================
+     NUMERALS. One group visible at a time. Slot rotation r = facetNormalAngle - 90,
+     foreshortening = facet tilt, so every glyph lies flat on its own plane.
+     ================================================================================ -->
+
+<!-- ==== ordinary rolling state. JS writes #num (1..20) on the centre facet. ==== -->
+<g id="die-numbers-generic" font-family="Georgia, 'Times New Roman', serif" text-anchor="middle"
+   font-variant-numeric="lining-nums" style="font-variant-numeric:lining-nums">
+  <!-- inner ring, tilt 0.745 -->
+  <g font-size="15" fill="#cfc0a0" fill-opacity="0.8" stroke="#12100c" stroke-width="1.9"
+     paint-order="stroke" filter="url(#engraveSmall)">
+    <g transform="rotate(0)    translate(0,41) scale(1,0.78)"><text x="0" y="5.2">13</text></g>
+    <g transform="rotate(120)  translate(0,41) scale(1,0.78)"><text x="0" y="5.2">7</text></g>
+    <g transform="rotate(-120) translate(0,41) scale(1,0.78)"><text x="0" y="5.2">19</text></g>
+  </g>
+  <!-- outer ring, tilt 0.333 (eased to 0.50 so they stay just legible) -->
+  <g font-size="12" fill="#c3b596" fill-opacity="0.6" stroke="#12100c" stroke-width="1.3"
+     paint-order="stroke" filter="url(#engraveSmall)">
+    <g transform="rotate(-157.8) translate(0,56) scale(1,0.5)"><text x="0" y="4.2">11</text></g>
+    <g transform="rotate(-37.8)  translate(0,56) scale(1,0.5)"><text x="0" y="4.2">5</text></g>
+    <g transform="rotate(82.2)   translate(0,56) scale(1,0.5)"><text x="0" y="4.2">17</text></g>
+  </g>
+  <!-- Centre facet, flat to the camera, no foreshortening. Sized and placed for a
+       48px render: cap height is pushed to the limit of the point-up triangle
+       (baseline y=20 sits in the wide lower half; any larger and "20" fouls the
+       facet edges), the inlay is lifted to near-parchment and the dark recess
+       stroke widened to 4.6 so it survives downscale as a dark halo.
+       lining-nums is forced on every numeral group: Georgia ships OLD-STYLE
+       figures by default, so without it 1/2/0 sit at x-height while 6/8 ascend
+       and 3/4/5/7/9 descend, and the JS-driven 1..20 range visibly jumps size
+       and baseline face to face.
+       Default content is 12, not 20 — the satellites here are the neighbours of 1,
+       so a static open of this file must never preview a settled 20. -->
+  <text id="num" x="0" y="20" font-size="40" font-weight="bold" letter-spacing="-2.5"
+        fill="#f4ecd6" stroke="#100e0a" stroke-width="4.6"
+        paint-order="stroke" filter="url(#engraveBig)">12</text>
+</g>
+
+<!-- ==== the rolled 1. Faces around it: 13/7/19 and 11/5/17. ==== -->
+<g id="state-one" display="none" font-family="Georgia, 'Times New Roman', serif" text-anchor="middle"
+   font-variant-numeric="lining-nums" style="font-variant-numeric:lining-nums">
+  <g font-size="15" fill="#cfc0a0" fill-opacity="0.8" stroke="#12100c" stroke-width="1.9"
+     paint-order="stroke" filter="url(#engraveSmall)">
+    <g transform="rotate(0)    translate(0,41) scale(1,0.78)"><text x="0" y="5.2">13</text></g>
+    <g transform="rotate(120)  translate(0,41) scale(1,0.78)"><text x="0" y="5.2">7</text></g>
+    <g transform="rotate(-120) translate(0,41) scale(1,0.78)"><text x="0" y="5.2">19</text></g>
+  </g>
+  <g font-size="12" fill="#c3b596" fill-opacity="0.6" stroke="#12100c" stroke-width="1.3"
+     paint-order="stroke" filter="url(#engraveSmall)">
+    <g transform="rotate(-157.8) translate(0,56) scale(1,0.5)"><text x="0" y="4.2">11</text></g>
+    <g transform="rotate(-37.8)  translate(0,56) scale(1,0.5)"><text x="0" y="4.2">5</text></g>
+    <g transform="rotate(82.2)   translate(0,56) scale(1,0.5)"><text x="0" y="4.2">17</text></g>
+  </g>
+  <text x="0" y="20" font-size="40" font-weight="bold" letter-spacing="-2.5"
+        fill="#f4ecd6" stroke="#100e0a" stroke-width="4.6"
+        paint-order="stroke" filter="url(#engraveBig)">1</text>
+</g>
+
+<!-- ================================================================================
+     #state-mid — the money frame. The die stood up on one edge, mid-roll: the near
+     band of side facets has swung down to face the torch, so this is the warmest
+     moment in the whole animation. Authored full size in view space — keep it
+     OUTSIDE the k-squash wrapper (see header).
+     ================================================================================ -->
+<g id="state-mid" display="none">
+  <defs>
+    <linearGradient id="midNear" gradientUnits="userSpaceOnUse" x1="0" y1="-9" x2="0" y2="26">
+      <stop offset="0"    stop-color="#495356"/>
+      <stop offset="0.34" stop-color="#565550"/>
+      <stop offset="0.66" stop-color="#6d5f4a"/>
+      <stop offset="1"    stop-color="#836b47"/>
+    </linearGradient>
+    <linearGradient id="midNearEnd" gradientUnits="userSpaceOnUse" x1="0" y1="-9" x2="0" y2="22">
+      <stop offset="0"    stop-color="#333c3f"/>
+      <stop offset="0.4"  stop-color="#3b3f3e"/>
+      <stop offset="0.75" stop-color="#4a463c"/>
+      <stop offset="1"    stop-color="#5a4f3b"/>
+    </linearGradient>
+    <linearGradient id="midFar" gradientUnits="userSpaceOnUse" x1="0" y1="-27" x2="0" y2="-6">
+      <stop offset="0"    stop-color="#333c40"/>
+      <stop offset="0.42" stop-color="#2a3236"/>
+      <stop offset="0.75" stop-color="#2f373b"/>
+      <stop offset="1"    stop-color="#262e32"/>
+    </linearGradient>
+    <linearGradient id="midFarEnd" gradientUnits="userSpaceOnUse" x1="0" y1="-24" x2="0" y2="-6">
+      <stop offset="0"    stop-color="#262d31"/>
+      <stop offset="0.5"  stop-color="#1f262a"/>
+      <stop offset="1"    stop-color="#232a2e"/>
+    </linearGradient>
+    <radialGradient id="midTorch" gradientUnits="userSpaceOnUse" cx="0" cy="46" r="72">
+      <stop offset="0"   stop-color="#ffc46b" stop-opacity="0.34"/>
+      <stop offset="0.5" stop-color="#f0a344" stop-opacity="0.14"/>
+      <stop offset="1"   stop-color="#c98a3e" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- far band (has rolled away from the light) -->
+  <g>
+    <path d="M -77 -4 L -50 -7 L -50 -22 L -71 -16 Z"     fill="url(#midFarEnd)"/>
+    <path d="M -50 -7 L -24 -8.6 L -24 -25.5 L -50 -22 Z" fill="url(#midFar)"/>
+    <path d="M -24 -8.6 L 4 -8 L 4 -26 L -24 -25.5 Z"     fill="url(#midFar)"/>
+    <path d="M 4 -8 L 30 -8.6 L 30 -25.5 L 4 -26 Z"       fill="url(#midFar)"/>
+    <path d="M 30 -8.6 L 54 -6.6 L 54 -22 L 30 -25.5 Z"   fill="url(#midFar)"/>
+    <path d="M 54 -6.6 L 77 -4 L 71 -16 L 54 -22 Z"       fill="url(#midFarEnd)"/>
+  </g>
+  <!-- near band (swung down into the torch) -->
+  <g>
+    <path d="M -77 -4 L -50 -7 L -50 17 L -70 11 Z"     fill="url(#midNearEnd)"/>
+    <path d="M -50 -7 L -24 -8.6 L -24 23 L -50 17 Z"   fill="url(#midNear)"/>
+    <path d="M -24 -8.6 L 4 -8 L 4 25 L -24 23 Z"       fill="url(#midNear)"/>
+    <path d="M 4 -8 L 30 -8.6 L 30 23 L 4 25 Z"         fill="url(#midNear)"/>
+    <path d="M 30 -8.6 L 54 -6.6 L 54 16 L 30 23 Z"     fill="url(#midNear)"/>
+    <path d="M 54 -6.6 L 77 -4 L 70 11 L 54 16 Z"       fill="url(#midNearEnd)"/>
+  </g>
+
+  <g clip-path="url(#clipEdgeBand)">
+    <rect x="-80" y="-30" width="160" height="60" fill="url(#midTorch)"/>
+    <rect x="-80" y="-30" width="160" height="60" filter="url(#grainMottle)" opacity="0.42"/>
+    <rect x="-80" y="-30" width="160" height="60" filter="url(#grainFine)"   opacity="0.14"/>
+    <g fill="#161c1f">
+      <ellipse cx="-38" cy="6"  rx="1.4" ry="1"   opacity="0.2"/>
+      <ellipse cx="14"  cy="-16" rx="1.2" ry="0.9" opacity="0.18"/>
+      <ellipse cx="44"  cy="4"  rx="1.3" ry="0.9" opacity="0.17"/>
+    </g>
+  </g>
+
+  <!-- the standing ridge, plus the torch catching just under it -->
+  <g fill="none" stroke-linecap="round">
+    <path d="M -77 -4 Q -40 -9.4 0 -8 Q 40 -9.4 77 -4" stroke="#181c19" stroke-width="3.2" opacity="0.92"/>
+    <path d="M -60 -4.6 Q -20 -8.4 22 -7.6"            stroke="#d99a45" stroke-width="1.2" opacity="0.22"/>
+    <!-- facet divisions, light interior ink -->
+    <g stroke="#222825" stroke-width="2.3" opacity="0.7">
+      <path d="M -50 -22 Q -50.8 -3 -50 17"/>
+      <path d="M -24 -25.5 Q -23.2 -4 -24 23"/>
+      <path d="M 4 -26 Q 4.8 -4 4 25"/>
+      <path d="M 30 -25.5 Q 29.2 -4 30 23"/>
+      <path d="M 54 -22 Q 54.8 -4 54 16"/>
+    </g>
+  </g>
+
+  <!-- foreshortened numerals riding the near facets, badly squashed on purpose -->
+  <g font-family="Georgia, 'Times New Roman', serif" text-anchor="middle"
+   font-variant-numeric="lining-nums" style="font-variant-numeric:lining-nums"
+     font-size="16" fill="#cfc0a0" fill-opacity="0.62" stroke="#12100c" stroke-width="1.8"
+     paint-order="stroke">
+    <g transform="translate(-10,10) scale(1,0.3)"><text x="0" y="5">13</text></g>
+    <g transform="translate(17,9.4) scale(1,0.3)"><text x="0" y="5">7</text></g>
+  </g>
+
+  <!-- light: warm rim along the bottom contour (facing the torch square on),
+       cool ambient skim along the top. Silhouette ink weight varies the same way. -->
+  <g fill="none" stroke-linecap="round">
+    <path d="M -77 -4 C -78 8 -46 24.6 0 25 C 46 25.4 78 8 77 -4"
+          stroke="#ffb84d" stroke-width="9" opacity="0.16"/>
+    <path d="M -70 11.6 C -48 20.6 -24 24.6 0 25 C 24 25.4 48 20.6 70 11.6"
+          stroke="#ffc46b" stroke-width="2.8" opacity="0.6"/>
+    <path d="M -77 -4 C -74 -19 -44 -26.5 0 -26 C 44 -25.6 74 -19 77 -4"
+          stroke="#9db1ba" stroke-width="1.8" opacity="0.15"/>
+  </g>
+  <g fill="none" stroke="#161a17" stroke-linecap="round">
+    <path d="M -77 -4 C -74 -19 -44 -26.5 0 -26 C 44 -25.6 74 -19 77 -4" stroke-width="5.6"/>
+    <path d="M 77 -4 C 78 8 46 25.4 0 25"  stroke-width="3.9" opacity="0.9"/>
+    <path d="M 0 25 C -46 24.6 -78 8 -77 -4" stroke-width="3.9" opacity="0.9"/>
+  </g>
+  <g fill="#ffd9a0">
+    <ellipse cx="0"   cy="22.6" rx="4.4" ry="1.5" opacity="0.5"/>
+    <ellipse cx="-56" cy="14.6" rx="2.2" ry="1.1" opacity="0.28"/>
+    <ellipse cx="56"  cy="14.6" rx="2.2" ry="1.1" opacity="0.28"/>
+  </g>
+</g>
+
+<!-- ================================================================================
+     #state-twenty — the far side of the die, now up. Baked scale(1,-1) cancels the
+     wrapper's final scale(1,-1), so everything below is written in post-flip SCREEN
+     coordinates: centre triangle point-DOWN, slots mirrored, numbers are the sum-21
+     partners of #state-one (13->8, 7->14, 19->2, 11->10, 5->16, 17->4).
+     ================================================================================ -->
+<g id="state-twenty" display="none" transform="scale(1,-1)"
+   font-family="Georgia, 'Times New Roman', serif" text-anchor="middle"
+   font-variant-numeric="lining-nums" style="font-variant-numeric:lining-nums">
+  <g font-size="15" fill="#cfc0a0" fill-opacity="0.8" stroke="#12100c" stroke-width="1.9"
+     paint-order="stroke" filter="url(#engraveSmall)">
+    <g transform="rotate(180) translate(0,41) scale(1,0.78)"><text x="0" y="5.2">8</text></g>
+    <g transform="rotate(60)  translate(0,41) scale(1,0.78)"><text x="0" y="5.2">14</text></g>
+    <g transform="rotate(-60) translate(0,41) scale(1,0.78)"><text x="0" y="5.2">2</text></g>
+  </g>
+  <g font-size="12" fill="#c3b596" fill-opacity="0.6" stroke="#12100c" stroke-width="1.3"
+     paint-order="stroke" filter="url(#engraveSmall)">
+    <g transform="rotate(-22.2)  translate(0,56) scale(1,0.5)"><text x="0" y="4.2">10</text></g>
+    <g transform="rotate(-142.2) translate(0,56) scale(1,0.5)"><text x="0" y="4.2">16</text></g>
+    <g transform="rotate(97.8)   translate(0,56) scale(1,0.5)"><text x="0" y="4.2">4</text></g>
+  </g>
+  <!-- Centre facet is point-DOWN now, so the numeral sits high in the wide half:
+       baseline y=8 is the lowest a 40px "20" can sit before it fouls the apex. -->
+  <text x="0" y="7" font-size="40" font-weight="bold" letter-spacing="-2.5"
+        fill="#f4ecd6" stroke="#100e0a" stroke-width="4.6"
+        paint-order="stroke" filter="url(#engraveBig)">20</text>
+</g>
+
+</svg>

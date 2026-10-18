@@ -9,36 +9,141 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Character } from '../db/stores'
 import { userInput } from '../lib/errors'
-import type { ContainerSpec } from '../lib/ui'
+import { type Block, type ContainerSpec } from '../lib/card'
 
 /** Whether an update crossed a level up — the trigger for the player-channel announce. */
 export function leveledUp(oldLevel: number, newLevel: number): boolean {
   return newLevel > oldLevel
 }
 
-export function levelUpAnnouncement(character: Character): ContainerSpec {
+/** `portrait` is their saved one, or the blank character tile — a level-up without a picture
+ * would sit at a different height to every other one. The card talks *about* them, so the
+ * mention renders as a name and nobody is pinged. */
+export function levelUpAnnouncement(character: Character, portrait?: string): ContainerSpec {
   return {
-    header: `${character.name} reached level ${character.level}!`,
-    blocks: [`${character.className}, now level **${character.level}**.`],
+    eyebrow: 'Level up',
+    header: `${character.name} reaches level ${character.level}`,
+    subhead: `**${character.className}** · <@${character.discordId}>`,
+    ...(portrait ? { thumb: portrait, thumbAlt: `${character.name}'s portrait` } : {}),
+    noPing: true,
+    blocks: ['A hard road, a scar or two, and something finally clicked. Drinks are on them tonight.'],
   }
 }
 
-export function myCharactersList(campaignName: string, characters: Character[]): ContainerSpec {
-  if (characters.length === 0) {
-    return { header: `Your characters — ${campaignName}`, blocks: ["You haven't created a character here yet."] }
-  }
-  return {
-    header: `Your characters — ${campaignName}`,
-    blocks: [characters.map((c) => `**${c.name}** — ${c.className} ${c.level}`).join('\n')],
-  }
+/**
+ * One row per character, every row the same shape: name, class and level, when they last sat
+ * down, and beside it one accessory — a Section may only have one. On the private card that is
+ * a "Show card" button (`showId` gives its custom id); on the shared copy, which nobody else
+ * may press, it is the picture instead: their saved portrait, or `fallbackThumb` so a character
+ * without one does not collapse into a shorter, odd row. `portraits` maps a character id to
+ * something a thumbnail can show (`attachment://…` or a url). Capped at eight so the card fits
+ * in one message; anyone past that reads as a line of text.
+ */
+export function myCharactersList(
+  campaignName: string,
+  characters: Character[],
+  portraits: ReadonlyMap<number, string> = new Map(),
+  fallbackThumb?: string,
+  /** Set when the card is shared to the channel: "your" means nothing to everyone else. */
+  ownerName?: string,
+  /** Set on the private card — a ready custom id per row, built by the caller. */
+  showId?: (character: Character) => string,
+): ContainerSpec {
+  const head = { eyebrow: campaignName, header: ownerName ? `${ownerName}'s characters` : 'Your characters' }
+  if (characters.length === 0)
+    return { ...head, blocks: ["_You haven't created a character here yet._\n`/character create` starts one."] }
+
+  const row = (c: Character): string =>
+    [
+      `### ${c.name}`,
+      `**${c.className}** · Level ${c.level}`,
+      `-# ${c.lastPlayed ? `Last at the table <t:${Math.floor(c.lastPlayed / 1000)}:R>` : 'Yet to sit at the table'}`,
+    ].join('\n')
+
+  const shown = characters.slice(0, 8)
+  const blocks: Block[] = shown.flatMap((c, i): Block[] => {
+    const thumb = portraits.get(c.id) ?? fallbackThumb
+    const accessory: Block = showId
+      ? { text: row(c), button: { label: 'Show card', id: showId(c) } }
+      : thumb
+        ? { text: row(c), thumb, alt: portraits.has(c.id) ? `${c.name}'s portrait` : 'No portrait yet' }
+        : row(c)
+    return [...(i > 0 ? [{ rule: 'line' } as const] : []), accessory]
+  })
+  if (characters.length > shown.length)
+    blocks.push({ rule: 'line' }, characters.slice(shown.length).map((c) => `**${c.name}** · ${c.className} ${c.level}`).join('\n'))
+
+  const count = `${characters.length} character${characters.length === 1 ? '' : 's'}`
+  return { ...head, blocks, footer: `${count} · \`/character show\` for the full card` }
+}
+
+/** The line under a character's name wherever the card carries one: class, level, and whose
+ * they are. The mention renders as a name — every card that uses it says noPing. */
+export function characterSubhead(character: Character): string {
+  return `**${character.className}** · Level ${character.level} · <@${character.discordId}>`
 }
 
 export function characterCreatedReply(character: Character): string {
-  return `**${character.name}** created — ${character.className} ${character.level}.`
+  return `**${character.name}** joins the party — ${character.className} ${character.level}.`
 }
 
 export function characterUpdatedReply(character: Character): string {
-  return `Updated **${character.name}** — ${character.className} ${character.level}.`
+  return `**${character.name}** is updated — ${character.className} ${character.level}.`
+}
+
+// ── the character form, and what its values have to be ───────────────────────────────────
+
+/** The thirteen 5e classes, in the order the modal's select offers them. */
+export const CLASSES = [
+  'Artificer',
+  'Barbarian',
+  'Bard',
+  'Cleric',
+  'Druid',
+  'Fighter',
+  'Monk',
+  'Paladin',
+  'Ranger',
+  'Rogue',
+  'Sorcerer',
+  'Warlock',
+  'Wizard',
+] as const
+
+export const LEVEL_MIN = 1
+export const LEVEL_MAX = 20
+/** Long enough for a full fantasy name, short enough to head a card on a phone. */
+export const MAX_CHARACTER_NAME = 40
+
+export interface CharacterDraft {
+  name: string
+  className: string
+  level: number
+}
+
+/**
+ * The typed half of the character modal, checked at the trust boundary: a modal's values
+ * arrive as strings off the wire, and the select's option list is a suggestion to the client,
+ * not a guarantee. A refusal reads back everything they put in — the modal is gone by the time
+ * this runs, so the card has to hold the words long enough to retype them.
+ */
+export function readCharacterDraft(fields: Record<string, string>): CharacterDraft {
+  const name = (fields.name ?? '').trim()
+  const className = (fields.class ?? '').trim()
+  const level = (fields.level ?? '').trim()
+  const refuse = (why: string): never => {
+    const put = [name, className, level].filter(Boolean).join(' · ')
+    throw userInput(`${why}\n-# You put · ${put || 'nothing'}`)
+  }
+
+  if (!name) refuse('A character needs a name.')
+  if (name.length > MAX_CHARACTER_NAME)
+    refuse(`That name is ${name.length} characters — keep it to ${MAX_CHARACTER_NAME}.`)
+  if (!(CLASSES as readonly string[]).includes(className)) refuse(`I don't know a class called "${className}".`)
+  if (!/^\d{1,2}$/.test(level) || Number(level) < LEVEL_MIN || Number(level) > LEVEL_MAX)
+    refuse(`Level has to be a whole number from ${LEVEL_MIN} to ${LEVEL_MAX} — you put "${level}".`)
+
+  return { name, className, level: Number(level) }
 }
 
 /** Discord caps autocomplete choices at 25. Case-insensitive "contains" over an empty query. */

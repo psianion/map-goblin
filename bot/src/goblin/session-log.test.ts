@@ -130,6 +130,61 @@ describe('createSessionLog', () => {
     // A scene the snapshot never named still prints, by id.
     expect(log.apply({ type: 'scene-changed', sceneId: 'scene-9' })[0].text).toContain('scene-9')
   })
+
+  const card = (id: string, over: Record<string, unknown> = {}) => ({
+    id,
+    at: 1_000,
+    kicker: 'place' as const,
+    title: 'The Sunken Shrine',
+    body: 'Water to the knee.\nSomething moves.',
+    sceneId: 'scene-1',
+    ...over,
+  })
+
+  it('never re-posts the Journal cards the join snapshot carries — they are last session', () => {
+    const log = createSessionLog(noNames)
+    expect(
+      log.apply(snapshot({ triggers: { journal: [card('j1'), card('j2'), card('j3')] } })),
+    ).toEqual([])
+    // And the same cards riding the next triggers update stay seen.
+    expect(log.apply({ type: 'triggers', state: { journal: [card('j1'), card('j2'), card('j3')] } })).toEqual([])
+  })
+
+  it('speaks a shared Journal card to the party once, kicker and quoted body', () => {
+    const log = createSessionLog(noNames)
+    log.apply(snapshot({ triggers: { journal: [card('j1')] } }))
+    const lines = log.apply({ type: 'triggers', state: { journal: [card('j1'), card('j2')] } })
+    expect(lines).toHaveLength(1)
+    expect(lines[0].to).toBe('party')
+    expect(lines[0].text).toContain('📜 **Place — The Sunken Shrine**')
+    // Quoted per line, never `>>>`.
+    expect(lines[0].text).toContain('\n> Water to the knee.\n> Something moves.')
+    expect(lines[0].text).toContain('<t:1:t>')
+    // The very same event again says nothing.
+    expect(log.apply({ type: 'triggers', state: { journal: [card('j1'), card('j2')] } })).toEqual([])
+  })
+
+  it('labels every kicker and keeps trigger text in the thread', () => {
+    const log = createSessionLog(noNames)
+    log.apply(snapshot())
+    const lines = log.apply({
+      type: 'triggers',
+      state: {
+        byScene: { 'scene-1': { log: [{ id: 't1', at: 900, text: 'A dart flies!' }] } },
+        journal: [
+          card('j1', { kicker: 'person', title: 'Sildar' }),
+          card('j2', { kicker: 'missive', title: 'Ransom' }),
+          card('j3', { kicker: 'lore', title: 'The Spellforge' }),
+        ],
+      },
+    })
+    expect(lines.map((line) => line.to)).toEqual(['thread', 'party', 'party', 'party'])
+    expect(lines.slice(1).map((line) => line.text.split('\n')[0])).toEqual([
+      '<t:1:t> 📜 **Person — Sildar**',
+      '<t:1:t> 📜 **Missive — Ransom**',
+      '<t:1:t> 📜 **Lore — The Spellforge**',
+    ])
+  })
 })
 
 describe('mapNames', () => {

@@ -8,11 +8,23 @@
 // snapshot arrives carrying the tail of every previous session, and a thread that replayed
 // it would open with last week's dice. The first snapshot is recorded, never spoken.
 
-import type { GoblinEvent, SessionState, WireLogEntry, WireRollEvent, WireTriggerEntry } from './observer'
+import type {
+  GoblinEvent,
+  SessionState,
+  TriggersState,
+  WireJournalEntry,
+  WireLogEntry,
+  WireRollEvent,
+  WireTriggerEntry,
+} from './observer'
 
 export interface LogLine {
   at: number
   text: string
+  /** Where the line belongs. The thread hangs under the *DM* channel, so anything the party
+   * is meant to read — a shared Journal card — is `party` and goes to the campaign channel
+   * too. Party lines are still written to the thread, which stays the full record. */
+  to: 'thread' | 'party'
 }
 
 /** targetId → display name, from whatever map the caller has managed to fetch. Undefined is
@@ -27,7 +39,14 @@ export interface SessionLog {
 /** Discord's own short-time render, so every reader sees the table's clock in their zone. */
 const stamp = (at: number): string => `<t:${Math.floor(at / 1000)}:t>`
 
-const quiet = (at: number, text: string): LogLine => ({ at, text: `${stamp(at)} *${text}*` })
+const quiet = (at: number, text: string): LogLine => ({ at, text: `${stamp(at)} *${text}*`, to: 'thread' })
+
+/** Quoted line by line — never `>>>`, which would swallow every later line in the chunk. */
+const quoted = (body: string): string =>
+  body
+    .split('\n')
+    .map((line) => `> ${line}`)
+    .join('\n')
 
 /** GameLog's lead-in: the player, with the character riding along when it adds anything. */
 const withCharacter = (player: string, character: string | undefined): string =>
@@ -42,15 +61,26 @@ function rollLine(event: WireRollEvent): LogLine {
   const math = [event.formula, event.breakdown].filter(Boolean).join(' = ')
   if (math) parts.push(`\`${math}\``)
   if (event.visibility === 'private') parts.push('🔒')
-  // The spell/item card the table log prints under the roll. Quoted line by line, never
-  // with `>>>` — that would swallow every later line sharing the chunk.
-  const card = event.description
-    ? `\n${event.description
-        .split('\n')
-        .map((line) => `> ${line}`)
-        .join('\n')}`
-    : ''
-  return { at: event.at, text: `${parts.join(' ')}${card}` }
+  // The spell/item card the table log prints under the roll.
+  const card = event.description ? `\n${quoted(event.description)}` : ''
+  return { at: event.at, text: `${parts.join(' ')}${card}`, to: 'thread' }
+}
+
+/** JournalSidebar.tsx's own labels — the card reads the same in Discord as on the table. */
+const KICKER_LABEL: Record<string, string> = {
+  place: 'Place',
+  person: 'Person',
+  missive: 'Missive',
+  lore: 'Lore',
+}
+
+/** A card the DM shared with the table. `imageKeys` are ignored: v1 posts the text. */
+function journalLine(entry: WireJournalEntry): LogLine {
+  // The server rejects a kicker outside the vocabulary, so the fallback is only for a build
+  // that adds one — the card still reads rather than vanishing.
+  const label = KICKER_LABEL[entry.kicker] ?? 'Lore'
+  const head = `${stamp(entry.at)} 📜 **${label} — ${entry.title}**`
+  return { at: entry.at, text: entry.body ? `${head}\n${quoted(entry.body)}` : head, to: 'party' }
 }
 
 /** tableLog.ts's sentences, word for word — the thread and the Log panel must read alike. */
@@ -117,6 +147,12 @@ export function createSessionLog(nameOf: NameOf): SessionLog {
   const writtenLine = (entry: WireTriggerEntry): LogLine | null =>
     entry.text ? quiet(entry.at, entry.text) : null
 
+  /** Trigger text plus the shared Journal cards — the one state both paths read. */
+  const fromTriggers = (state: TriggersState, speak: boolean): LogLine[] => [
+    ...diff(triggerLogsOf(state), speak ? (e) => (e.text ? quiet(e.at, e.text) : null) : null),
+    ...diff(listOf<WireJournalEntry>(state.journal), speak ? journalLine : null),
+  ]
+
   const doorFogLine = (entry: WireLogEntry): LogLine | null => {
     const sentence = logSentence(entry.action, entry.targetId ? nameOf(entry.targetId) : undefined)
     return sentence ? quiet(entry.at, `${entry.actor || 'Someone'} ${sentence}`) : null
@@ -128,10 +164,7 @@ export function createSessionLog(nameOf: NameOf): SessionLog {
       ...diff(listOf<WireRollEvent>(of('rolls')), speak ? rollLine : null),
       ...diff(listOf<WireLogEntry>(of('doors')), speak ? doorFogLine : null),
       ...diff(listOf<WireLogEntry>(of('fog')), speak ? doorFogLine : null),
-      ...diff(
-        triggerLogsOf((modules?.triggers as { byScene?: Record<string, { log?: unknown }> }) ?? {}),
-        speak ? (e) => (e.text ? quiet(e.at, e.text) : null) : null,
-      ),
+      ...fromTriggers((modules?.triggers as TriggersState | undefined) ?? {}, speak),
       ...diff(
         listOf<WireTriggerEntry>((modules?.initiative as { log?: unknown })?.log),
         speak ? writtenLine : null,
@@ -166,7 +199,7 @@ export function createSessionLog(nameOf: NameOf): SessionLog {
         case 'fog':
           return diff(listOf<WireLogEntry>(event.state.log), doorFogLine)
         case 'triggers':
-          return diff(triggerLogsOf(event.state), (e) => (e.text ? quiet(e.at, e.text) : null))
+          return fromTriggers(event.state, true)
         case 'initiative':
           return diff(listOf<WireTriggerEntry>(event.state.log), writtenLine)
         default:

@@ -1,0 +1,524 @@
+<!--
+  LOADER OPTION A — "The Survey"
+  Narrative: a blank sheet on the lit table is surveyed, walled, doored, furnished
+             and finally lit — the goblin ink-draws your dungeon while the assets land.
+  Exit: the ink soaks into the paper (bleed + lift) while the lamp comes up. The
+        parchment ground never cuts or fades — the loader's sheet IS the landing
+        page's body, so it hands straight off to the hero on the same lit table.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Good Goblin — loader option A · The Survey</title>
+<style>
+  :root {
+    /* lifted from site/src/styles/tokens.css */
+    --void: #0b0a08;
+    --ink: #16180f;
+    --torch: #eda94e;
+    --torch-hot: #ffd9a0;
+    --goblin: #b6d648;
+    --parchment: #e8dfc6;
+    --ink-mut: #4a4433;
+    --goblin-ink: #4d6410;
+    --torch-ink: #8a5314;
+
+    /* system stand-ins for Newsreader / IBM Plex Sans / IBM Plex Mono */
+    --display: Georgia, 'Iowan Old Style', 'Times New Roman', serif;
+    --body: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: ui-monospace, 'Cascadia Mono', Consolas, 'SF Mono', monospace;
+
+    --p: 0;   /* load progress 0..1  */
+    --e: 0;   /* exit progress 0..1  */
+  }
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--parchment);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.6;
+    overflow: hidden;
+  }
+  :focus-visible { outline: 2px solid var(--torch-ink); outline-offset: 3px; border-radius: 2px; }
+
+  /* ============ the lit table ============
+     Same origin (26% 12%) and same stops the live page uses for .stage-lamp,
+     so the last frame of the loader is the first frame of the page. */
+  .lamp {
+    position: fixed; inset: 0; z-index: 2; pointer-events: none;
+    background: radial-gradient(
+      75% 90% at 26% 12%,
+      rgb(255 217 160 / 0.32) 0%,
+      rgb(255 217 160 / 0.10) 38%,
+      rgb(20 12 6 / 0.15) 100%
+    );
+    /* the lamp is low while the goblin works, full once he's done */
+    opacity: calc(0.42 + 0.58 * var(--lamp, 0));
+  }
+  .grain {
+    position: fixed; inset: 0; z-index: 6; pointer-events: none;
+    opacity: 0.12; mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.55' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1.6 -0.5'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 140px 140px;
+  }
+
+  /* ============ loader ============ */
+  .loader {
+    position: fixed; inset: 0; z-index: 4;
+    display: grid; place-items: center;
+    pointer-events: none;
+  }
+  /* the whole rig fades as one only in reduced-motion; 1 otherwise */
+  .loader { opacity: var(--loaderA, 1); }
+  .stage {
+    position: relative;
+    width: min(92vw, 1080px);
+    aspect-ratio: 1000 / 600;
+    /* the sheet lifts a hair as the ink soaks away */
+    transform: scale(calc(1 + 0.055 * var(--soak, 0)));
+    transform-origin: 40% 45%;
+  }
+  .plan {
+    display: block; width: 100%; height: 100%;
+    filter: blur(calc(var(--soak, 0) * 4px));
+    opacity: calc(1 - var(--soak, 0));
+  }
+
+  /* ============ title block (the map's cartouche) ============ */
+  .cartouche {
+    position: absolute; left: 0.5%; bottom: 2%;
+    width: clamp(196px, 21%, 250px);
+    padding: 0.65rem 0.75rem 0.6rem;
+    border: 1.5px solid var(--ink);
+    border-radius: 2px;
+    background: rgb(232 223 198 / 0.72);
+    box-shadow: 2px 3px 0 rgb(22 24 15 / 0.14);
+    opacity: calc(var(--cart, 0) * (1 - var(--cartOut, 0)));
+    transform: translateY(calc(6px * (1 - var(--cart, 0)) - 8px * var(--cartOut, 0)));
+  }
+  .cartouche .wordmark {
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.14em;
+    color: var(--ink); font-weight: 500;
+  }
+  .cartouche hr {
+    border: 0; border-top: 1px solid rgb(22 24 15 / 0.35);
+    margin: 0.45rem 0 0.4rem;
+  }
+  .cartouche .row {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem;
+  }
+  .phase {
+    font-family: var(--display); font-style: italic; font-size: 14px;
+    color: var(--goblin-ink); line-height: 1.25;
+    min-height: 2.5em; /* two lines reserved — no reflow when the copy changes */
+    transition: opacity 130ms linear;
+  }
+  .pct {
+    font-family: var(--mono); font-size: 12.5px; color: var(--ink-mut);
+    font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1;
+    width: 4.2ch; text-align: right; flex: none;
+  }
+  /* the surveyor's rule: a hairline that fills with progress, in the block */
+  .rule { position: relative; height: 3px; margin-top: 0.5rem; background: rgb(22 24 15 / 0.14); }
+  .rule::after {
+    content: ''; position: absolute; inset: 0 auto 0 0;
+    width: calc(var(--p) * 100%);
+    background: var(--ink);
+  }
+
+  /* ============ the page it hands off to ============ */
+  .page {
+    position: fixed; inset: 0; z-index: 3;
+    display: grid; align-content: center;
+    padding: 0 clamp(1.5rem, 8vw, 7rem);
+    pointer-events: none;
+  }
+  .brand {
+    position: fixed; top: 1.5rem; left: clamp(1.5rem, 6vw, 3rem);
+    font-family: var(--mono); font-size: 13px; letter-spacing: 0.06em;
+    color: var(--ink-mut);
+  }
+  .page h1 {
+    font-family: var(--display); font-weight: 500;
+    font-size: clamp(2.2rem, 5vw, 4.6rem); line-height: 1.04;
+    letter-spacing: -0.02em; max-width: 20ch; text-wrap: balance;
+  }
+  .page h1 .drew { font-style: italic; }
+  .page h1 .run { color: var(--torch-ink); }
+  .page .sub { margin-top: 1.25rem; max-width: 52ch; font-size: 1.05rem; color: var(--ink-mut); }
+  .page .voice {
+    margin-top: 0.9rem; font-family: var(--display); font-style: italic;
+    color: var(--goblin-ink); max-width: 52ch;
+  }
+  .cta-row { margin-top: 2rem; display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; }
+  .cta {
+    background: var(--goblin); color: var(--ink); font-weight: 600; font-size: 15px;
+    padding: 0.85rem 1.7rem; border-radius: 3px; text-decoration: none;
+    box-shadow: 0 0 32px rgb(182 214 72 / 0.18);
+  }
+  .cta-quiet { font-size: 14px; color: var(--ink-mut); }
+  .page > *, .brand { opacity: 0; }
+
+  /* ============ replay ============ */
+  .replay {
+    position: fixed; right: 1rem; bottom: 1rem; z-index: 9;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+    color: #e6e1d3; background: rgb(11 10 8 / 0.62);
+    border: 1px solid rgb(230 225 211 / 0.28); border-radius: 999px;
+    padding: 0.45rem 0.9rem; cursor: pointer;
+    transition: background 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .replay:hover { background: rgb(11 10 8 / 0.82); }
+
+  /* Reduced motion: no drawing, no travel, no blur — the composed map is shown
+     as a still, then it and the page simply cross-fade. */
+  @media (prefers-reduced-motion: reduce) {
+    .stage { transform: none !important; }
+    .plan { filter: none !important; opacity: 1 !important; }
+    .loader, .page > *, .brand { transition: opacity 300ms linear; }
+    .phase { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="lamp" aria-hidden="true"></div>
+
+<!-- ---------- the page underneath ---------- -->
+<header class="brand" id="pgBrand">GOOD GOBLIN</header>
+<div class="page">
+  <div id="pg1">
+    <h1>The map you <span class="drew">drew</span><br />is the game you <span class="run">run</span>.</h1>
+  </div>
+  <div id="pg2">
+    <p class="sub">Draw walls, doors, torches — once. Fog, sight, and light run themselves at the table, live, in front of your players.</p>
+    <p class="voice">No re-tracing. No lighting homework. The goblin finds double work insulting.</p>
+  </div>
+  <div id="pg3">
+    <div class="cta-row">
+      <span class="cta">Join the waitlist</span>
+      <span class="cta-quiet">Free while in the goblin's favor</span>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- loader ---------- -->
+<div class="loader" id="loader" role="progressbar" aria-label="Drawing the map" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+  <div class="stage" id="stage">
+    <svg class="plan" id="plan" viewBox="100 100 1000 600" aria-hidden="true">
+      <defs>
+        <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
+          <path d="M50 0 L0 0 0 50" fill="none" stroke="#16180f" stroke-opacity="0.11" stroke-width="1" />
+        </pattern>
+        <!-- hand-inked wobble: static turbulence displacing the linework so the
+             strokes read painted, never flat vector (art-style-guide rule 3) -->
+        <filter id="inkwobble" x="-3%" y="-3%" width="106%" height="106%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.013" numOctaves="2" seed="9" result="n" />
+          <feDisplacementMap in="SourceGraphic" in2="n" scale="3.4" xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+        <radialGradient id="tg">
+          <stop offset="0%" stop-color="#ffd9a0" stop-opacity="0.78" />
+          <stop offset="42%" stop-color="#eda94e" stop-opacity="0.26" />
+          <stop offset="100%" stop-color="#eda94e" stop-opacity="0" />
+        </radialGradient>
+        <radialGradient id="pen">
+          <stop offset="0%" stop-color="#ffd9a0" stop-opacity="0.85" />
+          <stop offset="100%" stop-color="#eda94e" stop-opacity="0" />
+        </radialGradient>
+      </defs>
+
+      <!-- 1. the ground is surveyed -->
+      <g id="gridLayer" opacity="0">
+        <rect x="100" y="100" width="1000" height="600" fill="url(#grid)" />
+      </g>
+
+      <!-- 5. lighting, baked warm pools -->
+      <g id="glows" opacity="0">
+        <circle cx="250" cy="215" r="185" fill="url(#tg)" />
+        <circle cx="930" cy="230" r="165" fill="url(#tg)" />
+        <circle cx="720" cy="520" r="175" fill="url(#tg)" />
+      </g>
+
+      <g filter="url(#inkwobble)">
+        <!-- floors: desaturated stone inside each room, tied to its own wall -->
+        <g fill="#cbc4aa" fill-opacity="0.92">
+          <rect id="f1" x="150" y="150" width="400" height="300" opacity="0" />
+          <rect id="f2" x="650" y="150" width="400" height="200" opacity="0" />
+          <rect id="f2b" x="550" y="275" width="100" height="50" opacity="0" />
+          <rect id="f3" x="650" y="450" width="300" height="200" opacity="0" />
+          <rect id="f3b" x="325" y="450" width="50" height="160" opacity="0" />
+          <rect id="f3c" x="325" y="560" width="325" height="50" opacity="0" />
+        </g>
+
+        <!-- 2. walls raise, one pen stroke per wing -->
+        <!-- 0.28 grid units of stroke — the guide's "thick dark strokes" -->
+        <g fill="none" stroke="#16180f" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+          <path class="wall" id="w1" pathLength="1"
+                d="M150,275 L150,150 L550,150 L550,275
+                   M550,325 L550,450 L375,450
+                   M325,450 L150,450 L150,325" />
+          <path class="wall" id="w2" pathLength="1"
+                d="M550,275 L650,275 L650,150 L1050,150 L1050,350 L850,350
+                   M800,350 L650,350 L650,325 L550,325" />
+          <path class="wall" id="w3" pathLength="1"
+                d="M375,450 L375,560 L650,560 L650,450 L950,450 L950,650 L650,650 L650,610 L325,610 L325,450" />
+        </g>
+
+        <!-- 3. doors hang in the gaps -->
+        <g id="doors" stroke="#16180f" stroke-width="3.5">
+          <rect class="pop" data-in="0.62,0.70" x="142" y="277" width="16" height="46" rx="2" fill="#8a6138" />
+          <rect class="pop" data-in="0.66,0.74" x="542" y="277" width="16" height="46" rx="2" fill="#8a6138" />
+          <rect class="pop" data-in="0.70,0.78" x="802" y="342" width="46" height="16" rx="2" fill="#8a6138" />
+          <rect class="pop" data-in="0.73,0.81" x="642" y="562" width="16" height="46" rx="2" fill="#8a6138" />
+        </g>
+
+        <!-- 4. the furniture goes in -->
+        <g id="props" stroke="#16180f" stroke-width="3" fill="none">
+          <rect class="pop" data-in="0.78,0.84" x="270" y="290" width="160" height="62" rx="3" fill="#c8b489" />
+          <circle class="pop" data-in="0.80,0.86" cx="205" cy="405" r="15" fill="#c8b489" />
+          <circle class="pop" data-in="0.815,0.875" cx="240" cy="412" r="13" fill="#c8b489" />
+          <circle class="pop" data-in="0.83,0.89" cx="212" cy="372" r="12" fill="#c8b489" />
+          <g class="pop" data-in="0.80,0.88" fill="none">
+            <rect x="960" y="180" width="76" height="140" fill="#cfc2a0" />
+            <path d="M960,204 H1036 M960,228 H1036 M960,252 H1036 M960,276 H1036 M960,300 H1036" stroke-width="2.4" />
+          </g>
+          <g class="pop" data-in="0.84,0.90" stroke-width="2.6" fill="#d3c6a4">
+            <circle cx="700" cy="618" r="9" /><circle cx="726" cy="628" r="6" />
+            <circle cx="892" cy="486" r="8" /><circle cx="874" cy="500" r="5.5" />
+          </g>
+          <!-- the map's one focal accent: the altar -->
+          <g class="pop" data-in="0.88,0.95">
+            <rect x="762" y="516" width="86" height="52" rx="3" fill="#e0b063" stroke-width="4" />
+            <path d="M778,516 V568 M805,516 V568 M832,516 V568" stroke-width="2.2" />
+          </g>
+        </g>
+
+        <!-- the pen tip riding the live stroke -->
+        <g id="penTip" opacity="0">
+          <circle id="penGlow" r="30" fill="url(#pen)" />
+          <circle id="penDot" r="5.5" fill="#16180f" />
+        </g>
+      </g>
+    </svg>
+
+    <div class="cartouche" id="cart">
+      <div class="wordmark">GOOD&nbsp;GOBLIN</div>
+      <hr />
+      <div class="row">
+        <span class="phase" id="phase">unrolling a blank sheet</span>
+        <span class="pct" id="pct">0%</span>
+      </div>
+      <div class="rule"></div>
+    </div>
+  </div>
+</div>
+
+<div class="grain" aria-hidden="true"></div>
+<button class="replay" id="replay" type="button">↻ replay</button>
+
+<script>
+(function () {
+  'use strict';
+
+  var root = document.documentElement;
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* ---------- progress: a real load, not a metronome ----------
+     keyframes are (ms, progress); the 1080→1880 leg moves 5 points in 800ms —
+     that is the big pack landing, and the goblin visibly waits on it. */
+  var KEYS = [
+    [0, 0], [620, 0.30], [1080, 0.37], [1880, 0.42],
+    [2620, 0.72], [2960, 0.76], [3560, 0.94], [4200, 1]
+  ];
+  var LOAD_MS = 4200, HOLD_MS = 220, EXIT_MS = 1120;
+
+  function smoothstep(t) { return t * t * (3 - 2 * t); }
+  function progressAt(ms) {
+    if (ms <= 0) return 0;
+    for (var i = 1; i < KEYS.length; i++) {
+      if (ms <= KEYS[i][0]) {
+        var a = KEYS[i - 1], b = KEYS[i];
+        return a[1] + (b[1] - a[1]) * smoothstep((ms - a[0]) / (b[0] - a[0]));
+      }
+    }
+    return 1;
+  }
+  function span(p, a, b) { var t = (p - a) / (b - a); return t < 0 ? 0 : t > 1 ? 1 : t; }
+  var outQuart = function (t) { return 1 - Math.pow(1 - t, 4); };
+  var outQuint = function (t) { return 1 - Math.pow(1 - t, 5); };
+  var outExpo = function (t) { return t >= 1 ? 1 : 1 - Math.pow(2, -10 * t); };
+
+  var walls = [
+    { el: $('w1'), a: 0.06, b: 0.40, floors: [$('f1')] },
+    { el: $('w2'), a: 0.34, b: 0.63, floors: [$('f2'), $('f2b')] },
+    { el: $('w3'), a: 0.50, b: 0.80, floors: [$('f3'), $('f3b'), $('f3c')] }
+  ];
+  walls.forEach(function (w) {
+    w.el.setAttribute('stroke-dasharray', '1 1');
+    w.el.setAttribute('stroke-dashoffset', '1');
+    w.len = w.el.getTotalLength();
+  });
+  var pops = [].slice.call(document.querySelectorAll('.pop')).map(function (el) {
+    var r = el.getAttribute('data-in').split(',');
+    return { el: el, a: parseFloat(r[0]), b: parseFloat(r[1]) };
+  });
+
+  var gridLayer = $('gridLayer'), glows = $('glows');
+  var penTip = $('penTip'), penGlow = $('penGlow'), penDot = $('penDot');
+  var pctEl = $('pct'), phaseEl = $('phase'), loader = $('loader');
+  var pageParts = [$('pgBrand'), $('pg1'), $('pg2'), $('pg3')];
+
+  var PHASES = [
+    [0.10, 'unrolling a blank sheet'],
+    [0.62, 'raising the walls'],
+    [0.78, 'hanging the doors'],
+    [0.88, 'dragging the furniture in'],
+    [0.995, 'lighting the torches'],
+    [2, 'ready when you are']
+  ];
+  var phaseIdx = -1, phaseTimer = null;
+  function setPhase(p) {
+    var i = 0;
+    while (PHASES[i][0] < p) i++;
+    if (i === phaseIdx) return;
+    var first = phaseIdx === -1;
+    phaseIdx = i;
+    if (first) { phaseEl.textContent = PHASES[i][1]; return; }
+    phaseEl.style.opacity = '0';
+    clearTimeout(phaseTimer);
+    phaseTimer = setTimeout(function () {
+      phaseEl.textContent = PHASES[phaseIdx][1];
+      phaseEl.style.opacity = '1';
+    }, 130);
+  }
+
+  var lastAria = -1;
+  function render(p) {
+    root.style.setProperty('--p', p.toFixed(4));
+
+    /* the ground */
+    gridLayer.setAttribute('opacity', (outQuart(span(p, 0, 0.13)) * 0.95).toFixed(3));
+
+    /* the walls, plus the pen riding whichever one is live */
+    var live = null;
+    for (var i = 0; i < walls.length; i++) {
+      var w = walls[i];
+      var t = span(p, w.a, w.b);
+      var d = outQuart(t);
+      w.el.setAttribute('stroke-dashoffset', (1 - d).toFixed(4));
+      for (var f = 0; f < w.floors.length; f++) {
+        w.floors[f].setAttribute('opacity', (d * d).toFixed(3));
+      }
+      if (t > 0.001 && t < 0.999) live = { w: w, d: d };
+    }
+    if (live) {
+      var pt = live.w.el.getPointAtLength(live.w.len * live.d);
+      penTip.setAttribute('transform', 'translate(' + pt.x.toFixed(1) + ',' + pt.y.toFixed(1) + ')');
+      penTip.setAttribute('opacity', '1');
+      penGlow.setAttribute('opacity', '0.9');
+      penDot.setAttribute('opacity', '1');
+    } else {
+      penTip.setAttribute('opacity', (p > 0.8 ? 0 : 0.25).toFixed(2));
+    }
+
+    /* doors, furniture, the altar */
+    for (var j = 0; j < pops.length; j++) {
+      var q = pops[j], tq = outQuint(span(p, q.a, q.b));
+      q.el.setAttribute('opacity', tq.toFixed(3));
+      q.el.style.transformBox = 'fill-box';
+      q.el.style.transformOrigin = 'center';
+      q.el.style.transform = 'scale(' + (0.84 + 0.16 * tq).toFixed(3) + ')';
+    }
+
+    /* torchlight, last */
+    /* held at 0.78 so the exit still has somewhere to flare to */
+    var lit = outQuart(span(p, 0.86, 1));
+    glows.setAttribute('opacity', (lit * 0.78).toFixed(3));
+    root.style.setProperty('--lamp', (lit * 0.35).toFixed(3));
+
+    /* the title block */
+    root.style.setProperty('--cart', outQuart(span(p, 0.03, 0.16)).toFixed(3));
+    pctEl.textContent = Math.round(p * 100) + '%';
+    setPhase(p);
+
+    var a = Math.round(p * 100);
+    if (a !== lastAria) { loader.setAttribute('aria-valuenow', a); lastAria = a; }
+  }
+
+  /* ---------- exit: the ink soaks in, the lamp comes up ---------- */
+  function renderExit(e) {
+    root.style.setProperty('--e', e.toFixed(4));
+    /* the block bows out first, 0 → 0.22 */
+    root.style.setProperty('--cartOut', outQuart(span(e, 0, 0.22)).toFixed(3));
+    /* one last flare from the torches before the ink lets go */
+    glows.setAttribute('opacity', (0.78 + 0.22 * Math.sin(span(e, 0, 0.26) * Math.PI)).toFixed(3));
+    /* ink bleeds into the paper */
+    root.style.setProperty('--soak', outQuart(span(e, 0.12, 0.72)).toFixed(3));
+    /* the lamp finishes rising */
+    root.style.setProperty('--lamp', (0.35 + 0.65 * outExpo(span(e, 0.1, 1))).toFixed(3));
+    /* the page arrives on the ground that was already there */
+    for (var i = 0; i < pageParts.length; i++) {
+      var t = outQuint(span(e, 0.34 + i * 0.07, 0.78 + i * 0.07));
+      pageParts[i].style.opacity = t.toFixed(3);
+      pageParts[i].style.transform = 'translateY(' + (14 * (1 - t)).toFixed(2) + 'px)';
+    }
+  }
+
+  /* ---------- run ---------- */
+  var reduce = matchMedia('(prefers-reduced-motion: reduce)');
+  var raf = 0, t0 = 0;
+
+  function frame(now) {
+    var ms = now - t0;
+    if (ms < LOAD_MS) { render(progressAt(ms)); }
+    else if (ms < LOAD_MS + HOLD_MS) { render(1); renderExit(0); }
+    else {
+      var e = Math.min(1, (ms - LOAD_MS - HOLD_MS) / EXIT_MS);
+      render(1); renderExit(e);
+      if (e >= 1) { raf = 0; return; }
+    }
+    raf = requestAnimationFrame(frame);
+  }
+
+  function start() {
+    cancelAnimationFrame(raf);
+    clearTimeout(phaseTimer);
+    phaseIdx = -1;
+    root.style.setProperty('--loaderA', '1');
+
+    if (reduce.matches) {
+      /* the finished map as a still, held, then a plain cross-fade */
+      render(1);
+      phaseEl.textContent = 'ready when you are';
+      root.style.setProperty('--soak', '0');
+      root.style.setProperty('--cartOut', '0');
+      root.style.setProperty('--lamp', '1');
+      glows.setAttribute('opacity', '0.78');
+      pageParts.forEach(function (el) { el.style.transform = 'none'; el.style.opacity = '0'; });
+      setTimeout(function () {
+        root.style.setProperty('--loaderA', '0');
+        pageParts.forEach(function (el) { el.style.opacity = '1'; });
+      }, 800);
+      return;
+    }
+
+    root.style.setProperty('--soak', '0');
+    root.style.setProperty('--cartOut', '0');
+    render(0);
+    pageParts.forEach(function (el) { el.style.opacity = '0'; el.style.transform = 'translateY(14px)'; });
+    t0 = performance.now();
+    raf = requestAnimationFrame(frame);
+  }
+
+  $('replay').addEventListener('click', start);
+  reduce.addEventListener('change', start);
+  start();
+})();
+</script>
+</body>
+</html>

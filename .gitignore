@@ -35,3 +35,11 @@ assets/test/
 
 # Discord bot runtime state (sqlite), never committed.
 bot/data/
+
+# Local capture output from the check-live sync tooling and card mockups.
+bot/check-live/out/
+bot/check-live/*.json
+bot/test-output/
+
+# Design docs, gate results and mockup images are tracked.
+!docs/**/*.png

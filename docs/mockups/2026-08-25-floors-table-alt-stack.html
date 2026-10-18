@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Floor Stack mockup (alternate)</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background:#0b0d10; color:#cfd6dd; font:15px/1.45 "Segoe UI", system-ui, sans-serif; padding:18px 22px 30px; }
+  h1 { font-size:26px; font-weight:600; letter-spacing:.02em; color:#e8edf2; }
+  .sub { color:#8b96a1; font-size:12px; margin-top:2px; }
+  header { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:12px; }
+  .opts { margin-left:auto; display:flex; gap:6px; }
+  button { background:#161b21; color:#cfd6dd; border:1px solid #262d36; border-radius:7px;
+           padding:6px 12px; font:12px "Segoe UI",system-ui,sans-serif; cursor:pointer; }
+  button:hover { background:#1d242c; }
+  button.on { background:#243141; border-color:#3d5878; color:#eaf1f8; }
+
+  .wrap { display:flex; gap:14px; max-width:1080px; }
+
+  /* elevator rail */
+  .rail { display:flex; flex-direction:column; gap:6px; padding-top:6px; }
+  .rail button { text-align:left; min-width:150px; }
+  .rail .dots { color:#8b96a1; font-size:11px; float:right; }
+  .rail button.on .dots { color:#b9d4ef; }
+
+  /* the stack */
+  .stackbox { position:relative; flex:1; border-radius:10px; border:1px solid #1d232b;
+              background:#05060a; overflow:hidden; aspect-ratio:16/10; perspective:1100px; }
+  .slab { position:absolute; left:8%; width:84%; aspect-ratio:16/9; transition:all .35s ease;
+          border-radius:8px; overflow:hidden; border:1px solid #33404f; }
+  .slab svg { width:100%; height:100%; display:block; }
+  .slab.cur { top:12%; z-index:3; transform:none; box-shadow:0 10px 40px rgba(0,0,0,.6); }
+  .slab.above { top:-16%; z-index:2; transform:rotateX(58deg) scale(.72); opacity:.45; cursor:pointer; }
+  .slab.below { top:66%; z-index:2; transform:rotateX(58deg) scale(.72); opacity:.45; cursor:pointer; }
+  .slab.above:hover, .slab.below:hover { opacity:.8; }
+  .slab .tag { position:absolute; left:10px; bottom:8px; z-index:3; font-size:12px; letter-spacing:.06em;
+               color:#e8edf2; background:rgba(8,10,14,.55); padding:3px 9px; border-radius:5px; pointer-events:none; }
+
+  .notes { max-width:1080px; margin-top:14px; display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px; }
+  .note { background:#10141a; border:1px solid #1d232b; border-radius:8px; padding:10px 12px; font-size:12.5px; color:#aab5c0; }
+  .note b { color:#dbe5ee; font-weight:600; display:block; margin-bottom:3px; font-size:12px; letter-spacing:.03em; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Floor Stack (alternate idea)</h1>
+    <div class="sub">the building as a dollhouse stack: slide between slabs, ghost tokens bleed through from adjacent floors. Click a tilted slab or the rail.</div>
+  </div>
+  <div class="opts">
+    <button id="ghosts" class="on">Ghost tokens: on</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="rail" id="rail"></div>
+  <div class="stackbox" id="stack"></div>
+</div>
+
+<div class="notes">
+  <div class="note"><b>THE STACK</b>Your floor sits full-size in the middle; the floor above and below tilt away as translucent slabs, live. One click travels the elevator. The building reads as one place, not a list of maps.</div>
+  <div class="note"><b>GHOST TOKENS</b>Floors in a group share a grid origin, so a party member above or below projects onto your map as a dashed ghost with an up or down arrow, at their true position. Cheap: no second fog pass, just marker sprites.</div>
+  <div class="note"><b>WHY IT'S TEMPTING</b>Spatial truth ("Vex is right under us") beats a PiP thumbnail for the split-party feel, and the DM gets whole-building awareness without a second render pipeline.</div>
+  <div class="note"><b>WHY IT MIGHT LOSE</b>Tilted slabs cost vertical screen space and need every floor resident in memory; ghost markers leak nothing about fog but do leak position (rule: only party tokens ghost, never NPCs). Tabs+PiP stays the safer v1; this could layer on top later since it shares the same per-seat viewed-scene model.</div>
+</div>
+
+<script>
+  const TOKS = {
+    ground: [{x:240,y:240,c:'#7fb3e0',l:'B'},{x:330,y:300,c:'#9fd49a',l:'M'},{x:650,y:280,c:'#e0b97f',l:'T'}],
+    cellar: [{x:430,y:270,c:'#c58fd6',l:'V'}],
+    battlements: [],
+  };
+  const tok = t => `<circle cx="${t.x}" cy="${t.y}" r="16" fill="${t.c}" stroke="#0b0d10" stroke-width="3"/>
+    <text x="${t.x}" y="${t.y+4}" text-anchor="middle" font-size="12" font-weight="600" fill="#0b0d10">${t.l}</text>`;
+  const ghost = (t,dir) => `<circle cx="${t.x}" cy="${t.y}" r="15" fill="none" stroke="${t.c}" stroke-width="2" stroke-dasharray="4 4" opacity=".8"/>
+    <text x="${t.x}" y="${t.y+4}" text-anchor="middle" font-size="11" fill="${t.c}" opacity=".9">${t.l}${dir}</text>`;
+  const stair = (x,y) => `<g stroke="#c9a86a" stroke-width="2" fill="none">
+    <rect x="${x}" y="${y}" width="34" height="34" rx="3" fill="rgba(201,168,106,.12)"/>
+    <path d="M${x+6} ${y+26} h8 v-6 h8 v-6 h8"/></g>`;
+  function grid(x,y,w,h){ let s=''; for(let i=x+40;i<x+w;i+=40) s+=`<rect x="${i}" y="${y}" width="1" height="${h}"/>`;
+    for(let j=y+40;j<y+h;j+=40) s+=`<rect x="${x}" y="${j}" width="${w}" height="1"/>`; return s; }
+
+  const shells = {
+    battlements: `<rect width="960" height="540" fill="#060709"/>
+      <g stroke="#414d5c" stroke-width="6" fill="#20262f"><rect x="300" y="150" width="360" height="240" rx="4"/></g>
+      <g fill="#2a323d">${grid(300,150,360,240)}</g>${stair(320,170)}`,
+    ground: `<rect width="960" height="540" fill="#05060a"/>
+      <g stroke="#3a4653" stroke-width="6" fill="#1b2028">
+        <rect x="140" y="90" width="420" height="300" rx="4"/><rect x="560" y="170" width="240" height="220" rx="4"/></g>
+      <g fill="#232a34">${grid(140,90,420,300)}${grid(560,170,240,220)}</g>${stair(500,120)}`,
+    cellar: `<rect width="960" height="540" fill="#040508"/>
+      <g stroke="#33404f" stroke-width="6" fill="#141922"><rect x="240" y="140" width="480" height="260" rx="4"/></g>
+      <g fill="#1a212b">${grid(240,140,480,260)}</g>${stair(280,170)}`,
+  };
+
+  const ORDER = ['battlements','ground','cellar']; // top to bottom
+  const NAME = { battlements:'Battlements', ground:'Ground', cellar:'Cellar' };
+  let cur = 'ground', ghostsOn = true;
+
+  function svgFor(id, isCur) {
+    let g = '';
+    if (isCur && ghostsOn) {
+      const i = ORDER.indexOf(id);
+      if (ORDER[i-1]) g += TOKS[ORDER[i-1]].map(t => ghost(t,'↑')).join('');
+      if (ORDER[i+1]) g += TOKS[ORDER[i+1]].map(t => ghost(t,'↓')).join('');
+    }
+    return `<svg viewBox="0 0 960 540">${shells[id]}${TOKS[id].map(tok).join('')}${g}</svg>`;
+  }
+
+  function draw() {
+    const i = ORDER.indexOf(cur);
+    const stack = document.getElementById('stack');
+    stack.innerHTML = '';
+    ORDER.forEach((id, j) => {
+      if (Math.abs(j - i) > 1) return;
+      const cls = j === i ? 'cur' : (j < i ? 'above' : 'below');
+      const d = document.createElement('div');
+      d.className = `slab ${cls}`;
+      d.innerHTML = svgFor(id, j === i) + `<div class="tag">${NAME[id]}</div>`;
+      if (j !== i) d.addEventListener('click', () => { cur = id; draw(); });
+      stack.appendChild(d);
+    });
+    const rail = document.getElementById('rail');
+    rail.innerHTML = '';
+    ORDER.forEach(id => {
+      const b = document.createElement('button');
+      b.className = id === cur ? 'on' : '';
+      b.innerHTML = `${NAME[id]} <span class="dots">${'●'.repeat(TOKS[id].length) || '·'}</span>`;
+      b.addEventListener('click', () => { cur = id; draw(); });
+      rail.appendChild(b);
+    });
+  }
+  document.getElementById('ghosts').addEventListener('click', e => {
+    ghostsOn = !ghostsOn;
+    e.target.textContent = `Ghost tokens: ${ghostsOn ? 'on' : 'off'}`;
+    e.target.classList.toggle('on', ghostsOn);
+    draw();
+  });
+  draw();
+</script>
+</body>
+</html>

@@ -2,31 +2,92 @@
 // an upload, a note, or all three — posted to the campaign's player channel. Pure models plus
 // one fetch helper; the registry owns the auth and the attaching.
 
-import type { ContainerSpec } from '../lib/ui'
+import { userInput } from '../lib/errors'
+import { type Block, type ContainerSpec } from '../lib/card'
+
+export const MAX_HANDOUT_TITLE = 80
+export const MAX_HANDOUT_BODY = 2000
+
+export interface HandoutDraft {
+  title: string | null
+  note: string | null
+  assetId: string | null
+  spoiler: boolean
+}
+
+/**
+ * The typed half of the handout form, checked at the trust boundary. "Give me something" is
+ * the submit's check, not a field's — a picture, a note and an asset are each a handout on
+ * their own — so `hasFiles` is what the caller already knows about the uploads.
+ */
+export function readHandoutDraft(fields: Record<string, string>, hasFiles: boolean): HandoutDraft {
+  const title = (fields.title ?? '').trim()
+  const note = (fields.body ?? '').trim()
+  const assetId = (fields.asset ?? '').trim()
+  const refuse = (why: string): never => {
+    throw userInput(`${why}\n-# You put · ${[title, note].filter(Boolean).join(' · ') || 'nothing'}`)
+  }
+
+  if (title.length > MAX_HANDOUT_TITLE)
+    refuse(`That title is ${title.length} characters — keep it to ${MAX_HANDOUT_TITLE}.`)
+  if (note.length > MAX_HANDOUT_BODY) refuse(`That is ${note.length} characters — keep it to ${MAX_HANDOUT_BODY}.`)
+  if (!hasFiles && !note && !assetId) refuse('Give me something to hand out: a file, an asset id, or a note.')
+
+  return { title: title || null, note: note || null, assetId: assetId || null, spoiler: fields.spoiler === 'true' }
+}
 
 export interface HandoutInput {
   campaignName: string
+  /** Named in the subhead — noPing keeps that a name, not a notification. */
+  dmDiscordId: string
+  /** Heads the card when the DM gave one; otherwise it says who it is from. */
+  title?: string | null
   /** The DM's own words. Optional — an image alone is a handout. */
   note: string | null
   /** Attached images, shown in the container's gallery. */
   imageNames?: string[]
-  /** Attached non-images (a PDF, a text file): named, not shown. */
+  /** Attached non-images (a PDF, a text file): each gets a File component — under the v2 flag
+   * an attachment no component points at is invisible, so naming it in text would strand it. */
   fileNames?: string[]
+  /** Shown beside the header. Must be attached to the same message as the handout's own files. */
+  thumb?: string
+  /** Blurs the whole card and every picture on it until the reader clicks. */
+  spoiler?: boolean
 }
 
+const count = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' : 's'}`
+
 export function handoutPost(input: HandoutInput): ContainerSpec {
-  const blocks = [`The DM shared something with **${input.campaignName}**.`]
-  if (input.note) blocks.push(input.note)
-  if (input.fileNames?.length) blocks.push(input.fileNames.map((name) => `📎 \`${name}\``).join('\n'))
+  const images = input.imageNames ?? []
+  const files = input.fileNames ?? []
+  const blocks: Block[] = [input.note ? `> ${input.note.replace(/\n/g, '\n> ')}` : '_The DM slides something across the table._']
+  if (files.length) blocks.push({ rule: 'line' }, ...files.map((name): Block => ({ file: `attachment://${name}` })))
+  const tally = [images.length ? count(images.length, 'image') : '', files.length ? count(files.length, 'file') : ''].filter(Boolean)
   return {
-    header: 'Handout',
+    eyebrow: `Handout · ${input.campaignName}`,
+    header: input.title || 'From the DM',
+    subhead: `**DM** <@${input.dmDiscordId}>`,
+    ...(input.thumb ? { thumb: input.thumb, thumbAlt: 'Handout' } : {}),
+    noPing: true,
+    ...(input.spoiler ? { spoiler: true } : {}),
     blocks,
-    ...(input.imageNames?.length ? { media: input.imageNames.map((name) => `attachment://${name}`) } : {}),
+    ...(images.length
+      ? {
+          media: images.map((name, i) => ({
+            url: `attachment://${name}`,
+            alt: `Handout image ${i + 1} of ${images.length}`,
+            // Both: the container blur hides the card, the media blur survives a reader who
+            // opened the card and is still scrolling past the picture.
+            ...(input.spoiler ? { spoiler: true } : {}),
+          })),
+        }
+      : {}),
+    ...(tally.length ? { footer: tally.join(' · ') } : {}),
   }
 }
 
-export function handoutConfirmation(campaignName: string): string {
-  return `Handout posted to ${campaignName}'s player channel.`
+export function handoutConfirmation(playerChannelId: string): ContainerSpec {
+  return { eyebrow: 'Handout', blocks: [`**Handout posted** to <#${playerChannelId}>.`] }
 }
 
 const EXTENSIONS: Record<string, string> = {

@@ -8,14 +8,22 @@
 // the events that changed it were missed. Cumulative counters are never replaced — the
 // recap of a table that dropped once is still the recap of the whole table.
 
-import type { MapToken } from '../render/map-svg'
-import type { DoorFlags, DoorsState, GoblinEvent, SessionState, TokensState, WireToken } from './observer'
+import type { MapToken, RegionMask } from '../render/map-svg'
+import type {
+  DoorFlags,
+  DoorsState,
+  FogState,
+  GoblinEvent,
+  SessionState,
+  TokensState,
+  WireToken,
+} from './observer'
 
 export interface LiveView {
   /** Connected players, in join order. The DM is not one of them. */
   players: string[]
   sceneName: string | null
-  /** The scene `/map` and the recap snapshot default to (plan §7). */
+  /** The scene the recap snapshot defaults to (plan §7). */
   sceneId: string | null
   dmConnected: boolean
 }
@@ -35,6 +43,9 @@ export interface SessionStats {
   /** The last known token positions for a scene — the map snapshot's overlay. Empty until
    * the `tokens` module has said something about that scene. */
   tokens: (sceneId: string) => MapToken[]
+  /** The party's swept ground on that scene — what cuts a player's base image (map-svg.ts).
+   * Undefined until the `fog` module has carried a region for it. */
+  region: (sceneId: string) => RegionMask | undefined
 }
 
 /** SIZE_CELLS on the game side. Re-declared, like every other wire constant here. */
@@ -48,6 +59,17 @@ const SIZE_CELLS: Record<string, number> = {
 }
 
 const DISPOSITIONS = new Set(['friendly', 'neutral', 'hostile'])
+
+/**
+ * The bot's own seats. The server names every one of them from this stem
+ * (`SERVICE_IDENTITY_NAME` in session/server/src/http.ts). None of them is a person at the
+ * table, so none belongs in the roster, the peak count or the recap — and a DM-role one
+ * would otherwise report the DM as connected for as long as the bot itself was.
+ */
+const BOT_SEAT_NAME = 'Goblin Bot'
+
+/** Prefix, not equality: any seat the server names after the stem is the bot's. */
+const isBotSeat = (name: string): boolean => name.startsWith(BOT_SEAT_NAME)
 
 /** Wire token → what the schematic draws. Hidden tokens are *kept*: the bot watches with the
  * DM's seat, and the renderer is what drops them from a player-facing sheet (map-svg.ts). */
@@ -63,19 +85,30 @@ function toMapTokens(scene: Record<string, WireToken>): MapToken[] {
   }))
 }
 
-export function createSessionStats(startedAt: number): SessionStats {
+/** What a restarted bot carries back in: the cumulative half of a recap, stored on the
+ * sessions row. Structurally the store's `SessionCounters`. */
+export type StatsSeed = Omit<RecapStats, 'durationMs'>
+
+/**
+ * `seed` resumes an evening the bot was watching before it restarted. Only the cumulative
+ * counters seed — who is here now and which scene is live are replaced by the next
+ * `session-state` snapshot, exactly as a reconnect already does.
+ */
+export function createSessionStats(startedAt: number, seed?: StatsSeed): SessionStats {
   const sceneNames = new Map<string, string>()
   // Insertion-ordered sets: a recap reads as the evening did, not alphabetically.
-  const scenesVisited = new Set<string>()
-  const everPresent = new Set<string>()
+  const scenesVisited = new Set<string>(seed?.scenes)
+  const everPresent = new Set<string>(seed?.players)
   let present = new Set<string>()
-  let peakPlayers = 0
-  let doorsOpened = 0
+  let peakPlayers = seed?.peakPlayers ?? 0
+  let doorsOpened = seed?.doorsOpened ?? 0
   let sceneName: string | null = null
   let sceneId: string | null = null
   let dmConnected = false
   /** Latest positions per scene. Replaced wholesale — the module sends its whole state. */
   const tokensByScene = new Map<string, MapToken[]>()
+  /** Latest party region per scene. Same "latest wins" rule as positions. */
+  const regionsByScene = new Map<string, RegionMask>()
   /** Null means "no baseline" — the next doors state is recorded, not counted. */
   let openDoors: Record<string, Record<string, boolean>> | null = null
 
@@ -91,6 +124,15 @@ export function createSessionStats(startedAt: number): SessionStats {
       tokensByScene.set(scene, toMapTokens(tokens))
   }
 
+  /** A scene whose entry has stopped carrying a region *loses* the one it had: a stale mask
+   * is the one way this record could show a player ground the table no longer counts seen. */
+  function ingestFog(state: FogState | undefined): void {
+    for (const [scene, entry] of Object.entries(state?.byScene ?? {})) {
+      if (entry?.region) regionsByScene.set(scene, entry.region)
+      else regionsByScene.delete(scene)
+    }
+  }
+
   function join(name: string): void {
     present.add(name)
     everPresent.add(name)
@@ -102,6 +144,7 @@ export function createSessionStats(startedAt: number): SessionStats {
     present = new Set()
     dmConnected = false
     for (const player of state.players ?? []) {
+      if (isBotSeat(player.name)) continue
       if (player.role === 'dm') {
         dmConnected ||= player.connected
         continue
@@ -115,6 +158,7 @@ export function createSessionStats(startedAt: number): SessionStats {
     openDoors = hasByScene(state.modules?.doors) ? snapshotOf(state.modules!.doors as DoorsState) : null
     // Positions, unlike door counts, are pure "latest wins" — a snapshot is simply the truth.
     if (hasByScene(state.modules?.tokens)) ingestTokens(state.modules!.tokens as TokensState)
+    if (hasByScene(state.modules?.fog)) ingestFog(state.modules!.fog as FogState)
   }
 
   function countOpens(state: DoorsState): void {
@@ -138,10 +182,12 @@ export function createSessionStats(startedAt: number): SessionStats {
           resync(event.state)
           return
         case 'player-joined':
+          if (isBotSeat(event.player.name)) return
           if (event.player.role === 'dm') dmConnected = true
           else join(event.player.name)
           return
         case 'player-left':
+          if (isBotSeat(event.player.name)) return
           if (event.player.role === 'dm') dmConnected = false
           else present.delete(event.player.name)
           return
@@ -153,6 +199,9 @@ export function createSessionStats(startedAt: number): SessionStats {
           return
         case 'tokens':
           ingestTokens(event.state)
+          return
+        case 'fog':
+          ingestFog(event.state)
           return
         case 'dm-disconnected':
           dmConnected = false
@@ -168,6 +217,8 @@ export function createSessionStats(startedAt: number): SessionStats {
     live: () => ({ players: [...present], sceneName, sceneId, dmConnected }),
 
     tokens: (scene) => tokensByScene.get(scene) ?? [],
+
+    region: (scene) => regionsByScene.get(scene),
 
     recap: (endedAt) => ({
       scenes: [...scenesVisited],

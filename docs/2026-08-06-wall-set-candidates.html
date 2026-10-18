@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Good Goblin · Wall &amp; Curb Design Candidates</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400..600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Moss night tokens, mirrored from canvas/src/index.css */
+  :root {
+    --surface-0: 15 16 14;
+    --surface-1: 24 26 23;
+    --surface-2: 35 37 34;
+    --surface-3: 48 51 46;
+    --text-primary: 234 236 233;
+    --text-secondary: 182 188 179;
+    --text-muted: 151 158 148;
+    --border-structure: 77 84 74;
+    --border-default: 58 62 56;
+    --accent: 145 196 100;
+    --on-accent: 15 17 14;
+  }
+  * { margin: 0; box-sizing: border-box; }
+  html { font-family: 'IBM Plex Sans', system-ui, sans-serif; }
+  body {
+    background: rgb(var(--surface-0));
+    color: rgb(var(--text-primary));
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+
+  /* ── top bar ── */
+  header {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: baseline; gap: 16px;
+    padding: 14px 28px;
+    background: rgb(var(--surface-1) / .92);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid rgb(var(--border-structure));
+  }
+  header h1 {
+    font-family: 'Newsreader', serif;
+    font-size: 1.35rem; font-weight: 500; letter-spacing: .01em;
+  }
+  header .count {
+    margin-left: auto;
+    font-size: .85rem; color: rgb(var(--text-secondary));
+    font-variant-numeric: tabular-nums;
+    transition: color .15s ease-out;
+  }
+  header .count.full { color: rgb(var(--accent)); }
+
+  .intro {
+    max-width: 76ch;
+    padding: 28px 28px 8px;
+    color: rgb(var(--text-secondary));
+    text-wrap: pretty;
+  }
+  .intro strong { color: rgb(var(--text-primary)); font-weight: 500; }
+
+  main { padding: 20px 28px 80px; display: grid; gap: 36px; max-width: 1280px; margin: 0 auto; }
+
+  /* ── design panel ── */
+  .set {
+    background: rgb(var(--surface-1));
+    border: 1px solid rgb(var(--border-structure));
+    border-radius: 8px;
+    overflow: hidden;
+    transition: border-color .2s ease-out, box-shadow .2s ease-out;
+  }
+  .set.selected {
+    border-color: rgb(var(--accent));
+    box-shadow: 0 0 0 1px rgb(var(--accent)), 0 10px 26px -14px rgb(0 0 0 / .9);
+  }
+  .set-head {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 18px 22px 14px;
+  }
+  .rank {
+    flex: none;
+    width: 30px; height: 30px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: rgb(var(--surface-3));
+    color: rgb(var(--text-secondary));
+    font-size: .8rem; font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .set.selected .rank { background: rgb(var(--accent)); color: rgb(var(--on-accent)); }
+  .set-title h2 {
+    font-family: 'Newsreader', serif;
+    font-size: 1.55rem; font-weight: 500; line-height: 1.15;
+    text-wrap: balance;
+  }
+  .set-title p { color: rgb(var(--text-muted)); font-size: .85rem; margin-top: 2px; }
+  .set-head button {
+    margin-left: auto; flex: none;
+    font: inherit; font-size: .85rem; font-weight: 600;
+    color: rgb(var(--text-primary));
+    background: rgb(var(--surface-2));
+    border: 1px solid rgb(var(--border-structure));
+    border-radius: 6px;
+    padding: 7px 16px;
+    cursor: pointer;
+    transition: background .15s ease-out, color .15s ease-out, border-color .15s ease-out, opacity .15s ease-out;
+  }
+  .set-head button:hover { background: rgb(var(--surface-3)); }
+  .set-head button:focus-visible { outline: 2px solid rgb(var(--accent) / .6); outline-offset: 2px; }
+  .set.selected .set-head button {
+    background: rgb(var(--accent)); color: rgb(var(--on-accent)); border-color: rgb(var(--accent));
+  }
+  .set-head button:disabled { opacity: .4; cursor: default; }
+  .set-head button:disabled:hover { background: rgb(var(--surface-2)); }
+
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 22px 4px; }
+  .chips span {
+    font-size: .72rem; font-weight: 500;
+    color: rgb(var(--text-secondary));
+    background: rgb(var(--surface-2));
+    border-radius: 2px;
+    padding: 2px 8px;
+  }
+  .chips span.hot { color: rgb(var(--accent)); background: rgb(var(--accent) / .12); }
+  .chips span.warn { color: rgb(212 174 84); background: rgb(212 174 84 / .12); }
+
+  .spec {
+    padding: 6px 22px 0;
+    font-size: .74rem; color: rgb(var(--text-muted));
+  }
+
+  .zone { padding: 14px 22px 0; }
+  .zone:last-child { padding-bottom: 22px; }
+  .zone > h3 {
+    font-size: .8rem; font-weight: 600;
+    color: rgb(var(--text-secondary));
+    margin-bottom: 8px;
+  }
+  .zone > h3 em { font-style: normal; font-weight: 400; color: rgb(var(--text-muted)); }
+
+  /* strips: full PNG is 200px tall with the art in a centered band —
+     crop to the middle 120px so the band reads large without clipping it */
+  .strips { display: grid; gap: 6px; }
+  .strip { display: grid; grid-template-columns: 112px 1fr; gap: 12px; align-items: center; }
+  .strip .tone { font-size: .78rem; color: rgb(var(--text-secondary)); text-align: right; }
+  .strip .art {
+    aspect-ratio: 1650 / 120;
+    background: rgb(var(--surface-2));
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .strip .art img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
+
+  .tiles { display: flex; gap: 10px; flex-wrap: wrap; }
+  .tile { width: 132px; }
+  .tile .art {
+    height: 132px;
+    display: grid; place-items: center;
+    background: rgb(var(--surface-2));
+    border-radius: 4px;
+    padding: 8px;
+  }
+  .tile .art img { max-width: 100%; max-height: 100%; display: block; }
+  .tile .role { font-size: .76rem; font-weight: 500; margin-top: 6px; display: flex; align-items: baseline; gap: 6px; }
+  .tile .role i {
+    font-style: normal; font-size: .64rem; font-weight: 600;
+    padding: 1px 5px; border-radius: 2px;
+  }
+  .tile .role i.auto { color: rgb(var(--accent)); background: rgb(var(--accent) / .12); }
+  .tile .role i.manual { color: rgb(var(--text-muted)); background: rgb(var(--surface-2)); }
+  .tile .file {
+    font-size: .64rem; color: rgb(var(--text-muted));
+    margin-top: 2px; word-break: break-all; line-height: 1.35;
+  }
+
+  footer {
+    margin: 0 auto;
+    padding: 0 28px 60px;
+    color: rgb(var(--text-muted)); font-size: .8rem;
+    max-width: 78ch;
+  }
+  footer h3 { color: rgb(var(--text-secondary)); font-size: .85rem; margin-bottom: 6px; }
+  footer li { margin: 3px 0 3px 1.2em; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+  @media (max-width: 640px) {
+    .strip { grid-template-columns: 1fr; gap: 2px; }
+    .strip .tone { text-align: left; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Wall &amp; Curb Design Candidates</h1>
+  <span class="count" id="count">Pick two &middot; 0 / 2</span>
+</header>
+
+<p class="intro">
+  Five specific designs, each shown in its chosen reference shade. Recreation target:
+  <strong>one neutral grey master per design</strong>, colored at the table with a runtime tint
+  (the tint rows below preview this on the source art), and the <strong>ink outline painted at
+  roughly half the source weight</strong>. All art sits on 200&nbsp;px per grid square, matching the
+  canvas. <strong>Shortlist the two</strong> we finalise and recreate first.
+</p>
+
+<main id="sets"></main>
+
+<footer>
+  <h3>Recreation contract (from the renderer study)</h3>
+  <ul>
+    <li>One neutral grey master per design; color comes from the runtime tint, never separate color passes.</li>
+    <li>Ink outline at about half the source kit's weight.</li>
+    <li>Straights tile edge-to-edge with zero horizontal padding; trim vertical padding only.</li>
+    <li>Every straight in a design shares one content-band height; it becomes the design's scale reference.</li>
+    <li>Corners, joints and endings keep their full padded tile: the padding IS the alignment pivot.</li>
+    <li>The renderer auto-places straights, connectors (fan stones), 1×1 corners and endings; joints and large corners are manual-swap showpieces.</li>
+  </ul>
+</footer>
+
+<script>
+// file:// when opened by double-click; relative when served from D:/Labs for browser checks
+const B = location.protocol === 'file:'
+  ? 'file:///D:/Labs/test-asset-sets/Walls_and_Curbs/'
+  : '/test-asset-sets/Walls_and_Curbs/';
+const file = p => p.split('/').pop();
+
+// CSS-filter approximations of the grey-master + runtime-tint plan
+const TINTS = [
+  ['As painted', ''],
+  ['Grey master', 'grayscale(1)'],
+  ['Moss tint', 'grayscale(1) sepia(1) hue-rotate(45deg) saturate(.55)'],
+  ['Rust tint', 'grayscale(1) sepia(1) hue-rotate(-15deg) saturate(.9) brightness(.9)'],
+  ['Cold slate', 'grayscale(1) sepia(1) hue-rotate(160deg) saturate(.35) brightness(.95)'],
+];
+
+const SETS = [
+  {
+    name: 'Rugged Fieldstone', sub: 'Weathered natural fieldstone for castle and keep walls. Shade refs: Earthy and Slate (same design, two tints). The only design with matching curbs.',
+    chips: ['shade refs: Earthy + Slate', 'curbs \u2713', 'broken endings \u2713', 'chains accent \u2713'],
+    spec: 'Straight run 1650\u00d7200 px \u00b7 opaque band 68 px (y\u224866) \u00b7 connector 99\u00d768 in 200\u00b2 \u00b7 curb band 32\u201334 px',
+    strips: [
+      ['Earthy ref', 'Wall_Stone_A/Wall_Stone_Earthy_A_Straight_Path.png'],
+      ['Slate ref',  'Wall_Stone_A/Wall_Stone_Slate_A_Straight_Path.png'],
+    ],
+    pieces: [
+      ['Connector', 'auto',   'Wall_Stone_A/Wall_Stone_Earthy_A_Connector_A_1x1.png'],
+      ['Corner 1\u00d71', 'auto',   'Wall_Stone_A/Wall_Stone_Earthy_A_Corner_A_1x1.png'],
+      ['Corner 3\u00d73', 'manual', 'Wall_Stone_A/Wall_Stone_Earthy_A_Corner_H_3x3.png'],
+      ['Ending', 'auto',   'Wall_Stone_A/Wall_Stone_Earthy_A_Ending_A_1x1.png'],
+      ['Joint', 'manual', 'Wall_Stone_A/Wall_Stone_Earthy_A_Joint_A_1x1.png'],
+      ['Broken ending', 'manual', 'Broken_Wall_Endings/Wall_Stone_Earthy_Broken_Ending_A1_1x1.png'],
+    ],
+    extras: { title: 'Curbs & accents', note: 'same design, thinner band; pairs only with this family',
+      strips: [
+        ['Curb \u00b7 Earthy', 'Curb_Stone_A/Curb_Stone_Earthy_A_Straight_Path.png'],
+        ['Curb \u00b7 Slate',  'Curb_Stone_A/Curb_Stone_Slate_A_Straight_Path.png'],
+        ['Chains coping',      'Wall_Stone_L/Wall_Path_Stone_Earthy_Metal_Gray_Chains_Straight_Path_L1_1x4.png'],
+      ],
+      tiles: [
+        ['Curb corner', 'manual', 'Curb_Stone_A/Curb_Stone_Earthy_A_Corner_A_1x1.png'],
+        ['Curb ending', 'auto',   'Curb_Stone_A/Curb_Stone_Earthy_A_Ending_A_1x1.png'],
+        ['Chains corner', 'manual', 'Wall_Stone_L/Wall_Corner_Stone_Earthy_Metal_Gray_Chains_L1_1x1.png'],
+      ] },
+  },
+  {
+    name: 'Timber-Braced Stone', sub: 'Log-and-stone palisade base: a rustic hybrid. Shade ref: Earthy Ashen.',
+    chips: ['shade ref: Earthy \u00b7 Ashen', 'corner-in / corner-out', 'no curbs'],
+    spec: 'Straight run 1650\u00d7200 px \u00b7 connector 91\u00d760 in 200\u00b2 \u00b7 two-material tint (stone + wood) to plan for',
+    strips: [
+      ['Earthy \u00b7 Ashen', 'Wall_StoneWood_A/Wall_StoneWood_Earthy_Ashen_A_Straight_Path.png'],
+    ],
+    pieces: [
+      ['Connector', 'auto',   'Wall_StoneWood_A/Wall_StoneWood_Earthy_Ashen_A_Connector_A_1x1.png'],
+      ['Corner-in 1\u00d71', 'auto',   'Wall_StoneWood_A/Wall_StoneWood_Earthy_Ashen_A_Corner_In_A_1x1.png'],
+      ['Corner-in 3\u00d73', 'manual', 'Wall_StoneWood_A/Wall_StoneWood_Earthy_Ashen_A_Corner_In_H_3x3.png'],
+      ['Ending', 'auto',   'Wall_StoneWood_A/Wall_StoneWood_Earthy_Ashen_A_Ending_A_1x1.png'],
+    ],
+  },
+  {
+    name: 'Fired Brick & Ruin', sub: 'Fired-brick wall with a built-in ruin kit. Shade ref: Earthy. Caveat: source side pieces are single loose bricks; the recreated design gets fuller connectors and endings.',
+    chips: ['shade ref: Earthy', 'ruin kit \u2713', 'broken endings \u2713', 'rebuild side pieces fuller'],
+    warnChip: 'rebuild side pieces fuller',
+    spec: 'Straight run 1650\u00d7200 px \u00b7 opaque band 62 px \u00b7 loose brick 53\u00d732 scatter chips',
+    strips: [
+      ['Earthy ref', 'Wall_Brick_A/Wall_Brick_Earthy_A_Straight_Path.png'],
+    ],
+    pieces: [
+      ['Connector', 'auto',   'Wall_Brick_A/Wall_Brick_Earthy_A_Connector_A_1x1.png'],
+      ['Corner 1\u00d71', 'auto',   'Wall_Brick_A/Wall_Brick_Earthy_A_Corner_A_1x1.png'],
+      ['Corner 3\u00d73', 'manual', 'Wall_Brick_A/Wall_Brick_Earthy_A_Corner_H_3x3.png'],
+      ['Ending', 'auto',   'Wall_Brick_A/Wall_Brick_Earthy_A_Ending_A_1x1.png'],
+    ],
+    extras: { title: 'Ruin sub-kit', note: 'the C mega-set: broken runs, loose bricks, plaster patches',
+      strips: [
+        ['Ruined run', 'Wall_Brick_C/Wall_Brick_Earthy_C_Straight_Path.png'],
+      ],
+      tiles: [
+        ['Broken connector', 'manual', 'Wall_Brick_C/Wall_Brick_C_Broken/Wall_Brick_Earthy_C_Broken_Connector_A_1x1.png'],
+        ['Loose brick', 'manual', 'Wall_Brick_C/Bricks/Brick_Earthy_A1_1x1.png'],
+        ['Shattered brick', 'manual', 'Wall_Brick_C/Bricks/Brick_Earthy_Broken_A1_1x1.png'],
+        ['Plaster patch', 'manual', 'Wall_Brick_C/Wall_Brick_C1/Wall_Brick_Plaster_Earthy_C1_Connector_A_1x1.png'],
+        ['Broken ending', 'manual', 'Broken_Wall_Endings/Wall_Brick_Earthy_Broken_Ending_A1_1x1.png'],
+      ] },
+  },
+  {
+    name: 'Timber Palisade', sub: 'Log fence and stockade for camps, farms, and frontier forts. Shade ref: Ashen. Thinnest band of the five.',
+    chips: ['shade ref: Ashen', 'broken endings \u2713', 'no curbs'],
+    spec: 'Straight run 1650\u00d7200 px \u00b7 opaque band 44 px (thinnest wall) \u00b7 ending cap 47\u00d744',
+    strips: [
+      ['Ashen ref', 'Wall_Wood_A/Wall_Wood_Ashen_A_Straight_Path.png'],
+    ],
+    pieces: [
+      ['Connector', 'auto',   'Wall_Wood_A/Wall_Wood_Ashen_A_Connector_A_1x1.png'],
+      ['Corner 1\u00d71', 'auto',   'Wall_Wood_A/Wall_Wood_Ashen_A_Corner_A_1x1.png'],
+      ['Corner 3\u00d73', 'manual', 'Wall_Wood_A/Wall_Wood_Ashen_A_Corner_H_3x3.png'],
+      ['Ending', 'auto',   'Wall_Wood_A/Wall_Wood_Ashen_A_Ending_A_1x1.png'],
+      ['Joint', 'manual', 'Wall_Wood_A/Wall_Wood_Ashen_A_Joint_A_1x1.png'],
+      ['Broken ending', 'manual', 'Broken_Wall_Endings/Wall_Wood_Ashen_Broken_Ending_A1_1x1.png'],
+    ],
+  },
+  {
+    name: 'Iron-Braced Dungeon Stone', sub: 'Stone with riveted iron bracing for dungeons, prisons, and vaults. Shade ref: Earthy with Gray metal. Two full style passes (A1, A2).',
+    chips: ['shade ref: Earthy \u00b7 Gray', 'A1 + A2 style passes', 'metal accent tint to plan for', 'no curbs'],
+    spec: 'Straight run 1650\u00d7200 px \u00b7 band matches stone proportions (99\u00d768 connector) \u00b7 iron stays grey under tint',
+    strips: [
+      ['A1 pass', 'Wall_StoneMetal_A/Wall_StoneMetal_Earthy_Gray_A1_Straight_Path.png'],
+      ['A2 pass', 'Wall_StoneMetal_A/Wall_StoneMetal_Earthy_Gray_A2_Straight_Path.png'],
+    ],
+    pieces: [
+      ['Connector', 'auto',   'Wall_StoneMetal_A/Wall_StoneMetal_Earthy_Gray_A1_Connector_A_1x1.png'],
+      ['Corner 1\u00d71', 'auto',   'Wall_StoneMetal_A/Wall_StoneMetal_Earthy_Gray_A1_Corner_A_1x1.png'],
+      ['Corner 3\u00d73', 'manual', 'Wall_StoneMetal_A/Wall_StoneMetal_Earthy_Gray_A1_Corner_H_3x3.png'],
+      ['Ending', 'auto',   'Wall_StoneMetal_A/Wall_StoneMetal_Earthy_Gray_A1_Ending_A_1x1.png'],
+      ['Joint', 'manual', 'Wall_StoneMetal_A/Wall_StoneMetal_Earthy_Gray_A1_Joint_A_1x1.png'],
+    ],
+  },
+];
+
+const tileHtml = ([role, mode, p]) => `
+  <div class="tile">
+    <div class="art"><img src="${B + p}" alt="${role}" loading="lazy"></div>
+    <div class="role">${role} <i class="${mode}">${mode}</i></div>
+    <div class="file mono">${file(p)}</div>
+  </div>`;
+
+const stripHtml = ([tone, p], filter) => `
+  <div class="strip">
+    <div class="tone">${tone}</div>
+    <div class="art"><img src="${B + p}" alt="${tone}" loading="lazy" title="${file(p)}"${filter ? ` style="filter:${filter}"` : ''}></div>
+  </div>`;
+
+document.getElementById('sets').innerHTML = SETS.map((s, i) => `
+  <section class="set" id="set-${i}">
+    <div class="set-head">
+      <div class="rank">${i + 1}</div>
+      <div class="set-title">
+        <h2>${s.name}</h2>
+        <p>${s.sub}</p>
+      </div>
+      <button data-i="${i}" aria-pressed="false">Shortlist</button>
+    </div>
+    <div class="chips">${s.chips.map(c => `<span class="${c === s.warnChip ? 'warn' : /\u2713/.test(c) ? 'hot' : ''}">${c}</span>`).join('')}</div>
+    <div class="spec mono">${s.spec}</div>
+    <div class="zone">
+      <h3>Shade reference <em>(straight runs from the source kit)</em></h3>
+      <div class="strips">${s.strips.map(x => stripHtml(x)).join('')}</div>
+    </div>
+    <div class="zone">
+      <h3>Tint preview <em>(one grey master, recolored at runtime; CSS approximation)</em></h3>
+      <div class="strips">${TINTS.map(([label, f]) => stripHtml([label, s.strips[0][1]], f)).join('')}</div>
+    </div>
+    <div class="zone">
+      <h3>Anatomy <em>(the pieces the renderer places)</em></h3>
+      <div class="tiles">${s.pieces.map(tileHtml).join('')}</div>
+    </div>
+    ${s.extras ? `
+    <div class="zone">
+      <h3>${s.extras.title} <em>(${s.extras.note})</em></h3>
+      ${s.extras.strips ? `<div class="strips" style="margin-bottom:10px">${s.extras.strips.map(x => stripHtml(x)).join('')}</div>` : ''}
+      ${s.extras.tiles ? `<div class="tiles">${s.extras.tiles.map(tileHtml).join('')}</div>` : ''}
+    </div>` : ''}
+    <div class="zone"></div>
+  </section>`).join('');
+
+const picked = new Set();
+const count = document.getElementById('count');
+function refresh() {
+  count.textContent = picked.size === 2
+    ? 'Chosen: ' + [...picked].map(i => SETS[i].name).join(' + ')
+    : `Pick two · ${picked.size} / 2`;
+  count.classList.toggle('full', picked.size === 2);
+  document.querySelectorAll('.set-head button').forEach(b => {
+    const i = +b.dataset.i;
+    b.textContent = picked.has(i) ? 'Shortlisted' : 'Shortlist';
+    b.setAttribute('aria-pressed', picked.has(i));
+    b.disabled = !picked.has(i) && picked.size >= 2;
+    document.getElementById('set-' + i).classList.toggle('selected', picked.has(i));
+  });
+}
+document.querySelectorAll('.set-head button').forEach(b =>
+  b.addEventListener('click', () => {
+    const i = +b.dataset.i;
+    picked.has(i) ? picked.delete(i) : picked.size < 2 && picked.add(i);
+    refresh();
+  }));
+refresh();
+</script>
+</body>
+</html>

@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Floors at the table mockup</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background:#0b0d10; color:#cfd6dd; font:15px/1.45 "Segoe UI", system-ui, sans-serif; padding:18px 22px 30px; }
+  h1 { font-size:26px; font-weight:600; letter-spacing:.02em; color:#e8edf2; }
+  .sub { color:#8b96a1; font-size:12px; margin-top:2px; }
+  header { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:12px; }
+  .seats { margin-left:auto; display:flex; gap:6px; }
+  button { background:#161b21; color:#cfd6dd; border:1px solid #262d36; border-radius:7px;
+           padding:6px 12px; font:12px "Segoe UI",system-ui,sans-serif; cursor:pointer; }
+  button:hover { background:#1d242c; }
+  button.on { background:#243141; border-color:#3d5878; color:#eaf1f8; }
+
+  .tabs { display:flex; gap:6px; align-items:center; margin-bottom:8px; }
+  .tab { display:flex; gap:7px; align-items:center; }
+  .tab .dots { color:#8b96a1; font-size:11px; }
+  .tab.on .dots { color:#b9d4ef; }
+  .spot { margin-left:auto; display:none; }
+  .spot.dm { display:block; }
+
+  .stage { position:relative; border-radius:10px; overflow:hidden; border:1px solid #1d232b;
+           background:#05060a; aspect-ratio: 16/9; max-width:1080px; }
+  .stage svg { position:absolute; inset:0; width:100%; height:100%; display:block; }
+
+  .banner { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:4;
+            background:rgba(14,18,24,.85); border:1px solid #2c3947; color:#dbe5ee;
+            font-size:12px; padding:5px 12px; border-radius:6px; display:none; }
+
+  .pip { position:absolute; right:12px; top:12px; z-index:5; width:200px; border-radius:8px;
+         overflow:hidden; border:1px solid #33404f; box-shadow:0 4px 18px rgba(0,0,0,.5);
+         cursor:pointer; background:#05060a; }
+  .pip svg { display:block; width:100%; height:auto; }
+  .pip .cap { font-size:11px; color:#aeb9c4; background:rgba(10,13,17,.9); padding:3px 8px;
+              display:flex; justify-content:space-between; }
+  .pip:hover { border-color:#4d6a8a; }
+
+  .ctx { position:absolute; z-index:6; left:34%; top:38%; background:#141920; border:1px solid #2b3540;
+         border-radius:8px; font-size:12.5px; min-width:190px; display:none; overflow:hidden;
+         box-shadow:0 6px 22px rgba(0,0,0,.55); }
+  .ctx div { padding:7px 12px; cursor:pointer; }
+  .ctx div:hover { background:#1e2630; }
+  .ctx .hd { color:#8b96a1; font-size:11px; cursor:default; background:#10151b; }
+  .ctx .hd:hover { background:#10151b; }
+
+  .notes { max-width:1080px; margin-top:14px; display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px; }
+  .note { background:#10141a; border:1px solid #1d232b; border-radius:8px; padding:10px 12px; font-size:12.5px; color:#aab5c0; }
+  .note b { color:#dbe5ee; font-weight:600; display:block; margin-bottom:3px; font-size:12px; letter-spacing:.03em; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Floors at the table</h1>
+    <div class="sub">tabs + PiP inset · DM-only travel · party vision when spectating. Click tabs, the PiP, and swap seats.</div>
+  </div>
+  <div class="seats">
+    <button id="seat-player" class="on">Player seat (Bran, on Ground)</button>
+    <button id="seat-dm">DM seat</button>
+  </div>
+</header>
+
+<div class="tabs" id="tabs">
+  <button class="tab on" data-floor="ground">Watchtower · Ground <span class="dots">●●●</span></button>
+  <button class="tab" data-floor="cellar">Cellar <span class="dots">●</span></button>
+  <button class="spot" id="spotlight" title="Set everyone's default view to this floor">📣 Spotlight this floor</button>
+</div>
+
+<div class="stage" id="stage">
+  <div class="banner" id="banner">Viewing <b>Cellar</b> (your token is on Ground) · party vision</div>
+  <div class="pip" id="pip" title="Click to view this floor">
+    <div class="cap"><span id="pipname">Cellar</span><span id="pipdots">●1</span></div>
+    <div id="pipmap"></div>
+  </div>
+  <div class="ctx" id="ctx">
+    <div class="hd">Vex (rogue)</div>
+    <div>➜ Send to Ground via Stair A</div>
+    <div>Center on token</div>
+    <div>Remove from table</div>
+  </div>
+  <div id="mainmap"></div>
+</div>
+
+<div class="notes">
+  <div class="note"><b>TABS = permission to look</b>You get a tab for the floor your token is on, plus (party-share) any floor a party member stands on. Spectating shows full party vision there: same picture as the seats on that floor.</div>
+  <div class="note"><b>PIP = the other occupied floor</b>Small live inset of the floor you're not watching; click to swap. Perf-gated: may ship DM-first if the second render pass is heavy.</div>
+  <div class="note"><b>DM SEAT</b>Same tabs plus token counts, a spotlight button (sets the default view for everyone and new joiners), and right-click travel on a token: "Send to Ground, via Stair A". Travel is DM-only in v1.</div>
+  <div class="note"><b>STAIR LINKS ⇅</b>A stair placed on both maps, paired. Travel drops the token at the linked position. Player walk-through self-serve comes later.</div>
+</div>
+
+<script>
+  // ── fake floor renderers ──────────────────────────────────────────────
+  const TOK = (x,y,c,l) => `<circle cx="${x}" cy="${y}" r="16" fill="${c}" stroke="#0b0d10" stroke-width="3"/>
+    <text x="${x}" y="${y+4}" text-anchor="middle" font-size="12" font-weight="600" fill="#0b0d10">${l}</text>`;
+  const STAIR = (x,y) => `<g stroke="#c9a86a" stroke-width="2" fill="none">
+    <rect x="${x}" y="${y}" width="34" height="34" rx="3" fill="rgba(201,168,106,.12)"/>
+    <path d="M${x+6} ${y+26} h8 v-6 h8 v-6 h8"/></g>
+    <text x="${x+17}" y="${y+48}" text-anchor="middle" font-size="10" fill="#c9a86a">Stair A ⇅</text>`;
+
+  function ground() { return `<svg viewBox="0 0 960 540">
+    <rect width="960" height="540" fill="#05060a"/>
+    <g stroke="#3a4653" stroke-width="6" fill="#1b2028">
+      <rect x="140" y="90" width="420" height="300" rx="4"/>
+      <rect x="560" y="170" width="240" height="220" rx="4"/>
+    </g>
+    <g fill="#232a34">${grid(140,90,420,300)}${grid(560,170,240,220)}</g>
+    ${STAIR(500, 120)}
+    ${TOK(240,240,'#7fb3e0','B')}${TOK(330,300,'#9fd49a','M')}${TOK(650,280,'#e0b97f','T')}
+    <rect x="0" y="0" width="960" height="540" fill="#05060a" opacity="0" />
+    <path d="M0 0 H960 V540 H0 Z M120 70 h460 v340 h-460 z M540 150 h280 v260 h-280 z"
+          fill="#05060a" fill-rule="evenodd" opacity=".82"/>
+  </svg>`; }
+
+  function cellar() { return `<svg viewBox="0 0 960 540">
+    <rect width="960" height="540" fill="#040508"/>
+    <g stroke="#33404f" stroke-width="6" fill="#141922">
+      <rect x="240" y="140" width="480" height="260" rx="4"/>
+    </g>
+    <g fill="#1a212b">${grid(240,140,480,260)}</g>
+    ${STAIR(280, 170)}
+    ${TOK(430,270,'#c58fd6','V')}
+    <path d="M0 0 H960 V540 H0 Z M220 120 h520 v300 h-520 z"
+          fill="#040508" fill-rule="evenodd" opacity=".88"/>
+  </svg>`; }
+
+  function grid(x,y,w,h){ let s=''; for(let i=x+40;i<x+w;i+=40) s+=`<rect x="${i}" y="${y}" width="1" height="${h}"/>`;
+    for(let j=y+40;j<y+h;j+=40) s+=`<rect x="${x}" y="${j}" width="${w}" height="1"/>`; return s; }
+
+  // ── state ─────────────────────────────────────────────────────────────
+  const floors = { ground: {name:'Watchtower · Ground', dots:'●3', render:ground},
+                   cellar: {name:'Cellar', dots:'●1', render:cellar} };
+  let viewed = 'ground', seat = 'player';
+
+  function draw() {
+    const other = viewed === 'ground' ? 'cellar' : 'ground';
+    document.getElementById('mainmap').innerHTML = floors[viewed].render();
+    document.getElementById('pipmap').innerHTML = floors[other].render();
+    document.getElementById('pipname').textContent = floors[other].name;
+    document.getElementById('pipdots').textContent = floors[other].dots;
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.floor === viewed));
+    // spectate banner: player seat, viewing a floor their token isn't on
+    document.getElementById('banner').style.display =
+      (seat === 'player' && viewed === 'cellar') ? 'block' : 'none';
+    document.getElementById('spotlight').classList.toggle('dm', seat === 'dm');
+    // DM context menu demo only when DM views the cellar (right-clicking Vex)
+    document.getElementById('ctx').style.display =
+      (seat === 'dm' && viewed === 'cellar') ? 'block' : 'none';
+  }
+
+  document.getElementById('tabs').addEventListener('click', e => {
+    const t = e.target.closest('.tab'); if (t) { viewed = t.dataset.floor; draw(); }
+  });
+  document.getElementById('pip').addEventListener('click', () => {
+    viewed = viewed === 'ground' ? 'cellar' : 'ground'; draw();
+  });
+  document.getElementById('seat-player').addEventListener('click', () => { seat='player';
+    document.getElementById('seat-player').classList.add('on');
+    document.getElementById('seat-dm').classList.remove('on'); draw(); });
+  document.getElementById('seat-dm').addEventListener('click', () => { seat='dm';
+    document.getElementById('seat-dm').classList.add('on');
+    document.getElementById('seat-player').classList.remove('on'); draw(); });
+  draw();
+</script>
+</body>
+</html>

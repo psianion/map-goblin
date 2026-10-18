@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Table UI — recommendation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap" rel="stylesheet">
+<style>
+  /* Moss, night. Values verbatim from canvas/src/index.css `.dark`. */
+  :root {
+    --surface-0: 15 16 14; --surface-1: 24 26 23; --surface-2: 35 37 34; --surface-3: 48 51 46;
+    --text-primary: 234 236 233; --text-secondary: 182 188 179; --text-muted: 151 158 148; --text-dim: 213 217 211;
+    --border-structure: 77 84 74; --border-default: 58 62 56; --border-subtle: 35 37 34; --border-focus: 145 196 100;
+    --accent-active: 145 196 100; --accent-dim: 102 139 75; --on-accent: 15 17 14;
+    --danger: 224 133 123; --warning: 212 174 84; --success: 145 196 100; --info: 114 165 202;
+    --panel-shadow: 0 10px 26px -14px rgb(0 0 0 / 0.9);
+    --hover-glow: radial-gradient(120% 160% at 50% 120%, rgb(var(--accent-active) / 0.18) 0%, transparent 70%);
+    --settle: cubic-bezier(0.16, 1, 0.3, 1);
+    --sans: "IBM Plex Sans", system-ui, sans-serif;
+    --serif: "Newsreader", Georgia, serif;
+    --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    --page: #0a0b0a; --page-line: #1f221e; --note: #d4ae54;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--page); color: rgb(var(--text-primary)); font: 14px/1.5 var(--sans); }
+  .wrap { padding: 32px 40px 96px; max-width: 1760px; margin: 0 auto; }
+  h1 { font: 500 28px/1.2 var(--serif); margin: 0 0 6px; letter-spacing: -0.005em; }
+  h2 { font: 500 21px/1.3 var(--serif); margin: 56px 0 6px; }
+  h2:first-of-type { margin-top: 28px; }
+  h3 { font: 600 13px/1.4 var(--sans); margin: 0 0 8px; color: rgb(var(--text-secondary)); }
+  p { margin: 0 0 10px; max-width: 74ch; color: rgb(var(--text-secondary)); }
+  p.lede { font-size: 15px; }
+  ul.rules { margin: 0 0 20px; padding-left: 18px; color: rgb(var(--text-secondary)); max-width: 80ch; }
+  ul.rules li { margin-bottom: 4px; }
+  ul.rules b { color: rgb(var(--text-primary)); font-weight: 600; }
+  code { font: 12px var(--mono); color: rgb(var(--text-dim)); }
+  kbd { font: 11px/1 var(--mono); background: rgb(var(--surface-2)); border: 1px solid rgb(var(--border-default)); border-radius: 3px; padding: 2px 5px; color: rgb(var(--text-dim)); }
+  .cap { color: rgb(var(--text-muted)); font-size: 12px; margin: 10px 0 0; max-width: 1280px; }
+  .cap b { color: rgb(var(--text-dim)); font-weight: 500; }
+  .cols { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+  table.ledger { border-collapse: collapse; font-size: 13px; margin: 8px 0 0; max-width: 1100px; }
+  table.ledger th, table.ledger td { text-align: left; padding: 8px 12px 8px 0; vertical-align: top; border-bottom: 1px solid var(--page-line); }
+  table.ledger th { color: rgb(var(--text-muted)); font-weight: 500; font-size: 12px; }
+  table.ledger td:first-child { color: rgb(var(--text-primary)); font-weight: 500; white-space: nowrap; }
+  table.ledger td { color: rgb(var(--text-secondary)); }
+  .keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 6px 24px; max-width: 900px; font-size: 13px; color: rgb(var(--text-secondary)); }
+  .keys div { display: block; line-height: 1.9; }
+  .keys kbd { min-width: 22px; text-align: center; }
+
+  /* ── Frame: 1280×720 of the real table ──────────────────────────────────── */
+  .frame { width: 1280px; height: 720px; position: relative; overflow: hidden; background: rgb(var(--surface-0)); border: 1px solid var(--page-line); font-size: 13px; color: rgb(var(--text-primary)); }
+  .frame .map { position: absolute; inset: 0; background: #000 center / cover no-repeat; }
+  .frame .map.dm { background-image: url(map-dm.jpg); }
+  .frame .map.pl { background-image: url(map-player.jpg); }
+
+  /* Session chip, top-left */
+  .sess { position: absolute; top: 10px; left: 10px; display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px 0 12px; background: rgb(var(--surface-1) / .92); border: 1px solid rgb(var(--border-structure)); border-radius: 6px; box-shadow: var(--panel-shadow); }
+  .sess .name { font: 500 15px/1 var(--serif); color: rgb(var(--text-primary)); }
+  .sess .meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(var(--text-muted)); }
+  .sess .presence { display: flex; gap: 3px; }
+  .disc { width: 8px; height: 8px; border-radius: 50%; background: rgb(var(--text-secondary)); display: inline-block; }
+  .ring { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid rgb(var(--text-muted)); display: inline-block; }
+  .sess .chev { color: rgb(var(--text-muted)); }
+
+  /* Icon rail, right edge */
+  .rail { position: absolute; top: 0; right: 0; bottom: 0; width: 56px; display: flex; flex-direction: column; align-items: center; padding: 10px 0; gap: 2px; background: rgb(var(--surface-1)); border-left: 1px solid rgb(var(--border-structure)); }
+  .rail .divider { width: 28px; height: 1px; background: rgb(var(--border-default)); margin: 8px 0; }
+  .rail .spacer { flex: 1; }
+  .ri { width: 48px; height: 46px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border-radius: 6px; color: rgb(var(--text-secondary)); position: relative; }
+  .ri svg { width: 20px; height: 20px; margin-top: 1px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+  .ri span { font-size: 9.5px; line-height: 1; letter-spacing: .01em; }
+  .ri.on { background: rgb(var(--surface-3)); color: rgb(var(--accent-active)); }
+  .ri.hover { background-image: var(--hover-glow); color: rgb(var(--text-primary)); }
+  .ri .badge { position: absolute; top: 2px; right: 2px; min-width: 13px; height: 13px; padding: 0 3px; border-radius: 7px; background: rgb(var(--accent-active)); color: rgb(var(--on-accent)); font: 500 9px/13px var(--mono); text-align: center; box-shadow: 0 0 0 2px rgb(var(--surface-1)); }
+  .ri .badge.quiet { background: rgb(var(--surface-3)); color: rgb(var(--text-dim)); }
+  .ri .key { position: absolute; bottom: 3px; right: 5px; font: 9px/1 var(--mono); color: rgb(var(--text-muted)); display: none; }
+
+  /* Popover anchored left of the rail */
+  .pop { position: absolute; right: 66px; width: 320px; background: rgb(var(--surface-1)); border: 1px solid rgb(var(--border-structure)); border-radius: 8px; box-shadow: var(--panel-shadow); display: flex; flex-direction: column; overflow: hidden; }
+  .pop.wide { width: 360px; }
+  .pop .hd { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 8px 0 14px; border-bottom: 1px solid rgb(var(--border-default)); }
+  .pop .hd .t { font: 500 16px/1 var(--serif); }
+  .pop .hd .sub { font-size: 12px; color: rgb(var(--text-muted)); }
+  .pop .hd .x { margin-left: auto; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 4px; color: rgb(var(--text-muted)); }
+  .pop .hd .x svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; }
+  .pop .bd { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .pop .ft { display: flex; gap: 6px; align-items: center; padding: 8px 12px; border-top: 1px solid rgb(var(--border-default)); }
+  .pop .ft .sp { flex: 1; }
+  .hint { font-size: 12px; color: rgb(var(--text-muted)); display: flex; gap: 6px; align-items: center; }
+  .hint svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.75; flex-shrink: 0; }
+
+  /* Controls */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 10px; font: 500 12px/1 var(--sans); border: 1px solid rgb(var(--border-default)); border-radius: 4px; background: rgb(var(--surface-2)); color: rgb(var(--text-primary)); white-space: nowrap; }
+  .btn svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; }
+  .btn.primary { background: rgb(var(--accent-active)); border-color: rgb(var(--accent-active)); color: rgb(var(--on-accent)); }
+  .btn.ghost { background: transparent; border-color: transparent; color: rgb(var(--text-secondary)); }
+  .btn.danger { background: transparent; border-color: transparent; color: rgb(var(--danger)); }
+  .btn.dis { opacity: .4; }
+  .btn.sm { height: 24px; padding: 0 8px; font-size: 11.5px; }
+  .btn.armed { background: rgb(var(--surface-3)); border-color: rgb(var(--accent-active)); color: rgb(var(--accent-active)); }
+  .inp { height: 28px; padding: 0 8px; font: 13px var(--sans); border: 1px solid rgb(var(--border-default)); border-radius: 4px; background: rgb(var(--surface-0)); color: rgb(var(--text-primary)); display: flex; align-items: center; gap: 6px; }
+  .inp.ph { color: rgb(var(--text-muted)); }
+  .inp.mono { font-family: var(--mono); }
+  .inp .k { margin-left: auto; font: 10px var(--mono); color: rgb(var(--text-muted)); border: 1px solid rgb(var(--border-default)); border-radius: 3px; padding: 1px 4px; }
+  .sel { position: relative; padding-right: 22px; }
+  .sel::after { content: ""; position: absolute; right: 9px; top: 9px; width: 6px; height: 6px; border-right: 1.5px solid rgb(var(--text-muted)); border-bottom: 1.5px solid rgb(var(--text-muted)); transform: rotate(45deg); }
+  .seg { display: flex; gap: 2px; padding: 2px; border: 1px solid rgb(var(--border-default)); border-radius: 5px; background: rgb(var(--surface-0)); }
+  .seg span { flex: 1; text-align: center; font-size: 12px; padding: 4px 6px; border-radius: 3px; color: rgb(var(--text-secondary)); white-space: nowrap; }
+  .seg span.on { background: rgb(var(--surface-3)); color: rgb(var(--text-primary)); }
+  .seg.tight span { padding: 3px 4px; font-size: 11.5px; }
+  .sw { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: rgb(var(--text-secondary)); }
+  .sw i { width: 26px; height: 16px; border-radius: 8px; background: rgb(var(--surface-3)); border: 1px solid rgb(var(--border-default)); position: relative; flex-shrink: 0; }
+  .sw i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: rgb(var(--text-secondary)); }
+  .sw i.on { background: rgb(var(--accent-dim)); border-color: rgb(var(--accent-dim)); }
+  .sw i.on::after { left: 12px; background: rgb(var(--on-accent)); }
+  .sw .r { margin-left: auto; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .row .sp { flex: 1; }
+  .lbl { font-size: 11.5px; color: rgb(var(--text-muted)); }
+  .tabs { display: flex; gap: 14px; padding: 0 14px; border-bottom: 1px solid rgb(var(--border-default)); }
+  .tabs span { padding: 8px 0 7px; font-size: 12.5px; color: rgb(var(--text-secondary)); border-bottom: 1px solid transparent; margin-bottom: -1px; }
+  .tabs span.on { color: rgb(var(--text-primary)); border-bottom-color: rgb(var(--accent-active)); }
+
+  /* Rows (lists that never scroll) */
+  .lst { display: flex; flex-direction: column; }
+  .lst .it { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; border-radius: 4px; font-size: 13px; border-bottom: 1px solid rgb(var(--border-subtle)); }
+  .lst .it:last-child { border-bottom: 0; }
+  .lst .it.sel { background: rgb(var(--surface-3)); border-bottom-color: transparent; }
+  .lst .it .r { margin-left: auto; display: flex; gap: 6px; align-items: center; color: rgb(var(--text-muted)); font-size: 12px; }
+  .lst .it code { color: rgb(var(--text-dim)); }
+  .tag { font: 500 10px/1 var(--sans); letter-spacing: .04em; text-transform: uppercase; padding: 3px 5px; border: 1px solid rgb(var(--border-default)); border-radius: 3px; color: rgb(var(--text-secondary)); }
+  .tag.dm { color: rgb(var(--warning)); border-color: rgb(var(--warning) / .5); }
+  .tag.on { color: rgb(var(--accent-active)); border-color: rgb(var(--accent-dim)); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot.hostile { background: rgb(var(--danger)); } .dot.friendly { background: rgb(var(--info)); } .dot.neutral { background: rgb(var(--text-muted)); }
+  .ico { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+
+  /* Initiative rows */
+  .irow { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 8px; border-radius: 4px; font-size: 13px; }
+  .irow .mark { width: 10px; color: rgb(var(--accent-active)); font-size: 10px; }
+  .irow .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .irow .chips { display: flex; gap: 3px; }
+  .irow .hp { margin-left: auto; font: 12px var(--mono); color: rgb(var(--text-secondary)); display: flex; align-items: center; gap: 4px; }
+  .irow .hp .bar { width: 36px; height: 3px; border-radius: 2px; background: rgb(var(--surface-3)); overflow: hidden; }
+  .irow .hp .bar i { display: block; height: 100%; background: rgb(var(--text-secondary)); }
+  .irow .ini { width: 22px; text-align: right; font: 500 13px var(--mono); color: rgb(var(--text-dim)); }
+  .irow.cur { background: rgb(var(--surface-3)); }
+  .irow.down .nm { text-decoration: line-through; color: rgb(var(--text-muted)); }
+  .irow.down .hp, .irow.down .ini { color: rgb(var(--text-muted)); }
+  .book { display: flex; gap: 6px; align-items: center; padding: 6px 8px 8px 26px; background: rgb(var(--surface-3)); border-radius: 0 0 4px 4px; margin-top: -4px; }
+  .book .inp { width: 64px; height: 26px; }
+
+  /* Chip grids (rooms, doors) */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+  .chip { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border: 1px solid rgb(var(--border-default)); border-radius: 4px; background: rgb(var(--surface-2)); font-size: 12px; white-space: nowrap; overflow: hidden; }
+  .chip span { overflow: hidden; text-overflow: ellipsis; }
+  .chip .st { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .chip .st.rev { background: rgb(var(--text-dim)); }
+  .chip .st.un { border: 1.5px solid rgb(var(--text-muted)); }
+  .chip .st.part { background: linear-gradient(90deg, rgb(var(--text-dim)) 50%, transparent 50%); border: 1.5px solid rgb(var(--text-muted)); }
+  .chip .ico { margin-left: auto; color: rgb(var(--text-muted)); width: 12px; height: 12px; }
+  .chip.sel { background: rgb(var(--surface-3)); border-color: rgb(var(--border-structure)); }
+  .chip.hover { background-image: var(--hover-glow); }
+  .grp { font-size: 11px; color: rgb(var(--text-muted)); letter-spacing: .02em; margin: 2px 0 -2px; }
+
+  /* World */
+  .ribbon { height: 22px; border-radius: 3px; background: linear-gradient(to right, #2a2638 0%, #6e4a5c 14%, #d9a07a 24%, #f3e3c6 34%, #f7efe0 52%, #e7c9a6 68%, #b87a6a 78%, #3f3350 88%, #25233a 100%); position: relative; }
+  .ribbon::before { content: ""; position: absolute; left: 4px; top: -2px; width: 3px; height: 26px; background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.85); border-radius: 1px; }
+  .jumps { display: flex; gap: 4px; }
+  .jumps .btn { flex: 1; padding: 0 4px; }
+  .jumps .btn.on { background: rgb(var(--surface-3)); border-color: rgb(var(--border-structure)); }
+  .badge { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid rgb(var(--border-default)); border-radius: 4px; font-size: 12px; color: rgb(var(--text-secondary)); }
+  .badge b { color: rgb(var(--text-primary)); font-weight: 500; }
+
+  /* Log drawer */
+  .drawer { position: absolute; left: 0; right: 56px; bottom: 28px; height: 260px; background: rgb(var(--surface-1) / .96); border-top: 1px solid rgb(var(--border-structure)); box-shadow: var(--panel-shadow); display: flex; flex-direction: column; }
+  .drawer .hd { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-bottom: 1px solid rgb(var(--border-default)); }
+  .drawer .hd .t { font: 500 15px/1 var(--serif); margin-right: 6px; }
+  .fchip { font-size: 11.5px; padding: 3px 8px; border-radius: 10px; border: 1px solid rgb(var(--border-default)); color: rgb(var(--text-secondary)); }
+  .fchip.on { background: rgb(var(--surface-3)); color: rgb(var(--text-primary)); border-color: rgb(var(--border-structure)); }
+  .drawer .feed { flex: 1; overflow: hidden; padding: 6px 12px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; font-size: 12.5px; color: rgb(var(--text-secondary)); align-content: end; }
+  .drawer .feed div { display: flex; gap: 10px; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .drawer .feed time { font: 11px var(--mono); color: rgb(var(--text-muted)); width: 40px; flex-shrink: 0; }
+  .drawer .feed .who { color: rgb(var(--text-primary)); font-weight: 500; }
+  .drawer .feed .tot { font: 500 12px var(--mono); color: rgb(var(--text-primary)); }
+  .drawer .feed .sys { font-style: italic; }
+  .drawer .comp { display: flex; gap: 8px; padding: 8px 12px; border-top: 1px solid rgb(var(--border-default)); }
+  .drawer .comp .inp { flex: 1; }
+  .ticker { position: absolute; left: 10px; bottom: 36px; display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 10px; background: rgb(var(--surface-1) / .9); border: 1px solid rgb(var(--border-default)); border-radius: 5px; font-size: 12px; color: rgb(var(--text-secondary)); }
+  .ticker time { font: 11px var(--mono); color: rgb(var(--text-muted)); }
+
+  /* Status bar */
+  .status { position: absolute; left: 0; right: 56px; bottom: 0; height: 28px; display: flex; align-items: center; gap: 12px; padding: 0 12px; background: rgb(var(--surface-1) / .85); backdrop-filter: blur(6px); font: 12px var(--mono); color: rgb(var(--text-secondary)); }
+  .status .sep { color: rgb(var(--text-muted)); }
+  .status .zoom { margin-left: auto; display: flex; align-items: center; gap: 8px; color: rgb(var(--text-muted)); }
+  .status .zoom .track { width: 90px; height: 3px; border-radius: 2px; background: linear-gradient(to right, rgb(var(--text-dim)) 4%, rgb(var(--border-default)) 4%); position: relative; }
+  .status .zoom .track::after { content: ""; position: absolute; left: 2px; top: -4px; width: 11px; height: 11px; border-radius: 50%; background: rgb(var(--text-dim)); }
+  .status .tool { display: flex; gap: 6px; align-items: center; color: rgb(var(--accent-active)); }
+  .status .tool kbd { font-size: 10px; }
+
+  /* Map-anchored things */
+  .mpop { position: absolute; background: rgb(var(--surface-1)); border: 1px solid rgb(var(--border-structure)); border-radius: 6px; box-shadow: var(--panel-shadow); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
+  .mpop .t { font: 500 13px var(--sans); display: flex; gap: 8px; align-items: center; }
+  .mpop .t .st { font-size: 11.5px; color: rgb(var(--text-muted)); margin-left: auto; }
+  .mpop .acts { display: flex; gap: 4px; }
+  .mpop.r::before { left: auto; right: -6px; transform: rotate(225deg); }
+  .mpop::before { content: ""; position: absolute; left: -6px; top: 14px; width: 10px; height: 10px; background: rgb(var(--surface-1)); border-left: 1px solid rgb(var(--border-structure)); border-bottom: 1px solid rgb(var(--border-structure)); transform: rotate(45deg); }
+  .pulse { position: absolute; width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgb(var(--accent-active)); box-shadow: 0 0 0 4px rgb(var(--accent-active) / .25); }
+  .turnpill { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 14px; background: rgb(var(--surface-1) / .94); border: 1px solid rgb(var(--border-structure)); border-radius: 17px; box-shadow: var(--panel-shadow); font-size: 13px; }
+  .turnpill b { font-weight: 600; color: rgb(var(--accent-active)); }
+  .turnpill .nx { color: rgb(var(--text-muted)); font-size: 12px; }
+  .rollbar { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); width: 460px; display: flex; gap: 6px; align-items: center; height: 38px; padding: 4px 4px 4px 12px; background: rgb(var(--surface-1) / .94); border: 1px solid rgb(var(--border-structure)); border-radius: 19px; box-shadow: var(--panel-shadow); }
+  .rollbar .ph { flex: 1; font-size: 13px; color: rgb(var(--text-muted)); }
+  .rollbar .btn { border-radius: 15px; height: 30px; }
+  .rollbar .dice { width: 16px; height: 16px; stroke: rgb(var(--text-muted)); fill: none; stroke-width: 1.75; }
+
+  /* Gallery of popovers at true size */
+  .gallery { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+  .gallery .pop { position: static; }
+  .gallery figure { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+  .gallery figcaption { font-size: 12px; color: rgb(var(--text-muted)); max-width: 320px; }
+  .gallery figcaption b { color: rgb(var(--text-dim)); font-weight: 500; }
+  .gallery .pop.wide + figcaption { max-width: 360px; }
+
+  .callout { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: rgb(var(--text-secondary)); padding: 8px 10px; border: 1px solid var(--page-line); border-radius: 6px; background: #0f100f; max-width: 520px; }
+  .callout .n { flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; background: var(--note); color: #111; font: 600 10.5px/18px var(--mono); text-align: center; }
+  .callout b { color: rgb(var(--text-primary)); font-weight: 600; }
+  .notes { display: flex; flex-direction: column; gap: 8px; width: 520px; }
+  .pin { position: absolute; width: 18px; height: 18px; border-radius: 50%; background: var(--note); color: #111; font: 600 10.5px/18px var(--mono); text-align: center; box-shadow: 0 0 0 2px var(--page); z-index: 5; }
+  @media (prefers-reduced-motion: no-preference) { .pop, .drawer, .mpop { animation: settle 180ms var(--settle) both; } }
+  @keyframes settle { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>The Table, reshaped</h1>
+  <p class="lede">Recommendation for the session surface. Same data, same modules, different shell: the map owns the viewport, every panel is a popover off a labelled icon rail, and nothing in the chrome scrolls except the log feed.</p>
+
+  <h3>The rules this layout is built on</h3>
+  <ul class="rules">
+    <li><b>Nothing scrolls but the log.</b> Every popover is sized to its worst realistic case at 720p (ledger at the bottom). Where a list can outgrow that, it switches to a denser form or gains a filter; it never grows a scrollbar.</li>
+    <li><b>One popover open at a time, anchored to its icon.</b> Click the icon or press its key to open; click again, <kbd>Esc</kbd>, or another icon closes it. The map never shrinks.</li>
+    <li><b>Play on the map, prep behind an icon.</b> Rooms, doors and tokens are acted on where they are, with a small anchored menu; the rail popovers are the overview, not the only path. Scene, World and Triggers are prep and sit below a divider.</li>
+    <li><b>Two shells, not one shell with fewer panels.</b> Players get a turn pill, a "Me" card and a roll bar; they never see FPS, tool state, or lists of things they cannot act on.</li>
+    <li><b>Moss at night, as the editor already runs.</b> Green counts: active tool, current turn, primary action, live state. Everything else is tinted grey. Selection is a raised surface.</li>
+  </ul>
+
+  <!-- ═══════════════════════ DM · idle ═══════════════════════ -->
+  <h2>DM · nothing open</h2>
+  <p>The default state for most of a session. Session chip top-left, rail right, status bar bottom. The last log line tickers above the status bar so the DM sees rolls land without opening anything.</p>
+  <div class="cols">
+    <div>
+      <div class="frame" id="f-dm-idle">
+        <div class="map dm"></div>
+        <div class="sess"><span class="name">Fieldstone Keep</span><span class="meta"><span class="presence"><i class="disc"></i><i class="disc"></i><i class="ring"></i></span>3</span><span class="chev">▾</span></div>
+        <div class="ticker"><time>21:14</time><span><b style="color:rgb(var(--text-primary));font-weight:500">Willow</b> rolled stealth <b style="font-family:var(--mono);font-weight:500;color:rgb(var(--text-primary))">17</b></span></div>
+        <div class="status"><span class="disc" style="background:rgb(var(--success))"></span><span>1 ms</span><span class="sep">·</span><span>Night · Full moon · Dusk</span><span class="zoom">4% <span class="track"></span></span></div>
+        <div class="rail" data-rail="dm" data-on=""></div>
+      </div>
+      <p class="cap"><b>Rail, top to bottom:</b> Initiative · Fog · Doors · Tokens, divider, Scene · World · Triggers, and Log pinned to the bottom with an unread count. Each icon carries a 9px label so it can be found without hovering; the hotkey shows in the tooltip. The rail is 56px; the map gains 200px over today.</p>
+    </div>
+    <div class="notes">
+      <div class="callout"><span class="n">1</span><div><b>Session chip replaces the Session panel.</b> Scene name in Newsreader, presence as shapes (disc = here, ring = away), count. Click opens invite code, roster, end session.</div></div>
+      <div class="callout"><span class="n">2</span><div><b>Status bar drops FPS and frame-time</b> from the default view (they return behind a <kbd>Shift</kbd>+<kbd>D</kbd> diagnostics toggle). Presence shape, latency, world light, zoom. When a tool is armed it names the tool and shows <kbd>Esc</kbd> here instead of in a separate floating chip.</div></div>
+      <div class="callout"><span class="n">3</span><div><b>Ticker</b> is the log's collapsed form: latest line, click to open the drawer. It is the only new floating element and it sits where the old tool indicator sat.</div></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════ DM · initiative ═══════════════════════ -->
+  <h2>DM · mid-fight, Initiative open</h2>
+  <p>The one widget that merges today's two "Initiative" sections. Turn order, HP and conditions read at a glance; the current row is a raised surface with its bookkeeping line open. Damage is typed once and applied with <kbd>↵</kbd>; conditions are chips, not a select.</p>
+  <div class="cols">
+    <div>
+      <div class="frame">
+        <div class="map dm"></div>
+        <div class="sess"><span class="name">Fieldstone Keep</span><span class="meta"><span class="presence"><i class="disc"></i><i class="disc"></i><i class="disc"></i></span>3</span><span class="chev">▾</span></div>
+        <div class="pulse" style="left:713px; top:448px"></div>
+        <div class="status"><span class="disc" style="background:rgb(var(--success))"></span><span>1 ms</span><span class="sep">·</span><span>Night · Full moon · Dusk</span><span class="zoom">4% <span class="track"></span></span></div>
+        <div class="rail" data-rail="dm" data-on="initiative"></div>
+        <div class="pop" style="top:10px" data-pop="initiative"></div>
+      </div>
+      <p class="cap"><b>Turn ring on the map and the raised row in the panel are the same state.</b> "Next turn" is the only primary button in the shell while an encounter runs; <kbd>N</kbd> fires it without the panel open. The pre-encounter state of this popover is the candidate list with checkboxes and one "Begin" button, same frame.</p>
+    </div>
+    <div class="notes">
+      <div class="callout"><span class="n">4</span><div><b>Bookkeeping lives on the row, not in a second section.</b> Selecting any row opens the line: damage field (negative heals, <kbd>↵</kbd> applies), condition chips toggle on click, a "+" chip opens the SRD list as a small menu. No unlabeled triple-input row.</div></div>
+      <div class="callout"><span class="n">5</span><div><b>HP is a number and a 36px bar.</b> The bar is what the DM reads across the table; the number is what they edit. NPC rows keep both; player seats get the bar only, per the existing redaction.</div></div>
+      <div class="callout"><span class="n">6</span><div><b>Ceiling: 14 rows at 36px fit with header and footer.</b> At 15+ the rows compact to 28px and condition chips collapse to a count; at 24+ the panel widens to 360px and runs two columns. No scroll at any count a table can reach.</div></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════ DM · fog ═══════════════════════ -->
+  <h2>DM · Fog open, reveal tool armed</h2>
+  <p>Rooms are chips in two columns with a status shape, not rows with status words. The primary action is the click on the map; the chip grid is the overview and the bulk path. Hovering a room on the map highlights its chip and vice versa.</p>
+  <div class="cols">
+    <div>
+      <div class="frame">
+        <div class="map dm"></div>
+        <div class="sess"><span class="name">Fieldstone Keep</span><span class="meta"><span class="presence"><i class="disc"></i><i class="disc"></i><i class="disc"></i></span>3</span><span class="chev">▾</span></div>
+        <div style="position:absolute; left:878px; top:458px; width:150px; height:138px; border:1.5px solid rgb(var(--accent-active)); background: rgb(var(--accent-active) / .08); border-radius:2px"></div>
+        <div class="mpop r" style="left:640px; top:470px"><div class="t">Kitchens<span class="st">Unrevealed</span></div><div class="acts"><span class="btn sm primary">Reveal</span><span class="btn sm ghost">Reveal and frame</span></div></div>
+        <div class="status"><span class="disc" style="background:rgb(var(--success))"></span><span>1 ms</span><span class="sep">·</span><span>Night · Full moon · Dusk</span><span class="sep">·</span><span class="tool">Reveal rooms <kbd>Esc</kbd></span><span class="zoom">4% <span class="track"></span></span></div>
+        <div class="rail" data-rail="dm" data-on="fog"></div>
+        <div class="pop" style="top:56px" data-pop="fog"></div>
+      </div>
+      <p class="cap"><b>Tool state reads in two places that agree:</b> the armed button in the popover and the tool name in the status bar. Closing the popover does not disarm the tool; <kbd>Esc</kbd> does. Brush controls (size, stroke/box, paint mode) replace the room grid while the brush is armed, so the popover height stays the same.</p>
+    </div>
+    <div class="notes">
+      <div class="callout"><span class="n">7</span><div><b>Status as shape:</b> filled = revealed, hollow = unrevealed, half = explored/partly seen, padlock glyph = zone-locked. Reads on a bad panel and without green.</div></div>
+      <div class="callout"><span class="n">8</span><div><b>Ceiling: 24 chips (12 rows) fit.</b> Beyond that the grid shows the unrevealed rooms first and a filter field appears in the header; typing narrows the grid. A 40-room map never scrolls.</div></div>
+      <div class="callout"><span class="n">9</span><div><b>Reveal all / Hide all stay in the footer, ghost-weight,</b> with the existing undo toast. "Conceal behind doors" and the vision-mode switches live in a small <kbd>⋯</kbd> settings menu in the header, since they are set once per scene.</div></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════ DM · log drawer ═══════════════════════ -->
+  <h2>DM · Log drawer</h2>
+  <p>The one scrolling surface, and it is a drawer over the bottom of the map rather than a side panel. All three feeds (rolls and table lines, trigger narration, initiative sentences) merge into one timeline with filter chips. The composer is pinned; it is never off-screen.</p>
+  <div class="frame">
+    <div class="map dm"></div>
+    <div class="sess"><span class="name">Fieldstone Keep</span><span class="meta"><span class="presence"><i class="disc"></i><i class="disc"></i><i class="disc"></i></span>3</span><span class="chev">▾</span></div>
+    <div class="drawer">
+      <div class="hd"><span class="t">Log</span><span class="fchip on">All</span><span class="fchip">Rolls</span><span class="fchip">Doors &amp; fog</span><span class="fchip">Triggers</span><span class="fchip">Combat</span><span style="flex:1"></span><span class="lbl">Whispers to you show a lock</span><span class="btn ghost sm">Close <kbd>L</kbd></span></div>
+      <div class="feed">
+        <div><time>21:02</time><span class="sys">Night falls.</span></div>
+        <div><time>21:09</time><span class="who">Marra</span><span>opened Crypt Door</span></div>
+        <div><time>21:03</time><span class="sys">Round 1. Marra's turn.</span></div>
+        <div><time>21:10</time><span class="who">Sainayan</span><span>set Goblin to 7 hp</span></div>
+        <div><time>21:04</time><span class="who">Willow</span><span>initiative</span><span class="tot">17</span><span style="font-family:var(--mono);font-size:11px;color:rgb(var(--text-muted))">1d20+2 = 15+2</span></div>
+        <div><time>21:11</time><span class="who">Marra</span><span>took 3 (21/24)</span></div>
+        <div><time>21:05</time><span class="who">Marra</span><span>attack</span><span class="tot">19</span><span style="font-family:var(--mono);font-size:11px;color:rgb(var(--text-muted))">1d20+5</span></div>
+        <div><time>21:12</time><span class="sys">Goblin is down.</span></div>
+        <div><time>21:07</time><span class="who">Willow</span><span>stealth</span><span class="tot">17</span><span>🔒</span></div>
+        <div><time>21:14</time><span class="sys">Goblin's turn.</span></div>
+        <div><time>21:08</time><span class="who">Karlach</span><span>opened Vestry Door</span></div>
+        <div><time>21:15</time><span class="who">Willow</span><span>perception</span><span class="tot">11</span></div>
+        <div><time>21:08</time><span class="sys">Pit trap armed.</span></div>
+        <div><time>21:16</time><span class="who">Marra</span><span>attack</span><span class="tot">8</span><span style="font-family:var(--mono);font-size:11px;color:rgb(var(--text-muted))">1d20+5 = 3+5</span></div>
+      </div>
+      <div class="comp"><span class="inp ph">Roll or note, e.g. stealth 17 · initiative 1d20+2<span class="k">↵</span></span><span class="btn">Post</span></div>
+    </div>
+    <div class="status"><span class="disc" style="background:rgb(var(--success))"></span><span>1 ms</span><span class="sep">·</span><span>Night · Full moon · Dusk</span><span class="zoom">4% <span class="track"></span></span></div>
+    <div class="rail" data-rail="dm" data-on="log"></div>
+  </div>
+  <p class="cap"><b>Two columns at this width so 20 lines show without scrolling on a normal evening;</b> older lines scroll within the feed, which is the one exception the rules allow. Drawer height is fixed at 260px; it never covers the rail or the status bar.</p>
+
+  <!-- ═══════════════════════ DM · gallery ═══════════════════════ -->
+  <h2>DM · every popover at true size</h2>
+  <p>Each one is drawn at its realistic full state so the no-scroll claim can be checked by eye. All share the same frame: Newsreader title, structure-weight border, controls at control weight, dividers at clutter weight.</p>
+  <div class="gallery">
+    <figure><div class="pop" data-pop="doors"></div><figcaption><b>Doors.</b> Grouped by what needs attention. Selecting a chip frames the camera on the door and shows its actions in the footer; the same menu appears on the map when the door itself is clicked. Locked doors read "Locked" to the DM and stay clickable for players, as today.</figcaption></figure>
+    <figure><div class="pop" data-pop="tokens"></div><figcaption><b>Tokens.</b> Two tabs: what is on the map, and the library. Selecting a row opens its detail in place (owner, hide, sight and light as a 2-column block). "Place" on a library row arms click-to-place; the status bar then reads "Placing Goblin".</figcaption></figure>
+    <figure><div class="pop" data-pop="library"></div><figcaption><b>Tokens · Library tab.</b> Defs with Place and Edit; "New token" expands the form in place (name, size, disposition, portrait, sight and light). Editing collapses the list to make room, so the popover height stays fixed.</figcaption></figure>
+    <figure><div class="pop" data-pop="scene"></div><figcaption><b>Scene (prep).</b> Active scene as a radio, visibility as an eye toggle, everything destructive behind <kbd>⋯</kbd>. Weather and map import live here because they are per-scene setup, not play.</figcaption></figure>
+    <figure><div class="pop" data-pop="world"></div><figcaption><b>World (prep).</b> Today's 520px in 300px: ribbon, jumps in one row, sky and speed as segments, the vision gate as one line plus its override. The explainer card shrinks to the badge line; the full trace appears on hover.</figcaption></figure>
+    <figure><div class="pop" data-pop="triggers"></div><figcaption><b>Triggers (prep).</b> Name, condition, enabled switch, Fire. The trigger log moved into the Log drawer's "Triggers" filter. Empty state points to the Editor.</figcaption></figure>
+    <figure><div class="pop" data-pop="session"></div><figcaption><b>Session</b> (from the top-left chip). Invite code, copy, roster with presence shapes, DM badge, End session as a danger-weight ghost with a confirm step inside the popover, not a browser dialog.</figcaption></figure>
+  </div>
+
+  <!-- ═══════════════════════ PLAYER ═══════════════════════ -->
+  <h2>Player · "Willow", Marra's turn</h2>
+  <p>A player shell, not the DM shell with panels removed. Three things answer the three questions a player has: whose turn (pill), how am I (Me), what can I do (the map, and the roll bar). Doors and tokens are acted on where they are.</p>
+  <div class="cols">
+    <div>
+      <div class="frame">
+        <div class="map pl"></div>
+        <div class="sess"><span class="name">Fieldstone Keep</span><span class="meta"><span class="presence"><i class="disc"></i><i class="disc"></i><i class="disc"></i></span>3</span></div>
+        <div class="turnpill"><span><b>Marra's turn</b></span><span class="nx">you're up next · round 1</span></div>
+        <div class="pulse" style="left:713px; top:448px"></div>
+        <div class="mpop" style="left:830px; top:256px"><div class="t">Vestry Door<span class="st">Closed</span></div><div class="acts"><span class="btn sm primary">Open</span></div></div>
+        <div class="rollbar"><svg class="dice" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1" fill="currentColor"/><circle cx="15.5" cy="15.5" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg><span class="ph">Roll or say something · stealth 17 · 1d20+2</span><span class="btn sm ghost">Whisper</span><span class="btn primary">Post</span></div>
+        <div class="status"><span class="disc" style="background:rgb(var(--success))"></span><span>Night · Full moon · Dusk</span><span class="zoom">4% <span class="track"></span></span></div>
+        <div class="rail" data-rail="pl" data-on=""></div>
+      </div>
+      <p class="cap"><b>On-map door menu:</b> clicking a door opens a one-button menu where it is; the player never reads a list of doors. Locked doors rattle (the button reads "Locked" after the try) so discovery stays in play. <b>Status bar:</b> presence, world light, zoom. No FPS, no latency, no tool.</p>
+    </div>
+    <div class="notes">
+      <div class="callout"><span class="n">10</span><div><b>Turn pill</b> is the only green text on the player's screen. When it is the player's turn it reads "Your turn" and the rail's Initiative icon gets the badge; the pill is a button that opens the order.</div></div>
+      <div class="callout"><span class="n">11</span><div><b>Roll bar replaces the composer at the end of a scrolling column.</b> Always visible, always focused with <kbd>/</kbd>. Whisper toggles the private roll. The log drawer opens above it with <kbd>L</kbd> and shows the player's filtered feed.</div></div>
+      <div class="callout"><span class="n">12</span><div><b>Initiative prompt and trap prompts</b> keep their bottom-center stack; the roll bar moves up 48px while one is open, so the prompt's number field and the roll bar never compete.</div></div>
+    </div>
+  </div>
+
+  <h2>Player · popovers</h2>
+  <div class="gallery">
+    <figure><div class="pop" data-pop="pl-initiative"></div><figcaption><b>Initiative (player).</b> Same rows as the DM, read-only, NPC hp as a bar only, downed NPCs struck through. Own row is marked. Never more than the DM's ceiling, so never scrolls.</figcaption></figure>
+    <figure><div class="pop" data-pop="me"></div><figcaption><b>Me.</b> The player's claimed token: portrait, HP, conditions, what they can see (sight range and mode, read-only), and "Find me" to frame the camera. Unclaimed: a list of claimable tokens with one Claim button each.</figcaption></figure>
+    <figure><div class="pop" data-pop="pl-session"></div><figcaption><b>Table</b> (from the chip). Who is here with presence shapes, which scene is playing, and Leave. Nothing the player cannot act on.</figcaption></figure>
+  </div>
+
+  <!-- ═══════════════════════ LEDGER ═══════════════════════ -->
+  <h2>No-scroll ledger</h2>
+  <p>Worst realistic case per popover at 1280×720 (692px usable after the status bar and margins), and what happens past it. These are the commitments the implementation has to keep.</p>
+  <table class="ledger">
+    <tr><th>Popover</th><th>Typical</th><th>Fits without scroll</th><th>Past the ceiling</th></tr>
+    <tr><td>Initiative</td><td>4–8 combatants</td><td>14 rows at 36px + header + footer = 624px</td><td>15+: rows compact to 28px, chips become a count. 24+: popover widens to 360px, two columns. Hard cap 40.</td></tr>
+    <tr><td>Fog</td><td>8–14 rooms</td><td>24 chips (12 rows × 32px) + tool row + footer = 500px</td><td>25+: unrevealed rooms first, filter field in the header narrows the grid as you type. Never lists more than 24 at once.</td></tr>
+    <tr><td>Doors</td><td>6–12 doors</td><td>24 chips in groups + action footer = 540px</td><td>Same filter pattern; "Closed" group first since that is what gets acted on. Map click always works regardless of count.</td></tr>
+    <tr><td>Tokens · On map</td><td>3–10</td><td>12 rows + detail block = 600px</td><td>13+: detail block collapses to one line until a row is selected, freeing 8 more rows (20). Filter field at 21+.</td></tr>
+    <tr><td>Tokens · Library</td><td>5–20 defs</td><td>16 rows = 512px, or 8 rows + open form</td><td>Filter field at 17+. Editing a def collapses the list to the selected row.</td></tr>
+    <tr><td>Scene</td><td>1–6 scenes</td><td>8 scene rows + weather + import = 430px</td><td>9+: scene rows compact to 28px; 16 is the practical cap per campaign.</td></tr>
+    <tr><td>World</td><td>fixed</td><td>300px, fixed content</td><td>n/a</td></tr>
+    <tr><td>Triggers</td><td>0–6</td><td>10 rows at 40px = 460px</td><td>11+: rows compact to 32px (condition moves into the tooltip). 20 is the practical cap.</td></tr>
+    <tr><td>Session / Table</td><td>2–7 seats</td><td>10 roster rows = 380px</td><td>n/a for a table; 10 seats is already a big game.</td></tr>
+    <tr><td>Log drawer</td><td>hundreds of lines</td><td>20 visible in two columns</td><td><b>Scrolls inside the feed.</b> The one deliberate exception; composer and filters are pinned outside the scrolling region.</td></tr>
+  </table>
+
+  <h2>Keys</h2>
+  <div class="keys">
+    <div><kbd>I</kbd> Initiative</div><div><kbd>F</kbd> Fog</div><div><kbd>D</kbd> Doors</div><div><kbd>T</kbd> Tokens</div>
+    <div><kbd>S</kbd> Scene</div><div><kbd>W</kbd> World</div><div><kbd>G</kbd> Triggers</div><div><kbd>L</kbd> Log drawer</div>
+    <div><kbd>N</kbd> Next turn (DM, encounter running)</div><div><kbd>R</kbd> Reveal · <kbd>H</kbd> Hide · <kbd>B</kbd> Brush</div><div><kbd>/</kbd> Focus the roll bar (player) or composer (DM)</div><div><kbd>M</kbd> Me (player)</div>
+    <div><kbd>Esc</kbd> Close popover, then disarm tool</div><div><kbd>0</kbd> <kbd>+</kbd> <kbd>−</kbd> Fit and zoom, unchanged</div><div><kbd>Shift</kbd>+<kbd>D</kbd> Diagnostics in the status bar</div><div>Letters are suppressed while typing, same guard as today's zoom keys.</div>
+  </div>
+
+  <h2>Not in this pass</h2>
+  <ul class="rules">
+    <li>Resizable or detachable popovers. Fixed sizes are what make the no-scroll ledger checkable.</li>
+    <li>Day mode for the table. Night is the table's one theme today; Moss night tokens only.</li>
+    <li>Touch layout under 900px. The rail collapses to a bottom strip there; a separate adapt pass.</li>
+    <li>Chat. The roll bar posts rolls and notes as today; it is not a chat system.</li>
+  </ul>
+</div>
+
+<script>
+/* ── icons (lucide outlines, hand-set) ─────────────────────────────────────── */
+const I = {
+  swords: '<path d="M14.5 17.5 3 6V3h3l11.5 11.5"/><path d="M13 19l6-6"/><path d="M16 16l4 4"/><path d="M19 21l2-2"/><path d="M14.5 6.5 18 3h3v3l-3.5 3.5"/><path d="M5 14l4 4"/><path d="M7 17l-3 3"/><path d="M3 19l2 2"/>',
+  cloud: '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
+  door: '<path d="M13 4h3a2 2 0 0 1 2 2v14"/><path d="M2 20h3"/><path d="M13 20h9"/><path d="M10 12v.01"/><path d="M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.561Z"/>',
+  token: '<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>',
+  scroll: '<path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/>',
+  map: '<path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/>',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  me: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="10" r="3"/><path d="M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+  eyeoff: '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
+  more: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  cursor: '<path d="M12.586 12.586 19 19"/><path d="M3.688 3.037a.497.497 0 0 0-.651.651l6.5 15.999a.501.501 0 0 0 .947-.062l1.569-6.083a2 2 0 0 1 1.448-1.479l6.124-1.579a.5.5 0 0 0 .063-.947z"/>',
+  brush: '<path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/>',
+  copy: '<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+  target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+};
+const svg = (n, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24">${I[n]}</svg>`;
+
+/* ── rails ───────────────────────────────────────────────────────────────── */
+const RAILS = {
+  dm: [
+    { id: 'initiative', icon: 'swords', label: 'Init', key: 'I', badge: 'R1' },
+    { id: 'fog', icon: 'cloud', label: 'Fog', key: 'F' },
+    { id: 'doors', icon: 'door', label: 'Doors', key: 'D' },
+    { id: 'tokens', icon: 'token', label: 'Tokens', key: 'T' },
+    'divider',
+    { id: 'scene', icon: 'map', label: 'Scene', key: 'S' },
+    { id: 'world', icon: 'moon', label: 'World', key: 'W' },
+    { id: 'triggers', icon: 'zap', label: 'Triggers', key: 'G' },
+    'spacer',
+    { id: 'log', icon: 'scroll', label: 'Log', key: 'L', badge: '3', quiet: true },
+  ],
+  pl: [
+    { id: 'initiative', icon: 'swords', label: 'Init', key: 'I', badge: '▶' },
+    { id: 'me', icon: 'me', label: 'Me', key: 'M' },
+    'spacer',
+    { id: 'log', icon: 'scroll', label: 'Log', key: 'L', badge: '3', quiet: true },
+  ],
+};
+for (const el of document.querySelectorAll('[data-rail]')) {
+  const on = el.dataset.on;
+  el.innerHTML = RAILS[el.dataset.rail].map(r => r === 'divider' ? '<div class="divider"></div>' : r === 'spacer' ? '<div class="spacer"></div>' :
+    `<div class="ri${r.id === on ? ' on' : ''}" title="${r.label} (${r.key})">${svg(r.icon)}<span>${r.label}</span>${r.badge ? `<span class="badge${r.quiet ? ' quiet' : ''}">${r.badge}</span>` : ''}</div>`).join('');
+}
+
+/* ── popovers ────────────────────────────────────────────────────────────── */
+const hd = (t, sub = '', extra = '') => `<div class="hd"><span class="t">${t}</span>${sub ? `<span class="sub">${sub}</span>` : ''}${extra}<span class="x">${svg('x')}</span></div>`;
+const cond = (c) => `<span class="tag">${c}</span>`;
+const irow = (o) => `<div class="irow${o.cur ? ' cur' : ''}${o.down ? ' down' : ''}"><span class="mark">${o.cur ? '▶' : ''}</span><span class="nm">${o.nm}${o.you ? ' <span class="lbl">(you)</span>' : ''}</span><span class="chips">${(o.c || []).map(cond).join('')}</span><span class="hp">${o.hpText !== undefined ? o.hpText : ''}${o.bar !== undefined ? `<span class="bar"><i style="width:${o.bar}%"></i></span>` : ''}</span><span class="ini">${o.ini}</span></div>`;
+
+const POPS = {
+  initiative: `${hd('Initiative', 'Round 1 · 4 combatants')}
+    <div class="bd" style="gap:2px">
+      ${irow({ cur: true, nm: 'Marra', c: ['Prone'], hpText: '21/24', bar: 87, ini: 17 })}
+      <div class="book"><span class="lbl">Damage</span><span class="inp mono" style="width:64px">5<span class="k">↵</span></span><span class="lbl">neg. heals</span><span class="sp" style="flex:1"></span><span class="tag on">Prone</span><span class="tag">${svg('plus', 'ico')}</span></div>
+      ${irow({ nm: 'Karlach', hpText: '31/31', bar: 100, ini: 14 })}
+      ${irow({ nm: 'Goblin archer', c: ['Hidden'], hpText: '7/7', bar: 100, ini: 12 })}
+      ${irow({ down: true, nm: 'Goblin', hpText: '0/7', bar: 0, ini: 12 })}
+      <div class="row" style="margin-top:6px"><span class="inp ph" style="flex:1">Add a combatant</span><span class="btn sm ghost">Add</span></div>
+    </div>
+    <div class="ft"><span class="btn ghost danger">End encounter</span><span class="sp"></span><span class="btn primary">Next turn <kbd style="background:transparent;border-color:rgb(var(--on-accent) / .35);color:inherit">N</kbd></span></div>`,
+
+  fog: `${hd('Fog', '', `<span class="seg tight" style="margin-left:auto;width:140px"><span class="on">Rooms</span><span>Vision</span></span><span class="x" style="margin-left:4px">${svg('more')}</span>`)}
+    <div class="bd">
+      <div class="row"><span class="btn armed" style="flex:1">${svg('cursor')} Reveal <kbd style="background:transparent;border-color:currentColor;color:inherit;opacity:.7">R</kbd></span><span class="btn" style="flex:1">${svg('eyeoff')} Hide <kbd>H</kbd></span><span class="btn" style="flex:1">${svg('brush')} Brush <kbd>B</kbd></span></div>
+      <div class="hint">${svg('target')} Click a room on the map. Shift-click frames it for players.</div>
+      <div class="grp">Unrevealed · 2</div>
+      <div class="grid2"><span class="chip hover"><i class="st un"></i><span>Kitchens</span></span><span class="chip"><i class="st un"></i><span>Sealed Vault</span>${svg('lock', 'ico')}</span></div>
+      <div class="grp">Revealed · 10</div>
+      <div class="grid2">
+        <span class="chip"><i class="st rev"></i><span>Bailey Courtyard</span></span><span class="chip"><i class="st rev"></i><span>Gatehouse</span></span>
+        <span class="chip"><i class="st rev"></i><span>Guard Room</span></span><span class="chip"><i class="st rev"></i><span>Great Hall of Banners</span></span>
+        <span class="chip"><i class="st rev"></i><span>Chapel of the Pale Flame</span></span><span class="chip"><i class="st rev"></i><span>Armoury</span></span>
+        <span class="chip"><i class="st rev"></i><span>Scriptorium</span></span><span class="chip"><i class="st rev"></i><span>Barrack Rows</span></span>
+        <span class="chip"><i class="st part"></i><span>Cistern Undercroft</span></span><span class="chip"><i class="st rev"></i><span>Crypt Stair</span></span>
+      </div>
+    </div>
+    <div class="ft"><span class="btn ghost sm">Reveal all</span><span class="btn ghost sm">Hide all</span><span class="sp"></span><span class="lbl">Conceal behind doors · on</span></div>`,
+
+  doors: `${hd('Doors', '9 on this scene')}
+    <div class="bd">
+      <div class="hint">${svg('target')} Click a door on the map to act on it.</div>
+      <div class="grp">Closed · 5</div>
+      <div class="grid2">
+        <span class="chip sel"><span>Vestry Door</span></span><span class="chip"><span>Hall Double Door</span></span>
+        <span class="chip"><span>Cistern Gate</span></span><span class="chip"><span>Watch Door</span></span>
+        <span class="chip"><span>Vault Door</span>${svg('lock', 'ico')}</span>
+      </div>
+      <div class="grp">Secret · 1</div>
+      <div class="grid2"><span class="chip"><span>Hidden Shelf</span>${svg('eye', 'ico')}</span></div>
+      <div class="grp">Open · 3</div>
+      <div class="grid2"><span class="chip"><span>Bailey Gate</span></span><span class="chip"><span>Muster Arch</span></span><span class="chip"><span>Crypt Door</span></span></div>
+    </div>
+    <div class="ft"><span style="font-size:12.5px">Vestry Door <span class="lbl">· Closed</span></span><span class="sp"></span><span class="btn sm">Open</span><span class="btn sm">${svg('lock')} Lock</span><span class="btn sm ghost">Frame</span></div>`,
+
+  tokens: `${hd('Tokens')}
+    <div class="tabs"><span class="on">On map · 3</span><span>Library · 4</span></div>
+    <div class="bd">
+      <div class="lst">
+        <div class="it"><i class="dot friendly"></i>Karlach<span class="r"><span class="tag">Willow</span></span></div>
+        <div class="it sel"><i class="dot hostile"></i>Goblin archer<span class="r">${svg('eyeoff', 'ico')}<span class="lbl">hidden</span></span></div>
+        <div class="it"><i class="dot friendly"></i>Marra<span class="r"><span class="tag">Sainayan</span></span></div>
+      </div>
+      <div style="border-top:1px solid rgb(var(--border-default)); padding-top:8px; display:flex; flex-direction:column; gap:8px">
+        <div class="row"><span class="lbl" style="width:56px">Owner</span><span class="inp sel" style="flex:1">Unassigned</span><span class="btn sm">${svg('eye')} Reveal</span></div>
+        <div class="row"><span class="lbl" style="width:56px">Vision</span><span class="inp mono" style="width:70px">60 ft</span><span class="inp sel" style="flex:1">Darkvision</span></div>
+        <div class="row"><span class="lbl" style="width:56px">Light</span><span class="inp mono" style="width:70px">0 · 0</span><span class="lbl">carries none</span><span class="sp"></span><span class="btn sm ghost">Link sight</span></div>
+      </div>
+    </div>
+    <div class="ft"><span class="btn ghost danger sm">Delete</span><span class="sp"></span><span class="btn sm ghost">Frame</span></div>`,
+
+  library: `${hd('Tokens')}
+    <div class="tabs"><span>On map · 3</span><span class="on">Library · 4</span></div>
+    <div class="bd">
+      <div class="lst">
+        <div class="it"><i class="dot friendly"></i>Karlach<span class="r"><span class="btn sm">Place</span><span class="btn sm ghost">Edit</span></span></div>
+        <div class="it"><i class="dot hostile"></i>Goblin<span class="r"><span class="btn sm armed">Placing</span><span class="btn sm ghost">Edit</span></span></div>
+        <div class="it"><i class="dot hostile"></i>Goblin archer<span class="r"><span class="btn sm">Place</span><span class="btn sm ghost">Edit</span></span></div>
+        <div class="it"><i class="dot neutral"></i>Merchant<span class="r"><span class="btn sm">Place</span><span class="btn sm ghost">Edit</span></span></div>
+      </div>
+      <div class="hint">${svg('target')} Click the map to place Goblin. <kbd>Esc</kbd> stops.</div>
+    </div>
+    <div class="ft"><span class="btn sm">${svg('plus')} New token</span><span class="sp"></span><span class="lbl">Portraits: png, jpg, webp</span></div>`,
+
+  scene: `${hd('Scene', '2 in this campaign')}
+    <div class="bd">
+      <div class="lst">
+        <div class="it sel"><span style="width:12px;height:12px;border-radius:50%;border:1.5px solid rgb(var(--accent-active));display:grid;place-items:center"><i style="width:6px;height:6px;border-radius:50%;background:rgb(var(--accent-active))"></i></span>Fieldstone Keep<span class="r">${svg('eye', 'ico')}${svg('more', 'ico')}</span></div>
+        <div class="it"><span style="width:12px;height:12px;border-radius:50%;border:1.5px solid rgb(var(--text-muted))"></span>Emberhold Crypt<span class="r">${svg('eyeoff', 'ico')}${svg('more', 'ico')}</span></div>
+      </div>
+      <div class="row" style="margin-top:4px"><span class="lbl" style="width:64px">Weather</span><span class="inp sel" style="flex:1">Not set</span></div>
+    </div>
+    <div class="ft"><span class="btn sm">Import map file</span><span class="sp"></span><span class="lbl">Rename · Replace · Delete under ⋯</span></div>`,
+
+  world: `${hd('World', 'Night · 00:00')}
+    <div class="bd">
+      <div class="ribbon"></div>
+      <div class="jumps"><span class="btn sm">Dawn</span><span class="btn sm">Morning</span><span class="btn sm">Noon</span><span class="btn sm">Evening</span><span class="btn sm on">Night</span></div>
+      <div class="row"><span class="lbl" style="width:64px">Night sky</span><span class="seg tight" style="flex:1"><span class="on">● Full</span><span>◐ Crescent</span><span>◌ None</span></span></div>
+      <div class="row"><span class="lbl" style="width:64px">Speed</span><span class="seg tight" style="flex:1"><span class="on">Paused</span><span>Real</span><span>Fast</span></span></div>
+      <div class="badge"><span>◐</span><b>Dusk</b><span>Outdoor › Night › Full moon</span><span class="sp" style="flex:1"></span><span class="sw"><i></i></span></div>
+      <div class="hint">The light thins. No sight is clipped. Toggle to override the level.</div>
+    </div>`,
+
+  triggers: `${hd('Triggers', '2 on this scene')}
+    <div class="bd">
+      <div class="lst">
+        <div class="it" style="height:40px"><div><div>Pit trap</div><div class="lbl">Enters region · Barrack Rows</div></div><span class="r"><span class="sw"><i class="on"></i></span><span class="btn sm">Fire</span></span></div>
+        <div class="it" style="height:40px"><div><div>Vault whisper</div><div class="lbl">Room revealed · Sealed Vault</div></div><span class="r"><span class="sw"><i></i></span><span class="btn sm dis">Fire</span></span></div>
+      </div>
+      <div class="hint">Fired triggers narrate into the log under "Triggers".</div>
+    </div>`,
+
+  session: `${hd('Fieldstone Keep', 'session')}
+    <div class="bd">
+      <div class="row" style="padding:6px 8px; border:1px solid rgb(var(--border-default)); border-radius:4px"><span class="lbl">Invite</span><span style="font:500 15px var(--mono); letter-spacing:.18em">TBU4XJ</span><span class="sp"></span><span class="btn sm">${svg('copy')} Copy link</span></div>
+      <div class="lst">
+        <div class="it"><i class="disc"></i>Sainayan <span class="lbl">(you)</span><span class="r"><span class="tag dm">DM</span></span></div>
+        <div class="it"><i class="disc"></i>Goblin Bot<span class="r"><span class="tag dm">DM</span></span></div>
+        <div class="it"><i class="disc"></i>Willow<span class="r"><span class="lbl">Karlach</span></span></div>
+        <div class="it"><i class="ring"></i>Marek<span class="r"><span class="lbl">away · 4 min</span></span></div>
+      </div>
+    </div>
+    <div class="ft"><span class="btn ghost danger sm">End session</span><span class="sp"></span><span class="lbl">Players keep the link until you do</span></div>`,
+
+  'pl-initiative': `${hd('Initiative', 'Round 1')}
+    <div class="bd" style="gap:2px">
+      ${irow({ cur: true, nm: 'Marra', c: ['Prone'], bar: 87, ini: 17 })}
+      ${irow({ nm: 'Karlach', you: true, hpText: '31/31', bar: 100, ini: 14 })}
+      ${irow({ nm: 'Goblin archer', bar: 100, ini: 12 })}
+      ${irow({ down: true, nm: 'Goblin', hpText: 'down', ini: 12 })}
+    </div>
+    <div class="ft"><span class="lbl">You're up next.</span><span class="sp"></span><span class="btn sm ghost">Roll initiative</span></div>`,
+
+  me: `${hd('Karlach', 'your token')}
+    <div class="bd">
+      <div class="row"><span style="width:44px;height:44px;border-radius:50%;background:rgb(var(--surface-3));border:1px solid rgb(var(--border-structure))"></span><div style="flex:1"><div class="row"><span style="font:500 15px var(--mono)">31 / 31</span><span class="sp"></span><span class="lbl">medium · friendly</span></div><span class="bar" style="display:block;height:4px;border-radius:2px;background:rgb(var(--surface-3));margin-top:6px"><i style="display:block;height:100%;width:100%;background:rgb(var(--text-secondary));border-radius:2px"></i></span></div></div>
+      <div class="row"><span class="lbl" style="width:72px">Conditions</span><span class="lbl">none</span></div>
+      <div class="row"><span class="lbl" style="width:72px">You see</span><span>60 ft · darkvision</span></div>
+      <div class="row"><span class="lbl" style="width:72px">Carrying</span><span>torch · 20 / 40 ft</span></div>
+    </div>
+    <div class="ft"><span class="btn sm">${svg('target')} Find me</span><span class="sp"></span><span class="lbl">HP and conditions are set by the DM</span></div>`,
+
+  'pl-session': `${hd('Fieldstone Keep', 'now playing')}
+    <div class="bd">
+      <div class="lst">
+        <div class="it"><i class="disc"></i>Sainayan<span class="r"><span class="tag dm">DM</span></span></div>
+        <div class="it"><i class="disc"></i>Willow <span class="lbl">(you)</span><span class="r"><span class="lbl">Karlach</span></span></div>
+        <div class="it"><i class="ring"></i>Marek<span class="r"><span class="lbl">away</span></span></div>
+      </div>
+    </div>
+    <div class="ft"><span class="btn ghost sm">Leave table</span><span class="sp"></span><span class="lbl">Your seat is kept for this tab</span></div>`,
+};
+for (const el of document.querySelectorAll('[data-pop]')) el.innerHTML = POPS[el.dataset.pop];
+</script>
+</body>
+</html>

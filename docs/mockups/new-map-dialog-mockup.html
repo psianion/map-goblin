@@ -1,0 +1,758 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New map dialog mockup</title>
+<style>
+  /* Tokens lifted verbatim from canvas/src/index.css (.dark block) so this
+     mockup and the real component cannot drift. Raw RGB triplets, rgb(var(--x)). */
+  :root {
+    --surface-0: 15 16 14;
+    --surface-1: 24 26 23;
+    --surface-2: 35 37 34;
+    --surface-3: 48 51 46;
+    --text-primary: 234 236 233;
+    --text-secondary: 182 188 179;
+    --text-muted: 151 158 148;
+    --border-structure: 77 84 74;
+    --border-default: 58 62 56;
+    --border-subtle: 35 37 34;
+    --border-focus: 145 196 100;
+    --accent-active: 145 196 100;
+    --accent-dim: 102 139 75;
+    --on-accent: 15 17 14;
+    --danger: 224 133 123;
+    --warning: 212 174 84;
+    --info: 114 165 202;
+    --radius: 0.375rem;
+    --radius-md: 0.25rem;
+    --radius-sm: 0.125rem;
+    --panel-shadow: 0 10px 26px -14px rgb(0 0 0 / 0.9);
+
+    --z-sticky: 20;
+    --z-backdrop: 50;
+    --z-modal: 60;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 48px 32px 96px;
+    background: rgb(var(--surface-0));
+    color: rgb(var(--text-primary));
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page { max-width: 1180px; margin: 0 auto; }
+
+  .page-head { margin-bottom: 40px; max-width: 68ch; }
+  .page-head h1 { font-size: 1.5rem; font-weight: 600; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .page-head p { margin: 0; color: rgb(var(--text-muted)); }
+  .page-head code {
+    font: 12px/1 ui-monospace, "Cascadia Code", Consolas, monospace;
+    background: rgb(var(--surface-2)); padding: 2px 5px; border-radius: var(--radius-sm);
+    color: rgb(var(--text-secondary));
+  }
+
+  /* ---- specimen scaffolding (mockup chrome, not part of the design) ---- */
+  .specimens { display: grid; gap: 40px 28px; grid-template-columns: repeat(auto-fit, minmax(430px, 1fr)); }
+  .specimen > figcaption {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    margin: 0 0 12px; padding-bottom: 10px;
+    border-bottom: 1px solid rgb(var(--border-subtle));
+  }
+  .specimen h2 { font-size: 0.875rem; font-weight: 600; margin: 0; }
+  .specimen .note { font-size: 12px; color: rgb(var(--text-muted)); }
+  .specimen { margin: 0; }
+  .stage {
+    background:
+      linear-gradient(rgb(var(--surface-0) / 0.86), rgb(var(--surface-0) / 0.86)),
+      repeating-linear-gradient(0deg, rgb(var(--border-structure) / 0.5) 0 1px, transparent 1px 34px),
+      repeating-linear-gradient(90deg, rgb(var(--border-structure) / 0.5) 0 1px, transparent 1px 34px);
+    border: 1px solid rgb(var(--border-subtle));
+    border-radius: 8px;
+    padding: 28px 20px;
+    display: flex; justify-content: center;
+  }
+  .stage.tight { padding: 18px; }
+
+  /* ---- dialog ---- */
+  .dialog {
+    width: 100%; max-width: 448px;
+    background: rgb(var(--surface-1));
+    border: 1px solid rgb(var(--border-default));
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: var(--panel-shadow);
+  }
+  .dialog-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .dialog-title { font-size: 1rem; font-weight: 600; margin: 0; }
+  .icon-btn {
+    display: inline-grid; place-items: center;
+    width: 26px; height: 26px; padding: 0;
+    background: none; border: 0; border-radius: var(--radius-md);
+    color: rgb(var(--text-muted)); cursor: pointer;
+    transition: color 160ms var(--ease-out), background-color 160ms var(--ease-out);
+  }
+  .icon-btn:hover { color: rgb(var(--text-primary)); background: rgb(var(--surface-2)); }
+  .icon-btn:focus-visible { outline: 2px solid rgb(var(--border-focus) / 0.7); outline-offset: 1px; }
+
+  .field + .field { margin-top: 16px; }
+  .field > label,
+  .field > .label {
+    display: block; margin-bottom: 6px;
+    font-size: 12px; color: rgb(var(--text-muted));
+  }
+
+  .input {
+    width: 100%; height: 34px; padding: 0 10px;
+    background: rgb(var(--surface-0));
+    border: 1px solid rgb(var(--border-default));
+    border-radius: var(--radius);
+    color: rgb(var(--text-primary));
+    font: inherit;
+    transition: border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out);
+  }
+  .input::placeholder { color: rgb(var(--text-muted)); }
+  .input:focus {
+    outline: none;
+    border-color: rgb(var(--border-focus));
+    box-shadow: 0 0 0 3px rgb(var(--border-focus) / 0.18);
+  }
+  .input.num { width: 74px; text-align: center; font-variant-numeric: tabular-nums; }
+
+  /* segmented control — matches ExportDialog's format/resolution rows */
+  .segmented { display: flex; gap: 8px; }
+  .seg {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+    height: 34px; padding: 0 8px;
+    background: rgb(var(--surface-0));
+    color: rgb(var(--text-muted));
+    border: 1px solid rgb(var(--border-default));
+    border-radius: var(--radius);
+    font: 500 13px/1 inherit; cursor: pointer;
+    transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out), border-color 160ms var(--ease-out);
+  }
+  .seg:hover { background: rgb(var(--surface-2)); color: rgb(var(--text-secondary)); }
+  .seg[aria-pressed="true"] {
+    background: rgb(var(--surface-3));
+    border-color: rgb(var(--border-structure));
+    color: rgb(var(--text-primary));
+  }
+  .seg:focus-visible { outline: 2px solid rgb(var(--border-focus) / 0.7); outline-offset: 1px; }
+  .seg svg { width: 15px; height: 15px; flex: none; }
+
+  .hint {
+    margin: 8px 0 0;
+    font-size: 12px; line-height: 1.45;
+    color: rgb(var(--text-muted));
+  }
+  .hint b { color: rgb(var(--text-secondary)); font-weight: 500; }
+
+  .readout {
+    margin-top: 10px; padding: 8px 10px;
+    background: rgb(var(--surface-2) / 0.5);
+    border-radius: var(--radius);
+    font-size: 12px; color: rgb(var(--text-muted));
+    font-variant-numeric: tabular-nums;
+  }
+  .readout b { color: rgb(var(--text-secondary)); font-weight: 500; }
+
+  /* drop zone */
+  .dropzone {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 20px 16px;
+    background: rgb(var(--surface-0));
+    border: 1px dashed rgb(var(--border-structure));
+    border-radius: var(--radius);
+    color: rgb(var(--text-muted));
+    text-align: center; cursor: pointer;
+    transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out);
+  }
+  .dropzone:hover { border-color: rgb(var(--accent-dim)); background: rgb(var(--surface-2) / 0.45); }
+  .dropzone svg { width: 20px; height: 20px; color: rgb(var(--text-muted)); }
+  .dropzone .primary { color: rgb(var(--text-secondary)); font-size: 13px; }
+  .dropzone .secondary { font-size: 11.5px; }
+
+  .filecard {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px;
+    background: rgb(var(--surface-0));
+    border: 1px solid rgb(var(--border-default));
+    border-radius: var(--radius);
+  }
+  .thumb {
+    width: 42px; height: 42px; flex: none; border-radius: var(--radius-md);
+    border: 1px solid rgb(var(--border-default));
+    background:
+      linear-gradient(135deg, rgb(72 84 58) 0%, rgb(46 54 38) 55%, rgb(88 74 44) 100%);
+  }
+  .thumb.file {
+    display: grid; place-items: center;
+    background: rgb(var(--surface-2)); color: rgb(var(--text-muted));
+  }
+  .filecard .meta { min-width: 0; flex: 1; }
+  .filecard .name {
+    font-size: 13px; color: rgb(var(--text-primary));
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .filecard .sub { font-size: 11.5px; color: rgb(var(--text-muted)); font-variant-numeric: tabular-nums; }
+
+  .dim-row { display: flex; align-items: center; gap: 8px; }
+  .times { color: rgb(var(--text-muted)); font-size: 13px; }
+  .unit { color: rgb(var(--text-muted)); font-size: 12px; }
+
+  .actions { display: flex; gap: 8px; margin-top: 22px; }
+  .btn {
+    flex: 1; height: 34px;
+    border-radius: var(--radius); border: 1px solid transparent;
+    font: 500 13px/1 inherit; cursor: pointer;
+    transition: background-color 160ms var(--ease-out), border-color 160ms var(--ease-out), color 160ms var(--ease-out);
+  }
+  .btn:focus-visible { outline: 2px solid rgb(var(--border-focus) / 0.7); outline-offset: 1px; }
+  .btn-outline {
+    background: transparent; border-color: rgb(var(--border-default)); color: rgb(var(--text-secondary));
+  }
+  .btn-outline:hover { background: rgb(var(--surface-2)); color: rgb(var(--text-primary)); }
+  .btn-primary { background: rgb(var(--accent-active)); color: rgb(var(--on-accent)); }
+  .btn-primary:hover { background: rgb(var(--accent-dim)); }
+
+  .inline-error {
+    margin-top: 8px; font-size: 12px; color: rgb(var(--danger));
+    display: flex; align-items: flex-start; gap: 6px;
+  }
+  .inline-error svg { width: 14px; height: 14px; flex: none; margin-top: 1px; }
+
+  /* ---- maps side panel ---- */
+  .panel {
+    width: 264px;
+    background: rgb(var(--surface-1));
+    border: 1px solid rgb(var(--border-default));
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid rgb(var(--border-subtle));
+    font: 600 11px/1 inherit; letter-spacing: 0.06em; color: rgb(var(--text-secondary));
+  }
+  .panel-body { padding: 10px; }
+  .new-map {
+    width: 100%; height: 34px; margin-bottom: 10px;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    background: rgb(var(--accent-active) / 0.12);
+    border: 1px solid rgb(var(--accent-dim) / 0.55);
+    border-radius: var(--radius);
+    color: rgb(var(--accent-active));
+    font: 500 13px/1 inherit; cursor: pointer;
+    transition: background-color 160ms var(--ease-out);
+  }
+  .new-map:hover { background: rgb(var(--accent-active) / 0.2); }
+  .new-map svg { width: 14px; height: 14px; }
+
+  .mapcard {
+    position: relative;
+    padding: 9px 11px;
+    border: 1px solid rgb(var(--border-default));
+    border-radius: var(--radius);
+    background: rgb(var(--surface-0));
+    cursor: pointer;
+    transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out);
+  }
+  .mapcard + .mapcard { margin-top: 7px; }
+  .mapcard:hover { border-color: rgb(var(--border-structure)); }
+  .mapcard.active { border-color: rgb(var(--accent-dim)); background: rgb(var(--accent-active) / 0.07); }
+  .mapcard .row1 { display: flex; align-items: center; gap: 8px; }
+  .mapcard .title {
+    flex: 1; min-width: 0; font-size: 13px; font-weight: 500; color: rgb(var(--text-primary));
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .badge {
+    flex: none; padding: 2px 6px; border-radius: 999px;
+    background: rgb(var(--accent-active) / 0.16); color: rgb(var(--accent-active));
+    font: 600 9.5px/1.4 inherit; letter-spacing: 0.04em;
+  }
+  .mapcard .sub {
+    margin-top: 3px; font-size: 11.5px; color: rgb(var(--text-muted));
+    font-variant-numeric: tabular-nums;
+  }
+  .mapcard .sub .empty { color: rgb(var(--text-muted) / 0.85); font-style: italic; }
+  .del {
+    position: absolute; top: 7px; right: 7px;
+    width: 24px; height: 24px; display: grid; place-items: center;
+    background: rgb(var(--surface-1)); border: 1px solid rgb(var(--border-default));
+    border-radius: var(--radius-md); color: rgb(var(--text-muted));
+    opacity: 0; cursor: pointer;
+    transition: opacity 160ms var(--ease-out), color 160ms var(--ease-out), border-color 160ms var(--ease-out);
+  }
+  .del svg { width: 13px; height: 13px; }
+  .mapcard:hover .del, .del:focus-visible { opacity: 1; }
+  .del:hover { color: rgb(var(--danger)); border-color: rgb(var(--danger) / 0.5); }
+  .del:focus-visible { outline: 2px solid rgb(var(--border-focus) / 0.7); outline-offset: 1px; }
+  .mapcard:hover .sub .shifted { padding-right: 26px; }
+
+  /* ---- calibration overlay ---- */
+  .calib-stage {
+    position: relative; width: 100%; height: 300px; overflow: hidden;
+    border-radius: 8px; border: 1px solid rgb(var(--border-subtle));
+    background: #2c2a24;
+  }
+  .calib-img {
+    position: absolute; inset: 0;
+    background:
+      repeating-linear-gradient(0deg, rgb(0 0 0 / 0.28) 0 1px, transparent 1px 47px),
+      repeating-linear-gradient(90deg, rgb(0 0 0 / 0.28) 0 1px, transparent 1px 47px),
+      radial-gradient(120% 90% at 30% 25%, #5c5340 0%, #403d31 48%, #2a2822 100%);
+    background-position: 11px 9px, 11px 9px, 0 0;
+  }
+  .calib-box {
+    position: absolute; left: 105px; top: 103px; width: 141px; height: 141px;
+    border: 1.5px solid rgb(var(--accent-active));
+    box-shadow: 0 0 0 1px rgb(0 0 0 / 0.55), 0 0 22px rgb(var(--accent-active) / 0.25);
+    background: rgb(var(--accent-active) / 0.07);
+  }
+  .calib-box::after {
+    content: ""; position: absolute; inset: 0;
+    background:
+      repeating-linear-gradient(0deg, rgb(var(--accent-active) / 0.5) 0 1px, transparent 1px 47px),
+      repeating-linear-gradient(90deg, rgb(var(--accent-active) / 0.5) 0 1px, transparent 1px 47px);
+  }
+  .handle {
+    position: absolute; width: 11px; height: 11px;
+    background: rgb(var(--accent-active)); border: 1.5px solid rgb(var(--on-accent));
+    border-radius: 2px;
+  }
+  .handle.tl { left: -6px; top: -6px; cursor: nwse-resize; }
+  .handle.br { right: -6px; bottom: -6px; cursor: nwse-resize; }
+
+  .calib-bar {
+    position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 12px;
+    background: rgb(var(--surface-1) / 0.96);
+    border: 1px solid rgb(var(--border-structure));
+    border-radius: 8px;
+    box-shadow: var(--panel-shadow);
+    white-space: nowrap;
+  }
+  .calib-bar .say { font-size: 12px; color: rgb(var(--text-secondary)); }
+  .calib-bar .sep { width: 1px; height: 22px; background: rgb(var(--border-default)); }
+  .stepper { display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(var(--text-muted)); }
+  .stepper .input.num { height: 26px; width: 48px; }
+  .calib-bar .btn { flex: none; height: 28px; padding: 0 12px; }
+  .px-readout { font-size: 12px; color: rgb(var(--accent-active)); font-variant-numeric: tabular-nums; }
+
+  .legend { margin-top: 14px; padding-left: 18px; color: rgb(var(--text-muted)); font-size: 12.5px; }
+  .legend li { margin: 4px 0; }
+  .legend b { color: rgb(var(--text-secondary)); font-weight: 500; }
+
+  .kbd {
+    display: inline-block; padding: 1px 5px; border-radius: 3px;
+    border: 1px solid rgb(var(--border-structure)); background: rgb(var(--surface-2));
+    font: 11px/1.5 ui-monospace, Consolas, monospace; color: rgb(var(--text-secondary));
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 1ms !important; animation-duration: 1ms !important; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="page-head">
+    <h1>New map dialog mockup</h1>
+    <p>
+      Tokens are lifted verbatim from <code>canvas/src/index.css</code>, and the segmented
+      controls, buttons and hint blocks reuse the vocabulary already established by
+      <code>ExportDialog</code>. Nothing new was invented for flavour.
+    </p>
+  </header>
+
+  <div class="specimens">
+
+    <!-- 1. Blank (default) -->
+    <figure class="specimen">
+      <figcaption>
+        <h2>1 · Default, blank map</h2>
+        <span class="note">what opens on <span class="kbd">+ New Map</span></span>
+      </figcaption>
+      <div class="stage">
+        <div class="dialog">
+          <div class="dialog-head">
+            <h3 class="dialog-title">New map</h3>
+            <button class="icon-btn" aria-label="Close">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+
+          <div class="field">
+            <label for="m1-name">Name</label>
+            <input id="m1-name" class="input" placeholder="Untitled map" value="Sunken Chapel">
+          </div>
+
+          <div class="field">
+            <span class="label">Start from</span>
+            <div class="segmented">
+              <button class="seg" aria-pressed="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                Blank
+              </button>
+              <button class="seg" aria-pressed="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                Map file
+              </button>
+              <button class="seg" aria-pressed="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-4.35-4.35a2 2 0 0 0-2.83 0L3 21"/></svg>
+                Image
+              </button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="label">Size</span>
+            <div class="segmented">
+              <button class="seg" aria-pressed="true">Expanding</button>
+              <button class="seg" aria-pressed="false">Fixed</button>
+            </div>
+            <p class="hint">Grows to enclose everything you draw, plus <b>one cell of padding</b>.</p>
+          </div>
+
+          <div class="actions">
+            <button class="btn btn-outline">Cancel</button>
+            <button class="btn btn-primary">Create map</button>
+          </div>
+        </div>
+      </div>
+      <ul class="legend">
+        <li>Name autofocuses; <b>Enter</b> creates, <b>Esc</b> cancels.</li>
+        <li>A blank name is not an error; it falls back to “Untitled map” rather than nagging.</li>
+      </ul>
+    </figure>
+
+    <!-- 2. Fixed size -->
+    <figure class="specimen">
+      <figcaption>
+        <h2>2 · Fixed size</h2>
+        <span class="note">confined map, boundary drawn on canvas</span>
+      </figcaption>
+      <div class="stage">
+        <div class="dialog">
+          <div class="dialog-head">
+            <h3 class="dialog-title">New map</h3>
+            <button class="icon-btn" aria-label="Close">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+
+          <div class="field">
+            <label for="m2-name">Name</label>
+            <input id="m2-name" class="input" placeholder="Untitled map" value="Guard Barracks">
+          </div>
+
+          <div class="field">
+            <span class="label">Start from</span>
+            <div class="segmented">
+              <button class="seg" aria-pressed="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                Blank
+              </button>
+              <button class="seg" aria-pressed="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                Map file
+              </button>
+              <button class="seg" aria-pressed="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-4.35-4.35a2 2 0 0 0-2.83 0L3 21"/></svg>
+                Image
+              </button>
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="label">Size</span>
+            <div class="segmented">
+              <button class="seg" aria-pressed="false">Expanding</button>
+              <button class="seg" aria-pressed="true">Fixed</button>
+            </div>
+            <div class="dim-row" style="margin-top:10px">
+              <input class="input num" value="30" aria-label="Width in cells">
+              <span class="times">×</span>
+              <input class="input num" value="20" aria-label="Height in cells">
+              <span class="unit">cells</span>
+            </div>
+            <div class="readout">Boundary <b>150 × 100 ft</b> at 5 ft per cell. You can still draw past the edge; it just sits outside the map.</div>
+          </div>
+
+          <div class="actions">
+            <button class="btn btn-outline">Cancel</button>
+            <button class="btn btn-primary">Create map</button>
+          </div>
+        </div>
+      </div>
+      <ul class="legend">
+        <li>The ft readout uses the map's own <b>cellScale</b> (5 ft default), so it stays honest if that changes.</li>
+      </ul>
+    </figure>
+
+    <!-- 3. Start from image -->
+    <figure class="specimen">
+      <figcaption>
+        <h2>3 · Start from image</h2>
+        <span class="note">the priority path, a battlemap from elsewhere</span>
+      </figcaption>
+      <div class="stage">
+        <div class="dialog">
+          <div class="dialog-head">
+            <h3 class="dialog-title">New map</h3>
+            <button class="icon-btn" aria-label="Close">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+
+          <div class="field">
+            <label for="m3-name">Name</label>
+            <input id="m3-name" class="input" placeholder="Untitled map" value="Riverside Mill">
+          </div>
+
+          <div class="field">
+            <span class="label">Start from</span>
+            <div class="segmented">
+              <button class="seg" aria-pressed="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                Blank
+              </button>
+              <button class="seg" aria-pressed="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                Map file
+              </button>
+              <button class="seg" aria-pressed="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-4.35-4.35a2 2 0 0 0-2.83 0L3 21"/></svg>
+                Image
+              </button>
+            </div>
+            <div style="margin-top:10px" class="filecard">
+              <div class="thumb"></div>
+              <div class="meta">
+                <div class="name">riverside-mill-40x28.jpg</div>
+                <div class="sub">4200 × 2940 px · 3.1 MB</div>
+              </div>
+              <button class="icon-btn" aria-label="Remove riverside-mill-40x28.jpg">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <p class="hint">Lands as the <b>locked base</b> of the map. You'll line it up to the grid on the canvas next.</p>
+          </div>
+
+          <div class="field">
+            <span class="label">Size</span>
+            <div class="segmented">
+              <button class="seg" aria-pressed="true">Expanding</button>
+              <button class="seg" aria-pressed="false">Fixed</button>
+            </div>
+            <p class="hint">The image sets the starting boundary once you've lined up the grid.</p>
+          </div>
+
+          <div class="actions">
+            <button class="btn btn-outline">Cancel</button>
+            <button class="btn btn-primary">Create &amp; line up grid</button>
+          </div>
+        </div>
+      </div>
+      <ul class="legend">
+        <li>The primary button <b>changes label</b> to name what actually happens next. No silent mode switch.</li>
+      </ul>
+    </figure>
+
+    <!-- 4. Map file chosen -->
+    <figure class="specimen">
+      <figcaption>
+        <h2>4 · Open an existing map file</h2>
+        <span class="note">name and size come from the file</span>
+      </figcaption>
+      <div class="stage">
+        <div class="dialog">
+          <div class="dialog-head">
+            <h3 class="dialog-title">New map</h3>
+            <button class="icon-btn" aria-label="Close">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+
+          <div class="field">
+            <span class="label">Start from</span>
+            <div class="segmented">
+              <button class="seg" aria-pressed="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                Blank
+              </button>
+              <button class="seg" aria-pressed="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                Map file
+              </button>
+              <button class="seg" aria-pressed="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-4.35-4.35a2 2 0 0 0-2.83 0L3 21"/></svg>
+                Image
+              </button>
+            </div>
+            <div style="margin-top:10px" class="dropzone">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+              <span class="primary">Drop a <b>.mapbuilder</b> file, or click to choose</span>
+              <span class="secondary">Same file Ctrl+S writes and Ctrl+O opens</span>
+            </div>
+            <div class="inline-error">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+              <span>That's not a map file. Pick a <b>.mapbuilder</b> file, or start from an image instead.</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="label">Name &amp; size</span>
+            <div class="readout">Both come from the file. Rename it afterwards from the map's card.</div>
+          </div>
+
+          <div class="actions">
+            <button class="btn btn-outline">Cancel</button>
+            <button class="btn btn-primary">Open map</button>
+          </div>
+        </div>
+      </div>
+      <ul class="legend">
+        <li>Name and size <b>collapse to an explanation</b> rather than sitting there disabled; a disabled field a DM can't act on is noise.</li>
+        <li>The error names the recovery, not just the failure.</li>
+      </ul>
+    </figure>
+
+    <!-- 5. Map settings mode -->
+    <figure class="specimen">
+      <figcaption>
+        <h2>5 · Map settings (same component, edit mode)</h2>
+        <span class="note">card right-click → Map settings…</span>
+      </figcaption>
+      <div class="stage">
+        <div class="dialog">
+          <div class="dialog-head">
+            <h3 class="dialog-title">Map settings</h3>
+            <button class="icon-btn" aria-label="Close">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+
+          <div class="field">
+            <label for="m5-name">Name</label>
+            <input id="m5-name" class="input" value="Goblin Warren (regen check)">
+          </div>
+
+          <div class="field">
+            <span class="label">Size</span>
+            <div class="segmented">
+              <button class="seg" aria-pressed="true">Expanding</button>
+              <button class="seg" aria-pressed="false">Fixed</button>
+            </div>
+            <div class="readout">Currently measuring <b>34 × 21 cells</b>. Switch to Fixed to pin it there.</div>
+          </div>
+
+          <div class="actions">
+            <button class="btn btn-outline">Cancel</button>
+            <button class="btn btn-primary">Save</button>
+          </div>
+        </div>
+      </div>
+      <ul class="legend">
+        <li>No “Start from” section: you can't re-found an existing map.</li>
+        <li>Switching Expanding → Fixed <b>prefills the measured size</b>, so the safe move is one click.</li>
+      </ul>
+    </figure>
+
+    <!-- 6. Maps panel with delete -->
+    <figure class="specimen">
+      <figcaption>
+        <h2>6 · Maps panel: delete affordance &amp; honest sizes</h2>
+        <span class="note">hover row 2</span>
+      </figcaption>
+      <div class="stage tight">
+        <div class="panel">
+          <div class="panel-head"><span>MAPS</span>
+            <button class="icon-btn" aria-label="Close panel">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <div class="panel-body">
+            <button class="new-map">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              New Map
+            </button>
+
+            <div class="mapcard active">
+              <div class="row1">
+                <span class="title">Goblin Warren (regen check)</span>
+                <span class="badge">EDITING</span>
+              </div>
+              <div class="sub">34 × 21 · 2 layers · 1h ago</div>
+            </div>
+
+            <div class="mapcard" style="border-color: rgb(var(--border-structure))">
+              <button class="del" style="opacity:1" aria-label="Delete Fieldstone Keep">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+              </button>
+              <div class="row1"><span class="title">Fieldstone Keep</span></div>
+              <div class="sub"><span class="shifted">52 × 38 · 2 layers · 1d ago</span></div>
+            </div>
+
+            <div class="mapcard">
+              <div class="row1"><span class="title">Riverside Mill</span></div>
+              <div class="sub">40 × 28 · 3 layers · 2d ago</div>
+            </div>
+
+            <div class="mapcard">
+              <div class="row1"><span class="title">Untitled map</span></div>
+              <div class="sub"><span class="empty">Empty</span> · 2 layers · 3d ago</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <ul class="legend">
+        <li>Trash button appears on hover <b>and on keyboard focus</b>, sits above the subtitle, stops propagation so it never opens the map.</li>
+        <li>Sizes are now <b>measured</b>, not the hardcoded 40×40 every card shows today.</li>
+        <li>A map with nothing drawn reads <b>Empty</b> rather than inventing a number.</li>
+      </ul>
+    </figure>
+
+    <!-- 7. Grid calibration -->
+    <figure class="specimen" style="grid-column: 1 / -1;">
+      <figcaption>
+        <h2>7 · On-canvas grid calibration</h2>
+        <span class="note">what “Create &amp; line up grid” drops you into</span>
+      </figcaption>
+      <div class="calib-stage">
+        <div class="calib-img"></div>
+        <div class="calib-box">
+          <span class="handle tl"></span>
+          <span class="handle br"></span>
+        </div>
+        <div class="calib-bar">
+          <span class="say">Drag the box onto the image's own grid</span>
+          <span class="sep"></span>
+          <span class="stepper">spans <input class="input num" value="3" aria-label="Cells spanned"> cells</span>
+          <span class="px-readout">= 47.0 px/cell</span>
+          <span class="sep"></span>
+          <button class="btn btn-outline" style="flex:none">Skip</button>
+          <button class="btn btn-primary" style="flex:none">Use this grid</button>
+        </div>
+      </div>
+      <ul class="legend">
+        <li>The box gives <b>scale and offset in one gesture</b> — where it sits sets the phase, how big it is sets px/cell. That's the whole reason to calibrate on the canvas rather than typing a number.</li>
+        <li>Spanning more than one cell divides the error: a 3-cell box is three times as precise as a 1-cell box on a slightly-off-square image.</li>
+        <li><b>Skip</b> accepts the image at 1 cell = 1 cell of its own pixels and leaves it unlocked, so nobody is trapped in the mode. <span class="kbd">Esc</span> does the same, per the standing rule that Escape always exits the active tool.</li>
+        <li>The bar is <b>bottom-centre and compact</b> so it never covers the region being aligned.</li>
+      </ul>
+    </figure>
+
+  </div>
+</div>
+</body>
+</html>

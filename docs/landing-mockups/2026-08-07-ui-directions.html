@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Good Goblin — UI Direction Mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --void: #0b0a08;
+    --void-2: #12110d;
+    --stone: #2b2e26;
+    --stone-deep: #1d1f19;
+    --ink: #16180f;
+    --parchment-ink: #e6e1d3;
+    --text-2: #b5af9e;
+    --text-mut: #90897a;
+    --goblin: #b6d648;
+    --torch: #eda94e;
+    --torch-hot: #ffd9a0;
+    --parchment: #e8dfc6;
+    --wood: #6d4a2c;
+    --wood-lit: #8a6138;
+    --rule: #4a4638;        /* aged-ink rule — readable stand-in for #16180F, which vanishes on void */
+    --marginalia: #8a8676;  /* hand-ruled leader / underline ink */
+    --ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--void);
+    color: var(--parchment-ink);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+  ::selection { background: var(--goblin); color: var(--ink); }
+  h1, h2, h3 { font-family: 'Newsreader', Georgia, serif; font-weight: 500; text-wrap: balance; }
+  p { max-width: 62ch; text-wrap: pretty; }
+  .voice { font-family: 'Newsreader', Georgia, serif; font-style: italic; color: var(--goblin); }
+  .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+
+  /* ============ board chrome (same conventions as landing-concepts) ============ */
+  .board-intro {
+    padding: clamp(3rem, 8vh, 6rem) clamp(1.5rem, 6vw, 6rem) clamp(2rem, 5vh, 4rem);
+    border-bottom: 1px solid #26241d;
+  }
+  .board-intro .stamp {
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-mut);
+    margin-bottom: 2.5rem; display: flex; gap: 2rem; flex-wrap: wrap;
+  }
+  .board-intro h1 { font-size: clamp(2rem, 4.5vw, 3.4rem); line-height: 1.1; letter-spacing: -0.015em; max-width: 24ch; }
+  .board-intro h1 em { font-style: italic; color: var(--goblin); }
+  .board-intro > p { margin-top: 1.5rem; color: var(--text-2); }
+
+  .dir-head {
+    padding: clamp(3rem, 8vh, 5rem) clamp(1.5rem, 6vw, 6rem) 2rem;
+    display: flex; align-items: baseline; gap: 1.5rem; flex-wrap: wrap;
+  }
+  .dir-head .tag {
+    font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--void);
+    background: var(--goblin); padding: 3px 10px; border-radius: 2px; font-weight: 500;
+  }
+  .dir-head .tag.alt { background: transparent; color: var(--text-mut); border: 1px solid #3a382e; }
+  .dir-head h2 { font-size: clamp(1.6rem, 3vw, 2.4rem); letter-spacing: -0.01em; }
+  .dir-head .verdict { font-size: 14px; color: var(--text-mut); font-style: italic; font-family: 'Newsreader', Georgia, serif; }
+  .dir-note { padding: 0 clamp(1.5rem, 6vw, 6rem) 2.5rem; color: var(--text-2); }
+
+  .annot {
+    display: flex; gap: clamp(1rem, 4vw, 3.5rem); flex-wrap: wrap;
+    padding: 1.1rem clamp(1.5rem, 6vw, 6rem);
+    border-top: 1px solid #23211a; border-bottom: 1px solid #23211a;
+    background: var(--void-2);
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.7;
+    color: var(--text-mut);
+  }
+  .annot b { color: var(--text-2); font-weight: 500; }
+  .annot span { max-width: 36ch; }
+
+  .corridor { display: flex; align-items: center; gap: 0; padding: clamp(3rem, 9vh, 6rem) 0; }
+  .corridor::before, .corridor::after { content: ''; flex: 1; height: 1px; background: #2c2a21; }
+  .corridor svg { flex: none; margin: 0 1rem; display: block; }
+
+  /* ============ frames ============ */
+  .frame {
+    position: relative; min-height: 96vh; overflow: hidden; background: var(--void);
+  }
+  .frame-label {
+    position: absolute; top: 1.2rem; left: clamp(1.5rem, 6vw, 6rem); z-index: 7;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em;
+    color: var(--text-mut);
+  }
+  /* full-bleed scene + full-bleed overlays share one coordinate space */
+  .scene, .overlay {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+  }
+  .scene svg, .overlay svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .overlay { pointer-events: none; z-index: 3; }
+
+  .torchglow {
+    position: absolute; border-radius: 50%; pointer-events: none; z-index: 1;
+    background: radial-gradient(circle, rgb(237 169 78 / 0.30) 0%, rgb(237 169 78 / 0.10) 45%, transparent 70%);
+    animation: flicker 4.5s ease-in-out infinite;
+  }
+  @keyframes flicker {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    48% { opacity: 0.86; transform: scale(0.97); }
+    72% { opacity: 0.95; transform: scale(1.02); }
+  }
+
+  /* copy blocks */
+  .copy { position: relative; z-index: 4; }
+  .copy .whisper {
+    font-family: 'Newsreader', Georgia, serif; font-style: italic;
+    font-size: clamp(1.05rem, 1.7vw, 1.3rem); color: var(--goblin); max-width: 30ch;
+    margin-bottom: 1.2rem;
+  }
+  .copy h1.hed { font-size: clamp(2.4rem, 4.8vw, 4.8rem); line-height: 1.04; letter-spacing: -0.02em; font-weight: 500; }
+  .copy h2.hed { font-size: clamp(1.9rem, 3.4vw, 3rem); line-height: 1.12; letter-spacing: -0.015em; }
+  .copy .hed .drew { font-style: italic; }
+  .copy .hed .run { color: var(--torch); }
+  .copy .sub { margin-top: 1.4rem; color: var(--text-2); font-size: 17px; }
+  .cta-row { margin-top: 2rem; display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; }
+  .cta {
+    display: inline-block; background: var(--goblin); color: var(--ink);
+    font-weight: 600; font-size: 15px; padding: 0.85rem 1.7rem; border-radius: 3px;
+    text-decoration: none; box-shadow: 0 0 32px rgb(182 214 72 / 0.18);
+  }
+  .cta-quiet { font-size: 14px; color: var(--text-mut); }
+
+  /* --- Direction 1: Marginalia --- */
+  .underline-svg { display: block; width: min(100%, 30ch); height: 10px; margin-top: 0.5rem; }
+  .scribble {
+    display: inline-block; margin-top: 1.6rem; margin-left: 1.8rem;
+    transform: rotate(-1.5deg); font-size: 1.05rem; max-width: 34ch;
+  }
+  .m-hero .copy { position: absolute; left: clamp(1.5rem, 6vw, 6rem); top: 50%; transform: translateY(-50%); width: min(38%, 620px); }
+  .m-sight .copy { position: absolute; right: clamp(1.5rem, 6vw, 5rem); top: 50%; transform: translateY(-50%); width: min(34%, 560px); }
+
+  /* --- Direction 2: The Goblin's Ledger --- */
+  .lstrip {
+    position: relative; z-index: 4; width: 100%;
+    background: rgb(18 17 13 / 0.94);
+    border-top: 2px solid var(--rule); border-bottom: 2px solid var(--rule);
+    padding: 1.3rem clamp(1.5rem, 6vw, 6rem);
+    display: flex; align-items: baseline; gap: 1.4rem; flex-wrap: wrap;
+  }
+  .lstrip .glyph { flex: none; align-self: center; }
+  .lstrip h2 { font-size: clamp(1.7rem, 3vw, 2.6rem); letter-spacing: -0.015em; line-height: 1.1; }
+  .lstrip .voice { margin-left: auto; font-size: 1.05rem; text-align: right; max-width: 34ch; }
+  .l-sight .lstrip { position: absolute; left: 0; right: 0; top: 32%; }
+  .l-sight .sub-hang { position: absolute; right: clamp(1.5rem, 6vw, 5rem); top: calc(32% + 9.5rem); width: min(34%, 540px); z-index: 4; }
+  .l-hero .copy { position: absolute; left: clamp(1.5rem, 6vw, 6rem); top: 44%; transform: translateY(-50%); width: min(38%, 620px); }
+  .l-hero .lstrip { position: absolute; left: 0; right: 0; bottom: 9%; align-items: center; }
+  .l-hero .lstrip .voice { margin-left: 0; text-align: left; }
+  .l-hero .lstrip .cta-row { margin: 0 0 0 auto; }
+
+  /* --- Direction 3: Torchlight & the Corridor Spine --- */
+  .scrim {
+    background: radial-gradient(ellipse 115% 105% at 50% 50%,
+      rgb(11 10 8 / 0.90) 38%, rgb(11 10 8 / 0.62) 62%, transparent 80%);
+    padding: 3.5rem 3rem;
+  }
+  .t-hero .copy { position: absolute; left: clamp(2.5rem, 7vw, 7rem); top: 50%; transform: translateY(-50%); width: min(42%, 680px); }
+  .t-sight .copy { position: absolute; right: clamp(1.5rem, 5vw, 5rem); top: 50%; transform: translateY(-50%); width: min(38%, 620px); }
+  .spine {
+    position: absolute; left: 1.6rem; top: 50%; transform: translateY(-50%);
+    height: 58vh; z-index: 6; display: flex; flex-direction: column;
+    align-items: center; justify-content: space-between;
+  }
+  .spine::before {
+    content: ''; position: absolute; top: 0; bottom: 0; left: 50%;
+    width: 2px; margin-left: -1px; background: #26241d;
+  }
+  .spine .notch { position: relative; z-index: 1; width: 8px; height: 2px; background: var(--rule); }
+  .spine .notch.todo { width: 4px; background: #26241d; }
+  .spine .flame { position: relative; z-index: 1; }
+  .spine .flame svg { display: block; animation: flicker 4.5s ease-in-out infinite; filter: drop-shadow(0 0 6px rgb(237 169 78 / 0.6)); }
+
+  /* --- Composite: beat 7 table --- */
+  .comp {
+    display: grid; grid-template-rows: 1fr auto; min-height: 100vh;
+    background: radial-gradient(ellipse 90% 70% at 50% 30%, #241a10 0%, #120d08 55%, var(--void) 100%);
+  }
+  .tablescene { position: relative; width: min(880px, 92vw); margin: 0 auto; padding: 4rem 0 1rem; align-self: center; }
+  .tabletop {
+    position: relative; margin: 0 auto; width: 88%; aspect-ratio: 16 / 9.5;
+    background:
+      repeating-linear-gradient(0deg, transparent 0 46px, rgb(0 0 0 / 0.18) 46px 48px),
+      linear-gradient(160deg, #4a3420, #3a2a18 60%, #2a1e11);
+    border-radius: 10px; border: 3px solid #17110a;
+    box-shadow: 0 40px 80px -30px rgb(0 0 0 / 0.9), inset 0 0 90px rgb(0 0 0 / 0.55);
+    transform: perspective(1400px) rotateX(16deg);
+  }
+  .tablemap {
+    position: absolute; inset: 9% 14%;
+    background: var(--stone-deep); border: 4px solid var(--ink); border-radius: 4px;
+    box-shadow: 0 0 60px rgb(237 169 78 / 0.22); overflow: hidden;
+  }
+  .tablemap svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .dice { position: absolute; width: 26px; height: 26px; background: #b53a3a; border: 2px solid var(--ink); border-radius: 6px; transform: rotate(14deg); box-shadow: 0 6px 10px rgb(0 0 0 / 0.5); }
+  .dice.d2 { width: 20px; height: 20px; background: #3a5bb5; transform: rotate(-22deg); }
+  .mug { position: absolute; width: 42px; height: 42px; background: radial-gradient(circle at 40% 35%, #6b4a2e, #40291a 70%); border: 2px solid var(--ink); border-radius: 50%; box-shadow: 0 8px 14px rgb(0 0 0 / 0.55); }
+  .comp-copy { position: relative; z-index: 4; padding: 0 clamp(1.5rem, 6vw, 6rem) 5rem; }
+  .comp-copy .scrim { max-width: 980px; margin: 0 auto; text-align: center; padding: 2.5rem 3rem 3rem; }
+  .comp-copy .lstrip { border-left: 0; border-right: 0; background: transparent; padding: 1.1rem 0; justify-content: center; align-items: center; }
+  .comp-copy .lstrip h2 { font-size: clamp(2rem, 4vw, 3.4rem); line-height: 1.06; }
+  .comp-copy .lstrip h2 em { font-style: italic; color: var(--goblin); }
+  .comp-copy .sub { margin: 1.2rem auto 0; color: var(--text-2); font-size: 17px; }
+  .comp-copy .cta-row { justify-content: center; }
+
+  /* ============ chooser ============ */
+  .chooser { padding: 0 clamp(1.5rem, 6vw, 6rem) 5rem; }
+  .chooser .row {
+    border-top: 1px solid #2c2a21; padding: 1.6rem 0;
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); gap: 0.6rem 3rem; align-items: baseline;
+  }
+  .chooser .row:last-child { border-bottom: 1px solid #2c2a21; }
+  .chooser .m { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-mut); letter-spacing: 0.04em; }
+  .chooser .m b { color: var(--goblin); font-weight: 500; }
+  .chooser .line { font-family: 'Newsreader', Georgia, serif; font-size: clamp(1.15rem, 2vw, 1.5rem); line-height: 1.35; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .torchglow, .spine .flame svg { animation: none !important; }
+    html { scroll-behavior: auto; }
+  }
+  @media (max-width: 900px) {
+    .frame { min-height: 84vh; }
+    .m-hero .copy, .m-sight .copy, .l-hero .copy, .t-hero .copy, .t-sight .copy {
+      position: static; transform: none; width: auto; padding: 5rem clamp(1.5rem, 6vw, 3rem);
+    }
+    .l-sight .lstrip { position: static; }
+    .l-sight .sub-hang { position: static; width: auto; padding: 1.5rem clamp(1.5rem, 6vw, 3rem) 4rem; }
+    .l-hero .lstrip { position: static; }
+    .overlay { display: none; }  /* leader lines are desktop composition; mobile stacks */
+    .spine { display: none; }
+    .chooser .row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="board-intro">
+  <div class="stamp">
+    <span>GOOD GOBLIN · UI DIRECTION MOCKUPS</span>
+    <span>2026-08-07</span>
+    <span>BLOCK GRAMMAR ×3 · COPY FROZEN · SCENES AT TARGET GRADE</span>
+  </div>
+  <h1>Three grammars for the <em>same</em> words.</h1>
+  <p>Every string below is verbatim from the shipping page — only the block system changes. Each direction shows its two hardest tests: the Sight beat (copy anchored to a live scene) and the hero (the loudest moment). Backgrounds are composed at the target grade of the enhancement doc — torn-rock skirt, focal accent, light mass opposite the copy — not the current build. Mono strips under each frame are grammar and motion notes, not page content.</p>
+</header>
+
+<!-- ================================================================
+     DIRECTION 1 · MARGINALIA
+================================================================= -->
+<div class="dir-head">
+  <span class="tag">DIRECTION 1</span>
+  <h2>Marginalia</h2>
+  <span class="verdict">the recommendation — the copy annotates the scene, hand-ruled ink ties them together</span>
+</div>
+<p class="dir-note">The page is the DM's annotated map sheet. No eyebrows anywhere: each headline carries a hand-wavered ink underline, a leader line runs from the copy to the scene object it describes, and the goblin's voice becomes a rotated margin scribble.</p>
+
+<!-- D1 · HERO -->
+<section class="frame m-hero">
+  <span class="frame-label">MARGINALIA · HERO BEAT</span>
+  <div class="scene">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Torchlit two-room dungeon carved into torn rock, treasure glint in the far room">
+      <defs>
+        <pattern id="g1" width="40" height="40" patternUnits="userSpaceOnUse">
+          <path d="M40 0H0V40" fill="none" stroke="#3a3e33" stroke-width="1" opacity="0.5"/>
+        </pattern>
+        <radialGradient id="t1" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#eda94e" stop-opacity="0.5"/>
+          <stop offset="45%" stop-color="#eda94e" stop-opacity="0.16"/>
+          <stop offset="100%" stop-color="#eda94e" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <rect width="1600" height="900" fill="#0b0a08"/>
+      <g transform="translate(680,90) scale(1.15)">
+        <!-- torn-rock skirt: the map is carved, not floating -->
+        <path d="M58,42 L128,28 L210,46 L286,30 L362,44 L420,36 L428,96 L414,152 L456,158 L502,148 L508,204 L562,194 L642,208 L702,198 L750,214 L754,290 L740,358 L756,428 L742,494 L678,502 L598,486 L518,504 L454,492 L446,438 L458,378 L450,302 L440,284 L378,288 L370,330 L358,334 L296,326 L198,336 L118,324 L62,332 L50,248 L66,158 L52,88 Z"
+          fill="#17140e" stroke="#0c0b07" stroke-width="3" stroke-linejoin="round"/>
+        <!-- floors + grid -->
+        <rect x="90" y="70" width="300" height="230" fill="#2b2e26"/>
+        <rect x="90" y="70" width="300" height="230" fill="url(#g1)"/>
+        <rect x="470" y="230" width="250" height="240" fill="#2b2e26"/>
+        <rect x="470" y="230" width="250" height="240" fill="url(#g1)"/>
+        <rect x="390" y="180" width="80" height="80" fill="#2b2e26"/>
+        <rect x="390" y="180" width="80" height="80" fill="url(#g1)"/>
+        <!-- torch pools: brightest mass upper-right third -->
+        <circle cx="120" cy="100" r="110" fill="url(#t1)"/>
+        <circle cx="360" cy="280" r="100" fill="url(#t1)"/>
+        <circle cx="690" cy="260" r="120" fill="url(#t1)"/>
+        <circle cx="500" cy="450" r="90" fill="url(#t1)"/>
+        <!-- walls -->
+        <g stroke="#14160f" stroke-width="14" fill="none" stroke-linecap="square">
+          <path d="M90 300 V70 H390 V180"/>
+          <path d="M390 260 V300 H240"/>
+          <path d="M160 300 H90"/>
+          <path d="M390 180 H470 V230 H720 V470 H560"/>
+          <path d="M480 470 H470 V260 H440"/>
+        </g>
+        <!-- doors in their gaps -->
+        <g stroke="#14160f" stroke-width="4">
+          <rect x="164" y="292" width="72" height="16" fill="#6d4a2c"/>
+          <rect x="484" y="462" width="72" height="16" fill="#6d4a2c"/>
+        </g>
+        <!-- focal accent: treasure glint, SE room -->
+        <circle cx="650" cy="420" r="12" fill="#eda94e"/>
+        <circle cx="650" cy="420" r="30" fill="url(#t1)"/>
+        <!-- beat-1 remnant construction line -->
+        <path d="M90 300 C 60 380, 120 470, 210 500" stroke="#5a5d50" stroke-width="3" stroke-dasharray="7 9" fill="none"/>
+      </g>
+    </svg>
+  </div>
+  <div class="torchglow" style="width: 280px; height: 280px; right: 10%; top: 22%;"></div>
+  <div class="torchglow" style="width: 220px; height: 220px; right: 24%; bottom: 16%; animation-delay: -2.1s;"></div>
+  <!-- marginalia overlay: leader from headline to the glint -->
+  <div class="overlay" aria-hidden="true">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+      <path d="M598,352 C700,340 788,364 880,356 S1080,376 1190,432 S1372,522 1410,558"
+        fill="none" stroke="#8a8676" stroke-width="1.6" opacity="0.9"/>
+      <circle cx="1427" cy="573" r="20" fill="none" stroke="#8a8676" stroke-width="1.6" opacity="0.9"/>
+      <path d="M590,346 L598,352 L590,358" fill="none" stroke="#8a8676" stroke-width="1.6" opacity="0.9"/>
+    </svg>
+  </div>
+  <div class="copy">
+    <p class="whisper">psst. over here. yes, you, the one with the folder of half-finished maps —</p>
+    <h1 class="hed">The map you <span class="drew">drew</span><br>is the game you <span class="run">run</span>.</h1>
+    <svg class="underline-svg" viewBox="0 0 400 12" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M2,7 Q30,3 60,7 T120,6 T180,8 T240,5 T300,8 T360,6 T398,7" fill="none" stroke="#5a5d50" stroke-width="2"/>
+    </svg>
+    <p class="sub">Draw walls, doors, torches — once. Fog, sight, and light run themselves at the table, live, in front of your players.</p>
+    <p class="voice scribble">No re-tracing. No lighting homework. The goblin finds double work insulting.</p>
+    <div class="cta-row">
+      <a class="cta" href="#chooser">Join the waitlist</a>
+      <span class="cta-quiet">Free while in the goblin's favor</span>
+    </div>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Grammar</b> · no eyebrow; wavered ink underline under the display line; voice = margin scribble at −1.5°</span>
+  <span><b>Leader</b> · hand-ruled line from the headline to the beat's focal (here: the treasure glint), ending in an ink ring</span>
+  <span><b>Signature motion</b> · leader draws itself (dashoffset) as the beat pins; the ring lands as the last torch catches; reduced-motion = already drawn</span>
+</div>
+
+<!-- D1 · SIGHT -->
+<section class="frame m-sight">
+  <span class="frame-label">MARGINALIA · SIGHT BEAT</span>
+  <div class="scene">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" role="img" aria-label="The same map under fog of war: a token sees a wedge of the room, the rest is darkness">
+      <defs>
+        <pattern id="g2" width="40" height="40" patternUnits="userSpaceOnUse">
+          <path d="M40 0H0V40" fill="none" stroke="#3a3e33" stroke-width="1" opacity="0.5"/>
+        </pattern>
+        <radialGradient id="t2" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#eda94e" stop-opacity="0.5"/>
+          <stop offset="45%" stop-color="#eda94e" stop-opacity="0.16"/>
+          <stop offset="100%" stop-color="#eda94e" stop-opacity="0"/>
+        </radialGradient>
+        <clipPath id="seen1">
+          <path d="M288,408 L564,264 L672,408 L564,600 Z"/>
+        </clipPath>
+      </defs>
+      <rect width="1600" height="900" fill="#080706"/>
+      <g clip-path="url(#seen1)">
+        <g transform="translate(120,120) scale(1.2)">
+          <path d="M58,42 L210,46 L362,44 L420,36 L428,96 L456,158 L508,204 L642,208 L750,214 L754,290 L756,428 L742,494 L598,486 L454,492 L446,438 L450,302 L378,288 L358,334 L198,336 L62,332 L50,248 L52,88 Z"
+            fill="#15120c" stroke="#0a0906" stroke-width="3" stroke-linejoin="round"/>
+          <rect x="90" y="70" width="300" height="230" fill="#2b2e26"/>
+          <rect x="90" y="70" width="300" height="230" fill="url(#g2)"/>
+          <rect x="390" y="180" width="80" height="80" fill="#2b2e26"/>
+          <rect x="390" y="180" width="80" height="80" fill="url(#g2)"/>
+          <rect x="470" y="230" width="250" height="240" fill="#2b2e26"/>
+          <rect x="470" y="230" width="250" height="240" fill="url(#g2)"/>
+          <circle cx="360" cy="280" r="130" fill="url(#t2)"/>
+          <g stroke="#14160f" stroke-width="14" fill="none" stroke-linecap="square">
+            <path d="M90 300 V70 H390 V180"/>
+            <path d="M390 260 V300 H240"/>
+            <path d="M390 180 H470 V230 H720 V470 H560"/>
+          </g>
+          <rect x="484" y="462" width="72" height="16" fill="#6d4a2c" stroke="#14160f" stroke-width="4"/>
+        </g>
+        <!-- occlusion spike: the wall corner cuts the wedge -->
+        <path d="M588,432 L672,446 L664,506 Z" fill="#080706" opacity="0.92"/>
+      </g>
+      <!-- explored-dim remnant -->
+      <g opacity="0.18" transform="translate(120,120) scale(1.2)">
+        <rect x="90" y="70" width="150" height="230" fill="#2b2e26"/>
+        <path d="M90 300 V70 H240" stroke="#14160f" stroke-width="14" fill="none"/>
+      </g>
+      <!-- token + sight ring: the focal -->
+      <circle cx="408" cy="408" r="20" fill="#b53a3a" stroke="#14160f" stroke-width="5"/>
+      <circle cx="408" cy="408" r="32" fill="none" stroke="#eda94e" stroke-width="2" opacity="0.7"/>
+    </svg>
+  </div>
+  <!-- marginalia overlay: leader from headline to the token -->
+  <div class="overlay" aria-hidden="true">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+      <path d="M1116,392 C1030,382 962,404 878,394 S 726,406 630,398 S 500,404 452,408"
+        fill="none" stroke="#8a8676" stroke-width="1.6" opacity="0.9"/>
+      <circle cx="408" cy="408" r="44" fill="none" stroke="#8a8676" stroke-width="1.4" opacity="0.8"/>
+      <path d="M1124,386 L1116,392 L1124,398" fill="none" stroke="#8a8676" stroke-width="1.6" opacity="0.9"/>
+    </svg>
+  </div>
+  <div class="copy">
+    <h2 class="hed">Fog of war that reads your walls.</h2>
+    <svg class="underline-svg" viewBox="0 0 400 12" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M2,7 Q30,3 60,7 T120,6 T180,8 T240,5 T300,8 T360,6 T398,7" fill="none" stroke="#5a5d50" stroke-width="2"/>
+    </svg>
+    <p class="sub">Line of sight is computed from the walls you drew. Doors block until they swing open; torches carry exactly as far as you placed them. Nothing to trace, nothing to mask, nothing to babysit.</p>
+    <p class="voice scribble">You drew the walls. Why would you draw them again?</p>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Grammar</b> · headline + wavered underline; leader crosses the darkness to ring the token — copy and scene are one picture</span>
+  <span><b>Anchoring</b> · beats are pinned compositions, so leader endpoints are fixed per beat; no dynamic tracking needed</span>
+  <span><b>Signature motion</b> · the ink ring lands on the token as the wedge finishes its first sweep; scribble fades in last</span>
+</div>
+
+<div class="corridor" aria-hidden="true">
+  <svg width="90" height="26" viewBox="0 0 90 26"><rect x="30" y="4" width="30" height="18" fill="#6d4a2c" stroke="#16180f" stroke-width="3"/><path d="M0 13 H27 M63 13 H90" stroke="#2c2a21" stroke-width="2"/></svg>
+</div>
+
+<!-- ================================================================
+     DIRECTION 2 · THE GOBLIN'S LEDGER
+================================================================= -->
+<div class="dir-head">
+  <span class="tag alt">DIRECTION 2</span>
+  <h2>The Goblin's Ledger</h2>
+  <span class="verdict">every claim is an entry — ruled strips, inked glyphs, the voice answering on the right</span>
+</div>
+<p class="dir-note">Feature headlines live on full-width ledger strips: two ruled lines, an inked pictogram where the eyebrow used to be, the goblin's voice right-aligned on the same baseline. Subs hang below over raw void. On the hero, the strip carries the voice register instead of the headline.</p>
+
+<!-- D2 · HERO -->
+<section class="frame l-hero">
+  <span class="frame-label">LEDGER · HERO BEAT</span>
+  <div class="scene">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <use href="#hero-scene"/>
+    </svg>
+  </div>
+  <div class="torchglow" style="width: 280px; height: 280px; right: 10%; top: 22%;"></div>
+  <div class="copy">
+    <p class="whisper">psst. over here. yes, you, the one with the folder of half-finished maps —</p>
+    <h1 class="hed">The map you <span class="drew">drew</span><br>is the game you <span class="run">run</span>.</h1>
+    <p class="sub">Draw walls, doors, torches — once. Fog, sight, and light run themselves at the table, live, in front of your players.</p>
+  </div>
+  <div class="lstrip">
+    <svg class="glyph" width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
+      <path d="M13,3 C17.5,8.5 18.5,12 13,18 C7.5,12 8.5,8.5 13,3 Z" fill="#eda94e" opacity="0.9"/>
+      <path d="M13,18 V23" stroke="#b5af9e" stroke-width="2"/>
+    </svg>
+    <p class="voice">No re-tracing. No lighting homework. The goblin finds double work insulting.</p>
+    <div class="cta-row">
+      <a class="cta" href="#chooser">Join the waitlist</a>
+      <span class="cta-quiet">Free while in the goblin's favor</span>
+    </div>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Grammar</b> · hero headline runs free over void; the ledger strip anchors the frame's foot with torch glyph + voice + CTA on one ruled band</span>
+  <span><b>Rules</b> · strip rules render at aged-ink #4A4638 (true #16180F vanishes on void); band bg is void-2 at 94%</span>
+  <span><b>Signature motion</b> · the two rules draw outward from the left edge (scaleX, ease-out quint), glyph inks in 120ms later; reduced-motion = present from load</span>
+</div>
+
+<!-- D2 · SIGHT -->
+<section class="frame l-sight">
+  <span class="frame-label">LEDGER · SIGHT BEAT</span>
+  <div class="scene">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <use href="#sight-scene"/>
+    </svg>
+  </div>
+  <div class="lstrip">
+    <svg class="glyph" width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
+      <ellipse cx="13" cy="13" rx="11" ry="6.5" fill="none" stroke="#b5af9e" stroke-width="2"/>
+      <circle cx="13" cy="13" r="2.6" fill="#b5af9e"/>
+    </svg>
+    <h2>Fog of war that reads your walls.</h2>
+    <p class="voice">You drew the walls. Why would you draw them again?</p>
+  </div>
+  <p class="sub sub-hang">Line of sight is computed from the walls you drew. Doors block until they swing open; torches carry exactly as far as you placed them. Nothing to trace, nothing to mask, nothing to babysit.</p>
+</section>
+<div class="annot">
+  <span><b>Grammar</b> · pictogram replaces the eyebrow (labels were scaffold; glyphs are voice); headline left, voice right, one baseline, two ruled lines</span>
+  <span><b>Scene relation</b> · the strip crosses the continuous scene like a ledger line ruled over the map sheet; the sub hangs below over darkness</span>
+  <span><b>Signature motion</b> · rules rule themselves outward as the beat pins — like a line drawn in a book; wedge sweep continues beneath</span>
+</div>
+
+<div class="corridor" aria-hidden="true">
+  <svg width="90" height="26" viewBox="0 0 90 26"><rect x="30" y="4" width="30" height="18" fill="#6d4a2c" stroke="#16180f" stroke-width="3"/><path d="M0 13 H27 M63 13 H90" stroke="#2c2a21" stroke-width="2"/></svg>
+</div>
+
+<!-- ================================================================
+     DIRECTION 3 · TORCHLIGHT & THE CORRIDOR SPINE
+================================================================= -->
+<div class="dir-head">
+  <span class="tag alt">DIRECTION 3</span>
+  <h2>Torchlight &amp; the Corridor Spine</h2>
+  <span class="verdict">darkness is the container — one flame on the spine replaces every eyebrow</span>
+</div>
+<p class="dir-note">No boxes, no strips, no underlines: authored radial darkness holds the copy, and a persistent corridor spine at the page edge — nine notches, one live flame — says "you are here in the dungeon." The flame is the only section marker on the whole page.</p>
+
+<!-- D3 · HERO -->
+<section class="frame t-hero">
+  <span class="frame-label">TORCHLIGHT · HERO BEAT</span>
+  <div class="scene">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <use href="#hero-scene"/>
+    </svg>
+  </div>
+  <div class="torchglow" style="width: 280px; height: 280px; right: 10%; top: 22%;"></div>
+  <div class="spine" aria-hidden="true">
+    <span class="notch"></span><span class="notch"></span>
+    <span class="flame">
+      <svg width="14" height="18" viewBox="0 0 14 18"><path d="M7,1 C10.5,6 11.5,9 7,14.5 C2.5,9 3.5,6 7,1 Z" fill="#eda94e"/><path d="M7,8 C8.6,10 8.6,11.5 7,13.5 C5.4,11.5 5.4,10 7,8 Z" fill="#ffd9a0"/></svg>
+    </span>
+    <span class="notch todo"></span><span class="notch todo"></span><span class="notch todo"></span>
+    <span class="notch todo"></span><span class="notch todo"></span><span class="notch todo"></span>
+  </div>
+  <div class="copy">
+    <div class="scrim">
+      <p class="whisper">psst. over here. yes, you, the one with the folder of half-finished maps —</p>
+      <h1 class="hed">The map you <span class="drew">drew</span><br>is the game you <span class="run">run</span>.</h1>
+      <p class="sub">Draw walls, doors, torches — once. Fog, sight, and light run themselves at the table, live, in front of your players.</p>
+      <p class="voice" style="margin-top: 1.6rem; font-size: 1.05rem;">No re-tracing. No lighting homework. The goblin finds double work insulting.</p>
+      <div class="cta-row">
+        <a class="cta" href="#chooser">Join the waitlist</a>
+        <span class="cta-quiet">Free while in the goblin's favor</span>
+      </div>
+    </div>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Grammar</b> · pure type on shaped darkness — the scrim is the shadow between torch pools, feathered, no card geometry</span>
+  <span><b>Spine</b> · nine notches on a 2px track; passed = ink ticks, current = live flame, ahead = faint; it carries state, not topic labels</span>
+  <span><b>Signature motion</b> · the flame slides to the next notch between beats with a trailing ember; reduced-motion = instant jump (flicker hinted here in CSS, disabled under reduced motion)</span>
+</div>
+
+<!-- D3 · SIGHT -->
+<section class="frame t-sight">
+  <span class="frame-label">TORCHLIGHT · SIGHT BEAT</span>
+  <div class="scene">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <use href="#sight-scene"/>
+    </svg>
+  </div>
+  <div class="spine" aria-hidden="true">
+    <span class="notch"></span><span class="notch"></span><span class="notch"></span>
+    <span class="flame">
+      <svg width="14" height="18" viewBox="0 0 14 18"><path d="M7,1 C10.5,6 11.5,9 7,14.5 C2.5,9 3.5,6 7,1 Z" fill="#eda94e"/><path d="M7,8 C8.6,10 8.6,11.5 7,13.5 C5.4,11.5 5.4,10 7,8 Z" fill="#ffd9a0"/></svg>
+    </span>
+    <span class="notch todo"></span><span class="notch todo"></span><span class="notch todo"></span>
+    <span class="notch todo"></span><span class="notch todo"></span>
+  </div>
+  <div class="copy">
+    <div class="scrim">
+      <h2 class="hed">Fog of war that reads your walls.</h2>
+      <p class="sub">Line of sight is computed from the walls you drew. Doors block until they swing open; torches carry exactly as far as you placed them. Nothing to trace, nothing to mask, nothing to babysit.</p>
+      <p class="voice" style="margin-top: 1.4rem; font-size: 1.05rem;">You drew the walls. Why would you draw them again?</p>
+    </div>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Grammar</b> · identical type stack to the hero — the direction's rhythm comes from scrim placement alternating sides, not from block variants</span>
+  <span><b>Legibility</b> · the scrim guarantees ≥4.5:1 for body text regardless of what the scene is doing — containment by darkness, not by panels</span>
+  <span><b>Signature motion</b> · flame now at notch four; on arrival the scrim deepens 6% over 200ms as if the copy stepped into shadow</span>
+</div>
+
+<div class="corridor" aria-hidden="true">
+  <svg width="90" height="26" viewBox="0 0 90 26"><rect x="30" y="4" width="30" height="18" fill="#6d4a2c" stroke="#16180f" stroke-width="3"/><path d="M0 13 H27 M63 13 H90" stroke="#2c2a21" stroke-width="2"/></svg>
+</div>
+
+<!-- ================================================================
+     RECOMMENDED COMPOSITE
+================================================================= -->
+<div class="dir-head">
+  <span class="tag alt">COMPOSITE</span>
+  <h2>Marginalia + the steals</h2>
+  <span class="verdict">Marginalia on feature beats · ledger strip on the kit summary · torchlight scrim under all copy</span>
+</div>
+<p class="dir-note">Shown on beat 7 (the kit): the ledger strip gives the centered summary its weight, the scrim guarantees legibility over the lamplit table, and Marginalia's leader lines stay on the feature beats where there is a scene object to ring.</p>
+
+<section class="frame comp">
+  <span class="frame-label">COMPOSITE · KIT BEAT (BEAT 07)</span>
+  <div class="tablescene">
+    <div class="tabletop">
+      <div class="tablemap">
+        <svg viewBox="0 0 800 560" preserveAspectRatio="xMidYMid slice" aria-label="A lit battlemap glowing on a dark wooden table">
+          <defs>
+            <radialGradient id="t5" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#eda94e" stop-opacity="0.5"/>
+              <stop offset="45%" stop-color="#eda94e" stop-opacity="0.16"/>
+              <stop offset="100%" stop-color="#eda94e" stop-opacity="0"/>
+            </radialGradient>
+            <pattern id="g5" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M40 0H0V40" fill="none" stroke="#3a3e33" stroke-width="1" opacity="0.5"/>
+            </pattern>
+          </defs>
+          <rect width="800" height="560" fill="#1d1f19"/>
+          <rect x="90" y="70" width="300" height="230" fill="#2b2e26"/>
+          <rect x="90" y="70" width="300" height="230" fill="url(#g5)"/>
+          <rect x="470" y="230" width="250" height="240" fill="#2b2e26"/>
+          <rect x="470" y="230" width="250" height="240" fill="url(#g5)"/>
+          <rect x="390" y="180" width="80" height="80" fill="#2b2e26"/>
+          <circle cx="360" cy="280" r="120" fill="url(#t5)"/>
+          <circle cx="690" cy="260" r="110" fill="url(#t5)"/>
+          <g stroke="#14160f" stroke-width="14" fill="none" stroke-linecap="square">
+            <path d="M90 300 V70 H390 V180"/>
+            <path d="M390 260 V300 H240"/>
+            <path d="M390 180 H470 V230 H720 V470 H560"/>
+          </g>
+          <circle cx="240" cy="240" r="16" fill="#b53a3a" stroke="#14160f" stroke-width="4"/>
+          <circle cx="620" cy="330" r="16" fill="#3a5bb5" stroke="#14160f" stroke-width="4"/>
+        </svg>
+      </div>
+      <div class="dice" style="right: 5%; top: 14%;"></div>
+      <div class="dice d2" style="right: 8.5%; top: 24%;"></div>
+      <div class="mug" style="left: 3.5%; bottom: 10%;"></div>
+    </div>
+  </div>
+  <div class="comp-copy">
+    <div class="scrim">
+      <div class="lstrip">
+        <svg class="glyph" width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
+          <rect x="5" y="5" width="16" height="16" rx="3" fill="none" stroke="#b5af9e" stroke-width="2" transform="rotate(12 13 13)"/>
+          <circle cx="10" cy="11" r="1.6" fill="#b5af9e"/><circle cx="16" cy="13" r="1.6" fill="#b5af9e"/><circle cx="13" cy="17" r="1.6" fill="#b5af9e"/>
+        </svg>
+        <h2>Every table deserves<br>a <em>good</em> goblin.</h2>
+      </div>
+      <p class="sub">The whole DM kit: prep in the Editor, run at the Table, players join with a link.</p>
+      <div class="cta-row">
+        <a class="cta" href="#chooser">Join the waitlist</a>
+        <span class="cta-quiet">The goblin holds your seat.</span>
+      </div>
+    </div>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Why steal here</b> · beat 7 has no single scene object to ring, so Marginalia has nothing to anchor — the ledger strip carries the summary's weight instead</span>
+  <span><b>Scrim as floor</b> · under any direction, the radial darkness backing is the legibility guarantee over the lamplit table</span>
+  <span><b>Signature motion</b> · the strip's rules draw outward as the pull-back settles; dice land with a 2-frame settle, no bounce</span>
+</div>
+
+<!-- ================================================================
+     CHOOSER
+================================================================= -->
+<div class="dir-head" id="chooser">
+  <span class="tag alt">CHOOSER</span>
+  <h2>Pick a grammar</h2>
+</div>
+<div class="chooser">
+  <div class="row">
+    <div class="m"><b>1 · MARGINALIA</b><br>recommended</div>
+    <div class="line">The copy annotates the scene — hand-ruled leader lines make block and diorama one picture; the voice scribbles in the margin.</div>
+  </div>
+  <div class="row">
+    <div class="m">2 · THE GOBLIN'S LEDGER</div>
+    <div class="line">Every claim is a ruled ledger entry — inked glyph, headline left, the goblin answering on the right; cheapest to build, strongest cadence.</div>
+  </div>
+  <div class="row">
+    <div class="m">3 · TORCHLIGHT &amp; SPINE</div>
+    <div class="line">Darkness itself contains the copy, and one flame on the corridor spine replaces every eyebrow — quietest, and the scrim travels well into either other direction.</div>
+  </div>
+</div>
+
+<!-- shared scene defs: referenced by <use> in D2/D3 frames -->
+<svg width="0" height="0" style="position: absolute;" aria-hidden="true">
+  <defs>
+    <g id="hero-scene">
+      <rect width="1600" height="900" fill="#0b0a08"/>
+      <g transform="translate(680,90) scale(1.15)">
+        <path d="M58,42 L128,28 L210,46 L286,30 L362,44 L420,36 L428,96 L414,152 L456,158 L502,148 L508,204 L562,194 L642,208 L702,198 L750,214 L754,290 L740,358 L756,428 L742,494 L678,502 L598,486 L518,504 L454,492 L446,438 L458,378 L450,302 L440,284 L378,288 L370,330 L358,334 L296,326 L198,336 L118,324 L62,332 L50,248 L66,158 L52,88 Z"
+          fill="#17140e" stroke="#0c0b07" stroke-width="3" stroke-linejoin="round"/>
+        <rect x="90" y="70" width="300" height="230" fill="#2b2e26"/>
+        <rect x="90" y="70" width="300" height="230" fill="url(#g1)"/>
+        <rect x="470" y="230" width="250" height="240" fill="#2b2e26"/>
+        <rect x="470" y="230" width="250" height="240" fill="url(#g1)"/>
+        <rect x="390" y="180" width="80" height="80" fill="#2b2e26"/>
+        <rect x="390" y="180" width="80" height="80" fill="url(#g1)"/>
+        <circle cx="120" cy="100" r="110" fill="url(#t1)"/>
+        <circle cx="360" cy="280" r="100" fill="url(#t1)"/>
+        <circle cx="690" cy="260" r="120" fill="url(#t1)"/>
+        <circle cx="500" cy="450" r="90" fill="url(#t1)"/>
+        <g stroke="#14160f" stroke-width="14" fill="none" stroke-linecap="square">
+          <path d="M90 300 V70 H390 V180"/>
+          <path d="M390 260 V300 H240"/>
+          <path d="M160 300 H90"/>
+          <path d="M390 180 H470 V230 H720 V470 H560"/>
+          <path d="M480 470 H470 V260 H440"/>
+        </g>
+        <g stroke="#14160f" stroke-width="4">
+          <rect x="164" y="292" width="72" height="16" fill="#6d4a2c"/>
+          <rect x="484" y="462" width="72" height="16" fill="#6d4a2c"/>
+        </g>
+        <circle cx="650" cy="420" r="12" fill="#eda94e"/>
+        <circle cx="650" cy="420" r="30" fill="url(#t1)"/>
+        <path d="M90 300 C 60 380, 120 470, 210 500" stroke="#5a5d50" stroke-width="3" stroke-dasharray="7 9" fill="none"/>
+      </g>
+    </g>
+    <g id="sight-scene">
+      <rect width="1600" height="900" fill="#080706"/>
+      <g clip-path="url(#seen1)">
+        <g transform="translate(120,120) scale(1.2)">
+          <path d="M58,42 L210,46 L362,44 L420,36 L428,96 L456,158 L508,204 L642,208 L750,214 L754,290 L756,428 L742,494 L598,486 L454,492 L446,438 L450,302 L378,288 L358,334 L198,336 L62,332 L50,248 L52,88 Z"
+            fill="#15120c" stroke="#0a0906" stroke-width="3" stroke-linejoin="round"/>
+          <rect x="90" y="70" width="300" height="230" fill="#2b2e26"/>
+          <rect x="90" y="70" width="300" height="230" fill="url(#g2)"/>
+          <rect x="390" y="180" width="80" height="80" fill="#2b2e26"/>
+          <rect x="390" y="180" width="80" height="80" fill="url(#g2)"/>
+          <rect x="470" y="230" width="250" height="240" fill="#2b2e26"/>
+          <rect x="470" y="230" width="250" height="240" fill="url(#g2)"/>
+          <circle cx="360" cy="280" r="130" fill="url(#t2)"/>
+          <g stroke="#14160f" stroke-width="14" fill="none" stroke-linecap="square">
+            <path d="M90 300 V70 H390 V180"/>
+            <path d="M390 260 V300 H240"/>
+            <path d="M390 180 H470 V230 H720 V470 H560"/>
+          </g>
+          <rect x="484" y="462" width="72" height="16" fill="#6d4a2c" stroke="#14160f" stroke-width="4"/>
+        </g>
+        <path d="M588,432 L672,446 L664,506 Z" fill="#080706" opacity="0.92"/>
+      </g>
+      <g opacity="0.18" transform="translate(120,120) scale(1.2)">
+        <rect x="90" y="70" width="150" height="230" fill="#2b2e26"/>
+        <path d="M90 300 V70 H240" stroke="#14160f" stroke-width="14" fill="none"/>
+      </g>
+      <circle cx="408" cy="408" r="20" fill="#b53a3a" stroke="#14160f" stroke-width="5"/>
+      <circle cx="408" cy="408" r="32" fill="none" stroke="#eda94e" stroke-width="2" opacity="0.7"/>
+    </g>
+  </defs>
+</svg>
+
+</body>
+</html>

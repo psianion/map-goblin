@@ -27,6 +27,7 @@ import { welcomeMessage } from './features/welcome'
 import { createSessionRunner } from './goblin/live-session'
 import { createObserver } from './goblin/observer'
 import { createGoblinRest } from './goblin/rest'
+import { freshSeats } from './goblin/seat'
 import { createChannelLog, installExitFlush } from './lib/channel-log'
 import { log, subscribe } from './lib/log'
 import { container, type AttachedFile, type ContainerSpec } from './lib/ui'
@@ -65,6 +66,7 @@ const announce = async (
     // is what puts the map inside the recap rather than beside it.
     ...(files?.length ? { files: files.map((f) => new AttachmentBuilder(f.data, { name: f.name })) } : {}),
     flags: MessageFlags.IsComponentsV2,
+    ...(spec.noPing ? { allowedMentions: { parse: [] } } : {}),
   })
   return { messageId: message.id }
 }
@@ -138,14 +140,30 @@ const deps: RouterDeps = {
 client.on(Events.InteractionCreate, (interaction) => void routeInteraction(interaction, deps))
 client.on(Events.GuildMemberAdd, (member) => {
   if (!env.WELCOME_CHANNEL_ID) return
-  void deps.announce(env.WELCOME_CHANNEL_ID, welcomeMessage(member.toString()))
+  void deps.announce(env.WELCOME_CHANNEL_ID, welcomeMessage(member.toString(), member.displayAvatarURL({ size: 256 })))
 })
 client.once(Events.ClientReady, (ready) => {
   log.info('bot ready', { user: ready.user.tag, guild: env.DISCORD_GUILD_ID })
+  // One line in the log channel per boot, so a restart is visible from Discord itself.
+  channelLog.audit(`🟢 Online as ${ready.user.tag}`)
   // A table the bot was watching when it went down is still running — or was closed while
   // it was away, which the runner discovers and finalizes. Either way it is picked back up
   // here, after the gateway is live, because resuming edits a message.
-  sessionRunner.resume()
+  //
+  // Seats first, and through the DB rather than by handing them over: resume() reads each
+  // campaign row itself, so refreshing the row is all it takes. A dead seat here is worse
+  // than a failed command — the WS upgrade refuses it, and the runner reads three refused
+  // connects as "the server closed the table" and files a recap for a session still running.
+  void (async () => {
+    for (const row of sessions.live()) {
+      const campaign = campaigns.byId(row.campaignId)
+      if (campaign)
+        await freshSeats(campaign, { goblin, goblinAdminPass: env.GOBLIN_ADMIN_PASS, campaigns }).catch(
+          (error: unknown) => log.warn('seat refresh before resume failed', { campaign: row.campaignId, error: String(error) }),
+        )
+    }
+    sessionRunner.resume()
+  })()
 })
 
 await client.login(env.DISCORD_BOT_TOKEN)

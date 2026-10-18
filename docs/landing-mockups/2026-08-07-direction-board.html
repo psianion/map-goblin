@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Good Goblin — art-direction board (D1 / D2 / D3)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --void: #0b0a08;
+    --void-2: #12110d;
+    --stone: #2b2e26;
+    --stone-deep: #1d1f19;
+    --ink: #16180f;
+    --torch: #eda94e;
+    --torch-hot: #ffd9a0;
+    --goblin: #b6d648;
+    --goblin-deep: #7e9c2a;
+    --goblin-ink: #5f7a14; /* green legible as ink on parchment */
+    --parchment: #e8dfc6;
+    --parch-deep: #d9cdab;
+    --text: #e6e1d3;
+    --text-2: #b5af9e;
+    --wood: #6d4a2c;
+    --wood-lit: #8a6138;
+    --wood-deep: #3a2717;
+    --board-bg: #171614;
+    --board-line: #2e2c27;
+    --display: 'Newsreader', Georgia, serif;
+    --body: 'IBM Plex Sans', system-ui, sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  }
+  * { margin: 0; box-sizing: border-box; }
+  body {
+    background: var(--board-bg);
+    color: var(--text);
+    font-family: var(--body);
+    line-height: 1.6;
+    padding: clamp(24px, 5vw, 72px) clamp(16px, 6vw, 96px) 120px;
+  }
+
+  /* ---------- board chrome ---------- */
+  .board-intro { max-width: 880px; margin: 0 auto 72px; }
+  .board-intro .stamp { font-family: var(--mono); font-size: 12px; letter-spacing: .12em; color: var(--text-2); }
+  .board-intro h1 { font-family: var(--display); font-weight: 400; font-size: clamp(30px, 4vw, 44px); margin: 14px 0 12px; text-wrap: balance; }
+  .board-intro p { color: var(--text-2); max-width: 62ch; }
+  .board-intro .pick { margin-top: 16px; color: var(--text); }
+  .board-intro .pick strong { color: var(--goblin); font-weight: 600; }
+
+  .dir { max-width: 1160px; margin: 0 auto 110px; }
+  .dir-head { display: flex; align-items: baseline; gap: 18px; border-top: 1px solid var(--board-line); padding-top: 22px; }
+  .dir-head .tag { font-family: var(--mono); font-size: 13px; letter-spacing: .1em; color: var(--goblin); white-space: nowrap; }
+  .dir-head h2 { font-family: var(--display); font-weight: 400; font-size: clamp(24px, 3vw, 34px); }
+  .dir-note { color: var(--text-2); max-width: 72ch; margin: 10px 0 8px; }
+  .dir-note em { color: var(--text); font-style: normal; }
+  .seam-note { font-family: var(--mono); font-size: 12.5px; color: var(--goblin-deep); margin-bottom: 26px; }
+
+  .frame { position: relative; border: 1px solid var(--board-line); border-radius: 6px; overflow: hidden; margin: 0 0 40px; aspect-ratio: 16 / 8.4; container-type: inline-size; }
+  .frame-label { position: absolute; z-index: 40; top: 0; left: 0; font-family: var(--mono); font-size: 11px; letter-spacing: .14em; padding: 8px 14px; background: rgba(13,12,10,.78); color: #cfc9b8; border-bottom-right-radius: 6px; }
+  .stage { position: absolute; inset: 0; }
+  .stage > * { position: absolute; }
+
+  /* ---------- shared: wordmark, copy, cta, scrubber ---------- */
+  .wordmark { top: 4.5%; left: 3.2%; font-family: var(--mono); font-size: clamp(9px, 1.15cqw, 14px); letter-spacing: .22em; z-index: 30; }
+  .copy { z-index: 30; }
+  .copy h1, .copy h2 { font-family: var(--display); font-weight: 400; line-height: 1.08; letter-spacing: -0.015em; text-wrap: balance; }
+  .copy h1 { font-size: clamp(20px, 4.6cqw, 58px); }
+  .copy h2 { font-size: clamp(17px, 3.6cqw, 44px); }
+  .copy .sub { font-size: clamp(10px, 1.45cqw, 17px); max-width: 46ch; margin-top: 1.2em; }
+  .copy .voice { font-family: var(--display); font-style: italic; font-size: clamp(10px, 1.4cqw, 16.5px); margin-top: 1.1em; }
+  .cta-row { display: flex; align-items: center; gap: 1.6em; margin-top: 1.6em; font-size: clamp(9px, 1.3cqw, 15px); }
+  .cta { font-family: var(--mono); letter-spacing: .06em; padding: .72em 1.5em; border-radius: 3px; background: var(--goblin); color: #1c2205; text-decoration: none; font-weight: 500; }
+  .cta-quiet { font-family: var(--display); font-style: italic; }
+  .scrub { z-index: 30; width: 34%; font-family: var(--mono); font-size: clamp(8px, 1cqw, 12px); }
+  .scrub .rail { position: relative; height: 3px; border-radius: 2px; background: linear-gradient(90deg, var(--torch) 0%, var(--torch) 34%, #3d4356 36%, #262b3a 100%); }
+  .scrub .knob { position: absolute; top: 50%; left: 34%; width: 11px; height: 11px; border-radius: 50%; transform: translate(-50%, -50%); background: var(--torch-hot); box-shadow: 0 0 10px rgba(237,169,78,.8); }
+  .scrub .ticks { display: flex; justify-content: space-between; margin-top: .7em; opacity: .8; }
+
+  /* ---------- shared: the diorama plan (SVG uses per-frame vars) ---------- */
+  .map { z-index: 10; }
+  .map svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .map .floor { fill: var(--m-floor); }
+  .map .wallcap { stroke: var(--m-wall); stroke-width: 7; fill: none; stroke-linecap: square; }
+  .map .grid { stroke: var(--m-grid); stroke-width: 1; }
+  .map .tok { filter: drop-shadow(0 3px 3px rgba(0,0,0,.45)); }
+  .map .tok .base { stroke: var(--m-tok-rim); stroke-width: 2.5; }
+  .glow { border-radius: 50%; filter: blur(14px); z-index: 9; pointer-events: none; }
+
+  /* seam treatments */
+  .seam { z-index: 20; pointer-events: none; }
+  .seam-vein { width: 3px; background: linear-gradient(180deg, transparent, var(--goblin) 18%, var(--goblin-deep) 55%, var(--goblin) 82%, transparent); filter: drop-shadow(0 0 7px rgba(182,214,72,.55)); border-radius: 2px; }
+
+  /* ══════════════════ D1 — DARK, REPAIRED ══════════════════ */
+  .d1 { --m-floor: #191611; --m-wall: #c9bd93; --m-grid: rgba(230,225,211,.05); --m-tok-rim: #e6e1d3; }
+  .d1 .stage { background:
+      radial-gradient(120% 90% at 62% 40%, #171410 0%, var(--void) 58%);
+  }
+  /* the void gets a floor: table-edge horizon behind the diorama */
+  .d1 .table-horizon {
+    left: 0; right: 0; top: 66%; height: 34%;
+    background: linear-gradient(180deg, rgba(58,39,23,0) 0%, rgba(58,39,23,.55) 22%, rgba(24,16,9,.9) 60%, var(--void) 100%);
+  }
+  .d1 .table-horizon::before {
+    content: ''; position: absolute; left: 8%; right: 8%; top: 0; height: 1.5px;
+    background: linear-gradient(90deg, transparent, rgba(237,169,78,.28) 30%, rgba(237,169,78,.38) 55%, transparent);
+  }
+  .d1 .paper { position: absolute; inset: 0; opacity: .03;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* ══════════════════ D2 — THE LIT TABLE ══════════════════ */
+  .d2 { --m-floor: #efe6cf; --m-wall: #2e2a1c; --m-grid: rgba(22,24,15,.10); --m-tok-rim: #16180f; }
+  .d2 .stage { background:
+      radial-gradient(130% 120% at 24% 8%, var(--wood-lit) 0%, var(--wood) 38%, var(--wood-deep) 100%);
+  }
+  .d2 .woodgrain { inset: 0; opacity: .5; background:
+      repeating-linear-gradient(90deg, rgba(0,0,0,0) 0 26px, rgba(0,0,0,.14) 26px 28px, rgba(0,0,0,0) 28px 61px, rgba(58,39,23,.28) 61px 63px);
+  }
+  .d2 .sheet {
+    background: linear-gradient(168deg, #efe7d1 0%, var(--parchment) 46%, var(--parch-deep) 100%);
+    border-radius: 4px;
+    box-shadow: 0 14px 34px rgba(12,8,4,.55), 0 3px 8px rgba(12,8,4,.4);
+  }
+  .d2 .sheet::after { content: ''; position: absolute; inset: 0; opacity: .05; mix-blend-mode: multiply; border-radius: 4px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.55' numOctaves='3'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .d2 .lamp { inset: 0; background: radial-gradient(75% 90% at 26% 12%, rgba(255,217,160,.32) 0%, rgba(255,217,160,.10) 38%, rgba(20,12,6,.34) 100%); z-index: 15; }
+  .d2 .copy { color: var(--ink); }
+  .d2 .copy .sub { color: #4a4433; }
+  .d2 .copy .voice { color: var(--goblin-ink); }
+  .d2 .cta { background: var(--ink); color: var(--parchment); }
+  .d2 .cta-quiet { color: #5c5340; }
+  .d2 .wordmark { color: #4a4433; }
+  /* green as margin ink: scribbles, not fills */
+  .scribble { font-family: var(--display); font-style: italic; color: var(--goblin-ink); transform: rotate(-3.5deg); font-size: clamp(9px, 1.25cqw, 15px); z-index: 30; }
+  .scribble .arrow { display: block; font-family: var(--mono); font-style: normal; letter-spacing: 0; }
+  /* seam: crack in the table wood, green seeping */
+  .seam-crack { z-index: 20; }
+  .seam-crack svg { overflow: visible; display: block; width: 100%; height: 100%; }
+  .seam-crack path { fill: none; stroke: var(--goblin); stroke-width: 2.2; filter: drop-shadow(0 0 6px rgba(182,214,72,.75)); }
+  .seam-crack .under { stroke: var(--goblin-deep); stroke-width: 5; opacity: .35; filter: blur(3px); }
+
+  /* D2 night: the same world, performed dark */
+  .d2n { --m-floor: #232838; --m-wall: #9aa3bd; --m-grid: rgba(190,200,230,.09); --m-tok-rim: #dfe4f2; }
+  .d2n .sheet { background: linear-gradient(168deg, #262b3c 0%, #1e2230 52%, #14171f 100%);
+    box-shadow: 0 14px 34px rgba(0,0,0,.7), 0 3px 8px rgba(0,0,0,.5); }
+  .d2n .sheet::after { opacity: .07; }
+  .d2n .copy { color: var(--text); }
+  .d2n .copy .sub { color: var(--text-2); }
+  .d2n .copy .voice { color: var(--goblin); }
+  .d2n .wordmark { color: var(--text-2); }
+  .d2n .lamp-dimmed { inset: 0; z-index: 15;
+    background: radial-gradient(80% 100% at 26% 0%, rgba(255,217,160,.07) 0%, rgba(0,0,0,0) 45%),
+                linear-gradient(180deg, rgba(0,0,0,0) 60%, rgba(0,0,0,.4) 100%); }
+  .d2n .rim { left: 0; right: 0; top: 0; height: 3px; z-index: 16;
+    background: linear-gradient(90deg, transparent, rgba(255,217,160,.5), transparent); }
+
+  /* ══════════════════ D3 — HYBRID, WARM STONE ══════════════════ */
+  .d3 { --m-floor: #d9d2c2; --m-wall: #33302a; --m-grid: rgba(29,26,18,.10); --m-tok-rim: #1d1a12; }
+  .d3 .stage { background:
+      radial-gradient(115% 95% at 60% 30%, #b3aa97 0%, #a49b88 52%, #8e8574 100%);
+  }
+  .d3 .stonegrain { inset: 0; opacity: .3;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.08' numOctaves='4'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+  }
+  .d3 .copy { color: #1d1a12; }
+  .d3 .copy .sub { color: #45402f; }
+  .d3 .copy .voice { color: var(--goblin-ink); }
+  .d3 .cta { background: #1d1a12; color: #e8e2d2; }
+  .d3 .cta-quiet { color: #55503f; }
+  .d3 .wordmark { color: #45402f; }
+  .d3 .plinth-shadow { border-radius: 50%; background: radial-gradient(50% 50% at 50% 50%, rgba(20,16,8,.4), transparent 70%); filter: blur(10px); z-index: 9; }
+  /* seam: a routed channel inlaid in the stone */
+  .seam-channel { height: 5px; z-index: 20; border-radius: 3px;
+    background: linear-gradient(90deg, transparent, var(--goblin-deep) 12%, var(--goblin) 50%, var(--goblin-deep) 88%, transparent);
+    box-shadow: 0 0 9px rgba(182,214,72,.5), inset 0 1px 2px rgba(20,16,8,.5); }
+  .d3n { --m-floor: #262b38; --m-wall: #9aa3bd; --m-grid: rgba(190,200,230,.09); --m-tok-rim: #dfe4f2; }
+  .d3n .stage { background:
+      radial-gradient(115% 95% at 60% 30%, #4c483f 0%, #38352d 55%, #26241f 100%);
+  }
+  .d3n .copy { color: var(--text); }
+  .d3n .copy .sub { color: var(--text-2); }
+  .d3n .copy .voice { color: var(--goblin); }
+  .d3n .wordmark { color: var(--text-2); }
+
+  /* ---------- spec strip ---------- */
+  .spec { max-width: 1160px; margin: 0 auto; border-top: 1px solid var(--board-line); padding-top: 26px; }
+  .spec h2 { font-family: var(--display); font-weight: 400; font-size: clamp(22px, 2.6vw, 30px); margin-bottom: 16px; }
+  .spec .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 32px; }
+  .spec h3 { font-family: var(--mono); font-size: 12px; letter-spacing: .14em; color: var(--goblin); margin-bottom: 10px; font-weight: 500; }
+  .spec ul { list-style: none; padding: 0; color: var(--text-2); font-size: 14.5px; }
+  .spec li { padding: 5px 0; border-bottom: 1px dashed #26241f; }
+  .spec li strong { color: var(--text); font-weight: 500; }
+</style>
+</head>
+<body>
+
+<header class="board-intro">
+  <p class="stamp">GOOD GOBLIN · ART-DIRECTION BOARD · 2026-08-07 · INTERNAL, NEVER PUBLISHED</p>
+  <h1>Where does the page live: in the dark, on the table, or in between?</h1>
+  <p>Three directions, two stills each: the hero and the nightfall beat, because nightfall is where they differ most.
+     Typography, voice, camera choreography, and copy are identical across all three; only the world around the
+     diorama changes. Each frame shows its own answer for the molten-green seam.</p>
+  <p class="pick"><strong>Pick one:</strong> D1, D2, or D3. The art pass is scoped to the winner.</p>
+</header>
+
+<!-- ════════════════════════ D1 ════════════════════════ -->
+<section class="dir">
+  <div class="dir-head"><span class="tag">D1</span><h2>Dark, repaired</h2></div>
+  <p class="dir-note">The current world, kept, but healed. Grain becomes matte paper instead of TV static, and the
+     void gets a floor: a table-edge horizon glows faintly behind the diorama, so the map hovers <em>over
+     something</em> instead of in nothing. Night beat stays the strongest beat; beat 1 stays the hardest to sell.</p>
+  <p class="seam-note">SEAM: a molten vein running the void — the current concept, unchanged.</p>
+
+  <section class="frame d1">
+    <span class="frame-label">D1 · HERO</span>
+    <div class="stage">
+      <div class="paper"></div>
+      <div class="table-horizon"></div>
+      <span class="wordmark" style="color: var(--text-2);">GOOD&nbsp;GOBLIN</span>
+
+      <div class="glow" style="left:56%; top:22%; width:26%; height:44%; background: radial-gradient(50% 50% at 50% 50%, rgba(237,169,78,.30), transparent 70%);"></div>
+      <div class="map" style="left:50%; top:16%; width:44%; height:58%;">
+        <svg viewBox="0 0 900 500">
+          <g class="gridlines"></g>
+          <rect class="floor" x="80" y="90" width="320" height="240"/>
+          <rect class="floor" x="480" y="120" width="300" height="260"/>
+          <rect class="floor" x="400" y="180" width="80" height="70"/>
+          <g class="grid">
+            <path d="M120 90V330 M160 90V330 M200 90V330 M240 90V330 M280 90V330 M320 90V330 M360 90V330 M80 130H400 M80 170H400 M80 210H400 M80 250H400 M80 290H400"/>
+            <path d="M520 120V380 M560 120V380 M600 120V380 M640 120V380 M680 120V380 M720 120V380 M480 160H780 M480 200H780 M480 240H780 M480 280H780 M480 320H780 M480 360H780"/>
+          </g>
+          <path class="wallcap" d="M80 90H400 M80 90V330 M80 330H400 M400 90V180 M400 250V330"/>
+          <path class="wallcap" d="M480 120H780 M780 120V380 M480 380H780 M480 120V180 M480 250V380"/>
+          <path class="wallcap" d="M400 180H480 M400 250H480"/>
+          <g class="tok"><circle class="base" cx="240" cy="210" r="17" fill="#8a4a3a"/><circle cx="234" cy="203" r="6" fill="rgba(255,217,160,.5)"/></g>
+          <g class="tok"><circle class="base" cx="620" cy="250" r="17" fill="#3e5a68"/><circle cx="614" cy="243" r="6" fill="rgba(223,232,255,.45)"/></g>
+        </svg>
+      </div>
+
+      <div class="copy" style="left:6%; top:26%; width:42%; color: var(--text);">
+        <h1>The map you <em style="font-style:italic;">drew</em><br/>is the game you <span style="color: var(--torch);">run</span>.</h1>
+        <p class="sub" style="color: var(--text-2);">Draw walls, doors, torches — once. Fog, sight, and light run themselves at the table, live, in front of your players.</p>
+        <p class="voice" style="color: var(--goblin);">No re-tracing. No lighting homework. The goblin finds double work insulting.</p>
+        <div class="cta-row"><span class="cta">Join the waitlist</span><span class="cta-quiet" style="color: var(--text-2);">Free while in the goblin's favor</span></div>
+      </div>
+
+      <div class="seam seam-vein" style="right:5.5%; top:0; height:100%;"></div>
+    </div>
+  </section>
+
+  <section class="frame d1">
+    <span class="frame-label">D1 · BEAT 5 — NIGHTFALL</span>
+    <div class="stage" style="background: radial-gradient(120% 90% at 62% 40%, #10131c 0%, var(--void) 62%);">
+      <div class="paper"></div>
+      <div class="table-horizon" style="top:72%;"></div>
+      <span class="wordmark" style="color: var(--text-2);">GOOD&nbsp;GOBLIN</span>
+
+      <div class="glow" style="left:47%; top:14%; width:17%; height:30%; background: radial-gradient(50% 50% at 50% 50%, rgba(237,169,78,.5), transparent 70%);"></div>
+      <div class="glow" style="left:74%; top:52%; width:15%; height:27%; background: radial-gradient(50% 50% at 50% 50%, rgba(237,169,78,.42), transparent 70%);"></div>
+      <div class="map" style="left:40%; top:6%; width:56%; height:80%; --m-floor:#1c2130; --m-grid: rgba(190,200,230,.08); --m-wall:#8f98b3;">
+        <svg viewBox="0 0 900 500">
+          <rect class="floor" x="80" y="90" width="320" height="240"/>
+          <rect class="floor" x="480" y="120" width="300" height="260"/>
+          <rect class="floor" x="400" y="180" width="80" height="70"/>
+          <g class="grid">
+            <path d="M120 90V330 M160 90V330 M200 90V330 M240 90V330 M280 90V330 M320 90V330 M360 90V330 M80 130H400 M80 170H400 M80 210H400 M80 250H400 M80 290H400"/>
+            <path d="M520 120V380 M560 120V380 M600 120V380 M640 120V380 M680 120V380 M720 120V380 M480 160H780 M480 200H780 M480 240H780 M480 280H780 M480 320H780 M480 360H780"/>
+          </g>
+          <path class="wallcap" d="M80 90H400 M80 90V330 M80 330H400 M400 90V180 M400 250V330"/>
+          <path class="wallcap" d="M480 120H780 M780 120V380 M480 380H780 M480 120V180 M480 250V380"/>
+          <path class="wallcap" d="M400 180H480 M400 250H480"/>
+          <circle cx="410" cy="130" r="5" fill="var(--torch-hot)"/>
+          <circle cx="700" cy="330" r="5" fill="var(--torch-hot)"/>
+          <g class="tok"><circle class="base" cx="240" cy="210" r="17" fill="#8a4a3a"/><circle cx="234" cy="203" r="6" fill="rgba(255,217,160,.5)"/></g>
+        </svg>
+      </div>
+
+      <div class="copy" style="left:6%; top:22%; width:36%; color: var(--text);">
+        <h2>Night falls on schedule.<br/>Or when you say so.</h2>
+        <p class="sub" style="color: var(--text-2);">Scrub the hour and the whole map relights — torch pools holding warm against the blue, rain rolling over the roofs.</p>
+        <p class="voice" style="color: var(--goblin);">Players argue about the marching order; the goblin brings the storm.</p>
+      </div>
+      <div class="scrub" style="left:6%; top:72%; color: var(--text-2);">
+        <div class="rail"><span class="knob"></span></div>
+        <div class="ticks"><span>dawn</span><span>noon</span><span>dusk</span><span>23:40</span></div>
+      </div>
+
+      <div class="seam seam-vein" style="right:5.5%; top:0; height:100%;"></div>
+    </div>
+  </section>
+</section>
+
+<!-- ════════════════════════ D2 ════════════════════════ -->
+<section class="dir">
+  <div class="dir-head"><span class="tag">D2</span><h2>The lit table</h2></div>
+  <p class="dir-note">The page is a warm-lit tabletop. A parchment sheet on real wood; the diorama sits on it like a
+     physical model; the copy is ink. Beat 1 becomes the strongest beat: <em>"From Ink to Alive" literally starts as
+     ink on this parchment</em>. Goblin green turns into margin scribbles (the Marginalia grammar gets stronger in
+     light). And beat 5 finally <em>performs</em> nightfall: the whole world dims to the current night look and
+     returns. The one dark moment is the story beat.</p>
+  <p class="seam-note">SEAM: a crack in the table wood, molten green seeping through the grain.</p>
+
+  <section class="frame d2">
+    <span class="frame-label">D2 · HERO</span>
+    <div class="stage">
+      <div class="woodgrain"></div>
+
+      <div class="sheet" style="left:4.5%; top:7%; width:91%; height:88%; transform: rotate(-0.6deg);"></div>
+      <div class="lamp"></div>
+      <span class="wordmark">GOOD&nbsp;GOBLIN</span>
+
+      <div class="glow" style="left:57%; top:24%; width:24%; height:40%; background: radial-gradient(50% 50% at 50% 50%, rgba(237,169,78,.38), transparent 70%);"></div>
+      <div class="map" style="left:51%; top:17%; width:42%; height:56%; filter: drop-shadow(0 10px 14px rgba(46,32,12,.35));">
+        <svg viewBox="0 0 900 500">
+          <rect class="floor" x="80" y="90" width="320" height="240"/>
+          <rect class="floor" x="480" y="120" width="300" height="260"/>
+          <rect class="floor" x="400" y="180" width="80" height="70"/>
+          <g class="grid">
+            <path d="M120 90V330 M160 90V330 M200 90V330 M240 90V330 M280 90V330 M320 90V330 M360 90V330 M80 130H400 M80 170H400 M80 210H400 M80 250H400 M80 290H400"/>
+            <path d="M520 120V380 M560 120V380 M600 120V380 M640 120V380 M680 120V380 M720 120V380 M480 160H780 M480 200H780 M480 240H780 M480 280H780 M480 320H780 M480 360H780"/>
+          </g>
+          <path class="wallcap" d="M80 90H400 M80 90V330 M80 330H400 M400 90V180 M400 250V330"/>
+          <path class="wallcap" d="M480 120H780 M780 120V380 M480 380H780 M480 120V180 M480 250V380"/>
+          <path class="wallcap" d="M400 180H480 M400 250H480"/>
+          <g class="tok"><circle class="base" cx="240" cy="210" r="17" fill="#a3543f"/><circle cx="234" cy="203" r="6" fill="rgba(255,236,205,.6)"/></g>
+          <g class="tok"><circle class="base" cx="620" cy="250" r="17" fill="#41647a"/><circle cx="614" cy="243" r="6" fill="rgba(230,240,255,.55)"/></g>
+        </svg>
+      </div>
+
+      <div class="copy" style="left:8%; top:24%; width:42%;">
+        <h1>The map you <em style="font-style:italic;">drew</em><br/>is the game you <span style="color:#8a5314;">run</span>.</h1>
+        <p class="sub">Draw walls, doors, torches — once. Fog, sight, and light run themselves at the table, live, in front of your players.</p>
+        <div class="cta-row"><span class="cta">Join the waitlist</span><span class="cta-quiet">Free while in the goblin's favor</span></div>
+      </div>
+
+      <div class="scribble" style="left:55%; top:78%;">
+        <span class="arrow">↰</span>
+        no re-tracing. no lighting homework.<br/>the goblin finds double work <u>insulting</u>.
+      </div>
+
+      <div class="seam seam-crack" style="left:0; bottom:0; width:42%; height:5.5%;">
+        <svg viewBox="0 0 340 130" preserveAspectRatio="none">
+          <path class="under" d="M-5 122 L60 108 L96 116 L150 92 L188 98 L238 74 L262 79 L310 58"/>
+          <path d="M-5 122 L60 108 L96 116 L150 92 L188 98 L238 74 L262 79 L310 58"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <section class="frame d2 d2n">
+    <span class="frame-label">D2 · BEAT 5 — NIGHTFALL, PERFORMED</span>
+    <div class="stage" style="background: radial-gradient(130% 120% at 24% 8%, #241a10 0%, #170f08 45%, #0c0906 100%);">
+      <div class="woodgrain" style="opacity:.3;"></div>
+      <div class="rim"></div>
+
+      <div class="sheet" style="left:4.5%; top:7%; width:91%; height:88%; transform: rotate(-0.6deg);"></div>
+      <div class="lamp-dimmed"></div>
+      <span class="wordmark">GOOD&nbsp;GOBLIN</span>
+
+      <div class="glow" style="left:47%; top:16%; width:16%; height:28%; background: radial-gradient(50% 50% at 50% 50%, rgba(237,169,78,.5), transparent 70%);"></div>
+      <div class="glow" style="left:73%; top:50%; width:14%; height:25%; background: radial-gradient(50% 50% at 50% 50%, rgba(237,169,78,.42), transparent 70%);"></div>
+      <div class="map" style="left:40%; top:12%; width:54%; height:72%;">
+        <svg viewBox="0 0 900 500">
+          <rect class="floor" x="80" y="90" width="320" height="240"/>
+          <rect class="floor" x="480" y="120" width="300" height="260"/>
+          <rect class="floor" x="400" y="180" width="80" height="70"/>
+          <g class="grid">
+            <path d="M120 90V330 M160 90V330 M200 90V330 M240 90V330 M280 90V330 M320 90V330 M360 90V330 M80 130H400 M80 170H400 M80 210H400 M80 250H400 M80 290H400"/>
+            <path d="M520 120V380 M560 120V380 M600 120V380 M640 120V380 M680 120V380 M720 120V380 M480 160H780 M480 200H780 M480 240H780 M480 280H780 M480 320H780 M480 360H780"/>
+          </g>
+          <path class="wallcap" d="M80 90H400 M80 90V330 M80 330H400 M400 90V180 M400 250V330"/>
+          <path class="wallcap" d="M480 120H780 M780 120V380 M480 380H780 M480 120V180 M480 250V380"/>
+          <path class="wallcap" d="M400 180H480 M400 250H480"/>
+          <circle cx="410" cy="130" r="5" fill="var(--torch-hot)"/>
+          <circle cx="700" cy="330" r="5" fill="var(--torch-hot)"/>
+          <g class="tok"><circle class="base" cx="240" cy="210" r="17" fill="#8a4a3a"/><circle cx="234" cy="203" r="6" fill="rgba(255,217,160,.5)"/></g>
+        </svg>
+      </div>
+
+      <div class="copy" style="left:8%; top:22%; width:34%;">
+        <h2>Night falls on schedule.<br/>Or when you say so.</h2>
+        <p class="sub">The lamp goes down with the sun. Torch pools hold warm against the blue; the parchment itself goes midnight. Scrub back and the room comes back.</p>
+        <p class="voice">Players argue about the marching order; the goblin brings the storm.</p>
+      </div>
+      <div class="scrub" style="left:8%; top:74%; color: var(--text-2);">
+        <div class="rail"><span class="knob" style="left:78%;"></span></div>
+        <div class="ticks"><span>dawn</span><span>noon</span><span>dusk</span><span>23:40</span></div>
+      </div>
+
+      <div class="seam seam-crack" style="left:0; bottom:0; width:42%; height:5.5%;">
+        <svg viewBox="0 0 340 130" preserveAspectRatio="none">
+          <path class="under" d="M-5 122 L60 108 L96 116 L150 92 L188 98 L238 74 L262 79 L310 58"/>
+          <path d="M-5 122 L60 108 L96 116 L150 92 L188 98 L238 74 L262 79 L310 58"/>
+        </svg>
+      </div>
+    </div>
+  </section>
+</section>
+
+<!-- ════════════════════════ D3 ════════════════════════ -->
+<section class="dir">
+  <div class="dir-head"><span class="tag">D3</span><h2>Hybrid — warm stone</h2></div>
+  <p class="dir-note">A light warm-stone surround (not cream, not void). The diorama reads as a model on a stone
+     slab; ink text sits on stone at full contrast. Dark appears <em>only where the story needs it</em>: the night
+     beat and the trust beat's hidden half drop to deep grey, then the stone returns. Less theatrical than D2, less
+     gloomy than D1.</p>
+  <p class="seam-note">SEAM: a channel routed into the stone, inlaid with molten green.</p>
+
+  <section class="frame d3">
+    <span class="frame-label">D3 · HERO</span>
+    <div class="stage">
+      <div class="stonegrain"></div>
+      <span class="wordmark">GOOD&nbsp;GOBLIN</span>
+
+      <div class="plinth-shadow" style="left:50%; top:66%; width:44%; height:9%;"></div>
+      <div class="glow" style="left:57%; top:22%; width:24%; height:40%; background: radial-gradient(50% 50% at 50% 50%, rgba(237,169,78,.32), transparent 70%);"></div>
+      <div class="map" style="left:51%; top:14%; width:42%; height:56%;">
+        <svg viewBox="0 0 900 500">
+          <rect class="floor" x="80" y="90" width="320" height="240"/>
+          <rect class="floor" x="480" y="120" width="300" height="260"/>
+          <rect class="floor" x="400" y="180" width="80" height="70"/>
+          <g class="grid">
+            <path d="M120 90V330 M160 90V330 M200 90V330 M240 90V330 M280 90V330 M320 90V330 M360 90V330 M80 130H400 M80 170H400 M80 210H400 M80 250H400 M80 290H400"/>
+            <path d="M520 120V380 M560 120V380 M600 120V380 M640 120V380 M680 120V380 M720 120V380 M480 160H780 M480 200H780 M480 240H780 M480 280H780 M480 320H780 M480 360H780"/>
+          </g>
+          <path class="wallcap" d="M80 90H400 M80 90V330 M80 330H400 M400 90V180 M400 250V330"/>
+          <path class="wallcap" d="M480 120H780 M780 120V380 M480 380H780 M480 120V180 M480 250V380"/>
+          <path class="wallcap" d="M400 180H480 M400 250H480"/>
+          <g class="tok"><circle class="base" cx="240" cy="210" r="17" fill="#9c4f3b"/><circle cx="234" cy="203" r="6" fill="rgba(255,236,205,.55)"/></g>
+          <g class="tok"><circle class="base" cx="620" cy="250" r="17" fill="#406074"/><circle cx="614" cy="243" r="6" fill="rgba(230,240,255,.5)"/></g>
+        </svg>
+      </div>
+
+      <div class="copy" style="left:7%; top:25%; width:42%;">
+        <h1>The map you <em style="font-style:italic;">drew</em><br/>is the game you <span style="color:#7a4a12;">run</span>.</h1>
+        <p class="sub">Draw walls, doors, torches — once. Fog, sight, and light run themselves at the table, live, in front of your players.</p>
+        <p class="voice">No re-tracing. No lighting homework. The goblin finds double work insulting.</p>
+        <div class="cta-row"><span class="cta">Join the waitlist</span><span class="cta-quiet">Free while in the goblin's favor</span></div>
+      </div>
+
+      <div class="seam seam-channel" style="left:0; width:100%; top:82%;"></div>
+    </div>
+  </section>
+
+  <section class="frame d3 d3n">
+    <span class="frame-label">D3 · BEAT 5 — NIGHTFALL (DARK ONLY HERE)</span>
+    <div class="stage">
+      <div class="stonegrain" style="opacity:.2;"></div>
+      <span class="wordmark">GOOD&nbsp;GOBLIN</span>
+
+      <div class="glow" style="left:47%; top:16%; width:16%; height:28%; background: radial-gradient(50% 50% at 50% 50%, rgba(237,169,78,.48), transparent 70%);"></div>
+      <div class="glow" style="left:73%; top:50%; width:14%; height:25%; background: radial-gradient(50% 50% at 50% 50%, rgba(237,169,78,.4), transparent 70%);"></div>
+      <div class="map" style="left:40%; top:10%; width:54%; height:74%;">
+        <svg viewBox="0 0 900 500">
+          <rect class="floor" x="80" y="90" width="320" height="240"/>
+          <rect class="floor" x="480" y="120" width="300" height="260"/>
+          <rect class="floor" x="400" y="180" width="80" height="70"/>
+          <g class="grid">
+            <path d="M120 90V330 M160 90V330 M200 90V330 M240 90V330 M280 90V330 M320 90V330 M360 90V330 M80 130H400 M80 170H400 M80 210H400 M80 250H400 M80 290H400"/>
+            <path d="M520 120V380 M560 120V380 M600 120V380 M640 120V380 M680 120V380 M720 120V380 M480 160H780 M480 200H780 M480 240H780 M480 280H780 M480 320H780 M480 360H780"/>
+          </g>
+          <path class="wallcap" d="M80 90H400 M80 90V330 M80 330H400 M400 90V180 M400 250V330"/>
+          <path class="wallcap" d="M480 120H780 M780 120V380 M480 380H780 M480 120V180 M480 250V380"/>
+          <path class="wallcap" d="M400 180H480 M400 250H480"/>
+          <circle cx="410" cy="130" r="5" fill="var(--torch-hot)"/>
+          <circle cx="700" cy="330" r="5" fill="var(--torch-hot)"/>
+          <g class="tok"><circle class="base" cx="240" cy="210" r="17" fill="#8a4a3a"/><circle cx="234" cy="203" r="6" fill="rgba(255,217,160,.5)"/></g>
+        </svg>
+      </div>
+
+      <div class="copy" style="left:7%; top:22%; width:35%;">
+        <h2>Night falls on schedule.<br/>Or when you say so.</h2>
+        <p class="sub">The stone dims to dusk with the map — never to void. Scrub back to noon and the slab warms again.</p>
+        <p class="voice">Players argue about the marching order; the goblin brings the storm.</p>
+      </div>
+      <div class="scrub" style="left:7%; top:74%; color: var(--text-2);">
+        <div class="rail"><span class="knob" style="left:78%;"></span></div>
+        <div class="ticks"><span>dawn</span><span>noon</span><span>dusk</span><span>23:40</span></div>
+      </div>
+
+      <div class="seam seam-channel" style="left:0; width:100%; top:86%; opacity:.85;"></div>
+    </div>
+  </section>
+</section>
+
+<!-- ════════════════════════ spec ════════════════════════ -->
+<section class="spec">
+  <h2>What stays constant · what the pick decides</h2>
+  <div class="cols">
+    <div>
+      <h3>CONSTANT IN ALL THREE</h3>
+      <ul>
+        <li><strong>Type & voice</strong> — Newsreader display, Plex body/mono, goblin marginalia in italic.</li>
+        <li><strong>Camera & beats</strong> — same scroll choreography, same eight beats, same copy.</li>
+        <li><strong>Goblin green #B6D648</strong> — marketing accent only; never enters the app.</li>
+        <li><strong>S1–S4 structural fixes</strong> — copy/scene sync, trust-beat rebuild, painted tokens, grain fix land regardless.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>DECIDED BY THE PICK</h3>
+      <ul>
+        <li><strong>Seam material & routing</strong> — void vein (D1) / wood crack (D2) / stone inlay (D3); per-beat routing folds into this.</li>
+        <li><strong>Beat 1 background</strong> — ink strokes draw themselves in every direction; on D2 they are literally ink on the parchment.</li>
+        <li><strong>Night beat behavior</strong> — always-dark world (D1) vs performed nightfall (D2) vs local dusk (D3).</li>
+        <li><strong>Contrast rules</strong> — light directions: ink on parchment/stone ≥ 4.5:1; green used as readable ink (#5F7A14), never pale fill.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

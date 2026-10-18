@@ -1,0 +1,1320 @@
+<!-- Ambient light — P0 mockups, OPTION B "Sky ribbon". Local review file; do not publish.
+     Two token systems, deliberately kept apart and never mixed:
+       .moss  = Editor tokens (canvas/src/index.css .dark + canvas/tailwind.config.ts), moss-green accent
+       .shell = Table tokens (session/client/tailwind.config.ts), achromatic, accent is literal white
+     Page shell itself uses the Table palette (dark, quiet) so neither surface is flattered by its host.
+     Fonts: self-contained, no CDN — Georgia stands in for Newsreader in the Editor's display slot,
+     system-ui stands in for IBM Plex Sans / the Table's system stack.
+     Map art: Fieldstone Keep, cropped from docs/keep-dm-revealed.png, embedded as a JPEG data URI. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ambient light — Option B: Sky ribbon</title>
+<style>
+  :root{
+    /* page shell = Table "Achromatic Shell" */
+    --s0:#0E0E0E; --s1:#141414; --s2:#1E1E1E; --s3:#282828;
+    --tp:#E8E8E8; --ts:#999999; --tm:#666666;
+    --bsub:#1E1E1E; --bd:#252525; --focus:#FFFFFF;
+    --warn:#D4A017; --danger:#C0392B;
+    --ease:cubic-bezier(.25,1,.5,1);
+
+    /* ── time palette: MAP-WORLD colour. Never a chrome accent, never a surface tint. ── */
+    --k-dawn:#8A6A72; --k-morn:#D9C49A; --k-noon:#EDE7D8; --k-eve:#B9743F;
+    --k-night:#2A3550;                 /* authored night keyframe (sky-independent) */
+    --night:var(--k-night);            /* ribbon default; .rb instances override per sky */
+    --sky-full:#3E4C70;                /* night key as the three skies render it */
+    --sky-cres:#242D47;
+    --sky-none:#0F1220;
+    --mood:#D8D2C0;                    /* authored mood tint for the Keep */
+    --torch:#F0A252;
+
+    --keep:url(data:image/jpeg;base64,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);
+    --hatch:repeating-linear-gradient(45deg,rgba(6,7,10,.62) 0 3px,transparent 3px 8px);
+
+    --z-pop:10;
+  }
+  *{box-sizing:border-box;margin:0}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    background:var(--s0); color:var(--tp);
+    font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;
+    padding:44px 20px 110px;
+  }
+  main{max-width:1140px;margin:0 auto}
+  h1{font-size:1.65rem;font-weight:650;letter-spacing:-.012em;text-wrap:balance}
+  .thesis{color:var(--ts);max-width:74ch;margin-top:10px}
+  .thesis b{color:var(--tp);font-weight:600}
+  .meta{margin-top:14px;font-size:12px;color:var(--ts);display:flex;flex-wrap:wrap;gap:8px 18px}
+
+  section{margin-top:56px;border-top:1px solid var(--bd);padding-top:26px}
+  h2{font-size:1.14rem;font-weight:650}
+  .lede{color:var(--ts);margin-top:8px;max-width:78ch}
+  .lede b{color:var(--tp);font-weight:600}
+  h3.sub{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+         color:var(--ts);margin-top:30px}
+  .row{display:flex;flex-wrap:wrap;gap:26px;margin-top:20px;align-items:flex-start}
+  figure{flex:0 1 auto;min-width:0}
+  figure.grow{flex:1 1 320px}
+  figcaption{font-size:12px;line-height:1.5;color:var(--ts);margin-top:10px;max-width:44ch}
+  .row.tiles{gap:22px}
+  .row.tiles figure{width:236px}
+  .row.tiles figcaption{max-width:100%}
+  figcaption b{color:var(--tp);font-weight:600}
+  figcaption ol{margin:6px 0 0 0;padding-left:16px;display:flex;flex-direction:column;gap:3px}
+  .tag{display:inline-block;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
+       color:var(--ts);border:1px solid var(--bd);border-radius:2px;padding:2px 6px;margin-bottom:9px}
+  .tag.rec{color:#0E0E0E;background:var(--tp);border-color:var(--tp);font-weight:650}
+  .note{font-size:12px;color:var(--ts);margin-top:10px;max-width:76ch}
+  ul.eng{margin:12px 0 0 0;padding-left:18px;color:var(--ts);font-size:12.5px;
+         display:flex;flex-direction:column;gap:5px;max-width:82ch}
+  ul.eng b{color:var(--tp);font-weight:600}
+
+  /* ══════════════════ shared ribbon component ══════════════════
+     One component, two dresses. Positions are hours on a 03:00→03:00 day so night
+     wraps both edges: dawn 06:00, morning 09:00, noon 12:00, evening 18:30, night 22:00. */
+  .rb{--night:var(--k-night); position:relative}
+  .rb-track{
+    position:relative; height:26px; border-radius:3px; overflow:hidden;
+    background:linear-gradient(90deg in oklab,
+      var(--night) 0%, var(--night) 5%,
+      var(--k-dawn) 12.5%, var(--k-morn) 25%, var(--k-noon) 37.5%,
+      var(--k-eve) 64.5%, var(--night) 79%, var(--night) 100%);
+    border:1px solid rgba(0,0,0,.55);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);
+  }
+  .rb-track .damp{position:absolute;inset:0;background:var(--hatch)}
+  .rb-key{
+    position:absolute; top:50%; left:var(--x); width:17px; height:17px; padding:0;
+    transform:translate(-50%,-50%); border-radius:3px; background:var(--c);
+    border:1.5px solid rgba(0,0,0,.62); box-shadow:0 0 0 1.5px rgba(255,255,255,.34);
+    cursor:pointer; z-index:2; transition:box-shadow .16s var(--ease),transform .16s var(--ease);
+  }
+  .rb-key:hover{transform:translate(-50%,-50%) scale(1.12)}
+  .rb-key:focus-visible{outline:2px solid #fff;outline-offset:2px}
+  .rb-key.sel{box-shadow:0 0 0 2px var(--acc,#fff),0 0 0 3.5px rgba(0,0,0,.6)}
+  .rb-head{
+    position:absolute; top:-6px; bottom:-6px; left:var(--p,37.5%); width:0;
+    border-left:2px solid #fff; z-index:3; pointer-events:none;
+    filter:drop-shadow(0 0 2px rgba(0,0,0,.85));
+  }
+  .rb-head::after{content:"";position:absolute;top:-7px;left:-6px;
+    border-left:6px solid transparent;border-right:6px solid transparent;border-top:7px solid #fff}
+  /* Editor preview head: hollow + dashed. Authority is encoded in the SHAPE, not only in copy. */
+  .rb-head.preview{border-left:2px dashed #fff}
+  .rb-head.preview::after{content:"";top:-9px;left:-4.5px;width:9px;height:9px;border:1.5px solid #fff;
+    border-top:none;border-right:none;background:transparent;transform:rotate(-45deg)}
+  .rb-ticks{position:relative;height:7px;margin-top:3px}
+  .rb-ticks i{position:absolute;left:var(--x);top:0;width:1px;height:5px;background:rgba(255,255,255,.34)}
+  .rb-applied{display:block;height:11px;border-radius:2px;margin-top:7px;position:relative;overflow:hidden;
+    border:1px solid rgba(0,0,0,.5);
+    background:linear-gradient(90deg in oklab,
+      var(--night) 0%, var(--night) 5%,
+      var(--k-dawn) 12.5%, var(--k-morn) 25%, var(--k-noon) 37.5%,
+      var(--k-eve) 64.5%, var(--night) 79%, var(--night) 100%);}
+  .rb-applied::after{content:"";position:absolute;inset:0;background:var(--mood);mix-blend-mode:multiply}
+  .rb-applied.damped{filter:contrast(.55) saturate(.62)}
+  .rb-applied.flat{background:var(--mood)}
+  .rb-applied[data-mood="dungeon"]{--mood:#2D2D44}   /* underground panel runs the Dungeon preset */
+  .rb-applied.flat::after{display:none}
+
+  /* ══════════════════ EDITOR — Moss tokens ══════════════════ */
+  .moss{
+    --s0:#0F100E; --s1:#181A17; --s2:#232522; --s3:#30332E;
+    --tp:#EAECE9; --ts:#B6BCB3; --tm:#979E94; --td:#D5D9D3;
+    --bd:#3A3E38; --bstruct:#4D544A; --acc:#91C464; --accd:#668B4B; --on-acc:#0F110E;
+    --warn:#D4AE54; --ease:cubic-bezier(.16,1,.3,1);
+    width:300px; flex:none; background:var(--s1); border-left:1px solid var(--bstruct);
+    color:var(--tp); font:11px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+    padding:0 0 10px; border-radius:4px; overflow:hidden;
+  }
+  .moss .tabs{display:flex;height:36px;border-bottom:1px solid var(--bd);background:var(--s1)}
+  .moss .tabs button{flex:1;background:none;border:0;border-bottom:2px solid transparent;
+    color:var(--tm);font:600 12px/16px Georgia,"Times New Roman",serif;letter-spacing:.06em;
+    text-transform:uppercase;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px}
+  .moss .tabs button.on{color:var(--tp);border-bottom-color:var(--acc)}
+  .moss .card{background:var(--s2);border:1px solid var(--bd);border-radius:4px;margin:8px;}
+  .moss .chead{display:flex;align-items:center;gap:7px;padding:9px 12px;cursor:pointer}
+  .moss .chead .ttl{font:400 10px/16px Georgia,"Times New Roman",serif;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--tm)}
+  .moss .chead .prev{margin-left:auto;width:56px;height:20px;border-radius:2px;
+    border:1px solid var(--bd);overflow:hidden}
+  .moss .cbody{padding:6px 14px 14px;border-top:1px solid var(--bd)}
+  .moss .fld{margin-top:12px}
+  .moss .fld:first-child{margin-top:6px}
+  .moss .lbl{display:flex;align-items:center;gap:6px;font-size:10px;line-height:14px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--tm);margin-bottom:5px}
+  .moss .lbl .why{margin-left:auto;letter-spacing:0;text-transform:none;color:var(--ts);font-size:10px}
+  .moss .seg{display:flex;border:1px solid var(--bd);border-radius:4px;overflow:hidden;background:var(--s1)}
+  .moss .seg button{flex:1;background:none;border:0;color:var(--ts);font:inherit;font-size:11px;
+    padding:5px 2px;cursor:pointer;transition:background .18s var(--ease),color .18s var(--ease)}
+  .moss .seg button:hover{background:var(--s3);color:var(--tp)}
+  .moss .seg button.on{background:var(--s3);color:var(--tp);box-shadow:inset 0 -2px 0 var(--acc)}
+  .moss .swatches{display:flex;gap:6px}
+  .moss .sw{width:24px;height:24px;border-radius:50%;border:2px solid var(--bd);padding:0;cursor:pointer;
+    transition:border-color .18s var(--ease)}
+  .moss .sw:hover{border-color:var(--ts)}
+  .moss .sw.on{border-color:var(--acc)}
+  .moss .hexfield{display:flex;align-items:center;gap:6px;margin-top:7px}
+  .moss .hexfield .chip{width:22px;height:22px;border-radius:3px;border:1px solid var(--bd);flex:none}
+  .moss .hexfield code{font:11px/1 ui-monospace,"IBM Plex Mono",Consolas,monospace;color:var(--ts);
+    border:1px solid var(--bd);border-radius:4px;padding:5px 7px;flex:1;background:var(--s1)}
+  .moss select{width:100%;font:inherit;font-size:11px;color:var(--tp);background:var(--s1);
+    border:1px solid var(--bd);border-radius:4px;padding:5px 22px 5px 7px;appearance:none;
+    background-image:linear-gradient(45deg,transparent 50%,var(--tm) 50%),linear-gradient(135deg,var(--tm) 50%,transparent 50%);
+    background-position:calc(100% - 12px) 11px,calc(100% - 8px) 11px;background-size:4px 4px;background-repeat:no-repeat}
+  .moss .strip{position:relative;height:12px;margin-top:2px}
+  .moss .strip span{position:absolute;left:var(--x);transform:translateX(-50%);
+    font-size:7px;line-height:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--tm)}
+  .moss .cap{font-size:10px;color:var(--tm);margin-top:5px}
+  .moss .toggle{width:32px;height:18px;border-radius:9px;background:var(--s0);border:1px solid var(--bd);
+    position:relative;flex:none;cursor:pointer;padding:0;transition:background .18s var(--ease)}
+  .moss .toggle::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;
+    background:var(--tm);transition:transform .18s var(--ease),background .18s var(--ease)}
+  .moss .toggle.on{background:var(--accd);border-color:var(--acc)}
+  .moss .toggle.on::after{transform:translateX(14px);background:var(--on-acc)}
+  .moss .rowline{display:flex;align-items:center;gap:8px}
+  .moss .rowline .txt{font-size:11px;color:var(--ts)}
+  /* preview-clock block: dashed enclosure = "this is a local instrument" */
+  .moss .previewbox{margin-top:12px;border:1px dashed var(--bstruct);border-radius:4px;padding:9px 10px 10px;
+    background:rgba(0,0,0,.16)}
+  .moss .previewbox .hdr{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+  .moss .previewbox .hdr .t{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ts)}
+  .moss .previewbox .hdr .clock{margin-left:auto;font:11px/1 ui-monospace,Consolas,monospace;
+    font-variant-numeric:tabular-nums;color:var(--tp)}
+  .moss .previewbox .foot{font-size:10px;color:var(--tm);margin-top:8px;line-height:1.4}
+  /* "not applicable here" = dimmed control + hatch + a full-contrast reason */
+  .moss .na{position:relative}
+  .moss .na > .ctl{opacity:.38;filter:grayscale(.55)}
+  .moss .na > .ctl::after{content:"";position:absolute;inset:-2px;background:var(--hatch);border-radius:4px;
+    pointer-events:none}
+  .moss .na .reason{display:flex;gap:6px;align-items:flex-start;font-size:10px;color:var(--ts);margin-top:7px}
+  .moss .na .reason svg{flex:none;margin-top:1px}
+  .moss .gatechip{display:inline-flex;align-items:center;gap:6px;font-size:10px;color:var(--ts);
+    border:1px solid var(--bd);border-radius:2px;padding:3px 7px;margin-top:10px;background:var(--s1)}
+  .moss .compass{display:flex;align-items:center;gap:10px;margin-top:2px}
+  .moss .compass .val{font:11px/1.35 ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums;color:var(--ts)}
+  .moss .compass .val b{display:block;color:var(--tp);font-weight:600}
+
+  /* ══════════════════ TABLE — Achromatic Shell ══════════════════ */
+  .shell{
+    width:256px;flex:none;background:var(--s0);border-left:1px solid var(--bd);
+    padding:12px;border-radius:4px;color:var(--tp);
+    font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
+    display:flex;flex-direction:column;gap:14px;
+  }
+  .shell .blk > .h{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ts);margin-bottom:8px}
+  .shell .blk + .blk{border-top:1px solid var(--bd);padding-top:14px}
+  .shell .sublbl{display:flex;align-items:baseline;gap:6px;font-size:12px;color:var(--ts);margin:12px 0 5px}
+  .shell .sublbl .r{margin-left:auto;font:12px/1 ui-monospace,Consolas,monospace;
+    font-variant-numeric:tabular-nums;color:var(--tp)}
+  /* 3 + 2 on a 6-track grid: two tidy rows at 232px, no orphan full-width button */
+  .shell .jumps{display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin-top:8px}
+  .shell .jumps button{grid-column:span 2;font:inherit;font-size:12px;padding:4px 6px;cursor:pointer;
+    color:var(--ts);background:var(--s2);border:1px solid var(--bd);border-radius:4px;
+    transition:background .16s var(--ease),color .16s var(--ease)}
+  .shell .jumps button:nth-child(4),.shell .jumps button:nth-child(5){grid-column:span 3}
+  .shell .jumps button:hover{background:var(--s3);color:var(--tp)}
+  .shell .jumps button.on{background:var(--s3);color:var(--tp);border-color:var(--focus)}
+  .shell .seg{display:flex;gap:2px;border:1px solid var(--bd);background:var(--s1);border-radius:4px;padding:2px}
+  .shell .seg button{flex:1;background:none;border:0;border-radius:3px;color:var(--ts);font:inherit;font-size:12px;
+    padding:5px 2px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;
+    transition:background .16s var(--ease),color .16s var(--ease)}
+  .shell .seg button:hover{background:var(--s2);color:var(--tp)}
+  .shell .seg button.on{background:var(--s3);color:var(--tp);font-weight:600}
+  .shell .seg.dormant{opacity:.55}
+  .shell .dormnote{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--ts);margin-top:6px}
+  .shell .switch{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ts);cursor:pointer;
+    padding:6px 6px 6px 0;border-radius:4px;width:100%;background:none;border:0;text-align:left;font-family:inherit}
+  .shell .switch:hover{color:var(--tp)}
+  .shell .switch .box{width:16px;height:16px;flex:none;border:1px solid var(--bd);border-radius:2px;
+    display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--tp)}
+  .shell .switch.on{color:var(--tp)}
+  .shell .switch.on .box{border-color:var(--focus);background:var(--s3)}
+  /* override engaged: the CONTROL itself changes, not only the badge */
+  .shell .gatewrap{border:1px solid var(--bd);border-radius:4px;padding:8px;margin-top:8px;background:var(--s1)}
+  .shell .gatewrap.over{border-color:var(--focus);background:var(--s2);
+    box-shadow:inset 3px 0 0 -1px transparent}
+  .shell .gatewrap .autoline{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ts)}
+  .shell .gatewrap.over .autoline{text-decoration:line-through;text-decoration-thickness:1px}
+  .shell .badge{border:1px solid var(--bd);border-radius:4px;padding:9px 10px;background:var(--s1);margin-top:10px}
+  .shell .badge.over{border-color:var(--focus);border-width:1px;box-shadow:0 0 0 1px var(--focus) inset}
+  .shell .badge .lvl{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:650;letter-spacing:.01em}
+  .shell .badge .prov{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ts);margin-top:6px}
+  .shell .badge.over .prov{color:var(--tp);border:1px solid var(--focus);border-radius:2px;padding:1px 6px;
+    text-transform:uppercase;letter-spacing:.06em;font-weight:650;font-size:10.5px}
+  .shell .badge .who{font-size:11.5px;color:var(--ts);margin-top:7px;line-height:1.45}
+  .shell .toast{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ts);
+    border:1px solid var(--bd);background:var(--s2);border-radius:4px;padding:6px 8px;margin-top:8px}
+  .shell .toast button{margin-left:auto;font:inherit;font-size:12px;color:var(--tp);background:none;
+    border:0;border-bottom:1px solid var(--tm);cursor:pointer;padding:0}
+
+  /* ══════════════════ map simulation ══════════════════ */
+  .mapframe{position:relative;width:500px;max-width:100%;aspect-ratio:500/329;border-radius:4px;
+    overflow:hidden;border:1px solid var(--bd);background:#0d0e12 var(--keep) center/cover}
+  .mapframe.sm{width:236px}
+  .mapframe > i{position:absolute;inset:0;display:block}
+  .grade{mix-blend-mode:multiply}
+  /* radii in % of the frame so the same pools read identically at 500px and 236px */
+  .pools{mix-blend-mode:screen;
+    background:
+      radial-gradient(ellipse 15% 23% at 22% 27%, rgba(246,176,96,.60), rgba(238,148,68,.17) 46%, transparent 74%),
+      radial-gradient(ellipse 12% 18% at 63% 56%, rgba(246,176,96,.52), rgba(238,148,68,.15) 46%, transparent 74%);}
+  .vig{background:radial-gradient(120% 100% at 50% 45%, transparent 46%, rgba(4,5,9,.55) 100%)}
+  .bite{background:#04050a;
+    -webkit-mask:radial-gradient(ellipse 19% 29% at 22% 27%,transparent 0 52%,#000 90%),
+          radial-gradient(ellipse 16% 24% at 63% 56%,transparent 0 52%,#000 90%);
+    mask:radial-gradient(ellipse 19% 29% at 22% 27%,transparent 0 52%,#000 90%),
+         radial-gradient(ellipse 16% 24% at 63% 56%,transparent 0 52%,#000 90%);
+    -webkit-mask-composite:source-in; mask-composite:intersect;}
+  .maptag{position:absolute;left:8px;top:8px;z-index:4;font:11px/1 system-ui,sans-serif;color:#fff;
+    background:rgba(6,7,10,.62);border:1px solid rgba(255,255,255,.24);border-radius:2px;padding:4px 7px;
+    backdrop-filter:blur(2px)}
+  .maptag.r{left:auto;right:8px}
+  .callout{position:absolute;z-index:5;width:18px;height:18px;border-radius:50%;background:#fff;color:#0E0E0E;
+    font:650 11px/18px system-ui,sans-serif;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.7)}
+  .stage{display:flex;align-items:flex-start;gap:0;border:1px solid var(--bd);border-radius:6px;overflow:hidden;
+    background:var(--s0);width:max-content;max-width:100%}
+  .stage .mapframe{border:0;border-radius:0}
+  .stage .moss,.stage .shell{border-radius:0}
+
+  /* ══════════════════ hero (live) ══════════════════ */
+  .hero{border:1px solid var(--bd);border-radius:6px;background:var(--s1);padding:20px;margin-top:22px}
+  .hero .rb{max-width:760px}
+  .hero .rb-track{height:44px}
+  .hero [role="slider"]:focus{outline:none}
+  .hero [role="slider"]:focus-visible{outline:2px solid #fff;outline-offset:3px;border-radius:4px}
+  .hero .heroreadout{display:flex;flex-wrap:wrap;gap:10px 26px;align-items:center;margin-top:18px}
+  .hero .clock{font:24px/1 ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .hero .phase{font-size:12px;color:var(--ts);text-transform:uppercase;letter-spacing:.08em}
+  .hero .skypick{display:flex;gap:4px;margin-left:auto}
+  .hero .skypick button{font:inherit;font-size:12px;color:var(--ts);background:var(--s2);border:1px solid var(--bd);
+    border-radius:4px;padding:5px 9px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .hero .skypick button.on{color:var(--tp);border-color:var(--focus);background:var(--s3)}
+  .hero .out{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+  .hero .out span{font-size:12px;color:var(--ts);border:1px solid var(--bd);border-radius:2px;padding:4px 9px;
+    background:var(--s2)}
+  .hero .out span b{color:var(--tp);font-weight:650}
+  .hero .arcwrap{margin-top:14px}
+  .anat{display:flex;flex-wrap:wrap;gap:10px 22px;margin-top:16px;font-size:12px;color:var(--ts)}
+  .anat span{display:inline-flex;align-items:center;gap:7px}
+
+  table.cp{border-collapse:collapse;width:100%;margin-top:16px;font-size:12.5px}
+  .cp th{text-align:left;font-weight:600;color:var(--ts);font-size:11px;letter-spacing:.05em;
+    text-transform:uppercase;padding:6px 10px;border-bottom:1px solid var(--bd)}
+  .cp td{padding:6px 10px;border-bottom:1px solid var(--bsub);color:var(--tp)}
+  .cp td.q{color:var(--ts)}
+  .cp tr.on td{background:#181818}
+  .tablewrap{overflow-x:auto}
+  .swdot{width:12px;height:12px;border-radius:2px;display:inline-block;border:1px solid rgba(255,255,255,.2)}
+
+  /* the fixed-width panel frames are the point, so below the stage width they stack instead of scroll */
+  @media (max-width:880px){
+    .stage{flex-wrap:wrap;width:auto}
+    .stage .mapframe{width:100%}
+    .row.tiles figure{width:100%;max-width:320px}
+  }
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<main>
+  <h1>Ambient light — Option B: <span style="white-space:nowrap">Sky ribbon</span></h1>
+  <p class="thesis"><b>The interpolated day is the interface.</b> One ribbon component carries the whole
+    feature on both surfaces: in the Editor it is simultaneously the palette editor (five keyframe swatches
+    sit on it at their own hours and are the recolour handles) and the local day-scrub; at the Table it is
+    the campaign clock, read-mostly, with a playhead and quick-jump notches. The DM learns one object once.
+    The ribbon paints in <b>map-world colour only</b> — the moss accent and the Table's white stay on
+    selection and state, never on the world's mood.</p>
+  <div class="meta">
+    <span>P0 mockups · plan: docs/2026-08-15-ambient-light-plan.md</span>
+    <span>Editor = Moss tokens · Table = Achromatic Shell · never mixed</span>
+    <span>Map art: Fieldstone Keep (docs/keep-dm-revealed.png, cropped)</span>
+  </div>
+
+  <!-- ═══════════════════════════ 1. VOCABULARY ═══════════════════════════ -->
+  <section id="vocab">
+    <h2>1 · The ribbon — one component, one grammar</h2>
+    <p class="lede">Everything below reuses these five parts, so no later mockup has to re-explain itself.
+      The hero is live: drag the playhead (or focus it and use the arrow keys) and switch the sky. The
+      gradient is a single CSS interpolation in Ok-space — the same continuous blend the plan specifies for
+      the grade, so <b>scrubbing can never look stepped</b>.</p>
+
+    <div class="hero">
+      <div class="rb" id="hrb">
+        <div class="rb-track">
+          <span class="rb-key" style="--x:12.5%;--c:var(--k-dawn)" title="dawn keyframe"></span>
+          <span class="rb-key" style="--x:25%;--c:var(--k-morn)" title="morning keyframe"></span>
+          <span class="rb-key" style="--x:37.5%;--c:var(--k-noon)" title="noon keyframe"></span>
+          <span class="rb-key" style="--x:64.5%;--c:var(--k-eve)" title="evening keyframe"></span>
+          <span class="rb-key" style="--x:79%;--c:var(--k-night)" title="night keyframe"></span>
+          <div class="rb-head" id="hhead" style="--p:37.5%"></div>
+        </div>
+        <div class="rb-ticks">
+          <i style="--x:12.5%"></i><i style="--x:25%"></i><i style="--x:37.5%"></i>
+          <i style="--x:64.5%"></i><i style="--x:79%"></i>
+        </div>
+        <div role="slider" tabindex="0" id="hgrab" aria-label="World clock"
+             aria-valuemin="0" aria-valuemax="1439" aria-valuenow="540" aria-valuetext="12:00"
+             style="position:absolute;inset:-6px 0 12px;cursor:ew-resize;border-radius:4px"></div>
+      </div>
+
+      <div class="arcwrap">
+        <svg viewBox="0 0 760 60" width="100%" height="60" aria-label="Sun and moon arc derived from clock and orientation">
+          <line x1="0" y1="52" x2="760" y2="52" stroke="#333" stroke-width="1"/>
+          <path d="M20 52 A 360 300 0 0 1 740 52" fill="none" stroke="#2f2f2f" stroke-width="1" stroke-dasharray="3 5"/>
+          <g id="harc">
+            <circle id="hdot" cx="380" cy="12" r="7" fill="#EDE7D8"/>
+            <line id="hray" x1="380" y1="12" x2="404" y2="50" stroke="#EDE7D8" stroke-width="1.5" opacity=".5"/>
+          </g>
+          <text x="20" y="46" fill="#666" font-size="11" font-family="system-ui">E</text>
+          <text x="736" y="46" fill="#666" font-size="11" font-family="system-ui">W</text>
+        </svg>
+      </div>
+
+      <div class="heroreadout">
+        <div>
+          <div class="clock" id="hclock">12:00</div>
+          <div class="phase" id="hphase">Noon · outdoor</div>
+        </div>
+        <div class="skypick" role="radiogroup" aria-label="Night sky">
+          <button type="button" data-sky="full" role="radio" aria-checked="false">
+            <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="#cfd6e6"/></svg>Full</button>
+          <button type="button" data-sky="crescent" role="radio" aria-checked="true" class="on">
+            <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8a6.2 6.2 0 1 0 4.4 10.6A7 7 0 0 1 8 1.8Z" fill="#cfd6e6"/><circle cx="8" cy="8" r="6.2" fill="none" stroke="#5b5f6b" stroke-width="1"/></svg>Crescent</button>
+          <button type="button" data-sky="moonless" role="radio" aria-checked="false">
+            <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="#7d818c" stroke-width="1.2" stroke-dasharray="2 2"/></svg>Moonless</button>
+        </div>
+      </div>
+
+      <div class="out">
+        <span>grade <b id="hgrade">mood × noon key</b></span>
+        <span>effective gate <b id="hgate">Daylight</b></span>
+        <span>shadows <b id="hshadow">sun, short / neutral</b></span>
+        <span>players <b id="hbite">full sight</b></span>
+      </div>
+    </div>
+
+    <div class="anat">
+      <span><svg width="16" height="16" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2" fill="#8A6A72" stroke="rgba(255,255,255,.5)"/></svg>keyframe swatch — click to recolour, sits at its own hour</span>
+      <span><svg width="16" height="16" aria-hidden="true"><path d="M8 2v12" stroke="#fff" stroke-width="2"/><path d="M3 2h10l-5 5Z" fill="#fff"/></svg>live playhead (Table) — solid blade</span>
+      <span><svg width="16" height="16" aria-hidden="true"><path d="M8 2v12" stroke="#fff" stroke-width="1.6" stroke-dasharray="3 2"/><path d="M4.5 3.5 8 0.5 11.5 3.5" fill="none" stroke="#fff" stroke-width="1.4"/></svg>preview playhead (Editor) — hollow + dashed</span>
+      <span><span class="swdot" style="background:var(--hatch),#2A3550"></span>hatch — this input is damped or ignored here</span>
+      <span><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.2" fill="none" stroke="#fff" stroke-width="1.3"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7" fill="none" stroke="#fff" stroke-width="1.3"/></svg>lock — a DM override has taken this from the clock</span>
+    </div>
+    <p class="note">Level glyphs used by every badge: <b>○ Daylight</b> · <b>◐ Dusk</b> · <b>● Darkness</b>.
+      Glyph + word always travel together — no state on this page is encoded by colour alone.</p>
+  </section>
+
+  <!-- ═══════════════════════════ 2. EDITOR ═══════════════════════════ -->
+  <section id="editor">
+    <h2>2 · Editor — “Environment”, map properties panel</h2>
+    <p class="lede">A <b>CollapsibleSection</b> in the 300px properties overlay, appended beside
+      <b>GridSection</b>/<b>AmbientSection</b>, in the Moss night tokens. Two strips do the heavy lifting:
+      the <b>palette ribbon</b> (authored, recolourable) and, under it, the <b>applied strip</b> — what this
+      map actually receives once environment damping and the mood tint are composed in. The applied strip is
+      the answer to “what does the ribbon mean when the clock is damped or ignored”: the palette stays
+      authored and intact, the applied strip tells the truth.</p>
+
+    <div class="row">
+      <!-- ───────── outdoor ───────── -->
+      <figure>
+        <span class="tag rec">Outdoor · full coupling</span>
+        <div class="moss">
+          <div class="tabs">
+            <button class="on" type="button">
+              <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="5" rx="1" fill="none" stroke="currentColor"/><rect x="2" y="9" width="12" height="5" rx="1" fill="none" stroke="currentColor"/></svg>Layers</button>
+            <button type="button">Assets</button><button type="button">Packs</button>
+          </div>
+          <div class="card">
+            <div class="chead">
+              <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="color:#979E94"><circle cx="8" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.2 3.2l1.4 1.4M11.4 11.4l1.4 1.4M12.8 3.2l-1.4 1.4M4.6 11.4l-1.4 1.4" stroke="currentColor" stroke-width="1.2"/></svg>
+              <span class="ttl">Environment</span>
+              <span class="prev"><span class="rb-applied" style="height:100%;margin:0;border:0;border-radius:0"></span></span>
+              <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" style="color:#979E94"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+            </div>
+            <div class="cbody">
+
+              <div class="fld">
+                <div class="lbl">Type</div>
+                <div class="seg" role="radiogroup" aria-label="Environment type">
+                  <button class="on" role="radio" aria-checked="true" type="button">Outdoor</button>
+                  <button role="radio" aria-checked="false" type="button">Indoor</button>
+                  <button role="radio" aria-checked="false" type="button">Under</button>
+                </div>
+              </div>
+
+              <div class="fld">
+                <div class="lbl">Mood tint</div>
+                <div class="swatches" role="group" aria-label="Mood tint presets">
+                  <button class="sw on" style="background:#e8e4d8" type="button" aria-label="Day"></button>
+                  <button class="sw" style="background:#9a9a9a" type="button" aria-label="Overcast"></button>
+                  <button class="sw" style="background:#6b5a7a" type="button" aria-label="Dusk"></button>
+                  <button class="sw" style="background:#2d2d44" type="button" aria-label="Dungeon"></button>
+                  <button class="sw" style="background:#1a1a2e" type="button" aria-label="Night"></button>
+                  <button class="sw" style="background:#0a0a0f" type="button" aria-label="Moonless"></button>
+                </div>
+                <div class="hexfield"><span class="chip" style="background:#D8D2C0"></span><code>#D8D2C0</code></div>
+              </div>
+
+              <div class="fld">
+                <div class="lbl">Time palette <span class="why">5 keys</span></div>
+                <select aria-label="Time palette preset"><option>Temperate keep</option></select>
+                <div class="rb" style="margin-top:8px">
+                  <div class="rb-track">
+                    <button class="rb-key sel" style="--x:12.5%;--c:var(--k-dawn)" type="button" aria-label="Dawn keyframe #8A6A72"></button>
+                    <button class="rb-key" style="--x:25%;--c:var(--k-morn)" type="button" aria-label="Morning keyframe"></button>
+                    <button class="rb-key" style="--x:37.5%;--c:var(--k-noon)" type="button" aria-label="Noon keyframe"></button>
+                    <button class="rb-key" style="--x:64.5%;--c:var(--k-eve)" type="button" aria-label="Evening keyframe"></button>
+                    <button class="rb-key" style="--x:79%;--c:var(--k-night)" type="button" aria-label="Night keyframe"></button>
+                    <div class="rb-head preview" style="--p:64.5%"></div>
+                  </div>
+                  <div class="rb-ticks"><i style="--x:12.5%"></i><i style="--x:25%"></i><i style="--x:37.5%"></i><i style="--x:64.5%"></i><i style="--x:79%"></i></div>
+                  <div class="strip">
+                    <span style="--x:12.5%">dawn</span><span style="--x:25%">morn</span><span style="--x:37.5%">noon</span>
+                    <span style="--x:64.5%">eve</span><span style="--x:79%">night</span>
+                  </div>
+                  <div class="rb-applied"></div>
+                  <div class="cap">Applied — mood × time key</div>
+                </div>
+              </div>
+
+              <div class="previewbox">
+                <div class="hdr">
+                  <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" style="color:#B6BCB3"><path d="M1 8s2.6-4.2 7-4.2S15 8 15 8s-2.6 4.2-7 4.2S1 8 1 8Z" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="8" r="1.9" fill="currentColor"/></svg>
+                  <span class="t">Preview clock</span><span class="clock">18:30</span>
+                </div>
+                <div class="rb">
+                  <div class="rb-track" style="height:14px">
+                    <div class="rb-head preview" style="--p:64.5%"></div>
+                  </div>
+                </div>
+                <p class="foot">Local to this window. Does not touch the session clock — the Table keeps its
+                  own time.</p>
+              </div>
+
+              <div class="fld">
+                <div class="lbl">Natural light</div>
+                <div class="rowline">
+                  <button class="toggle on" role="switch" aria-checked="true" aria-label="Sun and moon shadows"></button>
+                  <span class="txt">Sun &amp; moon shadows</span>
+                </div>
+              </div>
+
+              <div class="fld">
+                <div class="lbl">Orientation <span class="why">which way is east</span></div>
+                <div class="compass">
+                  <svg width="52" height="52" viewBox="0 0 52 52" aria-label="Map orientation, east at 68 degrees" role="img">
+                    <circle cx="26" cy="26" r="22" fill="#181A17" stroke="#3A3E38"/>
+                    <circle cx="26" cy="26" r="16" fill="none" stroke="#2b2e29" stroke-dasharray="2 4"/>
+                    <text x="26" y="11" fill="#979E94" font-size="7" text-anchor="middle" font-family="system-ui">N</text>
+                    <text x="26" y="47" fill="#979E94" font-size="7" text-anchor="middle" font-family="system-ui">S</text>
+                    <text x="45" y="29" fill="#979E94" font-size="7" text-anchor="middle" font-family="system-ui">E</text>
+                    <text x="7" y="29" fill="#979E94" font-size="7" text-anchor="middle" font-family="system-ui">W</text>
+                    <g transform="rotate(68 26 26)">
+                      <line x1="26" y1="26" x2="26" y2="8" stroke="#91C464" stroke-width="2"/>
+                      <circle cx="26" cy="8" r="3" fill="#91C464"/>
+                    </g>
+                    <circle cx="26" cy="26" r="2" fill="#B6BCB3"/>
+                  </svg>
+                  <span class="val"><b>E 68°</b>shadows fall<br>south-west at noon</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Outdoor.</b> Palette ribbon and applied strip agree — the clock owns the look and the
+          gate. The selected keyframe carries the moss ring; that is the only saturated pixel in the panel
+          (accent = selection state, never mood).</figcaption>
+      </figure>
+
+      <!-- ───────── indoor ───────── -->
+      <figure>
+        <span class="tag">Indoor · time damped, gate manual</span>
+        <div class="moss">
+          <div class="card" style="margin-top:8px">
+            <div class="chead">
+              <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="color:#979E94"><path d="M2 7 8 2l6 5v7H2Z" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+              <span class="ttl">Environment</span>
+              <span class="prev"><span class="rb-applied damped" style="height:100%;margin:0;border:0;border-radius:0"></span></span>
+            </div>
+            <div class="cbody">
+              <div class="fld">
+                <div class="lbl">Type</div>
+                <div class="seg" role="radiogroup" aria-label="Environment type">
+                  <button role="radio" aria-checked="false" type="button">Outdoor</button>
+                  <button class="on" role="radio" aria-checked="true" type="button">Indoor</button>
+                  <button role="radio" aria-checked="false" type="button">Under</button>
+                </div>
+                <span class="gatechip">
+                  <svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+                  No auto-gate — light level is set at the Table
+                </span>
+              </div>
+
+              <div class="fld">
+                <div class="lbl">Time palette <span class="why">damped</span></div>
+                <div class="rb">
+                  <div class="rb-track">
+                    <button class="rb-key" style="--x:12.5%;--c:var(--k-dawn)" type="button" aria-label="Dawn keyframe"></button>
+                    <button class="rb-key" style="--x:25%;--c:var(--k-morn)" type="button" aria-label="Morning keyframe"></button>
+                    <button class="rb-key" style="--x:37.5%;--c:var(--k-noon)" type="button" aria-label="Noon keyframe"></button>
+                    <button class="rb-key" style="--x:64.5%;--c:var(--k-eve)" type="button" aria-label="Evening keyframe"></button>
+                    <button class="rb-key" style="--x:79%;--c:var(--k-night)" type="button" aria-label="Night keyframe"></button>
+                    <div class="rb-head preview" style="--p:79%"></div>
+                  </div>
+                  <div class="strip">
+                    <span style="--x:12.5%">dawn</span><span style="--x:25%">morn</span><span style="--x:37.5%">noon</span>
+                    <span style="--x:64.5%">eve</span><span style="--x:79%">night</span>
+                  </div>
+                  <div class="rb-applied damped"></div>
+                  <div class="cap">Applied — damped toward the mood tint; the hearth still rules</div>
+                </div>
+              </div>
+
+              <div class="fld na">
+                <div class="lbl">Natural light</div>
+                <div class="ctl">
+                  <div class="rowline">
+                    <span class="toggle" role="switch" aria-checked="false" aria-disabled="true"></span>
+                    <span class="txt">Sun &amp; moon shadows</span>
+                  </div>
+                  <div class="compass" style="margin-top:10px">
+                    <svg width="52" height="52" viewBox="0 0 52 52" aria-hidden="true">
+                      <circle cx="26" cy="26" r="22" fill="#181A17" stroke="#3A3E38"/>
+                      <text x="26" y="11" fill="#979E94" font-size="7" text-anchor="middle" font-family="system-ui">N</text>
+                      <text x="45" y="29" fill="#979E94" font-size="7" text-anchor="middle" font-family="system-ui">E</text>
+                      <circle cx="26" cy="26" r="2" fill="#B6BCB3"/>
+                    </svg>
+                    <span class="val"><b>E 68°</b>kept, not used</span>
+                  </div>
+                </div>
+                <p class="reason">
+                  <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 4.6v4.2" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="11.4" r=".9" fill="currentColor"/></svg>
+                  Not applicable indoors — no sky to cast from. The value is kept for if this map becomes outdoor.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Indoor.</b> Inapplicable ≠ broken: the control dims and takes the hatch, but the
+          reason sits beside it at full reading contrast, and the authored orientation is preserved rather
+          than cleared. The palette stays editable — only the <b>applied</b> strip shows the damping.</figcaption>
+      </figure>
+
+      <!-- ───────── underground ───────── -->
+      <figure>
+        <span class="tag">Underground · clock ignored</span>
+        <div class="moss">
+          <div class="card" style="margin-top:8px">
+            <div class="chead">
+              <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" style="color:#979E94"><path d="M2 13h12M4 13V8l4-4 4 4v5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+              <span class="ttl">Environment</span>
+              <span class="prev"><span class="rb-applied flat" data-mood="dungeon" style="height:100%;margin:0;border:0;border-radius:0"></span></span>
+            </div>
+            <div class="cbody">
+              <div class="fld">
+                <div class="lbl">Type</div>
+                <div class="seg" role="radiogroup" aria-label="Environment type">
+                  <button role="radio" aria-checked="false" type="button">Outdoor</button>
+                  <button role="radio" aria-checked="false" type="button">Indoor</button>
+                  <button class="on" role="radio" aria-checked="true" type="button">Under</button>
+                </div>
+                <span class="gatechip">
+                  <svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+                  No auto-gate — light level is set at the Table
+                </span>
+              </div>
+
+              <div class="fld">
+                <div class="lbl">Mood tint <span class="why">the whole grade</span></div>
+                <div class="swatches" role="group" aria-label="Mood tint presets">
+                  <button class="sw" style="background:#e8e4d8" type="button" aria-label="Day"></button>
+                  <button class="sw" style="background:#9a9a9a" type="button" aria-label="Overcast"></button>
+                  <button class="sw" style="background:#6b5a7a" type="button" aria-label="Dusk"></button>
+                  <button class="sw on" style="background:#2d2d44" type="button" aria-label="Dungeon"></button>
+                  <button class="sw" style="background:#1a1a2e" type="button" aria-label="Night"></button>
+                  <button class="sw" style="background:#0a0a0f" type="button" aria-label="Moonless"></button>
+                </div>
+              </div>
+
+              <div class="fld na">
+                <div class="lbl">Time palette</div>
+                <div class="ctl">
+                  <div class="rb">
+                    <div class="rb-track">
+                      <span class="rb-key" style="--x:12.5%;--c:var(--k-dawn)"></span>
+                      <span class="rb-key" style="--x:25%;--c:var(--k-morn)"></span>
+                      <span class="rb-key" style="--x:37.5%;--c:var(--k-noon)"></span>
+                      <span class="rb-key" style="--x:64.5%;--c:var(--k-eve)"></span>
+                      <span class="rb-key" style="--x:79%;--c:var(--k-night)"></span>
+                      <div class="damp"></div>
+                    </div>
+                  </div>
+                </div>
+                <p class="reason">
+                  <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 4.6v4.2" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="11.4" r=".9" fill="currentColor"/></svg>
+                  Underground ignores the clock. A torchlit crypt looks the same at noon.
+                </p>
+                <div class="rb-applied flat" data-mood="dungeon" style="margin-top:10px"></div>
+                <div class="cap">Applied — mood tint only, all day</div>
+              </div>
+
+              <div class="fld na">
+                <div class="lbl">Natural light</div>
+                <div class="ctl">
+                  <div class="rowline">
+                    <span class="toggle" role="switch" aria-checked="false" aria-disabled="true"></span>
+                    <span class="txt">Sun &amp; moon shadows</span>
+                  </div>
+                </div>
+                <p class="reason">
+                  <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M8 4.6v4.2" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="11.4" r=".9" fill="currentColor"/></svg>
+                  No sky underground. Torches and authored lights are the entire scene.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Underground.</b> The ribbon goes flat and hatched — one glance says “time buys you
+          nothing here”. The keyframes are still on the map document (a type change restores them), which
+          keeps the zero-setup promise: nothing is re-authored when the DM changes their mind.</figcaption>
+      </figure>
+    </div>
+
+    <h3 class="sub">Recolour a keyframe — direct on the ribbon</h3>
+    <div class="row">
+      <figure>
+        <div class="moss" style="width:300px;padding-bottom:16px">
+          <div class="card">
+            <div class="chead"><span class="ttl">Environment</span></div>
+            <div class="cbody">
+              <div class="lbl">Time palette</div>
+              <div class="rb" style="margin-top:6px">
+                <div class="rb-track">
+                  <span class="rb-key" style="--x:12.5%;--c:var(--k-dawn)"></span>
+                  <span class="rb-key" style="--x:25%;--c:var(--k-morn)"></span>
+                  <span class="rb-key" style="--x:37.5%;--c:var(--k-noon)"></span>
+                  <span class="rb-key sel" style="--x:64.5%;--c:var(--k-eve)"></span>
+                  <span class="rb-key" style="--x:79%;--c:var(--k-night)"></span>
+                </div>
+                <div class="strip">
+                  <span style="--x:12.5%">dawn</span><span style="--x:25%">morn</span><span style="--x:37.5%">noon</span>
+                  <span style="--x:64.5%">eve</span><span style="--x:79%">night</span>
+                </div>
+              </div>
+              <div style="margin-top:10px;border:1px solid var(--bstruct);border-radius:4px;background:var(--s1);padding:10px">
+                <div class="lbl" style="margin-bottom:6px">Evening key</div>
+                <div style="height:64px;border-radius:3px;background:linear-gradient(to right,#fff,#B9743F),linear-gradient(to top,#000,transparent);background-blend-mode:multiply;position:relative">
+                  <span style="position:absolute;left:72%;top:38%;width:11px;height:11px;border-radius:50%;border:2px solid #fff;transform:translate(-50%,-50%);box-shadow:0 0 0 1px rgba(0,0,0,.6)"></span>
+                </div>
+                <div style="height:9px;border-radius:2px;margin-top:7px;background:linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)"></div>
+                <div class="hexfield"><span class="chip" style="background:#B9743F"></span><code>#B9743F</code></div>
+                <p class="cap">Dragging repaints the ribbon and the map live; one undo entry lands on
+                  release.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>The swatch is the handle.</b> Tapping a keyframe opens the existing
+          <b>ColorField</b> popover anchored to it, so the palette editor never becomes a second screen.
+          Live drag → <span style="color:var(--tp)">store</span>; release → one
+          <b>SetTimeKeyframeCommand</b>, matching the ambient-tint commit idiom exactly.</figcaption>
+      </figure>
+
+      <figure class="grow">
+        <div class="moss" style="width:300px">
+          <div class="card">
+            <div class="chead"><span class="ttl">Environment</span></div>
+            <div class="cbody">
+              <div class="previewbox">
+                <div class="hdr">
+                  <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true" style="color:#B6BCB3"><path d="M1 8s2.6-4.2 7-4.2S15 8 15 8s-2.6 4.2-7 4.2S1 8 1 8Z" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="8" r="1.9" fill="currentColor"/></svg>
+                  <span class="t">Preview clock</span><span class="clock">05:12</span>
+                </div>
+                <div class="rb">
+                  <div class="rb-track" style="height:14px"><div class="rb-head preview" style="--p:9%"></div></div>
+                </div>
+                <p class="foot">Local to this window. Does not touch the session clock — the Table keeps its
+                  own time.</p>
+              </div>
+              <div class="rowline" style="margin-top:10px;gap:6px">
+                <button class="toggle" role="switch" aria-checked="false" aria-label="Loop the day"></button>
+                <span class="txt">Run the day (loop)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Local-only, said three ways.</b> The scrub is fenced in a dashed enclosure, the
+          playhead is hollow and dashed where the Table's is a solid blade, and the copy names the Table
+          explicitly. Any one of the three read alone still says “preview”. “Run the day” is the authoring
+          convenience — a 6-second loop through the whole ribbon while the DM watches the map, never a
+          broadcast.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ 3. TABLE ═══════════════════════════ -->
+  <section id="table">
+    <h2>3 · Table — “World” block, Session Controls (DM only)</h2>
+    <p class="lede">Same ribbon, Table dress: bigger type, achromatic tokens, a solid playhead, and no
+      keyframes — at the table the palette is settled and the DM only moves time. Below it the block splits
+      cleanly in two: <b>the world's look</b> (clock, sky, speed) and <b>the vision gate</b> (auto value,
+      override, effective badge). That split is the point — an override takes the gate, never the grade, so
+      the world still looks like the hour it is.</p>
+
+    <div class="row">
+      <!-- noon -->
+      <figure>
+        <span class="tag">Outdoor · 12:40 · sky dormant</span>
+        <div class="shell">
+          <div class="blk">
+            <p class="h">World</p>
+            <div class="rb" style="--night:var(--sky-cres)">
+              <div class="rb-track" style="height:22px"><div class="rb-head" style="--p:39%"></div></div>
+              <div class="rb-ticks"><i style="--x:12.5%"></i><i style="--x:25%"></i><i style="--x:37.5%"></i><i style="--x:64.5%"></i><i style="--x:79%"></i></div>
+            </div>
+            <div class="sublbl">Clock<span class="r">12:40</span></div>
+            <div class="jumps">
+              <button type="button">Dawn</button><button type="button">Morning</button>
+              <button class="on" type="button">Noon</button><button type="button">Evening</button>
+              <button type="button">Night</button>
+            </div>
+
+            <div class="sublbl">Night sky</div>
+            <div class="seg dormant" role="radiogroup" aria-label="Night sky">
+              <button type="button" role="radio" aria-checked="false"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="#cfd6e6"/></svg>Full</button>
+              <button class="on" type="button" role="radio" aria-checked="true"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8a6.2 6.2 0 1 0 4.4 10.6A7 7 0 0 1 8 1.8Z" fill="#cfd6e6"/><circle cx="8" cy="8" r="6.2" fill="none" stroke="#5b5f6b"/></svg>Crescent</button>
+              <button type="button" role="radio" aria-checked="false"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="#7d818c" stroke-width="1.2" stroke-dasharray="2 2"/></svg>Moonless</button>
+            </div>
+            <p class="dormnote">
+              <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M8 5v3.4l2.2 1.4" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+              Takes effect at night. Set it now if you like.
+            </p>
+
+            <div class="sublbl">Time speed</div>
+            <div class="seg" role="radiogroup" aria-label="Time speed">
+              <button class="on" type="button" role="radio" aria-checked="true">Paused</button>
+              <button type="button" role="radio" aria-checked="false">Real</button>
+              <button type="button" role="radio" aria-checked="false">Fast</button>
+            </div>
+          </div>
+
+          <div class="blk">
+            <p class="h">Vision gate</p>
+            <div class="gatewrap">
+              <p class="autoline">Auto from clock · outdoor, day</p>
+              <button class="switch" role="switch" aria-checked="false" type="button" style="margin-top:4px">
+                <span class="box"></span>Darkness override
+              </button>
+            </div>
+            <div class="badge">
+              <p class="lvl"><span aria-hidden="true">○</span>Daylight</p>
+              <span class="prov">Auto · clock</span>
+              <p class="who">Players see the whole map.</p>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Day.</b> The sky picker is dormant, not hidden and not disabled — 55% opacity plus a
+          plain sentence. The DM can still set tonight's moon at noon (zero setup, no re-visit).</figcaption>
+      </figure>
+
+      <!-- night full -->
+      <figure>
+        <span class="tag">Outdoor · 22:10 · full moon</span>
+        <div class="shell">
+          <div class="blk">
+            <p class="h">World</p>
+            <div class="rb" style="--night:var(--sky-full)">
+              <div class="rb-track" style="height:22px"><div class="rb-head" style="--p:80%"></div></div>
+              <div class="rb-ticks"><i style="--x:12.5%"></i><i style="--x:25%"></i><i style="--x:37.5%"></i><i style="--x:64.5%"></i><i style="--x:79%"></i></div>
+            </div>
+            <div class="sublbl">Clock<span class="r">22:10</span></div>
+            <div class="jumps">
+              <button type="button">Dawn</button><button type="button">Morning</button>
+              <button type="button">Noon</button><button type="button">Evening</button>
+              <button class="on" type="button">Night</button>
+            </div>
+
+            <div class="sublbl">Night sky</div>
+            <div class="seg" role="radiogroup" aria-label="Night sky">
+              <button class="on" type="button" role="radio" aria-checked="true"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="#cfd6e6"/></svg>Full</button>
+              <button type="button" role="radio" aria-checked="false"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8a6.2 6.2 0 1 0 4.4 10.6A7 7 0 0 1 8 1.8Z" fill="#cfd6e6"/><circle cx="8" cy="8" r="6.2" fill="none" stroke="#5b5f6b"/></svg>Crescent</button>
+              <button type="button" role="radio" aria-checked="false"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="#7d818c" stroke-width="1.2" stroke-dasharray="2 2"/></svg>Moonless</button>
+            </div>
+
+            <div class="sublbl">Time speed</div>
+            <div class="seg" role="radiogroup" aria-label="Time speed">
+              <button type="button" role="radio" aria-checked="false">Paused</button>
+              <button class="on" type="button" role="radio" aria-checked="true">Real</button>
+              <button type="button" role="radio" aria-checked="false">Fast</button>
+            </div>
+          </div>
+
+          <div class="blk">
+            <p class="h">Vision gate</p>
+            <div class="gatewrap">
+              <p class="autoline">Auto from clock · night, full moon</p>
+              <button class="switch" role="switch" aria-checked="false" type="button" style="margin-top:4px">
+                <span class="box"></span>Darkness override
+              </button>
+            </div>
+            <div class="badge">
+              <p class="lvl"><span aria-hidden="true">◐</span>Dusk</p>
+              <span class="prov">Auto · night + full moon</span>
+              <p class="who">Moonlight carries. No sight clipped.</p>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Full moon.</b> The ribbon's night end lifts to silver-blue — the sky choice is
+          visible in the world colour before anyone looks at the badge. Gate lands on <b>Dusk</b>: cool
+          grade, nothing clipped.</figcaption>
+      </figure>
+
+      <!-- night crescent -->
+      <figure>
+        <span class="tag">Outdoor · 22:10 · crescent</span>
+        <div class="shell">
+          <div class="blk">
+            <p class="h">World</p>
+            <div class="rb" style="--night:var(--sky-cres)">
+              <div class="rb-track" style="height:22px"><div class="rb-head" style="--p:80%"></div></div>
+              <div class="rb-ticks"><i style="--x:12.5%"></i><i style="--x:25%"></i><i style="--x:37.5%"></i><i style="--x:64.5%"></i><i style="--x:79%"></i></div>
+            </div>
+            <div class="sublbl">Clock<span class="r">22:10</span></div>
+            <div class="jumps">
+              <button type="button">Dawn</button><button type="button">Morning</button>
+              <button type="button">Noon</button><button type="button">Evening</button>
+              <button class="on" type="button">Night</button>
+            </div>
+
+            <div class="sublbl">Night sky</div>
+            <div class="seg" role="radiogroup" aria-label="Night sky">
+              <button type="button" role="radio" aria-checked="false"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="#cfd6e6"/></svg>Full</button>
+              <button class="on" type="button" role="radio" aria-checked="true"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8a6.2 6.2 0 1 0 4.4 10.6A7 7 0 0 1 8 1.8Z" fill="#cfd6e6"/><circle cx="8" cy="8" r="6.2" fill="none" stroke="#5b5f6b"/></svg>Crescent</button>
+              <button type="button" role="radio" aria-checked="false"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="#7d818c" stroke-width="1.2" stroke-dasharray="2 2"/></svg>Moonless</button>
+            </div>
+
+            <div class="sublbl">Time speed</div>
+            <div class="seg" role="radiogroup" aria-label="Time speed">
+              <button type="button" role="radio" aria-checked="false">Paused</button>
+              <button class="on" type="button" role="radio" aria-checked="true">Real</button>
+              <button type="button" role="radio" aria-checked="false">Fast</button>
+            </div>
+          </div>
+
+          <div class="blk">
+            <p class="h">Vision gate</p>
+            <div class="gatewrap">
+              <p class="autoline">Auto from clock · night, crescent</p>
+              <button class="switch" role="switch" aria-checked="false" type="button" style="margin-top:4px">
+                <span class="box"></span>Darkness override
+              </button>
+            </div>
+            <div class="badge">
+              <p class="lvl"><span aria-hidden="true">●</span>Darkness<span style="font-size:11px;font-weight:400;color:var(--ts);margin-left:auto">soft</span></p>
+              <span class="prov">Auto · night + crescent</span>
+              <p class="who">Beyond torchlight players read shapes, not detail.</p>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Crescent.</b> Same clock, one control moved: ribbon darkens, gate flips to
+          <b>Darkness</b>, and the badge names the softened bite in words. Grade, gate and shadow all move
+          together — see §4.</figcaption>
+      </figure>
+
+      <!-- moonless -->
+      <figure>
+        <span class="tag">Outdoor · 22:10 · moonless</span>
+        <div class="shell">
+          <div class="blk">
+            <p class="h">World</p>
+            <div class="rb" style="--night:var(--sky-none)">
+              <div class="rb-track" style="height:22px"><div class="rb-head" style="--p:80%"></div></div>
+              <div class="rb-ticks"><i style="--x:12.5%"></i><i style="--x:25%"></i><i style="--x:37.5%"></i><i style="--x:64.5%"></i><i style="--x:79%"></i></div>
+            </div>
+            <div class="sublbl">Clock<span class="r">22:10</span></div>
+            <div class="jumps">
+              <button type="button">Dawn</button><button type="button">Morning</button>
+              <button type="button">Noon</button><button type="button">Evening</button>
+              <button class="on" type="button">Night</button>
+            </div>
+
+            <div class="sublbl">Night sky</div>
+            <div class="seg" role="radiogroup" aria-label="Night sky">
+              <button type="button" role="radio" aria-checked="false"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="#cfd6e6"/></svg>Full</button>
+              <button type="button" role="radio" aria-checked="false"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8a6.2 6.2 0 1 0 4.4 10.6A7 7 0 0 1 8 1.8Z" fill="#cfd6e6"/><circle cx="8" cy="8" r="6.2" fill="none" stroke="#5b5f6b"/></svg>Crescent</button>
+              <button class="on" type="button" role="radio" aria-checked="true"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="#7d818c" stroke-width="1.2" stroke-dasharray="2 2"/></svg>Moonless</button>
+            </div>
+
+            <div class="sublbl">Time speed</div>
+            <div class="seg" role="radiogroup" aria-label="Time speed">
+              <button type="button" role="radio" aria-checked="false">Paused</button>
+              <button class="on" type="button" role="radio" aria-checked="true">Real</button>
+              <button type="button" role="radio" aria-checked="false">Fast</button>
+            </div>
+          </div>
+
+          <div class="blk">
+            <p class="h">Vision gate</p>
+            <div class="gatewrap">
+              <p class="autoline">Auto from clock · night, moonless</p>
+              <button class="switch" role="switch" aria-checked="false" type="button" style="margin-top:4px">
+                <span class="box"></span>Darkness override
+              </button>
+            </div>
+            <div class="badge">
+              <p class="lvl"><span aria-hidden="true">●</span>Darkness<span style="font-size:11px;font-weight:400;color:var(--ts);margin-left:auto">full</span></p>
+              <span class="prov">Auto · night + moonless</span>
+              <p class="who">Torches and darkvision are the whole world. No cast shadows.</p>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Moonless.</b> The night end falls to near-void and the shadow line in §4 disappears
+          entirely — “no directional shadows” is drawn, not just stated.</figcaption>
+      </figure>
+
+      <!-- override -->
+      <figure>
+        <span class="tag rec">Override engaged · 12:40</span>
+        <div class="shell">
+          <div class="blk">
+            <p class="h">World</p>
+            <div class="rb" style="--night:var(--sky-cres)">
+              <div class="rb-track" style="height:22px"><div class="rb-head" style="--p:39%"></div></div>
+              <div class="rb-ticks"><i style="--x:12.5%"></i><i style="--x:25%"></i><i style="--x:37.5%"></i><i style="--x:64.5%"></i><i style="--x:79%"></i></div>
+            </div>
+            <div class="sublbl">Clock<span class="r">12:40</span></div>
+            <div class="jumps">
+              <button type="button">Dawn</button><button type="button">Morning</button>
+              <button class="on" type="button">Noon</button><button type="button">Evening</button>
+              <button type="button">Night</button>
+            </div>
+            <p class="dormnote">
+              <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M1 8s2.6-4.2 7-4.2S15 8 15 8s-2.6 4.2-7 4.2S1 8 1 8Z" fill="none" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="8" r="1.9" fill="currentColor"/></svg>
+              The world still looks like noon. Only sight changed.
+            </p>
+          </div>
+
+          <div class="blk">
+            <p class="h">Vision gate</p>
+            <div class="gatewrap over">
+              <p class="autoline">Auto from clock · outdoor, day</p>
+              <button class="switch on" role="switch" aria-checked="true" type="button" style="margin-top:4px">
+                <span class="box" aria-hidden="true">✓</span>Darkness override
+              </button>
+              <div class="seg" style="margin-top:8px" role="radiogroup" aria-label="Override level">
+                <button type="button" role="radio" aria-checked="false">Daylight</button>
+                <button type="button" role="radio" aria-checked="false">Dusk</button>
+                <button class="on" type="button" role="radio" aria-checked="true">Darkness</button>
+              </div>
+            </div>
+            <div class="badge over">
+              <p class="lvl">
+                <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+                <span aria-hidden="true">●</span>Darkness
+              </p>
+              <span class="prov">
+                <svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+                Override · you
+              </span>
+              <p class="who">Clock alone would give <b>Daylight</b>. Eclipse, spell, or a roof — your call.</p>
+            </div>
+            <div class="toast">
+              <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 1 1.6 3.7" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M3 4.5V8h3.5" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+              Darkness override on<button type="button">Undo</button>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Override.</b> Four independent tells, none of them colour: the gate box takes the
+          white focus border, the auto line is <span style="text-decoration:line-through">struck through</span>
+          rather than deleted (the DM still sees what the clock wanted), the badge grows a lock and a boxed
+          <b>OVERRIDE</b> chip, and one line of copy names the difference. The ribbon is untouched — the
+          world still looks like noon (plan: override replaces the gate column only).</figcaption>
+      </figure>
+    </div>
+
+    <p class="note">Status-bar mirror keeps today's “omit the boring” rule: at
+      <b>Daylight · Auto</b> the bottom bar shows nothing new; it prints
+      <code style="color:var(--tp)">Night · Crescent · Darkness</code> or
+      <code style="color:var(--tp)">Darkness (override)</code> only when the world is doing something.
+      The World block's badge is always present because it is the thing a DM opens the panel to read.</p>
+  </section>
+
+  <!-- ═══════════════════════════ 4. AGAINST THE MAP ═══════════════════════════ -->
+  <section id="stage">
+    <h2>4 · On a dressed map — Fieldstone Keep</h2>
+    <p class="lede">Grade is a multiply under the light pools, never over them: the braziers stay warm at
+      every hour, which is the style-guide's “every light source keeps its warm glow as the ambient grade
+      shifts”. Shadows extrude one way per view (annotated), and they vanish entirely under a moonless sky.
+      Chrome sits beside the art, quiet — the colour on screen belongs to the world.</p>
+
+    <div class="row">
+      <figure>
+        <span class="tag">Editor · preview clock at 12:40</span>
+        <div class="stage">
+          <div class="mapframe">
+            <i class="grade" style="background:#C9C2AB"></i>
+            <i class="pools" style="opacity:.42"></i>
+            <svg viewBox="0 0 500 329" style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true">
+              <g fill="#151109" opacity=".30" style="filter:blur(3px)">
+                <polygon points="22,10 500,10 500,26 22,26"/>
+                <polygon points="406,10 424,10 424,250 406,250"/>
+                <polygon points="22,246 406,246 406,262 22,262"/>
+              </g>
+            </svg>
+            <span class="maptag">DM view · full grade</span>
+            <span class="maptag r">☀ sun 68° · shadows SW</span>
+            <span class="callout" style="left:20%;top:22%">1</span>
+            <span class="callout" style="left:86%;top:20%">2</span>
+          </div>
+          <div class="moss" style="width:300px;border-radius:0">
+            <div class="card" style="margin-top:8px">
+              <div class="chead"><span class="ttl">Environment</span>
+                <span class="prev"><span class="rb-applied" style="height:100%;margin:0;border:0;border-radius:0"></span></span></div>
+              <div class="cbody">
+                <div class="fld">
+                  <div class="lbl">Type</div>
+                  <div class="seg"><button class="on" type="button">Outdoor</button><button type="button">Indoor</button><button type="button">Under</button></div>
+                </div>
+                <div class="fld">
+                  <div class="lbl">Time palette</div>
+                  <div class="rb">
+                    <div class="rb-track">
+                      <span class="rb-key" style="--x:12.5%;--c:var(--k-dawn)"></span>
+                      <span class="rb-key" style="--x:25%;--c:var(--k-morn)"></span>
+                      <span class="rb-key sel" style="--x:37.5%;--c:var(--k-noon)"></span>
+                      <span class="rb-key" style="--x:64.5%;--c:var(--k-eve)"></span>
+                      <span class="rb-key" style="--x:79%;--c:var(--k-night)"></span>
+                      <div class="rb-head preview" style="--p:39%"></div>
+                    </div>
+                    <div class="strip"><span style="--x:12.5%">dawn</span><span style="--x:25%">morn</span><span style="--x:37.5%">noon</span><span style="--x:64.5%">eve</span><span style="--x:79%">night</span></div>
+                    <div class="rb-applied"></div>
+                  </div>
+                </div>
+                <div class="previewbox">
+                  <div class="hdr"><span class="t">Preview clock</span><span class="clock">12:40</span></div>
+                  <div class="rb"><div class="rb-track" style="height:14px"><div class="rb-head preview" style="--p:39%"></div></div></div>
+                  <p class="foot">Local to this window.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption>
+          <ol>
+            <li>Brazier pools composite <i>over</i> the grade — warm at every hour.</li>
+            <li>One shadow vector for the whole view, restated in the corner tag so a reviewer can check it.</li>
+          </ol>
+          Noon grade = mood <span class="swdot" style="background:#D8D2C0"></span> × noon key
+          <span class="swdot" style="background:#EDE7D8"></span>. Panel chrome stays near-black beside it.
+        </figcaption>
+      </figure>
+
+      <figure>
+        <span class="tag">Table · 22:10 · crescent</span>
+        <div class="stage">
+          <div class="mapframe">
+            <i class="grade" style="background:#2E3752"></i>
+            <i class="pools"></i>
+            <i class="vig"></i>
+            <svg viewBox="0 0 500 329" style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true">
+              <g fill="#05070d" opacity=".34" style="filter:blur(4px)">
+                <polygon points="22,10 500,10 500,32 22,32"/>
+                <polygon points="406,10 430,10 430,250 406,250"/>
+                <polygon points="22,246 406,246 406,268 22,268"/>
+              </g>
+            </svg>
+            <span class="maptag">DM view · full grade, no bite</span>
+            <span class="maptag r">☾ moon · weak, long</span>
+          </div>
+          <div class="shell" style="border-radius:0">
+            <div class="blk">
+              <p class="h">World</p>
+              <div class="rb" style="--night:var(--sky-cres)">
+                <div class="rb-track" style="height:22px"><div class="rb-head" style="--p:80%"></div></div>
+                <div class="rb-ticks"><i style="--x:12.5%"></i><i style="--x:25%"></i><i style="--x:37.5%"></i><i style="--x:64.5%"></i><i style="--x:79%"></i></div>
+              </div>
+              <div class="sublbl">Clock<span class="r">22:10</span></div>
+              <div class="sublbl">Night sky</div>
+              <div class="seg" role="radiogroup" aria-label="Night sky">
+                <button type="button"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="#cfd6e6"/></svg>Full</button>
+                <button class="on" type="button"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8a6.2 6.2 0 1 0 4.4 10.6A7 7 0 0 1 8 1.8Z" fill="#cfd6e6"/><circle cx="8" cy="8" r="6.2" fill="none" stroke="#5b5f6b"/></svg>Crescent</button>
+                <button type="button"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="#7d818c" stroke-width="1.2" stroke-dasharray="2 2"/></svg>Moonless</button>
+              </div>
+            </div>
+            <div class="blk">
+              <p class="h">Vision gate</p>
+              <div class="badge">
+                <p class="lvl"><span aria-hidden="true">●</span>Darkness<span style="font-size:11px;font-weight:400;color:var(--ts);margin-left:auto">soft</span></p>
+                <span class="prov">Auto · night + crescent</span>
+                <p class="who">Beyond torchlight players read shapes, not detail.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Night, crescent, DM view.</b> The DM sees the painted night at full strength — the
+          vision bite never touches this view (PRODUCT principle 3). Shadows are longer, weaker and cooler
+          than at noon, still one direction.</figcaption>
+      </figure>
+    </div>
+
+    <h3 class="sub">Same second, the two views — and the third sky</h3>
+    <div class="row tiles">
+      <figure>
+        <div class="mapframe sm">
+          <i class="grade" style="background:#2E3752"></i><i class="pools"></i><i class="vig"></i>
+          <span class="maptag">DM</span>
+        </div>
+        <figcaption><b>DM, crescent.</b> Full grade, nothing hidden.</figcaption>
+      </figure>
+      <figure>
+        <div class="mapframe sm">
+          <i class="grade" style="background:#2E3752"></i><i class="pools"></i><i class="bite" style="opacity:.70;background:#0B1220"></i>
+          <span class="maptag">Player</span>
+        </div>
+        <figcaption><b>Player, crescent.</b> Soft bite: the world outside torchlight goes to shapes. Same
+          grade underneath — only the bite differs, and only for players.</figcaption>
+      </figure>
+      <figure>
+        <div class="mapframe sm">
+          <i class="grade" style="background:#191E31"></i><i class="pools"></i><i class="bite" style="opacity:.96"></i>
+          <span class="maptag">Player · moonless</span>
+        </div>
+        <figcaption><b>Player, moonless.</b> Full bite, no cast shadows anywhere in the view. Torchlight is
+          the entire world.</figcaption>
+      </figure>
+      <figure>
+        <div class="mapframe sm">
+          <i class="grade" style="background:#41507A"></i><i class="pools" style="opacity:.8"></i>
+          <svg viewBox="0 0 236 155" style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true">
+            <g fill="#0a0d16" opacity=".26" style="filter:blur(3px)">
+              <polygon points="10,4 236,4 236,16 10,16"/><polygon points="191,4 203,4 203,118 191,118"/>
+            </g>
+          </svg>
+          <span class="maptag">Player · full moon</span>
+        </div>
+        <figcaption><b>Player, full moon.</b> Gate is Dusk — no clipping at all, soft silver shadows. One
+          coupling row, three skies, drawn.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════ 5. RULES + BUILD ═══════════════════════════ -->
+  <section id="rules">
+    <h2>5 · Coupling table, as the ribbon shows it</h2>
+    <div class="tablewrap">
+      <table class="cp">
+        <thead><tr><th>Environment</th><th>Clock</th><th>Sky</th><th>Ribbon reads</th><th>Effective gate</th><th>Shadows</th></tr></thead>
+        <tbody>
+          <tr><td>outdoor</td><td class="q">day</td><td class="q">—</td><td>full palette, applied = mood × noon</td><td>○ Daylight</td><td>sun, short / neutral</td></tr>
+          <tr><td>outdoor</td><td class="q">dawn / dusk</td><td class="q">—</td><td>full palette, applied = mood × dawn|eve</td><td>◐ Dusk</td><td>sun, long / amber</td></tr>
+          <tr class="on"><td>outdoor</td><td class="q">night</td><td class="q">full moon</td><td>night end lifts to silver-blue</td><td>◐ Dusk</td><td>moon, soft silver</td></tr>
+          <tr class="on"><td>outdoor</td><td class="q">night</td><td class="q">crescent</td><td>night end deepens</td><td>● Darkness · soft</td><td>moon, weak</td></tr>
+          <tr class="on"><td>outdoor</td><td class="q">night</td><td class="q">moonless</td><td>night end goes to near-void</td><td>● Darkness · full</td><td>none</td></tr>
+          <tr><td>indoor</td><td class="q">any</td><td class="q">any</td><td>palette intact, applied strip damped</td><td>Manual · DM</td><td>none</td></tr>
+          <tr><td>underground</td><td class="q">any</td><td class="q">any</td><td>ribbon hatched, applied strip flat</td><td>Manual · DM</td><td>none</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="sub">What it costs to build</h3>
+    <ul class="eng">
+      <li><b>One new component, used twice.</b> <code>&lt;DayRibbon&gt;</code> — track, keys, playhead,
+        ticks — with an <code>editable</code> flag. Editor mounts it with keys and the preview head; Table
+        mounts it read-mostly with the live head. The rest is existing vocabulary:
+        <code>CollapsibleSection</code>, <code>PropertyField</code>, <code>ColorField</code>,
+        <code>ToggleSwitch</code> in the Editor; <code>Segmented</code>/<code>Switch</code> lifted out of
+        <code>FogTool.tsx</code> into a shared file at the Table (this is their second consumer).</li>
+      <li><b>The gradient is free.</b> <code>linear-gradient(90deg in oklab, …)</code> renders the
+        interpolation the resolver already computes — no canvas, no sampling, no per-frame work. The
+        ribbon cannot drift from the engine because both read the same five keyframes.</li>
+      <li><b>The compass is the only true from-scratch control</b> (nothing angle-shaped exists in either
+        app): 52px SVG dial, pointer-drag + arrow keys, snap to 15° with <kbd>Shift</kbd>.</li>
+      <li><b>Commit idiom unchanged.</b> Keyframe drag → store live, release →
+        <code>SetTimeKeyframeCommand</code>; compass drag identical. Table controls ride the
+        <code>set-environment</code> optimistic-echo path with its 4 s fallback.</li>
+      <li><b>Badge is a component, not a string.</b> Level glyph + word + provenance chip; the status bar
+        keeps its own comma-joined summary and its omit-the-default rule.</li>
+      <li><b>Risk to watch:</b> at 232px the Table ribbon is ~13px of track per hour. Fine for jumping and
+        scrubbing; not fine for setting an exact minute, so the numeric readout is the precise control and
+        quick jumps do the rest.</li>
+    </ul>
+  </section>
+</main>
+
+<script>
+// Hero ribbon only: prove that scrubbing is continuous and that sky changes the world, not the chrome.
+(function () {
+  const rb = document.getElementById('hrb'), grab = document.getElementById('hgrab');
+  if (!rb || !grab) return;
+  const head = document.getElementById('hhead'), clock = document.getElementById('hclock'),
+        phase = document.getElementById('hphase'), dot = document.getElementById('hdot'),
+        ray = document.getElementById('hray'), out = {
+          grade: document.getElementById('hgrade'), gate: document.getElementById('hgate'),
+          shadow: document.getElementById('hshadow'), bite: document.getElementById('hbite')
+        };
+  const SKY = {
+    full:     { key: '--sky-full', gate: '◐ Dusk',            shadow: 'moon, soft silver', bite: 'full sight' },
+    crescent: { key: '--sky-cres', gate: '● Darkness · soft', shadow: 'moon, weak',        bite: 'shapes beyond torchlight' },
+    moonless: { key: '--sky-none', gate: '● Darkness · full', shadow: 'none',              bite: 'torchlight only' }
+  };
+  let p = 0.375, sky = 'crescent';                        // p = 0..1 across a 03:00 → 03:00 day
+
+  const pad = n => String(n).padStart(2, '0');
+  function render() {
+    const mins = Math.round((3 + p * 24) * 60) % 1440, h = Math.floor(mins / 60);
+    head.style.setProperty('--p', (p * 100).toFixed(2) + '%');
+    clock.textContent = pad(h) + ':' + pad(mins % 60);
+    grab.setAttribute('aria-valuenow', mins);
+    grab.setAttribute('aria-valuetext', pad(h) + ':' + pad(mins % 60));
+
+    let name, gate, shadow, bite, key;
+    if (h >= 5 && h < 8)        { name = 'Dawn';    key = 'dawn key';    gate = '◐ Dusk';     shadow = 'sun, long / amber';   bite = 'full sight'; }
+    else if (h >= 8 && h < 11)  { name = 'Morning'; key = 'morning key'; gate = '○ Daylight'; shadow = 'sun, medium';         bite = 'full sight'; }
+    else if (h >= 11 && h < 16) { name = 'Noon';    key = 'noon key';    gate = '○ Daylight'; shadow = 'sun, short / neutral';bite = 'full sight'; }
+    else if (h >= 16 && h < 20) { name = 'Evening'; key = 'evening key'; gate = '◐ Dusk';     shadow = 'sun, long / amber';   bite = 'full sight'; }
+    else { const s = SKY[sky];   name = 'Night';    key = 'night key';   gate = s.gate;       shadow = s.shadow;              bite = s.bite; }
+
+    phase.textContent = name + ' · outdoor';
+    out.grade.textContent = 'mood × ' + key;
+    out.gate.textContent = gate;
+    out.shadow.textContent = shadow;
+    out.bite.textContent = bite;
+
+    // sun/moon arc: same 0..1, an ellipse over the horizon; the ray is the shadow vector.
+    const x = 20 + p * 720, y = 52 - Math.max(0, Math.sin(p * Math.PI)) * 42;
+    const night = name === 'Night', disc = night ? '#AEB8CE' : '#EDE7D8';
+    dot.setAttribute('cx', x); dot.setAttribute('cy', y); dot.setAttribute('fill', disc);
+    dot.setAttribute('r', night ? 5 : 7);
+    const len = 20 + (1 - Math.max(0, Math.sin(p * Math.PI))) * 30;
+    ray.setAttribute('x1', x); ray.setAttribute('y1', y);
+    ray.setAttribute('x2', x + len); ray.setAttribute('y2', 50);
+    ray.setAttribute('stroke', disc);
+    ray.style.opacity = (night && sky === 'moonless') ? 0 : (night ? .28 : .5);
+  }
+  function setFromEvent(e) {
+    const r = grab.getBoundingClientRect();
+    p = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    render();
+  }
+  grab.addEventListener('pointerdown', e => { grab.setPointerCapture(e.pointerId); setFromEvent(e); });
+  grab.addEventListener('pointermove', e => { if (e.buttons) setFromEvent(e); });
+  grab.addEventListener('keydown', e => {
+    const step = e.shiftKey ? 1 / 24 : 1 / 144;            // 1 h / 10 min
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { p = Math.min(1, p + step); render(); e.preventDefault(); }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { p = Math.max(0, p - step); render(); e.preventDefault(); }
+  });
+  document.querySelectorAll('.skypick button').forEach(b => {
+    b.addEventListener('click', () => {
+      sky = b.dataset.sky;
+      document.querySelectorAll('.skypick button').forEach(o => {
+        o.classList.toggle('on', o === b); o.setAttribute('aria-checked', String(o === b));
+      });
+      rb.style.setProperty('--night', 'var(' + SKY[sky].key + ')');
+      render();
+    });
+  });
+  rb.style.setProperty('--night', 'var(' + SKY[sky].key + ')');
+  render();
+})();
+</script>

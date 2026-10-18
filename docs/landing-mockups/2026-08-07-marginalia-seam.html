@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Good Goblin — Marginalia Seam Mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --void: #0b0a08;
+    --void-2: #12110d;
+    --stone: #2b2e26;
+    --stone-deep: #1d1f19;
+    --ink: #16180f;
+    --parchment-ink: #e6e1d3;
+    --text-2: #b5af9e;
+    --text-mut: #90897a;
+    --goblin: #b6d648;
+    --goblin-hot: #d9ef8a;
+    --goblin-ember: #46511b;  /* cooled seam core — green at ember intensity */
+    --torch: #eda94e;
+    --torch-hot: #ffd9a0;
+    --parchment: #e8dfc6;
+    --wood: #6d4a2c;
+    --wood-lit: #8a6138;
+    --marginalia: #8a8676;
+    --ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--void); color: var(--parchment-ink);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    font-size: 16px; line-height: 1.6; overflow-x: hidden;
+  }
+  ::selection { background: var(--goblin); color: var(--ink); }
+  h1, h2, h3 { font-family: 'Newsreader', Georgia, serif; font-weight: 500; text-wrap: balance; }
+  p { max-width: 62ch; text-wrap: pretty; }
+  .voice { font-family: 'Newsreader', Georgia, serif; font-style: italic; color: var(--goblin); }
+  .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+
+  /* ============ board chrome ============ */
+  .board-intro {
+    padding: clamp(3rem, 8vh, 6rem) clamp(1.5rem, 6vw, 6rem) clamp(2rem, 5vh, 4rem);
+    border-bottom: 1px solid #26241d;
+  }
+  .board-intro .stamp {
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-mut);
+    margin-bottom: 2.5rem; display: flex; gap: 2rem; flex-wrap: wrap;
+  }
+  .board-intro h1 { font-size: clamp(2rem, 4.5vw, 3.4rem); line-height: 1.1; letter-spacing: -0.015em; max-width: 24ch; }
+  .board-intro h1 em { font-style: italic; color: var(--goblin); }
+  .board-intro > p { margin-top: 1.5rem; color: var(--text-2); }
+  .dir-head {
+    padding: clamp(3rem, 8vh, 5rem) clamp(1.5rem, 6vw, 6rem) 2rem;
+    display: flex; align-items: baseline; gap: 1.5rem; flex-wrap: wrap;
+  }
+  .dir-head .tag {
+    font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--void);
+    background: var(--goblin); padding: 3px 10px; border-radius: 2px; font-weight: 500;
+  }
+  .dir-head .tag.alt { background: transparent; color: var(--text-mut); border: 1px solid #3a382e; }
+  .dir-head h2 { font-size: clamp(1.6rem, 3vw, 2.4rem); letter-spacing: -0.01em; }
+  .dir-head .verdict { font-size: 14px; color: var(--text-mut); font-style: italic; font-family: 'Newsreader', Georgia, serif; }
+  .dir-note { padding: 0 clamp(1.5rem, 6vw, 6rem) 2.5rem; color: var(--text-2); }
+  .annot {
+    display: flex; gap: clamp(1rem, 4vw, 3.5rem); flex-wrap: wrap;
+    padding: 1.1rem clamp(1.5rem, 6vw, 6rem);
+    border-top: 1px solid #23211a; border-bottom: 1px solid #23211a;
+    background: var(--void-2);
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.7; color: var(--text-mut);
+  }
+  .annot b { color: var(--text-2); font-weight: 500; }
+  .annot span { max-width: 38ch; }
+  .corridor { display: flex; align-items: center; padding: clamp(3rem, 9vh, 6rem) 0; }
+  .corridor::before, .corridor::after { content: ''; flex: 1; height: 1px; background: #2c2a21; }
+  .corridor svg { flex: none; margin: 0 1rem; display: block; }
+
+  /* ============ frames ============ */
+  .frame { position: relative; min-height: 96vh; overflow: hidden; background: var(--void); }
+  .frame-label {
+    position: absolute; top: 1.2rem; left: clamp(1.5rem, 6vw, 6rem); z-index: 7;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: var(--text-mut);
+  }
+  .scene, .overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .scene svg, .overlay svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .overlay { pointer-events: none; z-index: 3; }
+  .seam-layer { z-index: 2; }   /* the crack lives ON the surface: above void, below leaders and copy */
+  .torchglow {
+    position: absolute; border-radius: 50%; pointer-events: none; z-index: 1;
+    background: radial-gradient(circle, rgb(237 169 78 / 0.30) 0%, rgb(237 169 78 / 0.10) 45%, transparent 70%);
+    animation: flicker 4.5s ease-in-out infinite;
+  }
+  @keyframes flicker {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    48% { opacity: 0.86; transform: scale(0.97); }
+    72% { opacity: 0.95; transform: scale(1.02); }
+  }
+  .breathe { animation: breathe 5s ease-in-out infinite; }
+  @keyframes breathe {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.62; }
+  }
+
+  /* copy blocks — marginalia grammar carried over */
+  .copy { position: relative; z-index: 4; }
+  .copy .whisper {
+    font-family: 'Newsreader', Georgia, serif; font-style: italic;
+    font-size: clamp(1.05rem, 1.7vw, 1.3rem); color: var(--goblin); max-width: 30ch; margin-bottom: 1.2rem;
+  }
+  .copy h1.hed { font-size: clamp(2.4rem, 4.8vw, 4.8rem); line-height: 1.04; letter-spacing: -0.02em; font-weight: 500; }
+  .copy h2.hed { font-size: clamp(1.9rem, 3.4vw, 3rem); line-height: 1.12; letter-spacing: -0.015em; }
+  .copy .hed .drew { font-style: italic; }
+  .copy .hed .run { color: var(--torch); }
+  .copy .sub { margin-top: 1.4rem; color: var(--text-2); font-size: 17px; }
+  .underline-svg { display: block; width: min(100%, 30ch); height: 10px; margin-top: 0.5rem; }
+  .scribble {
+    display: inline-block; margin-top: 1.6rem; margin-left: 1.8rem;
+    transform: rotate(-1.5deg); font-size: 1.05rem; max-width: 34ch;
+  }
+  .cta-row { margin-top: 2rem; display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; }
+  .cta {
+    display: inline-block; background: var(--goblin); color: var(--ink);
+    font-weight: 600; font-size: 15px; padding: 0.85rem 1.7rem; border-radius: 3px;
+    text-decoration: none; box-shadow: 0 0 32px rgb(182 214 72 / 0.18);
+  }
+  .cta-quiet { font-size: 14px; color: var(--text-mut); }
+  .hero-copy { position: absolute; left: clamp(1.5rem, 6vw, 6rem); top: 50%; transform: translateY(-50%); width: min(34%, 560px); }
+  .sight-copy { position: absolute; right: clamp(1.5rem, 6vw, 5rem); top: 50%; transform: translateY(-50%); width: min(34%, 560px); }
+
+  /* ============ door beat ============ */
+  .door-frame { display: grid; place-items: center; min-height: 100vh; }
+  .doorstage { position: relative; z-index: 4; text-align: center; padding: 4rem 1.5rem; }
+  .eyes-inline { display: block; margin: 0 auto 0.75rem; }
+  .eyes-inline ellipse { animation: blink 6s infinite; transform-origin: center; }
+  @keyframes blink { 0%, 91%, 100% { transform: scaleY(1); } 93.5% { transform: scaleY(0.06); } 96% { transform: scaleY(1); } }
+  .door {
+    position: relative; width: min(320px, 78vw); margin: 0 auto;
+    border-radius: 160px 160px 4px 4px;
+    background:
+      repeating-linear-gradient(90deg, transparent 0 38px, rgb(0 0 0 / 0.28) 38px 41px),
+      linear-gradient(178deg, var(--wood-lit) 0%, var(--wood) 45%, #4e3520 100%);
+    border: 5px solid var(--ink);
+    box-shadow: 0 0 0 10px #241f16, 0 0 70px rgb(237 169 78 / 0.12), inset 0 -30px 60px rgb(0 0 0 / 0.4);
+    padding: 4.5rem 2rem 2.6rem;
+  }
+  .door::before, .door::after {
+    content: ''; position: absolute; left: -14px; width: 46px; height: 12px;
+    background: #1b1c18; border-radius: 2px; box-shadow: 0 2px 0 rgb(0 0 0 / 0.5);
+  }
+  .door::before { top: 26%; } .door::after { top: 62%; }
+  .plaque {
+    background: var(--parchment); color: var(--ink); border-radius: 3px;
+    border: 2px solid var(--ink); padding: 1.4rem 1.3rem 1.2rem;
+    box-shadow: 0 4px 0 rgb(0 0 0 / 0.35); text-align: left;
+  }
+  .plaque h3 { font-size: 1.5rem; line-height: 1.15; letter-spacing: -0.01em; }
+  .plaque p { font-size: 13.5px; color: #4a4433; margin-top: 0.5rem; }
+  .plaque form { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
+  .plaque label { font-size: 11px; letter-spacing: 0.06em; color: #4a4433; }
+  .plaque input {
+    font: inherit; font-size: 14px; padding: 0.7rem 0.9rem; border: 2px solid var(--ink);
+    border-radius: 3px; background: #f4eeda; color: var(--ink); width: 100%;
+  }
+  .plaque input::placeholder { color: #5c5540; }
+  .plaque button {
+    font: inherit; font-weight: 600; font-size: 14.5px; padding: 0.75rem;
+    background: var(--ink); color: var(--parchment); border: 0; border-radius: 3px; cursor: pointer;
+  }
+
+  /* ============ chooser ============ */
+  .chooser { padding: 0 clamp(1.5rem, 6vw, 6rem) 2rem; }
+  .chooser .row {
+    border-top: 1px solid #2c2a21; padding: 1.6rem 0;
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); gap: 0.6rem 3rem; align-items: baseline;
+  }
+  .chooser .row:last-child { border-bottom: 1px solid #2c2a21; }
+  .chooser .m { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-mut); letter-spacing: 0.04em; }
+  .chooser .m b { color: var(--goblin); font-weight: 500; }
+  .chooser .line { font-family: 'Newsreader', Georgia, serif; font-size: clamp(1.15rem, 2vw, 1.5rem); line-height: 1.35; }
+  .rec { padding: 0 clamp(1.5rem, 6vw, 6rem) 5rem; color: var(--text-2); }
+  .rec p { margin-top: 1rem; }
+  .rec b { color: var(--parchment-ink); font-weight: 500; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .torchglow, .breathe, .eyes-inline ellipse { animation: none !important; }
+    html { scroll-behavior: auto; }
+  }
+  @media (max-width: 900px) {
+    .frame { min-height: 84vh; }
+    .hero-copy, .sight-copy { position: static; transform: none; width: auto; padding: 5rem clamp(1.5rem, 6vw, 3rem); }
+    .overlay { display: none; }
+    .chooser .row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="board-intro">
+  <div class="stamp">
+    <span>GOOD GOBLIN · MARGINALIA + SEAM MOCKUPS</span>
+    <span>2026-08-07</span>
+    <span>3 VARIANTS + DOOR · COPY FROZEN · GREEN BUDGET ≈2%/VIEWPORT</span>
+  </div>
+  <h1>The crack in the table, <em>rationed</em>.</h1>
+  <p>The chosen Marginalia grammar plus the seam idea: the page's black surface is split by a crack carrying the goblin's green, and every leader line is a tributary of it. Variant A is the idea straight — molten and flowing. Variant B spends the same green as intensity, not presence: a cooled obsidian seam that only comes alive near the beat you're reading. Variant C hides the seam under the diorama and lets the light leak out. The seam's story across the real scroll: a hairline scratch at the whisper, wider every beat, the eyes peering from inside it mid-page, and at the end it is the door's frame. All copy verbatim from the shipping page.</p>
+</header>
+
+<!-- ================================================================
+     VARIANT A · MOLTEN SEAM
+================================================================= -->
+<div class="dir-head">
+  <span class="tag alt">VARIANT A</span>
+  <h2>Molten Seam</h2>
+  <span class="verdict">the idea straight — visible liquid green flowing the full height</span>
+</div>
+<p class="dir-note">The crack glows along its whole length: dark fissure lips, molten core, green light spilling onto the surface. Composed honestly so the cost is visible too — measure how much green this puts next to the CTA and the map.</p>
+
+<!-- A · HERO -->
+<section class="frame">
+  <span class="frame-label">A · MOLTEN · HERO BEAT · seam ~6px, gutter between copy and map</span>
+  <div class="scene">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#hero-scene"/></svg>
+  </div>
+  <div class="torchglow" style="width: 280px; height: 280px; right: 10%; top: 22%;"></div>
+  <div class="overlay seam-layer" aria-hidden="true">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+      <!-- fissure lips -->
+      <path d="M652,-10 C640,80 668,150 650,240 S 628,420 654,520 S 672,700 648,830 L 644,910" fill="none" stroke="#131009" stroke-width="14" stroke-linecap="round"/>
+      <!-- molten glow spill -->
+      <path d="M652,-10 C640,80 668,150 650,240 S 628,420 654,520 S 672,700 648,830 L 644,910" fill="none" stroke="#b6d648" stroke-width="7" opacity="0.5" filter="url(#soft4)" class="breathe"/>
+      <!-- molten core -->
+      <path d="M652,-10 C640,80 668,150 650,240 S 628,420 654,520 S 672,700 648,830 L 644,910" fill="none" stroke="#d9ef8a" stroke-width="2.2" opacity="0.9"/>
+      <!-- tributary: green bead at the seam, ink beyond -->
+      <circle cx="651" cy="352" r="5" fill="#b6d648"/>
+      <path d="M651,352 C760,340 850,364 950,356 S1130,376 1230,436 S1380,528 1412,560"
+        fill="none" stroke="#8a8676" stroke-width="1.6" opacity="0.9"/>
+      <circle cx="1427" cy="573" r="20" fill="none" stroke="#8a8676" stroke-width="1.6" opacity="0.9"/>
+      <!-- short tributary toward the copy: becomes the headline underline -->
+      <circle cx="649" cy="398" r="4" fill="#b6d648"/>
+      <path d="M649,398 C620,402 600,396 588,398" fill="none" stroke="#8a8676" stroke-width="1.6" opacity="0.85"/>
+    </svg>
+  </div>
+  <div class="copy hero-copy">
+    <p class="whisper">psst. over here. yes, you, the one with the folder of half-finished maps —</p>
+    <h1 class="hed">The map you <span class="drew">drew</span><br>is the game you <span class="run">run</span>.</h1>
+    <svg class="underline-svg" viewBox="0 0 400 12" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M2,7 Q30,3 60,7 T120,6 T180,8 T240,5 T300,8 T360,6 T398,7" fill="none" stroke="#5a5d50" stroke-width="2"/>
+    </svg>
+    <p class="sub">Draw walls, doors, torches — once. Fog, sight, and light run themselves at the table, live, in front of your players.</p>
+    <p class="voice scribble">No re-tracing. No lighting homework. The goblin finds double work insulting.</p>
+    <div class="cta-row">
+      <a class="cta" href="#chooser">Join the waitlist</a>
+      <span class="cta-quiet">Free while in the goblin's favor</span>
+    </div>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Grammar</b> · seam runs the copy/map gutter; leaders spawn at green beads on the crack, ink beyond the bead; one tributary rings the focal, one becomes the headline underline</span>
+  <span><b>Technique</b> · single fixed full-height SVG layer (3 strokes + one blur filter), flow = stroke-dashoffset scrolled with the page; no shader needed, ~0 GPU cost</span>
+  <span><b>The honest cost</b> · full-length molten green ≈5–7% of viewport and sits 40px from a green CTA — over budget, and the goblin color stops being scarce</span>
+</div>
+
+<!-- A · SIGHT -->
+<section class="frame">
+  <span class="frame-label">A · MOLTEN · SIGHT BEAT · seam ~9px, swapped to the left margin</span>
+  <div class="scene">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#sight-scene"/></svg>
+  </div>
+  <div class="overlay seam-layer" aria-hidden="true">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+      <path d="M64,-10 C50,90 80,190 60,300 S 40,480 68,590 S 84,740 58,860 L 62,910" fill="none" stroke="#131009" stroke-width="18" stroke-linecap="round"/>
+      <path d="M64,-10 C50,90 80,190 60,300 S 40,480 68,590 S 84,740 58,860 L 62,910" fill="none" stroke="#b6d648" stroke-width="9" opacity="0.5" filter="url(#soft4)" class="breathe"/>
+      <path d="M64,-10 C50,90 80,190 60,300 S 40,480 68,590 S 84,740 58,860 L 62,910" fill="none" stroke="#d9ef8a" stroke-width="2.6" opacity="0.9"/>
+      <!-- tributary to the token -->
+      <circle cx="63" cy="428" r="5" fill="#b6d648"/>
+      <path d="M63,428 C160,418 250,432 330,416 S 380,408 364,408" fill="none" stroke="#8a8676" stroke-width="1.6" opacity="0.9"/>
+      <circle cx="408" cy="408" r="44" fill="none" stroke="#8a8676" stroke-width="1.4" opacity="0.8"/>
+    </svg>
+  </div>
+  <div class="copy sight-copy">
+    <h2 class="hed">Fog of war that reads your walls.</h2>
+    <svg class="underline-svg" viewBox="0 0 400 12" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M2,7 Q30,3 60,7 T120,6 T180,8 T240,5 T300,8 T360,6 T398,7" fill="none" stroke="#5a5d50" stroke-width="2"/>
+    </svg>
+    <p class="sub">Line of sight is computed from the walls you drew. Doors block until they swing open; torches carry exactly as far as you placed them. Nothing to trace, nothing to mask, nothing to babysit.</p>
+    <p class="voice scribble">You drew the walls. Why would you draw them again?</p>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Placement</b> · the seam swaps sides with the copy: hero = gutter, sight = far-left margin, always over surface, never over the diorama — green must not touch the map</span>
+  <span><b>Arc</b> · width grows beat to beat (hairline at the whisper → ~9px here); the widening is the scroll's progress bar without being one</span>
+  <span><b>Two light worlds</b> · seam glows onto the black surface only; wedge and pools stay amber/ink — the frame proves the separation is possible even in A</span>
+</div>
+
+<div class="corridor" aria-hidden="true">
+  <svg width="90" height="26" viewBox="0 0 90 26"><rect x="30" y="4" width="30" height="18" fill="#6d4a2c" stroke="#16180f" stroke-width="3"/><path d="M0 13 H27 M63 13 H90" stroke="#2c2a21" stroke-width="2"/></svg>
+</div>
+
+<!-- ================================================================
+     VARIANT B · COOLED SEAM, LIVING LIGHT
+================================================================= -->
+<div class="dir-head">
+  <span class="tag">VARIANT B</span>
+  <h2>Cooled Seam, Living Light</h2>
+  <span class="verdict">the recommendation — same crack, green spent as intensity, not presence</span>
+</div>
+<p class="dir-note">The crack is cooled obsidian: dark lips, an ember-green core barely above the surface color. Only near the active beat does the molten green wake — a localized pulse a few hundred pixels long that travels with the reader. The seam is always present; the green is always scarce.</p>
+
+<!-- B · HERO -->
+<section class="frame">
+  <span class="frame-label">B · COOLED · HERO BEAT · pulse centered on the active copy</span>
+  <div class="scene">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#hero-scene"/></svg>
+  </div>
+  <div class="torchglow" style="width: 280px; height: 280px; right: 10%; top: 22%;"></div>
+  <div class="overlay seam-layer" aria-hidden="true">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+      <!-- fissure lips + cooled core -->
+      <path d="M652,-10 C640,80 668,150 650,240 S 628,420 654,520 S 672,700 648,830 L 644,910" fill="none" stroke="#17130c" stroke-width="12" stroke-linecap="round"/>
+      <path d="M652,-10 C640,80 668,150 650,240 S 628,420 654,520 S 672,700 648,830 L 644,910" fill="none" stroke="#46511b" stroke-width="2.4" opacity="0.8"/>
+      <!-- the living segment: green wakes only near the active beat -->
+      <path d="M652,-10 C640,80 668,150 650,240 S 628,420 654,520 S 672,700 648,830 L 644,910" fill="none" stroke="url(#pulse-hero)" stroke-width="3.4" class="breathe"/>
+      <ellipse cx="651" cy="382" rx="26" ry="120" fill="url(#pulse-glow)" class="breathe"/>
+      <!-- tributaries -->
+      <circle cx="651" cy="352" r="5" fill="#b6d648"/>
+      <path d="M651,352 C760,340 850,364 950,356 S1130,376 1230,436 S1380,528 1412,560"
+        fill="none" stroke="#8a8676" stroke-width="1.6" opacity="0.9"/>
+      <circle cx="1427" cy="573" r="20" fill="none" stroke="#8a8676" stroke-width="1.6" opacity="0.9"/>
+      <circle cx="649" cy="398" r="4" fill="#b6d648"/>
+      <path d="M649,398 C620,402 600,396 588,398" fill="none" stroke="#8a8676" stroke-width="1.6" opacity="0.85"/>
+    </svg>
+  </div>
+  <div class="copy hero-copy">
+    <p class="whisper">psst. over here. yes, you, the one with the folder of half-finished maps —</p>
+    <h1 class="hed">The map you <span class="drew">drew</span><br>is the game you <span class="run">run</span>.</h1>
+    <svg class="underline-svg" viewBox="0 0 400 12" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M2,7 Q30,3 60,7 T120,6 T180,8 T240,5 T300,8 T360,6 T398,7" fill="none" stroke="#5a5d50" stroke-width="2"/>
+    </svg>
+    <p class="sub">Draw walls, doors, torches — once. Fog, sight, and light run themselves at the table, live, in front of your players.</p>
+    <p class="voice scribble">No re-tracing. No lighting homework. The goblin finds double work insulting.</p>
+    <div class="cta-row">
+      <a class="cta" href="#chooser">Join the waitlist</a>
+      <span class="cta-quiet">Free while in the goblin's favor</span>
+    </div>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Budget math</b> · lit segment ≈240px of a 900px viewport at 3px wide + one soft glow ≈0.4% of pixels; with CTA + beads + voice lines the frame stays ≈2% green</span>
+  <span><b>Technique</b> · same fixed SVG layer; the pulse is a vertical linearGradient whose stops track scroll progress (one transform per frame); glow = one blurred ellipse moved with it</span>
+  <span><b>Reduced motion</b> · breathing stops; the lit segment still relocates per beat as a hard cut — position carries the state, the animation is garnish</span>
+</div>
+
+<!-- B · SIGHT -->
+<section class="frame">
+  <span class="frame-label">B · COOLED · SIGHT BEAT · seam wider, pulse at the tributary</span>
+  <div class="scene">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#sight-scene"/></svg>
+  </div>
+  <div class="overlay seam-layer" aria-hidden="true">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+      <path d="M64,-10 C50,90 80,190 60,300 S 40,480 68,590 S 84,740 58,860 L 62,910" fill="none" stroke="#17130c" stroke-width="16" stroke-linecap="round"/>
+      <path d="M64,-10 C50,90 80,190 60,300 S 40,480 68,590 S 84,740 58,860 L 62,910" fill="none" stroke="#46511b" stroke-width="2.8" opacity="0.8"/>
+      <path d="M64,-10 C50,90 80,190 60,300 S 40,480 68,590 S 84,740 58,860 L 62,910" fill="none" stroke="url(#pulse-sight)" stroke-width="3.8" class="breathe"/>
+      <ellipse cx="63" cy="440" rx="26" ry="130" fill="url(#pulse-glow)" class="breathe"/>
+      <circle cx="63" cy="428" r="5" fill="#b6d648"/>
+      <path d="M63,428 C160,418 250,432 330,416 S 380,408 364,408" fill="none" stroke="#8a8676" stroke-width="1.6" opacity="0.9"/>
+      <circle cx="408" cy="408" r="44" fill="none" stroke="#8a8676" stroke-width="1.4" opacity="0.8"/>
+    </svg>
+  </div>
+  <div class="copy sight-copy">
+    <h2 class="hed">Fog of war that reads your walls.</h2>
+    <svg class="underline-svg" viewBox="0 0 400 12" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M2,7 Q30,3 60,7 T120,6 T180,8 T240,5 T300,8 T360,6 T398,7" fill="none" stroke="#5a5d50" stroke-width="2"/>
+    </svg>
+    <p class="sub">Line of sight is computed from the walls you drew. Doors block until they swing open; torches carry exactly as far as you placed them. Nothing to trace, nothing to mask, nothing to babysit.</p>
+    <p class="voice scribble">You drew the walls. Why would you draw them again?</p>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Grammar</b> · the pulse sits exactly where the tributary spawns — the seam visibly "sends" the leader line to the token; elsewhere it is a dark scar you barely notice</span>
+  <span><b>Mid-page moment</b> · between beats 5–6 (not framed) the seam's dark interior holds the goblin eyes for one glance — the crack is inhabited, which pays off at the door</span>
+  <span><b>Why this over A</b> · same idea, same geometry; scarcity is what keeps the green feral instead of ambient wallpaper</span>
+</div>
+
+<div class="corridor" aria-hidden="true">
+  <svg width="90" height="26" viewBox="0 0 90 26"><rect x="30" y="4" width="30" height="18" fill="#6d4a2c" stroke="#16180f" stroke-width="3"/><path d="M0 13 H27 M63 13 H90" stroke="#2c2a21" stroke-width="2"/></svg>
+</div>
+
+<!-- ================================================================
+     VARIANT C · UNDER-TABLE BLEED
+================================================================= -->
+<div class="dir-head">
+  <span class="tag alt">VARIANT C</span>
+  <h2>Under-Table Bleed</h2>
+  <span class="verdict">the seam hides beneath the diorama — green leaks from under the torn-rock edge</span>
+</div>
+<p class="dir-note">Alternative placement: the crack passes under the map. You see it enter the void above, vanish beneath the rock, and its light bleed out along the skirt's torn edge. Atmospheric, but the seam can no longer originate leader lines where the copy needs them.</p>
+
+<!-- C · HERO -->
+<section class="frame">
+  <span class="frame-label">C · BLEED · HERO BEAT · seam submerged, glow at the skirt edge</span>
+  <div class="scene">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><use href="#hero-scene"/></svg>
+  </div>
+  <div class="torchglow" style="width: 280px; height: 280px; right: 10%; top: 22%;"></div>
+  <div class="overlay seam-layer" aria-hidden="true">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+      <!-- visible seam segments above and below the diorama -->
+      <path d="M1080,-10 C1068,40 1096,80 1078,128" fill="none" stroke="#17130c" stroke-width="12" stroke-linecap="round"/>
+      <path d="M1080,-10 C1068,40 1096,80 1078,128" fill="none" stroke="#46511b" stroke-width="2.4" opacity="0.8"/>
+      <path d="M1052,712 C1064,770 1040,830 1058,910" fill="none" stroke="#17130c" stroke-width="12" stroke-linecap="round"/>
+      <path d="M1052,712 C1064,770 1040,830 1058,910" fill="none" stroke="#46511b" stroke-width="2.4" opacity="0.8"/>
+      <!-- green bleeding from under the torn edge: clipped soft glows, rim only -->
+      <g class="breathe">
+        <ellipse cx="1078" cy="150" rx="90" ry="22" fill="url(#bleed)"/>
+        <ellipse cx="1310" cy="700" rx="110" ry="24" fill="url(#bleed)"/>
+        <ellipse cx="880" cy="690" rx="80" ry="20" fill="url(#bleed)"/>
+      </g>
+      <!-- tributary must now start at a bleed point, far from the copy -->
+      <circle cx="1078" cy="152" r="5" fill="#b6d648"/>
+      <path d="M1078,152 C1160,190 1300,340 1408,548" fill="none" stroke="#8a8676" stroke-width="1.6" opacity="0.9"/>
+      <circle cx="1427" cy="573" r="20" fill="none" stroke="#8a8676" stroke-width="1.6" opacity="0.9"/>
+    </svg>
+  </div>
+  <div class="copy hero-copy">
+    <p class="whisper">psst. over here. yes, you, the one with the folder of half-finished maps —</p>
+    <h1 class="hed">The map you <span class="drew">drew</span><br>is the game you <span class="run">run</span>.</h1>
+    <svg class="underline-svg" viewBox="0 0 400 12" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M2,7 Q30,3 60,7 T120,6 T180,8 T240,5 T300,8 T360,6 T398,7" fill="none" stroke="#5a5d50" stroke-width="2"/>
+    </svg>
+    <p class="sub">Draw walls, doors, torches — once. Fog, sight, and light run themselves at the table, live, in front of your players.</p>
+    <p class="voice scribble">No re-tracing. No lighting homework. The goblin finds double work insulting.</p>
+    <div class="cta-row">
+      <a class="cta" href="#chooser">Join the waitlist</a>
+      <span class="cta-quiet">Free while in the goblin's favor</span>
+    </div>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Discipline</b> · bleed rims the skirt's OUTER contour only (≤6px onto rock); floors, walls, pools stay amber/ink — the two light worlds hold</span>
+  <span><b>Technique</b> · 3–4 radial sprites masked by the skirt silhouette + two short seam segments; cheapest variant of the three</span>
+  <span><b>The trade</b> · leaders must spawn at bleed points far from the copy — the tributary grammar weakens; better as a single moment (scene-swap or kit beat) than the page's spine</span>
+</div>
+
+<div class="corridor" aria-hidden="true">
+  <svg width="90" height="26" viewBox="0 0 90 26"><rect x="30" y="4" width="30" height="18" fill="#6d4a2c" stroke="#16180f" stroke-width="3"/><path d="M0 13 H27 M63 13 H90" stroke="#2c2a21" stroke-width="2"/></svg>
+</div>
+
+<!-- ================================================================
+     THE DOOR · VARIANT B
+================================================================= -->
+<div class="dir-head">
+  <span class="tag alt">THE DOOR</span>
+  <h2>Beat 08 in Variant B</h2>
+  <span class="verdict">the seam's payoff — the crack was leading here the whole time</span>
+</div>
+<p class="dir-note">The seam descends from the top, splits, and frames the door: the crack in the table turns out to be the outline of the way in. The eyes that peered from the seam mid-page now sit in its widened pocket above the arch. On submit, one molten pulse runs the seam bottom-to-top and the door cracks warm.</p>
+
+<section class="frame door-frame">
+  <span class="frame-label">B · THE DOOR (WAITLIST) · seam frames the arch, eyes in the pocket</span>
+  <div class="overlay seam-layer" aria-hidden="true">
+    <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+      <!-- stage glow behind the door -->
+      <ellipse cx="800" cy="560" rx="560" ry="300" fill="url(#stage)"/>
+      <!-- seam descends, splits around the door, rejoins -->
+      <g fill="none" stroke-linecap="round">
+        <path d="M802,-10 C790,50 814,110 798,168" stroke="#17130c" stroke-width="14"/>
+        <path d="M802,-10 C790,50 814,110 798,168" stroke="#46511b" stroke-width="2.6" opacity="0.8"/>
+        <!-- the pocket: widened dark interior where the eyes live -->
+        <path d="M798,168 C 770,190 768,232 796,254 C 826,232 824,190 798,168 Z" fill="#060505" stroke="#17130c" stroke-width="8"/>
+        <!-- left branch -->
+        <path d="M788,250 C 700,320 660,470 690,620 C 700,680 730,730 780,762" stroke="#17130c" stroke-width="12"/>
+        <path d="M788,250 C 700,320 660,470 690,620 C 700,680 730,730 780,762" stroke="#46511b" stroke-width="2.4" opacity="0.8"/>
+        <!-- right branch -->
+        <path d="M808,250 C 896,320 936,470 906,620 C 896,680 866,730 816,762" stroke="#17130c" stroke-width="12"/>
+        <path d="M808,250 C 896,320 936,470 906,620 C 896,680 866,730 816,762" stroke="#46511b" stroke-width="2.4" opacity="0.8"/>
+        <!-- rejoined tail -->
+        <path d="M798,762 C 806,810 792,860 800,910" stroke="#17130c" stroke-width="12"/>
+        <path d="M798,762 C 806,810 792,860 800,910" stroke="#46511b" stroke-width="2.4" opacity="0.8"/>
+        <!-- living light: waking near the arch top, both branches -->
+        <path d="M788,250 C 700,320 660,470 690,620" stroke="url(#pulse-door)" stroke-width="3.2" class="breathe"/>
+        <path d="M808,250 C 896,320 936,470 906,620" stroke="url(#pulse-door)" stroke-width="3.2" class="breathe"/>
+      </g>
+      <!-- the eyes, inside the seam pocket -->
+      <g>
+        <ellipse cx="787" cy="210" rx="10" ry="7" fill="#b6d648"/>
+        <ellipse cx="811" cy="210" rx="10" ry="7" fill="#b6d648"/>
+        <circle cx="789" cy="210" r="2.6" fill="#0b0a08"/>
+        <circle cx="813" cy="210" r="2.6" fill="#0b0a08"/>
+      </g>
+    </svg>
+  </div>
+  <div class="doorstage">
+    <div class="door">
+      <div class="plaque">
+        <h3>The doors aren't open yet.</h3>
+        <p>Leave your email and you'll hear the knock first. One email at launch, no more. Goblins don't spam; it's beneath us.</p>
+        <form onsubmit="return false">
+          <label class="mono" for="em">YOUR EMAIL</label>
+          <input id="em" type="email" placeholder="dm@yourtable.com" autocomplete="email">
+          <button type="submit">Knock</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>
+<div class="annot">
+  <span><b>Payoff</b> · the crack becomes the door's frame — the page's scar was an outline all along; the pocket eyes replace the floating eyes of the current build</span>
+  <span><b>Submit pulse</b> · on Knock, one bright segment (gradient stops) travels the seam bottom→top in ~700ms ease-out, the pocket flares, the door cracks amber; reduced-motion = seam brightens once, no travel</span>
+  <span><b>Technique</b> · same single SVG layer; the split is two paths; pulse is the same gradient transform the beats already use — no new machinery for the finale</span>
+</div>
+
+<!-- ================================================================
+     CHOOSER + RECOMMENDATION
+================================================================= -->
+<div class="dir-head" id="chooser">
+  <span class="tag alt">CHOOSER</span>
+  <h2>Pick a seam</h2>
+</div>
+<div class="chooser">
+  <div class="row">
+    <div class="m">A · MOLTEN SEAM</div>
+    <div class="line">The idea straight — a living green river, unmissable and unmistakable; pays for it by making the brand color ambient and crowding the CTA.</div>
+  </div>
+  <div class="row">
+    <div class="m"><b>B · COOLED SEAM, LIVING LIGHT</b><br>recommended</div>
+    <div class="line">The same crack spent as intensity: dark scar everywhere, molten only where you're reading — the green stays scarce, the seam still leads every line.</div>
+  </div>
+  <div class="row">
+    <div class="m">C · UNDER-TABLE BLEED</div>
+    <div class="line">The seam submerged, light leaking from under the rock — the most atmospheric single frame, but it surrenders the tributary grammar that made the idea structural.</div>
+  </div>
+</div>
+<div class="rec">
+  <p><b>Recommendation: Variant B, with C's bleed stolen for one beat.</b> B keeps everything the idea is good at — a persistent narrative spine, a diegetic origin for the marginalia, the door payoff — while spending green the way the brand already spends it: rationed, so that when it moves you look. Steal C's under-skirt bleed for the scene-swap beat only (the incoming map rising over the seam is the one place "light from beneath" says something).</p>
+  <p><b>The honest risk.</b> A full-height glowing stripe is one bad tuning away from three failure modes: it reads as a decorative divider (or worse, a scrollbar), it competes with the CTA for the only saturated green on the page, and molten-green liquid drifts the register from "feral goblin" toward "toxic sludge." B avoids all three structurally: the seam is dark 90% of its length so it reads as damage in the surface rather than a stripe on the page; the lit segment is small, mobile, and never adjacent to the CTA at rest; and cooled-obsidian-with-embers reads geological, not chemical. If the pulse still fights the CTA in the build, dim the pulse — never the CTA.</p>
+</div>
+
+<!-- shared defs -->
+<svg width="0" height="0" style="position: absolute;" aria-hidden="true">
+  <defs>
+    <filter id="soft4" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
+    <linearGradient id="pulse-hero" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b6d648" stop-opacity="0"/>
+      <stop offset="0.32" stop-color="#b6d648" stop-opacity="0"/>
+      <stop offset="0.42" stop-color="#d9ef8a" stop-opacity="0.95"/>
+      <stop offset="0.52" stop-color="#b6d648" stop-opacity="0"/>
+      <stop offset="1" stop-color="#b6d648" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="pulse-sight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b6d648" stop-opacity="0"/>
+      <stop offset="0.38" stop-color="#b6d648" stop-opacity="0"/>
+      <stop offset="0.48" stop-color="#d9ef8a" stop-opacity="0.95"/>
+      <stop offset="0.58" stop-color="#b6d648" stop-opacity="0"/>
+      <stop offset="1" stop-color="#b6d648" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="pulse-door" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d9ef8a" stop-opacity="0.9"/>
+      <stop offset="0.35" stop-color="#b6d648" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#b6d648" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="pulse-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#b6d648" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#b6d648" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bleed" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#b6d648" stop-opacity="0.20"/>
+      <stop offset="55%" stop-color="#b6d648" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#b6d648" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="stage" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#17150f"/>
+      <stop offset="100%" stop-color="#0b0a08" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="g1" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#3a3e33" stroke-width="1" opacity="0.5"/>
+    </pattern>
+    <pattern id="g2" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#3a3e33" stroke-width="1" opacity="0.5"/>
+    </pattern>
+    <radialGradient id="t1" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#eda94e" stop-opacity="0.5"/>
+      <stop offset="45%" stop-color="#eda94e" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#eda94e" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="t2" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#eda94e" stop-opacity="0.5"/>
+      <stop offset="45%" stop-color="#eda94e" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#eda94e" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="seen1">
+      <path d="M288,408 L564,264 L672,408 L564,600 Z"/>
+    </clipPath>
+    <g id="hero-scene">
+      <rect width="1600" height="900" fill="#0b0a08"/>
+      <g transform="translate(680,90) scale(1.15)">
+        <path d="M58,42 L128,28 L210,46 L286,30 L362,44 L420,36 L428,96 L414,152 L456,158 L502,148 L508,204 L562,194 L642,208 L702,198 L750,214 L754,290 L740,358 L756,428 L742,494 L678,502 L598,486 L518,504 L454,492 L446,438 L458,378 L450,302 L440,284 L378,288 L370,330 L358,334 L296,326 L198,336 L118,324 L62,332 L50,248 L66,158 L52,88 Z"
+          fill="#17140e" stroke="#0c0b07" stroke-width="3" stroke-linejoin="round"/>
+        <rect x="90" y="70" width="300" height="230" fill="#2b2e26"/>
+        <rect x="90" y="70" width="300" height="230" fill="url(#g1)"/>
+        <rect x="470" y="230" width="250" height="240" fill="#2b2e26"/>
+        <rect x="470" y="230" width="250" height="240" fill="url(#g1)"/>
+        <rect x="390" y="180" width="80" height="80" fill="#2b2e26"/>
+        <rect x="390" y="180" width="80" height="80" fill="url(#g1)"/>
+        <circle cx="120" cy="100" r="110" fill="url(#t1)"/>
+        <circle cx="360" cy="280" r="100" fill="url(#t1)"/>
+        <circle cx="690" cy="260" r="120" fill="url(#t1)"/>
+        <circle cx="500" cy="450" r="90" fill="url(#t1)"/>
+        <g stroke="#14160f" stroke-width="14" fill="none" stroke-linecap="square">
+          <path d="M90 300 V70 H390 V180"/>
+          <path d="M390 260 V300 H240"/>
+          <path d="M160 300 H90"/>
+          <path d="M390 180 H470 V230 H720 V470 H560"/>
+          <path d="M480 470 H470 V260 H440"/>
+        </g>
+        <g stroke="#14160f" stroke-width="4">
+          <rect x="164" y="292" width="72" height="16" fill="#6d4a2c"/>
+          <rect x="484" y="462" width="72" height="16" fill="#6d4a2c"/>
+        </g>
+        <circle cx="650" cy="420" r="12" fill="#eda94e"/>
+        <circle cx="650" cy="420" r="30" fill="url(#t1)"/>
+        <path d="M90 300 C 60 380, 120 470, 210 500" stroke="#5a5d50" stroke-width="3" stroke-dasharray="7 9" fill="none"/>
+      </g>
+    </g>
+    <g id="sight-scene">
+      <rect width="1600" height="900" fill="#080706"/>
+      <g clip-path="url(#seen1)">
+        <g transform="translate(120,120) scale(1.2)">
+          <path d="M58,42 L210,46 L362,44 L420,36 L428,96 L456,158 L508,204 L642,208 L750,214 L754,290 L756,428 L742,494 L598,486 L454,492 L446,438 L450,302 L378,288 L358,334 L198,336 L62,332 L50,248 L52,88 Z"
+            fill="#15120c" stroke="#0a0906" stroke-width="3" stroke-linejoin="round"/>
+          <rect x="90" y="70" width="300" height="230" fill="#2b2e26"/>
+          <rect x="90" y="70" width="300" height="230" fill="url(#g2)"/>
+          <rect x="390" y="180" width="80" height="80" fill="#2b2e26"/>
+          <rect x="390" y="180" width="80" height="80" fill="url(#g2)"/>
+          <rect x="470" y="230" width="250" height="240" fill="#2b2e26"/>
+          <rect x="470" y="230" width="250" height="240" fill="url(#g2)"/>
+          <circle cx="360" cy="280" r="130" fill="url(#t2)"/>
+          <g stroke="#14160f" stroke-width="14" fill="none" stroke-linecap="square">
+            <path d="M90 300 V70 H390 V180"/>
+            <path d="M390 260 V300 H240"/>
+            <path d="M390 180 H470 V230 H720 V470 H560"/>
+          </g>
+          <rect x="484" y="462" width="72" height="16" fill="#6d4a2c" stroke="#14160f" stroke-width="4"/>
+        </g>
+        <path d="M588,432 L672,446 L664,506 Z" fill="#080706" opacity="0.92"/>
+      </g>
+      <g opacity="0.18" transform="translate(120,120) scale(1.2)">
+        <rect x="90" y="70" width="150" height="230" fill="#2b2e26"/>
+        <path d="M90 300 V70 H240" stroke="#14160f" stroke-width="14" fill="none"/>
+      </g>
+      <circle cx="408" cy="408" r="20" fill="#b53a3a" stroke="#14160f" stroke-width="5"/>
+      <circle cx="408" cy="408" r="32" fill="none" stroke="#eda94e" stroke-width="2" opacity="0.7"/>
+    </g>
+  </defs>
+</svg>
+
+</body>
+</html>

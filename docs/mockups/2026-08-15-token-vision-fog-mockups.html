@@ -1,0 +1,540 @@
+<!-- Token-vision fog — phase mockups for plan review. Local review file; do not publish.
+     Chrome mockups use the Moss tokens verbatim (session/client/tailwind.config.ts).
+     Canvas sketches use the table's own palette (crypt floors, torchlight, void). -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token-Vision Fog — Phase Mockups</title>
+<style>
+  :root{
+    /* Moss chrome, verbatim */
+    --surface-0:#0E0E0E; --surface-1:#141414; --surface-2:#1E1E1E; --surface-3:#282828;
+    --text-primary:#E8E8E8; --text-secondary:#999999; --text-muted:#666666;
+    --border-subtle:#1E1E1E; --border-default:#252525; --border-focus:#FFFFFF;
+    --danger:#C0392B; --warning:#D4A017; --success:#2ECC71;
+    /* the table's canvas palette (from the live map) */
+    --void:#0d0e12; --floor:#5f6247; --floor-lit:#7c7a54; --floor-explored:#26292c;
+    --wall:#3d3325; --ink:#17130b; --torch:#f0a252; --dv:#8fa0a8;
+    --ease:cubic-bezier(.25,1,.5,1);
+  }
+  *{box-sizing:border-box;margin:0}
+  body{
+    background:var(--surface-0); color:var(--text-primary);
+    font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;
+    padding:48px 20px 96px;
+  }
+  main{max-width:1080px;margin:0 auto}
+  h1{font-size:1.7rem;font-weight:650;letter-spacing:-.01em;text-wrap:balance}
+  .sub{color:var(--text-secondary);max-width:70ch;margin-top:10px}
+  .sub b{color:var(--text-primary);font-weight:600}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:18px;font-size:12px;color:var(--text-secondary)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:12px;height:12px;border-radius:2px;border:1px solid var(--border-default);display:inline-block}
+
+  section.phase{margin-top:64px;border-top:1px solid var(--border-default);padding-top:28px}
+  .phead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .pnum{font-size:12px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+  h2{font-size:1.18rem;font-weight:650}
+  .ships{color:var(--text-secondary);margin-top:6px;max-width:74ch}
+  .ships b{color:var(--text-primary);font-weight:600}
+  .row{display:flex;flex-wrap:wrap;gap:24px;margin-top:22px;align-items:flex-start}
+  figure{flex:1 1 320px;min-width:280px;max-width:100%}
+  figure.wide{flex-basis:640px}
+  figcaption{font-size:12px;color:var(--text-secondary);margin-top:8px;max-width:60ch}
+  figcaption b{color:var(--text-primary);font-weight:600}
+  svg{display:block;width:100%;height:auto;border-radius:6px}
+  .frame{border:1px solid var(--border-default);border-radius:6px;overflow:hidden}
+  .tag{display:inline-block;font-size:10px;letter-spacing:.02em;color:var(--text-muted);
+       border:1px solid var(--border-default);border-radius:2px;padding:1px 6px;margin-bottom:8px}
+
+  /* ── Panel mockups: the Table's real component vocabulary ── */
+  .panel{width:300px;background:var(--surface-1);border:1px solid var(--border-default);
+         border-radius:6px;padding:12px;font-size:13px}
+  .panel h3{font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--text-muted);
+            text-transform:uppercase;margin-bottom:10px}
+  .btn{display:block;width:100%;text-align:left;font:inherit;font-size:13px;font-weight:500;
+       color:var(--text-secondary);background:var(--surface-2);
+       border:1px solid var(--border-default);border-radius:4px;padding:5px 8px;
+       transition:background .15s var(--ease),color .15s var(--ease);cursor:pointer}
+  .btn:hover{background:var(--surface-3);color:var(--text-primary)}
+  .btn.on{border-color:var(--border-focus);background:var(--surface-3);color:var(--text-primary)}
+  .btn.sm{font-size:12px;padding:4px 8px}
+  .btnrow{display:flex;gap:4px;margin-top:8px}
+  .btnrow .btn{flex:1;text-align:center}
+  .seg{display:flex;border:1px solid var(--border-default);border-radius:4px;overflow:hidden;margin-top:2px}
+  .seg button{flex:1;font:inherit;font-size:12px;padding:5px 4px;background:var(--surface-2);
+              color:var(--text-secondary);border:0;cursor:pointer;
+              transition:background .15s var(--ease),color .15s var(--ease)}
+  .seg button:hover{background:var(--surface-3);color:var(--text-primary)}
+  .seg button.on{background:var(--surface-3);color:var(--text-primary);
+                 box-shadow:inset 0 -2px 0 var(--border-focus)}
+  .switch{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);
+          padding:5px 2px;cursor:pointer;border-radius:4px}
+  .switch:hover{color:var(--text-primary)}
+  .box{width:15px;height:15px;flex:none;border:1px solid var(--border-default);border-radius:2px;
+       display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--text-primary)}
+  .box.on{border-color:var(--border-focus);background:var(--surface-3)}
+  .hint{font-size:11px;color:var(--text-secondary);margin:6px 0 2px}
+  .roomlist{margin-top:8px;display:flex;flex-direction:column;gap:2px;list-style:none;padding:0}
+  .roomlist button{display:flex;width:100%;gap:8px;align-items:baseline;font:inherit;font-size:12px;
+                   background:none;border:0;border-radius:4px;padding:3px 8px;color:var(--text-primary);
+                   cursor:pointer;text-align:left}
+  .roomlist button:hover{background:var(--surface-3)}
+  .roomlist .st{margin-left:auto;color:var(--text-secondary);flex:none}
+  .roomlist .st.partial{color:var(--warning)}
+  .field{margin-top:10px}
+  .field label{display:block;font-size:11px;color:var(--text-secondary);margin-bottom:3px}
+  .field .inp{display:flex;align-items:center;gap:6px}
+  .inp input,.inp select{font:inherit;font-size:12px;color:var(--text-primary);background:var(--surface-2);
+       border:1px solid var(--border-default);border-radius:4px;padding:4px 7px;width:100%}
+  .inp .unit{font-size:11px;color:var(--text-muted);flex:none}
+  .chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+  .chip{font-size:11px;color:var(--text-primary);background:var(--surface-2);
+        border:1px solid var(--border-default);border-radius:2px;padding:2px 7px;display:inline-flex;gap:6px;align-items:center}
+  .chip .x{color:var(--text-muted)}
+  .chip.add{color:var(--text-secondary);border-style:dashed;background:none;cursor:pointer}
+  .divider{border-top:1px solid var(--border-subtle);margin:12px -12px;padding:0}
+  .note{font-size:11px;color:var(--text-muted);margin-top:8px}
+  .disabledrow{opacity:.45;pointer-events:none}
+
+  /* ambient dial */
+  .dial{margin-top:6px}
+  .dial .track{position:relative;height:6px;border-radius:3px;
+    background:linear-gradient(90deg,#e8dcbe 0%, #8a7a55 45%, #23262e 100%);
+    border:1px solid var(--border-default)}
+  .dial .thumb{position:absolute;top:50%;left:72%;width:14px;height:14px;border-radius:50%;
+    transform:translate(-50%,-50%);background:var(--surface-3);border:2px solid var(--border-focus)}
+  .dial .stops{display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:5px}
+
+  /* spec strips + gate table */
+  .spec{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .spec span{font-size:11px;color:var(--text-secondary);border:1px solid var(--border-default);
+             border-radius:2px;padding:3px 8px;background:var(--surface-1)}
+  table.gate{border-collapse:collapse;width:100%;margin-top:18px;font-size:12.5px}
+  .gate th{text-align:left;font-weight:600;color:var(--text-secondary);font-size:11px;
+           letter-spacing:.04em;text-transform:uppercase;padding:6px 10px;border-bottom:1px solid var(--border-default)}
+  .gate td{padding:6px 10px;border-bottom:1px solid var(--border-subtle);color:var(--text-primary)}
+  .gate td.q{color:var(--text-secondary)}
+  .tablewrap{overflow-x:auto}
+
+  @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<main>
+  <h1>Token-vision fog — what each phase builds</h1>
+  <p class="sub">Mockups + sketches for the plan in <b>docs/2026-08-15-token-vision-fog-plan.md</b>.
+    Panel mockups use the Table's real chrome tokens and component vocabulary; canvas sketches use the
+    map's own palette. Everything here is a proposal for review — nothing is built.</p>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--floor-lit)"></span>currently visible (in sweep + lit)</span>
+    <span><span class="sw" style="background:var(--floor-explored)"></span>explored memory (region or room)</span>
+    <span><span class="sw" style="background:var(--void)"></span>void / never seen</span>
+    <span><span class="sw" style="background:var(--torch)"></span>light</span>
+    <span><span class="sw" style="background:var(--dv)"></span>darkvision reach</span>
+  </div>
+
+  <!-- ══════════════════════ P1 ══════════════════════ -->
+  <section class="phase">
+    <div class="phead"><span class="pnum">P1</span><h2>Mechanics + server truth</h2></div>
+    <p class="ships">No visible UI ships. The scene gains <b>mode · rooms/vision</b>, <b>vision share</b>,
+      <b>auto-explore</b>; the server gains the sweep service, the region (grid-bitmask) memory,
+      explore locks, and — the real new secret — <b>token redaction by vision</b>.</p>
+
+    <div class="row">
+      <figure class="wide">
+        <span class="tag">architecture</span>
+        <svg viewBox="0 0 640 300" role="img" aria-label="Two-layer architecture: server truth and redaction, client presentation">
+          <rect width="640" height="300" fill="#141414"/>
+          <!-- server box -->
+          <rect x="18" y="22" width="270" height="256" rx="6" fill="#1E1E1E" stroke="#252525"/>
+          <text x="34" y="46" fill="#E8E8E8" font-size="13" font-weight="600">Server — the referee</text>
+          <rect x="34" y="60" width="238" height="52" rx="4" fill="#282828" stroke="#252525"/>
+          <text x="46" y="80" fill="#E8E8E8" font-size="11">fog module state</text>
+          <text x="46" y="97" fill="#999" font-size="10">mode · share · autoExplore · rooms · region bitmask</text>
+          <rect x="34" y="122" width="238" height="40" rx="4" fill="#282828" stroke="#252525"/>
+          <text x="46" y="140" fill="#E8E8E8" font-size="11">sweep service (clockwiseSweep, reused)</text>
+          <text x="46" y="155" fill="#999" font-size="10">runs on token move · door toggle · light change</text>
+          <rect x="34" y="172" width="238" height="40" rx="4" fill="#282828" stroke="#252525"/>
+          <text x="46" y="190" fill="#E8E8E8" font-size="11">redactor (per viewer)</text>
+          <text x="46" y="205" fill="#999" font-size="10">rooms → geometry · vision → tokens · zones → locks</text>
+          <rect x="34" y="222" width="238" height="40" rx="4" fill="#282828" stroke="#252525"/>
+          <text x="46" y="240" fill="#E8E8E8" font-size="11">explore locks (zone flag)</text>
+          <text x="46" y="255" fill="#999" font-size="10">blocksAutoExplore beats every sweep, by construction</text>
+
+          <!-- wire -->
+          <line x1="288" y1="150" x2="368" y2="150" stroke="#666" stroke-width="1.5" marker-end="url(#arr)"/>
+          <text x="328" y="138" fill="#999" font-size="10" text-anchor="middle">state-update</text>
+          <text x="328" y="166" fill="#999" font-size="10" text-anchor="middle">+ mapDelta (D5)</text>
+          <defs><marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0L8,4L0,8z" fill="#666"/></marker></defs>
+
+          <!-- barrier -->
+          <line x1="328" y1="42" x2="328" y2="120" stroke="#C0392B" stroke-width="1.5" stroke-dasharray="5 4"/>
+          <text x="328" y="30" fill="#C0392B" font-size="10" text-anchor="middle">never crosses: unearned rooms,</text>
+          <text x="328" y="108" fill="#C0392B" font-size="10" text-anchor="middle" transform="rotate(0)"></text>
+          <text x="328" y="121" fill="#C0392B" font-size="10" text-anchor="middle">unseen tokens, locked areas</text>
+
+          <!-- client box -->
+          <rect x="368" y="22" width="254" height="256" rx="6" fill="#1E1E1E" stroke="#252525"/>
+          <text x="384" y="46" fill="#E8E8E8" font-size="13" font-weight="600">Client — presentation only</text>
+          <rect x="384" y="60" width="222" height="46" rx="4" fill="#282828" stroke="#252525"/>
+          <text x="396" y="79" fill="#E8E8E8" font-size="11">session store</text>
+          <text x="396" y="94" fill="#999" font-size="10">holds only what the referee sent</text>
+          <rect x="384" y="116" width="222" height="56" rx="4" fill="#282828" stroke="#252525"/>
+          <text x="396" y="135" fill="#E8E8E8" font-size="11">FogRenderer mask (P2)</text>
+          <text x="396" y="150" fill="#999" font-size="10">sweep ∪ per entitled token → clear</text>
+          <text x="396" y="163" fill="#999" font-size="10">region memory → wash · rest → void</text>
+          <rect x="384" y="182" width="222" height="40" rx="4" fill="#282828" stroke="#252525"/>
+          <text x="396" y="200" fill="#E8E8E8" font-size="11">DM canvas</text>
+          <text x="396" y="215" fill="#999" font-size="10">never masked — principle 3</text>
+          <text x="384" y="262" fill="#666" font-size="10">rooms mode = today’s behaviour, untouched</text>
+        </svg>
+        <figcaption><b>Two layers, one truth.</b> Rooms stay the unit of geometry shipping (server redaction,
+          unchanged); the new region bitmask is the unit of presentation memory. Secrets are entity-level and
+          never reach the client.</figcaption>
+      </figure>
+
+      <figure>
+        <span class="tag">wire sketch</span>
+        <svg viewBox="0 0 320 300" role="img" aria-label="Token redaction by vision">
+          <rect width="320" height="300" fill="#0d0e12"/>
+          <!-- room -->
+          <rect x="30" y="40" width="260" height="220" fill="#5f6247" stroke="#3d3325" stroke-width="8"/>
+          <rect x="30" y="40" width="260" height="220" fill="none" stroke="#17130b" stroke-width="2"/>
+          <!-- interior wall -->
+          <rect x="196" y="40" width="10" height="150" fill="#3d3325" stroke="#17130b"/>
+          <!-- sweep from A -->
+          <path d="M110,170 L110,60 L196,60 L196,190 L206,190 L250,234 L110,234 Z"
+                fill="#f0a252" opacity="0.13"/>
+          <circle cx="110" cy="170" r="96" fill="none" stroke="#f0a252" stroke-opacity=".45" stroke-dasharray="3 4"/>
+          <!-- tokens -->
+          <circle cx="110" cy="170" r="12" fill="#d9c9a8" stroke="#17130b" stroke-width="2"/>
+          <text x="110" y="174" font-size="10" text-anchor="middle" fill="#17130b" font-weight="700">A</text>
+          <circle cx="160" cy="110" r="11" fill="#b56a4a" stroke="#17130b" stroke-width="2"/>
+          <text x="160" y="114" font-size="10" text-anchor="middle" fill="#17130b" font-weight="700">B</text>
+          <g opacity=".55">
+            <circle cx="248" cy="90" r="11" fill="none" stroke="#C0392B" stroke-width="2" stroke-dasharray="3 3"/>
+            <text x="248" y="94" font-size="10" text-anchor="middle" fill="#C0392B" font-weight="700">C</text>
+          </g>
+          <text x="36" y="285" fill="#999" font-size="11">A = your claimed token · 30 ft sweep</text>
+          <text x="36" y="271" fill="#999" font-size="11">B in sight → on your wire · C behind wall → never sent</text>
+        </svg>
+        <figcaption><b>Token redaction by vision.</b> Re-evaluated on token move and door toggle in the
+          existing Broadcaster seam. Wire-tested by byte-searching every frame a viewer receives for
+          token ids they have not earned.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ══════════════════════ P2 ══════════════════════ -->
+  <section class="phase">
+    <div class="phead"><span class="pnum">P2</span><h2>The client mask — what a player sees</h2></div>
+    <p class="ships">Vision-mode rendering: <b>current sight</b> is the union of your tokens’ sweep polygons;
+      <b>region memory</b> washes only the cells sight has actually crossed — a half-explored room finally
+      looks half-explored; everything else is void. Feather and the reveal fade carry over.</p>
+
+    <div class="row">
+      <figure class="wide">
+        <span class="tag">canvas sketch — player seat</span>
+        <svg viewBox="0 0 640 340" role="img" aria-label="Player mask: sweep visibility, partial region memory, void">
+          <defs>
+            <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+              <circle cx="12" cy="12" r="1.3" fill="#3a3d44" opacity=".55"/>
+            </pattern>
+            <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#f0a252" stop-opacity=".5"/>
+              <stop offset="60%" stop-color="#f0a252" stop-opacity=".16"/>
+              <stop offset="100%" stop-color="#f0a252" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+          <rect width="640" height="340" fill="#0d0e12"/>
+          <rect width="640" height="340" fill="url(#dots)"/>
+
+          <!-- hall (current room, fully in sweep) -->
+          <g>
+            <rect x="60" y="80" width="240" height="200" fill="#6b6c4c" stroke="#3d3325" stroke-width="9"/>
+            <rect x="60" y="80" width="240" height="200" fill="none" stroke="#17130b" stroke-width="2"/>
+            <circle cx="180" cy="180" r="105" fill="url(#glow)"/>
+            <circle cx="180" cy="180" r="13" fill="#d9c9a8" stroke="#17130b" stroke-width="2.5"/>
+            <circle cx="180" cy="180" r="130" fill="none" stroke="#f0a252" stroke-opacity=".4" stroke-dasharray="3 5"/>
+          </g>
+
+          <!-- corridor east: half explored (region memory), half void -->
+          <rect x="300" y="160" width="120" height="44" fill="#26292c" stroke="#221d14" stroke-width="7"/>
+          <rect x="300" y="160" width="120" height="44" fill="none" stroke="#101010" stroke-width="2"/>
+          <!-- the unexplored continuation simply is void: no geometry drawn -->
+          <line x1="420" y1="150" x2="420" y2="214" stroke="#3a3d44" stroke-dasharray="4 4"/>
+
+          <!-- big room, partially swept earlier: region memory covers only entered half -->
+          <g>
+            <rect x="440" y="60" width="170" height="230" fill="#0d0e12"/>
+            <rect x="440" y="60" width="170" height="118" fill="#26292c"/>
+            <rect x="440" y="60" width="170" height="230" fill="none" stroke="#221d14" stroke-width="7"/>
+            <rect x="440" y="60" width="170" height="230" fill="none" stroke="#101010" stroke-width="2"/>
+            <!-- bitmask cell edge on the memory boundary -->
+            <path d="M440,178 h24 v-12 h24 v12 h24 v-12 h26 v12 h24 v-12 h24 v12 h24" fill="none"
+                  stroke="#3a3f45" stroke-width="2"/>
+            <rect x="440" y="179" width="170" height="111" fill="url(#dots)" opacity=".8"/>
+          </g>
+
+          <text x="66" y="60" fill="#E8E8E8" font-size="12" font-weight="600">in sweep + lit → full art</text>
+          <text x="300" y="232" fill="#999" font-size="11">walked through → memory wash</text>
+          <text x="446" y="46" fill="#999" font-size="11">half-entered: seen cells wash</text>
+          <text x="446" y="312" fill="#666" font-size="11">unseen half stays void</text>
+        </svg>
+        <figcaption><b>Three tiers, now vision-granular</b> — the bitmask edge on the half-entered
+          room is feathered in the product. The sweep is recomputed only when a token,
+          door, or light moves — the mask stays build-on-mutation, draw-per-frame, exactly today’s
+          discipline. The 300&nbsp;ms reveal fade and reduced-motion cut carry over untouched.</figcaption>
+      </figure>
+    </div>
+    <div class="spec">
+      <span>sweep on change only, never per frame</span>
+      <span>&lt; 2 ms rebuild · 8 tokens · gate map</span>
+      <span>60 fps held mid-drag (e2e-pinned)</span>
+      <span>quadtree-culled segments</span>
+      <span>__fogProbe extended for the new tiers</span>
+    </div>
+  </section>
+
+  <!-- ══════════════════════ P3 ══════════════════════ -->
+  <section class="phase">
+    <div class="phead"><span class="pnum">P3</span><h2>Light model — ambient, carried light, darkvision</h2></div>
+    <p class="ships">Normal vision sees only what is <b>lit</b>: by the scene’s ambient level, or by a light
+      source — placed, or <b>carried by a token</b> (torch). Darkvision sees unlit space within its own range,
+      desaturated. The DM gets one new dial.</p>
+
+    <div class="row">
+      <figure>
+        <span class="tag">panel mockup — Environment</span>
+        <div class="panel">
+          <h3>Environment</h3>
+          <div class="field"><label>Time</label><div class="inp"><select><option>Not set</option></select></div></div>
+          <div class="field"><label>Weather</label><div class="inp"><select><option>Not set</option></select></div></div>
+          <div class="field">
+            <label>Ambient light</label>
+            <div class="dial">
+              <div class="track"><div class="thumb"></div></div>
+              <div class="stops"><span>Daylight</span><span>Dusk</span><span>Darkness</span></div>
+            </div>
+            <p class="hint">Above dusk, sight is range + walls. Below it, light sources decide.</p>
+          </div>
+        </div>
+        <figcaption><b>The ambient level dial</b> joins the existing Environment section. The current
+          <code>ambientLight</code> colour stays the tint; this is the gate.</figcaption>
+      </figure>
+
+      <figure class="wide">
+        <span class="tag">canvas sketch — same corridor, two sets of eyes</span>
+        <svg viewBox="0 0 640 260" role="img" aria-label="Normal vision versus darkvision in a dark scene">
+          <rect width="640" height="260" fill="#141414"/>
+          <defs>
+            <radialGradient id="torchg" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#f0a252" stop-opacity=".55"/>
+              <stop offset="55%" stop-color="#f0a252" stop-opacity=".2"/>
+              <stop offset="100%" stop-color="#f0a252" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+          <clipPath id="tileL"><rect x="18" y="36" width="292" height="180"/></clipPath>
+          <clipPath id="tileR"><rect x="330" y="36" width="292" height="180"/></clipPath>
+          <!-- normal -->
+          <g>
+            <rect x="18" y="36" width="292" height="180" fill="#0d0e12" stroke="#252525"/>
+            <rect x="30" y="90" width="268" height="70" fill="#101216" stroke="#221d14" stroke-width="6"/>
+            <!-- torch pool -->
+            <circle cx="110" cy="125" r="72" fill="url(#torchg)"/>
+            <rect x="52" y="96" width="116" height="58" fill="#7c7a54" opacity=".85"/>
+            <rect x="52" y="96" width="116" height="58" fill="url(#torchg)" opacity=".6"/>
+            <circle cx="86" cy="125" r="11" fill="#d9c9a8" stroke="#17130b" stroke-width="2"/>
+            <path d="M104,112 l7,-12 4,12 -5,6z" fill="#f0a252"/>
+            <circle cx="86" cy="125" r="118" fill="none" stroke="#999" stroke-opacity=".35" stroke-dasharray="3 5" clip-path="url(#tileL)"/>
+            <text x="30" y="62" fill="#E8E8E8" font-size="12" font-weight="600">Normal · 30 ft, carrying a torch</text>
+            <text x="30" y="236" fill="#999" font-size="11">sees the torch pool; range past the light is still dark</text>
+          </g>
+          <!-- darkvision -->
+          <g>
+            <rect x="330" y="36" width="292" height="180" fill="#0d0e12" stroke="#252525"/>
+            <rect x="342" y="90" width="268" height="70" fill="#101216" stroke="#221d14" stroke-width="6"/>
+            <!-- desaturated reach -->
+            <rect x="364" y="96" width="200" height="58" fill="#454c50" opacity=".8"/>
+            <rect x="364" y="96" width="60" height="58" fill="#7c7a54" opacity=".7"/>
+            <circle cx="398" cy="125" r="11" fill="#d9c9a8" stroke="#17130b" stroke-width="2"/>
+            <circle cx="398" cy="125" r="168" fill="none" stroke="#8fa0a8" stroke-opacity=".5" stroke-dasharray="3 5" clip-path="url(#tileR)"/>
+            <text x="342" y="62" fill="#E8E8E8" font-size="12" font-weight="600">Darkvision · 60 ft, no light</text>
+            <text x="342" y="236" fill="#999" font-size="11">unlit space within range, drained of warmth (style-guide gated)</text>
+          </g>
+        </svg>
+        <figcaption><b>Darkvision is a different way of seeing, not a bigger radius.</b> Where real light
+          falls it renders warm for everyone; darkvision fills the unlit remainder of its range with a
+          desaturated read. Token-carried light ships in this same phase so a torchless dungeon can’t brick.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ══════════════════════ P4 ══════════════════════ -->
+  <section class="phase">
+    <div class="phead"><span class="pnum">P4</span><h2>DM controls — everything stays in the DM’s hands</h2></div>
+    <p class="ships">The fog panel grows the <b>mode</b>, <b>auto-explore</b>, <b>vision share</b> and the
+      <b>fog brush</b>; the stubbed token <b>Sight &amp; light</b> section goes live, with <b>sight links</b>;
+      zones gain the <b>explore lock</b> flag. Room list, bulk ops, conceal, undo toasts — unchanged.</p>
+
+    <div class="row">
+      <figure>
+        <span class="tag">panel mockup — Fog, vision mode</span>
+        <div class="panel">
+          <h3>Fog</h3>
+          <div class="field"><label>Mode</label>
+            <div class="seg"><button>Rooms</button><button class="on">Token vision</button></div>
+          </div>
+          <div class="switch"><span class="box on">✓</span>Auto-explore as the party moves</div>
+          <div class="field"><label>Vision</label>
+            <div class="seg"><button class="on">Party — shared sight</button><button>Individual</button></div>
+          </div>
+          <div class="switch"><span class="box on">✓</span>Conceal behind doors</div>
+          <div class="divider"></div>
+          <button class="btn on">Fog brush — revealing</button>
+          <p class="hint">Paint on the map to reveal less than a room. Alt paints hide. Esc leaves the tool.</p>
+          <div class="btnrow"><button class="btn sm">Reveal all</button><button class="btn sm">Hide all</button></div>
+          <ul class="roomlist">
+            <li><button>Torchlit Chamber <span class="st">Revealed</span></button></li>
+            <li><button>East Gallery <span class="st partial">Partly seen</span></button></li>
+            <li><button>Reliquary <span class="st">Explored</span></button></li>
+            <li><button>Sealed Vault <span class="st">Locked ·&nbsp;Unrevealed</span></button></li>
+          </ul>
+          <p class="note">“Partly seen” is the region record showing through the room list. “Locked” comes from the zone flag.</p>
+        </div>
+        <figcaption><b>Fog panel v2.</b> Same component vocabulary as today’s panel — the mode switch is
+          the only structural addition; everything below it is the existing tool, kept.</figcaption>
+      </figure>
+
+      <figure>
+        <span class="tag">panel mockup — token Sight &amp; light</span>
+        <div class="panel">
+          <h3>Sight &amp; light</h3>
+          <div class="field"><label>Vision</label>
+            <div class="inp"><input value="30"><span class="unit">ft</span>
+              <select style="width:110px"><option>Normal</option><option>Darkvision</option></select></div>
+          </div>
+          <div class="field disabledrow"><label>Cone</label>
+            <div class="inp"><input value="360"><span class="unit">°</span></div>
+          </div>
+          <p class="note">Cones are schema-ready; the control ships later.</p>
+          <div class="field"><label>Carried light</label>
+            <div class="inp"><input value="20"><span class="unit">bright</span>
+              <input value="40"><span class="unit">dim</span>
+              <span class="sw" style="background:#f0a252;width:22px;height:22px;flex:none;border-radius:4px"></span></div>
+          </div>
+          <div class="divider"></div>
+          <div class="field"><label>Shares sight with</label>
+            <div class="chips">
+              <span class="chip">Elara <span class="x">×</span></span>
+              <span class="chip">Familiar <span class="x">×</span></span>
+              <span class="chip add">+ Link token…</span>
+            </div>
+            <p class="hint">Linked tokens see through each other, in every share mode.</p>
+          </div>
+        </div>
+        <figcaption><b>The stubbed “Sight &amp; light (S3)” section, live.</b> On token defs and placed
+          instances. Links are DM-only to create and remove.</figcaption>
+      </figure>
+
+      <figure>
+        <span class="tag">canvas sketch — fog brush + explore lock</span>
+        <svg viewBox="0 0 320 330" role="img" aria-label="Fog brush painting a partial reveal; a zone locked against auto-explore">
+          <defs>
+            <pattern id="dots2" width="22" height="22" patternUnits="userSpaceOnUse">
+              <circle cx="11" cy="11" r="1.2" fill="#3a3d44" opacity=".55"/>
+            </pattern>
+          </defs>
+          <rect width="320" height="330" fill="#0d0e12"/>
+          <rect width="320" height="330" fill="url(#dots2)"/>
+          <!-- room being brushed -->
+          <rect x="28" y="30" width="264" height="130" fill="#0d0e12" stroke="#3d3325" stroke-width="8"/>
+          <g>
+            <rect x="32" y="34" width="150" height="122" fill="#6b6c4c"/>
+            <path d="M182,34 v24 h22 v24 h-22 v26 h24 v48 h-24" fill="none" stroke="#3a3f45" stroke-width="2"/>
+          </g>
+          <circle cx="196" cy="96" r="26" fill="none" stroke="#FFFFFF" stroke-width="1.5" stroke-dasharray="5 4"/>
+          <circle cx="196" cy="96" r="2.5" fill="#FFFFFF"/>
+          <text x="34" y="180" fill="#999" font-size="11">brush reveals by the cell — the DM decides how much</text>
+          <!-- locked zone -->
+          <rect x="28" y="204" width="264" height="86" fill="#101216" stroke="#3d3325" stroke-width="8"/>
+          <rect x="36" y="212" width="248" height="70" fill="none" stroke="#D4A017" stroke-opacity=".8"
+                stroke-width="1.5" stroke-dasharray="7 5"/>
+          <text x="160" y="252" fill="#D4A017" font-size="11" text-anchor="middle">zone: blocks auto-explore</text>
+          <text x="34" y="312" fill="#999" font-size="11">sight into a locked zone shows nothing — DM badge only,</text>
+          <text x="34" y="326" fill="#999" font-size="11">players never learn the zone exists (principle 3 + 2)</text>
+        </svg>
+        <figcaption><b>Partial reveal and the lock.</b> The brush writes into the region record; the lock is
+          a flag on the zones the editor already authors — no new authoring tool.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ══════════════════════ P5 ══════════════════════ -->
+  <section class="phase">
+    <div class="phead"><span class="pnum">P5</span><h2>Individual vision — per-player worlds</h2></div>
+    <p class="ships">With share set to <b>Individual</b>, each viewer sees through their own claimed tokens
+      only; region memory becomes per-identity and redaction diverges per player. Sight links punch through
+      it where the DM says so.</p>
+
+    <div class="row">
+      <figure class="wide">
+        <span class="tag">sketch — the same moment, two seats</span>
+        <svg viewBox="0 0 640 270" role="img" aria-label="Two players see different masks of the same scene">
+          <rect width="640" height="270" fill="#141414"/>
+          <!-- Borin -->
+          <g>
+            <rect x="18" y="34" width="292" height="196" fill="#0d0e12" stroke="#252525"/>
+            <rect x="34" y="70" width="130" height="120" fill="#6b6c4c" stroke="#3d3325" stroke-width="6"/>
+            <rect x="164" y="112" width="80" height="34" fill="#26292c" stroke="#221d14" stroke-width="5"/>
+            <circle cx="86" cy="128" r="11" fill="#d9c9a8" stroke="#17130b" stroke-width="2"/>
+            <text x="86" y="132" font-size="9" text-anchor="middle" fill="#17130b" font-weight="700">B</text>
+            <text x="34" y="58" fill="#E8E8E8" font-size="12" font-weight="600">Borin — in the hall</text>
+            <text x="34" y="250" fill="#999" font-size="11">sees the hall; the east room does not exist for him</text>
+          </g>
+          <!-- Elara -->
+          <g>
+            <rect x="330" y="34" width="292" height="196" fill="#0d0e12" stroke="#252525"/>
+            <rect x="346" y="70" width="90" height="120" fill="#26292c" stroke="#221d14" stroke-width="5"/>
+            <rect x="470" y="70" width="130" height="120" fill="#6b6c4c" stroke="#3d3325" stroke-width="6"/>
+            <circle cx="520" cy="128" r="11" fill="#d9c9a8" stroke="#17130b" stroke-width="2"/>
+            <text x="520" y="132" font-size="9" text-anchor="middle" fill="#17130b" font-weight="700">E</text>
+            <!-- familiar link -->
+            <circle cx="392" cy="112" r="8" fill="#b8c4b0" stroke="#17130b" stroke-width="2"/>
+            <path d="M400,116 C 440,140 480,140 512,128" fill="none" stroke="#999" stroke-dasharray="4 4"/>
+            <rect x="352" y="76" width="78" height="52" fill="#6b6c4c" opacity=".55"/>
+            <text x="346" y="58" fill="#E8E8E8" font-size="12" font-weight="600">Elara — scouting by familiar</text>
+            <text x="346" y="250" fill="#999" font-size="11">her linked familiar lends its sweep from the west room</text>
+          </g>
+        </svg>
+        <figcaption><b>Per-viewer redaction.</b> The server answers each seat separately — including which
+          tokens each may know about. Party mode ships first (P1–P4); this phase is the divergence.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ══════════════════════ P6 ══════════════════════ -->
+  <section class="phase">
+    <div class="phead"><span class="pnum">P6</span><h2>The gate — proven, not promised</h2></div>
+    <p class="ships">A new e2e spec drives two live browser contexts on the dressed gate map, plus the full
+      unit/wire suites and a Docker + browser walk. The budgets are asserted, not aspirational.</p>
+    <div class="tablewrap">
+    <table class="gate">
+      <tr><th>Row</th><th>Claim it pins</th></tr>
+      <tr><td>30 ft honoured</td><td class="q">a 6-cell token sees no 7th cell, byte-checked in client state</td></tr>
+      <tr><td>Walls occlude</td><td class="q">geometry behind a wall absent from the sweep and the wire</td></tr>
+      <tr><td>Door opens → vision extends</td><td class="q">live, across both contexts, in one round trip</td></tr>
+      <tr><td>Darkvision in an unlit room</td><td class="q">sees within range where normal vision sees nothing</td></tr>
+      <tr><td>Ambient dial</td><td class="q">daylight ⇒ geometric sight; darkness ⇒ light-gated</td></tr>
+      <tr><td>Locked zone</td><td class="q">auto-explore never writes it; DM reveal still can</td></tr>
+      <tr><td>Partial reveal</td><td class="q">brush shows half a room; reload keeps the half</td></tr>
+      <tr><td>Token redaction</td><td class="q">unseen token ids never appear in any player frame</td></tr>
+      <tr><td>Performance</td><td class="q">60 fps mid-drag with sweeps; &lt; 2 ms mask rebuild, 8 tokens</td></tr>
+      <tr><td>Reduced motion</td><td class="q">reveal cuts, probe-asserted (the row revived this session)</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <p class="sub" style="margin-top:56px">Review notes welcome on any sketch — each maps to a numbered
+    plan section, and the plan changes before code does.</p>
+</main>

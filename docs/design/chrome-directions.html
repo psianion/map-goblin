@@ -1,0 +1,1052 @@
+<title>Good Goblin — Chrome Directions</title>
+
+<style>
+  /* ============================================================
+     PAGE FRAME — light-first, green-shifted neutrals.
+     ============================================================ */
+  :root {
+    --pg-ground: #e6e9de;
+    --pg-surface: #f1f3ec;
+    --pg-surface-2: #dbe0d2;
+    --pg-ink: #b3bca6;
+    --pg-ink-soft: #d5dbc9;
+    --pg-text: #1e241b;
+    --pg-muted: #5c6555;
+    --pg-accent: #3f6b34;
+    --pg-danger: #a33a2b;
+
+    --pg-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+    --pg-ui: system-ui, 'Segoe UI', Roboto, sans-serif;
+    --pg-mono: 'Cascadia Mono', Consolas, 'SF Mono', ui-monospace, monospace;
+
+    --pg-max: 1180px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --pg-ground: #0a0c09;
+      --pg-surface: #121510;
+      --pg-surface-2: #1a1e17;
+      --pg-ink: #2b3227;
+      --pg-ink-soft: #1c211a;
+      --pg-text: #e3e8dc;
+      --pg-muted: #7b8474;
+      --pg-accent: #86b566;
+      --pg-danger: #c0392b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --pg-ground: #0a0c09;
+    --pg-surface: #121510;
+    --pg-surface-2: #1a1e17;
+    --pg-ink: #2b3227;
+    --pg-ink-soft: #1c211a;
+    --pg-text: #e3e8dc;
+    --pg-muted: #7b8474;
+    --pg-accent: #86b566;
+    --pg-danger: #c0392b;
+  }
+  :root[data-theme="light"] {
+    --pg-ground: #e6e9de;
+    --pg-surface: #f1f3ec;
+    --pg-surface-2: #dbe0d2;
+    --pg-ink: #b3bca6;
+    --pg-ink-soft: #d5dbc9;
+    --pg-text: #1e241b;
+    --pg-muted: #5c6555;
+    --pg-accent: #3f6b34;
+    --pg-danger: #a33a2b;
+  }
+
+  body {
+    background: var(--pg-ground);
+    color: var(--pg-text);
+    font-family: var(--pg-ui);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: var(--pg-max); margin: 0 auto; padding: 0 24px 120px; }
+
+  h1, h2, h3, h4 { text-wrap: balance; margin: 0; }
+  h1 {
+    font-family: var(--pg-display);
+    font-size: clamp(2.3rem, 5vw, 3.5rem);
+    line-height: 1.05;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+  }
+  h2 { font-family: var(--pg-display); font-size: clamp(1.5rem, 3vw, 2rem); font-weight: 400; line-height: 1.2; }
+  h3 { font-size: 1.05rem; font-weight: 600; }
+  p { margin: 0; max-width: 68ch; }
+
+  .eyebrow {
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.16em;
+    color: var(--pg-muted); font-weight: 600;
+  }
+  .lede { color: var(--pg-muted); font-size: 1.06rem; }
+  .note { color: var(--pg-muted); font-size: 0.88rem; }
+  code {
+    font-family: var(--pg-mono); font-size: 0.85em;
+    background: var(--pg-ink-soft); padding: 0.12em 0.4em;
+    border-radius: 3px; color: var(--pg-text);
+  }
+
+  header.masthead {
+    padding: 72px 0 44px; border-bottom: 1px solid var(--pg-ink);
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  section.block {
+    padding: 56px 0; border-bottom: 1px solid var(--pg-ink);
+    display: flex; flex-direction: column; gap: 22px;
+  }
+  .head-row { display: flex; flex-direction: column; gap: 8px; }
+
+  /* ============================================================
+     CONTROL BAR — three independent axes
+     ============================================================ */
+  .switcher {
+    position: sticky; top: 0; z-index: 40;
+    background: color-mix(in srgb, var(--pg-ground) 93%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--pg-ink);
+    margin: 0 -24px; padding: 11px 24px;
+    display: flex; gap: 22px; align-items: center; flex-wrap: wrap;
+  }
+  .axis { display: flex; gap: 7px; align-items: center; }
+  .axis .sw-label {
+    font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--pg-muted); font-weight: 600;
+  }
+  .dir-btn {
+    font-family: var(--pg-ui); font-size: 0.82rem;
+    color: var(--pg-muted); background: transparent;
+    border: 1px solid var(--pg-ink); border-radius: 3px;
+    padding: 6px 12px; cursor: pointer;
+    transition: color 180ms ease, border-color 180ms ease, background 180ms ease;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .dir-btn .chip {
+    width: 11px; height: 11px; border-radius: 2px;
+    border: 1px solid rgba(0,0,0,0.22); display: block; flex: none;
+  }
+  .dir-btn:hover { color: var(--pg-text); border-color: var(--pg-accent); }
+  .dir-btn:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: 2px; }
+  .dir-btn[aria-pressed="true"] {
+    color: var(--pg-text);
+    border-color: var(--pg-accent);
+    background: color-mix(in srgb, var(--pg-accent) 14%, transparent);
+    font-weight: 600;
+  }
+
+  /* ============================================================
+     THE STAGE
+     Palette sets colour + three ink weights.
+     Treatment picks which ink weights the components use.
+     ============================================================ */
+  .stage {
+    position: relative;
+    border: 1px solid var(--pg-ink);
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--background);
+    font-size: 13px; line-height: 1.45;
+    color: var(--foreground);
+
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+  }
+
+  /* ---------- MOSS ---------- */
+  .stage[data-pal="moss"][data-mode="day"] {
+    --background: #e3e7db; --card: #f0f2ea; --secondary: #dce0d1; --accent-surface: #cdd4bf;
+    --foreground: #1f251c; --muted-foreground: #5e6857;
+    --ink-heavy: #94a085; --ink-mid: #b6bfa6; --ink-soft: #cfd6c2;
+    --focal: #3f6b34; --ring: #3f6b34; --live: #3f6b34;
+    --destructive: #a33a2b; --warn: #8a6410;
+    --hover-tint: color-mix(in srgb, #3f6b34 10%, transparent); --hover-glow: none;
+    --panel-shadow-mat: 0 6px 16px -10px rgba(40,50,35,0.5);
+  }
+  .stage[data-pal="moss"][data-mode="night"] {
+    --background: #0b0d0a; --card: #141712; --secondary: #1c211a; --accent-surface: #262c23;
+    --foreground: #e4e9dd; --muted-foreground: #7c8675;
+    --ink-heavy: #3a4433; --ink-mid: #2b3327; --ink-soft: #1f251d;
+    --focal: #86b566; --ring: #86b566; --live: #86b566;
+    --destructive: #c0392b; --warn: #c99a3a;
+    --hover-tint: transparent;
+    --hover-glow: radial-gradient(120% 160% at 50% 120%, color-mix(in srgb, #86b566 22%, transparent) 0%, transparent 70%);
+    --panel-shadow-mat: 0 10px 26px -14px rgba(0,0,0,0.9);
+  }
+
+  /* ---------- VERDIGRIS ---------- */
+  .stage[data-pal="verd"][data-mode="day"] {
+    --background: #dde4e0; --card: #ecf1ee; --secondary: #d2dcd7; --accent-surface: #c1cfc9;
+    --foreground: #18231f; --muted-foreground: #536661;
+    --ink-heavy: #88a096; --ink-mid: #a9bdb5; --ink-soft: #c6d3ce;
+    --focal: #2b7a67; --ring: #2b7a67; --live: #2b7a67;
+    --destructive: #a53a2c; --warn: #8a6410;
+    --hover-tint: color-mix(in srgb, #2b7a67 10%, transparent); --hover-glow: none;
+    --panel-shadow-mat: 0 6px 16px -10px rgba(30,50,45,0.5);
+  }
+  .stage[data-pal="verd"][data-mode="night"] {
+    --background: #070a09; --card: #0f1513; --secondary: #16201d; --accent-surface: #1f2b28;
+    --foreground: #dde8e4; --muted-foreground: #74857f;
+    --ink-heavy: #2f403b; --ink-mid: #23302c; --ink-soft: #18211f;
+    --focal: #4ab095; --ring: #4ab095; --live: #4ab095;
+    --destructive: #c0392b; --warn: #c99a3a;
+    --hover-tint: transparent;
+    --hover-glow: radial-gradient(120% 160% at 50% 120%, color-mix(in srgb, #4ab095 22%, transparent) 0%, transparent 70%);
+    --panel-shadow-mat: 0 10px 26px -14px rgba(0,0,0,0.9);
+  }
+
+  /* ---------- GOBLIN ---------- */
+  .stage[data-pal="gob"][data-mode="day"] {
+    --background: #e7ebdb; --card: #f3f6ea; --secondary: #dee4cb; --accent-surface: #ccd5b3;
+    --foreground: #212517; --muted-foreground: #5d6647;
+    --ink-heavy: #97a37a; --ink-mid: #b8c199; --ink-soft: #d0d7b9;
+    --focal: #55871a; --ring: #55871a; --live: #55871a;
+    --destructive: #a53a2c; --warn: #8a6410;
+    --hover-tint: color-mix(in srgb, #55871a 10%, transparent); --hover-glow: none;
+    --panel-shadow-mat: 0 6px 16px -10px rgba(45,50,30,0.5);
+  }
+  .stage[data-pal="gob"][data-mode="night"] {
+    --background: #090b06; --card: #12160d; --secondary: #1a2011; --accent-surface: #232b17;
+    --foreground: #e7ecd9; --muted-foreground: #7d8768;
+    --ink-heavy: #3b452a; --ink-mid: #2c3520; --ink-soft: #1e2416;
+    --focal: #8fbf3f; --ring: #8fbf3f; --live: #8fbf3f;
+    --destructive: #c0392b; --warn: #c99a3a;
+    --hover-tint: transparent;
+    --hover-glow: radial-gradient(120% 160% at 50% 120%, color-mix(in srgb, #8fbf3f 20%, transparent) 0%, transparent 70%);
+    --panel-shadow-mat: 0 10px 26px -14px rgba(0,0,0,0.9);
+  }
+
+  /* ---------- TREATMENT (sets which ink weight goes where) ---------- */
+  .stage[data-treat="flat"] {
+    --border-structure: var(--ink-mid);
+    --border: var(--ink-mid);
+    --border-divider: var(--ink-mid);
+    --panel-texture: none;
+    --panel-shadow: none;
+    --panel-header-font: var(--pg-ui);
+    --panel-header-transform: uppercase;
+    --panel-header-size: 0.68rem;
+    --panel-header-spacing: 0.14em;
+    --panel-header-weight: 600;
+    --panel-header-color: var(--muted-foreground);
+    --radius: 4px;
+    --stage-pad: 0px;
+  }
+  .stage[data-treat="mat"] {
+    --border-structure: var(--ink-heavy);
+    --border: var(--ink-mid);
+    --border-divider: var(--ink-soft);
+    --panel-texture: var(--grain);
+    --panel-shadow: var(--panel-shadow-mat);
+    --panel-header-font: var(--pg-display);
+    --panel-header-transform: none;
+    --panel-header-size: 0.95rem;
+    --panel-header-spacing: 0.01em;
+    --panel-header-weight: 400;
+    --panel-header-color: var(--foreground);
+    --radius: 3px;
+    --stage-pad: 0px;
+  }
+
+  /* ---------- stage layout ---------- */
+  .app {
+    display: grid;
+    grid-template-columns: 46px 208px 1fr 196px;
+    height: 468px;
+    background: var(--background);
+    position: relative;
+  }
+  @media (max-width: 860px) {
+    .app { grid-template-columns: 42px 1fr; height: auto; }
+    .app .col-right { display: none; }
+    .app .map-stage { min-height: 260px; }
+  }
+
+  /* ---------- the map: stays warm. It's the art, not the chrome. ---------- */
+  .map-stage {
+    position: relative; overflow: hidden;
+    background:
+      radial-gradient(circle at 30% 42%, rgba(224,162,68,0.30) 0%, rgba(224,162,68,0.10) 26%, transparent 52%),
+      radial-gradient(circle at 68% 66%, rgba(226,150,60,0.24) 0%, rgba(226,150,60,0.07) 22%, transparent 46%),
+      #14110e;
+    border-left: 1px solid var(--border-structure);
+    border-right: 1px solid var(--border-structure);
+  }
+  .map-grid {
+    position: absolute; inset: 0;
+    background-image:
+      repeating-linear-gradient(0deg, rgba(190,160,120,0.075) 0 1px, transparent 1px 34px),
+      repeating-linear-gradient(90deg, rgba(190,160,120,0.075) 0 1px, transparent 1px 34px);
+  }
+  .map-walls { position: absolute; inset: 0; }
+  .map-walls i {
+    position: absolute; background: #0d0a08; display: block;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.6), 0 2px 5px rgba(0,0,0,0.5);
+  }
+  .fog-unrevealed { position: absolute; background: #050403; }
+  .fog-explored {
+    position: absolute; background: rgba(10,9,8,0.72);
+    backdrop-filter: saturate(0.25) brightness(0.7);
+  }
+  .fog-tag {
+    position: absolute; font-size: 9px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: rgba(220,205,185,0.42); font-family: var(--pg-ui);
+  }
+  .token-pip {
+    position: absolute; width: 26px; height: 26px; border-radius: 50%;
+    border: 2px solid rgba(20,14,8,0.85); box-shadow: 0 3px 8px rgba(0,0,0,0.6);
+    display: grid; place-items: center;
+    font-size: 10px; font-weight: 700; color: #1a1208; font-family: var(--pg-ui);
+  }
+
+  /* ---------- panels ---------- */
+  .panel {
+    background-color: var(--card);
+    background-image: var(--panel-texture);
+    border: 1px solid var(--border-structure);
+    border-radius: var(--radius);
+    box-shadow: var(--panel-shadow);
+    display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  }
+  .col-left, .col-right { display: flex; flex-direction: column; min-height: 0; }
+  .stage[data-treat="flat"] .panel { border-radius: 0; border-right: 0; border-top: 0; }
+  .stage[data-treat="flat"] .col-right .panel { border-right: 1px solid var(--border-structure); border-left: 0; }
+  .stage[data-treat="mat"] .col-left { padding: 8px 0 8px 8px; gap: 8px; }
+  .stage[data-treat="mat"] .col-right { padding: 8px 8px 8px 0; gap: 8px; }
+  .stage[data-treat="mat"] .rail { margin: 8px 0 8px 8px; }
+  .stage[data-treat="mat"] .map-stage { border: 0; }
+
+  .panel-head {
+    font-family: var(--panel-header-font);
+    font-size: var(--panel-header-size);
+    text-transform: var(--panel-header-transform);
+    letter-spacing: var(--panel-header-spacing);
+    font-weight: var(--panel-header-weight);
+    color: var(--panel-header-color);
+    padding: 9px 11px;
+    border-bottom: 1px solid var(--border-divider);
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: none;
+  }
+  .panel-body {
+    padding: 9px 11px; display: flex; flex-direction: column; gap: 7px; overflow: auto;
+  }
+
+  /* ---------- rows ---------- */
+  .row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 7px;
+    border-radius: calc(var(--radius) - 1px);
+    border: 1px solid transparent;
+    cursor: pointer; position: relative; background-image: none;
+    transition: background-color 180ms ease, border-color 180ms ease, background-image 200ms ease;
+  }
+  .row:hover {
+    background-color: var(--hover-tint);
+    background-image: var(--hover-glow);
+    border-color: var(--border-divider);
+  }
+  .row:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+  .row.is-active {
+    border-color: color-mix(in srgb, var(--focal) 55%, transparent);
+    background-color: color-mix(in srgb, var(--focal) 12%, transparent);
+  }
+  .row.is-off { opacity: 0.5; }
+  .row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .meta { color: var(--muted-foreground); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+  /* state marks: shape carries the state, not colour alone */
+  .mark { width: 9px; height: 9px; flex: none; display: block; }
+  .mark.here { border-radius: 50%; background: var(--live); }
+  .mark.away { border-radius: 50%; background: transparent; border: 1.5px solid var(--muted-foreground); }
+  .mark.lost {
+    width: 0; height: 0; background: transparent;
+    border-left: 5px solid transparent; border-right: 5px solid transparent;
+    border-bottom: 9px solid var(--destructive);
+  }
+  .swatch { width: 9px; height: 9px; border-radius: 50%; flex: none; display: block; }
+
+  .badge {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em;
+    padding: 2px 5px; border-radius: 2px; border: 1px solid var(--border);
+    color: var(--muted-foreground); font-weight: 600; flex: none;
+  }
+  .badge.dm { border-color: color-mix(in srgb, var(--focal) 55%, transparent); color: var(--focal); }
+
+  /* ---------- buttons ---------- */
+  .btn {
+    font-family: var(--pg-ui); font-size: 12px;
+    padding: 6px 11px; border-radius: calc(var(--radius) - 1px);
+    border: 1px solid var(--border);
+    background-color: var(--secondary); background-image: none;
+    color: var(--foreground); cursor: pointer;
+    transition: background-color 180ms ease, border-color 180ms ease, background-image 200ms ease, box-shadow 200ms ease;
+  }
+  .btn:hover {
+    background-color: var(--hover-tint);
+    background-image: var(--hover-glow);
+    border-color: color-mix(in srgb, var(--focal) 45%, transparent);
+  }
+  .btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  .btn.focal {
+    background-color: var(--focal);
+    border-color: color-mix(in srgb, var(--focal) 70%, black);
+    color: #f4f7ee; font-weight: 600;
+  }
+  .btn.focal:hover {
+    background-color: color-mix(in srgb, var(--focal) 86%, black);
+    background-image: none;
+  }
+  .stage[data-mode="night"] .btn.focal { color: #0c0f0a; }
+
+  /* ---------- tool rail ---------- */
+  .rail {
+    background-color: var(--card); background-image: var(--panel-texture);
+    border: 1px solid var(--border-structure); border-radius: var(--radius);
+    display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 7px 0;
+  }
+  .stage[data-treat="flat"] .rail { border-radius: 0; border-left: 0; border-top: 0; border-bottom: 0; }
+  .tool {
+    width: 30px; height: 30px; display: grid; place-items: center;
+    border-radius: calc(var(--radius) - 1px);
+    border: 1px solid transparent; color: var(--muted-foreground);
+    cursor: pointer; background-color: transparent; background-image: none;
+    transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease, background-image 200ms ease;
+  }
+  .tool svg { width: 16px; height: 16px; }
+  .tool:hover { color: var(--foreground); background-color: var(--hover-tint); background-image: var(--hover-glow); }
+  .tool:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+  .tool.is-active {
+    color: var(--focal);
+    border-color: color-mix(in srgb, var(--focal) 55%, transparent);
+    background-color: color-mix(in srgb, var(--focal) 14%, transparent);
+  }
+
+  /* ---------- chrome floating over the map ---------- */
+  .over {
+    position: absolute; z-index: 5;
+    background-color: color-mix(in srgb, var(--card) 90%, transparent);
+    background-image: var(--panel-texture);
+    border: 1px solid var(--border-structure);
+    border-radius: var(--radius);
+    box-shadow: var(--panel-shadow);
+    padding: 5px 9px; display: flex; align-items: center; gap: 7px;
+    font-size: 11px; backdrop-filter: blur(6px);
+  }
+  .over.conn { top: 10px; right: 10px; }
+  .over.tool-ind { top: 10px; left: 10px; }
+  .toast {
+    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 6;
+    background-color: var(--card); background-image: var(--panel-texture);
+    border: 1px solid var(--border-structure);
+    border-radius: var(--radius);
+    box-shadow: var(--panel-shadow), 0 8px 30px -12px rgba(0,0,0,0.55);
+    padding: 8px 13px; font-size: 12px;
+    display: flex; align-items: center; gap: 9px; white-space: nowrap;
+  }
+
+  /* ============================================================
+     COMPARISON
+     ============================================================ */
+  .compare { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 760px) { .compare { grid-template-columns: 1fr; } }
+  .compare-card {
+    border: 1px solid var(--pg-ink); border-radius: 4px;
+    overflow: hidden; display: flex; flex-direction: column;
+  }
+  .compare-card > .mini { padding: 14px; }
+  .compare-meta {
+    padding: 11px 13px; border-top: 1px solid var(--pg-ink);
+    background: var(--pg-surface); display: flex; flex-direction: column; gap: 5px;
+  }
+  .compare-meta .name { font-family: var(--pg-display); font-size: 1.05rem; }
+  .compare-meta .cost { font-size: 0.78rem; color: var(--pg-muted); }
+  .swatches { display: flex; gap: 4px; margin-top: 3px; }
+  .swatches i { width: 20px; height: 20px; border-radius: 2px; border: 1px solid rgba(128,128,128,0.28); display: block; }
+  .mini { background: var(--background); }
+  .mini .panel { min-height: 0; }
+
+  /* ============================================================
+     RULES
+     ============================================================ */
+  .rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(262px, 1fr)); gap: 18px; }
+  .rule {
+    border: 1px solid var(--pg-ink); border-radius: 4px; padding: 18px;
+    display: flex; flex-direction: column; gap: 12px; background: var(--pg-surface);
+  }
+  .rule h3 { font-family: var(--pg-display); font-weight: 400; font-size: 1.15rem; }
+  .rule .src {
+    font-size: 0.74rem; color: var(--pg-muted); font-style: italic;
+    border-left: 2px solid var(--pg-ink); padding-left: 9px;
+  }
+  .demo-strip {
+    background: var(--pg-surface-2); border: 1px solid var(--pg-ink);
+    border-radius: 3px; padding: 13px;
+    display: flex; gap: 9px; flex-wrap: wrap; align-items: center;
+  }
+  .demo-strip .label-sm {
+    width: 100%; font-size: 0.65rem; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--pg-muted);
+  }
+  .weight-demo { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+  .weight-demo div { padding: 7px 10px; font-size: 0.76rem; background: var(--pg-surface); }
+  .marks-demo { display: flex; flex-direction: column; gap: 7px; width: 100%; font-size: 0.8rem; }
+  .marks-demo span { display: flex; align-items: center; gap: 9px; }
+
+  /* ============================================================
+     THRESHOLDS
+     ============================================================ */
+  .thresholds { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  @media (max-width: 760px) { .thresholds { grid-template-columns: 1fr; } }
+  .thr {
+    border: 1px solid var(--pg-ink); border-radius: 4px;
+    background: var(--pg-surface);
+    padding: 26px 20px; display: flex; flex-direction: column;
+    align-items: center; gap: 12px; text-align: center;
+    min-height: 210px; justify-content: center; position: relative;
+  }
+  .thr .when {
+    position: absolute; top: 9px; left: 11px;
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.13em; color: var(--pg-muted);
+  }
+  .thr .line { font-family: var(--pg-display); font-size: 1.05rem; max-width: 30ch; }
+  .thr .sub { font-size: 0.8rem; color: var(--pg-muted); max-width: 34ch; }
+  .goblin { width: 74px; height: 74px; display: block; }
+  .goblin .body { fill: color-mix(in srgb, var(--pg-accent) 22%, var(--pg-surface-2)); stroke: var(--pg-accent); stroke-width: 1.6; }
+  .goblin .eye { fill: var(--pg-accent); }
+  .goblin .stick { stroke: var(--pg-accent); stroke-width: 3; stroke-linecap: round; }
+  .goblin .flame { fill: #d9922f; }
+
+  /* ============================================================
+     TOKENS + TABLE
+     ============================================================ */
+  .tokenout {
+    font-family: var(--pg-mono); font-size: 0.78rem;
+    background: var(--pg-surface); border: 1px solid var(--pg-ink);
+    border-radius: 4px; padding: 16px 18px; overflow-x: auto;
+    color: var(--pg-muted); line-height: 1.75; white-space: pre;
+  }
+  .tokenout b { color: var(--pg-accent); font-weight: 400; }
+
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; min-width: 560px; }
+  th, td { text-align: left; padding: 11px 13px; border-bottom: 1px solid var(--pg-ink); vertical-align: top; }
+  th {
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.13em;
+    color: var(--pg-muted); font-weight: 600;
+  }
+  td.q { font-weight: 500; }
+  td.a { color: var(--pg-muted); }
+
+  .callout {
+    border-left: 2px solid var(--pg-accent);
+    padding: 4px 0 4px 16px; color: var(--pg-muted);
+  }
+  .callout strong { color: var(--pg-text); font-weight: 600; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <span class="eyebrow">Good Goblin · chrome directions · round two · green</span>
+    <h1>The map is a sheet.<br>The chrome is the table it lies on.</h1>
+    <p class="lede">Green, light-first, with a genuinely dark night mode — not an inverted afterthought. Green also solves a problem the amber round had: torchlight chrome competed with torchlight maps. Green sits near-opposite the map's warm glows, so the art gets louder while the chrome gets quieter. It's also, conveniently, the colour of the mascot.</p>
+    <p class="note">Three axes below, all independent: <strong>palette</strong> (which green), <strong>mode</strong> (day or night — this is the real light/dark pair, separate from your browser theme), and <strong>treatment</strong> (flat panels versus ink-and-grain materials). The map behind the chrome stays warm on purpose: that's the art style guide, and it's what the chrome has to live next to.</p>
+  </header>
+
+  <div class="switcher">
+    <div class="axis" role="group" aria-label="Palette">
+      <span class="sw-label">Green</span>
+      <button class="dir-btn" data-axis="pal" data-val="moss" aria-pressed="true"><span class="chip" style="background:#3f6b34"></span> Moss</button>
+      <button class="dir-btn" data-axis="pal" data-val="verd" aria-pressed="false"><span class="chip" style="background:#2b7a67"></span> Verdigris</button>
+      <button class="dir-btn" data-axis="pal" data-val="gob" aria-pressed="false"><span class="chip" style="background:#55871a"></span> Goblin</button>
+    </div>
+    <div class="axis" role="group" aria-label="Mode">
+      <span class="sw-label">Mode</span>
+      <button class="dir-btn" data-axis="mode" data-val="day" aria-pressed="true">Day</button>
+      <button class="dir-btn" data-axis="mode" data-val="night" aria-pressed="false">Night</button>
+    </div>
+    <div class="axis" role="group" aria-label="Treatment">
+      <span class="sw-label">Panels</span>
+      <button class="dir-btn" data-axis="treat" data-val="flat" aria-pressed="false">Flat</button>
+      <button class="dir-btn" data-axis="treat" data-val="mat" aria-pressed="true">Ink &amp; grain</button>
+    </div>
+  </div>
+
+  <section class="block">
+    <div class="head-row">
+      <span class="eyebrow">The stage</span>
+      <h2 id="dir-title">Moss · Day · Ink &amp; grain</h2>
+      <p class="lede" id="dir-blurb"></p>
+    </div>
+
+    <div class="stage" id="stage" data-pal="moss" data-mode="day" data-treat="mat">
+      <div class="app">
+
+        <div class="rail">
+          <button class="tool is-active" title="Select" aria-label="Select tool">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 3l7 17 2.5-6.5L20 11z"/></svg>
+          </button>
+          <button class="tool" title="Ping" aria-label="Ping tool">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/></svg>
+          </button>
+          <button class="tool" title="Ruler" aria-label="Ruler tool">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M3 15L15 3l6 6L9 21z"/><path d="M8 10l2 2M11 7l2 2M5 13l2 2"/></svg>
+          </button>
+          <button class="tool" title="Reveal fog" aria-label="Fog reveal tool">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/></svg>
+          </button>
+          <button class="tool" title="Doors" aria-label="Door tool">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 21V4a1 1 0 011-1h9a1 1 0 011 1v17"/><circle cx="13" cy="12" r="1" fill="currentColor"/><path d="M3 21h18"/></svg>
+          </button>
+        </div>
+
+        <div class="col-left">
+          <div class="panel" style="flex: 0 0 auto;">
+            <div class="panel-head"><span>Scenes</span><span class="badge dm">DM</span></div>
+            <div class="panel-body">
+              <div class="row is-active" tabindex="0"><span class="grow">The Sunken Vestry</span><span class="meta">live</span></div>
+              <div class="row" tabindex="0"><span class="grow">Kobold Warren</span></div>
+              <div class="row" tabindex="0"><span class="grow">Tavern — Upper Floor</span></div>
+              <button class="btn focal" style="margin-top: 4px;">Load a map</button>
+            </div>
+          </div>
+
+          <div class="panel" style="flex: 1 1 auto;">
+            <div class="panel-head"><span>At the table</span><span class="meta">4</span></div>
+            <div class="panel-body">
+              <div class="row" tabindex="0"><span class="mark here"></span><span class="grow">Sai</span><span class="badge dm">DM</span></div>
+              <div class="row" tabindex="0"><span class="mark here"></span><span class="grow">Wren</span><span class="meta">28ms</span></div>
+              <div class="row" tabindex="0"><span class="mark here"></span><span class="grow">Bel</span><span class="meta">41ms</span></div>
+              <div class="row is-off" tabindex="0"><span class="mark away"></span><span class="grow">Tomas</span><span class="meta">away</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="map-stage">
+          <div class="map-grid"></div>
+          <div class="map-walls">
+            <i style="left: 8%; top: 14%; width: 46%; height: 5px;"></i>
+            <i style="left: 8%; top: 14%; width: 5px; height: 52%;"></i>
+            <i style="left: 52%; top: 14%; width: 5px; height: 26%;"></i>
+            <i style="left: 8%; top: 64%; width: 30%; height: 5px;"></i>
+            <i style="left: 60%; top: 46%; width: 32%; height: 5px;"></i>
+            <i style="left: 60%; top: 46%; width: 5px; height: 34%;"></i>
+          </div>
+          <div class="fog-explored" style="left: 0; top: 66%; width: 46%; height: 34%;"></div>
+          <span class="fog-tag" style="left: 12px; bottom: 10px;">explored</span>
+          <div class="fog-unrevealed" style="right: 0; top: 0; width: 26%; height: 42%;"></div>
+          <span class="fog-tag" style="right: 12px; top: 10px;">unrevealed</span>
+          <div class="token-pip" style="left: 26%; top: 38%; background: #c9a227;">W</div>
+          <div class="token-pip" style="left: 34%; top: 46%; background: #7fa0c4;">B</div>
+          <div class="token-pip" style="left: 63%; top: 60%; background: #a8503f;">✦</div>
+
+          <div class="over tool-ind"><span style="color: var(--focal);">◆</span> Select</div>
+          <div class="over conn"><span class="mark here"></span> Connected · 24ms</div>
+          <div class="toast">The Sunken Vestry is now live for 3 players.</div>
+        </div>
+
+        <div class="col-right">
+          <div class="panel" style="flex: 1 1 auto;">
+            <div class="panel-head"><span>Tokens</span></div>
+            <div class="panel-body">
+              <div class="row is-active" tabindex="0"><span class="swatch" style="background:#c9a227"></span><span class="grow">Wren</span></div>
+              <div class="row" tabindex="0"><span class="swatch" style="background:#7fa0c4"></span><span class="grow">Bel</span></div>
+              <div class="row" tabindex="0"><span class="swatch" style="background:#a8503f"></span><span class="grow">Cult Fanatic</span><span class="badge">hidden</span></div>
+              <div class="row" tabindex="0"><span class="swatch" style="background:#a8503f"></span><span class="grow">Acolyte</span><span class="badge">hidden</span></div>
+              <button class="btn" style="margin-top: 4px;">Add token</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <p class="note">Switch to <strong>Night</strong> and watch what happens to the map: identical art, but it reads brighter and warmer against dark green-black than it does framed by pale paper. That difference is the whole argument for which mode is the default at the table.</p>
+  </section>
+
+  <section class="block">
+    <div class="head-row">
+      <span class="eyebrow">Side by side</span>
+      <h2>Three greens, in the mode you're viewing</h2>
+      <p class="lede">These follow the mode and treatment switches above, so you can compare the palettes without them changing anything else.</p>
+    </div>
+
+    <div class="compare">
+      <div class="compare-card">
+        <div class="stage mini" data-pal="moss" data-mode="day" data-treat="mat">
+          <div class="panel">
+            <div class="panel-head"><span>At the table</span><span class="meta">4</span></div>
+            <div class="panel-body">
+              <div class="row" tabindex="0"><span class="mark here"></span><span class="grow">Sai</span><span class="badge dm">DM</span></div>
+              <div class="row" tabindex="0"><span class="mark here"></span><span class="grow">Wren</span><span class="meta">28ms</span></div>
+              <div class="row is-off" tabindex="0"><span class="mark away"></span><span class="grow">Tomas</span><span class="meta">away</span></div>
+              <button class="btn focal" style="margin-top:4px;">Load a map</button>
+            </div>
+          </div>
+        </div>
+        <div class="compare-meta">
+          <span class="name">Moss</span>
+          <div class="swatches"><i style="background:#e3e7db"></i><i style="background:#dce0d1"></i><i style="background:#94a085"></i><i style="background:#3f6b34"></i><i style="background:#1f251c"></i></div>
+          <span class="cost">Olive-leaning, closest to the map art's own grass and moss tones. The safe, warm-adjacent green — calm and highly readable, least likely to date.</span>
+        </div>
+      </div>
+
+      <div class="compare-card">
+        <div class="stage mini" data-pal="verd" data-mode="day" data-treat="mat">
+          <div class="panel">
+            <div class="panel-head"><span>At the table</span><span class="meta">4</span></div>
+            <div class="panel-body">
+              <div class="row" tabindex="0"><span class="mark here"></span><span class="grow">Sai</span><span class="badge dm">DM</span></div>
+              <div class="row" tabindex="0"><span class="mark here"></span><span class="grow">Wren</span><span class="meta">28ms</span></div>
+              <div class="row is-off" tabindex="0"><span class="mark away"></span><span class="grow">Tomas</span><span class="meta">away</span></div>
+              <button class="btn focal" style="margin-top:4px;">Load a map</button>
+            </div>
+          </div>
+        </div>
+        <div class="compare-meta">
+          <span class="name">Verdigris</span>
+          <div class="swatches"><i style="background:#dde4e0"></i><i style="background:#d2dcd7"></i><i style="background:#88a096"></i><i style="background:#2b7a67"></i><i style="background:#18231f"></i></div>
+          <span class="cost">Aged copper — cool, blue-shifted, the most distinctive of the three and the furthest from the map's palette. Reads as instrument rather than notebook.</span>
+        </div>
+      </div>
+
+      <div class="compare-card">
+        <div class="stage mini" data-pal="gob" data-mode="day" data-treat="mat">
+          <div class="panel">
+            <div class="panel-head"><span>At the table</span><span class="meta">4</span></div>
+            <div class="panel-body">
+              <div class="row" tabindex="0"><span class="mark here"></span><span class="grow">Sai</span><span class="badge dm">DM</span></div>
+              <div class="row" tabindex="0"><span class="mark here"></span><span class="grow">Wren</span><span class="meta">28ms</span></div>
+              <div class="row is-off" tabindex="0"><span class="mark away"></span><span class="grow">Tomas</span><span class="meta">away</span></div>
+              <button class="btn focal" style="margin-top:4px;">Load a map</button>
+            </div>
+          </div>
+        </div>
+        <div class="compare-meta">
+          <span class="name">Goblin</span>
+          <div class="swatches"><i style="background:#e7ebdb"></i><i style="background:#dee4cb"></i><i style="background:#97a37a"></i><i style="background:#55871a"></i><i style="background:#212517"></i></div>
+          <span class="cost">Yellow-green — the literal mascot colour. Most brand-forward and most energetic; also the one most at risk of reading as a lime highlighter in night mode.</span>
+        </div>
+      </div>
+    </div>
+
+    <p class="callout"><strong>My read:</strong> Moss for the product, Goblin for the brand. Moss is the one you can look at for four hours; Goblin's yellow-green is the one that belongs on the landing page and the mascot. Using the saturated green only for illustration and marketing, and the quieter moss in the chrome, is a normal and healthy split — the brand colour does not have to be the interface colour.</p>
+  </section>
+
+  <section class="block">
+    <div class="head-row">
+      <span class="eyebrow">The rules</span>
+      <h2>What holds regardless of which green</h2>
+    </div>
+
+    <div class="rules">
+      <div class="rule">
+        <h3>One focal accent</h3>
+        <p class="src">"Exactly one focal accent per map (gold mosaic, glowing treasure pile, altar, hearth)."</p>
+        <p class="note">One green thing per screen — the action the DM came for. Three accents mean none.</p>
+        <div class="demo-strip">
+          <span class="label-sm">Wrong — three focals</span>
+          <button class="btn focal" style="--focal:#3f6b34;">Load a map</button>
+          <button class="btn focal" style="--focal:#3f6b34;">Add token</button>
+          <button class="btn focal" style="--focal:#3f6b34;">Reveal</button>
+        </div>
+        <div class="demo-strip">
+          <span class="label-sm">Right — one focal, two quiet</span>
+          <button class="btn focal" style="--focal:#3f6b34;">Load a map</button>
+          <button class="btn" style="--secondary:var(--pg-surface);--border:var(--pg-ink);--foreground:var(--pg-text);">Add token</button>
+          <button class="btn" style="--secondary:var(--pg-surface);--border:var(--pg-ink);--foreground:var(--pg-text);">Reveal</button>
+        </div>
+      </div>
+
+      <div class="rule">
+        <h3>Tint by day, glow by night</h3>
+        <p class="src">"Lighting is painted, not neutral — every light source gets a soft radial warm glow."</p>
+        <p class="note">Glow only works on a dark ground; on paper it looks like a printing error. So the hover behaviour genuinely differs per mode — a flat tint by day, light rising from below at night. Switch modes on the stage above and hover a row to feel it.</p>
+      </div>
+
+      <div class="rule">
+        <h3>Ink weight hierarchy</h3>
+        <p class="src">"Line weight is heavier on structure, lighter on ground clutter."</p>
+        <p class="note">Panel frames take the heavy ink; dividers take the hairline. Today both apps share one <code>--border</code>, which is exactly why panels read flat. This is what the treatment switch changes.</p>
+        <div class="demo-strip">
+          <div class="weight-demo">
+            <div style="border: 2px solid var(--pg-ink);">Structure — panel frame</div>
+            <div style="border: 1px solid var(--pg-ink);">Control — buttons, inputs</div>
+            <div style="border: 1px solid var(--pg-ink-soft);">Clutter — list dividers</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rule">
+        <h3>Semantic is not accent</h3>
+        <p class="src">"State encodings never rely on colour alone." — PRODUCT.md</p>
+        <p class="note">Green chrome creates a real collision: green already means <em>connected</em>. The fix is shape, not hue — a filled disc is here, a hollow ring is away, a triangle is trouble. It reads on a bad panel, in a dim room, colour-blind or not.</p>
+        <div class="demo-strip">
+          <div class="marks-demo">
+            <span><span class="mark here" style="--live:var(--pg-accent)"></span> Connected</span>
+            <span><span class="mark away" style="--muted-foreground:var(--pg-muted)"></span> Away — reconnecting</span>
+            <span><span class="mark lost" style="--destructive:var(--pg-danger)"></span> Lost the table</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="head-row">
+      <span class="eyebrow">Where the goblin appears</span>
+      <h2>Thresholds only — never during play</h2>
+      <p class="lede">Visible between scenes, invisible during them. Four moments, nowhere else. Placeholder silhouette — the painted version goes through the art style guide like any other asset.</p>
+    </div>
+
+    <div class="thresholds">
+      <div class="thr">
+        <span class="when">Empty editor</span>
+        <svg class="goblin" viewBox="0 0 100 100" aria-hidden="true">
+          <path class="body" d="M34 34 L12 20 L33 45 Z"/><path class="body" d="M66 34 L88 20 L67 45 Z"/>
+          <ellipse class="body" cx="50" cy="40" rx="18" ry="16"/>
+          <path class="body" d="M32 56 Q50 50 68 56 L73 88 Q50 93 27 88 Z"/>
+          <circle class="eye" cx="44" cy="40" r="2.6"/><circle class="eye" cx="56" cy="40" r="2.6"/>
+        </svg>
+        <span class="line">Nothing drawn yet. The goblin waits, quill ready.</span>
+        <span class="sub">The one place a mascot earns its keep.</span>
+      </div>
+
+      <div class="thr">
+        <span class="when">Loading a scene</span>
+        <svg class="goblin" viewBox="0 0 100 100" aria-hidden="true">
+          <path class="body" d="M34 34 L12 20 L33 45 Z"/><path class="body" d="M66 34 L88 20 L67 45 Z"/>
+          <ellipse class="body" cx="46" cy="40" rx="18" ry="16"/>
+          <path class="body" d="M28 56 Q46 50 64 56 L69 88 Q46 93 23 88 Z"/>
+          <circle class="eye" cx="40" cy="40" r="2.6"/><circle class="eye" cx="52" cy="40" r="2.6"/>
+          <line class="stick" x1="78" y1="88" x2="82" y2="56"/>
+          <path class="flame" d="M82 54 q-6 -8 0 -14 q6 6 0 14z"/>
+        </svg>
+        <span class="line">Lighting the torches…</span>
+        <span class="sub">Replaces a spinner. The torch is the one warm thing in the chrome — it belongs to the map's world, not the UI's.</span>
+      </div>
+
+      <div class="thr">
+        <span class="when">Player join page</span>
+        <svg class="goblin" viewBox="0 0 100 100" aria-hidden="true">
+          <path class="body" d="M34 34 L12 20 L33 45 Z"/><path class="body" d="M66 34 L88 20 L67 45 Z"/>
+          <ellipse class="body" cx="50" cy="40" rx="18" ry="16"/>
+          <path class="body" d="M32 56 Q50 50 68 56 L73 88 Q50 93 27 88 Z"/>
+          <circle class="eye" cx="44" cy="40" r="2.6"/><circle class="eye" cx="56" cy="40" r="2.6"/>
+        </svg>
+        <span class="line">You've got a seat at Sai's table.</span>
+        <span class="sub">The only moment players meet the goblin — and the highest-traffic screen in the product.</span>
+      </div>
+
+      <div class="thr">
+        <span class="when">Destructive confirm</span>
+        <svg class="goblin" viewBox="0 0 100 100" aria-hidden="true">
+          <path class="body" d="M36 36 L16 18 L35 46 Z"/><path class="body" d="M64 36 L84 18 L65 46 Z"/>
+          <ellipse class="body" cx="50" cy="43" rx="17" ry="15"/>
+          <path class="body" d="M33 58 Q50 53 67 58 L71 89 Q50 93 29 89 Z"/>
+          <circle class="eye" cx="44" cy="43" r="1.5"/><circle class="eye" cx="56" cy="43" r="1.5"/>
+        </svg>
+        <span class="line">Delete the Sunken Vestry? It took four hours to draw.</span>
+        <span class="sub">The nervousness survives here as a wink — never as the texture of the relationship.</span>
+      </div>
+    </div>
+
+    <p class="callout"><strong>Not negotiable:</strong> nothing whimsical goes near a trust claim. "Players only receive what you've revealed" stays literal, in plain language, with no goblin anywhere near it. Charm sells the product; it does not vouch for the security model.</p>
+  </section>
+
+  <section class="block">
+    <div class="head-row">
+      <span class="eyebrow">What lands in code</span>
+      <h2>The token block, for what you've selected</h2>
+      <p class="lede">Both apps already declare these names — <code>session/client/src/index.css</code> on <code>:root</code>, <code>canvas/src/index.css</code> on <code>.dark</code>. Going light-first means the editor's currently-unused light block finally does work, and the runner needs a light block it has never had: today it hard-codes one dark theme on <code>:root</code> with a comment explaining that the table has only one theme. That comment stops being true.</p>
+    </div>
+    <div class="tokenout" id="tokenout"></div>
+  </section>
+
+  <section class="block">
+    <div class="head-row">
+      <span class="eyebrow">Open</span>
+      <h2>What I need from you</h2>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th style="width: 32%;">Decision</th><th>Where it stands</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="q">Which green</td>
+            <td class="a">Moss reads calmest and sits nearest the map art. Verdigris is the most distinctive and the most obviously "designed". Goblin is the brand colour but is a lot to look at for a four-hour session.</td>
+          </tr>
+          <tr>
+            <td class="q">Which mode is the default at the table</td>
+            <td class="a">Day suits the editor. For live play, PRODUCT.md's own reasoning still holds — a DM in a dim room with the map carrying every bright pixel. My recommendation: editor defaults to day, table defaults to night, both switchable, and the choice remembered per user rather than per app.</td>
+          </tr>
+          <tr>
+            <td class="q">Flat or ink-and-grain</td>
+            <td class="a">Flat is nearly free. Ink-and-grain is what makes chrome look made by the same hand as the maps, and costs a shared stylesheet. It survives both modes, which the vellum idea from last round did not.</td>
+          </tr>
+          <tr>
+            <td class="q">Serif panel headers, or only in marketing</td>
+            <td class="a">Most of what makes the ink treatment feel authored. It also slows scanning slightly. Headers only, or nothing in-app.</td>
+          </tr>
+          <tr>
+            <td class="q">Does the goblin get a "quiet" toggle</td>
+            <td class="a">Costs nothing, buys goodwill from DMs who want zero personality mid-session. Recommendation: yes, and it hides thresholds only, never functionality.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  (function () {
+    var stage = document.getElementById('stage');
+    var minis = Array.prototype.slice.call(document.querySelectorAll('.mini'));
+    var title = document.getElementById('dir-title');
+    var blurb = document.getElementById('dir-blurb');
+    var tokenout = document.getElementById('tokenout');
+    var buttons = Array.prototype.slice.call(document.querySelectorAll('.dir-btn'));
+
+    var state = { pal: 'moss', mode: 'day', treat: 'mat' };
+
+    var PAL_NAME = { moss: 'Moss', verd: 'Verdigris', gob: 'Goblin' };
+    var MODE_NAME = { day: 'Day', night: 'Night' };
+    var TREAT_NAME = { flat: 'Flat', mat: 'Ink & grain' };
+
+    var BLURB = {
+      'moss-day': 'Olive-grey paper with deep moss ink. This is the drafting room: the map sits on it like a printed sheet on a worktable. Calmest of the three and the closest cousin to the map art’s own grass and moss tones.',
+      'moss-night': 'The same worktable after dark. Surfaces fall to a green-black that is genuinely dark rather than charcoal-grey, and the moss lifts to a sage that carries on it. Note how much warmer the map reads now.',
+      'verd-day': 'Cool grey-green paper with aged-copper ink. The most distinctive of the three and the furthest from the map palette, so chrome and art never blur into each other. Reads as instrument rather than notebook.',
+      'verd-night': 'Near-black with a blue-green cast — the coldest option, and the one that makes torchlit maps look hottest by contrast. Watch the accent: patina at night wants to drift toward mint, so it stays deliberately desaturated.',
+      'gob-day': 'The mascot’s own yellow-green. Most brand-forward and most energetic; also the busiest to sit in front of for hours. Best case for this palette is marketing and illustration rather than working chrome.',
+      'gob-night': 'Yellow-green on near-black is the riskiest combination here — it is one step from a lime highlighter, and it is the look most associated with generic dark dashboards. Shown honestly so the risk is visible rather than argued about.'
+    };
+
+    var TOKENS = {
+      'moss-day': [
+        ['--background', '#e3e7db', 'the worktable'],
+        ['--card', '#f0f2ea', 'panel paper'],
+        ['--secondary', '#dce0d1', ''],
+        ['--foreground', '#1f251c', 'green-black ink'],
+        ['--muted-foreground', '#5e6857', ''],
+        ['--border-structure', '#94a085', 'NEW — heavy ink'],
+        ['--border', '#b6bfa6', ''],
+        ['--border-divider', '#cfd6c2', 'NEW — hairline'],
+        ['--focal', '#3f6b34', 'NEW — the one accent'],
+        ['--ring', '#3f6b34', 'was #ffffff'],
+        ['--destructive', '#a33a2b', '']
+      ],
+      'moss-night': [
+        ['--background', '#0b0d0a', 'darker than today’s #0e0e0e'],
+        ['--card', '#141712', ''],
+        ['--secondary', '#1c211a', ''],
+        ['--foreground', '#e4e9dd', ''],
+        ['--muted-foreground', '#7c8675', ''],
+        ['--border-structure', '#3a4433', 'NEW'],
+        ['--border', '#2b3327', ''],
+        ['--border-divider', '#1f251d', 'NEW'],
+        ['--focal', '#86b566', 'sage — lifts on dark'],
+        ['--ring', '#86b566', ''],
+        ['--destructive', '#c0392b', 'unchanged']
+      ],
+      'verd-day': [
+        ['--background', '#dde4e0', ''],
+        ['--card', '#ecf1ee', ''],
+        ['--secondary', '#d2dcd7', ''],
+        ['--foreground', '#18231f', ''],
+        ['--muted-foreground', '#536661', ''],
+        ['--border-structure', '#88a096', 'NEW'],
+        ['--border', '#a9bdb5', ''],
+        ['--border-divider', '#c6d3ce', 'NEW'],
+        ['--focal', '#2b7a67', 'patina'],
+        ['--ring', '#2b7a67', ''],
+        ['--destructive', '#a53a2c', '']
+      ],
+      'verd-night': [
+        ['--background', '#070a09', 'the darkest option here'],
+        ['--card', '#0f1513', ''],
+        ['--secondary', '#16201d', ''],
+        ['--foreground', '#dde8e4', ''],
+        ['--muted-foreground', '#74857f', ''],
+        ['--border-structure', '#2f403b', 'NEW'],
+        ['--border', '#23302c', ''],
+        ['--border-divider', '#18211f', 'NEW'],
+        ['--focal', '#4ab095', 'held back from mint'],
+        ['--ring', '#4ab095', ''],
+        ['--destructive', '#c0392b', '']
+      ],
+      'gob-day': [
+        ['--background', '#e7ebdb', ''],
+        ['--card', '#f3f6ea', ''],
+        ['--secondary', '#dee4cb', ''],
+        ['--foreground', '#212517', ''],
+        ['--muted-foreground', '#5d6647', ''],
+        ['--border-structure', '#97a37a', 'NEW'],
+        ['--border', '#b8c199', ''],
+        ['--border-divider', '#d0d7b9', 'NEW'],
+        ['--focal', '#55871a', 'mascot green'],
+        ['--ring', '#55871a', ''],
+        ['--destructive', '#a53a2c', '']
+      ],
+      'gob-night': [
+        ['--background', '#090b06', ''],
+        ['--card', '#12160d', ''],
+        ['--secondary', '#1a2011', ''],
+        ['--foreground', '#e7ecd9', ''],
+        ['--muted-foreground', '#7d8768', ''],
+        ['--border-structure', '#3b452a', 'NEW'],
+        ['--border', '#2c3520', ''],
+        ['--border-divider', '#1e2416', 'NEW'],
+        ['--focal', '#8fbf3f', 'watch this one'],
+        ['--ring', '#8fbf3f', ''],
+        ['--destructive', '#c0392b', '']
+      ]
+    };
+
+    function renderTokens() {
+      var key = state.pal + '-' + state.mode;
+      var rows = TOKENS[key];
+      var heading = PAL_NAME[state.pal] + ' · ' + MODE_NAME[state.mode];
+      var sel = state.mode === 'day' ? ':root' : ':root[data-theme="dark"]';
+      var lines = rows.map(function (t) {
+        var pad = '                        '.slice(0, Math.max(1, 24 - t[0].length));
+        return '  ' + t[0] + ':' + pad + '<b>' + t[1] + '</b>;' + (t[2] ? '   /* ' + t[2] + ' */' : '');
+      });
+      tokenout.innerHTML = sel + ' {   /* ' + heading + ' */\n' + lines.join('\n') + '\n}';
+    }
+
+    function apply() {
+      stage.setAttribute('data-pal', state.pal);
+      stage.setAttribute('data-mode', state.mode);
+      stage.setAttribute('data-treat', state.treat);
+      minis.forEach(function (m) {
+        m.setAttribute('data-mode', state.mode);
+        m.setAttribute('data-treat', state.treat);
+      });
+      title.textContent = PAL_NAME[state.pal] + ' · ' + MODE_NAME[state.mode] + ' · ' + TREAT_NAME[state.treat];
+      blurb.textContent = BLURB[state.pal + '-' + state.mode];
+      buttons.forEach(function (b) {
+        b.setAttribute('aria-pressed', String(state[b.dataset.axis] === b.dataset.val));
+      });
+      renderTokens();
+    }
+
+    buttons.forEach(function (b) {
+      b.addEventListener('click', function () {
+        state[b.dataset.axis] = b.dataset.val;
+        apply();
+      });
+    });
+
+    apply();
+  })();
+</script>

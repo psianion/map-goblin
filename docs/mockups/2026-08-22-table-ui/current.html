@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Table UI — current state</title>
+<style>
+  /* ── Page chrome (the mockup's own frame, not the product) ───────────────── */
+  :root {
+    --page: #0a0a0a;
+    --page-ink: #e8e8e8;
+    --page-mute: #8a8a8a;
+    --page-line: #222;
+    --note: #d4a017;
+    /* Product tokens, verbatim from session/client/tailwind.config.ts */
+    --s0: #0E0E0E; --s1: #141414; --s2: #1E1E1E; --s3: #282828;
+    --t1: #E8E8E8; --t2: #999999; --t3: #666666;
+    --b1: #1E1E1E; --b2: #252525; --focus: #fff;
+    --danger: #C0392B; --warning: #D4A017; --success: #2ECC71;
+    /* The legacy neutral-* greys half the panels still use */
+    --n100: #f5f5f5; --n300: #d4d4d4; --n400: #a3a3a3; --n500: #8A8A8A; --n700: #404040; --n800: #262626;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--page); color: var(--page-ink); font: 14px/1.5 var(--sans); }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2.sec { font-size: 15px; font-weight: 600; margin: 0 0 10px; }
+  p.lede { color: var(--page-mute); margin: 0 0 28px; max-width: 70ch; }
+  .wrap { padding: 32px 40px 80px; max-width: 1720px; margin: 0 auto; }
+  .row { display: flex; gap: 28px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 56px; }
+  .cap { color: var(--page-mute); font-size: 12px; margin: 8px 0 0; }
+  .cap b { color: var(--page-ink); font-weight: 500; }
+  kbd { font: 11px var(--mono); background: var(--s2); border: 1px solid var(--b2); border-radius: 3px; padding: 0 5px; }
+
+  /* ── The frame: 1280×720 window of the real app ───────────────────────────── */
+  .frame { width: 1280px; height: 720px; display: flex; background: var(--s0); color: var(--t1); border: 1px solid var(--page-line); overflow: hidden; position: relative; font-size: 14px; }
+  .frame.short { height: 720px; }
+  .map { position: relative; flex: 1; min-width: 0; background: #000 center / cover no-repeat; }
+  .map.dm { background-image: url(map-dm.jpg); }
+  .map.pl { background-image: url(map-player.jpg); }
+  .fit { position: absolute; top: 8px; left: 8px; width: 32px; height: 32px; display: grid; place-items: center; background: rgba(20,20,20,.8); border: 1px solid var(--b2); border-radius: 4px; color: var(--t2); }
+  .fit svg { width: 14px; height: 14px; }
+  .toolind { position: absolute; left: 12px; bottom: 40px; display: flex; gap: 8px; align-items: center; padding: 6px 10px; background: rgba(20,20,20,.85); border: 1px solid var(--b2); border-radius: 4px; font-size: 12px; color: var(--t2); }
+  .toolind b { color: var(--t1); font-weight: 500; }
+  .status { position: absolute; inset-inline: 0; bottom: 0; height: 28px; display: flex; align-items: center; gap: 10px; padding: 0 12px; background: rgba(20,20,20,.8); backdrop-filter: blur(6px); font: 12px var(--mono); color: var(--t2); }
+  .status .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+  .status .sep { color: var(--t3); }
+  .status .zoom { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--t3); }
+  .status .zoom .track { width: 90px; height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--t1) 4%, var(--b2) 4%); position: relative; }
+  .status .zoom .track::after { content: ""; position: absolute; left: 2px; top: -4px; width: 12px; height: 12px; border-radius: 50%; background: var(--t1); border: 1px solid var(--b2); }
+
+  /* ── The rail, verbatim styles ───────────────────────────────────────────── */
+  .rail { width: 256px; flex-shrink: 0; border-left: 1px solid var(--b2); padding: 12px 24px 12px 12px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; font-size: 14px; }
+  .rail.unrolled { overflow: visible; height: auto; border: 1px solid var(--page-line); background: var(--s0); padding: 12px; }
+  .scrollbar { position: absolute; right: 0; top: 0; bottom: 0; width: 12px; background: var(--s1); }
+  .scrollbar i { position: absolute; left: 2px; right: 2px; top: 2px; height: 22%; background: #3a3a3a; border-radius: 2px; }
+  .rail h3 { margin: 0 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--t2); }
+  .rail h4 { margin: 6px 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--t2); }
+  .rail .lbl { font-size: 12px; color: var(--t2); margin: 4px 0 2px; }
+  .rail .lbl.n { color: var(--n400); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 26px; padding: 0 8px; font-size: 12px; border: 1px solid var(--b2); border-radius: 4px; background: var(--s2); color: var(--t1); white-space: nowrap; }
+  .btn.n { border-color: var(--n700); background: var(--n800); color: var(--n100); }
+  .btn.ghost { border-color: transparent; background: transparent; color: var(--t2); }
+  .btn.ghost.n { color: var(--n400); }
+  .btn.dis { opacity: .4; }
+  .btn.sm { height: 22px; padding: 0 6px; }
+  .btn.full { width: 100%; justify-content: flex-start; }
+  .inp { height: 26px; padding: 0 8px; font-size: 13px; border: 1px solid var(--b2); border-radius: 4px; background: var(--s1); color: var(--t1); display: flex; align-items: center; }
+  .inp.n { border-color: var(--n700); background: var(--n800); color: var(--n100); }
+  .inp.ph { color: var(--t3); }
+  .inp.n.ph { color: var(--n500); }
+  .sel { position: relative; padding-right: 22px; }
+  .sel::after { content: ""; position: absolute; right: 8px; top: 9px; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); }
+  .rowf { display: flex; gap: 6px; align-items: center; }
+  .rowf > * { min-width: 0; }
+  .grow { flex: 1; }
+  .seg { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--b2); border-radius: 4px; background: var(--s1); }
+  .seg span { flex: 1; text-align: center; font-size: 12px; padding: 4px 6px; border-radius: 3px; color: var(--t2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .seg span.on { background: var(--s3); color: var(--t1); }
+  .seg span.g { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .chk { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--t2); }
+  .chk i { width: 14px; height: 14px; border: 1px solid var(--b2); border-radius: 2px; background: var(--s1); display: inline-block; }
+  .chk i.on { background: #4f8ff7; border-color: #4f8ff7; position: relative; }
+  .chk i.on::after { content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px; border-right: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(45deg); }
+  .sw { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--t2); padding: 4px; }
+  .sw i { width: 16px; height: 16px; border: 1px solid var(--b2); border-radius: 2px; background: var(--s1); }
+  .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .list li { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 4px; font-size: 13px; }
+  .list li .r { margin-left: auto; color: var(--t2); font-size: 12px; }
+  .list.n li { color: var(--n300); }
+  .list li .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
+  .dm { margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: .04em; padding: 1px 6px; border-radius: 2px; background: rgba(212,160,23,.18); color: #e2b13c; border: 1px solid rgba(212,160,23,.35); }
+  .you { color: var(--t3); font-size: 12px; }
+  .card { border: 1px solid var(--b2); border-radius: 4px; background: var(--s1); padding: 8px; font-size: 12px; color: var(--t2); display: flex; flex-direction: column; gap: 3px; }
+  .card b { color: var(--t1); font-weight: 600; font-size: 13px; }
+  .ribbon { height: 24px; border-radius: 2px; background: linear-gradient(to right, #2a2638 0%, #6e4a5c 14%, #d9a07a 24%, #f3e3c6 34%, #f7efe0 52%, #e7c9a6 68%, #b87a6a 78%, #3f3350 88%, #25233a 100%); position: relative; }
+  .ribbon::before { content: ""; position: absolute; left: 2px; top: 0; width: 3px; height: 24px; background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.85); border-radius: 1px; }
+  .clockhdr { display: flex; justify-content: space-between; font-size: 12px; color: var(--t2); }
+  .clockhdr code { font-family: var(--mono); color: var(--t1); }
+  .jumps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+  .jumps .btn { height: 30px; }
+  .jumps .btn.on { background: var(--s3); }
+  .init { display: flex; flex-direction: column; gap: 2px; }
+  .init .hd { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--t2); margin-bottom: 2px; }
+  .init .hd span:last-child { font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .init li { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border: 1px solid transparent; border-radius: 4px; font-size: 13px; }
+  .init li.cur { background: var(--s2); border-color: var(--b2); }
+  .init li .cond { font-size: 9px; letter-spacing: .06em; text-transform: uppercase; border: 1px solid var(--b2); border-radius: 2px; padding: 1px 4px; color: var(--t2); }
+  .init li code { font-family: var(--mono); font-size: 12px; color: var(--t2); }
+  .init li code.num { margin-left: auto; color: var(--t1); }
+  .init li.down .name { text-decoration: line-through; color: var(--t3); }
+  .log { list-style: none; margin: 0; padding: 0 12px 0 0; max-height: 260px; overflow-y: scroll; scrollbar-color: #3a3a3a var(--s1); scrollbar-width: thin; font-size: 12px; color: var(--t2); font-style: italic; display: flex; flex-direction: column; gap: 6px; }
+  .log li.roll { font-style: normal; color: var(--t1); }
+  .log li.roll code { font-family: var(--mono); }
+  .tlog { list-style: none; margin: 0; padding: 0 12px 0 0; max-height: 190px; overflow-y: scroll; scrollbar-color: #3a3a3a var(--s1); scrollbar-width: thin; display: flex; flex-direction: column; gap: 2px; }
+  .tlog li { background: var(--s2); padding: 3px 8px; font-size: 12px; border-radius: 2px; color: var(--t2); }
+  .muted { color: var(--t3); font-size: 12px; }
+  .mutedn { color: var(--n400); font-size: 12px; }
+  .file { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--t2); }
+  .file .btn { height: 24px; }
+  .door li .st { margin-left: auto; font-size: 12px; color: var(--t2); text-align: right; }
+  .fogroom .r.warn { color: var(--warning); }
+  .fogroom .lock { font-size: 10px; border: 1px solid var(--b2); border-radius: 2px; padding: 0 4px; color: var(--t2); }
+  details summary { font-size: 12px; color: var(--t2); cursor: default; }
+  .invite { display: flex; gap: 8px; align-items: center; border: 1px solid var(--n700); background: rgba(38,38,38,.6); border-radius: 6px; padding: 6px 8px; }
+  .invite .k { font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--n500); }
+  .invite code { font-family: var(--mono); font-size: 14px; letter-spacing: .2em; color: var(--n100); }
+  .invite .btn { margin-left: auto; }
+
+  /* ── Callouts (mockup annotations) ───────────────────────────────────────── */
+  .unrolled-wrap { position: relative; display: flex; gap: 18px; align-items: flex-start; }
+  .note-col { width: 460px; position: sticky; top: 24px; display: flex; flex-direction: column; gap: 10px; }
+  .note { display: flex; gap: 10px; font-size: 13px; color: var(--page-ink); padding: 8px 10px; border: 1px solid var(--page-line); border-radius: 6px; background: #101010; }
+  .note .n { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--note); color: #111; font: 700 11px var(--mono); }
+  .note .t { line-height: 1.45; }
+  .note .t b { font-weight: 600; }
+  .note .t small { display: block; color: var(--page-mute); margin-top: 2px; }
+  .pin { position: absolute; right: -10px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--note); color: #111; font: 700 11px var(--mono); box-shadow: 0 0 0 3px var(--page); }
+  section[data-panel] { position: relative; }
+  .vp { position: absolute; width: 14px; border: 1px solid var(--page-mute); border-right: 0; color: var(--page-mute); font: 10px var(--mono); }
+  .vp span { position: absolute; left: -16px; bottom: 0; writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
+  .ruler { position: absolute; left: -60px; top: 0; bottom: 0; width: 2px; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--page-mute); margin: 10px 0 0; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>The Table — current state</h1>
+  <p class="lede">As built on main <code>1bd9488</code> (2026-08-22). Frames are 1280×720 windows of the real app; the map pane is a live render of Fieldstone Keep at dusk. The rail is rebuilt in HTML with the product's own tokens so every control and label is legible here and editable later. No changes proposed on this page — callouts only name what's there.</p>
+
+  <!-- ═══════════════════════════════ DM SEAT ═══════════════════════════════ -->
+  <h2 class="sec">DM seat</h2>
+  <div class="row">
+    <div>
+      <div class="frame">
+        <div class="map dm">
+          <div class="fit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></div>
+          <div class="toolind">Tool <b>None</b></div>
+          <div class="status"><span>60 FPS</span><span class="sep">·</span><span>16.6ms</span><span class="sep">·</span><span class="dot"></span><span>Connected</span><span>1 ms</span><span class="sep">·</span><span>Night · Full moon · Dusk</span><span class="zoom">4% <span class="track"></span></span></div>
+        </div>
+        <div class="rail" id="dm-rail-scroll"></div>
+        <div class="scrollbar"><i></i></div>
+      </div>
+      <p class="cap"><b>What a DM sees at 1280×720.</b> The rail is a single 256px column that scrolls; about a fifth of it is on screen at once (the whole rail is unrolled on the right). The only surfaces over the map are the fit button, the tool indicator, and the status bar. Prompts (initiative, traps) and toasts stack above the status bar when they fire.</p>
+    </div>
+  </div>
+
+  <h2 class="sec">DM rail, unrolled</h2>
+  <div class="unrolled-wrap" style="margin-bottom:56px">
+    <div style="position:relative; margin-left:64px">
+      <div class="rail unrolled" id="dm-rail" style="width:256px"></div>
+    </div>
+    <div class="note-col">
+      <div class="note"><span class="n">1</span><div class="t"><b>Everything is one flat scroll, every panel always open.</b> Ten panels, ~2,700px tall in a 256px column. Nothing collapses, nothing remembers where you were. Mid-fight the DM scrolls past the world clock to reach Fog, then back up past Fog to reach the initiative inputs.<small>GameTable.tsx:69: <code>aside … md:w-64 md:overflow-y-auto</code>, panels mapped in registry order.</small></div></div>
+      <div class="note"><span class="n">2</span><div class="t"><b>"Initiative" appears twice, back to back.</b> The DM's authoring controls live inside the Session panel; the shared read-only tracker is its own chrome-less panel right below it. Same heading, same names, two different widgets.<small>SessionControls.tsx:346 vs InitiativeTracker.tsx:61.</small></div></div>
+      <div class="note"><span class="n">3</span><div class="t"><b>Prep actions sit in the play rail.</b> Rename / Replace map / Delete scene, Import a map file, and the whole Token-library form are authoring tasks, but they're wired at the same weight as Next turn and Reveal all. "Delete" is one click away from the scene name.<small>SessionControls.tsx:209-370, TokenLibraryPanel.tsx:55.</small></div></div>
+      <div class="note"><span class="n">4</span><div class="t"><b>The bookkeeping row overflows the column.</b> max-HP, dmg, and the condition select are three inputs in 232px; the condition select clips at the right edge ("Condition…") and the row has no label for any of the three.<small>SessionControls.tsx:548-607.</small></div></div>
+      <div class="note"><span class="n">5</span><div class="t"><b>Two grey systems side by side.</b> Older panels (Session, Players, Tokens, Token library, Log) use raw <code>neutral-*</code>; newer ones (World, Fog, Doors, Triggers, status bar) use the semantic <code>surface-*</code> tokens. Close but not identical: inputs and borders shift a shade between adjacent sections. Neither is the editor's Moss system yet.<small>tailwind.config.ts:14-77; chrome-style-guide.md not applied to session/client.</small></div></div>
+      <div class="note"><span class="n">6</span><div class="t"><b>World takes ~520px of rail for controls the DM touches twice a session.</b> Clock ribbon, five jump buttons, night-sky segment, speed segment, vision-gate switch, and a four-line explainer card, all permanently expanded.<small>WorldPanel.tsx:54-353.</small></div></div>
+      <div class="note"><span class="n">7</span><div class="t"><b>Fog's working controls are buried below its heading.</b> The room list (the thing you click during play) is under Mode, the tool toggle, and, once armed, up to six more switches/segments. Reveal all / Hide all sit between them and the list.<small>FogTool.tsx:78-361.</small></div></div>
+      <div class="note"><span class="n">8</span><div class="t"><b>Three logs.</b> Trigger log (newest-first, chips), Log (oldest-first, italic), and the initiative tracker's own sentences mirrored into Log: three scroll boxes, each with its own scrollbar, inside the scrolling rail.<small>TriggerPanel.tsx:160, GameLog.tsx:32.</small></div></div>
+      <div class="note"><span class="n">9</span><div class="t"><b>Map overlays are sparse and all DM-only except the status bar.</b> Tool indicator reads "None" most of the session; fit-to-screen is the only button on the map. There is no on-map way to reach fog, doors, or tokens; every play action starts in the rail.<small>ActiveToolIndicator.tsx:12, TableStatusBar.tsx:192.</small></div></div>
+      <div class="note"><span class="n">10</span><div class="t"><b>One tool in the tool system.</b> <code>ToolId = 'fog'</code>; token click-to-place is a separate ad-hoc mode. Hotkeys: <kbd>Esc</kbd> <kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd> <kbd>Alt</kbd>-drag. No hotkey reaches any panel.<small>session/tools.ts:12, renderer/cameraInput.ts:189-206.</small></div></div>
+      <p class="legend"><span><i style="background:var(--note)"></i>numbered pin = the panel the note is about</span><span><i style="border:1px solid var(--page-mute)"></i>bracket = what fits in one 720p / 1080p viewport</span></p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════ PLAYER SEAT ═══════════════════════════ -->
+  <h2 class="sec">Player seat</h2>
+  <div class="row">
+    <div>
+      <div class="frame">
+        <div class="map pl">
+          <div class="fit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></div>
+          <div class="status"><span>60 FPS</span><span class="sep">·</span><span>16.6ms</span><span class="sep">·</span><span class="dot"></span><span>Connected</span><span>2 ms</span><span class="sep">·</span><span>Night · Full moon · Dusk</span><span class="zoom">4% <span class="track"></span></span></div>
+        </div>
+        <div class="rail" id="pl-rail-scroll"></div>
+        <div class="scrollbar"><i style="height:60%"></i></div>
+      </div>
+      <p class="cap"><b>What a player sees ("Willow").</b> Six panels, ~1,100px. No tool indicator, no fit-button difference, same status bar (FPS and frame-time included). Clicking a token name selects it and offers <b>Claim</b>; clicking a door name re-frames the camera and offers <b>Open</b>/<b>Close</b>. Everything else is read-only.</p>
+    </div>
+    <div class="note-col" style="position:static">
+      <div class="note"><span class="n">A</span><div class="t"><b>Players get the DM's layout minus panels, not a player layout.</b> Same column, same heading style, same order; Initiative on top only because it sorts first. Nothing answers "whose turn is it / where am I / what can I do" at a glance.</div></div>
+      <div class="note"><span class="n">B</span><div class="t"><b>Door and token lists duplicate the map.</b> Both are things the player can already see and click on the canvas; the list is the only way to act on them today, so the eye has to leave the map.<small>DoorPanel.tsx:37, TokenPanel.tsx:302.</small></div></div>
+      <div class="note"><span class="n">C</span><div class="t"><b>Posting a roll is a text box.</b> "stealth 17" in a 200-char input; the composer is the last thing in the rail, below two scroll boxes, so on a laptop it's off-screen until scrolled to.<small>GameLog.tsx:194.</small></div></div>
+      <div class="note"><span class="n">D</span><div class="t"><b>FPS / frame-time are shown to players.</b> Dev telemetry in the player's status bar; the env badge ("Night · Full moon · Dusk") is the only line that speaks to the game.<small>TableStatusBar.tsx:106-189.</small></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* The rails are built from one template each so the scrolling frame and the unrolled copy stay identical. */
+const dmRail = `
+<section data-panel="session">
+  <h3>Session</h3>
+  <div class="invite"><span class="k">Invite</span><code>TBU4XJ</code><span class="btn ghost n sm">Copy</span></div>
+  <h4 style="margin-top:10px">Scenes</h4>
+  <div class="rowf"><span class="btn ghost n sm dis">▲</span><span class="btn ghost n sm dis">▼</span><span class="inp n grow">Fieldstone Keep</span></div>
+  <div class="rowf" style="margin-top:4px; padding-left:14px"><span class="chk"><i class="on"></i> Visible to players</span><span class="btn ghost n sm">Rename</span></div>
+  <div class="rowf" style="padding-left:14px; justify-content:space-between"><span class="btn ghost n sm">Replace map</span><span class="btn ghost n sm">Delete</span></div>
+  <h4 style="margin-top:12px">Environment</h4>
+  <div class="lbl n">Weather</div>
+  <div class="inp n sel">Not set</div>
+  <h4 style="margin-top:12px">Initiative</h4>
+  <div class="rowf"><span class="grow" style="font-size:13px;color:var(--n100)">Marra</span><span class="inp n" style="width:64px">17</span><span class="btn ghost n sm">✕</span></div>
+  <div class="rowf" style="margin-top:4px"><span class="inp n" style="width:64px">24</span><span class="inp n ph" style="width:64px">dmg</span><span class="inp n sel grow" style="min-width:0;overflow:hidden;white-space:nowrap">Prone</span></div>
+  <div class="rowf" style="margin-top:6px"><span class="grow" style="font-size:13px;color:var(--n100)">Goblin</span><span class="inp n" style="width:64px">12</span><span class="btn ghost n sm">✕</span></div>
+  <div class="rowf" style="margin-top:4px"><span class="inp n" style="width:64px">7</span><span class="inp n ph" style="width:64px">dmg</span><span class="inp n sel ph grow" style="min-width:0;overflow:hidden;white-space:nowrap">Condition…</span></div>
+  <div class="rowf" style="margin-top:8px"><span class="inp n ph grow">Add a combatant</span><span class="btn ghost n dis">Add</span></div>
+  <div class="rowf" style="margin-top:6px; justify-content:space-between"><span class="btn n">Next turn</span><span class="btn n">End encounter</span></div>
+  <div class="lbl n" style="margin-top:12px">Import a map file</div>
+  <div class="file"><span class="btn n sm">Choose File</span>No file chosen</div>
+</section>
+<section data-panel="initiative">
+  <div class="init"><div class="hd"><span>Initiative</span><span>Round 1</span></div>
+    <ul class="list" style="padding:0;margin:0">
+      <li class="cur" style="display:flex;align-items:center;gap:8px;padding:4px 8px;border:1px solid var(--b2);border-radius:4px;background:var(--s2)"><span class="name" style="color:var(--t2)">Marra</span><span class="cond" style="font-size:9px;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--b2);border-radius:2px;padding:1px 4px;color:var(--t2);margin-left:auto">Prone</span><code style="font-family:var(--mono);font-size:12px;color:var(--t2)">21/24</code><code style="font-family:var(--mono);font-size:12px;color:var(--t1)">17</code></li>
+      <li style="display:flex;align-items:center;gap:8px;padding:4px 8px;border:1px solid transparent"><span style="text-decoration:line-through;color:var(--t3)">Goblin</span><code style="font-family:var(--mono);font-size:12px;color:var(--t2);margin-left:auto">0/7</code><code style="font-family:var(--mono);font-size:12px;color:var(--t1)">12</code></li>
+    </ul></div>
+</section>
+<section data-panel="world">
+  <h3>World</h3>
+  <div class="ribbon"></div>
+  <div class="clockhdr"><span>Clock</span><code>00:00</code></div>
+  <div class="jumps" style="margin-top:6px"><span class="btn">Dawn</span><span class="btn">Morning</span><span class="btn">Noon</span><span class="btn" style="grid-column:1/3">Evening</span><span class="btn on">Night</span></div>
+  <div class="lbl" style="margin-top:10px">Night sky</div>
+  <div class="seg"><span class="g on">● <span>Full</span></span><span class="g">◐ <span>Crescent</span></span><span class="g">◌ <span>None</span></span></div>
+  <div class="lbl" style="margin-top:10px">Time speed</div>
+  <div class="seg"><span class="on">Paused</span><span>Real</span><span>Fast</span></div>
+  <h4 style="margin-top:14px">Vision gate</h4>
+  <div class="card"><span>Auto from clock · outdoor, night</span><span class="sw" style="padding:2px 0"><i></i> Override the light level</span></div>
+  <div class="card" style="margin-top:8px"><b>◐ Dusk</b><span>Auto · clock</span><span>Outdoor › Night › Full moon → Dusk</span><span>The light thins. No sight is clipped.</span></div>
+</section>
+<section data-panel="players">
+  <h3>Players</h3>
+  <ul class="list"><li><span class="dot"></span>Goblin Bot<span class="dm">DM</span></li><li><span class="dot"></span>Sainayan <span class="you">(you)</span><span class="dm">DM</span></li></ul>
+</section>
+<section data-panel="tokens">
+  <h3>Tokens</h3>
+  <ul class="list n"><li>Karlach</li><li>Goblin</li><li>Marra</li></ul>
+</section>
+<section data-panel="token-library">
+  <h3>Token library</h3>
+  <ul class="list n"><li>Karlach<span class="r">edit &nbsp; ✕</span></li></ul>
+  <div class="inp n ph" style="margin-top:6px">Goblin</div>
+  <div class="rowf" style="margin-top:6px"><span class="inp n sel grow">medium</span><span class="inp n sel grow">neutral</span></div>
+  <div class="lbl n" style="margin-top:6px">Portrait (optional)</div>
+  <div class="file"><span class="btn n sm">Choose File</span>No file chosen</div>
+  <details style="margin-top:6px"><summary>▸ Sight &amp; light</summary></details>
+  <div class="btn ghost n dis" style="margin-top:4px">Add</div>
+</section>
+<section data-panel="fog">
+  <h3>Fog</h3>
+  <div class="lbl">Mode</div>
+  <div class="seg"><span class="on">Rooms</span><span>Token vision</span></div>
+  <div class="btn full" style="margin-top:8px">Fog tool</div>
+  <div class="rowf" style="margin-top:8px"><span class="btn grow">Reveal all</span><span class="btn grow">Hide all</span></div>
+  <ul class="list fogroom" style="margin-top:6px">
+    <li>Bailey Courtyard<span class="r">Revealed</span></li>
+    <li>Gatehouse<span class="r">Revealed</span></li>
+    <li>Guard Room<span class="r">Revealed</span></li>
+    <li>Great Hall of Banners<span class="r">Revealed</span></li>
+    <li>Chapel of the Pale Flame<span class="r">Revealed</span></li>
+    <li>Armoury<span class="r">Revealed</span></li>
+    <li>Scriptorium<span class="r">Revealed</span></li>
+    <li>Barrack Rows<span class="r">Revealed</span></li>
+    <li>Cistern Undercroft<span class="r">Revealed</span></li>
+    <li>Crypt Stair<span class="r">Revealed</span></li>
+    <li>Kitchens<span class="r">Unrevealed</span></li>
+    <li>Sealed Vault<span class="lock">Locked</span><span class="r">Unrevealed</span></li>
+  </ul>
+</section>
+<section data-panel="doors">
+  <h3>Doors</h3>
+  <ul class="list door">
+    <li>Bailey Gate<span class="st">Open</span></li>
+    <li>Vestry Door<span class="st">Open</span></li>
+    <li>Muster Arch<span class="st">Open</span></li>
+    <li>Hidden Shelf<span class="st">Closed · secret, revealed</span></li>
+    <li>Hall Double Door<span class="st">Closed</span></li>
+    <li>Cistern Gate<span class="st">Closed</span></li>
+    <li>Watch Door<span class="st">Closed</span></li>
+    <li>Crypt Door<span class="st">Open</span></li>
+    <li>Vault Door<span class="st">Closed · locked</span></li>
+  </ul>
+</section>
+<section data-panel="triggers">
+  <h3>Triggers</h3>
+  <p class="muted" style="margin:0 0 8px">No triggers authored for this scene.</p>
+  <h4>Trigger log</h4>
+  <ol class="tlog"><li>Night falls.</li><li>Daylight returns.</li><li>Dawn breaks.</li><li>Dusk settles.</li><li>Night falls.</li><li>The light settles as it was.</li><li>Darkness closes in.</li><li>The light thins.</li><li>The dark lifts.</li></ol>
+</section>
+<section data-panel="log">
+  <h3>Log</h3>
+  <ol class="log"><li>HP.</li><li>Goblin's turn.</li><li>Marra opened Crypt Door</li><li>Darkness closes in.</li><li>The dark lifts.</li><li>The light thins.</li><li>Darkness closes in.</li><li>The light settles as it was.</li><li>Night falls.</li><li>Dusk settles.</li><li>Dawn breaks.</li><li>Daylight returns.</li><li>Night falls.</li></ol>
+  <div class="rowf" style="margin-top:8px"><span class="inp n ph grow">stealth 17</span><span class="btn n">Post</span></div>
+</section>`;
+
+const plRail = `
+<section data-panel="initiative">
+  <div class="init"><div class="hd"><span>Initiative</span><span>Round 1</span></div>
+    <ul class="list" style="padding:0;margin:0">
+      <li style="display:flex;align-items:center;gap:8px;padding:4px 8px;border:1px solid transparent"><span style="color:var(--t2)">Marra</span><span style="font-size:9px;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--b2);border-radius:2px;padding:1px 4px;color:var(--t2);margin-left:auto">Prone</span><code style="font-family:var(--mono);font-size:12px;color:var(--t2)">21/24</code><code style="font-family:var(--mono);font-size:12px;color:var(--t1)">17</code></li>
+      <li style="display:flex;align-items:center;gap:8px;padding:4px 8px;border:1px solid var(--b2);border-radius:4px;background:var(--s2)"><span style="text-decoration:line-through;color:var(--t3)">Goblin</span><code style="font-family:var(--mono);font-size:12px;color:var(--t2);margin-left:auto">down</code><code style="font-family:var(--mono);font-size:12px;color:var(--t1)">12</code></li>
+    </ul></div>
+</section>
+<section data-panel="scenes">
+  <h3>Scenes</h3>
+  <ul class="list"><li><span class="dot"></span>Fieldstone Keep<span class="r">now playing</span></li></ul>
+</section>
+<section data-panel="players">
+  <h3>Players</h3>
+  <ul class="list"><li><span class="dot"></span>Goblin Bot<span class="dm">DM</span></li><li><span class="dot"></span>Sainayan<span class="dm">DM</span></li><li><span class="dot"></span>Willow <span class="you">(you)</span></li></ul>
+</section>
+<section data-panel="tokens">
+  <h3>Tokens</h3>
+  <ul class="list n"><li>Karlach</li><li>Goblin</li><li>Marra</li></ul>
+</section>
+<section data-panel="doors">
+  <h3>Doors</h3>
+  <ul class="list door" style="max-height:150px;overflow-y:scroll;scrollbar-color:#3a3a3a var(--s1);scrollbar-width:thin;padding-right:12px">
+    <li>Bailey Gate<span class="st">Open</span></li>
+    <li>Vestry Door<span class="st">Open</span></li>
+    <li>Muster Arch<span class="st">Open</span></li>
+    <li>Hidden Shelf<span class="st">Closed · secret, revealed</span></li>
+    <li>Hall Double Door<span class="st">Closed</span></li>
+    <li>Cistern Gate<span class="st">Closed</span></li>
+    <li>Watch Door<span class="st">Closed</span></li>
+  </ul>
+</section>
+<section data-panel="log">
+  <h3>Log</h3>
+  <ol class="log"><li>HP.</li><li>Goblin's turn.</li><li>Marra opened a door</li><li>Darkness closes in.</li><li>The dark lifts.</li><li>The light thins.</li><li>Darkness closes in.</li><li>The light settles as it was.</li><li>Night falls.</li><li>Dusk settles.</li><li>Dawn breaks.</li><li>Daylight returns.</li><li>Night falls.</li></ol>
+  <div class="rowf" style="margin-top:8px"><span class="inp n ph grow">stealth 17</span><span class="btn n">Post</span></div>
+</section>`;
+
+document.getElementById('dm-rail-scroll').innerHTML = dmRail;
+document.getElementById('dm-rail').innerHTML = dmRail;
+document.getElementById('pl-rail-scroll').innerHTML = plRail;
+
+/* Pins on the unrolled DM rail — one per numbered note; the 720p bracket on the left. */
+const pins = { session: [3, 4], initiative: [2], world: [6], 'token-library': [3], fog: [7], triggers: [8], log: [8], tokens: [5], players: [5] };
+const rail = document.getElementById('dm-rail');
+for (const sec of rail.querySelectorAll('section[data-panel]')) {
+  const ids = pins[sec.dataset.panel] ?? [];
+  ids.forEach((n, i) => { const p = document.createElement('span'); p.className = 'pin'; p.textContent = n; p.style.top = (6 + i * 28) + 'px'; sec.appendChild(p); });
+}
+const host = rail.parentElement;
+const tall = rail.offsetHeight;
+[['720p', 720 - 28], ['1080p', 1080 - 28]].forEach(([label, h], i) => {
+  const b = document.createElement('div'); b.className = 'vp'; b.style.top = '0'; b.style.height = h + 'px'; b.style.left = (-28 - i * 30) + 'px';
+  b.innerHTML = `<span>${label} viewport</span>`; host.appendChild(b);
+});
+const tot = document.createElement('p'); tot.className = 'cap'; tot.textContent = `Full rail height at this width: ${tall}px.`; host.appendChild(tot);
+</script>
+</body>
+</html>

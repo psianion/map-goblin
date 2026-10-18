@@ -1,0 +1,1121 @@
+<!-- Ambient light — P0 mockup, OPTION A "Instrument strip".
+     Local review file; do not publish, do not commit (docs/ stays untracked).
+     Editor panel uses the Moss night tokens verbatim (canvas/src/index.css .dark).
+     Table panel uses the Achromatic Shell tokens verbatim (session/client/tailwind.config.ts).
+     Map plates are painterly CSS placeholders — no dressed Fieldstone Keep capture exists in docs/. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ambient Light — Option A · Instrument Strip</title>
+<style>
+  /* ─────────────────────────────────────────────────────────────
+     Document chrome — the review sheet itself (house format, achromatic)
+     ───────────────────────────────────────────────────────────── */
+  :root{
+    --pg-0:#0E0E0E; --pg-1:#141414; --pg-2:#1E1E1E; --pg-3:#282828;
+    --pg-tx:#E8E8E8; --pg-tx2:#999999; --pg-tx3:#666666;
+    --pg-bd:#252525; --pg-bd2:#1E1E1E; --pg-focus:#FFFFFF;
+    --ease:cubic-bezier(.25,1,.5,1);
+
+    /* Moss — canvas/ night values (rgb from canvas/src/index.css .dark) */
+    --m-s0:#0F100E; --m-s1:#181A17; --m-s2:#232522; --m-s3:#30332E;
+    --m-tx:#EAECE9; --m-tx2:#B6BCB3; --m-tx3:#979E94; --m-dim:#D5D9D3;
+    --m-bd:#3A3E38; --m-bds:#4D544A; --m-bdsub:#232522; --m-focus:#91C464;
+    --m-accent:#91C464; --m-accent-dim:#668B4B; --m-on-accent:#0F110E;
+    --m-warning:#D4AE54; --m-info:#72A5CA;
+    --m-settle:cubic-bezier(.16,1,.3,1);
+
+    /* Achromatic Shell — session/client values */
+    --t-s0:#0E0E0E; --t-s1:#141414; --t-s2:#1E1E1E; --t-s3:#282828;
+    --t-tx:#E8E8E8; --t-tx2:#999999; --t-tx3:#666666;
+    --t-bd:#252525; --t-bdsub:#1E1E1E; --t-focus:#FFFFFF;
+    --t-accent:#FFFFFF; --t-warning:#D4A017;
+
+    /* Time palette — "Temperate" preset keyframes, the authored day */
+    --k-dawn:#8A6A72; --k-morn:#CFC3A4; --k-noon:#EFE9D8; --k-eve:#B07A55; --k-night:#2B3550;
+  }
+  *{box-sizing:border-box;margin:0}
+  html{color-scheme:dark}
+  body{
+    background:var(--pg-0); color:var(--pg-tx);
+    font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;
+    padding:44px 20px 110px;
+  }
+  main{max-width:1180px;margin:0 auto}
+  h1{font-size:1.65rem;font-weight:650;letter-spacing:-.012em;text-wrap:balance}
+  .thesis{color:var(--pg-tx2);max-width:74ch;margin-top:10px;text-wrap:pretty}
+  .thesis b{color:var(--pg-tx);font-weight:600}
+  .meta{margin-top:14px;font-size:12px;color:var(--pg-tx3);display:flex;gap:16px;flex-wrap:wrap}
+  .meta code{color:var(--pg-tx2)}
+
+  section{margin-top:58px;border-top:1px solid var(--pg-bd);padding-top:26px}
+  .shead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .snum{font-size:12px;color:var(--pg-tx3);font-variant-numeric:tabular-nums}
+  h2{font-size:1.14rem;font-weight:650}
+  h3{font-size:.95rem;font-weight:600;margin-top:30px}
+  .lede{color:var(--pg-tx2);margin-top:8px;max-width:80ch;text-wrap:pretty}
+  .lede b{color:var(--pg-tx);font-weight:600}
+  .row{display:flex;flex-wrap:wrap;gap:26px;margin-top:22px;align-items:flex-start}
+  figure{margin:0;flex:0 0 auto}
+  figcaption{font-size:12px;line-height:1.5;color:var(--pg-tx2);margin-top:9px;max-width:34ch}
+  figcaption b{color:var(--pg-tx);font-weight:600}
+  figure.wide figcaption{max-width:56ch}
+  .tag{display:inline-block;font:11px/1.4 ui-monospace,"IBM Plex Mono",monospace;letter-spacing:.04em;
+       color:var(--pg-tx3);border:1px solid var(--pg-bd);border-radius:2px;padding:1px 6px;margin-bottom:8px}
+  ul.eng{margin:16px 0 0 0;padding:0;list-style:none;max-width:88ch;font-size:12.5px;color:var(--pg-tx2)}
+  ul.eng li{padding:6px 0 6px 18px;border-top:1px solid var(--pg-bd2);position:relative;text-wrap:pretty}
+  ul.eng li::before{content:"—";position:absolute;left:0;color:var(--pg-tx3)}
+  ul.eng b{color:var(--pg-tx);font-weight:600}
+
+  /* Annotations: a numbered key under the frame, each item naming its control — no floating
+     markers pinned over the panel, which would only misalign the moment type reflows. */
+  .annot{position:relative}
+  ol.keys{margin:10px 0 0;padding:0;list-style:none;font-size:12px;color:var(--pg-tx2);max-width:36ch;counter-reset:k}
+  ol.keys li{position:relative;padding:3px 0 3px 20px;counter-increment:k;text-wrap:pretty}
+  ol.keys li::before{content:counter(k);position:absolute;left:0;top:3px;width:15px;height:15px;border-radius:50%;
+    border:1px solid var(--pg-bd);font:10px/13px ui-monospace,monospace;text-align:center;color:var(--pg-tx3)}
+  ol.keys b{color:var(--pg-tx);font-weight:600}
+
+  /* Legend */
+  .legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:14px 26px;margin-top:20px}
+  .legend div{font-size:12px;color:var(--pg-tx2);display:flex;gap:9px;align-items:flex-start;text-wrap:pretty}
+  .legend b{color:var(--pg-tx);font-weight:600}
+  .legend .glyph{flex:none;min-width:46px;display:flex;justify-content:center;padding-top:1px}
+
+  /* ─────────────────────────────────────────────────────────────
+     Painterly map plate (CSS placeholder — grade multiplies, glows screen on top)
+     ───────────────────────────────────────────────────────────── */
+  .plate{position:relative;width:100%;aspect-ratio:4/3;border-radius:4px;overflow:hidden;
+    background:#3b4031;isolation:isolate;--sh:26px;--sha:.42;--skew:-30deg;--grade:var(--k-noon);--ga:.8}
+  .plate .ground{position:absolute;inset:0;
+    background:
+      radial-gradient(120% 90% at 22% 18%, #565b41 0%, #474c37 45%, #3a3f2e 100%),
+      linear-gradient(#42472f,#3a4030);}
+  .plate .flag{position:absolute;inset:9% 8% 8% 9%;border-radius:2px;
+    background:
+      repeating-linear-gradient(90deg, rgba(0,0,0,.16) 0 1px, transparent 1px 28px),
+      repeating-linear-gradient(0deg, rgba(0,0,0,.16) 0 1px, transparent 1px 26px),
+      radial-gradient(90% 80% at 30% 30%, #6d6a4e, #57553d 70%, #494836);
+    box-shadow:inset 0 0 0 1px rgba(23,19,11,.85), inset 0 0 26px rgba(23,19,11,.55)}
+  .plate .grain{position:absolute;inset:0;opacity:.3;mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='.6'/%3E%3C/svg%3E")}
+  .plate .wall{position:absolute;background:#33291c;border-radius:1px;
+    box-shadow:inset 0 0 0 1px #17130b, inset 0 2px 0 rgba(190,170,120,.14)}
+  /* one global shadow vector for every plate on this page: down-right */
+  .plate .wall::after{content:"";position:absolute;left:0;top:100%;width:100%;height:var(--sh);
+    transform:skewX(var(--skew));transform-origin:top left;
+    background:linear-gradient(180deg, rgba(14,12,8,var(--sha)), rgba(14,12,8,0));
+    filter:blur(1.5px);pointer-events:none}
+  .plate.noshadow .wall::after{display:none}
+  .plate .grade{position:absolute;inset:0;mix-blend-mode:multiply;background:var(--grade);opacity:var(--ga)}
+  .plate .glow{position:absolute;width:42%;aspect-ratio:1;border-radius:50%;mix-blend-mode:screen;pointer-events:none;
+    background:radial-gradient(closest-side, rgba(255,190,105,.80), rgba(240,150,60,.34) 40%, rgba(200,100,30,0) 76%)}
+  .plate .lamp{position:absolute;width:5px;height:5px;border-radius:50%;background:#ffdca6;
+    box-shadow:0 0 6px 2px rgba(255,180,90,.85);mix-blend-mode:screen}
+  .plate .moon{position:absolute;inset:0;mix-blend-mode:screen;opacity:0;
+    background:radial-gradient(85% 70% at 78% 6%, rgba(158,184,214,.46), rgba(140,168,200,.14) 45%, rgba(140,168,200,0) 78%)}
+  .plate .stamp{position:absolute;left:0;bottom:0;right:0;padding:3px 6px;
+    font:10px/1.4 ui-monospace,"IBM Plex Mono",monospace;letter-spacing:.04em;
+    color:#E8E8E8;background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.72));
+    display:flex;justify-content:space-between;gap:8px}
+  .plate .stamp .r{color:#B9BCB6}
+
+  /* ═════════════════════════════════════════════════════════════
+     EDITOR — Moss tokens. 300px floating properties panel.
+     ═════════════════════════════════════════════════════════════ */
+  .ed{width:300px;background:var(--m-s1);border:1px solid var(--m-bds);border-radius:6px;overflow:hidden;
+    font-family:"IBM Plex Sans",system-ui,sans-serif;color:var(--m-tx);
+    box-shadow:0 18px 40px -18px #000}
+  .ed .tabs{display:flex;height:36px;border-bottom:1px solid var(--m-bd);background:var(--m-s1)}
+  .ed .tabs button{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;background:none;border:0;
+    cursor:pointer;color:var(--m-tx3);font:600 12px/16px Newsreader,Georgia,serif;letter-spacing:.06em;
+    text-transform:uppercase;border-bottom:2px solid transparent}
+  .ed .tabs button.on{color:var(--m-tx);border-bottom-color:var(--m-accent)}
+  .ed .stack{padding:8px 0 4px}
+  .card{background:var(--m-s2);border:1px solid var(--m-bd);border-radius:4px;margin:0 8px 8px}
+  .card > .hd{display:flex;align-items:center;gap:8px;padding:8px 12px;
+    font:400 10px/16px "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--m-tx3)}
+  .card > .hd .ic{flex:none;color:var(--m-tx3)}
+  .card > .hd .sp{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .card > .hd .chev{color:var(--m-tx3)}
+  .card .body{padding:4px 14px 12px;border-top:1px solid var(--m-bd)}
+
+  /* instrument row: label left, control right, hairline between rows */
+  .ir{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--m-bdsub)}
+  .ir:first-child{border-top:0}
+  .ir > .lb{flex:none;width:74px;font:400 10px/14px "IBM Plex Mono",ui-monospace,monospace;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--m-tx3)}
+  .ir > .ct{flex:1;min-width:0;display:flex;align-items:center;gap:6px;justify-content:flex-end}
+  .ir.stack2{display:block}
+  .ir.stack2 > .lb{width:auto;margin-bottom:5px}
+  .ir.na{opacity:.55}
+  .rd{font:400 10px/14px "IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums;color:var(--m-dim)}
+
+  /* segmented (Moss) */
+  .mseg{display:flex;gap:2px;flex:1;border:1px solid var(--m-bd);background:var(--m-s1);border-radius:4px;padding:2px}
+  .mseg button{flex:1;min-width:0;border:0;border-radius:2px;background:none;cursor:pointer;padding:3px 2px;
+    font:400 10px/14px "IBM Plex Sans",system-ui,sans-serif;color:var(--m-tx3);
+    transition:background .18s var(--m-settle),color .18s var(--m-settle)}
+  .mseg button:hover{background:var(--m-s2);color:var(--m-tx2)}
+  .mseg button.on{background:var(--m-s3);color:var(--m-tx);box-shadow:inset 0 -2px 0 var(--m-accent)}
+  .mseg[aria-disabled="true"] button{cursor:default}
+
+  /* 24px preset swatches — AmbientSection, verbatim geometry */
+  .sw6{display:flex;gap:6px}
+  .sw6 button{width:24px;height:24px;border-radius:50%;border:2px solid var(--m-bd);cursor:pointer;padding:0;
+    transition:border-color .18s var(--m-settle)}
+  .sw6 button:hover{border-color:var(--m-tx2)}
+  .sw6 button.on{border-color:var(--m-accent)}
+  /* ColorField trigger — hex over live colour in mix-blend-difference white */
+  .cfield{flex:1;height:22px;border:1px solid var(--m-bd);border-radius:3px;position:relative;cursor:pointer;overflow:hidden}
+  .cfield span{position:absolute;inset:0;display:flex;align-items:center;padding-left:6px;
+    font:400 10px/14px "IBM Plex Mono",ui-monospace,monospace;color:#fff;mix-blend-mode:difference}
+
+  /* keyframe strip */
+  .kf{display:flex;gap:4px;width:100%}
+  .kf .k{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px;background:none;border:0;padding:0;cursor:pointer}
+  .kf .k .chip{width:100%;height:22px;border-radius:3px;border:1px solid var(--m-bd);
+    transition:border-color .18s var(--m-settle)}
+  .kf .k:hover .chip{border-color:var(--m-tx2)}
+  .kf .k.edited .chip{border-color:var(--m-accent)}
+  .kf .k b{font:400 10px/14px "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.06em;color:var(--m-tx3);font-weight:400}
+  .kf .k.edited b{color:var(--m-dim)}
+
+  /* pill toggle 32x18 (ToggleSwitch) */
+  .pill{width:32px;height:18px;border-radius:9px;border:1px solid var(--m-bd);background:var(--m-s1);
+    position:relative;cursor:pointer;padding:0;flex:none;transition:background .18s var(--m-settle),border-color .18s var(--m-settle)}
+  .pill i{position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--m-tx3);
+    transition:left .18s var(--m-settle),background .18s var(--m-settle)}
+  .pill.on{background:var(--m-accent-dim);border-color:var(--m-accent)}
+  .pill.on i{left:16px;background:var(--m-on-accent)}
+
+  /* select */
+  .msel{flex:1;min-width:0;height:22px;background:var(--m-s1);border:1px solid var(--m-bd);border-radius:3px;
+    color:var(--m-tx2);font:400 11px/16px "IBM Plex Sans",system-ui,sans-serif;padding:0 20px 0 6px;
+    appearance:none;cursor:pointer;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0h8L4 5z' fill='%23979E94'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 6px center}
+
+  /* day gradient track + keyframe ticks (shared shape, both surfaces) */
+  .scrub{position:relative;width:100%}
+  .scrub .track{height:12px;border-radius:2px;border:1px solid var(--m-bd);
+    background:linear-gradient(90deg in oklab,
+      var(--k-night) 0%, var(--k-night) 8%, var(--k-dawn) 25%, var(--k-morn) 37.5%,
+      var(--k-noon) 50%, var(--k-eve) 75%, var(--k-night) 92%, var(--k-night) 100%)}
+  .scrub .ticks{position:absolute;inset:0;pointer-events:none}
+  .scrub .ticks i{position:absolute;top:-3px;bottom:-3px;width:1px;background:var(--m-tx3);opacity:.85}
+  .scrub .thumb{position:absolute;top:-4px;width:3px;height:20px;border-radius:1px;background:var(--m-dim);
+    box-shadow:0 0 0 1px rgba(0,0,0,.75);transform:translateX(-1px);pointer-events:none}
+  .scrub input[type=range]{position:absolute;inset:-4px 0;width:100%;height:20px;opacity:0;margin:0;cursor:ew-resize}
+  .scrub .lbls{display:flex;justify-content:space-between;margin-top:4px;
+    font:400 10px/14px "IBM Plex Mono",ui-monospace,monospace;color:var(--m-tx3)}
+
+  /* local-only preview well */
+  .well{margin-top:8px;border:1px dashed var(--m-bds);border-radius:4px;background:var(--m-s1);padding:8px 9px 9px}
+  .well .whd{display:flex;align-items:center;gap:6px;margin-bottom:7px}
+  .well .whd .t{font:400 10px/14px "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--m-tx3)}
+  .well .whd .rd{margin-left:auto}
+  .local{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--m-bd);border-radius:2px;
+    padding:0 4px;font:400 10px/14px "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.06em;color:var(--m-tx2)}
+  .note{margin-top:7px;font:400 10px/14px "IBM Plex Sans",system-ui,sans-serif;color:var(--m-tx3);text-wrap:pretty}
+  .note b{color:var(--m-tx2);font-weight:600}
+  .na-note{display:flex;gap:6px;align-items:flex-start;margin-top:7px;padding:6px 7px;border:1px solid var(--m-bd);
+    border-radius:3px;background:var(--m-s1);font:400 10px/14px "IBM Plex Sans",system-ui,sans-serif;color:var(--m-tx2);text-wrap:pretty}
+  .na-note svg{flex:none;margin-top:1px;color:var(--m-tx3)}
+  .na-tag{font:400 10px/14px "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.06em;color:var(--m-tx3);
+    border:1px solid var(--m-bd);border-radius:2px;padding:0 4px;flex:none}
+
+  /* ═════════════════════════════════════════════════════════════
+     TABLE — Achromatic Shell. 256px session sidebar.
+     ═════════════════════════════════════════════════════════════ */
+  .tb{width:256px;background:var(--t-s0);border-left:1px solid var(--t-bd);padding:12px;
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--t-tx);
+    display:flex;flex-direction:column;gap:16px}
+  .blk > .bl{font-size:10px;line-height:14px;letter-spacing:.09em;text-transform:uppercase;color:var(--t-tx2);
+    margin-bottom:8px}
+  .blk.div{border-top:1px solid var(--t-bd);padding-top:14px}
+  .tr{margin-top:12px}
+  .tr > .tl{display:block;font-size:12px;line-height:16px;color:var(--t-tx2);margin-bottom:4px}
+  .tr > .tl .aside{float:right;font-size:11px;color:var(--t-tx3)}
+
+  /* effective-state badge */
+  .badge{border:1px solid var(--t-bd);border-radius:4px;background:var(--t-s1);padding:8px 9px}
+  .badge .top{display:flex;align-items:center;gap:8px}
+  .badge .lvl{font-size:15px;line-height:20px;font-weight:600;letter-spacing:-.005em;color:var(--t-tx)}
+  .badge .src{margin-left:auto;font-size:11px;line-height:14px;color:var(--t-tx2);
+    font-family:ui-monospace,monospace;letter-spacing:.04em}
+  .badge .src.ovr{background:var(--t-accent);color:#0E0E0E;border-radius:2px;padding:1px 5px;font-weight:600;
+    display:inline-flex;align-items:center;gap:4px}
+  .badge .why{margin-top:5px;font-size:11px;line-height:15px;color:var(--t-tx2);font-family:ui-monospace,monospace;
+    letter-spacing:.02em;text-wrap:pretty;min-height:30px}
+  /* the qualifier carries the third bite strength — it stays at secondary, never muted */
+  .badge .why em{font-style:normal;color:var(--t-tx);font-weight:600}
+  .badge.overridden{border-color:var(--t-focus)}
+
+  /* table segmented (FogTool Segmented, verbatim chrome) */
+  .tseg{display:flex;gap:2px;border:1px solid var(--t-bd);background:var(--t-s1);border-radius:4px;padding:2px}
+  .tseg button{flex:1;min-width:0;border:0;border-radius:2px;background:none;cursor:pointer;padding:4px 3px;
+    font:inherit;font-size:12px;line-height:16px;color:var(--t-tx2);
+    display:flex;flex-direction:column;align-items:center;gap:2px;
+    transition:background .15s var(--ease),color .15s var(--ease)}
+  .tseg button:hover{background:var(--t-s2);color:var(--t-tx)}
+  .tseg button.on{background:var(--t-s3);color:var(--t-tx);font-weight:500}
+  /* Dormant ≠ dimmed to illegibility: the container goes dashed and the active option drops to a
+     quieter fill, but every label keeps its real colour (these words still have to be readable). */
+  .tseg.dormant{border-style:dashed}
+  .tseg.dormant button.on{background:var(--t-s2);color:var(--t-tx2);font-weight:400}
+  .tseg .mg{display:block}
+  .qj{display:flex;gap:4px;margin-top:6px}
+  .qj button{flex:1;min-width:0;font:inherit;font-size:11px;line-height:15px;padding:3px 2px;border-radius:4px;
+    border:1px solid var(--t-bd);background:var(--t-s1);color:var(--t-tx2);cursor:pointer;
+    transition:background .15s var(--ease),color .15s var(--ease)}
+  .qj button:hover{background:var(--t-s2);color:var(--t-tx)}
+  .qj button.on{background:var(--t-s3);color:var(--t-tx);border-color:var(--t-bd)}
+  .tsw{display:flex;align-items:center;gap:8px;width:100%;padding:5px 6px;border-radius:4px;text-align:left;
+    background:var(--t-s1);border:1px solid var(--t-bd);color:var(--t-tx2);font:inherit;font-size:12px;cursor:pointer;
+    transition:color .15s var(--ease),background .15s var(--ease)}
+  .tsw:hover{color:var(--t-tx)}
+  .tsw .bx{flex:none;width:16px;height:16px;border:1px solid var(--t-bd);border-radius:2px;
+    display:flex;align-items:center;justify-content:center;font-size:11px;line-height:1;color:var(--t-tx)}
+  .tsw.on{border-color:var(--t-focus);background:var(--t-s2);color:var(--t-tx)}
+  .tsw.on .bx{border-color:var(--t-focus);background:var(--t-s3)}
+  .tsw .ovr{margin-left:auto;flex:none;font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.06em;
+    background:var(--t-accent);color:#0E0E0E;border-radius:2px;padding:1px 4px;font-weight:600}
+  .tnote{margin-top:6px;font-size:11px;line-height:15px;color:var(--t-tx2);text-wrap:pretty}
+  .tnote b{color:var(--t-tx);font-weight:600}
+  /* Table's own scrub track uses the same shape; borders are the Table's */
+  .tb .scrub .track{border-color:var(--t-bd)}
+  .tb .scrub .ticks i{background:var(--t-tx2)}
+  .tb .scrub .thumb{background:var(--t-tx);box-shadow:0 0 0 1px #000}
+  .tb .scrub .lbls{font-family:ui-monospace,monospace;font-size:11px;color:var(--t-tx2)}
+  .tb .rd{font-family:ui-monospace,monospace;font-size:11px;color:var(--t-tx);font-variant-numeric:tabular-nums}
+
+  /* compass dial */
+  .dial{flex:none;width:56px;height:56px}
+  .dial text{font:400 8px "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.06em}
+
+  @media (prefers-reduced-motion: reduce){
+    *{transition-duration:1ms !important;animation-duration:1ms !important}
+  }
+</style>
+
+<main>
+  <h1>Ambient Light — Option A · <span style="color:var(--pg-tx2)">Instrument strip</span></h1>
+  <p class="thesis">
+    Both surfaces are read <b>under time pressure in a dim room</b>, so this option spends nothing on
+    spectacle and everything on density: each control is one row on a rack — label left, instrument right,
+    hairline between. The only picture anywhere is the one control that genuinely needs to be a picture,
+    the <b>day track</b>, whose fill <i>is</i> the interpolated palette, so the same 12px strip serves as
+    scrubber, keyframe map and gradient proof. No hero visualisation, no preview thumbnails, no chrome
+    that competes with the canvas (PRODUCT #1 — the map is the stage).
+  </p>
+  <p class="meta">
+    <span><code>docs/mockups/2026-08-15-ambient-light/option-a.html</code></span>
+    <span>Editor = Moss night tokens · Table = Achromatic Shell</span>
+    <span>Plan: <code>docs/2026-08-15-ambient-light-plan.md</code></span>
+  </p>
+  <p class="meta" style="margin-top:8px">
+    <span class="tag" style="margin:0">ADJUDICATION · ☐ chosen ☐ rejected — rationale: ______</span>
+  </p>
+
+  <!-- ══════════ 0 · VOCABULARY ══════════ -->
+  <section>
+    <div class="shead"><span class="snum">00</span><h2>Instrument vocabulary</h2></div>
+    <p class="lede">
+      Five shapes, defined once, reused on both surfaces. Every state below is carried by
+      <b>shape and word, never by colour alone</b> — the Table's accent is literal white, so colour could
+      not carry it even if we wanted it to.
+    </p>
+    <div class="legend">
+      <div><span class="glyph">
+        <span style="display:block;width:44px;height:12px;border-radius:2px;border:1px solid var(--pg-bd);
+          background:linear-gradient(90deg in oklab,var(--k-night),var(--k-dawn) 28%,var(--k-noon) 52%,var(--k-eve) 76%,var(--k-night))"></span>
+      </span><span><b>Day track.</b> The fill is the live interpolated palette, so the control shows the gradient it edits. Same strip in both apps.</span></div>
+
+      <div><span class="glyph">
+        <svg width="44" height="14" aria-hidden="true"><rect x="0" y="4" width="44" height="6" fill="#333"/>
+        <rect x="11" y="1" width="1" height="12" fill="#999"/><rect x="22" y="1" width="1" height="12" fill="#999"/>
+        <rect x="33" y="1" width="1" height="12" fill="#999"/></svg>
+      </span><span><b>Keyframe tick.</b> One hairline per authored key (dawn / morning / noon / evening / night). Ticks are on the track, never separate chips.</span></div>
+
+      <div><span class="glyph">
+        <span style="border:1px solid var(--pg-bd);border-radius:2px;padding:0 4px;
+          font:10px/15px ui-monospace,monospace;letter-spacing:.06em;color:var(--pg-tx2)">LOCAL</span>
+      </span><span><b>Local badge + dashed well.</b> Anything inside a dashed enclosure is preview-only and never leaves this browser. Used once: the Editor day-scrub.</span></div>
+
+      <div><span class="glyph">
+        <span style="background:#fff;color:#0E0E0E;border-radius:2px;padding:1px 5px;
+          font:600 10px/15px ui-monospace,monospace;letter-spacing:.06em;display:inline-flex;align-items:center;gap:4px">
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="1.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>OVERRIDE</span>
+      </span><span><b>Inverted chip.</b> Reserved for DM-forced state. Inversion + lock glyph + the word — three encodings, zero hue.</span></div>
+
+      <div><span class="glyph">
+        <span style="border:1px solid var(--pg-bd);border-radius:2px;padding:0 4px;
+          font:10px/15px ui-monospace,monospace;color:var(--pg-tx3)">N/A</span>
+      </span><span><b>Not-applicable tag + dimmed row.</b> Dim alone reads as a bug; the tag plus a one-line reason reads as a rule. Never omission.</span></div>
+
+      <div><span class="glyph" style="gap:5px">
+        <span style="font-size:15px;color:var(--pg-tx)">●</span>
+        <span style="font-size:15px;color:var(--pg-tx)">◐</span>
+        <span style="font-size:15px;color:var(--pg-tx2)">○</span>
+      </span><span><b>Moon glyphs.</b> Filled / half / hollow, each with its word underneath. Glyph is decoration for the word, not a replacement.</span></div>
+    </div>
+  </section>
+
+  <!-- ══════════ 1 · EDITOR ══════════ -->
+  <section>
+    <div class="shead"><span class="snum">01</span><h2>Editor — “Environment” section</h2>
+      <span class="tag">canvas/ · Moss night · 300px floating panel · CollapsibleSection</span></div>
+    <p class="lede">
+      Absorbs today's <b>Ambient</b> section (the 6 presets keep their exact 24px circular geometry and
+      their one-undo-per-change commit idiom) and adds five instruments below it. Panel chrome is verbatim:
+      36px tab bar, moss underline on the active tab, <code>surface-2</code> card at 8px margins, 10px
+      tracked mono labels. Left: an outdoor map authored at dusk. Right: the same section on an
+      underground map, where three rows go explicitly inapplicable.
+    </p>
+
+    <div class="row">
+      <figure class="annot" style="flex:0 0 auto">
+        <span class="tag">A1 · outdoor, natural light on</span>
+        <div class="ed">
+          <div class="tabs">
+            <button class="on">Layers</button><button>Assets</button><button>Packs</button>
+          </div>
+          <div class="stack">
+            <div class="card">
+              <div class="hd">
+                <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>
+                Environment
+                <span class="sp">
+                  <span style="width:14px;height:14px;border-radius:50%;border:1px solid var(--m-bd);background:#2d2d44"></span>
+                  <svg class="chev" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg>
+                </span>
+              </div>
+              <div class="body">
+
+                <div class="ir">
+                  <span class="lb">Type</span>
+                  <span class="ct">
+                    <span class="mseg" role="radiogroup" aria-label="Environment type">
+                      <button class="on" role="radio" aria-checked="true">Outdoor</button>
+                      <button role="radio" aria-checked="false">Indoor</button>
+                      <button role="radio" aria-checked="false">Under</button>
+                    </span>
+                  </span>
+                </div>
+
+                <div class="ir">
+                  <span class="lb">Mood</span>
+                  <span class="ct">
+                    <span class="sw6" role="group" aria-label="Mood tint presets">
+                      <button title="Day" style="background:#e8e4d8"></button>
+                      <button title="Overcast" style="background:#9a9a9a"></button>
+                      <button title="Dusk" style="background:#6b5a7a"></button>
+                      <button class="on" title="Dungeon" style="background:#2d2d44"></button>
+                      <button title="Night" style="background:#1a1a2e"></button>
+                      <button title="Moonless" style="background:#0a0a0f"></button>
+                    </span>
+                  </span>
+                </div>
+                <div class="ir">
+                  <span class="lb">Custom</span>
+                  <span class="ct"><span class="cfield" style="background:#2d2d44"><span>#2D2D44</span></span></span>
+                </div>
+
+                <div class="ir stack2">
+                  <span class="lb">Day palette</span>
+                  <span class="ct" style="margin-bottom:7px">
+                    <select class="msel" aria-label="Time palette preset">
+                      <option>Temperate — default</option><option>Arid</option><option>Coastal</option><option>Boreal</option>
+                    </select>
+                  </span>
+                  <span class="kf" role="group" aria-label="Keyframe colours">
+                    <button class="k"><span class="chip" style="background:var(--k-dawn)"></span><b>DWN</b></button>
+                    <button class="k"><span class="chip" style="background:var(--k-morn)"></span><b>MRN</b></button>
+                    <button class="k"><span class="chip" style="background:var(--k-noon)"></span><b>NOON</b></button>
+                    <button class="k edited"><span class="chip" style="background:var(--k-eve)"></span><b>EVE</b></button>
+                    <button class="k"><span class="chip" style="background:var(--k-night)"></span><b>NGT</b></button>
+                  </span>
+                  <span class="note">Moss ring = recoloured off preset. <b>NGT is authored once</b> and reused by all three
+                    night skies — sky changes the gate and the shadows, never the palette.</span>
+                </div>
+
+                <div class="ir">
+                  <span class="lb">Natural light</span>
+                  <span class="ct">
+                    <span class="rd">Sun &amp; moon</span>
+                    <button class="pill on" role="switch" aria-checked="true" aria-label="Natural light"><i></i></button>
+                  </span>
+                </div>
+
+                <div class="ir">
+                  <span class="lb">East is</span>
+                  <span class="ct">
+                    <span class="rd">062°</span>
+                    <svg class="dial" viewBox="0 0 56 56" role="img" aria-label="Map orientation, east at 62 degrees">
+                      <circle cx="28" cy="28" r="21" fill="#181A17" stroke="#3A3E38"/>
+                      <g stroke="#4D544A"><path d="M28 7v4M28 45v4M7 28h4M45 28h4"/></g>
+                      <g stroke="#3A3E38"><path d="M13 13l2.8 2.8M40.2 40.2L43 43M43 13l-2.8 2.8M15.8 40.2L13 43"/></g>
+                      <g fill="#979E94"><text x="28" y="17" text-anchor="middle">N</text></g>
+                      <line x1="28" y1="28" x2="46.5" y2="18.2" stroke="#91C464" stroke-width="2" stroke-linecap="round"/>
+                      <circle cx="46.5" cy="18.2" r="3.2" fill="#91C464"/>
+                      <text x="45" y="34" text-anchor="middle" fill="#D5D9D3">E</text>
+                      <circle cx="28" cy="28" r="2" fill="#979E94"/>
+                    </svg>
+                  </span>
+                </div>
+
+                <div class="well">
+                  <div class="whd">
+                    <span class="t">Preview</span>
+                    <span class="local" title="This screen only — never sent to the session">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><rect x="2.5" y="4" width="19" height="13" rx="1.5"/><path d="M9 21h6"/></svg>
+                      LOCAL
+                    </span>
+                    <span class="rd" id="edClock">17:40</span>
+                  </div>
+                  <div class="scrub">
+                    <div class="track" id="edTrack"></div>
+                    <div class="ticks">
+                      <i style="left:25%"></i><i style="left:37.5%"></i><i style="left:50%"></i><i style="left:75%"></i><i style="left:92%"></i>
+                    </div>
+                    <div class="thumb" id="edThumb" style="left:73.6%"></div>
+                    <input type="range" min="0" max="1440" step="5" value="1060" id="edRange" aria-label="Preview time of day, local only">
+                    <div class="lbls"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+                  </div>
+                  <p class="note"><b>Preview only.</b> Scrubbing paints this browser. It never touches the
+                    campaign clock — the Table's clock is where the world's time lives.</p>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+        <ol class="keys">
+          <li><b>Type</b> is authored once here and never re-set at the Table (PRODUCT #4). It is the row every other row below depends on.</li>
+          <li><b>Keyframes</b> are recolour-only — preset picker plus five swatches, no curve editor (decision 3).</li>
+          <li><b>Compass</b> is a rotary; drag the needle or type the angle. Moss needle because it is chrome, not a canvas overlay.</li>
+          <li><b>Day-scrub</b> lives inside a dashed well with a LOCAL badge and one sentence of copy — three signals that this is not the world clock.</li>
+        </ol>
+      </figure>
+
+      <figure style="flex:0 0 232px">
+        <span class="tag">live preview at the scrub position</span>
+        <div class="plate" id="edPlate" style="--grade:var(--k-eve);--ga:.82;--sh:46px;--sha:.5">
+          <div class="ground"></div><div class="flag"></div>
+          <div class="wall" style="left:9%;top:9%;right:8%;height:7px"></div>
+          <div class="wall" style="left:9%;top:9%;width:7px;height:60%"></div>
+          <div class="wall" style="left:44%;top:34%;width:34%;height:6px"></div>
+          <div class="wall" style="left:26%;top:60%;width:6px;height:31%"></div>
+          <div class="grain"></div>
+          <div class="grade" id="edGrade"></div>
+          <div class="glow" style="left:34%;top:38%"></div>
+          <div class="glow" style="left:-8%;top:52%;width:44%"></div>
+          <div class="lamp" style="left:57%;top:63%"></div>
+          <div class="lamp" style="left:14%;top:76%"></div>
+          <div class="stamp"><span>Outdoor · natural light</span><span class="r" id="edStamp">17:40 evening</span></div>
+        </div>
+        <figcaption>
+          Grade multiplies <b>under</b> the brazier pools, so the lamps stay warm at every scrub position —
+          the style-guide rule that grade composes with authored light rather than replacing it.
+          One shadow vector (down-right) across every plate on this page; only length and alpha move with the clock.
+          <br><br><b>Drag the scrubber</b> to watch the grade and the shadows travel together.
+        </figcaption>
+      </figure>
+
+      <figure class="annot" style="flex:0 0 auto">
+        <span class="tag">A2 · underground — three rows inapplicable</span>
+        <div class="ed">
+          <div class="tabs"><button class="on">Layers</button><button>Assets</button><button>Packs</button></div>
+          <div class="stack">
+            <div class="card">
+              <div class="hd">
+                <svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>
+                Environment
+                <span class="sp">
+                  <span style="width:14px;height:14px;border-radius:50%;border:1px solid var(--m-bd);background:#1a1a2e"></span>
+                  <svg class="chev" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg>
+                </span>
+              </div>
+              <div class="body">
+                <div class="ir">
+                  <span class="lb">Type</span>
+                  <span class="ct">
+                    <span class="mseg" role="radiogroup" aria-label="Environment type">
+                      <button role="radio" aria-checked="false">Outdoor</button>
+                      <button role="radio" aria-checked="false">Indoor</button>
+                      <button class="on" role="radio" aria-checked="true">Under</button>
+                    </span>
+                  </span>
+                </div>
+                <div class="na-note">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+                  <span>Underground ignores the world clock and the sky. The mood tint is the whole grade;
+                    the light level is <b>set by hand at the Table</b>.</span>
+                </div>
+
+                <div class="ir">
+                  <span class="lb">Mood</span>
+                  <span class="ct">
+                    <span class="sw6" role="group" aria-label="Mood tint presets">
+                      <button title="Day" style="background:#e8e4d8"></button>
+                      <button title="Overcast" style="background:#9a9a9a"></button>
+                      <button title="Dusk" style="background:#6b5a7a"></button>
+                      <button title="Dungeon" style="background:#2d2d44"></button>
+                      <button class="on" title="Night" style="background:#1a1a2e"></button>
+                      <button title="Moonless" style="background:#0a0a0f"></button>
+                    </span>
+                  </span>
+                </div>
+                <div class="ir">
+                  <span class="lb">Custom</span>
+                  <span class="ct"><span class="cfield" style="background:#1a1a2e"><span>#1A1A2E</span></span></span>
+                </div>
+
+                <div class="ir stack2 na">
+                  <span class="lb">Day palette <span class="na-tag" style="margin-left:6px">N/A</span></span>
+                  <span class="kf" aria-disabled="true">
+                    <button class="k" disabled><span class="chip" style="background:var(--k-dawn)"></span><b>DWN</b></button>
+                    <button class="k" disabled><span class="chip" style="background:var(--k-morn)"></span><b>MRN</b></button>
+                    <button class="k" disabled><span class="chip" style="background:var(--k-noon)"></span><b>NOON</b></button>
+                    <button class="k" disabled><span class="chip" style="background:var(--k-eve)"></span><b>EVE</b></button>
+                    <button class="k" disabled><span class="chip" style="background:var(--k-night)"></span><b>NGT</b></button>
+                  </span>
+                </div>
+
+                <div class="ir na">
+                  <span class="lb">Natural light</span>
+                  <span class="ct">
+                    <span class="na-tag">N/A</span>
+                    <button class="pill" role="switch" aria-checked="false" aria-disabled="true" aria-label="Natural light"><i></i></button>
+                  </span>
+                </div>
+                <div class="ir na">
+                  <span class="lb">East is</span>
+                  <span class="ct">
+                    <span class="na-tag">N/A</span>
+                    <svg class="dial" viewBox="0 0 56 56" aria-hidden="true">
+                      <circle cx="28" cy="28" r="21" fill="#181A17" stroke="#3A3E38"/>
+                      <g stroke="#3A3E38"><path d="M28 7v4M28 45v4M7 28h4M45 28h4"/></g>
+                      <line x1="15" y1="15" x2="41" y2="41" stroke="#3A3E38" stroke-width="1"/>
+                      <circle cx="28" cy="28" r="2" fill="#4D544A"/>
+                    </svg>
+                  </span>
+                </div>
+
+                <div class="well" style="opacity:.55">
+                  <div class="whd">
+                    <span class="t">Preview</span>
+                    <span class="local">LOCAL</span>
+                    <span class="rd">— — : — —</span>
+                  </div>
+                  <div class="scrub">
+                    <div class="track" style="background:var(--m-s1)"></div>
+                    <div class="thumb" style="left:50%;background:var(--m-tx3)"></div>
+                  </div>
+                  <p class="note">No day cycle down here.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption style="max-width:300px">
+          Inapplicable rows stay in place, dimmed but still legible, each carrying an <b>N/A</b> tag, and one sentence explains
+          the rule once at the top instead of five times. Indoor is the same treatment minus the palette row:
+          indoor keeps a <b>damped</b> day palette (the tavern gets moodier at night) but still loses natural
+          light, orientation and the auto-gate.
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ══════════ 2 · TABLE ══════════ -->
+  <section>
+    <div class="shead"><span class="snum">02</span><h2>Table — “World” block</h2>
+      <span class="tag">session/client/ · Achromatic Shell · 256px sidebar · own registerPanel</span></div>
+    <p class="lede">
+      Same rack grammar at table reading size (12–15px, system sans, no serif, no card chrome — flat blocks
+      under a hairline divider, like <code>Scenes</code> and <code>Environment</code> above it). The badge is
+      pinned to the <b>top</b> of the block, not the bottom and not the status bar: it is the thing a DM
+      glances at, and everything under it is why it says what it says. Each column below is one row of the
+      plan's coupling table.
+    </p>
+
+    <div class="row">
+      <!-- B1 · outdoor noon -->
+      <figure style="flex:0 0 256px">
+        <span class="tag">B1 · outdoor · 12:20 · auto</span>
+        <div class="plate" style="--grade:var(--k-noon);--ga:.72;--sh:16px;--sha:.44;margin-bottom:10px;border:1px solid var(--t-bd)">
+          <div class="ground"></div><div class="flag"></div>
+          <div class="wall" style="left:9%;top:9%;right:8%;height:7px"></div>
+          <div class="wall" style="left:44%;top:34%;width:34%;height:6px"></div>
+          <div class="wall" style="left:26%;top:60%;width:6px;height:31%"></div>
+          <div class="grain"></div><div class="grade"></div>
+          <div class="glow" style="left:34%;top:38%;opacity:.55"></div>
+          <div class="lamp" style="left:57%;top:63%"></div>
+          <div class="stamp"><span>daylight</span><span class="r">sun · short</span></div>
+        </div>
+        <div class="tb">
+          <div class="blk div">
+            <span class="bl">World</span>
+            <div class="badge">
+              <div class="top"><span class="lvl">Daylight</span><span class="src">auto</span></div>
+              <p class="why">outdoor · 12:20</p>
+            </div>
+
+            <div class="tr">
+              <span class="tl">Clock <span class="aside">12:20</span></span>
+              <div class="scrub">
+                <div class="track"></div>
+                <div class="ticks"><i style="left:25%"></i><i style="left:37.5%"></i><i style="left:50%"></i><i style="left:75%"></i><i style="left:92%"></i></div>
+                <div class="thumb" style="left:51.4%"></div>
+                <div class="lbls"><span>00</span><span>12</span><span>24</span></div>
+              </div>
+              <div class="qj">
+                <button>Dawn</button><button>Morn</button><button class="on">Noon</button><button>Eve</button><button>Night</button>
+              </div>
+            </div>
+
+            <div class="tr">
+              <span class="tl">Night sky <span class="aside">dormant</span></span>
+              <div class="tseg dormant" role="radiogroup" aria-label="Night sky">
+                <button role="radio" aria-checked="true" class="on"><span class="mg">●</span>Full</button>
+                <button role="radio" aria-checked="false"><span class="mg">◐</span>Crescent</button>
+                <button role="radio" aria-checked="false"><span class="mg">○</span>None</button>
+              </div>
+              <p class="tnote">Takes effect after dusk.</p>
+            </div>
+
+            <div class="tr">
+              <span class="tl">Time speed</span>
+              <div class="tseg" role="radiogroup" aria-label="Time speed">
+                <button class="on" role="radio" aria-checked="true">Paused</button>
+                <button role="radio" aria-checked="false">Real</button>
+                <button role="radio" aria-checked="false">Fast</button>
+              </div>
+            </div>
+
+            <div class="tr">
+              <span class="tl">Darkness</span>
+              <button class="tsw" role="switch" aria-checked="false"><span class="bx"></span>Force darkness</button>
+            </div>
+          </div>
+        </div>
+        <figcaption>
+          The default column. Badge carries only what is non-default — no “Paused, No moon” noise, the
+          <code>envLabel</code> convention carried forward. Sky is <b>dormant, not hidden</b>: still
+          operable, dimmed, with one line saying when it will matter.
+        </figcaption>
+      </figure>
+
+      <!-- B2 · full moon -->
+      <figure style="flex:0 0 256px">
+        <span class="tag">B2 · night · full moon</span>
+        <div class="plate" style="--grade:var(--k-night);--ga:.74;--sh:30px;--sha:.3;margin-bottom:10px;border:1px solid var(--t-bd)">
+          <div class="ground"></div><div class="flag"></div>
+          <div class="wall" style="left:9%;top:9%;right:8%;height:7px"></div>
+          <div class="wall" style="left:44%;top:34%;width:34%;height:6px"></div>
+          <div class="wall" style="left:26%;top:60%;width:6px;height:31%"></div>
+          <div class="grain"></div><div class="grade"></div>
+          <div class="moon" style="opacity:.85"></div>
+          <div class="glow" style="left:34%;top:38%"></div>
+          <div class="lamp" style="left:57%;top:63%"></div>
+          <div class="stamp"><span>dusk gate</span><span class="r">moon · silver</span></div>
+        </div>
+        <div class="tb">
+          <div class="blk div">
+            <span class="bl">World</span>
+            <div class="badge">
+              <div class="top"><span class="lvl">Dusk</span><span class="src">auto</span></div>
+              <p class="why">outdoor · 21:10 · full moon</p>
+            </div>
+            <div class="tr">
+              <span class="tl">Clock <span class="aside">21:10</span></span>
+              <div class="scrub">
+                <div class="track"></div>
+                <div class="ticks"><i style="left:25%"></i><i style="left:37.5%"></i><i style="left:50%"></i><i style="left:75%"></i><i style="left:92%"></i></div>
+                <div class="thumb" style="left:88.2%"></div>
+                <div class="lbls"><span>00</span><span>12</span><span>24</span></div>
+              </div>
+              <div class="qj"><button>Dawn</button><button>Morn</button><button>Noon</button><button>Eve</button><button class="on">Night</button></div>
+            </div>
+            <div class="tr">
+              <span class="tl">Night sky</span>
+              <div class="tseg" role="radiogroup" aria-label="Night sky">
+                <button role="radio" aria-checked="true" class="on"><span class="mg">●</span>Full</button>
+                <button role="radio" aria-checked="false"><span class="mg">◐</span>Crescent</button>
+                <button role="radio" aria-checked="false"><span class="mg">○</span>None</button>
+              </div>
+              <p class="tnote">Moonlight keeps the world visible — no vision clipping.</p>
+            </div>
+            <div class="tr">
+              <span class="tl">Time speed</span>
+              <div class="tseg" role="radiogroup" aria-label="Time speed">
+                <button role="radio" aria-checked="false">Paused</button>
+                <button class="on" role="radio" aria-checked="true">Real</button>
+                <button role="radio" aria-checked="false">Fast</button>
+              </div>
+            </div>
+            <div class="tr">
+              <span class="tl">Darkness</span>
+              <button class="tsw" role="switch" aria-checked="false"><span class="bx"></span>Force darkness</button>
+            </div>
+          </div>
+        </div>
+        <figcaption>
+          Coupling row 3: night + full moon lands on <b>dusk</b>, not darkness. The plate proves all three
+          move together — cool grade, silver shadow softened and lengthened, torch pools still warm.
+        </figcaption>
+      </figure>
+
+      <!-- B3 · crescent -->
+      <figure style="flex:0 0 256px">
+        <span class="tag">B3 · night · crescent</span>
+        <div class="plate" style="--grade:#20283f;--ga:.9;--sh:22px;--sha:.2;margin-bottom:10px;border:1px solid var(--t-bd)">
+          <div class="ground"></div><div class="flag"></div>
+          <div class="wall" style="left:9%;top:9%;right:8%;height:7px"></div>
+          <div class="wall" style="left:44%;top:34%;width:34%;height:6px"></div>
+          <div class="wall" style="left:26%;top:60%;width:6px;height:31%"></div>
+          <div class="grain"></div><div class="grade"></div>
+          <div class="moon" style="opacity:.35"></div>
+          <div class="glow" style="left:34%;top:38%"></div>
+          <div class="lamp" style="left:57%;top:63%"></div>
+          <div class="stamp"><span>darkness · soft</span><span class="r">moon · weak</span></div>
+        </div>
+        <div class="tb">
+          <div class="blk div">
+            <span class="bl">World</span>
+            <div class="badge">
+              <div class="top"><span class="lvl">Darkness</span><span class="src">auto</span></div>
+              <p class="why">outdoor · 21:10 · crescent <em>— soft bite</em></p>
+            </div>
+            <div class="tr">
+              <span class="tl">Clock <span class="aside">21:10</span></span>
+              <div class="scrub">
+                <div class="track"></div>
+                <div class="ticks"><i style="left:25%"></i><i style="left:37.5%"></i><i style="left:50%"></i><i style="left:75%"></i><i style="left:92%"></i></div>
+                <div class="thumb" style="left:88.2%"></div>
+                <div class="lbls"><span>00</span><span>12</span><span>24</span></div>
+              </div>
+              <div class="qj"><button>Dawn</button><button>Morn</button><button>Noon</button><button>Eve</button><button class="on">Night</button></div>
+            </div>
+            <div class="tr">
+              <span class="tl">Night sky</span>
+              <div class="tseg" role="radiogroup" aria-label="Night sky">
+                <button role="radio" aria-checked="false"><span class="mg">●</span>Full</button>
+                <button class="on" role="radio" aria-checked="true"><span class="mg">◐</span>Crescent</button>
+                <button role="radio" aria-checked="false"><span class="mg">○</span>None</button>
+              </div>
+              <p class="tnote">Players sense shapes past their light, not detail.</p>
+            </div>
+            <div class="tr">
+              <span class="tl">Time speed</span>
+              <div class="tseg" role="radiogroup" aria-label="Time speed">
+                <button role="radio" aria-checked="false">Paused</button>
+                <button class="on" role="radio" aria-checked="true">Real</button>
+                <button role="radio" aria-checked="false">Fast</button>
+              </div>
+            </div>
+            <div class="tr">
+              <span class="tl">Darkness</span>
+              <button class="tsw" role="switch" aria-checked="false"><span class="bx"></span>Force darkness</button>
+            </div>
+          </div>
+        </div>
+        <figcaption>
+          Same clock, one segment moved. <b>Darkness</b> now, and the badge's trailing <em>soft bite</em>
+          is the only difference from B4 — the word carries the third bite strength that has no colour of its own.
+        </figcaption>
+      </figure>
+
+      <!-- B4 · moonless -->
+      <figure style="flex:0 0 256px">
+        <span class="tag">B4 · night · moonless</span>
+        <div class="plate noshadow" style="--grade:#141826;--ga:.94;margin-bottom:10px;border:1px solid var(--t-bd)">
+          <div class="ground"></div><div class="flag"></div>
+          <div class="wall" style="left:9%;top:9%;right:8%;height:7px"></div>
+          <div class="wall" style="left:44%;top:34%;width:34%;height:6px"></div>
+          <div class="wall" style="left:26%;top:60%;width:6px;height:31%"></div>
+          <div class="grain"></div><div class="grade"></div>
+          <div class="glow" style="left:34%;top:38%"></div>
+          <div class="lamp" style="left:57%;top:63%"></div>
+          <div class="stamp"><span>darkness · full</span><span class="r">no directional</span></div>
+        </div>
+        <div class="tb">
+          <div class="blk div">
+            <span class="bl">World</span>
+            <div class="badge">
+              <div class="top"><span class="lvl">Darkness</span><span class="src">auto</span></div>
+              <p class="why">outdoor · 21:10 · no moon <em>— full bite</em></p>
+            </div>
+            <div class="tr">
+              <span class="tl">Clock <span class="aside">21:10</span></span>
+              <div class="scrub">
+                <div class="track"></div>
+                <div class="ticks"><i style="left:25%"></i><i style="left:37.5%"></i><i style="left:50%"></i><i style="left:75%"></i><i style="left:92%"></i></div>
+                <div class="thumb" style="left:88.2%"></div>
+                <div class="lbls"><span>00</span><span>12</span><span>24</span></div>
+              </div>
+              <div class="qj"><button>Dawn</button><button>Morn</button><button>Noon</button><button>Eve</button><button class="on">Night</button></div>
+            </div>
+            <div class="tr">
+              <span class="tl">Night sky</span>
+              <div class="tseg" role="radiogroup" aria-label="Night sky">
+                <button role="radio" aria-checked="false"><span class="mg">●</span>Full</button>
+                <button role="radio" aria-checked="false"><span class="mg">◐</span>Crescent</button>
+                <button class="on" role="radio" aria-checked="true"><span class="mg">○</span>None</button>
+              </div>
+              <p class="tnote">Torches and darkvision are the whole world.</p>
+            </div>
+            <div class="tr">
+              <span class="tl">Time speed</span>
+              <div class="tseg" role="radiogroup" aria-label="Time speed">
+                <button role="radio" aria-checked="false">Paused</button>
+                <button class="on" role="radio" aria-checked="true">Real</button>
+                <button role="radio" aria-checked="false">Fast</button>
+              </div>
+            </div>
+            <div class="tr">
+              <span class="tl">Darkness</span>
+              <button class="tsw" role="switch" aria-checked="false"><span class="bx"></span>Force darkness</button>
+            </div>
+          </div>
+        </div>
+        <figcaption>
+          No moon, <b>no directional shadows at all</b> — the plate drops the shadow layer rather than
+          shortening it. DM still sees the full painted grade; only the player's bite changes (PRODUCT #3).
+        </figcaption>
+      </figure>
+    </div>
+
+    <h3>Override, and the map that has no clock</h3>
+    <p class="lede">
+      Two states that must not be mistaken for a bug: the DM taking the gate away from the clock, and a map
+      whose type says the clock was never in charge.
+    </p>
+
+    <div class="row">
+      <figure style="flex:0 0 256px">
+        <span class="tag">B5 · override engaged at noon</span>
+        <div class="plate" style="--grade:var(--k-noon);--ga:.72;--sh:16px;--sha:.44;margin-bottom:10px;border:1px solid var(--t-bd)">
+          <div class="ground"></div><div class="flag"></div>
+          <div class="wall" style="left:9%;top:9%;right:8%;height:7px"></div>
+          <div class="wall" style="left:44%;top:34%;width:34%;height:6px"></div>
+          <div class="wall" style="left:26%;top:60%;width:6px;height:31%"></div>
+          <div class="grain"></div><div class="grade"></div>
+          <div class="glow" style="left:34%;top:38%;opacity:.55"></div>
+          <div class="lamp" style="left:57%;top:63%"></div>
+          <div class="stamp"><span>DM view · full grade</span><span class="r">players: darkness</span></div>
+        </div>
+        <div class="tb">
+          <div class="blk div">
+            <span class="bl">World</span>
+            <div class="badge overridden">
+              <div class="top"><span class="lvl">Darkness</span>
+                <span class="src ovr"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="1.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>OVERRIDE</span>
+              </div>
+              <p class="why">DM-set · <em>clock alone would say daylight</em></p>
+            </div>
+            <div class="tr">
+              <span class="tl">Clock <span class="aside">12:20</span></span>
+              <div class="scrub">
+                <div class="track"></div>
+                <div class="ticks"><i style="left:25%"></i><i style="left:37.5%"></i><i style="left:50%"></i><i style="left:75%"></i><i style="left:92%"></i></div>
+                <div class="thumb" style="left:51.4%"></div>
+                <div class="lbls"><span>00</span><span>12</span><span>24</span></div>
+              </div>
+              <div class="qj"><button>Dawn</button><button>Morn</button><button class="on">Noon</button><button>Eve</button><button>Night</button></div>
+            </div>
+            <div class="tr">
+              <span class="tl">Night sky <span class="aside">gate suspended</span></span>
+              <div class="tseg dormant" role="radiogroup" aria-label="Night sky">
+                <button class="on" role="radio" aria-checked="true"><span class="mg">●</span>Full</button>
+                <button role="radio" aria-checked="false"><span class="mg">◐</span>Crescent</button>
+                <button role="radio" aria-checked="false"><span class="mg">○</span>None</button>
+              </div>
+            </div>
+            <div class="tr">
+              <span class="tl">Time speed</span>
+              <div class="tseg" role="radiogroup" aria-label="Time speed">
+                <button class="on" role="radio" aria-checked="true">Paused</button>
+                <button role="radio" aria-checked="false">Real</button>
+                <button role="radio" aria-checked="false">Fast</button>
+              </div>
+            </div>
+            <div class="tr">
+              <span class="tl">Darkness</span>
+              <button class="tsw on" role="switch" aria-checked="true"><span class="bx">✓</span>Force darkness<span class="ovr">ON</span></button>
+              <p class="tnote"><b>Clock gate suspended.</b> Turn off to hand the world back to the clock.</p>
+            </div>
+          </div>
+        </div>
+        <figcaption>
+          Four independent tells, none of them hue: the switch gains a full white border plus an inverted
+          ON chip; the badge gains a white border and an inverted lock chip; the badge's second line names
+          what the clock <em>would</em> have said; the sky row dims because the gate it feeds is no longer
+          in charge. Grade and clock are untouched — the DM's map still looks like noon, because override
+          is a <b>visibility</b> decision, not a mood one.
+        </figcaption>
+      </figure>
+
+      <figure style="flex:0 0 256px">
+        <span class="tag">B6 · underground scene · manual</span>
+        <div class="plate noshadow" style="--grade:#1a1a2e;--ga:.9;margin-bottom:10px;border:1px solid var(--t-bd)">
+          <div class="ground"></div><div class="flag"></div>
+          <div class="wall" style="left:9%;top:9%;right:8%;height:7px"></div>
+          <div class="wall" style="left:44%;top:34%;width:34%;height:6px"></div>
+          <div class="wall" style="left:26%;top:60%;width:6px;height:31%"></div>
+          <div class="grain"></div><div class="grade"></div>
+          <div class="glow" style="left:34%;top:38%"></div>
+          <div class="glow" style="left:52%;top:58%;width:40%"></div>
+          <div class="lamp" style="left:57%;top:63%"></div>
+          <div class="stamp"><span>underground</span><span class="r">torchlight only</span></div>
+        </div>
+        <div class="tb">
+          <div class="blk div">
+            <span class="bl">World</span>
+            <div class="badge overridden">
+              <div class="top"><span class="lvl">Darkness</span>
+                <span class="src ovr"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="1.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>MANUAL</span>
+              </div>
+              <p class="why">underground · <em>clock does not reach here</em></p>
+            </div>
+            <div class="tr">
+              <span class="tl">Clock <span class="aside">21:10</span></span>
+              <div class="scrub" style="opacity:.55">
+                <div class="track"></div>
+                <div class="ticks"><i style="left:25%"></i><i style="left:50%"></i><i style="left:75%"></i></div>
+                <div class="thumb" style="left:88.2%"></div>
+                <div class="lbls"><span>00</span><span>12</span><span>24</span></div>
+              </div>
+              <p class="tnote">The world clock still runs — this scene just doesn't listen to it.</p>
+            </div>
+            <div class="tr" style="opacity:.55">
+              <span class="tl">Night sky <span class="aside">no effect here</span></span>
+              <div class="tseg" role="radiogroup" aria-label="Night sky" aria-disabled="true">
+                <button class="on" role="radio" aria-checked="true"><span class="mg">●</span>Full</button>
+                <button role="radio" aria-checked="false"><span class="mg">◐</span>Crescent</button>
+                <button role="radio" aria-checked="false"><span class="mg">○</span>None</button>
+              </div>
+            </div>
+            <div class="tr">
+              <span class="tl">Time speed</span>
+              <div class="tseg" role="radiogroup" aria-label="Time speed">
+                <button role="radio" aria-checked="false">Paused</button>
+                <button class="on" role="radio" aria-checked="true">Real</button>
+                <button role="radio" aria-checked="false">Fast</button>
+              </div>
+            </div>
+            <div class="tr">
+              <span class="tl">Darkness</span>
+              <button class="tsw on" role="switch" aria-checked="true"><span class="bx">✓</span>Force darkness<span class="ovr">ON</span></button>
+              <p class="tnote">Underground has no auto-gate. This switch <b>is</b> the light level.</p>
+            </div>
+          </div>
+        </div>
+        <figcaption>
+          The Table never asks for the environment type — it reads it from the map (PRODUCT #4), and says so
+          in the badge's second line. Clock and sky stay visible and dimmed because they are still true of
+          the <b>world</b>, just not of <b>this scene</b>: hiding them would make the next outdoor scene's
+          controls look like they appeared from nowhere.
+        </figcaption>
+      </figure>
+
+      <figure class="wide" style="flex:1 1 420px;min-width:320px">
+        <span class="tag">badge grammar — every state on one line</span>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="tb" style="width:100%;border-left:0;padding:0;gap:8px">
+            <div class="badge"><div class="top"><span class="lvl">Daylight</span><span class="src">auto</span></div><p class="why">outdoor · 12:20</p></div>
+            <div class="badge"><div class="top"><span class="lvl">Dusk</span><span class="src">auto</span></div><p class="why">outdoor · 06:05 <em>— dawn</em></p></div>
+            <div class="badge"><div class="top"><span class="lvl">Dusk</span><span class="src">auto</span></div><p class="why">outdoor · 21:10 · full moon</p></div>
+            <div class="badge"><div class="top"><span class="lvl">Darkness</span><span class="src">auto</span></div><p class="why">outdoor · 21:10 · crescent <em>— soft bite</em></p></div>
+            <div class="badge overridden"><div class="top"><span class="lvl">Daylight</span><span class="src ovr"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="1.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>OVERRIDE</span></div><p class="why">DM-set · <em>clock alone would say darkness</em></p></div>
+          </div>
+        </div>
+        <figcaption>
+          One shape, five readings. Line 1 answers <b>“what is it right now”</b> in one word plus its
+          provenance; line 2 answers <b>“why”</b> in monospace, always in the order
+          <code>environment · time · sky — qualifier</code>, so the eye lands in the same place every time.
+          The override row inverts, which is the loudest thing this achromatic palette can do, and it is
+          spent on exactly one meaning. Last row is the override running the other way — forced daylight at
+          midnight — proving the badge reports the result, never the clock.
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ══════════ 3 · NOTES ══════════ -->
+  <section>
+    <div class="shead"><span class="snum">03</span><h2>Engineering notes</h2></div>
+    <ul class="eng">
+      <li><b>One new primitive, both apps.</b> The day track is a single component parameterised by token set:
+        a <code>&lt;input type=range&gt;</code> with opacity 0 over a gradient div plus absolutely-positioned tick
+        hairlines. Editor instance uses <code>SliderInput</code>'s start-ref / commit-on-release idiom; the Table
+        instance rides the <code>set-environment</code> optimistic-echo pattern with its 4s pending fallback.</li>
+      <li><b>The gradient is the interpolation.</b> Track fill is
+        <code>linear-gradient(90deg in oklab, …keyframes)</code>, which is the same OKLCH-family interpolation
+        the renderer does — the control cannot drift from the grade it edits, and there is no second source of truth.</li>
+      <li><b>Compass is the only genuinely new widget.</b> ~60 lines: a rotary with pointer drag, arrow-key
+        stepping (1° / 15° with Shift), and a numeric readout that is also the text input. Everything else is
+        <code>Segmented</code>, <code>Switch</code>, <code>ToggleSwitch</code>, <code>ColorField</code>,
+        <code>SelectInput</code> and the existing 24px preset row, unchanged.</li>
+      <li><b>Lift before the second copy.</b> This is the second consumer of <code>Segmented</code>/<code>Switch</code>
+        — move them out of <code>FogTool.tsx</code> into <code>session/client/src/components/ui/</code> rather than
+        a third private copy. Canvas needs its own Moss-token <code>Segmented</code>; it has none today.</li>
+      <li><b>Badge is one pure function.</b> <code>(environment, clock, sky, override) → {level, provenance, qualifier}</code>
+        — the same coupling resolver the server uses for vision gating, rendered as two lines. No colour branch in it at all.</li>
+      <li><b>Not-applicable, not absent.</b> Disabled rows keep their DOM and their labels, add
+        <code>aria-disabled</code> plus the N/A tag, and the reason renders once per section, not once per row.</li>
+      <li><b>Cost of the plates.</b> The map imagery here is CSS only — no dressed Fieldstone Keep capture exists
+        in <code>docs/</code>. Before adjudication, re-shoot these six states from the live dev server so the grade
+        is judged on real art rather than gradients.</li>
+    </ul>
+  </section>
+</main>
+
+<script>
+  // Editor day-scrub: the one live control on this sheet. Keyframes are the authored palette;
+  // the grade shown on the plate is interpolated in oklab, exactly as the gradient track is.
+  (function () {
+    var KEYS = [
+      { t: 0,    c: '#2B3550', n: 'night'   },
+      { t: 360,  c: '#8A6A72', n: 'dawn'    },
+      { t: 540,  c: '#CFC3A4', n: 'morning' },
+      { t: 720,  c: '#EFE9D8', n: 'noon'    },
+      { t: 1080, c: '#B07A55', n: 'evening' },
+      { t: 1320, c: '#2B3550', n: 'night'   },
+      { t: 1440, c: '#2B3550', n: 'night'   }
+    ];
+    var range = document.getElementById('edRange');
+    if (!range) return;
+    var thumb = document.getElementById('edThumb'),
+        clock = document.getElementById('edClock'),
+        stamp = document.getElementById('edStamp'),
+        grade = document.getElementById('edGrade'),
+        plate = document.getElementById('edPlate');
+
+    function paint() {
+      var m = +range.value, i = 0;
+      while (i < KEYS.length - 2 && m >= KEYS[i + 1].t) i++;
+      var a = KEYS[i], b = KEYS[i + 1];
+      var p = (m - a.t) / (b.t - a.t);
+      grade.style.background = 'color-mix(in oklab, ' + a.c + ', ' + b.c + ' ' + Math.round(p * 100) + '%)';
+
+      // Sun altitude: 1 at noon, 0 at the horizon, 0 all night. Every derived value is a
+      // continuous function of it — no branch, so nothing steps as the scrub crosses dawn.
+      // Length grows and alpha fades together toward the horizon; past it the faint residue
+      // is the moon's, which is why it never reaches zero.
+      var sun = Math.max(0, Math.sin(((m - 360) / 720) * Math.PI));
+      plate.style.setProperty('--sh', Math.round(14 + (1 - sun) * 46) + 'px');
+      plate.style.setProperty('--sha', (0.06 + sun * 0.46).toFixed(2));
+      plate.style.setProperty('--ga', (0.72 + (1 - sun) * 0.20).toFixed(2));
+
+      var hh = String(Math.floor(m / 60)).padStart(2, '0'), mm = String(m % 60).padStart(2, '0');
+      clock.textContent = hh + ':' + mm;
+      stamp.textContent = hh + ':' + mm + ' ' + (p < 0.5 ? a.n : b.n);
+      thumb.style.left = (m / 1440 * 100).toFixed(2) + '%';
+    }
+    range.addEventListener('input', paint);
+    paint();
+  })();
+</script>

@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cave wall node editing — two variants</title>
+<style>
+  :root{
+    --bg:#100d09; --panel:#191510; --line:#2c251b; --ink:#100d09;
+    --text:#e9e2d4; --dim:#8d8474; --accent:#d8a24a; --bad:#d2664f; --good:#7fa563;
+    font-synthesis-weight:none;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:16px/1.55 "Inter","Segoe UI",system-ui,sans-serif;padding:28px 32px 64px}
+  h1{font-size:26px;font-weight:600;margin:0 0 6px;letter-spacing:.2px;line-height:1.2}
+  .sub{color:var(--dim);margin:0 0 22px;max-width:78ch}
+  code,kbd{font-family:"IBM Plex Mono",Consolas,monospace;font-size:13px}
+  kbd{background:#241e16;border:1px solid var(--line);border-radius:3px;padding:1px 5px}
+
+  .wrap{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+  @media (max-width:1180px){.wrap{grid-template-columns:1fr}}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .head{padding:14px 16px 12px;border-bottom:1px solid var(--line)}
+  .head h2{margin:0 0 5px;font-size:20px;font-weight:600;line-height:1.25}
+  .head h2 .tag{font-size:13px;color:var(--dim);font-weight:400;margin-left:8px}
+  .head p{margin:0;color:var(--dim);font-size:13px;line-height:1.55}
+  .stage{display:block;width:100%;height:560px;background:#0b0906;touch-action:none;cursor:default}
+  .foot{padding:11px 16px;border-top:1px solid var(--line);display:flex;gap:16px;
+    align-items:center;flex-wrap:wrap;font-size:13px;color:var(--dim);min-height:46px}
+  .foot label{display:flex;gap:6px;align-items:center;color:var(--text);cursor:pointer;user-select:none}
+  .foot .read{margin-left:auto;font-family:"IBM Plex Mono",Consolas,monospace;font-size:13px}
+  .foot button{background:#241e16;color:var(--text);border:1px solid var(--line);
+    border-radius:4px;padding:5px 10px;font:inherit;font-size:13px;cursor:pointer}
+  .foot button:hover{border-color:#463a2a}
+  .warn{color:var(--bad)} .ok{color:var(--good)} .acc{color:var(--accent)}
+
+  .kit{padding:12px 16px 14px;border-top:1px solid var(--line)}
+  .kit h3{margin:0 0 9px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);font-weight:600}
+  .chips{display:flex;flex-wrap:wrap;gap:5px}
+  .chip{border:1px solid var(--line);border-radius:4px;padding:3px 8px;
+    font-family:"IBM Plex Mono",Consolas,monospace;font-size:13px;color:var(--dim);white-space:nowrap}
+  .chip.on{border-color:var(--accent);color:var(--accent);background:#d8a24a14}
+  .chip .t{opacity:.55}
+
+  .notes{margin-top:26px;border-top:1px solid var(--line);padding-top:18px;
+    display:grid;grid-template-columns:1fr 1fr;gap:22px;max-width:1400px}
+  @media (max-width:1180px){.notes{grid-template-columns:1fr}}
+  .notes h3{font-size:20px;margin:0 0 9px;font-weight:600;line-height:1.25}
+  .notes ul{margin:0;padding-left:18px;color:var(--dim);font-size:13px;line-height:1.6}
+  .notes li{margin-bottom:5px}
+  .notes li b{color:var(--text);font-weight:500}
+</style>
+</head>
+<body>
+
+<h1>Cave wall node editing — two variants</h1>
+<p class="sub">Real geometry: fourteen consecutive band pieces from the Warren's north-west lobe, at their
+generated positions, with the real <code>gg-demo</code> art and the real measured joints. Drag the handles
+in both panels. They behave differently on purpose.</p>
+
+<div class="wrap">
+
+  <!-- ─── Variant A ─────────────────────────────────────────────────── -->
+  <section class="panel">
+    <div class="head">
+      <h2>A · Handles on the pieces <span class="tag">art is the truth, outline follows</span></h2>
+      <p>Every placed wall asset gets a node handle. Click to select, <kbd>Shift</kbd>-click to add,
+      drag to move the whole run. This is today's node-edit interaction pointed at asset children
+      instead of composed stones.</p>
+    </div>
+    <svg id="svgA" class="stage" viewBox="12.2 0.7 17.6 20.0" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="foot">
+      <label><input type="checkbox" id="carryA" checked> Outline follows the pieces</label>
+      <button id="resetA">Reset</button>
+      <span class="read" id="readA">&nbsp;</span>
+    </div>
+  </section>
+
+  <!-- ─── Variant B ─────────────────────────────────────────────────── -->
+  <section class="panel">
+    <div class="head">
+      <h2>B · Handles on the joints <span class="tag">kit is the truth, outline snaps</span></h2>
+      <p>Handles sit where two pieces meet. Drag one and the span re-solves against what the kit can
+      actually build: the outline lands on a chord a real piece spans at scale&nbsp;1, and the band
+      re-lays with whichever pieces fit. Ghosts preview the choice while you drag.</p>
+    </div>
+    <svg id="svgB" class="stage" viewBox="12.2 0.7 17.6 20.0" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="foot">
+      <label><input type="checkbox" id="ghostB" checked> X-ray preview while dragging</label>
+      <button id="resetB">Reset</button>
+      <span class="read" id="readB">&nbsp;</span>
+    </div>
+    <div class="kit">
+      <h3>What the kit can build</h3>
+      <div class="chips" id="kitChips"></div>
+    </div>
+  </section>
+
+</div>
+
+<div class="notes">
+  <div>
+    <h3>What A costs</h3>
+    <ul>
+      <li><b>Nothing new to learn.</b> Same handles, same <kbd>Shift</kbd>-click, same group drag the
+      wall-stone editor already has. It just reads asset children as its node source.</li>
+      <li><b>The art never degrades.</b> Pieces keep the rotation, scale and nudge the chord-walk gave
+      them; a drag is a translation and nothing is re-chosen.</li>
+      <li><b>Joints tear.</b> Move a run and its two ends stop meeting their neighbours. The read-out
+      counts open seams. That gap is real, and closing it is hand work.</li>
+      <li><b>The outline is a follower, not a constraint.</b> With "outline follows" off, the floor and
+      the rock drift apart and sight geometry stops matching the art.</li>
+    </ul>
+  </div>
+  <div>
+    <h3>What B costs</h3>
+    <ul>
+      <li><b>You cannot drag to an arbitrary shape.</b> The handle lands where the kit can reach, not
+      where the cursor is. That is the point, and it is also the thing to try before committing.</li>
+      <li><b>Every edit re-picks pieces.</b> A drag can swap a 2×4 straight for a bend plus a 2×2, so the
+      wall's texture changes under your hand, not just its position.</li>
+      <li><b>Turns are ±90° only.</b> The kit has three straight lengths and eleven bends, all quarter
+      turns; a gentle curve is approximated by chord-walking, exactly as the generator does.</li>
+      <li><b>Needs the solver in the engine.</b> A is an input change; B moves <code>fitArc</code>-style
+      chord fitting out of <code>gen-goblin-warren.mjs</code> and into the editor.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+// ─── data ────────────────────────────────────────────────────────────
+// Kit: the band set after the generator's handedness fix (inside = +90, outside = -90).
+const KIT = [
+{"key":"wall_short_2x2","file":"wall_short_2x2_A-f8c764e4.webp","w":1.495,"h":2,"chord":1.97,"turn":0,"j":[[-0.015,0.983],[-0.013,-0.988]]},
+{"key":"wall_short_2x4","file":"wall_short_2x4_A-6cf0ae8d.webp","w":1.72,"h":4,"chord":3.97,"turn":0,"j":[[0.05,1.982],[0.048,-1.987]]},
+{"key":"wall_short_2x6","file":"wall_short_2x6_A-3da7854c.webp","w":1.645,"h":6,"chord":5.97,"turn":0,"j":[[-0.031,2.982],[-0.027,-2.987]]},
+{"key":"inside_bend_2x2","file":"inside_bend_2x2_A-b1cb7b38.webp","w":1.78,"h":1.72,"chord":1.47,"turn":90,"j":[[-0.167,0.843],[0.872,-0.197]]},
+{"key":"inside_bend_3x2","file":"inside_bend_3x2_A-2fed467f.webp","w":2.785,"h":1.67,"chord":2.286,"turn":90,"j":[[-0.662,0.817],[1.375,-0.22]]},
+{"key":"inside_bend_3x3","file":"inside_bend_3x3_A-3a934657.webp","w":2.75,"h":2.73,"chord":2.883,"turn":90,"j":[[-0.682,1.347],[1.358,-0.69]]},
+{"key":"inside_bend_4x4","file":"inside_bend_4x4_A-51a4581f.webp","w":3.73,"h":3.67,"chord":4.302,"turn":90,"j":[[-1.195,1.818],[1.847,-1.225]]},
+{"key":"inside_bend_5x3","file":"inside_bend_5x3_A-bfe7964e.webp","w":4.645,"h":2.96,"chord":4.526,"turn":90,"j":[[-1.735,1.463],[2.305,-0.578]]},
+{"key":"outside_bend_2x2","file":"outside_bend_2x2_A-648c1dea.webp","w":1.655,"h":1.46,"chord":1.283,"turn":-90,"j":[[0.12,0.713],[-0.816,-0.166]]},
+{"key":"outside_bend_3x2","file":"outside_bend_3x2_A-1317f98d.webp","w":2.445,"h":1.555,"chord":2.133,"turn":-90,"j":[[0.708,0.76],[-1.21,-0.172]]},
+{"key":"outside_bend_3x3","file":"outside_bend_3x3_A-97ff1dc7.webp","w":2.625,"h":2.785,"chord":2.736,"turn":-90,"j":[[0.636,1.375],[-1.3,-0.558]]},
+{"key":"outside_bend_4x4","file":"outside_bend_4x4_A-a43ac912.webp","w":3.49,"h":3.565,"chord":4.15,"turn":-90,"j":[[1.203,1.765],[-1.733,-1.17]]},
+{"key":"outside_bend_5x3","file":"outside_bend_5x3_A-743aacbf.webp","w":4.585,"h":2.52,"chord":4.384,"turn":-90,"j":[[1.653,1.243],[-2.28,-0.693]]},
+{"key":"outside_bend_5x5","file":"outside_bend_5x5_A-6210da02.webp","w":4.595,"h":4.635,"chord":5.568,"turn":-90,"j":[[1.651,2.3],[-2.285,-1.637]]}];
+const BY_KEY = Object.fromEntries(KIT.map(p => [p.key, p]));
+const TEX = f => "../../canvas/public/packs/gg-demo/" + f;
+
+// The fourteen placed band pieces, verbatim from session/testdata/goblin-warren.mapbuilder.
+const PLACED = [
+{"key":"wall_short_2x2","x":19.574,"y":7.444,"rot":3.107,"sc":0.9995,"flipY":false},
+{"key":"inside_bend_4x4","x":18.768,"y":10.249,"rot":2.8869,"sc":0.9998,"flipY":false},
+{"key":"wall_short_2x2","x":16.649,"y":12.188,"rot":4.453,"sc":0.9995,"flipY":true},
+{"key":"outside_bend_3x2","x":15.271,"y":12.907,"rot":4.8666,"sc":1.0003,"flipY":false},
+{"key":"outside_bend_4x4","x":14.407,"y":15.713,"rot":4.0074,"sc":0.9996,"flipY":false},
+{"key":"outside_bend_3x3","x":15.651,"y":18.099,"rot":2.5168,"sc":1.0001,"flipY":false},
+{"key":"wall_short_2x4","x":18.702,"y":17.698,"rot":1.6063,"sc":1.0003,"flipY":true},
+{"key":"wall_short_2x4","x":22.333,"y":18.462,"rot":1.9218,"sc":1.0003,"flipY":true},
+{"key":"outside_bend_3x3","x":25.127,"y":18.68,"rot":1.7055,"sc":1.0001,"flipY":false},
+{"key":"wall_short_2x4","x":26.591,"y":16.112,"rot":0.4912,"sc":1.0002,"flipY":true},
+{"key":"outside_bend_3x3","x":27.141,"y":13.365,"rot":0.3402,"sc":1.0001,"flipY":false},
+{"key":"wall_short_2x6","x":24.995,"y":9.921,"rot":-0.5198,"sc":1.0002,"flipY":true},
+{"key":"inside_bend_5x3","x":23.562,"y":5.362,"rot":-0.9169,"sc":0.9999,"flipY":false},
+{"key":"inside_bend_4x4","x":26.101,"y":2.216,"rot":0.4053,"sc":0.9998,"flipY":false}];
+
+// The floor outline under that run (contour points 6..34 of floor-cave-0).
+const CONTOUR = [[18.717,4.547],[19.23,6.989],[19.171,8.984],[18.588,10.463],[17.36,11.622],
+[15.186,12.275],[14.46,14.021],[13.426,15.36],[13.434,16.046],[14.171,17.576],[14.7,18.3],
+[15.217,18.584],[17.233,18.045],[19.43,18.034],[21.372,18.5],[24.257,19.587],[24.859,19.257],
+[26.054,17.917],[27.741,14.854],[27.85,14.179],[26.58,12.155],[25.639,9.951],[24.002,7.946],
+[23.553,6.112],[23.891,4.554],[24.549,3.437],[25.181,2.803],[26.395,2.119],[28.085,2.026]];
+
+// ─── vector helpers ──────────────────────────────────────────────────
+const sub=(a,b)=>[a[0]-b[0],a[1]-b[1]], add=(a,b)=>[a[0]+b[0],a[1]+b[1]];
+const mul=(a,s)=>[a[0]*s,a[1]*s], len=a=>Math.hypot(a[0],a[1]);
+const norm=a=>{const l=len(a)||1;return [a[0]/l,a[1]/l]};
+const dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+const cross=(a,b)=>a[0]*b[1]-a[1]*b[0], dot=(a,b)=>a[0]*b[0]+a[1]*b[1];
+const rot2=(p,t)=>[p[0]*Math.cos(t)-p[1]*Math.sin(t), p[0]*Math.sin(t)+p[1]*Math.cos(t)];
+const turnDeg=(a,b)=>Math.atan2(cross(a,b),dot(a,b))*180/Math.PI;
+const el=(n,a={})=>{const e=document.createElementNS("http://www.w3.org/2000/svg",n);
+  for(const k in a) e.setAttribute(k,a[k]); return e;};
+
+/** Joints of a placed piece, in world units. Mirrored straights swap ends and negate y —
+ *  the same transform `mirrored()` applies in gen-goblin-warren.mjs. */
+function jointsOf(pl){
+  const p=BY_KEY[pl.key];
+  const j = pl.flipY ? [[p.j[1][0],-p.j[1][1]],[p.j[0][0],-p.j[0][1]]] : p.j;
+  return j.map(q => add([pl.x,pl.y], mul(rot2(q, pl.rot), pl.sc)));
+}
+
+/** Inverse of the generator's placePiece: map a piece so joint0 lands on P, joint1 on Q. */
+function place(piece, P, Q, flipY){
+  const j = flipY ? [[piece.j[1][0],-piece.j[1][1]],[piece.j[0][0],-piece.j[0][1]]] : piece.j;
+  const nat=sub(j[1],j[0]), tgt=sub(Q,P);
+  const s=len(tgt)/(len(nat)||1);
+  const th=Math.atan2(tgt[1],tgt[0])-Math.atan2(nat[1],nat[0]);
+  const c=sub(P, mul(rot2(j[0],th), s));
+  return {key:piece.key,x:c[0],y:c[1],rot:th,sc:s,flipY:!!flipY};
+}
+
+function drawPiece(g, pl, opts={}){
+  const p=BY_KEY[pl.key];
+  const inner=el("g",{transform:
+    `translate(${pl.x} ${pl.y}) rotate(${pl.rot*180/Math.PI}) scale(${pl.sc} ${pl.sc*(pl.flipY?-1:1)})`});
+  const img=el("image",{href:TEX(p.file),x:-p.w/2,y:-p.h/2,width:p.w,height:p.h});
+  img.setAttribute("preserveAspectRatio","none");
+  if(opts.opacity!=null) img.setAttribute("opacity",opts.opacity);
+  if(opts.tint) img.setAttribute("filter",opts.tint);
+  inner.appendChild(img); g.appendChild(inner);
+}
+
+/** Node handle in the canvas overlay's own language: white on an ink underlay,
+ *  double ring for the primary, hollow for the rest of the group. */
+function drawHandle(g,x,y,{primary=false,group=false,r=0.13}={}){
+  g.appendChild(el("circle",{cx:x,cy:y,r:r*1.45,fill:"#100d09","fill-opacity":.72}));
+  g.appendChild(el("circle",{cx:x,cy:y,r,fill:group?"none":"#fff",stroke:"#fff",
+    "stroke-width":group?0.055:0.04,"stroke-opacity":.92}));
+  if(primary) g.appendChild(el("circle",{cx:x,cy:y,r:r*1.95,fill:"none",stroke:"#fff",
+    "stroke-width":0.04,"stroke-opacity":.85}));
+}
+
+function contourPath(pts){return pts.map((p,i)=>(i?"L":"M")+p[0]+" "+p[1]).join(" ")}
+
+// SVG-space pointer position (world units, since the viewBox is in world units).
+function ptOf(svg,evt){
+  const r=svg.getBoundingClientRect(), vb=svg.viewBox.baseVal;
+  const k=Math.min(r.width/vb.width, r.height/vb.height);
+  return [vb.x+(evt.clientX-r.left-(r.width-vb.width*k)/2)/k,
+          vb.y+(evt.clientY-r.top-(r.height-vb.height*k)/2)/k];
+}
+
+// ─── Variant A ───────────────────────────────────────────────────────
+const svgA=document.getElementById("svgA"), readA=document.getElementById("readA");
+const carryA=document.getElementById("carryA");
+let offA=PLACED.map(()=>[0,0]), selA=new Set([6,7]), primA=7, dragA=null;
+/** Joint gap as generated, per seam. The baseline a drag is judged against. */
+const BASE_GAP=PLACED.slice(0,-1).map((pl,i)=>dist(jointsOf(pl)[1], jointsOf(PLACED[i+1])[0]));
+
+function renderA(){
+  svgA.textContent="";
+  const moved=PLACED.map((pl,i)=>({...pl,x:pl.x+offA[i][0],y:pl.y+offA[i][1]}));
+
+  // Outline: dragged along under each moved piece when "follows" is on.
+  const outline=CONTOUR.map(c=>{
+    let best=null;
+    for(let i=0;i<moved.length;i++){
+      const d=dist(c,[PLACED[i].x,PLACED[i].y]);
+      if(d<2.6 && (!best||d<best.d)) best={d,i};
+    }
+    return (carryA.checked && best) ? add(c, offA[best.i]) : c;
+  });
+  const gFloor=el("g"); svgA.appendChild(gFloor);
+  // The outline is an open stretch of the ring, so it is stroked as a rope and never
+  // filled: closing it would invent a floor edge the map does not have.
+  gFloor.appendChild(el("path",{d:contourPath(outline),fill:"none",
+    stroke:"#8d8474","stroke-width":0.07,"stroke-dasharray":"0.3 0.24",
+    "stroke-linecap":"round","stroke-linejoin":"round"}));
+
+  const gArt=el("g"); svgA.appendChild(gArt);
+  moved.forEach((pl,i)=>drawPiece(gArt,pl,{opacity:selA.has(i)?1:0.82}));
+
+  // Seams: consecutive joints that no longer meet. Measured against the gap the
+  // generator already left (BAND_OVERLAP plus each piece's sideways nudge, 0.23–0.57
+  // cells across this run), so an untouched wall reads as closed rather than torn.
+  const gSeam=el("g"); svgA.appendChild(gSeam);
+  let open=0;
+  for(let i=0;i<moved.length-1;i++){
+    const a=jointsOf(moved[i])[1], b=jointsOf(moved[i+1])[0];
+    const gap=dist(a,b);
+    if(gap>BASE_GAP[i]+0.5){ open++;
+      gSeam.appendChild(el("line",{x1:a[0],y1:a[1],x2:b[0],y2:b[1],
+        stroke:"#d2664f","stroke-width":0.08,"stroke-linecap":"round"}));
+      gSeam.appendChild(el("circle",{cx:(a[0]+b[0])/2,cy:(a[1]+b[1])/2,r:0.22,fill:"none",
+        stroke:"#d2664f","stroke-width":0.05,"stroke-opacity":.8}));
+    }
+  }
+
+  const gH=el("g"); svgA.appendChild(gH);
+  moved.forEach((pl,i)=>{
+    drawHandle(gH,pl.x,pl.y,{primary:i===primA,group:selA.has(i)&&i!==primA});
+    const hit=el("circle",{cx:pl.x,cy:pl.y,r:0.42,fill:"transparent",style:"cursor:grab"});
+    hit.addEventListener("pointerdown",e=>{
+      e.preventDefault(); svgA.setPointerCapture(e.pointerId);
+      if(e.shiftKey){ selA.has(i)?selA.delete(i):selA.add(i); primA=selA.has(i)?i:[...selA].pop()??null; renderA(); return; }
+      if(!selA.has(i)){ selA=new Set([i]); }
+      primA=i; dragA={from:ptOf(svgA,e),base:offA.map(o=>[...o])}; renderA();
+    });
+    gH.appendChild(hit);
+  });
+
+  readA.innerHTML = `${selA.size} selected · ` +
+    (open ? `<span class="warn">${open} seam${open>1?"s":""} open</span>` : `<span class="ok">joints closed</span>`);
+}
+svgA.addEventListener("pointermove",e=>{
+  if(!dragA) return;
+  const d=sub(ptOf(svgA,e),dragA.from);
+  offA=dragA.base.map((b,i)=>selA.has(i)?[b[0]+d[0],b[1]+d[1]]:b);
+  renderA();
+});
+addEventListener("pointerup",()=>{dragA=null});
+document.getElementById("resetA").onclick=()=>{offA=PLACED.map(()=>[0,0]);selA=new Set([6,7]);primA=7;renderA()};
+carryA.onchange=renderA;
+
+// ─── Variant B ───────────────────────────────────────────────────────
+const svgB=document.getElementById("svgB"), readB=document.getElementById("readB");
+const ghostB=document.getElementById("ghostB");
+let joints, spans, dragB=null, ghost=null, chosenKeys=new Set();
+
+/** Joint chain: consecutive pieces share a joint, so take the midpoint of the two
+ *  measured ends — that absorbs the 0.3-cell overlap the walk deliberately leaves. */
+function buildB(){
+  const js=PLACED.map(jointsOf);
+  joints=[js[0][0]];
+  for(let i=0;i<js.length-1;i++) joints.push(mul(add(js[i][1],js[i+1][0]),0.5));
+  joints.push(js[js.length-1][1]);
+  spans=PLACED.map(pl=>({key:pl.key,flipY:pl.flipY}));
+}
+
+/**
+ * Pick the kit piece for the span P→Q, given the turn the wall makes across it.
+ * Chord first (a piece is never stretched — scale stays 1), turn family as a hard gate:
+ * a bend on a straight run reads as a hinge, which is the generator's own rule.
+ */
+function solve(P,Q,turn){
+  const d=dist(P,Q);
+  let best=null;
+  for(const p of KIT){
+    if(p.turn===0 ? Math.abs(turn)>35 : (Math.abs(turn)<40 || Math.sign(turn)!==Math.sign(p.turn))) continue;
+    const err=Math.abs(p.chord-d);
+    if(!best||err<best.err) best={p,err};
+  }
+  if(!best){ // nothing in the family fits — fall back to the nearest chord of any straight
+    for(const p of KIT){ if(p.turn) continue;
+      const err=Math.abs(p.chord-d); if(!best||err<best.err) best={p,err}; }
+  }
+  return best;
+}
+
+/** Re-solve the two spans around joint `i` and snap the joint onto the chord the kit has. */
+function resolveAround(i,want){
+  const out={joints:joints.map(p=>[...p]),spans:spans.map(s=>({...s})),picks:[]};
+  out.joints[i]=want;
+  const tan=k=>norm(sub(out.joints[Math.min(k+1,out.joints.length-1)],out.joints[Math.max(k-1,0)]));
+
+  // Left span first: it fixes how far the joint may sit from its anchor.
+  if(i>0){
+    const A=out.joints[i-1];
+    const t=turnDeg(tan(i-1),tan(i));
+    const hit=solve(A,want,t);
+    if(hit){ out.joints[i]=add(A, mul(norm(sub(want,A)), hit.p.chord));
+      out.spans[i-1]={key:hit.p.key,flipY:false}; out.picks.push(hit.p.key); }
+  }
+  // Right span answers to wherever the snap actually put the joint.
+  if(i<out.spans.length){
+    const B=out.joints[i+1];
+    const t=turnDeg(tan(i),tan(i+1));
+    const hit=solve(out.joints[i],B,t);
+    if(hit){ out.spans[i]={key:hit.p.key,flipY:false}; out.picks.push(hit.p.key);
+      out.residual=Math.abs(hit.p.chord-dist(out.joints[i],B)); }
+  }
+  // How far the kit pulled the handle away from the cursor. This is the number that
+  // says whether the constraint is helping or fighting you.
+  out.snap=dist(out.joints[i],want);
+  return out;
+}
+
+function renderB(preview){
+  svgB.textContent="";
+  const J=preview?preview.joints:joints, S=preview?preview.spans:spans;
+
+  const gFloor=el("g"); svgB.appendChild(gFloor);
+  // The outline IS the joint chain here, which is the whole idea of this variant.
+  gFloor.appendChild(el("path",{d:contourPath(J),fill:"none",
+    stroke:"#8d8474","stroke-width":0.07,"stroke-dasharray":"0.3 0.24",
+    "stroke-linecap":"round","stroke-linejoin":"round"}));
+
+  const gArt=el("g"); svgB.appendChild(gArt);
+  const laid=S.map((s,i)=>place(BY_KEY[s.key],J[i],J[i+1],s.flipY));
+  laid.forEach((pl,i)=>{
+    const touched = preview && (i===preview.i-1 || i===preview.i);
+    drawPiece(gArt,pl,{opacity:touched?0.34:0.82});
+  });
+  // X-ray: the piece the release would commit, drawn solid over the faded live band.
+  if(preview && ghostB.checked){
+    const gG=el("g"); svgB.appendChild(gG);
+    [preview.i-1,preview.i].forEach(k=>{
+      if(k<0||k>=laid.length) return;
+      drawPiece(gG,laid[k],{opacity:0.95});
+      const p=BY_KEY[S[k].key];
+      const m=mul(add(J[k],J[k+1]),0.5);
+      gG.appendChild(el("rect",{x:m[0]-1.5,y:m[1]-0.42,width:3,height:0.72,rx:0.14,
+        fill:"#100d09","fill-opacity":.82,stroke:"#d8a24a","stroke-width":0.035}));
+      const t=el("text",{x:m[0],y:m[1]+0.14,fill:"#d8a24a","font-size":0.42,
+        "text-anchor":"middle","font-family":"IBM Plex Mono, Consolas, monospace"});
+      t.textContent=p.key.replace("wall_short","straight").replace("_"," ").replace("_"," ");
+      gG.appendChild(t);
+    });
+  }
+
+  const gH=el("g"); svgB.appendChild(gH);
+  J.forEach((p,i)=>{
+    drawHandle(gH,p[0],p[1],{primary:preview?i===preview.i:false});
+    const hit=el("circle",{cx:p[0],cy:p[1],r:0.4,fill:"transparent",style:"cursor:grab"});
+    hit.addEventListener("pointerdown",e=>{
+      e.preventDefault(); svgB.setPointerCapture(e.pointerId); dragB={i};
+    });
+    gH.appendChild(hit);
+  });
+
+  chosenKeys = new Set(preview ? preview.picks : []);
+  paintChips();
+  if(preview){
+    const names=preview.picks.map(k=>{const p=BY_KEY[k];
+      return `${p.turn===0?"straight":"bend"} ${p.chord.toFixed(2)}`;}).join(" + ");
+    readB.innerHTML = `${names} · <span class="${preview.snap>1?"warn":"acc"}">` +
+      `handle pulled ${preview.snap.toFixed(2)} cells to reach the kit</span>`;
+  } else {
+    readB.innerHTML = `${S.length} pieces · <span class="ok">every chord is a real piece at scale 1</span>`;
+  }
+}
+svgB.addEventListener("pointermove",e=>{
+  if(!dragB) return;
+  const want=ptOf(svgB,e);
+  const r=resolveAround(dragB.i,want); r.i=dragB.i;
+  ghost=r; renderB(r);
+});
+addEventListener("pointerup",()=>{
+  if(dragB && ghost){ joints=ghost.joints; spans=ghost.spans; }
+  dragB=null; ghost=null; renderB(null);
+});
+document.getElementById("resetB").onclick=()=>{buildB();renderB(null)};
+
+// Kit vocabulary strip — the "limited shapes, sizes and angles" made explicit.
+const chipsEl=document.getElementById("kitChips");
+function paintChips(){
+  chipsEl.textContent="";
+  for(const p of KIT){
+    const c=document.createElement("span");
+    c.className="chip"+(chosenKeys.has(p.key)?" on":"");
+    const turn=p.turn===0?"straight":(p.turn>0?"+90°":"−90°");
+    c.innerHTML=`${p.chord.toFixed(2)}<span class="t"> cell · ${turn}</span>`;
+    c.title=p.key;
+    chipsEl.appendChild(c);
+  }
+}
+
+// ─── boot + one self-check ───────────────────────────────────────────
+buildB(); renderA(); renderB(null);
+
+// The joint chain is the load-bearing bit of B: if consecutive pieces' measured ends
+// do not land near each other, every chord this panel solves is fiction.
+(function check(){
+  const js=PLACED.map(jointsOf);
+  let worst=0;
+  for(let i=0;i<js.length-1;i++) worst=Math.max(worst, dist(js[i][1],js[i+1][0]));
+  console.log(`[mockup] worst joint mismatch across the run: ${worst.toFixed(3)} cells ` +
+    `(BAND_OVERLAP is 0.3, so anything under ~0.5 is the intended overlap, not a broken chain)`);
+  if(worst>0.9) console.warn("[mockup] joint chain looks wrong — variant B's chords are not trustworthy");
+})();
+</script>
+</body>
+</html>
